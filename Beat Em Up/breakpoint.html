@@ -2307,9 +2307,9 @@ function faceExpression(f) {
    shapes, so the simulation is the same on every preset); heaps = piles of rubble drawn (the oldest are left out, colliders unchanged). Particles and debris are cut again by Quality.apply (effects setting). The one place
    that sets the budget of Appendix C "Levels": Debris.spawn, Arena.breakObject and Arena.draw read it from Quality.limits. */
 const QUALITY_PRESETS = {
-  low: { scale: 0.6, dprCap: 1, shadow: 1, particles: 140, debris: 60, pieces: 6, live: 14, heaps: 8 },
-  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, particles: 300, debris: 110, pieces: 10, live: 28, heaps: 16 },
-  high: { scale: 1, dprCap: 2, shadow: 2, particles: 520, debris: 170, pieces: 16, live: 64, heaps: 40 },
+  low: { scale: 0.6, dprCap: 1, shadow: 1, particles: 140, debris: 60, pieces: 6, live: 14, heaps: 8, marks: 10 },
+  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, particles: 300, debris: 110, pieces: 10, live: 28, heaps: 16, marks: 20 },
+  high: { scale: 1, dprCap: 2, shadow: 2, particles: 520, debris: 170, pieces: 16, live: 64, heaps: 40, marks: 32 },
 };
 /* Auto quality starts from a pixel budget for the detected GPU class, then adapts in small steps.
    Frames while the page is hidden or throttled are ignored. */
@@ -2344,7 +2344,7 @@ const Quality = {
     if (pick === 'off') shadow = 0; else if (pick === 'blob') shadow = 1; else if (pick === 'full' && p.shadow === 1) shadow = 1;
     const fx = Settings.v.effects;
     const fxMul = fx === 'low' ? 0.4 : fx === 'medium' ? 0.7 : 1;
-    this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris, pieces: p.pieces, live: p.live, heaps: p.heaps };
+    this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris, pieces: p.pieces, live: p.live, heaps: p.heaps, marks: p.marks };
     R.setQuality(scale * (auto ? this.autoScale : 1), p.dprCap, shadow);
   },
   /* Called once per frame with the smoothed frame interval (ms) and this frame's dt (s). */
@@ -2689,21 +2689,41 @@ const GRAVITY = 15;
 const STAGE_NAMES = ['Intact', 'Lightly damaged', 'Cracked', 'Critical', 'Destroyed'];
 const STAGE_NAMES_METAL = ['Intact', 'Dented', 'Bent', 'Collapsing', 'Destroyed'];
 
-/* Material table: hit points, flat resistance and damage multipliers per attack category. */
+/* Material table: hit points, flat resistance, damage multipliers per category; burn = fire ticks, cond = conducts an arc, spark = an arc lights it, leave = what breaking leaves. */
 const MATERIALS = {
-  wood: { label: 'Wood', hp: 60, resist: 2, mult: { punch: 1.0, kick: 1.25, heavy: 1.6, throw: 1.8, impact: 1.3 }, color: '#9a6a35', dark: '#5b3b1c', life: 14 },
-  concrete: { label: 'Concrete', hp: 170, resist: 6, mult: { punch: 0.45, kick: 0.8, heavy: 1.25, throw: 1.5, impact: 1.0 }, color: '#8d9096', dark: '#4d5056', life: 20 },
-  metal: { label: 'Metal', hp: 110, resist: 5, mult: { punch: 0.5, kick: 0.8, heavy: 1.1, throw: 1.5, impact: 1.1 }, color: '#8b95a3', dark: '#4a525e', life: 18 },
-  glass: { label: 'Glass', hp: 16, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2 }, color: '#a8dcff', dark: '#ffffff', life: 3.2 },
-  paper: { label: 'Cardboard', hp: 10, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2 }, color: '#f1e6c4', dark: '#6b4a2f', life: 4 },
+  wood: { label: 'Wood', hp: 60, resist: 2, mult: { punch: 1.0, kick: 1.25, heavy: 1.6, throw: 1.8, impact: 1.3, sharp: 0.3, crush: 1.5 }, color: '#9a6a35', dark: '#5b3b1c', life: 14, burn: 480 },
+  concrete: { label: 'Concrete', hp: 170, resist: 6, mult: { punch: 0.45, kick: 0.8, heavy: 1.25, throw: 1.5, impact: 1.0, sharp: 0.1, crush: 1.2 }, color: '#8d9096', dark: '#4d5056', life: 20 },
+  metal: { label: 'Metal', hp: 110, resist: 5, mult: { punch: 0.5, kick: 0.8, heavy: 1.1, throw: 1.5, impact: 1.1, sharp: 0.1, crush: 1.0 }, color: '#8b95a3', dark: '#4a525e', life: 18, cond: 1 },
+  glass: { label: 'Glass', hp: 16, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2, sharp: 1.0, crush: 2.2 }, color: '#a8dcff', dark: '#ffffff', life: 3.2, leave: 'shard' },
+  paper: { label: 'Cardboard', hp: 10, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2, sharp: 1.6, crush: 2.2 }, color: '#f1e6c4', dark: '#6b4a2f', life: 4, burn: 180, spark: 1 },
   /* P8: debris = which of the five break recipes (and sounds) the material uses; metal-like rows also use the metal stage names */
-  brick: { label: 'Brick', hp: 140, resist: 5, mult: { punch: 0.4, kick: 0.75, heavy: 1.2, throw: 1.6, impact: 1.2 }, color: '#9a4b3a', dark: '#5a2c22', life: 20, debris: 'concrete' },
-  plastic: { label: 'Plastic', hp: 40, resist: 1, mult: { punch: 1.2, kick: 1.4, heavy: 1.8, throw: 1.6, impact: 1.4 }, color: '#4f6f8f', dark: '#2a3a4c', life: 14, debris: 'wood' },
-  tile: { label: 'Tile', hp: 50, resist: 2, mult: { punch: 0.8, kick: 1.0, heavy: 1.5, throw: 1.8, impact: 1.6 }, color: '#c9d2d6', dark: '#7d8a90', life: 6, debris: 'glass' },
-  sheet: { label: 'Sheet metal', hp: 80, resist: 3, mult: { punch: 0.6, kick: 0.9, heavy: 1.2, throw: 1.4, impact: 1.2 }, color: '#7f8d99', dark: '#46515c', life: 18, debris: 'metal' },
+  brick: { label: 'Brick', hp: 140, resist: 5, mult: { punch: 0.4, kick: 0.75, heavy: 1.2, throw: 1.6, impact: 1.2, sharp: 0.1, crush: 1.3 }, color: '#9a4b3a', dark: '#5a2c22', life: 20, debris: 'concrete', leave: 'brick' },
+  plastic: { label: 'Plastic', hp: 40, resist: 1, mult: { punch: 1.2, kick: 1.4, heavy: 1.8, throw: 1.6, impact: 1.4, sharp: 0.6, crush: 1.6 }, color: '#4f6f8f', dark: '#2a3a4c', life: 14, debris: 'wood', burn: 300, spark: 1 },
+  tile: { label: 'Tile', hp: 50, resist: 2, mult: { punch: 0.8, kick: 1.0, heavy: 1.5, throw: 1.8, impact: 1.6, sharp: 0.3, crush: 1.6 }, color: '#c9d2d6', dark: '#7d8a90', life: 6, debris: 'glass', leave: 'shard' },
+  sheet: { label: 'Sheet metal', hp: 80, resist: 3, mult: { punch: 0.6, kick: 0.9, heavy: 1.2, throw: 1.4, impact: 1.2, sharp: 0.4, crush: 1.4 }, color: '#7f8d99', dark: '#46515c', life: 18, debris: 'metal', cond: 1 },
 };
 const kindOf = (mat) => MATERIALS[mat].debris || mat;
 const DEBRIS_REPLACE_FRAME = 4; // stage index at which the intact collider is swapped out
+/* P9 limits (Appendix C, system rules matrix). */
+const CHAIN_MAX = 6, CONDUCT_GAP = 0.3, CONDUCT_TOUCH = 0.4;
+const FIRE_MAX = 4, FIRE_CHECK_TICKS = 10, FIRE_IGNITE_TICKS = 30, FIRE_SPREAD_TICKS = 60, FIRE_SPREAD_R = 1.0, FIRE_MARGIN = 0.5, FIRE_CHAR = '#2a2420';
+const BURN_TICKS = 40, BURN_GAP = 20, BURN_DMG = 2, FIRE_STAY_TICKS = 20;   // a fighter must stay FIRE_STAY_TICKS in a fire zone to catch fire: a brief touch costs only the zone's own hit
+const CROWD_RANGE = 3, CROWD_SECS = 2, CROWD_LEAN = 0.3, CROWD_HOP = 0.15, ALARM_SECS = 4, ALARM_RGB = C('#ffb000');
+const MARK_MAX = 32, MARK_STYLE = { scorch: [C('#14100e'), 0.6, MESH.CYL], glass: [C('#d6efff'), 0.3, MESH.CYL], dust: [C('#8d867b'), 0.25, MESH.CUBE] };
+/* R8, bystanders (renderer only, no random numbers): the bobbing silhouettes lean away from a break, a knockdown or a hazard within CROWD_RANGE and hop at a knock-out. */
+const Crowd = {
+  react(x, z, kind, obj) {   // kind: 'lean' (trouble near x, z), 'cheer' (a knock-out) or 'alarm' (a hit car, obj)
+    if (kind === 'alarm') { obj.alarm = ALARM_SECS; return; }
+    const cheer = kind === 'cheer';
+    for (const p of Arena.props) {
+      if (p.ph === undefined) continue;
+      const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz);
+      if (cheer) p.cheer = CROWD_SECS;
+      else if (d < CROWD_RANGE) { p.lean = CROWD_SECS; p.lx = d > 0.01 ? dx / d : 0; p.lz = d > 0.01 ? dz / d : 1; }
+    }
+  },
+  update(dt) { for (const p of Arena.props) { if (p.lean > 0) p.lean -= dt; if (p.cheer > 0) p.cheer -= dt; } },
+};
 
 /* ---------- arenas (pristine definitions; live state is built from them) ----------
    items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
@@ -2772,6 +2792,7 @@ const ARENAS = {
       { id: 'mezz', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: 7, z: -4.8, hx: 3, hz: 1.2, h: 2.5 },
       { id: 'balA', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 5.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
       { id: 'balB', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 8.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
+      { id: 'binC', type: 'column', mat: 'plastic', color: '#3f4a52', x: 9.0, z: -0.4, hx: 0.3, hz: 0.3, h: 0.8 },
     ],
     builds: [['stair', 'ringStep', -4.2, 1.4, 3, 1.2, 0, 1.0, 'wood', 'stage', ''], ['stair', 'mezzStair', 0.5, -5.4, 1, 1.2, 0, 2.5, 'metal', 'grate', '']],
     items: [['stick', -9.78, -4.12, 1.4, 'fireDoor'], ['stick', -9.78, -3.88, 1.4, 'fireDoor'], ['broom', 9.2, 2.5, 1.3, 'lockerA'], ['bottle', -1.5, 5.75, 0.5, 'benchL'], ['chair', -4.3, -1.0, 0], ['extinguisher', -9.6, 4.0, 1.3, 'pillar']],
@@ -3084,7 +3105,7 @@ function makeObject(def, rng) {
     color: def.color || mat.color, hp: mat.hp * (def.hpMul || 1), maxHp: mat.hp * (def.hpMul || 1),
     stage: 0, destroyed: false, phase: 'intact', phaseTimer: 0,
     wob: 0, wobPhase: 0, lastSrc: -1, lastImpactTick: -99,
-    cracks, collider: null, rubble: null,
+    cracks, collider: null, rubble: null, heat: 0, fire: 0, blaze: null, near: null, alarm: 0,   // P9: ticks in a fire zone, ticks of fire left, its fire zone, flammable neighbours (Arena.build), car alarm seconds
     base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, step: !!def.step, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false,   // P8: standing height, rests on, weight that breaks it, takes no damage
   };
   const thin = def.type === 'panel' || def.type === 'rail';
@@ -3159,7 +3180,7 @@ function builtOf(def) {
 
 const Arena = {
   def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
-  ring: null, ringRow: null, ringOut: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
+  marks: [], ring: null, ringRow: null, ringOut: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
   build(def, ring, ringOut) {
     this.def = def;
     this.setArea(ring, ringOut);
@@ -3171,6 +3192,9 @@ const Arena = {
     this.navVersion++;
     this.colliders = this.objects.map((o) => o.collider);
     this.props = this.propCache[def.id] || (this.propCache[def.id] = buildProps(def.id));
+    for (const p of this.props) p.lean = p.cheer = 0;
+    this.marks.length = 0;
+    for (const o of this.objects) o.near = MATERIALS[o.mat].burn && !o.fixed ? this.objects.filter((q) => q !== o && MATERIALS[q.mat].burn && !q.fixed && this.gap(o, q) <= FIRE_SPREAD_R).sort((a, b) => this.gap(o, a) - this.gap(o, b)) : null;   // R4: the flammable objects a fire can spread to, nearest first (ties keep list order)
     this.time = 0;
     Debris.clear();
     FX.clear();
@@ -3197,7 +3221,9 @@ const Arena = {
 
   update(dt) {
     this.time += dt;
+    Crowd.update(dt);
     for (const o of this.objects) {
+      if (o.alarm > 0) o.alarm -= dt;
       if (o.wob > 0) { o.wob = Math.max(0, o.wob - dt * 3.5); o.wobPhase += dt * 55; }
       if (o.destroyed) {
         o.phaseTimer += dt;
@@ -3216,7 +3242,7 @@ const Arena = {
     if (srcId !== undefined && o.lastSrc === srcId) return false;
     o.lastSrc = srcId;
     const mat = MATERIALS[o.mat];
-    const dmg = raw * OBJ_DAMAGE_SCALE * (mat.mult[cat] || 1) - mat.resist * 0.25;
+    const dmg = cat === 'electric' ? 0 : raw * OBJ_DAMAGE_SCALE * (mat.mult[cat] || 1) - mat.resist * 0.25;   // R1: electric does no hit-point damage
     o.wob = 1;
     Events.emit('objHit', { obj: o, dmg: Math.max(0, dmg), x: px, y: py, z: pz });
     if (dmg <= 0.2) return true;
@@ -3236,6 +3262,7 @@ const Arena = {
     o.phase = 'destroyed';
     o.phaseTimer = 0;
     o.brokeAt = this.time;
+    if (o.fire) { o.fire = 0; o.blaze.life = 1; }   // R4: a broken object is no longer on fire
     o.collider.active = false;
     this.navVersion++;
     Debris.wake(o.collider);
@@ -3329,6 +3356,20 @@ const Arena = {
     }
   },
 
+  /* R3, conducts: the conducting objects an arc at (x, z) of radius r energises: those touching its circle, then any within CONDUCT_GAP of one chained (at most CHAIN_MAX). */
+  linkConductors(x, z, r) {
+    const pool = this.objects.filter((o) => MATERIALS[o.mat].cond && o.type !== 'deck'), chain = [];
+    for (const o of pool) if (chain.length < CHAIN_MAX && Math.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= r) chain.push(o);
+    for (let i = 0; i < chain.length; i++) for (const o of pool) if (chain.length < CHAIN_MAX && !chain.includes(o) && this.gap(chain[i], o) <= CONDUCT_GAP) chain.push(o);
+    return chain;
+  },
+  gap(a, b) { return Math.hypot(Math.max(Math.abs(a.x - b.x) - a.hx - b.hx, 0), Math.max(Math.abs(a.z - b.z) - a.hz - b.hz, 0)); },   // m between two footprints
+  /* P9-03, persistent floor marks (scorch, glass, dust): at most MARK_MAX per level, the oldest record is reused; a preset draws the newest Quality.limits.marks. */
+  mark(kind, x, z, hx, hz, y) {
+    const k = this.marks.length >= MARK_MAX ? this.marks.shift() : {};
+    k.kind = kind; k.x = x; k.z = z; k.hx = hx; k.hz = hz; k.y = y || 0;   // y = the surface it lies on
+    this.marks.push(k);
+  },
   addRubble(o, top, half, timer, halfZ) {
     const c = { x: o.x, z: o.z, hx: half, hz: halfZ === undefined ? half : halfZ, top, standable: true, active: true, obj: null, temp: timer > 0, timer, thin: false };
     this.colliders.push(c);
@@ -3594,8 +3635,10 @@ const Arena = {
     const t = this.time;
     for (let i = 0; i < this.props.length; i++) {
       const p = this.props[i];
-      let y = p.y, e = p.e;
+      let x = p.x, y = p.y, z = p.z, e = p.e;
       if (p.bob) y += Math.sin(t * 2.2 + p.ph) * p.bob;
+      if (p.lean > 0) { const k = Math.min(1, p.lean, (CROWD_SECS - p.lean) * 4) * CROWD_LEAN; x += p.lx * k; z += p.lz * k; }   // R8: a bystander leans away from the trouble, or hops at a knock-out
+      if (p.cheer > 0) y += Math.abs(Math.sin(t * 12 + p.ph)) * CROWD_HOP * Math.min(1, p.cheer);
       if (p.flicker) e = 1.6 + Math.sin(t * 17) * 0.5 + Math.sin(t * 31) * 0.3;
       let layer = p.l, alpha = p.a;
       if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) {   // overhead: it fades as the eye comes near it (the hanging load does the same), and is gone before the near clip
@@ -3606,7 +3649,11 @@ const Arena = {
           layer = LAYER.ALPHA;
         }
       }
-      R.put(layer, p.m, p.x, y, p.z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, alpha, e, p.q, p.cast, 0);
+      R.put(layer, p.m, x, y, z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, alpha, e, p.q, p.cast, 0);
+    }
+    for (let i = Math.max(0, this.marks.length - Quality.limits.marks); i < this.marks.length; i++) {
+      const k = this.marks[i], s = MARK_STYLE[k.kind];
+      R.put(LAYER.ALPHA, s[2], k.x, k.y + 0.01 + (i % 8) * 0.0015, k.z, k.hx * 2, 0.01, k.hz * 2, 0, 0, 0, s[0], s[1], 0, 1, false, 0);
     }
     if (this.lodTick++ % 20 === 0) this.updateLod();
     for (const o of this.objects) this.drawObject(o);
@@ -3635,6 +3682,7 @@ const Arena = {
       else R.put(LAYER.SOLID, MESH.CUBE, o.rubble.x, o.rubble.top * 0.5, o.rubble.z, o.rubble.hx * 2, o.rubble.top, o.rubble.hz * 2, 0, 0, 0, C('#74777d'), 1, 0, 0.9, false, 0);   // over the preset's heap budget: the same footprint, one block, so nobody floats on an invisible pile
     }
     this.dy = 0;
+    if (o.alarm > 0 && !o.destroyed && ((this.time * 6) & 1)) for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.ADD, MESH.CUBE, x + sx * o.hx, o.h * 0.45, z + sz * o.hz, 0.12, 0.12, 0.12, 0, 0, 0, ALARM_RGB, 1, 2, 0.5, false, 0);   // R8: a hit car flashes its lamps
     if (R.shadowMode === 1 && !o.destroyed && !o.base && o.type !== 'panel' && o.type !== 'deck') {
       R.put(LAYER.ALPHA, MESH.CYL, o.x, 0.02, o.z, o.hx * 2.6, 0.01, o.hz * 2.6, 0, 0, 0, [0, 0, 0], 0.35, 0, 1, false, 0);
     }
@@ -4005,8 +4053,7 @@ const FX = {
       this.spawn(MESH.SPHERE, false, x + Math.cos(a) * r, y + Math.random() * 0.2, z + Math.sin(a) * r, Math.cos(a) * 0.9, 0.5 + Math.random() * 0.7, Math.sin(a) * 0.9, 0.6 + Math.random() * 0.5, 0.18 + Math.random() * 0.12, 0.5, hex, 0.4, -0.6, 1.5, 0);
     }
   },
-  ring(x, y, z, hex) { this.spawn(MESH.CYL, true, x, y, z, 0, 0, 0, 0.22, 0.2, 5, hex, 0.5, 0, 0, 1.5); },
-  trail(x, y, z, hex, size) { this.spawn(MESH.SPHERE, true, x, y, z, 0, 0, 0, 0.17, size, -size * 4.5, hex, 0.55, 0, 0, 1.6); },
+  trail(x, y, z, hex, size) { this.spawn(MESH.SPHERE, false, x, y, z, 0, 0, 0, 0.12, size, -size * 4, hex, 0.3, 0, 0, 0.4); },
   update(dt) {
     let count = 0;
     for (let i = 0; i < FX_MAX; i++) {
@@ -4029,8 +4076,7 @@ const FX = {
       if (!q.on) continue;
       const t = q.life / q.max;
       const s = q.size;
-      if (q.kind === MESH.CYL) R.put(LAYER.ADD, MESH.CYL, q.x, q.y, q.z, s, 0.02, s, 0, 0, 0, q.col, q.a * t, q.em, 1, false, 0);
-      else R.put(q.add ? LAYER.ADD : LAYER.ALPHA, q.kind, q.x, q.y, q.z, s, s, s, q.rot, q.rot * 1.3, 0, q.col, q.a * t, q.em, 1, false, 0);
+      R.put(q.add ? LAYER.ADD : LAYER.ALPHA, q.kind, q.x, q.y, q.z, s, s, s, q.rot, q.rot * 1.3, 0, q.col, q.a * t, q.em, 1, false, 0);
     }
   },
 };
@@ -4142,7 +4188,7 @@ const ROSTER = [
       hard: { health: 7, stamina: 7, strength: 6, speed: 6, reach: 6, defense: 6, balance: 6, recovery: 6 },     // 50 points
     },
     style: { aggr: 1.0, punch: 0.5, kick: 0.5, heavy: 0.5, grab: 0.2, defend: 0.5, circle: 0.6, low: 0.3 },
-    look: { skin: '#3a3340', hair: '#d4af37', hairStyle: 'mask', top: '#16161c', shorts: '#16161c', glove: '#d4af37', shoe: '#111111', scale: 1.04, build: 1.05 } },
+    look: { skin: '#c98c68', hair: '#d4af37', hairStyle: 'mask', top: '#16161c', shorts: '#16161c', glove: '#d4af37', shoe: '#111111', scale: 1.04, build: 1.05 } },
 ];
 const ROSTER_BY_ID = Object.create(null);   // no inherited keys: an id such as "toString" is simply unknown
 for (const r of ROSTER) ROSTER_BY_ID[r.id] = r;
@@ -5352,15 +5398,16 @@ const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES });  
    (half sizes hx across and hz along the yaw, from the row). dmg is dealt every `gap` ticks to a fighter in the zone (0 = once per activation); first = only on the first active tick (the load lands once). fx = what the victim
    suffers: stun (the shock, `stun` ticks), flinch, push (m/s along the jet), down (a knockdown flight away from the centre at `push` m/s), throw (a flight along the yaw), out (over the edge: down, and out of a brawl for an enemy).
    post = [half x, half z, height] of the solid post that carries the trigger. shard = damage to a fighter knocked down on the broken glass. metalOnly: a thrown item sets it off only if it is metal. spill: the barrel tips away from whoever struck it and its fire pool lies this far beyond it.
-   snd names the sound of the Sfx recipes (Sound.hazard). */
+   snd names the sound of the Sfx recipes (Sound.hazard). P9: arc = also energises the conductors touching it (Arena.linkConductors); fire = sets fighters alight and heats objects (MatchSim.stepFire); `blaze` = the zone a burning object makes (no level places it). */
 const HAZARDS = {
-  panel: { name: 'Electric panel', trig: 'strike', shape: 'circle', r: 1.2, warn: 24, dur: 120, cool: 360, dmg: 14, gap: 0, fx: 'stun', stun: 40, post: [0.35, 0.2, 1.3], metalOnly: 1, snd: 'zap' },
+  panel: { name: 'Electric panel', trig: 'strike', shape: 'circle', r: 1.2, warn: 24, dur: 120, cool: 360, dmg: 14, gap: 0, fx: 'stun', stun: 40, post: [0.35, 0.2, 1.3], metalOnly: 1, arc: 1, snd: 'zap' },
   steam: { name: 'Steam pipe', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 180, cool: 300, dmg: 3, gap: 15, fx: 'push', push: 3.2, post: [0.12, 0.12, 1.2], snd: 'hiss' },
   drop: { name: 'Open drop', trig: 'edge', shape: 'rect', dmg: 25, fx: 'out', push: 4, snd: 'crash' },
   glass: { name: 'Glass wall', trig: 'break', shape: 'rect', dmg: 10, fx: 'flinch', shard: 2, snd: 'glass' },
   load: { name: 'Falling load', trig: 'strike', shape: 'circle', r: 1.5, warn: 36, dur: 90, cool: 600, dmg: 30, gap: 0, first: 1, fx: 'down', push: 3, post: [0.15, 0.15, 1.9], snd: 'crash' },
   train: { name: 'Passing train', trig: 'timer', shape: 'rect', period: 1500, warn: 120, dur: 60, cool: 0, dmg: 40, gap: 0, fx: 'throw', push: 9, snd: 'train' },
-  fire: { name: 'Fire barrel', trig: 'strike', shape: 'circle', r: 1.2, spill: 0.9, warn: 15, dur: 240, spent: 1, dmg: 4, gap: 20, fx: 'flinch', post: [0.3, 0.3, 1.0], snd: 'fire' },
+  fire: { name: 'Fire barrel', trig: 'strike', shape: 'circle', r: 1.2, spill: 0.9, warn: 15, dur: 240, spent: 1, dmg: 4, gap: 20, fx: 'flinch', fire: 1, post: [0.3, 0.3, 1.0], snd: 'fire' },
+  blaze: { name: 'Burning object', trig: '', shape: 'rect', dmg: 1, gap: 20, fx: '', fire: 1, snd: 'fire' },
 };
 const hash01 = (n) => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); };   // a fixed pseudo-random 0..1 for looks (flames, shards, arcs): the same tick always draws the same, and the match's random numbers are never touched
 /* One piece of a hazard in the world: layer, mesh, centre, size, turn about y, colour, alpha, glow, roughness; rx / rz tip it about x / z. */
@@ -5376,6 +5423,7 @@ const HAZARD_FLINK_TICKS = 10, HAZARD_FLINK_PUSH = 5;   // a flinch (fire, glass
 const LOAD_CHECK_TICKS = 6, LOAD_HOLD_TICKS = 60, LOAD_CREAK_TICKS = 36, LOAD_HEAVY = 3;   // P8-04 / P9 R7: weight is counted every 6 ticks; held 60 ticks the deck creaks for 36 and breaks; a weight class of 3 or 4 counts twice
 const CRUSH_BASE = 10, CRUSH_PER_METER = 6, CRUSH_MAX = 30, CRUSH_DOWN = 20, CRUSH_REACH = 0.3, CRUSH_FLOOR_TOP = 1.0, CRUSH_LANDINGS_PER_TICK = 4, CRUSH_OBJECTS = 4, COLLAPSE_QUEUE_MAX = 32;   // R6: crush of a fallen piece beside it
 const CRUSH_DEF = { push: 3, snd: 'crash' };
+const BURN_SRC = { type: 'fire', def: { snd: 'fire' }, by: null, x: 0, z: 0, fx: 0, fz: 1 };   // R4: the source of a burning fighter's damage
 const CRUSH_SRC_BASE = -1500000000;   // scenery damage source ids of crush: a range of its own (a counter per match makes each landing's id unique), below the fighters' impact ids and above the thrown items'
 const DECK_LAND_RAW = 20, DECK_LAND_SPEED = 3;   // R7: a knockdown landing on a weak deck hits it with this raw damage (landing speed over this, m/s)
 const HAZARD_LAND_TICKS = 10;          // the falling load drops during the last ticks of its warning
@@ -5386,6 +5434,8 @@ const AI_HAZARD_RANGE = 1.5, AI_HAZARD_STAND = 0.7, AI_HAZARD_PAD = 0.15, AI_LUR
 const AI_HAZARD_WAIT = 240, AI_HAZARD_ASK = 60, AI_HAZARD_PLAN = 240, AI_HAZARD_LOOK = 8, AI_HAZARD_LURE_TICKS = 90, AI_HAZARD_AHEAD = 0.6, AI_HAZARD_POST_NEAR = 1.4;   // ticks: between hazard plans; before a CPU that declined a lure asks again; a plan may last; between looks at where the target went; a grab may be followed by its chosen throw
 const AI_HAZARD_BAIT = { easy: 0, normal: 0.4, hard: 1, expert: 1 }, AI_HAZARD_BAIT_RANGE = 16, AI_HAZARD_BAIT_GAP = 1800, AI_BAIT_BLOW_MARGIN = 0.3, AI_BAIT_GUARD = 4.5, AI_HAZARD_BAIT_TICKS = 150;   // P8 bait: the chance a CPU baits its target toward a strike hazard (not a panel), how near that hazard must be (m), the least gap between two baits (ticks), the margin to blow range that ends a bait on the way (m), the range it guards at the spot (m), the longest bait (ticks)
 const AI_HAZARD_LURE = { easy: 0.3, normal: 0.55, hard: 0.85, expert: 1 };   // the chance a CPU commits to a lure when one is on offer
+const AI_DROP_WAIT = 30, AI_DROP_BLOWS = 12, AI_DROP_GAP = 24, AI_DROP_PLAN = 720;   // a scaffold standard takes several blows: a CPU's plan against it is up to AI_DROP_BLOWS strikes AI_DROP_GAP ticks apart (AI_DROP_PLAN ticks at most); it may plan again after AI_DROP_WAIT ticks
+const DROP_DEF = { name: 'Scaffold standard', trig: 'strike', shape: 'rect', dmg: 0, fx: '' };
 const HAZARD_LOAD_HANG = 4.4, HAZARD_LOAD_REST = 0.45, HAZARD_LOAD_BEAM = 5.6, HAZARD_LOAD_FADE = 1.1;   // m: the height of the hanging load's centre, of the landed one's, of the crane beam; the load fades when the camera's line to a fighter passes this near it
 
 class Fighter {
@@ -5432,7 +5482,7 @@ class Fighter {
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
-    this.item = null; this.blind = 0; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
+    this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.lastFoe = null; this.target = null;   // lastFoe: who dealt the last damage (combo and scenery credit); target: who this fighter acts against, set every tick by MatchSim.assignTargets
@@ -5453,7 +5503,6 @@ class Fighter {
     const muscle = clamp(finite(look.muscle, FIT_DEFAULT_MUSCLE), 0, 1) - 0.5, female = GENDER_SHAPE[look.gender] || 0;
     this.shape = { arm: (1 + 0.45 * muscle) * (1 - 0.12 * female), chest: (1 + 0.2 * muscle) * (1 - 0.08 * female), leg: 1 + 0.25 * muscle, hip: 1 + 0.18 * female,
       lean: clamp((finite(look.age, AGE_DEFAULT) - AGE_OLD_FROM) / (AGE_MAX - AGE_OLD_FROM), 0, 1) * 0.14 };   // older fighters stand a little bent
-    this.accentGlow = this.lk.glow ? 0.65 : 0;
     const lk = this.lk, hair = ITEMS.hairStyle[lk.hairStyle] || [];
     this.topRow = ITEMS.topStyle[lk.topStyle] || ITEMS.topStyle.tank; this.legRow = ITEMS.legs[lk.legs] || ITEMS.legs.shorts;
     this.shoeRow = ITEMS.feet[lk.feet] || ITEMS.feet.shoes; this.handRow = ITEMS.hands[lk.hands] || ITEMS.hands.gloves;
@@ -6074,7 +6123,7 @@ class Fighter {
       const t = this.moveTick;
       if (t > this.mStartup * 0.55 && t <= this.mStartup + this.mActive + 3 && (t & 1) === 0) {
         const ix = this.move.limb === 'LA' ? 3 : this.move.limb === 'RA' ? 4 : this.move.limb === 'LL' ? 5 : 6;
-        FX.trail(this.pts[ix * 3], this.pts[ix * 3 + 1], this.pts[ix * 3 + 2], this.move.cat === 'heavy' ? '#ffd27a' : '#bfe8ff', this.move.cat === 'heavy' ? 0.2 : 0.14);
+        if (this.move.cat === 'heavy') FX.trail(this.pts[ix * 3], this.pts[ix * 3 + 1], this.pts[ix * 3 + 2], '#dcdcdc', 0.16);   // P9-04: a faint grey smear on heavy strikes only
       }
     }
   }
@@ -6416,7 +6465,7 @@ class Fighter {
     const m = ms.m;
     pts[0] = m[12]; pts[1] = m[13]; pts[2] = m[14];
     const fl = this.flash * 0.4;
-    const skin = col.skin, lk = this.lk, glow = this.accentGlow;
+    const skin = col.skin, lk = this.lk;
     const T = this.topRow, L = this.legRow, F = this.shoeRow, H = this.handRow, pants = !L[2], legCol = pants ? col.shorts : skin;   // pants-type legwear covers the whole leg, shorts-type puts a short overlay on the bare leg
     part(MESH.CUBE, 0, 0, 0, 0.34 * b * sh.hip, 0.2, 0.22 * b, col.shorts, 0, 0.8, fl);
     // legs
@@ -6443,9 +6492,9 @@ class Fighter {
     part(MESH.CUBE, 0, BODY.torsoY, 0, BODY.torso[0] * T[0] * b * sh.chest, BODY.torso[1], BODY.torso[2] * T[1] * b, col.top, 0, 0.8, fl);
     part(MESH.SPHERE, 0, BODY.chestY, BODY.chestZ, BODY.chest[0] * T[0] * b * sh.chest, BODY.chest[1], BODY.chest[2] * T[1] * b, col.top, 0, 0.8, fl);
     if (lk.belt === 'none') part(MESH.CUBE, 0, 0.0, 0, 0.36 * b * sh.hip, 0.07, 0.23 * b, col.shorts, 0, 0.6, fl);
-    else part(MESH.CUBE, 0, 0.0, 0, 0.365 * b * sh.hip, 0.09, 0.235 * b, col.accent, glow, 0.6, fl);
+    else part(MESH.CUBE, 0, 0.0, 0, 0.365 * b * sh.hip, 0.09, 0.235 * b, col.accent, 0, 0.6, fl);
     if (T[5]) part(MESH.CUBE, 0, T[5][1], 0, T[5][0] * b * sh.hip, T[5][2], T[5][3] * b, col.top, 0, 0.85, fl);       // jacket skirt, jersey or bomber hem
-    if (lk.belt === 'sash') part(MESH.CUBE, 0.13 * b * sh.hip, -0.15, 0.11 * b, 0.06, 0.22, 0.03, col.accent, glow, 0.7, fl); // hanging sash end
+    if (lk.belt === 'sash') part(MESH.CUBE, 0.13 * b * sh.hip, -0.15, 0.11 * b, 0.06, 0.22, 0.03, col.accent, 0, 0.7, fl); // hanging sash end
     this.pieces(this.extra, 't', 0, fl);
     pts[3] = ms.m[12] + ms.m[4] * 0.3; pts[4] = ms.m[13] + ms.m[5] * 0.3; pts[5] = ms.m[14] + ms.m[6] * 0.3;
     // head
@@ -6496,7 +6545,7 @@ class Fighter {
     const col = this.col, lk = this.lk, skin = col.skin;
     const fullMask = lk.mask === 'full', wrap = lk.mask === 'balaclava';   // a balaclava colours the whole head; its skin band (a piece) shows the eyes
     part(MESH.CYL, 0, BODY.neckY, 0, BODY.neck, BODY.neck, BODY.neck, skin, 0, 0.7, fl);
-    if (fullMask) part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, col.mask, Math.max(0.25, this.accentGlow), 0.3, fl);
+    if (fullMask) part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, col.mask, 0, 0.3, fl);
     else part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, wrap ? col.accent : skin, 0, wrap ? 0.9 : 0.7, fl);
     const cell = fullMask || wrap || !DRAW_NOW ? -1 : FaceTex.cellOf(lk, faceExpression(this));   // a pre-drawn or photo face is one shell that replaces the eyes and brows; a full mask and a balaclava keep their own eyes
     if (cell >= 0) part(MESH.SPHERE, 0, BODY.headY, 0, ...FACE_SHELL, skin, 0, 0.7, fl, -1 - cell);
@@ -6514,14 +6563,14 @@ class Fighter {
     this.drawHair(fl);
     if (lk.headband && !this.hat) {
       const r = headbandSize(lk.hairStyle);
-      part(MESH.CYL, 0, 0.255, -0.008, r, 0.045, r + 0.008, col.accent, this.accentGlow, 0.6, fl);
+      part(MESH.CYL, 0, 0.255, -0.008, r, 0.045, r + 0.008, col.accent, 0, 0.6, fl);
     }
     this.pieces(this.extra, 'h', 0, fl);
   }
   drawLowerFace(fl) {
     const col = this.col, lk = this.lk;
     this.pieces(this.beardP, 'h', 0, fl);
-    if (lk.mask === 'half') part(MESH.SPHERE, 0, 0.14, 0.006, 0.242, 0.115, 0.25, col.mask, this.accentGlow, 0.5, fl);
+    if (lk.mask === 'half') part(MESH.SPHERE, 0, 0.14, 0.006, 0.242, 0.115, 0.25, col.mask, 0, 0.5, fl);
     if (lk.lines) for (let s = 1; s >= -1; s -= 2) {   // from AGE_LINES_FROM: a line on each cheek
       FMS.push(); FMS.t(s * AGE_MARK.x, AGE_MARK.y, AGE_MARK.z); FMS.rz(s * AGE_MARK.tilt);
       part(MESH.CUBE, 0, 0, 0, 0.012, 0.05, AGE_MARK.depth, col.line, 0, 0.95, fl);
@@ -6852,7 +6901,7 @@ const Combat = {
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
     const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult();   // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
-    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ, att.index);
+    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index);   // R1: a bottle cuts
     if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
     if (match.hazards && match.hazards.length) match.hazardStrike(att, cx, cy, cz);   // a hazard's post (P7-05)
     return n;
@@ -7267,10 +7316,10 @@ const ARCHETYPES = {
     attrs: { health: 4, stamina: 7, strength: 4, speed: 8, reach: 5, defense: 4, balance: 4, recovery: 7 } },
 };
 const ARCHETYPE_IDS = Object.keys(ARCHETYPES);
-const TITLES = ['The Rookie', 'The Challenger', 'The Hammer', 'The Storm', 'The Shadow', 'The Iron', 'The Phoenix', 'The Tiger',
-  'The Cyclone', 'The Rock', 'The Blade', 'The Comet', 'The Titan', 'The Fox', 'The Bull', 'The Specter'];
-const NAME_IDEAS = ['NOVA', 'ORION', 'SABLE', 'JUNO', 'ONYX', 'ECHO', 'RAVEN', 'COBALT', 'EMBER', 'FALCON', 'GRANITE', 'HALO', 'IRIS', 'JADE', 'KODIAK',
-  'LYNX', 'NOMAD', 'OSPREY', 'PIKE', 'QUILL', 'ROOK', 'SIERRA', 'TORQUE', 'UMBRA', 'VOLT', 'WOLF', 'XENON', 'YARA', 'ZEPHYR'];
+const TITLES = ['The Rookie', 'The Challenger', 'The Hammer', 'The Storm', 'The Shadow', 'The Iron', 'The Veteran', 'The Tiger',
+  'The Cyclone', 'The Rock', 'The Blade', 'The Comet', 'The Bruiser', 'The Fox', 'The Bull', 'The Closer'];   // P9-04: positions are share-code indices, so the titles of P1-07 were replaced in place
+const NAME_IDEAS = ['BENNY', 'TANK', 'SABLE', 'JUNO', 'MARCUS', 'DANTE', 'NINA', 'COBALT', 'LENA', 'FALCON', 'GRANITE', 'ELI', 'IRIS', 'JADE', 'KODIAK',
+  'LYNX', 'NOMAD', 'OSPREY', 'PIKE', 'QUILL', 'ROOK', 'SIERRA', 'TORQUE', 'RIZ', 'MOE', 'WOLF', 'BISHOP', 'YARA', 'ABEL'];
 const TIERS = ['standard', 'veteran'];
 
 /* ---------- the 26 new preset fighters (P5-04; table in Appendix C "Preset roster") ----------
@@ -7389,7 +7438,7 @@ function resolveLook(look) {
     eyes: look.eyes || 'normal', brows: look.brows || 'none', beard: look.beard || 'none',
     mask: legacyMask ? 'full' : look.mask || 'none',
     headband: look.headband === 'band', topStyle, legs: look.legs || 'shorts', hands: look.hands || 'gloves',
-    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none', face: look.face || 'none', photo: look.photo,
+    belt: look.belt || 'none', feet: look.feet || 'shoes', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none', face: look.face || 'none', photo: look.photo,
     colors: {
       skin, hair, top: topStyle === 'bare' ? skin : look.top || skin, shorts: look.shorts || '#18274d',
       glove: look.glove || '#f1f1f5', shoe: look.shoe || '#202228', accent, mask: legacyMask ? hair : accent,
@@ -7544,7 +7593,8 @@ function randomCustom(seed, allStyles) {
   const look = {};
   for (const key of LOOK_CHOICE_KEYS) look[key] = pick(LOOK_CLASSIC[key]);
   if (rng() < 0.6) look.mask = 'none';                       // masks are a flourish, not the norm
-  look.glow = rng() < 0.25 ? 'on' : 'off';
+  rng();   // the old accent glow roll, drawn and dropped so that every seed still gives the same fighter
+  look.glow = 'off';   // the option is gone (P9-04); its slot stays in the share code and old codes still read
   for (const group of COLOR_GROUPS) look[group.key] = pick(group.swatches);
   look.scale = snapToStep(SCALE_MIN + rng() * (SCALE_MAX - SCALE_MIN), SCALE_MIN, SCALE_MAX, SCALE_STEP);
   look.build = snapToStep(BUILD_MIN + rng() * (BUILD_MAX - BUILD_MIN), BUILD_MIN, BUILD_MAX, BUILD_STEP);
@@ -7840,11 +7890,13 @@ class AIController {
      No hazards in the scene = null and no random number drawn (a match without hazards plays as before). */
   considerHazard(f, opp, dist) {
     const match = this.match;
-    if (!match || !match.hazards.length || !f.alive || !this.mayAttack(f) || f.carrying || this.tickNo < this.hazardWait || opp.y > 0.3) return null;
-    for (const h of match.hazards) {
+    if (!match || !(match.hazards.length || match.drops.length) || !f.alive || !this.mayAttack(f) || f.carrying || this.tickNo < this.hazardWait || opp.y > 0.3) return null;
+    const nHaz = match.hazards.length;
+    for (let i = 0; i < nHaz + match.drops.length; i++) {   // R9: the posts of the hazards and the scaffold standards (match.drops) are the triggers; the zone is the one they would make
+      const h = i < nHaz ? match.hazards[i] : match.drops[i - nHaz];
       if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || !match.hazardAimIn(h, opp)) continue;
       const spot = this.hazardSpot(f, opp, h);
-      if (spot) { this.hazardWait = this.tickNo + AI_HAZARD_WAIT; return { kind: 'hazard', mode: 'strike', stage: 'go', h, x: spot.x, z: spot.z, pick: spot.pick, dir: '', look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN }; }
+      if (spot) { this.hazardWait = this.tickNo + (h.type === 'standard' ? AI_DROP_WAIT : AI_HAZARD_WAIT); return { kind: 'hazard', mode: 'strike', stage: 'go', h, x: spot.x, z: spot.z, pick: spot.pick, dir: '', look: AI_HAZARD_LOOK, ticks: h.type === 'standard' ? AI_DROP_PLAN : AI_HAZARD_PLAN, blows: 0, gap: 0 }; }
     }
     if (f.stam <= f.maxStam * AI_GRAB_STAMINA) return null;
     const lure = this.hazardLure(f, opp);
@@ -7955,14 +8007,15 @@ class AIController {
   /* Where f can stand so that its next strike lands on h's post with the target in front of it, outside the effect zone, and with which move (null: nowhere). A move's hit sphere is centred 0.8 of its reach in front of the fighter, so the CPU stands
      that far from the post on the line target - post (behind the post, seen from the target) when it can, else on spots round the post. */
   hazardSpot(f, opp, h) {
-    const c = h.post;
+    const c = h.post, picks = this.reachable(f);
+    if (h.type === 'standard') picks.sort((p, q) => q.mv.dmg - p.mv.dmg);   // R9: a scaffold standard takes several blows: the hardest move that reaches it
     let ux = c.x - opp.x, uz = c.z - opp.z;
     const len = Math.hypot(ux, uz) || 1;
     ux /= len; uz /= len;
     let detour = null;   // the best spot whose straight walk is blocked by scenery (the steering goes round it): used when no clear one exists
     for (const turn of [0, 0.9, -0.9, 1.8, -1.8, 2.7, -2.7, Math.PI]) {
       const cos = Math.cos(turn), sin = Math.sin(turn);
-      for (const pick of this.reachable(f)) {
+      for (const pick of picks) {
         const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
         const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
         if (Arena.outside(sx, sz, f.radius) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
@@ -8039,6 +8092,7 @@ class AIController {
       } else if (!p.arrived && Math.hypot(opp.x - f.x, opp.z - f.z) < MAX_STAND_REACH * opp.stats.reach + f.radius + AI_BAIT_BLOW_MARGIN) { this.hazardWait = 0; this.plan = null; return; }   // the target catches the CPU on its way, within blow range: no bait, fight (strike and lure may start at once; a hit also ends a plan, see chooseIntent)
     }
     if (p.stage === 'go') {
+      if (p.gap > 0) { p.gap--; return; }
       if (--p.look <= 0) {
         p.look = AI_HAZARD_LOOK;
         const next = p.mode === 'lure' ? this.hazardLureSpot(f, opp, h) : p.mode === 'bait' ? this.baitSpot(f, opp, h) : this.match.hazardAimIn(h, opp) ? this.hazardSpot(f, opp, h) : null;
@@ -8046,7 +8100,7 @@ class AIController {
         p.x = next.x; p.z = next.z; p.pick = next.pick || null; p.dir = next.dir || '';
       }
       const dx = p.x - f.x, dz = p.z - f.z;
-      if (Math.hypot(dx, dz) > AI_HAZARD_SPOT) { this.moveToward(f, it, dx, dz, false); return; }
+      if (Math.hypot(dx, dz) > AI_HAZARD_SPOT / (1 + (p.miss || 0))) { this.moveToward(f, it, dx, dz, false); return; }   // each blow that missed the post narrows the arrival radius, so the CPU steps up to the exact spot
       if (p.mode === 'bait') {   // waits at the bait spot for the target to come through the zone, on guard while it is near
         p.arrived = true;
         const near = Math.hypot(opp.x - f.x, opp.z - f.z) < AI_BAIT_GUARD;
@@ -8060,8 +8114,9 @@ class AIController {
       if (!this.inRange(f, ATTACKS.grab, Math.hypot(opp.x - f.x, opp.z - f.z))) { this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); return; }
       it.grapple = true; this.lureDir = p.dir; this.lureUntil = this.tickNo + AI_HAZARD_LURE_TICKS;
     } else {
-      if (!this.strikeOnPost(f, f.x, f.z, opp, p.pick.mv, h.post) || this.hazardWouldReach(h, f.x, f.z)) { p.stage = 'go'; p.look = 0; return; }   // not there yet: look again
+      if (!this.strikeOnPost(f, f.x, f.z, opp, p.pick.mv, h.post) || this.hazardWouldReach(h, f.x, f.z)) { p.stage = 'go'; p.look = 0; p.miss = (p.miss || 0) + 1; return; }   // not there yet: look again
       this.pressMove(it, p.pick);
+      if (h.type === 'standard' && ++p.blows < AI_DROP_BLOWS) { p.stage = 'go'; p.look = 0; p.gap = AI_DROP_GAP; return; }   // R9: and again, until it falls
     }
     this.plan = null;
   }
@@ -9091,6 +9146,8 @@ class MatchSim {
     this.hazardsOn = this.cfg.hazards !== false;   // the Hazards setting (P7-05): off = the arena is safe, nothing is placed
     this.hazards = [];                         // the hazards of the scene (see newHazard)
     this.hazardSeq = 0;
+    this.fireList = [];                        // scratch for stepFire
+    this.drops = [];                           // R9: pseudo hazards for the objects whose breaking drops decks (see newDrop)
     this.crushSeq = 0;   // numbers the crush damage to scenery (CRUSH_SRC_BASE)
     this.tick = 0;
     this.matchTicks = 0;
@@ -9429,8 +9486,9 @@ class MatchSim {
       this.stats[e.att.index].damage += e.damage; this.stats[e.def.index].taken += e.damage;
       if (e.att.index === 0 && this.lastMove && this.lastMove.mv.id === 'hold') { this.lastMove.result = e.reason; this.lastMove.dmg = e.damage; this.lastMove.active = e.ticks; }
     });
-    on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; this.hazardBreak(e.obj, this.fighters[e.by]); });
+    on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; this.hazardBreak(e.obj, this.fighters[e.by]); this.leaveBehind(e.obj); });
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
+    on('knockdown', (e) => { e.f.burn = 0; });   // R4: stop, drop and roll
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
       const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null;   // the string this step belongs to, up to and including this step
@@ -9564,6 +9622,7 @@ class MatchSim {
       if (other.alive && owner && this.canHurt(owner, other) && Math.hypot(other.x - x, other.z - z) <= CLOUD_RADIUS && Math.abs(other.y - y) < 2) other.blind = BLIND_TICKS;
     }
     FX.dust(x, Math.max(0.4, y), z, 12, CLOUD_RADIUS * 0.6, '#f2f6ff');
+    this.douse(x, z, 0, 0, CLOUD_RADIUS, -1);
   }
   /* A strike with the extinguisher sprays a 2 m cone for as many strikes as it has charges: enemies in it are blinded for BLIND_TICKS (no damage). */
   spray(f) {
@@ -9575,6 +9634,7 @@ class MatchSim {
       const dx = other.x - f.x, dz = other.z - f.z, dist = Math.hypot(dx, dz);
       if (dist <= SPRAY_RANGE && (dist < 0.05 || (dx * f.fwdX + dz * f.fwdZ) / dist >= SPRAY_CONE_COS)) other.blind = BLIND_TICKS;
     }
+    this.douse(f.x, f.z, f.fwdX, f.fwdZ, SPRAY_RANGE, SPRAY_CONE_COS);
     FX.dust(f.x + f.fwdX * 1.0, f.y + 1.1, f.z + f.fwdZ * 1.0, 8, 0.8, '#f2f6ff');
     Events.emit('itemSpray', { f, x: f.x + f.fwdX, y: f.y + 1.1, z: f.z + f.fwdZ });
   }
@@ -9688,6 +9748,7 @@ class MatchSim {
       h.post = { x: h.tx, z: h.tz, hx: def.post[0], hz: def.post[1], top: def.post[2], standable: false, active: true, obj: null, haz: h, temp: false, timer: 0, thin: false };
       Arena.colliders.push(h.post);
     }
+    if (def.arc) h.chain = Arena.linkConductors(x, z, def.r);   // R3: what the arc energises
     h.obj = o.obj ? Arena.objects.find((q) => q.id === o.obj) || null : null;
     if (h.obj) {   // the glass wall: its shards lie in a strip along it
       const alongX = h.obj.axis !== 'z';
@@ -9708,11 +9769,19 @@ class MatchSim {
     }
     Arena.navVersion++;
     Arena.navMap();   // built here, not on the first replan in the middle of a fight
+    this.drops = Arena.objects.filter((o) => !o.fixed && o.type !== 'deck' && Arena.inRing(o.x, o.z) && Arena.objects.some((q) => q.on === o.id && q.type === 'deck' && !q.step)).map((o) => this.newDrop(o));
+    for (const o of Arena.objects) if (o.fire > 0) this.blazeFor(o);   // a new round: what still burns keeps its fire zone
+  }
+  /* R9: an object that drops decks when it breaks (a scaffold standard) is a pseudo hazard a CPU may strike; zone = the fallen decks + reach + a body. */
+  newDrop(o) {
+    const decks = Arena.objects.filter((q) => q.on === o.id && q.type === 'deck' && !q.step), pad = CRUSH_REACH + 0.3;
+    const x0 = Math.min(...decks.map((q) => q.x - q.hx)), x1 = Math.max(...decks.map((q) => q.x + q.hx)), z0 = Math.min(...decks.map((q) => q.z - q.hz)), z1 = Math.max(...decks.map((q) => q.z + q.hz));
+    return { type: 'standard', def: DROP_DEF, seq: 0, x: (x0 + x1) / 2, z: (z0 + z1) / 2, tx: o.x, tz: o.z, fx: 0, fz: 1, hx: (x1 - x0) / 2 + pad, hz: (z1 - z0) / 2 + pad, hit: [], post: o.collider, get state() { return o.destroyed ? 'spent' : 'idle'; } };
   }
   /* A shattered bottle leaves a patch of glass on the floor (same rules as the broken wall's shards). */
   glassPatch(x, z) {
     if (!this.hazardsOn) return;
-    const patches = this.hazards.filter((h) => h.life > 0);
+    const patches = this.hazards.filter((h) => h.type === 'glass' && h.life > 0);
     if (patches.length >= HAZARD_SHARD_MAX) this.hazards.splice(this.hazards.indexOf(patches[0]), 1);
     const patch = this.newHazard('glass', x, z, { hx: BOTTLE_SHARD_R, hz: BOTTLE_SHARD_R, life: HAZARD_SHARD_TICKS });
     patch.state = 'active';
@@ -9720,6 +9789,7 @@ class MatchSim {
   }
   /* Whether the point (x, z) is inside the hazard's zone. */
   hazardCovers(h, x, z) {
+    if (h.chain) for (const o of h.chain) if (!o.destroyed && Math.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= CONDUCT_TOUCH) return true;   // R3: touching a conductor of the arc
     const def = h.def, dx = x - h.x, dz = z - h.z;
     if (def.shape === 'circle') return dx * dx + dz * dz <= def.r * def.r;
     if (def.shape === 'cone') { const d = Math.hypot(dx, dz); return d <= def.len && (d < 0.35 || (dx * h.fx + dz * h.fz) / d >= def.cos); }
@@ -9746,8 +9816,16 @@ class MatchSim {
     if (h.def.warn > 0) { h.state = 'warn'; Events.emit('hazardWarn', { h }); } else this.hazardStart(h);
     return true;
   }
-  hazardStart(h) { h.state = 'active'; h.t = 0; h.hit = []; Events.emit('hazardStart', { h }); }
-  hazardEnd(h) { h.t = 0; h.state = h.def.spent ? 'spent' : 'cool'; Events.emit('hazardEnd', { h }); }
+  hazardStart(h) {
+    h.state = 'active'; h.t = 0; h.hit = [];
+    if (h.chain) for (const o of h.chain) Arena.damageObject(o, 1, 'electric', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, o.h * 0.5, o.z, undefined);   // R1: the arc runs through the conductors (sparks, a shake, no hit points)
+    Events.emit('hazardStart', { h });
+  }
+  hazardEnd(h) {
+    h.t = 0; h.state = h.def.spent ? 'spent' : 'cool';
+    if (h.type === 'fire') Arena.mark('scorch', h.x, h.z, h.def.r * 0.85, h.def.r * 0.85);   // P9-03
+    Events.emit('hazardEnd', { h });
+  }
   /* A strike's hit sphere (centre cx, cy, cz) on a hazard's post: the same test as for scenery. */
   hazardStrike(att, cx, cy, cz) {
     if (!this.live) return;
@@ -9791,7 +9869,7 @@ class MatchSim {
     let expired = false;
     for (const h of this.hazards) {
       const def = h.def;
-      if (h.life > 0 && --h.life === 0) { h.dead = expired = true; continue; }
+      if (h.life > 0 && --h.life === 0) { h.dead = expired = true; if (h.type === 'glass') Arena.mark('glass', h.x, h.z, h.hx, h.hz); continue; }   // P9-03: the glass leaves flecks
       switch (h.state) {
         case 'idle':
           if (def.trig === 'timer' && ++h.t >= def.period) this.hazardArm(h, null, 'timer');
@@ -9846,7 +9924,78 @@ class MatchSim {
         struck++;
         Arena.damageObject(o, dmg, 'crush', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, 0.5, o.z, undefined);
       }
+      Arena.mark('dust', c.x, c.z, c.hx, c.hz);   // P9-03: the fallen piece leaves a smudge
     }
+  }
+  /* R4, fire, the one rule for every fire: burning fighters take BURN_DMG per BURN_GAP; objects ignite in a fire zone (an arc lights paper and plastic), burn out, spread. No random numbers. */
+  stepFire() {
+    for (const f of this.fighters) {
+      if (f.fireTick !== this.tick) f.stay = 0;
+      if (f.burn <= 0) continue;
+      f.burn = f.alive ? f.burn - 1 : 0;
+      if (f.burn > 0 && f.fireTick !== this.tick && this.tick % BURN_GAP === 0) { BURN_SRC.by = f.burnBy; this.hazardHit(BURN_SRC, f, BURN_DMG, ''); }   // inside the zone its own hits count
+    }
+    if (!this.hazardsOn || this.tick % FIRE_CHECK_TICKS !== 0) return;
+    const objects = Arena.objects, hazards = this.hazards, list = this.fireList;
+    let burning = 0, zones = 0;
+    for (const o of objects) if (o.fire > 0) burning++;
+    for (const h of hazards) if (h.state === 'active' && (h.def.fire || h.def.arc)) zones++;
+    if (!burning && !zones) return;
+    for (const o of objects) {
+      const m = MATERIALS[o.mat];
+      if (!m.burn || o.destroyed || o.fixed) continue;
+      if (o.fire > 0) { this.burnObject(o, m); continue; }
+      let hot = null;
+      if (o.base < HAZARD_FLOOR_TOP) for (const h of hazards) {
+        if (h.state !== 'active' || !(h.def.fire || h.def.arc) || !this.hazardCovers(h, clamp(h.x, o.x - o.hx, o.x + o.hx), clamp(h.z, o.z - o.hz, o.z + o.hz)) || (h.def.arc && !m.spark)) continue;
+        hot = h;
+        if (h.def.arc) o.heat = FIRE_IGNITE_TICKS;
+      }
+      o.heat = hot ? o.heat + FIRE_CHECK_TICKS : 0;
+      if (o.heat >= FIRE_IGNITE_TICKS && burning < FIRE_MAX) { this.ignite(o, hot.by); burning++; }
+    }
+    if (this.tick % FIRE_SPREAD_TICKS !== 0) return;
+    list.length = 0;
+    for (const o of objects) if (o.fire > 0) list.push(o);
+    burning = list.length;
+    for (const o of list) {
+      let next = null;
+      if (burning < FIRE_MAX) for (const q of o.near) if (!q.fire && !q.destroyed) { next = q; break; }
+      if (next) { this.ignite(next, o.blaze.by); burning++; }
+    }
+  }
+  ignite(o, by) {
+    o.fire = MATERIALS[o.mat].burn; o.heat = 0;
+    this.blazeFor(o).by = by || null;   // whoever lit the fire is credited for what it does
+    Events.emit('objIgnite', { obj: o, x: o.x, y: o.base + o.h, z: o.z });
+  }
+  blazeFor(o) {
+    const b = o.blaze = this.newHazard('blaze', o.x, o.z, { hx: o.hx + FIRE_MARGIN, hz: o.hz + FIRE_MARGIN, life: o.fire + 1 });
+    b.state = 'active'; b.of = o;
+    this.hazards.push(b);
+    return b;
+  }
+  burnObject(o, m) {
+    o.fire -= FIRE_CHECK_TICKS;
+    o.hp = o.fire > 0 ? Math.max(0, o.hp - o.maxHp * FIRE_CHECK_TICKS / m.burn) : 0;
+    o.stage = stageFor(o);
+    if (o.hp > 0) return;
+    o.color = FIRE_CHAR;
+    Arena.mark('scorch', o.x, o.z, o.hx + FIRE_MARGIN * 0.6, o.hz + FIRE_MARGIN * 0.6, o.base);   // P9-03
+    Arena.breakObject(o, 0, 0, undefined);
+  }
+  /* R4: an extinguisher's cone (cos of its half angle, -1 = a cloud) puts out the fighters, objects and spilled barrel in it. */
+  douse(x, z, fx, fz, range, cos) {
+    const inside = (px, pz) => { const dx = px - x, dz = pz - z, d = Math.hypot(dx, dz); return d <= range && (d < 0.05 || (dx * fx + dz * fz) / d >= cos); };
+    for (const f of this.fighters) if (f.burn > 0 && inside(f.x, f.z)) f.burn = f.stay = 0;
+    for (const o of Arena.objects) if (o.fire > 0 && inside(o.x, o.z)) { o.fire = 0; o.heat = 0; o.blaze.life = 1; }
+    for (const h of this.hazards) if (h.type === 'fire' && h.state === 'active' && inside(h.x, h.z)) this.hazardEnd(h);
+  }
+  /* R2: what a broken object leaves besides rubble: a brick item, or a patch of shards (a glass wall that is a hazard has its own strip). */
+  leaveBehind(o) {
+    const leave = MATERIALS[o.mat].leave;
+    if (leave === 'brick' && this.itemsOn) this.placeItem('brick', o.x, o.z, o.base + o.h * 0.5).mode = 'fall';
+    else if (leave === 'shard' && o.type !== 'deck' && !this.hazards.some((h) => h.obj === o)) this.glassPatch(o.x, o.z);
   }
   /* The active tick of a hazard: every fighter in the zone that is due is hurt (the same fighter again only after `gap` ticks, or never within one activation when gap is 0). */
   hazardEffects(h) {
@@ -9856,6 +10005,7 @@ class MatchSim {
     if (def.first && h.t > 0) return;
     for (const f of this.fighters) {
       if (!f.alive || f.invuln > 0 || TERMINAL_STATES.includes(f.state) || !this.hazardReaches(h, f)) continue;
+      if (def.fire && f.fireTick !== this.tick) { f.fireTick = this.tick; f.burnBy = h.by || null; if (++f.stay >= FIRE_STAY_TICKS) f.burn = BURN_TICKS; }   // R4: FIRE_STAY_TICKS in a fire zone set a fighter alight (the credit goes to whoever lit the fire)
       const last = h.hit[f.index];
       if (last !== undefined && (!def.gap || this.tick - last < def.gap)) continue;
       h.hit[f.index] = this.tick;
@@ -9915,13 +10065,20 @@ class MatchSim {
       if (len < 0.05) { ux = h.fx; uz = h.fz; } else { ux /= len; uz /= len; }
     }
     if (HAZARD_NO_REACT.includes(f.state) || f.pinnedBy) return;
+    let mate = null;
     if (f.state === S.CLINCH || f.state === S.GRAPPLE) {   // a shock, a flinch or a flight breaks a clinch
       const holder = f.state === S.GRAPPLE ? f : f.partner, held = holder && holder.partner;
+      if (fx === 'stun' && f.partner && h.hit[f.partner.index] === undefined) { mate = f.partner; h.hit[mate.index] = this.tick; }   // R3: a shock passes to the partner of a clinch
       if (holder && held) Combat.releaseClinch(holder, held);
     }
     if (fx === 'push') { f.kx = ux * def.push; f.kz = uz * def.push; return; }
     f.blockStun = 0; f.hitKind = 'mid';
-    if (fx === 'stun') { f.reactDur = def.stun; f.vx = f.vz = 0; f.setState(S.STUN); }
+    if (fx === 'stun') {
+      const held = f.itemDef;
+      if (held && (held.metal || held.mat === 'metal')) f.dropHeld();   // R3: a shock drops a held metal item
+      f.reactDur = def.stun; f.vx = f.vz = 0; f.setState(S.STUN);
+      if (mate) this.hazardHit(h, mate);
+    }
     else if (fx === 'flinch') { f.reactDur = HAZARD_FLINK_TICKS; f.setState(S.HIT); f.kx = ux * HAZARD_FLINK_PUSH; f.kz = uz * HAZARD_FLINK_PUSH; }
     else if (fx === 'down' || fx === 'throw' || fx === 'out') {   // the same knockdown flight as a strong hit
       if (f.partner) { if (f.partner.partner === f) f.partner.partner = null; f.partner = null; }
@@ -9970,6 +10127,7 @@ class MatchSim {
   }
   /* One hazard type on the map: [drawn by drawHazards]. Flames are tongues that flicker (drawFlames); the load fades while it hangs between the camera and a fighter. */
   drawHazards() {
+    for (const f of this.fighters) if (f.burn > 0 && f.alive) this.drawFlames(f.x, f.y + 0.7, f.z, 0.3, 0.8, f.index * 5);   // R4: a burning fighter
     for (const h of this.hazards) {
       const warn = h.state === 'warn', blink = warn && ((this.tick >> 2) & 1) === 1, on = h.state === 'active', shake = warn ? Math.sin(this.tick * 2.7) * 0.025 : 0;
       const x = h.tx + shake, z = h.tz, face = h.tz > 0 ? -1 : 1, t = this.tick;
@@ -10049,6 +10207,9 @@ class MatchSim {
       } else if (h.type === 'drop') {
         hput(LAYER.ALPHA, MESH.CUBE, h.x, 0.015, h.z, h.hx * 2, 0.01, h.hz * 2, h.yaw, '#050505', 0.85, 0, 1);
         for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2, h.yaw, '#e0b100', 1, 0, 0.7);
+      } else if (h.type === 'blaze' && on) {   // R4: the flames on a burning object
+        const o = h.of;
+        for (let k = 0; k < 2; k++) this.drawFlames(o.x + (k - 0.5) * o.hx, o.base + o.h * 0.6, o.z, 0.5, 0.5 + o.h * 0.5, h.seq + k * 7);
       } else if (h.type === 'glass' && on) {   // the shards on the floor
         const count = h.obj ? 16 : 7;
         for (let k = 0; k < count; k++) {
@@ -10263,6 +10424,7 @@ class MatchSim {
     this.stepHazards();
     this.stepLoad();
     this.stepCollapse();
+    this.stepFire();
     this.stepRingOut();
     this.stepWaves();
     Combat.tickCombos(this.fighters);
@@ -11179,28 +11341,33 @@ const Effects = {
       if (hurt && !e.ko) hurt.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // each human player feels the hits they take on their own pad
     });
     on('block', (e) => {
-      if (e.sway) { if (e.perfect) FX.ring(e.x, e.def.y + 0.05, e.z, '#ffe066'); return; }   // a sway dodges the strike (P3-11): nothing flashes at the body, a perfect one only marks the floor under the swayer
-      FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);
-      FX.ring(e.x, e.y, e.z, e.perfect ? '#ffe066' : '#9ee7ff');
-      if (e.perfect) FX.flash(e.x, e.y, e.z, 0.35, '#fff4b0');
+      if (e.sway) { if (e.perfect) FX.flash(e.x, e.def.y + 0.1, e.z, 0.3, '#ffffff'); return; }   // a sway dodges the strike (P3-11): nothing flashes at the body, a perfect one only a white flash under the swayer
+      FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#ffffff', e.dirx, e.dirz);   // P9-04: an ordinary impact (white flash, white sparks, dust), no ring of light
+      FX.flash(e.x, e.y, e.z, e.perfect ? 0.45 : 0.25, '#ffffff');
+      FX.dust(e.x, e.y, e.z, 3, 0.3, '#b5ada0');
       if (e.broke) Camera.impact(0.7, 0.6);
     });
     on('land', (e) => { FX.dust(e.f.x, 0.05, e.f.z, Math.min(10, 3 + Math.floor(e.impact)), 0.5, '#b5ada0'); if (e.impact > 4) Camera.impact(0.3, 0.2); });
     on('knockdown', (e) => FX.dust(e.f.x, 0.05, e.f.z, 6, 0.7, '#b5ada0'));
     on('step', (e) => { if (e.run) FX.dust(e.f.x, 0.05, e.f.z, 1, 0.2, '#b5ada0'); });
     on('sidestep', (e) => FX.dust(e.f.x, 0.05, e.f.z, 3, 0.3, '#b5ada0'));
-    on('clinch', (e) => FX.ring(e.x, 0.9, e.z, '#ffffff'));
+    on('clinch', (e) => { FX.flash(e.x, 0.9, e.z, 0.25, '#ffffff'); FX.dust(e.x, 0.9, e.z, 3, 0.3, '#b5ada0'); });
     on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); const thrown = Inputs.forFighter(e.def.index); if (thrown) thrown.rumble(0.7, RUMBLE_HIT_MS * 2); });
-    on('escape', (e) => { FX.ring(e.x, 1.0, e.z, '#9cf4ff'); });
-    on('submission', (e) => FX.ring(e.x, 0.3, e.z, '#ffffff'));
-    on('submissionEscape', (e) => { FX.ring(e.x, 0.6, e.z, '#9cf4ff'); FX.dust(e.x, 0.1, e.z, 4, 0.4, '#b5ada0'); });
+    on('escape', (e) => { FX.flash(e.x, 1.0, e.z, 0.25, '#ffffff'); FX.dust(e.x, 1.0, e.z, 3, 0.3, '#b5ada0'); });
+    on('submission', (e) => FX.flash(e.x, 0.3, e.z, 0.25, '#ffffff'));
+    on('submissionEscape', (e) => { FX.flash(e.x, 0.6, e.z, 0.25, '#ffffff'); FX.dust(e.x, 0.1, e.z, 4, 0.4, '#b5ada0'); });
     on('tackle', (e) => {
-      if (e.result === 'hit') { FX.dust(e.def.x, 0.1, e.def.z, 6, 0.6, '#b5ada0'); Camera.impact(0.7, 0.5); } else FX.ring(e.x, e.y, e.z, e.result === 'blocked' ? '#9ee7ff' : '#ffffff');
+      if (e.result === 'hit') { FX.dust(e.def.x, 0.1, e.def.z, 6, 0.6, '#b5ada0'); Camera.impact(0.7, 0.5); } else { FX.flash(e.x, e.y, e.z, 0.25, '#ffffff'); FX.dust(e.x, e.y, e.z, 3, 0.3, '#b5ada0'); }
     });
     on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); if (koEndsFight(e.def)) for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
-    on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && kindOf(e.obj.mat) === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
+    on('objBreak', (e) => Crowd.react(e.x, e.z, 'lean'));   // R8
+    on('knockdown', (e) => Crowd.react(e.f.x, e.f.z, 'lean'));
+    on('hazardStart', (e) => Crowd.react(e.h.x, e.h.z, 'lean'));
+    on('ko', (e) => Crowd.react(e.x, e.z, 'cheer'));
+    on('objIgnite', (e) => { FX.flash(e.x, e.y, e.z, 0.5, '#ffb347'); FX.dust(e.x, e.y, e.z, 4, 0.5, '#6b625a'); });
+    on('objHit', (e) => { if (e.obj.look === 'car') Crowd.react(e.x, e.z, 'alarm', e.obj); const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && kindOf(e.obj.mat) === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
     on('objStage', (e) => FX.dust(e.x, e.y, e.z, 4, 0.5, '#a89a86'));
     on('hazardStart', (e) => {   // the burst of each hazard that goes off (steam and fire keep going from MatchSim.hazardParticles)
       const h = e.h;
@@ -11483,7 +11650,8 @@ const Sound = {
     on('ko', (e) => { this.slam(e.x); if (koEndsFight(e.def)) this.bell(); });
     on('wallSlam', (e) => this.slam(e.x));
     on('envImpact', (e) => this.slam(e.x));
-    on('objHit', (e) => this.material(MATERIALS[e.obj.mat] ? kindOf(e.obj.mat) : 'wood', false, e.x));
+    on('objHit', (e) => { this.material(MATERIALS[e.obj.mat] ? kindOf(e.obj.mat) : 'wood', false, e.x); if (e.obj.look === 'car' && this.allow('alarm', 0.4)) this.tone('square', 880, 660, 0.12, 0.08, 0, this.panFor(e.x)); });
+    on('objIgnite', (e) => this.hazard('fire', 'start', e.x));
     on('objStage', (e) => this.material(kindOf(e.obj.mat), false, e.x));
     on('objBreak', (e) => this.material(kindOf(e.mat), true, e.x));
     on('itemTake', (e) => { if (this.allow('itemTake', 0.1)) { const p = this.panFor(e.x); this.noise('bandpass', 500, 1100, 0.9, 0.09, 0.22, 0, p); this.tone('triangle', 300, 420, 0.06, 0.14, 0.02, p); } });   // a rustle and a light grip
@@ -13859,7 +14027,7 @@ const CreatorUI = {
     if (look.topStyle !== 'bare') h += this.swatchRow('top');
     h += this.choiceRow('legs') + this.swatchRow('shorts') + this.choiceRow('hands') + this.swatchRow('glove') + this.choiceRow('belt') + this.choiceRow('feet');
     if (look.feet !== 'barefoot') h += this.swatchRow('shoe');
-    h += this.choiceRow('acc') + this.swatchRow('accent') + this.choiceRow('glow');
+    h += this.choiceRow('acc') + this.swatchRow('accent');
     h += '<button class="mi" data-nav data-act="crharmony">Auto-harmony<small>Match legwear, accent, hands and shoes to the top colour (press again for another scheme)</small></button>';
     h += '<h3>Custom colour</h3>' + this.row('Colour to tune', COLOR_GROUP_BY_KEY[this.fineKey].label, 'finekey') + this.fineRows(this.fineKey);
     return h;
@@ -13967,6 +14135,7 @@ function testApi() {
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
+    BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };

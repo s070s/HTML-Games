@@ -39,6 +39,7 @@ const {
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
   CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
+  BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
@@ -2795,8 +2796,8 @@ const SelfTest = {
         for (const key of ITEM_KEYS) for (const id of LOOK_CHOICES[key].options) {
           f.applyLook(Object.assign({}, f.look, { [key]: id }));
           for (const name of PREVIEW_POSES) {
-            const list = drawnParts(f, poses[name]);   // the old full mask still glows (P9-04)
-            if (list.length < 20 || list.length > 40 || list.some(([em, ok]) => !ok || (em && id !== 'full'))) { bad.push(key + '=' + id + ' ' + name + ' ' + list.length); break; }
+            const list = drawnParts(f, poses[name]);   // nothing is self-lit (P9-04)
+            if (list.length < 20 || list.length > 40 || list.some(([em, ok]) => !ok || em)) { bad.push(key + '=' + id + ' ' + name + ' ' + list.length); break; }
           }
         }
       }
@@ -3167,6 +3168,7 @@ const SelfTest = {
       }
       return problems.length ? problems.slice(0, 4).join('; ') : true;
     });
+    const LEGACY_NAMES = ['NOVA', 'ORION', 'SABLE', 'JUNO', 'ONYX', 'ECHO', 'RAVEN', 'COBALT', 'EMBER', 'FALCON', 'GRANITE', 'HALO', 'IRIS', 'JADE', 'KODIAK', 'LYNX', 'NOMAD', 'OSPREY', 'PIKE', 'QUILL', 'ROOK', 'SIERRA', 'TORQUE', 'UMBRA', 'VOLT', 'WOLF', 'XENON', 'YARA', 'ZEPHYR'];   // the name ideas before P9-04 (a fighter's motion is seeded by its name)
     test('Body: all 32 presets and old customs draw as before (pinned hash, from before the items); new presets carry fitness, age, gender', () => {
       const push = R.push;
       const hashOf = (profile) => {
@@ -3175,8 +3177,9 @@ const SelfTest = {
         try { const f = new Fighter(profile, 0); f.skeleton(0, 0, 0, 0, true); f.pose.set(GUARD_ORTHO); f.skeleton(1, 0, 2, 0.7, true); } finally { R.push = push; }
         return fnv1a(s) + ':' + s.length;
       };
-      const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => hashOf(customProfile(validateCustom(randomCustom(seed)).value, 0)))).join();
-      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,2636707267:8355,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,2281133330:8990,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
+      const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => { const c = randomCustom(seed); c.name = LEGACY_NAMES[NAME_IDEAS.indexOf(c.name)]; return hashOf(customProfile(validateCustom(c).value, 0)); })).join();
+      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
+      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,2281133330:8990,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
       const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
       const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
       const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
@@ -3671,7 +3674,7 @@ const SelfTest = {
       const assigned = ROSTER.every((r) => MOVE_STYLE[r.moveStyle]) && new Set(ROSTER.map((r) => r.moveStyle)).size === MOVE_STYLE_IDS.length;   // all 16 styles have a preset
       return same.length === 0 && assigned ? true : 'too similar: ' + same.join(', ') + ' roster styles ok ' + assigned;
     });
-    test('Creator preview: strike trails of the punch and kick poses fade away', () => {
+    test('Creator preview: light strikes leave no trail (P9-04: a trail is a faint grey smear on heavy strikes only), and a trail fades away', () => {
       const keepEffects = Settings.v.effects;
       Settings.v.effects = 'high';
       FX.clear();
@@ -3686,7 +3689,11 @@ const SelfTest = {
       for (let i = 0; i < 30; i++) Showcase.update(1 / 60);
       const left = lit();
       Showcase.endPreview(); FX.clear(); Settings.v.effects = keepEffects;
-      return peak > 0 && left === 0 ? true : 'peak ' + peak + ' left ' + left;
+      FX.clear(); FX.trail(0, 1, 0, '#dcdcdc', 0.16);
+      const smear = FX.p.find((q) => q.on);
+      for (let i = 0; i < 60; i++) FX.update(1 / 60);
+      const grey = smear && Math.abs(smear.col[0] - smear.col[2]) < 0.1 && !smear.add && smear.a <= 0.35;
+      return peak === 0 && left === 0 && grey && !FX.p.some((q) => q.on) ? true : 'peak ' + peak + ' left ' + left + ' smear ' + JSON.stringify(smear);
     });
     test('Motion: individuality is seeded and stable, never shared by two fighters', () => {
       const a1 = new Fighter(ROSTER_BY_ID.kai, 0).motion, a2 = new Fighter(ROSTER_BY_ID.kai, 1).motion;
@@ -3795,8 +3802,13 @@ const SelfTest = {
     });
     test('Styles: random fighters keep their seeds; only the creator\'s Randomize draws the new styles too', () => {
       const before = { 1: 4129164379, 5: 2889055767, 42: 3127338665, 99: 152905950, 777: 4041409028, 4321: 230743926, 31337: 1450132950 };   // fnv1a of the JSON of randomCustom(seed) before P5-01
+      const legacy = LEGACY_NAMES;
       const problems = [];
-      for (const seed in before) if (fnv1a(JSON.stringify(randomCustom(Number(seed)))) !== before[seed]) problems.push('seed ' + seed + ' changed');
+      for (const seed in before) {   // P9-04 replaced name ideas by position and no longer rolls the accent glow (seed 42 rolled it on): written back, every seed is the fighter it was
+        const c = randomCustom(Number(seed));
+        c.name = legacy[NAME_IDEAS.indexOf(c.name)]; c.look.glow = Number(seed) === 42 ? 'on' : 'off';
+        if (fnv1a(JSON.stringify(c)) !== before[seed]) problems.push('seed ' + seed + ' changed');
+      }
       const rest = (c) => JSON.stringify(Object.assign({}, c, { moveStyle: 0, defense: 0 }));
       let wide = 0;
       for (let seed = 1; seed <= 400; seed++) {
@@ -4535,8 +4547,8 @@ const SelfTest = {
       return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
     });
     test('Sway pose (P3-11): a swayed strike passes by - no hit flash, no reaction, no spark or ring at the body (a perfect sway marks the floor), no damage', () => {
-      const calls = [], real = { ring: FX.ring, sparks: FX.sparks, flash: FX.flash };
-      FX.ring = (...a) => calls.push(['ring', ...a]); FX.sparks = (...a) => calls.push(['sparks', ...a]); FX.flash = (...a) => calls.push(['flash', ...a]);
+      const calls = [], real = { sparks: FX.sparks, flash: FX.flash };
+      FX.sparks = (...a) => calls.push(['sparks', ...a]); FX.flash = (...a) => calls.push(['flash', ...a]);
       try {
         const watch = (attack, lead) => {
           calls.length = 0;
@@ -4544,11 +4556,11 @@ const SelfTest = {
           const def = m.fighters[1], states = new Set();
           let flash = 0;
           for (let t = 0; t < 60; t++) { m.step(); states.add(def.state); flash = Math.max(flash, def.flash); }
-          const r = { hurt: def.maxHp - def.hp, flash, states: [...states].join(), calls: calls.map((c) => c[0] + (c[0] === 'ring' ? '@' + c[2] : '')) }; m.dispose(); return r;
+          const r = { hurt: def.maxHp - def.hp, flash, states: [...states].join(), calls: calls.map((c) => c[0] + (c[0] === 'flash' ? '@' + c[2] : '')) }; m.dispose(); return r;
         };
         const plain = watch(ATTACKS.jab, 3), perfect = watch(ATTACKS.roundhouse, 8);
         const calm = (r) => r.hurt === 0 && r.flash === 0 && r.states.split(',').every((state) => state === S.IDLE || state === S.SWAY);
-        const ok = calm(plain) && plain.calls.length === 0 && calm(perfect) && perfect.calls.length === 1 && perfect.calls[0] === 'ring@0.05';
+        const ok = calm(plain) && plain.calls.length === 0 && calm(perfect) && perfect.calls.length === 1 && perfect.calls[0] === 'flash@0.1';
         return ok ? true : JSON.stringify({ plain, perfect });
       } finally { Object.assign(FX, real); }
     });
@@ -5632,7 +5644,7 @@ const SelfTest = {
         if (before !== '2' || atOnce !== '' || draw() !== '') problems.push('knock-out: ' + before + ' then ' + atOnce + ' then ' + draw());
         // the render-quality presets only hold render budgets; the marker is HUD, so none of them (or any style rule) can hide it
         for (const quality in QUALITY_PRESETS) {
-          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris', 'pieces', 'live', 'heaps'].includes(key));
+          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris', 'pieces', 'live', 'heaps', 'marks'].includes(key));
           if (odd.length) problems.push('preset ' + quality + ' has the setting ' + odd.join());
         }
         const sheets = Array.from(document.querySelectorAll('style')).map((el) => (typeof el.textContent === 'string' ? el.textContent : ''));
@@ -6994,7 +7006,7 @@ const SelfTest = {
     const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
     const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
     test('Levels: every arena builds from its rows inside the sheet limits, with unique ids and valid links, clear spawns, and no gap that can trap a body', () => {
-      const problems = [], want = { warehouse: [19, 10, 4], dojo: [15, 6, 2], pit: [16, 10, 4], rooftop: [21, 10, 4], subway: [17, 8, 3], garage: [18, 10, 3], construction: [20, 10, 4], club: [20, 9, 3] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
+      const problems = [], want = { warehouse: [19, 10, 4], dojo: [16, 6, 2], pit: [16, 10, 4], rooftop: [21, 10, 4], subway: [17, 8, 3], garage: [18, 10, 3], construction: [20, 10, 4], club: [20, 9, 3] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
       for (const id of ARENA_ORDER) {
         const def = ARENAS[id], built = builtOf(def);
         Arena.build(def);
@@ -7377,7 +7389,7 @@ const SelfTest = {
     });
     test('Hazards: the table has the 8 hazards of the spec, each arena places the planned ones, the Hazards setting is on by default (after Items) and off places nothing, not even posts', () => {
       const problems = [];
-      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch';
+      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch|blaze  0 0 0 0 1 20 ';
       const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
       if (got !== want) problems.push('table ' + got);
       const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass', rooftop: 'drop,drop,panel,fire', subway: 'train,panel,glass', garage: 'panel,fire,glass', construction: 'drop,load,panel,fire', club: 'panel,glass,steam' }, keys = Object.keys(SETTING_DEFS);
@@ -7677,6 +7689,306 @@ const SelfTest = {
         });
       }
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- P9-02: the system rules matrix as built (Appendix C "System rules matrix (P9-01, ...)"), P9-03 persistent state, P9-04 theme ----- */
+    const brawlOn = (arenaId, opts, ...scripts) => self.makeBrawl(Object.assign({ arenaId, items: false, hazards: true, enemies: 1 }, opts), ...scripts);
+    test('Rules R1 (P9-02): 9 materials x the damage types are one table, every hit goes through Arena.damageObject by its type (sharp and crush follow the matrix, electric does no hit-point damage), and a held bottle cuts scenery', () => {
+      const problems = [], MATRIX = { wood: [0.3, 1.5], concrete: [0.1, 1.2], metal: [0.1, 1.0], glass: [1.0, 2.2], paper: [1.6, 2.2], brick: [0.1, 1.3], plastic: [0.6, 1.6], tile: [0.3, 1.6], sheet: [0.4, 1.4] };
+      if (Object.keys(MATERIALS).join() !== Object.keys(MATRIX).join()) problems.push('materials ' + Object.keys(MATERIALS));
+      Arena.build(ARENAS.pit);
+      const crate = Arena.objects.find((o) => o.id === 'crateP');
+      let src = 700;
+      for (const mat in MATRIX) {
+        const row = MATERIALS[mat];
+        for (const [cat, k] of [['sharp', MATRIX[mat][0]], ['crush', MATRIX[mat][1]], ['punch', row.mult.punch], ['electric', 0]]) {
+          crate.mat = mat; crate.hp = crate.maxHp = 1e6;
+          Arena.damageObject(crate, 10, cat, src++, 1, 0, crate.x, 0.5, crate.z, 0);
+          const dmg = cat === 'electric' ? 0 : 10 * 1.4 * k - row.resist * 0.25, want = dmg > 0.2 ? dmg : 0, lost = 1e6 - crate.hp;
+          if (cat !== 'electric' && row.mult[cat] !== k) problems.push(mat + ' ' + cat + ' row');
+          if (Math.abs(lost - want) > 1e-6) problems.push(mat + ' ' + cat + ' lost ' + lost.toFixed(2) + ' want ' + want.toFixed(2));
+        }
+      }
+      const m = brawlOn('pit', {}), a = m.fighters[0], seen = [], real = Arena.hitSphere;
+      Arena.hitSphere = (...args) => { seen.push(args[6]); return 0; };
+      try {
+        a.move = ATTACKS.jab; Combat.hitObjects(a, m);
+        a.item = { id: 'bottle', dur: 3, sprays: 0 }; Combat.hitObjects(a, m);
+        a.item = { id: 'pipe', dur: 3, sprays: 0 }; Combat.hitObjects(a, m);
+      } finally { Arena.hitSphere = real; }
+      if (seen.join() !== ATTACKS.jab.cat + ',sharp,' + ATTACKS.jab.cat) problems.push('bottle ' + seen);
+      Arena.build(ARENAS.warehouse);
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Rules R2 (P9-02): a broken brick object leaves one brick item, glass and tile leave a patch of shards (a glass wall that is a hazard keeps its own strip), wood and concrete leave rubble only', () => {
+      const problems = [], count = (m, id) => m.items.filter((it) => it.id === id).length, patches = (m) => m.hazards.filter((h) => h.type === 'glass' && h.life > 0).length, find = (id) => Arena.objects.find((o) => o.id === id);
+      const m = brawlOn('pit', { items: true }), bricks = count(m, 'brick'), p0 = patches(m);
+      Arena.breakObject(find('pillarB'), 0, 0, 0);
+      self.run(m, 90);
+      const fresh = m.items.filter((it) => it.id === 'brick' && Math.abs(it.x - 0.8) < 0.6 && Math.abs(it.z + 4.0) < 0.6);
+      if (count(m, 'brick') !== bricks + 1 || fresh.length !== 1 || fresh[0].mode !== 'rest') problems.push('brick item');
+      Arena.breakObject(find('crateP'), 0, 0, 0); Arena.breakObject(find('barrierA'), 0, 0, 0);
+      if (patches(m) !== p0 || count(m, 'brick') !== bricks + 1) problems.push('wood or concrete left more than rubble');
+      Arena.breakObject(find('obsGlass'), 0, 0, 0);
+      if (patches(m) !== p0) problems.push('a glass wall with a hazard row got a second patch');
+      m.dispose();
+      const t = brawlOn('subway', {}), q0 = patches(t);
+      Arena.breakObject(find('pillarA'), 0, 0, 0);
+      if (patches(t) !== q0 + 1) problems.push('tile leaves no shards');
+      t.dispose();
+      const g = brawlOn('dojo', {}), g0 = patches(g);
+      Arena.breakObject(find('balA'), 0, 0, 0);
+      if (patches(g) !== g0 + 1) problems.push('glass leaves no shards');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Rules R3 (P9-02): a panel\'s arc energises the metal objects that touch it (chained within 0.3 m, at most 6); a fighter against one is shocked once per activation (14 and a stun) and drops a held metal item, the shock passes to a clinch partner, and one 0.9 m off is not touched', () => {
+      const problems = [], m = brawlOn('dojo', { items: true }), panel = hazardOf(m, 'panel'), [a, b] = m.fighters, names = panel.chain.map((o) => o.id).join();
+      if (names !== 'lockerA,lockerB,lockerC' || panel.chain.length > CHAIN_MAX || panel.chain.some((o) => !MATERIALS[o.mat].cond)) problems.push('chain ' + names);
+      self.stand(a, 8.95, 5.3, 8.0, 5.3); self.stand(b, 8.0, 5.3, 9.0, 5.3);   // a touches locker C (its face is at x 9.3), b is 1.3 m off
+      a.item = { id: 'pipe', dur: 5, sprays: 0 };
+      const log = hazardLog(m), before = [a.hp, b.hp];
+      if (m.hazardReaches(panel, a) !== true || m.hazardReaches(panel, b) !== false) problems.push('zone');
+      m.hazardArm(panel, null, 'timer');
+      self.run(m, 220);
+      log.stop();
+      const hits = log.filter((e) => e.name === 'hazardHit');
+      if (hits.length !== 1 || hits[0].f !== 0 || !(hits[0].dmg > 0) || hits[0].state !== S.STUN) problems.push('hits ' + JSON.stringify(hits.map((e) => [e.f, e.dmg, e.state])));
+      if (b.hp !== before[1] || !(a.hp < before[0])) problems.push('hp ' + a.hp + ' ' + b.hp);
+      if (a.item || !m.items.some((it) => it.id === 'pipe')) problems.push('the pipe stayed in the hand');
+      m.dispose();
+      const p = brawlOn('dojo', {}), pp = hazardOf(p, 'panel'), [c, d] = p.fighters;
+      self.stand(c, 8.95, 5.3, 8.0, 5.3); self.stand(d, 8.17, 5.3, 8.95, 5.3);
+      d.state = S.ATTACK; Combat.startClinch(d, c, p);
+      c.x = c.prevX = 8.95; c.z = c.prevZ = 5.3;
+      if (c.state !== S.CLINCH || d.partner !== c) problems.push('no clinch');
+      const was = [c.hp, d.hp];
+      p.hazardArm(pp, null, 'timer');
+      self.run(p, 80);
+      if (!(c.hp < was[0]) || !(d.hp < was[1]) || d.state === S.GRAPPLE || c.state === S.CLINCH) problems.push('the shock did not pass: ' + [c.hp, d.hp, c.state, d.state]);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Rules R4 (P9-02): a fire barrel\'s pool lights flammable objects after 30 ticks, a burning object loses its hit points evenly and breaks charred, fire spreads to a neighbour within 1 m every 60 ticks, and the pool and the burnt objects leave scorch marks', () => {
+      const problems = [], m = brawlOn('pit', {}), [a, b] = m.fighters, barrel = hazardOf(m, 'fire', 0), speaker = Arena.objects.find((o) => o.id === 'speaker'), bar = Arena.objects.find((o) => o.id === 'bar');
+      self.stand(a, barrel.tx + 1.0, barrel.tz, barrel.tx, barrel.tz); self.stand(b, barrel.tx + 4, barrel.tz + 4, a.x, a.z);
+      m.hazardArm(barrel, a, 'strike');
+      let litAt = 0, barAt = 0, mid = null;
+      for (let t = 1; t <= 700; t++) {
+        m.step();
+        if (!litAt && speaker.fire > 0) litAt = m.tick;
+        if (!barAt && bar.fire > 0) barAt = m.tick;
+        if (litAt && !mid && m.tick === litAt + 200) mid = [speaker.fire, speaker.hp / speaker.maxHp];
+      }
+      if (litAt < 30 || litAt > 70) problems.push('lit at ' + litAt);
+      if (!mid || mid[0] !== MATERIALS.wood.burn - 200 || Math.abs(mid[1] - mid[0] / MATERIALS.wood.burn) > 0.01) problems.push('burn ' + mid);
+      if (!barAt || barAt % FIRE_SPREAD_TICKS !== 0 || barAt <= litAt) problems.push('spread at ' + barAt);
+      if (!speaker.destroyed || !bar.destroyed || speaker.color !== '#2a2420' || m.hazards.some((h) => h.type === 'blaze')) problems.push('not burnt out: ' + speaker.destroyed + bar.destroyed + speaker.color);
+      if (Arena.marks.filter((k) => k.kind === 'scorch').length < 3) problems.push('scorch marks ' + Arena.marks.map((k) => k.kind));
+      m.dispose();
+      ARENAS.testBurn = { id: 'testBurn', name: 'Test', blurb: '', bounds: { x: 9, z: 6 }, spawn: 2.4, camera: ARENAS.warehouse.camera, env: ARENAS.warehouse.env, audio: ARENAS.warehouse.audio, objects: [0, 1, 2, 3, 4, 5].map((i) => ({ id: 'c' + i, type: 'box', look: 'crate', mat: 'wood', x: -2.25 + i * 0.9, z: 0, hx: 0.3, hz: 0.3, h: 0.6 })), items: [], hazards: [] };
+      try {
+        const s = brawlOn('testBurn', {}), crates = Arena.objects, order = [];
+        self.stand(s.fighters[0], -7, 4, 0, 0); self.stand(s.fighters[1], 7, 4, 0, 0);
+        s.ignite(crates[0]);
+        let peak = 0, at300 = '';
+        for (let t = 1; t <= 2600; t++) {
+          s.step();
+          peak = Math.max(peak, crates.filter((o) => o.fire > 0).length);
+          crates.forEach((o, i) => { if (o.fire > 0 && !order.includes(i)) order.push(i); });
+          if (t === 300) at300 = crates.map((o) => (o.fire > 0 ? 1 : 0)).join('');
+        }
+        if (peak !== FIRE_MAX || at300 !== '111100' || order.join() !== '0,1,2,3,4,5' || !crates.every((o) => o.destroyed)) problems.push('cap: peak ' + peak + ' at 300 ' + at300 + ' order ' + order + ' destroyed ' + crates.filter((o) => o.destroyed).length);
+      } finally { delete ARENAS.testBurn; }
+      const sub = brawlOn('dojo', {}), panel = hazardOf(sub, 'panel'), binC = Arena.objects.find((o) => o.id === 'binC'), binB = Arena.objects.find((o) => o.id === 'vending');
+      sub.hazardArm(panel, null, 'timer');
+      self.run(sub, 50);   // before the first spread (tick 60): only the plastic the arc lit burns
+      if (!(binC.fire > 0) || binB.fire || Arena.objects.some((o) => !MATERIALS[o.mat].spark && o.fire)) problems.push('arc: binC ' + binC.fire + ' binB ' + binB.fire);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Rules R4 (P9-02): a burning fighter takes 2 every 20 ticks until 40 ticks after the last touch of a fire zone, a knockdown puts it out, an extinguisher puts out fighters, objects and a spilled barrel, and a burning fighter never lights an object', () => {
+      const problems = [], m = brawlOn('pit', {}), [a, b] = m.fighters;
+      self.stand(a, 0, 0, 3, 0); self.stand(b, 5, 3, 0, 0);
+      const zone = m.newHazard('blaze', 0, 0, { hx: 1, hz: 1, life: 5000 }); zone.state = 'active'; m.hazards.push(zone);
+      self.run(m, 5);
+      if (a.burn !== 0) problems.push('a brief touch set it alight');
+      self.run(m, FIRE_STAY_TICKS);
+      if (a.burn < BURN_TICKS - 1) problems.push('not alight after the stay ' + a.burn);
+      self.stand(a, 3, 0, 4, 0);
+      const hp = a.hp;
+      self.run(m, BURN_TICKS + 5);
+      const taken = Math.max(1, Math.round(BURN_DMG * a.stats.taken * 10) / 10), lost = hp - a.hp;
+      if (a.burn !== 0 || !(lost > taken * 0.9) || lost > taken * 2 + 0.01) problems.push('burn damage ' + lost.toFixed(2) + ' per hit ' + taken);
+      a.burn = BURN_TICKS; Events.emit('knockdown', { f: a });
+      if (a.burn !== 0) problems.push('a knockdown did not put it out');
+      const close = brawlOn('pit', {}), [c] = close.fighters, wood = Arena.objects.find((o) => o.id === 'crateP'), lit = Arena.objects.find((o) => o.id === 'speaker'), barrel = hazardOf(close, 'fire', 0);
+      self.stand(c, wood.x, wood.z + 0.8, wood.x, wood.z);
+      for (let t = 0; t < 200; t++) { c.burn = BURN_TICKS; close.step(); }
+      if (Arena.objects.some((o) => o.fire > 0)) problems.push('a burning fighter lit an object');
+      close.ignite(lit);
+      c.item = { id: 'extinguisher', dur: 4, sprays: 3 };
+      self.stand(c, lit.x + 1.0, lit.z, lit.x, lit.z); c.burn = BURN_TICKS;
+      close.spray(c);
+      self.run(close, 3);
+      if (lit.fire !== 0 || c.burn > 2 || close.hazards.some((h) => h.type === 'blaze')) problems.push('spray: ' + lit.fire + ' ' + c.burn);
+      close.hazardArm(barrel, null, 'timer'); self.run(close, 20);
+      self.stand(c, barrel.x + 1.5, barrel.z, barrel.x, barrel.z);
+      close.spray(c);
+      if (barrel.state !== 'spent') problems.push('the spilled barrel burns on: ' + barrel.state);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Rules R4 (P9-02, balance): a brief touch of a barrel pool costs 4 as before (the burn needs a 20-tick stay, and inside the zone its own hits count), the one who tipped the barrel is credited for the burning and gets the knock-out', () => {
+      const problems = [], m = brawlOn('pit', {}), [a, b] = m.fighters, barrel = hazardOf(m, 'fire', 0);
+      self.stand(a, barrel.tx + 1.0, barrel.tz, barrel.tx, barrel.tz); self.stand(b, barrel.tx + 3, barrel.tz + 3, a.x, a.z);
+      m.hazardArm(barrel, a, 'strike');
+      self.run(m, 20);
+      self.stand(b, barrel.x, barrel.z, a.x, a.z);
+      const hp = b.hp;
+      self.run(m, 8);
+      self.stand(b, barrel.x + 3, barrel.z + 3, a.x, a.z);
+      self.run(m, 150);
+      const hit = Math.max(1, Math.round(4 * b.stats.taken * 10) / 10);
+      if (hp - b.hp > hit + 0.01 || b.burn !== 0) problems.push('a brief touch cost ' + (hp - b.hp).toFixed(1) + ' (one hit is ' + hit + ') burn ' + b.burn);
+      m.dispose();
+      const k = brawlOn('pit', {}), [c, d] = k.fighters, pool = hazardOf(k, 'fire', 0), ko = self.capture(['ko']);
+      self.stand(c, pool.tx + 1.0, pool.tz, pool.tx, pool.tz); self.stand(d, pool.tx + 3, pool.tz + 3, c.x, c.z);
+      k.hazardArm(pool, c, 'strike');
+      self.run(k, 20);
+      self.stand(d, pool.x, pool.z, c.x, c.z);
+      self.run(k, FIRE_STAY_TICKS + 2);
+      if (d.burnBy !== c || !(d.burn > 0)) problems.push('not credited: ' + (d.burnBy && d.burnBy.index) + ' burn ' + d.burn);
+      self.stand(d, pool.x + 3, pool.z + 3, c.x, c.z);
+      d.hp = 1; d.burn = BURN_TICKS;
+      self.run(k, 30);
+      ko.stop();
+      if (d.alive || !ko.ko.length || ko.ko[0].att !== c) problems.push('the knock-out of the burning went to ' + (ko.ko[0] && ko.ko[0].att && ko.ko[0].att.index));
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose. */
+    const HAZARD_1V1 = [
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '88:1nnrusx' },
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '98:10uac8e' },
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '90:15u7jdp' },
+    ];
+    test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
+      const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
+      return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
+    });
+    test('Rules R5 to R7 (P9-02): thrown things, supports and falls, and weight are the rules of P7-05 and P8-04, each with its one function (checked by the tests of those tasks); a CPU brings its weight onto a weak deck and breaks it', () => {
+      const m = brawlOn('warehouse', { enemies: 3 }), dock = Arena.objects.find((o) => o.id === 'dock'), [a, ...cpus] = m.fighters;
+      cpus.forEach((c, i) => { m.controllers[i + 1] = new AIController(c.profile, 'hard'); c.x = c.prevX = dock.x + 3 + i; c.z = c.prevZ = dock.z - 2; });
+      onDeck(a, dock);
+      let creak = -1;
+      for (let t = 0; t < 1800 && !dock.destroyed; t++) { a.hp = a.maxHp = 5000; m.step(); if (creak < 0 && dock.creak > 0) creak = t; }
+      return dock.destroyed && creak > 0 ? true : 'creak ' + creak + ' destroyed ' + dock.destroyed;
+    });
+    test('Rules R8 (P9-02): bystanders (the bobbing silhouettes of the Pit and the Club) lean away from a break, a knockdown or a hazard within 3 m for 2 s and hop at a knock-out, far ones stay, no random number is drawn and the simulation is the same with or without them; a hit car flashes its lamps', () => {
+      const problems = [], real = Math.random;
+      const m = brawlOn('pit', {}), [a, b] = m.fighters, crowd = Arena.props.filter((p) => p.ph !== undefined);
+      const ex = crowd[0].x, ez = crowd[0].z + 1;
+      Math.random = () => { throw new Error('a random number was drawn'); };
+      try { Crowd.react(ex, ez, 'lean'); } finally { Math.random = real; }
+      const near = crowd.filter((p) => Math.hypot(p.x - ex, p.z - ez) < CROWD_RANGE), far = crowd.filter((p) => Math.hypot(p.x - ex, p.z - ez) >= CROWD_RANGE);
+      if (!near.length || !far.length || near.some((p) => !(p.lean > 0)) || far.some((p) => p.lean > 0)) problems.push('lean ' + near.length + '/' + far.length);
+      const p0 = near[0];
+      if (Math.abs(Math.hypot(p0.lx, p0.lz) - 1) > 1e-6 || p0.lx * (p0.x - ex) + p0.lz * (p0.z - ez) < 0) problems.push('not away');
+      const xs = () => { const out = []; const put = R.put; R.put = function (layer, mesh, x) { out.push(x); }; try { Arena.draw(); Arena.draw(); } finally { R.put = put; } return out.join(); };
+      Crowd.update(0.5);
+      const leaning = xs();
+      Crowd.update(CROWD_RANGE); Crowd.update(CROWD_RANGE);
+      if (crowd.some((p) => p.lean > 0) || xs() === leaning) problems.push('the lean did not end');
+      Events.emit('objBreak', { obj: Arena.objects[0], mat: 'wood', x: ex, y: 1, z: ez, by: undefined });
+      if (!near.every((p) => p.lean > 0)) problems.push('objBreak');
+      Crowd.update(5); Events.emit('knockdown', { f: Object.assign(Object.create(a), { x: ex, z: ez }) });
+      if (!near.every((p) => p.lean > 0)) problems.push('knockdown');
+      Crowd.update(5); b.hp = 0; Combat.knockOut(b, a, null, m);
+      if (!crowd.every((p) => p.cheer > 0)) problems.push('no cheer at the knock-out');
+      m.dispose();
+      const play = (react) => { const s = mk({ seed: 3, arenaId: 'pit' }); s.controllers[0] = new AIController(s.fighters[0].profile, 'hard'); s.controllers[1] = new AIController(s.fighters[1].profile, 'hard'); for (let t = 0; t < 400; t++) { if (react) Crowd.react(0, -5, t % 90 === 0 ? 'cheer' : 'lean'); s.step(); } const r = s.fighters.map((f) => [f.x, f.z, f.hp].join()).join('|'); s.dispose(); return r; };
+      if (play(false) !== play(true)) problems.push('the simulation changed');
+      const g = brawlOn('garage', {}), car = Arena.objects.find((o) => o.look === 'car');
+      Events.emit('objHit', { obj: car, dmg: 1, x: car.x, y: 1, z: car.z });
+      if (!(car.alarm > 3.9)) problems.push('no alarm');
+      Arena.update(1);
+      if (!(car.alarm > 2.9 && car.alarm < 3.1)) problems.push('alarm time ' + car.alarm);
+      g.dispose();
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Rules R9 (P9-02): a CPU brings down a scaffold standard on a target in its crush zone without being hit itself, tips a fire barrel over a target next to wood so that it burns, and walks off a conductor when its panel warns', () => {
+      const problems = [], c = brawlOn('construction', {}), [ca, cb] = c.fighters, std = Arena.objects.find((o) => o.id === 'scaf.s1');
+      c.controllers[1] = new AIController(cb.profile, 'hard');
+      self.stand(ca, std.x - 0.7, -3.75, std.x, std.z); self.stand(cb, std.x + 4, std.z + 3, ca.x, ca.z);
+      ca.hp = ca.maxHp = 5000;
+      for (let t = 0; t < 1800 && !std.destroyed; t++) { ca.x = ca.prevX = std.x - 0.7; ca.z = ca.prevZ = -3.75; ca.vx = ca.vz = 0; ca.hp = ca.maxHp; c.step(); }
+      if (!std.destroyed || cb.hp !== cb.maxHp) problems.push('scaffold: destroyed ' + std.destroyed + ' CPU hp ' + cb.hp);
+      c.dispose();
+      const f = brawlOn('pit', {}), [fa, fb] = f.fighters, speaker = Arena.objects.find((o) => o.id === 'speaker'), log = cpuLog(f);
+      f.controllers[1] = new AIController(fb.profile, 'hard');
+      self.stand(fa, -9.0, -0.3, -4, -0.3); self.stand(fb, -4.0, -0.6, fa.x, fa.z);
+      for (let t = 0; t < 600; t++) { fa.x = fa.prevX = -9.0; fa.z = fa.prevZ = -0.3; fa.vx = fa.vz = 0; fa.hp = fa.maxHp; f.step(); }
+      log.stop();
+      const trig = log.find((e) => e.type === 'fire');
+      if (!trig || trig.by !== 1 || trig.via !== 'strike' || !speaker.destroyed || fb.hp !== fb.maxHp) problems.push('fire: ' + JSON.stringify(trig) + ' speaker ' + speaker.destroyed + ' CPU hp ' + fb.hp);
+      f.dispose();
+      const d = brawlOn('dojo', {}), [da, db] = d.fighters, panel = hazardOf(d, 'panel'), locker = Arena.objects.find((o) => o.id === 'lockerC');
+      d.controllers[1] = new AIController(db.profile, 'hard');
+      self.stand(db, 8.95, 5.3, 8.0, 5.3); self.stand(da, 5, 1, 8.95, 5.3);
+      d.hazardArm(panel, da, 'strike');
+      self.run(d, 60);
+      const gap = Math.hypot(Math.max(Math.abs(db.x - locker.x) - locker.hx, 0), Math.max(Math.abs(db.z - locker.z) - locker.hz, 0));
+      if (db.hp !== db.maxHp || gap <= CONDUCT_TOUCH) problems.push('the CPU stayed on the conductor: hp ' + db.hp + ' gap ' + gap.toFixed(2));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P9-03: broken objects with their rubble, damage cracks and dropped items stay for the whole level (a long fight, a new round); marks are a fixed pool of MARK_MAX records, the newest few are drawn per quality preset, and the logical state is the same on every preset', () => {
+      const problems = [], m = brawlOn('pit', { items: true }), [a, b] = m.fighters, find = (id) => Arena.objects.find((o) => o.id === id);
+      const crate = find('crateP'), barrier = find('barrierA');
+      Arena.breakObject(crate, 1, 0, 0);
+      Arena.damageObject(barrier, 40, 'heavy', 5001, 1, 0, barrier.x, 0.5, barrier.z, 0);
+      const stage = barrier.stage, hp = barrier.hp, cracks = barrier.cracks.filter((k) => k.minStage <= barrier.stage).length;
+      const loose = m.placeItem('bat', 0, 4.4, 0);
+      self.stand(a, -6, 4, 0, 0); self.stand(b, 6, 4, 0, 0);
+      self.run(m, 2400);
+      const still = () => crate.destroyed && crate.rubble && crate.rubble.active && barrier.stage === stage && barrier.hp === hp && barrier.cracks.filter((k) => k.minStage <= barrier.stage).length === cracks && m.items.includes(loose) && loose.mode === 'rest' && loose.x === 0 && loose.z === 4.4;
+      if (!still() || !(cracks > 0)) problems.push('state lost after 40 s');
+      m.startRound();
+      if (!crate.destroyed || !crate.rubble.active || barrier.hp !== hp) problems.push('a new round restored the level');
+      for (let i = 0; i < 1000; i++) Arena.mark(i % 3 ? 'scorch' : 'dust', (i % 20) * 0.5 - 5, (i % 7) - 3, 0.4, 0.4);
+      if (Arena.marks.length !== MARK_MAX || new Set(Arena.marks).size !== MARK_MAX) problems.push('pool ' + Arena.marks.length);
+      const keepQuality = Settings.v.quality, snapshot = JSON.stringify(Arena.marks.map((k) => [k.kind, k.x, k.z])), drawn = {};
+      const puts = () => { Arena.lodTick = 1; let n = 0; const put = R.put; R.put = function () { n++; }; try { Arena.draw(); Arena.draw(); } finally { R.put = put; } return n; };
+      puts();
+      try {
+        for (const name in QUALITY_PRESETS) {
+          Settings.v.quality = name; Quality.apply(); Arena.updateLod();   // the limits the game really uses, and the draw detail they give
+          const marks = Arena.marks.slice(); const withMarks = puts(); Arena.marks.length = 0; const without = puts(); Arena.marks.push(...marks);
+          drawn[name] = (withMarks - without) / 2;
+          if (drawn[name] !== Math.min(MARK_MAX, QUALITY_PRESETS[name].marks) || JSON.stringify(Arena.marks.map((k) => [k.kind, k.x, k.z])) !== snapshot) problems.push(name + ' draws ' + drawn[name]);
+        }
+      } finally { Settings.v.quality = keepQuality; Quality.apply(); }
+      if (!(drawn.low < drawn.medium && drawn.medium < drawn.high)) problems.push('budget ' + JSON.stringify(drawn));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Theme (P9-04): nothing of the P1-07 list is left - plain titles and name ideas (positions kept), no accent glow in the creator or on any cloth, block / clinch / escape effects are white flashes without rings or cyan, ZERO has a normal skin tone, and a code with the glow slot still reads', () => {
+      const problems = [], banned = /phoenix|specter|spectre|titan|ghost|nova|xenon|volt|umbra|halo|orion|zephyr|ember|echo|onyx|raven/i;
+      for (const word of TITLES.concat(NAME_IDEAS)) if (banned.test(word)) problems.push('word ' + word);
+      if (TITLES.length !== 16 || NAME_IDEAS.length !== 29 || TITLES[6] !== 'The Veteran' || TITLES[12] !== 'The Bruiser' || TITLES[15] !== 'The Closer' || TITLES[3] !== 'The Storm') problems.push('positions');
+      if (ROSTER_BY_ID.yuki.title === 'The Ghost' || !SKIN_SWATCHES.includes(ROSTER_BY_ID.zero.look.skin)) problems.push('roster');
+      const f = itemFighter(itemBodies[0], {});
+      for (const look of [{ mask: 'full', belt: 'sash', glow: 'on' }, { mask: 'half', belt: 'belt', glow: 'on', headband: LOOK_CHOICES.headband.options[1] }]) {
+        f.applyLook(Object.assign({}, f.look, look));
+        if (drawnParts(f).some(([em]) => em)) problems.push('emission ' + JSON.stringify(look));
+      }
+      const keep = { draft: CreatorUI.draft };
+      try { CreatorUI.draft = defaultCustom(0); if (CreatorUI.tab_outfit().includes('glow')) problems.push('glow row'); } finally { CreatorUI.draft = keep.draft; }
+      for (let seed = 1; seed <= 200; seed++) if (randomCustom(seed).look.glow !== 'off') { problems.push('random glow ' + seed); break; }
+      const old = defaultCustom(0); old.look.glow = 'on';
+      if (!validateCustom(old).ok || validateCustom(old).value.look.glow !== 'on') problems.push('old glow slot');
+      const man = { att: ROSTER_BY_ID.kai, def: Object.assign(Object.create(f), { y: 0 }), mv: ATTACKS.jab, x: 0, y: 1, z: 0, dirx: 1, dirz: 0 };
+      for (const [name, extra] of [['block', {}], ['block', { perfect: true }], ['block', { sway: true, perfect: true }], ['clinch', {}], ['escape', {}], ['submission', {}], ['submissionEscape', {}], ['tackle', { result: 'blocked', def: man.def }]]) {
+        FX.clear();
+        Events.emit(name, Object.assign({}, man, extra));
+        const live = FX.p.filter((q) => q.on);
+        if (live.some((q) => q.kind === 2 || q.col[2] - q.col[0] > 0.3)) problems.push(name + ' makes a ring or a cyan particle');
+      }
+      FX.clear();
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Levels: on every real arena a CPU goes up to a target on each deck and ledge, comes down for a target on the floor or on another raised footing, each change of level inside the tick limit', () => {
       const problems = [], LEG_LIMIT = 700;   // a walk of up to 20 m (18 m of floor is 500 ticks) and a stair; a stop on every step would add 900 ticks
