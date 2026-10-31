@@ -59,6 +59,9 @@ h3{font-size:1em;letter-spacing:.12em;margin:.8em 0 .3em;color:var(--cy);text-tr
 .bar i{display:block;height:100%;background:var(--cy)}
 .lbl{display:flex;justify-content:space-between;font-size:.8em;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
 label.f{display:flex;justify-content:space-between;align-items:center;gap:1em;padding:.35em 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.teamrow{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1em;padding:.45em 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.teamrow .who{min-width:9em}.teamrow label{display:inline-flex;align-items:center;gap:.4em;color:var(--dim)}.teamrow select{max-width:none}
+.sw{display:inline-block;width:1.1em;height:1.1em;border:1px solid rgba(255,255,255,.5);vertical-align:-.2em}
 select,input[type=range],input[type=number]{font:inherit;color:var(--txt);background:#0d1620;border:1px solid var(--line);padding:.3em .4em;max-width:55%}
 input[type=range]{padding:0;width:12em}
 table{border-collapse:collapse;width:100%;font-size:.92em}
@@ -1154,6 +1157,7 @@ const SETTING_SCHEMA = {
   flightAssist: ['bool', true], quality: ['enum', ['low', 'medium', 'high'], 'medium'], fov: ['num', 55, 95, 72],
   showFps: ['bool', false], tutorialMech: ['bool', false], tutorialGround: ['bool', false], tutorialAir: ['bool', false], difficulty: ['enum', ['recruit', 'veteran', 'elite'], 'veteran'],
   highContrast: ['bool', false], autoTarget: ['bool', true], aimAssist: ['bool', true],
+  colourVision: ['enum', ['normal', 'protanopia', 'deuteranopia', 'tritanopia'], 'normal'],   // the colour vision the default team colours are picked for (P7-03: TEAM_VISIONS)
   lives: ['enum', ['1', '3', '5', '10', '20', 'unlimited'], '5'],   // platforms per mission (skirmish sets its own)
   homeHintSeen: ['bool', false],   // the iPhone "Add to Home Screen for full screen" tip was shown once
   onFoot: ['enum', ['infantry', 'civilian'], 'infantry'],   // who steps out of a vehicle (ON_FOOT)
@@ -3073,6 +3077,65 @@ const FX = {
    ===================================================================== */
 let W = null; // the live world (null in menus)
 
+/* P7-03  team colours. Each fighting team has a palette colour: the model accent (rgb, 0..1: stripes, plates, beacons, domes) and the HUD colour (css:
+   radar dots, markers, the kill feed). The palette has six colours, chosen so that every pair stays apart (Lab distance, CIE76) for normal vision and for
+   protanopia, deuteranopia and tritanopia (Machado 2009 matrices, full severity): the least gap of any pair under any of the four is TEAM_PALETTE_GAP.
+   Cyan and orange are the colours teams 0 and 1 always had (the model accents of the old table), and a two-team battle with the default colours keeps the
+   HUD's own friend blue and hostile red too (Teams.plain, HUD.teamCol), so it looks as it did. A team that no colour is set for (the neutral side, a bad id) shows the neutral entry. */
+const TEAM_PALETTE = Object.freeze([
+  Object.freeze({ id: 'cyan', name: 'Cyan', rgb: Object.freeze([0.2, 0.85, 1.0]), css: '#33d9ff' }),
+  Object.freeze({ id: 'orange', name: 'Orange', rgb: Object.freeze([1.0, 0.32, 0.14]), css: '#ff5224' }),
+  Object.freeze({ id: 'violet', name: 'Violet', rgb: Object.freeze([0.55, 0.45, 1.0]), css: '#8c73ff' }),
+  Object.freeze({ id: 'green', name: 'Green', rgb: Object.freeze([0.35, 0.65, 0.45]), css: '#59a673' }),
+  Object.freeze({ id: 'pink', name: 'Pink', rgb: Object.freeze([0.75, 0.45, 0.65]), css: '#bf73a6' }),
+  Object.freeze({ id: 'lime', name: 'Lime', rgb: Object.freeze([0.7, 0.95, 0.5]), css: '#b3f280' }),
+]);
+const TEAM_NEUTRAL_COLOUR = Object.freeze({ id: 'neutral', name: 'Neutral', rgb: Object.freeze([1, 0.85, 0.2]), css: '#cdd6e0' });
+const TEAM_VISIONS = Object.freeze(['normal', 'protanopia', 'deuteranopia', 'tritanopia']);
+const TEAM_VISION_NAMES = Object.freeze({ normal: 'Normal', protanopia: 'Protanopia (no red)', deuteranopia: 'Deuteranopia (no green)', tritanopia: 'Tritanopia (no blue)' });
+const CVD_MATRICES = Object.freeze({   // linear sRGB as seen with the vision (Machado, Oliveira, Fernandes 2009, severity 1)
+  protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+  deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
+  tritanopia: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.303900]],
+});
+const TEAM_GAP_CLOSE = 30;   // two team colours less than this far apart (Lab) under the viewer's vision are called alike by the setup screen (25 is plain at a glance)
+const TEAM_LABS = {};        // palette index -> vision -> [L, a, b]
+/* [L, a, b] of the sRGB colour rgb (0..1) as seen with the vision */
+function colourLab(rgb, vision) {
+  const lin = rgb.map((c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+  const m = CVD_MATRICES[vision];
+  const l = m ? m.map((row) => Math.min(1, Math.max(0, row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2]))) : lin;
+  const x = 0.4124564 * l[0] + 0.3575761 * l[1] + 0.1804375 * l[2], y = 0.2126729 * l[0] + 0.7151522 * l[1] + 0.0721750 * l[2], z = 0.0193339 * l[0] + 0.1191920 * l[1] + 0.9503041 * l[2];
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const fx = f(x / 0.95047), fy = f(y), fz = f(z / 1.08883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+/* how far apart palette colours i and j look with the vision (CIE76 Lab distance; 2.3 is a just noticeable difference, 25 is plain at a glance) */
+function teamColourGap(i, j, vision) {
+  const lab = (k) => { const row = TEAM_LABS[k] || (TEAM_LABS[k] = {}); return row[vision] || (row[vision] = colourLab(TEAM_PALETTE[k].rgb, vision)); };
+  const a = lab(i), b = lab(j);
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+/* the least gap between any two of the palette indexes in list, under the vision */
+function teamLeastGap(list, vision) {
+  let least = Infinity;
+  for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) least = Math.min(least, teamColourGap(list[a], list[b], vision));
+  return least;
+}
+const TEAM_DEFAULTS = {};   // vision -> the palette indexes of teams 0, 1, 3, 4 (see teamDefaultColours)
+/* the colours a battle gets when none were picked: teams 0 and 1 keep cyan and orange, teams 3 and 4 take the two other colours that keep all four farthest apart under the vision */
+function teamDefaultColours(vision) {
+  const key = TEAM_VISIONS.indexOf(vision) >= 0 ? vision : 'normal';
+  if (TEAM_DEFAULTS[key]) return TEAM_DEFAULTS[key];
+  let best = null, bestGap = -1;
+  for (let a = 2; a < TEAM_PALETTE.length; a++) for (let b = a + 1; b < TEAM_PALETTE.length; b++) {
+    const gap = teamLeastGap([0, 1, a, b], key);
+    if (gap > bestGap + 1e-9) { bestGap = gap; best = [0, 1, a, b]; }
+  }
+  return (TEAM_DEFAULTS[key] = Object.freeze(best));
+}
+const TEAM_PALETTE_GAP = Math.min(...(() => { const out = []; for (const v of TEAM_VISIONS) for (let a = 0; a < TEAM_PALETTE.length; a++) for (let b = a + 1; b < TEAM_PALETTE.length; b++) out.push(teamColourGap(a, b, v)); return out; })());   // the least gap of any two palette colours under any of the four visions
+
 /* P7-01  teams and alliances. A team id says whom a unit belongs to: 0 the player's side, 1 the main enemy, 2 neutral (civilians,
    civilian vehicles, scenery), 3 and 4 the extra fighting teams. Who fights whom is the alliance table, not the id: a team is
    always allied with itself, any other pair is hostile unless the table says allied, and neutral is nobody's target.
@@ -3080,7 +3143,9 @@ let W = null; // the live world (null in menus)
      allied(a, b)   a and b are on one side (same team or allied): no friendly-fire damage, no score, shared sight
      hostile(a, b)  b is a fair target for a: not allied, not neutral
      isNeutral(t)   civilians and the like; humanSide(t) / aiSide(t)  the side the players are on / a side the computer plays
-   P7-04 and P7-05 set the table (Teams.configure); every battle starts from the default (0 against 1, nobody else). */
+   Teams.configure(allied, humans, colours, count) sets the table, the sides the players are on, the team colours (P7-03) and the number of teams: the skirmish
+   setup does it (P7-04), a co-op guest takes the host's (Teams.fromWire, P7-03), P7-05 names the players' teams; every battle starts from the default (0 against
+   1, nobody else, cyan and orange). */
 const Teams = (() => {
   const MAX = 5, NEUTRAL = 2, PLAYER = 0;   // team ids 0 to 4
   const ALLY = new Uint8Array(64), FOE = new Uint8Array(64), NEUT = new Uint8Array(8), HUMAN = new Uint8Array(8), AI = new Uint8Array(8);   // index (a << 3) | b
@@ -3088,6 +3153,9 @@ const Teams = (() => {
   const FIGHTING = Object.freeze([0, 1, 3, 4]);   // the ids a fighting team can have, in the order a battle of 2, 3 or 4 teams takes them
   const BY_COUNT = [null, null, Object.freeze([0, 1]), Object.freeze([0, 1, 3]), FIGHTING];
   let humanTeams = [PLAYER];
+  const COLOUR = new Int8Array(8).fill(-1);   // palette index of each team id; -1: the neutral entry
+  let teamCount = 2;   // fighting teams in the battle (2 to 4)
+  const visionNow = () => (S && TEAM_VISIONS.indexOf(S.colourVision) >= 0 ? S.colourVision : 'normal');
   const inTable = (a, b) => (a | 0) === a && (b | 0) === b && ((a | b) >>> 3) === 0;   // both whole numbers from 0 to 7: anything else (undefined, null, NaN, 1.5, a string) is nobody's friend or foe
   const rebuild = () => {
     ALLY.fill(0); FOE.fill(0); NEUT.fill(0); NEUT[NEUTRAL] = 1;
@@ -3097,7 +3165,7 @@ const Teams = (() => {
   const setSides = (humans) => { humanTeams = humans.slice(); HUMAN.fill(0); AI.fill(0); for (let t = 0; t < MAX; t++) { if (t === NEUTRAL) continue; if (humans.indexOf(t) >= 0) HUMAN[t] = 1; else AI[t] = 1; } };
   const T = {
     MAX, NEUTRAL, PLAYER, FIGHTING,
-    allied(a, b) { return a === b || (inTable(a, b) && ALLY[(a << 3) | b] === 1); },
+    allied(a, b) { return inTable(a, b) && (a === b || ALLY[(a << 3) | b] === 1); },   // (an id that is not a whole number from 0 to 7 is nobody's friend, not even its own twin)
     hostile(a, b) { return inTable(a, b) && FOE[(a << 3) | b] === 1; },
     /* the ids of a battle of n teams (2 to 4): the first n of FIGHTING; a shared list, not to be changed */
     forCount(n) { return BY_COUNT[n >= 4 ? 4 : n === 3 ? 3 : 2]; },
@@ -3112,13 +3180,61 @@ const Teams = (() => {
     id(t) { return Number.isInteger(t) && t >= 0 && t < MAX ? t : NEUTRAL; },   // a team id off the wire: anything unknown is neutral
     /* the table as [[a, b], ...] allied pairs (copy), and the teams the players are on */
     alliances() { return pairs.map((p) => p.slice()); },
-    /* set the table: allied = [[a, b], ...] between fighting teams, humans = the teams players are on (default [0]) */
-    configure(allied, humans) {
+    /* set the table: allied = [[a, b], ...] between fighting teams, humans = the teams players are on (default [0]), colours = the palette indexes of
+       the battle's teams in the order of their ids (see cleanColours; default: the defaults of the viewer's colour vision), count = how many teams fight (2 to 4) */
+    configure(allied, humans, colours, count) {
       pairs.length = 0;
       for (const [x, y] of allied || []) if (T.fighting(x) && T.fighting(y) && x !== y && !pairs.some((q) => q[0] === Math.min(x, y) && q[1] === Math.max(x, y))) pairs.push([Math.min(x, y), Math.max(x, y)]);
       rebuild(); setSides(humans || [PLAYER]);
+      teamCount = count >= 4 ? 4 : count === 3 ? 3 : 2;
+      T.setColours(colours);
     },
     reset() { T.configure([], [PLAYER]); },
+    /* ----- P7-03 colours ----- */
+    palette: TEAM_PALETTE,
+    count() { return teamCount; },
+    /* the ids of the teams in the battle */
+    active() { return BY_COUNT[teamCount]; },
+    /* four palette indexes for teams 0, 1, 3, 4 from whatever came in (a saved setup, a peer): a missing, unknown or repeated colour is replaced by the first
+       of the defaults (then of the palette) that no other team has; always four different valid indexes */
+    cleanColours(list, vision) {
+      const def = teamDefaultColours(vision || visionNow()), out = [], used = new Set();
+      for (let i = 0; i < FIGHTING.length; i++) {
+        const c = Array.isArray(list) ? list[i] : undefined;
+        if (Number.isInteger(c) && c >= 0 && c < TEAM_PALETTE.length && !used.has(c)) { out.push(c); used.add(c); } else out.push(-1);
+      }
+      for (let i = 0; i < out.length; i++) {
+        if (out[i] >= 0) continue;
+        let c = def.find((d) => !used.has(d));
+        if (c === undefined) c = TEAM_PALETTE.findIndex((_, k) => !used.has(k));
+        out[i] = c; used.add(c);
+      }
+      return out;
+    },
+    /* set the colours of teams 0, 1, 3, 4 (cleaned) */
+    setColours(list) {
+      const c = T.cleanColours(list);
+      COLOUR.fill(-1);
+      FIGHTING.forEach((id, i) => { COLOUR[id] = c[i]; });
+    },
+    /* the palette indexes of teams 0, 1, 3, 4 now (a copy) */
+    colours() { return FIGHTING.map((id) => COLOUR[id]); },
+    colourIndex(t) { return T.fighting(t) ? COLOUR[t] : -1; },
+    colour(t) { const i = (t | 0) === t && t >= 0 && t < 8 ? COLOUR[t] : -1; return i >= 0 ? TEAM_PALETTE[i] : TEAM_NEUTRAL_COLOUR; },
+    accent(t) { return T.colour(t).rgb; },   // the model accent of a team (a shared array, not to be changed)
+    css(t) { return T.colour(t).css; },
+    colourName(t) { return T.colour(t).name; },
+    /* the table of the battle for the wire (NET_VERSION 22): { a: allied pairs, c: colours of teams 0, 1, 3, 4, n: number of teams } */
+    toWire() { return { a: pairs.map((q) => q.slice()), c: T.colours(), n: teamCount }; },
+    /* a guest takes the host's table off the wire: only pairs of fighting teams, only palette colours (whatever else is dropped for the defaults), 2 to 4 teams; the
+       guest's own side is team 0 */
+    fromWire(w) {
+      const ok = w && typeof w === 'object';
+      const a = ok && Array.isArray(w.a) ? w.a.slice(0, 6).filter((q) => Array.isArray(q) && q.length === 2) : [];
+      T.configure(a, [PLAYER], ok && Array.isArray(w.c) ? w.c.slice(0, FIGHTING.length) : null, ok && Number.isInteger(w.n) ? w.n : 2);
+    },
+    /* a battle that looks as it did before P7-03: two teams, at war, with the default cyan and orange (the HUD then keeps its blue friend and red hostile) */
+    plain() { return teamCount === 2 && pairs.length === 0 && COLOUR[0] === 0 && COLOUR[1] === 1; },
   };
   T.reset();
   return T;
@@ -4929,7 +5045,7 @@ function spawnGibs(src, kind) {
 /* loose hull plates in the platform's colours and team accent, with sparks */
 function gibPlates(src, n, sp) {
   const r = src.radius, col = src.def.col, cy = src.kind === 'air' ? 0 : src.height * rand(0.3, 0.8);
-  const team = TEAM_ACCENT[src.team] || TEAM_ACCENT[2];
+  const team = Teams.accent(src.team);
   for (let i = 0; i < n; i++) {
     const c = i % 3 === 2 ? team : i % 2 ? col.dark : col.main;
     gibPart(src, rand(-1, 1) * r * 0.6, cy, rand(-1, 1) * r * 0.6, r * rand(0.2, 0.4), 0.12 + r * 0.03, r * rand(0.15, 0.35), c, 'box', 0, sp);
@@ -4937,7 +5053,7 @@ function gibPlates(src, n, sp) {
   fxSparks(src.x, src.y + cy, src.z, 6, GIB_SPARK_COL, 12);
 }
 function gibAircraft(src, sp) {
-  const r = src.radius, col = src.def.col, team = TEAM_ACCENT[src.team] || TEAM_ACCENT[2];
+  const r = src.radius, col = src.def.col, team = Teams.accent(src.team);
   gibPart(src, r * 0.6, 0, 0, r * 0.9, 0.18, r * 0.4, col.main, 'box', GIB_SMOKE, sp);           // wings
   gibPart(src, -r * 0.6, 0, 0, r * 0.9, 0.18, r * 0.4, col.main, 'box', 0, sp);
   gibPart(src, 0, 0.3, -r * 0.7, 0.2, r * 0.4, r * 0.35, team, 'wedge', 0, sp);                  // tail fin
@@ -5410,7 +5526,7 @@ function drawStruct(s, bake) {
         }
         if (s.type === 'depot') { st.push().t(0, h * 0.5, s.d * 0.51).s(s.w * 0.3, h * 0.5, 0.2); R.draw('box', 0.9, 0.7, 0.15, 1, 0.1, 0); st.pop(); }
         if (s.type === 'silo') {   // two door leaves in a hazard-striped frame on the roof (BaseDef draws the glow while they are open); a team stripe round the wall
-          const tc = Teams.humanSide(s.team) ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
+          const tc = Teams.accent(s.team);
           st.push().t(0, h * 1.04, 0).s(s.w * 0.8, 0.3, s.d * 0.8); R.draw('box', 0.9, 0.7, 0.1, 1, 0.1, 0); st.pop();
           for (const k of [-1, 1]) { st.push().t(k * s.w * 0.19, h * 1.1, 0).s(s.w * 0.36, 0.3, s.d * 0.7); R.draw('box', 0.14, 0.15, 0.16, 1, 0, 0.5); st.pop(); }
           st.push().t(0, h * 0.8, 0).s(s.w * 1.02, h * 0.1, s.d * 1.02); R.draw('box', tc[0], tc[1], tc[2], 1, 0.6, 0); st.pop();
@@ -5439,9 +5555,9 @@ function drawStruct(s, bake) {
   }
 }
 
-/* roof works of a skirmish command center: a raised block, a radar mast and a beacon in its team's colour (blue ours, red theirs) */
+/* roof works of a skirmish command center: a raised block, a radar mast and a beacon in its team's colour */
 function drawCommandTop(s, h, c) {
-  const st = R.stack, bc = Teams.humanSide(s.team) ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
+  const st = R.stack, bc = Teams.accent(s.team);
   st.push().t(s.w * 0.2, h * 1.15, 0).s(s.w * 0.35, h * 0.25, s.d * 0.5); R.draw('box', c[0] * 0.85, c[1] * 0.85, c[2] * 0.85); st.pop();
   st.push().t(-s.w * 0.3, h * 1.5, 0).s(0.6, h, 0.6); R.draw('box', 0.5, 0.52, 0.55, 1, 0, 0.5); st.pop();
   st.push().t(-s.w * 0.3, h * 1.75, 0).s(4, 0.3, 4); R.draw('cyl', 0.45, 0.47, 0.5, 1, 0, 0.5); st.pop();
@@ -14012,9 +14128,9 @@ const Detect = {
     return false;
   },
   list: [], count: 0, iFauna: 0, iCiv: 0, iVeh: 0,   // the contacts of the last scan: platforms first, then animals, civilians, vehicles
-  put(n, kind, x, z, big, marked) {
-    const c = this.list[n] || (this.list[n] = { kind: '', x: 0, z: 0, big: false, marked: false });
-    c.kind = kind; c.x = x; c.z = z; c.big = big; c.marked = marked;
+  put(n, kind, x, z, big, marked, team) {
+    const c = this.list[n] || (this.list[n] = { kind: '', x: 0, z: 0, big: false, marked: false, team: -1 });
+    c.kind = kind; c.x = x; c.z = z; c.big = big; c.marked = marked; c.team = Number.isInteger(team) ? team : -1;   // (the team's colour on the radar, P7-03)
     return n + 1;
   },
   /* The contacts of player p's radar disc (P5-05, P3-03), written into Detect.list[0 .. count): allies in the disc
@@ -14031,20 +14147,20 @@ const Detect = {
       const e = pl[i];
       if (e === p || e.dead) continue;
       const dx = e.x - p.x, dz = e.z - p.z, inDisc = dx * dx + dz * dz <= lim;
-      if (Teams.allied(e.team, p.team)) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false); continue; }
+      if (Teams.allied(e.team, p.team)) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false, e.team); continue; }
       const marked = e === tgt || e === lock;
       // P5-03: a ping of the team lays a camouflaged or coated unit bare at the carrier's full range; a pinging hostile is loud
       const bare = (Scan.list.length > 0 && Scan.reveals(e, p.team)) || BaseDef.isTraced(e, p.team);   // (a firer a Counter-Battery Radar traced shows too, P5-09)
       if (!marked && (!inDisc || Scan.hides(e, p.team) || (!bare && !(this.sees(e.x, e.z, Stealth.detect(e, p.team)) || Scan.loud(e, p))))) continue;   // a ping lifts the range check and the coating, never an untargetable unit (a Barrier)
       if (Teams.isNeutral(e.team)) n = this.put(n, e.kind === 'mech' ? 'civilian' : 'vehicle', e.x, e.z, false, false);   // a civilian vehicle someone took: neutral, never a target
-      else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked);
+      else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked, e.team);
     }
     if (tgt && tgt.isStruct && talive(tgt)) n = this.put(n, 'objective', tgt.x, tgt.z, true, true);   // a targeted objective structure
     else if (tgt && tgt.isProj && talive(tgt)) n = this.put(n, 'incoming', tgt.x, tgt.z, false, true);   // a targeted incoming projectile (P5-07)
     for (let i = 0, k = 0; i < W.projs.length && k < SCAN_MINE_MAX; i++) {   // hostile Spotter Drones the radar has (P5-03)
       const q = W.projs[i], dx = q.x - p.x, dz = q.z - p.z;
       if (!q.active || !q.def.drone || Teams.allied(q.team, p.team) || dx * dx + dz * dz > lim || !(this.sees(q.x, q.z) || Scan.loud(q, p))) continue;
-      n = this.put(n, 'hostile', q.x, q.z, true, q === tgt); k++;
+      n = this.put(n, 'hostile', q.x, q.z, true, q === tgt, q.team); k++;
     }
     if (Scan.list.length > 0 || W.time < Scan.marksUntil) {   // hostile mines a ping of the team found (P5-03), until their marks run out
       for (let i = 0, k = 0; i < W.projs.length && k < SCAN_MINE_MAX; i++) {
@@ -16505,7 +16621,6 @@ function resolvePairs(dt) {
 /* =====================================================================
    PROCEDURAL MODELS (articulated parts; no assets)
    ===================================================================== */
-const TEAM_ACCENT = { 0: [0.2, 0.85, 1.0], 1: [1.0, 0.32, 0.14], 2: [1, 0.85, 0.2], 3: [0.35, 0.9, 0.3], 4: [0.75, 0.4, 1.0] };
 
 function part(mesh, x, y, z, sx, sy, sz, col, emis, spec, alpha) {
   const st = R.stack;
@@ -16876,7 +16991,7 @@ function drawPlatformBody(p) {
   const cy = p.y + (p.kind === 'air' ? 0 : p.height * 0.5);
   if (!R.visible(p.x, cy, p.z, p.radius * 2 + 8)) return;
   const dist = Math.hypot(p.x - R.cam.x, p.z - R.cam.z);
-  const acc = TEAM_ACCENT[p.team] || TEAM_ACCENT[2];
+  const acc = Teams.accent(p.team);
   const flash = p.hitFlash > 0 ? 0.3 : 0;
   const dmgK = p.hp / p.maxHp < 0.3 ? 0.65 : 1;
   const coat = p.util && p.util.id === 'coating' ? LV_COATING_DARKEN : 1;   // Stealth Coating: darker paint (P6-01 rule 7)
@@ -26753,8 +26868,9 @@ const BaseDef = {
     } else if (m.k === 'd' && Array.isArray(m.a)) {
       m.a.forEach((e, i) => { const d = S.domes[i]; if (d && Array.isArray(e)) { d.pts = numIn(e[0], 0, 99999); d.up = !!e[1]; } });
     } else if (m.k === 'k' && Array.isArray(m.a)) {
-      const K = S.known[Teams.fighting(m.tm) ? m.tm : Teams.PLAYER];   // (a message without a team, from before NET_VERSION 21, is the player's side)
-      for (const i of m.a) if (Number.isInteger(i) && S.meta[i]) K.add(i);
+      const team = 'tm' in m ? m.tm : Teams.PLAYER;   // (a message without a team, from before NET_VERSION 21, is the player's side)
+      const K = Teams.fighting(team) ? S.known[team] : null;   // (a message for the neutral team, an unknown one or a team not in this battle is ignored)
+      if (K) for (const i of m.a) if (Number.isInteger(i) && S.meta[i]) K.add(i);
     } else if (m.k === 'tr') {
       S.traced = S.traced.filter((t) => t.id !== (m.id | 0));
       S.traced.push({ id: m.id | 0, team: Teams.id(m.tm), until: W.time + numIn(m.s, 0, 60), firer: null });
@@ -26786,7 +26902,7 @@ const BaseDef = {
     if (!S || !S.active || !glow) return;
     for (const d of S.domes) {
       if (!d.up || !R.visible(d.x, d.y, d.z, d.r)) continue;
-      const f = 0.045 + Math.max(0, d.flash) * 0.5, s = d.r * 2, c = Teams.humanSide(d.team) ? [0.3, 0.75, 1] : [1, 0.45, 0.3];
+      const f = 0.045 + Math.max(0, d.flash) * 0.5, s = d.r * 2, c = Teams.accent(d.team);
       SW.shape('sphere', d.x, d.y - 4, d.z, s, s * 0.9, s, c, f, 1.4);
     }
     for (const o of S.silos) {
@@ -27327,7 +27443,7 @@ const Obj = {
     return makeObjective(Object.assign({
       tick() { const alive = this.structs.filter((s) => !s.destroyed).length; this.progress = 1 - alive / this.structs.length; if (alive === 0) this.status = 'complete'; },
       text() { return this.title + ' (' + this.structs.filter((s) => s.destroyed).length + '/' + this.structs.length + ')'; },
-      markers() { return this.structs.filter((s) => !s.destroyed).map((s) => ({ x: s.x, y: s.y + s.h + 2, z: s.z, label: this.label || s.name, kind: 'target' })); },
+      markers() { return this.structs.filter((s) => !s.destroyed).map((s) => ({ x: s.x, y: s.y + s.h + 2, z: s.z, label: this.label || s.name, kind: 'target', team: s.team })); },
     }, o));
   },
   defend(o) { // keep a structure alive for a duration
@@ -27427,7 +27543,7 @@ const Obj = {
     return makeObjective(Object.assign({
       tick() { this.progress = sat(this.struct.hp / this.struct.maxHp); if (this.struct.destroyed) this.status = 'failed'; },
       text() { return this.title + ' | integrity ' + Math.round(sat(this.struct.hp / this.struct.maxHp) * 100) + '%'; },
-      markers() { const s = this.struct; return [{ x: s.x, y: s.y + s.h + 3, z: s.z, label: this.label || s.name, kind: 'defend' }]; },
+      markers() { const s = this.struct; return [{ x: s.x, y: s.y + s.h + 3, z: s.z, label: this.label || s.name, kind: 'defend', team: s.team }]; },
     }, o));
   },
   noDeaths(o) {
@@ -27525,7 +27641,7 @@ class Mission {
     if (prim.some((o) => o.status === 'failed')) return this.end(false, prim.find((o) => o.status === 'failed').title + ' failed');
     if (prim.length && prim.every((o) => o.status === 'complete')) return this.end(true, '');
     if (this.limit > 0 && this.time >= this.limit && !this.noTimeout) return this.def.timeUpWins ? this.end(true, 'Time up: battlefield held') : this.end(false, 'Time expired');
-    if (W.mode !== 'training' && Net.allDown()) return this.end(false, 'Platform lost with no reserves');
+    if (W.mode !== 'training' && !W.watch && Net.allDown()) return this.end(false, 'Platform lost with no reserves');
   }
   end(won, reason) {
     if (this.state !== 'running') return;
@@ -28334,7 +28450,11 @@ const SKIRMISH_FLEET = { small: ['gunboat'], medium: ['gunboat', 'destroyer'], l
 // what the waves and the garrison spot; not a wave either
 const SKIRMISH_ARTY = { small: ['mortarTeam'], medium: ['mortarTeam', 'howitzerBattery'], large: ['mortarTeam', 'howitzerBattery', 'rocketBattery'] };
 const SKIRMISH_ARTY_BACK = 70;   // m behind the enemy base (away from ours) the batteries form up
-const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', hazards: HAZARD_DEFAULT, scarce: false, seed: 12345, random: true, defences: 'standard', ownDefs: [] };
+const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', hazards: HAZARD_DEFAULT, scarce: false, seed: 12345, random: true, defences: 'standard', ownDefs: [],
+  // P7-04 (additive keys, SAVE_VERSION stays 1): teams 2 to 4; alliance: the group (0 to 3) of the teams in the order of their ids 0, 1, 3, 4 (teams of one group are allied;
+  // two teams always fight each other); colours: palette indexes in the same order (null: the defaults of the Colour vision setting); force: Light, Normal or Heavy waves
+  // of each computer team; watch: nobody plays team 0 (the balance runs; not in the setup screen)
+  teams: 2, alliance: Object.freeze([0, 1, 2, 3]), colours: null, force: Object.freeze(['normal', 'normal', 'normal', 'normal']), watch: false };
 /* the skirmish setup from a saved one (Save.data.skirmish, kept as saved): defaults for missing keys, and the fog and
    night checkboxes of setups saved before weather and time of day became the Weather and Time selects */
 /* destruction level: [building density, structure hull, structure damage taken] */
@@ -28351,8 +28471,47 @@ function skirmishSetup(saved) {
   if (!Object.prototype.hasOwnProperty.call(SKIRMISH_DESTRUCTION, s.destruction)) s.destruction = SKIRMISH_DEFAULT.destruction;
   if (s.defences !== 'off') s.defences = 'standard';
   s.ownDefs = BaseDef.cleanChoice(s.ownDefs, s.size, s.map);   // the picker's list (P5-09), cleaned for the size   // setups saved before the base defences (P5-09) get the standard ones
+  const n = Math.floor(Number(s.teams));
+  s.teams = n >= 4 ? 4 : n === 3 ? 3 : 2;   // setups saved before the teams (P7-04) play with two
+  s.alliance = skirmishAlliance(s.alliance, s.teams);
+  s.colours = Array.isArray(s.colours) ? Teams.cleanColours(s.colours) : null;
+  s.force = skirmishForce(s.force);
+  s.watch = s.watch === true;
   delete s.fog; delete s.night;
   return s;
+}
+const SKIRMISH_FORCES = Object.freeze({ light: 0.6, normal: 1, heavy: 1.5 });   // a computer team's wave budget: the share of the size's (normal is the encounter size as it is)
+const SKIRMISH_FORCE_NAMES = Object.freeze({ light: 'Light (60% units)', normal: 'Normal', heavy: 'Heavy (150% units)' });
+const SKIRMISH_GROUPS = Object.freeze(['A', 'B', 'C', 'D']);   // the alliances a team can pick (a team alone in its group fights everyone)
+const SKIRMISH_WAVE_SALTS = Object.freeze({ 0: 0x3c6ef372, 3: 0x9e3779b1, 4: 0xbb67ae85 });   // the streams of the waves of teams 0, 3 and 4 (team 1's is the battle seed itself)
+/* the alliance group of each of the four slots (teams 0, 1, 3, 4): whole numbers 0 to 3, a missing one is the slot's own. Two teams always fight each other; with
+   more, at least two groups must be in the battle, else the last team of the battle leaves the group of the first. Always a new array of four. */
+function skirmishAlliance(list, count) {
+  const out = [0, 1, 2, 3].map((i) => (Array.isArray(list) && Number.isInteger(list[i]) && list[i] >= 0 && list[i] < SKIRMISH_GROUPS.length ? list[i] : i));
+  if (count <= 2) { out[0] = 0; out[1] = 1; return out; }
+  if (new Set(out.slice(0, count)).size < 2) out[count - 1] = out[0] === 3 ? 2 : out[0] + 1;
+  return out;
+}
+/* the force of each of the four slots: light, normal or heavy (anything else: normal). Always a new array of four. */
+function skirmishForce(list) {
+  return [0, 1, 2, 3].map((i) => (Array.isArray(list) && Object.prototype.hasOwnProperty.call(SKIRMISH_FORCES, list[i]) ? list[i] : 'normal'));
+}
+/* the teams of a battle from a skirmish setup: count, their ids, the group of each, the allied pairs, the colours (palette indexes in id order, cleaned for the
+   Colour vision setting now), the force of each team id and whether nobody plays team 0 */
+function skirmishTeams(sk) {
+  const count = sk.teams >= 4 ? 4 : sk.teams >= 3 ? 3 : 2, ids = Teams.forCount(count), group = skirmishAlliance(sk.alliance, count), pairs = [], force = {};
+  for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) if (group[i] === group[j]) pairs.push([ids[i], ids[j]]);
+  const kinds = skirmishForce(sk.force);
+  ids.forEach((id, i) => { force[id] = SKIRMISH_FORCES[kinds[i]]; });
+  return { count, ids, group, pairs, colours: Teams.cleanColours(sk.colours), force, watch: sk.watch === true };
+}
+const SKIRMISH_PROBE = new Map();   // battlefield and number of teams -> the tier of the bases of a probe seed (the setup screen's note)
+/* the tier (SKIRMISH_FAIR index) the bases of battlefield map get with count teams, seen on a fixed probe seed; the loosest tier (28 degrees) and a spread-out
+   set mean the ground only just holds that many teams (the setup screen says so) */
+function skirmishTierFor(map, count) {
+  const key = map + '|' + count;
+  if (!SKIRMISH_PROBE.has(key)) SKIRMISH_PROBE.set(key, count < 3 ? 0 : skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map, teams: count, seed: 1, random: false, size: 'small', platformId: 'bulwark' })).tier);
+  return SKIRMISH_PROBE.get(key);
 }
 const SKIRMISH_SEEDS = 999999;           // random battles draw a seed from 1..this
 const SKIRMISH_FIRST_WAVE = 3;           // seconds before the first wave
@@ -28400,7 +28559,22 @@ const SKIRMISH_FAIR = [
   { ring: [0, 1e9], deg: 20, gap: { 3: 550, 4: 550 }, near: [550, 1300], nearRatio: 1.5, meanRatio: 1.6 },
   { ring: [0, 1e9], deg: 28, gap: { 3: 400, 4: 400 }, near: [400, 1500], nearRatio: 2.4, meanRatio: 2.6 },
 ];
+const SKIRMISH_DEGS = Object.freeze([...new Set(SKIRMISH_FAIR.map((q) => q.deg))].sort((a, b) => a - b));   // the slopes of the tiers, gentlest first, each once
 const SKIRMISH_FIXED_SPOTS = { 3: [{ x: -450, z: -420 }, { x: 450, z: -420 }, { x: 0, z: 520 }], 4: [{ x: -450, z: -420 }, { x: 450, z: -420 }, { x: 450, z: 420 }, { x: -450, z: 420 }] };   // never needed on any battlefield (self-test sweeps)
+/* P7-02 review: the 3 and 4 team search is paid once. SKIRMISH_MEMO keeps, per (battlefield, seed, harbour ship), how gentle each spot of the grid is and how far
+   from ship water (the slow part: about 100 microseconds a spot; the rest of the search needs the airfield and the number of teams); SKIRMISH_PICKS keeps the
+   set found per (battlefield, seed, harbour ship, teams, airfields), with the number of random draws the search used, so a repeated start (a restart, the
+   setup screen, a second call) is a look-up. SKIRMISH_BUDGET.ms bounds the tier search itself: past it the remaining tiers are skipped and the spread-out set is
+   taken (see Appendix C: two PCs can differ only when one is slower than that, so a co-op host must send its bases, P7-05). */
+const SKIRMISH_MEMO = new Map(), SKIRMISH_PICKS = new Map(), SKIRMISH_CACHE_MAX = 8;
+const SKIRMISH_BUDGET = { ms: 250 };   // wall-clock budget of the tier search of one layout (the node cap bounds it too; an object so a self-test can set it to 0)
+const SKIRMISH_RNG_STEP = 0x6D2B79F5;   // makeRng's counter step: a stream n draws on is the seed plus n steps
+const SKIRMISH_STATS = { searches: 0, hits: 0, spotMs: 0, searchMs: 0, cut: 0 };   // read by the self-test and the battle-start timing
+function skirmishRemember(cache, key, value) {
+  if (!cache.has(key) && cache.size >= SKIRMISH_CACHE_MAX) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
+  return value;
+}
 const SKIRMISH_DEF_SALTS = { 0: 0x51ed27, 1: 0x9e3779, 3: 0x2c9277b5, 4: 0x6d2b79f5 };   // each team's base plan has its own seed
 /* how fair a set of base centres is: the least gap between two, each base's nearest neighbour, and each base's mean distance to the others */
 function skirmishFairness(pts) {
@@ -28482,31 +28656,53 @@ function skirmishLayoutWith(cfg, homes) {
     return ps;
   };
   let tier = 0, harbour = '-';   // the tier and the harbour class the set was found in
+  const layoutSeed = (cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0, gridSide = Math.floor(2 * SKIRMISH_FIELD / SKIRMISH_MANY_STEP) + 1;
+  const memoKey = count > 2 ? [Terrain.gridKey(m), cfg.seed, shoreMany ? refShip.id : '-'].join('|') : '';
+  let rngDraws = 0;   // random draws the last spot list took (2 for each grid point, 1 for each swap of the shuffle): the stream after a cached search starts there
+  let memo = null;   // the gentle ground and harbour distance of each grid point of this battlefield and seed (the slow part, shared by every airfield and team count)
   const manySpots = () => {   // the spots of the field on gentle dry ground (with their least tier slope, distance from the middle and harbour distance), in the seed's order
-    rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
+    if (!memo) {
+      memo = SKIRMISH_MEMO.get(memoKey);
+      if (!memo) memo = skirmishRemember(SKIRMISH_MEMO, memoKey, { deg: new Float64Array(gridSide * gridSide).fill(NaN), shore: new Float64Array(gridSide * gridSide).fill(NaN) });
+    }
+    const t0 = performance.now();
+    rng = makeRng(layoutSeed);
     const spots = [];
-    for (let gx = 0; gx * SKIRMISH_MANY_STEP <= 2 * SKIRMISH_FIELD; gx++) for (let gz = 0; gz * SKIRMISH_MANY_STEP <= 2 * SKIRMISH_FIELD; gz++) {
+    for (let gx = 0; gx < gridSide; gx++) for (let gz = 0; gz < gridSide; gz++) {
       const x = gx * SKIRMISH_MANY_STEP - SKIRMISH_FIELD, z = gz * SKIRMISH_MANY_STEP - SKIRMISH_FIELD;
       const p = { x: x + (rng() * 2 - 1) * SKIRMISH_MANY_JITTER, z: z + (rng() * 2 - 1) * SKIRMISH_MANY_JITTER, r: FORT.r };
       if (!inField(p)) continue;
-      p.deg = Infinity;   // the least slope of the tiers this spot is gentle enough for
-      for (const q of SKIRMISH_FAIR) if (flat(p, q.deg)) { p.deg = q.deg; break; }
-      if (p.deg === Infinity) continue;
+      const slot = gx * gridSide + gz;
+      let deg = memo.deg[slot];
+      if (deg !== deg) {   // not looked at yet: the least slope of the tiers this spot is gentle enough for (Infinity: none)
+        deg = Infinity;
+        for (const limit of SKIRMISH_DEGS) if (Scenery.flatFor(cfg.map, p, limit)) { deg = limit; break; }
+        memo.deg[slot] = deg;
+      }
+      if (deg === Infinity || (field && Airports.gap(field, p.x, p.z) < p.r + SITE_PAD + SITE_FADE)) continue;   // (and clear of the airfield's levelling)
+      p.deg = deg;
       p.d = Math.hypot(p.x, p.z);
-      p.shore = shoreMany ? Nav.bigDist(shoreMany, p.x, p.z, SKIRMISH_REACH, NAV_BODY_MIN, NAVAL_SPAWN_EDGE) : Infinity;
+      if (shoreMany) {
+        if (memo.shore[slot] !== memo.shore[slot]) memo.shore[slot] = Nav.bigDist(shoreMany, p.x, p.z, SKIRMISH_REACH, NAV_BODY_MIN, NAVAL_SPAWN_EDGE);
+        p.shore = memo.shore[slot];
+      } else p.shore = Infinity;
       spots.push(p);
     }
-    for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)), t = spots[i]; spots[i] = spots[j]; spots[j] = t; }   // the seed's order
+    rngDraws = 2 * gridSide * gridSide;
+    for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)), t = spots[i]; spots[i] = spots[j]; spots[j] = t; rngDraws++; }   // the seed's order
+    SKIRMISH_STATS.spotMs += performance.now() - t0;
     return spots;
   };
+  let searchStart = 0, cut = false;   // the clock of the tier search (SKIRMISH_BUDGET.ms), started at the first one of this layout, and whether it ran out
   const seededMany = () => {
     const spots = manySpots();
+    if (!searchStart) searchStart = performance.now();
     const pools = shoreMany ? [['near', (p) => p.shore <= NAVAL_SHORE_MAX], ['reach', (p) => p.shore <= SKIRMISH_REACH], ['-', () => true]] : [['-', () => true]];
     for (let t = 0; t < SKIRMISH_FAIR.length; t++) {   // (the gentlest ground before a harbour: a harbour only picks among the sets of one tier)
       for (const [name, inPool] of pools) {
+        if (performance.now() - searchStart > SKIRMISH_BUDGET.ms) { cut = true; return; }   // out of time: the tiers left are skipped (the spread-out set follows)
         const q = SKIRMISH_FAIR[t];
-        const pool0 = spots.filter((p) => inPool(p) && p.d >= q.ring[0] && p.d <= q.ring[1] && p.deg <= q.deg);
-        const pool = pool0, n = pool.length;
+        const pool = spots.filter((p) => inPool(p) && p.d >= q.ring[0] && p.d <= q.ring[1] && p.deg <= q.deg), n = pool.length;
         let best = null, bestMiss = Infinity, found = 0;
         if (n >= count) {
           // the sets of count spots in the seed's order: every pair at least the gap apart (looked up in a table of the pairs), the whole set fair; of the
@@ -28554,21 +28750,30 @@ function skirmishLayoutWith(cfg, homes) {
     own = pick[0]; foe = pick[1]; extra = pick.slice(2); tier = SKIRMISH_FAIR.length; harbour = '-';
   };
   const place = count > 2 ? seededMany : seeded;
-
-
-  place();
-  // where the home airfield leaves no seeded base pair the next one is tried; where none does, the bases go where they
-  // would without one and the airfield takes the flattest spot they leave free (or none)
-  for (let k = 1; k < homes.length && !foe; k++) { field = homes[k]; place(); }
-  if (!foe && field) {
-    field = null;
+  const pickKey = memoKey ? memoKey + '|' + count + '|' + homes.length : '', picked = pickKey ? SKIRMISH_PICKS.get(pickKey) : null;
+  if (picked) {   // this battlefield, seed, harbour ship, team count and airfields were searched before: the same set, and the stream where the search left it
+    ({ own, foe, extra, tier, harbour, field } = picked);
+    rng = makeRng((layoutSeed + picked.draws * SKIRMISH_RNG_STEP) >>> 0);
+    SKIRMISH_STATS.hits++;
+  } else {
+    if (pickKey) SKIRMISH_STATS.searches++;
     place();
-    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
-  }
-  if (!foe && count > 2) {
-    field = null;
-    spreadMany();
-    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
+    // where the home airfield leaves no seeded base pair the next one is tried; where none does, the bases go where they
+    // would without one and the airfield takes the flattest spot they leave free (or none)
+    for (let k = 1; k < homes.length && !foe; k++) { field = homes[k]; place(); }
+    if (!foe && field) {
+      field = null;
+      place();
+      if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
+    }
+    if (!foe && count > 2) {
+      field = null;
+      spreadMany();
+      if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
+    }
+    if (searchStart) SKIRMISH_STATS.searchMs += performance.now() - searchStart;
+    if (cut) SKIRMISH_STATS.cut++;
+    else if (pickKey && foe) skirmishRemember(SKIRMISH_PICKS, pickKey, { own, foe, extra, tier, harbour, field, draws: rngDraws });   // (a search that ran out of time is not remembered)
   }
   const fallback = !foe;
   // out of seeded tries: the first set of spots on the ring that fits (a pair of opposite spots, or the corners of a regular polygon), else the
@@ -28595,23 +28800,25 @@ function skirmishLayoutWith(cfg, homes) {
   const cx = spots.reduce((a, p) => a + p.x, 0) / spots.length, cz = spots.reduce((a, p) => a + p.z, 0) / spots.length;
   const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
   const faces = count === 2 ? [face, face + PI] : spots.map((p) => Math.atan2(cx - p.x, cz - p.z));
-  const bases = spots.map((p, i) => ({ x: p.x, z: p.z, r: FORT.r, style: 'fort', team: ids[i], face: faces[i], guns: i === 0 ? SKIRMISH_OWN_FORT.guns : diff.guns, aa: i === 0 ? SKIRMISH_OWN_FORT.aa : diff.aa, garrison: i === 0 ? [] : SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran }));
+  // the first base is the player's own (fewer turrets, no garrison, the picks of the setup) unless nobody plays it (a watched battle): then it is the computer's fort like the others
+  const played = (i) => i === 0 && cfg.watch !== true;
+  const bases = spots.map((p, i) => ({ x: p.x, z: p.z, r: FORT.r, style: 'fort', team: ids[i], face: faces[i], guns: played(i) ? SKIRMISH_OWN_FORT.guns : diff.guns, aa: played(i) ? SKIRMISH_OWN_FORT.aa : diff.aa, garrison: played(i) ? [] : SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran }));
   const ownBase = bases[0], foeBase = bases[1];
   const lay = { cities: [], bases, airport: fixedPair ? null : field };   // the fixed fallback pair may stand on it
   // P5-09: each base's extra defence points ("Base defences: standard"; off keeps today's bases), the seed of its plan, the silo that arms first, and what each must keep clear of the others
   const dpBase = cfg.defences === 'off' ? 0 : BD_DP[cfg.size] || BD_DP.small;
   bases.forEach((b, i) => {
-    b.dp = i === 0 ? dpBase : dpBase ? dpBase + (cfg.difficulty === 'elite' ? BD_ELITE_DP : 0) : 0;
+    b.dp = played(i) ? dpBase : dpBase ? dpBase + (cfg.difficulty === 'elite' ? BD_ELITE_DP : 0) : 0;
     b.size = cfg.size; b.air = !!lay.airport || cfg.size === 'large';   // aircraft can come: an airfield on the map, or the large waves' jets and gunships
     b.defSeed = (cfg.seed ^ SKIRMISH_DEF_SALTS[b.team]) >>> 0; b.siloFirst = cfg.seed & 1; b.teamCount = count;
   });
-  ownBase.chosen = dpBase ? BaseDef.cleanChoice(cfg.ownDefs, cfg.size, cfg.map, count) : [];   // what the player picked for our base; empty: the base builds as the seed says
+  ownBase.chosen = dpBase && played(0) ? BaseDef.cleanChoice(cfg.ownDefs, cfg.size, cfg.map, count) : [];   // what the player picked for our base; empty: the base builds as the seed says
   for (const b of bases) {
     b.foes = bases.filter((o) => o !== b).map((o) => ({ hq: Scenery.fortAt(o, FORT.hq[0], FORT.hq[1]), start: Scenery.fortAt(o, FORT.start[0], FORT.start[1]) }));
     b.foe = b.foes[0];
   }
   const st = Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]);
-  const start = { x: st.x, z: st.z, yaw: face };
+  const start = { x: st.x, z: st.z, yaw: faces[0] };   // (two teams: the bearing to the enemy base; more: the same bearing as starts[0], to the middle of the bases)
   const starts = bases.map((b) => { const q = Scenery.fortAt(b, FORT.start[0], FORT.start[1]); return { team: b.team, x: q.x, z: q.z, yaw: b.face }; });   // where each team's units and players start
   const sites = [{ x: start.x, z: start.z, r: 34, tag: 'pad' }];
   for (const q of starts.slice(2)) sites.push({ x: q.x, z: q.z, r: 34, tag: 'pad' });
@@ -28665,15 +28872,15 @@ function skirmishLayoutWith(cfg, homes) {
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
   return { lay, start, starts, sites, own: ownBase, foe: foeBase, bases, count, tier, harbour, fallback, fixedPair };
 }
-/* where skirmish wave unit u heads: the nearest human within SKIRMISH_WAVE_HUNT, never a passive civilian (D5), else hq */
+/* where skirmish wave unit u heads: the nearest human foe within SKIRMISH_WAVE_HUNT, never a passive civilian (D5), else hq (none left: where it stands) */
 function skirmishWaveGoal(u, hq) {
   let best = null, bestD = SKIRMISH_WAVE_HUNT;
   for (const h of W.platforms) {
-    if (!h.isPlayer || !Teams.humanSide(h.team) || h.dead || h.hideFromAI) continue;
+    if (!h.isPlayer || !Teams.humanSide(h.team) || h.dead || h.hideFromAI || !Teams.hostile(u.team, h.team)) continue;   // (a human of the unit's own alliance is no quarry)
     const d = Math.hypot(h.x - u.x, h.z - u.z);
     if (d < bestD) { best = h; bestD = d; }
   }
-  return best ? { x: best.x, z: best.z } : { x: hq.x, z: hq.z };
+  return best ? { x: best.x, z: best.z } : hq ? { x: hq.x, z: hq.z } : { x: u.x, z: u.z };
 }
 /* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
 function rollSkirmishSeed(sk) {
@@ -28703,101 +28910,168 @@ function betterSkirmish(prev, waves, score, diff, won) {
   return { waves, score, diff, won };
 }
 function skirmishDef(cfg) {
-  const sz = SKIRMISH_SIZES[cfg.size], rng = makeRng(cfg.seed);
+  const sz = SKIRMISH_SIZES[cfg.size], setup = skirmishTeams(cfg);
   const layout = skirmishLayout(cfg), start = layout.start, own = layout.own, foe = layout.foe;
   const types = ['infantry', 'buggy', 'rpgTrooper', 'tank', 'lightMech', 'medMech', 'heavyMech', 'jet', 'gunship'];
-  const waves = [];
-  for (let w = 0; w < sz.waves; w++) {
-    let budget = sz.budget + w * 1.8;
-    const list = [];
-    const maxTier = Math.min(types.length, 2 + Math.floor(w * 0.9) + (cfg.size === 'large' ? 1 : 0));
-    const unlocked = types.slice(0, maxTier);
-    while (budget > 0) { // draw only from what the budget still affords, so one expensive roll does not end the wave early
-      const affordable = unlocked.filter((t) => unitCost(t) <= budget);
-      if (affordable.length === 0) break;
-      const k = affordable[Math.floor(rng() * affordable.length)];
-      list.push(k); budget -= unitCost(k);
+  const sideOf = (id) => setup.group[setup.ids.indexOf(id)];   // the alliance a team of the battle is in
+  // the computer teams send waves (team 0 too when nobody plays it: a watched battle, the balance runs); a team that is not in the player's alliance is a foe
+  const senders = setup.ids.filter((id) => id !== Teams.PLAYER || setup.watch), foes = setup.ids.filter((id) => sideOf(id) !== sideOf(Teams.PLAYER));
+  /* the waves one team sends: team 1's come from the battle seed as they always did, every other team's from its own stream; the unit budget of a wave is
+     scaled by the team's force (Light, Normal, Heavy: 1 changes nothing) */
+  const wavesOf = (team) => {
+    const salt = SKIRMISH_WAVE_SALTS[team], rng = makeRng(salt === undefined ? cfg.seed : (cfg.seed ^ salt) >>> 0), force = setup.force[team], out = [];
+    for (let w = 0; w < sz.waves; w++) {
+      let budget = (sz.budget + w * 1.8) * force;
+      const list = [];
+      const maxTier = Math.min(types.length, 2 + Math.floor(w * 0.9) + (cfg.size === 'large' ? 1 : 0));
+      const unlocked = types.slice(0, maxTier);
+      while (budget > 0) { // draw only from what the budget still affords, so one expensive roll does not end the wave early
+        const affordable = unlocked.filter((t) => unitCost(t) <= budget);
+        if (affordable.length === 0) break;
+        const k = affordable[Math.floor(rng() * affordable.length)];
+        list.push(k); budget -= unitCost(k);
+      }
+      out.push({ list, ang: rng() * TAU, dist: rng() });
     }
-    waves.push({ list, ang: rng() * TAU, dist: rng() });
-  }
+    return out;
+  };
+  const waveSets = {};
+  for (const t of senders) waveSets[t] = wavesOf(t);
+  const waves = waveSets[senders[0]], totalWaves = waves.length * Math.max(1, (setup.watch ? senders : foes).length);   // (waves a team sends, and waves all the foes send)
   const limit = cfg.duration > 0 ? cfg.duration * 60 : 0;
   let interval = { low: 80, normal: 55, high: 36 }[cfg.reinforce];
   // squeeze the schedule so every wave arrives with time left to fight it
   if (limit && waves.length > 1) interval = Math.min(interval, (limit * SKIRMISH_LAST_WAVE - SKIRMISH_FIRST_WAVE) / (waves.length - 1));
   let ob = null, ownHq = null, foeHq = null;
-  // waves cleared; once the enemy command center falls, the waves it never sent count as cleared too
-  const cleared = () => (ob ? ob.waves.filter((l) => l.every((u) => u.dead)).length + (foeHq && foeHq.destroyed ? waves.length - ob.waves.length : 0) : 0);
+  const hqs = {}, hostileHqs = [];   // each team's command center, and those of the foes of the player
+  // waves cleared; once the enemy command center falls (every hostile one, with more teams), the waves they never sent count as cleared too
+  const cleared = () => (ob ? ob.waves.filter((l) => l.every((u) => u.dead)).length + (hostileHqs.length && hostileHqs.every((q) => q.destroyed) ? totalWaves - ob.waves.length : 0) : 0);
   // the player's own part in the fight: their kills against a fair share of every hostile destroyed
   const ownShare = () => (ob ? clamp(W.stats.kills / Math.max(1, ob.units.filter((u) => u.dead).length * SKIRMISH_KILL_SHARE), 0, 1) : 0);
   return {
-    id: 'skirmish', name: 'Skirmish', type: 'Skirmish', map: cfg.map, timeLimit: limit, start, waveInterval: interval, waveCount: waves.length,
+    id: 'skirmish', name: 'Skirmish', type: 'Skirmish', map: cfg.map, timeLimit: limit, start, waveInterval: interval, waveCount: totalWaves,
     timeUpWins: true,                                   // holding out until the clock runs out is a victory
-    wavesCleared: cleared, rankProgress: () => cleared() / waves.length * ownShare(),   // ranked by waves cleared and own kills, not speed
-    rankCap: () => (W.stats.kills === 0 ? 'C' : cleared() / waves.length < SKIRMISH_TOP_RANK_WAVES ? 'B' : 'S'),   // no hiding behind allies or the clock
+    wavesCleared: cleared, rankProgress: () => cleared() / totalWaves * ownShare(),   // ranked by waves cleared and own kills, not speed
+    rankCap: () => (W.stats.kills === 0 ? 'C' : cleared() / totalWaves < SKIRMISH_TOP_RANK_WAVES ? 'B' : 'S'),   // no hiding behind allies or the clock
     sites: layout.sites, layout: layout.lay,             // the bases and districts come in through Scenery.layoutFor
+    teams: setup, waves: waveSets,                          // the teams, alliances, colours and forces of the battle (skirmishTeams), and the waves each computer team sends
     build(ctx) {
-      const m = ctx.m;
+      const m = ctx.m, named = setup.count > 2;   // (more than two teams: the command centers are named by their colour)
       // read by superweapons (SW.home), the respawn rules and the AI; built on co-op guests too. byTeam: one entry per team of the battle; own / enemy: the first two, for the older readers
       const list = layout.starts.map((q, i) => ({ team: q.team, x: layout.bases[i].x, z: layout.bases[i].z, start: { x: q.x, z: q.z, yaw: q.yaw } }));
       W.bases = { own: { x: own.x, z: own.z }, enemy: { x: foe.x, z: foe.z }, list, byTeam: {} };
       for (const b of list) W.bases.byTeam[b.team] = b;
+      W.watch = setup.watch;   // nobody plays team 0: no platform of the player's (the mission does not end for the lack of one)
+      const baseOf = (team) => layout.bases.find((b) => Teams.same(b.team, team));
       const oh = Scenery.fortAt(own, FORT.hq[0], FORT.hq[1]), fh = Scenery.fortAt(foe, FORT.hq[0], FORT.hq[1]);
-      ownHq = objStruct('command', oh.x, oh.z, 'Command Center', 0);
-      foeHq = objStruct('command', fh.x, fh.z, 'Enemy Command', 1, { hpMult: W.diff.hp });
-      for (const b of layout.bases.slice(2)) {   // P7-02: the other teams' command centers (their waves and objectives are the skirmish setup's, P7-04)
+      ownHq = hqs[0] = objStruct('command', oh.x, oh.z, 'Command Center', 0, setup.watch ? { hpMult: W.diff.hp } : undefined);   // (a watched battle: team 0's is as tough as the computer's)
+      foeHq = hqs[1] = objStruct('command', fh.x, fh.z, named ? Teams.colourName(1) + ' Command' : 'Enemy Command', 1, { hpMult: W.diff.hp });
+      for (const b of layout.bases.slice(2)) {   // P7-02: the other teams' command centers
         const h = Scenery.fortAt(b, FORT.hq[0], FORT.hq[1]);
-        objStruct('command', h.x, h.z, 'Team ' + b.team + ' Command', b.team, { hpMult: W.diff.hp });
+        hqs[b.team] = objStruct('command', h.x, h.z, Teams.colourName(b.team) + ' Command', b.team, { hpMult: W.diff.hp });
       }
-      // any of three ways wins: every wave beaten, the enemy command center down, or the clock run out (timeUpWins)
-      ob = m.add(Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], waves: [], status: 'active',
+      for (const id of setup.ids) if (sideOf(id) !== sideOf(Teams.PLAYER)) hostileHqs.push(hqs[id]);
+      W.hqs = hqs;   // each team's command center by team id (the HUD's team legend)
+      // any of three ways wins: every wave beaten, the enemy command center down, or the clock run out (timeUpWins). With more than two teams the last
+      // alliance standing wins too, and a watched battle (nobody plays team 0) ends only that way
+      ob = Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], waves: [], status: 'active',
         tick() { const alive = this.units.filter((u) => !u.dead).length; this.progress = this.spawnedAll ? 1 - alive / Math.max(1, this.units.length) : 0; if (this.spawnedAll && alive === 0) this.status = 'complete'; },
         text() { return this.title + ' (wave ' + Math.min(this.waveNo, waves.length) + '/' + waves.length + ', ' + this.units.filter((u) => !u.dead).length + ' hostile)'; }, waveNo: 0, spawnedAll: false,
-        onComplete(mm) { mm.end(true, 'Every wave defeated'); } }));
-      m.add(Obj.destroy({ id: 'hq', title: 'Destroy the enemy command center', structs: [foeHq], status: 'active', label: 'ENEMY HQ', onComplete(mm) { mm.end(true, 'Enemy command center destroyed'); } }));
-      m.add(Obj.guard({ id: 'base', title: 'Protect your command center', struct: ownHq, status: 'active', label: 'HQ' }));
-      const supportList = { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
+        onComplete(mm) { mm.end(true, 'Every wave defeated'); } });
+      if (!setup.watch) {
+        m.add(ob);
+        m.add(Obj.destroy({ id: 'hq', title: named ? 'Destroy every hostile command center' : 'Destroy the enemy command center', structs: hostileHqs, status: 'active', label: named ? undefined : 'ENEMY HQ', onComplete(mm) { mm.end(true, named ? 'Every hostile command center destroyed' : 'Enemy command center destroyed'); } }));
+        m.add(Obj.guard({ id: 'base', title: 'Protect your command center', struct: ownHq, status: 'active', label: 'HQ' }));
+      }
+      if (named || setup.watch) {   // the battle ends when one alliance remains: an alliance stands while one of its teams has its command center
+        const sides = [...new Set(setup.group.slice(0, setup.count))];
+        const standing = () => sides.filter((g) => setup.ids.some((id) => sideOf(id) === g && hqs[id] && !hqs[id].destroyed));
+        m.add(makeObjective({ id: 'alliances', title: 'Last alliance standing', status: 'active',
+          tick() { const left = standing(); this.progress = sat(1 - (left.length - 1) / Math.max(1, sides.length - 1)); if (left.length <= 1) { this.winner = left.length ? left[0] : -1; this.status = 'complete'; } },
+          text() { return this.title + ' (' + standing().length + ' of ' + sides.length + ' left)'; },
+          onComplete(mm) {
+            const mine = this.winner === sideOf(Teams.PLAYER);
+            W.outcome = { winner: this.winner, teams: setup.ids.filter((id) => sideOf(id) === this.winner), time: mm.time };   // read by the balance runs
+            mm.end(mine, mine ? 'Last alliance standing' : this.winner < 0 ? 'Every command center fell' : 'Your alliance fell');
+          } }));
+      }
+      const supportList = setup.watch ? [] : { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
+      // each team's waves: its units, and how far it has sent them
+      const sent = {};
+      for (const t of senders) sent[t] = { idx: 0, units: [], foe: foes.indexOf(t) >= 0 };
       // the first unit of each wave is its commander: it may change platform at its base like a player (Swap, P2-07); the kill objective follows
       // the unit it becomes
       W.swapHook = (old, np) => {
         for (const l of ob.waves) { const i = l.indexOf(old); if (i >= 0) l[i] = np; }
         const j = ob.units.indexOf(old);
         if (j >= 0) ob.units[j] = np;
+        for (const t of senders) { const k = sent[t].units.indexOf(old); if (k >= 0) sent[t].units[k] = np; }
       };
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
       ctx.later(() => parkApronAircraft());
       ctx.later(() => BaseDef.announce(own));   // P5-09: a pick of the player's that the base could not take
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
-      // and starts NAVAL_FLEET_GAP from the player's base, start and harbour, or not at all
-      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup((SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small).slice(0, (QUALITY[S.quality] || QUALITY.medium).fleet), foe.x, foe.z, { radius: 40, exact: true, keepOff: W.player ? [own, start, W.player] : [own, start], joins: W.player && W.player.kind === 'naval' ? { x: W.player.x, z: W.player.z } : undefined }));   // in the player's sheet of water when there is room (P2-01)
-      ctx.later(() => {
-        const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
-        spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
+      // and starts NAVAL_FLEET_GAP from the player's base, start and harbour (every other team's base and start), or not at all
+      if (Naval.mapOk(mapDef(cfg.map))) {
+        ctx.later(() => {
+          for (const t of senders) {
+            const b = baseOf(t), keepOff = layout.bases.filter((q) => q !== b).concat(layout.starts.filter((q) => !Teams.same(q.team, t))).concat(W.player ? [W.player] : []);
+            const joins = W.player && W.player.kind === 'naval' && foes.indexOf(t) >= 0 ? { x: W.player.x, z: W.player.z } : undefined;   // in the player's sheet of water when there is room (P2-01)
+            spawnGroup((SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small).slice(0, (QUALITY[S.quality] || QUALITY.medium).fleet), b.x, b.z, { radius: 40, exact: true, team: t, keepOff, joins });
+          }
+        });
+      }
+      ctx.later(() => {   // each computer team's batteries behind its command center, away from our base (more teams: away from the middle of all the bases)
+        const ref = named ? { x: layout.bases.reduce((a, q) => a + q.x, 0) / layout.bases.length, z: layout.bases.reduce((a, q) => a + q.z, 0) / layout.bases.length } : own;
+        for (const t of senders) {
+          const b = baseOf(t), k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(b.x - ref.x, b.z - ref.z));
+          spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, b.x + (b.x - ref.x) * k, b.z + (b.z - ref.z) * k, { radius: 45, team: t }).forEach((u) => { u.garrison = true; });
+        }
       });
-      const humans = () => W.platforms.filter((p) => p.isPlayer && Teams.humanSide(p.team) && !p.dead);
-      const waveGoal = (u) => BaseDef.goalFor(u) || skirmishWaveGoal(u, ownHq);   // (a unit sent for a silo goes there, P5-09)
-      let idx = 0;
-      const spawnWave = () => {
-        if (idx >= waves.length) return;
-        // a wave forms at the enemy gate and marches on our base; with a human at the gate it arrives the old way instead
-        const w = waves[idx], gate = Scenery.fortAt(foe, FORT.rally[0], FORT.rally[1]);
-        const pos = humans().some((h) => Math.hypot(h.x - gate.x, h.z - gate.z) < SKIRMISH_WAVE_CLEAR) ? skirmishWavePos(W.player || start, w.ang, w.dist) : gate;
-        const us = spawnGroup(BaseDef.waveList(w.list, 1), pos.x, pos.z, { radius: 50, minPlayerDist: 220 });   // (a wave that knows of our minefield brings a plough and a scanner, P5-09)
-        if (us[0]) us[0].commander = true;
-        ob.waves.push(us);
-        us.forEach((u) => { ob.units.push(u); if (u.ai) { u.ai.assault = BaseDef.assaultFor(1, ownHq, u.kind === 'air'); if (u.kind !== 'air') u.ai.goal = waveGoal(u); } });   // (the shield projector first while the dome is up, P5-09)
-        idx++; ob.waveNo = idx;
-        W.msg('WAVE ' + idx + ' OF ' + waves.length + ' INBOUND', 'alarm');
-        if (idx >= waves.length) ob.spawnedAll = true;
+      const humansFor = (t) => W.platforms.filter((p) => p.isPlayer && Teams.humanSide(p.team) && Teams.hostile(t, p.team) && !p.dead);
+      /* the command center a team's waves march on: the nearest one of its foes that still stands (else the last one named, as the battle's end is near) */
+      const targetOf = (t) => {
+        const mine = baseOf(t);
+        let best = null, bd = Infinity, any = null;
+        for (const id of setup.ids) {
+          if (!Teams.hostile(t, id) || !hqs[id]) continue;
+          any = any || hqs[id];
+          if (hqs[id].destroyed) continue;
+          const d = Math.hypot(hqs[id].x - mine.x, hqs[id].z - mine.z);
+          if (d < bd) { bd = d; best = hqs[id]; }
+        }
+        return best || any;
       };
-      m.at(SKIRMISH_FIRST_WAVE, spawnWave);
-      m.every(interval, () => spawnWave(), interval + SKIRMISH_FIRST_WAVE);
+      const waveGoal = (u) => BaseDef.goalFor(u) || skirmishWaveGoal(u, targetOf(u.team));   // (a unit sent for a silo goes there, P5-09)
+      const spawnWave = (t) => {
+        const mine = sent[t], set = waveSets[t];
+        if (mine.idx >= set.length) return;
+        // a wave forms at its team's gate and marches on the nearest foe's base; with a human foe at the gate it arrives the old way instead
+        const w = set[mine.idx], gate = Scenery.fortAt(baseOf(t), FORT.rally[0], FORT.rally[1]);
+        const pos = humansFor(t).some((h) => Math.hypot(h.x - gate.x, h.z - gate.z) < SKIRMISH_WAVE_CLEAR) ? skirmishWavePos(W.player || start, w.ang, w.dist) : gate;
+        const us = spawnGroup(BaseDef.waveList(w.list, t), pos.x, pos.z, { radius: 50, minPlayerDist: 220, team: t });   // (a wave that knows of a foe's minefield brings a plough and a scanner, P5-09)
+        if (us[0]) us[0].commander = true;
+        mine.units.push(...us);
+        if (mine.foe) ob.waves.push(us);
+        us.forEach((u) => { if (mine.foe) ob.units.push(u); if (u.ai) { u.ai.assault = BaseDef.assaultFor(t, targetOf(t), u.kind === 'air'); if (u.kind !== 'air') u.ai.goal = waveGoal(u); } });   // (the shield projector first while the dome is up, P5-09)
+        mine.idx++;
+        if (mine.foe) {
+          ob.waveNo = Math.max(ob.waveNo, mine.idx);
+          if (!setup.watch) W.msg((named ? Teams.colourName(t).toUpperCase() + ' ' : '') + 'WAVE ' + mine.idx + ' OF ' + set.length + ' INBOUND', 'alarm');
+          if (foes.every((q) => sent[q] && sent[q].idx >= waveSets[q].length)) ob.spawnedAll = true;
+        }
+      };
+      m.at(SKIRMISH_FIRST_WAVE, () => { for (const t of senders) spawnWave(t); });
+      m.every(interval, () => { for (const t of senders) spawnWave(t); }, interval + SKIRMISH_FIRST_WAVE);
       m.every(4, () => { // attackers without a target push on (base garrisons and turrets hold their ground)
-        BaseDef.retask(1, ownHq);
+        for (const t of senders) BaseDef.retask(t, targetOf(t));
         for (const p of W.platforms) if (Teams.aiSide(p.team) && p.ai && p.arch && !p.garrison && !p.dead && !p.ai.target && p.kind !== 'air') p.ai.goal = waveGoal(p);
       }, 8);
-      m.every(2, () => { // next wave early if the field is nearly clear
-        const alive = ob.units.filter((u) => !u.dead).length;
-        if (alive <= 1 && idx < waves.length && m.time > 20) spawnWave();
+      m.every(2, () => { // next wave early if a team's field is nearly clear
+        for (const t of senders) {
+          const alive = sent[t].units.filter((u) => !u.dead).length;
+          if (alive <= 1 && sent[t].idx < waveSets[t].length && m.time > 20) spawnWave(t);
+        }
       }, 15);
       m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
     },
@@ -29236,6 +29510,9 @@ const Game = {
     if (sk) seed = sk.seed;
     const lay = Scenery.layoutFor(def, cfg.mode === 'mission');   // the same on co-op guests: it depends on the mission only
     newWorld({ map: def.map, mode: cfg.mode, sites: def.sites.concat(Scenery.sitesFor(lay)), difficulty: cfg.difficulty || S.difficulty, mods, env: cfg.env, structHp: destr[1], structDamage: destr[2], seed, start: def.start });
+    // P7-03 / P7-04: the teams, alliances and colours of the battle (the default table otherwise); a co-op guest takes the host's
+    if (guest && cfg.teams) Teams.fromWire(cfg.teams);
+    else if (sk) { const tb = skirmishTeams(sk); Teams.configure(tb.pairs, tb.watch ? [] : [Teams.PLAYER], tb.colours, tb.count); }
     if (lay.airport) W.airports.push(Airports.entry(lay.airport));   // before populateWorld lays the roads and runways
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
@@ -29255,7 +29532,7 @@ const Game = {
     W.bossHpMult = cfg.coop ? 1 + COOP_BOSS_HP * ((cfg.nPlayers || 1) - 1) : 1;   // a single boss cannot be multiplied, so it gets tougher
     if (guest) { this.mission.objectives = []; W.player = null; this.mission.later = []; }
     else {
-      this.spawnPlayer();
+      if (!(sk && sk.watch)) this.spawnPlayer();   // (a watched battle has no platform of the player's)
       if (cfg.coop && Net.host) Net.sessionBegin();
       if (cfg.mode !== 'training') this.mission.later.push(() => Scenery.garrison(lay, def.outpostGuns === false));
       this.mission.later.forEach((fn) => fn());
@@ -29489,7 +29766,7 @@ const Game = {
       this.resultData.score = score;
     } else if (cfg.mode === 'skirmish') {   // win or lose, a skirmish is measured by the waves cleared
       const key = cfg.skirmish.map + '-' + cfg.skirmish.size, waves = m.def.wavesCleared(), score = this.finalScore(st);
-      const rec = betterSkirmish(Save.data.skirmishBest[key], waves, score, diff, m.state === 'won');
+      const rec = Teams.count() > 2 ? null : betterSkirmish(Save.data.skirmishBest[key], waves, score, diff, m.state === 'won');   // (the bests are for battles of two teams: more teams have more waves to clear)
       if (rec) { Save.data.skirmishBest[key] = rec; Save.persist(); this.resultData.newBest = true; }
       Object.assign(this.resultData, { score, waves: waves + '/' + m.def.waveCount, seed: cfg.skirmish.seed, wavesCleared: waves, size: cfg.skirmish.size, map: cfg.skirmish.map });
     }
@@ -29753,6 +30030,7 @@ function pullUpWarning(p) {
 const HUD_UNDER_TINT = 'rgba(20,70,90,0.28)';
 const HUD_CTX = {};          // the Use context of the prompt (Seats.context)
 const USE_SHOW_HOLD = 0.08;  // seconds Use is held before the hold progress bar shows
+const HUD_LEGEND_BOX = { x: 0, y: 0, s: 0 };   // the radar's box, where the team legend goes (HUD.drawTeamLegend)
 const HUD = {
   cv: null, g: null, w: 800, h: 600, dpr: 1, u: 1, tmp: { sx: 0, sy: 0, w: 0, vis: false }, targetPos: { x: 0, y: 0, z: 0 },
   C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', neutral: '#cdd6e0', fauna: '#9fd47a', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
@@ -29893,6 +30171,8 @@ const HUD = {
       this.drawDamageDirs(p, u);
     } else this.drawDeath(p, u);
     this.drawRadar(p, u);
+    const rb = this.radarBox(this.w, this.h, SafeArea, HUD_LEGEND_BOX);
+    this.drawTeamLegend(rb.x, rb.y + rb.s + 16 * u, u);
     this.drawAlerts(p, u);
     this.drawStatusTop(p, u);
     this.drawFeed(u);
@@ -29922,6 +30202,23 @@ const HUD = {
       if (o.status === 'active' && o.progress > 0 && o.progress < 1) { this.g.fillStyle = this.C.dim; this.g.fillRect(x + 24 * u, y - 7 * u, 140 * u, 3 * u); this.g.fillStyle = this.C.main; this.g.fillRect(x + 24 * u, y - 7 * u, 140 * u * o.progress, 3 * u); y += 4 * u; }
     }
   },
+  /* the colour a team's marks have: its palette colour; but in a battle that looks as before P7-03 (two teams at war in the default cyan and orange), and for
+     a team that has no colour (neutral), the HUD's own colour legacy (its blue friend, red hostile, yellow objective) */
+  teamCol(team, legacy) { return Teams.plain() || !Teams.fighting(team) ? legacy : Teams.css(team); },
+  /* P7-03: with more than two teams, an alliance or other colours, one line for each team of the battle, under the radar: its colour square, its name (colour),
+     how it stands to the player (YOU, ALLY, FOE) and its command center (the share left, or OUT) */
+  drawTeamLegend(x, y, u) {
+    if (Teams.plain() || !W.hqs) return y;
+    const g = this.g, me = W.player ? W.player.team : Teams.PLAYER;
+    for (const id of Teams.active()) {
+      const hq = W.hqs[id], out = !hq || hq.destroyed;
+      const rel = id === me ? 'YOU' : Teams.allied(id, me) ? 'ALLY' : 'FOE';
+      g.fillStyle = Teams.css(id); g.fillRect(x, y - 8 * u, 10 * u, 10 * u);
+      this.txt(Teams.colourName(id).toUpperCase() + ' ' + rel + '  ' + (out ? 'HQ OUT' : 'HQ ' + Math.round(sat(hq.hp / hq.maxHp) * 100) + '%'), x + 16 * u, y, 11, out ? this.C.dim : this.C.text);
+      y += 14 * u;
+    }
+    return y;
+  },
   drawMarkers(p, u) {
     const m = W.mission;
     if (!m) return;
@@ -29931,13 +30228,13 @@ const HUD = {
       const ms = o.markers();
       for (let i = 0; i < ms.length && i < 8; i++) {
         const k = ms[i], d = Math.hypot(k.x - p.x, k.z - p.z);
-        this.worldMarker(k.x, k.y, k.z, k.label, k.kind, this.C.obj, Math.round(d) + 'm');
+        this.worldMarker(k.x, k.y, k.z, k.label, k.kind, this.teamCol(k.team, this.C.obj), Math.round(d) + 'm');
       }
     }
     // other human players: name tag and distance, so co-op pilots can find each other
     for (const q of W.platforms) {
       if (!q.isPlayer || q === p || q.dead || !Teams.allied(q.team, p.team)) continue;
-      this.worldMarker(q.x, q.y + q.height + 3, q.z, q.name.toUpperCase(), 'defend', this.C.friend, Math.round(Math.hypot(q.x - p.x, q.z - p.z)) + 'm');
+      this.worldMarker(q.x, q.y + q.height + 3, q.z, q.name.toUpperCase(), 'defend', this.teamCol(q.team, this.C.friend), Math.round(Math.hypot(q.x - p.x, q.z - p.z)) + 'm');
     }
     // supply pad marker
     if (W.pads.length && W.mode !== 'menu') {
@@ -29965,7 +30262,7 @@ const HUD = {
       this.drawHorizon(p, u);
       this.drawFlightData(p, u);
     } else {
-      if (ai && ai.hostile) col = C.bad; else if (ai && ai.friendly) col = C.friend;
+      if (ai && ai.hostile) col = this.teamCol(ai.obj && ai.obj.team, C.bad); else if (ai && ai.friendly) col = this.teamCol(ai.obj && ai.obj.team, C.friend);
       const r = 13 * u;
       g.strokeStyle = col; g.lineWidth = 2 * (S.highContrast ? 1.5 : 1);
       g.beginPath(); g.moveTo(cx - r * 1.5, cy); g.lineTo(cx - r * 0.5, cy); g.moveTo(cx + r * 0.5, cy); g.lineTo(cx + r * 1.5, cy);
@@ -30153,7 +30450,7 @@ const HUD = {
     const d = Math.hypot(tp.x - p.x, tp.y - p.y, tp.z - p.z);
     const s = R.project(tp.x, tp.y, tp.z, this.w, this.h, this.tmp);
     const hostile = !Teams.allied(t.team, p.team);
-    const col = t.isStruct ? C.obj : hostile ? C.bad : C.friend;
+    const col = t.isStruct ? this.teamCol(t.team, C.obj) : this.teamCol(t.team, hostile ? C.bad : C.friend);
     const lockCol = p.lock.target === t && p.lock.state === 'locked' ? C.bad : col;
     if (s.vis) {
       const r = clamp(2400 / Math.max(40, d), 14, 40) * u;
@@ -30167,7 +30464,7 @@ const HUD = {
     g.fillStyle = this.C.bg; g.fillRect(x - 130 * u, y - 14 * u, 260 * u, 52 * u);
     g.strokeStyle = lockCol; g.lineWidth = 1; g.strokeRect(x - 130 * u + 0.5, y - 14 * u + 0.5, 260 * u, 52 * u);
     const kindTxt = t.isStruct ? 'OBJECTIVE' : t.isProj ? (t.def.drone ? 'DRONE' : 'INCOMING') : hostile ? (Scan.tagged(t, p.team) ? 'HOLO DECOY' : 'HOSTILE') : 'FRIENDLY';   // (a ping tells a Holo Decoy apart: P5-03)
-    this.txt(kindTxt + '  ' + (t.name || t.def.name) + BaseDef.note(t), x, y, 12, lockCol, 'center', true);   // (SHIELD UP / DOWN on a command center, P5-09)
+    this.txt(kindTxt + '  ' + (t.name || t.def.name) + BaseDef.note(t) + (Teams.plain() || !Teams.fighting(t.team) ? '' : '  [' + Teams.colourName(t.team).toUpperCase() + ']'), x, y, 12, lockCol, 'center', true);   // (SHIELD UP / DOWN on a command center, P5-09)
     const hp = t.isProj ? t.hp / (t.def.pdHp || 1) : t.hp / t.maxHp;
     g.fillStyle = C.dim; g.fillRect(x - 120 * u, y + 10 * u, 240 * u, 5 * u); g.fillStyle = lockCol; g.fillRect(x - 120 * u, y + 10 * u, 240 * u * sat(hp), 5 * u);
     let info = Math.round(d) + ' m';
@@ -30225,7 +30522,7 @@ const HUD = {
     const L = Detect.list;
     for (let i = 0; i < Detect.iFauna; i++) {
       const c = L[i];
-      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' || c.kind === 'incoming' ? C.bad : c.kind === 'objective' ? C.obj : c.kind === 'mine' ? C.warn : C.neutral, c.big);
+      plot(c.x, c.z, c.kind, c.kind === 'friend' ? this.teamCol(c.team, C.friend) : c.kind === 'hostile' ? this.teamCol(c.team, C.bad) : c.kind === 'incoming' ? C.bad : c.kind === 'objective' ? C.obj : c.kind === 'mine' ? C.warn : C.neutral, c.big);
       if (c.marked) { g.strokeStyle = C.text; g.lineWidth = 1.5 * u; g.beginPath(); g.arc(markX, markY, 7.5 * u, 0, TAU); g.stroke(); }
     }
     this.radarNeutrals(Detect.iFauna, Detect.count, cx, cy, sc, ch, sh, u, p);
@@ -30446,7 +30743,7 @@ const HUD = {
       const f = W.feed[i], age = W.time - f.t;
       if (age > 7) continue;
       this.g.globalAlpha = age > 6 ? 7 - age : 1;
-      this.txt(f.text, this.w / 2, y, 11, feedFriendly(f.team) ? this.C.friend : this.C.text, 'center');
+      this.txt(f.text, this.w / 2, y, 11, this.teamCol(f.team, feedFriendly(f.team) ? this.C.friend : this.C.text), 'center');
       this.g.globalAlpha = 1; y -= 14 * u;
     }
   },
@@ -30730,7 +31027,10 @@ const UI = {
   },
   /* the skirmish setup is remembered as soon as it changes, not only on deployment */
   saveSkirmish() { Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); },
-  act_hangar(d) { this.hg = { platformId: Save.data.platformId, loadout: Loadout.forPlatform(Save.data.platformId), map: this.hangarMap() }; this.show('hangar', { ret: d.ret || '' }); },
+  act_hangar(d) {
+    if (this.cur && this.cur.name === 'skirmish') Teams.setColours(skirmishTeams(this.skirmish).colours); else Teams.reset();   // the preview wears the colour team 0 has in the skirmish being set up (P7-03)
+    this.hg = { platformId: Save.data.platformId, loadout: Loadout.forPlatform(Save.data.platformId), map: this.hangarMap() }; this.show('hangar', { ret: d.ret || '' });
+  },
   /* the battlefield the hangar was opened for (a mission, training, a skirmish or a co-op lobby), or null from the menu */
   hangarMap() {
     const c = this.cur, n = c ? c.name : '';
@@ -30774,7 +31074,7 @@ const UI = {
     Save.data.trainingMap = d.id; Save.persist();
     this.cur.keepScroll = true; this.render();
   },
-  act_deploySkirmish() { rollSkirmishSeed(this.skirmish); Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', difficulty: this.skirmish.difficulty, skirmish: Object.assign({}, this.skirmish) }); },
+  act_deploySkirmish() { rollSkirmishSeed(this.skirmish); Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); this.launch({ mode: 'skirmish', difficulty: this.skirmish.difficulty, skirmish: Object.assign({}, this.skirmish, { watch: false }) }); },   // (a battle started from the screen always has a player)
   launch(partial) {
     const pid = Save.data.platformId, def = PLATFORMS[pid], lo = Loadout.forPlatform(pid);
     const v = Loadout.validate(def, lo);
@@ -30861,6 +31161,17 @@ const UI = {
       if (t.dataset && t.dataset.skirm) {
         this.skirmish[t.dataset.skirm] = t.type === 'checkbox' ? t.checked : (t.dataset.num ? Number(t.value) : t.value);
         if (t.dataset.skirm === 'size') this.skirmish.ownDefs = BaseDef.cleanChoice(this.skirmish.ownDefs, this.skirmish.size, this.skirmish.map);   // a smaller battle has fewer points
+        if (t.dataset.skirm === 'teams') this.skirmish.alliance = skirmishAlliance(this.skirmish.alliance, this.skirmish.teams);   // two teams fight each other; more need two alliances
+        if (commit) { this.saveSkirmish(); this.cur.keepScroll = true; this.render(); }
+      }
+      if (t.dataset && t.dataset.skteam) {   // a team's colour, alliance or force (P7-04)
+        const sk = this.skirmish, slot = Number(t.dataset.tslot) | 0;
+        if (t.dataset.skteam === 'colour') {   // a colour another team has swaps places with this team's
+          const list = Teams.cleanColours(sk.colours), want = Number(t.value), other = list.indexOf(want);
+          if (other >= 0 && other !== slot) list[other] = list[slot];
+          list[slot] = want; sk.colours = Teams.cleanColours(list);
+        } else if (t.dataset.skteam === 'alliance') { const list = sk.alliance.slice(); list[slot] = Number(t.value); sk.alliance = skirmishAlliance(list, sk.teams); }
+        else if (t.dataset.skteam === 'force') { const list = skirmishForce(sk.force); list[slot] = t.value; sk.force = skirmishForce(list); }
         if (commit) { this.saveSkirmish(); this.cur.keepScroll = true; this.render(); }
       }
       if (t.dataset && t.dataset.skdef) { this.skirmish.ownDefs = BaseDef.setChoice(this.skirmish.ownDefs, t.dataset.skdef, t.type === 'checkbox' ? (t.checked ? 1 : 0) : Number(t.value) || 0, this.skirmish.size, this.skirmish.map); if (commit) { this.saveSkirmish(); this.cur.keepScroll = true; this.render(); } }
@@ -30945,9 +31256,10 @@ const UI = {
     const sel = (key, label, opts) => '<label class="f"><span>' + label + '</span><select data-skirm="' + key + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (String(s[key]) === String(o[0]) ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
     const chk = (key, label) => '<label class="f"><span>' + label + '</span><input type="checkbox" data-skirm="' + key + '"' + (s[key] ? ' checked' : '') + '></label>';
     const best = Save.data.skirmishBest[s.map + '-' + s.size];
-    return '<h2>Skirmish</h2><div class="panel">Your base and the enemy base stand on opposite sides of a battlefield of your choice, each with a command center and turrets. Enemy waves march out of their base toward yours. Win by destroying the enemy command center, beating every wave or holding out until the time limit; lose your own command center and the battle is lost. A random battle draws new bases and waves each time; untick it to replay the last one.' +
+    return '<h2>Skirmish</h2><div class="panel">Your base and the enemy base stand on opposite sides of a battlefield of your choice, each with a command center and turrets (with 3 or 4 teams, one base each). Enemy waves march out of their base toward yours. Win by destroying the enemy command center (every hostile one with more teams), beating every wave or holding out until the time limit; lose your own command center and the battle is lost. A random battle draws new bases and waves each time; untick it to replay the last one.' +
       '<div class="dim">Best here: ' + (best ? best.waves + ' waves cleared, score ' + best.score + (best.diff ? ' (' + DIFFICULTY[best.diff].name + ')' : '') + (best.won ? '' : ', battle lost') : 'none yet') + '</div></div>' +
       '<h3>Battlefield</h3>' + this.mapCards(s.map, 'skMap') +
+      '<h3>Teams</h3>' + this.teamsPanel(s) +
       '<div class="grid2"><div class="panel">' +
       sel('size', 'Encounter size', [['small', 'Small (4 waves)'], ['medium', 'Medium (6 waves)'], ['large', 'Large (9 waves)']]) +
       sel('difficulty', 'Difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) +
@@ -30965,6 +31277,24 @@ const UI = {
       '<h3>Modifiers</h3>' + chk('random', 'Random battle (off: replay battle ' + s.seed + ')') + chk('scarce', 'Scarce ammunition (50%, no ammo drops)') +
       '</div></div>' + this.platSummary() +
       '<div class="row"><button class="btn primary" data-act="deploySkirmish" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
+  },
+  /* P7-04: the number of teams (2 to 4) and, for each team, its colour (P7-03), its alliance and the force of its waves; a note when two colours are close
+     for the colour vision set in Settings, and when the battlefield only just holds that many teams */
+  teamsPanel(s) {
+    const tm = skirmishTeams(s), kinds = skirmishForce(s.force), vision = TEAM_VISIONS.indexOf(S.colourVision) >= 0 ? S.colourVision : 'normal';
+    const opt = (v, label, cur) => '<option value="' + v + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + label + '</option>';
+    let html = '<div class="panel"><label class="f"><span>Number of teams</span><select data-skirm="teams" data-num="1">' + [2, 3, 4].map((n) => opt(n, n === 2 ? '2 (you and one enemy)' : n + ' teams', s.teams)).join('') + '</select></label>';
+    html += '<div class="dim" style="font-size:.85em;margin:.3em 0">' + (tm.count > 2 ? 'Teams in the same alliance (letter) fight side by side and never hurt each other; the battle ends when one alliance is left. Every computer team sends its own waves against the nearest base that is not an ally\'s. Team 1 is yours.' : 'Your team against one computer team. Pick more teams for a free-for-all or for alliances.') + '</div>';
+    tm.ids.forEach((id, i) => {
+      html += '<div class="teamrow"><span class="sw" style="background:' + TEAM_PALETTE[tm.colours[i]].css + '"></span><span class="who">Team ' + (i + 1) + (i === 0 ? ' (you)' : ' (computer)') + '</span>' +
+        '<label>Colour <select data-skteam="colour" data-tslot="' + i + '">' + TEAM_PALETTE.map((c, k) => opt(k, c.name, tm.colours[i])).join('') + '</select></label>' +
+        (tm.count > 2 ? '<label>Alliance <select data-skteam="alliance" data-tslot="' + i + '">' + SKIRMISH_GROUPS.map((g, k) => opt(k, g, tm.group[i])).join('') + '</select></label>' : '') +
+        (i > 0 ? '<label>Forces <select data-skteam="force" data-tslot="' + i + '">' + Object.keys(SKIRMISH_FORCES).map((k) => opt(k, SKIRMISH_FORCE_NAMES[k], kinds[i])).join('') + '</select></label>' : '<span class="dim">support: see Friendly support</span>') + '</div>';
+    });
+    const gap = teamLeastGap(tm.colours.slice(0, tm.count), vision);
+    if (gap < TEAM_GAP_CLOSE) html += '<div class="warn" style="font-size:.85em;margin:.3em 0">Two of these colours look alike with ' + esc(TEAM_VISION_NAMES[vision]) + ' vision: pick others.</div>';
+    if (tm.count > 2 && skirmishTierFor(s.map, tm.count) >= SKIRMISH_FAIR.length - 1) html += '<div class="warn" style="font-size:.85em;margin:.3em 0">' + esc(mapDef(s.map).name) + ' only just holds ' + tm.count + ' teams: the bases stand on steep, uneven ground (up to ' + SKIRMISH_FAIR[SKIRMISH_FAIR.length - 1].deg + ' degrees) and some are closer to each other than others. Fewer teams or another battlefield fits better.</div>';
+    return html + '</div>';
   },
   /* the picker for our base's defences (P5-09): up to the encounter size's points; none picked: the battle seed picks */
   defPicker(s) {
@@ -31095,7 +31425,7 @@ const UI = {
       '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + (TouchControls.enabled ? '' : ck('pointerLock', 'Capture cursor (pointer lock)')) + ck('aimAssist', 'Aim assist (shots bend toward enemies near the reticle)') +
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) + (TouchControls.enabled ? sl('touchScale', 'Touch button size', 0.8, 1.4, 0.05) : '') +
-      ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
+      ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + se('colourVision', 'Colour vision (team colours)', TEAM_VISIONS.map((k) => [k, TEAM_VISION_NAMES[k]])) + ck('showFps', 'Show FPS') +
       (Device.ios && !Device.standalone() && !Device.canFullscreen() ? '<div class="hint">' + HOME_HINT + '.</div>' : '') +
       '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('onFoot', 'On foot after leaving a vehicle', [['infantry', 'Infantry (armed)'], ['civilian', 'Civilian (unarmed, ignored until you fight)']]) + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
       '<div class="row"><button class="btn small" data-act="tutorialReset">Replay tutorial hints</button></div>' +
@@ -33651,7 +33981,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 21 (P7-02: the team in the known-mines message, silo targets of every team; 20 was P7-01, team ids 0 to 4 on the wire; 19 was P4-02, craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 21);
+      this.check('the net version is 22 (P7-03: the table of the battle in start; 21 was P7-02: the team in the known-mines message, silo targets of every team; 20 was P7-01, team ids 0 to 4 on the wire; 19 was P4-02, craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 22);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -34724,7 +35054,7 @@ const SelfTest = {
         const civ = mk('civilian', mech.x + 3, mech.z - mech.radius - 2); civ.isPlayer = true;
         holdUse(tank);
         drive(civ);
-        const keepList = W.platforms, hq = { x: civ.x + 400, z: civ.z }, wave = { x: civ.x + 10, z: civ.z };
+        const keepList = W.platforms, hq = { x: civ.x + 400, z: civ.z }, wave = { x: civ.x + 10, z: civ.z, team: 1 };
         W.platforms = [civ];
         const goalPassive = skirmishWaveGoal(wave, hq);
         civ.hideFromAI = false;
@@ -36446,7 +36776,7 @@ const SelfTest = {
         this.check('cycling the target never picks an animal, a civilian or a civilian vehicle', cab.target === null && !cab.validTarget(taxi) && W.platforms.length === before);
         const marks = (kind) => { Detect.scan(cab); const out = []; for (let i = 0; i < Detect.count; i++) if (Detect.list[i].kind === kind) out.push(Detect.list[i]); return out; };
         this.check('a civilian vehicle someone took shows as a neutral vehicle, not a hostile', marks('vehicle').some((c) => c.x === taxi.x && c.z === taxi.z) && marks('hostile').length === 0);
-        this.check('the radar list holds marks, not platforms (no animal or civilian becomes a target through it)', Detect.list.every((c) => !c.id && !c.def && !c.team));
+        this.check('the radar list holds marks, not platforms (no animal or civilian becomes a target through it)', Detect.list.every((c) => !c.id && !c.def && !c.hp));
         // pixels: the green animal crosses show on the HUD disc only while an animal is detected
         const u = Math.min(HUD.w, HUD.h) / 800 * S.uiScale, box = HUD.radarBox(HUD.w, HUD.h, SafeArea, { x: 0, y: 0, s: 0 });
         const hex = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
@@ -37113,7 +37443,7 @@ const SelfTest = {
         const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
         this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
         const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
-        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 21', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 21);
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 22', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 22);
       } finally { Save.data = keep.data; Save.persist = keep.persist; }
       const arsenal = UI.gearArsenal();
       this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
@@ -41111,7 +41441,7 @@ const SelfTest = {
         Net.hostMsg(cqPeer, { t: 'cq' });
         Net.t += 2; Net.hostMsg(cqPeer, { t: 'cq' });
         this.check('and answers one guest at most once a second', replies.length === 2);
-        this.check('the net version is 21 and a guest cannot dig by itself', NET_VERSION === 21 && SAVE_VERSION === 1);
+        this.check('the net version is 22 and a guest cannot dig by itself', NET_VERSION === 22 && SAVE_VERSION === 1);
         Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.hostPeer = keepNet.hostPeer; Net.beatAcc = keepNet.beatAcc; Net.t = keepNet.t;
         // 6. the drawn ground: patches over the same corners, two triangles gone per square, the cached mesh whole
         if (!R.gl) this.check('the crater patches (no GL here)', true);
@@ -41384,7 +41714,7 @@ const SelfTest = {
         this.check('using a timed utility sets when it ends (the picture state of a Holo Decoy)', hu.utilUntil > W.time && lvActive(hu, hu.util));
         flatWorld();
         // co-op: the host's number rides in the platform entry and a guest draws what the host does
-        this.check('the net version is 21 (base-defence messages for any team; 19 was craters), and the save version stays 1', NET_VERSION === 21 && SAVE_VERSION === 1);
+        this.check('the net version is 22 (21 was base-defence messages for any team; 19 was craters), and the save version stays 1', NET_VERSION === 22 && SAVE_VERSION === 1);
         const host = maker('bulwark');
         view(host, 30);
         items(host, 'rail', 'mg', 'missile', 'reactive');
@@ -41693,7 +42023,7 @@ const SelfTest = {
         W.feed.length = 0;
         Net.guestMsg(null, { t: 'f', text: 'A  >  B', team: 4, k: ['A', 0], v: ['B', 0] });
         Net.guestMsg(null, { t: 'f', text: 'C  >  D', team: 12, k: ['C', 0], v: ['D', 0] });
-        this.check('wire: a kill feed line keeps team 4 and turns an unknown team into neutral, and the net version is 21', W.feed.length === 2 && W.feed[0].team === 4 && W.feed[1].team === 2 && NET_VERSION === 21);
+        this.check('wire: a kill feed line keeps team 4 and turns an unknown team into neutral, and the net version is 22', W.feed.length === 2 && W.feed[0].team === 4 && W.feed[1].team === 2 && NET_VERSION === 22);
       } finally { Net.host = keepHost; Net.guest = keepGuest; Net.map = keepMap; Net.inSession = keepIn; Teams.reset(); }
     });
     t('p7 alliance table static', () => {
@@ -41740,7 +42070,8 @@ const SelfTest = {
     };
     t('p7 bases two teams', () => {
       // the bases, start, districts and sites of a two-team battle are what they were before P7-02: 13 battlefields x 2 platforms x 6 seeds, hashed per battlefield (made with the build before this change)
-      const GOLD = { ashfall: 470070181, verdant: 470070181, frost: 470070181, coast: 3985743997, archipelago: 2847091045, valley: 3940466613, alpine: 663883101, canyon: 4055313033, jungle: 4111511501, volcano: 2965179037, tundra: 3237556340, metro: 2313791637, farmland: 264985505 };
+      // (the hash also holds every site's contents, the starts of the layout and the bases the built battle keeps in W.bases; made with the build before P7-03, which held the same bases and starts as the P7-02 one)
+      const GOLD = { ashfall: 213614576, verdant: 213614576, frost: 213614576, coast: 675136997, archipelago: 2785079699, valley: 1353750882, alpine: 129881015, canyon: 1732563184, jungle: 1541594607, volcano: 3503895591, tundra: 259295428, metro: 24830935, farmland: 3097472319 };
       const bad = [];
       for (const id of Object.keys(MAPS)) {
         let all = '';
@@ -41749,12 +42080,18 @@ const SelfTest = {
             const cfg = Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed: k * 7919 + 3, random: false, platformId: pid, size: k % 3 === 0 ? 'large' : k % 2 ? 'small' : 'medium' });
             const L = skirmishLayout(cfg);
             const b = (q) => [p7r1(q.x), p7r1(q.z), p7r1(q.face), q.team, q.dp, q.defSeed, q.guns, q.aa, q.garrison.length, q.chosen ? q.chosen.join() : '-', q.foe ? [p7r1(q.foe.hq.x), p7r1(q.foe.hq.z), p7r1(q.foe.start.x), p7r1(q.foe.start.z)].join() : ''].join('/');
-            all += [b(L.own), b(L.foe), p7r1(L.start.x), p7r1(L.start.z), p7r1(L.start.yaw), L.lay.cities.map((c) => [p7r1(c.x), p7r1(c.z), c.kind].join()).join(';'), L.sites.length, L.fallback, L.fixedPair, L.lay.airport ? p7r1(L.lay.airport.x) + ',' + p7r1(L.lay.airport.z) : '-'].join('|') + '\n';
+            const site = (s) => [p7r1(s.x), p7r1(s.z), p7r1(s.r), s.tag, s.hx === undefined ? '' : p7r1(s.hx), s.hz === undefined ? '' : p7r1(s.hz), s.h === undefined ? '' : p7r1(s.h), s.level === undefined ? '' : s.level].join(',');
+            all += [b(L.own), b(L.foe), p7r1(L.start.x), p7r1(L.start.z), p7r1(L.start.yaw), L.lay.cities.map((c) => [p7r1(c.x), p7r1(c.z), c.kind].join()).join(';'), L.sites.length, L.fallback, L.fixedPair, L.lay.airport ? p7r1(L.lay.airport.x) + ',' + p7r1(L.lay.airport.z) : '-',
+              L.sites.map(site).join(';'), L.starts.map((q) => [q.team, p7r1(q.x), p7r1(q.z), p7r1(q.yaw)].join()).join(';'), L.bases.length].join('|') + '\n';
           }
         }
+        // the built battle keeps the same bases in W.bases (seed 11, medium)
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: id, size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+        const wb = W.bases;
+        all += 'W|' + [p7r1(wb.own.x), p7r1(wb.own.z), p7r1(wb.enemy.x), p7r1(wb.enemy.z)].join() + '|' + wb.list.map((q) => [q.team, p7r1(q.x), p7r1(q.z), p7r1(q.start.x), p7r1(q.start.z), p7r1(q.start.yaw)].join()).join(';') + '|' + Object.keys(wb.byTeam).join() + '\n';
         if (p7hash(all) !== GOLD[id]) bad.push(id);
       }
-      this.check('two teams: the bases, start, districts, sites and airfield of every battlefield (6 seeds, a land and a ship pick) are exactly where they were before P7-02', bad.length === 0 && Object.keys(MAPS).length === 13, bad.join(','));
+      this.check('two teams: the bases, start, districts, sites (with their contents), starts, airfield and the bases of the built battle (W.bases) of every battlefield (6 seeds, a land and a ship pick) are exactly where they were before P7-02', bad.length === 0 && Object.keys(MAPS).length === 13, bad.join(','));
       const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', seed: 11, random: false }));
       this.check('and ashfall seed 11 still puts our base at 155, 531 and the enemy\'s at -321, -465, as two bases of teams 0 and 1', Math.abs(L.own.x - 155) < 1 && Math.abs(L.own.z - 531) < 1 && Math.abs(L.foe.x + 321) < 1 && Math.abs(L.foe.z + 465) < 1 && L.bases.length === 2 && L.bases[0] === L.own && L.bases[1] === L.foe && L.own.team === 0 && L.foe.team === 1 && L.count === 2 && L.starts.length === 2 && L.starts[0].x === L.start.x && L.starts[0].z === L.start.z, [L.own.x, L.own.z, L.foe.x, L.foe.z].map(p7r1).join(','));
       const counts = [undefined, null, NaN, 'x', 0, 1, 2, 2.9, 3, 3.5, 4, 5, 99].map((n) => skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', seed: 11, random: false, teams: n })).bases.length);
@@ -41872,8 +42209,8 @@ const SelfTest = {
         BaseDef.apply({ t: 'bd', k: 's', i: 0, st: 'arm', l: 50, d: 0, f: 0, tg: 9, c: [0, 0, 10], tx: 1, tz: 2, n: 1, sh: 0 });
         const tg9 = S.silos[0].target;
         for (const k of S.known) k.clear();
-        BaseDef.apply({ t: 'bd', k: 'k', tm: 3, a: [mi] }); BaseDef.apply({ t: 'bd', k: 'k', a: [mi + 1] }); BaseDef.apply({ t: 'bd', k: 'k', tm: 2, a: [mi + 2] });
-        this.check('messages: a silo aimed at team 4 stays 4 on the guest (an id out of range is clamped to 4), the known mines go to the team named, and one without a team is the player\'s side', tg4 === 4 && tg9 === 4 && S.known[3].has(mi) && S.known[0].has(mi + 1) && S.known[0].has(mi + 2) && !S.known[3].has(mi + 1));
+        BaseDef.apply({ t: 'bd', k: 'k', tm: 3, a: [mi] }); BaseDef.apply({ t: 'bd', k: 'k', a: [mi + 1] }); BaseDef.apply({ t: 'bd', k: 'k', tm: 2, a: [mi + 2] }); BaseDef.apply({ t: 'bd', k: 'k', tm: 5, a: [mi + 3] }); BaseDef.apply({ t: 'bd', k: 'k', tm: 'x', a: [mi + 3] }); BaseDef.apply({ t: 'bd', k: 'k', tm: null, a: [mi + 3] });
+        this.check('messages: a silo aimed at team 4 stays 4 on the guest (an id out of range is clamped to 4), the known mines go to the team named, one without a team is the player\'s side, and one for the neutral team (2), an id out of range or a bad one is ignored (P7-02 review)', tg4 === 4 && tg9 === 4 && S.known[3].has(mi) && S.known[0].has(mi + 1) && !S.known[0].has(mi + 2) && !S.known.some((k) => k.has(mi + 2) || k.has(mi + 3)) && !S.known[3].has(mi + 1));
         S.silos[0].target = keepTarget;
         // the host sends what the teams of the players know
         const sent = []; Net.bcast = (m) => { sent.push(m); }; Net.host = true;
@@ -41937,6 +42274,467 @@ const SelfTest = {
         Game.quitToMenu();
       } finally { Teams.reset(); Game.quitToMenu(); }
     });
+    // ---- P7-03 (team colours) and P7-04 (the skirmish setup for 2 to 4 teams, alliances, forces, the last alliance standing), with the P7-02 review lows; run alone
+    //      with selfTest('p7 colours'), selfTest('p7 skirmish') or selfTest('p7 lows') ----
+    const p7log = (what) => {   // a 2D context stand-in that records every stroke and fill colour set on it (and ignores the drawing)
+      const STUB = { width: 10, addColorStop() {} }, seen = [];
+      const rec = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => STUB), set: (o, k, v) => { o[k] = v; if (k === 'strokeStyle' || k === 'fillStyle') seen.push(v); return true; } });
+      const keep = HUD.g;
+      HUD.g = rec;
+      try { what(); } finally { HUD.g = keep; }
+      return seen;
+    };
+    const p7rgbSeen = (draw) => {   // every colour (r, g, b) the mesh draws of a drawing function use
+      const seen = [], keep = R.draw;
+      R.draw = function (name, r, g, b) { seen.push([r, g, b]); return keep.apply(this, arguments); };
+      try { draw(); } finally { R.draw = keep; }
+      return seen;
+    };
+    const p7has = (seen, rgb) => seen.some((c) => Math.abs(c[0] - rgb[0]) < 1e-9 && Math.abs(c[1] - rgb[1]) < 1e-9 && Math.abs(c[2] - rgb[2]) < 1e-9);
+    const p7hex = (css) => [parseInt(css.slice(1, 3), 16) / 255, parseInt(css.slice(3, 5), 16) / 255, parseInt(css.slice(5, 7), 16) / 255];
+    t('p7 colours palette', () => {
+      const P = TEAM_PALETTE;
+      this.check('the palette has six colours, each with its own id and name, rgb in 0 to 1 and a css colour', P.length === 6 && new Set(P.map((c) => c.id)).size === 6 && new Set(P.map((c) => c.name)).size === 6 && P.every((c) => c.rgb.length === 3 && c.rgb.every((v) => v >= 0 && v <= 1) && /^#[0-9a-f]{6}$/.test(c.css)) && Object.isFrozen(P) && Object.isFrozen(P[0]));
+      this.check('cyan and orange are what teams 0 and 1 always had: the model accents of the old table; the neutral entry is the old yellow accent and the HUD\'s neutral grey', P[0].rgb.join() === '0.2,0.85,1' && P[1].rgb.join() === '1,0.32,0.14' && TEAM_NEUTRAL_COLOUR.rgb.join() === '1,0.85,0.2' && TEAM_NEUTRAL_COLOUR.css === HUD.C.neutral);
+      // the Lab conversion against textbook values (D65): red, white, and the simulations keep a grey grey
+      const red = colourLab([1, 0, 0], 'normal'), white = colourLab([1, 1, 1], 'normal');
+      this.check('the Lab conversion gives red (53.2, 80.1, 67.2) and white (100, 0, 0)', Math.abs(red[0] - 53.24) < 0.3 && Math.abs(red[1] - 80.09) < 0.5 && Math.abs(red[2] - 67.2) < 0.5 && Math.abs(white[0] - 100) < 0.1 && Math.abs(white[1]) < 0.1 && Math.abs(white[2]) < 0.1, red.map((v) => v.toFixed(1)).join(' '));
+      const greys = TEAM_VISIONS.map((v) => colourLab([0.5, 0.5, 0.5], v)), dRed = colourLab([1, 0, 0], 'deuteranopia');
+      this.check('under protanopia, deuteranopia and tritanopia a grey stays grey, and a red loses its red-green difference (a* ' + red[1].toFixed(0) + ' -> ' + dRed[1].toFixed(0) + ')', greys.every((g) => Math.abs(g[1]) < 1 && Math.abs(g[2]) < 1 && Math.abs(g[0] - greys[0][0]) < 0.5) && dRed[1] < red[1] * 0.6);
+      // every pair of the palette under every vision
+      const rows = [];
+      let least = Infinity, leastWho = '';
+      for (const v of TEAM_VISIONS) {
+        let lo = Infinity;
+        for (let a = 0; a < P.length; a++) for (let b = a + 1; b < P.length; b++) {
+          const g = teamColourGap(a, b, v);
+          lo = Math.min(lo, g);
+          if (g < least) { least = g; leastWho = P[a].id + '-' + P[b].id + ' ' + v; }
+        }
+        rows.push(v + ' ' + lo.toFixed(1));
+      }
+      this.check('colour-blind check: no two palette colours are closer than ' + least.toFixed(1) + ' (Lab, ' + leastWho + ') under normal vision, protanopia, deuteranopia or tritanopia (least per vision: ' + rows.join(', ') + ')', least > 25 && Math.abs(least - TEAM_PALETTE_GAP) < 1e-9 && TEAM_PALETTE_GAP > 27, rows.join(', '));
+      // the HUD colours (css) hold up as well, since the radar and the feed draw those
+      const cssLeast = Math.min(...TEAM_VISIONS.map((v) => { let lo = Infinity; for (let a = 0; a < P.length; a++) for (let b = a + 1; b < P.length; b++) { const la = colourLab(p7hex(P[a].css), v), lb = colourLab(p7hex(P[b].css), v); lo = Math.min(lo, Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2])); } return lo; }));
+      this.check('and the HUD (css) colours are at least ' + cssLeast.toFixed(1) + ' apart under the four visions', cssLeast > 25);
+      // the neutral side's yellow keeps away from every palette colour in normal vision
+      const nl = colourLab(TEAM_NEUTRAL_COLOUR.rgb, 'normal'), nearNeutral = Math.min(...P.map((c) => { const l = colourLab(c.rgb, 'normal'); return Math.hypot(l[0] - nl[0], l[1] - nl[1], l[2] - nl[2]); }));
+      this.check('no team colour is the neutral yellow (at least ' + nearNeutral.toFixed(0) + ' apart)', nearNeutral > 40);
+      // defaults: teams 0 and 1 keep cyan and orange, teams 3 and 4 take the two colours that keep all four farthest apart under the vision
+      const defs = [];
+      let optimal = true;
+      for (const v of TEAM_VISIONS) {
+        const d = teamDefaultColours(v);
+        let best = -1;
+        for (let a = 2; a < P.length; a++) for (let b = a + 1; b < P.length; b++) best = Math.max(best, teamLeastGap([0, 1, a, b], v));
+        if (d.length !== 4 || d[0] !== 0 || d[1] !== 1 || new Set(d).size !== 4 || Math.abs(teamLeastGap(d, v) - best) > 1e-9) optimal = false;
+        defs.push(v + ' ' + d.map((i) => P[i].id).join('/') + ' ' + teamLeastGap(d, v).toFixed(1));
+      }
+      this.check('the default colours of a four-team battle for each vision are four different colours, cyan and orange first, the best of all choices (' + defs.join('; ') + ')', optimal);
+      this.check('an unknown vision gets the normal defaults', teamDefaultColours('x') === teamDefaultColours('normal') && teamDefaultColours(undefined) === teamDefaultColours('normal'));
+      // cleaning what comes from a setup or the wire: always four different valid indexes
+      const junk = [undefined, null, 'x', [], [1], [0, 0, 0, 0], [9, 9, 9, 9], [-1, 1.5, NaN, '2'], [2, 2, 3, 3], [5, 4, 3, 2], [0, 1, 2, 3, 4, 5]];
+      const bad = junk.filter((j) => { const c = Teams.cleanColours(j); return c.length !== 4 || new Set(c).size !== 4 || !c.every((i) => Number.isInteger(i) && i >= 0 && i < 6); });
+      this.check('colours from a setup or a peer are always four different palette colours (' + junk.length + ' bad lists tried)', bad.length === 0, JSON.stringify(bad));
+      this.check('a good list is kept, a repeat is replaced by a colour no team has, the rest are filled from the defaults', Teams.cleanColours([5, 4, 3, 2]).join() === '5,4,3,2' && Teams.cleanColours([2, 2]).join() === '2,0,1,5' && Teams.cleanColours(null, 'deuteranopia').join() === teamDefaultColours('deuteranopia').join());
+    });
+    t('p7 colours teams', () => {
+      const keepVision = S.colourVision;
+      try {
+        Teams.reset();
+        this.check('a new battle: teams 0 and 1 are cyan and orange, the battle is plain (the HUD keeps its friend and hostile colours), the neutral side and a bad id show the neutral entry', Teams.colours().slice(0, 2).join() === '0,1' && Teams.plain() && Teams.colour(2) === TEAM_NEUTRAL_COLOUR && Teams.colour(-1) === TEAM_NEUTRAL_COLOUR && Teams.colour(undefined) === TEAM_NEUTRAL_COLOUR && Teams.colour(1.5) === TEAM_NEUTRAL_COLOUR && Teams.colour(5) === TEAM_NEUTRAL_COLOUR);
+        Teams.configure([], [0], [4, 5, 3, 2], 4);
+        this.check('configure sets the colours of teams 0, 1, 3 and 4 in id order: accent, css and name follow', Teams.accent(0) === TEAM_PALETTE[4].rgb && Teams.css(1) === TEAM_PALETTE[5].css && Teams.colourName(3) === 'Green' && Teams.accent(4) === TEAM_PALETTE[2].rgb && Teams.colours().join() === '4,5,3,2' && Teams.count() === 4 && Teams.active().join() === '0,1,3,4');
+        this.check('and such a battle is not plain; neither are three teams, an alliance, or other colours for two', !Teams.plain() && (Teams.configure([], [0], null, 3), !Teams.plain()) && (Teams.configure([[0, 1]], [0], null, 2), !Teams.plain()) && (Teams.configure([], [0], [1, 0, 2, 3], 2), !Teams.plain()) && (Teams.configure([], [0], null, 2), Teams.plain()));
+        Teams.configure([], [0], [4, 4, 'x', undefined], 4);
+        this.check('a battle given repeated or bad colours gets four different ones', new Set(Teams.colours()).size === 4 && Teams.colours()[0] === 4);
+        Teams.reset();
+        S.colourVision = 'tritanopia';
+        Teams.reset();
+        this.check('the Colour vision setting picks the defaults of teams 3 and 4: ' + Teams.colours().join(), Teams.colours().join() === teamDefaultColours('tritanopia').join() && Teams.plain());
+        S.colourVision = 'x'; Teams.reset();
+        this.check('an unknown setting reads as normal', Teams.colours().join() === teamDefaultColours('normal').join());
+        S.colourVision = keepVision; Teams.reset();
+        this.check('the setting is a saved enum (normal, protanopia, deuteranopia, tritanopia), additive: the save version stays 1, and a bad saved value falls back to normal', SETTING_SCHEMA.colourVision[0] === 'enum' && SETTING_SCHEMA.colourVision[1].join() === TEAM_VISIONS.join() && Save.sanitize({ v: SAVE_VERSION, settings: { colourVision: 'deuteranopia' } }).settings.colourVision === 'deuteranopia' && Save.sanitize({ v: SAVE_VERSION, settings: { colourVision: 'purple' } }).settings.colourVision === 'normal' && Save.sanitize({ v: SAVE_VERSION }).settings.colourVision === 'normal' && SAVE_VERSION === 1);
+        this.check('the settings screen offers it', UI.scr_settings.call(Object.create(UI)).indexOf('data-set="colourVision"') >= 0);
+      } finally { S.colourVision = keepVision; Teams.reset(); }
+    });
+    t('p7 colours consumers', () => {
+      if (!R.gl) { this.check('p7 colours consumers (no GL)', true); return; }
+      const keepCam = R.cam, keepVision = S.colourVision;
+      const pink = TEAM_PALETTE[4].rgb, lime = TEAM_PALETTE[5].rgb, old3 = [0.35, 0.9, 0.3], old4 = [0.75, 0.4, 1.0];
+      try {
+        // models: a team 3 platform draws its stripes in team 3's colour; a change of colour is a change of colour
+        p7sk('ashfall', 4, 'small');
+        Teams.setColours([0, 1, 4, 5]);
+        const q = p7add('bastion', 3, 0, 0);
+        q.x = W.player.x + 30; q.z = W.player.z; q.y = Terrain.h(q.x, q.z);
+        R.beginFrame({ x: q.x, y: q.y + 8, z: q.z - 25, tx: q.x, ty: q.y + 2, tz: q.z, fov: 70 }, 70);
+        const draw = (p) => p7rgbSeen(() => { R.beginBatch('opaque'); drawPlatformBody(p); R.bake = null; });
+        let seen = draw(q);
+        this.check('model: a team 3 platform draws pink where the team shows, none of the old green, and not lime', p7has(seen, pink) && !p7has(seen, old3) && !p7has(seen, lime), 'pink ' + p7has(seen, pink));
+        Teams.setColours([0, 1, 5, 4]);
+        seen = draw(q);
+        this.check('and with the colours swapped it draws lime instead, as a team 4 platform draws pink', p7has(seen, lime) && !p7has(seen, pink));
+        const q4 = p7add('bastion', 4, 0, 0); q4.x = q.x + 12; q4.z = q.z; q4.y = q.y;
+        this.check('team 4 (pink now) draws pink', p7has(draw(q4), pink));
+        // loadout strips (P6-02) take the accent the model is handed
+        const w = p7add('bulwark', 3, 0, 0); w.x = q.x; w.z = q.z + 14; w.y = Terrain.h(w.x, w.z);
+        this.check('a mech with its loadout on draws team 3\'s lime too (the P6-02 strips use the same accent)', p7has(draw(w), lime));
+        // wreckage
+        const keepDebris = W.debris.length; W.debris.length = 0; W.debrisHead = 0;
+        const dying = p7add('bastion', 3, 0, 0); dying.x = q.x + 40; dying.z = q.z; dying.y = Terrain.h(dying.x, dying.z);
+        dying.destroy(null);
+        const shaded = W.debris.filter((d) => { const k = d.r / lime[0]; return k >= 0.8 && k <= 1.05 && Math.abs(d.g / lime[1] - k) < 1e-6 && Math.abs(d.b / lime[2] - k) < 1e-6; });
+        this.check('wreckage: the loose plates of a team 3 platform carry team 3\'s colour (' + shaded.length + ' of ' + W.debris.length + ' pieces)', shaded.length >= 1 && W.debris.every((d) => !(Math.abs(d.r / old3[0] - d.g / old3[1]) < 1e-9 && Math.abs(d.g / old3[1] - d.b / old3[2]) < 1e-9)));
+        void keepDebris;
+        // structures: the command center's beacon
+        const beacon = (team) => p7rgbSeen(() => drawCommandTop({ team, w: 10, d: 10 }, 6, [0.5, 0.5, 0.5]));
+        this.check('structures: a command center\'s beacon is its team\'s colour (team 3 lime, team 0 cyan), not the old blue for ours and red for theirs', p7has(beacon(3), lime) && p7has(beacon(0), TEAM_PALETTE[0].rgb) && !p7has(beacon(3), [1, 0.3, 0.2]) && !p7has(beacon(0), [0.3, 0.7, 1]));
+        // the dome of a base: the shell is the team's colour
+        const shapes = [], keepShape = SW.shape, keepVis = R.visible, keepDomes = BaseDef.s.domes;
+        SW.shape = function (kind, x, y, z, sx, sy, sz, col) { shapes.push({ kind, col, y }); return keepShape.apply(this, arguments); };
+        R.visible = () => true;
+        BaseDef.s.domes = [3, 4, 0].map((team) => ({ team, x: 0, y: 0, z: 0, r: 20, up: true, flash: 0, pts: 100 }));
+        try { BaseDef.draw(true); } finally { SW.shape = keepShape; R.visible = keepVis; }
+        const domes = BaseDef.s.domes;
+        BaseDef.s.domes = keepDomes;
+        this.check('domes: each shield dome is drawn in its team\'s colour (lime for team 3, pink for team 4, cyan for ours)', domes.every((d) => shapes.some((s) => s.kind === 'sphere' && s.col === Teams.accent(d.team))) && p7has(shapes.map((s) => s.col), lime) && p7has(shapes.map((s) => s.col), pink) && shapes.length >= 3);
+        // static: no fixed team colour is left in the game code (the old table, and blue and red picked by whose side a structure is on)
+        const scripts = Array.from(document.scripts).map((q) => q.textContent).filter((q) => q.indexOf('const Self' + 'Test = {') >= 0);
+        const full = scripts[0] || '', a0 = full.indexOf('const Self' + 'Test = {'), b0 = full.indexOf('const Ne' + 't = {', a0);
+        const fixed = scripts.length === 1 ? ((full.slice(0, a0) + full.slice(b0)).match(/TEAM_ACCENT|humanSide\([^)]*\) \? \[/g) || []).length : -1;
+        this.check('static: the game code outside the self-test has no TEAM_ACCENT table and no colour picked by humanSide any more', fixed === 0, String(fixed));
+      } finally { R.cam = keepCam; S.colourVision = keepVision; Teams.reset(); Game.quitToMenu(); }
+    });
+    t('p7 colours hud', () => {
+      try {
+        // a four-team battle with the player\'s team 0 and units of teams 1, 3 and 4 in sight; 3 allied to the player
+        p7world();
+        const me = p7add('bulwark', 0, 0, 0), t1 = p7add('bastion', 1, 120, 0, 'tank'), t3 = p7add('bastion', 3, -120, 0, 'tank'), t4 = p7add('bastion', 4, 0, 120, 'tank');
+        W.player = me; me.isPlayer = true; me.localPlayer = true;
+        Teams.configure([[0, 3]], [0], [0, 1, 4, 5], 4);
+        const cyan = TEAM_PALETTE[0].css, orange = TEAM_PALETTE[1].css, pinkCss = TEAM_PALETTE[4].css, limeCss = TEAM_PALETTE[5].css;
+        const u = Math.min(HUD.w, HUD.h) / 800 * S.uiScale;
+        let seen = p7log(() => HUD.drawRadar(me, u));
+        this.check('radar: the ally (team 3) is drawn in its pink, the foes in orange (team 1) and lime (team 4), not in the HUD\'s one blue and one red', seen.indexOf(pinkCss) >= 0 && seen.indexOf(orange) >= 0 && seen.indexOf(limeCss) >= 0, [...new Set(seen)].join(' '));
+        // a two-team battle in the default colours looks as it did: the friend blue and the hostile red
+        Teams.configure([], [0], null, 2);
+        W.platforms.length = 0; W.platforms.push(me, t1, p7add('bastion', 0, 60, 60, 'tank'));
+        seen = p7log(() => HUD.drawRadar(me, u));
+        this.check('and the plain two-team battle keeps the HUD\'s own colours (friend ' + HUD.C.friend + ', hostile ' + HUD.C.bad + ')', seen.indexOf(HUD.C.friend) >= 0 && seen.indexOf(HUD.C.bad) >= 0 && seen.indexOf(pinkCss) < 0 && seen.indexOf(limeCss) < 0);
+        Teams.configure([], [0], [3, 1, 4, 5], 2);
+        seen = p7log(() => HUD.drawRadar(me, u));
+        this.check('but when team 0 picks another colour (green) it shows on the radar, not the old blue (and team 1 is then drawn in its own orange)', seen.indexOf(TEAM_PALETTE[3].css) >= 0 && seen.indexOf(orange) >= 0 && seen.indexOf(HUD.C.friend) < 0);
+        // the kill feed
+        Teams.configure([[0, 3]], [0], [0, 1, 4, 5], 4);
+        W.feed = [{ t: W.time, text: 'LOSS OF 4', team: 4 }, { t: W.time, text: 'LOSS OF 3', team: 3 }, { t: W.time, text: 'LOSS OF 1', team: 1 }, { t: W.time, text: 'CIVILIAN', team: 2 }, { t: W.time, text: 'LOSS OF 0', team: 0 }];
+        seen = p7log(() => HUD.drawFeed(1));
+        this.check('kill feed: each line is in its team\'s colour (lime, pink, orange) and a neutral one in the text colour', seen.indexOf(limeCss) >= 0 && seen.indexOf(pinkCss) >= 0 && seen.indexOf(orange) >= 0 && seen.indexOf(HUD.C.text) >= 0);
+        Teams.configure([], [0], null, 2);
+        seen = p7log(() => HUD.drawFeed(1));
+        this.check('and in the plain battle the lines keep the HUD\'s friend colour for our losses and the text colour for theirs', seen.indexOf(HUD.C.friend) >= 0 && seen.indexOf(HUD.C.text) >= 0 && seen.indexOf(limeCss) < 0);
+        // target panel
+        Teams.configure([[0, 3]], [0], [0, 1, 4, 5], 4);
+        me.target = t4; me.lock.target = null; me.lock.state = 'none';
+        W.aimInfo = { hit: false, kind: '', dist: 900, hostile: true, friendly: false, obj: t4, assist: false };
+        let text = '';
+        const keepTxt = HUD.txt;
+        HUD.txt = function (s) { text += s + ' | '; return keepTxt.apply(this, arguments); };
+        try { seen = p7log(() => HUD.drawTarget(me, u)); } finally { HUD.txt = keepTxt; }
+        this.check('target panel: a team 4 foe is boxed in lime and named with its colour (' + text.slice(0, 60) + ')', seen.indexOf(limeCss) >= 0 && /\[LIME\]/.test(text) && /HOSTILE/.test(text));
+        me.target = null;
+        // the legend: one line for each team of the battle, with how it stands and its command center
+        W.structs = [];
+        const hq = (team) => { const s = objStruct('command', team * 100, 300, 'HQ', team); return s; };
+        [0, 1, 3, 4].forEach(hq);
+        W.structs.find((s) => s.team === 4).destroyed = true;
+        W.hqs = {}; for (const q of W.structs) W.hqs[q.team] = q;
+        let ret = 0, legend = '';
+        HUD.txt = function (s) { legend += s + ' | '; return keepTxt.apply(this, arguments); };
+        try { seen = p7log(() => { ret = HUD.drawTeamLegend(10, 10, 1); }); } finally { HUD.txt = keepTxt; }
+        this.check('legend: four lines (colour square, name, YOU / ALLY / FOE, command center), advancing 14 px each, in the four colours (' + legend.slice(0, 160) + ')', ret === 10 + 4 * 14 && /CYAN YOU/.test(legend) && /PINK ALLY/.test(legend) && /ORANGE FOE/.test(legend) && /LIME FOE.*HQ OUT/.test(legend) && seen.indexOf(cyan) >= 0 && seen.indexOf(pinkCss) >= 0 && seen.indexOf(orange) >= 0 && seen.indexOf(limeCss) >= 0, legend);
+        Teams.configure([], [0], null, 2);
+        this.check('and a plain battle draws none', HUD.drawTeamLegend(10, 10, 1) === 10);
+        // objective markers carry the team of their structure
+        const objMarkers = Obj.destroy({ structs: [W.structs.find((s) => s.team === 1)], status: 'active' }).markers(), guardMarkers = Obj.guard({ struct: W.structs.find((s) => s.team === 0), status: 'active' }).markers();
+        this.check('markers: a destroy or guard objective names the team of its structure (so the marker takes its colour)', objMarkers[0].team === 1 && guardMarkers[0].team === 0);
+        Teams.configure([[0, 3]], [0], [0, 1, 4, 5], 4);
+        const marked = [], keepMarker = HUD.worldMarker;
+        HUD.worldMarker = function (x, y, z, label, kind, color) { marked.push(color); };
+        const keepM = W.mission, hqs = W.structs.filter((s) => s.team === 1);
+        W.mission = { objectives: [Obj.destroy({ structs: hqs, status: 'active' })] };
+        W.pads = []; W.pickups = [];
+        try { p7log(() => HUD.drawMarkers(me, u)); } finally { HUD.worldMarker = keepMarker; W.mission = keepM; }
+        this.check('and the hostile command center\'s marker is orange in a multi-team battle', marked.indexOf(orange) >= 0, marked.join());
+      } finally { Teams.reset(); Game.quitToMenu(); }
+    });
+    t('p7 skirmish setup', () => {
+      const cfgOf = (over) => Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'small', seed: 11, random: false, platformId: 'bulwark' }, over);
+      const base = skirmishSetup(null);
+      this.check('the default setup is the two-team battle: teams 2, everyone apart, default colours, normal forces, nobody watching, and nothing else moved', base.teams === 2 && base.alliance.join() === '0,1,2,3' && base.colours === null && base.force.join() === 'normal,normal,normal,normal' && base.watch === false && base.map === 'ashfall' && base.size === 'small' && base.difficulty === 'veteran' && base.support === 'light' && base.reinforce === 'normal' && base.defences === 'standard' && base.duration === 10 && base.lives === 5);
+      const odd = [undefined, null, NaN, 'x', 0, 1, 2, 2.9, 3, 3.5, 4, 5, 99, '3', '4'].map((n) => skirmishSetup({ teams: n }).teams);
+      this.check('the number of teams is 2, 3 or 4 (' + odd.join(' ') + ')', odd.join() === '2,2,2,2,2,2,2,2,3,3,4,4,4,3,4');
+      this.check('two teams always fight each other, whatever the alliances saved', skirmishSetup({ teams: 2, alliance: [0, 0, 0, 0] }).alliance.slice(0, 2).join() === '0,1' && skirmishAlliance([5, 'x'], 2).slice(0, 2).join() === '0,1');
+      this.check('with three or four teams at least two alliances stay: all in one group splits the last team off (' + skirmishAlliance([2, 2, 2, 2], 4).join() + ', ' + skirmishAlliance([3, 3, 3, 0], 3).join() + ')', new Set(skirmishAlliance([2, 2, 2, 2], 4).slice(0, 4)).size >= 2 && skirmishAlliance([2, 2, 2, 2], 4)[0] === 2 && skirmishAlliance([2, 2, 2, 2], 4)[3] !== 2 && new Set(skirmishAlliance([3, 3, 3, 0], 3).slice(0, 3)).size >= 2 && skirmishAlliance([1, 0, 1, 0], 4).join() === '1,0,1,0');
+      this.check('bad alliance, colour and force entries are cleaned (a group is 0 to 3, a colour is a palette index and not repeated, a force is light, normal or heavy)', skirmishSetup({ teams: 4, alliance: [9, -1, 'x', 1.5], colours: [7, 7, 7, 7], force: ['mighty', 3, null, 'heavy'] }).alliance.join() === '0,1,2,3' && new Set(skirmishSetup({ colours: [7, 7, 7, 7] }).colours).size === 4 && skirmishSetup({ colours: 'red' }).colours === null && skirmishSetup({ force: ['mighty', 3, null, 'heavy'] }).force.join() === 'normal,normal,normal,heavy' && skirmishSetup({ watch: 'yes' }).watch === false && skirmishSetup({ watch: true }).watch === true);
+      // the teams of a setup
+      const ffa = skirmishTeams(cfgOf({ teams: 3 })), duo = skirmishTeams(cfgOf({ teams: 4, alliance: [0, 1, 0, 1] })), mix = skirmishTeams(cfgOf({ teams: 3, alliance: [0, 0, 1, 2], force: ['normal', 'heavy', 'light', 'normal'] }));
+      this.check('the teams of a setup: three apart (ids 0 1 3, no pairs), four in two alliances (0+3 against 1+4), three with the first two allied, and the force of each computer team', ffa.ids.join() === '0,1,3' && ffa.pairs.length === 0 && JSON.stringify(duo.pairs) === '[[0,3],[1,4]]' && JSON.stringify(mix.pairs) === '[[0,1]]' && mix.force[1] === 1.5 && mix.force[3] === 0.6 && duo.colours.join() === teamDefaultColours('normal').join());
+      // the saved setup is read back after a reload
+      const saved = { skirmish: Save.data.skirmish, persist: Save.persist };
+      let writes = 0;
+      Save.persist = () => { writes++; };
+      try {
+        const ui = Object.assign(Object.create(UI), { skirmish: skirmishSetup({ map: 'ashfall' }), cur: {}, render() {} });
+        const pick = (attrs, value) => ui.onInput({ target: { dataset: attrs, value: String(value), type: 'select-one', checked: false } }, true);
+        pick({ skirm: 'teams', num: '1' }, 4);
+        pick({ skteam: 'alliance', tslot: '2' }, 0);
+        pick({ skteam: 'colour', tslot: '1' }, 5);
+        pick({ skteam: 'force', tslot: '3' }, 'heavy');
+        const back = skirmishSetup(Save.sanitize(JSON.parse(JSON.stringify(Save.data))).skirmish);
+        this.check('teams, an alliance, a colour and a force picked in the setup are saved at once and survive a reload (' + back.teams + ' teams, alliance ' + back.alliance.join('') + ', colours ' + (back.colours || []).join('') + ', forces ' + back.force.join('/') + ')', writes === 4 && back.teams === 4 && back.alliance.join() === '0,1,0,3' && back.colours && back.colours[1] === 5 && new Set(back.colours).size === 4 && back.force[3] === 'heavy' && ui.skirmish.teams === 4);
+        const before = ui.skirmish.colours.slice(), at0 = before[0];
+        pick({ skteam: 'colour', tslot: '2' }, at0);   // a colour another team has swaps places
+        this.check('picking a colour another team has swaps the two (' + before.join('') + ' -> ' + ui.skirmish.colours.join('') + ')', ui.skirmish.colours[2] === at0 && ui.skirmish.colours[0] === before[2] && new Set(ui.skirmish.colours).size === 4);
+        pick({ skirm: 'teams', num: '1' }, 2);
+        this.check('and going back to two teams makes them enemies again', ui.skirmish.teams === 2 && ui.skirmish.alliance.slice(0, 2).join() === '0,1');
+        pick({ skirm: 'teams', num: '1' }, 3);
+        const keepAlliance = ui.skirmish.alliance.join();
+        // an old saved setup (before P7-04) plays as it did
+        const old = skirmishSetup(Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1))).skirmish);
+        this.check('a setup saved before the teams plays with two teams and the default colours, SAVE_VERSION stays 1 (' + keepAlliance + ')', old.teams === 2 && old.colours === null && old.alliance.join() === '0,1,2,3' && SAVE_VERSION === 1 && old.map === 'frost');
+        // the setup screen
+        const html = (over) => UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: skirmishSetup(over) }));
+        const h2 = html({ teams: 2 }), h3 = html({ teams: 3 }), h4 = html({ teams: 4, alliance: [0, 1, 0, 1] });
+        const rows = (h) => (h.match(/class="teamrow"/g) || []).length, selects = (h, k) => (h.match(new RegExp('data-skteam="' + k + '"', 'g')) || []).length;
+        this.check('setup screen: the number of teams, one row for each team with a colour, (three or more teams) an alliance and (computer teams) a force, in the team\'s colour square', rows(h2) === 2 && rows(h3) === 3 && rows(h4) === 4 && selects(h2, 'colour') === 2 && selects(h2, 'alliance') === 0 && selects(h3, 'alliance') === 3 && selects(h4, 'alliance') === 4 && selects(h4, 'force') === 3 && selects(h2, 'force') === 1 && h4.indexOf('data-skirm="teams"') >= 0 && h4.indexOf('class="sw" style="background:' + TEAM_PALETTE[0].css) >= 0);
+        this.check('and each colour select offers all six colours with the team\'s own chosen', TEAM_PALETTE.every((c) => h4.indexOf('>' + c.name + '</option>') >= 0) && /<option value="0" selected>Cyan/.test(h4));
+        // the warnings: ground that only just holds that many teams, and colours that look alike to the chosen colour vision
+        const keepV = S.colourVision;
+        try {
+          const warnTier = (map, n) => /only just holds/.test(html({ map, teams: n }));
+          this.check('setup screen: a note when the battlefield only fits the teams on its loosest ground: alpine with 4 teams (' + skirmishTierFor('alpine', 4) + ') yes; alpine with 3, ashfall with 4 and any with 2 no', warnTier('alpine', 4) && !warnTier('alpine', 3) && !warnTier('ashfall', 4) && !warnTier('alpine', 2) && skirmishTierFor('alpine', 2) === 0);
+          S.colourVision = 'normal';
+          const alike = (v, colours) => { S.colourVision = v; return /look alike/.test(html({ teams: 4, colours })); };
+          const closePair = (() => { let w = null; for (const v of TEAM_VISIONS) for (let a = 0; a < 6; a++) for (let b = a + 1; b < 6; b++) if (teamColourGap(a, b, v) < TEAM_GAP_CLOSE && !w) w = [v, a, b]; return w; })();
+          const [cv, ca, cb] = closePair || ['normal', 0, 1];
+          const rest = [0, 1, 2, 3, 4, 5].filter((i) => i !== ca && i !== cb);
+          const gapNormal = teamColourGap(ca, cb, 'normal');
+          this.check('and a note when two team colours are alike under the colour vision set (' + cv + ': ' + TEAM_PALETTE[ca].name + ' and ' + TEAM_PALETTE[cb].name + ' ' + teamColourGap(ca, cb, cv).toFixed(1) + ' apart): shown for ' + cv + ', not shown for normal vision where they are ' + gapNormal.toFixed(0) + ' apart', !!closePair && alike(cv, [ca, cb, rest[0], rest[1]]) && alike('normal', [ca, cb, rest[0], rest[1]]) === (teamLeastGap([ca, cb, rest[0], rest[1]], 'normal') < TEAM_GAP_CLOSE), cv + ' ' + ca + ' ' + cb);
+        } finally { S.colourVision = keepV; }
+      } finally { Save.data.skirmish = saved.skirmish; Save.persist = saved.persist; }
+    });
+    t('p7 skirmish two teams', () => {
+      // the default two-team battle is the battle it was: its waves are the old formula\'s, its objectives the old three, its names the old ones
+      const OLD_TYPES = ['infantry', 'buggy', 'rpgTrooper', 'tank', 'lightMech', 'medMech', 'heavyMech', 'jet', 'gunship'];
+      const oldWaves = (size, seed) => {
+        const sz = SKIRMISH_SIZES[size], rng = makeRng(seed), out = [];
+        for (let w = 0; w < sz.waves; w++) {
+          let budget = sz.budget + w * 1.8;
+          const list = [], unlocked = OLD_TYPES.slice(0, Math.min(OLD_TYPES.length, 2 + Math.floor(w * 0.9) + (size === 'large' ? 1 : 0)));
+          while (budget > 0) { const aff = unlocked.filter((k) => unitCost(k) <= budget); if (!aff.length) break; const k = aff[Math.floor(rng() * aff.length)]; list.push(k); budget -= unitCost(k); }
+          out.push({ list, ang: rng() * TAU, dist: rng() });
+        }
+        return out;
+      };
+      const same = [];
+      for (const size of ['small', 'medium', 'large']) for (const seed of [11, 777, 4242, 99991]) {
+        const def = skirmishDef(Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size, seed, random: false }));
+        if (JSON.stringify(def.waves[1]) !== JSON.stringify(oldWaves(size, seed)) || Object.keys(def.waves).join() !== '1' || def.waveCount !== SKIRMISH_SIZES[size].waves) same.push(size + seed);
+      }
+      this.check('two teams: the waves of team 1 (types, bearing, distance) are exactly the old formula\'s for 3 sizes x 4 seeds, and the only team sending is team 1', same.length === 0, same.join(','));
+      p7sk('ashfall', 2, 'small');
+      const m = W.mission, ids = m.objectives.map((o) => o.id).join();
+      const names = W.structs.filter((s) => s.type === 'command').map((s) => s.name + '/' + s.team).join();
+      this.check('two teams: the objectives are all, hq, base and nodeath as before, the command centers "Command Center" and "Enemy Command", and the title "Destroy the enemy command center"', ids === 'all,hq,base,nodeath' && names === 'Command Center/0,Enemy Command/1' && m.get('hq').title === 'Destroy the enemy command center' && m.get('hq').label === 'ENEMY HQ' && m.get('hq').structs.length === 1 && !m.get('alliances') && Teams.plain() && !W.watch && !!W.player, ids + ' ' + names);
+      for (let i = 0; i < 60 * (SKIRMISH_FIRST_WAVE + 1); i++) Game.tick(STEP);
+      const o = m.get('all');
+      this.check('two teams: the first wave is one wave of team 1 (the kill objective holds it), announced as before: "WAVE 1 OF 4 INBOUND"', o.waves.length === 1 && o.units.length > 0 && o.units.every((u) => u.team === 1) && o.waveNo === 1 && W.msgs.some((q) => q.text === 'WAVE 1 OF 4 INBOUND'), o.waves.length + ' ' + o.units.length + ' ' + W.msgs.map((q) => q.text).join('|'));
+      const target = o.units.find((u) => u.ai && u.ai.assault);
+      this.check('and its units march on our command center', !!target && target.ai.assault === W.structs.find((s) => s.type === 'command' && s.team === 0), target && target.ai.assault && target.ai.assault.name);
+      // a human of our own alliance is no quarry: a wave unit of team 1 hunts a team 0 human, not one of team 1
+      Teams.reset();
+      const foe = { team: 1, x: 0, z: 0 }, pl = W.player;
+      const goal1 = skirmishWaveGoal(foe, { x: 900, z: 900 });
+      W.player.x = 100; W.player.z = 0; W.player.hideFromAI = false; W.player.dead = false;
+      const goal2 = skirmishWaveGoal(foe, { x: 900, z: 900 }), goal3 = skirmishWaveGoal({ team: 0, x: 0, z: 0 }, { x: 900, z: 900 });
+      this.check('wave goals: a human foe within 400 m is hunted, a human of the unit\'s own team is not (the base is the goal), and with no base the unit stays where it is', goal1.x === 900 && goal2.x === 100 && goal3.x === 900 && skirmishWaveGoal({ team: 1, x: 2000, z: 2000 }, null).x === 2000 && pl === W.player);
+      Game.quitToMenu();
+    });
+    t('p7 skirmish three and four teams', () => {
+      // a 3-team free-for-all: every team has its base, command center and waves; the foes of the player are two
+      p7sk('ashfall', 3, 'small');
+      let m = W.mission;
+      const hqNames = W.structs.filter((s) => s.type === 'command').map((s) => s.name + '/' + s.team).join();
+      this.check('three teams apart: command centers named by colour ("Command Center", "Orange Command", "Violet Command"), the objectives all, hq, base, alliances and nodeath, and the hq objective holds both foes', hqNames === 'Command Center/0,Orange Command/1,Violet Command/3' && m.objectives.map((o) => o.id).join() === 'all,hq,base,alliances,nodeath' && m.get('hq').structs.length === 2 && m.get('hq').label === undefined && m.get('hq').title === 'Destroy every hostile command center' && Teams.count() === 3 && !Teams.plain() && Teams.hostile(1, 3) && Teams.hostile(3, 0), hqNames);
+      for (let i = 0; i < 60 * (SKIRMISH_FIRST_WAVE + 1); i++) Game.tick(STEP);
+      const teamsOf = (list) => [...new Set(list.map((u) => u.team))].sort().join();
+      let o = m.get('all');
+      const hq = (team) => W.structs.find((s) => s.type === 'command' && s.team === team);
+      const nearestFoe = (team) => { let best = null, bd = Infinity; for (const id of Teams.active()) { if (!Teams.hostile(team, id)) continue; const d = Math.hypot(hq(id).x - hq(team).x, hq(id).z - hq(team).z); if (d < bd) { bd = d; best = hq(id); } } return best; };
+      const w1 = o.units.filter((u) => u.team === 1), w3 = o.units.filter((u) => u.team === 3);
+      this.check('three teams apart: both computer teams send a first wave (the kill objective holds both: teams ' + teamsOf(o.units) + ', ' + o.waves.length + ' waves)', o.waves.length === 2 && teamsOf(o.units) === '1,3' && w1.length > 0 && w3.length > 0);
+      this.check('and each wave marches on the nearest base of a team that is not its ally (team 1 on ' + (nearestFoe(1) && nearestFoe(1).name) + ', team 3 on ' + (nearestFoe(3) && nearestFoe(3).name) + ')', w1.filter((u) => u.ai && u.ai.assault).every((u) => u.ai.assault === nearestFoe(1)) && w3.filter((u) => u.ai && u.ai.assault).every((u) => u.ai.assault === nearestFoe(3)) && w1.some((u) => u.ai && u.ai.assault) && w3.some((u) => u.ai && u.ai.assault));
+      // the messages and the arty
+      const arty = W.platforms.filter((p) => p.garrison && /^(mortarTeam|howitzerBattery|rocketBattery)$/.test(p.arch || ''));
+      this.check('each computer team has batteries behind its command center (teams ' + teamsOf(arty) + ')', teamsOf(arty).indexOf('1') >= 0 && teamsOf(arty).indexOf('3') >= 0);
+      this.check('and the wave messages name the team by its colour: ' + W.msgs.map((q) => q.text).join(' | '), W.msgs.some((q) => q.text === 'ORANGE WAVE 1 OF 4 INBOUND') && W.msgs.some((q) => q.text === 'VIOLET WAVE 1 OF 4 INBOUND'));
+      // the last alliance standing
+      const al = m.get('alliances');
+      this.check('the alliances objective reads 3 of 3 left', /3 of 3 left/.test(al.text()) && al.status === 'active', al.text());
+      destroyStruct(hq(1), null); Game.tick(STEP);
+      this.check('one computer team out: two alliances stand, the battle goes on', m.state === 'running' && /2 of 3 left/.test(al.text()) && al.status === 'active', m.state + ' ' + al.text());
+      destroyStruct(hq(3), null); for (let i = 0; i < 5; i++) Game.tick(STEP);
+      this.check('both foes out: the player\'s alliance is the last, and the battle is won (' + m.failReason + ')', m.state === 'won' && al.status === 'complete', m.state + ' ' + m.failReason);
+      Game.quitToMenu();
+      // the player\'s own command center falls: lost
+      p7sk('ashfall', 3, 'small'); m = W.mission;
+      destroyStruct(W.structs.find((s) => s.type === 'command' && s.team === 0), null); for (let i = 0; i < 5; i++) Game.tick(STEP);
+      this.check('our command center falls: the battle is lost', m.state === 'lost', m.state + ' ' + m.failReason);
+      Game.quitToMenu();
+      // four teams in two alliances (the player with team 3, team 1 with team 4): the battle ends when one alliance remains
+      Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'small', seed: 11, random: false, platformId: 'bulwark', teams: 4, alliance: [0, 1, 0, 1] }) });
+      m = W.mission;
+      const q = (team) => W.structs.find((s) => s.type === 'command' && s.team === team);
+      this.check('four teams, 0+3 against 1+4: the table is two pairs; the hq objective holds the two foes, not the ally', JSON.stringify(Teams.alliances()) === '[[0,3],[1,4]]' && m.get('hq').structs.length === 2 && m.get('hq').structs.every((s) => s.team === 1 || s.team === 4) && /2 of 2 left/.test(m.get('alliances').text()));
+      for (let i = 0; i < 60 * (SKIRMISH_FIRST_WAVE + 1); i++) Game.tick(STEP);
+      o = m.get('all');
+      const ally = W.platforms.filter((p) => p.team === 3 && p.ai && !p.garrison && p.arch && p.def.speed > 0);
+      this.check('the ally (team 3) sends waves of its own that the kill objective does not hold (teams ' + teamsOf(o.units) + '), and they march on a foe\'s base, not on ours', teamsOf(o.units) === '1,4' && ally.length > 0 && ally.some((u) => u.ai.assault && (u.ai.assault.team === 1 || u.ai.assault.team === 4)) && ally.every((u) => !u.ai.assault || u.ai.assault.team !== 0));
+      destroyStruct(q(1), null); Game.tick(STEP);
+      this.check('team 1 out, team 4 standing: the foes\' alliance still stands, the battle goes on', m.state === 'running' && /2 of 2 left/.test(m.get('alliances').text()));
+      destroyStruct(q(4), null); for (let i = 0; i < 5; i++) Game.tick(STEP);
+      this.check('team 4 out too: our alliance remains, the battle is won', m.state === 'won', m.state + ' ' + m.failReason);
+      Game.quitToMenu();
+      // our own command center falls while the ally\'s stands: still a lost battle (the base to protect is ours)
+      Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'small', seed: 11, random: false, platformId: 'bulwark', teams: 4, alliance: [0, 1, 0, 1] }) });
+      m = W.mission;
+      destroyStruct(W.structs.find((s) => s.type === 'command' && s.team === 0), null); for (let i = 0; i < 5; i++) Game.tick(STEP);
+      this.check('our command center falls while our ally\'s stands: the battle is lost (lose your own command center, the rule of a skirmish)', m.state === 'lost');
+      Game.quitToMenu();
+    });
+    t('p7 skirmish forces and streams', () => {
+      const total = (waves) => waves.map((w) => w.list.reduce((n, k) => n + unitCost(k), 0));
+      const cfg = (over) => Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'large', seed: 11, random: false }, over);
+      const light = skirmishDef(cfg({ force: ['normal', 'light', 'normal', 'normal'] })).waves[1], normal = skirmishDef(cfg({})).waves[1], heavy = skirmishDef(cfg({ force: ['normal', 'heavy', 'normal', 'normal'] })).waves[1];
+      const sum = (w) => total(w).reduce((a, b) => a + b, 0);
+      this.check('forces: Light, Normal and Heavy waves spend about 60%, 100% and 150% of the budget (' + sum(light) + ', ' + sum(normal) + ', ' + sum(heavy) + ' points over 9 waves)', sum(light) < sum(normal) * 0.75 && sum(heavy) > sum(normal) * 1.25 && sum(light) > 0 && light.length === 9 && heavy.length === 9);
+      const d4 = skirmishDef(cfg({ teams: 4 }));
+      const sig = (w) => JSON.stringify(w.map((x) => [x.list.join(''), x.ang.toFixed(4)]));
+      this.check('each computer team draws its waves from its own stream: three streams, none the same as another, team 1\'s the battle seed\'s own', Object.keys(d4.waves).join() === '1,3,4' && sig(d4.waves[1]) === sig(normal) && sig(d4.waves[3]) !== sig(d4.waves[1]) && sig(d4.waves[4]) !== sig(d4.waves[3]) && sig(d4.waves[4]) !== sig(d4.waves[1]));
+      const again = skirmishDef(cfg({ teams: 4 }));
+      this.check('and the same seed gives the same waves again (a co-op guest builds the same battle)', sig(again.waves[3]) === sig(d4.waves[3]) && sig(again.waves[4]) === sig(d4.waves[4]));
+      this.check('the wave count of a battle is the waves of all the foes of the player (4 teams apart: 3 x 9; 0+3 against 1+4: 2 x 9)', d4.waveCount === 27 && skirmishDef(cfg({ teams: 4, alliance: [0, 1, 0, 1] })).waveCount === 18 && normal && skirmishDef(cfg({})).waveCount === 9);
+      const watch = skirmishDef(cfg({ teams: 3, watch: true }));
+      this.check('a watched battle (nobody plays team 0) has team 0 send waves too: streams 0, 1 and 3', Object.keys(watch.waves).join() === '0,1,3' && sig(watch.waves[0]) !== sig(watch.waves[1]));
+    });
+    t('p7 skirmish watched', () => {
+      // nobody plays team 0 (the balance runs): all the computer teams fight, no platform of the player\'s, and the battle ends when one alliance remains
+      Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'small', seed: 11, random: false, platformId: 'bulwark', teams: 3, watch: true, duration: 0, support: 'none' }) });
+      const m = W.mission;
+      this.check('watched: no platform of the player\'s, the mission does not end for the lack of one, only the alliances objective is primary, team 0 is a computer side', !W.player && W.watch === true && !Teams.humanSide(0) && Teams.aiSide(0) && Teams.humans().length === 0 && m.objectives.filter((o) => o.primary).map((o) => o.id).join() === 'alliances', m.objectives.map((o) => o.id).join());
+      for (let i = 0; i < 60 * (SKIRMISH_FIRST_WAVE + 2); i++) Game.tick(STEP);
+      const teams = [...new Set(W.platforms.filter((p) => p.ai && !p.garrison && p.arch && p.def.speed > 0).map((p) => p.team))].sort().join();
+      this.check('and every team sends a wave: units of teams ' + teams, teams === '0,1,3' && m.state === 'running' && Game.errors.length === 0);
+      const hq = (team) => W.structs.find((s) => s.type === 'command' && s.team === team);
+      destroyStruct(hq(0), null); Game.tick(STEP);
+      this.check('team 0 out: two alliances stand', m.state === 'running' && !W.outcome);
+      destroyStruct(hq(1), null); for (let i = 0; i < 5; i++) Game.tick(STEP);
+      this.check('team 1 out too: team 3 is the last alliance, the battle ends with team 3 as the winner (' + m.failReason + ')', m.state !== 'running' && W.outcome && W.outcome.teams.join() === '3' && W.outcome.winner === 2, JSON.stringify(W.outcome));
+      Game.quitToMenu();
+    });
+    t('p7 skirmish wire', () => {
+      // a guest sees the host's teams, alliances and colours (P7-05 adds joining any team)
+      const wire = (w) => { Teams.fromWire(w); return JSON.stringify([Teams.alliances(), Teams.colours(), Teams.count(), Teams.humans()]); };
+      Teams.configure([[0, 3], [1, 4]], [0], [4, 5, 3, 2], 4);
+      const sent = Teams.toWire();
+      Teams.reset();
+      const got = wire(JSON.parse(JSON.stringify(sent)));
+      this.check('the table of a battle goes over the wire and back: pairs, colours and the number of teams (' + JSON.stringify(sent) + ')', got === '[[[0,3],[1,4]],[4,5,3,2],4,[0]]', got);
+      const junk = [undefined, null, 'x', 5, [], {}, { a: 'x', c: 'y', n: 'z' }, { a: [[9, 9], [0], [0, 'x'], null, [1, 1], [2, 0]], c: [99, -1, 'x', 2, 7], n: 77 }, { a: new Array(50).fill([0, 1]), c: [0, 0, 0, 0], n: 3.5 }];
+      const results = junk.map(wire);
+      this.check('and what a peer sends wrong is dropped for the defaults: no pair of the neutral side or a bad id, four different colours, 2 to 4 teams (' + results.length + ' bad tables tried)', results.every((r) => { const [pairs, cols, n] = JSON.parse(r); return pairs.every((q) => q.length === 2 && Teams.fighting(q[0]) && Teams.fighting(q[1]) && q[0] !== q[1]) && new Set(cols).size === 4 && n >= 2 && n <= 4; }) && JSON.parse(results[7])[2] === 4 && JSON.parse(results[8])[2] === 2 && JSON.parse(results[8])[0].length <= 1, results.join(' ; '));
+      Teams.reset();
+      // the host's 'start' carries it, the guest\'s world takes it
+      const keepDiff = S.difficulty, saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
+      try {
+        const sentMsgs = [], peer = Net.newPeer();
+        Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', tx: (str) => sentMsgs.push(JSON.parse(str)) });
+        Net.host = true; Net.guest = false; Net.peers = [peer]; Net.missionId = 'm2';
+        Save.data.platformId = 'bulwark';
+        Net.startCoop();
+        const st = sentMsgs.find((q) => q.t === 'start');
+        this.check('the host\'s start message carries the table (a mission: two teams, none allied, the default colours): ' + JSON.stringify(st && st.cfg.teams), !!st && st.cfg.teams && st.cfg.teams.n === 2 && st.cfg.teams.a.length === 0 && st.cfg.teams.c.join() === teamDefaultColours('normal').join());
+        let left = '';
+        Net.host = false; Net.guest = true; Net.peers = []; Net.hostPeer = { tx() {} }; Net.leave = (why) => { left = why || 'left'; };
+        const shown = JSON.parse(JSON.stringify(st));
+        shown.cfg.teams = { a: [[0, 3], [1, 4]], c: [2, 3, 5, 4], n: 4 };
+        Net.guestStart(shown);
+        this.check('a guest that starts takes the host\'s teams, alliances and colours (and its HUD then draws them: not plain)', left === '' && JSON.stringify(Teams.alliances()) === '[[0,3],[1,4]]' && Teams.colours().join() === '2,3,5,4' && Teams.count() === 4 && !Teams.plain() && Teams.humans().join() === '0', left);
+        Net.guestStart(st);
+        this.check('and a start with the plain table puts it back', Teams.plain() && Teams.alliances().length === 0);
+        // an old host (no table in the start message) leaves the guest with the default
+        const oldStart = JSON.parse(JSON.stringify(st)); delete oldStart.cfg.teams;
+        Net.guestStart(oldStart);
+        this.check('and a start without one (a build before this) plays with the default table', Teams.plain());
+      } finally { Net.host = saved.host; Net.guest = saved.guest; Net.inSession = saved.inSession; Net.peers = saved.peers; Net.hostPeer = saved.hostPeer; Net.missionId = saved.missionId; Net.leave = saved.leave; Save.data.platformId = keepPid; S.difficulty = keepDiff; Teams.reset(); Game.quitToMenu(); }
+    });
+    t('p7 lows', () => {
+      // (a) the 3 and 4 team search: a look-up when repeated, a bounded cost the first time, the same set either way
+      const cfgOf = (map, teams, seed, platformId) => Object.assign({}, SKIRMISH_DEFAULT, { map, seed, random: false, teams, platformId: platformId || 'bulwark', size: 'large' });
+      const sig = (L) => JSON.stringify([L.bases.map((b) => [Math.round(b.x * 1000), Math.round(b.z * 1000), b.team, b.dp, b.defSeed]), L.lay.cities.map((c) => [Math.round(c.x), Math.round(c.z), c.kind]), L.tier, L.harbour, L.sites.length, L.lay.airport ? [Math.round(L.lay.airport.x), Math.round(L.lay.airport.z)] : null]);
+      const timed = (cfg) => { const t0 = performance.now(); const L = skirmishLayout(cfg); return { ms: performance.now() - t0, L }; };
+      const slow = [], rows = [];
+      for (const [map, pid] of [['canyon', 'bulwark'], ['canyon', 'trident'], ['coast', 'trident'], ['archipelago', 'trident'], ['volcano', 'bulwark'], ['valley', 'bulwark'], ['alpine', 'bulwark']]) {
+        SKIRMISH_MEMO.clear(); SKIRMISH_PICKS.clear();
+        const cold = timed(cfgOf(map, 4, 11, pid)), hits = SKIRMISH_STATS.hits, warm = timed(cfgOf(map, 4, 11, pid));
+        const again = sig(cold.L) === sig(warm.L);
+        rows.push(map + ' ' + pid + ' cold ' + Math.round(cold.ms) + ' ms, again ' + Math.round(warm.ms) + ' ms');
+        if (cold.ms > 600 || warm.ms > 40 || !again || SKIRMISH_STATS.hits <= hits) slow.push(map + ' cold ' + Math.round(cold.ms) + ' warm ' + Math.round(warm.ms) + ' same ' + again);
+      }
+      this.check('4-team layouts: a first start stays well under the 1.1 s it took (canyon, coast, archipelago, volcano, valley, alpine), a repeat is a look-up with the same set (' + rows.join('; ') + ')', slow.length === 0, slow.join(' | '));
+      // the same set whether cached or not, for every battlefield and 3 and 4 teams (the airfield variants included)
+      const mismatch = [];
+      for (const id of Object.keys(MAPS)) for (const teams of [3, 4]) for (const seed of [11, 7930]) {
+        SKIRMISH_MEMO.clear(); SKIRMISH_PICKS.clear();
+        const a = sig(skirmishLayout(cfgOf(id, teams, seed))), b = sig(skirmishLayout(cfgOf(id, teams, seed)));
+        SKIRMISH_PICKS.clear();
+        const c = sig(skirmishLayout(cfgOf(id, teams, seed)));   // (the ground kept, the set searched again)
+        if (a !== b || a !== c) mismatch.push(id + teams + '/' + seed);
+      }
+      this.check('and the set found is the same cold, from the kept set and from the kept ground alone, on all 13 battlefields x 3 and 4 teams x 2 seeds', mismatch.length === 0, mismatch.join(','));
+      // the cache is keyed by battlefield, seed, harbour ship and teams: other keys are other searches
+      SKIRMISH_MEMO.clear(); SKIRMISH_PICKS.clear();
+      skirmishLayout(cfgOf('coast', 3, 11)); skirmishLayout(cfgOf('coast', 4, 11)); skirmishLayout(cfgOf('coast', 3, 12)); skirmishLayout(cfgOf('coast', 3, 11, 'trident'));
+      this.check('a different seed or number of teams is another search, a land pick and a Trident on the same battlefield share one (6 kept sets: 3 searches x with and without the airfield; ' + SKIRMISH_PICKS.size + ' kept, ' + SKIRMISH_MEMO.size + ' grounds for seeds 11 and 12)', SKIRMISH_PICKS.size === 6 && SKIRMISH_MEMO.size === 2);
+      for (let k = 0; k < SKIRMISH_CACHE_MAX + 6; k++) skirmishLayout(cfgOf('verdant', 3, 100 + k));
+      this.check('the caches stay small (at most ' + SKIRMISH_CACHE_MAX + ' of each)', SKIRMISH_PICKS.size <= SKIRMISH_CACHE_MAX && SKIRMISH_MEMO.size <= SKIRMISH_CACHE_MAX);
+      // a search that runs out of time takes the spread-out set, never stalls, and is not remembered
+      SKIRMISH_MEMO.clear(); SKIRMISH_PICKS.clear();
+      const keepMs = SKIRMISH_BUDGET.ms, cuts = SKIRMISH_STATS.cut;
+      let cutL = null;
+      try { SKIRMISH_BUDGET.ms = -1; cutL = skirmishLayout(cfgOf('canyon', 4, 11)); } finally { SKIRMISH_BUDGET.ms = keepMs; }
+      this.check('a search with no time left: the spread-out set (tier ' + (cutL && cutL.tier) + ', 4 bases), counted as cut, and not kept for the next start', !!cutL && cutL.tier === SKIRMISH_FAIR.length && cutL.bases.length === 4 && SKIRMISH_STATS.cut > cuts && SKIRMISH_PICKS.size === 0);
+      this.check('and the next start, with time, searches again and finds the fair set', skirmishLayout(cfgOf('canyon', 4, 11)).tier < SKIRMISH_FAIR.length && SKIRMISH_PICKS.size >= 1);
+      // (b) an id that is not a whole number is nobody\'s friend, even next to its twin
+      const junk = [undefined, null, NaN, 1.5, -1, 8, Infinity, '1', '0', true, [], {}, 0.5];
+      const twins = junk.filter((j) => Teams.allied(j, j) || Teams.hostile(j, j));
+      this.check('allied(x, x) is false for x undefined, null, NaN, 1.5, negative, 8 or more, infinite, a string, a boolean or an object, and still true for the ids 0 to 7 (' + twins.length + ' faults)', twins.length === 0 && [0, 1, 2, 3, 4, 5, 6, 7].every((v) => Teams.allied(v, v) && !Teams.hostile(v, v)));
+      // (c) the player\'s start faces as team 0\'s start does, with three and four teams (the bearing to the middle of the bases)
+      const yawFaults = [];
+      for (const id of ['ashfall', 'coast', 'alpine', 'canyon', 'metro']) for (const teams of [2, 3, 4]) {
+        const L = skirmishLayout(cfgOf(id, teams, 11));
+        if (L.start.yaw !== L.starts[0].yaw || L.starts[0].team !== 0) yawFaults.push(id + teams);
+      }
+      const L4 = skirmishLayout(cfgOf('ashfall', 4, 11)), cx = L4.bases.reduce((a, b) => a + b.x, 0) / 4, cz = L4.bases.reduce((a, b) => a + b.z, 0) / 4;
+      this.check('start facing: the player\'s start yaw is starts[0].yaw on 5 battlefields x 2, 3 and 4 teams, and with more than two teams it looks at the middle of the bases (' + L4.start.yaw.toFixed(3) + ' against ' + Math.atan2(cx - L4.bases[0].x, cz - L4.bases[0].z).toFixed(3) + ')', yawFaults.length === 0 && Math.abs(L4.start.yaw - Math.atan2(cx - L4.bases[0].x, cz - L4.bases[0].z)) < 1e-9, yawFaults.join(','));
+      p7sk('ashfall', 4, 'small');
+      this.check('and the built battle puts the player on that bearing', Math.abs(W.player.yaw - skirmishLayout(cfgOf('ashfall', 4, 11, 'bulwark')).starts[0].yaw) < 1e-6, String(W.player.yaw));
+      Game.quitToMenu();
+      // (d) a known-mines message for the neutral team or a bad id is ignored (checked with the other messages in 'p7 bases any team')
+      // (e) the two-team layout hash now holds the sites\' contents, the starts and W.bases (checked in 'p7 bases two teams')
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -41969,7 +42767,7 @@ var CRATERS_OFF = false;   // self-test switch: no crater is dug (the groups tha
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 21;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq'); 20: P7-01's team ids 0 to 4 on the wire (the team of a platform in 'sp', 'pst' and 'g', the team in 'f' and the 'bd' trace), where 0 to 2 were the only ids a peer accepted; neutral stays 2; 21: P7-02's base-defence messages for any team: 'bd' k 'k' (the mines a team knows) carries the team (tm) it is for, and a silo's target in 'bd' k 's' may be any team 0 to 4 (a peer used to clamp it to 3)
+const NET_VERSION = 22;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq'); 20: P7-01's team ids 0 to 4 on the wire (the team of a platform in 'sp', 'pst' and 'g', the team in 'f' and the 'bd' trace), where 0 to 2 were the only ids a peer accepted; neutral stays 2; 21: P7-02's base-defence messages for any team: 'bd' k 'k' (the mines a team knows) carries the team (tm) it is for, and a silo's target in 'bd' k 's' may be any team 0 to 4 (a peer used to clamp it to 3); 22: P7-03's table of the battle in 'start': cfg.teams = { a: the allied pairs [[a, b], ...], c: the palette indexes of the colours of teams 0, 1, 3 and 4, n: the number of teams }, which a guest takes with Teams.fromWire (anything else in it is dropped for the defaults)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -42256,7 +43054,7 @@ const Net = {
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
     const wh = worldHash();
-    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, lives: cfg.lives, platformId: p.pid, loadout: p.loadout, env: cfg.env }, ns: W.structs.length, wh });
+    for (const p of live) this.send(p, { t: 'start', cfg: { mode: 'mission', missionId: cfg.missionId, difficulty: cfg.difficulty, coop: true, nPlayers: cfg.nPlayers, lives: cfg.lives, platformId: p.pid, loadout: p.loadout, env: cfg.env, teams: Teams.toWire() }, ns: W.structs.length, wh });
     return true;
   },
   /* called by Game.startSession on the host once the world and the local player exist */
@@ -42972,7 +43770,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters, Teams, skirmishFairness, skirmishFair, SKIRMISH_MANY, SKIRMISH_FAIR, SKIRMISH_FIELD, NAVAL_SHORE_MAX, NAV_BODY_MIN, NAVAL_SPAWN_EDGE, teamBase, nearestFoeBase, TEAM_ACCENT };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters, Teams, skirmishFairness, skirmishFair, SKIRMISH_MANY, SKIRMISH_FAIR, SKIRMISH_FIELD, NAVAL_SHORE_MAX, NAV_BODY_MIN, NAVAL_SPAWN_EDGE, teamBase, nearestFoeBase, SKIRMISH_BUDGET, skirmishTeams, skirmishSetup, skirmishAlliance, TEAM_PALETTE, TEAM_VISIONS, TEAM_PALETTE_GAP, TEAM_GAP_CLOSE, teamColourGap, teamLeastGap, teamDefaultColours, colourLab, SKIRMISH_STATS, SKIRMISH_MEMO, SKIRMISH_PICKS };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
