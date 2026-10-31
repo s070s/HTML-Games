@@ -3073,6 +3073,51 @@ const FX = {
    ===================================================================== */
 let W = null; // the live world (null in menus)
 
+/* P7-01  teams and alliances. A team id says whom a unit belongs to: 0 the player's side, 1 the main enemy, 2 neutral (civilians,
+   civilian vehicles, scenery), 3 and 4 the extra fighting teams. Who fights whom is the alliance table, not the id: a team is
+   always allied with itself, any other pair is hostile unless the table says allied, and neutral is nobody's target.
+   Every question is one lookup in a small typed table (no allocation, safe on the hot paths: targeting, projectile hits).
+     allied(a, b)   a and b are on one side (same team or allied): no friendly-fire damage, no score, shared sight
+     hostile(a, b)  b is a fair target for a: not allied, not neutral
+     isNeutral(t)   civilians and the like; humanSide(t) / aiSide(t)  the side the players are on / a side the computer plays
+   P7-04 and P7-05 set the table (Teams.configure); every battle starts from the default (0 against 1, nobody else). */
+const Teams = (() => {
+  const MAX = 5, NEUTRAL = 2, PLAYER = 0;   // team ids 0 to 4
+  const ALLY = new Uint8Array(64), FOE = new Uint8Array(64), NEUT = new Uint8Array(8), HUMAN = new Uint8Array(8), AI = new Uint8Array(8);   // index (a << 3) | b
+  const pairs = [];   // the allied pairs of the table now, [a, b] with a < b
+  const rebuild = () => {
+    ALLY.fill(0); FOE.fill(0); NEUT.fill(0); NEUT[NEUTRAL] = 1;
+    for (const [a, b] of pairs) { ALLY[(a << 3) | b] = 1; ALLY[(b << 3) | a] = 1; }
+    for (let a = 0; a < MAX; a++) for (let b = 0; b < MAX; b++) FOE[(a << 3) | b] = a !== b && b !== NEUTRAL && !ALLY[(a << 3) | b] ? 1 : 0;
+  };
+  const setSides = (humanTeams) => { HUMAN.fill(0); AI.fill(0); for (let t = 0; t < MAX; t++) { if (t === NEUTRAL) continue; if (humanTeams.indexOf(t) >= 0) HUMAN[t] = 1; else AI[t] = 1; } };
+  const T = {
+    MAX, NEUTRAL, PLAYER,
+    allied(a, b) { return a === b || (((a | b) >>> 3) === 0 && ALLY[(a << 3) | b] === 1); },
+    hostile(a, b) { return ((a | b) >>> 3) === 0 && FOE[(a << 3) | b] === 1; },
+    same(a, b) { return a === b; },   // the very same team id (who owns a thing), not whom it fights for
+    isNeutral(t) { return NEUT[t] === 1; },
+    humanSide(t) { return HUMAN[t] === 1; },
+    aiSide(t) { return AI[t] === 1; },
+    valid(t) { return Number.isInteger(t) && t >= 0 && t < MAX; },
+    fighting(t) { return Number.isInteger(t) && t >= 0 && t < MAX && t !== NEUTRAL; },
+    id(t) { return Number.isInteger(t) && t >= 0 && t < MAX ? t : NEUTRAL; },   // a team id off the wire: anything unknown is neutral
+    /* the table as [[a, b], ...] allied pairs (copy), and the teams the players are on */
+    alliances() { return pairs.map((p) => p.slice()); },
+    /* set the table: allied = [[a, b], ...] between fighting teams, humans = the teams players are on (default [0]) */
+    configure(allied, humans) {
+      pairs.length = 0;
+      for (const [x, y] of allied || []) if (T.fighting(x) && T.fighting(y) && x !== y && !pairs.some((q) => q[0] === Math.min(x, y) && q[1] === Math.max(x, y))) pairs.push([Math.min(x, y), Math.max(x, y)]);
+      rebuild(); setSides(humans || [PLAYER]);
+    },
+    reset() { T.configure([], [PLAYER]); },
+  };
+  T.reset();
+  return T;
+})();
+/* the base of a team (W.bases.own for the player's side, W.bases.enemy for the computer's; P7-02 gives every team one) */
+function teamBase(team) { return W && W.bases ? (Teams.humanSide(team) ? W.bases.own : Teams.aiSide(team) ? W.bases.enemy : null) : null; }
+
 const TILE_CELLS = 8, TILES = Math.ceil(250 / TILE_CELLS);
 const CRATER_FLAGS = 250 * 250;   // one flag for every square of the 8 m height grid that a crater reaches (Terrain.cflag)
 const TERRAIN_CACHE_SIZE = 4;   // recent terrains kept for restarts and co-op joins (about 3 MB each with the mesh)
@@ -3931,16 +3976,16 @@ function watchStruct(s) {
 var FUEL_BLAST_CAP_OFF = false;   // self-test switch: a fuel blast ignores the unspotted cap
 function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   if (Net.guest) return 0;
-  if (s.invuln && s.objective && !s.destroyed && owner && owner.team !== s.team) warnShielded(owner);
+  if (s.invuln && s.objective && !s.destroyed && owner && !Teams.allied(owner.team, s.team)) warnShielded(owner);
   if (s.destroyed || s.indestructible || s.invuln || amount <= 0) return 0;
-  if (s.objective && owner && owner.team === s.team && !W.friendlyFire) return 0;   // a side never wears down its own objectives
+  if (s.objective && owner && Teams.allied(owner.team, s.team) && !W.friendlyFire) return 0;   // a side never wears down its own objectives
   const mm = MATERIAL[s.mat];
   let eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
   if (s.siloOpen) eff *= 2;   // a silo with its doors open is twice as soft (P5-09)
   if (unspotted && s.objective) { eff = Math.min(eff, s.maxHp * ARTY_UNSPOTTED_CAP - s.unspot); if (eff > 0) s.unspot += eff; }
   if (eff <= 0) return 0;
   s.unspotHit = !!unspotted;   // the last hit decides whether a fuel blast it sets off is unspotted too
-  if (s.objective && owner && owner.hideFromAI && owner.team !== s.team) owner.provoke();
+  if (s.objective && owner && owner.hideFromAI && !Teams.allied(owner.team, s.team)) owner.provoke();
   const before = s.state;
   if (Net.host) Net.dirty.add(s.idx);
   if (!s.bld && s.flash <= 0) W.flashing.push(s);
@@ -3986,7 +4031,7 @@ function creditStruct(s, owner) {
   const st = statsOf(owner);
   if (!st || s.bld || s.type === 'tree') return;
   // every structure counts in the record, but only hostile or objective ones score: levelling scenery is no score farm
-  const score = s.objective ? OBJECTIVE_STRUCT_SCORE : s.team === 1 ? STRUCT_SCORE : 0;
+  const score = s.objective ? OBJECTIVE_STRUCT_SCORE : Teams.hostile(owner.team, s.team) ? STRUCT_SCORE : 0;
   st.structures++; st.score += score;
   if (s.objective) markKill(owner, score, s.name);
 }
@@ -4083,7 +4128,7 @@ function rayBuildingCells(b, ox, oy, oz, dx, dy, dz, tIn, best) {
 }
 /* Hitbox growth (m) for a player's shot at platform e: aim assist makes hostiles easier to hit. */
 function hitPad(owner, e) {
-  if (!owner || !owner.aimAssist || e.team === owner.team || e.team === 2) return 0;
+  if (!owner || !owner.aimAssist || !Teams.hostile(owner.team, e.team)) return 0;
   return clamp(e.radius * HIT_PAD_SHARE, HIT_PAD_MIN, HIT_PAD_MAX);
 }
 const HIT_PAD_SHARE = 0.35, HIT_PAD_MIN = 0.5, HIT_PAD_MAX = 1.5;
@@ -4982,7 +5027,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     const f = 1 - clamp(d / radius, 0, 1);
     const dmg = damage * (0.15 + 0.85 * f);
     const dealt = p.takeDamage(dmg, dtype, owner, dx, dz, { blast: true, srcY: y });
-    if (damage <= 0 || (dealt <= 0 && owner && owner.team === p.team)) continue;   // no push on allies spared by friendly fire rules
+    if (damage <= 0 || (dealt <= 0 && owner && Teams.allied(owner.team, p.team))) continue;   // no push on allies spared by friendly fire rules
     const len = Math.hypot(dx, dy, dz) || 1, force = Math.min(24, (radius * 2.5 * f) / p.def.mass);
     p.vx += dx / len * force; p.vz += dz / len * force; if (p.kind !== 'air') p.vy += Math.max(0, dy / len) * force * 0.5;
     if (f > 0.6 && dmg > 30 * p.def.stability) p.stagger = Math.max(p.stagger, 0.5);
@@ -5027,6 +5072,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   Scan.clear();   // the pings of the last battle (P5-03)
+  Teams.reset();   // every battle starts from the default alliance table (P7-01)
   BaseDef.reset();   // and the base defences of the last (P5-09)
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], hotPlain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
@@ -5345,7 +5391,7 @@ function drawStruct(s, bake) {
         }
         if (s.type === 'depot') { st.push().t(0, h * 0.5, s.d * 0.51).s(s.w * 0.3, h * 0.5, 0.2); R.draw('box', 0.9, 0.7, 0.15, 1, 0.1, 0); st.pop(); }
         if (s.type === 'silo') {   // two door leaves in a hazard-striped frame on the roof (BaseDef draws the glow while they are open); a team stripe round the wall
-          const tc = s.team === 0 ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
+          const tc = Teams.humanSide(s.team) ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
           st.push().t(0, h * 1.04, 0).s(s.w * 0.8, 0.3, s.d * 0.8); R.draw('box', 0.9, 0.7, 0.1, 1, 0.1, 0); st.pop();
           for (const k of [-1, 1]) { st.push().t(k * s.w * 0.19, h * 1.1, 0).s(s.w * 0.36, 0.3, s.d * 0.7); R.draw('box', 0.14, 0.15, 0.16, 1, 0, 0.5); st.pop(); }
           st.push().t(0, h * 0.8, 0).s(s.w * 1.02, h * 0.1, s.d * 1.02); R.draw('box', tc[0], tc[1], tc[2], 1, 0.6, 0); st.pop();
@@ -5376,7 +5422,7 @@ function drawStruct(s, bake) {
 
 /* roof works of a skirmish command center: a raised block, a radar mast and a beacon in its team's colour (blue ours, red theirs) */
 function drawCommandTop(s, h, c) {
-  const st = R.stack, bc = s.team === 0 ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
+  const st = R.stack, bc = Teams.humanSide(s.team) ? [0.3, 0.7, 1] : [1, 0.3, 0.2];
   st.push().t(s.w * 0.2, h * 1.15, 0).s(s.w * 0.35, h * 0.25, s.d * 0.5); R.draw('box', c[0] * 0.85, c[1] * 0.85, c[2] * 0.85); st.pop();
   st.push().t(-s.w * 0.3, h * 1.5, 0).s(0.6, h, 0.6); R.draw('box', 0.5, 0.52, 0.55, 1, 0, 0.5); st.pop();
   st.push().t(-s.w * 0.3, h * 1.75, 0).s(4, 0.3, 4); R.draw('cyl', 0.45, 0.47, 0.5, 1, 0, 0.5); st.pop();
@@ -7694,7 +7740,7 @@ const Scenery = {
   },
   /* a fort's turrets on their slots (allied ones for our base) and its garrison in the yard; garrison units hold the base */
   fortDefenders(c) {
-    const ours = c.team === 0, out = [];
+    const ours = Teams.humanSide(c.team), out = [];
     const emplace = (arch, q) => {
       const p = this.fortAt(c, q[0], q[1]), u = spawnUnit(arch, p.x, p.z, { team: c.team, radius: 3, force: true, yaw: c.face });
       if (u) { u.garrison = true; out.push(u); }
@@ -9873,7 +9919,7 @@ const Fauna = {
     if (Math.abs(angleDiff(inward, yaw)) > 0.8 && Math.hypot(st.x, st.z) > 300) out.push({ x: st.x, z: st.z, yaw: inward, cone: 0.6, near: 100, far: 300 });
     let goal = W.bases ? W.bases.enemy : null, best = Infinity;
     if (!goal) for (const o of m.objectives) {
-      if (!o.primary || (o.units && o.units.some((u) => u.team === 1))) continue;
+      if (!o.primary || (o.units && o.units.some((u) => Teams.hostile(Teams.PLAYER, u.team)))) continue;
       for (const k of o.markers()) { const d = Math.hypot(k.x - st.x, k.z - st.z); if (d < best) { best = d; goal = k; } }
     }
     if (goal) {
@@ -13846,12 +13892,12 @@ const Scan = {
   /* true when team's ping lays unit e bare now */
   reveals(e, team) {
     const l = this.list;
-    if (l.length === 0 || e.team === team || e.jamT > 0) return false;
+    if (l.length === 0 || Teams.allied(e.team, team) || e.jamT > 0) return false;
     for (let i = 0; i < l.length; i++) {
       const s = l[i];
       if (s.until <= W.time) continue;
       const c = this.carrier(s);
-      if (!c || (s.team >= 0 ? s.team : c.team) !== team) continue;   // (a co-op guest may hear of a ping before it holds the carrier: the team follows the carrier)
+      if (!c || !Teams.allied(s.team >= 0 ? s.team : c.team, team)) continue;   // (a co-op guest may hear of a ping before it holds the carrier: the team follows the carrier)
       if (Math.hypot(e.x - c.x, e.y - c.y, e.z - c.z) <= s.r) return true;
     }
     return false;
@@ -13863,7 +13909,7 @@ const Scan = {
   /* true when e is pinging (loud) and viewer, a hostile, is within selfMark x its radius: viewer's radar shows it */
   loud(e, viewer) {
     const l = this.list;
-    if (l.length === 0 || e.team === viewer.team) return false;
+    if (l.length === 0 || Teams.allied(e.team, viewer.team)) return false;
     for (let i = 0; i < l.length; i++) {
       const s = l[i];
       if (s.pid !== e.id || s.until <= W.time) continue;
@@ -13872,11 +13918,11 @@ const Scan = {
     return false;
   },
   /* a mine a ping of team found shows for its `markUntil` */
-  marked(q, team) { return q.markTeam === team && q.markUntil > W.time; },
+  marked(q, team) { return Teams.allied(q.markTeam, team) && q.markUntil > W.time; },
   /* the ping starts (both sides): hostile mines within r are marked for the carrier's team */
   markMines(x, y, z, team, r, secs) {
     for (const q of W.projs) {
-      if (!q.active || !q.def.mine || q.team === team || Math.hypot(q.x - x, q.y - y, q.z - z) > r) continue;
+      if (!q.active || !q.def.mine || Teams.allied(q.team, team) || Math.hypot(q.x - x, q.y - y, q.z - z) > r) continue;
       q.markTeam = team; q.markUntil = W.time + secs;
       if (q.markUntil > this.marksUntil) this.marksUntil = q.markUntil;
     }
@@ -13916,7 +13962,7 @@ const Detect = {
     this.x[0] = p.x; this.z[0] = p.z; this.r2[0] = this.rangeOf(p) ** 2; this.away[0] = 0;
     for (let i = 0; i < pl.length; i++) {
       const q = pl[i];
-      if (q === p || q.dead || q.team !== p.team || !(q.def.sensor > 0) || solo) continue;
+      if (q === p || q.dead || !Teams.allied(q.team, p.team) || !(q.def.sensor > 0) || solo) continue;
       const r = this.rangeOf(q) * DETECT_SHARE, dx = q.x - p.x, dz = q.z - p.z, reach = disc + r, away = dx * dx + dz * dz;
       if (away > reach * reach) continue;
       let at = n;
@@ -13931,7 +13977,7 @@ const Detect = {
     const ps = W.projs;
     for (let i = 0; i < ps.length && n < DETECT_NODES + DETECT_DRONES; i++) {   // (own room: Spotter Drones never crowd out an ally)
       const q = ps[i];
-      if (!q.active || !q.def.drone || q.team !== p.team) continue;
+      if (!q.active || !q.def.drone || !Teams.allied(q.team, p.team)) continue;
       const r = q.def.radius * (q.owner === p ? 1 : DETECT_SHARE);
       this.x[n] = q.x; this.z[n] = q.z; this.r2[n] = r * r; this.away[n] = 0; n++;
     }
@@ -13966,19 +14012,19 @@ const Detect = {
       const e = pl[i];
       if (e === p || e.dead) continue;
       const dx = e.x - p.x, dz = e.z - p.z, inDisc = dx * dx + dz * dz <= lim;
-      if (e.team === p.team) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false); continue; }
+      if (Teams.allied(e.team, p.team)) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false); continue; }
       const marked = e === tgt || e === lock;
       // P5-03: a ping of the team lays a camouflaged or coated unit bare at the carrier's full range; a pinging hostile is loud
       const bare = (Scan.list.length > 0 && Scan.reveals(e, p.team)) || BaseDef.isTraced(e, p.team);   // (a firer a Counter-Battery Radar traced shows too, P5-09)
       if (!marked && (!inDisc || Scan.hides(e, p.team) || (!bare && !(this.sees(e.x, e.z, Stealth.detect(e, p.team)) || Scan.loud(e, p))))) continue;   // a ping lifts the range check and the coating, never an untargetable unit (a Barrier)
-      if (e.team === 2) n = this.put(n, e.kind === 'mech' ? 'civilian' : 'vehicle', e.x, e.z, false, false);   // a civilian vehicle someone took: neutral, never a target
+      if (Teams.isNeutral(e.team)) n = this.put(n, e.kind === 'mech' ? 'civilian' : 'vehicle', e.x, e.z, false, false);   // a civilian vehicle someone took: neutral, never a target
       else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked);
     }
     if (tgt && tgt.isStruct && talive(tgt)) n = this.put(n, 'objective', tgt.x, tgt.z, true, true);   // a targeted objective structure
     else if (tgt && tgt.isProj && talive(tgt)) n = this.put(n, 'incoming', tgt.x, tgt.z, false, true);   // a targeted incoming projectile (P5-07)
     for (let i = 0, k = 0; i < W.projs.length && k < SCAN_MINE_MAX; i++) {   // hostile Spotter Drones the radar has (P5-03)
       const q = W.projs[i], dx = q.x - p.x, dz = q.z - p.z;
-      if (!q.active || !q.def.drone || q.team === p.team || dx * dx + dz * dz > lim || !(this.sees(q.x, q.z) || Scan.loud(q, p))) continue;
+      if (!q.active || !q.def.drone || Teams.allied(q.team, p.team) || dx * dx + dz * dz > lim || !(this.sees(q.x, q.z) || Scan.loud(q, p))) continue;
       n = this.put(n, 'hostile', q.x, q.z, true, q === tgt); k++;
     }
     if (Scan.list.length > 0 || W.time < Scan.marksUntil) {   // hostile mines a ping of the team found (P5-03), until their marks run out
@@ -14597,7 +14643,7 @@ const Arty = {
     const n = Hash.query(s.ix - ARTY_OBJ_NEAR, s.iz - ARTY_OBJ_NEAR, s.ix + ARTY_OBJ_NEAR, s.iz + ARTY_OBJ_NEAR);
     for (let i = 0; i < n && !a.objNear; i++) {
       const o = Hash.out[i];
-      if (o.objective && !o.destroyed && o.team !== p.team) { a.objNear = true; a.objSpent = o.unspot >= o.maxHp * ARTY_UNSPOTTED_CAP - 1e-6; }
+      if (o.objective && !o.destroyed && !Teams.allied(o.team, p.team)) { a.objNear = true; a.objSpent = o.unspot >= o.maxHp * ARTY_UNSPOTTED_CAP - 1e-6; }
     }
     a.spotted = a.objNear && this.spottedAt(ap.x, ap.y, ap.z, p, ARTY_SPOT_NEAR);
   },
@@ -14731,7 +14777,7 @@ const Arty = {
       const n = Hash.query(x - 1, z - 1, x + 1, z + 1, y - 1, y + 1);
       for (let i = 0; i < n; i++) {
         const o = Hash.out[i];
-        if (o.destroyed || (o.team !== p.team && o.team !== 2)) continue;
+        if (o.destroyed || Teams.hostile(p.team, o.team)) continue;
         if (Math.abs(x - o.x) <= o.hx && Math.abs(z - o.z) <= o.hz && y >= o.y && y <= o.y + o.h) return true;
       }
     }
@@ -14745,7 +14791,7 @@ const Arty = {
     let best = null, bestScore = Infinity;
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team) || e.hideFromAI || e.kind === 'air') continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || Scan.hides(e, p.team) || e.hideFromAI || e.kind === 'air') continue;
       const dist = Math.hypot(e.x - p.x, e.z - p.z);
       if (dist < d.indirect.min || dist > d.range) continue;
       const score = e === cur ? dist * 0.7 : dist;
@@ -14766,7 +14812,7 @@ const Arty = {
   spottedAt(x, y, z, p, near) {
     for (let i = 0; i < W.platforms.length; i++) {
       const q = W.platforms[i];
-      if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery' || q.def.unarmed || q.hideFromAI) continue;
+      if (q === p || q.dead || !Teams.allied(q.team, p.team) || q.parked || q.isDecoy || q.def.style === 'artillery' || q.def.unarmed || q.hideFromAI) continue;
       if (p.spotters && p.spotters.indexOf(q) < 0) continue;   // a battery told whose eyes it fires by (a mission's observers)
       // an observer with a spotting scope (spotRange) spots that far whatever the difficulty, weather and storms still cut it
       const own = q.spotRange ? q.spotRange * Weather.sightK * Hazards.sightAt(q.x, q.z) : q.ai ? q.ai.sightRange() : q.def.sensor * 0.8 * Detect.sightMult(q);
@@ -14779,7 +14825,7 @@ const Arty = {
     const ps = W.projs;
     for (let i = 0; i < ps.length; i++) {
       const q = ps[i];
-      if (!q.active || !q.def.drone || q.team !== p.team) continue;
+      if (!q.active || !q.def.drone || !Teams.allied(q.team, p.team)) continue;
       if (p.spotters && p.spotters.indexOf(q.owner) < 0) continue;
       const dx = x - q.x, dz = z - q.z;
       if (dx * dx + dz * dz > q.def.radius * q.def.radius) continue;
@@ -15565,9 +15611,9 @@ class Platform {
   }
   validTarget(t) {
     if (!talive(t)) return false;
-    if (t.isProj) return t.hp > 0 && t.def.pdHp > 0 && t.team !== this.team && t.team !== 2 && (t !== this.target || t.nid === this.targetNid);   // P5-07: an incoming rocket or missile
-    if (t.isStruct) return !!t.objective && t.team !== this.team;
-    return t.team !== this.team && t.team !== 2 && !Scan.hides(t, this.team);
+    if (t.isProj) return t.hp > 0 && t.def.pdHp > 0 && Teams.hostile(this.team, t.team) && (t !== this.target || t.nid === this.targetNid);   // P5-07: an incoming rocket or missile
+    if (t.isStruct) return !!t.objective && !Teams.allied(t.team, this.team);
+    return Teams.hostile(this.team, t.team) && !Scan.hides(t, this.team);
   }
   /* Target ranking for Cycle Target and auto-target after a kill (lower first): closeness to the crosshair
      dominates, then distance; enemies attacking or locking us and ones the guided weapon can lock rank
@@ -15759,14 +15805,14 @@ class Platform {
   }
   startReload(w, manual) {
     const d = w.def;
-    if (d.kind === 'beam' || w.reloading > 0 || w.clip >= d.clip || w.reserve <= 0 && !(W.infiniteAmmo && this.team === 0)) return;
-    w.reloading = d.reload * (this.team === 1 ? 0.8 : 1); w.charge = 0; w.burstLeft = 0;
+    if (d.kind === 'beam' || w.reloading > 0 || w.clip >= d.clip || w.reserve <= 0 && !(W.infiniteAmmo && Teams.humanSide(this.team))) return;
+    w.reloading = d.reload * (Teams.aiSide(this.team) ? 0.8 : 1); w.charge = 0; w.burstLeft = 0;
     if (manual && W.player === this) Snd.ui('reload');
   }
   finishReload(w) {
     const d = w.def, need = d.clip - w.clip;
-    const take = W.infiniteAmmo && this.team === 0 ? need : Math.min(need, w.reserve);
-    w.clip += take; if (!(W.infiniteAmmo && this.team === 0)) w.reserve -= take;
+    const take = W.infiniteAmmo && Teams.humanSide(this.team) ? need : Math.min(need, w.reserve);
+    w.clip += take; if (!(W.infiniteAmmo && Teams.humanSide(this.team))) w.reserve -= take;
   }
   hasAmmo(w) { return w.def.kind === 'beam' || w.clip > 0; }
   fireCd(d) { return d.cd * (this.sub.weapons > 0 ? DAMAGED_WEAPON_CD : 1); }
@@ -15802,7 +15848,7 @@ class Platform {
   }
   dryFire(w) {
     w.warned = true;
-    if (w.reserve > 0 || (W.infiniteAmmo && this.team === 0)) this.startReload(w, false);
+    if (w.reserve > 0 || (W.infiniteAmmo && Teams.humanSide(this.team))) this.startReload(w, false);
     else notify(this, 'OUT OF AMMO: ' + w.def.name, 'empty');
   }
   muzzle(w, out) {
@@ -15834,8 +15880,8 @@ class Platform {
     if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; notify(this, 'OVERHEAT: WEAPONS LOCKED', 'warn'); }
     if (!isBurst || w.burstLeft <= 1) { if (d.fire !== 'burst') w.cd = this.fireCd(d); }
     if (d.fire === 'burst' && !isBurst) w.cd = this.fireCd(d);
-    if (w.clip <= 0 && d.kind !== 'beam' && !(W.infiniteAmmo && this.team === 0)) this.startReload(w, false);
-    else if (w.clip <= 0 && W.infiniteAmmo && this.team === 0) { w.clip = d.clip; }
+    if (w.clip <= 0 && d.kind !== 'beam' && !(W.infiniteAmmo && Teams.humanSide(this.team))) this.startReload(w, false);
+    else if (w.clip <= 0 && W.infiniteAmmo && Teams.humanSide(this.team)) { w.clip = d.clip; }
     this.recoil = 1;
     if (this.kind === 'mech') this.torsoPitch -= d.recoil * 0.02;
     if (W.player === this) W.shake = Math.min(1, W.shake + d.recoil * 0.025 / (this.crouch ? 2 : 1));
@@ -15865,7 +15911,7 @@ class Platform {
     const spreadMult = this.spreadMult(d);
     const pellets = d.pellets || 1;
     for (let i = 0; i < pellets; i++) {
-      const sp = d.spread * spreadMult * (this.team === 1 ? 1 : 1);
+      const sp = d.spread * spreadMult * (Teams.aiSide(this.team) ? 1 : 1);
       let dx = dir.x + (Math.random() - 0.5) * 2 * sp, dy = dir.y + (Math.random() - 0.5) * 2 * sp, dz = dir.z + (Math.random() - 0.5) * 2 * sp;
       const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
       if (d.kind === 'beam') this.fireBeam(w, mz, dx, dy, dz);
@@ -15935,13 +15981,13 @@ class Platform {
       }
     } else this.defuseAt = null;
     if (!r.hit) return false;
-    if (r.kind === 'platform' && r.obj.team === this.team && r.obj !== this) {
+    if (r.kind === 'platform' && Teams.allied(r.obj.team, this.team) && r.obj !== this) {
       const o = r.obj, cap = o.maxHp * d.healCap;
       if (!o.dead && !o.parked && !o.status.summoned && o.hp < cap) SW.heal(o, Math.min(d.heal * dt, cap - o.hp));
       if (Math.random() < 0.4) fxSparks(ex, ey, ez, 2, d.tracer, 6);
       return true;
     }
-    if (r.kind === 'struct' && r.obj.team === this.team && !r.obj.objective && !r.obj.destroyed) {
+    if (r.kind === 'struct' && Teams.allied(r.obj.team, this.team) && !r.obj.objective && !r.obj.destroyed) {
       this.mendStruct(r.obj, d.healStruct * dt);
       if (Math.random() < 0.4) fxSparks(ex, ey, ez, 2, d.tracer, 6);
       return true;
@@ -16036,7 +16082,7 @@ class Platform {
     this.burnT -= dt; this.burnTick -= dt;
     if (this.burnTick > 0) return;
     this.burnTick = BURN_TICK;
-    if (Net.guest || this.team === this.burnTeam) return;
+    if (Net.guest || Teams.allied(this.team, this.burnTeam)) return;
     const hazard = !this.burnOwner && this.burnCause, was = Hazards.dealing, why = Hazards.cause;
     if (hazard) { Hazards.dealing = true; Hazards.cause = this.burnCause; }   // a fire a hazard lit: the feed names it
     try { this.takeDamage(this.burnDps * BURN_TICK, 'energy', this.burnOwner, 0, 0, { blast: true, noStagger: true }); } finally { Hazards.dealing = was; Hazards.cause = why; }
@@ -16140,7 +16186,7 @@ class Platform {
     let n = 0;
     for (let i = 0; i < ps.length; i++) {
       const q = ps[i];
-      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === this.team || q.team === 2) continue;
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || !Teams.hostile(this.team, q.team)) continue;
       const dx = q.x - this.x, dy = q.y - cy, dz = q.z - this.z, d = Math.hypot(dx, dy, dz);
       if (d > ud.radius || !Intercept.threatens(q, this)) continue;
       if ((dx * fx + dz * fz) < Math.hypot(dx, dz) * arcCos) continue;   // behind the gun's arc
@@ -16180,7 +16226,7 @@ class Platform {
     const ps = W.projs, R2 = u.def.radius;
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
-      if (!p.active || p.team === this.team || !(p.def.rocket || p.def.arc)) continue;
+      if (!p.active || Teams.allied(p.team, this.team) || !(p.def.rocket || p.def.arc)) continue;
       if (p.dmg < u.def.minDmg) continue;   // light rockets are not worth a charge
       const d = Math.hypot(p.x - this.x, p.y - (this.y + this.height * 0.5), p.z - this.z);
       if (d > R2) continue;
@@ -16251,7 +16297,7 @@ class Platform {
       // a slicing blade carries the target's whole hull, armour and shield, so it falls in two (destroy: 'slice')
       const amount = slice ? Math.max(dmg, p.hp + p.armor * MELEE_SLICE_ARMOR + (p.shieldOn ? p.shield : 0) + 1) : dmg;
       const dealt = p.takeDamage(amount, slice ? 'slice' : 'kinetic', this, fx, fz, { melee: true });
-      if (dealt <= 0 && p.team === this.team) continue;   // no shoving allies when friendly fire is off
+      if (dealt <= 0 && Teams.allied(p.team, this.team)) continue;   // no shoving allies when friendly fire is off
       if (p.dead) continue;
       p.stagger = Math.max(p.stagger, 0.6); p.vx += fx * 10 / p.def.mass; p.vz += fz * 10 / p.def.mass;
     }
@@ -16271,13 +16317,13 @@ class Platform {
     info = info || {};
     const fxs = this.status;
     if (fxs.invuln > 0) {   // Aegis-style invulnerability, optionally reflecting half the damage
-      if (fxs.reflect > 0 && owner && owner !== this && owner.team !== this.team && !info.reflected) owner.takeDamage(amount * 0.5, dtype, this, -(dx || 0), -(dz || 0), { reflected: true, blast: true });
+      if (fxs.reflect > 0 && owner && owner !== this && !Teams.allied(owner.team, this.team) && !info.reflected) owner.takeDamage(amount * 0.5, dtype, this, -(dx || 0), -(dz || 0), { reflected: true, blast: true });
       return 0;
     }
-    if (owner && owner.team === this.team && !W.friendlyFire) return 0;
+    if (owner && Teams.allied(owner.team, this.team) && !W.friendlyFire) return 0;
     if (owner === this && !W.friendlyFire) return 0;
-    if (owner && owner.hideFromAI && owner.team !== this.team) owner.provoke();   // a civilian who attacks is fair game
-    if (owner && owner.team === 1 && this.team === 0) amount *= W.diff.dmg;
+    if (owner && owner.hideFromAI && !Teams.allied(owner.team, this.team)) owner.provoke();   // a civilian who attacks is fair game
+    if (owner && Teams.aiSide(owner.team) && Teams.humanSide(this.team)) amount *= W.diff.dmg;
     if (this.util && this.util.def.def === 'reactive' && this.reactiveBlock(amount, dtype)) return 0;
     // rear armour is weaker
     if (!info.blast && this.kind !== 'air' && dx !== undefined && (dx !== 0 || dz !== 0)) {
@@ -16319,7 +16365,7 @@ class Platform {
       W.shake = Math.min(1, W.shake + Math.min(0.4, total * 0.004));
     } else if (this.netPeer) Net.sendTo(this.netPeer, { t: 'd', a: r2(dx !== undefined ? Math.atan2(-dx, -dz) : 0), v: Math.round(total) });
     if (total > 28 * this.def.stability && !info.noStagger && this.kind !== 'air') this.stagger = Math.max(this.stagger, Math.min(0.55, total / (140 * this.def.stability)));
-    if (this.ai && owner && owner.team !== this.team) this.ai.noticeDamage(owner);
+    if (this.ai && owner && !Teams.allied(owner.team, this.team)) this.ai.noticeDamage(owner);
     // subsystem failures at 66% and 33% hull
     const f = this.hp / this.maxHp;
     if (this.hp > 0 && this.def.hp > 100) {
@@ -16367,13 +16413,13 @@ class Platform {
     }
     if (owner && cause !== 'eject') {
       owner.stats.kills++;
-      if (owner.team === 0) W.stats.teamKills++;   // objectives count every friendly kill
+      if (Teams.allied(Teams.PLAYER, owner.team)) W.stats.teamKills++;   // objectives count every friendly kill (the player's side and its allies)
       const st = statsOf(owner);
-      if (st) { st.kills++; st.score += this.score; if (owner.team !== this.team && !this.status.summoned) Arsenal.creditKill(st, this, SW.dealing); }   // personal record: own kills only
-      if (owner.sw && owner.team !== this.team) owner.sw.charge = Math.min(1, owner.sw.charge + SUPER_TIER[owner.sw.def.tier].kill);
+      if (st) { st.kills++; st.score += this.score; if (!Teams.allied(owner.team, this.team) && !this.status.summoned) Arsenal.creditKill(st, this, SW.dealing); }   // personal record: own kills only
+      if (owner.sw && !Teams.allied(owner.team, this.team)) owner.sw.charge = Math.min(1, owner.sw.charge + SUPER_TIER[owner.sw.def.tier].kill);
       markKill(owner, this.score, this.name);
     }
-    if (cause !== 'eject' && this.team === 1 && Math.random() < 0.25 && this.kind !== 'air' && this.kind !== 'naval' && this.arch) {   // none out at sea
+    if (cause !== 'eject' && Teams.aiSide(this.team) && Math.random() < 0.25 && this.kind !== 'air' && this.kind !== 'naval' && this.arch) {   // none out at sea
       const types = W.mods.scarce ? ['repair', 'energy'] : ['ammo', 'repair', 'energy'];   // scarce ammunition: no ammo drops
       const t = types[Math.floor(Math.random() * types.length)];
       spawnPickup(t, this.x, this.z, 50);
@@ -16427,7 +16473,7 @@ function resolvePairs(dt) {
       const ia = a.def.speed === 0 ? 0 : 1 / a.def.mass, ib = b.def.speed === 0 ? 0 : 1 / b.def.mass, is = ia + ib || 1;
       a.x -= nx * push * ia / is; a.z -= nz * push * ia / is; b.x += nx * push * ib / is; b.z += nz * push * ib / is;
       const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
-      if (rel < -10 && a.team !== b.team) {
+      if (rel < -10 && !Teams.allied(a.team, b.team)) {
         const dmg = Math.min(80, -rel * 1.2);
         a.takeDamage(dmg * b.def.mass / a.def.mass * 0.5, 'collision', null, nx, nz, { noStagger: true });
         b.takeDamage(dmg * a.def.mass / b.def.mass * 0.5, 'collision', null, -nx, -nz, { noStagger: true });
@@ -16440,7 +16486,7 @@ function resolvePairs(dt) {
 /* =====================================================================
    PROCEDURAL MODELS (articulated parts; no assets)
    ===================================================================== */
-const TEAM_ACCENT = { 0: [0.2, 0.85, 1.0], 1: [1.0, 0.32, 0.14], 2: [1, 0.85, 0.2] };
+const TEAM_ACCENT = { 0: [0.2, 0.85, 1.0], 1: [1.0, 0.32, 0.14], 2: [1, 0.85, 0.2], 3: [0.35, 0.9, 0.3], 4: [0.75, 0.4, 1.0] };
 
 function part(mesh, x, y, z, sx, sy, sz, col, emis, spec, alpha) {
   const st = R.stack;
@@ -17513,7 +17559,7 @@ function drawSeaMine(p, st) {
 function drawFieldMine(p, st) {
   const me = W.player;
   if (!me || !R.visible(p.x, p.y, p.z, 4)) return;
-  if (p.team !== me.team && !Scan.marked(p, me.team) && Math.hypot(p.x - me.x, p.z - me.z) > (Weather.sightK < 0.99 ? BD_MINE_KNOWN_BAD : BD_MINE_KNOWN)) return;
+  if (!Teams.allied(p.team, me.team) && !Scan.marked(p, me.team) && Math.hypot(p.x - me.x, p.z - me.z) > (Weather.sightK < 0.99 ? BD_MINE_KNOWN_BAD : BD_MINE_KNOWN)) return;
   st.push().t(p.x, p.y - 0.15, p.z);
   part('cyl', 0, 0, 0, p.def.field === 'ap' ? 0.9 : 1.6, 0.3, p.def.field === 'ap' ? 0.9 : 1.6, [0.2, 0.21, 0.17], 0, 0.3);
   part('box', 0, 0.2, 0, 0.2, 0.15, 0.2, [0.9, 0.2, 0.15], 0.8, 0.1);
@@ -17577,7 +17623,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   if (d.mine) WPN.placeMine(p, owner);
   if (d.guide && d.guide.top && p.target) WPN.loft(p);
   if (d.torpedo) Naval.torpedoLaunch(p);
-  if (d.indirect && owner.team === 1) Arty.mark(p);   // an enemy shell casts its impact marker (the telegraph)
+  if (d.indirect && Teams.aiSide(owner.team)) Arty.mark(p);   // an enemy shell casts its impact marker (the telegraph)
   if (d.indirect || d.id === 'mortar' || d.id === 'howitzer') BaseDef.shell(p, owner);   // artillery's shells and rockets: a Counter-Battery Radar may trace them back (P5-09; not a thrown grenade)
 }
 /* fill a projectile slot with def d (split sub-munitions) */
@@ -17656,7 +17702,7 @@ const Intercept = {
     const ps = W.projs;
     for (let i = 0; i < ps.length; i++) {
       const q = ps[i];
-      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === pl.team || q.team === 2) continue;
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || !Teams.hostile(pl.team, q.team)) continue;
       const dx = q.x - pl.x, dy = q.y - pl.y, dz = q.z - pl.z;
       if (dx * dx + dy * dy + dz * dz > PD_TRACK_RANGE * PD_TRACK_RANGE || !this.threatens(q, pl)) continue;
       fn(q);
@@ -17683,7 +17729,7 @@ const Intercept = {
     const ps = W.projs;
     for (let i = 0; i < ps.length; i++) {
       const q = ps[i];
-      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === p.team || q.team === 2 || q === this.skip) continue;
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || !Teams.hostile(p.team, q.team) || q === this.skip) continue;
       const d = Math.hypot(q.x - x, q.y - y, q.z - z) - q.def.pdR;
       if (d >= radius) continue;
       this.hurt(q, dmg * PD_BLAST_MULT * (0.15 + 0.85 * (1 - Math.max(0, d) / radius)), p.owner);
@@ -17715,7 +17761,7 @@ const Intercept = {
       const d = b.def;
       for (let k = 0; k < n; k++) {
         const q = L[k];
-        if (!q.active || q.team === b.team || q.team === 2 || (b.hitSet && b.hitSet.indexOf(q) >= 0)) continue;
+        if (!q.active || !Teams.hostile(b.team, q.team) || (b.hitSet && b.hitSet.indexOf(q) >= 0)) continue;
         const R = q.def.pdR + (d.prox ? d.prox * PD_FUSE_SHARE : 0);
         const rx = b.x - q.x, ry = b.y - q.y, rz = b.z - q.z, wx = b.vx - q.vx, wy = b.vy - q.vy, wz = b.vz - q.vz;
         const a = wx * wx + wy * wy + wz * wz;
@@ -17770,7 +17816,7 @@ const Mines = {
   seaSpot(p) { const s = this.sternSpot(p, MINE_SPOT); return Water.any && Water.depth(s.x, s.z) >= SEA_MINE_DEPTH; },
   /* whether viewer me sees sea mine q: its own team's, one a ping found, or any within MINE_SEEN_RANGE m (MINE_SEEN_BAD in rain, fog and storm) */
   seenBy(q, me) {
-    if (!me || q.team === me.team || Scan.marked(q, me.team)) return true;
+    if (!me || Teams.allied(q.team, me.team) || Scan.marked(q, me.team)) return true;
     return Math.hypot(q.x - me.x, q.z - me.z) <= (Weather.sightK < 0.99 ? MINE_SEEN_BAD : MINE_SEEN_RANGE);
   },
   /* a sea mine goes off for unit e only if it has a keel */
@@ -17806,7 +17852,7 @@ const Mines = {
   nearest(x, y, z, team, r) {
     let best = null, bd = r;
     for (const q of W.projs) {
-      if (!q.active || !q.def.mine || q.team === team) continue;
+      if (!q.active || !q.def.mine || Teams.allied(q.team, team)) continue;
       const dd = Math.hypot(q.x - x, q.y - y, q.z - z);
       if (dd < bd) { bd = dd; best = q; }
     }
@@ -17880,11 +17926,11 @@ function updateProjectiles(dt) {
       let fused = false, bladed = null;
       for (let k = 0; k < pl.length; k++) {
         const e = pl[k];
-        if (e.dead || (e.team === p.team && !W.friendlyFire) || e === p.owner) continue;
+        if (e.dead || (Teams.allied(e.team, p.team) && !W.friendlyFire) || e === p.owner) continue;
         if (d.field) {   // a base mine: a cheap look at the distance first, and a captured civilian vehicle driven by a foe counts as the foe (P5-09)
           if (Math.abs(e.x - p.x) > BD_MINE_NEAR || Math.abs(e.z - p.z) > BD_MINE_NEAR) continue;
-          if (e.team === 2 && !(e.pilot && e.pilot.team !== p.team && e.pilot.team !== 2)) continue;
-        } else if (e.team === 2) continue;
+          if (Teams.isNeutral(e.team) && !(e.pilot && Teams.hostile(p.team, e.pilot.team))) continue;
+        } else if (Teams.isNeutral(e.team)) continue;
         if (d.sea) {   // a sea mine goes off for a keel only (P5-03)
           if (Mines.keel(e, d) && Math.hypot(e.x - p.x, e.z - p.z) < d.prox + e.radius * 0.5) { fused = true; break; }
           continue;
@@ -17941,8 +17987,8 @@ function updateProjectiles(dt) {
     const midX = x0 + mx * 0.5, midY = y0 + my * 0.5, midZ = z0 + mz * 0.5, half = len * 0.5;
     for (let k = 0; k < pl.length; k++) {
       const e = pl[k];
-      if (e.dead || e === p.owner || e.team === 2 && p.team !== 2) continue;
-      if (e.team === p.team && !W.friendlyFire) continue;
+      if (e.dead || e === p.owner || Teams.isNeutral(e.team) && !Teams.isNeutral(p.team)) continue;
+      if (Teams.allied(e.team, p.team) && !W.friendlyFire) continue;
       const pad = hitPad(p.owner, e);
       const ry = (e.kind === 'air' ? e.radius : e.height * 0.5 + 0.4) + pad, rx = e.radius + 0.3 + pad;
       const naval = e.kind === 'naval', ecy = e.y + (e.kind === 'air' ? 0 : e.height * 0.5), er = (naval ? e.hullR + pad + 0.3 : rx > ry ? rx : ry) + half;
@@ -18029,7 +18075,7 @@ const WPN = {
   /* set t burning: dps for time seconds (the strongest fire wins); team's own platforms never burn. A hazard's fire
      (owner null, cause its name) leaves a burning unit's fire to whoever lit it */
   ignite(t, owner, team, dps, time, cause) {
-    if (t.dead || t.team === team) return;
+    if (t.dead || Teams.allied(t.team, team)) return;
     const fresh = t.burnT <= 0;
     if (fresh) t.burnDps = 0;
     if (owner || fresh) { t.burnOwner = owner; t.burnTeam = team; t.burnCause = owner ? '' : cause || ''; }
@@ -18050,7 +18096,7 @@ const WPN = {
     for (let n = 0; n < c.n; n++) {
       let best = null, bd = c.r;
       for (const e of W.platforms) {
-        if (e.dead || e.team === owner.team || e.team === 2 || (e.noTarget && !e.status.summoned) || hit.indexOf(e) >= 0) continue;
+        if (e.dead || !Teams.hostile(owner.team, e.team) || (e.noTarget && !e.status.summoned) || hit.indexOf(e) >= 0) continue;
         if (BaseDef.s.domes.length > 0 && BaseDef.domeCuts(from, e, owner.team)) continue;   // a bolt does not jump across a dome's edge (P5-09)
         const dd = Math.hypot(e.x - from.x, e.y - from.y, e.z - from.z);
         if (dd < bd) { bd = dd; best = e; }
@@ -18131,7 +18177,7 @@ const WPN = {
     if (d.zone) this.zone(d.zone.kind, x, y, z, d.zone.r, d.zone.t, p.owner, p.team, d.zone.dps);
     if (d.empBlast) {
       const r = d.empBlast[0];
-      for (const e of W.platforms) if (!e.dead && e.team !== p.team && e.team !== 2 && Math.hypot(e.x - x, e.y + e.height * 0.5 - y, e.z - z) < r + e.radius) this.emp(e, d.empBlast[1]);
+      for (const e of W.platforms) if (!e.dead && Teams.hostile(p.team, e.team) && Math.hypot(e.x - x, e.y + e.height * 0.5 - y, e.z - z) < r + e.radius) this.emp(e, d.empBlast[1]);
       this.fx('emp', x, y, z, r, 0.6, null);
     }
   },
@@ -18153,7 +18199,7 @@ const WPN = {
     for (const e of W.platforms) if (e.lock.target === p) { e.lock.target = null; e.lock.progress = 0; e.lock.state = 'none'; }
     this.jamDrones(p);   // P5-03
     for (const q of W.projs) {
-      if (!q.active || !q.target || q.team === p.team) continue;
+      if (!q.active || !q.target || Teams.allied(q.team, p.team)) continue;
       if (q.target === p || Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) < r) { q.target = null; q.noGuide = true; }
     }
   },
@@ -18171,7 +18217,7 @@ const WPN = {
   /* a Pulse Scanner pings (host): a homing missile of the pinging side that lost a camouflaged unit the ping now lays bare picks it up again */
   relink(carrier) {
     for (const q of W.projs) {
-      if (!q.active || !q.lostTo || q.team !== carrier.team) continue;
+      if (!q.active || !q.lostTo || !Teams.allied(q.team, carrier.team)) continue;
       const t = q.lostTo;
       if (t.dead || !Scan.reveals(t, q.team)) continue;
       q.target = t; q.noGuide = false; q.lostTo = null; q.blind = 0;
@@ -18181,7 +18227,7 @@ const WPN = {
   alertScan(p, ud) {
     if (Net.guest) return;
     const R = ud.radius * ud.selfMark;
-    for (const e of W.platforms) if (!e.dead && e.ai && e.team !== p.team && e.team !== 2 && Math.hypot(e.x - p.x, e.z - p.z) <= R && e.ai.canEngage(p)) e.ai.noticeDamage(p);
+    for (const e of W.platforms) if (!e.dead && e.ai && Teams.hostile(p.team, e.team) && Math.hypot(e.x - p.x, e.z - p.z) <= R && e.ai.canEngage(p)) e.ai.noticeDamage(p);
   },
   /* Spotter Drone (host): flies from p to the ground point it aims at (or where its AI last saw the target), at most `range` m away, and
      hovers `alt` m above it for `dur` s. It is a projectile slot (def spotDrone), so guests mirror it and guns, flak and AA missiles kill it. */
@@ -18222,7 +18268,7 @@ const WPN = {
   /* ECM (host, with jam): hostile Spotter Drones within the jammer's radius drop out of the sky */
   jamDrones(p) {
     const r = p.util && p.util.def.radius || WEAPONS.ecm.radius;
-    for (const q of W.projs) if (q.active && q.def.drone && q.team !== p.team && Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) < r) Intercept.kill(q, p);
+    for (const q of W.projs) if (q.active && q.def.drone && !Teams.allied(q.team, p.team) && Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) < r) Intercept.kill(q, p);
   },
   /* where a platform's repair drone hovers (both sides draw it from the clock) */
   dronePos(p, out) {
@@ -18236,7 +18282,7 @@ const WPN = {
     if (Net.guest || p.dead) return;
     const ud = WEAPONS.drone, amount = ud.heal * BURN_TICK, dp = this.dronePos(p, this.ta);
     for (const q of W.platforms) {
-      if (q.dead || q.team !== p.team || q.hp >= q.maxHp || q.status.summoned) continue;
+      if (q.dead || !Teams.allied(q.team, p.team) || q.hp >= q.maxHp || q.status.summoned) continue;
       if (Math.hypot(q.x - p.x, q.z - p.z) > ud.radius) continue;
       SW.heal(q, amount);
       tpos(q, this.tb);
@@ -18316,7 +18362,7 @@ const WPN = {
   /* fire zone tick: burn hostile ground units inside it */
   burnArea(e) {
     for (const q of W.platforms) {
-      if (q.dead || q.team === e.team || q.team === 2) continue;
+      if (q.dead || !Teams.hostile(e.team, q.team)) continue;
       if (Math.hypot(q.x - e.x, q.z - e.z) > e.r + q.radius * 0.5 || q.y > e.y + FIRE_ZONE_H) continue;
       q.takeDamage(e.dps * BURN_TICK, 'energy', e.owner, 0, 0, { blast: true, noStagger: true });
       this.ignite(q, e.owner, e.team, e.dps * 0.5, 2);
@@ -18484,6 +18530,8 @@ function markKill(owner, score, name) {
 }
 /* Kill feed line "killer  >  victim" (either may be a plain label). The local player reads as YOU;
    guests get each platform's name and id so they can do the same for themselves. */
+/* the kill feed lists a loss of the viewer's side in the friend colour: team is the victim's team, the viewer the player of this game */
+function feedFriendly(team) { return Teams.allied(team, W && W.player ? W.player.team : Teams.PLAYER); }
 function addFeed(killer, victim, team) {
   const label = (q) => (typeof q === 'string' ? q : q === W.player ? 'YOU' : q.name);
   W.feed.push({ t: W.time, text: label(killer) + '  >  ' + label(victim), team });
@@ -18603,7 +18651,7 @@ const Seats = {
   /* slack: m past the reach allowed (the host seating a guest its lagged copy of shows a little farther off) */
   canEnter(human, v, slack) {
     if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
-    if (v.team !== human.team && v.team !== 2) return false;
+    if (Teams.hostile(human.team, v.team)) return false;
     if (v.def.civilian && v.kind === 'air' && !Airports.covers(v.x, v.z)) return false;   // a civilian aircraft is taken only on an airfield
     const rise = human.y - v.y;
     return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) + (slack || 0) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
@@ -18629,7 +18677,7 @@ const Seats = {
   enter(human, v, peer, slack) {
     if (!this.canEnter(human, v, slack)) return false;
     v.parked = false; v.pilot = human;
-    if (v.team === 2) v.team = human.team;
+    if (Teams.isNeutral(v.team)) v.team = human.team;
     if (human.hideFromAI && !v.def.civilian) human.provoke();   // a civilian in a combat vehicle is fair game
     if (v.def.civilian) { v.hideFromAI = human.hideFromAI; v.provoked = human.provoked; }   // a civilian vehicle is as hidden as its driver
     human.ejectPilot = false;   // a pilot who finds a ride needs no replacement
@@ -18788,7 +18836,7 @@ const Seats = {
       const p = W.platforms[i];
       if (p.dead || !p.hideFromAI || !p.isPlayer) continue;
       for (const o of m.objectives) {
-        if (o.status !== 'active' || (o.units && o.units.some((u) => u.team !== p.team))) continue;
+        if (o.status !== 'active' || (o.units && o.units.some((u) => !Teams.allied(u.team, p.team)))) continue;
         if (o.markers().some((k) => Math.hypot(k.x - p.x, k.z - p.z) < CIVILIAN_OBJ_RANGE)) { p.provoke(); break; }
       }
     }
@@ -18978,9 +19026,9 @@ const Swap = {
   },
   /* true at a depot of p's side */
   depot(p) {
-    const b = W.bases && (p.team === 0 ? W.bases.own : p.team === 1 ? W.bases.enemy : null);
+    const b = teamBase(p.team);
     if (b && Math.hypot(b.x - p.x, b.z - p.z) < SWAP_BASE_RANGE) return true;
-    if (p.team !== 0) return false;
+    if (!Teams.humanSide(p.team)) return false;
     const st = W.mission && W.mission.def.start;
     return !!(st && Math.hypot(st.x - p.x, st.z - p.z) < SWAP_BASE_RANGE) || !!padInRange(p);
   },
@@ -19656,13 +19704,13 @@ const SW = {
   enemies(x, z, r, ctx, opts) {
     const out = [], air = !opts || opts.air !== false, ground = !opts || opts.ground !== false;
     for (const p of W.platforms) {
-      if (p.dead || p.team === ctx.team || p.team === 2 || p.noTarget && !p.status.summoned) continue;
+      if (p.dead || !Teams.hostile(ctx.team, p.team) || p.noTarget && !p.status.summoned) continue;
       if (p.kind === 'air' ? !air : !ground) continue;
       if ((p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) <= r * r) out.push(p);
     }
     return out;
   },
-  allies(x, z, r, ctx) { return W.platforms.filter((p) => !p.dead && p.team === ctx.team && Math.hypot(p.x - x, p.z - z) <= r); },
+  allies(x, z, r, ctx) { return W.platforms.filter((p) => !p.dead && Teams.allied(p.team, ctx.team) && Math.hypot(p.x - x, p.z - z) <= r); },
   nearestEnemy(x, z, r, ctx, opts) {
     let best = null, bd = r;
     for (const p of this.enemies(x, z, r, ctx, opts)) { const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = p; } }
@@ -19689,10 +19737,10 @@ const SW = {
   ground(x, z) { return Terrain.h(x, z); },
   /* ctx's side's base (skirmish W.bases), else the mission start: where 'launched from your base' ordnance comes from */
   home(ctx) {
-    const b = W.bases && (ctx.team === 0 ? W.bases.own : W.bases.enemy);
+    const b = teamBase(ctx.team);
     if (b) return { x: b.x, y: Terrain.h(b.x, b.z), z: b.z };
     const st = Game.mission && Game.mission.def.start;
-    if (st && ctx.team === 0) return { x: st.x, y: Terrain.h(st.x, st.z), z: st.z };
+    if (st && Teams.humanSide(ctx.team)) return { x: st.x, y: Terrain.h(st.x, st.z), z: st.z };
     return this.origin(ctx);
   },
   /* ----- changing the game (host only) ----- */
@@ -19749,7 +19797,7 @@ const SW = {
   },
   /* make a hostile fight for ctx's team for t seconds */
   convert(p, t, ctx) {
-    if (Net.guest || !p || p.dead || p.team === ctx.team || p.isPlayer) return;
+    if (Net.guest || !p || p.dead || Teams.allied(p.team, ctx.team) || p.isPlayer) return;
     const s = p.status;
     if (s.convertTeam < 0) s.convertTeam = p.team;
     s.convert = Math.max(s.convert, t);
@@ -21520,7 +21568,7 @@ defineSuper('thunderGod', {
     sw.add({ life: DUR, update(dt, e) {
       const o = sw.origin(ctx);
       for (const q of W.projs) {   // a shot heading at you brings the thunder down on whoever fired it
-        if (!q.active || q.team === ctx.team || !q.owner || q.owner.dead || seen.has(q.nid)) continue;
+        if (!q.active || Teams.allied(q.team, ctx.team) || !q.owner || q.owner.dead || seen.has(q.nid)) continue;
         const dx = o.x - q.x, dy = o.y - q.y, dz = o.z - q.z, dist = Math.hypot(dx, dy, dz), sp = Math.hypot(q.vx, q.vy, q.vz);
         if (dist > REACH || dist < 3 || sp < 1 || (q.vx * dx + q.vy * dy + q.vz * dz) / (sp * dist) < HEAD) continue;
         seen.add(q.nid); smite(e, q.owner);
@@ -21528,7 +21576,7 @@ defineSuper('thunderGod', {
         if (!Net.guest) q.active = false;
       }
       if (ctx.owner) for (const p of W.platforms) {   // beams and other hitscan fire: anyone shooting at you
-        if (p.dead || p.team === ctx.team || p.team === 2 || !(p.cmd.fire1 || p.cmd.fire2)) continue;
+        if (p.dead || !Teams.hostile(ctx.team, p.team) || !(p.cmd.fire1 || p.cmd.fire2)) continue;
         if ((p.target === ctx.owner || (p.ai && p.ai.target === ctx.owner)) && Math.hypot(p.x - o.x, p.z - o.z) < REACH) smite(e, p);
       }
       if (Math.random() < dt * 6) sw.bolt(o.x + rand(-4, 4), o.y + 40, o.z + rand(-4, 4), o.x + rand(-26, 26), o.y + rand(0, 14), o.z + rand(-26, 26), col, 0.6);
@@ -21894,7 +21942,7 @@ defineSuper('voltaicDome', {
     sw.add({ life: DUR, update(dt, e) {
       const o = sw.origin(ctx);
       for (const q of W.projs) {
-        if (!q.active || q.team === ctx.team || seen.has(q.nid)) continue;
+        if (!q.active || Teams.allied(q.team, ctx.team) || seen.has(q.nid)) continue;
         const dx = q.x - o.x, dy = q.y - o.y, dz = q.z - o.z, d = Math.hypot(dx, dy, dz);
         if (d > R0) continue;
         seen.add(q.nid); absorbed++;
@@ -22031,12 +22079,12 @@ const SW_C = {
   foeShots(ctx, x, y, z, r, fn) {
     for (let i = 0; i < W.projs.length; i++) {
       const s = W.projs[i];
-      if (!s.active || s.team === ctx.team || s.team === 2) continue;
+      if (!s.active || !Teams.hostile(ctx.team, s.team)) continue;
       if ((s.x - x) * (s.x - x) + (s.y - y) * (s.y - y) + (s.z - z) * (s.z - z) <= r * r) fn(s);
     }
   },
   /* living platforms of ctx's side that pass test (summons are looked up again each frame, so co-op guests draw them too) */
-  mine(ctx, test) { return W.platforms.filter((p) => !p.dead && p.team === ctx.team && test(p)); },
+  mine(ctx, test) { return W.platforms.filter((p) => !p.dead && Teams.allied(p.team, ctx.team) && test(p)); },
   /* damage that certainly kills p through shield and armor, without inflating the damage statistic wildly */
   lethal(p) { return (p.hp + p.armor + p.shield) * 3 + 100; },
   /* a random unit vector within maxAng radians of the unit vector u */
@@ -22365,7 +22413,7 @@ defineSuper('mindHack', {
     for (const p of group) { sw.ring(p.x, p.y + 0.5, p.z, 22, 0.8); sw.sparks(p.x, p.y + p.height * 0.5, p.z, 20, green, 20); }
     sw.add({ life: 30, update(dt, e) {
       for (const p of group) {
-        if (p.dead || p.team !== ctx.team) continue;
+        if (p.dead || !Teams.allied(p.team, ctx.team)) continue;
         if (e.t < 1 && Math.random() < dt * 18) sw.bolt(o.x, o.y, o.z, p.x, p.y + p.height * 0.6, p.z, green, 0.9);   // the data link
         if (Math.random() < dt * 5) sw.glow(p.x + (Math.random() - 0.5) * p.radius * 2, p.y + p.height + 3, p.z + (Math.random() - 0.5) * p.radius * 2, 0, 3, 0, green, 1.4, 0.7);
       }
@@ -22373,7 +22421,7 @@ defineSuper('mindHack', {
       if (!glow) return;
       const t = e.t;
       for (const p of group) {
-        if (p.dead || p.team !== ctx.team) continue;
+        if (p.dead || !Teams.allied(p.team, ctx.team)) continue;
         const top = p.y + (p.kind === 'air' ? p.radius : p.height) + 2.5, r = Math.max(1.8, p.radius * 0.9);
         SW_C.hoop(p.x, top, p.z, r, 0.45, green, 0.9, 1.6, 6, t * 2.2);   // a spinning hexagon crown marks every hacked unit
         SW_C.tilt('cone', p.x, top + 1.6, p.z, r * 0.6, 2.4, r * 0.6, green, 0.5, 1.6, t * 3, PI);
@@ -25004,7 +25052,7 @@ class AIController {
     this.mineT = 0;                          // a ship's earliest next Sea Mine Rack drop (seaMineLogic)
   }
   noticeDamage(owner) {
-    if (!owner || owner.team === this.p.team || owner.dead) return;
+    if (!owner || Teams.allied(owner.team, this.p.team) || owner.dead) return;
     this.alertT = 4;
     if (!this.target || !talive(this.target) || this.target.isStruct) {
       this.target = owner; this.seen.x = owner.x; this.seen.y = owner.y; this.seen.z = owner.z; this.seen.t = W.time; this.reactT = Math.min(this.reactT, 0.25);
@@ -25103,7 +25151,7 @@ class AIController {
     if (held && !held.isStruct && !held.isProj && Scan.hides(held, p.team)) this.target = null;   // it cloaked (or its ping ended) while held: the 6 s memory must not aim at its true position (P5-03)
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team) || !this.canEngage(e)) continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || Scan.hides(e, p.team) || !this.canEngage(e)) continue;
       if (e.hideFromAI) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
       if (d > range * Stealth.sight(e, p.team) && !Scan.reveals(e, p.team)) continue;   // a Stealth Coating shortens the AI's sight of it; a ping of its team lays it bare at any range (P5-03)
@@ -25116,7 +25164,7 @@ class AIController {
       best = e; bestScore = score;
     }
     if (!best && p.kind !== 'air') for (const q of W.projs) {   // a hostile Spotter Drone it sees, only when no hostile platform is in its sight (P5-03: guns of a ground unit; an aircraft never takes it for a ground or bomb target)
-      if (!q.active || !q.def.drone || q.team === p.team) continue;
+      if (!q.active || !q.def.drone || Teams.allied(q.team, p.team)) continue;
       const d = Math.hypot(q.x - p.x, q.z - p.z);
       if (d > range || d >= bestScore || !hasLOS(p.x, ey, p.z, q.x, q.y, q.z)) continue;
       best = q; bestScore = d;
@@ -25204,7 +25252,7 @@ class AIController {
       else { if (rt === 1) { dx = this.routeX; dz = this.routeZ; } this.steerAround(dx, dz); dx = this.moveDir.x; dz = this.moveDir.z; }
     } else { this.moveDir.x = this.moveDir.z = 0; }
     // allies keep clear of the player
-    if (p.team === 0 && W.player && !W.player.dead) {
+    if (Teams.humanSide(p.team) && W.player && !W.player.dead) {
       const ax = p.x - W.player.x, az = p.z - W.player.z, ad = Math.hypot(ax, az);
       if (ad < 14) { dx += ax / (ad || 1) * 0.8; dz += az / (ad || 1) * 0.8; }
     }
@@ -25242,9 +25290,9 @@ class AIController {
     const cap = torch.def.healCap;
     let best = null, bd = 1e9;
     for (const e of W.platforms) {
-      if (e.dead || e === p || e.team === 2) continue;
+      if (e.dead || e === p || Teams.isNeutral(e.team)) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
-      if (e.team !== p.team) { if (d < ENGINEER_FIGHT && !Scan.hides(e, p.team) && !e.hideFromAI) return null; continue; }
+      if (!Teams.allied(e.team, p.team)) { if (d < ENGINEER_FIGHT && !Scan.hides(e, p.team) && !e.hideFromAI) return null; continue; }
       if (e.parked || (e.kind !== 'ground' && e.kind !== 'mech')) continue;   // only crewed ground units and mechs: not an empty vehicle (the torch refuses it), not an aircraft or a ship the soldier cannot reach
       const mine = this.mendGoal && this.mendGoal.obj === e;   // a job it is on goes on to the torch's cap
       if (e.status.summoned || e.hp >= e.maxHp * (mine || e.model === 'turret' ? cap : Math.min(cap, ENGINEER_HURT))) continue;
@@ -25252,7 +25300,7 @@ class AIController {
       best = { kind: 'repair', obj: e }; bd = d;
     }
     for (const q of W.projs) {
-      if (!q.active || !q.def.mine || q.team === p.team) continue;
+      if (!q.active || !q.def.mine || Teams.allied(q.team, p.team)) continue;
       const d = Math.hypot(q.x - p.x, q.z - p.z);
       if (d < bd && d <= ENGINEER_DEFENCE && (Scan.marked(q, p.team) || d <= AI_MINE_SIGHT)) { best = { kind: 'mine', obj: q }; bd = d; }
     }
@@ -25580,7 +25628,7 @@ class AIController {
     if (W.time < this.mineT || w2.cd > 0 || w2.reloading > 0 || !p.hasAmmo(w2) || !Mines.seaSpot(p)) return;
     const hx = Math.sin(p.yaw), hz = Math.cos(p.yaw), hurt = p.hp < p.maxHp * AI_SEA_MINE_FLEE;
     for (const e of W.platforms) {
-      if (e.dead || e.team === p.team || e.team === 2 || e.kind !== 'naval') continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || e.kind !== 'naval') continue;
       const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz);
       if (d > AI_SEA_MINE_RANGE || d < 1) continue;
       const closing = (e.vx - p.vx) * dx + (e.vz - p.vz) * dz < 0, behind = (dx * hx + dz * hz) / d < Math.SQRT1_2;
@@ -25637,12 +25685,12 @@ class AIController {
   scanWanted() {
     const p = this.p, r = p.util.def.radius;
     for (const e of W.platforms) {
-      if (e.dead || e.team === p.team || e.team === 2 || Math.hypot(e.x - p.x, e.z - p.z) > r) continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || Math.hypot(e.x - p.x, e.z - p.z) > r) continue;
       if (e.cloakT > 0 && e.util && e.util.def.dur - e.cloakT < AI_SCAN_CLOAK) return true;
     }
     const t = this.target;
     if (t && !t.isStruct && !t.isProj && t.def.lure && !Scan.tagged(t, p.team) && Math.hypot(t.x - p.x, t.z - p.z) <= r) return true;
-    for (const q of W.projs) if (q.active && q.def.mine && q.team !== p.team && !Scan.marked(q, p.team) && Math.hypot(q.x - p.x, q.z - p.z) <= AI_MINE_SIGHT) return true;
+    for (const q of W.projs) if (q.active && q.def.mine && !Teams.allied(q.team, p.team) && !Scan.marked(q, p.team) && Math.hypot(q.x - p.x, q.z - p.z) <= AI_MINE_SIGHT) return true;
     if (BaseDef.s.active && BaseDef.fieldAhead(p, BD_SCAN_AHEAD)) return true;   // a base minefield's mines within the ping's reach that no ping has marked (P5-09)
     return false;
   }
@@ -25653,7 +25701,7 @@ class AIController {
     if (!p.grounded || p.hopT > 0 || p.swimming) return false;
     if (p.stuckT > AI_HOP_STUCK) { p.hopYaw = hasTarget ? Math.atan2(this.seen.x - p.x, this.seen.z - p.z) : p.torsoYaw; return true; }
     for (const e of W.platforms) {
-      if (e.dead || e.team === p.team || e.team === 2 || e.kind !== 'ground' || e.def.speed <= 0) continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || e.kind !== 'ground' || e.def.speed <= 0) continue;
       const dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz);
       if (d > AI_HOP_DODGE || e.vx * dx + e.vz * dz <= 0) continue;   // not closing on us
       p.hopYaw = Math.atan2(dx, dz) + PI / 2 * (dx * e.vz - dz * e.vx > 0 ? 1 : -1);   // sideways to its line
@@ -26042,13 +26090,13 @@ const BaseDef = {
   s: null,
   /* a fresh state for a new battle */
   reset() {
-    this.s = { active: false, knownSent: -1, aiAt: 0, seen: [new Set(), new Set()], hutAt: [-99, -99], sams: [], coasts: [], pits: [], jamsAll: [], meta: [], mines: [], silos: [], domes: [], posts: [], masts: [], owners: [null, null, null, null, null, null], absorbed: new Set(), known: [new Set(), new Set()], fields: 0, gone: [], goneSent: 0,
-      jams: [], cbs: [], gens: [], collectAt: 0, traced: [], pend: [], hold: [0, 0, 0], tickAt: 0, sendAt: 0, incoming: null, strikes: 0, armed: false, bases: [], aiSilo: null };
+    this.s = { active: false, knownSent: -1, aiAt: 0, seen: Array.from({ length: Teams.MAX }, () => new Set()), hutAt: Array.from({ length: Teams.MAX }, () => -99), sams: [], coasts: [], pits: [], jamsAll: [], meta: [], mines: [], silos: [], domes: [], posts: [], masts: [], owners: [null, null, null, null, null, null], absorbed: new Set(), known: Array.from({ length: Teams.MAX }, () => new Set()), fields: 0, gone: [], goneSent: 0,
+      jams: [], cbs: [], gens: [], collectAt: 0, traced: [], pend: [], hold: [0, 0, 0, 0, 0], tickAt: 0, sendAt: 0, incoming: null, strikes: 0, armed: false, bases: [], aiSilo: null };
   },
   /* the stand-in owner of a base's mines, silo and strike: dead (the AI never turns on it, nothing credits it), on its team (so its blast spares that team) */
   owner(team, strike) {
     const o = this.s.owners, k = strike ? team + 3 : team;
-    if (!o[k]) o[k] = { team, dead: true, isFake: true, id: -1 - k, name: strike ? (team === 0 ? 'Our missile strike' : 'Enemy missile strike') : team === 0 ? 'Our minefield' : 'Enemy minefield', x: 0, y: 0, z: 0, isPlayer: false, hideFromAI: false, stats: newStats() };
+    if (!o[k]) o[k] = { team, dead: true, isFake: true, id: -1 - k, name: strike ? (Teams.humanSide(team) ? 'Our missile strike' : 'Enemy missile strike') : Teams.humanSide(team) ? 'Our minefield' : 'Enemy minefield', x: 0, y: 0, z: 0, isPlayer: false, hideFromAI: false, stats: newStats() };
     return o[k];
   },
   /* ---------- planning (from the battle seed and the ground alone: every co-op peer works out the same base) ---------- */
@@ -26279,7 +26327,7 @@ const BaseDef = {
       if (p.arch === 'jammer') S.jams.push(p); else if (p.arch === 'cbRadar') S.cbs.push(p); else if (p.arch === 'shieldGen') S.gens.push(p);
       else if (p.arch === 'samSite') S.sams.push(p); else if (p.arch === 'coastGun') S.coasts.push(p); else if (p.arch === 'mortarPit') S.pits.push(p);
     }
-    for (const d of S.domes) if (!d.gen || d.gen.dead) d.gen = S.gens.find((g) => g.team === d.team) || null;
+    for (const d of S.domes) if (!d.gen || d.gen.dead) d.gen = S.gens.find((g) => Teams.same(g.team, d.team)) || null;
   },
   /* ----- mines ----- */
   /* true when a field mine of def d goes off for platform e: an anti-tank mine for a ground machine or a mech on the ground (not a soldier, a hovercraft or anything flying), an anti-personnel mine for a soldier */
@@ -26350,10 +26398,10 @@ const BaseDef = {
   /* a SAM Site reaches and sees half as far while its base's radar mast is down */
   samK(p) { const m = this.s.masts[p.team]; return m && m.destroyed ? BD_SAM_MAST : 1; },
   /* ----- the shield dome ----- */
-  domeUp(gen) { const d = this.s.domes.find((q) => q.team === gen.team); return !!d && d.up; },
+  domeUp(gen) { const d = this.s.domes.find((q) => Teams.same(q.team, gen.team)); return !!d && d.up; },
   domeHit(d, dmg) {
     d.hit = W.time; d.pts = Math.max(0, d.pts - dmg); d.flash = 0.25;
-    if (d.pts <= 0 && d.up) { d.up = false; if (d.team === 0) W.msg('SHIELD DOWN', 'warn'); else W.msg('ENEMY SHIELD DOWN', 'objective'); }
+    if (d.pts <= 0 && d.up) { d.up = false; if (Teams.humanSide(d.team)) W.msg('SHIELD DOWN', 'warn'); else W.msg('ENEMY SHIELD DOWN', 'objective'); }
   },
   /* each tick: the dome comes back after a quiet spell, and a hostile projectile that crosses its surface from outside is spent (a round fired from inside goes on) */
   domeStep(dt) {
@@ -26365,14 +26413,14 @@ const BaseDef = {
         if (!alive) d.up = false;
         else {
           if (d.pts < BD_SHIELD_PTS && W.time - d.hit >= BD_SHIELD_WAIT) d.pts = Math.min(BD_SHIELD_PTS, d.pts + BD_SHIELD_REGEN * dt);
-          if (!d.up && d.pts >= BD_SHIELD_BACK) { d.up = true; if (d.team === 0) W.msg('SHIELD UP', 'objective'); }
+          if (!d.up && d.pts >= BD_SHIELD_BACK) { d.up = true; if (Teams.humanSide(d.team)) W.msg('SHIELD UP', 'objective'); }
         }
       } else if (!alive) d.up = false;
       if (!d.up) continue;
       const bit = 1 << di, r2 = d.r * d.r;
       for (let i = 0; i < W.projs.length; i++) {
         const q = W.projs[i];
-        if (!q.active || q.team === d.team || q.team === 2 || q.def.field || q.def.drone || q.def.slot === 'super') continue;
+        if (!q.active || !Teams.hostile(d.team, q.team) || q.def.field || q.def.drone || q.def.slot === 'super') continue;
         const dx = q.x - d.x, dy = q.y - d.y, dz = q.z - d.z, inside = dx * dx + dy * dy + dz * dz < r2;
         if (q.dmN !== q.nid) { q.dmN = q.nid; q.dmIn = 0; q.dmSeen = 0; }
         if (!(q.dmSeen & bit)) { q.dmSeen |= bit; if (inside) q.dmIn |= bit; continue; }   // first seen: where it began decides (fired from inside: it goes on)
@@ -26391,7 +26439,7 @@ const BaseDef = {
   /* true when a blast at (x, y, z) from a unit of team would reach (tx, ty, tz) across the surface of an up dome of another team: it comes from outside, the target is inside */
   domeShields(x, y, z, tx, ty, tz, team) {
     for (const d of this.s.domes) {
-      if (!d.up || d.team === team) continue;
+      if (!d.up || Teams.allied(d.team, team)) continue;
       const r2 = d.r * d.r;
       if ((x - d.x) ** 2 + (y - d.y) ** 2 + (z - d.z) ** 2 > r2 && (tx - d.x) ** 2 + (ty - d.y) ** 2 + (tz - d.z) ** 2 < r2) return true;
     }
@@ -26400,7 +26448,7 @@ const BaseDef = {
   /* true when the chord from a to b crosses an up dome's surface that team's beams must not cross (one end inside, the other out) */
   domeCuts(a, b, team) {
     for (const d of this.s.domes) {
-      if (!d.up || d.team === team) continue;
+      if (!d.up || Teams.allied(d.team, team)) continue;
       const r2 = d.r * d.r;
       if (((a.x - d.x) ** 2 + (a.y - d.y) ** 2 + (a.z - d.z) ** 2 < r2) !== ((b.x - d.x) ** 2 + (b.y - d.y) ** 2 + (b.z - d.z) ** 2 < r2)) return true;
     }
@@ -26409,7 +26457,7 @@ const BaseDef = {
   /* a beam from mz along the unit vector (dx, dy, dz), len m long, fired by team: the metres to a dome it strikes from outside (it takes dmg), or -1 */
   beamClip(mz, dx, dy, dz, len, team, dmg) {
     for (const d of this.s.domes) {
-      if (!d.up || d.team === team) continue;
+      if (!d.up || Teams.allied(d.team, team)) continue;
       const ox = mz.x - d.x, oy = mz.y - d.y, oz = mz.z - d.z, b = ox * dx + oy * dy + oz * dz, c = ox * ox + oy * oy + oz * oz - d.r * d.r;
       if (c < 0 || b > 0) continue;   // fired from inside, or away from it
       const disc = b * b - c;
@@ -26427,7 +26475,7 @@ const BaseDef = {
     const J = this.s.jams;
     for (let i = 0; i < J.length; i++) {
       const j = J[i];
-      if (j.dead || j.team === p.team || j.team === 2) continue;
+      if (j.dead || !Teams.hostile(p.team, j.team)) continue;
       if ((p.x - j.x) * (p.x - j.x) + (p.z - j.z) * (p.z - j.z) < BD_JAM_R * BD_JAM_R) return true;
     }
     return false;
@@ -26437,7 +26485,7 @@ const BaseDef = {
   /* true when a Counter-Battery Radar of team traced unit e lately */
   isTraced(e, team) {
     const T = this.s.traced;
-    for (let i = 0; i < T.length; i++) if (T[i].id === e.id && T[i].team === team && T[i].until > W.time) return true;
+    for (let i = 0; i < T.length; i++) if (T[i].id === e.id && Teams.allied(T[i].team, team) && T[i].until > W.time) return true;
     return false;
   },
   /* a shell or rocket p of artillery owner has left: if it will land within BD_CB_NEAR m of a hostile Counter-Battery Radar that is within BD_CB_FAR m of the firer, the radar traces it back when it lands */
@@ -26447,7 +26495,7 @@ const BaseDef = {
     const g = Arty.trace(p.x, p.y, p.z, p.vx, p.vy, p.vz, p.def.grav || 0, BD_SHOT);
     if (!g.hit) return;
     for (const r of S.cbs) {
-      if (r.dead || r.team === owner.team || r.team === 2) continue;
+      if (r.dead || !Teams.hostile(owner.team, r.team)) continue;
       if (Math.hypot(g.ix - r.x, g.iz - r.z) > BD_CB_NEAR || Math.hypot(owner.x - r.x, owner.z - r.z) > BD_CB_FAR) continue;
       S.pend.push({ at: W.time + g.tof, firer: owner, team: r.team, radar: r });
       return;
@@ -26460,7 +26508,7 @@ const BaseDef = {
       if (W.time < q.at) continue;
       S.pend.splice(i, 1);
       if (q.radar.dead || q.firer.dead || q.firer.jamT > 0) continue;   // an ECM Jammer running on the firer hides it from the trace
-      const old = S.traced.find((t) => t.id === q.firer.id && t.team === q.team);
+      const old = S.traced.find((t) => t.id === q.firer.id && Teams.same(t.team, q.team));
       if (old) old.until = W.time + BD_CB_MARK; else S.traced.push({ id: q.firer.id, team: q.team, until: W.time + BD_CB_MARK, firer: q.firer });
       if (Net.host) Net.bcast({ t: 'bd', k: 'tr', id: q.firer.id, tm: q.team, s: BD_CB_MARK });
       if (q.firer.isPlayer) notify(q.firer, 'TRACED BY COUNTER-BATTERY RADAR', 'warn');
@@ -26495,7 +26543,7 @@ const BaseDef = {
     const S = this.s;
     let best = null, bd = Infinity;
     for (const b of S.bases) {
-      if (b.team === o.team || S.hold[b.team] > W.time || !this.hqStruct(b.team)) continue;
+      if (Teams.allied(b.team, o.team) || S.hold[b.team] > W.time || !this.hqStruct(b.team)) continue;
       const d = Math.hypot(b.x - o.struct.x, b.z - o.struct.z);
       if (d < bd) { bd = d; best = b; }
     }
@@ -26531,7 +26579,7 @@ const BaseDef = {
     o.shots++; o.state = 'arm'; o.t0 = W.time; o.left = BD_SILO_ARM; o.target = b.team; o.tx = b.hq.x; o.tz = b.hq.z; o.shrunk = false; o.doors = false; o.found = false;
     const rng = makeRng((o.seed ^ Math.imul(o.shots, 7919) ^ 0x1234) >>> 0), a = rng() * TAU, off = 40 + rng() * 130;
     o.cx = o.struct.x + Math.sin(a) * off; o.cz = o.struct.z + Math.cos(a) * off; o.cr = BD_SILO_CIRCLE;
-    if (o.target === 0) W.msg('ENEMY MISSILE SILO ARMING', 'alarm'); else if (o.team === 0) W.msg('YOUR MISSILE SILO IS ARMING', 'objective');
+    if (o.target === 0) W.msg('ENEMY MISSILE SILO ARMING', 'alarm'); else if (Teams.humanSide(o.team)) W.msg('YOUR MISSILE SILO IS ARMING', 'objective');
     this.s.aiSilo = o.target === 1 ? o : this.s.aiSilo;
     this.siloSend(o);
   },
@@ -26571,7 +26619,7 @@ const BaseDef = {
       explode(hq.x, hq.y + hq.h * 0.6, hq.z, 45, 0, 'explosive', own, {});
       const R = BD_STRIKE.blast;
       for (const p of W.platforms.slice()) {
-        if (p.dead || p.team === o.team || p.team === 2) continue;
+        if (p.dead || !Teams.hostile(o.team, p.team)) continue;
         const dx = p.x - hq.x, dz = p.z - hq.z;
         if (dx * dx + dz * dz > R * R || (p.kind === 'air' && p.y - Terrain.h(p.x, p.z) > BD_STRIKE.air)) continue;
         p.takeDamage(p.def.speed === 0 && p.kind === 'ground' ? BD_STRIKE.structs : BD_STRIKE.units, 'explosive', own, dx, dz, { blast: true });
@@ -26579,7 +26627,7 @@ const BaseDef = {
       const n = Hash.query(hq.x - R, hq.z - R, hq.x + R, hq.z + R, -50, 400);
       const list = Hash.out.slice(0, n);
       for (const s of list) {
-        if (s.destroyed || s.objective || s.bld || s.team === o.team || (s.x - hq.x) ** 2 + (s.z - hq.z) ** 2 > R * R) continue;
+        if (s.destroyed || s.objective || s.bld || Teams.allied(s.team, o.team) || (s.x - hq.x) ** 2 + (s.z - hq.z) ** 2 > R * R) continue;
         damageStruct(s, BD_STRIKE.structs, 'explosive', own, 1, false);
       }
     }
@@ -26592,7 +26640,7 @@ const BaseDef = {
     o.state = 'dead'; o.doors = false; o.struct.siloOpen = false;
     if (this.s.incoming && this.s.incoming.team === o.target && was === 'arm') this.s.incoming = null;   // (arming: no strike now; in flight the marker stays until it lands)
     if (was === 'arm' || was === 'fly') {
-      if (o.target === 0) W.msg('ENEMY SILO DESTROYED', 'objective'); else if (o.team === 0) W.msg('YOUR SILO WAS DESTROYED', 'warn');
+      if (o.target === 0) W.msg('ENEMY SILO DESTROYED', 'objective'); else if (Teams.humanSide(o.team)) W.msg('YOUR SILO WAS DESTROYED', 'warn');
     }
     this.siloSend(o);
   },
@@ -26682,7 +26730,7 @@ const BaseDef = {
       for (const i of m.a) if (Number.isInteger(i) && S.meta[i]) S.known[0].add(i);
     } else if (m.k === 'tr') {
       S.traced = S.traced.filter((t) => t.id !== (m.id | 0));
-      S.traced.push({ id: m.id | 0, team: numIn(m.tm, 0, 2) | 0, until: W.time + numIn(m.s, 0, 60), firer: null });
+      S.traced.push({ id: m.id | 0, team: Teams.id(m.tm), until: W.time + numIn(m.s, 0, 60), firer: null });
     } else if (m.k === 'fl') {
       this.flight(numIn(m.sx, -3000, 3000), numIn(m.sz, -3000, 3000), numIn(m.tx, -3000, 3000), numIn(m.tz, -3000, 3000), numIn(m.s, 1, 30, BD_SILO_FLY));
     }
@@ -26701,7 +26749,7 @@ const BaseDef = {
   /* the target panel's note for a structure or platform: SHIELD UP / DOWN on a command center, an open silo */
   note(t) {
     if (!t) return '';
-    if (t.isStruct && t.type === 'command') { const d = this.s.domes.find((q) => q.team === t.team); return d ? (d.up ? ' - SHIELD UP' : ' - SHIELD DOWN') : ''; }
+    if (t.isStruct && t.type === 'command') { const d = this.s.domes.find((q) => Teams.same(q.team, t.team)); return d ? (d.up ? ' - SHIELD UP' : ' - SHIELD DOWN') : ''; }
     if (t.isStruct && t.type === 'silo') return t.siloOpen ? ' - DOORS OPEN' : '';
     return '';
   },
@@ -26711,7 +26759,7 @@ const BaseDef = {
     if (!S || !S.active || !glow) return;
     for (const d of S.domes) {
       if (!d.up || !R.visible(d.x, d.y, d.z, d.r)) continue;
-      const f = 0.045 + Math.max(0, d.flash) * 0.5, s = d.r * 2, c = d.team === 0 ? [0.3, 0.75, 1] : [1, 0.45, 0.3];
+      const f = 0.045 + Math.max(0, d.flash) * 0.5, s = d.r * 2, c = Teams.humanSide(d.team) ? [0.3, 0.75, 1] : [1, 0.45, 0.3];
       SW.shape('sphere', d.x, d.y - 4, d.z, s, s * 0.9, s, c, f, 1.4);
     }
     for (const o of S.silos) {
@@ -26770,7 +26818,7 @@ const BaseDef = {
   aiSiloStep() {
     const o = this.s.aiSilo;
     if (!o || o.target !== 1 || (o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed) return;
-    const units = W.platforms.filter((p) => !p.dead && p.team === 1 && p.ai && !p.garrison && !p.isPlayer && p.def.speed > 0 && p.arch);
+    const units = W.platforms.filter((p) => !p.dead && Teams.aiSide(p.team) && p.ai && !p.garrison && !p.isPlayer && p.def.speed > 0 && p.arch);
     if (!units.length) return;
     if (!o.found) {
       let f = units[0];
@@ -26797,7 +26845,7 @@ const BaseDef = {
     const S = this.s;
     for (let i = 0; i < S.meta.length; i++) {
       const m = S.meta[i];
-      if (m.alive && m.team !== p.team && m.k !== 'sea' && Math.hypot(m.x - p.x, m.z - p.z) <= r && !Scan.marked(S.mines[i], p.team)) return true;
+      if (m.alive && !Teams.allied(m.team, p.team) && m.k !== 'sea' && Math.hypot(m.x - p.x, m.z - p.z) <= r && !Scan.marked(S.mines[i], p.team)) return true;
     }
     return false;
   },
@@ -26885,21 +26933,21 @@ const BaseDef = {
       if (post.struct.destroyed) continue;
       for (const e of post.engs) {
         if (!e || e.dead || !e.ai || !e.ai.mendGoal) continue;
-        for (const u of W.platforms) if (!u.dead && u.team === 1 - post.team && u.team !== 2 && u.ai && Math.hypot(u.x - e.x, u.z - e.z) < BD_HUT_SEEN) { S.hutAt[u.team] = W.time; break; }
+        for (const u of W.platforms) if (!u.dead && Teams.hostile(post.team, u.team) && u.ai && Math.hypot(u.x - e.x, u.z - e.z) < BD_HUT_SEEN) { S.hutAt[u.team] = W.time; break; }
       }
     }
   },
   /* the nearest known hostile defence platform of arch within r m of (x, z), or null */
   knownDef(p, list, x, z, r) {
     const S = this.s;
-    for (const d of list) if (!d.dead && d.team !== p.team && S.seen[p.team].has(d.id) && Math.hypot(d.x - x, d.z - z) < r) return d;
+    for (const d of list) if (!d.dead && !Teams.allied(d.team, p.team) && S.seen[p.team].has(d.id) && Math.hypot(d.x - x, d.z - z) < r) return d;
     return null;
   },
   /* the heading that takes aircraft p out of the reach of a known SAM Site (its 1400 m, 700 m with the mast down, and a margin), or null: it stays outside until the site or its mast is down */
   samPush(p) {
     const S = this.s;
     for (const g of S.sams) {
-      if (g.dead || g.team === p.team || !S.seen[p.team].has(g.id)) continue;
+      if (g.dead || Teams.allied(g.team, p.team) || !S.seen[p.team].has(g.id)) continue;
       const reach = BD_DEFS.samSite.reach * this.samK(g) + BD_SAM_MARGIN, dx = p.x - g.x, dz = p.z - g.z;
       if (dx * dx + dz * dz < reach * reach) return Math.atan2(dx, dz);
     }
@@ -26909,7 +26957,7 @@ const BaseDef = {
   coastBlocked(p, x, z) {
     const t = p.ai && p.ai.target;
     for (const g of this.s.coasts) {
-      if (g.dead || g.team === p.team || !this.s.seen[p.team].has(g.id) || Math.hypot(g.x - x, g.z - z) > BD_COAST_REACH) continue;
+      if (g.dead || Teams.allied(g.team, p.team) || !this.s.seen[p.team].has(g.id) || Math.hypot(g.x - x, g.z - z) > BD_COAST_REACH) continue;
       if (t && talive(t) && Math.hypot(t.x - g.x, t.z - g.z) < BD_COAST_REACH) continue;
       return true;
     }
@@ -26947,7 +26995,7 @@ const BaseDef = {
     const S = this.s;
     for (const o of S.silos) {
       const on = (o.state === 'arm' || o.state === 'fly') && !o.struct.destroyed;
-      const units = W.platforms.filter((u) => !u.dead && u.team === o.team && u.garrison && u.ai && u.def.speed > 0 && (u.kind === 'ground' || u.kind === 'mech') && u.model !== 'turret' && !u.arty).sort((a, b) => a.id - b.id);
+      const units = W.platforms.filter((u) => !u.dead && Teams.same(u.team, o.team) && u.garrison && u.ai && u.def.speed > 0 && (u.kind === 'ground' || u.kind === 'mech') && u.model !== 'turret' && !u.arty).sort((a, b) => a.id - b.id);
       for (const u of units) if (u.ai.holdSilo === o && !on) { u.ai.holdSilo = null; u.ai.goal = null; }
       if (!on) continue;
       let held = units.filter((u) => u.ai.holdSilo === o).length;
@@ -27053,7 +27101,7 @@ const AIR_SPAWN_SPREAD = 45;      // co-op: guests line up this far apart across
 function hostileSees(x, z, air, eyeH) {
   const groundY = Math.max(Terrain.h(x, z), Water.level(x, z));   // at sea the surface a ship floats on, not the seabed
   for (const e of W.platforms) {
-    if (e.team !== 1 || e.dead) continue;
+    if (!Teams.hostile(Teams.PLAYER, e.team) || e.dead) continue;
     if (e.ai && e.ai.airOnly && !air) continue;
     const d = Math.hypot(e.x - x, e.z - z);
     if (d < SPAWN_SAFE_DIST) return true;
@@ -27074,7 +27122,7 @@ function forwardSpawn(start, clearR, air, eyeH, def) {
   const m = W.mission;
   if (m) for (const o of m.objectives) {
     // objectives that hunt hostile units (skirmish waves, bombers) mark live, moving enemies: never advance toward them
-    if (!o.primary || o.status !== 'active' || (o.units && o.units.some((u) => u.team === 1))) continue;
+    if (!o.primary || o.status !== 'active' || (o.units && o.units.some((u) => Teams.hostile(Teams.PLAYER, u.team)))) continue;
     for (const k of o.markers()) { const d = Math.hypot(k.x - start.x, k.z - start.z); if (!goal || d < goalD) { goal = k; goalD = d; } }
   }
   if (goal) {
@@ -27086,7 +27134,7 @@ function forwardSpawn(start, clearR, air, eyeH, def) {
     }
   }
   for (const q of W.platforms) {
-    if (!q.isPlayer || q.dead || q.team !== 0 || q.kind === 'air') continue;
+    if (!q.isPlayer || q.dead || !Teams.humanSide(q.team) || q.kind === 'air') continue;
     const sp = findSpawn(q.x, q.z, 30, clearR, 0);
     if (sp && linked(sp) && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw: q.yaw };
   }
@@ -27184,8 +27232,8 @@ function spawnUnit(archKey, x, z, opts) {
   const lo = Object.assign({}, a.loadout, opts.loadout);   // opts.loadout overrides slots (null empties one)
   const p = new Platform(def, {
     team, x: pos.x, z: pos.z, yaw: opts.yaw !== undefined ? opts.yaw : pos.yaw !== undefined ? pos.yaw : def.kind === 'air' ? Math.atan2(-pos.x, -pos.z) + rand(-0.5, 0.5) : Math.random() * TAU, y: opts.y, loadout: lo, arch: archKey,   // an aircraft heads inward (P2-01)
-    name: a.name || a.label, hpMult: (a.hpMult || 1) * (team === 1 ? diff.hp * (a.ai === 'boss' ? (W.bossHpMult || 1) : 1) : 1),
-    armorMult: (a.armorMult || 1) * (team === 1 ? diff.hp : 1), extraShield: a.extraShield,
+    name: a.name || a.label, hpMult: (a.hpMult || 1) * (Teams.aiSide(team) ? diff.hp * (a.ai === 'boss' ? (W.bossHpMult || 1) : 1) : 1),
+    armorMult: (a.armorMult || 1) * (Teams.aiSide(team) ? diff.hp : 1), extraShield: a.extraShield,
     ammoMult: 3,
   });
   if (def.kind === 'air' && opts.y === undefined) p.y = Terrain.h(pos.x, pos.z) + 130;
@@ -27205,7 +27253,7 @@ function spawnGroup(list, x, z, opts) {
   opts = opts || {};
   const out = [];
   // allied lists get ALLY_COUNT copies; hostile lists HOSTILE_COUNT scaled by difficulty and co-op
-  const cnt = opts.team === 0 ? ALLY_COUNT : HOSTILE_COUNT * W.diff.count * (W.coopMult || 1);
+  const cnt = Teams.humanSide(opts.team) ? ALLY_COUNT : HOSTILE_COUNT * W.diff.count * (W.coopMult || 1);
   for (const k of list) {
     // whole copies plus one more by chance for the fraction (2.6 -> 2 or 3)
     const copies = opts.exact ? 1 : Math.floor(cnt) + (Math.random() < cnt % 1 ? 1 : 0);
@@ -27292,8 +27340,8 @@ const Obj = {
         for (const p of ps) {
           if (p.dead || p.kind === 'air' && p.y - Terrain.h(p.x, p.z) > 60) continue;
           // a zone with shipReach is held by friendly ships within that reach too (a beach covered from the water)
-          if (Math.hypot(p.x - z.x, p.z - z.z) > (this.shipReach && p.team === 0 && p.kind === 'naval' ? this.shipReach : z.r)) continue;
-          if (p.team === 0 && p.model !== 'truck') friends++; else if (p.team === 1 && p.def.speed >= 0 && p.arch) foes++;
+          if (Math.hypot(p.x - z.x, p.z - z.z) > (this.shipReach && Teams.humanSide(p.team) && p.kind === 'naval' ? this.shipReach : z.r)) continue;
+          if (Teams.humanSide(p.team) && p.model !== 'truck') friends++; else if (Teams.aiSide(p.team) && p.def.speed >= 0 && p.arch) foes++;
         }
         this.contested = foes > 0 && friends > 0; this.friends = friends; this.foes = foes;
         if (friends > 0 && foes === 0) this.progress = Math.min(1, this.progress + dt / this.duration);
@@ -27329,7 +27377,7 @@ const Obj = {
           if (this.elapsed >= this.duration) { this.phase = 'extract'; W.msg('EXTRACTION POINT MARKED - MOVE', 'objective'); if (this.onExtract) this.onExtract(); }
         } else {
           const z = this.zone;   // any living human player (host or guest) in the zone holds it
-          const inside = W.platforms.some((p) => p.isPlayer && p.team === 0 && !p.dead && Math.hypot(p.x - z.x, p.z - z.z) < z.r && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < 120));
+          const inside = W.platforms.some((p) => p.isPlayer && Teams.humanSide(p.team) && !p.dead && Math.hypot(p.x - z.x, p.z - z.z) < z.r && (p.kind !== 'air' || p.y - Terrain.h(p.x, p.z) < 120));
           if (inside) this.hold += dt; else this.hold = Math.max(0, this.hold - dt * 0.5);
           this.progress = 0.5 + sat(this.hold / this.holdTime) * 0.5;
           if (this.hold >= this.holdTime) this.status = 'complete';
@@ -27385,7 +27433,7 @@ const Obj = {
       },
       /* a living human player boarding spot s */
       beside(s) {
-        return W.platforms.some((p) => p.isPlayer && p.team === 0 && !p.dead && this.boards(p, s));
+        return W.platforms.some((p) => p.isPlayer && Teams.humanSide(p.team) && !p.dead && this.boards(p, s));
       },
       /* a ground unit close enough to take the people aboard, or an aircraft passing low and slow over them */
       boards(p, s) {
@@ -27502,7 +27550,7 @@ function missionHazard(type, x, z, warn, ax, az) {
 function nearestPlayer(x, z) {
   let best = null, bd = Infinity;
   for (const p of W.platforms) {
-    if (!p.isPlayer || p.dead || p.team !== 0) continue;
+    if (!p.isPlayer || p.dead || !Teams.humanSide(p.team)) continue;
     const d = Math.hypot(p.x - x, p.z - z);
     if (d < bd) { bd = d; best = p; }
   }
@@ -27548,7 +27596,7 @@ function hazardNear(type, x, z, dist) {
 }
 /* is an enemy that moves on the ground (not in the air, not an emplacement) within dist of (x, z)? */
 function groundFoeNear(x, z, dist) {
-  for (const u of W.platforms) if (!u.dead && u.team === 1 && u.kind !== 'air' && u.def.speed > 0 && Math.hypot(u.x - x, u.z - z) < dist) return true;
+  for (const u of W.platforms) if (!u.dead && Teams.aiSide(u.team) && u.kind !== 'air' && u.def.speed > 0 && Math.hypot(u.x - x, u.z - z) < dist) return true;
   return false;
 }
 /* a convoy truck drives on (go) or stands with its engine idle */
@@ -27619,7 +27667,7 @@ const MISSIONS = [
       void def;
       ctx.later(() => {
         spawnGroup(['allyMech', 'allyMech', 'allyTank'], 0, -30, { team: 0, radius: 40, follow: null });
-        for (const a of W.platforms) if (a.team === 0 && a.ai) a.ai.home = { x: 0, z: 0 };
+        for (const a of W.platforms) if (Teams.humanSide(a.team) && a.ai) a.ai.home = { x: 0, z: 0 };
       });
       const waves = [['infantry', 'infantry', 'infantry', 'buggy'], ['tank', 'infantry', 'infantry', 'rpgTrooper'], ['lightMech', 'lightMech', 'tank'], ['jet', 'jet', 'medMech', 'medMech'], ['heavyMech', 'tank', 'tank', 'lightMech'], ['gunship', 'medMech', 'medMech', 'buggy', 'buggy'], ['heavyMech', 'heavyMech', 'jet', 'lightMech', 'lightMech'], ['gunship', 'tank', 'tank', 'tank']];
       let wave = 0;
@@ -27787,7 +27835,7 @@ const MISSIONS = [
       });
       m.every(35, () => {
         if (fac.destroyed) return;
-        const alive = W.platforms.filter((p) => p.team === 1 && !p.dead).length;
+        const alive = W.platforms.filter((p) => Teams.aiSide(p.team) && !p.dead).length;
         if (alive > 14 * HOSTILE_COUNT) return;   // the foundry pauses while the field is crowded
         const grid = m.get('nodes').status === 'complete';
         spawnGroup(grid ? ['tank'] : ['tank', 'tank'], 350, 420, { radius: 40, goal: { x: -520, z: -420 } });
@@ -28177,7 +28225,7 @@ const MISSIONS = [
       m.add(Obj.noDeaths({ id: 'nodeath', title: 'Complete without losing a platform' }));
       ctx.later(() => {
         spawnGroup(['allyTank', 'allyMech', 'allyMech'], radar.x - 40, radar.z + 50, { team: 0, radius: 40 });   // as many as m3's
-        for (const a of W.platforms) if (a.team === 0 && a.ai) a.ai.home = { x: radar.x, z: radar.z };
+        for (const a of W.platforms) if (Teams.humanSide(a.team) && a.ai) a.ai.home = { x: radar.x, z: radar.z };
       });
       m.at(95, () => { if (missionHazard('earthquake', mid.x, mid.z, 6)) W.msg('SEISMIC ALERT: TAKE COVER', 'alarm'); });
       m.at(108, () => missionHazard('gas', fuel.x, fuel.z, 4));
@@ -28429,7 +28477,7 @@ function skirmishLayoutWith(cfg, homes) {
 function skirmishWaveGoal(u, hq) {
   let best = null, bestD = SKIRMISH_WAVE_HUNT;
   for (const h of W.platforms) {
-    if (!h.isPlayer || h.team !== 0 || h.dead || h.hideFromAI) continue;
+    if (!h.isPlayer || !Teams.humanSide(h.team) || h.dead || h.hideFromAI) continue;
     const d = Math.hypot(h.x - u.x, h.z - u.z);
     if (d < bestD) { best = h; bestD = d; }
   }
@@ -28526,7 +28574,7 @@ function skirmishDef(cfg) {
         const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
         spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
       });
-      const humans = () => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
+      const humans = () => W.platforms.filter((p) => p.isPlayer && Teams.humanSide(p.team) && !p.dead);
       const waveGoal = (u) => BaseDef.goalFor(u) || skirmishWaveGoal(u, ownHq);   // (a unit sent for a silo goes there, P5-09)
       let idx = 0;
       const spawnWave = () => {
@@ -28546,7 +28594,7 @@ function skirmishDef(cfg) {
       m.every(interval, () => spawnWave(), interval + SKIRMISH_FIRST_WAVE);
       m.every(4, () => { // attackers without a target push on (base garrisons and turrets hold their ground)
         BaseDef.retask(1, ownHq);
-        for (const p of W.platforms) if (p.team === 1 && p.ai && p.arch && !p.garrison && !p.dead && !p.ai.target && p.kind !== 'air') p.ai.goal = waveGoal(p);
+        for (const p of W.platforms) if (Teams.aiSide(p.team) && p.ai && p.arch && !p.garrison && !p.dead && !p.ai.target && p.kind !== 'air') p.ai.goal = waveGoal(p);
       }, 8);
       m.every(2, () => { // next wave early if the field is nearly clear
         const alive = ob.units.filter((u) => !u.dead).length;
@@ -28918,8 +28966,8 @@ const Cam = {
     const r = raycast(this.x, this.y, this.z, dx, dy, dz, p.primary && p.primary.def.indirect ? ARTY_AIM_REACH : 900, p, false, p);   // artillery picks ground far off
     const ap = W.aimPoint || (W.aimPoint = { x: 0, y: 0, z: 0 });
     if (r.hit) { ap.x = r.x; ap.y = r.y; ap.z = r.z; } else { ap.x = this.x + dx * 800; ap.y = this.y + dy * 800; ap.z = this.z + dz * 800; }
-    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj, assist: false,
-      objective: r.kind === 'struct' && r.obj.objective && r.obj.team !== p.team ? r.obj : null };   // P5-04: a hostile objective structure under the reticle
+    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && Teams.hostile(p.team, r.obj.team), friendly: r.kind === 'platform' && Teams.allied(r.obj.team, p.team), obj: r.obj, assist: false,
+      objective: r.kind === 'struct' && r.obj.objective && !Teams.allied(r.obj.team, p.team) ? r.obj : null };   // P5-04: a hostile objective structure under the reticle
     if (S.aimAssist && !W.aimInfo.hostile && !W.aimInfo.friendly) this.assist(p, dx, dy, dz, r.hit ? r.t : 900, ap);
     p.cmd.aimPoint = ap; p.cmd.hasAim = true;
   },
@@ -28930,7 +28978,7 @@ const Cam = {
     let best = null, bestScore = 1;
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team)) continue;
+      if (e.dead || !Teams.hostile(p.team, e.team) || Scan.hides(e, p.team)) continue;
       tpos(e, ASSIST_TP);
       const vx = ASSIST_TP.x - this.x, vy = ASSIST_TP.y - this.y, vz = ASSIST_TP.z - this.z, d = Math.hypot(vx, vy, vz);
       if (d > range || d < 2 || d > hitT + e.radius * 2) continue;   // out of reach, or behind whatever the reticle is on
@@ -29204,7 +29252,7 @@ const Game = {
     // music intensity from nearby hostiles
     if (this.frames % 30 === 0 && pl && !pl.dead) {
       let near = 0;
-      for (const e of W.platforms) if (e.team === 1 && Math.hypot(e.x - pl.x, e.z - pl.z) < 300) near++;
+      for (const e of W.platforms) if (Teams.aiSide(e.team) && Math.hypot(e.x - pl.x, e.z - pl.z) < 300) near++;
       Snd.intensity = Math.min(1, near / 6);
     }
   },
@@ -29342,7 +29390,7 @@ const Game = {
   updateSpectate() {
     const pl = W.player;
     if (!Net.active || !pl || !pl.dead || W.lives > 0) { this.spectating = null; return; }
-    const mates = W.platforms.filter((q) => q.isPlayer && q !== pl && !q.dead && q.team === pl.team);
+    const mates = W.platforms.filter((q) => q.isPlayer && q !== pl && !q.dead && Teams.allied(q.team, pl.team));
     if (!mates.length) { this.spectating = null; return; }
     const pad = Input.pad(), padFire = !!(pad && pad.fire1), next = Input.hit('fire1') || (padFire && !PC.padLast);
     PC.padLast = padFire;
@@ -29689,7 +29737,7 @@ const HUD = {
     }
     // other human players: name tag and distance, so co-op pilots can find each other
     for (const q of W.platforms) {
-      if (!q.isPlayer || q === p || q.dead || q.team !== p.team) continue;
+      if (!q.isPlayer || q === p || q.dead || !Teams.allied(q.team, p.team)) continue;
       this.worldMarker(q.x, q.y + q.height + 3, q.z, q.name.toUpperCase(), 'defend', this.C.friend, Math.round(Math.hypot(q.x - p.x, q.z - p.z)) + 'm');
     }
     // supply pad marker
@@ -29855,7 +29903,7 @@ const HUD = {
       this.txt((wp.slot === p.activeSlot ? '> ' : '  ') + '[' + tag + '] ' + d.name, x + 6 * u, y + 10 * u, 12, active ? C.text : C.dim, 'left', wp.slot === p.activeSlot);
       let amm;
       if (d.kind === 'beam') amm = 'ENERGY';
-      else if (W.infiniteAmmo && p.team === 0) amm = wp.clip + '/INF';
+      else if (W.infiniteAmmo && Teams.humanSide(p.team)) amm = wp.clip + '/INF';
       else amm = wp.clip + '/' + wp.reserve;
       const low = d.kind !== 'beam' && wp.clip + wp.reserve < d.clip * 0.5 && !W.infiniteAmmo;
       this.txt(wp.reloading > 0 ? 'RELOAD ' + wp.reloading.toFixed(1) : amm, x + w - 6 * u, y + 10 * u, 12, low ? C.warn : C.text, 'right', low);
@@ -29905,7 +29953,7 @@ const HUD = {
     const tp = tpos(t, this.targetPos);
     const d = Math.hypot(tp.x - p.x, tp.y - p.y, tp.z - p.z);
     const s = R.project(tp.x, tp.y, tp.z, this.w, this.h, this.tmp);
-    const hostile = t.team !== p.team;
+    const hostile = !Teams.allied(t.team, p.team);
     const col = t.isStruct ? C.obj : hostile ? C.bad : C.friend;
     const lockCol = p.lock.target === t && p.lock.state === 'locked' ? C.bad : col;
     if (s.vis) {
@@ -30199,14 +30247,14 @@ const HUD = {
       const f = W.feed[i], age = W.time - f.t;
       if (age > 7) continue;
       this.g.globalAlpha = age > 6 ? 7 - age : 1;
-      this.txt(f.text, this.w / 2, y, 11, f.team === 0 ? this.C.friend : this.C.text, 'center');
+      this.txt(f.text, this.w / 2, y, 11, feedFriendly(f.team) ? this.C.friend : this.C.text, 'center');
       this.g.globalAlpha = 1; y -= 14 * u;
     }
   },
   drawAllies(u) {
     let y = 150 * u + SafeArea.t;
     const x = 18 * u + SafeArea.l;
-    const ally = (a) => a.team === 0 && a !== W.player && !a.dead && a.model !== 'truck' && (a.arch || a.isPlayer);
+    const ally = (a) => Teams.humanSide(a.team) && a !== W.player && !a.dead && a.model !== 'truck' && (a.arch || a.isPlayer);
     const humans = W.platforms.filter((a) => ally(a) && a.isPlayer), ai = W.platforms.filter((a) => ally(a) && !a.isPlayer);
     for (const a of humans.concat(ai).slice(0, ALLY_ROWS)) {   // human teammates first
       this.txt(a.name.substring(0, 14), x, y, 10, this.C.friend);
@@ -30722,7 +30770,7 @@ const UI = {
   /* the picker for our base's defences (P5-09): up to the encounter size's points; none picked: the battle seed picks */
   defPicker(s) {
     const list = BaseDef.cleanChoice(s.ownDefs, s.size, s.map), spent = list.reduce((n, id) => n + BD_DEFS[id].dp, 0), budget = BD_DP[s.size] || BD_DP.small;
-    const last = BaseDef.s.bases.find((b) => b.team === 0), built = last ? last.picks.reduce((n, q) => n + BD_DEFS[q.id].dp, 0) : 0;
+    const last = BaseDef.s.bases.find((b) => Teams.humanSide(b.team)), built = last ? last.picks.reduce((n, q) => n + BD_DEFS[q.id].dp, 0) : 0;
     return '<h3>Our base defences</h3><div class="dim" style="font-size:.85em">' + (list.length ? spent + ' of ' + budget + ' points picked' : 'Automatic: the battle seed spends ' + budget + ' points') + (list.length && spent < budget ? '; the seed adds ' + (budget - spent) + ' more' : '') + '; a pick the reach rule or the ground refuses is reported when the battle starts and the seed fills its points. ' + (last ? 'Last battle: ' + built + ' of ' + last.dp + ' points built. ' : '') + 'The enemy base always gets the seed\'s picks.</div>' +
       Object.keys(BD_DEFS).map((id) => {
         const n = list.filter((q) => q === id).length, cap = BaseDef.capOf(id), sea = (id === 'seaField' || id === 'coastGun') && !BaseDef.cleanChoice([id], s.size, s.map).length && BaseDef.cleanChoice([id], s.size).length;
@@ -33404,7 +33452,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 19 (P4-02: craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 19);
+      this.check('the net version is 20 (P7-01: team ids 0 to 4 on the wire; 19 was P4-02, craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 20);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -36866,7 +36914,7 @@ const SelfTest = {
         const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
         this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
         const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
-        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 19', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 19);
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 20', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 20);
       } finally { Save.data = keep.data; Save.persist = keep.persist; }
       const arsenal = UI.gearArsenal();
       this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
@@ -40864,7 +40912,7 @@ const SelfTest = {
         Net.hostMsg(cqPeer, { t: 'cq' });
         Net.t += 2; Net.hostMsg(cqPeer, { t: 'cq' });
         this.check('and answers one guest at most once a second', replies.length === 2);
-        this.check('the net version is 19 and a guest cannot dig by itself', NET_VERSION === 19 && SAVE_VERSION === 1);
+        this.check('the net version is 20 and a guest cannot dig by itself', NET_VERSION === 20 && SAVE_VERSION === 1);
         Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.hostPeer = keepNet.hostPeer; Net.beatAcc = keepNet.beatAcc; Net.t = keepNet.t;
         // 6. the drawn ground: patches over the same corners, two triangles gone per square, the cached mesh whole
         if (!R.gl) this.check('the crater patches (no GL here)', true);
@@ -41137,7 +41185,7 @@ const SelfTest = {
         this.check('using a timed utility sets when it ends (the picture state of a Holo Decoy)', hu.utilUntil > W.time && lvActive(hu, hu.util));
         flatWorld();
         // co-op: the host's number rides in the platform entry and a guest draws what the host does
-        this.check('the net version is 19 (craters; 18 was the picture state), and the save version stays 1', NET_VERSION === 19 && SAVE_VERSION === 1);
+        this.check('the net version is 20 (team ids; 19 was craters), and the save version stays 1', NET_VERSION === 20 && SAVE_VERSION === 1);
         const host = maker('bulwark');
         view(host, 30);
         items(host, 'rail', 'mg', 'missile', 'reactive');
@@ -41223,6 +41271,264 @@ const SelfTest = {
         flatWorld();
       }
     });
+    // ---- P7-01 (teams and alliances: the table, then every converted site through 3 and 4 team battles); run alone with selfTest('p7 ') ----
+    const p7world = () => {
+      Teams.reset();
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null; this.rampTerrain(0, 1); Hash.reset(); W.buildings = []; W.structs = []; W.platforms.length = 0;   // a flat, empty battlefield
+    };
+    const p7add = (id, team, x, z, arch) => {
+      const q = new Platform(PLATFORMS[id], { team, x, z, yaw: 0, loadout: arch ? ARCH[arch].loadout : PLATFORMS[id].loadout, arch: arch || null });
+      if (arch) attachAI(q, arch, W.diff);
+      W.platforms.push(q);
+      return q;
+    };
+    t('p7 alliance table', () => {
+      const keep = Teams.alliances();
+      try {
+        Teams.reset();
+        const bad = [];
+        for (let a = 0; a < 5; a++) for (let b = 0; b < 5; b++) {
+          if (Teams.allied(a, b) !== (a === b)) bad.push('allied ' + a + b);
+          if (Teams.hostile(a, b) !== (a !== b && b !== 2)) bad.push('hostile ' + a + b);
+          if (Teams.same(a, b) !== (a === b)) bad.push('same ' + a + b);
+        }
+        this.check('the default table is the old rule for all 25 pairs: a team is allied with itself only, and anything but neutral is a foe of another team', bad.length === 0, bad.join(','));
+        this.check('ids outside 0 to 4 are nobody\'s friend or foe, and neutral is nobody\'s target', !Teams.hostile(-1, 0) && !Teams.hostile(0, -1) && !Teams.hostile(0, 5) && !Teams.hostile(8, 0) && !Teams.hostile(0, 9) && !Teams.allied(-1, 0) && !Teams.allied(0, 9) && !Teams.hostile(0, 2) && !Teams.hostile(1, 2) && !Teams.hostile(3, 2) && !Teams.hostile(4, 2));
+        this.check('a neutral platform still treats the others as foes (the old rule), and the sides: 0 the player\'s, 1 3 4 the computer\'s, 2 neither', Teams.hostile(2, 0) && Teams.humanSide(0) && !Teams.humanSide(1) && Teams.aiSide(1) && Teams.aiSide(3) && Teams.aiSide(4) && !Teams.aiSide(0) && !Teams.aiSide(2) && !Teams.humanSide(2) && Teams.isNeutral(2) && !Teams.isNeutral(0) && !Teams.isNeutral(3) && !Teams.isNeutral(-1));
+        this.check('team ids: 0 to 4 are valid, neutral is not a fighting team, anything else becomes neutral off the wire', Teams.valid(4) && !Teams.valid(5) && !Teams.valid(-1) && !Teams.valid(1.5) && Teams.fighting(3) && !Teams.fighting(2) && Teams.id(3) === 3 && Teams.id(4) === 4 && Teams.id(5) === 2 && Teams.id(-1) === 2 && Teams.id(1.5) === 2 && Teams.id('1') === 2 && Teams.id(undefined) === 2 && Teams.id(null) === 2 && Teams.MAX === 5 && Teams.NEUTRAL === 2 && Teams.PLAYER === 0);
+        // every one of the 64 alliance tables between the four fighting teams
+        const fighters = [0, 1, 3, 4], pairs = [];
+        for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) pairs.push([fighters[i], fighters[j]]);
+        const faults = [];
+        for (let mask = 0; mask < 64; mask++) {
+          const chosen = pairs.filter((q, i) => mask & (1 << i));
+          Teams.configure(chosen);
+          const isAllied = (a, b) => a === b || chosen.some((q) => (q[0] === a && q[1] === b) || (q[0] === b && q[1] === a));
+          for (const a of fighters) for (const b of fighters) {
+            if (Teams.allied(a, b) !== isAllied(a, b) || Teams.allied(a, b) !== Teams.allied(b, a)) faults.push(mask + ' allied ' + a + b);
+            if (Teams.hostile(a, b) !== !isAllied(a, b) || Teams.hostile(a, b) !== Teams.hostile(b, a)) faults.push(mask + ' hostile ' + a + b);
+            if (Teams.hostile(a, 2) || Teams.allied(a, 2) || Teams.allied(2, a)) faults.push(mask + ' neutral ' + a);
+          }
+          if (!Teams.humanSide(0) || !Teams.aiSide(1) || !Teams.aiSide(3) || !Teams.aiSide(4)) faults.push(mask + ' sides');
+        }
+        this.check('all 64 alliance tables between the four fighting teams are symmetric, ally exactly the chosen pairs, and never make neutral a friend or a target (' + faults.length + ' faults)', faults.length === 0, faults.slice(0, 5).join('; '));
+        Teams.configure([[1, 3], [0, 2], [7, 1], [1, 1], [3, 4], [3, 4]], [0, 4]);
+        this.check('a bad pair (neutral, an unknown team, a team with itself) is ignored, a repeat is no harm, and the player sides are the ones named', Teams.alliances().length === 2 && Teams.allied(1, 3) && Teams.allied(3, 4) && !Teams.allied(1, 4) && !Teams.allied(0, 2) && Teams.humanSide(4) && !Teams.aiSide(4) && Teams.aiSide(3));
+        Teams.configure([[1, 3]]);
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        this.check('every new battle starts from the default table', !Teams.allied(1, 3) && Teams.hostile(1, 3) && Teams.alliances().length === 0 && Teams.humanSide(0) && !Teams.humanSide(4));
+      } finally { Teams.configure(keep); }
+    });
+    t('p7 alliance table sites', () => {
+      const keepCredit = Arsenal.creditKill;
+      try {
+        // four fighting teams in one battle: the player (0) and tanks of teams 1, 3 and 4, a neutral taxi
+        p7world();
+        const P = p7add('bulwark', 0, 0, 0), T1 = p7add('bastion', 1, 80, 0, 'tank'), T3 = p7add('bastion', 3, -80, 0, 'tank'), T4 = p7add('bastion', 4, 0, 90, 'tank');
+        const taxi = p7add('cv_taxi', 2, 0, -70);
+        W.player = P; P.isPlayer = true;
+        const foes = [T1, T3, T4];
+        // targeting: Platform.validTarget and the cycle
+        this.check('targeting: the player may target a unit of each of the three other teams, not the neutral taxi', foes.every((q) => P.validTarget(q)) && !P.validTarget(taxi));
+        const picked = new Set();
+        for (let i = 0; i < 8; i++) { P.cycleTarget(); if (P.target) picked.add(P.target); }
+        this.check('targeting: cycling the target reaches all three foes and never the taxi', foes.every((q) => picked.has(q)) && !picked.has(taxi), [...picked].map((q) => q.team).join(','));
+        this.check('targeting: each computer team sees the other three teams as targets, the neutral one never, and the incoming rockets of a foe team but not its own', [T1, T3, T4].every((a) => [P, T1, T3, T4].every((b) => a.validTarget(b) === (a.team !== b.team)) && !a.validTarget(taxi)));
+        // AI: each unit looks for the nearest foe (perceive)
+        const seen = (u) => { u.ai.target = null; u.ai.perceive(); return u.ai.target; };
+        const aiBad = [];
+        for (const u of [T1, T3, T4]) { const g = seen(u); if (!g || !Teams.hostile(u.team, g.team) || g === taxi) aiBad.push(u.team + '>' + (g ? g.team : 'none')); }
+        this.check('AI: every computer team picks a foe in sight, never its own side or the neutral taxi', aiBad.length === 0, aiBad.join(','));
+        // friendly fire: direct hits and splash
+        const hp = (q) => q.hp + q.shield;
+        W.friendlyFire = false;
+        const before = hp(T3), dealtFoe = T3.takeDamage(40, 'kinetic', T1, 1, 0);
+        this.check('friendly fire: a foe\'s hit lands (' + dealtFoe + ' dealt)', dealtFoe > 0 && hp(T3) < before);
+        Teams.configure([[1, 3]]);
+        const b2 = hp(T3), dealtAlly = T3.takeDamage(40, 'kinetic', T1, 1, 0), dealtBack = T1.takeDamage(40, 'kinetic', T3, 1, 0);
+        this.check('friendly fire: with teams 1 and 3 allied the same hit does nothing in either direction, and a team 4 hit still lands', dealtAlly === 0 && dealtBack === 0 && hp(T3) === b2 && T3.takeDamage(40, 'kinetic', T4, 1, 0) > 0);
+        W.friendlyFire = true;
+        const b3 = hp(T3);
+        T3.takeDamage(40, 'kinetic', T1, 1, 0);
+        this.check('friendly fire: with the training switch on, an ally\'s hit lands', hp(T3) < b3);
+        W.friendlyFire = false;
+        const sx = T3.x + 6, sy = T3.y + T3.height * 0.5, sz = T3.z, h0 = hp(T3), h1 = hp(T1);
+        explode(sx, sy, sz, 14, 160, 'explosive', T1, { noCrater: true });
+        this.check('friendly fire: a shell of team 1 landing between teams 1 and 3 (allied) spares team 3', hp(T3) === h0);
+        Teams.reset();
+        explode(sx, sy, sz, 14, 160, 'explosive', T1, { noCrater: true });
+        this.check('friendly fire: and hurts team 3 once they are foes', hp(T3) < h0);
+        // a bullet in flight passes an ally and strikes a foe
+        const shoot = (owner, victim) => {
+          const pr = allocProjectile(), v0 = hp(victim), dir = Math.sign(victim.x - owner.x) || 1;
+          launchProjectile(pr, WEAPONS.rifle, owner, owner.team, victim.x - dir * 25, victim.y + victim.height * 0.5, victim.z, dir * 400, 0, 0);
+          for (let i = 0; i < 12; i++) { W.time += STEP; updateProjectiles(STEP); }
+          pr.active = false;
+          return v0 - hp(victim);
+        };
+        T3.hp = T3.def.hp; T1.hp = T1.def.hp; T3.shield = T3.maxShield || 0; T1.shield = T1.maxShield || 0;
+        const hitFoe = shoot(T1, T3);
+        Teams.configure([[1, 3]]);
+        const hitAlly = shoot(T1, T3);
+        this.check('friendly fire: a rifle bullet of team 1 hurts team 3 as a foe (' + hitFoe.toFixed(1) + ') and passes it as an ally (' + hitAlly.toFixed(1) + ')', hitFoe > 0 && hitAlly === 0);
+        Teams.reset();
+        // scoring: kills credit only against foes; the team's kill count and structure score follow the player's side
+        let credited = 0;
+        Arsenal.creditKill = () => { credited++; };
+        const kill = (owner, victim) => { victim.dead = false; victim.hp = victim.def.hp; const k0 = W.stats.teamKills, c0 = credited; victim.destroy(owner); return { team: W.stats.teamKills - k0, credit: credited - c0 }; };
+        W.friendlyFire = true;
+        let r = kill(P, T4);
+        this.check('scoring: the player kills a team 4 unit, a foe: credited, and counted for the player\'s side', r.credit === 1 && r.team === 1);
+        Teams.configure([[0, 3]]);
+        r = kill(P, T3);
+        this.check('scoring: with teams 0 and 3 allied, killing a team 3 unit earns no kill credit', r.credit === 0);
+        r = kill(T3, T1);
+        this.check('scoring: and a kill by allied team 3 counts for the player\'s side (an objective "destroy N" counts it), a kill by team 4 does not', r.team === 1 && kill(T4, T1).team === 0);
+        Teams.reset();
+        const sH = addStruct('warehouse', 300, 300, { team: 3 }), sN = addStruct('warehouse', 330, 300, { team: 2 }), sOwn = addStruct('warehouse', 360, 300, { team: 0 });
+        const score0 = W.stats.score;
+        creditStruct(sH, P); const gotHostile = W.stats.score - score0;
+        creditStruct(sN, P); creditStruct(sOwn, P); const gotRest = W.stats.score - score0 - gotHostile;
+        Teams.configure([[0, 3]]);
+        const score1 = W.stats.score;
+        creditStruct(sH, P); const gotAllied = W.stats.score - score1;
+        this.check('scoring: levelling a team 3 structure scores (' + gotHostile + '), a neutral or own one does not, and none scores once team 3 is allied', gotHostile === STRUCT_SCORE && gotRest === 0 && gotAllied === 0);
+        Teams.reset();
+        Arsenal.creditKill = keepCredit;
+        for (const q of [P, T1, T3, T4]) { q.dead = false; q.hp = q.def.hp; }   // the kills above left them wrecks
+        // radar: friends, hostiles and neutrals by the table
+        const kinds = (viewer) => {
+          Detect.scan(viewer);
+          const out = {};
+          for (let i = 0; i < Detect.count; i++) { const c = Detect.list[i]; out[Math.round(c.x) + ',' + Math.round(c.z)] = c.kind; }
+          return out;
+        };
+        const at = (q) => Math.round(q.x) + ',' + Math.round(q.z);
+        let k = kinds(P);
+        this.check('radar: the player sees teams 1, 3 and 4 as hostile contacts and the taxi as a neutral vehicle', k[at(T1)] === 'hostile' && k[at(T3)] === 'hostile' && k[at(T4)] === 'hostile' && k[at(taxi)] === 'vehicle', JSON.stringify(k));
+        Teams.configure([[0, 3], [1, 4]]);
+        k = kinds(P);
+        const k1 = kinds(T1);
+        this.check('radar: with 0+3 and 1+4 allied the player sees team 3 as a friend and team 4 as a foe, and team 1 sees team 4 as a friend and the player as a foe', k[at(T3)] === 'friend' && k[at(T1)] === 'hostile' && k[at(T4)] === 'hostile' && k1[at(T4)] === 'friend' && k1[at(P)] === 'hostile' && k1[at(T3)] === 'hostile', JSON.stringify(k1));
+        Teams.reset();
+        // kill feed: the victim's team rides along, and the colour is relative to the viewer
+        W.feed.length = 0;
+        T4.dead = false; T4.hp = T4.def.hp; T4.destroy(P);
+        const line = W.feed[W.feed.length - 1];
+        this.check('kill feed: a team 4 loss is listed with team 4, and is no friend of the player', !!line && line.team === 4 && !feedFriendly(line.team) && /YOU/.test(line.text));
+        Teams.configure([[0, 4]]);
+        this.check('kill feed: with team 4 allied to the player the same line reads as a friend\'s loss, and team 1\'s still does not', feedFriendly(4) && !feedFriendly(1) && feedFriendly(0) && !feedFriendly(2));
+        Teams.reset();
+      } finally { Teams.reset(); Arsenal.creditKill = keepCredit; }
+    });
+    t('p7 alliance table mixed', () => {
+      try {
+        // teams 1 and 3 allied against the player: their AI, targets, mines, pings and the shared radar
+        p7world();
+        const A1 = p7add('bastion', 1, 0, 0, 'tank'), A3 = p7add('bastion', 3, 60, 0, 'tank'), D = p7add('bastion', 0, 0, 100, 'tank'), E4 = p7add('bastion', 4, 0, -110, 'tank');
+        const seen = (u) => { u.ai.target = null; u.ai.perceive(); return u.ai.target; };
+        const g1 = seen(A1), g3 = seen(A3);
+        this.check('mixed: with every team a foe the team 1 tank picks its nearest, the team 3 tank 60 m away (' + (g1 ? g1.team : '-') + ', ' + (g3 ? g3.team : '-') + ')', g1 === A3 && g3 === A1);
+        Teams.configure([[1, 3]]);
+        const m1 = seen(A1), m3 = seen(A3);
+        this.check('mixed: with teams 1 and 3 allied, neither tank picks the other: team 1 turns on the player\'s tank, team 3 too, and a team 4 tank still counts as a foe', m1 === D && m3 === D && Teams.hostile(1, 4) && Teams.hostile(3, 4) && A1.validTarget(E4) && !A1.validTarget(A3) && !A3.validTarget(A1));
+        // allies share what they see on the radar
+        const viewer = p7add('bulwark', 3, 30, 0);
+        Detect.scan(viewer);
+        let friends = 0, foes = 0;
+        for (let i = 0; i < Detect.count; i++) { if (Detect.list[i].kind === 'friend') friends++; if (Detect.list[i].kind === 'hostile') foes++; }
+        this.check('mixed: team 3\'s radar shows the team 1 tank as a friend and the player\'s and team 4\'s tanks as hostile (' + friends + ' friend, ' + foes + ' hostile)', friends >= 2 && foes === 2);
+        // a pulse scanner's ping of team 1 lays a cloaked unit bare for its ally, team 3, but not for the player
+        Scan.add(A1, 9001, 1, 5, 300, false);
+        this.check('mixed: a ping of team 1 lays the player\'s tank bare for team 1 and for its ally team 3, not for team 4, and not for the player\'s own side', Scan.reveals(D, 1) && Scan.reveals(D, 3) && !Scan.reveals(D, 4) && !Scan.reveals(D, 0));
+        Scan.clear();
+        // mines: an allied mine is no threat, a foe\'s is
+        const mine = allocProjectile();
+        launchProjectile(mine, WEAPONS.mines, A1, 1, 40, Terrain.h(40, 0), 0, 0, 0, 0);
+        this.check('mixed: the team 1 mine is hostile to the player and to team 4, and no mine to team 3', Mines.nearest(40, mine.y, 0, 0, 20) === mine && Mines.nearest(40, mine.y, 0, 4, 20) === mine && Mines.nearest(40, mine.y, 0, 3, 20) === null);
+        mine.active = false;
+        Teams.reset();
+      } finally { Teams.reset(); }
+    });
+    t('p7 alliance table effects', () => {
+      try {
+        // superweapon targets, fire and base domes ask the same table
+        p7world();
+        const P = p7add('bulwark', 0, 0, 0), T1 = p7add('bastion', 1, 50, 0), T3 = p7add('bastion', 3, -50, 0), T4 = p7add('bastion', 4, 0, 50), taxi = p7add('cv_taxi', 2, 0, -50);
+        const teamsOf = (list) => list.map((q) => q.team).sort().join('');
+        this.check('effects: a superweapon of the player finds the units of teams 1, 3 and 4 and not the neutral taxi', teamsOf(SW.enemies(0, 0, 200, { team: 0 })) === '134' && teamsOf(SW.enemies(0, 0, 200, { team: 1 })) === '034');
+        Teams.configure([[0, 3]]);
+        const withAlly = teamsOf(SW.enemies(0, 0, 200, { team: 0 })), fromThree = teamsOf(SW.enemies(0, 0, 200, { team: 3 }));
+        Teams.configure([[1, 3]]);
+        this.check('effects: with teams 0 and 3 allied the player\'s superweapon spares team 3 (' + withAlly + '), and team 3\'s hits teams 1 and 4 (' + fromThree + ') until 1 and 3 are allied (' + teamsOf(SW.enemies(0, 0, 200, { team: 3 })) + ')', withAlly === '14' && fromThree === '14' && teamsOf(SW.enemies(0, 0, 200, { team: 3 })) === '04');
+        Teams.reset();
+        const lit = (target, owner, team) => { target.burnT = 0; WPN.ignite(target, owner, team, 10, 3); return target.burnT > 0; };
+        const burnsFoe = lit(T3, P, 0);
+        Teams.configure([[0, 3]]);
+        const burnsAlly = lit(T3, P, 0), burnsOther = lit(T4, P, 0), burnsHazard = lit(T3, null, -1);
+        this.check('effects: fire of the player\'s side sets a foe alight, spares an ally, and a hazard\'s fire (no team) burns everyone', burnsFoe && !burnsAlly && burnsOther && burnsHazard);
+        Teams.reset();
+        BaseDef.s.domes.push({ team: 1, x: 0, y: 0, z: 0, r: 30, pts: 100, hit: -99, up: true, gen: null, gx: 0, gz: 0 });
+        const shield = (team) => BaseDef.domeShields(100, 0, 0, 0, 0, 0, team);
+        const row = [shield(0), shield(1), shield(3), shield(4)];
+        Teams.configure([[1, 3]]);
+        const rowAllied = [shield(0), shield(1), shield(3), shield(4)];
+        BaseDef.s.domes.length = 0;
+        this.check('effects: a team 1 dome stops blasts of teams 0, 3 and 4 and not its own (' + row.join(',') + '), and not those of its ally team 3 (' + rowAllied.join(',') + ')', row.join() === 'true,false,true,true' && rowAllied.join() === 'true,false,false,true');
+      } finally { Teams.reset(); BaseDef.reset(); }
+    });
+    t('p7 alliance table wire', () => {
+      const keepHost = Net.host, keepGuest = Net.guest, keepMap = Net.map, keepIn = Net.inSession;
+      try {
+        p7world();
+        Net.host = false; Net.guest = true; Net.map = {}; Net.inSession = true;
+        const sp = (id, team, x) => ({ t: 'sp', id, d: 'bastion', team, name: 'Unit', arch: '', lo: {}, x, y: Terrain.h(x, 0), z: 0, yaw: 0, self: 0, pl: 0, sc: 1, driver: 1 });
+        Net.applySpawn(sp(8101, 3, 10)); Net.applySpawn(sp(8102, 4, 20)); Net.applySpawn(sp(8103, 9, 30)); Net.applySpawn(sp(8104, 'x', 40));
+        this.check('wire: a guest builds platforms of teams 3 and 4 as sent, and anything unknown as neutral', Net.map[8101].team === 3 && Net.map[8102].team === 4 && Net.map[8103].team === 2 && Net.map[8104].team === 2);
+        Net.applyPlatState({ t: 'pst', id: 8101, tm: 4, sc: 1 });
+        const toFour = Net.map[8101].team;
+        Net.applyPlatState({ t: 'pst', id: 8101, tm: 7, sc: 1 });
+        Net.applyPlatState({ t: 'pst', id: 8101, tm: 2, sc: 1 });
+        this.check('wire: a platform changes side to team 4 on the host\'s word, and a bad or neutral id leaves it where it was', toFour === 4 && Net.map[8101].team === 4);
+        W.feed.length = 0;
+        Net.guestMsg(null, { t: 'f', text: 'A  >  B', team: 4, k: ['A', 0], v: ['B', 0] });
+        Net.guestMsg(null, { t: 'f', text: 'C  >  D', team: 12, k: ['C', 0], v: ['D', 0] });
+        this.check('wire: a kill feed line keeps team 4 and turns an unknown team into neutral, and the net version is 20', W.feed.length === 2 && W.feed[0].team === 4 && W.feed[1].team === 2 && NET_VERSION === 20);
+      } finally { Net.host = keepHost; Net.guest = keepGuest; Net.map = keepMap; Net.inSession = keepIn; Teams.reset(); }
+    });
+    t('p7 alliance table static', () => {
+      // no comparison of two team ids, or of a team id with 0, 1 or 2, is left in the game code (everything outside the self-test) except the listed ones
+      const scripts = Array.from(document.scripts).map((s) => s.textContent).filter((s) => s.indexOf('const Self' + 'Test = {') >= 0);
+      this.check('static: the game source can be read', scripts.length === 1);
+      if (scripts.length !== 1) return;
+      const src = scripts[0], a = src.indexOf('const Self' + 'Test = {'), b = src.indexOf('const Ne' + 't = {', a);
+      const game = src.slice(0, a) + src.slice(b);
+      const TEAMISH = '(?:[\\w$.\\]]*\\.team|\\bteam|[\\w$]*Team|\\.tm|\\btm)';
+      const flagged = new RegExp('(?:' + TEAMISH + '\\s*(?:===|!==|==|!=)\\s*[^\\s)&|?:;,]+|(?:===|!==|==|!=)\\s*[\\w$.\\]]*(?:\\.team|\\bteam|[a-z]Team|\\.tm)\\b)');
+      const literal = /(?:\bteam|\.team|\.tm|\btm)\s*(?:===|!==|==|!=)\s*[0-9]|[0-9]\s*(?:===|!==|==|!=)\s*[\w$.]*(?:\bteam|\.team|\.tm)\b/;
+      // the allowed exceptions: pattern, reason
+      const allowed = [
+        [/opts\.team === undefined \? [12] : opts\.team/, 'the default team of an omitted option (structures neutral, spawned units the computer\'s), not a comparison of two sides'],
+        [/q\.team !== m\.tm/, 'the guest looks up the platform of the very team id the host sent (an identity on the wire)'],
+        [/p\.team === \(c\.siloFirst \|\| 0\)|for \(let t = 0; t < 2; t\+\+\)|t === m\.team \|\| S\.known|p\.team !== t \|\| p\.parked|t === d\.team \|\| S\.seen|u\.team !== t \|\| u\.parked|u\.team !== team \|\| !u\.ai/, 'BaseDef state is kept per team id for the two teams that have bases (P7-02 gives teams 3 and 4 theirs)'],
+        [/hqStruct\(team\) \{|\.team === o\.target|\.team !== o\.target|o\.target !== p\.team|o\.target === p\.team|o\.team === me|q\.team === foe/, 'a base, silo, dome or post belongs to exactly one team id (its owner or its target team), which is not an alliance question (P7-02)'],
+      ];
+      const hits = [], loose = [], literals = [];
+      game.split('\n').forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '');
+        if (/^\s*(\/\/|\/\*|\*)/.test(line)) return;
+        if (literal.test(code) && !allowed.some((e) => e[0].test(code))) literals.push(i + 1);
+        if (!flagged.test(code)) return;
+        const e = allowed.findIndex((x) => x[0].test(code));
+        if (e < 0) loose.push((i + 1) + ': ' + line.trim().slice(0, 100)); else hits.push(e);
+      });
+      this.check('static: no comparison of a team id with 0, 1 or 2 is left in the game code (' + literals.length + ')', literals.length === 0, literals.join(','));
+      this.check('static: no other comparison of team ids is left except the ' + allowed.length + ' listed kinds (' + loose.length + ' loose)', loose.length === 0, loose.slice(0, 4).join(' | '));
+      this.check('static: every listed exception still matches a line (' + allowed.map((e, i) => hits.filter((h) => h === i).length).join(', ') + ' lines each), so none has gone stale', allowed.every((e, i) => hits.indexOf(i) >= 0));
+      const users = (game.match(/Teams\.(allied|hostile|isNeutral|humanSide|aiSide)\(/g) || []).length;
+      this.check('static: the alliance helpers are what the game code calls (' + users + ' uses)', users >= 150, String(users));
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -41255,7 +41561,7 @@ var CRATERS_OFF = false;   // self-test switch: no crater is dug (the groups tha
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 19;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq')
+const NET_VERSION = 20;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq'); 20: P7-01's team ids 0 to 4 on the wire (the team of a platform in 'sp', 'pst' and 'g', the team in 'f' and the 'bd' trace), where 0 to 2 were the only ids a peer accepted; neutral stays 2
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -41462,7 +41768,7 @@ const Net = {
       case 'bd': if (W) BaseDef.apply(m); break;   // P5-09: the base defences' state
       case 'pst': if (W) this.applyPlatState(m); break;
       case 'b': if (W && W.beams.length < 28 && Array.isArray(m.a)) { const wd = WEAPONS[WEAPON_IDS[m.c]]; W.beams.push({ x1: m.a[0], y1: m.a[1], z1: m.a[2], x2: m.a[3], y2: m.a[4], z2: m.a[5], life: 0.07, maxLife: 0.07, col: wd ? wd.tracer : [1, 1, 1], width: 0.35 }); Civ.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Fauna.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); Traffic.ray(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], wd ? wd.dmg : CIV_HP); } break;
-      case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: m.team }); if (W.feed.length > 5) W.feed.shift(); } break;
+      case 'f': if (W) { W.feed.push({ t: W.time, text: this.feedText(m), team: Teams.id(m.team) }); if (W.feed.length > 5) W.feed.shift(); } break;
       case 'msg': if (W) { W.msgL(String(m.text).substring(0, 80)); if (typeof m.snd === 'string' && Snd.R[m.snd]) Snd.ui(m.snd); } break;
       case 'h': if (W) { W.hitMarker = HIT_MARK_TIME; Snd.ui('hitTick'); } break;
       case 'k': if (W) { W.killMarker = KILL_MARK_TIME; Snd.ui('killConfirm'); } break;
@@ -41620,9 +41926,9 @@ const Net = {
       let want;
       if (tg >= NET_PROJ_TG) {   // P5-07: a guest targets an incoming projectile by its nid; it must be headed for that guest's platform
         const q = Intercept.byNid(tg - NET_PROJ_TG);
-        want = q && q.hp > 0 && q.def.pdHp > 0 && q.team !== p.team && (q.def.drone || Intercept.threatens(q, p)) ? q : null;
+        want = q && q.hp > 0 && q.def.pdHp > 0 && !Teams.allied(q.team, p.team) && (q.def.drone || Intercept.threatens(q, p)) ? q : null;
         if (want) p.targetNid = want.nid;
-      } else want = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
+      } else want = tg > 0 ? (W.platforms.find((q) => q.id === tg && !Teams.allied(q.team, p.team) && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
       // P5-05: a new pick must be one the guest's own sensors or eyes have (the host works it out from that platform; the margin allows for the
       // guest's picture being a moment older); the one already held is kept or dropped by Platform.updateLock
       p.target = want && !want.isStruct && (!want.isProj || want.def.drone) && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
@@ -41796,7 +42102,7 @@ const Net = {
     WEAPON_SLOTS.forEach((s) => { lo[s] = m.lo && typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
     if (m.lo && typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic]) lo.strategic = m.lo.strategic;
     if (m.lo && typeof m.lo.melee === 'string' && MELEE[m.lo.melee]) lo.melee = m.lo.melee;   // its strikes are drawn with it
-    const p = new Platform(def, { team: numIn(m.team, 0, 2), x: m.x, z: m.z, yaw: m.yaw, y: m.y, loadout: lo, name: String(m.name).substring(0, 16), arch: m.arch || null });
+    const p = new Platform(def, { team: Teams.id(m.team), x: m.x, z: m.z, yaw: m.yaw, y: m.y, loadout: lo, name: String(m.name).substring(0, 16), arch: m.arch || null });
     p.id = m.id; p.isPlayer = !!m.pl; p.y = m.y; p.nx = m.x; p.ny = m.y; p.nz = m.z; p.nyaw = m.yaw; p.npitch = 0; p.nroll = 0; p.nty = m.yaw; p.ntp = 0;
     p.netInit = true; p.seen = this.t; p.speedMult = 1; p.parked = m.driver === 0;
     const sc = numIn(m.sc, 0.1, 3, 1);
@@ -41852,7 +42158,7 @@ const Net = {
     if (typeof m.p !== 'string' || !Object.prototype.hasOwnProperty.call(PLATFORMS, m.p)) return;
     const def = PLATFORMS[m.p];
     spawnGibs({
-      def, team: m.tm === 0 || m.tm === 1 ? m.tm : 2, kind: def.kind, model: def.model, radius: def.radius, height: def.height,
+      def, team: Teams.id(m.tm), kind: def.kind, model: def.model, radius: def.radius, height: def.height,
       x: numIn(m.x, -3000, 3000), y: numIn(m.y, -500, 3000), z: numIn(m.z, -3000, 3000),
       vx: numIn(m.vx, -400, 400), vy: numIn(m.vy, -400, 400), vz: numIn(m.vz, -400, 400), yaw: numIn(m.yw, -100, 100),
     }, m.k === 2 ? 'slice' : m.k === 1 ? 'death' : 'wear');
@@ -41872,7 +42178,7 @@ const Net = {
       goneId = id; bestD = d;
     }
     if (goneId !== null) { const q = this.map[goneId]; W.platforms = W.platforms.filter((o) => o !== q); delete this.map[goneId]; }
-    const w = new Platform(def, { team: m.tm === 0 || m.tm === 1 ? m.tm : 2, x, z, yaw: numIn(m.yw, -100, 100), loadout: def.loadout });
+    const w = new Platform(def, { team: Teams.id(m.tm), x, z, yaw: numIn(m.yw, -100, 100), loadout: def.loadout });
     w.y = numIn(m.y, -500, 3000); w.dead = true; w.hp = 0;
     Wrecks.add(w);
   },
@@ -41917,7 +42223,7 @@ const Net = {
         }
       }
       pr.x = e[2]; pr.y = e[3]; pr.z = e[4]; pr.vx = e[5]; pr.vy = e[6]; pr.vz = e[7]; pr.seen = this.t;
-      if (fresh && pr.def.indirect && !(pr.owner && pr.owner.team === 0)) Arty.mark(pr);   // an enemy shell's impact marker
+      if (fresh && pr.def.indirect && !(pr.owner && Teams.humanSide(pr.owner.team))) Arty.mark(pr);   // an enemy shell's impact marker
       next[e[0]] = pr;
     }
     this.projMap = next;
@@ -41929,7 +42235,7 @@ const Net = {
   applyPlatState(m) {
     const p = this.map[m.id | 0];
     if (!p) return;
-    if (m.tm === 0 || m.tm === 1) p.team = m.tm;
+    if (Teams.fighting(m.tm)) p.team = m.tm;
     const sc = numIn(m.sc, 0.1, 3, 1);
     if (sc !== p.scale) { p.scale = sc; p.radius = p.def.radius * sc; p.height = p.def.height * sc; }
   },
@@ -42258,7 +42564,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters, Teams };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
