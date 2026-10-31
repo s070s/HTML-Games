@@ -64,12 +64,19 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 ## Owner actions
 
 - Pushing: authorized by the owner after each checked batch (2026-10-29); the coordinator commits by path and pushes.
-- Plan patch (OI-50): AT-R-P6.1-12 arms `audio.fail {phase:'node'}` for the instrument fallback, FI-005 uses the same phase for E-AUD-004 and a hard panic; the code uses `phase:'definition'` for the fallback (D104).
-- Plan patch (D113): the sounds of three entries differ from the plan so that the plan's own node limits hold (11 a voice, 8 a drum hit): Part 6.6.3 crash (plan line 8062: 4 square partials 3100, 4300, 5700, 7200 Hz in a gain and a decay node; that recipe has 9 nodes by the plan's count, 10 with the voice output gain, against the limit of 8: the code has 3 partials, 3100, 4300, 5700 Hz, in the decay node), program 109 (plan line 8024: drone g0.3; the code uses 0.35 so the drone shares the gain node of the sawtooth) and program 55 (the three sawtooth oscillators of the ensemble template at one level, 0.5, instead of 0.5 / 0.6 / 0.5). Either the owner accepts the code or the plan limit changes.
+- Plan patch (OI-50), APPROVED by the owner 2026-10-31 13:32 (see that entry): AT-R-P6.1-12 arms `audio.fail {phase:'node'}` for the instrument fallback, FI-005 uses the same phase for E-AUD-004 and a hard panic; the code uses `phase:'definition'` for the fallback (D104).
+- Plan patch (D113), APPROVED by the owner 2026-10-31 13:32 with "i dont want missing instruments" (see that entry): the sounds of three entries differ from the plan so that the plan's own node limits hold (11 a voice, 8 a drum hit): Part 6.6.3 crash (plan line 8062: 4 square partials 3100, 4300, 5700, 7200 Hz in a gain and a decay node; that recipe has 9 nodes by the plan's count, 10 with the voice output gain, against the limit of 8: the code has 3 partials, 3100, 4300, 5700 Hz, in the decay node), program 109 (plan line 8024: drone g0.3; the code uses 0.35 so the drone shares the gain node of the sawtooth) and program 55 (the three sawtooth oscillators of the ensemble template at one level, 0.5, instead of 0.5 / 0.6 / 0.5). Either the owner accepts the code or the plan limit changes.
 - Part 7.11 text catalog patch for S-INP-09 (D52), S-AUD-01..05 (D88) and the calibration listen texts (T04.09).
 - Delete the leftover browser profile folders %TEMP%\claude\flm-profile-* (locked LOCK files, OI-9).
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
+
+## 2026-10-31 13:35 - Owner decisions on OI-50 and D113 (no code change)
+
+OWNER (2026-10-31 13:32, verbatim): "3.Go with correct recommendation" (OI-50) and "4.Go with correct recommendation i dont want missing instruments" (D113).
+- OI-50 -> interpreted as: approve the plan patch. The plan follows the code: AT-R-P6.1-12 arms `audio.fail {phase:'definition'}` for the instrument fallback (D104); FI-005 keeps `phase:'node'` for E-AUD-004 and the hard panic, so the two tests no longer share one fault phase.
+- D113 -> interpreted as: approve the plan patch (the crash with 3 partials, program 109's drone at gain 0.35 on the sawtooth's gain node, program 55's ensemble oscillators as in the code), and no instrument may be missing or silent: none of the three is removed, each still plays. The next session applies both patches to docs/IMPLEMENTATION-PLAN.md and, before the gate passes, confirms with a test that all 128 melodic programs and every drum-kit note give an audible voice (a peak above silence) inside the node limits; any silent one is a defect (Part 12.1.7).
+RESUME: apply the OI-50 and D113 plan patches, add or confirm the all-instruments-sound test, then the RESUME of the 21:10 entry below (Phase 04 gate on a quiet machine).
 
 ## 2026-10-29 21:10 - Phase 04 GATE, third round - reviewer findings, allocation cut in the hot path; GATE STILL OPEN (coordinator commits)
 
