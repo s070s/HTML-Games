@@ -3085,16 +3085,24 @@ const Teams = (() => {
   const MAX = 5, NEUTRAL = 2, PLAYER = 0;   // team ids 0 to 4
   const ALLY = new Uint8Array(64), FOE = new Uint8Array(64), NEUT = new Uint8Array(8), HUMAN = new Uint8Array(8), AI = new Uint8Array(8);   // index (a << 3) | b
   const pairs = [];   // the allied pairs of the table now, [a, b] with a < b
+  const FIGHTING = Object.freeze([0, 1, 3, 4]);   // the ids a fighting team can have, in the order a battle of 2, 3 or 4 teams takes them
+  const BY_COUNT = [null, null, Object.freeze([0, 1]), Object.freeze([0, 1, 3]), FIGHTING];
+  let humanTeams = [PLAYER];
+  const inTable = (a, b) => (a | 0) === a && (b | 0) === b && ((a | b) >>> 3) === 0;   // both whole numbers from 0 to 7: anything else (undefined, null, NaN, 1.5, a string) is nobody's friend or foe
   const rebuild = () => {
     ALLY.fill(0); FOE.fill(0); NEUT.fill(0); NEUT[NEUTRAL] = 1;
     for (const [a, b] of pairs) { ALLY[(a << 3) | b] = 1; ALLY[(b << 3) | a] = 1; }
     for (let a = 0; a < MAX; a++) for (let b = 0; b < MAX; b++) FOE[(a << 3) | b] = a !== b && b !== NEUTRAL && !ALLY[(a << 3) | b] ? 1 : 0;
   };
-  const setSides = (humanTeams) => { HUMAN.fill(0); AI.fill(0); for (let t = 0; t < MAX; t++) { if (t === NEUTRAL) continue; if (humanTeams.indexOf(t) >= 0) HUMAN[t] = 1; else AI[t] = 1; } };
+  const setSides = (humans) => { humanTeams = humans.slice(); HUMAN.fill(0); AI.fill(0); for (let t = 0; t < MAX; t++) { if (t === NEUTRAL) continue; if (humans.indexOf(t) >= 0) HUMAN[t] = 1; else AI[t] = 1; } };
   const T = {
-    MAX, NEUTRAL, PLAYER,
-    allied(a, b) { return a === b || (((a | b) >>> 3) === 0 && ALLY[(a << 3) | b] === 1); },
-    hostile(a, b) { return ((a | b) >>> 3) === 0 && FOE[(a << 3) | b] === 1; },
+    MAX, NEUTRAL, PLAYER, FIGHTING,
+    allied(a, b) { return a === b || (inTable(a, b) && ALLY[(a << 3) | b] === 1); },
+    hostile(a, b) { return inTable(a, b) && FOE[(a << 3) | b] === 1; },
+    /* the ids of a battle of n teams (2 to 4): the first n of FIGHTING; a shared list, not to be changed */
+    forCount(n) { return BY_COUNT[n >= 4 ? 4 : n === 3 ? 3 : 2]; },
+    /* the teams the players are on (a copy) */
+    humans() { return humanTeams.slice(); },
     same(a, b) { return a === b; },   // the very same team id (who owns a thing), not whom it fights for
     isNeutral(t) { return NEUT[t] === 1; },
     humanSide(t) { return HUMAN[t] === 1; },
@@ -3115,8 +3123,19 @@ const Teams = (() => {
   T.reset();
   return T;
 })();
-/* the base of a team (W.bases.own for the player's side, W.bases.enemy for the computer's; P7-02 gives every team one) */
-function teamBase(team) { return W && W.bases ? (Teams.humanSide(team) ? W.bases.own : Teams.aiSide(team) ? W.bases.enemy : null) : null; }
+/* the base of a team in a skirmish (W.bases.byTeam, set when the battle is built: one base for each team of the battle), else null */
+function teamBase(team) { return W && W.bases ? W.bases.byTeam[team] || null : null; }
+/* the nearest base to (x, z) of a team hostile to the player's side, else null */
+function nearestFoeBase(x, z) {
+  if (!W || !W.bases) return null;
+  let best = null, bd = Infinity;
+  for (const b of W.bases.list) {
+    if (!Teams.hostile(Teams.PLAYER, b.team)) continue;
+    const d = Math.hypot(b.x - x, b.z - z);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
 
 const TILE_CELLS = 8, TILES = Math.ceil(250 / TILE_CELLS);
 const CRATER_FLAGS = 250 * 250;   // one flag for every square of the 8 m height grid that a crater reaches (Terrain.cflag)
@@ -7740,7 +7759,7 @@ const Scenery = {
   },
   /* a fort's turrets on their slots (allied ones for our base) and its garrison in the yard; garrison units hold the base */
   fortDefenders(c) {
-    const ours = Teams.humanSide(c.team), out = [];
+    const ours = Teams.allied(Teams.PLAYER, c.team), out = [];   // (turrets of the player's side and its allies are the allied kind)
     const emplace = (arch, q) => {
       const p = this.fortAt(c, q[0], q[1]), u = spawnUnit(arch, p.x, p.z, { team: c.team, radius: 3, force: true, yaw: c.face });
       if (u) { u.garrison = true; out.push(u); }
@@ -9917,7 +9936,7 @@ const Fauna = {
     out.push({ x: st.x, z: st.z, yaw, cone: PI, near: 150, far: 260 });
     const inward = Math.atan2(-st.x, -st.z);   // an aircraft is turned toward the middle of the map (airSpawn): the ground it flies over first
     if (Math.abs(angleDiff(inward, yaw)) > 0.8 && Math.hypot(st.x, st.z) > 300) out.push({ x: st.x, z: st.z, yaw: inward, cone: 0.6, near: 100, far: 300 });
-    let goal = W.bases ? W.bases.enemy : null, best = Infinity;
+    let goal = nearestFoeBase(st.x, st.z), best = Infinity;
     if (!goal) for (const o of m.objectives) {
       if (!o.primary || (o.units && o.units.some((u) => Teams.hostile(Teams.PLAYER, u.team)))) continue;
       for (const k of o.markers()) { const d = Math.hypot(k.x - st.x, k.z - st.z); if (d < best) { best = d; goal = k; } }
@@ -16411,12 +16430,12 @@ class Platform {
       if (this.kind === 'naval') Wrecks.add(this);   // a ship goes down (co-op guests sink their own from the 'g')
       for (let i = 0; i < 8; i++) FX.emit(this.x, cy, this.z, rand(-8, 8), rand(2, 12), rand(-8, 8), rand(1.5, 3), 2, 5, 0.12, 0.12, 0.12, 0.7, 0.5, -1.5, false);
     }
-    if (owner && cause !== 'eject') {
+    if (owner && cause !== 'eject' && !Teams.allied(owner.team, this.team)) {   // killing an ally (training friendly fire, a unit that changed sides) earns no kill, score, charge or mark (P7-02)
       owner.stats.kills++;
       if (Teams.allied(Teams.PLAYER, owner.team)) W.stats.teamKills++;   // objectives count every friendly kill (the player's side and its allies)
       const st = statsOf(owner);
-      if (st) { st.kills++; st.score += this.score; if (!Teams.allied(owner.team, this.team) && !this.status.summoned) Arsenal.creditKill(st, this, SW.dealing); }   // personal record: own kills only
-      if (owner.sw && !Teams.allied(owner.team, this.team)) owner.sw.charge = Math.min(1, owner.sw.charge + SUPER_TIER[owner.sw.def.tier].kill);
+      if (st) { st.kills++; st.score += this.score; if (!this.status.summoned) Arsenal.creditKill(st, this, SW.dealing); }   // personal record: own kills only
+      if (owner.sw) owner.sw.charge = Math.min(1, owner.sw.charge + SUPER_TIER[owner.sw.def.tier].kill);
       markKill(owner, this.score, this.name);
     }
     if (cause !== 'eject' && Teams.aiSide(this.team) && Math.random() < 0.25 && this.kind !== 'air' && this.kind !== 'naval' && this.arch) {   // none out at sea
@@ -18651,7 +18670,7 @@ const Seats = {
   /* slack: m past the reach allowed (the host seating a guest its lagged copy of shows a little farther off) */
   canEnter(human, v, slack) {
     if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
-    if (Teams.hostile(human.team, v.team)) return false;
+    if (!Teams.isNeutral(v.team) && !Teams.same(v.team, human.team)) return false;   // a free (neutral) vehicle or one of the player's own team; an ally's or a foe's is not taken, so a player never changes team by getting in (P7-02)
     if (v.def.civilian && v.kind === 'air' && !Airports.covers(v.x, v.z)) return false;   // a civilian aircraft is taken only on an airfield
     const rise = human.y - v.y;
     return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) + (slack || 0) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
@@ -19296,9 +19315,9 @@ function airportSpawn(radius) {
 /* false when airfield a lies nearer the enemy base than ours (a skirmish layout seeds the bases round it on any bearing):
    no lost aircraft comes back there and no friendly ones park there. Missions place theirs, so they keep it. */
 function airfieldOurs(a) {
-  const b = W.bases;
-  if (!b) return true;
-  return Math.hypot(a.x - b.own.x, a.z - b.own.z) <= Math.hypot(a.x - b.enemy.x, a.z - b.enemy.z);
+  const own = teamBase(Teams.PLAYER), foe = nearestFoeBase(a.x, a.z);
+  if (!own || !foe) return true;
+  return Math.hypot(a.x - own.x, a.z - own.z) <= Math.hypot(a.x - foe.x, a.z - foe.z);
 }
 /* true when a platform on the ground (not one flying over) stands within r of its edge from (x, z) */
 function standingNear(x, z, r) {
@@ -19735,12 +19754,12 @@ const SW = {
     return { x: ctx.x, y: ctx.y, z: ctx.z };
   },
   ground(x, z) { return Terrain.h(x, z); },
-  /* ctx's side's base (skirmish W.bases), else the mission start: where 'launched from your base' ordnance comes from */
+  /* ctx's own team's base (skirmish W.bases), else the mission start for the player's side: where 'launched from your base' ordnance comes from */
   home(ctx) {
     const b = teamBase(ctx.team);
     if (b) return { x: b.x, y: Terrain.h(b.x, b.z), z: b.z };
     const st = Game.mission && Game.mission.def.start;
-    if (st && Teams.humanSide(ctx.team)) return { x: st.x, y: Terrain.h(st.x, st.z), z: st.z };
+    if (st && Teams.allied(Teams.PLAYER, ctx.team)) return { x: st.x, y: Terrain.h(st.x, st.z), z: st.z };   // (the mission start is the player's side's)
     return this.origin(ctx);
   },
   /* ----- changing the game (host only) ----- */
@@ -25886,9 +25905,9 @@ function attachAI(p, archKey, diff) {
    ===================================================================== */
 const BD_DP = { small: 4, medium: 6, large: 8 };    // defence points per base by encounter size
 const BD_ELITE_DP = 2;                               // extra points of an elite enemy's base
+const BD_OWNER_NAMES = { 0: 'Our', 1: 'Enemy' };           // what the stand-in owner of a base's mines and strike is called in the kill feed (other teams: Team n)
 const BD_SALT = 0x3c6ef372;                          // the plan's own random stream
-const BD_TEAMS = 2;                                  // teams in the battle (P7 raises it to 3 and 4)
-/* fair limits per base by team count (P5-08): new turrets (rows 3 to 8 together) and SAM Sites; one of every other kind */
+/* fair limits per base by team count (P5-08, used for the battle's teams: BaseDef.lim): new turrets (rows 3 to 8 together) and SAM Sites; one of every other kind */
 const BD_LIMITS = { 2: { turrets: 4, sam: 2, silosArming: 1 }, 3: { turrets: 4, sam: 2, silosArming: 2 }, 4: { turrets: 3, sam: 1, silosArming: 2 } };
 const BD_DEFS = {
   minefield: { name: 'Land Minefield', dp: 2, cap: 2, reach: 90 },
@@ -26090,13 +26109,18 @@ const BaseDef = {
   s: null,
   /* a fresh state for a new battle */
   reset() {
-    this.s = { active: false, knownSent: -1, aiAt: 0, seen: Array.from({ length: Teams.MAX }, () => new Set()), hutAt: Array.from({ length: Teams.MAX }, () => -99), sams: [], coasts: [], pits: [], jamsAll: [], meta: [], mines: [], silos: [], domes: [], posts: [], masts: [], owners: [null, null, null, null, null, null], absorbed: new Set(), known: Array.from({ length: Teams.MAX }, () => new Set()), fields: 0, gone: [], goneSent: 0,
-      jams: [], cbs: [], gens: [], collectAt: 0, traced: [], pend: [], hold: [0, 0, 0, 0, 0], tickAt: 0, sendAt: 0, incoming: null, strikes: 0, armed: false, bases: [], aiSilo: null };
+    this.s = { active: false, aiAt: 0, seen: Array.from({ length: Teams.MAX }, () => new Set()), hutAt: Array.from({ length: Teams.MAX }, () => -99), sams: [], coasts: [], pits: [], jamsAll: [], meta: [], mines: [], silos: [], domes: [], posts: [], masts: [], owners: new Array(2 * Teams.MAX).fill(null), absorbed: new Set(), known: Array.from({ length: Teams.MAX }, () => new Set()), fields: 0, gone: [], goneSent: 0,
+      jams: [], cbs: [], gens: [], collectAt: 0, traced: [], pend: [], hold: new Array(Teams.MAX).fill(0), tickAt: 0, sendAt: 0, incoming: null, strikes: 0, armed: false, bases: [], teamCount: 2, knownSent: new Array(Teams.MAX).fill(-1) };
   },
+  /* the fair limits for the teams of this battle (2 to 4), set by the first base built */
+  lim() { return BD_LIMITS[this.s.teamCount] || BD_LIMITS[2]; },
   /* the stand-in owner of a base's mines, silo and strike: dead (the AI never turns on it, nothing credits it), on its team (so its blast spares that team) */
   owner(team, strike) {
-    const o = this.s.owners, k = strike ? team + 3 : team;
-    if (!o[k]) o[k] = { team, dead: true, isFake: true, id: -1 - k, name: strike ? (Teams.humanSide(team) ? 'Our missile strike' : 'Enemy missile strike') : Teams.humanSide(team) ? 'Our minefield' : 'Enemy minefield', x: 0, y: 0, z: 0, isPlayer: false, hideFromAI: false, stats: newStats() };
+    const o = this.s.owners, k = strike ? Teams.MAX + team : team;   // one stand-in per team and kind
+    if (!o[k]) {
+      const who = BD_OWNER_NAMES[team] || 'Team ' + team;   // (the player's side and the main enemy keep their names)
+      o[k] = { team, dead: true, isFake: true, id: -1 - k, name: who + (strike ? ' missile strike' : ' minefield'), x: 0, y: 0, z: 0, isPlayer: false, hideFromAI: false, stats: newStats() };
+    }
     return o[k];
   },
   /* ---------- planning (from the battle seed and the ground alone: every co-op peer works out the same base) ---------- */
@@ -26140,7 +26164,8 @@ const BaseDef = {
      the rule is for what can hit the ground: an anti-air or anti-ship defence cannot shell a yard */
   reachOk(c, d, sp) {
     if (!d.reach || !d.ground || !c.foe) return true;
-    return Math.hypot(sp.x - c.foe.hq.x, sp.z - c.foe.hq.z) >= d.reach && Math.hypot(sp.x - c.foe.start.x, sp.z - c.foe.start.z) >= d.reach;
+    for (const f of c.foes && c.foes[0] === c.foe ? c.foes : [c.foe]) if (Math.hypot(sp.x - f.hq.x, sp.z - f.hq.z) < d.reach || Math.hypot(sp.x - f.start.x, sp.z - f.start.z) < d.reach) return false;
+    return true;
   },
   /* base c's picks in the order its points are spent: the silo on medium and large (always on large, by the seed on medium), then what the ground
      asks for (sea field and Coastal Gun at the water, a SAM Site where aircraft can come), a minefield and a Gauss Bunker, then the rest in a seeded order */
@@ -26161,7 +26186,7 @@ const BaseDef = {
   plan(c) {
     const out = [];
     if (!c.dp) return out;
-    const rng = makeRng((c.defSeed ^ BD_SALT) >>> 0), lim = BD_LIMITS[BD_TEAMS];
+    const rng = makeRng((c.defSeed ^ BD_SALT) >>> 0), lim = this.lim();
     const sea = this.seaNear(c, 950);
     let left = c.dp, turrets = 0;
     const count = (id) => out.filter((q) => q.id === id).length;
@@ -26259,7 +26284,7 @@ const BaseDef = {
     if (!c.dp) return;
     const S = this.s;
     c.hq = Scenery.fortAt(c, FORT.hq[0], FORT.hq[1]); c.spots = null;
-    S.active = true;
+    S.active = true; S.teamCount = c.teamCount || 2;
     const picks = c.picks = this.plan(c);
     for (const p of picks) this.buildPick(c, p);
     S.bases.push(c);
@@ -26269,7 +26294,7 @@ const BaseDef = {
     if (p.mines) { p.fid = ++S.fields; p.mines.forEach((m) => this.addMine(m.k, m.x, m.z, p.team, p)); return; }
     if (p.id === 'silo') {
       const st = objStruct('silo', p.x, p.z, 'Missile Silo', p.team);
-      S.silos.push({ team: p.team, struct: st, state: 'wait', at: BD_SILO_START + (p.team === (c.siloFirst || 0) ? 0 : 1), t0: 0, t1: 0, t2: 0, target: -1, shrunk: false, doors: false, found: false, cx: p.x, cz: p.z, cr: 0, left: 0, seed: c.defSeed, idx: S.silos.length, shots: 0 });
+      S.silos.push({ team: p.team, struct: st, state: 'wait', at: BD_SILO_START + (Teams.same(p.team, Teams.forCount(S.teamCount)[c.siloFirst || 0]) ? 0 : 1), t0: 0, t1: 0, t2: 0, target: -1, shrunk: false, doors: false, found: false, cx: p.x, cz: p.z, cr: 0, left: 0, seed: c.defSeed, idx: S.silos.length, shots: 0 });
     } else if (p.id === 'engPost') {
       const st = addStruct('engPost', p.x, p.z, { team: p.team, name: 'Engineer Post' });
       S.posts.push({ team: p.team, struct: st, engs: [null, null], lostAt: [0, 0] });
@@ -26349,7 +26374,7 @@ const BaseDef = {
       for (let j = 0; j < S.mines.length; j++) {
         const o = S.meta[j];
         if (!o.alive || o.fid !== m.fid || Math.hypot(o.x - m.x, o.z - m.z) > BD_MINE_SUSPECT) continue;
-        for (let t = 0; t < 2; t++) if (t !== o.team) S.known[t].add(j);
+        for (const t of Teams.forCount(S.teamCount)) if (!Teams.allied(t, o.team)) S.known[t].add(j);
       }
     }
     if (S.goneSent < S.gone.length) { if (Net.host) Net.bcast({ t: 'bd', k: 'm', g: S.gone.slice(S.goneSent) }); S.goneSent = S.gone.length; }
@@ -26359,11 +26384,11 @@ const BaseDef = {
       const m = S.meta[i];
       if (!m.alive) continue;
       const q = S.mines[i], see = m.k === 'sea' ? (bad ? MINE_SEEN_BAD : MINE_SEEN_RANGE) : (bad ? BD_MINE_KNOWN_BAD : BD_MINE_KNOWN);   // (a sea mine is seen from 60 m, as the Sea Mine Rack's)
-      for (let t = 0; t < 2; t++) {
-        if (t === m.team || S.known[t].has(i)) continue;
+      for (const t of Teams.forCount(S.teamCount)) {
+        if (Teams.allied(t, m.team) || S.known[t].has(i)) continue;
         if (Scan.marked(q, t)) { S.known[t].add(i); continue; }
         for (const p of W.platforms) {
-          if (p.dead || p.team !== t || p.parked || p.kind === 'air' || Math.abs(p.x - m.x) > see || Math.abs(p.z - m.z) > see) continue;
+          if (p.dead || !Teams.same(p.team, t) || p.parked || p.kind === 'air' || Math.abs(p.x - m.x) > see || Math.abs(p.z - m.z) > see) continue;
           if (Math.hypot(p.x - m.x, p.z - m.z) <= see) { S.known[t].add(i); break; }
         }
       }
@@ -26549,7 +26574,7 @@ const BaseDef = {
     }
     return best;
   },
-  hqStruct(team) { return W.structs.find((s) => s.type === 'command' && s.team === team && !s.destroyed) || null; },
+  hqStruct(team) { return W.structs.find((s) => s.type === 'command' && Teams.same(s.team, team) && !s.destroyed) || null; },
   /* how many silos are arming or in flight now (the cap keeps a battle to BD_LIMITS silosArming at once) */
   armingNow() { let n = 0; for (const o of this.s.silos) if (o.state === 'arm' || o.state === 'fly') n++; return n; },
   siloTick() {
@@ -26558,7 +26583,7 @@ const BaseDef = {
       if (o.state === 'dead') continue;
       if (o.struct.destroyed && o.state !== 'fly') { this.siloKilled(o); continue; }   // (a missile in flight cannot be stopped: it lands, and the silo is gone after)
       if (o.state === 'wait') {
-        if (W.time >= o.at && this.armingNow() < BD_LIMITS[BD_TEAMS].silosArming) this.siloArm(o);
+        if (W.time >= o.at && this.armingNow() < this.lim().silosArming) this.siloArm(o);
       } else if (o.state === 'arm') {
         o.left = o.t0 + BD_SILO_ARM - W.time;
         this.siloLook(o);
@@ -26579,8 +26604,7 @@ const BaseDef = {
     o.shots++; o.state = 'arm'; o.t0 = W.time; o.left = BD_SILO_ARM; o.target = b.team; o.tx = b.hq.x; o.tz = b.hq.z; o.shrunk = false; o.doors = false; o.found = false;
     const rng = makeRng((o.seed ^ Math.imul(o.shots, 7919) ^ 0x1234) >>> 0), a = rng() * TAU, off = 40 + rng() * 130;
     o.cx = o.struct.x + Math.sin(a) * off; o.cz = o.struct.z + Math.cos(a) * off; o.cr = BD_SILO_CIRCLE;
-    if (o.target === 0) W.msg('ENEMY MISSILE SILO ARMING', 'alarm'); else if (Teams.humanSide(o.team)) W.msg('YOUR MISSILE SILO IS ARMING', 'objective');
-    this.s.aiSilo = o.target === 1 ? o : this.s.aiSilo;
+    if (Teams.humanSide(o.target)) W.msg('ENEMY MISSILE SILO ARMING', 'alarm'); else if (Teams.humanSide(o.team)) W.msg('YOUR MISSILE SILO IS ARMING', 'objective');
     this.siloSend(o);
   },
   /* the target team finds the silo when one of its units gets within sight of it (a ground unit 200 m with a clear line, an aircraft 350 m) */
@@ -26588,21 +26612,21 @@ const BaseDef = {
     if (o.found) return;
     const s = o.struct;
     for (const p of W.platforms) {
-      if (p.dead || p.team !== o.target || p.parked) continue;
+      if (p.dead || !Teams.same(p.team, o.target) || p.parked) continue;
       const d = Math.hypot(p.x - s.x, p.z - s.z);
       if (d > (p.kind === 'air' ? 350 : 200)) continue;
       const k = Math.min(1, (Math.max(s.hx, s.hz) + 0.6) / (d || 1));   // a line to the silo's wall on the side facing the unit (a line to its middle would end inside the box)
-      if (p.kind === 'air' || hasLOS(p.x, p.y + p.height * 0.8, p.z, s.x + (p.x - s.x) * k, s.y + s.h * 0.6, s.z + (p.z - s.z) * k)) { o.found = true; if (o.target === 0) W.msg('SILO LOCATED', 'objective'); this.siloSend(o); return; }
+      if (p.kind === 'air' || hasLOS(p.x, p.y + p.height * 0.8, p.z, s.x + (p.x - s.x) * k, s.y + s.h * 0.6, s.z + (p.z - s.z) * k)) { o.found = true; if (Teams.humanSide(o.target)) W.msg('SILO LOCATED', 'objective'); this.siloSend(o); return; }
     }
   },
   siloDoors(o) {
     o.doors = true; o.struct.siloOpen = true;
-    if (o.target === 0) W.msg('LAUNCH IMMINENT', 'siren');   // (the siren goes to the guests with the message)
+    if (Teams.humanSide(o.target)) W.msg('LAUNCH IMMINENT', 'siren');   // (the siren goes to the guests with the message)
     this.siloSend(o);
   },
   siloLaunch(o) {
     o.state = 'fly'; o.t1 = W.time; o.left = BD_SILO_FLY; o.doors = false; o.struct.siloOpen = false;   // (the doors close behind it)
-    if (o.target === 0) W.msg('INCOMING STRIKE', 'alarm');
+    if (Teams.humanSide(o.target)) W.msg('INCOMING STRIKE', 'alarm');
     this.s.incoming = { team: o.target, x: o.tx, z: o.tz, until: W.time + BD_SILO_FLY };
     this.flight(o.struct.x, o.struct.z, o.tx, o.tz, BD_SILO_FLY);
     if (Net.host) Net.bcast({ t: 'bd', k: 'fl', sx: r1(o.struct.x), sz: r1(o.struct.z), tx: r1(o.tx), tz: r1(o.tz), s: BD_SILO_FLY });
@@ -26610,7 +26634,7 @@ const BaseDef = {
   },
   /* the strike: the target's dome drops, its command center takes BD_STRIKE.share of its hull (never below BD_STRIKE.floor of its hull), and everything within BD_STRIKE.blast m takes the blast */
   siloStrike(o) {
-    const S = this.s, own = this.owner(o.team, true), hq = this.hqStruct(o.target), dome = S.domes.find((d) => d.team === o.target);
+    const S = this.s, own = this.owner(o.team, true), hq = this.hqStruct(o.target), dome = S.domes.find((d) => Teams.same(d.team, o.target));
     o.state = o.struct.destroyed ? 'dead' : 'cool'; o.t2 = o.t1; o.doors = false; o.struct.siloOpen = false; S.hold[o.target] = W.time + BD_STRIKE.protect; S.incoming = null; S.strikes++;
     if (dome) { dome.pts = 0; dome.up = false; dome.hit = W.time; }
     if (hq) {
@@ -26631,16 +26655,16 @@ const BaseDef = {
         damageStruct(s, BD_STRIKE.structs, 'explosive', own, 1, false);
       }
     }
-    if (o.target === 0) W.msg('STRIKE LANDED', 'warn');
+    if (Teams.humanSide(o.target)) W.msg('STRIKE LANDED', 'warn');
     this.siloSend(o);
   },
   /* the silo is destroyed: gone for the battle */
   siloKilled(o) {
     const was = o.state;
     o.state = 'dead'; o.doors = false; o.struct.siloOpen = false;
-    if (this.s.incoming && this.s.incoming.team === o.target && was === 'arm') this.s.incoming = null;   // (arming: no strike now; in flight the marker stays until it lands)
+    if (this.s.incoming && Teams.same(this.s.incoming.team, o.target) && was === 'arm') this.s.incoming = null;   // (arming: no strike now; in flight the marker stays until it lands)
     if (was === 'arm' || was === 'fly') {
-      if (o.target === 0) W.msg('ENEMY SILO DESTROYED', 'objective'); else if (Teams.humanSide(o.team)) W.msg('YOUR SILO WAS DESTROYED', 'warn');
+      if (Teams.humanSide(o.target)) W.msg('ENEMY SILO DESTROYED', 'objective'); else if (Teams.humanSide(o.team)) W.msg('YOUR SILO WAS DESTROYED', 'warn');
     }
     this.siloSend(o);
   },
@@ -26689,8 +26713,10 @@ const BaseDef = {
     if (!Net.host) return;
     for (const o of S.silos) if (o.state === 'arm' || o.state === 'fly') this.siloSend(o);
     if (S.domes.length) Net.bcast({ t: 'bd', k: 'd', a: S.domes.map((d) => [Math.round(d.pts), d.up ? 1 : 0]) });
-    const K = S.known[0];
-    if (K.size !== S.knownSent) { S.knownSent = K.size; Net.bcast({ t: 'bd', k: 'k', a: Array.from(K) }); }
+    for (const t of Teams.humans()) {   // what the teams the players are on know of the mines
+      const K = S.known[t];
+      if (K.size !== S.knownSent[t]) { S.knownSent[t] = K.size; Net.bcast({ t: 'bd', k: 'k', tm: t, a: Array.from(K) }); }
+    }
   },
   /* the projectile entries of a snapshot that a guest spent on its dome stay spent until the host drops them (else each snapshot brings them back for a frame); the ids the host no longer sends are forgotten */
   pruneAbsorbed(list) {
@@ -26718,16 +26744,17 @@ const BaseDef = {
       const o = S.silos[m.i | 0];
       if (!o) return;
       o.state = ['wait', 'arm', 'fly', 'cool', 'dead'].indexOf(m.st) >= 0 ? m.st : o.state;
-      o.left = numIn(m.l, 0, 600); o.doors = !!m.d; o.found = !!m.f; o.target = numIn(m.tg, -1, 3, -1) | 0; o.shots = numIn(m.n, 0, 99) | 0; o.shrunk = !!m.sh;
+      o.left = numIn(m.l, 0, 600); o.doors = !!m.d; o.found = !!m.f; o.target = numIn(m.tg, -1, Teams.MAX - 1, -1) | 0; o.shots = numIn(m.n, 0, 99) | 0; o.shrunk = !!m.sh;
       if (Array.isArray(m.c)) { o.cx = numIn(m.c[0], -3000, 3000); o.cz = numIn(m.c[1], -3000, 3000); o.cr = numIn(m.c[2], 0, 600); }
       o.tx = numIn(m.tx, -3000, 3000); o.tz = numIn(m.tz, -3000, 3000);
       o.struct.siloOpen = o.doors;
       if (o.state === 'fly') S.incoming = { team: o.target, x: o.tx, z: o.tz, until: W.time + o.left };
-      else if (S.incoming && S.incoming.team === o.target) S.incoming = null;
+      else if (S.incoming && Teams.same(S.incoming.team, o.target)) S.incoming = null;
     } else if (m.k === 'd' && Array.isArray(m.a)) {
       m.a.forEach((e, i) => { const d = S.domes[i]; if (d && Array.isArray(e)) { d.pts = numIn(e[0], 0, 99999); d.up = !!e[1]; } });
     } else if (m.k === 'k' && Array.isArray(m.a)) {
-      for (const i of m.a) if (Number.isInteger(i) && S.meta[i]) S.known[0].add(i);
+      const K = S.known[Teams.fighting(m.tm) ? m.tm : Teams.PLAYER];   // (a message without a team, from before NET_VERSION 21, is the player's side)
+      for (const i of m.a) if (Number.isInteger(i) && S.meta[i]) K.add(i);
     } else if (m.k === 'tr') {
       S.traced = S.traced.filter((t) => t.id !== (m.id | 0));
       S.traced.push({ id: m.id | 0, team: Teams.id(m.tm), until: W.time + numIn(m.s, 0, 60), firer: null });
@@ -26742,7 +26769,7 @@ const BaseDef = {
       if (o.state !== 'arm' && o.state !== 'fly') continue;
       const left = fmtTime(Math.ceil(o.left));
       if (o.target === me) { h.txt((o.state === 'fly' ? 'INCOMING STRIKE ' + Math.ceil(o.left) + ' S' : 'ENEMY SILO ARMING ' + left + (o.found ? ' - LOCATED' : ' - FIND IT')), x, y, 12, h.C.bad, 'left', true); y += 15 * u; }
-      else if (o.team === me) { h.txt(o.state === 'fly' ? 'YOUR SILO LAUNCHED ' + Math.ceil(o.left) + ' S' : 'YOUR SILO ARMING ' + left, x, y, 12, h.C.main); y += 15 * u; }
+      else if (Teams.same(o.team, me)) { h.txt(o.state === 'fly' ? 'YOUR SILO LAUNCHED ' + Math.ceil(o.left) + ' S' : 'YOUR SILO ARMING ' + left, x, y, 12, h.C.main); y += 15 * u; }
     }
     return y;
   },
@@ -26787,14 +26814,14 @@ const BaseDef = {
   },
   /* where a team's wave sends its assault: the enemy Shield Generator while its dome is up (it comes before the command center), else the command center hq */
   assaultFor(team, hq, air) {
-    const S = this.s, foe = 1 - team;
+    const S = this.s, foe = hq ? hq.team : Teams.forCount(S.teamCount).find((t) => Teams.hostile(team, t));   // the base it is sent against
     if (!air) {   // ground waves first deal with what keeps their aircraft out (a known SAM Site), then the hut whose engineers were seen repairing, then the dome's projector
-      const sam = S.sams.find((q) => q.team === foe && !q.dead && S.seen[team].has(q.id));
+      const sam = S.sams.find((q) => Teams.same(q.team, foe) && !q.dead && S.seen[team].has(q.id));
       if (sam) return sam;
-      const post = S.posts.find((q) => q.team === foe && !q.struct.destroyed);
+      const post = S.posts.find((q) => Teams.same(q.team, foe) && !q.struct.destroyed);
       if (post && W.time - S.hutAt[team] < BD_HUT_MEMORY) return post.struct;
     }
-    const g = S.gens.find((q) => q.team === foe && !q.dead), d = S.domes.find((q) => q.team === foe);
+    const g = S.gens.find((q) => Teams.same(q.team, foe) && !q.dead), d = S.domes.find((q) => Teams.same(q.team, foe));
     return g && d && d.up ? g : hq;
   },
   /* a unit's own goal: the silo it was sent for, or the search circle (null: the wave's usual goal) */
@@ -26807,7 +26834,7 @@ const BaseDef = {
   /* a team's units whose assault target is gone aim at the next one (the dome's projector, else the command center hq) */
   retask(team, hq) {
     for (const u of W.platforms) {
-      if (u.dead || u.team !== team || !u.ai || u.garrison || !u.ai.assault || u.isPlayer) continue;
+      if (u.dead || !Teams.same(u.team, team) || !u.ai || u.garrison || !u.ai.assault || u.isPlayer) continue;
       const a = u.ai.assault;
       if (a.type === 'silo' && talive(a)) continue;
       const want = this.assaultFor(team, hq, u.kind === 'air');
@@ -26816,16 +26843,17 @@ const BaseDef = {
   },
   /* a silo is arming against the AI: its fastest unit searches the circle by sight until the silo is found, then every aircraft and half the ground wave go for it */
   aiSiloStep() {
-    const o = this.s.aiSilo;
-    if (!o || o.target !== 1 || (o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed) return;
-    const units = W.platforms.filter((p) => !p.dead && Teams.aiSide(p.team) && p.ai && !p.garrison && !p.isPlayer && p.def.speed > 0 && p.arch);
-    if (!units.length) return;
-    if (!o.found) {
-      let f = units[0];
-      for (const u of units) if (u.def.speed > f.def.speed) f = u;
-      f.ai.scoutFor = o; f.ai.goal = { x: o.cx, z: o.cz };
-    } else {
-      units.forEach((u, i) => { if (u.kind === 'air' || i % 2 === 0) { u.ai.assault = o.struct; u.ai.scoutFor = null; if (u.kind !== 'air') u.ai.goal = { x: o.struct.x, z: o.struct.z }; } });
+    for (const o of this.s.silos) {   // (the units of the team the silo is aimed at, when a computer plays it: not those of other computer teams)
+      if (!Teams.aiSide(o.target) || (o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed) continue;
+      const units = W.platforms.filter((p) => !p.dead && Teams.same(p.team, o.target) && p.ai && !p.garrison && !p.isPlayer && p.def.speed > 0 && p.arch);
+      if (!units.length) continue;
+      if (!o.found) {
+        let f = units[0];
+        for (const u of units) if (u.def.speed > f.def.speed) f = u;
+        f.ai.scoutFor = o; f.ai.goal = { x: o.cx, z: o.cz };
+      } else {
+        units.forEach((u, i) => { if (u.kind === 'air' || i % 2 === 0) { u.ai.assault = o.struct; u.ai.scoutFor = null; if (u.kind !== 'air') u.ai.goal = { x: o.struct.x, z: o.struct.z }; } });
+      }
     }
   },
   /* the point an idle AI battery p shells: a silo its team has found (every 4 s), else the nearest known minefield (once per BD_AI_SALVO s), within its weapon's reach */
@@ -26833,7 +26861,7 @@ const BaseDef = {
     const d = p.primary && p.primary.def;
     if (!d || !d.indirect) return null;
     for (const o of this.s.silos) {
-      if (o.target !== p.team || !o.found || (o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed) continue;
+      if (!Teams.same(o.target, p.team) || !o.found || (o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed) continue;
       const dist = Math.hypot(o.struct.x - p.x, o.struct.z - p.z);
       if (dist >= d.indirect.min && dist <= d.range) return { x: o.struct.x, z: o.struct.z, silo: true };
     }
@@ -26886,7 +26914,7 @@ const BaseDef = {
     g.save(); g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.clip();
     g.strokeStyle = C.bad; g.lineWidth = 1.5 * u;
     for (const o of S.silos) {
-      if (o.target !== p.team || o.state !== 'arm') continue;
+      if (!Teams.same(o.target, p.team) || o.state !== 'arm') continue;
       const v = toR(o.found || o.shrunk ? o.struct.x : o.cx, o.found || o.shrunk ? o.struct.z : o.cz);
       g.beginPath(); g.arc(cx + v.x * sc, cy - v.y * sc, Math.max(3 * u, (o.found ? 8 : o.shrunk ? 30 : o.cr) * sc), 0, TAU); g.stroke();
     }
@@ -26906,7 +26934,7 @@ const BaseDef = {
   /* world markers: a silo the target team has found */
   markers(h, p) {
     for (const o of this.s.silos) {
-      if ((o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed || !(o.found && o.target === p.team)) continue;
+      if ((o.state !== 'arm' && o.state !== 'fly') || o.struct.destroyed || !(o.found && Teams.same(o.target, p.team))) continue;
       h.worldMarker(o.struct.x, o.struct.y + o.struct.h + 6, o.struct.z, 'SILO', 'objective', h.C.bad, Math.round(Math.hypot(o.struct.x - p.x, o.struct.z - p.z)) + 'm');
     }
   },
@@ -26918,10 +26946,10 @@ const BaseDef = {
     const lists = [S.sams, S.coasts, S.pits, S.jams];
     for (const list of lists) for (const d of list) {
       if (d.dead) continue;
-      for (let t = 0; t < 2; t++) {
-        if (t === d.team || S.seen[t].has(d.id)) continue;
+      for (const t of Teams.forCount(S.teamCount)) {
+        if (Teams.allied(t, d.team) || S.seen[t].has(d.id)) continue;
         for (const u of W.platforms) {
-          if (u.dead || u.team !== t || u.parked || !u.ai) continue;
+          if (u.dead || !Teams.same(u.team, t) || u.parked || !u.ai) continue;
           const lim = BD_SEEN[u.kind === 'air' ? 'air' : u.kind === 'naval' ? 'naval' : 'ground'], dx = u.x - d.x, dz = u.z - d.z;
           if (dx * dx + dz * dz > lim * lim) continue;
           if (u.kind === 'air' || u.kind === 'naval' || hasLOS(u.x, u.y + u.height * 0.8, u.z, d.x, d.y + d.height * 0.7, d.z)) { S.seen[t].add(d.id); break; }
@@ -27009,30 +27037,30 @@ const BaseDef = {
   },
   /* ---------- the player's own base (the skirmish setup's picker) ---------- */
   /* a chosen list cleaned: known ids once each, within the caps and the points of encounter size size, a silo only on medium and large */
-  cleanChoice(list, size, map) {
-    const out = [], water = !map || !MAPS[map] || Naval.mapOk(mapDef(map));   // the sea defences need ship water on the battlefield
+  cleanChoice(list, size, map, teams) {
+    const out = [], water = !map || !MAPS[map] || Naval.mapOk(mapDef(map)), lim = BD_LIMITS[teams] || BD_LIMITS[2];   // the sea defences need ship water on the battlefield; teams: how many teams fight (the limits are fairer for more)
     let left = BD_DP[size] || BD_DP.small, turrets = 0;
     if (!Array.isArray(list)) return out;
     for (const id of list) {
       const d = BD_DEFS[id];
       if (!d || d.dp > left || (id === 'silo' && size === 'small') || (!water && (id === 'seaField' || id === 'coastGun'))) continue;
       const n = out.filter((q) => q === id).length;
-      if (n >= (d.cap || (id === 'samSite' ? BD_LIMITS[BD_TEAMS].sam : 1)) || (d.turret && turrets >= BD_LIMITS[BD_TEAMS].turrets)) continue;
+      if (n >= (d.cap || (id === 'samSite' ? lim.sam : 1)) || (d.turret && turrets >= lim.turrets)) continue;
       out.push(id); left -= d.dp;
       if (d.turret) turrets++;
     }
     return out;
   },
   /* the picker's box for id turned on or off */
-  toggleChoice(list, id, on, size, map) { return this.setChoice(list, id, on ? 1 : 0, size, map); },
+  toggleChoice(list, id, on, size, map, teams) { return this.setChoice(list, id, on ? 1 : 0, size, map, teams); },
   /* the picker's count of id (0 to its cap: two minefields, two SAM Sites) */
-  setChoice(list, id, count, size, map) {
+  setChoice(list, id, count, size, map, teams) {
     const cur = Array.isArray(list) ? list.filter((q) => q !== id) : [];
     for (let i = 0; i < count; i++) cur.push(id);
-    return this.cleanChoice(cur, size, map);
+    return this.cleanChoice(cur, size, map, teams);
   },
   /* how many of id one base may have */
-  capOf(id) { const d = BD_DEFS[id]; return d.cap || (id === 'samSite' ? BD_LIMITS[BD_TEAMS].sam : 1); },
+  capOf(id, teams) { const d = BD_DEFS[id]; return d.cap || (id === 'samSite' ? (BD_LIMITS[teams] || BD_LIMITS[2]).sam : 1); },
   /* the message at the start of a battle when the reach rule or the ground refused a pick of the player's and the seed filled the points (host) */
   announce(c) {
     if (!c || !c.refused || !c.refused.length) return;
@@ -27340,8 +27368,9 @@ const Obj = {
         for (const p of ps) {
           if (p.dead || p.kind === 'air' && p.y - Terrain.h(p.x, p.z) > 60) continue;
           // a zone with shipReach is held by friendly ships within that reach too (a beach covered from the water)
-          if (Math.hypot(p.x - z.x, p.z - z.z) > (this.shipReach && Teams.humanSide(p.team) && p.kind === 'naval' ? this.shipReach : z.r)) continue;
-          if (Teams.humanSide(p.team) && p.model !== 'truck') friends++; else if (Teams.aiSide(p.team) && p.def.speed >= 0 && p.arch) foes++;
+          const mine = Teams.allied(Teams.PLAYER, p.team);
+          if (Math.hypot(p.x - z.x, p.z - z.z) > (this.shipReach && mine && p.kind === 'naval' ? this.shipReach : z.r)) continue;
+          if (mine && p.model !== 'truck') friends++; else if (Teams.hostile(Teams.PLAYER, p.team) && p.def.speed >= 0 && p.arch) foes++;
         }
         this.contested = foes > 0 && friends > 0; this.friends = friends; this.foes = foes;
         if (friends > 0 && foes === 0) this.progress = Math.min(1, this.progress + dt / this.duration);
@@ -28350,6 +28379,45 @@ const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far 
 const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
 const SKIRMISH_FORT = { recruit: { guns: 4, aa: 2 }, veteran: { guns: 5, aa: 2 }, elite: { guns: 6, aa: 3 } };   // enemy base defences
 const SKIRMISH_OWN_FORT = { guns: 4, aa: 2 };   // our base's allied turrets
+/* P7-02: a battle of 3 or 4 teams sets its bases on the field (+-SKIRMISH_FIELD) from spots 40 m apart, moved a little by the seed. A set of count spots
+   is kept when every spot is on gentle, dry ground and the set is fair: no two closer than gap, each base's nearest neighbour inside a band, and the
+   teams' nearest-neighbour distances and mean distances to the others alike within a ratio (SKIRMISH_FAIR). Four tiers are tried in order and the first
+   that holds a set wins: 0 a ring round the middle (400 to 660 m out), gentle ground (12 degrees), a tight band; 1 the whole field, the same ground,
+   a wide band; 2 the whole field, ground up to 20 degrees (the site is levelled, as every base's is), the wide band; 3 up to 28 degrees and a wider band (only alpine with 4 teams needs it). On a battlefield with ship water a
+   harbour comes first: the sets are looked for among spots within NAVAL_SHORE_MAX of ship water ('near'), then within 900 m of it ('reach'), then anywhere.
+   Of the first sets found (SKIRMISH_MANY_SETS) the one whose bases are best joined by dry ground is kept, team 0 on the first spot. Two teams keep the old pair. */
+const SKIRMISH_MANY = { 3: { ring: [480, 580] }, 4: { ring: [500, 600] } };   // the regular polygon the last-resort search turns (no seeded set on the whole field)
+const SKIRMISH_MANY_STEP = 40;       // spots 40 m apart...
+const SKIRMISH_MANY_JITTER = 15;     // ...each moved by up to this much
+const SKIRMISH_MANY_SETS = 12;       // fair sets compared
+const SKIRMISH_MANY_NODES = 600000;  // spots tried at most in each tier and harbour class while looking for them (a search with no fair set walks them all)
+const SKIRMISH_REACH = 900;          // 'reach': a base within this of ship water
+
+/* the fair tiers (see above): gap is the least distance between two bases for 3 and 4 teams; near the band of every base's nearest neighbour */
+const SKIRMISH_FAIR = [
+  { ring: [400, 660], deg: 12, gap: { 3: 820, 4: 700 }, near: [700, 1100], nearRatio: 1.2, meanRatio: 1.15 },
+  { ring: [0, 1e9], deg: 12, gap: { 3: 550, 4: 550 }, near: [550, 1300], nearRatio: 1.5, meanRatio: 1.6 },
+  { ring: [0, 1e9], deg: 20, gap: { 3: 550, 4: 550 }, near: [550, 1300], nearRatio: 1.5, meanRatio: 1.6 },
+  { ring: [0, 1e9], deg: 28, gap: { 3: 400, 4: 400 }, near: [400, 1500], nearRatio: 2.4, meanRatio: 2.6 },
+];
+const SKIRMISH_FIXED_SPOTS = { 3: [{ x: -450, z: -420 }, { x: 450, z: -420 }, { x: 0, z: 520 }], 4: [{ x: -450, z: -420 }, { x: 450, z: -420 }, { x: 450, z: 420 }, { x: -450, z: 420 }] };   // never needed on any battlefield (self-test sweeps)
+const SKIRMISH_DEF_SALTS = { 0: 0x51ed27, 1: 0x9e3779, 3: 0x2c9277b5, 4: 0x6d2b79f5 };   // each team's base plan has its own seed
+/* how fair a set of base centres is: the least gap between two, each base's nearest neighbour, and each base's mean distance to the others */
+function skirmishFairness(pts) {
+  let gap = Infinity, nearLo = Infinity, nearHi = 0, meanLo = Infinity, meanHi = 0;
+  for (let i = 0; i < pts.length; i++) {
+    let near = Infinity, sum = 0;
+    for (let j = 0; j < pts.length; j++) {
+      if (i === j) continue;
+      const d = Math.hypot(pts[i].x - pts[j].x, pts[i].z - pts[j].z);
+      near = Math.min(near, d); sum += d;
+    }
+    gap = Math.min(gap, near); nearLo = Math.min(nearLo, near); nearHi = Math.max(nearHi, near);
+    meanLo = Math.min(meanLo, sum / (pts.length - 1)); meanHi = Math.max(meanHi, sum / (pts.length - 1));
+  }
+  return { gap, nearLo, nearHi, nearRatio: nearHi / nearLo, meanRatio: meanHi / meanLo };
+}
+function skirmishFair(f, count, tier) { const q = SKIRMISH_FAIR[tier]; return !!q && f.gap >= q.gap[count] && f.nearLo >= q.near[0] && f.nearHi <= q.near[1] && f.nearRatio <= q.nearRatio && f.meanRatio <= q.meanRatio; }
 const SKIRMISH_GARRISON = { recruit: ['infantry', 'infantry', 'rpgTrooper', 'tank'], veteran: ['infantry', 'infantry', 'rpgTrooper', 'sniper', 'tank'], elite: ['infantry', 'rpgTrooper', 'rpgTrooper', 'sniper', 'tank', 'medMech'] };
 const SKIRMISH_WAVE_CLEAR = 300;         // a wave forms at the enemy gate unless a human is this close to it (then it arrives near the player)
 const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, else push on to our command center (m)
@@ -28363,11 +28431,11 @@ function skirmishLayout(cfg) {
   const homes = Airports.homes(cfg.map), round = skirmishLayoutWith(cfg, homes);
   if (!homes.length) return round;
   const free = skirmishLayoutWith(cfg, []);
-  if (round.lay.cities.length >= free.lay.cities.length) return round;
+  if (round.lay.cities.length >= free.lay.cities.length && round.tier <= free.tier) return round;   // (three or more teams: a fairer set without the airfield wins over a less fair one round it)
   if (!free.fixedPair) free.lay.airport = Airports.find(cfg.map, free.lay, free.sites, null);
   const size = (a) => (a ? AIRFIELD_KINDS.length - AIRFIELD_KINDS.indexOf(a.kind) : 0);   // airport 2, strip 1, none 0
   const cheap = free.lay.cities.length - round.lay.cities.length <= mapDef(cfg.map).airport.maxTownCost;
-  return cheap && size(round.lay.airport) > size(free.lay.airport) ? round : free;
+  return cheap && size(round.lay.airport) > size(free.lay.airport) && round.tier <= free.tier ? round : free;
 }
 /* the layout laid round the first of homes (home airfields, best first) that leaves a seeded base pair; none: no airfield */
 function skirmishLayoutWith(cfg, homes) {
@@ -28378,7 +28446,8 @@ function skirmishLayoutWith(cfg, homes) {
   let field = homes[0] || null;
   const flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg) && (!field || Airports.gap(field, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE);
   const tries = m.water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
-  let rng = null, own = null, foe = null;
+  let rng = null, own = null, foe = null, extra = [];
+  const count = cfg.teams >= 4 ? 4 : cfg.teams >= 3 ? 3 : 2;   // teams in the battle (P7-02); extra: the bases of teams 3 and 4 beyond the pair
   // P2-06 / P2-01: of the seeded pairs the first that suits is kept: the two bases on ground a tank can drive between (no
   // island apart; a bridge counts), and, for a ship pick, ours within NAVAL_SHORE_MAX of a big sheet of water its keel
   // floats in. Where no pair has both, the one linked and nearest the water; a land pick on a battlefield whose bases
@@ -28400,47 +28469,159 @@ function skirmishLayoutWith(cfg, homes) {
     }
     if (best) { own = best.o; foe = best.e; }
   };
-  seeded();
+  // P7-02: three or four teams. Every base needs dry ground to each of the others (a pair that is not linked counts as a miss, as above) and, on a
+  // battlefield with ship water, a harbour within NAVAL_SHORE_MAX of ship water (the player's ship, else a Trident), so any team may play a ship
+  const refShip = shipDef && shipDef.kind === 'naval' ? shipDef : PLATFORMS.trident;
+  const shoreMany = count > 2 && Naval.mapOk(m) && Naval.shipOk(refShip, m) ? Nav.baseGrid(m, navSpecShip(refShip)) : null;
+  const ringSpots = (a0) => {   // the corners of a regular polygon from bearing a0, on the middle of the ring
+    const spec = SKIRMISH_MANY[count], ps = [];
+    for (let i = 0; i < count; i++) {
+      const a = a0 + i * TAU / count, r = (spec.ring[0] + spec.ring[1]) / 2;
+      ps.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, r: FORT.r });
+    }
+    return ps;
+  };
+  let tier = 0, harbour = '-';   // the tier and the harbour class the set was found in
+  const manySpots = () => {   // the spots of the field on gentle dry ground (with their least tier slope, distance from the middle and harbour distance), in the seed's order
+    rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
+    const spots = [];
+    for (let gx = 0; gx * SKIRMISH_MANY_STEP <= 2 * SKIRMISH_FIELD; gx++) for (let gz = 0; gz * SKIRMISH_MANY_STEP <= 2 * SKIRMISH_FIELD; gz++) {
+      const x = gx * SKIRMISH_MANY_STEP - SKIRMISH_FIELD, z = gz * SKIRMISH_MANY_STEP - SKIRMISH_FIELD;
+      const p = { x: x + (rng() * 2 - 1) * SKIRMISH_MANY_JITTER, z: z + (rng() * 2 - 1) * SKIRMISH_MANY_JITTER, r: FORT.r };
+      if (!inField(p)) continue;
+      p.deg = Infinity;   // the least slope of the tiers this spot is gentle enough for
+      for (const q of SKIRMISH_FAIR) if (flat(p, q.deg)) { p.deg = q.deg; break; }
+      if (p.deg === Infinity) continue;
+      p.d = Math.hypot(p.x, p.z);
+      p.shore = shoreMany ? Nav.bigDist(shoreMany, p.x, p.z, SKIRMISH_REACH, NAV_BODY_MIN, NAVAL_SPAWN_EDGE) : Infinity;
+      spots.push(p);
+    }
+    for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)), t = spots[i]; spots[i] = spots[j]; spots[j] = t; }   // the seed's order
+    return spots;
+  };
+  const seededMany = () => {
+    const spots = manySpots();
+    const pools = shoreMany ? [['near', (p) => p.shore <= NAVAL_SHORE_MAX], ['reach', (p) => p.shore <= SKIRMISH_REACH], ['-', () => true]] : [['-', () => true]];
+    for (let t = 0; t < SKIRMISH_FAIR.length; t++) {   // (the gentlest ground before a harbour: a harbour only picks among the sets of one tier)
+      for (const [name, inPool] of pools) {
+        const q = SKIRMISH_FAIR[t];
+        const pool0 = spots.filter((p) => inPool(p) && p.d >= q.ring[0] && p.d <= q.ring[1] && p.deg <= q.deg);
+        const pool = pool0, n = pool.length;
+        let best = null, bestMiss = Infinity, found = 0;
+        if (n >= count) {
+          // the sets of count spots in the seed's order: every pair at least the gap apart (looked up in a table of the pairs), the whole set fair; of the
+          // first sets found the one best joined by dry ground is kept
+          const gap2 = q.gap[count] * q.gap[count], apart = new Uint8Array(n * n), idx = [];
+          for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+            const dx = pool[i].x - pool[j].x, dz = pool[i].z - pool[j].z;
+            if (dx * dx + dz * dz >= gap2) { apart[i * n + j] = 1; apart[j * n + i] = 1; }
+          }
+          let nodes = 0;
+          const walk = (from) => {
+            if (idx.length === count) {
+              const pick = idx.map((i) => pool[i]);
+              if (!skirmishFair(skirmishFairness(pick), count, t)) return;
+              let miss = 0;
+              for (let i = 1; i < count; i++) if (linkGrid && !pick.slice(0, i).some((o) => Nav.linked(linkGrid, o.x, o.z, pick[i].x, pick[i].z))) miss += SKIRMISH_UNLINKED_MISS;
+              found++;
+              if (miss < bestMiss) { best = pick; bestMiss = miss; }
+              return;
+            }
+            for (let i = from; i < n && found < SKIRMISH_MANY_SETS && bestMiss > 0 && nodes < SKIRMISH_MANY_NODES; i++) {
+              nodes++;
+              let ok = true;
+              for (let k = 0; k < idx.length; k++) if (!apart[idx[k] * n + i]) { ok = false; break; }
+              if (!ok) continue;
+              idx.push(i); walk(i + 1); idx.pop();
+            }
+          };
+          walk(0);
+        }
+        if (best) { own = best[0]; foe = best[1]; extra = best.slice(2); tier = t; harbour = shoreMany ? name : '-'; return; }
+      }
+    }
+  };
+  // no fair set on this ground, with or without the airfield: the spots as far apart as the gentle ground lets them be (tier SKIRMISH_FAIR.length, no fairness promised)
+  const spreadMany = () => {
+    const spots = manySpots();
+    if (spots.length < count) return;
+    const pick = [spots[0]];
+    while (pick.length < count) {
+      let far = null, farD = -1;
+      for (const p of spots) { const d = Math.min(...pick.map((o) => Math.hypot(o.x - p.x, o.z - p.z))); if (d > farD) { farD = d; far = p; } }
+      pick.push(far);
+    }
+    own = pick[0]; foe = pick[1]; extra = pick.slice(2); tier = SKIRMISH_FAIR.length; harbour = '-';
+  };
+  const place = count > 2 ? seededMany : seeded;
+
+
+  place();
   // where the home airfield leaves no seeded base pair the next one is tried; where none does, the bases go where they
   // would without one and the airfield takes the flattest spot they leave free (or none)
-  for (let k = 1; k < homes.length && !foe; k++) { field = homes[k]; seeded(); }
+  for (let k = 1; k < homes.length && !foe; k++) { field = homes[k]; place(); }
   if (!foe && field) {
     field = null;
-    seeded();
-    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe] }, [], null, false);
+    place();
+    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
+  }
+  if (!foe && count > 2) {
+    field = null;
+    spreadMany();
+    if (foe) field = Airports.first(m, { cities: [], bases: [own, foe].concat(extra) }, [], null, false);
   }
   const fallback = !foe;
-  // out of seeded tries: the first pair of opposite spots on the ring that fits, else the fixed pair (never needed on
-  // any battlefield with the constants above; self-test sweeps the seeds)
+  // out of seeded tries: the first set of spots on the ring that fits (a pair of opposite spots, or the corners of a regular polygon), else the
+  // fixed spots (never needed on any battlefield with the constants above; self-test sweeps the seeds)
   for (let k = 0; k < SKIRMISH_FALLBACK_BEARINGS && !foe && (relief || tries === SKIRMISH_LAYOUT_TRIES_WATER); k++) {
-    const a = k * TAU / SKIRMISH_FALLBACK_BEARINGS, r = (SKIRMISH_BASE_RING[0] + SKIRMISH_BASE_RING[1]) / 2;
+    const a = k * TAU / SKIRMISH_FALLBACK_BEARINGS;
+    if (count > 2) {
+      const ps = ringSpots(a);
+      if (ps.every(inField) && ps.every((p) => flat(p, SKIRMISH_FAIR[SKIRMISH_FAIR.length - 1].deg))) { own = ps[0]; foe = ps[1]; extra = ps.slice(2); }
+      continue;
+    }
+    const r = (SKIRMISH_BASE_RING[0] + SKIRMISH_BASE_RING[1]) / 2;
     const o = { x: Math.cos(a) * r, z: Math.sin(a) * r, r: FORT.r }, e = { x: -o.x, z: -o.z, r: FORT.r };
     if (flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
   }
   const fixedPair = !foe;
-  if (fixedPair) { own = { x: -450, z: -420 }; foe = { x: 450, z: 420 }; }
+  if (fixedPair) {
+    const fx = count > 2 ? SKIRMISH_FIXED_SPOTS[count] : null;
+    own = fx ? Object.assign({}, fx[0]) : { x: -450, z: -420 }; foe = fx ? Object.assign({}, fx[1]) : { x: 450, z: 420 };
+    extra = fx ? fx.slice(2).map((q) => Object.assign({}, q)) : [];
+  }
+  // the bases: team ids in the order of Teams.FIGHTING, team 0 first; two teams face each other, more face the middle of them all
+  const spots = [own, foe].concat(extra), ids = Teams.forCount(count);
+  const cx = spots.reduce((a, p) => a + p.x, 0) / spots.length, cz = spots.reduce((a, p) => a + p.z, 0) / spots.length;
   const face = Math.atan2(foe.x - own.x, foe.z - own.z), diff = SKIRMISH_FORT[cfg.difficulty] || SKIRMISH_FORT.veteran;
-  const ownBase = { x: own.x, z: own.z, r: FORT.r, style: 'fort', team: 0, face, guns: SKIRMISH_OWN_FORT.guns, aa: SKIRMISH_OWN_FORT.aa, garrison: [] };
-  const foeBase = { x: foe.x, z: foe.z, r: FORT.r, style: 'fort', team: 1, face: face + PI, guns: diff.guns, aa: diff.aa, garrison: SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran };
-  const lay = { cities: [], bases: [ownBase, foeBase], airport: fixedPair ? null : field };   // the fixed fallback pair may stand on it
-  // P5-09: each base's extra defence points ("Base defences: standard"; off keeps today's bases), the seed of its plan, the silo that arms first, and what each must keep clear of the other
+  const faces = count === 2 ? [face, face + PI] : spots.map((p) => Math.atan2(cx - p.x, cz - p.z));
+  const bases = spots.map((p, i) => ({ x: p.x, z: p.z, r: FORT.r, style: 'fort', team: ids[i], face: faces[i], guns: i === 0 ? SKIRMISH_OWN_FORT.guns : diff.guns, aa: i === 0 ? SKIRMISH_OWN_FORT.aa : diff.aa, garrison: i === 0 ? [] : SKIRMISH_GARRISON[cfg.difficulty] || SKIRMISH_GARRISON.veteran }));
+  const ownBase = bases[0], foeBase = bases[1];
+  const lay = { cities: [], bases, airport: fixedPair ? null : field };   // the fixed fallback pair may stand on it
+  // P5-09: each base's extra defence points ("Base defences: standard"; off keeps today's bases), the seed of its plan, the silo that arms first, and what each must keep clear of the others
   const dpBase = cfg.defences === 'off' ? 0 : BD_DP[cfg.size] || BD_DP.small;
-  ownBase.dp = dpBase; foeBase.dp = dpBase ? dpBase + (cfg.difficulty === 'elite' ? BD_ELITE_DP : 0) : 0;
-  ownBase.size = foeBase.size = cfg.size; ownBase.air = foeBase.air = !!lay.airport || cfg.size === 'large';   // aircraft can come: an airfield on the map, or the large waves' jets and gunships
-  ownBase.chosen = dpBase ? BaseDef.cleanChoice(cfg.ownDefs, cfg.size, cfg.map) : [];   // what the player picked for our base; empty: the base builds as the seed says
-  ownBase.defSeed = (cfg.seed ^ 0x51ed27) >>> 0; foeBase.defSeed = (cfg.seed ^ 0x9e3779) >>> 0;
-  ownBase.siloFirst = foeBase.siloFirst = cfg.seed & 1;
-  ownBase.foe = { hq: Scenery.fortAt(foeBase, FORT.hq[0], FORT.hq[1]), start: Scenery.fortAt(foeBase, FORT.start[0], FORT.start[1]) };
-  foeBase.foe = { hq: Scenery.fortAt(ownBase, FORT.hq[0], FORT.hq[1]), start: Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]) };
+  bases.forEach((b, i) => {
+    b.dp = i === 0 ? dpBase : dpBase ? dpBase + (cfg.difficulty === 'elite' ? BD_ELITE_DP : 0) : 0;
+    b.size = cfg.size; b.air = !!lay.airport || cfg.size === 'large';   // aircraft can come: an airfield on the map, or the large waves' jets and gunships
+    b.defSeed = (cfg.seed ^ SKIRMISH_DEF_SALTS[b.team]) >>> 0; b.siloFirst = cfg.seed & 1; b.teamCount = count;
+  });
+  ownBase.chosen = dpBase ? BaseDef.cleanChoice(cfg.ownDefs, cfg.size, cfg.map, count) : [];   // what the player picked for our base; empty: the base builds as the seed says
+  for (const b of bases) {
+    b.foes = bases.filter((o) => o !== b).map((o) => ({ hq: Scenery.fortAt(o, FORT.hq[0], FORT.hq[1]), start: Scenery.fortAt(o, FORT.start[0], FORT.start[1]) }));
+    b.foe = b.foes[0];
+  }
   const st = Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]);
   const start = { x: st.x, z: st.z, yaw: face };
+  const starts = bases.map((b) => { const q = Scenery.fortAt(b, FORT.start[0], FORT.start[1]); return { team: b.team, x: q.x, z: q.z, yaw: b.face }; });   // where each team's units and players start
   const sites = [{ x: start.x, z: start.z, r: 34, tag: 'pad' }];
+  for (const q of starts.slice(2)) sites.push({ x: q.x, z: q.z, r: 34, tag: 'pad' });
   // P2-06: bases no dry ground joins (archipelago: every seeded pair lies on two islands) get a built ford: level boxes of
   // ground SKIRMISH_FORD_DEPTH m under the surface along the cheapest way across (a route that may cross any water, a
-  // cell of it dearer than ground), so tanks and soldiers can drive from one base to the other
-  if (linkGrid && !fixedPair && !Nav.linked(linkGrid, own.x, own.z, foe.x, foe.z)) {
-    const wade = Nav.plan({ key: 'land|wade', sea: false, ford: SKIRMISH_WADE_MAX, slope: linkSpec.slope }, own.x, own.z, foe.x, foe.z, m), levels = Terrain.baseWater[Terrain.gridKey(m)].levels;
-    let px = own.x, pz = own.z;
+  // cell of it dearer than ground), so tanks and soldiers can drive from one base to the other. Each base after the first is
+  // joined to the nearest base before it when no dry ground does.
+  const ford = (a, b) => {
+    const wade = Nav.plan({ key: 'land|wade', sea: false, ford: SKIRMISH_WADE_MAX, slope: linkSpec.slope }, a.x, a.z, b.x, b.z, m), levels = Terrain.baseWater[Terrain.gridKey(m)].levels;
+    let px = a.x, pz = a.z;
     for (const w of wade && !wade.partial ? wade.pts : []) {   // (water is all that is crossed: a cliff between them is not a ford's work)
       const len = Math.hypot(w.x - px, w.z - pz), n = Math.ceil(len / SKIRMISH_FORD_STEP);
       for (let i = 1; i <= n; i++) {
@@ -28449,18 +28630,29 @@ function skirmishLayoutWith(cfg, homes) {
       }
       px = w.x; pz = w.z;
     }
+  };
+  if (linkGrid && !fixedPair) {
+    const joined = [own];
+    for (const b of [foe].concat(extra)) {
+      if (!joined.some((q) => Nav.linked(linkGrid, q.x, q.z, b.x, b.z))) {
+        let near = joined[0];
+        for (const q of joined) if (Math.hypot(q.x - b.x, q.z - b.z) < Math.hypot(near.x - b.x, near.z - b.z)) near = q;
+        ford(near, b);
+      }
+      joined.push(b);
+    }
   }
   // the mega-district first (it needs the most room), then one district beside each base
-  const mx = (own.x + foe.x) / 2, mz = (own.z + foe.z) / 2, px = Math.cos(face), pz = -Math.sin(face);   // (px, pz) is square to the line
+  const mx = cx, mz = cz, px = Math.cos(face), pz = -Math.sin(face);   // (px, pz) is square to the line
   const side = rng() < 0.5 ? 1 : -1, shift = lerp(SKIRMISH_MEGA_SHIFT[0], SKIRMISH_MEGA_SHIFT[1], rng());
   for (const k of [shift * side, -shift * side, 0]) {
     const c = { x: mx + px * k, z: mz + pz * k, r: SCENERY_MEGA_R, kind: 'mega' };
     if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
   }
-  for (const b of [ownBase, foeBase]) {
-    const bs = rng() < 0.5 ? 1 : -1;
+  for (const b of bases) {
+    const bs = rng() < 0.5 ? 1 : -1, bx = count === 2 ? px : Math.cos(b.face), bz = count === 2 ? pz : -Math.sin(b.face);   // (more teams: square to the base's own line)
     for (const k of [SKIRMISH_DISTRICT_SIDE[0] * bs, -SKIRMISH_DISTRICT_SIDE[0] * bs, SKIRMISH_DISTRICT_SIDE[1] * bs, -SKIRMISH_DISTRICT_SIDE[1] * bs]) {
-      const c = { x: b.x + px * k, z: b.z + pz * k, r: SCENERY_DISTRICT_R, kind: 'district' };
+      const c = { x: b.x + bx * k, z: b.z + bz * k, r: SCENERY_DISTRICT_R, kind: 'district' };
       if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
     }
   }
@@ -28471,7 +28663,7 @@ function skirmishLayoutWith(cfg, homes) {
     if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) lay.cities.push(c);
   }
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
-  return { lay, start, sites, own: ownBase, foe: foeBase, fallback, fixedPair };
+  return { lay, start, starts, sites, own: ownBase, foe: foeBase, bases, count, tier, harbour, fallback, fixedPair };
 }
 /* where skirmish wave unit u heads: the nearest human within SKIRMISH_WAVE_HUNT, never a passive civilian (D5), else hq */
 function skirmishWaveGoal(u, hq) {
@@ -28545,10 +28737,17 @@ function skirmishDef(cfg) {
     sites: layout.sites, layout: layout.lay,             // the bases and districts come in through Scenery.layoutFor
     build(ctx) {
       const m = ctx.m;
-      W.bases = { own: { x: own.x, z: own.z }, enemy: { x: foe.x, z: foe.z } };   // read by superweapons (SW.home); built on co-op guests too
+      // read by superweapons (SW.home), the respawn rules and the AI; built on co-op guests too. byTeam: one entry per team of the battle; own / enemy: the first two, for the older readers
+      const list = layout.starts.map((q, i) => ({ team: q.team, x: layout.bases[i].x, z: layout.bases[i].z, start: { x: q.x, z: q.z, yaw: q.yaw } }));
+      W.bases = { own: { x: own.x, z: own.z }, enemy: { x: foe.x, z: foe.z }, list, byTeam: {} };
+      for (const b of list) W.bases.byTeam[b.team] = b;
       const oh = Scenery.fortAt(own, FORT.hq[0], FORT.hq[1]), fh = Scenery.fortAt(foe, FORT.hq[0], FORT.hq[1]);
       ownHq = objStruct('command', oh.x, oh.z, 'Command Center', 0);
       foeHq = objStruct('command', fh.x, fh.z, 'Enemy Command', 1, { hpMult: W.diff.hp });
+      for (const b of layout.bases.slice(2)) {   // P7-02: the other teams' command centers (their waves and objectives are the skirmish setup's, P7-04)
+        const h = Scenery.fortAt(b, FORT.hq[0], FORT.hq[1]);
+        objStruct('command', h.x, h.z, 'Team ' + b.team + ' Command', b.team, { hpMult: W.diff.hp });
+      }
       // any of three ways wins: every wave beaten, the enemy command center down, or the clock run out (timeUpWins)
       ob = m.add(Obj.kill({ id: 'all', title: 'Destroy all hostile forces', units: [], waves: [], status: 'active',
         tick() { const alive = this.units.filter((u) => !u.dead).length; this.progress = this.spawnedAll ? 1 - alive / Math.max(1, this.units.length) : 0; if (this.spawnedAll && alive === 0) this.status = 'complete'; },
@@ -33452,7 +33651,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 20 (P7-01: team ids 0 to 4 on the wire; 19 was P4-02, craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 20);
+      this.check('the net version is 21 (P7-02: the team in the known-mines message, silo targets of every team; 20 was P7-01, team ids 0 to 4 on the wire; 19 was P4-02, craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 21);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -36914,7 +37113,7 @@ const SelfTest = {
         const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
         this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
         const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
-        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 20', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 20);
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 21', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 21);
       } finally { Save.data = keep.data; Save.persist = keep.persist; }
       const arsenal = UI.gearArsenal();
       this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
@@ -40912,7 +41111,7 @@ const SelfTest = {
         Net.hostMsg(cqPeer, { t: 'cq' });
         Net.t += 2; Net.hostMsg(cqPeer, { t: 'cq' });
         this.check('and answers one guest at most once a second', replies.length === 2);
-        this.check('the net version is 20 and a guest cannot dig by itself', NET_VERSION === 20 && SAVE_VERSION === 1);
+        this.check('the net version is 21 and a guest cannot dig by itself', NET_VERSION === 21 && SAVE_VERSION === 1);
         Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.hostPeer = keepNet.hostPeer; Net.beatAcc = keepNet.beatAcc; Net.t = keepNet.t;
         // 6. the drawn ground: patches over the same corners, two triangles gone per square, the cached mesh whole
         if (!R.gl) this.check('the crater patches (no GL here)', true);
@@ -41185,7 +41384,7 @@ const SelfTest = {
         this.check('using a timed utility sets when it ends (the picture state of a Holo Decoy)', hu.utilUntil > W.time && lvActive(hu, hu.util));
         flatWorld();
         // co-op: the host's number rides in the platform entry and a guest draws what the host does
-        this.check('the net version is 20 (team ids; 19 was craters), and the save version stays 1', NET_VERSION === 20 && SAVE_VERSION === 1);
+        this.check('the net version is 21 (base-defence messages for any team; 19 was craters), and the save version stays 1', NET_VERSION === 21 && SAVE_VERSION === 1);
         const host = maker('bulwark');
         view(host, 30);
         items(host, 'rail', 'mg', 'missile', 'reactive');
@@ -41284,7 +41483,7 @@ const SelfTest = {
       return q;
     };
     t('p7 alliance table', () => {
-      const keep = Teams.alliances();
+      const keep = Teams.alliances(), keepHumans = Teams.humans();   // (put back at the end, with the sides the players are on)
       try {
         Teams.reset();
         const bad = [];
@@ -41318,7 +41517,7 @@ const SelfTest = {
         Teams.configure([[1, 3]]);
         newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
         this.check('every new battle starts from the default table', !Teams.allied(1, 3) && Teams.hostile(1, 3) && Teams.alliances().length === 0 && Teams.humanSide(0) && !Teams.humanSide(4));
-      } finally { Teams.configure(keep); }
+      } finally { Teams.configure(keep, keepHumans); }
     });
     t('p7 alliance table sites', () => {
       const keepCredit = Arsenal.creditKill;
@@ -41494,40 +41693,249 @@ const SelfTest = {
         W.feed.length = 0;
         Net.guestMsg(null, { t: 'f', text: 'A  >  B', team: 4, k: ['A', 0], v: ['B', 0] });
         Net.guestMsg(null, { t: 'f', text: 'C  >  D', team: 12, k: ['C', 0], v: ['D', 0] });
-        this.check('wire: a kill feed line keeps team 4 and turns an unknown team into neutral, and the net version is 20', W.feed.length === 2 && W.feed[0].team === 4 && W.feed[1].team === 2 && NET_VERSION === 20);
+        this.check('wire: a kill feed line keeps team 4 and turns an unknown team into neutral, and the net version is 21', W.feed.length === 2 && W.feed[0].team === 4 && W.feed[1].team === 2 && NET_VERSION === 21);
       } finally { Net.host = keepHost; Net.guest = keepGuest; Net.map = keepMap; Net.inSession = keepIn; Teams.reset(); }
     });
     t('p7 alliance table static', () => {
-      // no comparison of two team ids, or of a team id with 0, 1 or 2, is left in the game code (everything outside the self-test) except the listed ones
+      // no comparison of a team id is left in the game code (everything outside the self-test) except the listed fragments: not of two team ids, of one with a number,
+      // with <, >, <= or >=, nor a silo's .target with a number, nor the old two-team forms (1 - team, a loop over two teams, BD_TEAMS)
       const scripts = Array.from(document.scripts).map((s) => s.textContent).filter((s) => s.indexOf('const Self' + 'Test = {') >= 0);
       this.check('static: the game source can be read', scripts.length === 1);
       if (scripts.length !== 1) return;
       const src = scripts[0], a = src.indexOf('const Self' + 'Test = {'), b = src.indexOf('const Ne' + 't = {', a);
       const game = src.slice(0, a) + src.slice(b);
-      const TEAMISH = '(?:[\\w$.\\]]*\\.team|\\bteam|[\\w$]*Team|\\.tm|\\btm)';
-      const flagged = new RegExp('(?:' + TEAMISH + '\\s*(?:===|!==|==|!=)\\s*[^\\s)&|?:;,]+|(?:===|!==|==|!=)\\s*[\\w$.\\]]*(?:\\.team|\\bteam|[a-z]Team|\\.tm)\\b)');
-      const literal = /(?:\bteam|\.team|\.tm|\btm)\s*(?:===|!==|==|!=)\s*[0-9]|[0-9]\s*(?:===|!==|==|!=)\s*[\w$.]*(?:\bteam|\.team|\.tm)\b/;
-      // the allowed exceptions: pattern, reason
-      const allowed = [
-        [/opts\.team === undefined \? [12] : opts\.team/, 'the default team of an omitted option (structures neutral, spawned units the computer\'s), not a comparison of two sides'],
-        [/q\.team !== m\.tm/, 'the guest looks up the platform of the very team id the host sent (an identity on the wire)'],
-        [/p\.team === \(c\.siloFirst \|\| 0\)|for \(let t = 0; t < 2; t\+\+\)|t === m\.team \|\| S\.known|p\.team !== t \|\| p\.parked|t === d\.team \|\| S\.seen|u\.team !== t \|\| u\.parked|u\.team !== team \|\| !u\.ai/, 'BaseDef state is kept per team id for the two teams that have bases (P7-02 gives teams 3 and 4 theirs)'],
-        [/hqStruct\(team\) \{|\.team === o\.target|\.team !== o\.target|o\.target !== p\.team|o\.target === p\.team|o\.team === me|q\.team === foe/, 'a base, silo, dome or post belongs to exactly one team id (its owner or its target team), which is not an alliance question (P7-02)'],
+      const OP = '(?:===|!==|==|!=|<=|>=|<|>)', NAME = '(?:[\\w$.\\]]*\\.team|\\bteam|[a-z][\\w$]*Team|\\.tm|\\btm)\\b';
+      const rules = [
+        [new RegExp(NAME + '\\s*' + OP), 'a team on the left of a comparison'],
+        [new RegExp(OP + '\\s*[\\w$.\\]]*' + NAME), 'a team on the right of a comparison'],
+        [new RegExp('\\.target\\s*' + OP + '\\s*[0-9]|[0-9]\\s*' + OP + '\\s*[\\w$.]*\\.target\\b'), 'a silo\'s target against a number'],
+        [/\b1 - [\w$.]*[tT]eam\b|\bfor \(let t = 0; t < [0-9]+; t\+\+\)|\bBD_TEAMS\b/, 'the two-team forms'],
       ];
-      const hits = [], loose = [], literals = [];
+      // the allowed fragments (each removed from its line, not the whole line), with why
+      const allowed = [
+        [/\bopts\.team === undefined\b/g, 'the default team of an omitted option (structures neutral, spawned units the computer\'s): not a comparison of two sides'],
+        [/\b(?:s\.team|s\.convertTeam) (?:<|>=) 0\b/g, 'a team slot of -1 means "none yet" (a ping before its carrier is known, no conversion running)'],
+        [/\btm (?:<|<=) (?:DEL|0)\b/g, 'tm is a timer in the Aegis ring effect, not a team'],
+      ];
+      const used = allowed.map(() => 0), loose = [], kinds = {};
       game.split('\n').forEach((line, i) => {
-        const code = line.replace(/\/\/.*$/, '');
         if (/^\s*(\/\/|\/\*|\*)/.test(line)) return;
-        if (literal.test(code) && !allowed.some((e) => e[0].test(code))) literals.push(i + 1);
-        if (!flagged.test(code)) return;
-        const e = allowed.findIndex((x) => x[0].test(code));
-        if (e < 0) loose.push((i + 1) + ': ' + line.trim().slice(0, 100)); else hits.push(e);
+        let code = line.replace(/\/\/.*$/, '');
+        allowed.forEach((e, k) => { code = code.replace(e[0], () => { used[k]++; return ' '; }); });
+        for (const [re, why] of rules) if (re.test(code)) { loose.push((i + 1) + ': ' + why + ': ' + line.trim().slice(0, 90)); kinds[why] = (kinds[why] || 0) + 1; break; }
       });
-      this.check('static: no comparison of a team id with 0, 1 or 2 is left in the game code (' + literals.length + ')', literals.length === 0, literals.join(','));
-      this.check('static: no other comparison of team ids is left except the ' + allowed.length + ' listed kinds (' + loose.length + ' loose)', loose.length === 0, loose.slice(0, 4).join(' | '));
-      this.check('static: every listed exception still matches a line (' + allowed.map((e, i) => hits.filter((h) => h === i).length).join(', ') + ' lines each), so none has gone stale', allowed.every((e, i) => hits.indexOf(i) >= 0));
-      const users = (game.match(/Teams\.(allied|hostile|isNeutral|humanSide|aiSide)\(/g) || []).length;
+      this.check('static: no comparison of team ids is left in the game code except the ' + allowed.length + ' listed fragments (' + loose.length + ' loose)', loose.length === 0, loose.slice(0, 4).join(' | '));
+      this.check('static: every listed fragment still matches (' + used.join(', ') + ' times), so none has gone stale', used.every((n) => n > 0));
+      // the rules catch what they are meant to: a team compared with a number, <, a silo target, 1 - team
+      const sample = ['if (e.team === 1) x();', 'if (a.team !== b.team) x();', 'if (t.team < 3) x();', 'if (o.target === 0) x();', 'if (0 !== o.target) x();', 'const f = 1 - team;', 'for (let t = 0; t < 2; t++) x();', 'if (burnTeam >= 1) x();', 'if (q.team <= p.team) x();', 'if (BD_TEAMS > 1) x();'];
+      this.check('static: and the rules do catch ' + sample.length + ' kinds of comparison written fresh', sample.every((code) => rules.some(([re]) => re.test(code))) && !rules.some(([re]) => re.test('if (Teams.hostile(a.team, b.team)) x();')));
+      const users = (game.match(/Teams\.(allied|hostile|isNeutral|humanSide|aiSide|same)\(/g) || []).length;
       this.check('static: the alliance helpers are what the game code calls (' + users + ' uses)', users >= 150, String(users));
+    });
+    // ---- P7-02 (a base and a start for every team, any number of teams in the base-defence module, the review's lows); run alone with selfTest('p7 bases') ----
+    const p7r1 = (v) => Math.round(v * 1000) / 1000;
+    const p7hash = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; };
+    const p7sk = (map, teams, size, seed) => {
+      Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: size || 'large', seed: seed || 11, random: false, platformId: 'bulwark', teams }) });
+    };
+    t('p7 bases two teams', () => {
+      // the bases, start, districts and sites of a two-team battle are what they were before P7-02: 13 battlefields x 2 platforms x 6 seeds, hashed per battlefield (made with the build before this change)
+      const GOLD = { ashfall: 470070181, verdant: 470070181, frost: 470070181, coast: 3985743997, archipelago: 2847091045, valley: 3940466613, alpine: 663883101, canyon: 4055313033, jungle: 4111511501, volcano: 2965179037, tundra: 3237556340, metro: 2313791637, farmland: 264985505 };
+      const bad = [];
+      for (const id of Object.keys(MAPS)) {
+        let all = '';
+        for (const pid of ['bulwark', 'trident']) {
+          for (let k = 1; k <= 6; k++) {
+            const cfg = Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed: k * 7919 + 3, random: false, platformId: pid, size: k % 3 === 0 ? 'large' : k % 2 ? 'small' : 'medium' });
+            const L = skirmishLayout(cfg);
+            const b = (q) => [p7r1(q.x), p7r1(q.z), p7r1(q.face), q.team, q.dp, q.defSeed, q.guns, q.aa, q.garrison.length, q.chosen ? q.chosen.join() : '-', q.foe ? [p7r1(q.foe.hq.x), p7r1(q.foe.hq.z), p7r1(q.foe.start.x), p7r1(q.foe.start.z)].join() : ''].join('/');
+            all += [b(L.own), b(L.foe), p7r1(L.start.x), p7r1(L.start.z), p7r1(L.start.yaw), L.lay.cities.map((c) => [p7r1(c.x), p7r1(c.z), c.kind].join()).join(';'), L.sites.length, L.fallback, L.fixedPair, L.lay.airport ? p7r1(L.lay.airport.x) + ',' + p7r1(L.lay.airport.z) : '-'].join('|') + '\n';
+          }
+        }
+        if (p7hash(all) !== GOLD[id]) bad.push(id);
+      }
+      this.check('two teams: the bases, start, districts, sites and airfield of every battlefield (6 seeds, a land and a ship pick) are exactly where they were before P7-02', bad.length === 0 && Object.keys(MAPS).length === 13, bad.join(','));
+      const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', seed: 11, random: false }));
+      this.check('and ashfall seed 11 still puts our base at 155, 531 and the enemy\'s at -321, -465, as two bases of teams 0 and 1', Math.abs(L.own.x - 155) < 1 && Math.abs(L.own.z - 531) < 1 && Math.abs(L.foe.x + 321) < 1 && Math.abs(L.foe.z + 465) < 1 && L.bases.length === 2 && L.bases[0] === L.own && L.bases[1] === L.foe && L.own.team === 0 && L.foe.team === 1 && L.count === 2 && L.starts.length === 2 && L.starts[0].x === L.start.x && L.starts[0].z === L.start.z, [L.own.x, L.own.z, L.foe.x, L.foe.z].map(p7r1).join(','));
+      const counts = [undefined, null, NaN, 'x', 0, 1, 2, 2.9, 3, 3.5, 4, 5, 99].map((n) => skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', seed: 11, random: false, teams: n })).bases.length);
+      this.check('the number of teams is read as 2 unless it is 3 or more, and at most 4 (' + counts.join(' ') + ')', counts.join() === '2,2,2,2,2,2,2,2,3,3,4,4,4');
+    });
+    t('p7 bases three and four teams', () => {
+      // per battlefield and number of teams, over four seeds: the bases are inside the field, on ground flat enough for the tier the layout found them in, dry, fair, joined by dry ground or a ford, and (ship water) within reach of a harbour
+      const SEEDS = [1, 2, 3, 4].map((k) => k * 7919 + 3), CLASS = { near: 2, reach: 1, '-': 0 };
+      const GUARANTEE = { archipelago3: 'near', archipelago4: 'near', volcano3: 'near', volcano4: 'near', coast3: 'reach', tundra3: 'reach' };   // the harbour class every seed gets (see Appendix C for the others, where the water lies beyond the gentle ground)
+      const tankSpec = (md) => { const ms = md.maxSlope || MAP_FIELDS.maxSlope; return { key: 'land|link', sea: false, ford: NAV_BASE_FORD, slope: Math.min(ms === Infinity ? Infinity : Math.tan(ms * DEG), NAV_CLIFF.ground) * NAV_SLOPE_SHARE }; };
+      for (const id of Object.keys(MAPS)) {
+        const md = mapDef(id), sea = Naval.mapOk(md), shore = sea ? Nav.baseGrid(md, navSpecShip(PLATFORMS.trident)) : null, grid = md.water.length ? Nav.baseGrid(md, tankSpec(md)) : null;
+        for (const count of [3, 4]) {
+          const faults = [], seen = { tiers: [], nn: [], classes: [], fords: 0 };
+          for (const seed of SEEDS) {
+            const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed, random: false, teams: count })), tag = 'seed ' + seed + ': ';
+            if (L.bases.length !== count || L.bases.map((b) => b.team).join() !== Teams.forCount(count).join() || L.starts.length !== count || L.count !== count) faults.push(tag + 'bases');
+            if (L.fixedPair || L.fallback) faults.push(tag + 'fixed spots');
+            if (L.tier > 3) faults.push(tag + 'only a spread set (tier ' + L.tier + ')');
+            const deg = SKIRMISH_FAIR[Math.min(L.tier, 3)].deg;
+            for (const b of L.bases) {
+              if (Math.abs(b.x) > SKIRMISH_FIELD || Math.abs(b.z) > SKIRMISH_FIELD) faults.push(tag + 'outside the field');
+              if (!L.fixedPair && (!Water.siteDry(md, b.x, b.z, FORT.r + SITE_PAD + SITE_FADE) || (Terrain.hasRelief(md) && !Terrain.siteFlat(md, b.x, b.z, FORT.r + SITE_PAD, deg)))) faults.push(tag + 'wet or steep base at ' + Math.round(b.x) + ',' + Math.round(b.z) + ' (' + deg + ' deg)');
+            }
+            const f = skirmishFairness(L.bases);
+            if (L.tier <= 3 && !skirmishFair(f, count, L.tier)) faults.push(tag + 'not fair for tier ' + L.tier);
+            if (L.tier === 0 && (f.gap < SKIRMISH_FAIR[0].gap[count] || f.nearHi > 1100 || f.nearRatio > 1.2)) faults.push(tag + 'tier 0 band');
+            seen.tiers.push(L.tier); seen.nn.push(Math.round(f.nearLo) + '-' + Math.round(f.nearHi));
+            const fords = L.sites.filter((s) => s.tag === 'ford').length; seen.fords += fords;
+            if (grid && id !== 'canyon' && !fords) for (let i = 1; i < count; i++) if (!L.bases.slice(0, i).some((q) => Nav.linked(grid, q.x, q.z, L.bases[i].x, L.bases[i].z))) faults.push(tag + 'base ' + i + ' not joined');
+            if (shore) {
+              const ds = L.bases.map((b) => Nav.bigDist(shore, b.x, b.z, SKIRMISH_REACH, NAV_BODY_MIN, NAVAL_SPAWN_EDGE)), got = ds.every((d) => d <= NAVAL_SHORE_MAX) ? 'near' : ds.every((d) => d <= SKIRMISH_REACH) ? 'reach' : '-';
+              seen.classes.push(L.harbour + '/' + got);
+              if (CLASS[got] < CLASS[L.harbour]) faults.push(tag + 'harbour class ' + L.harbour + ' but the bases measure ' + got);
+              if (GUARANTEE[id + count] && CLASS[got] < CLASS[GUARANTEE[id + count]]) faults.push(tag + 'harbour ' + got + ' below ' + GUARANTEE[id + count]);
+            }
+          }
+          this.check(id + ' with ' + count + ' teams: ' + SEEDS.length + ' seeds all valid (tiers ' + seen.tiers.join('') + ', nearest neighbour ' + seen.nn.join(' ') + ' m' + (sea ? ', harbour ' + seen.classes.join(' ') : '') + (seen.fords ? ', ' + seen.fords + ' ford boxes' : '') + ')', faults.length === 0, faults.slice(0, 3).join(' | '));
+        }
+      }
+    });
+    t('p7 bases built', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        for (const [map, count] of [['ashfall', 4], ['archipelago', 4], ['coast', 3]]) {
+          p7sk(map, count, 'large');
+          const sep = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+          const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'large', seed: 11, random: false, platformId: 'bulwark', teams: count })), ids = Teams.forCount(count);
+          const hq = W.structs.filter((s) => s.type === 'command'), near = (team, p, r) => W.platforms.filter((u) => !u.dead && u.team === team && Math.hypot(u.x - p.x, u.z - p.z) < r).length;
+          this.check(map + ' with ' + count + ' teams: W.bases holds a base and a start for each team, in the layout\'s places, and teamBase finds them', !!W.bases && W.bases.list.length === count && ids.every((tm, i) => teamBase(tm) === W.bases.byTeam[tm] && Math.hypot(teamBase(tm).x - L.bases[i].x, teamBase(tm).z - L.bases[i].z) < 1e-6 && Math.hypot(teamBase(tm).start.x - L.starts[i].x, teamBase(tm).start.z - L.starts[i].z) < 1e-6) && teamBase(2) === null && (count === 3 ? teamBase(4) === null : !!teamBase(4)) && sep(W.bases.own, L.own) < 1e-6 && sep(W.bases.enemy, L.foe) < 1e-6);
+          this.check(map + ' with ' + count + ' teams: one command center stands in each base, the base-defence module plans one base for each (' + BaseDef.s.bases.map((b) => b.picks.length).join(' ') + ' defences) and counts ' + BaseDef.s.teamCount + ' teams', hq.length === count && ids.every((tm, i) => hq.some((s) => s.team === tm && Math.hypot(s.x - Scenery.fortAt(L.bases[i], FORT.hq[0], FORT.hq[1]).x, s.z - Scenery.fortAt(L.bases[i], FORT.hq[0], FORT.hq[1]).z) < 1)) && BaseDef.s.bases.length === count && BaseDef.s.bases.every((b) => b.picks.length > 0) && BaseDef.s.teamCount === count);
+          this.check(map + ' with ' + count + ' teams: each base is held by its own team\'s garrison in the yard at its start', ids.every((tm, i) => near(tm, L.starts[i], 60) >= (i === 0 ? 1 : 4)), ids.map((tm, i) => near(tm, L.starts[i], 60)).join(','));
+          const lv = ids.map((tm, i) => { const b = L.bases[i], hs = []; for (let k = 0; k < 8; k++) hs.push(Terrain.h(b.x + Math.cos(k * PI / 4) * 55, b.z + Math.sin(k * PI / 4) * 55)); return Math.max(...hs) - Math.min(...hs); });
+          this.check(map + ' with ' + count + ' teams: the ground inside every fort is level (spread of eight heights 55 m out: ' + lv.map((v) => v.toFixed(2)).join(' ') + ' m)', lv.every((v) => v < 1.2));
+          const grid = Nav.ensure(navSpecFor(PLATFORMS.bastion)), unjoined = [];
+          for (let i = 1; i < count; i++) if (!L.bases.slice(0, i).some((q) => Nav.linked(grid, q.x, q.z, L.bases[i].x, L.bases[i].z))) unjoined.push(i);
+          this.check(map + ' with ' + count + ' teams: a tank can drive from the base of each team to an earlier one in the built battle (fords included)', unjoined.length === 0 || map === 'canyon', unjoined.join());
+          for (let i = 0; i < 60 * 15; i++) Game.tick(1 / 60);
+          this.check(map + ' with ' + count + ' teams: fifteen seconds of battle run without an error, and every team still has units', errs.length === 0 && ids.every((tm) => W.platforms.some((u) => !u.dead && u.team === tm)), errs.slice(0, 2).join(' | '));
+          Game.quitToMenu();
+        }
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); Teams.reset(); }
+    });
+    t('p7 bases any team', () => {
+      const keepRep = Game.reportError, keepBcast = Net.bcast, keepHost = Net.host;
+      Game.reportError = () => {};
+      try {
+        p7sk('ashfall', 4, 'large');
+        const S = BaseDef.s;
+        // the stand-in owners: one for each team and kind, none shared
+        const owners = []; for (const tm of Teams.FIGHTING) { owners.push(BaseDef.owner(tm), BaseDef.owner(tm, true)); }
+        this.check('base-defence owners: eight stand-ins for four teams and two kinds, each with its own id, on its own team, the first two teams named as before', new Set(owners).size === 8 && new Set(owners.map((o) => o.id)).size === 8 && owners.every((o, i) => o.team === Teams.FIGHTING[i >> 1] && o.dead && o.isFake) && BaseDef.owner(0, true).name === 'Our missile strike' && BaseDef.owner(1, true).name === 'Enemy missile strike' && BaseDef.owner(0).name === 'Our minefield' && BaseDef.owner(1).name === 'Enemy minefield' && BaseDef.owner(3, true).name === 'Team 3 missile strike' && BaseDef.owner(4).name === 'Team 4 minefield', owners.map((o) => o.name).join('; '));
+        this.check('every base of the four-team battle has its silo (large encounter), and the one that arms first is the seed\'s', Teams.FIGHTING.every((tm) => S.silos.some((o) => o.team === tm)) && S.silos.filter((o) => o.at === BD_SILO_START).length === 1);
+        // silo targets: the nearest base of a team that is not an ally
+        Teams.configure([[0, 1], [3, 4]], [0]);
+        const aim = (team) => { const o = S.silos.find((q) => q.team === team); o.state = 'wait'; o.target = -1; BaseDef.siloArm(o); return o; };
+        const s3 = aim(3), s0 = aim(0);
+        const nearestFoe = (team) => { const st = S.silos.find((q) => q.team === team).struct; return S.bases.filter((b) => Teams.hostile(team, b.team)).sort((a, b) => Math.hypot(a.x - st.x, a.z - st.z) - Math.hypot(b.x - st.x, b.z - st.z))[0].team; };   // (measured from the silo, as the module does)
+        this.check('silo targets: with 0+1 and 3+4 allied the silo of team 3 is aimed at the nearest base of team 0 or 1 (' + s3.target + ') and the silo of team 0 at team 3 or 4 (' + s0.target + '), never an ally', (s3.target === 0 || s3.target === 1) && (s0.target === 3 || s0.target === 4) && s3.target === nearestFoe(3) && s0.target === nearestFoe(0));
+        // the hunt for an arming silo: only the units of the team it is aimed at
+        for (const o of S.silos) { o.state = 'wait'; o.target = -1; }
+        const mk = (team, x, z) => { const u = spawnUnit('tank', x, z, { team, radius: 2, force: true }); u.garrison = false; return u; };
+        Teams.reset();
+        const a1 = mk(1, 200, 200), a1b = mk(1, 230, 200), a3 = mk(3, 260, 200), a4 = mk(4, 290, 200);
+        const siloOf3 = S.silos.find((o) => o.team === 3);
+        siloOf3.state = 'arm'; siloOf3.target = 1; siloOf3.found = false; siloOf3.struct.destroyed = false;
+        a1.ai.scoutFor = a1b.ai.scoutFor = a3.ai.scoutFor = a4.ai.scoutFor = null;
+        BaseDef.aiSiloStep();
+        this.check('the hunt for a silo aimed at team 1: one unit of team 1 searches the circle, no unit of team 3 or 4 does', [a1, a1b].filter((u) => u.ai.scoutFor === siloOf3).length === 1 && !a3.ai.scoutFor && !a4.ai.scoutFor);
+        siloOf3.found = true; a1.ai.scoutFor = null;
+        BaseDef.aiSiloStep();
+        this.check('and once it is found only team 1\'s units are sent for it', (a1.ai.assault === siloOf3.struct || a1b.ai.assault === siloOf3.struct) && a3.ai.assault !== siloOf3.struct && a4.ai.assault !== siloOf3.struct);
+        siloOf3.state = 'wait'; siloOf3.target = -1;
+        // assaults go against the base they are sent for
+        const hq4 = BaseDef.hqStruct(4), as = BaseDef.assaultFor(3, hq4, false), as0 = BaseDef.assaultFor(0, BaseDef.hqStruct(1), true);
+        this.check('a wave of team 3 sent against team 4 goes for team 4\'s command center or defence, and a team 0 air wave for team 1\'s', !!as && as.team === 4 && !!as0 && as0.team === 1);
+        // mines are known to the teams that are not the owner's allies, and a team's own mines are never "hostile" to it
+        const mi = S.meta.findIndex((m) => m.team === 3 && m.alive && m.k === 'at');
+        for (const k of S.known) k.clear();
+        const mm = S.meta[mi];
+        const walker = mk(4, mm.x + 4, mm.z), scout = mk(1, mm.x - 4, mm.z);
+        BaseDef.mineTick();
+        const knownNow = Teams.forCount(4).map((tm) => S.known[tm].has(mi) ? 1 : 0).join('');
+        this.check('mines: a mine of team 3 is learned by units of teams 4 and 1 standing by it (known: ' + knownNow + ' for teams 0 1 3 4), and not by team 3 itself', S.known[4].has(mi) && S.known[1].has(mi) && !S.known[3].has(mi) && !S.known[0].has(mi));
+        for (const k of S.known) k.clear();
+        Teams.configure([[3, 4]], [0]);
+        BaseDef.mineTick();
+        this.check('and with teams 3 and 4 allied team 4 does not learn it, team 1 still does', !S.known[4].has(mi) && S.known[1].has(mi));
+        Teams.reset();
+        // messages: the guest keeps what it is sent for any team
+        const keepTarget = S.silos[0].target;
+        BaseDef.apply({ t: 'bd', k: 's', i: 0, st: 'arm', l: 50, d: 0, f: 0, tg: 4, c: [0, 0, 10], tx: 1, tz: 2, n: 1, sh: 0 });
+        const tg4 = S.silos[0].target;
+        BaseDef.apply({ t: 'bd', k: 's', i: 0, st: 'arm', l: 50, d: 0, f: 0, tg: 9, c: [0, 0, 10], tx: 1, tz: 2, n: 1, sh: 0 });
+        const tg9 = S.silos[0].target;
+        for (const k of S.known) k.clear();
+        BaseDef.apply({ t: 'bd', k: 'k', tm: 3, a: [mi] }); BaseDef.apply({ t: 'bd', k: 'k', a: [mi + 1] }); BaseDef.apply({ t: 'bd', k: 'k', tm: 2, a: [mi + 2] });
+        this.check('messages: a silo aimed at team 4 stays 4 on the guest (an id out of range is clamped to 4), the known mines go to the team named, and one without a team is the player\'s side', tg4 === 4 && tg9 === 4 && S.known[3].has(mi) && S.known[0].has(mi + 1) && S.known[0].has(mi + 2) && !S.known[3].has(mi + 1));
+        S.silos[0].target = keepTarget;
+        // the host sends what the teams of the players know
+        const sent = []; Net.bcast = (m) => { sent.push(m); }; Net.host = true;
+        for (const k of S.known) k.clear(); S.knownSent.fill(-1);
+        S.known[0].add(mi); S.known[3].add(mi + 1); S.known[1].add(mi + 2);
+        Teams.configure([], [0, 3]);
+        BaseDef.sendState();
+        const ks = sent.filter((m) => m.t === 'bd' && m.k === 'k');
+        this.check('the host sends the known mines of each team a player is on (0 and 3 here), with the team, and nothing for the computer\'s teams', ks.length === 2 && ks.some((m) => m.tm === 0 && m.a.join() === String(mi)) && ks.some((m) => m.tm === 3 && m.a.join() === String(mi + 1)));
+      } finally { Net.bcast = keepBcast; Net.host = keepHost; Game.reportError = keepRep; Game.quitToMenu(); Teams.reset(); }
+    });
+    t('p7 bases review lows', () => {
+      try {
+        // L1: a player never changes team by getting into a vehicle: only a free (neutral) vehicle or one of the player's own team is taken
+        p7world();
+        const human = p7add('ranger', 0, 0, 0), ride = (team) => { const v = p7add('bastion', team, 0, 0); v.parked = true; v.y = human.y; return v; };
+        const rN = ride(2), rO = ride(0), rA = ride(3), rF = ride(1);
+        Teams.configure([[0, 3]], [0]);
+        const canA = Seats.canEnter(human, rA), canF = Seats.canEnter(human, rF), canN = Seats.canEnter(human, rN), canO = Seats.canEnter(human, rO);
+        this.check('vehicles: a neutral one and one of the player\'s own team can be entered, an ally\'s (team 3 here) and a foe\'s cannot, so the player keeps their team', canN && canO && !canA && !canF, [canN, canO, canA, canF].join());
+        Seats.enter(human, rN);
+        this.check('and a neutral one taken joins the driver\'s team (0), not the other way round', rN.team === 0 && rN.pilot === human);
+        Teams.reset();
+        // L2: ids that are not whole numbers from 0 to 7 are nobody\'s friend or foe
+        const junk = [undefined, null, NaN, 1.5, -1, 8, Infinity, '1', '0', true, [], {}, 0.5];
+        const faults = [];
+        for (const j of junk) for (const v of [0, 1, 2, 3, 4]) {
+          if (Teams.hostile(j, v) || Teams.hostile(v, j)) faults.push('hostile ' + String(j) + ',' + v);
+          if (Teams.allied(j, v) || Teams.allied(v, j)) faults.push('allied ' + String(j) + ',' + v);
+        }
+        this.check('team ids that are undefined, null, NaN, 1.5, negative, 8 or more, infinite, a string, a boolean or an object are neither hostile nor allied to any team (' + faults.length + ' faults)', faults.length === 0, faults.slice(0, 4).join('; '));
+        Teams.configure([[1, 3]], [0, 4]);
+        const roundTrip = Teams.humans().join() + ' ' + JSON.stringify(Teams.alliances());
+        Teams.configure(Teams.alliances(), Teams.humans());
+        const again = Teams.humans().join() + ' ' + JSON.stringify(Teams.alliances());
+        Teams.reset();
+        this.check('the sides the players are on can be read back and put back with the table (' + roundTrip + '), and a reset returns to the player\'s side alone', roundTrip === again && roundTrip === '0,4 [[1,3]]' && Teams.humans().join() === '0' && Teams.alliances().length === 0);
+        this.check('while 0 against 1 and 5 to 7 (valid slots, no team) behave as before: team 1.5 is not team 1 and undefined is not team 0', Teams.hostile(0, 1) && !Teams.hostile(0, 1.5) && !Teams.hostile(undefined, 1) && !Teams.hostile(0, 5) && !Teams.hostile(7, 0) && !Teams.hostile(0, 7));
+        // L3: killing an ally with friendly fire earns no kill, score or team kill
+        p7world();
+        const P = p7add('bulwark', 0, 0, 0), A = p7add('bastion', 3, 100, 0, 'tank'), E = p7add('bastion', 1, -100, 0, 'tank');
+        W.player = P; P.isPlayer = true; W.friendlyFire = true;
+        Teams.configure([[0, 3]], [0]);
+        const keepCredit = Arsenal.creditKill; let credited = 0; Arsenal.creditKill = () => { credited++; };
+        const snap = () => [W.stats.kills, W.stats.score, W.stats.teamKills, P.stats.kills, credited, P.sw ? P.sw.charge : 0].join();
+        try {
+          const before = snap();
+          A.destroy(P);
+          const afterAlly = snap();
+          E.destroy(P);
+          const afterFoe = snap();
+          this.check('friendly fire kills: the player killing an ally (training switch on) adds no kill, score, team kill or credit (' + before + ' -> ' + afterAlly + '), a foe\'s death still does (' + afterFoe + ')', before === afterAlly && afterFoe !== afterAlly && W.stats.kills === 1 && W.feed.length >= 2);
+        } finally { Arsenal.creditKill = keepCredit; W.friendlyFire = false; Teams.reset(); }
+        // L4: the superweapon launch base is the exact team\'s, the mission start belongs to the player\'s side and its allies
+        p7sk('ashfall', 4, 'small');
+        const h3 = SW.home({ team: 3 }), h4 = SW.home({ team: 4 }), b3 = teamBase(3), b4 = teamBase(4);
+        Teams.configure([[0, 3]], [0]);
+        const h3b = SW.home({ team: 3 });
+        this.check('superweapon launch: teams 3 and 4 launch from their own bases (not the player\'s or the enemy\'s)', Math.hypot(h3.x - b3.x, h3.z - b3.z) < 1e-6 && Math.hypot(h4.x - b4.x, h4.z - b4.z) < 1e-6 && Math.hypot(h3b.x - b3.x, h3b.z - b3.z) < 1e-6 && Math.hypot(h3.x - teamBase(0).x, h3.z - teamBase(0).z) > 500);
+        Teams.reset();
+        Game.quitToMenu();
+      } finally { Teams.reset(); Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
@@ -41561,7 +41969,7 @@ var CRATERS_OFF = false;   // self-test switch: no crater is dug (the groups tha
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 20;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq'); 20: P7-01's team ids 0 to 4 on the wire (the team of a platform in 'sp', 'pst' and 'g', the team in 'f' and the 'bd' trace), where 0 to 2 were the only ids a peer accepted; neutral stays 2
+const NET_VERSION = 21;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq'); 20: P7-01's team ids 0 to 4 on the wire (the team of a platform in 'sp', 'pst' and 'g', the team in 'f' and the 'bd' trace), where 0 to 2 were the only ids a peer accepted; neutral stays 2; 21: P7-02's base-defence messages for any team: 'bd' k 'k' (the mines a team knows) carries the team (tm) it is for, and a silo's target in 'bd' k 's' may be any team 0 to 4 (a peer used to clamp it to 3)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -42174,7 +42582,7 @@ const Net = {
     let goneId = named && named.def === def && named !== W.player ? m.id : null, bestD = def.radius * 2;
     if (goneId === null) for (const id in this.map) {
       const q = this.map[id], d = Math.hypot(q.x - x, q.z - z);
-      if (q.def !== def || q === W.player || q.team !== m.tm || d > bestD) continue;
+      if (q.def !== def || q === W.player || !Teams.same(q.team, m.tm) || d > bestD) continue;
       goneId = id; bestD = d;
     }
     if (goneId !== null) { const q = this.map[goneId]; W.platforms = W.platforms.filter((o) => o !== q); delete this.map[goneId]; }
@@ -42564,7 +42972,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters, Teams };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters, Teams, skirmishFairness, skirmishFair, SKIRMISH_MANY, SKIRMISH_FAIR, SKIRMISH_FIELD, NAVAL_SHORE_MAX, NAV_BODY_MIN, NAVAL_SPAWN_EDGE, teamBase, nearestFoeBase, TEAM_ACCENT };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
