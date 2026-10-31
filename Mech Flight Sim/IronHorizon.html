@@ -26409,7 +26409,7 @@ const BaseDef = {
     if (p.mines) { p.fid = ++S.fields; p.mines.forEach((m) => this.addMine(m.k, m.x, m.z, p.team, p)); return; }
     if (p.id === 'silo') {
       const st = objStruct('silo', p.x, p.z, 'Missile Silo', p.team);
-      S.silos.push({ team: p.team, struct: st, state: 'wait', at: BD_SILO_START + (Teams.same(p.team, Teams.forCount(S.teamCount)[c.siloFirst || 0]) ? 0 : 1), t0: 0, t1: 0, t2: 0, target: -1, shrunk: false, doors: false, found: false, cx: p.x, cz: p.z, cr: 0, left: 0, seed: c.defSeed, idx: S.silos.length, shots: 0 });
+      S.silos.push({ team: p.team, struct: st, state: 'wait', at: BD_SILO_START + this.siloSeat(p.team, c.siloFirst || 0), t0: 0, t1: 0, t2: 0, target: -1, shrunk: false, doors: false, found: false, cx: p.x, cz: p.z, cr: 0, left: 0, seed: c.defSeed, idx: S.silos.length, shots: 0 });
     } else if (p.id === 'engPost') {
       const st = addStruct('engPost', p.x, p.z, { team: p.team, name: 'Engineer Post' });
       S.posts.push({ team: p.team, struct: st, engs: [null, null], lostAt: [0, 0] });
@@ -26692,13 +26692,23 @@ const BaseDef = {
   hqStruct(team) { return W.structs.find((s) => s.type === 'command' && Teams.same(s.team, team) && !s.destroyed) || null; },
   /* how many silos are arming or in flight now (the cap keeps a battle to BD_LIMITS silosArming at once) */
   armingNow() { let n = 0; for (const o of this.s.silos) if (o.state === 'arm' || o.state === 'fly') n++; return n; },
+  /* a team's place in the arming order: 0 for the team the battle seed puts first, then round the teams, so no seat always arms first */
+  siloSeat(team, first) {
+    const teams = Teams.forCount(this.s.teamCount);
+    return (teams.indexOf(team) - first + teams.length) % teams.length;
+  },
+  /* with 3 or 4 teams the silo waiting longest arms next, so the seat order holds all battle (two teams keep the list order) */
+  siloTurn(o) {
+    if (this.s.teamCount <= 2) return true;
+    return !this.s.silos.some((q) => q.state === 'wait' && q.at < o.at && this.targetBase(q));
+  },
   siloTick() {
     const S = this.s;
     for (const o of S.silos) {
       if (o.state === 'dead') continue;
       if (o.struct.destroyed && o.state !== 'fly') { this.siloKilled(o); continue; }   // (a missile in flight cannot be stopped: it lands, and the silo is gone after)
       if (o.state === 'wait') {
-        if (W.time >= o.at && this.armingNow() < this.lim().silosArming) this.siloArm(o);
+        if (W.time >= o.at && this.armingNow() < this.lim().silosArming && this.siloTurn(o)) this.siloArm(o);
       } else if (o.state === 'arm') {
         o.left = o.t0 + BD_SILO_ARM - W.time;
         this.siloLook(o);
@@ -28810,7 +28820,7 @@ function skirmishLayoutWith(cfg, homes) {
   bases.forEach((b, i) => {
     b.dp = played(i) ? dpBase : dpBase ? dpBase + (cfg.difficulty === 'elite' ? BD_ELITE_DP : 0) : 0;
     b.size = cfg.size; b.air = !!lay.airport || cfg.size === 'large';   // aircraft can come: an airfield on the map, or the large waves' jets and gunships
-    b.defSeed = (cfg.seed ^ SKIRMISH_DEF_SALTS[b.team]) >>> 0; b.siloFirst = cfg.seed & 1; b.teamCount = count;
+    b.defSeed = (cfg.seed ^ SKIRMISH_DEF_SALTS[b.team]) >>> 0; b.siloFirst = (cfg.seed >>> 0) % count; b.teamCount = count;
   });
   ownBase.chosen = dpBase && played(0) ? BaseDef.cleanChoice(cfg.ownDefs, cfg.size, cfg.map, count) : [];   // what the player picked for our base; empty: the base builds as the seed says
   for (const b of bases) {
@@ -42166,6 +42176,13 @@ const SelfTest = {
         const owners = []; for (const tm of Teams.FIGHTING) { owners.push(BaseDef.owner(tm), BaseDef.owner(tm, true)); }
         this.check('base-defence owners: eight stand-ins for four teams and two kinds, each with its own id, on its own team, the first two teams named as before', new Set(owners).size === 8 && new Set(owners.map((o) => o.id)).size === 8 && owners.every((o, i) => o.team === Teams.FIGHTING[i >> 1] && o.dead && o.isFake) && BaseDef.owner(0, true).name === 'Our missile strike' && BaseDef.owner(1, true).name === 'Enemy missile strike' && BaseDef.owner(0).name === 'Our minefield' && BaseDef.owner(1).name === 'Enemy minefield' && BaseDef.owner(3, true).name === 'Team 3 missile strike' && BaseDef.owner(4).name === 'Team 4 minefield', owners.map((o) => o.name).join('; '));
         this.check('every base of the four-team battle has its silo (large encounter), and the one that arms first is the seed\'s', Teams.FIGHTING.every((tm) => S.silos.some((o) => o.team === tm)) && S.silos.filter((o) => o.at === BD_SILO_START).length === 1);
+        const seats4 = Teams.FIGHTING.map((tm) => BaseDef.siloSeat(tm, 2)).join();
+        const teamCount4 = S.teamCount; S.teamCount = 2;
+        const seats2 = [0, 1].map((tm) => BaseDef.siloSeat(tm, 1)).join();
+        S.teamCount = teamCount4;
+        for (const o of S.silos) o.state = 'wait';
+        const queue = S.silos.slice().sort((a, b) => a.at - b.at);
+        this.check('silo arming order: the seats go round from the seed\'s first team (four teams and two), and the silo waiting longest goes next', seats4 === '2,3,0,1' && seats2 === '1,0' && BaseDef.siloTurn(queue[0]) && !BaseDef.siloTurn(queue[1]), seats4 + ' / ' + seats2);
         // silo targets: the nearest base of a team that is not an ally
         Teams.configure([[0, 1], [3, 4]], [0]);
         const aim = (team) => { const o = S.silos.find((q) => q.team === team); o.state = 'wait'; o.target = -1; BaseDef.siloArm(o); return o; };
