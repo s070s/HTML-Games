@@ -5152,41 +5152,61 @@ function handScale(b, sh, T, H) {
    05b2 WEAPONS AND ITEMS (P7). The 14 items of Appendix C ("Weapons, items and hazards"), one row each, drawn by one generator in the hand and loose in the world.
    cls: light | heavy | two (two-handed) | throwable | carry. dur = hits (landed or blocked) and throw impacts before it breaks; dmg / reach (m beyond the fist) / startup = a held strike;
    thrown = thrown damage; mat = the debris material when it breaks; sp = the special (read by makeWeaponMove, Combat and MatchSim); burst = it breaks on its first thrown impact; metal = arcs an electric
-   panel (P7-05); len = length along the item's y axis; rest = half thickness when lying; lie = lies flat on the floor (else stands); tilt / hold = how it sits in the hand (lean forward, offset).
-   parts = [mesh, x, y, z, width, height, depth, colour, roughness, tilt about x] in the item's frame: the grip at the origin, +y out of the fist, +z forward. */
+   panel (P7-05); len = length along the item's y axis; rest = half thickness when lying; lie = lies flat on the floor (else stands); tilt / hold = how it sits in the hand (lean forward, [offset along y, offset forward, turn about y, offset across, 1 = modelled grip first and stood on its base turned over]); hex = the debris colour (default: the first row).
+   parts = [mesh, x, y, z, width, height, depth, colour, roughness, tilt about x, tilt about z] in the item's frame: real size in metres (P7-07), the grip at the origin (the hand is at y 0.02), +y out of the fist, +z forward,
+   z up when it lies. The chain is drawn by drawChainLinks: parts = [grip, link A, padlock, link B, shackle]. */
 const WEAPONS = {
-  bottle: { name: 'Bottle', cls: 'throwable', dur: 1, dmg: 9, reach: 0.35, startup: 5, thrown: 10, mat: 'glass', sp: 'shatter', burst: 1, len: 0.3, rest: 0.035, lie: 1,
-    parts: [[CY, 0, 0.09, 0, 0.065, 0.18, 0.065, '#2f6b45', 0.2], [CY, 0, 0.23, 0, 0.03, 0.1, 0.03, '#2f6b45', 0.2]] },
-  brick: { name: 'Brick', cls: 'throwable', dur: 3, dmg: 8, reach: 0.25, startup: 6, thrown: 16, mat: 'concrete', sp: 'head', len: 0.2, rest: 0, lie: 0,
-    parts: [[CB, 0, 0.05, 0, 0.1, 0.1, 0.2, '#a0523d', 0.9], [CB, 0, 0.1, 0, 0.09, 0.02, 0.19, '#8d4a38', 0.95]] },
-  binlid: { name: 'Bin lid', cls: 'light', dur: 6, dmg: 6, reach: 0.4, startup: 6, thrown: 8, mat: 'metal', sp: 'shield', len: 0, rest: 0.02, lie: 1, hold: [0.05, 0.1],
-    parts: [[CY, 0, 0, 0, 0.42, 0.03, 0.42, '#7b828c', 0.45, 1.5708], [CY, 0, 0, 0, 0.38, 0.05, 0.38, '#5d636c', 0.5, 1.5708], [CB, 0, 0, -0.04, 0.14, 0.03, 0.03, '#2b2f36', 0.7]] },
-  stick: { name: 'Escrima stick', cls: 'light', dur: 8, dmg: 7, reach: 0.7, startup: 4, thrown: 6, mat: 'wood', sp: 'fast', len: 0.7, rest: 0.02, lie: 1,
-    parts: [[CY, 0, 0.35, 0, 0.032, 0.7, 0.032, '#8a5a2b', 0.8], [CY, 0, 0.06, 0, 0.045, 0.12, 0.045, '#2a2a2e', 0.9]] },
-  bat: { name: 'Baseball bat', cls: 'heavy', dur: 6, dmg: 16, reach: 0.9, startup: 10, thrown: 12, mat: 'wood', sp: 'bigswing', len: 0.9, rest: 0.04, lie: 1,
-    parts: [[CY, 0, 0.13, 0, 0.034, 0.26, 0.034, '#2a2a2e', 0.9], [CY, 0, 0.55, 0, 0.07, 0.58, 0.07, '#c8a56a', 0.7], [SP, 0, 0.85, 0, 0.07, 0.07, 0.07, '#c8a56a', 0.7]] },
+  bottle: { name: 'Bottle', cls: 'throwable', dur: 1, dmg: 9, reach: 0.35, startup: 5, thrown: 10, mat: 'glass', sp: 'shatter', burst: 1, len: 0.3, rest: 0.035, lie: 1, hex: '#2a6b3f',
+    parts: [[CY, 0, 0.0, 0, 0.034, 0.012, 0.034, '#c9a227', 0.4], [CY, 0, 0.012, 0, 0.032, 0.014, 0.032, '#2a6b3f', 0.2], [CY, 0, 0.044, 0, 0.024, 0.05, 0.024, '#2a6b3f', 0.2],
+      [CY, 0, 0.079, 0, 0.042, 0.02, 0.042, '#2a6b3f', 0.2], [CY, 0, 0.094, 0, 0.058, 0.014, 0.058, '#2a6b3f', 0.2], [CY, 0, 0.125, 0, 0.066, 0.05, 0.066, '#2a6b3f', 0.2], [CY, 0, 0.18, 0, 0.066, 0.06, 0.066, '#d8c9a0', 0.9], [CY, 0, 0.255, 0, 0.066, 0.09, 0.066, '#2a6b3f', 0.2]] },
+  brick: { name: 'Brick', cls: 'throwable', dur: 3, dmg: 8, reach: 0.25, startup: 6, thrown: 16, mat: 'concrete', sp: 'head', len: 0.065, rest: 0, lie: 0, hold: [0, 0.06],
+    parts: [[CB, 0, 0.0325, 0, 0.1, 0.065, 0.215, '#b5543a', 0.95], [CB, 0, 0.066, 0, 0.07, 0.008, 0.15, '#9a4432', 0.95], [CB, 0.051, 0.03, 0.04, 0.004, 0.04, 0.08, '#cfc6b6', 1]] },
+  binlid: { name: 'Bin lid', cls: 'light', dur: 6, dmg: 6, reach: 0.4, startup: 6, thrown: 8, mat: 'metal', sp: 'shield', len: 0, rest: 0.02, lie: 1, hold: [0.02, 0.07, 3.1416], hex: '#8e959f',
+    parts: [[CB, 0, 0, 0.063, 0.16, 0.026, 0.022, '#2b2f36', 0.7], [CB, -0.07, 0, 0.045, 0.02, 0.03, 0.03, '#2b2f36', 0.7], [CB, 0.07, 0, 0.045, 0.02, 0.03, 0.03, '#2b2f36', 0.7],
+      [CY, 0, 0, 0, 0.42, 0.04, 0.42, '#8e959f', 0.45, 1.5708], [CY, 0, 0, 0.026, 0.31, 0.014, 0.31, '#aab1bb', 0.4, 1.5708]] },
+  stick: { name: 'Escrima stick', cls: 'light', dur: 8, dmg: 7, reach: 0.7, startup: 4, thrown: 6, mat: 'wood', sp: 'fast', len: 0.7, rest: 0.02, lie: 1, hex: '#a8733a',
+    parts: [[CY, 0, -0.012, 0, 0.04, 0.024, 0.04, '#26262a', 0.8], [CY, 0, 0.07, 0, 0.04, 0.12, 0.04, '#34343b', 0.9], [CY, 0, 0.41, 0, 0.03, 0.58, 0.03, '#a8733a', 0.7],
+      [CY, 0, 0.693, 0, 0.034, 0.014, 0.034, '#6e4a26', 0.8]] },
+  bat: { name: 'Baseball bat', cls: 'heavy', dur: 6, dmg: 16, reach: 0.9, startup: 10, thrown: 12, mat: 'wood', sp: 'bigswing', len: 0.9, rest: 0.04, lie: 1, hex: '#d2a86e',
+    parts: [[CY, 0, 0, 0, 0.05, 0.022, 0.05, '#26262b', 0.8], [CY, 0, 0.13, 0, 0.032, 0.24, 0.032, '#26262b', 0.9], [CY, 0, 0.31, 0, 0.036, 0.12, 0.036, '#d2a86e', 0.7],
+      [CY, 0, 0.43, 0, 0.052, 0.12, 0.052, '#d2a86e', 0.7], [CY, 0, 0.695, 0, 0.068, 0.41, 0.068, '#d2a86e', 0.7]] },
   pipe: { name: 'Steel pipe', cls: 'heavy', dur: 12, dmg: 14, reach: 0.85, startup: 9, thrown: 12, mat: 'metal', sp: '', metal: 1, len: 0.85, rest: 0.03, lie: 1,
-    parts: [[CY, 0, 0.42, 0, 0.045, 0.85, 0.045, '#7d8794', 0.35], [CY, 0, 0.83, 0, 0.06, 0.04, 0.06, '#5d6670', 0.4]] },
-  hammer: { name: 'Hammer', cls: 'heavy', dur: 8, dmg: 15, reach: 0.45, startup: 8, thrown: 14, mat: 'metal', sp: 'smash', len: 0.45, rest: 0.04, lie: 1,
-    parts: [[CY, 0, 0.2, 0, 0.03, 0.4, 0.03, '#8a5a2b', 0.8], [CB, 0, 0.43, 0.02, 0.07, 0.08, 0.2, '#6b7280', 0.4], [CB, 0, 0.43, -0.1, 0.06, 0.05, 0.04, '#9aa3ad', 0.4]] },
-  wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.03, lie: 1,
-    parts: [[CY, 0, 0.27, 0, 0.035, 0.54, 0.035, '#b23a2a', 0.5], [CB, 0, 0.58, 0, 0.1, 0.12, 0.035, '#9aa3ad', 0.4], [CB, 0, 0.66, 0, 0.035, 0.06, 0.04, '#2b2f36', 0.5]] },
-  chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 1.0, rest: 0.03, lie: 1,
-    parts: [[CY, 0, 0.04, 0, 0.045, 0.12, 0.045, '#1f2228', 0.8], [CY, 0, 0.55, 0, 0.03, 0.86, 0.03, '#4b5563', 0.3], [SP, 0, 0.97, 0, 0.08, 0.08, 0.08, '#9aa3ad', 0.3]] },
-  chair: { name: 'Folding chair', cls: 'two', dur: 3, dmg: 18, reach: 0.8, startup: 13, thrown: 14, mat: 'metal', sp: 'arc', len: 0.6, rest: 0, lie: 0, hold: [0.2, 0.12],
-    parts: [[CB, 0, 0.25, 0, 0.4, 0.04, 0.4, '#6b7280', 0.5], [CB, 0, 0.47, -0.19, 0.4, 0.4, 0.04, '#6b7280', 0.5], [CB, 0, 0.12, 0.17, 0.36, 0.24, 0.03, '#4b5563', 0.5]] },
+    parts: [[CY, 0, 0.425, 0, 0.042, 0.85, 0.042, '#858e99', 0.35], [CY, 0, 0.08, 0, 0.052, 0.14, 0.052, '#2a2d33', 0.9], [CY, 0, 0.82, 0, 0.056, 0.05, 0.056, '#5f6772', 0.4],
+      [CY, 0, 0.52, 0, 0.0435, 0.16, 0.0435, '#7a5a40', 0.9]] },
+  hammer: { name: 'Hammer', cls: 'heavy', dur: 8, dmg: 15, reach: 0.45, startup: 8, thrown: 14, mat: 'metal', sp: 'smash', len: 0.45, rest: 0.04, lie: 1, hold: [0, 0, -1.5708], hex: '#6d7580',
+    parts: [[CY, 0, 0.19, 0, 0.032, 0.41, 0.032, '#a06b3a', 0.75], [CY, 0, 0.057, 0, 0.04, 0.145, 0.04, '#2a2a2e', 0.9], [CY, -0.005, 0.42, 0, 0.055, 0.12, 0.055, '#6d7580', 0.4, 0, 1.5708],
+      [CY, 0.075, 0.42, 0, 0.062, 0.03, 0.062, '#a3adb8', 0.3, 0, 1.5708], [CB, -0.085, 0.42, 0, 0.05, 0.026, 0.026, '#6d7580', 0.4], [CB, -0.12, 0.405, 0, 0.03, 0.026, 0.026, '#6d7580', 0.4, 0, 0.9]] },
+  wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.03, lie: 1, hold: [0, 0, -1.5708],
+    parts: [[CB, 0, 0.25, 0, 0.035, 0.5, 0.03, '#bb3a2b', 0.55], [CB, 0, 0.07, 0, 0.044, 0.14, 0.036, '#25262b', 0.9], [CB, 0, 0.525, 0, 0.07, 0.15, 0.034, '#bb3a2b', 0.55],
+      [CB, 0.06, 0.58, 0, 0.05, 0.04, 0.03, '#b9c0c8', 0.35], [CB, 0.055, 0.49, 0, 0.04, 0.04, 0.03, '#b9c0c8', 0.35]] },
+  chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 1.0, rest: 0.03, lie: 1, hex: '#7b8591',
+    parts: [[CY, 0, 0.065, 0, 0.044, 0.13, 0.044, '#1f2228', 0.9], [CB, 0, 0, 0, 0.05, 0, 0.03, '#7b8591', 0.35], [CB, 0, 0.03, 0, 0.062, 0.07, 0.036, '#c7a33c', 0.35], [CB, 0, 0, 0, 0.05, 0, 0.03, '#586270', 0.4],
+      [CB, 0, 0.08, 0, 0.03, 0.035, 0.016, '#aab2bb', 0.35]] },
+  chair: { name: 'Folding chair', cls: 'two', dur: 3, dmg: 18, reach: 0.8, startup: 13, thrown: 14, mat: 'metal', sp: 'arc', len: 0.8, rest: 0, lie: 0, hold: [0, 0.2, 0, -0.2],
+    parts: [[CB, -0.2, 0.4, -0.2, 0.03, 0.8, 0.03, '#2c3139', 0.6], [CB, 0.2, 0.4, -0.2, 0.03, 0.8, 0.03, '#2c3139', 0.6], [CB, -0.2, 0.215, 0.2, 0.026, 0.43, 0.026, '#2c3139', 0.6],
+      [CB, 0.2, 0.215, 0.2, 0.026, 0.43, 0.026, '#2c3139', 0.6], [CB, 0, 0.428, 0, 0.41, 0.015, 0.41, '#2c3139', 0.6], [CB, 0, 0.45, 0, 0.4, 0.03, 0.4, '#4f5966', 0.5],
+      [CB, 0, 0.66, -0.2, 0.38, 0.2, 0.025, '#4f5966', 0.5], [CB, 0, 0.15, -0.2, 0.37, 0.02, 0.02, '#2c3139', 0.6], [CB, 0, 0.15, 0.2, 0.37, 0.02, 0.02, '#2c3139', 0.6]] },
   skateboard: { name: 'Skateboard', cls: 'two', dur: 5, dmg: 12, reach: 0.8, startup: 9, thrown: 10, mat: 'wood', sp: 'trip', len: 0.8, rest: 0.06, lie: 1,
-    parts: [[CB, 0, 0.4, 0, 0.2, 0.8, 0.025, '#c2410c', 0.6], [CB, 0, 0.15, -0.04, 0.17, 0.07, 0.05, '#2b2f36', 0.8], [CB, 0, 0.65, -0.04, 0.17, 0.07, 0.05, '#2b2f36', 0.8]] },
-  broom: { name: 'Broom', cls: 'two', dur: 6, dmg: 7, reach: 1.3, startup: 7, thrown: 6, mat: 'wood', sp: 'sweep', len: 1.3, rest: 0.03, lie: 1,
-    parts: [[CY, 0, 0.65, 0, 0.024, 1.3, 0.024, '#a07a4a', 0.8], [CB, 0, 1.27, 0.03, 0.28, 0.12, 0.07, '#d4b062', 0.95]] },
-  crate: { name: 'Crate', cls: 'carry', dur: 2, dmg: 0, reach: 0, startup: 0, thrown: 20, mat: 'wood', sp: 'crate', burst: 1, len: 0.44, rest: 0, lie: 0, hold: [0, 0.3],
-    parts: [[CB, 0, 0.22, 0, 0.42, 0.42, 0.42, '#9a6a35', 0.85], [CB, 0, 0.22, 0, 0.44, 0.07, 0.44, '#6f4a24', 0.9], [CB, 0, 0.22, 0, 0.07, 0.44, 0.44, '#6f4a24', 0.9]] },
-  extinguisher: { name: 'Fire extinguisher', cls: 'heavy', dur: 4, dmg: 12, reach: 0.5, startup: 10, thrown: 12, mat: 'metal', sp: 'spray', burst: 1, len: 0.5, rest: 0, lie: 0,
-    parts: [[CY, 0, 0.22, 0, 0.1, 0.36, 0.1, '#c81e1e', 0.4], [CY, 0, 0.43, 0, 0.045, 0.08, 0.045, '#1f2228', 0.5], [CB, 0, 0.49, 0.03, 0.03, 0.03, 0.1, '#1f2228', 0.5]] },
+    parts: [[CB, 0, 0.4, 0, 0.2, 0.6, 0.012, '#c5611b', 0.55], [CY, 0, 0.1, 0, 0.2, 0.012, 0.2, '#c5611b', 0.55, 1.5708], [CY, 0, 0.7, 0, 0.2, 0.012, 0.2, '#c5611b', 0.55, 1.5708], [CB, 0, 0.4, 0.0075, 0.185, 0.62, 0.004, '#222226', 0.95],
+      [CB, 0, 0.17, -0.02, 0.15, 0.03, 0.03, '#9aa3ad', 0.4], [CB, 0, 0.63, -0.02, 0.15, 0.03, 0.03, '#9aa3ad', 0.4],
+      [CY, -0.085, 0.17, -0.034, 0.052, 0.03, 0.052, '#e8e2d0', 0.7, 0, 1.5708], [CY, 0.085, 0.17, -0.034, 0.052, 0.03, 0.052, '#e8e2d0', 0.7, 0, 1.5708],
+      [CY, -0.085, 0.63, -0.034, 0.052, 0.03, 0.052, '#e8e2d0', 0.7, 0, 1.5708], [CY, 0.085, 0.63, -0.034, 0.052, 0.03, 0.052, '#e8e2d0', 0.7, 0, 1.5708]] },
+  broom: { name: 'Broom', cls: 'two', dur: 6, dmg: 7, reach: 1.3, startup: 7, thrown: 6, mat: 'wood', sp: 'sweep', len: 1.3, rest: 0.03, lie: 1, hold: [0, 0, 3.1416],
+    parts: [[CY, 0, 0.585, 0, 0.026, 1.19, 0.026, '#b78a55', 0.8], [CY, 0, 1.19, 0, 0.034, 0.06, 0.034, '#6b6f76', 0.45], [CB, 0, 1.255, 0.032, 0.35, 0.05, 0.025, '#7c552c', 0.85],
+      [CB, 0, 1.255, -0.005, 0.34, 0.09, 0.05, '#cdaa57', 0.95]] },
+  crate: { name: 'Crate', cls: 'carry', dur: 2, dmg: 0, reach: 0, startup: 0, thrown: 20, mat: 'wood', sp: 'crate', burst: 1, len: 0.44, rest: 0, lie: 0, hold: [0, 0.26],
+    parts: [[CB, 0, 0.22, 0, 0.4, 0.4, 0.4, '#a87b47', 0.85], [CB, 0, 0.02, 0, 0.43, 0.04, 0.43, '#6f4a24', 0.9], [CB, 0, 0.42, 0, 0.43, 0.04, 0.43, '#6f4a24', 0.9],
+      [CB, -0.2, 0.22, -0.2, 0.045, 0.44, 0.045, '#6f4a24', 0.9], [CB, 0.2, 0.22, -0.2, 0.045, 0.44, 0.045, '#6f4a24', 0.9], [CB, -0.2, 0.22, 0.2, 0.045, 0.44, 0.045, '#6f4a24', 0.9],
+      [CB, 0.2, 0.22, 0.2, 0.045, 0.44, 0.045, '#6f4a24', 0.9], [CB, 0, 0.22, 0.205, 0.045, 0.5, 0.02, '#7d5630', 0.9, 0, 0.78], [CB, 0, 0.22, -0.205, 0.045, 0.5, 0.02, '#7d5630', 0.9, 0, -0.78],
+      [CB, 0.205, 0.22, 0, 0.02, 0.5, 0.045, '#7d5630', 0.9, 0.78], [CB, -0.205, 0.22, 0, 0.02, 0.5, 0.045, '#7d5630', 0.9, -0.78]] },
+  extinguisher: { name: 'Fire extinguisher', cls: 'heavy', dur: 4, dmg: 12, reach: 0.5, startup: 10, thrown: 12, mat: 'metal', sp: 'spray', burst: 1, len: 0.5, rest: 0, lie: 0, hold: [0, 0, 0, 0, 1], hex: '#c52a22',
+    parts: [[CB, 0, 0.012, -0.02, 0.026, 0.016, 0.12, '#25272c', 0.5], [CB, 0, 0.042, 0.03, 0.022, 0.012, 0.1, '#aeb4bc', 0.4], [CY, 0, 0.05, 0, 0.06, 0.07, 0.06, '#2a2c31', 0.4],
+      [CY, 0, 0.1, 0, 0.075, 0.03, 0.075, '#c52a22', 0.35], [CY, 0, 0.1725, 0, 0.1, 0.115, 0.1, '#c52a22', 0.35], [CY, 0, 0.275, 0, 0.1, 0.09, 0.1, '#efe9d8', 0.85], [CY, 0, 0.41, 0, 0.1, 0.18, 0.1, '#c52a22', 0.35],
+      [CB, 0.045, 0.07, 0.02, 0.05, 0.016, 0.016, '#1d1f23', 0.9], [CY, 0.066, 0.18, 0.02, 0.016, 0.21, 0.016, '#1d1f23', 0.9], [CY, 0.066, 0.3, 0.02, 0.028, 0.04, 0.028, '#33363c', 0.5]] },
 };
 for (const id in WEAPONS) {
   const w = WEAPONS[id];
-  w.id = id; w.hex = w.parts[0][7]; w.hold = w.hold || [0, 0]; if (w.tilt === undefined) w.tilt = 0.45;
+  w.id = id; w.hex = w.hex || w.parts[0][7]; w.hold = w.hold || [0, 0]; if (w.tilt === undefined) w.tilt = 0.45;
   w.parts.forEach((p) => { p[7] = C(p[7]); });   // colours resolved once
 }
 const WEAPON_STEPS = { light: 3, heavy: 2, two: 2, throwable: 1, carry: 0 };   // steps of the Punch string by class (the escrima stick gets a 4th for Kali fighters)
@@ -5247,6 +5267,7 @@ function applyArms(p, key) {
 const WEAPON_WIND_SPLIT = 0.6;       // share of the start-up spent drawing the item back; the rest is the swing itself
 const WEAPON_FOLLOW_FROM = 0.4;       // share of the active ticks held at contact before the follow-through starts
 const CHAIN_REST = 0.5, CHAIN_COIL = 1.3, CHAIN_CURL = -0.6, CHAIN_LINKS = 6;   // total bend of the chain (rad): hanging slack, drawn back, and curling on past the target
+const CHAIN_LOOSE = 0.9, CHAIN_RAIL = 0.02;   // a chain lying about is bent this much (rad); the rails of a link are this thick (m)
 /* Which swing a step of the Punch string of an item uses: a stick pokes, cuts both ways and chops; a chain whips (it bends, see Fighter.drawChain); heavy items sweep, then chop; two-handed ones sweep with both hands, then chop;
    the broom pokes and then sweeps low; a bin lid pushes; a bottle and a brick are clubbed downward. */
 function weaponSwing(w, n) {
@@ -5292,12 +5313,34 @@ function weaponTable(styleId, itemId) {
   }
   return (WEAPON_TABLES[key] = out);
 }
-/* The item's parts in the current matrix (the hand's, or the world's). */
+/* The item's parts in the current matrix (the hand's, or the world's). A loose chain lies in a slack curve. */
 function drawWeapon(w, fl, em = 0) {
+  if (w.sp === 'wrap') { drawChainLinks(w, fl, CHAIN_LOOSE, false, em); return; }
   for (const p of w.parts) {
-    if (p[9]) { FMS.push(); FMS.t(p[1], p[2], p[3]); FMS.rx(p[9]); part(p[0], 0, 0, 0, p[4], p[5], p[6], p[7], em, p[8], fl); FMS.pop(); }
+    if (p[9] || p[10]) { FMS.push(); FMS.t(p[1], p[2], p[3]); if (p[10]) FMS.rz(p[10]); if (p[9]) FMS.rx(p[9]); part(p[0], 0, 0, 0, p[4], p[5], p[6], p[7], em, p[8], fl); FMS.pop(); }
     else part(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], em, p[8], fl);
   }
+}
+/* The bike chain (P5-07, P7-07): a taped grip, then CHAIN_LINKS links that bend a little more each (bend = the total, about the item's z axis for a sideways swing and its x axis for a chop), and a padlock at the end.
+   A link is two rails; every other link is turned a quarter turn, so the chain reads as a chain. */
+function drawChainLinks(w, fl, bend, over, em) {
+  const grip = w.parts[0], linkA = w.parts[1], lock = w.parts[2], linkB = w.parts[3], shackle = w.parts[4], gripLen = grip[5], seg = (w.len - gripLen) / CHAIN_LINKS, step = bend / CHAIN_LINKS * (over ? -1 : 1);
+  const wide = linkA[4], thick = linkA[6], off = (wide - CHAIN_RAIL) / 2;
+  part(grip[0], grip[1], grip[2], grip[3], grip[4], grip[5], grip[6], grip[7], em, grip[8], fl);
+  FMS.push(); FMS.t(0, gripLen, 0);
+  for (let i = 0; i < CHAIN_LINKS; i++) {
+    const link = i % 2 ? linkB : linkA;
+    for (let s = -1; s <= 1; s += 2) {
+      const side = s * off;
+      if (i % 2) part(CB, 0, seg / 2, side, thick, seg, CHAIN_RAIL, link[7], em, link[8], fl);
+      else part(CB, side, seg / 2, 0, CHAIN_RAIL, seg, thick, link[7], em, link[8], fl);
+    }
+    FMS.t(0, seg, 0);
+    if (over) FMS.rx(step); else FMS.rz(step);
+  }
+  part(lock[0], lock[1], lock[2], lock[3], lock[4], lock[5], lock[6], lock[7], em, lock[8], fl);
+  part(shackle[0], shackle[1], shackle[2], shackle[3], shackle[4], shackle[5], shackle[6], shackle[7], em, shackle[8], fl);
+  FMS.pop();
 }
 const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES });   // what a fighter holds (and what a loose item keeps of its state)
 
@@ -6430,7 +6473,7 @@ class Fighter {
       this.pieces(this.extra, 'x', s, fl);
       if (s < 0 && this.item) {   // the right hand holds the item: its +y runs on out of the fist, leaning forward
         const w = this.itemDef;
-        ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(0, w.hold[0], w.hold[1]);
+        ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(w.hold[3] || 0, w.hold[0], w.hold[1]); if (w.hold[2]) ms.ry(w.hold[2]);
         if (DRAW_NOW) { if (w.sp === 'wrap') this.drawChain(w, fl); else drawWeapon(w, fl); }
         const wm = ms.m;   // P5-07: the far end of the item (key points 21-23), where a swing is meant to land
         pts[21] = wm[12] + wm[4] * w.len; pts[22] = wm[13] + wm[5] * w.len; pts[23] = wm[14] + wm[6] * w.len;
@@ -6444,20 +6487,9 @@ class Fighter {
     DRAW_NOW = false;
   }
 
-  /* The bike chain (P5-07): a grip, then links that bend a little more each, so the chain hangs slack, coils behind the hand, runs out straight at contact and curls on past it.
-     The bend is about the item's z axis for a sideways swing and its x axis for a chop. The far end for the key points stays the straight one (the chain is straight when it lands). */
-  drawChain(w, fl) {
-    const grip = w.parts[0], link = w.parts[1], ball = w.parts[2], gripLen = grip[5] + 0.0, seg = (w.len - gripLen) / CHAIN_LINKS, step = this.chainBend / CHAIN_LINKS * (this.chainOver ? -1 : 1);
-    part(grip[0], grip[1], grip[2], grip[3], grip[4], grip[5], grip[6], grip[7], 0, grip[8], fl);
-    FMS.push(); FMS.t(0, gripLen, 0);
-    for (let i = 0; i < CHAIN_LINKS; i++) {
-      part(CY, 0, seg / 2, 0, link[4], seg, link[6], link[7], 0, link[8], fl);
-      FMS.t(0, seg, 0);
-      if (this.chainOver) FMS.rx(step); else FMS.rz(step);
-    }
-    part(SP, 0, 0, 0, ball[4], ball[5], ball[6], ball[7], 0, ball[8], fl);
-    FMS.pop();
-  }
+  /* The bike chain (P5-07): hangs slack, coils behind the hand, runs out straight at contact and curls on past it (drawChainLinks bends it by chainBend).
+     The far end for the key points stays the straight one (the chain is straight when it lands). */
+  drawChain(w, fl) { drawChainLinks(w, fl, this.chainBend, this.chainOver, 0); }
 
   /* Head, face, hair and headwear in the head's local frame (origin at the neck base). */
   drawHead(fl) {
@@ -9638,6 +9670,7 @@ class MatchSim {
       FMS.reset(FBASE); FMS.s(ITEM_VIEW_SCALE, ITEM_VIEW_SCALE, ITEM_VIEW_SCALE);   // a loose item is drawn a little larger and lighter than in the hand, so it is easy to find
       if (it.mode === 'fly') { FMS.rx(it.spin); FMS.t(0, -w.len / 2, 0); }   // tumbles about its middle
       else if (w.lie) { FMS.t(0, w.rest, 0); FMS.rx(-Math.PI / 2); FMS.t(0, -w.len / 2, 0); }
+      else if (w.hold[4]) { FMS.t(0, w.len, 0); FMS.rz(Math.PI); }   // modelled grip first (the extinguisher): turned over to stand on its base
       DRAW_NOW = true;
       drawWeapon(w, 0, ITEM_VIEW_LIGHT);
       DRAW_NOW = false;

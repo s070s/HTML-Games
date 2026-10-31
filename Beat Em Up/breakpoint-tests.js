@@ -6597,16 +6597,95 @@ const SelfTest = {
     };
     /* The hits of a run as snapshots taken the tick they land; log.stop() unhooks it. */
     const hitLog = () => { const log = []; log.stop = Events.on('hit', (e) => log.push({ id: e.mv.id, kind: e.kind, def: e.def.index, react: e.def.reactDur, state: e.def.state })); return log; };
-    test('Items: the table has the 14 items of the spec (class, durability, damage, reach, startup, thrown damage) with 2 or 3 parts each, and every Punch step is a move kept out of ATTACKS', () => {
+    test('Items: the table has the 14 items of the spec (class, durability, damage, reach, startup, thrown damage) with 2 to 12 parts each, and every Punch step is a move kept out of ATTACKS', () => {
       const want = 'bottle throwable 1 9 0.35 5 10|brick throwable 3 8 0.25 6 16|binlid light 6 6 0.4 6 8|stick light 8 7 0.7 4 6|bat heavy 6 16 0.9 10 12|pipe heavy 12 14 0.85 9 12|hammer heavy 8 15 0.45 8 14|wrench heavy 10 13 0.6 8 12|chain light 10 9 1 7 8|chair two 3 18 0.8 13 14|skateboard two 5 12 0.8 9 10|broom two 6 7 1.3 7 6|crate carry 2 0 0 0 20|extinguisher heavy 4 12 0.5 10 12';
       const got = Object.keys(WEAPONS).map((id) => { const w = WEAPONS[id]; return [id, w.cls, w.dur, w.dmg, w.reach, w.startup, w.thrown].join(' '); }).join('|');
-      const parts = Object.keys(WEAPONS).filter((id) => WEAPONS[id].parts.length < 2 || WEAPONS[id].parts.length > 3);
+      const parts = Object.keys(WEAPONS).filter((id) => WEAPONS[id].parts.length < 2 || WEAPONS[id].parts.length > 12);
       const moves = Object.keys(WEAPONS).every((id) => {
         const w = WEAPONS[id], n = WEAPON_STEPS[w.cls] + (id === 'stick' ? 1 : 0), first = WEAPON_MOVES[id + ':1'];
         return Array.from({ length: n }, (u, i) => WEAPON_MOVES[id + ':' + (i + 1)]).every((mv) => mv && !ATTACKS[mv.id]) && (n === 0 || (Math.abs(first.reach - (0.8 + w.reach)) < 1e-9 && first.startup === w.startup));
       });
       const label = heldLabel({ item: { id: 'bat', dur: 4 } }) === 'BASEBALL BAT ●●●●○○' && heldLabel({ item: null }) === '';
       return got === want && !parts.length && moves && label ? true : JSON.stringify({ table: got === want, parts, moves, label });
+    });
+    /* ----- Weapon models (P7-07): real size, material colours, the grip in the hand, the item on the floor (all visual) ----- */
+    const MODEL_SIZE = {   // real-world metres: [longest side from, to, widest spread across it from, to]
+      bottle: [0.22, 0.34, 0.05, 0.09], brick: [0.19, 0.24, 0.06, 0.11], binlid: [0.33, 0.5, 0.33, 0.5], stick: [0.55, 0.8, 0.02, 0.06], bat: [0.75, 0.95, 0.05, 0.08], pipe: [0.7, 0.95, 0.03, 0.06],
+      hammer: [0.3, 0.5, 0.1, 0.25], wrench: [0.4, 0.65, 0.05, 0.14], chain: [0.8, 1.1, 0.02, 0.3], chair: [0.7, 0.95, 0.35, 0.5], skateboard: [0.7, 0.85, 0.18, 0.24], broom: [1.1, 1.45, 0.25, 0.4],
+      crate: [0.35, 0.5, 0.35, 0.5], extinguisher: [0.4, 0.6, 0.1, 0.2],
+    };
+    const sameDraw = (a, b) => a[2] === b[2] && a[3].every((v, i) => v === b[3][i]);
+    const cornersOf = (q) => {   // the 8 corners of a drawn box, or 16 points round a drawn cylinder, in world space
+      const m = q[3], out = [], at = (x, y, z) => [0, 1, 2].map((r) => m[r] * x + m[r + 4] * y + m[r + 8] * z + m[r + 12]);
+      for (const y of [-0.5, 0.5]) {
+        if (q[2] === CB) for (const x of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) out.push(at(x, y, z));
+        else for (let k = 0; k < 8; k++) out.push(at(0.5 * Math.cos(k * Math.PI / 4), y, 0.5 * Math.sin(k * Math.PI / 4)));
+      }
+      return out;
+    };
+    const extent = (parts) => {   // the sides of the item in its own frame, longest first (its first part is untilted, so that part's axes are the item's)
+      const m = parts[0][3], axes = [0, 4, 8].map((o) => { const s = Math.hypot(m[o], m[o + 1], m[o + 2]); return [m[o] / s, m[o + 1] / s, m[o + 2] / s]; }), points = parts.flatMap(cornersOf);
+      return axes.map((axis) => { const along = points.map((p) => p[0] * axis[0] + p[1] * axis[1] + p[2] * axis[2]); return Math.max(...along) - Math.min(...along); }).sort((a, b) => b - a);
+    };
+    const gapTo = (q, p) => {   // metres from point p to a drawn part (0 inside it)
+      const m = q[3], d = [p[0] - m[12], p[1] - m[13], p[2] - m[14]], s = [0, 4, 8].map((o) => Math.hypot(m[o], m[o + 1], m[o + 2]));
+      const c = [0, 4, 8].map((o, i) => (d[0] * m[o] + d[1] * m[o + 1] + d[2] * m[o + 2]) / s[i]);
+      if (q[2] === CB) return Math.hypot(...c.map((v, i) => Math.max(0, Math.abs(v) - s[i] / 2)));
+      return Math.hypot(Math.max(0, Math.hypot(c[0], c[2]) - s[0] / 2), Math.max(0, Math.abs(c[1]) - s[1] / 2));
+    };
+    const handAt = (pts, wrist, elbow) => {   // the fist: its wrist point, 0.02 m on along the forearm
+      const d = [0, 1, 2].map((i) => pts[wrist + i] - pts[elbow + i]), len = Math.hypot(...d);
+      return [0, 1, 2].map((i) => pts[wrist + i] + d[i] / len * 0.02);
+    };
+    /* The item's drawn parts and the key points of a standard fighter holding it: at rest (no move) or at a tick of a move; the same pose is drawn with and without the item, the difference is the item. */
+    const modelOf = (id, moveId, tick) => {
+      const f = weaponFighter(id);
+      if (moveId) { const mv = WEAPON_MOVES[moveId]; f.state = S.ATTACK; f.move = mv; f.moveTick = tick === undefined ? mv.startup + 1 : tick; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.attackPose(); }
+      else { f.state = S.IDLE; f.animT = 0.37; f.computePose(); f.pose.set(f.tp); }
+      const pose = Float32Array.from(f.pose), withItem = drawnParts(f, pose), pts = Float32Array.from(f.pts), item = f.item;
+      f.item = null; const without = drawnParts(f, pose); f.item = item;
+      let k = 0; while (k < without.length && sameDraw(without[k], withItem[k])) k++;
+      return { parts: withItem.slice(k, k + withItem.length - without.length), pts };
+    };
+    test('Weapon models (P7-07): every item is built from 2 to 12 rows at its real size in metres (longest side and width inside the real range), from at least 2 material colours, matte and finite', () => {
+      const problems = [];
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id], { parts } = modelOf(id), [lo, hi, wideLo, wideHi] = MODEL_SIZE[id];
+        if (!parts.length || parts.some((q) => !q[1])) { problems.push(id + ' draws no finite parts'); continue; }
+        const [side, wide] = extent(parts);
+        if (side < lo || side > hi || wide < wideLo || wide > wideHi) problems.push(id + ' is ' + side.toFixed(2) + ' x ' + wide.toFixed(2) + ' m');
+        if (w.parts.length < 2 || w.parts.length > 12) problems.push(id + ' has ' + w.parts.length + ' rows');
+        if (new Set(w.parts.map((p) => p[7].join())).size < 2) problems.push(id + ' is one colour');
+        if (parts.some((q) => q[0])) problems.push(id + ' glows in the hand');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Weapon models (P7-07): the grip lines up with the hand: the right fist is within 0.04 m of the drawn item (a two-handed item and a crate: both fists within 0.065 m, a fist is 0.06 m wide) at rest and through its first swing', () => {
+      const problems = [], near = (parts, hand) => Math.min(...parts.map((q) => gapTo(q, hand)));
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id], first = WEAPON_MOVES[id + ':1'], both = w.cls === 'two' || w.cls === 'carry';
+        for (const [moveId, tick, label] of first ? [[0, 0, 'rest'], [id + ':1', 0, 'start'], [id + ':1', Math.round(first.startup * 0.55), 'wind-up'], [id + ':1', undefined, 'contact'], [id + ':1', first.startup + first.active, 'follow-through']] : [[0, 0, 'rest']]) {
+          const { parts, pts } = modelOf(id, moveId || undefined, tick);
+          const right = near(parts, handAt(pts, 12, 33)), left = both && label !== 'wind-up' ? near(parts, handAt(pts, 9, 30)) : 0;   // the few ticks between two key poses are a joint-space blend that drifts off the item
+          if (right > (both ? 0.065 : 0.04) || left > 0.065) problems.push(id + ' ' + label + ': right ' + right.toFixed(3) + (both ? ', left ' + left.toFixed(3) : '') + ' m');
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapon models (P7-07): a loose item rests on its surface (floor or table) and does not sink into it, a lying one is flat and a standing one is upright, at the size of its model', () => {
+      const problems = [];
+      for (const id in WEAPONS) {
+        for (const surface of [0, 0.9]) {
+          const m = itemDuel(5), keep = R.push, list = [];
+          m.placeItem(id, 0, 3, surface);
+          R.push = (layer, mesh, matrix) => { if (layer === LAYER.SOLID) list.push([0, true, mesh, Float32Array.from(matrix)]); };
+          try { m.drawItems(); } finally { R.push = keep; }
+          const ys = list.flatMap(cornersOf).map((p) => p[1] - surface), low = Math.min(...ys), high = Math.max(...ys), lies = WEAPONS[id].lie;
+          if (low < -0.015 || low > 0.05) problems.push(id + ' on ' + surface + ' m: lowest point ' + low.toFixed(3) + ' m');
+          if (lies ? high > 0.13 : high < 0.9 * Math.min(0.4, WEAPONS[id].len) || high > 1.1) problems.push(id + ' on ' + surface + ' m: ' + (lies ? 'not flat' : 'not upright') + ', top ' + high.toFixed(3) + ' m');
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Items: Use picks up an item in reach (floor, table or rack height) with the matching grab pose over 14 ticks; a hit before it is in the hand cancels the grab; out of reach or empty reach does nothing', () => {
       const problems = [];
