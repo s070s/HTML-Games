@@ -213,9 +213,11 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .brawl .hs.r .bar.st,.brawl .hs.r .bar.mo,.brawl .hs.r .pips,.brawl .hs.r .hitem{display:none}   /* brawl: the right bar is the enemies together, with no stamina or momentum */
 /* co-op (P4-07): the left bar is the party together; under the top bar a cell per player (name, health, stamina) in the seat's colour; the join screen's seat cards use the same colours */
 .seat1{--pc:#34dcff}.seat2{--pc:#8dff7a}.seat3{--pc:#ffb347}.seat4{--pc:#c49bff}
-.coop .hs.l .bar.st,.coop .hs.l .bar.mo,.coop .hs.l .pips,.coop .hs.l .hitem{display:none}
+.coop .hs.l .bar.st,.coop .hs.l .bar.mo,.coop .hs.l .pips,.coop .hs.l .hitem,.lineup .hs.l .bar.st,.lineup .hs.l .bar.mo,.lineup .hs.l .pips,.lineup .hs.l .hitem{display:none}
 #party{position:absolute;left:.9em;right:.9em;top:4.1em;display:none;gap:.35em}
 .coop #party{display:flex}
+.lineup #party{display:flex}
+.tc0{--pc:#33d9ff}.tc1{--pc:#ff4d8c}.tc2{--pc:#8cff7a}.tc3{--pc:#ffb347}.tc4{--pc:#c49bff}.tc5{--pc:#ffe64d}.tc6{--pc:#e6f2ff}.tc7{--pc:#f24033}   /* team colours of a lineup (P4-08), the same eight as MARKER_RGB */
 .pc{flex:1 1 0;min-width:0;padding:.1em .3em .2em;border:2px solid var(--pc);background:rgba(0,0,0,.6)}
 .pc .pn{font-size:.7em;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pc .pn b{color:var(--pc)}
@@ -226,8 +228,19 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .pc .ps i{background:#8dff7a}
 .pc.out{opacity:.5;border-style:dashed}
 .pc.out .pn::after{content:" OUT";color:var(--bad)}
-.coop #modeinfo{top:8.3em}   /* modeinfo's em is .85 of the HUD's: this puts it under the party row (which ends near 6.8 HUD em) */
-.coop #combo,.coop #combo2{top:9.3em}
+.coop #modeinfo{top:8.3em}
+.lineup #modeinfo{top:8.3em}   /* modeinfo's em is .85 of the HUD's: this puts it under the party row (which ends near 6.8 HUD em) */
+.coop #combo,.coop #combo2,.lineup #combo,.lineup #combo2{top:9.3em}
+.tag[class*=" tc"]{border-color:var(--pc)}
+.slots{display:grid;gap:.45em;margin:.5em 0}
+.slot{display:grid;grid-template-columns:2em 1.4fr 1fr 1fr;gap:.4em;align-items:center;border-left:.4em solid var(--pc);padding-left:.4em}
+.slot .opt.cell{margin:0;padding:.35em .5em;justify-content:center;min-width:0}
+.slot .opt.cell .v{min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot .sno{color:var(--pc);text-align:center}
+.warnline{color:var(--bad)}
+.opt.dim{opacity:.5;cursor:default;pointer-events:none}
+.panel.lineup{scroll-padding-bottom:5em}   /* a focused row scrolls clear of the sticky footer */
+@media (max-width:520px){.slot{grid-template-columns:1.4em 1.5fr 1fr 1fr;gap:.25em}.slot .opt.cell{padding:.3em .25em;font-size:.8em;min-height:2.4em}.panel.lineup .opt{min-height:2.4em;padding:.3em .6em}.panel.lineup .row.sticky{bottom:-.8em}}
 .tag.seat1,.tag.seat2,.tag.seat3,.tag.seat4{border-color:var(--pc)}
 .hc .pc{background:#000;border-width:3px}
 .seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(9em,1fr));gap:.6em;margin:.6em 0}
@@ -1258,8 +1271,8 @@ const Inputs = {
     add(window, 'keyup', (e) => this.onKeyUp(e));
     add(window, 'blur', () => this.releaseAll());
     add(document, 'visibilitychange', () => { if (document.hidden) this.releaseAll(); });
-    add(window, 'gamepadconnected', (e) => { Events.emit('toast', { msg: 'Controller connected: ' + e.gamepad.id.slice(0, 40) }); });
-    add(window, 'gamepaddisconnected', (e) => { this.freePad(e.gamepad.index); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); });
+    add(window, 'gamepadconnected', (e) => { Events.emit('toast', { msg: 'Controller connected: ' + e.gamepad.id.slice(0, 40) }); Events.emit('padsChanged', {}); });
+    add(window, 'gamepaddisconnected', (e) => { this.freePad(e.gamepad.index); Events.emit('toast', { msg: 'Controller disconnected', kind: 'warn' }); Events.emit('padsChanged', {}); });
   },
   dispose() {
     for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
@@ -2437,7 +2450,7 @@ const Camera = {
       for (let k = 0; k < playerCount; k++) { const dx = f.x - players[k].x, dz = f.z - players[k].z; sq = Math.min(sq, dx * dx + dz * dz); }
       if (sq < nearestSq) { nearestSq = sq; nearest = f; }
       const range = wasFramed ? CAMERA_THREAT_LEAVE : CAMERA_THREAT_RANGE;
-      if (sq <= range * range) { framed[i] = true; this.addThreat(f); threats++; }
+      if (sq <= range * range || f.person) { framed[i] = true; this.addThreat(f); threats++; }   // a person on another team (a lineup) stays in view at any distance
     }
     for (let k = 0; k < playerCount; k++) {
       const locked = players[k].lockOn;
@@ -4131,7 +4144,7 @@ const ROSTER = [
     style: { aggr: 1.0, punch: 0.5, kick: 0.5, heavy: 0.5, grab: 0.2, defend: 0.5, circle: 0.6, low: 0.3 },
     look: { skin: '#3a3340', hair: '#d4af37', hairStyle: 'mask', top: '#16161c', shorts: '#16161c', glove: '#d4af37', shoe: '#111111', scale: 1.04, build: 1.05 } },
 ];
-const ROSTER_BY_ID = {};
+const ROSTER_BY_ID = Object.create(null);   // no inherited keys: an id such as "toString" is simply unknown
 for (const r of ROSTER) ROSTER_BY_ID[r.id] = r;
 
 /* ---------- attack catalogue (data driven; no input-specific combat logic) ---------- */
@@ -5340,6 +5353,7 @@ class Fighter {
     this.index = index;
     this.team = team === undefined ? Math.min(index, 1) : team;   // 0 = players, 1 = enemies (P4-01); the two sides of a 1v1 are teams 0 and 1
     this.tint = this.team;             // colour of the floor disc and the HUD (MARKER_RGB); a lineup (P4-08) sets its own
+    this.person = false;               // a lineup: a person plays this fighter (the camera keeps every person in view)
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile);   // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
@@ -8694,7 +8708,12 @@ const LINEUP_TEAM_LETTERS = ['', 'A', 'B', 'C', 'D'];   // team 0 = a free-for-a
 const LINEUP_TEAMS = LINEUP_TEAM_LETTERS.length - 1;
 const LINEUP_TIMERS = [0, 60, 120, 180];   // seconds of the optional clock; 0 = none
 const LINEUP_DEALS = ['ffa', 'players', '2', '3', '4'];   // quick team layouts, see MatchLineup.deal
-const LINEUP_HANDICAP_HP = 0.25, LINEUP_HANDICAP_DMG = 0.25;   // even-teams handicap: a team smaller than the biggest one gets ratio ^ HP times the health and ratio ^ DMG times the damage per fighter (ratio = biggest team / own team); NOT FITTED YET: 1v2 on Hard with a single KAI against two measured the single winning 20% at 0 / 0, 80% at 1 / 0 and at 0.5 / 0.5, 95% at 1 / 1 (40 seeds), so the right values lie between 0 and 0.5
+const LINEUP_HANDICAP = {   // even-teams handicap: the factor on health and on damage of a fighter of a team smaller than the biggest, by CPU level and ratio = biggest team / own team (rows [ratio, factor], straight lines between them, the last factor above the last ratio, 1 at ratio 1). Fitted with AI against AI so the smaller side wins about half of the fights (Appendix C, "Match setup (P4-08)"). A factor under 1 (Easy and Normal: a CPU pair gets in its own way) is used only between CPU-only teams: a team with a player, or an outnumbering team with a player, never gets less than 1
+  easy: [[1.5, 0.95], [2, 0.89], [3, 0.9], [4, 0.99]],
+  normal: [[1.5, 0.98], [2, 0.96], [3, 1], [4, 1.22]],
+  hard: [[1.5, 1.107], [2, 1.19], [3, 1.32], [4, 1.35]],
+  expert: [[1.5, 1.22], [2, 1.45], [3, 1.72], [4, 1.9]],
+};
 const TEAM_TINTS = 8;                 // colours for teams: Team A to D keep their own, free-for-all slots take the others
 const MatchLineup = {
   /* Makes a lineup safe in place: 2 to 8 known fighters, the first slot a person, at most 4 people, teams 0 to 4, a known clock. Returns it. */
@@ -8710,7 +8729,7 @@ const MatchLineup = {
     let people = 0;
     for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; people--; }
     if (!LINEUP_TIMERS.includes(lineup.timer)) lineup.timer = 0;
-    lineup.handicap = lineup.handicap !== false;
+    lineup.handicap = lineup.handicap === undefined ? true : !!lineup.handicap;
     if (!LINEUP_DEALS.includes(lineup.deal)) lineup.deal = 'custom';
     return lineup;
   },
@@ -8741,20 +8760,35 @@ const MatchLineup = {
     });
     lineup.deal = kind;
   },
-  /* The multiplier a fighter on a team of `size` gets when the biggest team has `largest` fighters (1 when the handicap is off or its team is the biggest). */
-  handicap(lineup, size, largest) {
-    const ratio = lineup.handicap && size > 0 ? largest / size : 1;
-    return ratio > 1 ? { hp: Math.pow(ratio, LINEUP_HANDICAP_HP), dmg: Math.pow(ratio, LINEUP_HANDICAP_DMG) } : { hp: 1, dmg: 1 };
+  /* The factor of LINEUP_HANDICAP for a CPU level and a ratio (biggest team / own team): 1 at ratio 1 and below, straight lines between the rows, and above the last ratio the last factor. */
+  handicapFactor(level, ratio) {
+    if (!(ratio > 1)) return 1;
+    const rows = LINEUP_HANDICAP[level] || LINEUP_HANDICAP.hard;
+    let before = [1, 1];
+    for (const row of rows) {
+      if (ratio <= row[0]) return before[1] + (row[1] - before[1]) * (ratio - before[0]) / (row[0] - before[0]);
+      before = row;
+    }
+    return before[1];
   },
-  /* The slots a MatchSim builds from: the lead's team first (the lead is the first person), then the other teams in the order they appear; inside a team the people come first. A slot becomes
-     { id, human (the input seat 0 to 3, or -1 for the CPU), team (0 = the lead's), tint (colour), hp / dmg (handicap), from (the slot it came from) }. */
-  plan(lineup) {
+  /* The multiplier a fighter on a team of `size` gets when the biggest team has `largest` fighters (1 when the handicap is off or its team is the biggest). protect: a person plays on the team or on the biggest team, so a factor under 1 becomes 1: a person is never weakened by the handicap. */
+  handicap(lineup, size, largest, level, protect) {
+    const ratio = lineup.handicap && size > 0 ? largest / size : 1;
+    if (!(ratio > 1)) return { hp: 1, dmg: 1 };
+    const factor = this.handicapFactor(level, ratio), used = protect ? Math.max(1, factor) : factor;
+    return { hp: used, dmg: used };
+  },
+  /* The slots a MatchSim builds from: the lead's team first (the lead is the first person, or the first slot when nobody is a person: a CPU-only lineup of the runner), then the other teams in the order they appear; inside a team the people come first. A slot becomes
+     { id, human (the input seat 0 to 3, or -1 for the CPU), team (0 = the lead's), tint (colour), hp / dmg (handicap), from (the slot it came from) }. The handicap follows the CPU level (Hard's when there is no CPU in the lineup). */
+  plan(lineup, level) {
     const keys = this.groupKeys(lineup);
     let seat = 0;
     const seats = lineup.slots.map((slot) => (slot.human ? seat++ : -1));
-    const order = [keys[lineup.slots.findIndex((slot) => slot.human)]];
+    const order = [keys[Math.max(0, lineup.slots.findIndex((slot) => slot.human))]];
     for (const key of keys) if (!order.includes(key)) order.push(key);
     const sizes = order.map((key) => keys.filter((other) => other === key).length), largest = Math.max(...sizes);
+    const peopleIn = order.map((key) => lineup.slots.filter((slot, i) => keys[i] === key && slot.human).length);
+    const biggestHasPerson = order.some((key, team) => sizes[team] === largest && peopleIn[team] > 0);
     const letterTints = order.filter((key) => key[0] === 't').map((key) => Number(key.slice(1)) - 1);
     const spare = [];
     for (let tint = 0; tint < TEAM_TINTS; tint++) if (!letterTints.includes(tint)) spare.push(tint);
@@ -8763,7 +8797,7 @@ const MatchLineup = {
     const slots = [];
     order.forEach((key, team) => {
       const members = lineup.slots.map((slot, i) => i).filter((i) => keys[i] === key).sort((x, y) => (seats[x] >= 0 ? 0 : 1) - (seats[y] >= 0 ? 0 : 1) || x - y);
-      const handicap = this.handicap(lineup, sizes[team], largest);
+      const handicap = this.handicap(lineup, sizes[team], largest, lineup.slots.some((slot) => !slot.human) ? level : 'hard', peopleIn[team] > 0 || biggestHasPerson);
       for (const i of members) slots.push({ id: lineup.slots[i].id, human: seats[i], team, tint: tints[team], hp: handicap.hp, dmg: handicap.dmg, from: i });
     });
     const teamNames = order.map((key) => (key[0] === 't' ? 'TEAM ' + LINEUP_TEAM_LETTERS[Number(key.slice(1))] : (ROSTER_BY_ID[lineup.slots[Number(key.slice(1))].id] || ROSTER_BY_ID.kai).name.toUpperCase()));
@@ -8834,11 +8868,12 @@ class CrowdDirector {
   constructor(match) {
     this.match = match;
     const n = match.waveRows ? match.partySize + BRAWL_MAX_ENEMIES : match.fighters.length, fill = (v) => new Array(n).fill(v);   // waves bring enemies in later: room for all six slots
+    const fillGroups = (v) => new Array(n * TEAM_TINTS).fill(v);   // per group = one target and one attacking team (group(t, team)): rivals of different teams never queue behind each other (P4-08)
     this.engaged = fill(false); this.token = fill(false); this.tokenTarget = fill(-1); this.grantTick = fill(0); this.usedToken = fill(false);
     this.waitSince = fill(0); this.restUntil = fill(0);
     this.retreat = fill(false); this.retreatSince = fill(0); this.retreatReady = fill(0);
     this.slotAngle = fill(0); this.slotX = fill(0); this.slotZ = fill(0);
-    this.share = fill(0); this.nextGrant = fill(0); this.ringTick = fill(0); this.ringSig = fill(-1);
+    this.share = fillGroups(0); this.nextGrant = fillGroups(0); this.ringTick = fillGroups(0); this.ringSig = fillGroups(-1);
     this.ord = fill(0); this.ang = fill(0);   // scratch for the ring deal
     this.reset();
   }
@@ -8847,26 +8882,29 @@ class CrowdDirector {
     for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.share, this.nextGrant, this.ringTick, this.ord, this.ang]) list.fill(0);
     this.tokenTarget.fill(-1); this.ringSig.fill(-1);
   }
+  group(target, team) { return target * TEAM_TINTS + team; }
   /* A new enemy took slot i (a wave): nothing of the one before it is left. */
   forget(i) {
     for (const list of [this.engaged, this.token, this.usedToken, this.retreat]) list[i] = false;
-    for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.share, this.nextGrant, this.ringTick, this.ord, this.ang]) list[i] = 0;
-    this.tokenTarget[i] = -1; this.ringSig[i] = -1;
+    for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.ord, this.ang]) list[i] = 0;
+    this.tokenTarget[i] = -1;
+    for (let team = 0; team < TEAM_TINTS; team++) { const g = this.group(i, team); this.share[g] = 0; this.nextGrant[g] = 0; this.ringTick[g] = 0; this.ringSig[g] = -1; }
   }
   isAi(i) { return this.match.controllers[i] instanceof AIController; }
   /* True while the fighter is in the middle of an attack on its target: a strike, a grab and the clinch it holds, a hold, or a pressed attack still waiting in the
      input buffer (the next step of a string is pressed during the recovery and starts a tick or two after the state has dropped to IDLE). */
   busy(f) { return f.state === S.ATTACK || f.state === S.GRAPPLE || f.state === S.SUBMIT || !!f.buffer || f.throwPressed; }
   /* How many fighters may attack target t at once: the highest token count among the difficulties of the AIs that share it. */
-  capFor(t) {
+  capFor(t, team) {
     const fighters = this.match.fighters;
     let cap = 1;
-    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target.index === t) cap = Math.max(cap, BRAWL_ATTACK_TOKENS[this.match.controllers[i].d.id] || 1);
+    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target.index === t && (team === undefined || fighters[i].team === team)) cap = Math.max(cap, BRAWL_ATTACK_TOKENS[this.match.controllers[i].d.id] || 1);
     return cap;
   }
-  holders(t) {
+  holders(t, team) {
+    const fighters = this.match.fighters;
     let count = 0;
-    for (let i = 0; i < this.token.length; i++) if (this.token[i] && this.tokenTarget[i] === t) count++;
+    for (let i = 0; i < this.token.length; i++) if (this.token[i] && this.tokenTarget[i] === t && (team === undefined || fighters[i].team === team)) count++;
     return count;
   }
   /* The ring radius around target f: its longest reach, the body of the waiting fighter, and RING_MARGIN. */
@@ -8877,17 +8915,19 @@ class CrowdDirector {
   update() {
     const match = this.match, fighters = match.fighters, count = fighters.length, tick = match.tick, share = this.share;
     share.fill(0);
-    for (let i = 0; i < count; i++) if (fighters[i].alive && fighters[i].target && this.isAi(i)) share[fighters[i].target.index]++;
+    for (let i = 0; i < count; i++) if (fighters[i].alive && fighters[i].target && this.isAi(i)) share[this.group(fighters[i].target.index, fighters[i].team)]++;
     for (let i = 0; i < count; i++) {
       const f = fighters[i];
-      this.engaged[i] = f.alive && !!f.target && share[f.target.index] >= 2 && this.isAi(i);
+      this.engaged[i] = f.alive && !!f.target && share[this.group(f.target.index, f.team)] >= 2 && this.isAi(i);
       if (!this.engaged[i]) { this.token[i] = false; this.retreat[i] = false; }
     }
     for (let i = 0; i < count; i++) if (this.engaged[i]) { this.upkeepToken(i, tick); this.upkeepRetreat(i, tick); }
     for (let t = 0; t < count; t++) {
-      if (share[t] < 2) continue;
-      this.grant(t, tick);
-      this.dealRing(t, tick);
+      for (let team = 0; team < TEAM_TINTS; team++) {
+        if (share[this.group(t, team)] < 2) continue;
+        this.grant(t, team, tick);
+        this.dealRing(t, team, tick);
+      }
     }
     for (let i = 0; i < count; i++) if (this.engaged[i]) this.placeSlot(i);
   }
@@ -8906,19 +8946,20 @@ class CrowdDirector {
   }
   resetPlan(i) { const ai = this.match.controllers[i]; ai.plan = null; ai.nextDecision = 0; }   // decide again now: step in with a token, back to the ring without
   /* Hands the free tokens of target t to the oldest waiters. */
-  grant(t, tick) {
-    if (tick < this.nextGrant[t] || this.holders(t) >= this.capFor(t)) return;
+  grant(t, team, tick) {
+    const g = this.group(t, team);
+    if (tick < this.nextGrant[g] || this.holders(t, team) >= this.capFor(t, team)) return;
     const fighters = this.match.fighters;
     let best = -1;
     for (let i = 0; i < fighters.length; i++) {
       const f = fighters[i];
-      if (!this.engaged[i] || this.token[i] || f.target.index !== t || this.retreat[i] || tick < this.restUntil[i]) continue;
+      if (!this.engaged[i] || this.token[i] || f.target.index !== t || f.team !== team || this.retreat[i] || tick < this.restUntil[i]) continue;
       if (TERMINAL_STATES.includes(f.state) || REACTION_STATES.includes(f.state)) continue;
       if (best < 0 || this.waitSince[i] < this.waitSince[best]) best = i;   // the loop runs in index order, so a tie stays with the lower index
     }
     if (best < 0) return;
     this.token[best] = true; this.tokenTarget[best] = t; this.grantTick[best] = tick; this.usedToken[best] = false;
-    this.nextGrant[t] = tick + TOKEN_GRANT_GAP_TICKS[this.match.controllers[best].d.id];
+    this.nextGrant[g] = tick + TOKEN_GRANT_GAP_TICKS[this.match.controllers[best].d.id];
     this.resetPlan(best);
   }
   upkeepRetreat(i, tick) {
@@ -8931,16 +8972,18 @@ class CrowdDirector {
     if (this.token[i] || rested || tick - this.retreatSince[i] >= RETREAT_MAX_TICKS) { this.retreat[i] = false; this.retreatReady[i] = tick + RETREAT_COOLDOWN_TICKS; }
   }
   /* Deals the ring spots of target t again when the group changed or RING_REFRESH_TICKS passed. */
-  dealRing(t, tick) {
-    const fighters = this.match.fighters, target = fighters[t], ord = this.ord, ang = this.ang;
-    let members = 0, signature = 0;
-    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target === target) { members++; signature |= 1 << i; }
-    if (signature === this.ringSig[t] && tick - this.ringTick[t] < RING_REFRESH_TICKS) return;
-    this.ringSig[t] = signature; this.ringTick[t] = tick;
+  dealRing(t, team, tick) {
+    const fighters = this.match.fighters, target = fighters[t], ord = this.ord, ang = this.ang, g = this.group(t, team);
+    let members = 0, signature = 0, teamsHere = 0, rank = 0;   // teamsHere: the teams that wait round this target (a lineup): each gets its spots turned by a share of a step (rank = how many wait with a lower team number), so two teams are never dealt the same spot
+    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target === target && fighters[i].team === team) { members++; signature |= 1 << i; }
+    for (let other = 0; other < TEAM_TINTS; other++) if (this.share[this.group(t, other)] >= 2) { teamsHere++; if (other < team) rank++; }
+    signature |= (teamsHere << 8) | (rank << 12);   // a team that starts or stops waiting deals the ring again at once
+    if (signature === this.ringSig[g] && tick - this.ringTick[g] < RING_REFRESH_TICKS) return;
+    this.ringSig[g] = signature; this.ringTick[g] = tick;
     const base = Math.atan2(target.fwdZ, target.fwdX);   // angles are measured from straight ahead of the target
     let filled = 0;
     for (let i = 0; i < fighters.length; i++) {
-      if (!this.engaged[i] || fighters[i].target !== target) continue;
+      if (!this.engaged[i] || fighters[i].target !== target || fighters[i].team !== team) continue;
       let a = wrapAngle(Math.atan2(fighters[i].z - target.z, fighters[i].x - target.x) - base);
       if (a < 0) a += TAU;
       let k = filled++;
@@ -8948,13 +8991,14 @@ class CrowdDirector {
       ang[k] = a; ord[k] = i;
     }
     const step = TAU / members;
+    const offset = teamsHere > 1 ? rank * step / teamsHere : 0;
     let bestShift = 0, bestCost = Infinity;
     for (let shift = 0; shift < members; shift++) {   // which rotation of the spots makes the group walk the least
       let cost = 0;
-      for (let k = 0; k < members; k++) cost += Math.abs(wrapAngle(ang[k] - (step / 2 + ((k + shift) % members) * step)));
+      for (let k = 0; k < members; k++) cost += Math.abs(wrapAngle(ang[k] - (step / 2 + offset + ((k + shift) % members) * step)));
       if (cost < bestCost - 1e-9) { bestCost = cost; bestShift = shift; }
     }
-    for (let k = 0; k < members; k++) this.slotAngle[ord[k]] = base + step / 2 + ((k + bestShift) % members) * step;
+    for (let k = 0; k < members; k++) this.slotAngle[ord[k]] = base + step / 2 + offset + ((k + bestShift) % members) * step;
   }
   /* The world spot of fighter i: on the ring around its target (farther out when retreating), kept inside the walls. */
   placeSlot(i) {
@@ -8985,6 +9029,7 @@ class MatchSim {
     /* A co-op brawl: cfg.coop is the party, [{ slot, id }] in seat order (slot = the input seat 0 to 3, id = the roster fighter); fighter k is the k-th of them. Otherwise the party is the one player. */
     this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
     this.setup = this.brawl && !this.coop && Array.isArray(this.cfg.slots) && this.cfg.slots.length >= LINEUP_MIN ? this.cfg.slots.slice(0, LINEUP_MAX) : null;   // P4-08: the lineup (MatchLineup.plan) of a Free Fight, Versus or Brawl with teams of its own; it replaces the party and the enemies
+    if (this.setup) this.waveRows = null;   // a lineup is exactly the fighters picked: no waves bring more
     const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : this.setup ? [] : [p1];
     this.partySize = party.length;
     const foes = this.setup ? [] : this.waveRows ? this.waveProfiles(0, party.map((profile) => profile.id)) : this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
@@ -9073,7 +9118,7 @@ class MatchSim {
     slots.forEach((slot, k) => {
       const profile = ROSTER_BY_ID[slot.id] || ROSTER_BY_ID.kai, fighter = new Fighter(profile, k, slot.team), person = slot.human >= 0;
       if (slots.findIndex((other) => other.id === slot.id) < k) fighter.applyLook(alternateLook(profile.look));   // a second pick of the same fighter wears the alternate colours
-      fighter.tint = slot.tint;
+      fighter.tint = slot.tint; fighter.person = person;
       fighter.stats.maxHp = Math.round(fighter.stats.maxHp * slot.hp); fighter.maxHp = fighter.stats.maxHp; fighter.hp = fighter.maxHp;
       fighter.stats.damage *= slot.dmg;
       if (!person && !this.cfg.evenDamage) fighter.stats.damage *= level.dmg;
@@ -9081,9 +9126,12 @@ class MatchSim {
       this.controllers.push(person ? HUMAN_CONTROLLERS[clamp(Math.floor(slot.human) || 0, 0, LINEUP_HUMANS_MAX - 1)] : new AIController(profile, this.cfg.difficulty));
     });
     this.partySize = slots.filter((slot) => slot.team === slots[0].team).length;   // the lead's team stands first
+    this.personFighters = this.fighters.filter((f) => f.person);   // the people in seat order (the first is fighters[0])
     this.teamCount = new Set(slots.map((slot) => slot.team)).size;
     this.teamNames = Array.isArray(this.cfg.teamNames) ? this.cfg.teamNames : [];
   }
+  /* True when the lineup ended with a winner and a person plays on the winning team (the fanfare, the Victory state). */
+  peopleWon() { return !!this.setup && this.matchWinner >= 0 && this.setup.some((slot) => slot.human >= 0 && slot.team === this.matchWinner); }
   /* How many teams still have a fighter standing. */
   aliveTeamCount() {
     let seen = 0, count = 0;
@@ -9098,13 +9146,8 @@ class MatchSim {
     }
     const hp = new Array(this.teamCount).fill(0), maxHp = new Array(this.teamCount).fill(0);
     for (const f of this.fighters) { hp[f.team] += f.hp; maxHp[f.team] += f.maxHp; }
-    let best = -1, bestShare = -1, tie = false;
-    for (let team = 0; team < this.teamCount; team++) {
-      const share = hp[team] / maxHp[team];
-      if (Math.abs(share - bestShare) <= 0.0005) tie = true;
-      else if (share > bestShare) { best = team; bestShare = share; tie = false; }
-    }
-    return tie || bestShare <= 0 ? -1 : best;
+    const shares = hp.map((value, team) => value / maxHp[team]), top = Math.max(...shares), leaders = shares.filter((share) => top - share <= 0.0005).length;
+    return top <= 0 || leaders > 1 ? -1 : shares.indexOf(top);   // one clear leader, otherwise a draw: ties are judged against the best share, so a chain of near-equal teams cannot slip through
   }
   /* The end of a lineup's one fight (a brawl has no rounds): the winning team gets the win and the match is over, a draw has no winner. */
   finishLineup(winner, reason) {
@@ -9122,13 +9165,13 @@ class MatchSim {
     const s = this.def.spawn, fighters = this.fighters, count = fighters.length;
     if (this.teamCount <= 2) {
       const left = fighters.filter((f) => f.team === 0), right = fighters.filter((f) => f.team !== 0);
-      left.forEach((f, j) => f.reset(-s - (j & 1) * BRAWL_SPAWN_STAGGER, (j - (left.length - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1));
+      left.forEach((f, j) => f.reset(-s - (j & 1) * BRAWL_SPAWN_STAGGER, (j - (left.length - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, f === fighters[0] ? hpFrac : 1, 1));
       right.forEach((f, j) => f.reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (right.length - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1));
     } else {
       const radius = Math.max(s, count * 0.5);
       fighters.forEach((f, j) => {
         const angle = TAU * j / count, x = Math.cos(angle) * radius, z = Math.sin(angle) * radius * 0.8;
-        f.reset(x, z, Math.atan2(-x, -z), j === 0 ? hpFrac : 1, 1);
+        f.reset(x, z, Math.atan2(-x, -z), f === fighters[0] ? hpFrac : 1, 1);
       });
     }
     for (const f of fighters) { const top = Arena.supportAt(f.x, f.z, 0, f.radius); f.y = f.prevY = top; f.groundY = f.supportY = top; }   // on the floor, or on a low step under the spot
@@ -10416,14 +10459,15 @@ const SimRunner = {
      'other' is damage not carried by a hit or throw: walls, objects and chip damage. */
   run(opts) {
     const cfg = Object.assign({ playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard', seed: 1, winsNeeded: 2, timer: 60 }, opts);
-    if (!ARENAS[cfg.arenaId] || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
+    if (!Object.hasOwn(ARENAS, cfg.arenaId) || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
     cfg.winsNeeded = Math.max(1, Math.floor(finite(cfg.winsNeeded, 2)));   // a bad value must not run to the time cap (NaN) or turn into best-of-3 (0)
     cfg.timer = Math.max(0, finite(cfg.timer, 60));
     let lineupCfg = null;   // P4-08: opts.lineup ({ slots: [{ id, team }], handicap }) runs a lineup, every slot a CPU; the winner is then the index of the winning team in MatchLineup.plan order (0 = the first slot's team)
     if (opts.lineup) {
       const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check('brawl', lineup);
       if (!check.ok) return { error: check.msg };
-      const plan = MatchLineup.plan(lineup);
+      lineup.slots.forEach((slot) => { slot.human = false; });   // fix() made slot 1 a person: here nobody is, so the handicap treats every team alike
+      const plan = MatchLineup.plan(lineup, cfg.difficulty);
       lineupCfg = { mode: 'brawl', slots: plan.slots.map((slot) => Object.assign({}, slot, { human: -1 })), teamNames: plan.teamNames, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)), playerId: plan.slots[0].id };
     }
     const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
@@ -10441,8 +10485,7 @@ const SimRunner = {
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
-      m.controllers[0] = new AIController(m.fighters[0].profile, cfg.difficulty1 || cfg.difficulty);
-      for (let i = 1; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, cfg.difficulty2 || cfg.difficulty);
+      for (let i = 0; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, (m.fighters[i].team === m.fighters[0].team ? cfg.difficulty1 : cfg.difficulty2) || cfg.difficulty);   // difficulty1 is the first fighter's team, difficulty2 every other team
       const lost = m.fighters.map(() => 0), before = m.fighters.map(() => 0);
       while (m.phase !== 'matchEnd' && m.tick < SIM_MAX_TICKS) {
         const n = m.fighters.length;   // waves add fighters (and replace knocked-out ones) while the match runs
@@ -10781,28 +10824,34 @@ const Game = {
     const lineup = this.lineups[mode];
     return !lineup || MatchLineup.plain(mode, lineup);
   },
-  /* The lineup screen opens with the fighters picked so far in slots 1 and 2 (the setup screen's opponent cards and Versus's second pick), and writes them back when it closes, so both screens agree. */
-  lineupOpen(mode) {
-    const sel = this.selection, lineup = this.lineupFor(mode);
-    lineup.slots[0].id = sel.player;
+  /* The picks of the fighter cards (yours, the Free Fight opponent, Versus's second fighter) and slots 1 and 2 of the lineup stay the same fighters: a pick on a card writes into the lineup if there is one (this),
+     and leaving the lineup screen writes its first two slots back (lineupToSelection). Starting a match changes neither. */
+  lineupFromSelection(mode) {
+    const sel = this.selection, lineup = this.lineups[mode];
+    if (!lineup) return;
+    if (ROSTER_BY_ID[sel.player]) lineup.slots[0].id = sel.player;
     if (mode === 'free' && ROSTER_BY_ID[sel.opponent]) lineup.slots[1].id = sel.opponent;
     if (mode === 'versus' && ROSTER_BY_ID[sel.player2]) lineup.slots[1].id = sel.player2;
-    return MatchLineup.fix(lineup);
   },
-  lineupClose(mode) {
+  lineupToSelection(mode) {
     const sel = this.selection, lineup = this.lineups[mode];
     if (!lineup) return;
     sel.player = lineup.slots[0].id;
     if (mode === 'free') sel.opponent = lineup.slots[1].id;
     if (mode === 'versus') sel.player2 = lineup.slots[1].id;
   },
+  /* Why the lineup of a mode cannot start, or '' (too few or too many fighters, nobody to fight, Versus without a second player, 3 or 4 players without enough gamepads). */
+  lineupProblem(mode) {
+    const lineup = MatchLineup.fix(this.lineupFor(mode)), check = MatchLineup.check(mode, lineup), people = MatchLineup.people(lineup);
+    if (!check.ok) return check.msg;
+    return people > 2 && !Inputs.autoDevices(people) ? people + ' players need ' + (people - 2) + ' or more gamepads connected' : '';
+  },
   /* Starts the lineup of a mode as one fight (a brawl: no rounds) with its own teams. Returns false, with a toast, when the lineup cannot be played. */
   startLineup(mode) {
-    const sel = this.selection, lineup = this.lineupOpen(mode), check = MatchLineup.check(mode, lineup);
-    if (!check.ok) { Events.emit('toast', { msg: check.msg, kind: 'warn' }); return false; }
-    const plan = MatchLineup.plan(lineup);
-    if (plan.people > 2 && !Inputs.autoDevices(plan.people)) { Events.emit('toast', { msg: plan.people + ' players need ' + (plan.people - 2) + ' or more gamepads', kind: 'warn' }); return false; }
-    this.run = { mode: 'lineup', player: plan.slots[0].id, base: mode };
+    const sel = this.selection, lineup = MatchLineup.fix(this.lineupFor(mode)), problem = this.lineupProblem(mode);   // the lineup keeps its own picks: pickFighter and the opponent cards write into it (lineupFromSelection)
+    if (problem) { Events.emit('toast', { msg: problem, kind: 'warn' }); return false; }
+    const plan = MatchLineup.plan(lineup, sel.difficulty);
+    this.run = { mode: 'lineup', player: plan.slots[0].id };
     this.beginMatch({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: mode, playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer });
     return true;
   },
@@ -10919,8 +10968,8 @@ const Game = {
     data.mode = run ? run.mode : 'free';
     data.playerWon = playerWon;
     data.buttons = [];
-    const personWon = !!m.setup && m.matchWinner >= 0 && m.setup.some((slot) => slot.human >= 0 && slot.team === m.matchWinner);   // P4-08: a lineup is won by a team; a person on it makes it a victory
-    if (m.setup) { data.draw = m.matchWinner < 0; data.personWon = personWon; }
+    const personWon = m.peopleWon();   // P4-08: a lineup is won by a team; a person on it makes it a victory
+    if (m.setup) data.draw = m.matchWinner < 0;
     if (run && run.mode === 'arcade') {
       data.stage = run.stage + 1; data.stages = run.ladder.length; data.continues = run.continues;
       if (playerWon) {
@@ -11383,7 +11432,7 @@ const Sound = {
     });
     on('block', (e) => { if (!e.sway || e.perfect) this.block(e.perfect, e.broke, e.x); });   // a plain sway makes no block sound
     on('attackActive', (e) => this.whoosh((e.mv.tier || 1) / 3, e.f.x));
-    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team === TEAM_ENEMIES) this.grunt(1, false); });
+    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team !== TEAM_PLAYERS) this.grunt(1, false); });
     on('step', (e) => this.step(e.run, e.f.x));
     on('land', (e) => this.land(e.impact / 6, e.f.x));
     on('jump', (e) => this.whoosh(0.2, e.f.x));
@@ -11417,7 +11466,7 @@ const Sound = {
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
     on('timeWarn', () => this.tone('sine', 990, 990, 0.09, 0.16));
-    on('matchEnd', (e) => this.fanfare(e.match.matchWinner === 0 || e.match.versus));
+    on('matchEnd', (e) => this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus));
     on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
     on('uiSound', (e) => this.ui(e.kind));
   },
@@ -11507,9 +11556,12 @@ const MODE_INFO = {
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Pick any opponent, arena, difficulty, round count and timer.' },
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
+  brawl: { label: 'Brawl', desc: 'Up to eight fighters in one fight: choose who is a player and who is the CPU, and who is on which team, or fight free-for-all.' },
   coop: { label: 'Co-op Brawl', desc: 'Up to four players on keyboards and gamepads against a crowd. A knocked-out player sits out until the brawl is over.' },
 };
-const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus', 'coop'];
+const SETUP_LABEL = { free: 'FREE FIGHT', versus: 'VERSUS', brawl: 'BRAWL' };   // what a lineup match is called on the HUD (cfg.setupMode)
+const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };
+const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus', 'brawl', 'coop'];
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 /* Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two
@@ -11606,7 +11658,7 @@ const UI = {
     add(document, 'touchend', () => Sound.unlock(), { passive: true });
     add(document, 'pointerup', () => Sound.unlock(), { passive: true });
     for (let i = 0; i < COOP_MAX_PLAYERS + BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'tag p' + Math.min(i + 1, 2); this.dom.tags.appendChild(el); this.tagEls.push(el); }   // a name tag per fighter: P1, P2 and up to six enemies share p2's colour (a co-op restyles them when the match is created)
-    for (let k = 0; k < COOP_MAX_PLAYERS; k++) {   // a HUD cell per co-op player (P4-07), shown only in a co-op
+    for (let k = 0; k < LINEUP_MAX; k++) {   // a HUD cell per co-op player (P4-07) or per fighter of a lineup (P4-08), shown only there
       const root = document.createElement('div');
       root.className = 'pc'; root.hidden = true;
       root.innerHTML = '<div class="pn"></div><div class="ph"><i></i></div><div class="ps"><i></i></div>';
@@ -11616,6 +11668,7 @@ const UI = {
     for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0 }); }
     for (let i = 0; i < BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'edge'; el.style.display = 'none'; this.dom.tags.appendChild(el); this.edgeEls.push(el); }   // an arrow per possible enemy, for attackers off screen (P4-06)
     Events.on('toast', (e) => this.toast(e.msg, e.kind));
+    Events.on('padsChanged', () => { if (this.current === 'lineup') this.rerender(true); });   // the lineup screen lists the gamepads and needs them for 3 or 4 players
     Events.on('frame', () => this.update());
     Events.on('gamestate', (e) => this.onGameState(e));
     Events.on('matchCreated', (e) => this.onMatchCreated(e.match));
@@ -11636,7 +11689,7 @@ const UI = {
     Events.on('hazardWarn', (e) => this.popAt(e.h.x, 2.0, e.h.z, e.h.def.name.toUpperCase() + '!', '#ffb000'));
     Events.on('countdown', (e) => this.banner(String(e.n), '', 700));
     Events.on('fightStart', () => this.banner('FIGHT!', '', 900));
-    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.brawl ? 'BRAWL' : e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say(e.match.brawl ? 'Brawl' : 'Round ' + e.round); });
+    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.setup ? SETUP_LABEL[e.match.cfg.setupMode] : e.match.brawl ? 'BRAWL' : e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say(e.match.brawl ? 'Brawl' : 'Round ' + e.round); });
     Events.on('ko', (e) => { if (koEndsFight(e.def)) this.banner('K.O.!', '', 1600); else this.onPartyKo(e); });
     Events.on('lobby', (e) => this.onLobby(e));
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
@@ -11672,13 +11725,15 @@ const UI = {
   speaker(index) {   // Versus and co-op announcements say whose they are
     const m = Game.match;
     if (Inputs.coop && m && m.coop && m.partySize > 1 && m.coop[index]) return 'P' + (m.coop[index].slot + 1) + ': ';
+    if (m && m.setup) return m.setup[index] && m.setup[index].human >= 0 && m.personFighters.length > 1 ? 'P' + (m.setup[index].human + 1) + ': ' : '';
     return Inputs.versus ? 'P' + (index + 1) + ': ' : '';
   },
   /* The input seat of fighter f: its index, except in a co-op, where the party need not start at seat 0. */
-  seatOf(f) { const m = Game.match; return m && m.coop && m.coop[f.index] ? m.coop[f.index].slot : f.index; },
+  seatOf(f) { const m = Game.match; return m && m.setup && m.setup[f.index] ? Math.max(0, m.setup[f.index].human) : m && m.coop && m.coop[f.index] ? m.coop[f.index].slot : f.index; },
   /* A co-op player went down while the party still stands: a pop over the body and an announcement (the last one down gets the K.O. banner). */
   onPartyKo(e) {
     const m = Game.match;
+    if (m && m.setup && m.fighters[e.def.index] === e.def) { this.popAt(e.x, 1.6, e.z, this.tagLabel(m, e.def.index) + ' OUT', '#ff9a9a'); return; }   // a lineup goes on while two teams stand: whoever falls is marked
     if (!m || !m.coop || e.def.team !== TEAM_PLAYERS || m.fighters[e.def.index] !== e.def) return;
     const seat = m.coop[e.def.index].slot + 1;
     this.popAt(e.x, 1.6, e.z, 'P' + seat + ' OUT', '#ff9a9a');
@@ -11784,7 +11839,7 @@ const UI = {
       case GS.PAUSED: this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; this.syncPadPrev(); break;   // a pad button still down from the fight must be released before it can press Resume
       case GS.ROUND_END: break;
       case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
-      case GS.DEFEAT: this.banner('DEFEAT', '', 3000); Music.stop(); break;
+      case GS.DEFEAT: this.banner(Game.resultsData && Game.resultsData.draw ? 'DRAW' : 'DEFEAT', Game.resultsData && Game.resultsData.winnerName ? Game.resultsData.winnerName + ' wins' : '', 3000); Music.stop(); break;
       case GS.RESULTS: this.stack = []; this.go('results'); this.guardUntil = performance.now() + RESULTS_GUARD_MS; break;
       case GS.ERROR: this.showFatal(e.error || 'Unknown error'); break;
       default: break;
@@ -11794,6 +11849,7 @@ const UI = {
     const d = Game.resultsData;
     if (d && d.mode === 'versus') this.banner('P' + (d.winner + 1) + ' WINS', d.winner === 0 ? d.player : d.opponent, 3000);
     else if (d && d.mode === 'coop') this.banner('VICTORY', 'The party wins', 3000);
+    else if (d && d.mode === 'lineup') this.banner('VICTORY', d.winnerName + ' wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
@@ -11806,17 +11862,19 @@ const UI = {
     if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. ' + (Device.canFullscreen() ? 'Use Fullscreen (Settings) or remap those keys.' : 'Remap those keys in Settings.'), 'warn'); }
     if (!this.rotateShown && window.innerHeight > window.innerWidth && this.touchWanted()) { this.rotateShown = true; this.toast('Rotate your device to landscape for the best view', 'warn'); }
     this.cache = {};
-    this.dom.hn1.innerHTML = match.coop ? '<b>PARTY</b> ' + match.partySize + (match.partySize === 1 ? ' PLAYER' : ' PLAYERS') : '<b>P1</b> ' + esc(match.fighters[0].name);   // a co-op: the left bar is the party together
-    this.dom.hn2.innerHTML = match.brawl ? '<b>CPU</b> ENEMIES' : '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);   // a brawl: the right bar is the enemies together
+    this.dom.hn1.innerHTML = match.setup ? this.lineupHeading(match, true) : match.coop ? '<b>PARTY</b> ' + match.partySize + (match.partySize === 1 ? ' PLAYER' : ' PLAYERS') : '<b>P1</b> ' + esc(match.fighters[0].name);   // a co-op: the left bar is the party together
+    this.dom.hn2.innerHTML = match.setup ? this.lineupHeading(match, false) : match.brawl ? '<b>CPU</b> ENEMIES' : '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);   // a brawl: the right bar is the enemies together
     this.dom.hud.classList.toggle('vs', match.versus);
     this.dom.hud.classList.toggle('brawl', match.brawl);
     this.dom.hud.classList.toggle('coop', !!match.coop);
+    this.dom.hud.classList.toggle('lineup', !!match.setup);
     this.partyEls.forEach((cell, k) => {   // one cell per co-op player, coloured by seat
-      const seat = match.coop ? match.coop[k] : null;
-      cell.root.hidden = !seat;
+      const seat = match.coop ? match.coop[k] : null, member = match.setup ? match.fighters[k] : null;
+      cell.root.hidden = !seat && !member;
       if (seat) { cell.root.className = 'pc seat' + (seat.slot + 1); cell.name.innerHTML = '<b>P' + (seat.slot + 1) + '</b> ' + esc(match.fighters[k].name); }
+      if (member) { cell.root.className = 'pc tc' + member.tint; cell.name.innerHTML = '<b>' + this.tagLabel(match, k) + '</b> ' + esc(member.name); }
     });
-    this.tagEls.forEach((el, i) => { el.className = 'tag ' + (match.coop && i < match.partySize ? 'seat' + (match.coop[i].slot + 1) : 'p' + Math.min(i + 1, 2)); });
+    this.tagEls.forEach((el, i) => { el.className = 'tag ' + (match.setup && match.fighters[i] ? 'tc' + match.fighters[i].tint : match.coop && i < match.partySize ? 'seat' + (match.coop[i].slot + 1) : 'p' + Math.min(i + 1, 2)); });
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
@@ -11838,6 +11896,7 @@ const UI = {
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
     if (m.round !== 1) return '';
+    if (m.setup) return m.fighters.length + ' FIGHTERS · ' + (m.teamNames.some((name) => name.startsWith('TEAM ')) ? m.teamCount + ' TEAMS' : m.fighters.length === 2 ? 'ONE ON ONE' : 'FREE-FOR-ALL');
     if (m.brawl) { const foes = m.waveRows ? m.waveTotal() : m.fighters.length - m.partySize; return foes + (foes === 1 ? ' ENEMY' : ' ENEMIES'); }   // with waves: all the waves together
     if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
@@ -11849,7 +11908,8 @@ const UI = {
     const m = e.match;
     let t = e.reason === 'time' ? 'TIME UP' : e.reason === 'ringout' ? 'RING OUT' : 'K.O.';
     let sub = e.winner < 0 ? 'DRAW' : this.fighterName(m, e.winner) + ' WINS THE ROUND';
-    if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : m.coop ? 'THE PARTY IS DOWN' : 'THE PLAYER IS DOWN';
+    if (m.setup) sub = e.winner < 0 ? 'DRAW' : (m.teamNames[e.winner] || 'TEAM') + ' WINS';
+    else if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : m.coop ? 'THE PARTY IS DOWN' : 'THE PLAYER IS DOWN';
     if (e.reason === 'time' && e.winner < 0) t = 'DRAW';
     this.banner(t, sub, 2200);
   },
@@ -11868,8 +11928,14 @@ const UI = {
     if (cur === 'coop') { this.syncPadPrev(); Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
     if (cur === 'char' && this.pickSide === 1) { this.pickSide = 0; this.showPick(); this.go('char'); return; }   // Versus: back to P1's pick
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
+    if (cur === 'lineup') { const mode = Game.selection.mode; Game.lineupToSelection(mode); this.go(mode === 'brawl' ? 'char' : 'setup'); return; }
     if (cur === 'setup') { if (Game.selection.mode === 'versus') { this.pickSide = 1; this.showPick(); } this.go('char'); return; }
-    if (cur === 'arena') { const setup = ['free', 'training', 'versus'].includes(Game.selection.mode); Game.go(GS.CHARSEL); if (setup) this.go('setup'); return; }
+    if (cur === 'arena') {
+      const mode = Game.selection.mode, setup = ['free', 'training', 'versus'].includes(mode);
+      Game.go(GS.CHARSEL);
+      if (mode === 'brawl' || (['free', 'versus'].includes(mode) && !Game.lineupPlain(mode))) this.go('lineup'); else if (setup) this.go('setup');   // back to the screen the arena was chosen from
+      return;
+    }
     const prev = this.stack.pop();
     this.go(prev || (Game.state === GS.PAUSED ? 'pause' : 'main'));
   },
@@ -11966,6 +12032,7 @@ const UI = {
   },
   changeLocal(name, dir) {
     const sel = Game.selection;
+    if (this.current === 'lineup' && this.lineupLocal(name, dir)) { this.rerender(true); return; }
     if (name === 'diff') { const i = DIFFICULTY_ORDER.indexOf(sel.difficulty); sel.difficulty = DIFFICULTY_ORDER[(i + dir + 4) % 4]; }
     else if (name === 'rounds') { const list = [1, 2, 3]; sel.rounds = list[(list.indexOf(sel.rounds) + dir + 3) % 3]; }
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
@@ -11988,8 +12055,10 @@ const UI = {
       case 'mode': Game.chooseMode(arg); break;
       case 'pick': this.pickFighter(arg); break;
       case 'confirm': this.confirmFighter(); break;
-      case 'opp': if (arg === Game.selection.opponent) { Game.go(GS.ARENASEL); break; } Game.selection.opponent = arg; this.rerender(true); break;
+      case 'opp': if (arg === Game.selection.opponent) { Game.go(GS.ARENASEL); break; } Game.selection.opponent = arg; Game.lineupFromSelection(Game.selection.mode); this.rerender(true); break;
       case 'setupNext': Game.go(GS.ARENASEL); break;
+      case 'lineup': Game.lineupFromSelection(Game.selection.mode); this.go('lineup'); break;
+      case 'lineupNext': this.lineupNext(); break;
       case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, this.rivalId(), false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
       case 'coopStart': this.coopStart(); break;
@@ -12036,6 +12105,7 @@ const UI = {
     const key = this.pickKey();
     if (id === Game.selection[key]) { this.confirmFighter(); return; }
     Game.selection[key] = id;
+    Game.lineupFromSelection(Game.selection.mode);
     this.showPick();
     this.rerender(true);
   },
@@ -12047,6 +12117,7 @@ const UI = {
     if (sel.mode === 'arcade') Game.startFromSelection();
     else if (sel.mode === 'versus') this.confirmVersusPick();
     else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.mode === 'training' && sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
+    else if (sel.mode === 'brawl') { Game.lineupFromSelection('brawl'); this.go('lineup'); }
     else Game.go(GS.ARENASEL);
   },
   /* Versus: P1's confirm hands the fighter cards to P2; P2's confirm opens the rules. */
@@ -12093,7 +12164,7 @@ const UI = {
   },
   screen_main() {
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Co-op Brawl</small></button>' +
+      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Brawl, Co-op Brawl</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -12211,6 +12282,89 @@ const UI = {
     if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id;
     Game.go(GS.ARENASEL);
   },
+  /* ----- match setup (P4-08): the lineup screen ----- */
+  /* A setup row that does not apply to this lineup: shown dimmed, out of the focus order, with the reason. */
+  unusedRow(label) { return '<div class="opt dim" aria-disabled="true"><span class="k">' + esc(label) + '</span><span class="v">Not used: this lineup is one fight</span></div>'; },
+  lineupText(lineup) {
+    const plan = MatchLineup.plan(lineup), count = lineup.slots.length;
+    return count + ' fighters: ' + plan.people + (plan.people === 1 ? ' player' : ' players') + ', ' + (count - plan.people) + ' CPU, ' + (plan.ffa ? (count === 2 ? 'one on one' : 'free-for-all') : plan.sizes.join(' v ') + ' teams');
+  },
+  lineupButton(mode) { return '<button class="mi" data-nav data-act="lineup">Players and teams<small>' + this.lineupText(MatchLineup.fix(Game.lineupFor(mode))) + '</small></button>'; },
+  /* Who plays on what, for the number of people in the lineup. */
+  lineupDevicesText(people) {
+    if (people === 1) return '<b>Player 1</b>: ' + esc(this.layoutText(Keymap)) + ', a gamepad or the touch controls.';
+    if (people === 2) return this.devicesText();
+    const devices = Inputs.autoDevices(people);
+    if (!devices) return people + ' players need ' + (people - 2) + ' or more gamepads connected (keyboard 1 takes the first seat).';
+    return devices.map((device, k) => '<b>P' + (k + 1) + '</b>: ' + esc(this.deviceLabel(device))).join(' &middot; ') + '. Touch controls are for a single player.';
+  },
+  screen_lineup() {
+    const mode = Game.selection.mode, lineup = MatchLineup.fix(Game.lineupFor(mode)), plan = MatchLineup.plan(lineup, Game.selection.difficulty), problem = Game.lineupProblem(mode);
+    const cell = (label, value, attr) => '<div class="opt cell" role="spinbutton" tabindex="0" aria-label="' + esc(label) + ': ' + esc(value) + '" aria-valuetext="' + esc(value) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav ' + attr + '><span class="v">' + esc(value) + '</span></div>';
+    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Players and teams"><div class="panel lineup" style="max-width:min(46em,96vw)"><h2>' + SETUP_LABEL[mode].toLowerCase() + ': players and teams</h2><p class="sub">' + this.lineupText(lineup) + '</p>';
+    h += this.optRow('Opponents', String(lineup.slots.length - 1), 'data-local="lopp"', '') + this.optRow('Teams', LINEUP_DEAL_LABEL[lineup.deal], 'data-local="ldeal"', '') + '<div class="slots">';
+    let person = 0;
+    lineup.slots.forEach((slot, i) => {
+      const tint = plan.slots.find((s) => s.from === i).tint, who = slot.human ? 'Player ' + (++person) : 'CPU', n = 'Slot ' + (i + 1);
+      h += '<div class="slot tc' + tint + '"><b class="sno">' + (i + 1) + '</b>' + cell(n + ' fighter', ROSTER_BY_ID[slot.id].name, 'data-local="lfig:' + i + '"') + cell(n + ' control', who, 'data-local="lctl:' + i + '"') +
+        cell(n + ' team', slot.team ? 'Team ' + LINEUP_TEAM_LETTERS[slot.team] : 'Solo', 'data-local="ltm:' + i + '"') + '</div>';
+    });
+    h += '</div>' + this.optRow('CPU level', DIFFICULTY[Game.selection.difficulty].label, 'data-local="diff"', '') + this.optRow('Even teams', lineup.handicap ? 'On' : 'Off', 'data-local="lhand"', '');
+    if (!MatchLineup.plain(mode, lineup)) h += this.optRow('Clock', lineup.timer ? lineup.timer + ' s' : 'Off', 'data-local="ltimer"', '');
+    const boost = Math.max(1, ...plan.slots.map((s) => s.hp)), percent = Math.round((boost - 1) * 100), lessCpu = plan.slots.some((s) => s.hp < 1), uneven = new Set(plan.sizes).size > 1, level = DIFFICULTY[Game.selection.difficulty].label;
+    h += '<p class="hint">' + this.lineupDevicesText(plan.people) + ' Online players join here after Phase 12.' +
+      (!lineup.handicap ? ' Even teams is off: every fighter has its own health and damage.' : !uneven ? ' Even teams: the teams are equal, nothing changes.' : boost > 1 ? ' Even teams (' + level + ' CPU): a fighter of a smaller team gets up to ' + percent + '% more health and damage; a player is never weakened' + (lessCpu ? ', and a CPU-only team that is outnumbered by another CPU-only team gets slightly less' : '') + '.' : ' The teams are uneven. Even teams (' + level + ' CPU) gives nobody extra health or damage here, and a player is never weakened' + (lessCpu ? '; a CPU-only team that is outnumbered by another CPU-only team gets slightly less' : '') + '.') +
+      (MatchLineup.plain(mode, lineup) ? ' Plain one-on-one: rounds and the round timer are on the previous screen.' : ' One fight, last team standing wins.') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '');
+    return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="lineupNext"' + (problem ? ' disabled' : '') + '>Choose arena</button></div></div></section>';
+  },
+  /* The adjustable rows of the lineup screen; returns true when it handled the name. */
+  lineupLocal(name, dir) {
+    const mode = Game.selection.mode, lineup = Game.lineupFor(mode), slots = lineup.slots, [kind, arg] = name.split(':'), i = Number(arg);
+    const roster = Game.coopRoster().map((r) => r.id);
+    if (kind === 'lopp') {
+      const next = (slots.length - 2 + dir + (LINEUP_MAX - 1)) % (LINEUP_MAX - 1) + 2;   // 2 to 8 fighters, wrapping
+      while (slots.length > next) slots.pop();
+      while (slots.length < next) {
+        const last = slots[slots.length - 1], used = slots.map((s) => s.id);
+        slots.push({ id: roster.find((id) => !used.includes(id)) || roster[0], human: false, team: lineup.deal === 'custom' ? last.team : 0 });
+      }
+      if (lineup.deal !== 'custom') MatchLineup.deal(lineup, lineup.deal);
+    } else if (kind === 'ldeal') {
+      MatchLineup.deal(lineup, LINEUP_DEALS[(LINEUP_DEALS.indexOf(lineup.deal) + dir + LINEUP_DEALS.length) % LINEUP_DEALS.length]);
+    } else if (kind === 'lfig' && slots[i]) {
+      slots[i].id = roster[(Math.max(0, roster.indexOf(slots[i].id)) + dir + roster.length) % roster.length];
+    } else if (kind === 'lctl' && slots[i]) {
+      if (i === 0) { Sound.ui('bad'); this.toast('Slot 1 is always a player', 'warn'); }
+      else if (!slots[i].human && MatchLineup.people(lineup) >= LINEUP_HUMANS_MAX) { Sound.ui('bad'); this.toast('At most ' + LINEUP_HUMANS_MAX + ' players', 'warn'); }
+      else { slots[i].human = !slots[i].human; if (lineup.deal === 'players') MatchLineup.deal(lineup, 'players'); }
+    } else if (kind === 'ltm' && slots[i]) {
+      slots[i].team = (slots[i].team + dir + LINEUP_TEAMS + 1) % (LINEUP_TEAMS + 1);
+      lineup.deal = 'custom';
+    } else if (kind === 'lhand') lineup.handicap = !lineup.handicap;
+    else if (kind === 'ltimer') lineup.timer = LINEUP_TIMERS[(LINEUP_TIMERS.indexOf(lineup.timer) + dir + LINEUP_TIMERS.length) % LINEUP_TIMERS.length];
+    else return false;
+    return true;
+  },
+  /* The Choose arena button of the lineup screen. */
+  lineupNext() {
+    const mode = Game.selection.mode, problem = Game.lineupProblem(mode);
+    if (problem) { Sound.ui('bad'); this.toast(problem, 'warn'); return; }
+    Game.lineupToSelection(mode);
+    Game.go(GS.ARENASEL);
+  },
+  /* The two HUD labels of a lineup: the lead's team on the left, everyone else on the right. */
+  lineupHeading(m, lead) {
+    if (lead) return m.partySize === 1 ? '<b>P1</b> ' + esc(m.fighters[0].name) : '<b>' + esc(m.teamNames[0]) + '</b> ' + m.partySize + ' FIGHTERS';
+    const others = m.fighters.length - m.partySize;
+    return others === 1 ? '<b>' + this.tagLabel(m, m.partySize) + '</b> ' + esc(m.fighters[m.partySize].name) : '<b>' + (m.teamCount === 2 ? esc(m.teamNames[1]) : 'RIVALS') + '</b> ' + others + ' FIGHTERS';
+  },
+  /* The results of a lineup: the winning team and a row per fighter. */
+  lineupResults(d) {
+    const row = (f) => '<tr class="tc' + f.tint + '"><td><span class="pcname">' + (f.seat >= 0 ? 'P' + (f.seat + 1) : 'CPU') + ' ' + esc(f.name) + '</span></td><td>' + (/^TEAM /.test(d.teamNames[f.team]) ? esc(d.teamNames[f.team].replace('TEAM ', 'Team ')) : 'Solo') + '</td><td>' +
+      (f.team === d.winner ? 'winner' : f.alive ? 'standing' : 'knocked out') + '</td><td>' + Math.round(f.stats.damage) + '</td><td>' + Math.round(f.stats.taken) + '</td><td>' + f.stats.hits + '</td><td>' + f.stats.kos + '</td></tr>';
+    return '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.draw ? 'Draw' : esc(d.winnerName) + ' wins') + '</div>' +
+      '<p class="sub">' + d.lineup.length + ' fighters &middot; ' + clockText(d.seconds) + '</p><table class="ctl"><tr><th>Fighter</th><th>Team</th><th>Result</th><th>Damage</th><th>Taken</th><th>Hits</th><th>KOs</th></tr>' + d.lineup.map(row).join('') + '</table>' + this.resultsNav(d);
+  },
   screen_setup() {
     const sel = Game.selection;
     const diff = DIFFICULTY[sel.difficulty].label, rounds = ['', 'Best of 1', 'Best of 3', 'Best of 5'][sel.rounds], timer = sel.timer ? sel.timer + ' s' : 'Off';
@@ -12219,7 +12373,8 @@ const UI = {
     let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Match setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>' + (training ? 'Training setup' : 'Free Fight setup') + '</h2><p class="sub">' + (training ? 'Choose your sparring partner' : 'Choose your opponent and rules') + '</p><div class="cards">';
     for (const r of Game.opponentChoices(sel.player, !training)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);   // Free Fight allows mirror matches
     h += '</div>';
-    if (!training) h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '');
+    const plain = Game.lineupPlain('free');   // a lineup of more than two fighters is one fight: rounds and the round timer do not apply (the clock is on the lineup screen)
+    if (!training) h += this.optRow('Difficulty', diff, 'data-local="diff"', '') + (plain ? this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '') : this.unusedRow('Rounds') + this.unusedRow('Round timer')) + this.lineupButton('free');
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
     return h;
   },
@@ -12227,7 +12382,7 @@ const UI = {
   versusSetup(rounds, timer) {
     const sel = Game.selection, n1 = (ROSTER_BY_ID[sel.player] || ROSTER_BY_ID.kai).name, n2 = (ROSTER_BY_ID[sel.player2] || ROSTER_BY_ID.mara).name;
     return '<section class="screen on" style="justify-content:flex-end" aria-label="Versus setup"><div class="panel" style="max-width:min(38em,64vw)"><h2>Versus setup</h2><p class="sub"><span class="c1">P1 ' + esc(n1) + '</span> vs <span class="c2">P2 ' + esc(n2) + '</span></p>' +
-      this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '') +
+      (Game.lineupPlain('versus') ? this.optRow('Rounds', rounds, 'data-local="rounds"', '') + this.optRow('Round timer', timer, 'data-local="timer"', '') : this.unusedRow('Rounds') + this.unusedRow('Round timer')) + this.lineupButton('versus') +
       '<p class="hint">' + this.devicesText() + '</p>' +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="setupNext">Choose arena</button></div></div></section>';
   },
@@ -12417,6 +12572,7 @@ const UI = {
     if (!d) return '';
     if (d.mode === 'versus') return this.versusResults(d);
     if (d.mode === 'coop') return this.coopResults(d);
+    if (d.mode === 'lineup') return this.lineupResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
@@ -12573,7 +12729,7 @@ const UI = {
       this.setTransform('mo' + i, this.dom['mo' + (i + 1)], 'scaleX(' + clamp(boosted ? f.boostTicks / BOOST_TICKS : f.momentum / MOMENTUM_MAX, 0, 1).toFixed(3) + ')');
       this.toggleOn('boost' + i, this.dom['mob' + (i + 1)], boosted);
     };
-    if (m.coop) this.partyBars(m); else bar(0, a);
+    if (m.coop || m.setup) this.partyBars(m); else bar(0, a);
     if (m.brawl) this.enemyBar(m); else bar(1, b);
     Music.setIntensity(this.tenseMoment(m) ? MUSIC_TENSE : MUSIC_FIGHT);
     const tl = m.timeLeft;
@@ -12581,9 +12737,10 @@ const UI = {
     const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
     if (this.cache.lowTime !== lowTime) { this.cache.lowTime = lowTime; this.dom.timer.classList.toggle('low', lowTime); }
     this.setText('item1', this.dom.item1, heldLabel(a));
-    this.setText('item2', this.dom.item2, m.versus ? heldLabel(b) : '');
+    const duo = m.setup ? (m.personFighters.length === 2 ? m.personFighters[1] : null) : (m.versus ? b : null);   // the second person's own combo, warning and hint, on the right
+    this.setText('item2', this.dom.item2, duo ? heldLabel(duo) : '');
     const cfg = m.cfg;
-    this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
+    this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.setup ? SETUP_LABEL[m.cfg.setupMode] : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
     if (!m.training && !m.brawl) {
       const pip = (w) => '●'.repeat(w) + '○'.repeat(Math.max(0, m.winsNeeded - w));
       this.setText('pips1', this.dom.pips1, pip(m.wins[0])); this.setText('pips2', this.dom.pips2, pip(m.wins[1]));
@@ -12593,18 +12750,19 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    else if (m.setup) info = SETUP_LABEL[cfg.setupMode] + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + ' · ' + m.fighters.length + ' FIGHTERS';
     else if (m.brawl) info = (m.coop ? 'CO-OP BRAWL' : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
     else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-6 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus (on the right, with P2's controls)
-    const lone = !m.coop || m.partySize === 1;   // a co-op party of several has no room for one player's combo, warning and hint: the cells show health and stamina
+    const lone = m.setup ? m.personFighters.length <= 2 : !m.coop || m.partySize === 1;   // a co-op party of several has no room for one player's combo, warning and hint: the cells show health and stamina
     this.comboBox('combo', this.dom.combo, a, lone);
-    this.comboBox('combo2', this.dom.combo2, b, m.versus);
+    this.comboBox('combo2', this.dom.combo2, duo || b, !!duo);
     this.toggleOn('warn', this.dom.warn, lone && a.lowStamina && a.alive);
-    this.toggleOn('warn2', this.dom.warn2, m.versus && b.lowStamina && b.alive);
+    this.toggleOn('warn2', this.dom.warn2, !!duo && duo.lowStamina && duo.alive);
     this.showHint('hint', this.dom.grappleHint, lone ? this.grappleHint(a) : '');
-    this.showHint('hint2', this.dom.grappleHint2, m.versus ? this.grappleHint(b) : '');
+    this.showHint('hint2', this.dom.grappleHint2, duo ? this.grappleHint(duo) : '');
     this.holdUi(m);
     // name tags + popups
     const out = [0, 0];
@@ -12665,6 +12823,7 @@ const UI = {
   /* Who a name tag belongs to: the player's seat, DUMMY or CPU. */
   tagLabel(m, i) {
     if (m.coop && i < m.partySize) return (m.coop[i].slot + 1) + 'P';
+    if (m.setup) return m.setup[i].human >= 0 ? (m.setup[i].human + 1) + 'P' : 'CPU';
     return i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU';
   },
   /* Co-op (P4-07): the left bar is the party together (the players' health left, how many are still up); under the top bar a cell per player with its own health and stamina,
@@ -12677,7 +12836,7 @@ const UI = {
     this.setTransform('hp0', this.dom.hp1, 'scaleX(' + frac.toFixed(3) + ')');
     this.setTransform('hg0', this.dom.hg1, 'scaleX(' + this.ghost[0].toFixed(3) + ')');
     this.setText('ht0', this.dom.ht1, up + ' / ' + m.partySize + ' UP');
-    for (let k = 0; k < m.partySize; k++) {
+    for (let k = 0; k < (m.setup ? m.fighters.length : m.partySize); k++) {   // a lineup shows a cell for every fighter, the lead's team first
       const f = m.fighters[k], cell = this.partyEls[k];
       this.setTransform('phb' + k, cell.hp, 'scaleX(' + clamp(f.hp / f.maxHp, 0, 1).toFixed(3) + ')');
       this.setTransform('pst' + k, cell.st, 'scaleX(' + clamp(f.stam / f.maxStam, 0, 1).toFixed(3) + ')');
@@ -12687,7 +12846,7 @@ const UI = {
   /* Brawl: the right-hand bar is the enemies together (health left of all of them, and how many are still up). */
   enemyBar(m) {
     let hp = 0, maxHp = 0, up = 0, total = 0;
-    for (const f of m.fighters) if (f.team === TEAM_ENEMIES) { hp += f.hp; maxHp += f.maxHp; total++; if (f.alive) up++; }
+    for (const f of m.fighters) if (f.team !== m.fighters[0].team) { hp += f.hp; maxHp += f.maxHp; total++; if (f.alive) up++; }   // everyone not on the lead's team (the enemies, team 1, outside a lineup)
     if (m.waveRows) { total = m.waveTotal(); up += total - m.waveEntered; }   // the enemies still to come count as up
     const frac = clamp(hp / maxHp, 0, 1);
     this.ghost[1] = frac >= this.ghost[1] ? frac : Math.max(frac, this.ghost[1] - (1 / 60) * 0.35);
@@ -13773,6 +13932,7 @@ function testApi() {
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, ITEM_BREAK_HEIGHT, POSE_SCRATCH, FREE_SET, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
+  LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },

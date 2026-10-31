@@ -41,6 +41,7 @@ const {
   CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
+  LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -5199,11 +5200,11 @@ const SelfTest = {
       const firstOk = c.token[1] && !c.token[2] && !c.token[3] && c.holders(0) === 1;   // everyone has waited since the start: the lowest index goes first
       c.token.fill(false); c.tokenTarget.fill(-1); c.nextGrant.fill(0); c.restUntil.fill(0);
       c.waitSince[1] = 50; c.waitSince[2] = 10; c.waitSince[3] = 10;
-      c.grant(0, m.tick);
+      c.grant(0, 1, m.tick);
       const oldest = c.token[2] && !c.token[1] && !c.token[3];   // 2 and 3 waited longest and tie: 2
       c.usedToken[2] = true; c.release(2, m.tick);   // 2 attacked with it: it rests
       c.nextGrant.fill(0);
-      c.grant(0, m.tick);
+      c.grant(0, 1, m.tick);
       const resting = !c.token[2] && c.token[3] && c.restUntil[2] > m.tick;   // 2 is resting and has the newest wait time: 3 is next
       c.token[3] = false; c.release(3, m.tick);   // 3 never started: no rest, back to the end of the queue
       const unusedNoRest = c.restUntil[3] === m.tick;
@@ -5213,7 +5214,7 @@ const SelfTest = {
       const hit = !c.token[3];
       // never started: back after TOKEN_PATIENCE_TICKS
       c.nextGrant.fill(0); c.restUntil.fill(0); m.fighters[3].setState(S.IDLE);
-      c.grant(0, m.tick);
+      c.grant(0, 1, m.tick);
       const holder = c.token.indexOf(true);
       c.upkeepToken(holder, c.grantTick[holder] + TOKEN_PATIENCE_TICKS);
       const kept = c.token[holder];
@@ -5221,7 +5222,7 @@ const SelfTest = {
       const patience = holder > 0 && kept && !c.token[holder];
       // an attack that has begun keeps the token until it ends
       c.nextGrant.fill(0); c.restUntil.fill(0);
-      c.grant(0, m.tick);
+      c.grant(0, 1, m.tick);
       const attacker = c.token.indexOf(true);
       m.fighters[attacker].state = S.ATTACK;
       c.upkeepToken(attacker, c.grantTick[attacker] + 5);
@@ -6105,6 +6106,466 @@ const SelfTest = {
         }
       } finally {
         Game.selection.party = keepParty; ['hp1', 'hg1', 'ht1'].forEach((id, i) => { UI.dom[id] = keepDom[i]; }); UI.partyEls = keepCells; UI.cache = keepCache; UI.ghost = keepGhost; m.dispose();
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Match setup (P4-08): lineups of 2 to 8 fighters, players or CPU, free-for-all or Teams A to D ----- */
+    const lineupOf = (list, extra) => MatchLineup.fix(Object.assign({ slots: list.map(([id, team, human]) => ({ id, team, human: !!human })), timer: 0, handicap: true }, extra));
+    const lineupMatch = (lineup, extra) => {
+      const plan = MatchLineup.plan(lineup, (extra && extra.difficulty) || 'normal');
+      return track(new MatchSim(Object.assign({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'brawl', countdown: false, timer: 0, seed: 3, difficulty: 'normal', evenDamage: true, items: false, hazards: false }, extra)));
+    };
+    const quietAll = (m) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
+    const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
+    const ROSTER_IDS = ROSTER.map((r) => r.id);
+    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, Versus needs two players)', () => {
+      const problems = [];
+      const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));
+      const fixed = MatchLineup.fix({ slots: raw, handicap: 0, timer: 5, deal: 'nonsense' });
+      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || !fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
+      if (MatchLineup.people(fixed) !== LINEUP_HUMANS_MAX || fixed.timer !== 0 || fixed.handicap !== false || fixed.deal !== 'custom') problems.push('rest ' + JSON.stringify({ people: MatchLineup.people(fixed), timer: fixed.timer, handicap: fixed.handicap, deal: fixed.deal }));
+      if (MatchLineup.fix({ slots: [] }).slots.length !== LINEUP_MIN || MatchLineup.fix({ slots: [{ id: 'mara', human: false, team: 1 }] }).slots[0].id !== 'mara') problems.push('padding');
+      const same = lineupOf([['kai', 1, true], ['mara', 1, false]]);
+      if (MatchLineup.check('free', same).ok || !/nobody to fight/.test(MatchLineup.check('free', same).msg)) problems.push('one team');
+      if (MatchLineup.check('versus', lineupOf([['kai', 1, true], ['mara', 2, false]])).ok || !MatchLineup.check('versus', lineupOf([['kai', 1, true], ['mara', 2, true]])).ok) problems.push('versus needs two players');
+      if (MatchLineup.check('free', { slots: new Array(LINEUP_MAX + 1).fill({ id: 'kai', human: true, team: 0 }) }).ok) problems.push('nine fighters');
+      if (!MatchLineup.check('brawl', lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false]])).ok) problems.push('free-for-all of three');
+      const ok = MatchLineup.plain('free', lineupOf([['kai', 0, true], ['mara', 0, false]])) && MatchLineup.plain('versus', lineupOf([['kai', 0, true], ['mara', 0, true]])) &&
+        !MatchLineup.plain('brawl', lineupOf([['kai', 0, true], ['mara', 0, false]])) && !MatchLineup.plain('free', lineupOf([['kai', 0, true], ['mara', 0, true]])) && !MatchLineup.plain('free', lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false]]));
+      if (!ok) problems.push('plain 1v1');
+      const dealt = lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, true], ['yuki', 0, false], ['dmitri', 0, false]]);
+      const teams = [];
+      for (const kind of LINEUP_DEALS) { MatchLineup.deal(dealt, kind); teams.push(dealt.slots.map((slot) => slot.team).join('')); }
+      if (teams.join() !== '00000,12122,12121,12312,12341') problems.push('deals ' + teams.join());
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the plan puts the lead\'s team first, people before CPU, one team per group, the colours of Team A to D fixed and the spare ones for free-for-all slots, and the handicap only on the smaller teams', () => {
+      const problems = [];
+      const lineup = lineupOf([['kai', 2, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 0, false], ['dmitri', 1, true]]);
+      const plan = MatchLineup.plan(lineup);
+      const ids = plan.slots.map((s) => s.id).join(), teams = plan.slots.map((s) => s.team).join(''), seats = plan.slots.map((s) => s.human).join(), tints = plan.slots.map((s) => s.tint).join('');
+      if (ids !== 'kai,brutus,dmitri,mara,yuki' || teams !== '00112' || seats !== '0,-1,1,-1,-1' || tints !== '00112'.replace(/./g, (c) => ({ 0: 1, 1: 0, 2: 2 }[c]))) problems.push('order ' + [ids, teams, seats, tints].join(' '));
+      if (plan.sizes.join() !== '2,2,1' || plan.teamNames.join() !== 'TEAM B,TEAM A,YUKI' || plan.people !== 2 || plan.teamCount !== 3 || plan.ffa) problems.push('counts ' + JSON.stringify([plan.sizes, plan.teamNames, plan.people, plan.teamCount, plan.ffa]));
+      const boosted = plan.slots.filter((s) => s.hp !== 1 || s.dmg !== 1).map((s) => s.id).join();
+      const yuki = plan.slots[4];
+      if (boosted !== 'yuki' || Math.abs(yuki.hp - MatchLineup.handicapFactor('hard', 2)) > 1e-9 || Math.abs(yuki.dmg - MatchLineup.handicapFactor('hard', 2)) > 1e-9) problems.push('handicap ' + boosted);
+      const people = MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, true], ['brutus', 2, true]]), 'easy').slots[0];
+      if (Math.abs(people.hp - MatchLineup.handicapFactor('hard', 2)) > 1e-9) problems.push('Hard\'s handicap when no CPU plays');
+      lineup.handicap = false;
+      if (MatchLineup.plan(lineup).slots.some((s) => s.hp !== 1 || s.dmg !== 1)) problems.push('handicap off');
+      const ffa = MatchLineup.plan(ffaOf(8));
+      if (!ffa.ffa || ffa.teamCount !== 8 || new Set(ffa.slots.map((s) => s.tint)).size !== 8 || ffa.slots.some((s) => s.hp !== 1)) problems.push('free-for-all of 8');
+      const letters = MatchLineup.plan(lineupOf([['kai', 3, true], ['mara', 4, false], ['brutus', 0, false]]));
+      if (letters.slots.map((s) => s.tint).join('') !== '23' + letters.slots[2].tint || letters.slots[2].tint === 2 || letters.slots[2].tint === 3) problems.push('letter colours ' + letters.slots.map((s) => s.tint).join(''));
+      if (MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]])).slots[0].hp !== MatchLineup.handicapFactor('hard', 3)) problems.push('1 against 3');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the fight ends when one team is left (also when two teams fall on the same tick), when all fall it is a draw (also when the last team falls during the knock-out delay), and teams are counted up to 8', () => {
+      const problems = [];
+      const make = () => { const m = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 3, false]])); quietAll(m); return m; };
+      let m = make();
+      if (m.aliveTeamCount() !== 3 || !m.setup || m.wins.length !== 3) problems.push('start ' + m.aliveTeamCount());
+      Combat.knockOut(m.fighters[1], m.fighters[0], null, m); Combat.knockOut(m.fighters[2], m.fighters[0], null, m);
+      self.run(m, KO_DELAY_TICKS + 20);
+      if (!m.matchOver || m.matchWinner !== 0 || m.wins.join() !== '1,0,0' || m.roundWinner !== 0) problems.push('two teams on one tick ' + JSON.stringify([m.matchOver, m.matchWinner, m.wins.join()]));
+      m = make();
+      for (const f of m.fighters) Combat.knockOut(f, null, null, m);
+      self.run(m, KO_DELAY_TICKS + 20);
+      if (!m.matchOver || m.matchWinner !== -1 || m.wins.join() !== '0,0,0') problems.push('all fall ' + JSON.stringify([m.matchOver, m.matchWinner, m.wins.join()]));
+      m = make();
+      Combat.knockOut(m.fighters[1], m.fighters[0], null, m);
+      self.run(m, 10);
+      const midway = !m.locked && !m.matchOver && m.aliveTeamCount() === 2;   // two teams are still standing: the fight goes on
+      Combat.knockOut(m.fighters[2], m.fighters[0], null, m);
+      for (let guard = 0; guard < 60 && !m.locked; guard++) m.step();   // the hit-stop of the blow first
+      self.run(m, 5);
+      const delaying = m.locked && !m.matchOver && m.endTimer > 0 && m.endTimer < KO_DELAY_TICKS;   // one team is left: the knock-out delay runs
+      Combat.knockOut(m.fighters[0], m.fighters[2], null, m);
+      self.run(m, KO_DELAY_TICKS + 20);
+      if (!midway || !delaying || !m.matchOver || m.matchWinner !== -1) problems.push('last team falls in the delay ' + JSON.stringify([midway, delaying, m.matchOver, m.matchWinner]));
+      m = make();
+      Combat.knockOut(m.fighters[2], m.fighters[1], null, m);
+      Combat.knockOut(m.fighters[1], m.fighters[0], null, m);
+      self.run(m, KO_DELAY_TICKS + 20);
+      if (!m.matchOver || m.matchWinner !== 0) problems.push('last one standing ' + m.matchWinner);
+      const eight = lineupMatch(ffaOf(LINEUP_MAX));
+      quietAll(eight);
+      let counts = [eight.aliveTeamCount()];
+      for (let k = 0; k < 7; k++) { Combat.knockOut(eight.fighters[k], eight.fighters[7], null, eight); counts.push(eight.aliveTeamCount()); }
+      if (counts.join() !== '8,7,6,5,4,3,2,1') problems.push('team count ' + counts.join());
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the clock goes to the team with the most health left as a share of its own total; a tie with the best share, also a chain of near-equal shares, is a draw', () => {
+      const problems = [];
+      const clockRun = (shares) => {
+        const m = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 3, false]]), { timer: 60 });
+        quietAll(m);
+        shares.forEach((share, k) => { m.fighters[k].hp = m.fighters[k].maxHp * share; });
+        m.roundTicks = 2;
+        self.run(m, 5);
+        return m.matchOver ? m.matchWinner : 'not over';
+      };
+      const cases = [[[0.5, 0.3, 0.6], 2], [[0.9, 0.3, 0.6], 0], [[0.5, 0.5, 0.2], -1], [[0.5, 0.5004, 0.5008], -1], [[0.5, 0.52, 0.3], 1], [[0.2, 0.2, 0.2], -1]];
+      for (const [shares, want] of cases) { const got = clockRun(shares); if (got !== want) problems.push(shares.join('/') + ' gave ' + got + ' not ' + want); }
+      const big = lineupMatch(lineupOf([['kai', 1, true], ['mara', 1, false], ['brutus', 2, false]]), { timer: 60 });
+      quietAll(big);
+      big.fighters[0].hp = 0; big.fighters[1].hp = big.fighters[1].maxHp; big.fighters[2].hp = big.fighters[2].maxHp * 0.6;
+      big.roundTicks = 2;
+      self.run(big, 5);
+      if (big.matchWinner !== 1) problems.push('a team is judged on all its fighters: ' + big.matchWinner);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: two teams start in two lines facing each other, three or more on a ring facing the centre, nobody closer than 0.9 m, only the first fighter gets the start health, 8 fighters fit', () => {
+      const problems = [];
+      const tight = (m) => { let gap = 99; for (let i = 0; i < m.fighters.length; i++) for (let j = i + 1; j < m.fighters.length; j++) gap = Math.min(gap, Math.hypot(m.fighters[i].x - m.fighters[j].x, m.fighters[i].z - m.fighters[j].z)); return gap; };
+      const two = lineupMatch(lineupOf([['kai', 1, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false], ['dmitri', 2, false]]), { playerHp: 0.5 });
+      const left = two.fighters.slice(0, 2), right = two.fighters.slice(2);
+      if (!left.every((f) => f.x < 0 && Math.abs(f.yaw - Math.PI / 2) < 1e-9) || !right.every((f) => f.x > 0 && Math.abs(f.yaw + Math.PI / 2) < 1e-9) || tight(two) < 0.7) problems.push('two lines ' + tight(two).toFixed(2));
+      if (Math.abs(two.fighters[0].hp - two.fighters[0].maxHp * 0.5) > 1e-9 || two.fighters.slice(1).some((f) => f.hp !== f.maxHp)) problems.push('start health, two teams');
+      for (const count of [3, 4, 8]) {
+        const ring = lineupMatch(ffaOf(count), { playerHp: 0.5 });
+        const radii = ring.fighters.map((f) => Math.hypot(f.x, f.z / 0.8)), facing = ring.fighters.every((f) => (Math.sin(f.yaw) * -f.x + Math.cos(f.yaw) * -f.z) / Math.hypot(f.x, f.z) > 0.999);
+        const bounds = ring.def.bounds;
+        if (Math.max(...radii) - Math.min(...radii) > 1e-6 || !facing || tight(ring) < 0.9 || ring.fighters.some((f) => Math.abs(f.x) > bounds.x || Math.abs(f.z) > bounds.z)) problems.push(count + ' on a ring ' + JSON.stringify([radii.map((r) => r.toFixed(2)).join(' '), facing, tight(ring).toFixed(2)]));
+        if (Math.abs(ring.fighters[0].hp - ring.fighters[0].maxHp * 0.5) > 1e-9 || ring.fighters.slice(1).some((f) => f.hp !== f.maxHp)) problems.push('start health, ' + count + ' teams');
+      }
+      for (const id of ARENA_ORDER) {
+        const m = lineupMatch(ffaOf(LINEUP_MAX), { arenaId: id });
+        if (m.fighters.some((f) => Math.abs(f.x) > m.def.bounds.x || Math.abs(f.z) > m.def.bounds.z)) problems.push(id + ': a start spot outside the arena');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the handicap lifts health and damage of the smaller teams only (also after a new round), not equal teams, not a free-for-all, not when it is off; the CPU damage still follows the difficulty', () => {
+      const problems = [];
+      const base = (f) => deriveStats(f.profile.attrs);
+      const scaled = (m) => m.fighters.map((f) => (f.stats.maxHp !== base(f).maxHp || Math.abs(f.stats.damage - base(f).damage) > 1e-9 ? 1 : 0)).join('');
+      if (scaled(lineupMatch(lineupOf([['kai', 1, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false]]))) !== '0000') problems.push('2 against 2');
+      if (scaled(lineupMatch(ffaOf(4))) !== '0000') problems.push('free-for-all');
+      if (scaled(lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]], { handicap: false }))) !== '000') problems.push('handicap off');
+      const m = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]]), { difficulty: 'hard' });
+      if (scaled(m) !== '100') problems.push('1 against 2: ' + scaled(m));
+      const factor = MatchLineup.handicapFactor('hard', 2), single = m.fighters[0], want = Math.round(base(single).maxHp * factor);
+      m.startRound();
+      if (single.maxHp !== want || single.hp !== want || Math.abs(single.stats.damage - base(single).damage * factor) > 1e-9) problems.push('after a new round ' + JSON.stringify([single.maxHp, single.hp, want]));
+      const trio = lineupMatch(lineupOf([['kai', 1, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false], ['dmitri', 2, false]]), { difficulty: 'hard' });
+      if (scaled(trio) !== '11000' || Math.abs(trio.fighters[0].stats.damage - base(trio.fighters[0]).damage * MatchLineup.handicapFactor('hard', 1.5)) > 1e-9) problems.push('2 against 3: ' + scaled(trio));
+      const easy = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]]), { evenDamage: false, difficulty: 'easy' });
+      if (Math.abs(easy.fighters[0].stats.damage - base(easy.fighters[0]).damage) > 1e-9 || Math.abs(easy.fighters[1].stats.damage - base(easy.fighters[1]).damage * DIFFICULTY.easy.dmg) > 1e-9) problems.push('difficulty damage');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the handicap table (1 at ratio 1, straight lines between the rows, the last factor above the last ratio and never more than the biggest one, Hard and Expert only above 1) and a person is never weakened: a factor under 1 is used only between CPU-only teams', () => {
+      const problems = [];
+      for (const level of ['easy', 'normal', 'hard', 'expert']) {
+        const rows = LINEUP_HANDICAP[level];
+        if (MatchLineup.handicapFactor(level, 1) !== 1 || MatchLineup.handicapFactor(level, 0.5) !== 1 || MatchLineup.handicapFactor(level, 0) !== 1) problems.push(level + ': ratio 1 and below');
+        for (const row of rows) if (Math.abs(MatchLineup.handicapFactor(level, row[0]) - row[1]) > 1e-9) problems.push(level + ': row ' + row[0]);
+        for (const ratio of [4.5, 5, 7]) if (MatchLineup.handicapFactor(level, ratio) !== rows[rows.length - 1][1]) problems.push(level + ': ratio ' + ratio + ' above the last row');
+        const mid = (rows[0][0] + rows[1][0]) / 2;
+        if (Math.abs(MatchLineup.handicapFactor(level, mid) - (rows[0][1] + rows[1][1]) / 2) > 1e-9) problems.push(level + ': between rows');
+        if ((level === 'hard' || level === 'expert') && rows.some((row) => row[1] <= 1)) problems.push(level + ' has a factor of 1 or less');
+      }
+      const raw = (list) => ({ slots: list.map(([id, team, human]) => ({ id, team, human })), handicap: true, timer: 0 });
+      const cpuOnly = MatchLineup.plan(raw([['kai', 1, false], ['mara', 2, false], ['brutus', 2, false]]), 'easy').slots;
+      if (!(cpuOnly[0].hp < 1) || cpuOnly[0].hp !== MatchLineup.handicapFactor('easy', 2) || cpuOnly[1].hp !== 1) problems.push('CPU-only teams on Easy ' + cpuOnly.map((x) => x.hp.toFixed(2)).join());
+      const onSmaller = MatchLineup.plan(raw([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]]), 'easy').slots;
+      const onBigger = MatchLineup.plan(raw([['kai', 1, false], ['mara', 2, true], ['brutus', 2, false]]), 'normal').slots;
+      const bothSides = MatchLineup.plan(raw([['kai', 1, true], ['mara', 2, false], ['brutus', 2, true]]), 'easy').slots;
+      if (onSmaller.some((x) => x.hp < 1 || x.dmg < 1) || onBigger.some((x) => x.hp < 1 || x.dmg < 1) || bothSides.some((x) => x.hp < 1 || x.dmg < 1)) problems.push('a person was weakened');
+      const third = MatchLineup.plan(raw([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 3, false], ['dmitri', 3, false], ['sora', 3, false]]), 'easy').slots;
+      if (third[0].hp < 1 || third[1].hp !== MatchLineup.handicapFactor('easy', 1.5) || !(third[1].hp < 1) || third[3].hp !== 1) problems.push('three teams ' + third.map((x) => x.hp.toFixed(2)).join());
+      const people = MatchLineup.plan(raw([['kai', 1, true], ['mara', 2, true], ['brutus', 2, true]]), 'easy').slots;
+      if (people.some((x) => x.hp < 1)) problems.push('players only');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: rivals of different teams never queue behind each other (the crowd director works per target and team), a team of two still shares tokens, a plain brawl keeps one group per target, and two teams waiting round one target get ring spots that differ', () => {
+      const problems = [];
+      const watch = (m, ticks) => {
+        let engagedTicks = 0, overCap = 0, orphan = 0;
+        for (let t = 0; t < ticks && !m.matchOver; t++) {
+          m.step();
+          const crowd = m.crowd;
+          let any = false;
+          for (let i = 0; i < m.fighters.length; i++) {
+            if (!crowd.engaged[i]) continue;
+            any = true;
+            const f = m.fighters[i];
+            if (!m.fighters.some((g, j) => j !== i && crowd.engaged[j] && g.team === f.team && g.target === f.target)) orphan++;
+          }
+          if (any) engagedTicks++;
+          for (let target = 0; target < m.fighters.length; target++) for (let team = 0; team < TEAM_TINTS; team++) if (crowd.holders(target, team) > crowd.capFor(target, team)) overCap++;
+        }
+        return { engagedTicks, overCap, orphan };
+      };
+      const ffa = lineupMatch(lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]]));
+      aiAll(ffa, 'normal');
+      const free = watch(ffa, 900);
+      if (free.engagedTicks !== 0) problems.push('free-for-all: queued on ' + free.engagedTicks + ' ticks');
+      const teams = lineupMatch(lineupOf([['kai', 1, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false]]));
+      aiAll(teams, 'normal');
+      const duo = watch(teams, 900);
+      if (duo.engagedTicks === 0 || duo.orphan !== 0 || duo.overCap !== 0) problems.push('2 against 2: ' + JSON.stringify(duo));
+      const old = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 5, difficulty: 'normal', evenDamage: true }));
+      old.controllers[0] = new AIController(old.fighters[0].profile, 'normal');
+      let oldEngaged = 0, oldOver = 0;
+      for (let t = 0; t < 600 && !old.matchOver; t++) {
+        old.step();
+        if (old.crowd.engaged.some(Boolean)) oldEngaged++;
+        if (old.crowd.holders(0, TEAM_ENEMIES) > old.crowd.capFor(0, TEAM_ENEMIES) || old.crowd.holders(0) !== old.crowd.holders(0, TEAM_ENEMIES)) oldOver++;
+        for (let i = 0; i < old.fighters.length; i++) if (old.crowd.engaged[i] && old.fighters[i].team !== TEAM_ENEMIES) oldOver++;
+      }
+      if (oldEngaged === 0 || oldOver !== 0) problems.push('a plain brawl: ' + JSON.stringify({ oldEngaged, oldOver }));
+      const crowd = new CrowdDirector(lineupMatch(ffaOf(LINEUP_MAX)));
+      if (crowd.share.length !== LINEUP_MAX * TEAM_TINTS || crowd.engaged.length !== LINEUP_MAX) problems.push('array sizes ' + crowd.share.length);
+      const split = lineupMatch(lineupOf([['dmitri', 3, true], ['kai', 1, false], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false]]));
+      split.controllers[0] = self.scripted(() => {});
+      for (let k = 1; k < 5; k++) split.controllers[k] = k < 3 ? self.scripted(() => {}) : new AIController(split.fighters[k].profile, 'normal');   // the second team (the lower team number) waits later
+      self.stand(split.fighters[0], 0, 0, 3, 0);
+      [[1, -3, 0.5], [2, -3, -0.5], [3, 3, 0.5], [4, 3, -0.5]].forEach(([k, x, z]) => self.stand(split.fighters[k], x, z, 0, 0));
+      for (let t = 0; t < 4; t++) split.step();
+      const aloneAngles = [3, 4].map((k) => split.crowd.slotAngle[k]);
+      for (let k = 1; k < 3; k++) split.controllers[k] = new AIController(split.fighters[k].profile, 'normal');
+      for (let t = 0; t < 2; t++) split.step();
+      const turned = [3, 4].some((k, i) => Math.abs(wrapAngle(split.crowd.slotAngle[k] - aloneAngles[i])) > 0.3);   // the first team's ring was dealt again at once, not after the refresh time
+      const angles = [1, 2, 3, 4].map((k) => split.crowd.slotAngle[k]);
+      const apart = (a, b) => Math.abs(wrapAngle(a - b));
+      const sameTeam = split.crowd.engaged[1] && split.crowd.engaged[3] && split.fighters[1].target === split.fighters[0] && split.fighters[3].target === split.fighters[0];
+      let closest = 9;
+      for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) closest = Math.min(closest, apart(angles[i], angles[j]));
+      if (!sameTeam || closest < 0.3 || !turned) problems.push('ring spots of two teams ' + JSON.stringify({ sameTeam, turned, closest: Math.round(closest * 100) / 100 }));
+      const wave = ARENA_ORDER.find((id) => ARENAS[id].waves);
+      const waved = lineupMatch(ffaOf(LINEUP_MAX), { arenaId: wave, waves: true });
+      if (waved.waveRows || waved.crowd.engaged.length !== LINEUP_MAX || waved.fighters.length !== LINEUP_MAX) problems.push('waves in a lineup');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: 8 fighters of AI run a free-for-all for 25 s without a NaN, an illegal transition or a stacked body, and a repeat with the same seed plays the same', () => {
+      const illegal = Diag.illegalTransitions;
+      const play = () => {
+        const m = lineupMatch(ffaOf(LINEUP_MAX), { seed: 11 });
+        aiAll(m, 'hard');
+        let bad = '', gap = 9;
+        for (let tick = 0; tick < 1500 && !m.matchOver && !bad; tick++) {
+          m.step();
+          for (let i = 0; i < m.fighters.length; i++) {
+            const f = m.fighters[i];
+            if (![f.x, f.y, f.z, f.yaw, f.hp, f.stam].every(Number.isFinite)) bad = 'NaN in fighter ' + i;
+            for (let j = i + 1; j < m.fighters.length; j++) { const g = m.fighters[j]; if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && g.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.GRAPPLE && f.state !== S.THROWN && g.state !== S.THROWN) gap = Math.min(gap, Math.hypot(f.x - g.x, f.z - g.z)); }
+          }
+        }
+        const sig = m.fighters.map((f) => f.hp.toFixed(2) + f.x.toFixed(2)).join('|');
+        return { bad, gap, sig };
+      };
+      const a = play(), b = play();
+      if (a.bad || a.gap < 0.2 || a.sig !== b.sig || Diag.illegalTransitions !== illegal) return JSON.stringify({ bad: a.bad, gap: a.gap, same: a.sig === b.sig, illegal: Diag.illegalTransitions - illegal });
+      return true;
+    });
+    test('Lineup: BREAKPOINT.simulate runs an all-CPU lineup (the winner is the index of the winning team in plan order, the same seed gives the same result), refuses one team, and difficulty1 / difficulty2 follow the first fighter\'s team and the other teams', () => {
+      const problems = [];
+      const lineup = { slots: [{ id: 'kai', team: 1 }, { id: 'mara', team: 2 }, { id: 'brutus', team: 3 }], handicap: false };
+      const a = SimRunner.run({ lineup, difficulty: 'easy', seed: 2, timer: 90 }), b = SimRunner.run({ lineup, difficulty: 'easy', seed: 2, timer: 90 });
+      if (a.error || a.teams.join() !== '0,1,2' || a.winner < -1 || a.winner > 2 || a.ticks !== b.ticks || a.winner !== b.winner || a.hpLeft.join() !== b.hpLeft.join()) problems.push('run ' + JSON.stringify([a.error, a.teams, a.winner, a.ticks, b.ticks]));
+      if (!SimRunner.run({ lineup: { slots: [{ id: 'kai', team: 1 }, { id: 'mara', team: 1 }] } }).error) problems.push('one team was accepted');
+      let seen = null;
+      SimRunner.run({ lineup: { slots: [{ id: 'kai', team: 1 }, { id: 'mara', team: 1 }, { id: 'brutus', team: 2 }] }, difficulty: 'normal', difficulty1: 'expert', difficulty2: 'easy', seed: 1, timer: 1, listeners: { roundStart: (e) => { seen = e.match; } } });
+      const levels = seen ? seen.controllers.map((c) => c.d.id).join() : 'no match';
+      if (levels !== 'expert,expert,easy') problems.push('difficulty by team ' + levels);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 always), cycle teams, the handicap and the clock', () => {
+      const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepToast = UI.toast, problems = [];
+      try {
+        UI.toast = () => {};
+        Game.lineups = {};
+        Game.selection.mode = 'brawl'; Game.selection.player = 'kai';
+        let html = UI.screen_lineup();
+        const slotRows = (html.match(/class="slot tc/g) || []).length;
+        if (slotRows !== 4 || !html.includes('data-local="lfig:3"') || !html.includes('data-local="lctl:3"') || !html.includes('Team A') || !html.includes('Team B') || !html.includes('Choose arena') || /lineupNext"[^>]*disabled/.test(html)) problems.push('default brawl ' + slotRows);
+        const lineup = Game.lineupFor('brawl');
+        const step = (name, dir) => { UI.lineupLocal(name, dir); return lineup.slots.length; };
+        const counts = [step('lopp', 1), step('lopp', 1), step('lopp', 1), step('lopp', 1), step('lopp', 1), step('lopp', -1), step('lopp', -1), step('lopp', -1), step('lopp', -1), step('lopp', -1), step('lopp', -1), step('lopp', -1)];
+        if (counts.join() !== '5,6,7,8,2,8,7,6,5,4,3,2') problems.push('opponent counts ' + counts.join());
+        step('lopp', 1); step('lopp', 1);
+        if (new Set(lineup.slots.map((s) => s.id)).size !== lineup.slots.length || lineup.slots.slice(1).some((s) => s.human || s.team !== 2)) problems.push('added slots ' + JSON.stringify(lineup.slots));
+        UI.lineupLocal('lctl:0', 1);
+        if (!lineup.slots[0].human) problems.push('slot 1 lost its player');
+        step('lopp', 1);
+        for (const i of [1, 2, 3, 4, 0]) UI.lineupLocal('lctl:' + i, 1);
+        if (MatchLineup.people(lineup) !== LINEUP_HUMANS_MAX || lineup.slots[4].human || !lineup.slots[0].human) problems.push('players ' + MatchLineup.people(lineup));
+        const before = lineup.slots[2].id;
+        UI.lineupLocal('lfig:2', 1);
+        if (lineup.slots[2].id === before || !ROSTER_BY_ID[lineup.slots[2].id]) problems.push('fighter cycle');
+        UI.lineupLocal('ltm:2', 1);
+        if (lineup.slots[2].team !== 2 || lineup.deal !== 'custom') problems.push('team cycle ' + lineup.slots[2].team);
+        for (let k = 0; k < LINEUP_TEAM_LETTERS.length; k++) UI.lineupLocal('ltm:2', 1);
+        if (lineup.slots[2].team !== 2) problems.push('team cycle wraps');
+        UI.lineupLocal('ldeal', 1);
+        if (lineup.deal !== 'ffa' || lineup.slots.some((s) => s.team !== 0)) problems.push('deal ffa');
+        UI.lineupLocal('ldeal', 1);
+        if (lineup.deal !== 'players' || lineup.slots.some((s) => s.team !== (s.human ? 1 : 2))) problems.push('deal players');
+        UI.lineupLocal('lhand', 1); UI.lineupLocal('ltimer', 1);
+        if (lineup.handicap !== false || lineup.timer !== LINEUP_TIMERS[1]) problems.push('handicap and clock');
+        html = UI.screen_lineup();
+        if (!/Even teams[\s\S]*?Off/.test(html) || !html.includes('Clock') || !html.includes('Player 4') || !html.includes('gamepads')) problems.push('screen after the changes');
+        lineup.slots.forEach((s) => { s.team = 1; });
+        html = UI.screen_lineup();
+        if (!/lineupNext"[^>]*disabled/.test(html) || !html.includes('nobody to fight')) problems.push('one team can start');
+      } finally { UI.toast = keepToast; Game.lineups = keepLineups; Object.assign(Game.selection, keepSel); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the setup screens say that Rounds and Round timer are not used once the lineup is one fight, the lineup screen says what Even teams does (also for a player nobody helps), a team 1v1 is labelled by its teams, and plugging a gamepad in or out redraws the lineup screen', () => {
+      const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepCurrent = UI.current, keepRerender = UI.rerender, problems = [];
+      try {
+        Game.lineups = {};
+        Game.selection.mode = 'free';
+        const plain = UI.screen_setup();
+        if (!plain.includes('data-local="rounds"') || !plain.includes('data-local="timer"') || plain.includes('Not used')) problems.push('plain Free Fight rows');
+        Game.lineupFor('free').slots.push({ id: 'brutus', human: false, team: 0 });
+        const one = UI.screen_setup();
+        if (one.includes('data-local="rounds"') || one.includes('data-local="timer"') || (one.match(/Not used/g) || []).length !== 2 || !one.includes('data-local="diff"')) problems.push('Free Fight with 3 fighters');
+        Game.selection.mode = 'versus';
+        Game.lineupFor('versus').slots.push({ id: 'brutus', human: false, team: 0 });
+        const vs = UI.screen_setup();
+        if (vs.includes('data-local="rounds"') || (vs.match(/Not used/g) || []).length !== 2) problems.push('Versus with a CPU');
+        const teams = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), duel = lineupMatch(lineupOf([['kai', 0, true], ['mara', 0, false]])), crowd = lineupMatch(ffaOf(4));
+        const labels = [teams, duel, crowd].map((m) => UI.roundSub(m));
+        if (labels.join('|') !== '2 FIGHTERS · 2 TEAMS|2 FIGHTERS · ONE ON ONE|4 FIGHTERS · FREE-FOR-ALL') problems.push('labels ' + labels.join('|'));
+        Game.selection.mode = 'brawl'; Game.selection.difficulty = 'easy';
+        const lonely = Game.lineupFor('brawl');
+        lonely.slots = [{ id: 'kai', human: true, team: 1 }, { id: 'mara', human: false, team: 2 }, { id: 'brutus', human: false, team: 2 }];
+        const nobody = UI.screen_lineup();
+        if (!/teams are uneven[^<]*nobody extra[^<]*never weakened/.test(nobody) || /nothing changes/.test(nobody) || /-\d+%/.test(nobody)) problems.push('uneven teams, nobody helped: ' + (nobody.match(/<p class="hint">[^<]*/) || [''])[0].slice(-200));
+        Game.selection.difficulty = 'hard';
+        const helped = UI.screen_lineup();
+        if (!/up to \d+% more health and damage; a player is never weakened/.test(helped)) problems.push('uneven teams, a smaller team helped');
+        lonely.slots = [{ id: 'kai', human: true, team: 1 }, { id: 'mara', human: false, team: 2 }];
+        if (!/teams are equal, nothing changes/.test(UI.screen_lineup())) problems.push('equal teams');
+        let redraws = 0;
+        UI.rerender = () => { redraws++; };
+        UI.current = 'lineup'; Events.emit('padsChanged', {});
+        UI.current = 'setup'; Events.emit('padsChanged', {});
+        if (Events.handlers.padsChanged && redraws !== 1) problems.push('pads changed: ' + redraws + ' redraws');   // the listener exists once the UI is wired (the browser run)
+      } finally { UI.rerender = keepRerender; UI.current = keepCurrent; Game.lineups = keepLineups; Object.assign(Game.selection, keepSel); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup: the HUD and the results know more than two sides (the enemy bar counts every other team, the labels, the round-end banner, the fanfare, the results table, the far person stays framed)', () => {
+      const problems = [];
+      const m = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 0, true]]));
+      quietAll(m);
+      const keepDom = ['hp2', 'hg2', 'ht2'].map((id) => UI.dom[id]), keepCache = UI.cache, keepGhost = UI.ghost, keepBanner = UI.banner;
+      const banners = [];
+      try {
+        UI.dom.hp2 = { style: {} }; UI.dom.hg2 = { style: {} }; UI.dom.ht2 = {}; UI.cache = {}; UI.ghost = [1, 1];
+        UI.banner = (text, sub) => { banners.push(text + '/' + sub); };
+        UI.enemyBar(m);
+        const all = UI.dom.ht2.textContent === '2 / 2 UP';
+        Combat.knockOut(m.fighters[1], m.fighters[0], null, m);
+        UI.enemyBar(m);
+        if (!all || UI.dom.ht2.textContent !== '1 / 2 UP') problems.push('enemy bar ' + UI.dom.ht2.textContent);
+        if (UI.tagLabel(m, 0) !== '1P' || UI.tagLabel(m, 1) !== 'CPU' || UI.tagLabel(m, 2) !== '2P') problems.push('labels ' + [0, 1, 2].map((i) => UI.tagLabel(m, i)).join());
+        if (!/P1/.test(UI.lineupHeading(m, true)) || !/RIVALS/.test(UI.lineupHeading(m, false)) || UI.roundSub(m).indexOf('3 FIGHTERS') !== 0) problems.push('headings');
+        banners.length = 0;
+        UI.onRoundEnd({ match: m, winner: 2, reason: 'ko' }); UI.onRoundEnd({ match: m, winner: -1, reason: 'time' });
+        if (banners[0] !== 'K.O./BRUTUS WINS' || banners[1] !== 'DRAW/DRAW') problems.push('banners ' + banners.join(' | '));
+      } finally { ['hp2', 'hg2', 'ht2'].forEach((id, i) => { UI.dom[id] = keepDom[i]; }); UI.cache = keepCache; UI.ghost = keepGhost; UI.banner = keepBanner; }
+      Combat.knockOut(m.fighters[0], m.fighters[2], null, m);
+      self.run(m, KO_DELAY_TICKS + 20);
+      const r = m.results();
+      r.mode = 'lineup'; r.buttons = ['again', 'setup', 'menu']; r.draw = m.matchWinner < 0;
+      const html = UI.lineupResults(r);
+      const rows = (html.match(/<tr class="tc/g) || []).length;
+      if (m.matchWinner !== 2 || !m.peopleWon() || !r.winnerName || rows !== 3 || /Rounds won/.test(html) || !html.includes(r.winnerName + ' wins') || !/winner/.test(html) || r.lineup.length !== 3 || r.teamNames.length !== 3) problems.push('results ' + JSON.stringify([m.matchWinner, m.peopleWon(), rows]));
+      const keepData = Game.resultsData;
+      Game.resultsData = r;
+      const viaScreen = UI.screen_results();
+      Game.resultsData = keepData;
+      if (viaScreen !== html) problems.push('the results screen does not use the lineup table');
+      const cpuWin = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]]));
+      quietAll(cpuWin);
+      Combat.knockOut(cpuWin.fighters[0], cpuWin.fighters[1], null, cpuWin);
+      self.run(cpuWin, KO_DELAY_TICKS + 20);
+      if (cpuWin.matchWinner !== 1 || cpuWin.peopleWon()) problems.push('a CPU win is no fanfare');
+      const far = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 3, true]]));
+      quietAll(far);
+      self.stand(far.fighters[0], 0, 0, 5, 0); self.stand(far.fighters[1], 2 * CAMERA_THREAT_RANGE, 0, 0, 0); self.stand(far.fighters[2], -2.4 * CAMERA_THREAT_RANGE, 0, 0, 0);
+      Camera.framedFor = null;
+      Camera.frameFighters(far.fighters);
+      if (!Camera.framed[2] || Camera.framed[1]) problems.push('framing ' + JSON.stringify([Camera.framed[1], Camera.framed[2]]));
+      Camera.framedFor = null;
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lineup flow: Brawl is on the mode list, the setup screens open the lineup, Start keeps the picks (a pick on the cards reaches the lineup, Start does not copy over it), a plain 1v1 plays the old way, and the people decide the input plan (1 solo, 2 Versus split, 3 and 4 seats on keyboard and gamepads)', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), problems = [];
+      const pads = [fakePad('a'), fakePad('b'), fakePad('c')];
+      try {
+        Game.lineups = {};
+        if (!MODE_ORDER.includes('brawl') || !MODE_INFO.brawl || MODE_ORDER.indexOf('brawl') > MODE_ORDER.indexOf('coop')) problems.push('mode list');
+        Game.chooseMode('brawl');
+        UI.act('pick:' + Game.selection.player);
+        if (UI.current !== 'lineup') problems.push('brawl pick leads to ' + UI.current);
+        UI.act('lineupNext');
+        if (Game.state !== GS.ARENASEL) problems.push('lineup to arena ' + Game.state);
+        UI.back();
+        if (UI.current !== 'lineup' || Game.state !== GS.CHARSEL) problems.push('back from the arena ' + UI.current);
+        UI.act('lineupNext'); UI.act('start');
+        let m = Game.match;
+        if (!m || !m.setup || m.fighters.length !== 4 || m.cfg.setupMode !== 'brawl' || Game.state !== GS.COUNTDOWN || Inputs.coop || Inputs.versus) problems.push('brawl start');
+        Game.quitToMenu();
+        Game.chooseMode('free');
+        UI.act('pick:' + Game.selection.player);
+        UI.act('setupNext'); UI.act('start');
+        if (!Game.match || Game.match.setup || Game.match.cfg.mode !== 'free') problems.push('a plain Free Fight left the old way');
+        Game.quitToMenu();
+        Game.chooseMode('free');
+        UI.act('pick:' + Game.selection.player);
+        UI.act('lineup');
+        if (UI.current !== 'lineup') problems.push('Free Fight lineup button');
+        UI.lineupLocal('lopp', 1);
+        const lineup = Game.lineupFor('free');
+        lineup.slots[1].id = 'yuki';
+        UI.act('back');
+        if (UI.current !== 'setup' || Game.selection.opponent !== 'yuki') problems.push('the lineup picks did not reach the cards ' + Game.selection.opponent);
+        UI.act('opp:dmitri');
+        if (lineup.slots[1].id !== 'dmitri') problems.push('a card pick did not reach the lineup');
+        UI.act('lineup'); UI.act('lineupNext');
+        Game.selection.opponent = 'yuki'; lineup.slots[1].id = 'brutus';   // Start must not copy the cards' pick over the lineup
+        UI.act('start');
+        m = Game.match;
+        if (!m || !m.setup || m.fighters.length !== 3 || !m.fighters.some((f) => f.id === 'brutus') || m.fighters.some((f) => f.id === 'yuki' || f.id === 'dmitri') || m.cfg.mode !== 'brawl' || Game.run.mode !== 'lineup') problems.push('Free Fight with 3 fighters');
+        Game.quitToMenu();
+        Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+        for (const people of [2, 3, 4]) {
+          Game.chooseMode('brawl');
+          const l = Game.lineupFor('brawl');
+          l.slots.forEach((s, i) => { s.human = i < people; });
+          l.deal = 'custom'; l.slots.forEach((s, i) => { s.team = i < people ? 1 + (i % 2) : 3; });
+          Game.startFromSelection();
+          m = Game.match;
+          const mode = people === 2 ? Inputs.versus && !Inputs.coop : Inputs.coop && !Inputs.versus && Inputs.seatedSlots().length === people;
+          const driven = m ? m.setup.map((slot, i) => Inputs.forFighter(i)).filter(Boolean).length : -1;
+          if (!m || !m.setup || !mode || driven !== people || m.personFighters.length !== people) problems.push(people + ' people: ' + JSON.stringify({ mode, driven, devices: Inputs.seats.join() }));
+          Game.quitToMenu();
+          if (Inputs.coop || Inputs.versus || Inputs.seatedSlots().length) problems.push('input outlived the match after ' + people);
+        }
+        pads.length = 0;
+        Game.chooseMode('brawl');
+        Game.lineupFor('brawl').slots.forEach((s, i) => { s.human = i < 3; });
+        if (Game.startLineup('brawl') || Game.match || !/gamepads/.test(Game.lineupProblem('brawl'))) problems.push('3 players without pads started');
+        if (Game.state !== GS.MENU) Game.quitToMenu();
+        Game.chooseMode('versus');
+        UI.act('pick:' + Game.selection.player);
+        UI.act('pick:' + Game.selection.player2);
+        UI.act('lineup');
+        UI.lineupLocal('lopp', 1);
+        UI.act('lineupNext'); UI.act('start');
+        m = Game.match;
+        if (!m || !m.setup || m.fighters.length !== 3 || !Inputs.versus || m.cfg.setupMode !== 'versus') problems.push('Versus with a CPU');
+        Game.quitToMenu();
+      } finally {
+        if (Game.state !== GS.MENU) Game.quitToMenu();
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Game.lineups = keepLineups; Object.assign(Game.selection, keepSel);
+        Inputs.players.forEach((p) => { p.releaseAll(); p.reset(); });
       }
       return problems.length ? problems.join('; ') : true;
     });
