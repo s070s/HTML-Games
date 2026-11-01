@@ -2954,7 +2954,7 @@ const ARENAS = {
     builds: [['scaffold', 'scaf', -6, -4.2, 3, 2, -1]],
     items: [['hammer', -6.0, 3.3, 0.9, 'sawhorse'], ['bottle', -5.2, 3.3, 0.9, 'sawhorse'], ['wrench', 1.8, 4.5, 0.9, 'stackB'], ['brick', 2.2, 4.5, 0.9, 'stackB'], ['brick', -2.6, 4.0, 0],
       ['crate', 3.4, 3.2, 0], ['pipe', -5.0, -4.8, 1.5, 'scaf.t0.1'], ['chain', 4.0, 6.94, 1.05, 'fenceF'], ['broom', -8.73, -6.6, 1.3, 'container'], ['extinguisher', -8.73, -6.0, 1.3, 'container']],
-    hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -1.0, 3.0, { tx: -1.0, tz: 4.7 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8]],
+    hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -1.0, 1.9, { tx: -1.0, tz: 3.6 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8]],
     waves: [[3, 2.8, 0.5, 0], [4, -10.4, 3.0, 0], [5, -7.8, -2.6, 0], [6, -10.4, 3.0, 0], [6, -3.0, -6.0, 1, [-10.4, 3.0]]],
   },
   club: {
@@ -8289,7 +8289,7 @@ class AIController {
       for (const pick of picks) {
         const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
         const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
-        if (Arena.outside(sx, sz, f.radius) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
+        if (Arena.outside(sx, sz, f.radius) || (Arena.ringOut && !Arena.inRing(sx, sz)) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
         const walkX = sx - f.x, walkZ = sz - f.z, along = clamp(((opp.x - f.x) * walkX + (opp.z - f.z) * walkZ) / (walkX * walkX + walkZ * walkZ || 1), 0, 1);
         if (Math.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue;   // the walk to the spot would run into the target, or the strike would miss
         if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3, f.groundY)) return { x: sx, z: sz, pick };
@@ -8331,7 +8331,7 @@ class AIController {
     for (const dir of THROW_DIRS) {
       const px = dir === 'fwd' ? wx : dir === 'back' ? -wx : dir === 'left' ? -wz : wz, pz = dir === 'fwd' ? wz : dir === 'back' ? -wz : dir === 'left' ? wx : -wx;   // f's facing: the throw vector then equals w
       const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = Math.hypot(sx - f.x, sz - f.z);
-      if (dist >= bestDist || Arena.outside(sx, sz, f.radius) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
+      if (dist >= bestDist || Arena.outside(sx, sz, f.radius) || (Arena.ringOut && !Arena.inRing(sx, sz)) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
       bestDist = dist; best = { x: sx, z: sz, dir };
     }
     return best;

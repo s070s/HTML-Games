@@ -7867,7 +7867,7 @@ const SelfTest = {
     const HAZARD_1V1 = [
       { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '67:191yiak' },
       { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '54:1ch5240' },
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '103:19dmloq' },   // re-recorded when the load zone left the left start spot
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '49:kjptyk' },   // re-recorded when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
