@@ -405,6 +405,41 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
 - [ ] P17-10 - Implement P17-09: moves, animations and AI use for every style.
   Done when: no two styles share a move outside the P17-09 share list (self-test); every style meets the P14-01 targets with the P0-06 runner.
 
+## Phase 18 - Owner feedback of 2026-11-01 (do it before Phase 16)
+
+Numbered after the other phases because it was added later; it follows Phase 17 (abilities build on P17-09's distinct styles) and Phase 16 checks the result. Owner's text verbatim in Appendix A.
+
+- [ ] P18-01 - Movement speed: the owner wants fighters a little faster. Fact: walk forward 2.2 m/s, back 1.6, side 1.8, run 4.6 (`WALK_FORWARD`, `RUN_SPEED`). DECIDE the new speeds, then set them.
+  Done when: Appendix C has the old and new numbers with the reason; ranges and the AI's spacing still work; P0-06 results stay within the P14-01 targets; the fingerprints are re-recorded on purpose.
+- [ ] P18-02 - DECIDE the combat timing rules in one place: hit stun, block stun, what makes a combo true, when a chain can be escaped, the perfect block. Fact: the game has no combo break today; a perfect block is a 6-tick window (0.1 s) after pressing Defend, with a 30-tick cooldown. Decide whether a combo break is added, what it costs and how it reads on screen, and whether the window or cooldown change.
+  Done when: Appendix C has the rule table, and the choice on the combo break with its reason.
+- [ ] P18-03 - Implement P18-02 so timing is consistent: the same press timing gives the same result on every move, style, weapon and CPU level.
+  Done when: a self-test presses Defend at each tick before the hit, for every attack of every style, and finds the same perfect-block window everywhere (exceptions listed in Appendix C); P0-06 results stay within the P14-01 targets.
+- [ ] P18-04 - Make the timing readable: a perfect block, a late block and (if added) a combo break each have their own clear flash and sound; Training shows too early / too late by how many ticks, and the help and move list explain combos, stun and the perfect block in plain words.
+  Done when: each outcome can be told apart by sight alone and by sound alone; a Training run shows the early / late reading on touch, gamepad and keyboard; the text passes the P17-05 rule (no design notes).
+- [ ] P18-05 - Difficulty in every mode: one difficulty choice before the game starts in every mode with a CPU, not only at the end of Character Select in Arcade. Fact: today it sits on three different screens with three names ("Arcade difficulty" on fighter select, "CPU level" in match setup, "Difficulty" in fight options). Modes with no CPU do not show it.
+  Done when: Arcade, Survival, Free Fight, Versus with a CPU, Brawl, Co-op Brawl and Tournament all offer the same control at the same step before the fight, on touch, gamepad and keyboard; the choice is saved per mode; old saves load with their current level.
+- [ ] P18-06 - DECIDE unique abilities per fighter: 2 or 3 for each of the 26 fighters, on top of the style's moves, so two fighters of one style still play differently. Say how custom fighters get theirs.
+  Done when: Appendix C has a table of every fighter with each ability's input, cost and counter; no two fighters share an ability unless the table says why.
+- [ ] P18-07 - Implement P18-06: moves, animations, AI use, move list entries, and custom fighters (with a share code and store version bump if needed).
+  Done when: a self-test finds every ability in the data, reachable by its input and used by the CPU in P0-06 runs; every fighter meets the P14-01 targets; old codes and saves load.
+- [ ] P18-08 - DECIDE the ultimate ability: one per fighter (or per style), charged before use. Fact: the Momentum gauge (0 to 100, fills from damage dealt and taken and from perfect defence) already exists, so decide whether it charges the ultimate or a new gauge does. Decide the input on touch (P17-06's no-clutter rule), how it can be avoided, and what it costs.
+  Done when: Appendix C has the rule, the input per device and the damage cap against a round's health.
+- [ ] P18-09 - Implement P18-08: charge display, activation, a short readable effect on the fixed sim, AI use, Training demo.
+  Done when: it works on touch, gamepad and keyboard; a full gauge cannot end a full-health round alone; the CPU uses it in P0-06 runs; every fighter meets the P14-01 targets; the P0-04 performance check passes.
+- [ ] P18-10 - Fighter models: review all 26 fighters side by side and give each one or two carefully made details (silhouette, headwear, gear) so each is recognisable at phone size.
+  Done when: Appendix C lists each fighter's added detail; a contact sheet of all fighters shows no two with the same silhouette and colours; the P0-04 performance check passes.
+- [ ] P18-11 - Giorgi (the owner's "Giorgiy"): add a Soviet-style ushanka to the headwear items (there is a cap, beanie, hood, bandana, headgear and balaclava today), wear it on Giorgi and offer it in the creator.
+  Done when: Giorgi wears it in every mode, it follows the head without clipping through hair or shoulders in any animation, and a custom fighter can pick it.
+- [ ] P18-12 - DECIDE more environment interaction: the owner likes the new levels and the object interaction and wants it taken further. Go level by level and list new things to do with objects and the room (builds on P9-02 to P9-04, P17-07, P17-08).
+  Done when: Appendix C has at least 2 new interactions per level, each with what triggers it, how a CPU uses it and how it stays fair to both sides.
+- [ ] P18-13 - Implement P18-12.
+  Done when: each interaction works on touch, gamepad and keyboard and in 1v1, wave and Brawl fights; a self-test triggers each one; the CPU uses them; P14-01 targets and the P0-04 performance check pass.
+- [ ] P18-14 - RESEARCH and DECIDE the X-factor: one genuinely unique feature that gives the game its own identity. Check what the closest games in the genre already do, then write 3 to 5 options with what each costs to build. The owner picks.
+  Done when: the options and their sources are in Appendix B; the owner's choice is in Appendix C with new tasks for it placed before Phase 16.
+- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99. This is a market estimate, not a plan to sell it now.
+  Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99; the owner has read it.
+
 ## Phase 16 - Final audit and release
 
 - [ ] P16-01 - Repeat the full audit (same categories as P0-02) on the final build. Classify Critical, High, Medium, Low, Informational.
@@ -468,6 +503,15 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
 | Added 2026-10-31: items on tables clip into the table (Construction site) | P17-07 |
 | Added 2026-10-31: restrictive arena bounds (Night Club, Construction yellow borders) | P17-08 |
 | Added 2026-10-31: styles not distinct enough (Capoeira has no acrobatic moves); share only real shared techniques | P17-09, P17-10 |
+| Added 2026-11-01: faster character movement | P18-01 |
+| Added 2026-11-01: clearer combo breaks and animations, perfect block; consistent, intuitive timing | P18-02, P18-03, P18-04 |
+| Added 2026-11-01: difficulty selection in all modes, before starting | P18-05 |
+| Added 2026-11-01: a few unique abilities per character | P18-06, P18-07 |
+| Added 2026-11-01: an ultimate ability that needs charging | P18-08, P18-09 |
+| Added 2026-11-01: refined character models, small details; ushanka for Giorgi | P18-10, P18-11 |
+| Added 2026-11-01: develop environment interaction further | P18-12, P18-13 |
+| Added 2026-11-01: an X-factor, one unique feature | P18-14 |
+| Added 2026-11-01: honest Steam price estimate for the current state (EUR 2.99 in mind) | P18-15 |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -518,6 +562,53 @@ Audit and Address App wide related to these and other issues
 -Some Items on Tables (ex the Construction Site) dive in clipping in the table.
 -Arena Bounds on Levels like Night Club,Yellow Borders on Construction Site are restrictive.The levels should feel free to explore and destroy.
 -I dont think that styles feel distinct enough. for example Capoeira doesn't have acrobatic moves. Styles look very similar to each other.Only Exception should be shared techniques like Kickboxing,Boxing punches.
+```
+
+### Owner feedback of 2026-11-01 (verbatim)
+
+```text
+Overall, I'm quite happy with the game so far. There are a few areas, however, where I think some improvements could make a significant difference.
+
+1. Movement and Combat
+
+* I'd like the character movement to be a little faster.
+* I'd appreciate a clearer understanding of how combo breaks and animations work, particularly when trying to perform a perfect block.
+* The timing and mechanics should feel consistent and intuitive.
+
+2. Difficulty Selection
+
+* Difficulty selection should be available in all game modes, not just at the end of Character Select in Arcade Mode.
+* Ideally, the player should be able to choose the difficulty before starting the game, regardless of the selected mode.
+
+3. Character Abilities and Uniqueness
+
+* I think each character could benefit from having a few unique abilities.
+* An ultimate ability that requires charging before it can be used would also be a good addition.
+* Some character models could use further refinement to stand out visually.
+* For Giorgiy, for example, a Soviet-style hat (ushanka) could be a fun visual addition.
+* Even small, carefully refined details could help give each character more personality and a stronger identity.
+
+4. Levels and Environment Interaction
+
+* I really like the new levels.
+* I also particularly enjoy the interaction with objects in the environment.
+* I'd like to see this aspect developed further, as it adds another layer to the gameplay.
+
+5. A Unique Selling Point
+
+* The main thing I feel is currently missing is an X-factor: one genuinely unique feature that gives the game its own identity.
+* Something memorable that makes it stand out from other games in the genre.
+
+6. Steam Pricing and Market Perception
+
+* I'd like to get an honest assessment of what people would realistically be willing to pay for the game in its current state.
+* I initially had around EUR 2.99 in mind, but wanted to get some outside opinions before settling on a price.
+* I understand that the game is still unfinished, but I'd prefer an estimate based on the content and quality already available rather than simply dismissing it because it is unfinished.
+* Even a low estimate would be useful. The goal is to understand its current market value, not to suggest that anyone should pay for it.
+
+Overall Impression
+
+I'm enjoying the direction the game is taking, particularly the new levels, environmental interactions and character variety. I think the biggest opportunities for improvement are refining the combat mechanics, adding more character-specific abilities, making difficulty selection accessible across all modes, and introducing a distinctive feature that gives the game a recognizable identity.
 ```
 
 ## Appendix B - Research log
