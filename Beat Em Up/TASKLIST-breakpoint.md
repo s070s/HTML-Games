@@ -439,6 +439,26 @@ Numbered after the other phases because it was added later; it follows Phase 17 
   Done when: the options and their sources are in Appendix B; the owner's choice is in Appendix C with new tasks for it placed before Phase 16.
 - [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content. This is a market estimate, not a plan to sell it now.
   Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99, EUR 5 and the EUR 5-10 opinion; the owner has read it.
+- [ ] P18-16 - Start side: let the player choose left or right as the side they start on in a level. Fact: a 1v1 in a ring draws the start side from the match seed and swaps it every round (`MatchSim.startSide`), because levels favour one seat; brawls, Training and fights without a ring always start left. DECIDE how the choice works with that rule: which modes offer it, what happens in later rounds, who gets the side when two people pick the same one, and what the CPU does.
+  Done when: Appendix C has the rule; the choice works on touch, gamepad and keyboard in every mode that offers it; "Random" stays the default so the seat balance of P9 holds; the fingerprints pass unchanged when nobody picks a side.
+- [ ] P18-17 - Audit menu selection: find every place where more than the current item looks selected or the look is wrong (owner's example: an outline on items other than the current one). Fact: hover, keyboard focus and the `.sel` class all draw the same outline on buttons, options and cards, so a mouse-over and a focused item can both show it, and so can a remembered pick.
+  Done when: Appendix D lists each finding; on every screen exactly one item looks current with mouse, keyboard, gamepad and touch; a remembered pick has its own different look; a self-test checks the rule on each menu screen.
+- [ ] P18-18 - DECIDE the merge: Versus, Brawl, Co-op Brawl and Free Fight become one mode named Free Fight, with all the options of the four (builds on P4-08's lineup). List every option kept, how the setup screen stays short on a phone, and what happens to Versus's rematch score, Co-op's friendly fire and sitting out after a knockout. Tournament (P11) and online (P12) use the same setup.
+  Done when: Appendix C has the option list with each old mode's option mapped to its new place; nothing a player could set before is lost without a recorded reason.
+- [ ] P18-19 - Implement P18-18: one Free Fight on the mode list, old saves and settings moved over, help and text updated.
+  Done when: every setup the four old modes allowed can be started from Free Fight on touch, gamepad and keyboard; the mode list has no Versus, Brawl or Co-op Brawl; old saves load with their settings; the fingerprints pass.
+- [ ] P18-20 - DECIDE Arcade and Survival brawls: both modes can have brawls against several CPUs or with ally CPUs, set by the player, balanced by difficulty. Decide the options, how many allies and enemies at each difficulty, how allies change the enemy count and rewards, and how they fit Arcade's ladder and Survival's records (with allies on, are records kept apart?).
+  Done when: Appendix C has the table per difficulty and the record rule.
+- [ ] P18-21 - Implement P18-20 with AI for allies and enemies.
+  Done when: Arcade and Survival run with and without allies at every difficulty; the win rates stay within the P14-01 targets with the P0-06 runner; the P0-04 performance check passes with the most fighters allowed.
+- [ ] P18-22 - RESEARCH Urban Reign's group special attacks: how two fighters attack one target together, one holding the target while the other hits it, how they are triggered, how they can be stopped, and what enemies and partners do.
+  Done when: Appendix B has the notes with a source for each fact.
+- [ ] P18-23 - DECIDE our group attack system from P18-22, in our own design: the attacks (at least: one grabs and the other hits; both strike one target), who can start them (people, CPU allies, CPU enemies), the input on touch (P17-06's no-clutter rule), the cost, how the target breaks out, and the damage cap.
+  Done when: Appendix C has the attack list with the input per device, the counter and the numbers.
+- [ ] P18-24 - Implement P18-23: moves, paired animation (hands really meet the target), AI use for allies and enemies, move list, Training demo.
+  Done when: every group attack works in Free Fight, Arcade and Survival on touch, gamepad and keyboard, a self-test starts and escapes each one, no attack hits the air (P17-02's check), and the P14-01 targets pass.
+- [ ] P18-25 - Throwing a fighter into other participants: check whether it hurts them today, across every throw, grapple and team setup. If it does not, DECIDE which is better for the game (damage, a knockdown or stagger only, or no effect) and how friendly fire applies.
+  Done when: Appendix C has what the game did and the choice with its reason; if it changes, a self-test covers a thrown fighter meeting an enemy, an ally and a downed fighter, and the P14-01 targets pass.
 
 ## Phase 16 - Final audit and release
 
@@ -512,6 +532,12 @@ Numbered after the other phases because it was added later; it follows Phase 17 
 | Added 2026-11-01: develop environment interaction further | P18-12, P18-13 |
 | Added 2026-11-01: an X-factor, one unique feature | P18-14 |
 | Added 2026-11-01: honest Steam price estimate for the current state (EUR 2.99 in mind) | P18-15 |
+| Added 2026-11-01: choose the side you start on in a level | P18-16 |
+| Added 2026-11-01: audit menu selection issues (outline on items other than the current one) | P18-17 |
+| Added 2026-11-01: Co-op Brawl, Brawl, Versus and Free Fight become one Free Fight with all their options | P18-18, P18-19 |
+| Added 2026-11-01: Arcade and Survival brawls against CPUs or with ally CPUs, balanced by difficulty | P18-20, P18-21 |
+| Added 2026-11-01: group special attacks like Urban Reign (two on one, one grabs and one attacks) | P18-22, P18-23, P18-24 |
+| Added 2026-11-01: does throwing a fighter onto others cause damage; choose what is better | P18-25 |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -623,6 +649,16 @@ Personally, I was initially thinking of EUR 2.99, but I'm open to considering EU
 Of course, none of these opinions comes from professional market research or extensive experience with Steam games, so I would treat them as rough estimates rather than definitive valuations.
 
 The main reason I asked was to get an idea of how people perceive the game's current value and what they would realistically be willing to pay for it.
+```
+
+### Owner's added tasks of 2026-11-01 (verbatim)
+
+```text
+-Select which side you start on the level(right left)
+-Audit for issues related on selections in the menu (example outline on items apart from the one currently selected)
+-Co-Op Brawl,Brawl ,Versus and Free Fight collapse into one mode named Free Fight with all the options of the four of them. Arcade and Survival can have brawls vs cpus or with ally cpus (configurable,balanced according to difficulty)
+-Design and integrate a system to recreate the group special attacks of urban reign (search on it) where for example two people attack one target,one person grabs the target and the other attacks the target.
+-Evaluate if throwing fighters on other participants causes damage and if not then choose which is better to do
 ```
 
 ## Appendix B - Research log
