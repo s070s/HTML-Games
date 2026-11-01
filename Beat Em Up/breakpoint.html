@@ -243,7 +243,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .beat:focus-visible{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
 .beat p{margin:.25em 0;line-height:1.35}
 .beat .who{font-weight:800;color:var(--a1);margin-right:.5em;letter-spacing:.05em;text-transform:uppercase;font-size:.85em}
-.panel.lineup{scroll-padding-bottom:5em}   /* a focused row scrolls clear of the sticky footer */
+.panel.lineup,.panel.story{scroll-padding-bottom:5em}   /* a focused row or beat scrolls clear of the sticky footer */
 @media (max-width:520px){.slot{grid-template-columns:1.4em 1.5fr 1fr 1fr;gap:.25em}.slot .opt.cell{padding:.3em .25em;font-size:.8em;min-height:2.4em}.panel.lineup .opt{min-height:2.4em;padding:.3em .6em}.panel.lineup .row.sticky{bottom:-.8em}}
 .tag.seat1,.tag.seat2,.tag.seat3,.tag.seat4{border-color:var(--pc)}
 .hc .pc{background:#000;border-width:3px}
@@ -528,6 +528,11 @@ const Store = {
   set(key, value) {
     this.mem[key] = value;
     try { if (this.ok) this.storage.setItem(key, value); } catch (e) { this.warnWrite(e); }   // reads keep using the storage; the next write retries
+  },
+  /* A write that tells the caller whether it worked instead of warning: for data saved while the game starts, before the UI can show a toast. */
+  trySet(key, value) {
+    this.mem[key] = value;
+    try { if (this.ok) this.storage.setItem(key, value); return this.ok; } catch (e) { return false; }
   },
   warnWrite(e) {
     if (this.warned) return;
@@ -3335,7 +3340,7 @@ const Arena = {
       else Debris.spawn(kind, px, py, pz, vx, vy, vz, size, size * 0.7, size * 0.8, color, 1);
     }
     this.addRubble(o, kind === 'concrete' ? 0.55 : 0.22, o.hx, 0, o.hz);
-    if (!o.step && this.collapses.length < COLLAPSE_QUEUE_MAX) this.collapses.push({ x: o.x, z: o.z, hx: o.hx, hz: o.hz, drop: o.h, land: this.supportAt(o.x, o.z, o.h, DECK_LAND_RADIUS) });
+    if (!o.step && this.collapses.length < COLLAPSE_QUEUE_MAX) this.collapses.push({ x: o.x, z: o.z, hx: o.hx, hz: o.hz, drop: o.h });
   },
 
   /* The weak deck f stands on (or null): its top is f's footing and f is over its footprint. */
@@ -5427,7 +5432,7 @@ const HAZARD_NO_REACT = [S.THROWN, S.DOWN, S.FALL, S.SUBMIT, S.GETUP];   // stat
 const HAZARD_FLINK_TICKS = 10, HAZARD_FLINK_PUSH = 5;   // a flinch (fire, glass): hit-stun ticks, and the knock away from the source (m/s)
 const LOAD_CHECK_TICKS = 6, LOAD_HOLD_TICKS = 60, LOAD_CREAK_TICKS = 36, LOAD_HEAVY = 3;   // P8-04 / P9 R7: weight is counted every 6 ticks; held 60 ticks the deck creaks for 36 and breaks; a weight class of 3 or 4 counts twice
 const CRUSH_BASE = 10, CRUSH_PER_METER = 6, CRUSH_MAX = 30, CRUSH_DOWN = 20, CRUSH_REACH = 0.3, CRUSH_FLOOR_TOP = 1.0, CRUSH_LANDINGS_PER_TICK = 4, CRUSH_OBJECTS = 4, COLLAPSE_QUEUE_MAX = 32;   // R6: crush of a fallen piece beside it
-const DECK_LAND_RADIUS = 0.05;        // m: the point under a broken deck's centre where its landing surface is read (Arena.breakDeck)
+const DECK_LAND_RADIUS = 0.05;        // m: the point under a broken deck's centre where its landing surface is read (MatchSim.stepCollapse)
 const CRUSH_DEF = { push: 3, snd: 'crash' };
 const BURN_SRC = { type: 'fire', def: { snd: 'fire' }, by: null, x: 0, z: 0, fx: 0, fz: 1 };   // R4: the source of a burning fighter's damage
 const CRUSH_SRC_BASE = -1500000000;   // scenery damage source ids of crush: a range of its own (a counter per match makes each landing's id unique), below the fighters' impact ids and above the thrown items'
@@ -7210,7 +7215,8 @@ const Combat = {
    every look field is cosmetic.
    ===================================================================== */
 const KEY_CUSTOM = 'breakpoint.v1.custom';
-const CUSTOM_STORE_VERSION = 1;
+const KEY_CUSTOM_BACKUP = 'breakpoint.v1.custom.backup';   // a copy of custom data the game could not read, kept once before a save replaces it (D26)
+const CUSTOM_STORE_VERSION = 2;         // 2 adds the four story fields (P6-11); a version 1 store loads with their defaults
 const CUSTOM_SLOTS = 8;
 const CUSTOM_IDS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'];
 const CUSTOM_RANK_BASE = 100;           // after every built-in fighter, so ladders never pick customs
@@ -7233,7 +7239,7 @@ const GENDER_SHAPE = { M: 0, F: 1, N: 0.5 };          // 0 is the original body;
 const GREY_HAIR = '#c9c9d2';
 const AGE_MARK = { x: 0.066, y: 0.175, z: 0.096, depth: 0.024, tilt: 0.35 };   // age lines (head frame): on the cheeks below the eyes, under the hair cap, along the face
 const SHARE_PREFIX = 'BP1';
-const SHARE_VERSION = 1;
+const SHARE_VERSION = 2;                // 2 adds the four story fields (P6-11)
 const SHARE_MAX_LENGTH = 400;
 const STORE_MAX_LENGTH = 65536;
 
@@ -7649,6 +7655,11 @@ const SHARE_FIELD_COUNT_DEFENSE = SHARE_FIELD_COUNT_STYLE + 1;                  
 const SHARE_FIELD_COUNT_BODY = SHARE_FIELD_COUNT_DEFENSE + 4;                                              // + muscle and weight (x100), age, gender index (GENDERS)
 const SHARE_FIELD_COUNT_ITEMS = SHARE_FIELD_COUNT_BODY + 2;                                                // + accessory and tattoo / mark index (P6-02)
 const SHARE_FIELD_COUNT_FACE = SHARE_FIELD_COUNT_ITEMS + 1;                                                // + face index (P6-07; 0 = Classic)
+const SHARE_FIELD_COUNT_STORY = SHARE_FIELD_COUNT_FACE + 4;                                                // + country, origin, goal and intro emote list index (P6-11; STORY_LISTS order)
+const SHARE_FORMATS = [   // the field counts each version may have: version 1 codes (no story fields) load with the story defaults
+  { version: 1, counts: [SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_FACE] },
+  { version: SHARE_VERSION, counts: [SHARE_FIELD_COUNT_STORY] },
+];
 function fnv1a(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -7670,6 +7681,8 @@ function encodeCustom(custom) {
   const body = bodyOf(custom.look);
   fields.push(Math.round(body.muscle * 100), Math.round(body.weight * 100), body.age, GENDERS.indexOf(body.gender));
   for (const key of LOOK_ITEM_KEYS) fields.push(LOOK_CHOICES[key].options.indexOf(custom.look[key] || 'none'));
+  const story = storyFields(custom);
+  for (const key in STORY_LISTS) fields.push(STORY_LISTS[key].findIndex((row) => row.id === story[key]));
   const payload = toBase64Url(JSON.stringify(fields));
   return SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload);
 }
@@ -7685,8 +7698,10 @@ function decodeCustom(text, allowVeteran) {
   if (shareChecksum(match[1]) !== match[2]) return fail('Code is damaged or was edited (checksum mismatch)');
   let fields;
   try { fields = JSON.parse(fromBase64Url(match[1])); } catch (e) { return fail('Code could not be read'); }
-  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_FACE].includes(fields.length)) return fail('Code has the wrong number of fields');
-  if (fields[0] !== SHARE_VERSION) return fail('Code is from an unsupported version');
+  if (!Array.isArray(fields) || !SHARE_FORMATS.some((format) => format.counts.includes(fields.length))) return fail('Code has the wrong number of fields');
+  const format = SHARE_FORMATS.find((candidate) => candidate.version === fields[0]);
+  if (!format) return fail('Code is from an unsupported version');
+  if (!format.counts.includes(fields.length)) return fail('Code has the wrong number of fields for its version');
   let i = 1;
   const record = { name: fields[i++], title: fields[i++], arch: ARCHETYPE_IDS[fields[i++]], tier: TIERS[fields[i++]], attrs: {}, look: {} };
   for (const key of ATTR_KEYS) record.attrs[key] = fields[i++];
@@ -7702,6 +7717,15 @@ function decodeCustom(text, allowVeteran) {
     record.look.muscle = whole(fields[at]); record.look.weight = whole(fields[at + 1]); record.look.age = fields[at + 2]; record.look.gender = Number.isInteger(fields[at + 3]) ? GENDERS[fields[at + 3]] || null : null;
     LOOK_ITEM_KEYS.forEach((key, n) => { if (at + 4 + n < fields.length) record.look[key] = LOOK_CHOICES[key].options[fields[at + 4 + n]] || null; });   // codes with fewer item fields leave the rest unset (none / Classic)
   }
+  if (fields.length >= SHARE_FIELD_COUNT_STORY) {   // older codes have no story fields and get the defaults in validateCustom; an index past a list (a newer build) rejects the code
+    let at = SHARE_FIELD_COUNT_FACE;
+    for (const key in STORY_LISTS) {
+      const row = Number.isInteger(fields[at]) ? STORY_LISTS[key][fields[at]] : undefined;
+      if (!row) return fail('Code has an unknown ' + key);
+      record[key] = row.id;
+      at++;
+    }
+  }
   const checked = validateCustom(record);
   if (!checked.ok) return checked;
   if (checked.value.tier === 'veteran' && !allowVeteran) return fail('Veteran fighters need an Arcade clear first');
@@ -7715,19 +7739,25 @@ const CustomRoster = {
   init() {
     this.slots = new Array(CUSTOM_SLOTS).fill(null);
     const raw = Store.get(KEY_CUSTOM);
-    if (raw && raw.length <= STORE_MAX_LENGTH) this.loadFrom(readJson(KEY_CUSTOM));
-    else if (raw) Diag.log('warn', 'Ignoring oversized custom fighter data');
+    let readable = true;
+    if (raw && raw.length <= STORE_MAX_LENGTH) readable = this.loadFrom(readJson(KEY_CUSTOM));
+    else if (raw) { Diag.log('warn', 'Ignoring oversized custom fighter data'); readable = false; }
+    if (raw && !readable && Store.get(KEY_CUSTOM_BACKUP) !== raw && !Store.trySet(KEY_CUSTOM_BACKUP, raw)) Diag.log('warn', 'Could not keep a copy of the custom fighter data that was not fully readable');   // the next save replaces it: keep the newest such copy
     this.register();
   },
+  /* Loads every valid fighter of a stored object (a store of another or no version too, so the next save keeps them); false when something in it could not be used (not a store, another version, a dropped slot). */
   loadFrom(stored) {
-    if (!stored || !Array.isArray(stored.slots)) return;
+    if (!stored || !Array.isArray(stored.slots)) return false;
+    let usable = Number.isInteger(stored.version) && stored.version >= 1 && stored.version <= CUSTOM_STORE_VERSION;
+    if (!usable) Diag.log('warn', 'Custom fighter data has another version: loading its valid fighters');
     for (let i = 0; i < CUSTOM_SLOTS; i++) {
       const entry = stored.slots[i];
       if (entry === null || entry === undefined) continue;
       const checked = validateCustom(entry);
       if (checked.ok) this.slots[i] = checked.value;
-      else Diag.log('warn', 'Dropped invalid custom fighter in slot ' + (i + 1) + ': ' + checked.error);
+      else { Diag.log('warn', 'Dropped invalid custom fighter in slot ' + (i + 1) + ': ' + checked.error); usable = false; }
     }
+    return usable;
   },
   save() { Store.set(KEY_CUSTOM, JSON.stringify({ version: CUSTOM_STORE_VERSION, slots: this.slots })); },
   /* Keep ROSTER_BY_ID in sync with the slots; ROSTER (ladder order by rank) never changes. */
@@ -7762,11 +7792,10 @@ const CustomRoster = {
   profiles() { return CUSTOM_IDS.map((id) => ROSTER_BY_ID[id]).filter(Boolean); },
 };
 /* =====================================================================
-   05e STORY - Country, Origin and Goal (P6-10) and the Arcade story built from them (P10-03). The tables are the decisions of Appendix C "Story lists (P10-01)" and
-   "Arcade story structure (P10-02)". Story settings change text, poses, rivals, the boss, the level order and rewards: never a stat or a fight rule. A story fight is an
-   ordinary MatchSim (Story.cfg); nothing here draws a random number or touches a match.
+   05e STORY - Country, Origin and Goal (P6-10) and the Arcade story built from them (P10-03); tables as in Appendix C. Settings change text, poses, rivals, boss, level order
+   and rewards, never a stat or a fight rule: a story fight is an ordinary MatchSim (Story.cfg) and nothing here draws a random number.
    ===================================================================== */
-/* Regions: [tag, name, home level (Arcade stage 1), sign hue, first box of beat B1 ({city} = the country's city), countries 'name,id,city;...' (ISO 3166-1 alpha-2 ids)]. List order is the share-code index order (append only). */
+/* Regions: [tag, name, home level (stage 1), sign hue, first box of beat B1, countries 'name,id,city;...' (ISO alpha-2 ids)]. List order is the share-code order (append only). */
 const STORY_REGION_LIST = [
   ['nam', 'North America and Caribbean', 'garage', '#f2a33a', '{city}: big lights, small gyms and a fight on every block.', 'Canada,CA,Toronto;USA,US,Detroit;Mexico,MX,Mexico City;Jamaica,JM,Kingston;Cuba,CU,Havana;Dominican Republic,DO,Santo Domingo'],
   ['sam', 'South America', 'construction', '#3ec46d', '{city} builds fast and hits hard. You grew up in the noise.', 'Brazil,BR,Sao Paulo;Argentina,AR,Buenos Aires;Colombia,CO,Medellin;Chile,CL,Santiago;Peru,PE,Lima;Venezuela,VE,Caracas'],
@@ -7779,7 +7808,7 @@ const STORY_REGION_LIST = [
   ['sas', 'South and Southeast Asia', 'subway', '#e04a8f', 'In {city} the crowds never end, and neither does the competition.', 'India,IN,Mumbai;Pakistan,PK,Karachi;Thailand,TH,Bangkok;Vietnam,VN,Ho Chi Minh City;Philippines,PH,Manila;Indonesia,ID,Jakarta;Malaysia,MY,Kuala Lumpur'],
   ['eao', 'East Asia and Oceania', 'subway', '#39c6d6', '{city}: neon, night trains and fight clubs nobody talks about.', 'Japan,JP,Osaka;China,CN,Shanghai;South Korea,KR,Busan;Mongolia,MN,Ulaanbaatar;Australia,AU,Sydney;New Zealand,NZ,Auckland;Samoa,WS,Apia'],
 ].map(([tag, name, home, hue, line, list]) => ({ tag, name, home, hue, line, list }));
-const STORY_COUNTRIES = [];   // 64 rows in list order: { id, name, city, region (index in STORY_REGION_LIST) }
+const STORY_COUNTRIES = [];   // 64 rows: { id, name, city, region (index in STORY_REGION_LIST) }
 STORY_REGION_LIST.forEach((region, index) => { for (const entry of region.list.split(';')) { const [name, id, city] = entry.split(','); STORY_COUNTRIES.push({ id, name, city, region: index }); } });
 /* Origins: id|name|the fighter's line in beat B1 (at most 64 characters)|tone (r rough, o ordinary, s strict). */
 const STORY_ORIGINS = [
@@ -7796,10 +7825,10 @@ const STORY_ORIGINS = [
   "orphanage|Orphanage|No family name to carry, so I'm making one.|r", "port|Port town|Docks, cranes and rough bars. That was my school.|r",
   "teacher|Teacher's child|Homework first, fights never. Until now.|s", "famous|Famous parents|I grew up in the papers. I want a name of my own.|s",
 ].map((row) => { const [id, name, line, tone] = row.split('|'); return { id, name, line, tone: { r: 'rough', o: 'ordinary', s: 'strict' }[tone] }; });
-/* Goals: id|name|creator hint (60 characters)|motive|ending reward|beat B2 (set-up)|B10 (midpoint)|B14 (ending): one box each, at most 90 characters, in the fighter's voice. */
+/* Goals: id|name|creator hint (60 characters)|motive|ending reward|beats B2, B10 and B14 (one box each, at most 90 characters). */
 const STORY_GOALS = [
   "loseweight|Lose weight|The doctor said lose weight. The gym said fight.|body|Track jacket|Winded on the gym stairs. I signed up anyway.|A belt notch tighter. I took the Pit stairs two at a time.|The scale at home says down again. And I'm still unbeaten.",
-  "friends|Make friends|New in town, and nobody to call.|bond|Board shorts|New in town and nobody to call. I eat alone after the first fight.|{rival} said hello in the street today. Actually said hello.|A group photo on the rooftop, rivals and all. Look at that!",
+  "friends|Make friends|Find friends in a new town, one rival at a time.|bond|Board shorts|New in town and nobody to call. I eat alone after the first fight.|{rival} said hello in the street today. Actually said hello.|A group photo on the rooftop, rivals and all. Look at that!",
   "revenge|Revenge|Someone hurt a person I love. I want a reckoning.|past|Leather gloves|I know the crew that hurt my family. Their names are in my notebook.|It was the champion's crew all along. Now I know who to find.|I won. Now I turn and walk away. No violence after the bell.",
   "title|Win the title|The city belt. Nothing else matters.|title|Leather jacket|The city belt. That's all I want.|The champion knows my name now. Good.|The belt is mine. The city lights look better from up here.",
   "worth|Prove worth|Everyone said I wasn't good enough.|body|Chest pound emote|Every gym turned me away. Not good enough, they said.|The doubters went quiet. Funny how that works.|A sponsor deal with my own name on it. They believed in me.",
@@ -7817,32 +7846,32 @@ const STORY_GOALS = [
   "lasttitle|One last title|Old knees, one more run.|title|Towel|My last run. These knees have one more title left.|My body aches. My heart doesn't.|I hang my gloves on the rooftop rail. And I smile.",
   "fit|Get fit|I want a body that can go twelve rounds.|body|High-tops|One round and I'm out of breath. That has to change.|I'm breathing easier every night now.|I ran up the rooftop stairs after the final. Not winded.",
   "provide|Provide for family|The rent is due. The prize money isn't.|family|Cargo pants|The rent is late. The prize money can't be.|The first prize went home today. The fridge is full.|A proper dinner for my family. That's the real prize.",
-  "proud|Make family proud|My family has never seen me fight.|family|Jersey|My family has never seen me fight. They won't watch.|My family called after the Pit. They watched. They did.|My family's in the front row on the rooftop. I see them.",
-  "wrong|Prove them wrong|An old coach said I'd never make it.|body|Shrug emote|An old coach said I'd never make it.|I sent that coach a photo from the Pit. No reply yet.|That coach is clapping in the crowd. Never say never.",
+  "proud|Make family proud|Win in front of a family that never watched.|family|Jersey|My family has never seen me fight. They won't watch.|My family called after the Pit. They watched. They did.|My family's in the front row on the rooftop. I see them.",
+  "wrong|Prove them wrong|Show the coach who doubted you. Never say never.|body|Shrug emote|An old coach said I'd never make it.|I sent that coach a photo from the Pit. No reply yet.|That coach is clapping in the crowd. Never say never.",
   "respect|Earn respect|Nobody in this city takes me seriously.|fame|Fist bump emote|They laughed me out of the gym. I remember.|The rivals nod in the street now. Small step.|The champion bowed first. I bowed back.",
   "sibling|Find a lost sibling|My sibling vanished into the fight scene.|family|Beckon emote|My sibling vanished into the fight clubs of this city. I will find them.|A photo turned up at the Pit. It's them. They were here.|My sibling is in the rooftop crowd. We hug. Finally.",
-  "legacy|Leave a legacy|I want a name that outlives me.|fame|Chest piece|I want a name that outlives me. I start tonight.|Kids copy my stance in the street. A legacy starts like that.|I opened a gym with the prize money. My name is on the door.",
+  "legacy|Leave a legacy|Build a name people remember after you.|fame|Chest piece|I want a name that outlives me. I start tonight.|Kids copy my stance in the street. A legacy starts like that.|I opened a gym with the prize money. My name is on the door.",
 ].map((row) => { const [id, name, line, motive, reward, a0, a1, a2] = row.split('|'); return { id, name, line, motive, reward, arc: [a0, a1, a2] }; });
-/* Motives (four goals each): id|rival A|rival A's pose in B4|B4 challenge|B5 when beaten|the fighter's pose in B10|the fighter's ending pose in B14. */
+/* Motives (four goals each): id|name|rival A|rival A's pose in B4|B4 challenge|B5 when beaten|the fighter's pose in B10|the fighter's ending pose in B14. */
 const STORY_MOTIVES = [
-  "title|deacon|point|The title's mine one last time. Go home, kid.|Fair. Hit like that up top and you might just do it.|glove_tap|arms",
-  "body|femke|crossed_arms|This isn't a fitness class. Leave the ring to athletes.|Okay. You trained. I'll give you that.|idle_tired|flex",
-  "fame|diego|phone|Smile, you're live on my channel. This one gets views.|Stop the stream. Stop it!|phone|fist",
-  "past|kelsey|think|I know that look. Running from something? So was I.|Whatever you carry, put it down. It's lighter that way.|head_down|shake_out",
-  "family|giorgi|argue|Everyone fights for family. Show me yours is enough.|Go. They're waiting for you.|plead|wave",
-  "bond|roxy|laugh|Friends, kids, mentors. Cute. I'm here for the fun part.|Ha! Finally someone worth the bus fare.|shake_out|fist_bump",
-].map((row) => { const [id, rival, p4, challenge, beaten, p10, end] = row.split('|'); return { id, rival, p4, challenge, beaten, p10, end }; });
+  "title|The title|deacon|point|The title's mine one last time. Go home, kid.|Fair. Hit like that up top and you might just do it.|glove_tap|arms",
+  "body|Body and fitness|femke|crossed_arms|This isn't a fitness class. Leave the ring to athletes.|Okay. You trained. I'll give you that.|idle_tired|flex",
+  "fame|Fame|diego|phone|Smile, you're live on my channel. This one gets views.|Stop the stream. Stop it!|phone|fist",
+  "past|The past|kelsey|think|I know that look. Running from something? So was I.|Whatever you carry, put it down. It's lighter that way.|head_down|shake_out",
+  "family|Family|giorgi|argue|Everyone fights for family. Show me yours is enough.|Go. They're waiting for you.|plead|wave",
+  "bond|Friends and bonds|roxy|laugh|Friends, kids, mentors. Cute. I'm here for the fun part.|Ha! Finally someone worth the bus fare.|shake_out|fist_bump",
+].map((row) => { const [id, name, rival, p4, challenge, beaten, p10, end] = row.split('|'); return { id, name, rival, p4, challenge, beaten, p10, end }; });
 /* Tones (8 origins each): id|rival B candidates in order|the fighter's pose in B1|the intro emote a preset or a new fighter gets. */
 const STORY_TONES = [
   "rough|roxy,diego,kelsey,giorgi,femke,deacon|crossed_arms|crossed_arms", "ordinary|diego,kelsey,roxy,giorgi,femke,deacon|idle_relaxed|glove_tap", "strict|kelsey,femke,giorgi,roxy,diego,deacon|nod|nod",
 ].map((row) => { const [id, rivals, b1, intro] = row.split('|'); return { id, rivals: rivals.split(','), b1, intro }; });
-/* Intro emotes (creator Intro row, share-code index order, append only): id|label. */
+/* Intro emotes (the creator's Intro row; share-code order): id|label. */
 const STORY_INTROS = [
   'nod|Nod', 'glove_tap|Glove tap', 'shake_out|Shake it out', 'crossed_arms|Arms crossed', 'wave|Wave', 'point|Point', 'fist_bump|Fist bump', 'beckon|Beckon', 'chest_pound|Chest pound', 'neck_crack|Neck crack', 'shrug|Shrug', 'laugh|Laugh',
 ].map((row) => { const [id, name] = row.split('|'); return { id, name }; });
 /* The 28 non-combat poses P5-05 will build (the 6 VICTORY_POSES are the rest): scenes name poses by these ids. */
 const STORY_POSE_IDS = ('nod wave point fist_bump handshake help_up beckon chest_pound neck_crack glove_tap shake_out crossed_arms idle_relaxed idle_stretch idle_tired shocked laugh angry head_down think argue plead shrug phone kneel sit_floor defeat_slump defeat_turn').split(' ');
-/* Beats: id|name|when (before / after a stage, at the last wave entry of a stage, after a lost stage)|stage|boxes 'speaker.camera' (N narrator, P the fighter, R rival A, R2 rival B, B boss, Z the champion)|choice flag. */
+/* Beats: id|name|when (before / after / wave = last wave entry / lost)|stage|boxes 'speaker.camera' (N narrator, P fighter, R rival A, R2 rival B, B boss, Z champion)|choice flag. */
 const STORY_BEATS = [
   'B1|Prologue|before|1|N.wide P.close', 'B2|Goal|before|1|P.close', 'B3|Word spreads|after|1|N.wide', 'B4|Challenge|before|2|R.two', 'B5|Beaten|after|2|R.two R.two|choice',
   'B6|Into the city|before|3|P.wide', 'B7|Rival|wave|3|R2.close', 'B8|Setback|before|4|N.wide', 'B9|Boss|before|4|B.two', 'B10|Midpoint|after|4|P.close', 'B11|Invitation|before|5|N.wide',
@@ -7851,9 +7880,9 @@ const STORY_BEATS = [
   const [id, name, when, stage, boxes, flag] = row.split('|');
   return { id, name, when, stage: Number(stage), shots: boxes.split(' ').map((shot) => { const [who, cam] = shot.split('.'); return { who, cam }; }), choice: flag === 'choice' };
 });
-/* Story rules, one row per text: slot|condition|text|pose|also. slot = beat.box (B4.1); condition = terms joined by & (region, tone, motive, goal, origin, boss, choice, result, continues; '*' = any, '>=1' for a count; empty = always);
-   text may be $region $origin $arc0 $arc1 $arc2 $challenge $beaten or hold {name} {city} {rival} {rival2} {boss} {continues}; pose = the pose of whoever is on camera (the speaker, for a narrator box the fighter), $b1 $p4 $p10 $pend or an id;
-   also = 'who:pose' for the others in the shot. Of the rows of a slot that match, the most specific wins (goal, origin, boss, choice, result, continues over motive and region over tone over always), the first of equals. A slot with no match is no box. */
+/* Story rows: slot|condition|text|pose|also. slot = beat.box (B4.1); condition = terms joined by & (dimension:value, '*' = any, '>=1' = a count; empty = always);
+   text may use $region $origin $arc0..2 $challenge $beaten and {name} {city} {rival} {rival2} {boss} {tries}; pose = $b1 $p4 $p10 $pend or an id; also = 'who:pose' for the others in the shot.
+   The most specific matching row of a slot wins (more conditions, then STORY_RANK), the first of equals; no match = no box. */
 const STORY_ROWS = [
   'B1.1|region:*|$region|', 'B1.2|origin:*|$origin|$b1', 'B2.1|goal:*|$arc0|think',
   "B3.1|tone:rough|Word gets round fast. Someone filmed it. Now the street knows your face.|phone", "B3.1|tone:ordinary|Next morning the whole block is talking. Your phone won't stop buzzing.|phone",
@@ -7878,35 +7907,38 @@ const STORY_ROWS = [
   'B14.1|motive:*|$arc2|$pend|Z:defeat_slump', 'B14.1|goal:revenge|$arc2|defeat_turn|Z:defeat_slump', 'B14.1|goal:friends|$arc2|$pend|Z:defeat_slump R:fist_bump',
   "B15.1|tone:rough|Been knocked down my whole life. Getting up is the easy part.|kneel", "B15.1|tone:ordinary|Okay. Deep breath. Again.|head_down", "B15.1|tone:strict|Find the mistake. Fix it. Again.|idle_tired",
   "B16.1|tone:rough|Next day the corner kids know your name. Not bad for a nobody from {city}.|idle_relaxed", "B16.1|tone:ordinary|The whole street throws a party. You fall asleep before the cake.|laugh",
-  "B16.1|tone:strict|A new photo goes on the wall in {city}. This one is yours.|nod", "B16.2|continues:>=1|It took {continues} tries. Nobody remembers that part.|",
+  "B16.1|tone:strict|A new photo goes on the wall in {city}. This one is yours.|nod", "B16.2|continues:>=1|It took {tries} tries. Nobody remembers that part.|",
 ];
 const STORY_RANK = { result: 5, choice: 5, continues: 5, goal: 4, origin: 4, boss: 4, motive: 3, region: 3, tone: 2 };   // how specific a condition is
-const STORY_RULES = [];        // parsed STORY_ROWS, by slot
-const STORY_RULES_BY_SLOT = Object.create(null);
-for (const row of STORY_ROWS) {
+const STORY_RANK_PER_TERM = 10;   // above any single condition's rank, so a row with two conditions beats a row with one
+function parseStoryRow(row) {
   const [slot, cond, text, pose, also] = row.split('|');
   const terms = cond ? cond.split('&').map((term) => { const at = term.indexOf(':'); return [term.slice(0, at), term.slice(at + 1)]; }) : [];
-  const rule = { slot, terms, rank: terms.reduce((best, term) => Math.max(best, STORY_RANK[term[0]] || 0), 1), text, pose, also: also ? also.split(' ').map((part) => part.split(':')) : [] };
-  STORY_RULES.push(rule);
-  (STORY_RULES_BY_SLOT[slot] = STORY_RULES_BY_SLOT[slot] || []).push(rule);
+  const strongest = terms.reduce((best, term) => Math.max(best, STORY_RANK[term[0]] || 0), 1);
+  return { slot, terms, rank: terms.length * STORY_RANK_PER_TERM + strongest, text, pose, also: also ? also.split(' ').map((part) => part.split(':')) : [] };
 }
-/* Lookup tables by id (no prototype, so an id like 'toString' from a bad save finds nothing). */
+const STORY_RULES = STORY_ROWS.map(parseStoryRow);   // parsed STORY_ROWS
+const STORY_RULES_BY_SLOT = Object.create(null);     // the same rules by slot
+for (const rule of STORY_RULES) (STORY_RULES_BY_SLOT[rule.slot] = STORY_RULES_BY_SLOT[rule.slot] || []).push(rule);
+/* Lookup by id (no prototype: an id like 'toString' from a bad save finds nothing). */
 const storyById = (list) => { const map = Object.create(null); for (const row of list) map[row.id] = row; return map; };
 const STORY_COUNTRY_BY_ID = storyById(STORY_COUNTRIES), STORY_ORIGIN_BY_ID = storyById(STORY_ORIGINS), STORY_GOAL_BY_ID = storyById(STORY_GOALS), STORY_MOTIVE_BY_ID = storyById(STORY_MOTIVES);
 const STORY_TONE_BY_ID = storyById(STORY_TONES), STORY_INTRO_BY_ID = storyById(STORY_INTROS), STORY_BEAT_BY_ID = storyById(STORY_BEATS);
+const STORY_LISTS = { country: STORY_COUNTRIES, origin: STORY_ORIGINS, goal: STORY_GOALS, intro: STORY_INTROS };   // the four settings, in share-code order (append only)
 const STORY_DEFAULT = { country: 'CA', origin: 'gymkid', goal: 'title' };   // KAI's settings: what an old save, an old code or a new fighter gets
 const STORY_POOL = ['warehouse', 'subway', 'garage', 'construction'];        // the brawl levels of stages 3 and 5 (the home level leaves it)
 const STORY_BOSSES = ['hao', 'marlon', 'yoav'];
 const STORY_STAGES = 7;
+const STORY_SKIP_AFTER = 2;     // lost tries of a stage after which "Skip stage" is offered (Hard cleared 0 of 12 seeds on stages 1 and 5)
 const STORY_CAST_GAP = 1.2;     // m: the cast of a scene stands this far either side of the centre
 const STORY_TEXT_MAX = 90;      // characters of one scene box once its tokens hold their longest values
-/* The story settings of a record or profile as ids, each missing or unknown value replaced by its default (the intro emote by the tone's). Never throws. */
+/* The story settings of a record or profile as ids; a missing or unknown value takes its default (the intro: the tone's). Never throws. */
 function storyFields(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}, pick = (map, value, fallback) => (typeof value === 'string' && map[value] ? value : fallback);
   const origin = pick(STORY_ORIGIN_BY_ID, src.origin, STORY_DEFAULT.origin);
   return { country: pick(STORY_COUNTRY_BY_ID, src.country, STORY_DEFAULT.country), origin, goal: pick(STORY_GOAL_BY_ID, src.goal, STORY_DEFAULT.goal), intro: pick(STORY_INTRO_BY_ID, src.intro, STORY_TONE_BY_ID[STORY_ORIGIN_BY_ID[origin].tone].intro) };
 }
-/* Country, origin, goal and intro for the creator's Randomize, from a stream of their own (randomCustom keeps every seed's fighter). */
+/* The creator's Randomize draws the four settings from a stream of their own (randomCustom keeps every seed's fighter). */
 function randomStory(seed) {
   const rng = makeRng((seed ^ 0x5a17c0de) >>> 0), pick = (list) => list[Math.floor(rng() * list.length) % list.length].id;
   return { country: pick(STORY_COUNTRIES), origin: pick(STORY_ORIGINS), goal: pick(STORY_GOALS), intro: pick(STORY_INTROS) };
@@ -7931,8 +7963,7 @@ const Story = {
     const ranked = ROSTER.filter((r) => r.rank !== undefined && r.id !== playerId).sort((a, b) => a.rank - b.rank);
     return ranked.length ? ranked[ranked.length - 1].id : 'zero';
   },
-  /* A new run for a fighter profile, after `clears` Arcade clears, at Arcade difficulty `level` (easy, normal or hard) with a seed for its fights. Everything the run holds is a plain value (it can be saved as it is).
-     Rivals, boss and levels are fixed here and follow only the settings and the clears: home level by region, stages 3 and 5 from the other three brawl levels (the pool turns with each clear), boss by region and clears. */
+  /* A new run (plain values only) for a fighter after `clears` Arcade clears at Arcade difficulty `level`. Rivals, boss and levels are fixed here by the settings and the clears. */
   start(profile, clears, level, seed) {
     const s = this.settingsOf(profile), country = STORY_COUNTRY_BY_ID[s.country], region = STORY_REGION_LIST[country.region], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
     const tone = STORY_TONE_BY_ID[origin.tone], motive = STORY_MOTIVE_BY_ID[goal.motive], c = Math.max(0, Math.floor(finite(clears, 0))), left = STORY_POOL.filter((id) => id !== region.home);
@@ -7942,22 +7973,28 @@ const Story = {
     return {
       fighter: profile.id, name: profile.name, country: s.country, origin: s.origin, goal: s.goal, region: region.tag, tone: tone.id, motive: motive.id, clears: c,
       level: Object.hasOwn(DIFFICULTY, level) ? level : 'easy', seed: finite(seed, 1) >>> 0, home: region.home, stage3: left[c % left.length], stage5: left[(c + 1) % left.length],
-      rivalA, rivalB, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0,
+      rivalA, rivalB, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false,
     };
   },
-  /* The run moves on: stage `run.stage` was won (roundsLost = rounds the fighter lost in it; none in stage 2 sets the 'flawless' result), a lost stage is retried (counted as a continue), the beat B5 choice. */
-  win(run, roundsLost) { if (run.stage === 2 && roundsLost === 0) run.flawless = true; run.stage++; },
-  retry(run) { run.continues++; },
+  /* win: stage 2 won on its first try without losing a round is 'flawless' (never after a skip). retry: a lost stage is played again (a continue). skip: allowed after STORY_SKIP_AFTER lost tries (a continue; the run is never flawless after it). */
+  win(run, roundsLost) { if (run.stage === 2 && roundsLost === 0 && !run.lost && !run.skipped) run.flawless = true; run.lost = 0; run.stage++; },
+  retry(run) { run.continues++; run.lost = (run.lost || 0) + 1; },
+  canSkip(run) { return run.lost >= STORY_SKIP_AFTER && !this.finished(run); },
+  skip(run) {
+    if (!this.canSkip(run)) return false;
+    run.continues++; run.flawless = false; run.skipped = true; run.lost = 0; run.stage++;
+    return true;
+  },
   choose(run, choice) { if (choice === 'hand' || choice === 'walk') run.choice = choice; },
   finished(run) { return run.stage > STORY_STAGES; },
   reward(run) { return STORY_GOAL_BY_ID[run.goal].reward; },
-  signHue(run) { return STORY_REGION_LIST.find((region) => region.tag === run.region).hue; },   // the matte colour of posters, billboard and kiosk faces in the run's levels (not painted yet)
+  signHue(run) { return STORY_REGION_LIST.find((region) => region.tag === run.region).hue; },   // the matte colour of posters and signs in the run's levels (not painted yet)
 
   /* ----- stages: 1 brawl (the first three wave rows) at home, 2 duel with rival A, 3 brawl led by rival B, 4 duel with the boss, 5 brawl, 6 brawl in the club, 7 duel with the champion on the rooftop ----- */
   arena(run, n) { return [run.home, 'dojo', run.stage3, 'pit', run.stage5, 'club', 'rooftop'][n - 1]; },
   foe(run, n) { return n === 2 ? run.rivalA : n === 4 ? run.boss : n === 7 ? run.champion : ''; },
   seedOf(run, n) { return (Math.imul(run.seed | 0, 0x9e3779b1) + n * 7919 + run.continues * 104729) >>> 0; },   // a retry plays a different fight
-  /* The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (2 wins, 60 s, no ring-out, ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty. Items and hazards follow the settings. */
+  /* The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty. */
   cfg(run, n) {
     const duel = this.foe(run, n), cfg = { playerId: run.fighter, arenaId: this.arena(run, n), difficulty: run.level, arcadeLevel: run.level, seed: this.seedOf(run, n), keepSeed: true };
     if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
@@ -7974,7 +8011,7 @@ const Story = {
     if (cfg.opponentId) opts.opponentId = cfg.opponentId;   // a brawl has no single opponent: SimRunner keeps its default
     return opts;
   },
-  /* Where a scene before or after stage n puts its cast: the fighter and the other one stand STORY_CAST_GAP either side of the ring centre, the fighter on the side the stage's 1v1 starts it on in round 1 (the same rule as the fight, MatchSim.sideFor). A brawl level keeps the fighter on the left. */
+  /* Where a scene at stage n puts its cast: the fighter on its round 1 start side (MatchSim.sideFor), STORY_CAST_GAP from the ring centre; a brawl keeps the fighter on the left. */
   cast(run, n) {
     const ring = this.foe(run, n) ? ARENAS[this.arena(run, n)].ring : null, side = ring ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1, cx = ring ? ring[0] : 0;
     return { side, playerX: cx - side * STORY_CAST_GAP, otherX: cx + side * STORY_CAST_GAP, z: ring ? ring[1] : 0 };
@@ -8005,9 +8042,9 @@ const Story = {
   /* The values behind the {tokens} of a text; `override` replaces some (the tests use the longest values). */
   tokens(run, override) {
     const country = STORY_COUNTRY_BY_ID[run.country];
-    return Object.assign({ name: run.name, city: country.city, rival: this.name(run, 'R'), rival2: this.name(run, 'R2'), boss: this.name(run, 'B'), continues: String(run.continues) }, override);
+    return Object.assign({ name: run.name, city: country.city, rival: this.name(run, 'R'), rival2: this.name(run, 'R2'), boss: this.name(run, 'B'), tries: String(run.continues + 1) }, override);   // the tries so far: the continues and the one being played
   },
-  /* One beat of the run as it is told now: { id, name, when, stage, choice, boxes: [{ who, speaker, cam, text, pose, also: [[who, pose], ...] }] }. A box whose slot has no matching row is left out. */
+  /* One beat as it is told now: { id, name, when, stage, choice, boxes: [{ who, speaker, cam, text, pose, also }] }; a box with no matching row is left out. */
   beat(run, id, override) {
     const def = STORY_BEAT_BY_ID[id];
     if (!def) return null;
@@ -8022,7 +8059,7 @@ const Story = {
     });
     return { id: def.id, name: def.name, when: def.when, stage: def.stage, choice: def.choice, boxes };
   },
-  /* The beats told at a moment: when = 'before' or 'after' stage `stage`, 'wave' (the last wave of stage 3 enters) or 'lost' (stage 0), in table order. */
+  /* The beats told at a moment (when: 'before', 'after', 'wave' or 'lost' with stage 0), in table order. */
   moment(run, when, stage) { return STORY_BEATS.filter((def) => def.when === when && def.stage === stage).map((def) => this.beat(run, def.id)); },
 };
 
@@ -10196,7 +10233,7 @@ class MatchSim {
         struck++;
         Arena.damageObject(o, dmg, 'crush', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, 0.5, o.z, undefined);
       }
-      Arena.mark('dust', c.x, c.z, c.hx, c.hz, c.land);   // P9-03: the fallen piece leaves a smudge on what it landed on
+      Arena.mark('dust', c.x, c.z, c.hx, c.hz, Arena.supportAt(c.x, c.z, c.drop, DECK_LAND_RADIUS));   // P9-03: the fallen piece leaves a smudge on what is under it now (a crate it crushed is gone)
     }
   }
   /* R4, fire, the one rule for every fire: burning fighters take BURN_DMG per BURN_GAP; objects ignite in a fire zone (an arc lights paper and plastic), burn out, spread. No random numbers. */
@@ -10941,9 +10978,14 @@ const SimRunner = {
      'other' is damage not carried by a hit or throw: walls, objects and chip damage. */
   run(opts) {
     const cfg = Object.assign({ playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard', seed: 1, winsNeeded: 2, timer: 60 }, opts);
-    if (!Object.hasOwn(ARENAS, cfg.arenaId) || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
-    cfg.winsNeeded = Math.max(1, Math.floor(finite(cfg.winsNeeded, 2)));   // a bad value must not run to the time cap (NaN) or turn into best-of-3 (0)
-    cfg.timer = Math.max(0, finite(cfg.timer, 60));
+    const stage = cfg.matchCfg && typeof cfg.matchCfg === 'object' ? Object.assign({}, cfg.matchCfg) : null, used = Object.assign({}, cfg, stage);   // opts.matchCfg: more MatchSim fields on top of the run's own, e.g. a story stage (Story.cfg); what the match will use is checked and clamped
+    if (!Object.hasOwn(ARENAS, used.arenaId) || !ROSTER_BY_ID[used.playerId] || !ROSTER_BY_ID[used.opponentId]) return { error: 'Unknown arena or fighter id' };
+    const wins = (value) => Math.max(1, Math.floor(finite(value, 2))), clock = (value) => Math.max(0, finite(value, 60));   // a bad winsNeeded must not run to the time cap (NaN) or turn into best-of-3 (0)
+    cfg.winsNeeded = wins(cfg.winsNeeded);
+    cfg.timer = clock(cfg.timer);
+    if (stage && Object.hasOwn(stage, 'winsNeeded')) stage.winsNeeded = wins(stage.winsNeeded);
+    if (stage && Object.hasOwn(stage, 'timer')) stage.timer = clock(stage.timer);
+    cfg.matchCfg = stage;   // the result's config shows what was used
     let lineupCfg = null;   // P4-08: opts.lineup ({ slots: [{ id, team }], handicap }) runs a lineup, every slot a CPU; the winner is then the index of the winning team in MatchLineup.plan order (0 = the first slot's team)
     if (opts.lineup) {
       const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check('brawl', lineup);
@@ -10964,7 +11006,7 @@ const SimRunner = {
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
       m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
-        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, cfg.matchCfg || null));   // opts.matchCfg: more MatchSim fields on top, e.g. a story stage (Story.cfg)   // a brawl has no clock unless asked for one (time up = the players lose)
+        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, stage));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
       for (let i = 0; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, (m.fighters[i].team === m.fighters[0].team ? cfg.difficulty1 : cfg.difficulty2) || cfg.difficulty);   // difficulty1 is the first fighter's team, difficulty2 every other team
@@ -11064,6 +11106,7 @@ const Showcase = {
     Camera.showcase(dt, Math.cos(az) * shiftX, PREVIEW_CENTER_Y + shiftY, -Math.sin(az) * shiftX, dist, az, 0.16);
   },
   update(dt) {
+    if (this.creator && UI.current === 'story') return;   // the creator's preview waits while the story screen is open
     this.t += dt;
     Arena.update(dt);
     Debris.update(dt);
@@ -12426,6 +12469,7 @@ const UI = {
     }
     const prev = this.stack.pop();
     this.go(prev || (Game.state === GS.PAUSED ? 'pause' : 'main'));
+    if (cur === 'story') { const opener = this.dom.screens.querySelector('[data-act="crstory"]'); if (opener) opener.focus(); }   // back to the creator's Preview story button
   },
   rerender(keepFocus) {
     const root = this.dom.screens;
@@ -13056,13 +13100,14 @@ const UI = {
     h += '<p class="sub">' + esc(country.name + ', ' + country.city + ' / ' + STORY_ORIGIN_BY_ID[s.origin].name + ' / goal: ' + STORY_GOAL_BY_ID[s.goal].name) + '</p>';
     h += this.optRow('Choice after stage 2', v.choice === 'hand' ? 'Offer a hand' : 'Walk away', 'data-default data-local="storychoice"', '') +
       this.optRow('Stage 2 won without losing a round', v.flawless ? 'Yes' : 'No', 'data-local="storyflaw"', '') +
-      this.optRow('Tries used (continues)', String(v.continues), 'data-local="storytries"', '') + this.optRow('Arcade clears before this run', String(v.clears), 'data-local="storyclears"', '');
+      this.optRow('Continues used', String(v.continues), 'data-local="storytries"', '') + this.optRow('Arcade clears before this run', String(v.clears), 'data-local="storyclears"', '');
     for (let n = 1; n <= STORY_STAGES; n++) {
       const info = Story.stageInfo(run, n);
       h += '<h3>Stage ' + n + ': ' + esc(info.title) + '</h3><p class="hint">' + esc(info.text) + '</p>';
       for (const when of ['before', 'wave', 'after']) for (const beat of Story.moment(run, when, n)) h += this.beatHtml(beat);
     }
     h += '<h3>After a lost stage</h3>' + Story.moment(run, 'lost', 0).map((beat) => this.beatHtml(beat)).join('');
+    h += '<p class="hint">After ' + STORY_SKIP_AFTER + ' lost tries of a stage, Skip stage is offered. It counts as a continue and the run is not flawless.</p>';
     h += '<p class="hint">Reward for the first clear with this goal: ' + esc(Story.reward(run)) + '.</p>';
     return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button></div></div></section>';
   },
@@ -13936,12 +13981,12 @@ const CreatorUI = {
     const s = storyFields(this.draft), country = STORY_COUNTRY_BY_ID[s.country], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
     return '<h3>Story</h3>' + this.row('Country', country.name, 'story:country') + '<p class="hint">' + esc(country.city) + ' &middot; ' + esc(STORY_REGION_LIST[country.region].name) + '. Your home city in the Arcade story.</p>' +
       this.row('Origin', origin.name, 'story:origin') + '<p class="hint">' + esc(origin.line) + '</p>' +
-      this.row('Goal', goal.name, 'story:goal') + '<p class="hint">' + esc(goal.line) + ' Motive: ' + esc(goal.motive) + '.</p>' +
-      this.row('Intro', STORY_INTRO_BY_ID[s.intro].name, 'story:intro') + '<p class="hint">The greeting saved with this fighter for the start of a round. Story settings are kept on this device: fighter codes do not carry them yet.</p>' +
+      this.row('Goal', goal.name, 'story:goal') + '<p class="hint">' + esc(goal.line) + ' Motive: ' + esc(STORY_MOTIVE_BY_ID[goal.motive].name) + '.</p>' +
+      this.row('Intro', STORY_INTRO_BY_ID[s.intro].name, 'story:intro') + '<p class="hint">The greeting saved with this fighter for the start of a round. Fighter codes carry all four story settings.</p>' +
       '<button class="mi" data-nav data-act="crstory">Preview story<small>The stages and scenes of an Arcade run for this fighter</small></button>';
   },
   stepStory(name, dir) {
-    const list = { country: STORY_COUNTRIES, origin: STORY_ORIGINS, goal: STORY_GOALS, intro: STORY_INTROS }[name];
+    const list = Object.hasOwn(STORY_LISTS, name) ? STORY_LISTS[name] : null;
     if (!list) return;
     const at = list.findIndex((row) => row.id === storyFields(this.draft)[name]), next = list[(at + dir + list.length) % list.length];
     this.draft[name] = next.id;
@@ -14484,6 +14529,7 @@ function testApi() {
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
+    CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };

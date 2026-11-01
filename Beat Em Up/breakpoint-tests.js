@@ -44,6 +44,7 @@ const {
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
+  CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -92,7 +93,7 @@ function touchLayoutRects(orientation, view) {
   return rects;
 }
 
-const SELFTEST_STORE_KEYS = [KEY_SETTINGS, KEY_PROGRESS, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM];
+const SELFTEST_STORE_KEYS = [KEY_SETTINGS, KEY_PROGRESS, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM, KEY_CUSTOM_BACKUP];
 const SelfTest = {
   scripted(fn) { return ScriptedController.make(fn); },
   /* Saved data and the in-memory copies the tests may change, so a run in a real browser leaves no trace
@@ -2628,9 +2629,10 @@ const SelfTest = {
       return labelled && charged ? true : JSON.stringify({ labelled, charged });
     });
     /* ----- character creator ----- */
-    const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), slots: CustomRoster.slots.slice() });
+    const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), backup: Store.get(KEY_CUSTOM_BACKUP), slots: CustomRoster.slots.slice() });
     const restoreCustoms = (saved) => {
       if (saved.raw === null) Store.remove(KEY_CUSTOM); else Store.set(KEY_CUSTOM, saved.raw);
+      if (saved.backup === null) Store.remove(KEY_CUSTOM_BACKUP); else Store.set(KEY_CUSTOM_BACKUP, saved.backup);
       CustomRoster.slots = saved.slots;
       CustomRoster.register();
     };
@@ -2910,8 +2912,8 @@ const SelfTest = {
       if (base.look.acc !== 'none' || base.look.mark !== 'none' || 'acc' in randomCustom(4321).look) bad.push('defaults');
       for (let seed = 1; seed <= 40; seed++) if (LOOK_CHOICE_KEYS.some((key) => !LOOK_CLASSIC[key].includes(randomCustom(seed, true).look[key]))) bad.push('seed ' + seed);
       const set = Object.assign({}, base, { look: Object.assign({}, base.look, items) }), code = encodeCustom(set), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);
-      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
-      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_STORY || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list.length < SHARE_FIELD_COUNT_STORY ? [1].concat(list.slice(1)) : list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };   // a shorter list is an older code: version 1
       const older = recode(fields.slice(0, SHARE_FIELD_COUNT_BODY));   // 40 fields: the new slots read none, the new options of the old slots stay
       if (!older.ok || older.value.look.acc !== 'none' || older.value.look.mark !== 'none' || older.value.look.hairStyle !== 'locs') bad.push('40-field code');
       for (const value of [99, -1, 1.5]) for (const at of [SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_BODY + 1]) { const copy = fields.slice(); copy[at] = value; if (recode(copy).ok) bad.push('accepted ' + value); }
@@ -2997,8 +2999,8 @@ const SelfTest = {
       const bad = [], base = validateCustom(randomCustom(4321)).value, set = Object.assign({}, base, { look: Object.assign({}, base.look, { face: 'f17' }) });
       if (base.look.face !== 'none' || 'face' in randomCustom(4321).look) bad.push('defaults');
       const code = encodeCustom(set), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);
-      if (!back.ok || back.value.look.face !== 'f17' || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
-      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      if (!back.ok || back.value.look.face !== 'f17' || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_STORY || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list.length < SHARE_FIELD_COUNT_STORY ? [1].concat(list.slice(1)) : list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };   // a shorter list is an older code: version 1
       for (const count of [SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_BODY]) { const older = recode(fields.slice(0, count)); if (!older.ok || older.value.look.face !== 'none') bad.push('older code ' + count); }
       const wrong = fields.slice(), noFace = JSON.parse(JSON.stringify(set)); wrong[SHARE_FIELD_COUNT_ITEMS] = 25; delete noFace.look.face;   // a bad index; a save from before the slot
       if (recode(wrong).ok || validateCustom(noFace).value.look.face !== 'none') bad.push('bad index or old save');
@@ -3025,7 +3027,7 @@ const SelfTest = {
       set.look.face = 'f4'; set.look.photo = url;
       const code = encodeCustom(set), copy = decodeCustom(code, true), over = Object.assign({}, set, { look: Object.assign({}, set.look, { photo: jpeg(PHOTO_MAX_CHARS) }) });
       if (!copy.ok || copy.value.look.face !== 'f4' || 'photo' in copy.value.look || fromBase64Url(code.split('-')[1]).includes('data:image')) bad.push('share code');
-      try { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.loadFrom(JSON.parse(JSON.stringify({ slots: [set, over] }))); if (CustomRoster.slots[0].look.photo !== url || 'photo' in CustomRoster.slots[1].look) bad.push('reload'); } finally { CustomRoster.slots = slots; }
+      try { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.loadFrom(JSON.parse(JSON.stringify({ version: CUSTOM_STORE_VERSION, slots: [set, over] }))); if (CustomRoster.slots[0].look.photo !== url || 'photo' in CustomRoster.slots[1].look) bad.push('reload'); } finally { CustomRoster.slots = slots; }
       const keep = { ok: R.faceOk, photos: FaceTex.photos, draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender }, look = { face: 'f4', photo: url };
       UI.say = UI.rerender = () => {};
       try {
@@ -3153,8 +3155,8 @@ const SelfTest = {
       for (let step = 0; step <= 10; step++) { const build = Math.round((BUILD_MIN + step * BUILD_STEP) * 100) / 100; if (presetBuild([0.5, weightFromBuild(build)]) !== build) problems.push('build ' + build); }
       const set = Object.assign({}, base, { look: Object.assign({}, b0, { muscle: 0.85, weight: 0.3, age: 63, gender: 'F' }) });
       const code = encodeCustom(set), back = decodeCustom(code, true), fields = JSON.parse(fromBase64Url(code.split('-')[1]));
-      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE) problems.push('round trip');
-      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_STORY) problems.push('round trip');
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list.length < SHARE_FIELD_COUNT_STORY ? [1].concat(list.slice(1)) : list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };   // a shorter list is an older code: version 1
       for (const count of [SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE]) {   // codes written before the body fields
         const r = recode(fields.slice(0, count));
         if (!r.ok || JSON.stringify(r.value.look) !== JSON.stringify(b0)) problems.push('old code ' + count);
@@ -3204,11 +3206,35 @@ const SelfTest = {
         cheat.attrs = { health: 9, stamina: 9, strength: 9, speed: 9, reach: 9, defense: 9, balance: 9, recovery: 9 };
         const cases = ['{not json', '[]', '{"slots":"x"}', 'null', JSON.stringify({ version: 1, slots: [cheat] }), 'x'.repeat(STORE_MAX_LENGTH + 10)];
         let problem = '';
+        Store.remove(KEY_CUSTOM_BACKUP);
         for (const c of cases) {
           Store.set(KEY_CUSTOM, c);
           try { CustomRoster.init(); } catch (e) { problem = 'threw on ' + c.slice(0, 12); }
           if (CustomRoster.slots.some(Boolean)) problem = 'accepted ' + c.slice(0, 20);
         }
+        if (Store.get(KEY_CUSTOM_BACKUP) !== cases[cases.length - 1]) problem = 'the latest unreadable data was not kept';   // D26: the copy follows the newest bad store, so an older copy never hides it
+        Store.remove(KEY_CUSTOM_BACKUP);
+        Store.set(KEY_CUSTOM, JSON.stringify({ version: CUSTOM_STORE_VERSION, slots: [valid] }));
+        CustomRoster.init();
+        if (!CustomRoster.slots[0] || Store.get(KEY_CUSTOM_BACKUP) !== null) problem = 'a readable store was backed up';
+        for (const version of [CUSTOM_STORE_VERSION + 97, 0, 1.5, '1', null, undefined, { toString: 0 }]) {   // a store of another or no version still loads its valid fighters, and a copy is kept
+          const other = JSON.stringify({ version, slots: [valid, null, null, null, cheat] });
+          Store.set(KEY_CUSTOM_BACKUP, 'an older copy');   // an older copy must not hide this one
+          Store.set(KEY_CUSTOM, other);
+          CustomRoster.init();
+          if (!CustomRoster.slots[0] || CustomRoster.slots[4]) problem = 'version ' + version + ' lost its valid fighter or kept a bad one';
+          CustomRoster.put(3, valid);
+          const after = JSON.parse(Store.get(KEY_CUSTOM));
+          if (Store.get(KEY_CUSTOM_BACKUP) !== other || after.version !== CUSTOM_STORE_VERSION || !after.slots[0] || !after.slots[3]) problem = 'version ' + version + ' lost fighters in the next save';
+        }
+        const realStorage = Store.storage, wasWarned = Store.warned;   // a backup that cannot be written must not trigger the startup warning early
+        Store.storage = { getItem: (key) => realStorage.getItem(key), removeItem: (key) => realStorage.removeItem(key), setItem: (key, value) => { if (key === KEY_CUSTOM_BACKUP) throw new Error('full'); realStorage.setItem(key, value); } };
+        try {
+          Store.remove(KEY_CUSTOM_BACKUP);
+          Store.set(KEY_CUSTOM, cases[0]);
+          CustomRoster.init();
+          if (Store.warned !== wasWarned) problem = 'a failed backup write raised the storage warning';
+        } finally { Store.storage = realStorage; Store.warned = wasWarned; }
         Store.set(KEY_CUSTOM, JSON.stringify({ version: 1, slots: [valid, cheat, 5, 'x'] }));
         CustomRoster.init();
         const kept = !!CustomRoster.slots[0] && !CustomRoster.slots[1] && !CustomRoster.slots[2] && !!ROSTER_BY_ID.c1 && !ROSTER_BY_ID.c2;
@@ -3708,7 +3734,7 @@ const SelfTest = {
       c.moveStyle = 'judoka';
       const back = decodeCustom(encodeCustom(c), true);
       const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
-      fields.length = SHARE_FIELD_COUNT;                            // an older code: no movement style, defense type or body field
+      fields.length = SHARE_FIELD_COUNT; fields[0] = 1;             // an older (version 1) code: no movement style, defense type or body field
       const payload = toBase64Url(JSON.stringify(fields));
       const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
       const stored = validateCustom(Object.assign({}, c, { moveStyle: undefined }));
@@ -3772,7 +3798,7 @@ const SelfTest = {
         const c = Object.assign({}, base, { moveStyle: id, defense: defaultDefense(id) });
         const code = encodeCustom(c);
         const fields = JSON.parse(fromBase64Url(code.split('-')[1]));
-        fields.length = SHARE_FIELD_COUNT_STYLE;        // a code from before defense types: the old style index, no defense or body field
+        fields.length = SHARE_FIELD_COUNT_STYLE; fields[0] = 1;   // a version 1 code from before defense types: the old style index, no defense or body field
         const payload = toBase64Url(JSON.stringify(fields));
         const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
         const save = validateCustom(JSON.parse(JSON.stringify(c)));   // a saved fighter that carries the old id
@@ -4604,7 +4630,7 @@ const SelfTest = {
         c.moveStyle = 'karateka'; c.defense = 'sway';                   // against the style default (Block)
         const swayBack = decodeCustom(encodeCustom(c), true);
         const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
-        const reencode = (list) => { const p = toBase64Url(JSON.stringify(list)); return SHARE_PREFIX + '-' + p + '-' + shareChecksum(p); };
+        const reencode = (list) => { const p = toBase64Url(JSON.stringify(list.length < SHARE_FIELD_COUNT_STORY ? [1].concat(list.slice(1)) : list)); return SHARE_PREFIX + '-' + p + '-' + shareChecksum(p); };
         const noDefense = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT_STYLE)), true);        // a code from before defense types: style field, no defense
         const noStyle = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT)), true);          // the oldest codes: neither
         const unknown = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT_DEFENSE - 1).concat([7])), true);
@@ -8550,7 +8576,7 @@ const SelfTest = {
       for (const v of ['__proto__', 'toString', 'constructor', 'zz', 5, null, {}, [], true]) if (JSON.stringify(storyFields({ country: v, origin: v, goal: v, intro: v })) !== defaults) bad.push('bad value ' + String(v));
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Story settings (P6-10): stored additively on custom fighters; old saves, old stores and share codes load unchanged', () => {
+    test('Story settings (P6-10): stored additively on custom fighters; old saves and old stores load unchanged', () => {
       const saved = keepCustoms(), bad = [];
       try {
         const base = validateCustom(randomCustom(77)).value, plain = JSON.parse(JSON.stringify(base));
@@ -8567,13 +8593,46 @@ const SelfTest = {
         CustomRoster.put(2, set.value);
         const raw = Store.get(KEY_CUSTOM);
         CustomRoster.init();
-        if (!CustomRoster.slots[2] || JSON.stringify(CustomRoster.slots[2]) !== JSON.stringify(set.value) || !raw.includes('"country":"JP"') || JSON.parse(raw).version !== 1) bad.push('store round trip');
+        if (!CustomRoster.slots[2] || JSON.stringify(CustomRoster.slots[2]) !== JSON.stringify(set.value) || !raw.includes('"country":"JP"') || JSON.parse(raw).version !== CUSTOM_STORE_VERSION) bad.push('store round trip');
         Store.set(KEY_CUSTOM, JSON.stringify({ version: 1, slots: [null, plain, null, null, null, null, null, null] }));   // an old store: no story fields anywhere
         CustomRoster.init();
         if (!CustomRoster.slots[1] || CustomRoster.slots[1].name !== plain.name || CustomRoster.slots[1].country !== 'CA' || CustomRoster.slots[1].goal !== 'title' || ROSTER_BY_ID.c2.story.origin !== 'gymkid') bad.push('old store');
-        const code = encodeCustom(set.value), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);   // the share code is not changed by P6-10
-        if (fields.length !== SHARE_FIELD_COUNT_FACE || !back.ok || back.value.country !== 'CA' || back.value.intro !== 'glove_tap' || JSON.stringify(Object.assign({}, back.value, storyFields(null))) !== JSON.stringify(back.value)) bad.push('share code');
         if ('country' in randomCustom(5, true) || JSON.stringify(randomCustom(9)) !== JSON.stringify(randomCustom(9))) bad.push('randomCustom');
+      } finally { restoreCustoms(saved); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Story settings (P6-11): share code and custom store version 2 carry the four story fields; version 1 codes and stores load with the defaults; a bad index rejects the code', () => {
+      const saved = keepCustoms(), bad = [], keys = ['country', 'origin', 'goal', 'intro'];
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload); };
+      const same = (a, b) => (a && typeof a === 'object' ? !!b && typeof b === 'object' && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((key) => same(a[key], b[key])) : Object.is(a, b));   // same keys, same types, same values (NaN, undefined and null all differ)
+      try {
+        const base = validateCustom(randomCustom(77)).value, set = validateCustom(Object.assign({}, base, { country: 'JP', origin: 'port', goal: 'revenge', intro: 'laugh' })).value;
+        const code = encodeCustom(set), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);
+        if (SHARE_VERSION !== 2 || CUSTOM_STORE_VERSION !== 2 || fields[0] !== SHARE_VERSION || fields.length !== SHARE_FIELD_COUNT_STORY || code.length > SHARE_MAX_LENGTH) bad.push('code shape ' + fields.length + ' fields, ' + code.length + ' characters');
+        if (!back.ok || !same(back.value, set) || keys.some((key) => typeof back.value[key] !== 'string') || back.value.country !== 'JP' || back.value.goal !== 'revenge') bad.push('round trip');
+        for (const [key, list] of [['country', STORY_COUNTRIES], ['origin', STORY_ORIGINS], ['goal', STORY_GOALS], ['intro', STORY_INTROS]]) {   // every list entry comes back as itself
+          for (const row of list) { const again = decodeCustom(encodeCustom(validateCustom(Object.assign({}, base, { [key]: row.id })).value), true); if (!again.ok || again.value[key] !== row.id) bad.push(key + ' ' + row.id); }
+        }
+        const older = fields.slice(0, SHARE_FIELD_COUNT_FACE), oldCode = decodeCustom(recode([1].concat(older.slice(1))), true);   // a version 1 code: no story fields
+        if (!oldCode.ok || oldCode.value.name !== set.name || oldCode.value.country !== 'CA' || oldCode.value.origin !== 'gymkid' || oldCode.value.goal !== 'title' || oldCode.value.intro !== 'glove_tap') bad.push('version 1 code');
+        for (const version of [0, 3, '2', null]) if (decodeCustom(recode([version].concat(fields.slice(1))), true).ok) bad.push('accepted version ' + version);
+        if (decodeCustom(recode([1].concat(fields.slice(1))), true).ok) bad.push('version 1 with the story fields');   // each version has its own field counts
+        for (const count of [SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_FACE]) {
+          if (decodeCustom(recode(fields.slice(0, count)), true).ok) bad.push('version 2 with ' + count + ' fields');
+          if (!decodeCustom(recode([1].concat(fields.slice(1, count))), true).ok) bad.push('version 1 with ' + count + ' fields');
+        }
+        keys.forEach((key, n) => { for (const value of [-1, 99, 1.5, '1', null]) { const copy = fields.slice(); copy[SHARE_FIELD_COUNT_FACE + n] = value; if (decodeCustom(recode(copy), true).ok) bad.push('accepted ' + key + '=' + value); } });
+        if (decodeCustom(recode(fields.slice(0, SHARE_FIELD_COUNT_FACE + 2)), true).ok) bad.push('half a story');
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(3, set);
+        const stored = JSON.parse(Store.get(KEY_CUSTOM));
+        if (stored.version !== CUSTOM_STORE_VERSION || stored.slots[3].goal !== 'revenge') bad.push('store version');
+        const plain = JSON.parse(JSON.stringify(base));
+        for (const key of keys) delete plain[key];
+        Store.set(KEY_CUSTOM, JSON.stringify({ version: 1, slots: [null, null, null, null, plain, null, null, null] }));   // a 1.0.0 store
+        CustomRoster.init();
+        const loaded = CustomRoster.slots[4];
+        if (!loaded || loaded.name !== plain.name || keys.some((key) => typeof loaded[key] !== 'string' || loaded[key] !== storyFields(null)[key])) bad.push('version 1 store');
       } finally { restoreCustoms(saved); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
@@ -8583,7 +8642,7 @@ const SelfTest = {
       try {
         const d = CreatorUI.draft = defaultCustom(0), page = CreatorUI.tab_identity();
         for (const row of ['country', 'origin', 'goal', 'intro']) if (!page.includes('data-cr="story:' + row + '"')) bad.push('row ' + row);
-        if (!page.includes('Toronto') || !page.includes('data-act="crstory"')) bad.push('hint or button');
+        if (!page.includes('Toronto') || !page.includes('data-act="crstory"') || !page.includes('Motive: The title.') || page.includes('Motive: title')) bad.push('hint or button');
         for (const [row, count] of [['country', 64], ['origin', 24], ['goal', 24], ['intro', 12]]) {
           const first = storyFields(d)[row];
           CreatorUI.stepStory(row, 1);
@@ -8608,11 +8667,20 @@ const SelfTest = {
         UI.storyChange('storychoice', 1); UI.storyChange('storyflaw', 1); UI.storyChange('storytries', 1); UI.storyChange('storyclears', 1);
         const changed = UI.screen_story();
         if (changed === screen || !changed.includes('Walk away') || !changed.includes('Not even one round')) bad.push('story choices');
+        if (!screen.includes('After ' + STORY_SKIP_AFTER + ' lost tries of a stage, Skip stage is offered')) bad.push('skip line');
+        const clock = Showcase.t;
+        Showcase.creator = true; Showcase.update(0.1);
+        if (Showcase.t !== clock) bad.push('the creator preview kept running behind the story screen');
+        let focused = false;
+        const dom = UI.dom;
+        UI.dom = { screens: { querySelector: (selector) => (selector === '[data-act="crstory"]' ? { focus() { focused = true; } } : null) } };
+        try { UI.back(); } finally { UI.dom = dom; }
+        if (UI.current === 'story' || !focused) bad.push('Back did not return to the Preview story button');
       } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; UI.storyView = null; UI.stack = keep.stack; UI.current = keep.current; Showcase.endPreview(); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- the story system (P10-03) ---------- */
-    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), continues: '2' };
+    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), tries: '99' };
     const storyFill = (text) => text.replace(/\{(\w+)\}/g, (all, key) => STORY_TOKENS_LONGEST[key] || all);
     test('Story (P10-03): the data - known poses and speakers, at most 3 boxes of 90 characters (longest tokens) in 2 lines, every condition valid, every row reachable', () => {
       const bad = [], poses = new Set(STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES))), motive = (id) => STORY_MOTIVES.find((m) => m.id === id);
@@ -8627,7 +8695,7 @@ const SelfTest = {
       for (const o of STORY_ORIGINS) texts.push(['origin ' + o.id, o.line]);
       for (const g of STORY_GOALS) g.arc.forEach((line, k) => texts.push(['goal ' + g.id + ' ' + k, line]));
       for (const m of STORY_MOTIVES) texts.push(['motive ' + m.id, m.challenge], ['motive ' + m.id, m.beaten]);
-            for (const rule of STORY_RULES) {
+      for (const rule of STORY_RULES) {
         const slot = /^B(\d+)\.(\d)$/.exec(rule.slot), def = slot && STORY_BEATS.find((b) => b.id === 'B' + slot[1]);
         if (!def || Number(slot[2]) > def.shots.length) { bad.push('slot ' + rule.slot); continue; }
         for (const [dim, value] of rule.terms) {
@@ -8668,19 +8736,27 @@ const SelfTest = {
       const run = Story.start(kai, 0, 'normal', 1);
       if (Story.beat(run, 'B5').boxes.length !== 1 || !Story.beat(run, 'B5').choice || Story.beat(run, 'B16').boxes.length !== 1) bad.push('plain B5 / B16');
       run.flawless = true; run.continues = 3;
-      if (Story.beat(run, 'B5').boxes.length !== 2 || Story.beat(run, 'B16').boxes.length !== 2 || !Story.beat(run, 'B16').boxes[1].text.includes('3 tries')) bad.push('result and continues boxes');
+      if (Story.beat(run, 'B5').boxes.length !== 2 || Story.beat(run, 'B16').boxes.length !== 2 || !Story.beat(run, 'B16').boxes[1].text.includes('4 tries')) bad.push('result and continues boxes');
+      run.continues = 1;
+      if (!Story.beat(run, 'B16').boxes[1].text.includes('It took 2 tries')) bad.push('tries line: one continue is two tries');
+      run.continues = 3;
       const hand = Story.beat(run, 'B12').boxes[0].text, cfgHand = Story.cfg(run, 6);
       Story.choose(run, 'walk'); Story.choose(run, 'bogus');
       const walk = Story.beat(run, 'B12').boxes[0].text, cfgWalk = Story.cfg(run, 6);
       if (run.choice !== 'walk' || hand === walk || cfgHand.waveCut !== 1 || cfgHand.rival || cfgWalk.waveCut || cfgWalk.rival !== run.rivalA || Story.cfg(run, 3).rival !== run.rivalB) bad.push('choice');
       const revenge = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'revenge', intro: 'nod' } }, 0, 'easy', 1), friends = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'friends', intro: 'nod' } }, 0, 'easy', 1);
       if (Story.beat(revenge, 'B14').boxes[0].pose !== 'defeat_turn' || Story.beat(friends, 'B14').boxes[0].also.length !== 2 || Story.beat(a, 'B14').boxes[0].pose !== 'arms') bad.push('goal rows');
-      const rule = (terms, rank, text) => ({ slot: 'B3.1', terms, rank, text, pose: '', also: [] }), list = STORY_RULES_BY_SLOT['B3.1'], before = list.length;
+      const list = STORY_RULES_BY_SLOT['B3.1'], before = list.length;
       try {
-        list.push(rule([['goal', 'title']], 4, 'First'), rule([['origin', 'gymkid']], 4, 'Second'), rule([['tone', 'ordinary']], 2, 'Third'));
+        list.push(parseStoryRow('B3.1|goal:title|First|'), parseStoryRow('B3.1|origin:gymkid|Second|'), parseStoryRow('B3.1|tone:ordinary|Third|'));
         if (Story.beat(a, 'B3').boxes[0].text !== 'First') bad.push('specific row or tie');
+        list.push(parseStoryRow('B3.1|tone:ordinary&motive:title|Both|'));   // two conditions of low rank still beat one of the highest
+        if (Story.beat(a, 'B3').boxes[0].text !== 'Both') bad.push('two conditions did not outrank one');
+        list.push(parseStoryRow('B3.1|choice:hand|Later|'));
+        if (Story.beat(a, 'B3').boxes[0].text !== 'Both') bad.push('a one-condition row of rank 5 beat two conditions');
       } finally { list.length = before; }
-      if (Story.beat(a, 'B3').boxes[0].text === 'First') bad.push('rows not removed');
+      if (Story.beat(a, 'B3').boxes[0].text === 'First' || Story.beat(a, 'B3').boxes[0].text === 'Both') bad.push('rows not removed');
+      if (parseStoryRow('B3.1||Plain|').rank >= parseStoryRow('B3.1|tone:rough|One|').rank || parseStoryRow('B3.1|tone:rough|One|').rank >= parseStoryRow('B3.1|tone:rough&goal:title|Two|').rank) bad.push('rank order');
       if (Story.beat(a, 'B99') !== null || Story.moment(a, 'before', 2).length !== 1 || Story.moment(a, 'before', 1).length !== 2 || Story.moment(a, 'after', 7).length !== 2 || Story.moment(a, 'wave', 3).length !== 1 || Story.moment(a, 'lost', 0).length !== 1) bad.push('moments');
       const names = Story.moment(run, 'before', 4).map((beat) => beat.id).concat(Story.moment(run, 'after', 7).map((beat) => beat.id)).join();
       if (names !== 'B8,B9,B14,B16') bad.push('moment order ' + names);
@@ -8756,6 +8832,11 @@ const SelfTest = {
       if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0] - 1) bad.push('wave rows');
       const run = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 1), m3 = mk(Story.cfg(run, 3)), last = m3.waveRows.length - 1;
       if (m3.waveProfiles(last, ['elise'])[0].id !== run.rivalB) bad.push('rival B does not lead the last wave');
+      for (const wrong of [{ arenaId: 'nowhere' }, { playerId: 'nobody' }, { opponentId: 'nobody' }]) if (!SimRunner.run({ matchCfg: wrong }).error) bad.push('SimRunner took matchCfg ' + Object.keys(wrong)[0] + ' unchecked');
+      for (const [field, value, expected] of [['winsNeeded', NaN, 2], ['winsNeeded', 0, 1], ['timer', -5, 0], ['timer', NaN, 60]]) {   // matchCfg gets the same clamps as the options
+        const given = { arenaId: 'dojo', matchCfg: { winsNeeded: 1, timer: 1, [field]: value } }, res = SimRunner.run(given);
+        if (res.error || res.config.matchCfg[field] !== expected || !Object.is(given.matchCfg[field], value)) bad.push('matchCfg ' + field + '=' + value + ' became ' + (res.error || res.config.matchCfg[field]));
+      }
       const go = Game.go, kept = { config: Game.config, run: Game.run };
       Game.go = () => true;
       try {
@@ -8772,15 +8853,13 @@ const SelfTest = {
       const tell = (when, stage) => { for (const beat of Story.moment(run, when, stage)) { told.add(beat.id); if (!beat.boxes.length) bad.push(beat.id + ' has no box'); } };
       let lost = 0;
       for (let guard = 0; guard < 12 && !Story.finished(run); guard++) {
-        const n = run.stage, cfg = Story.cfg(run, n), arenaSeen = [];
+        const n = run.stage, cfg = Story.cfg(run, n);
         order.push(n); tell('before', n);
         if (n === 3) tell('wave', 3);
-        let waveStarts = 0;
-        const res = SimRunner.run(Object.assign(Story.simOpts(cfg), { difficulty1: 'expert', listeners: { waveStart: (e) => { waveStarts++; if (e.of !== (n === 1 ? 3 : ARENAS[cfg.arenaId].waves.length)) bad.push('waves of stage ' + n); } } }));
+        const res = SimRunner.run(Object.assign(Story.simOpts(cfg), { difficulty1: 'expert', listeners: { waveStart: (e) => { if (e.of !== (n === 1 ? 3 : ARENAS[cfg.arenaId].waves.length)) bad.push('waves of stage ' + n); } } }));
         if (res.error || (res.winner !== 0 && res.winner !== 1) || res.config.arenaId !== Story.arena(run, n) || res.ticks <= 60) { bad.push('stage ' + n + ' did not finish: ' + (res.error || res.winner + ' ' + res.ticks)); break; }
         if (Story.foe(run, n) && (res.teams.length !== 2 || res.wins[res.winner] !== 2)) bad.push('duel ' + n + ' wins ' + res.wins);
         if (!Story.foe(run, n) && res.teams.length < 4) bad.push('brawl ' + n + ' had ' + res.teams.length + ' fighters');
-        void arenaSeen; void waveStarts;
         if (res.winner === 0) { Story.win(run, Story.foe(run, n) ? res.wins[1] : 0); tell('after', n); }
         else if (lost < 1) { lost++; tell('lost', 0); Story.retry(run); }
         else { Story.win(run, 9); tell('after', n); }   // a second lost brawl would need a stronger player: the test moves on, the story rules are what it checks
@@ -8789,6 +8868,42 @@ const SelfTest = {
       for (const def of STORY_BEATS) if (!told.has(def.id)) bad.push('beat ' + def.id + ' never told');
       if (order.filter((n, i) => i > 0 && n < order[i - 1]).length) bad.push('stages out of order ' + order.join());
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
+    });
+    test('Story (P10-03): "Skip stage" is offered after 2 lost tries of a stage, counts as a continue and keeps the run from being flawless; a retried stage 2 is not flawless', () => {
+      const bad = [], kai = ROSTER_BY_ID.kai, run = Story.start(kai, 0, 'hard', 3);
+      if (STORY_SKIP_AFTER !== 2 || run.lost !== 0 || Story.canSkip(run) || Story.skip(run) || run.stage !== 1 || run.continues !== 0) bad.push('skip offered at the start');
+      Story.retry(run);
+      if (Story.canSkip(run) || Story.skip(run) || run.stage !== 1 || run.continues !== 1) bad.push('skip offered after one lost try');
+      Story.retry(run);
+      if (!Story.canSkip(run) || run.continues !== 2) bad.push('skip not offered after two lost tries');
+      if (!Story.skip(run) || run.stage !== 2 || run.continues !== 3 || run.lost !== 0 || run.flawless || Story.canSkip(run)) bad.push('skip result ' + run.stage + ' ' + run.continues + ' ' + run.lost);
+      if (!run.skipped) bad.push('skipped not recorded');
+      Story.win(run, 0);
+      if (run.stage !== 3 || run.flawless) bad.push('a clean stage 2 after a skipped stage 1 counted as flawless');
+      const clean = Story.start(kai, 0, 'hard', 3);
+      Story.win(clean, 0); Story.win(clean, 0);
+      if (clean.stage !== 3 || !clean.flawless) bad.push('a clean stage 2 on a run without a skip should be flawless');
+      Story.retry(clean); Story.retry(clean);
+      if (!Story.skip(clean) || clean.flawless || clean.stage !== 4) bad.push('a skip after a flawless stage 2 keeps the run flawless');
+      const bare = Story.start(kai, 0, 'hard', 3);
+      delete bare.lost; delete bare.skipped;   // a run saved without the fields
+      Story.retry(bare);
+      if (!Number.isInteger(bare.lost) || bare.lost !== 1 || Story.canSkip(bare)) bad.push('a run without lost went wrong: ' + bare.lost);
+      Story.retry(bare);
+      if (!Story.canSkip(bare) || !Story.skip(bare) || bare.stage !== 2) bad.push('no skip for a run without lost');
+      const second = Story.start(kai, 0, 'hard', 3);
+      Story.win(second, 0);
+      Story.retry(second);
+      Story.win(second, 0);
+      if (second.stage !== 3 || second.flawless || second.lost !== 0) bad.push('a retried stage 2 counted as flawless');
+      const third = Story.start(kai, 0, 'hard', 3);
+      Story.retry(third); Story.win(third, 0); Story.win(third, 0);
+      if (!third.flawless) bad.push('a retry of stage 1 spoiled the flawless result of stage 2');
+      const last = Story.start(kai, 0, 'hard', 3);
+      last.stage = STORY_STAGES; Story.retry(last); Story.retry(last);
+      if (!Story.skip(last) || !Story.finished(last) || Story.canSkip(last) || Story.skip(last)) bad.push('skipping the last stage');
+      if (!Object.values(run).every((value) => ['string', 'boolean'].includes(typeof value) || (typeof value === 'number' && Number.isFinite(value)))) bad.push('the run is not plain values');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
@@ -8812,17 +8927,22 @@ const SelfTest = {
       const dm = hz('construction', {}), deck = Arena.objects.find((o) => o.type === 'deck' && !o.step && !o.destroyed && o.h > 1.3 && !o.base);
       if (!deck) bad.push('no deck to break'); else {
         const bump = { x: deck.x + deck.hx * 0.9, z: deck.z, hx: 0.08, hz: 0.08, top: 1.0, standable: true, active: true, obj: null, temp: false, timer: 0, thin: false };
-        Arena.colliders.push(bump);
+        const crate = makeObject({ id: 'testcrate', type: 'box', mat: 'wood', x: deck.x, z: deck.z, hx: 0.3, hz: 0.3, h: 0.9, hpMul: 0.05 }, () => 0.5);   // a weak crate under the deck's centre: the falling piece crushes it
+        Arena.objects.unshift(crate);   // first in the list, so the crush reaches it
+        Arena.colliders.push(bump, crate.collider);
         try {
-          const old = Arena.supportAt(deck.x, deck.z, deck.h, Math.min(deck.hx, deck.hz));
+          const old = Arena.supportAt(deck.x, deck.z, deck.h, Math.min(deck.hx, deck.hz));   // the first rule: the highest surface anywhere within the deck's half-size
           Arena.collapses.length = 0;
           Arena.breakObject(deck, 0, 0, undefined);
-          const record = Arena.collapses[Arena.collapses.length - 1];
-          if (!record || record.land !== Arena.supportAt(deck.x, deck.z, deck.h, 0.05) || record.land >= 1.0 || old < 1.0) bad.push('landing surface ' + (record && record.land) + ' old ' + old);
-          dm.stepCollapse();
-          const dust = Arena.marks.filter((k) => k.kind === 'dust').pop();
-          if (!dust || record && dust.y !== record.land) bad.push('dust mark ' + (dust && dust.y));
-        } finally { Arena.colliders.splice(Arena.colliders.indexOf(bump), 1); }
+          const withCrate = Arena.supportAt(deck.x, deck.z, deck.h, 0.05);
+          if (!Arena.collapses.length || old < 1.0 || withCrate < 0.9 || crate.destroyed) bad.push('setup: old ' + old + ' under ' + withCrate);
+          dm.stepCollapse();   // the crate is crushed first, then the dust lands on what is left under it
+          const dust = Arena.marks.filter((k) => k.kind === 'dust').pop(), under = Arena.supportAt(deck.x, deck.z, deck.h, 0.05);
+          if (!crate.destroyed || !dust || dust.y !== under || dust.y >= 0.9) bad.push('dust mark ' + (dust && dust.y) + ' under ' + under + (crate.destroyed ? '' : ', crate not crushed'));
+        } finally {
+          Arena.objects.splice(Arena.objects.indexOf(crate), 1);
+          for (const c of [bump, crate.collider, crate.rubble]) if (c && Arena.colliders.includes(c)) Arena.colliders.splice(Arena.colliders.indexOf(c), 1);
+        }
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
