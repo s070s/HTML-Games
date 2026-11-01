@@ -437,8 +437,8 @@ Numbered after the other phases because it was added later; it follows Phase 17 
   Done when: each interaction works on touch, gamepad and keyboard and in 1v1, wave and Brawl fights; a self-test triggers each one; the CPU uses them; P14-01 targets and the P0-04 performance check pass.
 - [ ] P18-14 - RESEARCH and DECIDE the X-factor: one genuinely unique feature that gives the game its own identity. Check what the closest games in the genre already do, then write 3 to 5 options with what each costs to build. The owner picks.
   Done when: the options and their sources are in Appendix B; the owner's choice is in Appendix C with new tasks for it placed before Phase 16.
-- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99. This is a market estimate, not a plan to sell it now.
-  Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99; the owner has read it.
+- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content. This is a market estimate, not a plan to sell it now.
+  Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99, EUR 5 and the EUR 5-10 opinion; the owner has read it.
 
 ## Phase 16 - Final audit and release
 
@@ -609,6 +609,20 @@ Overall, I'm quite happy with the game so far. There are a few areas, however, w
 Overall Impression
 
 I'm enjoying the direction the game is taking, particularly the new levels, environmental interactions and character variety. I think the biggest opportunities for improvement are refining the combat mechanics, adding more character-specific abilities, making difficulty selection accessible across all modes, and introducing a distinctive feature that gives the game a recognizable identity.
+```
+
+### Owner note on pricing of 2026-11-01 (verbatim)
+
+```text
+Regarding the game's potential Steam price, I asked a few people for their honest opinions.
+
+The estimates varied, but the general feedback was that EUR 3-5 could be reasonable for a smaller indie game, while another opinion suggested that EUR 5-10 might be achievable depending on the overall quality and content.
+
+Personally, I was initially thinking of EUR 2.99, but I'm open to considering EUR 5 if the game delivers a sufficiently polished experience.
+
+Of course, none of these opinions comes from professional market research or extensive experience with Steam games, so I would treat them as rough estimates rather than definitive valuations.
+
+The main reason I asked was to get an idea of how people perceive the game's current value and what they would realistically be willing to pay for it.
 ```
 
 ## Appendix B - Research log
