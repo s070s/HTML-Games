@@ -45,6 +45,7 @@ const {
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
+  Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -8812,7 +8813,7 @@ const SelfTest = {
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
     test('Story (P10-03): stage fights are ordinary matches - the Arcade 1v1 rules and the level\'s waves, difficulty = the Arcade difficulty, only known fighters, nothing else added', () => {
-      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut']);
+      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut', 'waveBeat']);
       for (const level of ['easy', 'normal', 'hard']) for (const choice of ['', 'hand', 'walk']) for (const f of [ROSTER_BY_ID.kai, ROSTER_BY_ID.zero, ROSTER_BY_ID.hao, ROSTER_BY_ID.deacon]) {
         const run = Story.start(f, 2, level, 4);
         run.choice = choice;
@@ -8904,6 +8905,418 @@ const SelfTest = {
       if (!Story.skip(last) || !Story.finished(last) || Story.canSkip(last) || Story.skip(last)) bad.push('skipping the last stage');
       if (!Object.values(run).every((value) => ['string', 'boolean'].includes(typeof value) || (typeof value === 'number' && Number.isFinite(value)))) bad.push('the run is not plain values');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- non-combat poses (P5-05) and story scenes (P10-04) ---------- */
+    const ALL_POSES = STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES));
+    const HAND = { L: 9, R: 12 }, KNEE = { L: 24, R: 27 }, ELBOW = { L: 30, R: 33 }, HEAD = 6, CHEST = 3;   // fighter.pts offsets of the key points
+    const pointGap = (f, a, b) => Math.hypot(f.pts[a] - f.pts[b], f.pts[a + 1] - f.pts[b + 1], f.pts[a + 2] - f.pts[b + 2]);
+    /* Runs fn with the scene screen standing in for the real one (no page here): UI.current is 'scene' and rerenders do nothing; the scene and the menu behind it are put back afterwards. */
+    const withScene = (fn) => {
+      const keep = { current: UI.current, rerender: UI.rerender, stack: UI.stack, guard: UI.guardUntil, arena: Arena.def && Arena.def.id };
+      UI.current = 'scene'; UI.rerender = () => {}; UI.stack = []; UI.guardUntil = 0;
+      try { return fn(); } finally {
+        Cutscene.finish();
+        UI.current = keep.current; UI.rerender = keep.rerender; UI.stack = keep.stack; UI.guardUntil = keep.guard;
+        if (keep.arena && Arena.def.id !== keep.arena) Arena.build(ARENAS[keep.arena]);
+      }
+    };
+    const sceneProfiles = () => {
+      const draft = defaultCustom(0);
+      Object.assign(draft, { name: 'TESTER', country: 'JP', origin: 'street', goal: 'friends' });
+      return [ROSTER_BY_ID.kai, ROSTER_BY_ID.elise, customProfile(validateCustom(draft).value, 0)];
+    };
+    /* Plays the beats `ids` to the end the way a player does (next box, answer when asked); returns what was seen: { boxes, beats (ids), phases, ended (end callbacks), answers }. */
+    const playThrough = (profile, ids, answer, options) => {
+      const run = options && options.run || Story.start(profile, 0, 'normal', 1), seen = { boxes: 0, beats: [], phases: [], ended: 0, answers: [], problems: [] };
+      Cutscene.start(run, profile, ids, { choice: (a) => seen.answers.push(a), end: () => { seen.ended++; } });
+      for (let guard = 0; Cutscene.active && guard < 120; guard++) {
+        const v = Cutscene.view();
+        if (!seen.beats.includes(Cutscene.beat.id)) seen.beats.push(Cutscene.beat.id);
+        seen.phases.push(v.phase);
+        if (options && options.check) options.check(v, seen);
+        for (let i = 0; i < 6; i++) Cutscene.update(1 / 12);
+        if (v.phase === 'choice') Cutscene.choose(answer); else { Cutscene.next(); seen.boxes++; }
+      }
+      return seen;
+    };
+    test('Poses (P5-05): the 28 new poses and the 6 victory poses all play, stay finite, above the floor and restrained (small, slow loops), and each has a face', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0);
+      if (STORY_POSE_IDS.length !== 28 || ALL_POSES.length !== 34 || new Set(ALL_POSES).size !== 34) bad.push('count ' + STORY_POSE_IDS.length);
+      for (const id of ALL_POSES) {
+        const row = STORY_POSES[id];
+        if (row && !(row.look >= 0 && row.look < FACE_EXPR.length)) bad.push('look of ' + id);
+        if (row && row.loop && (!(row.loop[0] >= 0 && row.loop[0] < NP) || Math.abs(row.loop[1]) > 0.5 || !(row.loop[2] > 0 && row.loop[2] <= 5))) bad.push('loop of ' + id);   // P17-02: nothing exaggerated
+        f.reset(0, 0, 0); f.setPose(id);
+        if (f.poseId !== id) { bad.push('not playable ' + id); continue; }
+        for (let i = 0; i < 240; i++) {
+          f.animate(1 / 60);
+          if (i % 20 !== 19) continue;
+          const ys = [];
+          for (let k = 0; k < 12; k++) ys.push(f.pts[k * 3 + 1]);
+          if (!f.pts.every(Number.isFinite) || !f.pose.every(Number.isFinite)) { bad.push(id + ' is not finite'); break; }
+          if (Math.min(...ys) < -0.2 || Math.max(...ys) > 2.3) { bad.push(id + ' leaves the picture: ' + Math.min(...ys).toFixed(2) + ' to ' + Math.max(...ys).toFixed(2)); break; }
+        }
+      }
+      f.setPose('no_such_pose');
+      if (f.poseId !== '' || f.expr !== -1) bad.push('an unknown pose id was taken');
+      f.setPose('toString');
+      if (f.poseId !== '') bad.push('a prototype name was taken as a pose');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Poses (P5-05): the hands reach what they touch - the chest, the chin, the knees, the floor, the other arm - for every fighter\'s height and build', () => {
+      const bad = [], settled = (f, id, t) => { f.reset(0, 0, 0); f.setPose(id); f.animT = t || 0; f.settlePose(); };
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), s = f.scale, near = (a, b, tol, what) => { if (pointGap(f, a, b) > tol * s) bad.push(r.id + ' ' + what + ' ' + (pointGap(f, a, b) / s).toFixed(2)); };
+        settled(f, 'chest_pound');
+        if (Math.abs(f.pts[HAND.R + 1] - f.pts[CHEST + 1]) > 0.2 * s || pointGap(f, HAND.R, CHEST) > 0.26 * s) bad.push(r.id + ' chest_pound');
+        let closest = 9;
+        for (let t = 0; t < 0.4; t += 0.02) { settled(f, 'glove_tap', t); closest = Math.min(closest, pointGap(f, HAND.L, HAND.R)); }
+        if (closest > 0.15 * s) bad.push(r.id + ' glove_tap ' + (closest / s).toFixed(2));   // two fists of about 7 cm radius touch at 14 cm
+        settled(f, 'think');
+        if (f.pts[HAND.R + 1] > f.pts[HEAD + 1] || f.pts[HAND.R + 1] < f.pts[HEAD + 1] - 0.25 * s || Math.hypot(f.pts[HAND.R] - f.pts[HEAD], f.pts[HAND.R + 2] - f.pts[HEAD + 2]) > 0.25 * s) bad.push(r.id + ' think');
+        settled(f, 'phone');
+        if (Math.abs(f.pts[HAND.R + 1] - f.pts[CHEST + 1]) > 0.2 * s || f.pts[HAND.R + 2] < f.pts[CHEST + 2] + 0.2 * s) bad.push(r.id + ' phone');
+        settled(f, 'idle_tired'); near(HAND.L, KNEE.L, 0.14, 'idle_tired L'); near(HAND.R, KNEE.R, 0.14, 'idle_tired R');
+        settled(f, 'kneel'); near(HAND.L, KNEE.L, 0.14, 'kneel');
+        settled(f, 'sit_floor'); near(HAND.L, KNEE.L, 0.19, 'sit_floor L'); near(HAND.R, KNEE.R, 0.19, 'sit_floor R');
+        settled(f, 'defeat_slump');
+        if (Math.max(f.pts[HAND.L + 1], f.pts[HAND.R + 1]) > 0.2 * s) bad.push(r.id + ' defeat_slump hands ' + Math.max(f.pts[HAND.L + 1], f.pts[HAND.R + 1]).toFixed(2));
+        settled(f, 'idle_stretch'); near(HAND.R, ELBOW.L, 0.15, 'idle_stretch');
+        settled(f, 'crossed_arms');
+        if (f.pts[HAND.L] > 0.02 || f.pts[HAND.R] < -0.02 || f.pts[HAND.L + 2] < 0.1 * s) bad.push(r.id + ' crossed_arms');
+        settled(f, 'wave');
+        if (f.pts[HAND.R + 1] < f.pts[HEAD + 1] - 0.1 * s) bad.push(r.id + ' wave');
+        settled(f, 'point');
+        if (f.pts[HAND.R + 2] < 0.5 * s || Math.abs(f.pts[HAND.R + 1] - 1.5 * s) > 0.2 * s) bad.push(r.id + ' point');
+      }
+      return bad.length ? Array.from(new Set(bad)).slice(0, 6).join('; ') : true;
+    });
+    test('Scenes (P10-04): every beat has a scene - its boxes show with the speaker\'s name and colour, the cast stands in the beat\'s level, every pose is known, the camera is finite and the scene ends', () => {
+      const bad = [], knownPose = new Set(ALL_POSES), kept = Settings.v.reducedMotion;
+      withScene(() => {
+        for (const profile of sceneProfiles()) for (const answer of ['hand', 'walk']) {
+          const seen = playThrough(profile, Story.order(), answer, { check: (v, now) => {
+            const beat = Cutscene.beat, def = STORY_BEATS.find((row) => row.id === beat.id), cast = Cutscene.cast, shot = Cutscene.shot, level = Story.arena(Cutscene.run, def.stage > 0 && def.id !== 'B16' ? def.stage : 1);
+            if (v.phase === 'box' && (!v.text || v.text.length > STORY_TEXT_MAX || !SCENE_COLOURS[v.who])) now.problems.push(beat.id + ' text or colour');
+            if (v.phase === 'box' && v.who !== 'N' && !cast[v.who]) now.problems.push(beat.id + ' speaker ' + v.who + ' is not in the scene');
+            if (!cast.P || Object.values(cast).some((f) => !knownPose.has(f.poseId))) now.problems.push(beat.id + ' pose ' + Object.values(cast).map((f) => f.poseId));
+            if (!Object.values(shot).every(Number.isFinite) || shot.dist < 1.4) now.problems.push(beat.id + ' camera');
+            if (Arena.def.id !== level) now.problems.push(beat.id + ' level ' + Arena.def.id + ' not ' + level);
+            if (!Object.values(cast).every((f) => Number.isFinite(f.x + f.y + f.z + f.yaw) && Math.abs(f.y) < 0.05)) now.problems.push(beat.id + ' a fighter is not on the floor');
+          } });
+          bad.push(...seen.problems);
+          if (STORY_BEATS.some((def) => !seen.beats.includes(def.id))) bad.push('beats missing: ' + STORY_BEATS.filter((def) => !seen.beats.includes(def.id)).map((def) => def.id));
+          if (seen.ended !== 1 || Cutscene.active || seen.answers.length !== 1 || seen.answers[0] !== answer || !seen.phases.includes('react')) bad.push('end ' + seen.ended + ' answers ' + seen.answers);
+        }
+        for (const reduced of [false, true]) {   // reduced motion only shrinks the loops
+          Settings.v.reducedMotion = reduced;
+          const seen = playThrough(ROSTER_BY_ID.kai, ['B1', 'B14'], 'hand');
+          if (seen.ended !== 1 || seen.boxes < 3) bad.push('reduced motion ' + reduced);
+        }
+      });
+      Settings.v.reducedMotion = kept;
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
+    });
+    test('Scenes (P10-04): the pairs that touch really touch - a fist bump, a handshake and a helping hand meet within 3 cm for every pair of fighters, whatever their height', () => {
+      const bad = [];
+      let checked = 0;
+      withScene(() => {
+        Arena.build(ARENAS.club);   // B12 is told in the club: build it once, so no start rebuilds the level (and its navigation map) and no finish builds the old one back
+        ROSTER.forEach((p, i) => ROSTER.forEach((q, j) => {
+          if (p === q || (i + 2 * j) % 3 !== 0) return;   // a third of all 2,000 pairs: the fit does not depend on who stands where
+          const run = Story.start(p, 0, 'normal', 1);
+          run.rivalA = q.id;
+          for (const [mine, theirs] of [['fist_bump', 'fist_bump'], ['handshake', 'handshake'], ['help_up', 'handshake'], ['fist_bump', '']]) {
+            Cutscene.start(run, p, ['B12'], { end() {} });
+            Cutscene.setPoses({ P: mine, R: theirs }, true);
+            const a = Cutscene.cast.P, b = Cutscene.cast.R;
+            if (a.poseId !== mine || b.poseId !== (theirs || mine)) bad.push('the pose was not answered: ' + a.poseId + ' ' + b.poseId);
+            a.settlePose(); b.settlePose();
+            const meet = Math.hypot(a.pts[12] - b.pts[12], a.pts[13] - b.pts[13], a.pts[14] - b.pts[14]);   // the two right hands
+            checked++;
+            if (meet > 0.03) bad.push(p.id + ' and ' + q.id + ' ' + mine + '/' + theirs + ' ' + meet.toFixed(3));
+            Cutscene.finish();
+          }
+        }));
+      });
+      return bad.length ? Array.from(new Set(bad)).slice(0, 4).join('; ') + ' (of ' + checked + ')' : true;
+    });
+    test('Scenes (P10-04): every scene can be skipped and ends - the Skip chip, Esc / B, Start and the Punch / Kick buttons end a beat or show the next box, and a pending answer is still asked', () => {
+      const bad = [], ended = [];
+      withScene(() => {
+        for (const def of STORY_BEATS) {   // one beat at a time: a skip drops its boxes; B5 still asks, and its answer plays before the scene ends
+          const run = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1);
+          Cutscene.start(run, ROSTER_BY_ID.kai, [def.id], { end: () => ended.push(def.id) });
+          Cutscene.skipBeat();
+          const asked = Cutscene.active && Cutscene.view().phase === 'choice';
+          if (asked !== def.choice) bad.push(def.id + (def.choice ? ' did not ask' : ' asked'));
+          if (asked) { Cutscene.skipBeat(); if (Cutscene.view().phase !== 'choice') bad.push('skip answered for the player'); Cutscene.choose('walk'); Cutscene.skipBeat(); }
+          if (Cutscene.active || !ended.includes(def.id)) bad.push(def.id + ' did not end');
+        }
+        const all = playThroughSkips();
+        if (all.ended !== 1 || all.skips > STORY_BEATS.length + 2) bad.push('the whole story took ' + all.skips + ' skips');
+        // the four ways in: the screen's buttons, Back (Esc and the pad's B), Start, and the fight buttons
+        const run = Story.start(ROSTER_BY_ID.elise, 0, 'normal', 1), seen = [];
+        Cutscene.start(run, ROSTER_BY_ID.elise, ['B1', 'B2', 'B3', 'B4'], { end: () => seen.push('end') });
+        const at = () => Cutscene.beat.id + '.' + Cutscene.box;
+        const step = (name, fn, expect) => { UI.guardUntil = 0; const before = at(); fn(); if (at() === before && Cutscene.active) bad.push(name + ' did nothing'); if (expect && Cutscene.active && at() !== expect) bad.push(name + ' went to ' + at() + ' not ' + expect); };
+        step('the box', () => UI.act('scenenext'), 'B1.1');
+        step('the chip', () => UI.act('sceneskip'), 'B2.0');
+        step('Back', () => UI.back(), 'B3.0');
+        Input.press('punch');
+        step('Punch', () => { if (!UI.scenePoll(false)) bad.push('Punch was not used'); }, 'B4.0');
+        Input.press('pause');
+        UI.guardUntil = 0;
+        if (!UI.scenePoll(Inputs.take('pause')) || Cutscene.active || seen.length !== 1) bad.push('Start did not end the last beat');
+        Cutscene.start(run, ROSTER_BY_ID.elise, ['B1', 'B2'], { end() {} });
+        Input.press('kick'); UI.guardUntil = 0;
+        if (!UI.scenePoll(false) || at() !== 'B1.1') bad.push('Kick did not show the next box');
+        UI.guardUntil = performance.now() + 5000;
+        Input.press('punch');
+        if (UI.scenePoll(false) || at() !== 'B1.1') bad.push('a second press right after a change counted');
+        Inputs.reset();
+      });
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
+      function playThroughSkips() {
+        const result = { ended: 0, skips: 0 };
+        Cutscene.start(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), ROSTER_BY_ID.kai, Story.order(), { end: () => { result.ended++; } });
+        while (Cutscene.active && result.skips < 60) { result.skips++; if (Cutscene.view().phase === 'choice') Cutscene.choose('hand'); else Cutscene.skipBeat(); }
+        return result;
+      }
+    });
+    test('Scenes (P10-04): a pad alone plays a scene - its confirm button is also Kick, yet it answers the question of B5, presses the Skip chip, and shows the next box where the text box is in focus', () => {
+      const bad = [], clicks = [], buttons = [], answers = [];
+      const kept = { dom: UI.dom, prev: Object.assign({}, UI.padPrev), last: UI.lastScreen, frames: UI.frameCount, ok: Inputs.menuHeld.menuOk };
+      const focusButton = (act) => {   // a real button in focus; its click presses the screen button of that name
+        const button = document.createElement('button');
+        button.setAttribute('data-act', act);
+        button.click = () => { clicks.push(act); UI.act(act); };
+        document.body.appendChild(button);
+        button.focus();
+        buttons.push(button);
+      };
+      const padConfirm = () => {   // one press of the pad's confirm button (Kick as well), and the menu frame that reads it
+        Input.press('kick'); Inputs.menuHeld.menuOk = true; UI.padPrev.ok = false; UI.guardUntil = 0;
+        UI.update();
+        Inputs.menuHeld.menuOk = false;
+      };
+      try {
+        withScene(() => {
+          UI.dom = { fatal: { hidden: true }, onboard: { hidden: true }, screens: { querySelector: () => null, querySelectorAll: () => [] } };
+          const run = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), at = () => Cutscene.beat.id + '.' + Cutscene.box;
+          Cutscene.start(run, ROSTER_BY_ID.kai, ['B5'], { choice: (answer) => answers.push(answer), end() {} });
+          Cutscene.skipBeat();
+          if (Cutscene.view().phase !== 'choice') bad.push('B5 did not ask');
+          focusButton('scenego:hand'); padConfirm();
+          if (answers.join() !== 'hand' || Cutscene.view().phase !== 'react') bad.push('the pad did not answer B5: ' + answers + ' ' + Cutscene.view().phase);
+          Cutscene.finish();
+          Cutscene.start(run, ROSTER_BY_ID.elise, ['B1', 'B2', 'B3'], { end() {} });
+          focusButton('sceneskip'); padConfirm();
+          if (at() !== 'B2.0' || clicks[clicks.length - 1] !== 'sceneskip') bad.push('the pad did not press Skip: ' + at());
+          const pressed = clicks.length;
+          focusButton('scenenext'); padConfirm();
+          if (at() !== 'B3.0' || clicks.length !== pressed) bad.push('the pad did not show the next box once: ' + at() + ' after ' + (clicks.length - pressed) + ' clicks');
+        });
+      } finally {
+        buttons.forEach((button) => { button.blur(); button.remove(); });
+        Inputs.reset();
+        UI.dom = kept.dom; Object.assign(UI.padPrev, kept.prev); UI.lastScreen = kept.last; UI.frameCount = kept.frames; Inputs.menuHeld.menuOk = kept.ok;
+      }
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
+    });
+    test('Scenes (P10-04): a double tap does nothing - within the guard time a click on the scene or the story screen is ignored, so it cannot answer "Walk away" or reach Back or a beat card behind', () => {
+      const bad = [], acted = [], keptAct = UI.act;
+      const tap = (act) => UI.onClick({ target: { closest: (selector) => (selector === '[data-act]' ? { getAttribute: () => act } : null) } });
+      try {
+        withScene(() => {
+          Cutscene.start(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), ROSTER_BY_ID.kai, ['B5'], { end() {} });
+          Cutscene.skipBeat();
+          UI.guardUntil = performance.now() + 5000;
+          tap('scenego:walk');
+          if (Cutscene.view().phase !== 'choice') bad.push('a tap right after a change answered');
+          UI.guardUntil = 0;
+          tap('scenego:walk');
+          if (Cutscene.view().phase !== 'react') bad.push('a tap after the guard time did not answer');
+          UI.act = (act) => { acted.push(act); };
+          UI.current = 'story'; UI.guardUntil = performance.now() + 5000;
+          tap('scene:B5'); tap('back');
+          if (acted.length) bad.push('the story screen took ' + acted);
+          UI.guardUntil = 0;
+          tap('back');
+          if (acted.join() !== 'back') bad.push('the story screen ignored a tap after the guard time');
+        });
+      } finally { UI.act = keptAct; }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Scenes (P10-04): the camera follows the screen and is put back - a turned screen frames the shot again, and the story screen gets its own camera at the end', () => {
+      const bad = [], keep = { w: R.cssW, h: R.cssH, target: Camera.target.slice(), dist: Camera.dist, elev: Camera.elev, az: Camera.az };
+      const menuCamera = () => { Camera.target[0] = 3; Camera.target[1] = 1.2; Camera.target[2] = -2; Camera.dist = 8.5; Camera.elev = 0.31; Camera.az = 1.1; };
+      try {
+        R.cssW = 1600; R.cssH = 900;
+        menuCamera();
+        Camera.finish(0, 30, 30);
+        const menuEye = Camera.pos.slice();
+        withScene(() => {
+          Cutscene.start(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), ROSTER_BY_ID.kai, ['B12'], { end() {} });   // a shot of the first two, in the club
+          const landscape = Cutscene.shot.dist;
+          R.cssW = 450;
+          Cutscene.update(1 / 60);
+          if (!(Cutscene.shot.dist > landscape + 1)) bad.push('the shot was not framed again: ' + landscape.toFixed(2) + ' then ' + Cutscene.shot.dist.toFixed(2));
+          for (let i = 0; i < 120; i++) Cutscene.update(1 / 60);
+          if (Math.abs(Camera.dist - Cutscene.shot.dist) > 0.1) bad.push('the camera did not settle on the new distance');
+        });
+        if (Camera.target[0] !== 3 || Camera.target[1] !== 1.2 || Camera.target[2] !== -2 || Camera.dist !== 8.5 || Camera.elev !== 0.31 || Camera.az !== 1.1) bad.push('the scene camera was left on the story screen: ' + Camera.dist.toFixed(2));
+        if (menuEye.some((value, i) => Math.abs(value - Camera.pos[i]) > 1e-3)) bad.push('the eye was not put back');
+      } finally {
+        R.cssW = keep.w; R.cssH = keep.h;
+        keep.target.forEach((value, i) => { Camera.target[i] = value; });
+        Object.assign(Camera, { dist: keep.dist, elev: keep.elev, az: keep.az });
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Scenes (P10-04): the scene screen has a Skip chip, a text box that is the default button and the two answers as full-width cards; the story screen plays any beat or all of them', () => {
+      const bad = [], kept = { dom: UI.dom, view: UI.storyView, current: UI.current, stack: UI.stack, rerender: UI.rerender, push: UI.push, go: UI.go };
+      try {
+        const profile = ROSTER_BY_ID.kai;
+        UI.storyView = { profile, choice: 'hand', flawless: false, continues: 0, clears: 0 };
+        const story = UI.screen_story();
+        if (!story.includes('data-act="sceneall"') || STORY_BEATS.some((def) => !story.includes('data-act="scene:' + def.id + '"')) || story.split('<button class="beat"').length !== STORY_BEATS.length + 1) bad.push('story screen buttons');
+        let pushed = '', closed = '';
+        UI.rerender = () => {}; UI.push = (name) => { pushed = name; UI.current = name; }; UI.go = (name) => { closed = name; UI.current = name; };
+        UI.dom = { screens: { querySelector: (sel) => ({ focus() { closed += ' ' + sel; } }) } };
+        UI.stack = ['story']; UI.current = 'story';
+        UI.act('scene:B5');
+        if (pushed !== 'scene' || !Cutscene.active) bad.push('the beat card did not start its scene');
+        const box = UI.screen_scene();
+        if (!box.includes('data-act="sceneskip"') || !box.includes('data-default data-act="scenenext"') || !box.includes('class="scenebox"') || !box.includes(SCENE_COLOURS.R) || !box.includes('<section class="screen on scene"')) bad.push('box screen');
+        Cutscene.skipBeat();
+        const ask = UI.screen_scene();
+        if (!ask.includes('data-act="scenego:hand"') || !ask.includes('data-act="scenego:walk"') || !ask.includes(SCENE_CHOICES.hand) || !ask.includes(SCENE_CHOICES.walk) || ask.includes('data-act="scenenext"') || !ask.includes('data-act="sceneskip"')) bad.push('choice screen');
+        UI.act('scenego:walk');
+        if (UI.storyView.choice !== 'walk' || Cutscene.view().phase !== 'react') bad.push('the answer was not kept');
+        UI.guardUntil = 0; UI.act('scenenext');
+        if (Cutscene.active || closed !== 'story [data-act="scene:B5"]') bad.push('closing went to ' + closed);
+        UI.act('sceneall');
+        if (!Cutscene.active || Cutscene.queue.length !== STORY_BEATS.length - 1) bad.push('the whole story did not start');
+        const top = UI.screen_scene();
+        if (!top.includes('screen on scene top') || !top.includes(SCENE_COLOURS.N)) bad.push('the narrator\'s box is not on top');
+        UI.act('sceneskip');
+        UI.current = 'main';   // leaving the screen some other way ends the scene on the next frame
+        Cutscene.update(0.016);
+        if (Cutscene.active) bad.push('a scene outlived its screen');
+      } finally {
+        Cutscene.finish();
+        UI.dom = kept.dom; UI.storyView = kept.view; UI.current = kept.current; UI.stack = kept.stack; UI.rerender = kept.rerender; UI.push = kept.push; UI.go = kept.go;
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Scenes (P10-04): the menu behind a scene is put back - the level, no fighter of the scene left, and a scene changes no match, tick or saved data', () => {
+      const m = mk({ seed: 5 }), bad = [], matchState = () => m.tick + ':' + m.phase + ':' + m.fighters.map((f) => [f.x, f.y, f.z, f.hp, f.state, f.moveTick].join()).join(';');   // a live match (in the warehouse): its tick and fighters are what a scene must not touch
+      self.run(m, 40);
+      const before = { arena: Arena.def && Arena.def.id, store: JSON.stringify(Progress.d), match: matchState(), made: self.made.length };
+      if (before.arena !== 'warehouse' || m.tick < 40) bad.push('the live match did not run: ' + m.tick);
+      withScene(() => {
+        Cutscene.start(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), ROSTER_BY_ID.kai, ['B4', 'B8', 'B13'], { end() {} });
+        if (Arena.def.id !== 'dojo') bad.push('level ' + Arena.def.id);
+        for (let i = 0; i < 90; i++) { Cutscene.update(1 / 60); if (i % 30 === 29) Cutscene.next(); }
+      });
+      if (Arena.def.id !== 'warehouse' || Cutscene.active || Object.keys(Cutscene.cast).length) bad.push('the level or the cast was left behind');
+      if (JSON.stringify(Progress.d) !== before.store || matchState() !== before.match || self.made.length !== before.made) bad.push('saved data or a match changed');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Intro emote (P5-05): every fighter greets with the Intro emote of its settings for 1.2 s of the countdown, then fights as always - a seeded match is identical with and without it', () => {
+      const bad = [], settings = { reduced: Settings.v.reducedMotion };
+      const play = (emotes) => {
+        const keepEmotes = MatchSim.prototype.introEmotes, handlers = Events.handlers, lines = [], info = { greeted: '', gap: -1, fightAt: -1, expr: [] };
+        if (!emotes) MatchSim.prototype.introEmotes = function () {};
+        Events.handlers = {};
+        Settings.v.reducedMotion = false;
+        let m = null, hash = 0;
+        try {
+          for (const name of FINGERPRINT_EVENTS) Events.on(name, (e) => lines.push([name, e.att && e.att.index, e.def && e.def.index, e.f && e.f.index, typeof e.dmg === 'number' ? e.dmg.toFixed(3) : '', e.winner, e.round, e.result].join(',')));
+          m = new MatchSim({ mode: 'free', evenDamage: true, items: false, hazards: false, countdown: true, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', seed: 3, winsNeeded: 2, timer: 30, difficulty: 'hard' });
+          m.fighters.forEach((f, i) => { m.controllers[i] = new AIController(f.profile, 'hard'); });
+          const guard = m.fighters.map((f) => Array.from(f.motion.guard));
+          while (m.phase !== 'matchEnd' && m.tick < 9000) {
+            m.step();
+            if (m.phase === 'waiting') m.startRound();
+            if (m.tick === 30 && m.round === 1) info.greeted = m.fighters.map((f) => f.poseId + '/' + Story.settingsOf(f.profile).intro + '/' + (f.pose.some((v, k) => Math.abs(v - guard[f.index][k]) > 0.05) ? 'moved' : 'still')).join(' ');
+            if (m.phase === 'fight' && info.fightAt < 0) { info.fightAt = m.tick; info.expr = m.fighters.map((f) => f.poseId + f.expr); }
+            lines.push(m.fighters.map((f) => [f.x, f.y, f.z, f.yaw, f.hp, f.stam, f.state, f.moveTick].map((v) => (typeof v === 'number' ? v.toFixed(4) : v)).join(',')).join(';'));
+            hash = fnv1a(hash.toString(36) + lines.splice(0).join('|'));
+          }
+          info.hash = hash + ':' + m.tick + ':' + m.wins.join('-') + ':' + m.fighters.map((f) => f.hp.toFixed(3)).join('-');
+        } finally {
+          if (m) m.dispose();
+          MatchSim.prototype.introEmotes = keepEmotes; Events.handlers = handlers; Settings.v.reducedMotion = settings.reduced;
+        }
+        return info;
+      };
+      const on = play(true), off = play(false);
+      if (on.hash !== off.hash || on.fightAt !== off.fightAt || !on.hash || on.fightAt < ROUND_BANNER_TICKS + 3 * 30) bad.push('the match differs: ' + on.hash + ' vs ' + off.hash + ' (fight at ' + on.fightAt + ' and ' + off.fightAt + ')');
+      const parts = on.greeted.split(' ');
+      if (parts.length !== 2 || parts.some((part) => { const [shown, intro, moved] = part.split('/'); return shown !== intro || moved !== 'moved'; })) bad.push('greeting: ' + on.greeted);
+      if (off.greeted.split(' ').some((part) => part.split('/')[0] !== '')) bad.push('the switch did not turn the emote off: ' + off.greeted);
+      if (on.expr.some((shown) => shown !== '-1')) bad.push('a pose or a face stayed forced into the fight: ' + on.expr);   // each entry is the pose id followed by the forced face (-1 = none)
+      // the emote lasts INTRO_EMOTE_SECONDS: gone at the end of 72 ticks, still there just before
+      const m = track(new MatchSim({ mode: 'free', countdown: true, timer: 0, seed: 4, playerId: 'kai', opponentId: 'mara' }));
+      for (let i = 0; i < Math.round(INTRO_EMOTE_SECONDS * 60) - 2; i++) m.step();
+      const during = m.fighters.every((f) => f.poseId !== '');
+      for (let i = 0; i < 4; i++) m.step();
+      if (!during || m.fighters.some((f) => f.poseId !== '')) bad.push('the emote did not last ' + INTRO_EMOTE_SECONDS + ' s');
+      const none = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 4, playerId: 'kai', opponentId: 'mara' }));
+      none.step();
+      if (none.fighters.some((f) => f.poseId !== '')) bad.push('a match without a countdown greeted');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Frame path (P0-04): a fight frame runs no scene, showcase or pose code - no emote, no scene update or draw, no menu-scene update - so nothing slows it', () => {
+      const bad = [], calls = { pose: 0, scene: 0, showcase: 0 }, undo = [];
+      const spy = (obj, name, key) => { const fn = obj[name]; obj[name] = function (...args) { calls[key]++; return fn.apply(this, args); }; undo.push(() => { obj[name] = fn; }); };
+      const keep = { match: Game.match, state: Game.state, acc: Game.acc, last: Game.last, errors: Game.errorCount, push: R.push, put: R.put };
+      const m = mk({ countdown: false, seed: 5 });
+      m.controllers.forEach((c, i) => { m.controllers[i] = new AIController(m.fighters[i].profile, 'hard'); });
+      try {
+        R.push = () => {}; R.put = () => {};   // the real frame and render code run; only the GPU queue is left out here
+        for (const name of ['storyPose', 'poseActive', 'setPose', 'settlePose']) spy(Fighter.prototype, name, 'pose');
+        for (const name of ['update', 'draw', 'aim']) spy(Cutscene, name, 'scene');
+        for (const name of ['update', 'draw']) spy(Showcase, name, 'showcase');
+        Game.match = m; Game.state = GS.FIGHT; Game.acc = 0; Game.last = performance.now();
+        let now = Game.last;
+        const ticks = m.tick;
+        for (let i = 0; i < 90; i++) { now += 16.7; Game.frame(now); }
+        if (m.tick - ticks < 60) bad.push('the fight did not run: ' + (m.tick - ticks) + ' ticks');
+        if (calls.pose || calls.scene || calls.showcase) bad.push('fight code reached new code: ' + JSON.stringify(calls));
+      } finally {
+        undo.forEach((fn) => fn());
+        R.push = keep.push; R.put = keep.put;
+        Game.match = keep.match; Game.state = keep.state; Game.acc = keep.acc; Game.last = keep.last; Game.errorCount = keep.errors;
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Story scenes (P10-04): beat B7 is told at the last wave of stage 3 - the match says so once (waveBeat), no other stage does, and the flag changes nothing in the fight', () => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 7);
+      for (let n = 1; n <= STORY_STAGES; n++) if ((Story.cfg(run, n).waveBeat === true) !== (n === 3)) bad.push('stage ' + n + ' flag');
+      const handlers = Events.handlers, told = [];
+      /* Stage 3 cut to its first two waves, a fighter who cannot be beaten (so the CPU player gets there); plays until `until` ticks, or (no limit) until the leader of the last wave has walked in. */
+      const play = (flag, until) => {
+        Events.handlers = {};
+        let m = null, hash = 0;
+        try {
+          Events.on('waveBeat', (e) => told.push(e.match.wave + '/' + e.match.waveRows.length + '/' + e.f.team + '/' + e.match.fighters.includes(e.f)));
+          m = new MatchSim(Object.assign({ evenDamage: true, items: false, hazards: false, countdown: false }, Story.cfg(run, 3), { waveBeat: flag, waveKeep: 2, playerHp: 40 }));
+          m.fighters.forEach((f, i) => { m.controllers[i] = new AIController(f.profile, i === 0 ? 'expert' : 'easy'); });
+          while (m.tick < 20000 && (until ? m.tick < until : !told.length)) {
+            m.step();
+            hash = fnv1a(hash.toString(36) + m.fighters.map((f) => [f.x.toFixed(4), f.z.toFixed(4), f.hp.toFixed(3), f.state].join()).join(';'));
+          }
+          return { tick: m.tick, hash };
+        } finally { if (m) m.dispose(); Events.handlers = handlers; }
+      };
+      const on = play(true), seen = told.length, off = play(false, on.tick);
+      if (on.tick >= 20000 || seen !== 1 || told[0] !== '2/2/' + TEAM_ENEMIES + '/true') bad.push('told ' + told + ' at tick ' + on.tick);
+      if (told.length !== seen) bad.push('told without the flag');
+      if (on.hash !== off.hash) bad.push('the flag changed the fight');
+      return bad.length ? bad.join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {

@@ -239,10 +239,20 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .slot .sno{color:var(--pc);text-align:center}
 .warnline{color:var(--bad)}
 .opt.dim{opacity:.5;cursor:default;pointer-events:none}
-.beat{background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
-.beat:focus-visible{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
-.beat p{margin:.25em 0;line-height:1.35}
+.beat{display:block;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
+.beat:hover,.beat:focus-visible{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
+.beat .line{display:block;margin:.25em 0;line-height:1.35}
 .beat .who{font-weight:800;color:var(--a1);margin-right:.5em;letter-spacing:.05em;text-transform:uppercase;font-size:.85em}
+.screen.scene{align-items:flex-end;justify-content:center;padding:0 .6em .8em}   /* P10-04: the scene shows through; only the box and the Skip chip take taps */
+.screen.scene.on{pointer-events:none}
+.screen.scene.top{align-items:flex-start;padding-top:3.6em}
+.scenebox,.scenechoices,.scenechip{pointer-events:auto}
+.scenebox{display:block;width:min(46em,100%);max-height:30vh;max-height:30dvh;overflow:auto;text-align:left;color:#fff;font:inherit;font-size:max(1em,16px);line-height:1.35;background:rgba(0,0,0,.8);border:2px solid var(--line);border-radius:.5em;padding:.5em .9em;cursor:pointer}
+.scenebox:hover,.scenebox:focus-visible,.scenechoices .card:focus-visible{outline:3px solid var(--a1);outline-offset:2px}
+.scenebox .who{display:block;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:.85em}
+.scenechoices{display:flex;flex-direction:column;gap:.4em;width:min(46em,100%)}
+.scenechoices .card{min-height:44px;margin:0;font-weight:800;letter-spacing:.07em;text-transform:uppercase;background:rgba(0,0,0,.8)}
+button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:44px;margin:0;padding:.3em 1em;background:rgba(0,0,0,.8)}
 .panel.lineup,.panel.story{scroll-padding-bottom:5em}   /* a focused row or beat scrolls clear of the sticky footer */
 @media (max-width:520px){.slot{grid-template-columns:1.4em 1.5fr 1fr 1fr;gap:.25em}.slot .opt.cell{padding:.3em .25em;font-size:.8em;min-height:2.4em}.panel.lineup .opt{min-height:2.4em;padding:.3em .6em}.panel.lineup .row.sticky{bottom:-.8em}}
 .tag.seat1,.tag.seat2,.tag.seat3,.tag.seat4{border-color:var(--pc)}
@@ -2301,6 +2311,7 @@ const FaceTex = {
 };
 /* P6-09: the expression (index into FACE_EXPR) read from fighter state at draw time; look only. */
 function faceExpression(f) {
+  if (f.expr >= 0) return f.expr;   // a scene pose forces its face (P5-05)
   const state = f.state, rest = f.stam / f.maxStam;
   if (state === S.VICTORY) return 5;
   if (state === S.DEFEAT) return 4;
@@ -5061,6 +5072,50 @@ const VICTORY_POSES = {
   },
 };
 
+/* Non-combat poses (P5-05), visual only. A row is id|joint:value ...|loop joint:amplitude:Hz|look|wide: the resting stance with the listed joints set (radians; an arm hangs along the torso, so a leaning
+   torso carries it forward), one joint swinging round its value, the P6-09 face it wears (0 rested, 1 hurt, 2 tired, 3 panting, 4 angry, 5 win, 6 shocked) and, for hands that meet on the middle line, how much
+   further the arms twist in per unit a body is broader than the standard one (0 = not at all). The 6 VICTORY_POSES are the rest of the list. */
+const REST_POSE = makePose({ shLz: 0.1, shRz: 0.1, elL: 0.15, elR: 0.15, hipLz: 0.07, hipRz: 0.07, knL: 0.06, knR: 0.06 });
+const STORY_BREATH = 0.015, STORY_BREATH_HZ = 0.3;   // rad and Hz: the torso's slow rise and fall under every pose
+const INTRO_EMOTE_SECONDS = 1.2;                      // how long a fighter's Intro emote plays at the start of a round
+const STORY_POSE_ROWS = [
+  'nod|torsoLean:.03 headX:.1 shLx:.05 shRx:.05 elL:.35 elR:.35|headX:.2:1.4|0',
+  'wave|torsoLean:-.03 headY:.12 shRx:1.9 elR:1 shRz:.3 shLx:.05 elL:.3|shRz:.2:2.4|5',
+  'point|torsoLean:.08 headX:.05 shRx:1.5 elR:.05 shRz:.05 shLx:.1 elL:.5|shRx:.06:1.6|0',
+  'fist_bump|torsoLean:.06 headX:.05 shRx:1.3 elR:.1 shRy:-.3 shRz:-.1 shLx:.1 elL:.4||5',
+  'handshake|torsoLean:.1 headX:.05 shRx:.9 elR:.1 shRy:-.3 shRz:-.1 shLx:.1 elL:.4||0',
+  'help_up|torsoLean:.5 headX:.1 hipLx:.35 hipRx:.2 knL:.55 knR:.45 shRx:1.6 elR:0 shRy:-.3 shRz:-.1 shLx:.5 shLz:.5 elL:.3||0',
+  'beckon|torsoLean:.05 headX:.05 shRx:.85 elR:1 shLx:.1 elL:.4|elR:.4:2.2|0',
+  'chest_pound|torsoLean:.05 shRx:0 elR:2.1 shRy:-.9 shRz:0 shLx:.1 elL:.4|elR:.3:2.2|5',
+  'neck_crack|torsoLean:.03 shLz:.2 shRz:.2 elL:.5 elR:.5 shLx:.2 shRx:.2|headY:.45:.7|0',
+  'glove_tap|torsoLean:.08 headX:.08 shLx:.4 elL:1.6 shLy:-.5 shLz:-.1 shRx:.4 elR:1.6 shRy:-.3 shRz:-.1|shLy:.26:2.5|0|2.8',
+  'shake_out|torsoLean:.06 knL:.25 knR:.25 hipLx:.1 hipRx:.1 shLz:.25 shRz:.25 elL:.3 elR:.3|torsoTwist:.15:3|0',
+  'crossed_arms|headX:.02 hipLz:.14 hipRz:.04 knR:.1 shLx:.9 elL:1.5 shLy:-.9 shLz:.6 shRx:1.1 elR:1 shRy:-.9 shRz:.6|headX:.03:.4|0',
+  'idle_relaxed|hipLz:.1 hipRz:.1 knL:.08 knR:.08 shLz:.15 shRz:.15 elL:.25 elR:.25|rootSide:.03:.35|0',
+  'idle_stretch|torsoLean:.03 shLx:1.9 elL:.3 shLy:-.9 shLz:.6 shRx:.9 elR:2 shRy:-.9 shRz:.45|torsoTwist:.2:.25|0',
+  'idle_tired|torsoLean:1.05 headX:.3 hipLx:.9 hipRx:.9 knL:1.3 knR:1.3 hipLz:.2 hipRz:.2 shLx:.8 elL:.1 shLz:-.2 shRx:.8 elR:.1 shRz:-.2|torsoLean:.04:.35|3',
+  'shocked|torsoLean:-.15 headX:-.12 rootFwd:-.06 hipRx:-.35 knR:.2 shLx:1.2 elL:.6 shLz:.5 shRx:1.2 elR:.6 shRz:.5|torsoLean:.02:3|6',
+  'laugh|torsoLean:-.14 headX:-.4 shLx:0 elL:1.3 shLy:-.6 shLz:-.2 shRx:.2 elR:.4|torsoLean:.05:4|5',
+  'angry|torsoLean:.25 headX:.22 shLx:.15 elL:.9 shLz:.2 shRx:.15 elR:.9 shRz:.2 hipLz:.15 hipRz:.15 knL:.15 knR:.15|torsoRoll:.02:2.5|4',
+  'head_down|torsoLean:.2 headX:.55 shLx:.12 shRx:.12 shLz:.04 shRz:.04|torsoLean:.02:.3|2',
+  'think|torsoLean:.05 headX:.1 shRx:1.5 elR:2.1 shRy:-.9 shRz:.2 shLx:.5 elL:1.8 shLy:-.9 shLz:.1|headY:.06:.3|0',
+  'argue|torsoLean:.08 headX:.05 shRx:1.2 elR:.9 shLx:.2 elL:.5|shRx:.3:1.8|4',
+  'plead|torsoLean:.15 headX:.15 shLx:.9 elL:1.3 shLz:.3 shRx:.9 elR:1.3 shRz:.3|torsoLean:.03:.8|1',
+  'shrug|headY:.1 torsoRoll:.04 shLx:.3 elL:1 shLz:.55 shRx:.3 elR:1 shRz:.55|headY:.04:.8|0',
+  'phone|torsoLean:.1 headX:.35 shRx:.6 elR:1.6 shRy:-.6 shRz:.45 shLx:.1 elL:.4|headX:.03:.5|0',
+  'kneel|torsoLean:.5 headX:.2 hipLx:1.45 knL:1.45 hipRx:0 knR:1.5 rootDrop:.05 shLx:.8 elL:.4 shLy:-.3 shLz:.1 shRx:-.1 elR:.4 shRy:-.3 shRz:0||2',
+  'sit_floor|torsoLean:.25 headX:.1 hipLx:2.2 hipRx:2.2 knL:1.6 knR:1.6 hipLz:-.3 hipRz:-.3 shLx:.3 elL:1.6 shLz:.3 shRx:.3 elR:1.6 shRz:.3||2',
+  'defeat_slump|torsoLean:1.65 headX:.3 hipLx:.15 hipRx:.15 knL:1.55 knR:1.55 rootDrop:.06 shLx:2 elL:.1 shLz:0 shRx:2 elR:.1 shRz:0||1',
+  'defeat_turn|bodyYaw:2.5 torsoLean:.05 headX:.1 shRx:1.4 elR:.3 shRz:.4 shLx:.1|shRz:.2:2|4',
+];
+const STORY_POSES = Object.create(null);   // id -> { pose (Float32Array), loop ([joint, amplitude, Hz] or null), look, wide }
+for (const row of STORY_POSE_ROWS) {
+  const [id, joints, loop, look, wide] = row.split('|'), pose = new Float32Array(REST_POSE);
+  for (const pair of joints.split(' ')) { const [joint, value] = pair.split(':'); pose[J[joint]] = Number(value); }
+  const [loopJoint, amplitude, hz] = loop ? loop.split(':') : [];
+  STORY_POSES[id] = { pose, loop: loop ? [J[loopJoint], Number(amplitude), Number(hz)] : null, look: Number(look), wide: Number(wide || 0) };
+}
+
 /* =====================================================================
    05b FIGHTER - state machine, movement, attack execution, animation, drawing.
    ===================================================================== */
@@ -5493,6 +5548,7 @@ class Fighter {
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
+    this.poseId = ''; this.poseT0 = 0; this.poseEnd = 0; this.expr = -1; this.reach = 0;   // P5-05: a non-combat pose being played (setPose), when it began and ended (animT; 0 = no end), the face it forces (-1 = none) and how far a scene raised the right arm to meet a hand (rad); visual only
     this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
@@ -6128,7 +6184,7 @@ class Fighter {
       const idx = Math.floor(this.walkPhase / Math.PI);
       if (idx !== this.stepIndex) { this.stepIndex = idx; if (!this.airborne) Events.emit('step', { f: this, run: this.state === S.RUN }); }
     }
-    this.computePose();
+    this.computePose(dt);
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
     if (this.state === S.ATTACK && this.move && this.move.type === 'strike' && (this.move.tier >= 2) && Settings.v.effects !== 'low') {
       const t = this.moveTick;
@@ -6155,7 +6211,7 @@ class Fighter {
     p[J.knL] += Math.max(0, -cw) * 0.3; p[J.knR] += Math.max(0, cw) * 0.3;
     p[J.rootSide] = sw * 0.015;
   }
-  computePose() {
+  computePose(dt = DT) {
     const p = this.tp, g = this.motion.guard, m = this.motion;
     p.set(g);
     this.chainBend = CHAIN_REST; this.chainOver = false;   // P5-07: a bike chain hangs slack unless a swing bends it
@@ -6163,6 +6219,7 @@ class Fighter {
     let k = 0.3;
     switch (this.state) {
       case S.IDLE: {
+        if (this.poseId && this.poseActive(t)) { k = this.storyPose(p, t, dt); break; }
         if (this.throwFollowPose(p)) { k = 0.45; break; }
         this.styleRhythm(p, t, Settings.v.reducedMotion ? 0.35 : 1);
         break;
@@ -6290,9 +6347,7 @@ class Fighter {
         break;
       }
       case S.VICTORY: VICTORY_POSES[m.victory](p, t, st); break;
-      case S.DEFEAT:
-        p[J.torsoLean] = 0.55; p[J.headX] = 0.5; p[J.shLx] = 0.1; p[J.shRx] = 0.1; p[J.elL] = 0.2; p[J.elR] = 0.2; p[J.shLz] = 0.15; p[J.shRz] = 0.15; p[J.knL] = 0.5; p[J.knR] = 0.5; p[J.hipLx] = 0.2; p[J.hipRx] = 0.1;
-        break;
+      case S.DEFEAT: k = this.storyPose(p, t, dt, 'defeat_slump'); break;   // a round lost on time stands knocked down on its knees (P5-05); a knock-out stays down
       default: break;
     }
     if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } }   // the arm is at the release point on the tick of the release, so it skips the usual easing
@@ -6302,6 +6357,27 @@ class Fighter {
     k = this.state === S.SWAY ? SWAY_POSE_BLEND : Math.min(0.9, k * m.blend);   // the sway pose has to be there on the first i-frame tick, so it ignores the fighter's speed
     for (let i = 0; i < NP; i++) pose[i] += (p[i] - pose[i]) * k;
   }
+  /* A non-combat pose (P5-05) from the resting stance: its joint targets, its one looping joint and a slow breath (a victory pose runs its own code). Returns the blend rate: 0.3 a tick, so a pose settles in about 0.3 s at any frame rate. */
+  storyPose(p, t, dt, id = this.poseId) {
+    const row = STORY_POSES[id], amount = Settings.v.reducedMotion ? 0.35 : 1;
+    p.set(REST_POSE);
+    if (row) {
+      p.set(row.pose);
+      const inward = 1 + (this.build * this.shape.chest - 1) * row.wide;   // hands that meet on the middle line (glove_tap): a broad body has its shoulders farther apart, so the arms twist further in
+      p[J.shLy] *= inward; p[J.shRy] *= inward; p[J.shRx] += this.reach;
+      if (row.loop) p[row.loop[0]] += row.loop[1] * Math.sin(t * TAU * row.loop[2]) * amount;
+      p[J.torsoLean] += Math.sin(t * STORY_BREATH_HZ * TAU) * STORY_BREATH * amount;
+    } else VICTORY_POSES[id](p, t, Math.round((t - this.poseT0) * 60));
+    return 1 - Math.pow(0.7, dt * 60);
+  }
+  /* Plays pose `id` (a STORY_POSES or VICTORY_POSES id; anything else clears it) for `seconds` (0 = until changed). */
+  setPose(id, seconds = 0) {
+    const row = STORY_POSES[id];
+    this.poseId = row || Object.hasOwn(VICTORY_POSES, id) ? id : ''; this.poseT0 = this.animT; this.poseEnd = seconds > 0 ? this.animT + seconds : 0; this.expr = row ? row.look : -1; this.reach = 0;
+  }
+  poseActive(t) { if (this.poseEnd > 0 && t >= this.poseEnd) this.setPose(''); return this.poseId !== ''; }
+  /* The pose is there at once, without the blend (a scene cut), and the key points (this.pts) are read at the fighter's place. */
+  settlePose() { this.storyPose(this.pose, this.animT, 0); this.tp.set(this.pose); this.skeleton(this.x, this.y, this.z, this.yaw, false); }
   /* Stance rhythm of the move style: knee bounce, side-to-side weight shift, head movement. */
   styleRhythm(p, t, amount) {
     const m = this.motion;
@@ -6531,6 +6607,7 @@ class Fighter {
       ms.t(0, -BODY.foreLen, 0);
       part(MESH.SPHERE, 0, -BODY.handY, 0.01, H[0] * hand, H[1] * hand, H[2] * hand, col[H[4]], 0, H[5], fl);
       this.pieces(this.extra, 'x', s, fl);
+      if (s < 0 && this.poseId === 'phone') part(MESH.CUBE, 0, -0.07, 0.04, 0.07, 0.14, 0.015, col.dark, 0, 0.4, fl);   // P5-05: the one prop, a phone in the right hand with its screen towards the face
       if (s < 0 && this.item) {   // the right hand holds the item: its +y runs on out of the fist, leaning forward
         const w = this.itemDef;
         ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(w.hold[3] || 0, w.hold[0], w.hold[1]); if (w.hold[2]) ms.ry(w.hold[2]);
@@ -6591,13 +6668,13 @@ class Fighter {
   drawHair(fl) { this.pieces(this.hairP, 'h', 0, fl); }
 
   /* Render with sub-tick interpolation. */
-  draw(alpha) {
+  draw(alpha, marker = true) {   // marker: the floor disc of the fighter's team (a scene leaves it out)
     const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
     const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
     this.skeleton(px, py, pz, yaw, true);
     if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, py * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team (every enemy of a brawl)
-    R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
+    if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
   }
 }
 
@@ -7869,8 +7946,8 @@ const STORY_TONES = [
 const STORY_INTROS = [
   'nod|Nod', 'glove_tap|Glove tap', 'shake_out|Shake it out', 'crossed_arms|Arms crossed', 'wave|Wave', 'point|Point', 'fist_bump|Fist bump', 'beckon|Beckon', 'chest_pound|Chest pound', 'neck_crack|Neck crack', 'shrug|Shrug', 'laugh|Laugh',
 ].map((row) => { const [id, name] = row.split('|'); return { id, name }; });
-/* The 28 non-combat poses P5-05 will build (the 6 VICTORY_POSES are the rest): scenes name poses by these ids. */
-const STORY_POSE_IDS = ('nod wave point fist_bump handshake help_up beckon chest_pound neck_crack glove_tap shake_out crossed_arms idle_relaxed idle_stretch idle_tired shocked laugh angry head_down think argue plead shrug phone kneel sit_floor defeat_slump defeat_turn').split(' ');
+/* The 28 non-combat poses of P5-05 (the 6 VICTORY_POSES are the rest): scenes name poses by these ids. */
+const STORY_POSE_IDS = Object.keys(STORY_POSES);
 /* Beats: id|name|when (before / after / wave = last wave entry / lost)|stage|boxes 'speaker.camera' (N narrator, P fighter, R rival A, R2 rival B, B boss, Z champion)|choice flag. */
 const STORY_BEATS = [
   'B1|Prologue|before|1|N.wide P.close', 'B2|Goal|before|1|P.close', 'B3|Word spreads|after|1|N.wide', 'B4|Challenge|before|2|R.two', 'B5|Beaten|after|2|R.two R.two|choice',
@@ -8000,7 +8077,7 @@ const Story = {
     if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
     Object.assign(cfg, { mode: 'brawl', enemies: 1, waves: true, winsNeeded: 1, timer: 0 });
     if (n === 1) cfg.waveKeep = 3;
-    else if (n === 3) cfg.rival = run.rivalB;
+    else if (n === 3) { cfg.rival = run.rivalB; cfg.waveBeat = true; }   // waveBeat: the match says so when the last wave is called, for beat B7 (P10-04)
     else if (n === 6) { if (run.choice === 'walk') cfg.rival = run.rivalA; else cfg.waveCut = 1; }   // "Walk away": rival A leads the last wave; "Offer a hand": one enemy fewer in the first wave and no rival A
     return cfg;
   },
@@ -8035,8 +8112,9 @@ const Story = {
     for (const rule of STORY_RULES_BY_SLOT[slot] || []) if ((!best || rule.rank > best.rank) && this.matches(rule, facts)) best = rule;
     return best;
   },
+  idOf(run, who) { return { P: run.fighter, R: run.rivalA, R2: run.rivalB, B: run.boss, Z: run.champion }[who] || ''; },   // the fighter id of a speaker letter ('' for the narrator)
   name(run, who) {
-    const id = { P: run.fighter, R: run.rivalA, R2: run.rivalB, B: run.boss, Z: run.champion }[who], profile = id && ROSTER_BY_ID[id];
+    const id = this.idOf(run, who), profile = id && ROSTER_BY_ID[id];
     return who === 'N' ? '' : who === 'P' ? run.name : profile ? profile.name : '';
   },
   /* The values behind the {tokens} of a text; `override` replaces some (the tests use the longest values). */
@@ -8061,6 +8139,12 @@ const Story = {
   },
   /* The beats told at a moment (when: 'before', 'after', 'wave' or 'lost' with stage 0), in table order. */
   moment(run, when, stage) { return STORY_BEATS.filter((def) => def.when === when && def.stage === stage).map((def) => this.beat(run, def.id)); },
+  /* The ids of all 16 beats in the order a run tells them: each stage's beats before it, at its last wave and after it, then the lost-stage beat. */
+  order() {
+    const ids = [];
+    for (let n = 1; n <= STORY_STAGES; n++) for (const when of ['before', 'wave', 'after']) for (const def of STORY_BEATS) if (def.when === when && def.stage === n) ids.push(def.id);
+    return ids.concat(STORY_BEATS.filter((def) => def.when === 'lost').map((def) => def.id));
+  },
 };
 
 /* =====================================================================
@@ -10645,6 +10729,7 @@ class MatchSim {
     if (slot === this.fighters.length) { this.fighters.push(foe); this.controllers.push(controller); this.intents.push(makeIntent()); this.stats.push(this.newStats()); }
     else { this.fighters[slot] = foe; this.controllers[slot] = controller; clearIntent(this.intents[slot]); this.crowd.forget(slot); }
     this.putWaveFighter(foe, e.k, e.j, e.n);
+    if (this.cfg.waveBeat && e.k === this.waveRows.length - 1 && e.j === 0) Events.emit('waveBeat', { match: this, f: foe });   // a story stage (B7): the leader of the last wave has walked in; the play screen of P10-06 pauses the fight here for the rival's scene
   }
   /* Stage-start hook (P4-07). In a co-op a knocked-out player sits out the rest of the brawl (they take no part, enemies ignore them, the camera leaves them out). A stage system, which does not
      exist yet, calls this when a stage starts to bring them back where they fell, on their feet with COOP_REVIVE_HP of their health. Nothing in play calls it today. Returns how many came back. */
@@ -10680,9 +10765,12 @@ class MatchSim {
     Camera.snapNext = true;
     Inputs.reset();
     this.phase = this.cfg.countdown ? 'countdown' : 'fight';
+    if (this.cfg.countdown) this.introEmotes();
     Events.emit('roundStart', { round: this.round, match: this });
     if (this.phase === 'fight') Events.emit('fightStart', {});
   }
+  /* Each fighter greets with the Intro emote of its story settings for INTRO_EMOTE_SECONDS at the start of the countdown (P5-05). Visual only: it sets pose fields no rule reads, draws no random number and ends long before the fight. */
+  introEmotes() { for (const f of this.fighters) f.setPose(Story.settingsOf(f.profile).intro, INTRO_EMOTE_SECONDS); }
 
   /* ----- one fixed simulation tick ----- */
   step() {
@@ -11127,6 +11215,181 @@ const Showcase = {
   draw() {
     const n = this.solo ? 1 : 2;
     for (let i = 0; i < n; i++) if (this.fighters[i]) this.fighters[i].draw(1);
+  },
+};
+
+/* ---------- story scenes (P10-04) ----------
+   The mini cutscene of a story beat, played in the engine: the beat's level, the cast in P5-05 poses, one camera shot per box and a text box (UI.screen_scene). Nothing is simulated: no match, no tick, no random number;
+   the cast are fighters of their own that only animate. "Preview story" starts them; the play screen of P10-06 will call the same start. */
+const SCENE_REST_POSE = 'idle_relaxed';                    // what a cast member does while the box gives it nothing else
+const SCENE_PAIR_POSES = ['fist_bump', 'handshake'];       // offered by one fighter, answered by the other with the same pose
+const SCENE_TOUCH_POSES = ['fist_bump', 'handshake', 'help_up'];   // poses whose right hand meets the other fighter's (Cutscene.fit)
+const SCENE_CHOICES = { hand: 'Offer a hand', walk: 'Walk away' };   // beat B5: the two answers ...
+const SCENE_REPLY_POSES = { hand: { P: 'help_up', R: 'handshake' }, walk: { P: 'defeat_turn' } };   // ... and how the cast answers (R keeps kneeling after "Walk away")
+const SCENE_COLOURS = { N: '#a9b8da', P: '#34dcff', R: '#ff5c93', R2: '#ffb347', B: '#ff6464', Z: '#ffd24a' };   // name colour of each speaker letter
+const SCENE_NEXT_ACTIONS = ['punch', 'kick'];              // fight buttons that show the next box (A, Enter, Space and a tap press the box itself)
+const SCENE_GUARD_MS = 250;                                // a second press this soon after a change is the same press (Esc is also Pause)
+const SCENE_FIT_PASSES = 3;                                // rounds of facing and moving a pair till their hands meet
+const SCENE_ARM_LENGTH = 0.55, SCENE_REACH_MAX = 0.6;      // m a hand rises per radian of the shoulder (the arm held out forward); the most an arm is raised or lowered to meet a hand (rad)
+const SCENE_SHOTS = { wide: { dist: 6, elev: 0.2, az: 0.12 }, two: { dist: 3.6, elev: 0.1, az: 0.1 }, close: { dist: 1.6, elev: 0.03, az: 0.45 } };   // camera distance (m), pitch and angle off the straight view (rad)
+const SCENE_EYE_LINE = { wide: 1.1, two: 1.3, close: 1.6 };   // m: the height the camera looks at (a close shot: the head and shoulders of a fighter of scale 1, times the speaker's scale)
+const SCENE_LIFT = 0.14;                                   // share of the picture height the subject moves clear of the text box (up for the box at the bottom, down for the narrator's box on top)
+const SCENE_SIDE_MARGIN = 1.6;                             // m of picture width kept beyond the cast
+const SCENE_BACK_GAP = 1.3;                                // m: a third person stands this far behind the pair
+const SCENE_ALONE_YAW = 0.5;                               // rad: a fighter alone in the picture turns three-quarters to the camera
+const Cutscene = {
+  active: false, run: null, profile: null, handlers: null, queue: [], beat: null, box: 0, phase: 'box', reply: '', keep: '', focus: '',   // phase: 'box' (a text box), 'choice' (B5 waits for the answer), 'react' (the answer plays)
+  pool: {}, cast: {}, spots: {}, shot: { x: 0, y: 1, z: 0, dist: 6, elev: 0.2, az: 0.12 }, aimed: null, camera: null,   // aimed: the last shot asked for and the picture's shape it was framed for; camera: the menu's camera, put back at the end
+  /* Plays the beats `ids` in order for the story `run` of the fighter `profile`. handlers: { choice(answer) when B5 is answered, end() when the last beat is over }. Returns false when nothing plays. */
+  start(run, profile, ids, handlers) {
+    if (this.active) return false;
+    Object.assign(this, { active: true, run, profile, handlers, queue: ids.slice(), beat: null, box: 0, phase: 'box', keep: Arena.def ? Arena.def.id : '', focus: '', pool: {}, cast: {}, spots: {}, aimed: null, camera: { target: Camera.target.slice(), dist: Camera.dist, elev: Camera.elev, az: Camera.az } });
+    this.nextBeat();
+    return this.active;
+  },
+  nextBeat() {
+    while (this.queue.length) {
+      const beat = Story.beat(this.run, this.queue.shift());
+      if (!beat || !beat.boxes.length) continue;
+      this.beat = beat; this.box = 0; this.phase = 'box';
+      this.arrange();
+      this.enterBox(true);
+      return;
+    }
+    this.finish();
+  },
+  fighterOf(who) {
+    if (!this.pool[who]) this.pool[who] = new Fighter(who === 'P' ? this.profile : ROSTER_BY_ID[Story.idOf(this.run, who)] || ROSTER_BY_ID.kai, who === 'P' ? 0 : 1);   // the same ones again for each beat of a run
+    return this.pool[who];
+  },
+  /* The beat's level and cast: P and everyone else its boxes name (a speaker or someone in the shot), standing as Story.cast puts the duel of the stage; P alone stands in the middle. */
+  arrange() {
+    const def = STORY_BEAT_BY_ID[this.beat.id], n = def.stage > 0 && def.id !== 'B16' ? def.stage : 1, level = Story.arena(this.run, n), at = Story.cast(this.run, n);   // the lost-stage beat and the epilogue play at home
+    if (!Arena.def || Arena.def.id !== level) Arena.build(ARENAS[level]);
+    const others = [];
+    for (const box of this.beat.boxes) for (const who of [box.who].concat(box.also.map((pair) => pair[0]))) if (who !== 'N' && who !== 'P' && !others.includes(who)) others.push(who);
+    this.cast = { P: this.fighterOf('P') };
+    for (const who of others) this.cast[who] = this.fighterOf(who);
+    const middle = (at.playerX + at.otherX) / 2;
+    this.spots = { P: [others.length ? at.playerX : middle, at.z] };
+    others.forEach((who, k) => { this.spots[who] = k === 0 ? [at.otherX, at.z] : [middle, at.z - SCENE_BACK_GAP]; });
+    for (const who in this.cast) this.cast[who].setPose('');
+  },
+  /* Puts every cast member back at its spot (on whatever the level has there) facing the one it talks to. */
+  stand() {
+    const keys = Object.keys(this.cast), first = keys[1] || '';
+    for (const who of keys) {
+      const f = this.cast[who], [x, z] = this.spots[who];
+      f.x = f.prevX = x; f.z = f.prevZ = z;
+      f.y = f.prevY = f.groundY = f.supportY = Arena.supportAt(x, z, 99, f.radius);
+      this.face(f, who === 'P' ? this.cast[first] : this.cast.P);
+    }
+  },
+  face(f, to) { f.yaw = f.prevYaw = to ? Math.atan2(to.x - f.x, to.z - f.z) : SCENE_ALONE_YAW; },
+  /* Brings the right hands of a and b together: each raises or lowers its arm by half the difference in hand height (a short fighter meets a tall one half way), then b steps to where a's hand is (the pair face each other first; each round corrects the turn the last step caused). */
+  fit(a, b) {
+    for (let pass = 0; pass < SCENE_FIT_PASSES; pass++) {
+      this.face(a, b); this.face(b, a);
+      a.settlePose(); b.settlePose();
+      const lift = clamp((a.pts[13] - b.pts[13]) / 2 / SCENE_ARM_LENGTH, -SCENE_REACH_MAX, SCENE_REACH_MAX);
+      a.reach = clamp(a.reach - lift, -SCENE_REACH_MAX, SCENE_REACH_MAX); b.reach = clamp(b.reach + lift, -SCENE_REACH_MAX, SCENE_REACH_MAX);
+      a.settlePose(); b.settlePose();
+      b.x += a.pts[12] - b.pts[12]; b.z += a.pts[14] - b.pts[14]; b.prevX = b.x; b.prevZ = b.z;
+    }
+  },
+  /* Gives each cast member its pose (`poses`: speaker letter -> pose id); an offered fist bump or handshake is answered, and a pair whose hands meet is brought together. cut: the poses are there at once. */
+  setPoses(poses, cut) {
+    const cast = this.cast, partner = Object.keys(cast)[1] || '', pose = (who) => poses[who] || SCENE_REST_POSE;
+    this.stand();
+    if (partner) for (const [from, to] of [['P', partner], [partner, 'P']]) if (SCENE_PAIR_POSES.includes(pose(from)) && pose(to) === SCENE_REST_POSE) poses[to] = poses[from];
+    for (const who in cast) cast[who].setPose(pose(who));
+    if (partner && SCENE_TOUCH_POSES.includes(pose('P')) && SCENE_TOUCH_POSES.includes(pose(partner))) { this.fit(cast.P, cast[partner]); cut = true; }
+    if (cut) for (const who in cast) cast[who].settlePose();
+  },
+  enterBox(cut) {
+    const box = this.beat.boxes[this.box], speaker = box.who === 'N' ? 'P' : box.who, poses = {};
+    for (const who in this.cast) poses[who] = this.cast[who].poseId;   // each keeps what it does unless the box says otherwise
+    if (box.pose) poses[speaker] = box.pose;
+    for (const [who, pose] of box.also) if (this.cast[who]) poses[who] = pose;
+    this.setPoses(poses, cut);
+    this.aim(box.cam, speaker, box.who === 'N', cut || speaker !== this.focus);
+  },
+  aspect() { return R.cssW > 0 && R.cssH > 0 ? R.cssW / R.cssH : 16 / 9; },   // the picture's width over its height
+  /* The camera of a box: wide (the whole cast), two (the first two) or close (the speaker's head and shoulders); a cut when the speaker changes, an ease otherwise. top: the narrator's text box is at the top. */
+  aim(cam, speaker, top, cut) {
+    const shot = SCENE_SHOTS[cam], list = Object.values(this.cast), voice = this.cast[speaker] || this.cast.P, seen = cam === 'close' ? [voice] : cam === 'two' ? list.slice(0, 2) : list;
+    let x = 0, z = 0, reach = 0;
+    for (const f of seen) { x += f.x; z += f.z; }
+    x /= seen.length; z /= seen.length;
+    for (const f of seen) reach = Math.max(reach, Math.abs(f.x - x) * 2, Math.abs(f.z - z) * 2);
+    const tanHalf = Math.tan(Camera.baseFov / 2), aspect = this.aspect(), dist = Math.max(shot.dist, (reach + SCENE_SIDE_MARGIN) / (2 * tanHalf * aspect));
+    const to = this.shot, line = SCENE_EYE_LINE[cam] * (cam === 'close' ? voice.scale : 1);
+    to.x = x; to.z = z; to.y = line + (top ? 1 : -1) * SCENE_LIFT * 2 * dist * tanHalf; to.dist = dist; to.elev = shot.elev; to.az = shot.az * (cam === 'close' && Math.sin(voice.yaw) < 0 ? -1 : 1);
+    this.focus = speaker;
+    this.aimed = { cam, speaker, top, aspect };
+    if (cut) { Camera.target[0] = to.x; Camera.target[1] = to.y; Camera.target[2] = to.z; Camera.dist = to.dist; Camera.elev = to.elev; Camera.az = to.az; }
+  },
+  /* The next box; after the last one, B5 asks its question and any other beat is over. */
+  next() {
+    if (!this.active || this.phase === 'choice') return;
+    if (this.phase === 'box' && ++this.box < this.beat.boxes.length) this.enterBox(false);
+    else this.leave();
+    this.changed();
+  },
+  /* Skip (Esc, Start, the chip): the rest of the beat is dropped, but a pending answer is still asked. */
+  skipBeat() {
+    if (!this.active || this.phase === 'choice') return;
+    if (this.phase === 'box') this.box = this.beat.boxes.length - 1;
+    this.leave();
+    this.changed();
+  },
+  leave() {
+    if (this.phase === 'box' && this.beat.choice) {
+      this.phase = 'choice';
+      const box = this.beat.boxes[this.beat.boxes.length - 1];
+      this.aim('two', box.who, false, false);
+    } else this.nextBeat();
+  },
+  choose(answer) {
+    if (!this.active || this.phase !== 'choice' || !Object.hasOwn(SCENE_CHOICES, answer)) return;
+    Story.choose(this.run, answer);
+    if (this.handlers && this.handlers.choice) this.handlers.choice(answer);
+    this.phase = 'react';
+    const poses = {};
+    for (const who in this.cast) poses[who] = this.cast[who].poseId;
+    this.setPoses(Object.assign(poses, SCENE_REPLY_POSES[answer]), false);
+    this.aim('two', 'P', false, false);
+    this.reply = answer;
+    this.changed();
+  },
+  changed() { if (this.active) UI.sceneChanged(); },
+  /* What the screen shows now: the speaker's colour and name, the text, and whether the box is at the top; null when no scene runs. */
+  view() {
+    if (!this.active || !this.beat) return null;
+    const box = this.beat.boxes[this.box];
+    if (this.phase === 'choice') return { phase: 'choice', who: 'P', name: this.run.name, text: '', top: false };
+    if (this.phase === 'react') return { phase: 'react', who: 'P', name: this.run.name, text: SCENE_CHOICES[this.reply], top: false };
+    return { phase: 'box', who: box.who, name: box.speaker || 'Narrator', text: box.text, top: box.who === 'N' };
+  },
+  update(dt) {
+    if (UI.current !== 'scene') { this.finish(); return; }   // the screen was left some other way (the error screen, a menu)
+    Arena.update(dt); Debris.update(dt); FX.update(dt);
+    for (const who in this.cast) this.cast[who].animate(dt);
+    const aimed = this.aimed;
+    if (aimed && aimed.aspect !== this.aspect()) this.aim(aimed.cam, aimed.speaker, aimed.top, false);   // the screen was turned or resized: frame the shot again for the new shape
+    const to = this.shot;
+    Camera.showcase(dt, to.x, to.y, to.z, to.dist, to.az, to.elev);
+  },
+  draw() { for (const who in this.cast) this.cast[who].draw(1, false); },
+  finish() {
+    if (!this.active) return;
+    this.active = false;
+    if (this.keep && (!Arena.def || Arena.def.id !== this.keep)) Arena.build(ARENAS[this.keep]);   // the menu scene behind comes back as it was
+    Debris.clear(); FX.clear();
+    const handlers = this.handlers, saved = this.camera;
+    if (saved) { Camera.target[0] = saved.target[0]; Camera.target[1] = saved.target[1]; Camera.target[2] = saved.target[2]; Camera.dist = saved.dist; Camera.elev = saved.elev; Camera.az = saved.az; Camera.finish(0, 30, 30); }   // the story screen's own camera, not the last shot
+    Object.assign(this, { handlers: null, pool: {}, cast: {}, spots: {}, beat: null, queue: [], aimed: null, camera: null });
+    if (handlers && handlers.end) handlers.end();
   },
 };
 
@@ -11610,7 +11873,7 @@ const Game = {
     } else if (st === GS.PAUSED && this.match) {
       this.alpha = clamp(this.acc / DT, 0, 1);
     } else if (!this.match) {
-      Showcase.update(dt);
+      if (Cutscene.active) Cutscene.update(dt); else Showcase.update(dt);
     }
     Diag.simMs += (performance.now() - t0 - Diag.simMs) * 0.1;
     this.render(dt);
@@ -11639,7 +11902,7 @@ const Game = {
     if (m || Arena.def) { Camera.apply(); }
     if (Arena.def) Arena.draw();
     Debris.draw();
-    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); m.drawHazards(); } else Showcase.draw();
+    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); m.drawHazards(); } else if (Cutscene.active) Cutscene.draw(); else Showcase.draw();
     FX.draw();
     R.render();
     Events.emit('rendered', { match: m });
@@ -12454,6 +12717,7 @@ const UI = {
     if (cur === 'pause') { Game.resume(); return; }
     if (cur === 'results' || cur === 'main' || !cur) return;
     if (cur === 'creator') { CreatorUI.back(); return; }
+    if (cur === 'scene') { Cutscene.skipBeat(); return; }   // Esc / B skip the beat (a pending answer is still asked)
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
     if (cur === 'coop') { this.syncPadPrev(); Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
@@ -12532,7 +12796,7 @@ const UI = {
     }
   },
   onClick(e) {
-    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results')) return;
+    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results' || this.current === 'scene' || this.current === 'story')) return;   // a double tap: the second one must not answer, nor reach Back or a beat card behind
     const t = e.target.closest('[data-act]');
     if (t) { this.act(t.getAttribute('data-act'), t); return; }
     if (e.target.closest('input,textarea')) return;           // text fields and sliders handle themselves
@@ -12618,6 +12882,11 @@ const UI = {
       case 'inc': this.changeSetting(arg, 1); break;
       case 'ldec': this.changeLocal(arg, -1); break;
       case 'linc': this.changeLocal(arg, 1); break;
+      case 'scene': this.playScene([arg], 'scene:' + arg); break;
+      case 'sceneall': this.playScene(Story.order(), 'sceneall'); break;
+      case 'scenenext': Cutscene.next(); break;
+      case 'sceneskip': Cutscene.skipBeat(); break;
+      case 'scenego': Cutscene.choose(arg); break;
       case 'errmenu':
         this.dom.fatal.hidden = true;
         Game.errorCount = 0;
@@ -13075,7 +13344,7 @@ const UI = {
     h += '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (fullscreen ? '<button class="mi" style="width:auto" data-nav data-act="fullscreen">Fullscreen</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="resetSettings">Reset to defaults</button></div></div></section>';
     return h;
   },
-  /* ----- story preview (P10-03): the stages and scenes of one Arcade run for a fighter, with the choices that change them. The cutscenes themselves are P10-04. ----- */
+  /* ----- story preview (P10-03) and its scenes (P10-04): the stages and beats of one Arcade run for a fighter, with the choices that change them; a beat card plays its scene. ----- */
   openStory(profile) { this.storyView = { profile, choice: 'hand', flawless: false, continues: 0, clears: 0 }; this.push('story'); },
   storyChange(name, dir) {
     const v = this.storyView;
@@ -13086,18 +13355,24 @@ const UI = {
     else if (name === 'storyclears') v.clears = (v.clears + dir + 3) % 3;
   },
   beatHtml(beat) {
-    let h = '<div class="beat" tabindex="0" data-nav role="group" aria-label="' + esc(beat.name) + '"><b>' + esc(beat.name) + '</b>';
-    for (const box of beat.boxes) h += '<p><span class="who">' + esc(box.speaker || 'Narrator') + '</span>' + esc(box.text) + '</p>';
-    if (beat.choice) h += '<p class="hint">Then you choose: Offer a hand or Walk away.</p>';
-    return h + '</div>';
+    let h = '<button class="beat" data-nav data-act="scene:' + beat.id + '" aria-label="Play the scene: ' + esc(beat.name) + '"><b>' + esc(beat.name) + '</b>';
+    for (const box of beat.boxes) h += '<span class="line"><span class="who">' + esc(box.speaker || 'Narrator') + '</span>' + esc(box.text) + '</span>';
+    if (beat.choice) h += '<span class="line hint">Then you choose: ' + SCENE_CHOICES.hand + ' or ' + SCENE_CHOICES.walk + '.</span>';
+    return h + '</button>';
+  },
+  /* The run the story screen shows (and the scenes tell): the fighter's story with the four switches of the screen. */
+  storyRun(v) {
+    const run = Story.start(v.profile, v.clears, 'normal', 1);
+    run.choice = v.choice; run.flawless = v.flawless; run.continues = v.continues;
+    return run;
   },
   screen_story() {
     const v = this.storyView;
     if (!v) return '';
-    const run = Story.start(v.profile, v.clears, 'normal', 1), s = Story.settingsOf(v.profile), country = STORY_COUNTRY_BY_ID[s.country];
-    run.choice = v.choice; run.flawless = v.flawless; run.continues = v.continues;
+    const run = this.storyRun(v), s = Story.settingsOf(v.profile), country = STORY_COUNTRY_BY_ID[s.country];
     let h = '<section class="screen on" aria-label="Story"><div class="panel wide story"><h2>Story: ' + esc(v.profile.name) + '</h2>';
     h += '<p class="sub">' + esc(country.name + ', ' + country.city + ' / ' + STORY_ORIGIN_BY_ID[s.origin].name + ' / goal: ' + STORY_GOAL_BY_ID[s.goal].name) + '</p>';
+    h += '<button class="mi" data-nav data-act="sceneall">Play the whole story<small>All ' + STORY_BEATS.length + ' scenes in order. Select a beat below to play just that scene. Skip ends a scene at any time.</small></button>';
     h += this.optRow('Choice after stage 2', v.choice === 'hand' ? 'Offer a hand' : 'Walk away', 'data-default data-local="storychoice"', '') +
       this.optRow('Stage 2 won without losing a round', v.flawless ? 'Yes' : 'No', 'data-local="storyflaw"', '') +
       this.optRow('Continues used', String(v.continues), 'data-local="storytries"', '') + this.optRow('Arcade clears before this run', String(v.clears), 'data-local="storyclears"', '');
@@ -13110,6 +13385,48 @@ const UI = {
     h += '<p class="hint">After ' + STORY_SKIP_AFTER + ' lost tries of a stage, Skip stage is offered. It counts as a continue and the run is not flawless.</p>';
     h += '<p class="hint">Reward for the first clear with this goal: ' + esc(Story.reward(run)) + '.</p>';
     return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button></div></div></section>';
+  },
+  /* Plays the scenes `ids` over the story screen (Cutscene); `back` is the data-act of the button to focus again when they are over. */
+  playScene(ids, back) {
+    const v = this.storyView;
+    if (!v || Cutscene.active) return;
+    Inputs.reset();   // a Punch or Pause press from before must not move the first box on
+    if (!Cutscene.start(this.storyRun(v), v.profile, ids, { choice: (answer) => { v.choice = answer; }, end: () => this.sceneClosed(back) })) return;
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    this.push('scene');
+  },
+  sceneChanged() {
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    if (this.current === 'scene') this.rerender(false);
+  },
+  sceneClosed(back) {
+    if (this.current !== 'scene') return;
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    this.go(this.stack.pop() || 'story');
+    const again = this.dom.screens.querySelector('[data-act="' + back + '"]');
+    if (again) again.focus();
+  },
+  /* Start / P and the fight buttons while a scene runs: Start skips the beat, Punch and Kick show the next box (a pad's A is Punch and confirm in one, so it must move on only once).
+     Where the next box is not the answer (the question of B5, or the Skip chip in focus) the fight button is left to the pad's confirm, which presses the focused button. True when the press was used. */
+  scenePoll(start) {
+    const next = Inputs.takeAny(SCENE_NEXT_ACTIONS);
+    if (performance.now() < this.guardUntil || !(start || next)) return false;
+    const focused = document.activeElement, onChip = !!focused && focused.getAttribute('data-act') === 'sceneskip';
+    if (!start && (Cutscene.phase === 'choice' || onChip)) return false;
+    if (start) Cutscene.skipBeat(); else Cutscene.next();
+    this.syncPadPrev();
+    return true;
+  },
+  screen_scene() {
+    const v = Cutscene.view();
+    if (!v) return '';
+    let h = '<section class="screen on scene' + (v.top ? ' top' : '') + '" aria-label="Story scene"><button class="mi scenechip" data-nav data-act="sceneskip">Skip</button>';
+    if (v.phase === 'choice') {
+      h += '<div class="scenechoices" role="group" aria-label="Your answer">';
+      Object.keys(SCENE_CHOICES).forEach((answer, k) => { h += '<button class="card" data-nav ' + (k === 0 ? 'data-default ' : '') + 'data-act="scenego:' + answer + '">' + SCENE_CHOICES[answer] + '</button>'; });
+      h += '</div>';
+    } else h += '<button class="scenebox" data-nav data-default data-act="scenenext"><span class="who" style="color:' + SCENE_COLOURS[v.who] + '">' + esc(v.name) + '</span>' + esc(v.text) + '</button>';
+    return h + '</section>';
   },
   screen_credits() {
     const p = Progress.d;
@@ -13201,6 +13518,7 @@ const UI = {
     if (this.current === 'coop') { this.syncPadPrev(); return; }   // A joins there and never confirms (Inputs.pollLobby)
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
     if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
+    if (this.current === 'scene' && this.scenePoll(unpause)) return;
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
     const ok = !!(ph.menuOk), back = !!(ph.menuBack);
     if (pd.down && !p.down) this.moveFocus(1);
@@ -14530,6 +14848,7 @@ function testApi() {
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
+    Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
