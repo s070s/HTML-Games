@@ -2213,6 +2213,8 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
   - Defaults (a fighter without story fields: old customs and codes, `randomCustom`): CA, gymkid, title (KAI's settings). The creator's Randomize draws all three from its own stream, as `randomBody` does.
   - Countries (list order = this table, row by row, left to right; index 0 = Canada; region index = row 0 to 9). Region effects: the region line is the first box of B1 (`{city}` = the country's city); the home level is Arcade stage 1 and leaves the stage 3 / 5 pool (P10-02); the sign hue tints posters, billboard and kiosk faces in every level of the run (a matte colour only); the region index turns the boss order.
 
+    Text note (2026-11-02): the owner asked for the story to read as written by a person, so every line was rewritten in `breakpoint.html`. The quoted lines in these tables are the first version; the `STORY_*` tables in the game hold the current text, and the structure, ids, poses and limits below are unchanged.
+
     | Region (tag) | Home level | Sign hue | Region line (B1) | Countries (id, city) |
     |---|---|---|---|---|
     | North America and Caribbean (nam) | garage | #f2a33a amber | "{city}: big lights, small gyms and a fight on every block." | Canada (CA, Toronto); USA (US, Detroit); Mexico (MX, Mexico City); Jamaica (JM, Kingston); Cuba (CU, Havana); Dominican Republic (DO, Santo Domingo) |
