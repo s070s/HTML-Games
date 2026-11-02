@@ -320,11 +320,14 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P10-05 - Progression and unlocks: clear list of what unlocks what (fighters, styles, items, levels, faces, emotes, modes) and how; shown in a menu.
   Done when: an unlock screen shows locked items with the requirement, and `Progress` save migrates from 1.0.0.
   Status (2026-11-02): done: an Unlocks button on the main menu lists the 22 fighters to earn, open or locked, with each rule and the progress towards it; a line says the starters, arenas, modes, styles, items, faces and intro emotes are open from the start, because the game has no locks for those yet (the Appendix C `UNLOCKS` plan is not built). `Progress` needed no new fields for this screen.
-- [ ] P10-06 - Arcade uses brawler levels (multi-opponent) and 1v1 boss / rival fights (hybrid direction).
+- [x] P10-06 - Arcade uses brawler levels (multi-opponent) and 1v1 boss / rival fights (hybrid direction).
   Done when: a full Arcade run mixes both fight types.
+  Status (2026-11-02): done: Arcade plays the 7-stage story run (brawl, 1v1, brawl, 1v1, brawl, brawl, 1v1) with its scenes. A loss offers Retry, and "Skip stage" from the second loss of a stage (a continue, scores 0 in the run grade, credits no win or unlock), never on the last stage, so a clear needs a real win of the champion. B7 pauses the fight at stage 3's last wave and leaves the fight identical; "Story scenes" (Full, Short, Off) and "Auto-advance" are in Settings. `ARCADE_ARENAS`, `ARCADE_STAGES` and `arcadeDifficulty` are now used by tests only (P15-03 can remove them). Quitting loses the run until P10-08.
 - [x] P10-07 - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress.
   Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
   Status (2026-11-02): done: `fightGrade` scores time 40, damage 35, variety 25, a loss gets "-"; the best letter per mode is saved in `Progress.grades`. Arcade saves one grade for a cleared run; Free Fight, Survival, Brawl and Co-op save theirs (lineups under `brawl` or `free`); Training and Versus get none; the Tournament key waits for P11.
+- [ ] P10-08 - Continue Arcade: save the story run in `Progress` (`arcadeRun` in Appendix C) so quitting does not lose it, and offer "Continue Arcade" on the main menu.
+  Done when: a run quit at any stage continues at that stage with its continues, flawless state and B5 answer; a finished run offers no continue; old saves load.
 
 ## Phase 11 - Tournament mode
 

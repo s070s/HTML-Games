@@ -45,7 +45,7 @@ const {
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
-  Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
+  Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
 } = api;
 
@@ -2583,26 +2583,28 @@ const SelfTest = {
       restoreProgress(saved);
       return lap && late ? true : JSON.stringify({ seen, lap, late });
     });
-    test('Arcade: difficulty option shifts the ladder, retries count continues, a clear offers Play again', () => {
+    /* P10-06: Arcade is the 7-stage story run, so the old five-bout ramp of arcadeDifficulty is gone from the mode: the Arcade difficulty option is the difficulty of every stage. */
+    test('Arcade: the difficulty option is every stage\'s difficulty, retries count continues, a clear offers Play again', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
-      const saved = keepProgress();
+      const saved = keepProgress(), scenes = Settings.v.storyScenes;
+      Settings.v.storyScenes = 'off';   // no scenes: each press goes straight to the next fight
       Progress.d = Progress.fresh();
-      const ladder = (level) => [0, 1, 2, 3, 4].map((stage) => arcadeDifficulty(stage, level)).join();
-      const levels = ladder('normal') === 'easy,normal,hard,hard,expert' && ladder('easy') === 'easy,easy,normal,normal,hard' && ladder('hard') === 'normal,hard,expert,expert,expert';
       Game.selection.player = 'kai'; Game.selection.arcadeLevel = 'hard';
       Game.chooseMode('arcade'); Game.startFromSelection();
-      const shifted = Game.match.cfg.difficulty === 'normal';
+      const hard = Game.match.cfg.difficulty === 'hard';
       Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 1; Game.onMatchEnd();
       Game.state = GS.RESULTS; Game.resultsAction('retry');
-      for (let i = 0; i < ARCADE_STAGES - 1; i++) winAndContinue('next');
+      for (let i = 0; i < STORY_STAGES - 1; i++) winAndContinue('next');
+      const last = Game.match.cfg.difficulty === 'hard';
       Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 0; Game.onMatchEnd();
       const d = Game.resultsData;
       const cleared = d.cleared && d.continues === 1 && d.newBest && d.buttons[0] === 'again' && Progress.d.arcadeFewestContinues === 1;
       Game.state = GS.RESULTS; Game.resultsAction('again');
-      const fresh = Game.run.stage === 0 && Game.run.continues === 0;
+      const fresh = Game.run.stage === 0 && Game.run.story.continues === 0;
       Game.quitToMenu();
+      Settings.v.storyScenes = scenes;
       restoreProgress(saved);
-      return levels && shifted && cleared && fresh ? true : JSON.stringify({ levels, shifted, cleared, fresh });
+      return hard && last && cleared && fresh ? true : JSON.stringify({ hard, last, cleared, fresh });
     });
     test('Arcade: a save from before the fewest-continues record shows no record instead of -1', () => {
       const saved = keepProgress();
@@ -2617,7 +2619,8 @@ const SelfTest = {
     });
     test('Arcade: a retry from the pause menu uses a continue and counts as a loss', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
-      const saved = keepProgress();
+      const saved = keepProgress(), scenes = Settings.v.storyScenes;
+      Settings.v.storyScenes = 'off';   // no scenes: each press goes straight to the next fight
       Progress.d = Progress.fresh();
       Game.selection.player = 'kai';
       Game.chooseMode('arcade'); Game.startFromSelection();
@@ -2625,8 +2628,9 @@ const SelfTest = {
       Game.state = GS.FIGHT; Game.pause();
       const labelled = UI.dom.screens.textContent.includes('Retry (uses a continue)');
       Game.restartMatch();
-      const charged = Game.run.stage === 1 && Game.run.continues === 1 && Progress.d.losses === 1 && Progress.d.wins === 1;
+      const charged = Game.run.stage === 1 && Game.run.story.continues === 1 && Progress.d.losses === 1 && Progress.d.wins === 1;
       Game.quitToMenu();
+      Settings.v.storyScenes = scenes;
       restoreProgress(saved);
       return labelled && charged ? true : JSON.stringify({ labelled, charged });
     });
@@ -4446,7 +4450,8 @@ const SelfTest = {
       const theme = ROSTER.filter((r) => banned.test([r.name, r.title, r.country, r.origin, r.goal].join(' ')));
       return !problems.length && keptFit && spread && ageSpread && looks && !theme.length ? true : JSON.stringify({ problems: problems.slice(0, 4), keptFit, spread, ageSpread, looks, theme: theme.map((r) => r.id) });
     });
-    test('Presets: starters are open from the start, every other preset has an unlock rule, the first Arcade run is the 1.0 ladder and later runs bring in the rivals and bosses, so all 32 can be unlocked', () => {
+    /* P10-06: the Arcade run is the story (Story.start), so the 1.0 ladder and Game.ladderFor are gone: this checks that every rival and boss stands in the story of some fighter and that a run credits its wins as before. */
+    test('Presets: starters are open from the start, every other preset has an unlock rule, every rival and boss stands in some fighter\'s Arcade story and the runs credit the counters, so all 32 can be unlocked', () => {
       const saved = keepProgress(), problems = [];
       try {
         Progress.d = Progress.fresh();
@@ -4457,33 +4462,27 @@ const SelfTest = {
           if (r.role === 'starter' ? !!rule || unlockRuleText(r.id) !== '' : !rule || !unlockRuleText(r.id) || beat !== (r.role === 'rival' || r.role === 'boss')) problems.push(r.id + ' rule');
         }
         if (Object.keys(UNLOCK_RULES).length !== 22 || hasUnlockRule('constructor') || unlockRuleText('c1') !== '') problems.push('rule table');
-        if (Game.ladderFor('kai', 0).map((r) => r.id).join() !== 'yuki,brutus,dmitri,mara,zero') problems.push('first run is not the 1.0 ladder');
-        const seenRivals = new Set(), seenBosses = new Set();
-        for (const player of ROSTER.map((r) => r.id).concat(['c1'])) {
-          for (let clears = 0; clears < 9; clears++) {
-            const ladder = Game.ladderFor(player, clears), ids = ladder.map((r) => r.id);
-            if (ladder.length !== ARCADE_STAGES || new Set(ids).size !== ARCADE_STAGES || ids.includes(player) || (player !== 'zero' && ids[4] !== 'zero')) problems.push(player + '/' + clears + ' ladder ' + ids.join());
-            if (player === 'kai' && clears >= 1) {
-              if (ladder[1].role !== 'rival' || ladder[2].role !== 'rival' || ladder[3].role !== 'boss' || ids[0] !== 'yuki') problems.push('kai/' + clears + ' roles ' + ids.join());
-              if (clears <= 3) { seenRivals.add(ids[1]); seenRivals.add(ids[2]); seenBosses.add(ids[3]); }
-            }
-          }
+        const beatIds = ROSTER.filter((r) => hasUnlockRule(r.id) && UNLOCK_RULES[r.id][0] === 'beat').map((r) => r.id), appears = new Set();
+        for (const goal of STORY_GOALS) for (const origin of STORY_ORIGINS) for (let clears = 0; clears < 3; clears++) {   // rival A follows the goal's motive, rival B the origin's tone, the boss the clears
+          const run = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: origin.id, goal: goal.id } }, clears, 'easy', 1);
+          for (let n = 1; n <= STORY_STAGES; n++) for (const id of Story.beaten(run, n)) appears.add(id);
         }
-        if (seenRivals.size !== 6 || seenBosses.size !== 3) problems.push('rivals ' + seenRivals.size + ' bosses ' + seenBosses.size + ' in 3 later runs');
+        if (beatIds.length !== 9 || beatIds.some((id) => !appears.has(id))) problems.push('standing in a story: ' + beatIds.filter((id) => !appears.has(id)).join());
         // play it through: Arcade runs as KAI, crediting each win the way a match end does
         let runs = 0, thirdWin = '', beforeStreak = [];
-        while (runs < 8 && ROSTER.some((r) => !Progress.isUnlocked(r.id) && UNLOCK_RULES[r.id][0] !== 'streak')) {
-          const ladder = Game.ladderFor('kai', Progress.d.arcadeClears);
-          for (let stage = 0; stage < ARCADE_STAGES; stage++) {
-            const data = {}; Game.creditArcadeWin({ stage, ladder, continues: 0 }, data);
+        while (runs < 8 && ROSTER.some((r) => !Progress.isUnlocked(r.id) && !['streak', 'beat'].includes(UNLOCK_RULES[r.id][0]))) {
+          const story = Story.start(ROSTER_BY_ID.kai, Progress.d.arcadeClears, 'easy', 1);
+          for (let stage = 0; stage < STORY_STAGES; stage++) {
+            const data = {}; Game.creditArcadeWin({ stage, story }, data);
             if (runs === 0 && stage === 2) thirdWin = data.unlocked;
           }
           runs++;
         }
         beforeStreak = ['reid', 'camila', 'nia'].map((id) => Progress.isUnlocked(id));
         Progress.d.survivalKills = 8; const gained = Progress.checkUnlocks();
-        const allOpen = ROSTER.every((r) => Progress.isUnlocked(r.id));
-        if (runs > 5 || thirdWin !== 'DMITRI and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !allOpen) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' all ' + allOpen);
+        const restLocked = ROSTER.filter((r) => !Progress.isUnlocked(r.id)).every((r) => UNLOCK_RULES[r.id][0] === 'beat');   // what is left opens by beating that fighter, who is not in KAI's story
+        const thirdBeaten = ROSTER_BY_ID[Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1).rivalB].name;   // stage 3 is led by rival B, who opens when beaten
+        if (runs > 5 || thirdWin !== 'DMITRI, ' + thirdBeaten + ' and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !restLocked) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' rest ' + restLocked);
         // the cards: a locked one names its rule, an open one does not
         Progress.d = Progress.fresh();
         const locked = UI.fighterCard(ROSTER_BY_ID.deacon, 'pick', false), open = UI.fighterCard(ROSTER_BY_ID.rosa, 'pick', false), opponent = UI.fighterCard(ROSTER_BY_ID.deacon, 'opp', false);
@@ -9464,6 +9463,246 @@ const SelfTest = {
       if (told.length !== seen) bad.push('told without the flag');
       if (on.hash !== off.hash) bad.push('the flag changed the fight');
       return bad.length ? bad.join('; ') : true;
+    });
+    /* ---------- Arcade as the story run (P10-06) ---------- */
+    /* Runs fn with what a page would give Game: Game.go only sets the state (no screens), the scene screen is stood in for (UI.current 'scene', rerenders do nothing, a stub HUD), Arcade is the selected mode with Full scenes and a fresh Progress;
+       everything is put back afterwards. */
+    const withArcade = (fn) => {
+      const keep = {
+        go: Game.go, state: Game.state, run: Game.run, config: Game.config, results: Game.resultsData, selection: Object.assign({}, Game.selection), progress: JSON.parse(JSON.stringify(Progress.d)), store: Store.get(KEY_PROGRESS),
+        current: UI.current, rerender: UI.rerender, stack: UI.stack, guard: UI.guardUntil, stubHud: !UI.dom.hud, hudHidden: UI.dom.hud && UI.dom.hud.hidden, scenes: Settings.v.storyScenes, auto: Settings.v.storyAuto, arena: Arena.def && Arena.def.id,
+      };
+      Game.go = (next) => { Game.state = next; return true; };
+      UI.rerender = () => {}; UI.stack = []; UI.guardUntil = 0;
+      if (keep.stubHud) UI.dom.hud = { hidden: false };   // no page behind a headless run; a real page keeps its own elements, which the match handlers use
+      Object.assign(Game.selection, { mode: 'arcade', player: 'elise', arcadeLevel: 'easy' });
+      Settings.v.storyScenes = 'full'; Settings.v.storyAuto = false;
+      Progress.d = Progress.fresh();
+      try { return fn(); } finally {
+        Cutscene.handlers = null; Cutscene.finish(); Game.endMatch();   // no handler: ending the scene must not start a fight
+        Game.go = keep.go; Game.state = keep.state; Game.run = keep.run; Game.config = keep.config; Game.resultsData = keep.results; Object.assign(Game.selection, keep.selection);
+        Progress.d = keep.progress; if (keep.store === null) Store.remove(KEY_PROGRESS); else Store.set(KEY_PROGRESS, keep.store);
+        UI.current = keep.current; UI.rerender = keep.rerender; UI.stack = keep.stack; UI.guardUntil = keep.guard;
+        if (keep.stubHud) delete UI.dom.hud; else UI.dom.hud.hidden = keep.hudHidden;
+        Settings.v.storyScenes = keep.scenes; Settings.v.storyAuto = keep.auto;
+        if (keep.arena && (!Arena.def || Arena.def.id !== keep.arena)) Arena.build(ARENAS[keep.arena]);
+      }
+    };
+    const pressNext = () => { if (Cutscene.view().phase === 'choice') Cutscene.choose('walk'); else Cutscene.next(); };   // a player who taps through and walks away
+    const pressBack = () => { UI.guardUntil = 0; if (Cutscene.view().phase === 'choice') Cutscene.choose('hand'); else UI.back(); };   // Esc / B: the question of B5 is still asked
+    const pressStart = () => { UI.guardUntil = 0; if (Cutscene.view().phase === 'choice') Cutscene.choose('hand'); else UI.scenePoll(true); };   // Start / the Pause key
+    /* Presses until the scenes that are on are over; told collects the beat ids in the order they play. */
+    const playScenes = (press, told) => {
+      for (let guard = 0; Cutscene.active && guard < 100; guard++) {
+        if (told && told[told.length - 1] !== Cutscene.beat.id) told.push(Cutscene.beat.id);
+        press();
+      }
+    };
+    /* A whole Arcade run as a player plays it: scenes by `press`, every fight won at once (its end is forced), the first result button pressed. Returns what happened. */
+    const playArcade = (press) => {
+      const out = { kinds: [], arenas: [], beats: [], buttons: [], screen: '' };
+      Game.startFromSelection();
+      for (let guard = 0; guard < 60; guard++) {
+        if (Cutscene.active) { playScenes(press, out.beats); continue; }
+        const m = Game.match;
+        if (!m) break;
+        out.kinds.push(m.brawl ? 'brawl' : 'duel'); out.arenas.push(m.def.id);
+        Game.state = GS.ROUND_END; m.matchOver = true; m.matchWinner = 0; Game.onMatchEnd(); Game.state = GS.RESULTS;
+        const buttons = Game.resultsData.buttons;
+        out.buttons.push(buttons.join());
+        if (Game.resultsData.cleared && buttons[0] !== 'ending') break;
+        Game.resultsAction(buttons[0]);
+      }
+      out.screen = UI.current;
+      return out;
+    };
+    test('Arcade story (P10-06): a full run mixes brawls and 1v1 fights - seven stages (brawl, duel, brawl, duel, brawl, brawl, duel) on the story\'s levels, the scenes between them, every win credited and the ending at the end', () => withArcade(() => {
+      const bad = [], out = playArcade(pressNext), story = Game.run.story, order = Story.order(), at = out.beats.map((id) => order.indexOf(id));
+      if (out.kinds.join() !== 'brawl,duel,brawl,duel,brawl,brawl,duel') bad.push('fights ' + out.kinds);
+      if (out.arenas.join() !== [1, 2, 3, 4, 5, 6, 7].map((n) => Story.arena(story, n)).join()) bad.push('levels ' + out.arenas);
+      const missing = order.filter((id) => id !== 'B7' && id !== 'B15' && !out.beats.includes(id));   // B7 needs a live fight (the next tests), B15 a lost stage
+      if (missing.length || at.some((place, i) => i > 0 && place < at[i - 1])) bad.push('beats ' + out.beats + ' missing ' + missing);
+      if (out.buttons.join(' ') !== 'next,menu next,menu next,menu next,menu next,menu next,menu ending,again,menu') bad.push('buttons ' + out.buttons.join(' '));
+      if (out.screen !== 'results' || Game.resultsData.buttons.join() !== 'again,menu' || !Game.resultsData.runGrade) bad.push('the ending did not come back to the results: ' + out.screen);
+      const d = Progress.d;
+      if (d.wins !== 7 || d.arcadeBest !== STORY_STAGES || d.arcadeClears !== 1 || d.arcadeFewestContinues !== 0 || !d.grades.arcade || story.choice !== 'walk' || !Story.finished(story)) bad.push('records ' + JSON.stringify([d.wins, d.arcadeBest, d.arcadeClears, d.arcadeFewestContinues, d.grades.arcade, story.choice, story.stage]));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Arcade story (P10-06): a lost stage offers Retry, and Skip stage after the second lost try - Retry plays Get up (B15) and a new fight, Skip counts as a continue and credits no win, the last stage cannot be skipped, and a Skip that is not offered does nothing', () => withArcade(() => {
+      const bad = [], told = [];
+      Game.startFromSelection(); playScenes(pressNext);
+      const story = Game.run.story, seeds = [Game.match.cfg.seed], buttons = [];
+      const lose = () => { Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 1; Game.onMatchEnd(); Game.state = GS.RESULTS; buttons.push(Game.resultsData.buttons.join()); };
+      for (let tries = 0; tries < 2; tries++) {   // the second lost try is the one that offers Skip stage
+        lose();
+        if (tries === 1) break;
+        Game.resultsAction('retry'); playScenes(pressNext, told);
+        seeds.push(Game.match.cfg.seed);
+      }
+      if (buttons.join(' ') !== 'retry,menu retry,skip,menu') bad.push('buttons ' + buttons.join(' '));
+      if (told.join() !== 'B15' || new Set(seeds).size !== 2 || story.stage !== 1 || story.continues !== 1 || Progress.d.losses !== 2) bad.push('retries: ' + told + ' seeds ' + new Set(seeds).size + ' continues ' + story.continues + ' losses ' + Progress.d.losses);
+      const wins = Progress.d.wins, beats = [];
+      Game.resultsAction('skip'); playScenes(pressNext, beats);
+      if (story.stage !== 2 || story.continues !== 2 || !story.skipped || story.flawless || story.lost !== 0 || Game.run.scores[0] !== 0 || Progress.d.wins !== wins || Progress.d.arcadeBest !== 0) bad.push('skip: stage ' + story.stage + ' continues ' + story.continues + ' wins ' + Progress.d.wins + ' best ' + Progress.d.arcadeBest);
+      if (beats.join() !== 'B3,B4' || !Game.match || Game.match.def.id !== 'dojo' || Game.run.stage !== 1) bad.push('after the skip: ' + beats + ' ' + (Game.match && Game.match.def.id));
+      story.stage = 3; story.lost = 0; Game.beginStage(); lose();
+      Game.resultsAction('skip');
+      if (story.stage !== 3 || Cutscene.active || story.continues !== 2) bad.push('a Skip that was not offered did something');
+      story.stage = STORY_STAGES; story.lost = STORY_SKIP_AFTER; Game.beginStage(); lose();
+      if (Game.resultsData.buttons.join() !== 'retry,menu') bad.push('the last stage can be skipped: ' + Game.resultsData.buttons);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Arcade story (P10-06): beat B7\'s pause leaves the fight identical - stage 3 with the scene played at the last wave plays exactly as without it, and the scene touches neither the level nor the effects', () => withScene(() => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 7), handlers = Events.handlers;
+      let told = 0, ended = 0, boxes = 0, sparks = 0, before = '', after = '';
+      const levelSignature = () => Arena.def.id + JSON.stringify(Arena.props.map((prop) => [prop.lean || 0, prop.cheer || 0])) + ':' + FX.active + ':' + Debris.active;   // the level, its props and the effects in the air
+      const scene = () => {
+        FX.sparks(0, 1, 0, 6, 2, '#ffffff', 0, 0);   // something in the air that a scene must not clear
+        sparks = FX.active;
+        before = levelSignature();
+        Cutscene.start(run, ROSTER_BY_ID.elise, ['B7'], { end() { ended++; }, live: true });
+        for (let guard = 0; Cutscene.active && guard < 20; guard++) { for (let i = 0; i < 90; i++) Cutscene.update(1 / 60); boxes++; Cutscene.next(); }
+        after = levelSignature();
+      };
+      const play = (pause) => {   // stage 3 cut to its first two waves and a tough player, so that the CPU player reaches the last wave
+        Events.handlers = {};
+        let m = null, hash = 0;
+        try {
+          Events.on('waveBeat', () => { told++; if (pause) scene(); });
+          m = new MatchSim(Object.assign({ evenDamage: true, items: false, hazards: false, countdown: false }, Story.cfg(run, 3), { waveKeep: 2, playerHp: 40 }));
+          m.fighters.forEach((f, i) => { m.controllers[i] = new AIController(f.profile, i === 0 ? 'expert' : 'easy'); });
+          while (m.phase !== 'matchEnd' && m.tick < 6000) {
+            m.step();
+            hash = fnv1a(hash.toString(36) + m.fighters.map((f) => [f.x.toFixed(4), f.z.toFixed(4), f.hp.toFixed(3), f.state].join()).join(';'));
+          }
+          return hash + ':' + m.tick + ':' + m.wins.join('-') + ':' + m.fighters.map((f) => f.hp.toFixed(3)).join('-');
+        } finally { if (m) m.dispose(); Events.handlers = handlers; }
+      };
+      const control = play(false), paused = play(true);
+      if (told !== 2 || ended !== 1 || boxes < 1) bad.push('the scene did not play once: told ' + told + ' ended ' + ended + ' boxes ' + boxes);
+      if (control !== paused) bad.push('the pause changed the fight: ' + control + ' vs ' + paused);
+      if (!sparks || !before || before !== after) bad.push('the scene changed the level or the effects: ' + before.slice(-12) + ' then ' + after.slice(-12));
+      FX.clear();
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Arcade story (P10-06): beat B7 pauses the fight at the last wave of stage 3 and resumes it - no tick runs while the scene plays, Back or Start ends the scene, Pause is not taken over it, and with Story scenes Off nothing pauses', () => withArcade(() => {
+      const bad = [], keep = { push: R.push, put: R.put, last: Game.last, acc: Game.acc, errors: Game.errorCount };
+      const toWave = (limit) => {   // a run at stage 3 (cut to two waves, a tough player so the CPU player gets there): steps until the game pauses, or `limit` ticks
+        Game.startFromSelection(); playScenes(pressNext);
+        const story = Game.run.story;
+        story.stage = 3; story.seed = 7; Game.run.stage = 2;   // the seed of the first B7 test: the CPU player gets to the last wave
+        Game.beginMatch(Object.assign(Story.cfg(story, 3), { waveKeep: 2, playerHp: 40, countdown: false, items: false, hazards: false }));
+        Game.state = GS.FIGHT;
+        const m = Game.match;
+        m.controllers.forEach((c, i) => { m.controllers[i] = new AIController(m.fighters[i].profile, i === 0 ? 'expert' : 'easy'); });
+        while (m.tick < limit && Game.state !== GS.PAUSED && !m.matchOver) m.step();
+        return m;
+      };
+      let beats = 0;
+      try {
+        for (const [name, press] of [['Back', pressBack], ['Start', pressStart]]) {
+          const m = toWave(20000), tick = m.tick;
+          if (Game.state !== GS.PAUSED || Game.pausedFrom !== GS.FIGHT || !Cutscene.active || !Cutscene.live || Cutscene.beat.id !== 'B7' || UI.current !== 'scene' || !UI.dom.hud.hidden) { bad.push(name + ': B7 did not pause the fight (' + Game.state + ')'); continue; }
+          R.push = () => {}; R.put = () => {};   // the real frame code runs; only the GPU queue is left out
+          Game.last = performance.now(); Game.acc = 0;
+          let now = Game.last;
+          for (let i = 0; i < 20; i++) { now += 16.7; Game.frame(now); }
+          if (m.tick !== tick || !Cutscene.active || Game.pause()) bad.push(name + ': the fight ran, or Pause was taken, under the scene');
+          playScenes(press);
+          if (Game.state !== GS.FIGHT || Cutscene.active || Game.match !== m) bad.push(name + ': the fight did not resume (' + Game.state + ')');
+          for (let i = 0; i < 5; i++) m.step();
+          if (m.tick !== tick + 5 || Game.state !== GS.FIGHT) bad.push(name + ': the fight did not go on');
+        }
+        const keepLost = R.lost;   // graphics lost during the scene (their loss pauses a game that is paused already): the fight must not run on unseen
+        try {
+          toWave(20000); R.lost = true;
+          playScenes(pressBack);
+          if (Game.state !== GS.PAUSED || UI.current !== 'pause') bad.push('after lost graphics the scene resumed the fight: ' + Game.state + ' ' + UI.current);
+          toWave(20000);
+          if (Game.state !== GS.PAUSED) bad.push('lost graphics: the fight ran on past the last wave');
+        } finally { R.lost = keepLost; }
+        Settings.v.storyScenes = 'off';
+        const unwatch = Events.on('waveBeat', () => { beats++; });
+        try { toWave(20000); } finally { unwatch(); }
+        if (beats !== 1 || Game.state === GS.PAUSED || Cutscene.active) bad.push('Off: the last wave came ' + beats + ' time(s) and the fight is ' + Game.state);
+      } finally { R.push = keep.push; R.put = keep.put; Game.last = keep.last; Game.acc = keep.acc; Game.errorCount = keep.errors; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Arcade story (P10-06): Back and Pause cannot strand the player - a whole run played with only Back, or only Start, reaches the ending, a pending answer is still asked, and Pause is not taken while a scene runs', () => {
+      const bad = [], runs = [['Back', pressBack], ['Start', pressStart]].map(([name, press]) => [name, withArcade(() => playArcade(press))]);
+      for (const [name, out] of runs) if (out.kinds.length !== 7 || out.screen !== 'results' || !out.beats.includes('B5') || !out.beats.includes('B16')) bad.push(name + ' stranded after ' + out.kinds.length + ' fights on ' + out.screen);
+      withArcade(() => {
+        Game.startFromSelection(); Game.state = GS.CHARSEL;
+        if (!Cutscene.active || Game.pause() || Game.state !== GS.CHARSEL) bad.push('Pause was taken over the first scene');
+        playScenes(pressNext);
+        if (Game.state === GS.PAUSED || !Game.match) bad.push('the scene did not hand over to the fight');
+        Game.startFromSelection();   // a scene is up, and the run is left (the error screen's way out)
+        Game.quitToMenu(); Cutscene.finish();
+        if (Game.match || Game.run) bad.push('a scene that ended after the run was left started a fight');
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Story settings (P10-06): "Story scenes" (Full, Short, Off) and "Auto-advance" are saved, an old save gets Full and off, and each does what it says', () => {
+      const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);
+      try {
+        const scenes = SETTING_DEFS.storyScenes, auto = SETTING_DEFS.storyAuto;
+        if (scenes.def !== 'full' || scenes.options.join() !== 'full,short,off' || scenes.label !== 'Story scenes' || auto.def !== false || auto.label !== 'Auto-advance') bad.push('definitions');
+        if (Settings.validate('storyScenes', 'loud') !== 'full' || Settings.validate('storyScenes', 'off') !== 'off' || Settings.validate('storyAuto', 'yes') !== false || Settings.validate('storyAuto', true) !== true) bad.push('validation');
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, revision: SETTINGS_REVISION }));   // a save from before the two settings
+        Settings.init();
+        if (Settings.v.storyScenes !== 'full' || Settings.v.storyAuto !== false || Settings.v.master !== 0.5) bad.push('old save');
+        Settings.set('storyScenes', 'short'); Settings.set('storyAuto', true);
+        const saved = JSON.parse(Store.get(KEY_SETTINGS));
+        Settings.init();
+        if (saved.storyScenes !== 'short' || saved.storyAuto !== true || Settings.v.storyScenes !== 'short' || Settings.v.storyAuto !== true) bad.push('not saved');
+        const page = UI.screen_settings();
+        if (!page.includes('Story scenes') || !page.includes('Auto-advance') || !page.includes('Short')) bad.push('settings screen');
+        Store.set(KEY_SETTINGS, JSON.stringify({ storyScenes: 'loud', storyAuto: 'yes', revision: SETTINGS_REVISION }));
+        Settings.init();
+        if (Settings.v.storyScenes !== 'full' || Settings.v.storyAuto !== false) bad.push('bad values');
+      } finally { if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore); Object.assign(Settings.v, keepV); Settings.apply(); }
+      /* Short: the first box of each beat, the choice of B5 still asked */
+      withScene(() => {
+        const keepScenes = Settings.v.storyScenes;
+        try {
+          Settings.v.storyScenes = 'full';
+          const full = playThrough(ROSTER_BY_ID.kai, ['B1', 'B5'], 'hand');
+          Settings.v.storyScenes = 'short';
+          const short = playThrough(ROSTER_BY_ID.kai, ['B1', 'B5'], 'hand');
+          const story = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1), fullBoxes = Story.beat(story, 'B1').boxes.length + Story.beat(story, 'B5').boxes.length + 1;   // the boxes of B1 and B5, and the answer shown after the question
+          if (fullBoxes < 4 || full.boxes !== fullBoxes || short.boxes !== 3 || short.answers.join() !== 'hand' || !short.phases.includes('choice') || short.ended !== 1) bad.push('Short: ' + full.boxes + ' and ' + short.boxes + ' boxes, answers ' + short.answers);
+        } finally { Settings.v.storyScenes = keepScenes; }
+      });
+      /* Off: no scene, the fight comes at once, the choice stays unset (it reads as "Offer a hand") and no ending button is offered */
+      const off = withArcade(() => { Settings.v.storyScenes = 'off'; const out = playArcade(pressNext); out.choice = Game.run.story.choice; out.scene = Cutscene.active; return out; });
+      if (off.kinds.length !== 7 || off.beats.length || off.scene || off.choice !== '' || off.buttons[6] !== 'again,menu') bad.push('Off: ' + off.kinds.length + ' fights, beats ' + off.beats + ', choice "' + off.choice + '", last buttons ' + off.buttons[6]);
+      /* Auto-advance: a box moves on after 2.5 s + 0.04 s a character (at most 6 s), the question of B5 waits, a press sooner moves it on and starts the time again, off by default */
+      withScene(() => {
+        const keepAuto = Settings.v.storyAuto, run = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 1);
+        try {
+          if (SCENE_AUTO_SECONDS !== 2.5 || SCENE_AUTO_PER_CHARACTER !== 0.04 || SCENE_AUTO_MAX_SECONDS !== 6) bad.push('auto-advance numbers');
+          Settings.v.storyAuto = true;
+          Cutscene.start(run, ROSTER_BY_ID.kai, ['B5'], { end() {} });
+          const stay = Math.min(SCENE_AUTO_MAX_SECONDS, SCENE_AUTO_SECONDS + SCENE_AUTO_PER_CHARACTER * Cutscene.view().text.length);
+          let frames = 0;
+          while (Cutscene.phase === 'box' && frames < 2000) { Cutscene.update(1 / 60); frames++; }   // B5 has one box here, then it asks
+          if (Math.abs(frames / 60 - stay) > 1 / 30) bad.push('auto-advance stayed ' + (frames / 60).toFixed(2) + ' s, not ' + stay.toFixed(2));
+          for (let i = 0; i < 60 * 30; i++) Cutscene.update(1 / 60);
+          if (Cutscene.view().phase !== 'choice') bad.push('auto-advance went past the question: ' + Cutscene.view().phase);
+          Cutscene.finish();
+          Cutscene.start(run, ROSTER_BY_ID.kai, ['B1'], { end() {} });
+          for (let i = 0; i < 120; i++) Cutscene.update(1 / 60);
+          if (Cutscene.box !== 0 || !(Cutscene.shown > 1.9)) bad.push('the box moved on too early: box ' + Cutscene.box);
+          Cutscene.next();
+          if (Cutscene.box !== 1 || Cutscene.shown !== 0) bad.push('a press sooner did not start the time again: box ' + Cutscene.box + ' after ' + Cutscene.shown + ' s');
+          Cutscene.finish();
+          Settings.v.storyAuto = false;
+          Cutscene.start(run, ROSTER_BY_ID.kai, ['B1'], { end() {} });
+          for (let i = 0; i < 60 * 30; i++) Cutscene.update(1 / 60);
+          if (Cutscene.box !== 0) bad.push('a box moved on by itself with Auto-advance off');
+        } finally { Settings.v.storyAuto = keepAuto; }
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {

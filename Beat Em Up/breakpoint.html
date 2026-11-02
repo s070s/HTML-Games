@@ -601,6 +601,8 @@ const SETTING_DEFS = {
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
   ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off keeps both fighters inside it. Versus and Free Fight only; from the next match.' },
+  storyScenes: { type: 'enum', options: ['full', 'short', 'off'], def: 'full', label: 'Story scenes', labels: { full: 'Full', short: 'Short', off: 'Off' }, hint: 'The little scenes of Arcade. Full shows every line, Short only the first line of each scene, Off skips the scenes (the choice after stage 2 is then "Offer a hand").' },
+  storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -814,7 +816,7 @@ function keyLabel(code) {
 /* Starters (P1-06 role "starter") are open from the first launch. The first four stay first: the co-op seats use them as their defaults. */
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki', 'rosa', 'pranee', 'amara', 'sora', 'elise', 'cruz'];
 /* How every other preset is unlocked (P5-04): [counter, needed]. The counters are saved Progress fields (UNLOCK_COUNTERS); 'beat' = win against that
-   fighter in Arcade. Rivals and bosses only stand on the Arcade ladder in runs after the first clear (Game.ladderFor), so the first run is the 1.0 ladder. */
+   fighter in Arcade. Who stands against the player in a run follows the player's story settings and the Arcade clears so far (Story.start). */
 const UNLOCK_RULES = {
   dmitri: ['best', 3], zero: ['clears', 1],
   lars: ['wins', 3], tiago: ['wins', 6], vikram: ['wins', 10], lucia: ['wins', 15], kasia: ['wins', 20],
@@ -829,7 +831,7 @@ const hasUnlockRule = (id) => Object.prototype.hasOwnProperty.call(UNLOCK_RULES,
 function unlockRuleText(id) {
   if (!hasUnlockRule(id)) return '';
   const [counter, need] = UNLOCK_RULES[id];
-  if (counter === 'beat') return 'Beat ' + ROSTER_BY_ID[id].name + ' in Arcade, in a run after your first clear';
+  if (counter === 'beat') return 'Beat ' + ROSTER_BY_ID[id].name + ' in Arcade';
   if (counter === 'wins') return 'Win ' + need + ' Arcade fights';
   if (counter === 'clears') return need === 1 ? 'Clear Arcade' : 'Clear Arcade ' + need + ' times';
   if (counter === 'best') return 'Win Arcade stage ' + need;
@@ -885,7 +887,7 @@ const Progress = {
     const s = readJson(KEY_PROGRESS) || {};
     const num = (v, max) => clamp(Math.floor(finite(Number(v), 0)), 0, max);
     base.arcadeClears = num(s.arcadeClears, 999);
-    base.arcadeBest = num(s.arcadeBest, 5);
+    base.arcadeBest = num(s.arcadeBest, STORY_STAGES);
     // -1 = no clear yet (older saves have no such field)
     base.arcadeFewestContinues = base.arcadeClears > 0 && typeof s.arcadeFewestContinues === 'number' && s.arcadeFewestContinues >= 0 ? num(s.arcadeFewestContinues, 999) : -1;
     base.wins = num(s.wins, 999999);
@@ -4234,7 +4236,7 @@ function deriveStats(raw) {
    wins only ~11% (other attributes ~30-38%). CPU styles were tuned too: KAI's was the strongest, YUKI's wide circling
    and DMITRI's grab-heavy 1.0 range the weakest. rank is the Arcade ladder order, weakest first by the same measurements
    (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss.
-   These six are the kept 1.0 roster; P5-04 appends 26 presets (PRESET_ROWS, in the character creator section) that have no rank: rivals and bosses join the ladder through Game.ladderFor. */
+   These six are the kept 1.0 roster; P5-04 appends 26 presets (PRESET_ROWS, in the character creator section) that have no rank: rivals and bosses join the Arcade story through Story.start. */
 const ROSTER = [
   { id: 'kai', moveStyle: 'kickboxer', defense: 'block', name: 'KAI', title: 'The Balanced', rank: 0, role: 'starter', country: 'Canada', origin: 'Gym kid', goal: 'Win the title', age: 26, gender: 'M', fit: [0.55, 0.5], attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
     style: { aggr: 0.9, punch: 0.5, kick: 0.45, heavy: 0.4, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
@@ -8108,9 +8110,9 @@ const Story = {
   /* win: stage 2 won on its first try without losing a round is 'flawless' (never after a skip). retry: a lost stage is played again (a continue). skip: allowed after STORY_SKIP_AFTER lost tries (a continue; the run is never flawless after it). */
   win(run, roundsLost) { if (run.stage === 2 && roundsLost === 0 && !run.lost && !run.skipped) run.flawless = true; run.lost = 0; run.stage++; },
   retry(run) { run.continues++; run.lost = (run.lost || 0) + 1; },
-  canSkip(run) { return run.lost >= STORY_SKIP_AFTER && !this.finished(run); },
-  skip(run) {
-    if (!this.canSkip(run)) return false;
+  canSkip(run, lostNow) { return (run.lost || 0) + (lostNow ? 1 : 0) >= STORY_SKIP_AFTER && !this.finished(run); },   // lostNow: the try just lost counts too (it is only added to `lost` by retry)
+  skip(run, lostNow) {
+    if (!this.canSkip(run, lostNow)) return false;
     run.continues++; run.flawless = false; run.skipped = true; run.lost = 0; run.stage++;
     return true;
   },
@@ -8122,6 +8124,7 @@ const Story = {
   /* ----- stages: 1 brawl (the first three wave rows) at home, 2 duel with rival A, 3 brawl led by rival B, 4 duel with the boss, 5 brawl, 6 brawl in the club, 7 duel with the champion on the rooftop ----- */
   arena(run, n) { return [run.home, 'dojo', run.stage3, 'pit', run.stage5, 'club', 'rooftop'][n - 1]; },
   foe(run, n) { return n === 2 ? run.rivalA : n === 4 ? run.boss : n === 7 ? run.champion : ''; },
+  beaten(run, n) { const rival = this.foe(run, n) || this.cfg(run, n).rival; return rival ? [rival] : []; },   // who winning stage n beats: the duel's opponent, or the rival who leads the last wave
   seedOf(run, n) { return (Math.imul(run.seed | 0, 0x9e3779b1) + n * 7919 + run.continues * 104729) >>> 0; },   // a retry plays a different fight
   /* The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty. */
   cfg(run, n) {
@@ -10784,7 +10787,7 @@ class MatchSim {
     if (slot === this.fighters.length) { this.fighters.push(foe); this.controllers.push(controller); this.intents.push(makeIntent()); this.stats.push(this.newStats()); }
     else { this.fighters[slot] = foe; this.controllers[slot] = controller; clearIntent(this.intents[slot]); this.crowd.forget(slot); }
     this.putWaveFighter(foe, e.k, e.j, e.n);
-    if (this.cfg.waveBeat && e.k === this.waveRows.length - 1 && e.j === 0) Events.emit('waveBeat', { match: this, f: foe });   // a story stage (B7): the leader of the last wave has walked in; the play screen of P10-06 pauses the fight here for the rival's scene
+    if (this.cfg.waveBeat && e.k === this.waveRows.length - 1 && e.j === 0) Events.emit('waveBeat', { match: this, f: foe });   // a story stage (B7): the leader of the last wave has walked in; Game.onWaveBeat pauses the fight here for the rival's scene
   }
   /* Stage-start hook (P4-07). In a co-op a knocked-out player sits out the rest of the brawl (they take no part, enemies ignore them, the camera leaves them out). A stage system, which does not
      exist yet, calls this when a stage starts to bring them back where they fell, on their feet with COOP_REVIVE_HP of their health. Nothing in play calls it today. Returns how many came back. */
@@ -11276,7 +11279,7 @@ const Showcase = {
 
 /* ---------- story scenes (P10-04) ----------
    The mini cutscene of a story beat, played in the engine: the beat's level, the cast in P5-05 poses, one camera shot per box and a text box (UI.screen_scene). Nothing is simulated: no match, no tick, no random number;
-   the cast are fighters of their own that only animate. "Preview story" starts them; the play screen of P10-06 will call the same start. */
+   the cast are fighters of their own that only animate. "Preview story" and the Arcade run (Game.tellStory) start them. */
 const SCENE_REST_POSE = 'idle_relaxed';                    // what a cast member does while the box gives it nothing else
 const SCENE_PAIR_POSES = ['fist_bump', 'handshake'];       // offered by one fighter, answered by the other with the same pose
 const SCENE_TOUCH_POSES = ['fist_bump', 'handshake', 'help_up'];   // poses whose right hand meets the other fighter's (Cutscene.fit)
@@ -11293,13 +11296,16 @@ const SCENE_LIFT = 0.14;                                   // share of the pictu
 const SCENE_SIDE_MARGIN = 1.6;                             // m of picture width kept beyond the cast
 const SCENE_BACK_GAP = 1.3;                                // m: a third person stands this far behind the pair
 const SCENE_ALONE_YAW = 0.5;                               // rad: a fighter alone in the picture turns three-quarters to the camera
+const SCENE_AUTO_SECONDS = 2.5, SCENE_AUTO_PER_CHARACTER = 0.04, SCENE_AUTO_MAX_SECONDS = 6;   // Auto-advance: a box stays this long plus this much per character, at most the maximum
 const Cutscene = {
-  active: false, run: null, profile: null, handlers: null, queue: [], beat: null, box: 0, phase: 'box', reply: '', keep: '', focus: '',   // phase: 'box' (a text box), 'choice' (B5 waits for the answer), 'react' (the answer plays)
+  active: false, run: null, profile: null, handlers: null, queue: [], beat: null, box: 0, phase: 'box', reply: '', keep: '', focus: '', live: false, fresh: false, shown: 0,   // phase: 'box' (a text box), 'choice' (B5 waits for the answer), 'react' (the answer plays); live: a paused match stands behind the scene (B7); fresh: the first beat builds its level anew (an Arcade run); shown: seconds the box has been up
   pool: {}, cast: {}, spots: {}, shot: { x: 0, y: 1, z: 0, dist: 6, elev: 0.2, az: 0.12 }, aimed: null, camera: null,   // aimed: the last shot asked for and the picture's shape it was framed for; camera: the menu's camera, put back at the end
-  /* Plays the beats `ids` in order for the story `run` of the fighter `profile`. handlers: { choice(answer) when B5 is answered, end() when the last beat is over }. Returns false when nothing plays. */
+  /* Plays the beats `ids` in order for the story `run` of the fighter `profile`. handlers: { choice(answer) when B5 is answered, end() when the last beat is over, live (a paused match stands behind: its level, effects and camera are left alone), fresh (an Arcade run: the level is built anew and the menu scene is not put back) }.
+     Returns false when nothing plays (end() has then been called, unless a scene was already running). */
   start(run, profile, ids, handlers) {
     if (this.active) return false;
-    Object.assign(this, { active: true, run, profile, handlers, queue: ids.slice(), beat: null, box: 0, phase: 'box', keep: Arena.def ? Arena.def.id : '', focus: '', pool: {}, cast: {}, spots: {}, aimed: null, camera: { target: Camera.target.slice(), dist: Camera.dist, elev: Camera.elev, az: Camera.az } });
+    const live = !!handlers && handlers.live === true, fresh = !!handlers && handlers.fresh === true;
+    Object.assign(this, { active: true, run, profile, handlers, queue: ids.slice(), beat: null, box: 0, phase: 'box', live, fresh, shown: 0, keep: live || fresh || !Arena.def ? '' : Arena.def.id, focus: '', pool: {}, cast: {}, spots: {}, aimed: null, camera: { target: Camera.target.slice(), dist: Camera.dist, elev: Camera.elev, az: Camera.az } });
     this.nextBeat();
     return this.active;
   },
@@ -11307,6 +11313,7 @@ const Cutscene = {
     while (this.queue.length) {
       const beat = Story.beat(this.run, this.queue.shift());
       if (!beat || !beat.boxes.length) continue;
+      if (Settings.v.storyScenes === 'short') beat.boxes = beat.boxes.slice(0, 1);   // Short: the first box of each beat (the choice of B5 is still asked)
       this.beat = beat; this.box = 0; this.phase = 'box';
       this.arrange();
       this.enterBox(true);
@@ -11321,7 +11328,7 @@ const Cutscene = {
   /* The beat's level and cast: P and everyone else its boxes name (a speaker or someone in the shot), standing as Story.cast puts the duel of the stage; P alone stands in the middle. */
   arrange() {
     const def = STORY_BEAT_BY_ID[this.beat.id], n = def.stage > 0 && def.id !== 'B16' ? def.stage : 1, level = Story.arena(this.run, n), at = Story.cast(this.run, n);   // the lost-stage beat and the epilogue play at home
-    if (!Arena.def || Arena.def.id !== level) Arena.build(ARENAS[level]);
+    if (!this.live && (this.fresh || !Arena.def || Arena.def.id !== level)) { Arena.build(ARENAS[level]); this.fresh = false; }   // a match just played here has smashed the level: the first beat of a run starts from a whole one
     const others = [];
     for (const box of this.beat.boxes) for (const who of [box.who].concat(box.also.map((pair) => pair[0]))) if (who !== 'N' && who !== 'P' && !others.includes(who)) others.push(who);
     this.cast = { P: this.fighterOf('P') };
@@ -11364,6 +11371,7 @@ const Cutscene = {
   },
   enterBox(cut) {
     const box = this.beat.boxes[this.box], speaker = box.who === 'N' ? 'P' : box.who, poses = {};
+    this.shown = 0;
     for (const who in this.cast) poses[who] = this.cast[who].poseId;   // each keeps what it does unless the box says otherwise
     if (box.pose) poses[speaker] = box.pose;
     for (const [who, pose] of box.also) if (this.cast[who]) poses[who] = pose;
@@ -11416,6 +11424,7 @@ const Cutscene = {
     this.setPoses(Object.assign(poses, SCENE_REPLY_POSES[answer]), false);
     this.aim('two', 'P', false, false);
     this.reply = answer;
+    this.shown = 0;
     this.changed();
   },
   changed() { if (this.active) UI.sceneChanged(); },
@@ -11429,19 +11438,28 @@ const Cutscene = {
   },
   update(dt) {
     if (UI.current !== 'scene') { this.finish(); return; }   // the screen was left some other way (the error screen, a menu)
-    Arena.update(dt); Debris.update(dt); FX.update(dt);
+    if (!this.live) { Arena.update(dt); Debris.update(dt); FX.update(dt); }   // a paused match keeps its level and effects exactly as they were
     for (const who in this.cast) this.cast[who].animate(dt);
     const aimed = this.aimed;
     if (aimed && aimed.aspect !== this.aspect()) this.aim(aimed.cam, aimed.speaker, aimed.top, false);   // the screen was turned or resized: frame the shot again for the new shape
     const to = this.shot;
     Camera.showcase(dt, to.x, to.y, to.z, to.dist, to.az, to.elev);
+    if (Settings.v.storyAuto === true && this.phase !== 'choice') this.autoAdvance(dt);
+  },
+  /* Auto-advance: the box (or the answer of B5) moves on by itself once it has been up for SCENE_AUTO_SECONDS plus SCENE_AUTO_PER_CHARACTER per character, at most SCENE_AUTO_MAX_SECONDS. */
+  autoAdvance(dt) {
+    this.shown += dt;
+    const stay = Math.min(SCENE_AUTO_MAX_SECONDS, SCENE_AUTO_SECONDS + SCENE_AUTO_PER_CHARACTER * this.view().text.length);
+    if (this.shown >= stay) this.next();
   },
   draw() { for (const who in this.cast) this.cast[who].draw(1, false); },
   finish() {
     if (!this.active) return;
     this.active = false;
-    if (this.keep && (!Arena.def || Arena.def.id !== this.keep)) Arena.build(ARENAS[this.keep]);   // the menu scene behind comes back as it was
-    Debris.clear(); FX.clear();
+    if (!this.live) {
+      if (this.keep && (!Arena.def || Arena.def.id !== this.keep)) Arena.build(ARENAS[this.keep]);   // the menu scene behind comes back as it was
+      Debris.clear(); FX.clear();
+    }
     const handlers = this.handlers, saved = this.camera;
     if (saved) { Camera.target[0] = saved.target[0]; Camera.target[1] = saved.target[1]; Camera.target[2] = saved.target[2]; Camera.dist = saved.dist; Camera.elev = saved.elev; Camera.az = saved.az; Camera.finish(0, 30, 30); }   // the story screen's own camera, not the last shot
     Object.assign(this, { handlers: null, pool: {}, cast: {}, spots: {}, beat: null, queue: [], aimed: null, camera: null });
@@ -11558,7 +11576,7 @@ const Game = {
   startFromSelection() {
     const sel = this.selection;
     this.endMatch();
-    if (sel.mode === 'arcade') this.startArcade(0);
+    if (sel.mode === 'arcade') this.startArcade();
     else if (sel.mode === 'survival') this.startSurvival();
     else if (sel.mode === 'training') this.startTraining();
     else if (sel.mode === 'versus') { if (this.lineupPlain('versus')) this.startVersus(); else this.startLineup('versus'); }
@@ -11567,23 +11585,8 @@ const Game = {
     else if (this.lineupPlain('free')) this.startFree();
     else this.startLineup('free');
   },
-  /* The base Arcade ladder, weakest first: the six fighters that have a rank (the 1.0 roster, ZERO last); the presets added in P5-04 join through ladderFor. */
+  /* The fighters that have a rank, weakest first (the six of the 1.0 roster, ZERO last): the default Training opponent. */
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId && r.rank !== undefined).sort((x, y) => x.rank - y.rank); },
-  /* The five Arcade bouts of a run that starts after `clears` Arcade clears. The first run (0 clears) is the base ladder. Later runs swap bouts 2 and 3 for two rivals and bout 4 for a boss,
-     taken from the roster's rivals and bosses in table order (run k: rivals 2k and 2k+1, boss k; wrapping; never the player's own fighter); bout 1 and ZERO stay. */
-  ladderFor(playerId, clears) {
-    const ladder = this.opponentsFor(playerId).slice(-ARCADE_STAGES);   // custom players still end on ZERO
-    if (!(clears >= 1)) return ladder;
-    const run = clears - 1, taken = new Set([playerId]);
-    const draw = (role, start) => {
-      const list = ROSTER.filter((r) => r.role === role);
-      for (let i = 0; i < list.length; i++) { const r = list[(start + i) % list.length]; if (!taken.has(r.id)) { taken.add(r.id); return r; } }
-      return null;
-    };
-    const swaps = [[1, 'rival', 2 * run], [2, 'rival', 2 * run + 1], [3, 'boss', run]];
-    for (const [slot, role, start] of swaps) { const r = slot < ladder.length ? draw(role, start) : null; if (r) ladder[slot] = r; }
-    return ladder;
-  },
   /* Free Fight / Training opponents: the roster plus saved custom fighters. */
   opponentChoices(playerId, allowMirror) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => allowMirror || r.id !== playerId); },
   /* The fighters a co-op seat can pick: the unlocked roster and the saved custom fighters. */
@@ -11595,16 +11598,58 @@ const Game = {
     sel.party[seat] = roster[(at + dir + roster.length) % roster.length].id;
     return sel.party[seat];
   },
-  /* keepRun: next stage or a retry of the same run (continues are counted); otherwise a new run starts. */
-  startArcade(stage, keepRun) {
+  /* Arcade is the story run (P10-06, Story): 7 stages, brawls against groups and 1v1 fights against rivals, the boss and the champion, with the fighter's scenes between them.
+     A new run for the selected fighter: its first scenes, then stage 1. run.stage is the stage being played, counted from 0; the story holds the rest (continues, choice, skips). */
+  startArcade() {
     const sel = this.selection;
-    const same = keepRun && this.run && this.run.mode === 'arcade' && this.run.player === sel.player;
-    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0, clears: Progress.d.arcadeClears, scores: [] };   // clears: the ladder of this run (ladderFor) stays the same while it lasts
-    const ladder = this.ladderFor(sel.player, this.run.clears);
-    Object.assign(this.run, { ladder, stage });
-    const opp = ladder[stage];
-    this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, this.run.level), arcadeLevel: this.run.level, winsNeeded: 2, timer: 60 });
+    const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now());
+    this.run = { mode: 'arcade', player: sel.player, story, stage: 0, scores: [] };
+    this.tellStory(this.beatIds('before', 1), () => this.beginStage());
   },
+  /* The fight of the story's current stage. */
+  beginStage() {
+    const story = this.run.story;
+    this.run.stage = story.stage - 1;
+    this.beginMatch(Story.cfg(story, story.stage));
+  },
+  /* The ids of the beats the story tells at a moment ('before' or 'after' a stage, 'lost' with stage 0). */
+  beatIds(when, stage) { return STORY_BEATS.filter((def) => def.when === when && def.stage === stage).map((def) => def.id); },
+  /* Plays the scenes of the beats `ids`, then calls `done`; with Story scenes Off (or no beat to tell) it calls `done` at once. */
+  tellStory(ids, done) {
+    if (Settings.v.storyScenes === 'off' || !ids.length) { done(); return; }
+    this.endMatch();   // the last fight is over; the scene stands in a whole level
+    UI.playStory(ids, done, false);
+  },
+  /* Beat B7: the leader of stage 3's last wave has walked in. The fight waits (the game is paused, so no tick runs) while the scene plays, then goes on where it stopped. */
+  onWaveBeat(e) {
+    if (e.match !== this.match || !this.run || this.run.mode !== 'arcade' || Settings.v.storyScenes === 'off' || !this.pause()) return;
+    if (R.lost) return;   // the graphics were lost: the pause screen stays up (UI.showPause) and no scene is drawn
+    UI.playStory(this.beatIds('wave', 3), () => this.afterWaveScene(), true);
+  },
+  /* B7 is over: the fight goes on, unless the graphics were lost meanwhile (their loss paused a game that was paused already): then the pause screen is shown, so the fight never runs unseen. */
+  afterWaveScene() {
+    if (R.lost) UI.showPause(); else this.resume();
+  },
+  /* The scenes after the stage just played (won or skipped) and before the next one, then the next fight. */
+  nextStage() {
+    const story = this.run.story;
+    this.tellStory(this.beatIds('after', story.stage - 1).concat(this.beatIds('before', story.stage)), () => this.beginStage());
+  },
+  /* A lost stage is played again: the Get up scene (B15), then the same stage with a new seed. */
+  retryStage() {
+    Story.retry(this.run.story);
+    this.tellStory(this.beatIds('lost', 0), () => this.beginStage());
+  },
+  /* "Skip stage" (Story.canSkip, never the last stage: the champion has to be beaten for the clear): the stage counts as passed, its closing scenes still play. */
+  skipStage() {
+    const story = this.run.story;
+    if (!this.canSkipStage()) return;
+    this.run.scores[this.run.stage] = 0;   // a skipped stage scores nothing in the run grade
+    Story.skip(story, true);
+    this.nextStage();
+  },
+  /* Offered on the results of a lost stage: the try just lost counts towards STORY_SKIP_AFTER. */
+  canSkipStage() { const story = this.run.story; return Story.canSkip(story, true) && story.stage < STORY_STAGES; },
   startSurvival() {
     const sel = this.selection;
     this.run = { mode: 'survival', player: sel.player, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: Progress.d.survivalKills };
@@ -11730,6 +11775,7 @@ const Game = {
       Events.on('nextRound', () => this.onNextRound()),
       Events.on('matchEnd', () => this.onMatchEnd()),
       Events.on('fightStart', () => { if (this.state === GS.COUNTDOWN) this.go(GS.FIGHT); }),
+      Events.on('waveBeat', (e) => this.onWaveBeat(e)),
     ];
     Events.emit('matchCreated', { match: this.match });
     if (this.state === GS.RESULTS || this.state === GS.CHARSEL || this.state === GS.ARENASEL || this.state === GS.PAUSED) this.go(GS.COUNTDOWN);
@@ -11747,7 +11793,7 @@ const Game = {
     if (!this.config) return;
     if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
-    if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); this.run.continues++; this.startArcade(this.run.stage, true); return; }
+    if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); Story.retry(this.run.story); this.beginStage(); return; }
     const again = Object.assign({}, this.config);
     delete again.items;   // read the Items setting again, like friendly fire
     delete again.hazards;
@@ -11768,6 +11814,7 @@ const Game = {
     this.saveSurvivalRecord();
     this.endMatch();
     this.run = null;
+    Cutscene.handlers = null;   // a scene still up (the error screen was left) must not start a fight of the run that is gone when it ends
     if (!CreatorUI.returnState) this.versus = null;   // a creator fight preview returns to the creator, so the Versus session score stays
     this.pausedFrom = null;
     if (this.state !== GS.MENU) {
@@ -11785,20 +11832,20 @@ const Game = {
     this.go(GS.COUNTDOWN);   // first, so a countdown-less round's fightStart can move the state on to FIGHT
     this.match.startRound();
   },
-  /* The Arcade win of run.ladder[run.stage]: win count, best stage, clears, the fewest-continues record and every unlock it earns (written to data: newBest, cleared, unlocked). */
+  /* The Arcade win of stage run.stage + 1 of the story: win count, best stage, clears, the fewest-continues record and every unlock it earns (written to data: newBest, cleared, unlocked). */
   creditArcadeWin(run, data) {
     Progress.d.wins++;
-    const defeated = run.ladder[run.stage], gained = [];
-    if (defeated.id === 'dmitri' || run.stage >= 2) if (Progress.unlock('dmitri')) gained.push('DMITRI');
-    data.newBest = run.stage + 1 > Progress.d.arcadeBest;
-    Progress.d.arcadeBest = Math.max(Progress.d.arcadeBest, run.stage + 1);
-    if (run.stage + 1 >= run.ladder.length) {
+    const stage = run.stage + 1, gained = [];
+    if (stage >= 3) if (Progress.unlock('dmitri')) gained.push('DMITRI');
+    data.newBest = stage > Progress.d.arcadeBest;
+    Progress.d.arcadeBest = Math.max(Progress.d.arcadeBest, stage);
+    if (stage >= STORY_STAGES) {
       data.cleared = true; Progress.d.arcadeClears++;
       if (Progress.unlock('zero')) gained.push('ZERO');
       const fewest = Progress.d.arcadeFewestContinues;
-      if (fewest < 0 || run.continues < fewest) { data.newBest = fewest >= 0 || data.newBest; Progress.d.arcadeFewestContinues = run.continues; }
+      if (fewest < 0 || run.story.continues < fewest) { data.newBest = fewest >= 0 || data.newBest; Progress.d.arcadeFewestContinues = run.story.continues; }
     }
-    if (hasUnlockRule(defeated.id) && UNLOCK_RULES[defeated.id][0] === 'beat' && Progress.unlock(defeated.id)) gained.push(defeated.name);   // a rival or boss is open once beaten
+    for (const id of Story.beaten(run.story, stage)) if (hasUnlockRule(id) && UNLOCK_RULES[id][0] === 'beat' && Progress.unlock(id)) gained.push(ROSTER_BY_ID[id].name);   // a rival or boss is open once beaten, in a duel or leading the last wave
     gained.push(...Progress.checkUnlocks(false));   // wins, clears and best stage count already
     if (gained.length) data.unlocked = joinNames(gained);
     Progress.save();
@@ -11835,11 +11882,16 @@ const Game = {
     const personWon = m.peopleWon();   // P4-08: a lineup is won by a team; a person on it makes it a victory
     if (m.setup) data.draw = m.matchWinner < 0;
     if (run && run.mode === 'arcade') {
-      data.stage = run.stage + 1; data.stages = run.ladder.length; data.continues = run.continues;
+      data.stage = run.stage + 1; data.stages = STORY_STAGES; data.continues = run.story.continues;
       if (playerWon) {
         this.creditArcadeWin(run, data);
+        Story.win(run.story, data.wins[1]);
         data.buttons = data.cleared ? ['again', 'menu'] : ['next', 'menu'];
-      } else { Progress.d.losses++; Progress.save(); data.buttons = ['retry', 'menu']; }
+        if (data.cleared && Settings.v.storyScenes !== 'off') data.buttons.unshift('ending');
+      } else {
+        Progress.d.losses++; Progress.save();
+        data.buttons = this.canSkipStage() ? ['retry', 'skip', 'menu'] : ['retry', 'menu'];
+      }
     } else if (run && run.mode === 'survival') {
       run.seconds += data.seconds;
       if (playerWon) {
@@ -11870,14 +11922,20 @@ const Game = {
     if (kind === 'menu') { this.quitToMenu(); return; }
     if (kind === 'setup') { this.endMatch(); this.go(GS.CHARSEL); return; }
     if (kind === 'next') {
-      if (run.mode === 'arcade') this.startArcade(run.stage + 1, true);
+      if (run.mode === 'arcade') this.nextStage();
       else if (run.mode === 'survival') this.nextSurvivalMatch();
       return;
     }
-    if (kind === 'retry') { run.continues++; this.startArcade(run.stage, true); return; }
+    if (kind === 'retry') { this.retryStage(); return; }
+    if (kind === 'skip') { this.skipStage(); return; }
+    if (kind === 'ending') {   // the closing scenes of a cleared run; the results screen comes back afterwards, without this button
+      this.resultsData.buttons = this.resultsData.buttons.filter((button) => button !== 'ending');
+      this.tellStory(this.beatIds('after', STORY_STAGES), () => UI.showResults());
+      return;
+    }
     if (kind === 'again') {
       if (run && run.mode === 'survival') { this.selection.mode = 'survival'; this.startSurvival(); }
-      else if (run && run.mode === 'arcade') this.startArcade(0);   // "Play again" after clearing the ladder
+      else if (run && run.mode === 'arcade') this.startArcade();   // "Play again" after clearing the run
       else this.restartMatch();
     }
   },
@@ -11949,6 +12007,7 @@ const Game = {
       }
     } else if (st === GS.PAUSED && this.match) {
       this.alpha = clamp(this.acc / DT, 0, 1);
+      if (Cutscene.active) Cutscene.update(dt);   // B7: the scene plays over the paused fight
     } else if (!this.match) {
       if (Cutscene.active) Cutscene.update(dt); else Showcase.update(dt);
     }
@@ -11969,17 +12028,18 @@ const Game = {
     else if (this.endTimer >= SKIP_ARM_SECONDS) this.endTimer = RESULTS_DELAY;
   },
   render(dt) {
-    const m = this.match;
+    const m = this.match, scene = Cutscene.active;   // a scene may stand over a paused match (B7): then the scene's cast and camera are drawn, not the fight's
     let env;
     if (m && this.state !== GS.LOADING) {
       env = m.def.env;
-      if (m.brawl) Camera.followGroup(dt, m.fighters, m.def); else Camera.follow(dt, m.fighters[0], m.fighters[1], m.def);
+      if (!scene && m.brawl) Camera.followGroup(dt, m.fighters, m.def);
+      else if (!scene) Camera.follow(dt, m.fighters[0], m.fighters[1], m.def);
     } else env = Arena.def ? Arena.def.env : DEFAULT_ENV;
     R.begin(env);
     if (m || Arena.def) { Camera.apply(); }
     if (Arena.def) Arena.draw();
     Debris.draw();
-    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); m.drawHazards(); } else if (Cutscene.active) Cutscene.draw(); else Showcase.draw();
+    if (m && !scene) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); m.drawHazards(); } else if (scene) Cutscene.draw(); else Showcase.draw();
     FX.draw();
     R.render();
     Events.emit('rendered', { match: m });
@@ -12422,7 +12482,7 @@ const $ = (id) => document.getElementById(id);
 const clockText = (seconds) => String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MODE_INFO = {
-  arcade: { label: 'Arcade', desc: 'Fight five opponents of rising difficulty. Beat the ladder to unlock fighters.' },
+  arcade: { label: 'Arcade', desc: 'Your fighter\'s story in seven stages: street brawls against groups and one-on-one fights against rivals, a boss and the champion, with short scenes between. Win to unlock fighters.' },
   survival: { label: 'Survival', desc: 'Endless opponents, limited recovery between fights. How long can you last?' },
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Pick any opponent, arena, difficulty, round count and timer.' },
@@ -12707,7 +12767,7 @@ const UI = {
         this.hideScreen();
         if (![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(e.from)) this.startMatchMusic();
         break;
-      case GS.PAUSED: this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; this.syncPadPrev(); break;   // a pad button still down from the fight must be released before it can press Resume
+      case GS.PAUSED: this.showPause(); break;
       case GS.ROUND_END: break;
       case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
       case GS.DEFEAT: this.banner(Game.resultsData && Game.resultsData.draw ? 'DRAW' : 'DEFEAT', Game.resultsData && Game.resultsData.winnerName ? Game.resultsData.winnerName + ' wins' : '', 3000); Music.stop(); break;
@@ -12715,6 +12775,9 @@ const UI = {
       case GS.ERROR: this.showFatal(e.error || 'Unknown error'); break;
       default: break;
     }
+  },
+  showPause() {
+    this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; this.syncPadPrev();   // a pad button still down from the fight must be released before it can press Resume
   },
   victoryBanner() {
     const d = Game.resultsData;
@@ -12768,10 +12831,13 @@ const UI = {
   roundSub(m) {
     if (m.round !== 1) return '';
     if (m.setup) return m.fighters.length + ' FIGHTERS · ' + (m.teamNames.some((name) => name.startsWith('TEAM ')) ? m.teamCount + ' TEAMS' : m.fighters.length === 2 ? 'ONE ON ONE' : 'FREE-FOR-ALL');
-    if (m.brawl) { const foes = m.waveRows ? m.waveTotal() : m.fighters.length - m.partySize; return foes + (foes === 1 ? ' ENEMY' : ' ENEMIES'); }   // with waves: all the waves together
+    if (m.brawl) {   // with waves: all the waves together
+      const foes = m.waveRows ? m.waveTotal() : m.fighters.length - m.partySize, stage = Game.run && Game.run.mode === 'arcade' ? 'STAGE ' + (Game.run.stage + 1) + ' / ' + STORY_STAGES + ' · ' : '';
+      return stage + foes + (foes === 1 ? ' ENEMY' : ' ENEMIES');
+    }
     if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
-    if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
+    if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + STORY_STAGES + ' · ' + vs;
     if (m.cfg.mode === 'survival' && run) return 'OPPONENT ' + (run.kills + 1) + ' · ' + vs;
     return vs;
   },
@@ -13068,7 +13134,7 @@ const UI = {
     const p = Progress.d;
     const fewest = p.arcadeFewestContinues >= 0 ? 'fewest continues ' + p.arcadeFewestContinues + ' &middot; ' : '';   // saves from before the record have none
     if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; ' + fewest + 'record ' + p.wins + '-' + p.losses;
-    if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + ARCADE_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
+    if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + STORY_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
     if (mode === 'survival' && (p.survivalKills || p.survivalSeconds)) return 'Best: ' + p.survivalKills + ' wins &middot; longest run ' + clockText(p.survivalSeconds);
     return '';
   },
@@ -13476,6 +13542,20 @@ const UI = {
     this.guardUntil = performance.now() + SCENE_GUARD_MS;
     this.push('scene');
   },
+  /* Plays the beats `ids` of the Arcade run (Cutscene) and calls `done` when they are over. live: the fight is paused behind them (B7), so its bars are hidden while they play. */
+  playStory(ids, done, live) {
+    const run = Game.run;
+    Inputs.reset();   // a Punch or Pause press from before must not move the first box on
+    if (live) this.dom.hud.hidden = true;
+    if (!Cutscene.start(run.story, ROSTER_BY_ID[run.player], ids, { end: done, live, fresh: !live })) return;   // false: no beat has a box, and done has been called
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    this.go('scene');
+  },
+  /* The results screen again, after the closing scenes of a cleared run. */
+  showResults() {
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    this.go('results');
+  },
   sceneChanged() {
     this.guardUntil = performance.now() + SCENE_GUARD_MS;
     if (this.current === 'scene') this.rerender(false);
@@ -13534,7 +13614,7 @@ const UI = {
     const p = Progress.d;
     return '<section class="screen on" aria-label="About"><div class="panel wide"><h2>About BREAKPOINT</h2>' +
       '<p>Version ' + VERSION + '. A single-file 3D fighting game: native WebGL 2 rendering, Web Audio synthesis, no external requests.</p>' +
-      '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / 5</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
+      '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / ' + STORY_STAGES + '</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
       '<h3>Tips</h3><p>Arenas are destructible: crates splinter, concrete pillars crack and shed chunks, steel railings bend and collapse, glass and paper screens shatter. Throws and knockbacks into scenery cause extra damage and change where you can walk.</p>' +
       this.holdHelpHtml() +
       '<h3>Compatibility &amp; limits</h3><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
@@ -13565,7 +13645,7 @@ const UI = {
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
-    h += '<div class="statgrid">' + (d.mode === 'brawl' ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
+    h += '<div class="statgrid">' + (d.enemies > 0 ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
     if (d.grade) h += this.gradeHtml(d);
     if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
@@ -13581,7 +13661,7 @@ const UI = {
       (d.runGrade ? '<span>Run grade: <b>' + d.runGrade + '</b></span>' : '') + (best ? '<span>Best grade: <b>' + best + '</b></span>' : '') + '</div>';
   },
   resultsNav(d) {
-    const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
+    const labels = { next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
     return '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
   },
   /* Co-op: the outcome and a column per player (seat colour, fighter, who was still standing, damage and hits). */
@@ -13745,7 +13825,7 @@ const UI = {
     } else { this.setText('pips1', this.dom.pips1, ''); this.setText('pips2', this.dom.pips2, ''); }
     let info = '';
     const run = Game.run;
-    if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    if (run && run.mode === 'arcade') info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + STORY_STAGES + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase() + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (m.setup) info = SETUP_LABEL[cfg.setupMode] + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + ' · ' + m.fighters.length + ' FIGHTERS';
@@ -14959,7 +15039,7 @@ function testApi() {
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
-    Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
+    Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
