@@ -450,7 +450,7 @@ Numbered after the other phases because it was added later; it follows Phase 17 
   Done when: each interaction works on touch, gamepad and keyboard and in 1v1, wave and Brawl fights; a self-test triggers each one; the CPU uses them; P14-01 targets and the P0-04 performance check pass.
 - [ ] P18-14 - RESEARCH and DECIDE the X-factor: one genuinely unique feature that gives the game its own identity. Check what the closest games in the genre already do, then write 3 to 5 options with what each costs to build. The owner picks.
   Done when: the options and their sources are in Appendix B; the owner's choice is in Appendix C with new tasks for it placed before Phase 16.
-- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content. This is a market estimate, not a plan to sell it now.
+- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content; a friend (2026-11-02) said EUR 3-5 and sees it more as a mobile game (P18-26). This is a market estimate, not a plan to sell it now.
   Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99, EUR 5 and the EUR 5-10 opinion; the owner has read it.
 - [ ] P18-16 - Start side: let the player choose left or right as the side they start on in a level. Fact: a 1v1 in a ring draws the start side from the match seed and swaps it every round (`MatchSim.startSide`), because levels favour one seat; brawls, Training and fights without a ring always start left. DECIDE how the choice works with that rule: which modes offer it, what happens in later rounds, who gets the side when two people pick the same one, and what the CPU does.
   Done when: Appendix C has the rule; the choice works on touch, gamepad and keyboard in every mode that offers it; "Random" stays the default so the seat balance of P9 holds; the fingerprints pass unchanged when nobody picks a side.
@@ -471,6 +471,21 @@ Numbered after the other phases because it was added later; it follows Phase 17 
 - [ ] P18-24 - Implement P18-23: moves, paired animation (hands really meet the target), AI use for allies and enemies, move list, Training demo.
   Done when: every group attack works in Free Fight, Arcade and Survival on touch, gamepad and keyboard, a self-test starts and escapes each one, no attack hits the air (P17-02's check), and the P14-01 targets pass.
 - [ ] P18-25 - Throwing a fighter into other participants: check whether it hurts them today, across every throw, grapple and team setup. If it does not, DECIDE which is better for the game (damage, a knockdown or stagger only, or no effect) and how friendly fire applies.
+
+Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appendix A). The game stays 3D (owner, 2026-11-02).
+
+- [ ] P18-26 - RESEARCH a mobile release and free-to-play: the friend sees it as a mobile game, would download it if free, and would pay about EUR 3-5 for one that caught their interest. Compare ways to put the one-file HTML game on phones (an installable web app, an app-store wrapper), their costs and store rules, and free-to-play models that sell nothing that wins fights (P1-03 rejected an in-game economy) against a one-off price. Feed the result into P18-15.
+  Done when: Appendix B has the options with their sources and costs; Appendix C has a recommendation the owner can pick from, with no change to the game yet.
+- [ ] P18-27 - DECIDE accessibility as part of the game's identity: the friend sees potential if it is easier to get into than games like Tekken. List what a new player must learn today before a first win (inputs, defence, strings, stamina), compare with how Tekken and other 3D fighters teach and simplify it, and decide what to change: a first-fight guide, simpler defaults, assisted inputs, clearer move list. Tips keep the show-once rule. Weigh it as an X-factor option for P18-14.
+  Done when: Appendix C has the list, the comparison with sources in Appendix B and the chosen changes as tasks placed before Phase 16.
+- [ ] P18-28 - Sound design pass: audit every sound in the game (all made in code with the Web Audio API, no sound files), including hits, blocks, footsteps, objects, menus, crowd and music. Find what is missing, repeats too much or sounds thin, then DECIDE the changes.
+  Done when: Appendix C has the sound list with each sound's trigger, its problem and the fix.
+- [ ] P18-29 - Implement P18-28 within the performance budget (P15-02's audio voices).
+  Done when: each listed fix is in; the volume and mute settings still cover every sound; the P0-04 performance check passes.
+- [ ] P18-30 - Graphics polish pass (3D): review lighting, shadows, materials and colour, level detail, effects and menus side by side on phone and desktop, beyond P18-10's fighter details. List what looks unfinished, then DECIDE the changes for each quality preset.
+  Done when: Appendix C has the list with before screenshots and the chosen fix per item.
+- [ ] P18-31 - Implement P18-30.
+  Done when: each fix is in on every quality preset; before and after screenshots are in the report; the P0-04 performance check passes on the low preset.
   Done when: Appendix C has what the game did and the choice with its reason; if it changes, a self-test covers a thrown fighter meeting an enemy, an ally and a downed fighter, and the P14-01 targets pass.
 
 ## Phase 16 - Final audit and release
@@ -551,6 +566,11 @@ Numbered after the other phases because it was added later; it follows Phase 17 
 | Added 2026-11-01: Arcade and Survival brawls against CPUs or with ally CPUs, balanced by difficulty | P18-20, P18-21 |
 | Added 2026-11-01: group special attacks like Urban Reign (two on one, one grabs and one attacks) | P18-22, P18-23, P18-24 |
 | Added 2026-11-01: does throwing a fighter onto others cause damage; choose what is better | P18-25 |
+| Added 2026-11-02 (friend): more of a mobile game; would download it if free-to-play, pay about EUR 3-5 | P18-26, P18-15 |
+| Added 2026-11-02 (friend): its own identity, easier to get into than games like Tekken | P18-27, P18-14 |
+| Added 2026-11-02 (friend): sound design needs work | P18-28, P18-29 |
+| Added 2026-11-02 (friend): graphics need work to feel polished | P18-30, P18-31, P18-10 |
+| Added 2026-11-02 (friend): "2D fighting genre" | none: the owner said the game stays 3D |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -672,6 +692,18 @@ The main reason I asked was to get an idea of how people perceive the game's cur
 -Co-Op Brawl,Brawl ,Versus and Free Fight collapse into one mode named Free Fight with all the options of the four of them. Arcade and Survival can have brawls vs cpus or with ally cpus (configurable,balanced according to difficulty)
 -Design and integrate a system to recreate the group special attacks of urban reign (search on it) where for example two people attack one target,one person grabs the target and the other attacks the target.
 -Evaluate if throwing fighters on other participants causes damage and if not then choose which is better to do
+```
+
+### Friend's feedback of 2026-11-02, passed on by the owner (verbatim)
+
+The owner's instruction with it (2026-11-02, verbatim): "Exclude the 2d fighting thing the game stays 3d".
+
+```text
+Personally, I see it more as a mobile game, since I don't really spend much time gaming on Steam. I would definitely download it if it were free-to-play, and I would be willing to pay around EUR 3-5 for something that genuinely caught my interest.
+
+That said, I'm not sure how valuable my opinion is from a business perspective, since I'm not very familiar with the gaming market, its audience, or how monetization works in this industry.
+
+In terms of gameplay, if it can establish its own identity within the 2D fighting genre, perhaps with a more accessible approach compared to games like Tekken, I think there could be potential. However, I believe it still needs some work, particularly in terms of sound design and graphics, to feel more polished and complete.
 ```
 
 ## Appendix B - Research log
