@@ -326,8 +326,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P10-07 - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress.
   Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
   Status (2026-11-02): done: `fightGrade` scores time 40, damage 35, variety 25, a loss gets "-"; the best letter per mode is saved in `Progress.grades`. Arcade saves one grade for a cleared run; Free Fight, Survival, Brawl and Co-op save theirs (lineups under `brawl` or `free`); Training and Versus get none; the Tournament key waits for P11.
-- [ ] P10-08 - Continue Arcade: save the story run in `Progress` (`arcadeRun` in Appendix C) so quitting does not lose it, and offer "Continue Arcade" on the main menu.
+- [x] P10-08 - Continue Arcade: save the story run in `Progress` (`arcadeRun` in Appendix C) so quitting does not lose it, and offer "Continue Arcade" on the main menu.
   Done when: a run quit at any stage continues at that stage with its continues, flawless state and B5 answer; a finished run offers no continue; old saves load.
+  Status (2026-11-02): done: "Continue Arcade" is the first main menu item while a run is saved. A lost or left fight counts as a spent retry, and stage scores are kept for the run grade. Known gap: closing the page in the middle of a fight costs nothing, so Continue is then a free retry.
 
 ## Phase 11 - Tournament mode
 
@@ -362,8 +363,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Status (2026-10-29): decided, Appendix C "Feedback list (P13-01) ...".
 - [ ] P13-02 - Implement P13-01 within the performance budget.
   Done when: each accepted item works and P0-04 check passes on low preset.
-- [ ] P13-03 - Settings to reduce intense effects (shake, flashes) for accessibility.
+- [x] P13-03 - Settings to reduce intense effects (shake, flashes) for accessibility.
   Done when: each intense effect has an off / reduced option.
+  Status (2026-11-02): done: Camera shake (0 to 1, it also scales the field-of-view pulse) and Reduced motion were there; new are Flashes and Controller rumble (Full, Reduced, Off) and Strike trails (On, Off). Turning Reduced motion on sets those three once, and each can be changed after. Reduced motion no longer shortens hitstop, so it cannot change a fight. No club strobe, slow-motion finisher or heartbeat exists to cover. Defaults keep today's look.
 
 ## Phase 14 - Game design and balance
 

@@ -47,6 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
+  REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -9702,6 +9703,205 @@ const SelfTest = {
           if (Cutscene.box !== 0) bad.push('a box moved on by itself with Auto-advance off');
         } finally { Settings.v.storyAuto = keepAuto; }
       });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- Continue Arcade (P10-08) ---------- */
+    const winStage = () => { Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 0; Game.onMatchEnd(); Game.state = GS.RESULTS; };
+    const loseStage = () => { Game.state = GS.ROUND_END; Game.match.matchOver = true; Game.match.matchWinner = 1; Game.onMatchEnd(); Game.state = GS.RESULTS; };
+    const currentItems = (html) => (html.match(/data-default/g) || []).length;   // the main menu has exactly one
+    test('Continue Arcade (P10-08): a run quit at stage 3 continues at stage 3 with its continues (the lost try counted), flawless state and B5 answer; a cleared run offers no continue', () => withArcade(() => {
+      const bad = [];
+      Game.startFromSelection(); playScenes(pressNext);
+      winStage(); Game.resultsAction('next'); playScenes(pressNext);
+      winStage(); Game.resultsAction('next'); playScenes(pressNext);   // B5 answered "walk"; stage 3 begins
+      loseStage(); Game.resultsAction('retry'); playScenes(pressNext);   // one continue
+      const story = Game.run.story;
+      if (story.stage !== 3 || story.continues !== 1 || !story.flawless || story.choice !== 'walk') bad.push('run before the quit ' + JSON.stringify(Story.pack(story)));
+      loseStage();   // lost again: the results are up, and the try is saved as spent
+      const wanted = JSON.stringify(Story.pack(Object.assign({}, story, { continues: 2, lost: 2 }), Game.run.scores));
+      Game.quitToMenu();
+      if (Game.run || Game.match || JSON.stringify(JSON.parse(Store.get(KEY_PROGRESS)).arcadeRun) !== wanted) bad.push('the quit did not keep the run');
+      Progress.init();   // the page started again: the run is read back from the stored save
+      const menu = UI.screen_main();
+      if (!menu.includes('Continue Arcade') || currentItems(menu) !== 1 || !menu.includes('data-default data-act="continueArcade"')) bad.push('main menu with a run: ' + currentItems(menu));
+      Game.continueArcade();
+      const back = Game.run && Game.run.story;
+      if (!back || JSON.stringify(Story.pack(back, Game.run.scores)) !== wanted || !back.flawless || back.choice !== 'walk' || back.continues !== 2) bad.push('the continued run differs');
+      if (!Game.match || Game.match.def.id !== Story.arena(back, 3) || Game.run.stage !== 2 || Game.match.cfg.seed !== Story.seedOf(back, 3)) bad.push('not the stage 3 fight');
+      for (let guard = 0; guard < 8; guard++) {
+        winStage();
+        if (Game.resultsData.cleared) break;
+        Game.resultsAction('next'); playScenes(pressNext);
+      }
+      const after = UI.screen_main(), run = Game.run;
+      Game.continueArcade();
+      if (!Game.resultsData.cleared || Progress.d.arcadeRun !== null || JSON.parse(Store.get(KEY_PROGRESS)).arcadeRun !== null || Game.run !== run) bad.push('a cleared run is still offered');
+      if (after.includes('Continue Arcade') || currentItems(after) !== 1 || !after.includes('data-default data-act="play"')) bad.push('main menu after the clear');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Continue Arcade (P10-08): the saved run follows every change - a new run replaces it, and a retry, a skip and a win update it', () => withArcade(() => {
+      const bad = [], saved = () => Progress.d.arcadeRun || {};
+      Game.startFromSelection(); playScenes(pressNext);
+      if (saved().fighter !== 'elise' || saved().stage !== 1 || saved().continues !== 0) bad.push('new run ' + JSON.stringify(saved()));
+      loseStage(); Game.resultsAction('retry'); playScenes(pressNext);
+      if (saved().continues !== 1 || saved().lost !== 1) bad.push('retry ' + JSON.stringify(saved()));
+      loseStage(); Game.resultsAction('skip'); playScenes(pressNext);
+      if (saved().stage !== 2 || saved().continues !== 2 || saved().skipped !== true || saved().lost !== 0) bad.push('skip ' + JSON.stringify(saved()));
+      winStage();
+      if (saved().stage !== 3) bad.push('win ' + JSON.stringify(saved()));
+      Game.resultsAction('next'); playScenes(pressNext);
+      Game.restartMatch();   // the pause menu's retry costs a continue like a loss
+      if (saved().continues !== 3) bad.push('pause retry ' + JSON.stringify(saved()));
+      Game.selection.player = 'kai'; Game.endMatch(); Game.startFromSelection(); playScenes(pressNext);
+      if (saved().fighter !== 'kai' || saved().stage !== 1 || saved().continues !== 0 || saved().skipped !== false || saved().choice !== '') bad.push('a new run did not replace the saved one ' + JSON.stringify(saved()));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Continue Arcade (P10-08): a saved run that is hostile, out of date or damaged is dropped without an error, a good one is kept, and a save from before it loads', () => withArcade(() => {
+      const bad = [], base = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 5), good = Story.pack(Object.assign(base, { stage: 3 }));
+      const load = (text) => { Store.set(KEY_PROGRESS, text); Progress.init(); };
+      const save = (raw) => JSON.stringify({ wins: 4, controlsRevision: KEYS_REVISION, arcadeRun: raw });
+      const withChange = (change) => Object.assign({}, good, change);
+      Game.run = null;
+      const shapes = {
+        'stage past the end': withChange({ stage: STORY_STAGES + 1 }), 'stage 0': withChange({ stage: 0 }), 'negative stage': withChange({ stage: -1 }), 'fraction stage': withChange({ stage: 2.5 }), 'text stage': withChange({ stage: '3' }), 'no stage': withChange({ stage: null }),
+        'unknown level': withChange({ level: 'nope' }), 'inherited level': withChange({ level: 'toString' }), 'number level': withChange({ level: 7 }), 'bad choice': withChange({ choice: 'sideways' }), 'number choice': withChange({ choice: 5 }),
+        'no fighter': withChange({ fighter: '' }), 'number fighter': withChange({ fighter: 12 }), 'long fighter': withChange({ fighter: 'x'.repeat(500) }), 'huge continues': withChange({ continues: 1e9 }), 'negative seed': withChange({ seed: -1 }), 'huge seed': withChange({ seed: 2 ** 32 }),
+        'array': [good], 'text': 'elise', 'number': 5, 'true': true, 'empty object': {},
+      };
+      for (const name in shapes) {
+        try { load(save(shapes[name])); } catch (err) { bad.push(name + ' threw ' + err.message); continue; }
+        if (Progress.d.arcadeRun !== null || Progress.d.wins !== 4 || Game.savedArcadeRun() !== null || UI.screen_main().includes('Continue Arcade')) bad.push(name + ' was kept');
+      }
+      const gone = { 'a deleted fighter': withChange({ fighter: 'ghost' }), 'a fighter not open yet': withChange({ fighter: 'zero' }), 'a prototype key as fighter': withChange({ fighter: '__proto__' }), 'a method name as fighter': withChange({ fighter: 'toString' }) };
+      for (const name in gone) {
+        load(save(gone[name]));
+        const menu = UI.screen_main(), before = Game.run;
+        Game.continueArcade();
+        if (Game.savedArcadeRun() !== null || Progress.d.arcadeRun !== null || JSON.parse(Store.get(KEY_PROGRESS)).arcadeRun !== null || menu.includes('Continue Arcade') || currentItems(menu) !== 1 || Game.run !== before) bad.push(name + ' was not dropped');
+      }
+      load('{"wins":4,"controlsRevision":' + KEYS_REVISION + ',"arcadeRun":{"__proto__":{"fighter":"elise","stage":3},"constructor":{"prototype":{"polluted":true}},"fighter":"ghost","stage":3,"clears":0,"level":"easy","seed":5,"choice":"","continues":0,"lost":0}}');
+      if (({}).fighter !== undefined || ({}).polluted !== undefined || Game.savedArcadeRun() !== null) bad.push('prototype keys got through');
+      load(save(Object.assign({ polluted: true, extra: [1, 2] }, good, { rivalA: 'ghost', boss: 12 })));
+      const kept = Progress.d.arcadeRun, story = Game.savedArcadeRun();
+      if (!kept || Object.keys(kept).join() !== Object.keys(good).join() || !story || story.stage !== 3 || !ROSTER_BY_ID[story.rivalA] || !ROSTER_BY_ID[story.boss]) bad.push('a good run with extra keys and gone rivals: ' + JSON.stringify(kept));
+      const scoresOf = (scores) => { load(save(withChange({ scores }))); return JSON.stringify(Progress.d.arcadeRun && Progress.d.arcadeRun.scores); };
+      if (scoresOf([60, null, 0, 100]) !== '[60,null,0,100]' || scoresOf([60, 'a', 120, -1, {}]) !== '[60,null,null,null,null]' || scoresOf('x') !== '[]' || scoresOf(new Array(STORY_STAGES + 1).fill(50)) !== '[]') bad.push('saved scores');
+      load(save(good));
+      Game.continueArcade();
+      if (!Game.run || Game.run.story.stage !== 3 || !Game.match || 'scores' in Game.run.story || !Array.isArray(Game.run.scores)) bad.push('a good run did not continue');
+      load(JSON.stringify({ wins: 3 }));
+      if (Progress.d.arcadeRun !== null || Progress.d.wins !== 3 || UI.screen_main().includes('Continue Arcade')) bad.push('a save from before: ' + Progress.d.arcadeRun);
+      load('{"arcadeRun":');
+      if (Progress.d.arcadeRun !== null) bad.push('a corrupt save');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Continue Arcade (P10-08): a lost or left fight is a spent try (Continue is no free retry and stage 2 can no longer go flawless), Retry does not charge it twice, and the scores of the stages played are kept for the run grade', () => withArcade(() => {
+      const bad = [];
+      Game.startFromSelection(); playScenes(pressNext);
+      winStage();
+      const first = Game.run.scores[0];
+      Game.resultsAction('next'); playScenes(pressNext);   // stage 2 begins
+      loseStage(); Game.quitToMenu();   // Menu on the results of a lost fight
+      let kept = Progress.d.arcadeRun;
+      if (typeof first !== 'number' || kept.stage !== 2 || kept.continues !== 1 || kept.lost !== 1 || kept.scores[0] !== first) bad.push('a loss was not saved as a spent try: ' + JSON.stringify(kept));
+      Game.continueArcade();
+      if (Game.run.story.continues !== 1 || Game.run.scores[0] !== first) bad.push('continued with ' + Game.run.story.continues + ' continues');
+      Game.quitToMenu();   // a quit from the pause menu in the middle of the fight
+      kept = Progress.d.arcadeRun;
+      if (kept.continues !== 2 || kept.lost !== 2) bad.push('a left fight was not a spent try: ' + JSON.stringify(kept));
+      Game.continueArcade();
+      loseStage(); Game.resultsAction('retry'); playScenes(pressNext);
+      if (Game.run.story.continues !== 3 || Progress.d.arcadeRun.continues !== 3) bad.push('Retry charged twice or not at all: ' + Game.run.story.continues + ' and ' + Progress.d.arcadeRun.continues);
+      winStage();
+      if (Game.run.story.flawless) bad.push('stage 2 went flawless after lost tries');
+      for (let guard = 0; guard < 8 && !Game.resultsData.cleared; guard++) { Game.resultsAction('next'); playScenes(pressNext); winStage(); }
+      const scores = Game.run.scores.filter(Number.isFinite), mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      if (!Game.resultsData.cleared || scores.length !== STORY_STAGES || Game.run.scores[0] !== first || Game.resultsData.runGrade !== gradeLetter(mean)) bad.push('the run grade ignored earlier stages: ' + scores.length + ' scores, grade ' + Game.resultsData.runGrade);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Continue Arcade (P10-08): the main menu item is a button other menu items share the navigation of - reachable by key, pad and touch, first in the list, and Play keeps the list when there is no run', () => withArcade(() => {
+      const bad = [], items = (html) => html.match(/<button class="mi"[^>]*>/g) || [];
+      Game.startFromSelection(); playScenes(pressNext); Game.quitToMenu();
+      const withRun = items(UI.screen_main());
+      Progress.d.arcadeRun = null;
+      const without = items(UI.screen_main());
+      if (withRun.length !== without.length + 1 || !withRun[0].includes('data-act="continueArcade"') || !withRun.every((tag) => tag.includes(' data-nav') && tag.includes('data-act="'))) bad.push('items ' + withRun.length + ' and ' + without.length);
+      if (withRun.filter((tag) => tag.includes('data-default')).length !== 1 || without.filter((tag) => tag.includes('data-default')).length !== 1 || !without[0].includes('data-act="play"')) bad.push('current item');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    /* ---------- reduce intense effects (P13-03) ---------- */
+    test('Effect settings (P13-03): Flashes, Controller rumble and Strike trails join Camera shake and Reduced motion, are saved, an old save keeps its look, Reduced motion sets them once, each does what it says, and a fight does not change', () => {
+      const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);
+      const calls = [], pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: [], vibrationActuator: { playEffect: (type, p) => { calls.push([p.strongMagnitude, p.duration]); return Promise.resolve(); } } };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, index = Input.padIndex;
+      try {
+        const defs = SETTING_DEFS;
+        if (defs.flashes.def !== 'full' || defs.flashes.options.join() !== 'full,reduced,off' || defs.rumble.def !== 'full' || defs.rumble.options.join() !== 'full,reduced,off' || defs.trails.def !== true || defs.shake.min !== 0) bad.push('definitions');
+        if (Settings.validate('flashes', 'blinding') !== 'full' || Settings.validate('flashes', 'off') !== 'off' || Settings.validate('rumble', 3) !== 'full' || Settings.validate('trails', 'no') !== true || Settings.validate('trails', false) !== false) bad.push('validation');
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, shake: 0.5, revision: SETTINGS_REVISION }));   // a save from before the three settings
+        Settings.init();
+        if (Settings.v.flashes !== 'full' || Settings.v.rumble !== 'full' || Settings.v.trails !== true || Settings.v.shake !== 0.5) bad.push('old save');
+        Settings.v.reducedMotion = false;
+        Settings.set('reducedMotion', true);
+        const rows = Object.keys(REDUCED_MOTION_ROWS).every((key) => Settings.v[key] === REDUCED_MOTION_ROWS[key]);
+        Settings.set('flashes', 'full'); Settings.set('reducedMotion', true);   // already on: the rows keep the viewer's choice
+        if (!rows || Settings.v.flashes !== 'full') bad.push('Reduced motion rows');
+        Settings.set('flashes', 'off'); Settings.set('rumble', 'off'); Settings.set('trails', false);
+        const stored = JSON.parse(Store.get(KEY_SETTINGS));
+        Settings.init();
+        if (stored.flashes !== 'off' || stored.rumble !== 'off' || stored.trails !== false || Settings.v.flashes !== 'off' || Settings.v.rumble !== 'off' || Settings.v.trails !== false) bad.push('not saved');
+        const page = UI.screen_settings();
+        if (!page.includes('Flashes') || !page.includes('Controller rumble') || !page.includes('Strike trails') || !page.includes('Camera shake')) bad.push('settings screen');
+        Settings.v.reducedMotion = false;
+        const alphaOf = (mode) => { Settings.v.flashes = mode; FX.clear(); FX.flash(0, 1, 0, 0.2, '#ffffff'); const burst = FX.p.find((q) => q.on); return burst ? burst.a : null; };
+        const full = alphaOf('full'), reduced = alphaOf('reduced'), off = alphaOf('off');
+        Settings.v.reducedMotion = true;
+        const reducedMotionFull = alphaOf('full'), reducedMotionReduced = alphaOf('reduced');
+        Settings.v.reducedMotion = false;
+        if (full !== 0.85 || reduced !== FLASH_REDUCED_ALPHA || off !== null || reducedMotionFull !== 0.45 || reducedMotionReduced !== FLASH_REDUCED_ALPHA) bad.push('flashes ' + [full, reduced, off, reducedMotionFull, reducedMotionReduced]);
+        const trailCount = (on) => { Settings.v.trails = on; FX.clear(); FX.trail(0, 1, 0, '#dcdcdc', 0.16); return FX.p.filter((q) => q.on).length; };
+        if (trailCount(true) !== 1 || trailCount(false) !== 0) bad.push('trails');
+        FX.clear();
+        Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+        Input.lastDevice = 'gamepad'; Input.padIndex = 0; Settings.v.shake = 1;
+        const rumbleOf = (mode) => { Settings.v.rumble = mode; calls.length = 0; Input.rumble(0.8, 100); return calls.slice(); };
+        const rumbleFull = rumbleOf('full'), rumbleReduced = rumbleOf('reduced'), rumbleOff = rumbleOf('off');
+        if (JSON.stringify(rumbleFull) !== '[[0.8,100]]' || JSON.stringify(rumbleReduced) !== JSON.stringify([[0.8 * RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS]]) || rumbleOff.length) bad.push('rumble ' + JSON.stringify([rumbleFull, rumbleReduced, rumbleOff]));
+        Settings.v.reducedMotion = true; Settings.v.rumble = 'full';
+        if (rumbleOf('full').length !== 1) bad.push('Reduced motion blocks the rumble row');
+        Settings.v.reducedMotion = false;
+        if (!(FLASH_REDUCED_TINT > 0 && FLASH_REDUCED_TINT < 1)) bad.push('tint');
+        /* the operating system's choice on first start sets the rows like turning Reduced motion on; a stored choice is kept */
+        const keepOs = Settings.prefersReducedMotion;
+        try {
+          Settings.prefersReducedMotion = () => true;
+          Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, revision: SETTINGS_REVISION }));
+          Settings.init();
+          const first = Settings.v.reducedMotion && Object.keys(REDUCED_MOTION_ROWS).every((key) => Settings.v[key] === REDUCED_MOTION_ROWS[key]);
+          Store.set(KEY_SETTINGS, JSON.stringify({ flashes: 'full', revision: SETTINGS_REVISION }));
+          Settings.init();
+          const kept = Settings.v.reducedMotion && Settings.v.flashes === 'full' && Settings.v.rumble === 'reduced';
+          Store.set(KEY_SETTINGS, JSON.stringify({ reducedMotion: false, revision: SETTINGS_REVISION }));
+          Settings.init();
+          const chosen = !Settings.v.reducedMotion && Settings.v.flashes === 'full' && Settings.v.rumble === 'full' && Settings.v.trails === true;
+          Store.set(KEY_SETTINGS, JSON.stringify({ reducedMotion: true, flashes: 'full', revision: SETTINGS_REVISION }));   // an older save: Reduced motion on and no rumble row, so the rumble it had off stays gentle
+          Settings.init();
+          if (Settings.v.rumble !== 'reduced' || Settings.v.flashes !== 'full') bad.push('an older save with Reduced motion on: rumble ' + Settings.v.rumble + ', flashes ' + Settings.v.flashes);
+          Settings.reset();
+          const reset = Settings.v.reducedMotion && Settings.v.flashes === 'reduced' && Settings.v.trails === false;
+          if (!first || !kept || !chosen || !reset) bad.push('first start with the system choice: ' + [first, kept, chosen, reset]);
+        } finally { Settings.prefersReducedMotion = keepOs; }
+        /* a fight is the same with every effect off and Reduced motion on (nothing in it reads a viewer setting) */
+        const match = HAZARD_1V1[0];
+        Object.assign(Settings.v, { flashes: 'off', rumble: 'off', trails: false, shake: 0, reducedMotion: true });
+        const hash = fingerprint(match.opts);
+        if (hash !== match.hash) bad.push('a fight changed with the effects off: ' + hash + ' not ' + match.hash);
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.lastDevice = device; Input.padIndex = index;
+        if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
+        Object.assign(Settings.v, keepV); Settings.apply(); FX.clear();
+      }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */

@@ -589,7 +589,10 @@ const SETTING_DEFS = {
   movement: { type: 'enum', options: ['opponent', 'screen'], def: 'screen', label: 'Movement directions', labels: { opponent: 'Relative to opponent', screen: 'Relative to screen' } },
   shake: { type: 'num', min: 0, max: 1, step: 0.1, def: 0.6, label: 'Camera shake' },
   uiScale: { type: 'num', min: 0.8, max: 1.5, step: 0.1, def: 1, label: 'UI scale' },
-  reducedMotion: { type: 'bool', def: false, label: 'Reduced motion' },
+  reducedMotion: { type: 'bool', def: false, label: 'Reduced motion', hint: 'Turning it on also sets Flashes and Rumble to Reduced and Strike trails to Off. Each can be changed again.' },
+  flashes: { type: 'enum', options: ['full', 'reduced', 'off'], def: 'full', label: 'Flashes', labels: { full: 'Full', reduced: 'Reduced', off: 'Off' }, hint: 'The bright bursts where a hit lands and the white glow on a fighter who is hit. Reduced keeps them dim, Off shows none.' },
+  rumble: { type: 'enum', options: ['full', 'reduced', 'off'], def: 'full', label: 'Controller rumble', labels: { full: 'Full', reduced: 'Reduced', off: 'Off' }, hint: 'Gamepad vibration on hits and knock-outs. Reduced is half as strong and short. Camera shake also scales it.' },
+  trails: { type: 'bool', def: true, label: 'Strike trails', hint: 'The faint smear behind heavy strikes.' },
   highContrast: { type: 'bool', def: false, label: 'High-contrast HUD' },
   quality: { type: 'enum', options: ['auto', 'low', 'medium', 'high'], def: 'auto', label: 'Render quality' },
   antialias: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Anti-aliasing (applies on reload)' },
@@ -605,6 +608,11 @@ const SETTING_DEFS = {
   storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
+const REDUCED_MOTION_ROWS = { flashes: 'reduced', rumble: 'reduced', trails: false };   // what the effect settings become when Reduced motion is turned on
+const FLASH_REDUCED_ALPHA = 0.3;    // the brightest an impact flash gets on Reduced
+const FLASH_REDUCED_TINT = 0.3;     // share of the white glow on a hit fighter that stays on Reduced
+const RUMBLE_REDUCED_SCALE = 0.5;   // share of the strength that stays on Reduced
+const RUMBLE_REDUCED_MS = 20;       // the longest a Reduced rumble lasts
 const Settings = {
   v: {},
   validate(key, value) {
@@ -627,12 +635,14 @@ const Settings = {
       if (key === 'reducedMotion' && !(key in stored) && prefersReduced) value = true;
       this.v[key] = value;
     }
+    if (this.v.reducedMotion) for (const key in REDUCED_MOTION_ROWS) if (!(key in stored)) this.v[key] = REDUCED_MOTION_ROWS[key];   // Reduced motion from the operating system or an older save sets the effect rows it has no choice for, like turning it on
     this.apply();
   },
   set(key, value) {
     const clean = this.validate(key, value);
     if (clean === undefined) return;
     const rounded = typeof clean === 'number' ? Math.round(clean * 1000) / 1000 : clean;
+    if (key === 'reducedMotion' && rounded && !this.v.reducedMotion) Object.assign(this.v, REDUCED_MOTION_ROWS);   // turned on: the effect rows start at their reduced value, and can be changed after
     this.v[key] = rounded;
     this.save();
     this.apply();
@@ -640,7 +650,7 @@ const Settings = {
   save() { Store.set(KEY_SETTINGS, JSON.stringify({ ...this.v, revision: SETTINGS_REVISION })); },
   reset() {
     for (const key in SETTING_DEFS) this.v[key] = SETTING_DEFS[key].def;
-    if (this.prefersReducedMotion()) this.v.reducedMotion = true;   // the operating system's choice is the default, as on first start
+    if (this.prefersReducedMotion()) Object.assign(this.v, { reducedMotion: true }, REDUCED_MOTION_ROWS);   // the operating system's choice is the default, as on first start
     this.save(); this.apply();
   },
   prefersReducedMotion() { return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; },
@@ -881,7 +891,7 @@ const betterGrade = (a, b) => (GRADE_LETTERS.indexOf(a) >= GRADE_LETTERS.indexOf
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {} }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -902,6 +912,7 @@ const Progress = {
     base.seenHold = s.seenHold === true;       // the same for the submission hold instructions
     // best fight grade per mode (P10-07); a save from before it has none, and a value that is not a letter is dropped
     if (s.grades && typeof s.grades === 'object') for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
+    base.arcadeRun = Story.clean(s.arcadeRun);   // the Arcade run to continue (P10-08); a save from before it has none, and a damaged one is dropped
     // the starters always come from DEFAULT_UNLOCKED, so a save from before the new presets gets the new starters; the saved unlocks of non-starters are kept
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && hasUnlockRule(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
@@ -1123,9 +1134,11 @@ class PlayerInput {
 
   /* Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate. */
   rumble(strength, ms) {
-    if (this.lastDevice !== 'gamepad' || this.padIndex < 0 || Settings.v.reducedMotion || !navigator.getGamepads) return;
-    const magnitude = clamp(strength * Settings.v.shake, 0, 1);
+    if (this.lastDevice !== 'gamepad' || this.padIndex < 0 || Settings.v.rumble === 'off' || !navigator.getGamepads) return;
+    const reduced = Settings.v.rumble === 'reduced';
+    const magnitude = clamp(strength * Settings.v.shake * (reduced ? RUMBLE_REDUCED_SCALE : 1), 0, 1);
     if (magnitude <= 0) return;
+    if (reduced) ms = Math.min(ms, RUMBLE_REDUCED_MS);
     try {
       const pad = readPads()[this.padIndex];
       const motor = pad && pad.vibrationActuator;
@@ -4119,7 +4132,9 @@ const FX = {
     }
   },
   flash(x, y, z, size, hex) {
-    this.spawn(MESH.SPHERE, true, x, y, z, 0, 0, 0, 0.1, size, size * 6, hex, Settings.v.reducedMotion ? 0.45 : 0.85, 0, 0, 2);
+    if (Settings.v.flashes === 'off') return;
+    const alpha = Settings.v.reducedMotion ? 0.45 : 0.85;
+    this.spawn(MESH.SPHERE, true, x, y, z, 0, 0, 0, 0.1, size, size * 6, hex, Settings.v.flashes === 'reduced' ? Math.min(alpha, FLASH_REDUCED_ALPHA) : alpha, 0, 0, 2);
   },
   dust(x, y, z, n, radius, hex) {
     for (let i = 0; i < n; i++) {
@@ -4127,7 +4142,7 @@ const FX = {
       this.spawn(MESH.SPHERE, false, x + Math.cos(a) * r, y + Math.random() * 0.2, z + Math.sin(a) * r, Math.cos(a) * 0.9, 0.5 + Math.random() * 0.7, Math.sin(a) * 0.9, 0.6 + Math.random() * 0.5, 0.18 + Math.random() * 0.12, 0.5, hex, 0.4, -0.6, 1.5, 0);
     }
   },
-  trail(x, y, z, hex, size) { this.spawn(MESH.SPHERE, false, x, y, z, 0, 0, 0, 0.12, size, -size * 4, hex, 0.3, 0, 0, 0.4); },
+  trail(x, y, z, hex, size) { if (Settings.v.trails !== false) this.spawn(MESH.SPHERE, false, x, y, z, 0, 0, 0, 0.12, size, -size * 4, hex, 0.3, 0, 0, 0.4); },
   update(dt) {
     let count = 0;
     for (let i = 0; i < FX_MAX; i++) {
@@ -6605,7 +6620,7 @@ class Fighter {
     ms.ry(p[J.bodyYaw]); ms.rx(p[J.bodyPitch]); ms.rz(p[J.bodyRoll]);
     const m = ms.m;
     pts[0] = m[12]; pts[1] = m[13]; pts[2] = m[14];
-    const fl = this.flash * 0.4;
+    const fl = this.flash * 0.4 * (Settings.v.flashes === 'off' ? 0 : Settings.v.flashes === 'reduced' ? FLASH_REDUCED_TINT : 1);   // the white glow of a hit body (drawing only)
     const skin = col.skin, lk = this.lk;
     const T = this.topRow, L = this.legRow, F = this.shoeRow, H = this.handRow, pants = !L[2], legCol = pants ? col.shorts : skin;   // pants-type legwear covers the whole leg, shorts-type puts a short overlay on the bare leg
     part(MESH.CUBE, 0, 0, 0, 0.34 * b * sh.hip, 0.2, 0.22 * b, col.shorts, 0, 0.8, fl);
@@ -6863,7 +6878,6 @@ const Combat = {
     const v0 = mv.push * KNOCK_DAMP;
     const pos = this.hitPoint(att, def, mv);
     let hs = mv.hitStop + (counter ? 2 : 0);
-    if (Settings.v.reducedMotion) hs = Math.ceil(hs * 0.5);
     if (def.hp <= 0) {
       this.knockOut(def, att, mv, match);
       hs = 16;
@@ -8060,7 +8074,8 @@ const STORY_DEFAULT = { country: 'CA', origin: 'gymkid', goal: 'title' };   // K
 const STORY_POOL = ['warehouse', 'subway', 'garage', 'construction'];        // the brawl levels of stages 3 and 5 (the home level leaves it)
 const STORY_BOSSES = ['hao', 'marlon', 'yoav'];
 const STORY_STAGES = 7;
-const STORY_SKIP_AFTER = 2;     // lost tries of a stage after which "Skip stage" is offered (Hard cleared 0 of 12 seeds on stages 1 and 5)
+const STORY_ID_MAX = 40;        // the longest fighter id a saved run may hold
+const STORY_SKIP_AFTER = 2;    // lost tries of a stage after which "Skip stage" is offered (Hard cleared 0 of 12 seeds on stages 1 and 5)
 const STORY_CAST_GAP = 1.2;     // m: the cast of a scene stands this far either side of the centre
 const STORY_TEXT_MAX = 90;      // characters of one scene box once its tokens hold their longest values
 /* The story settings of a record or profile as ids; a missing or unknown value takes its default (the intro: the tone's). Never throws. */
@@ -8118,6 +8133,34 @@ const Story = {
   },
   choose(run, choice) { if (choice === 'hand' || choice === 'walk') run.choice = choice; },
   finished(run) { return run.stage > STORY_STAGES; },
+  /* ----- saving (P10-08): a run quit at any stage is kept in Progress and continues there ----- */
+  /* The saved part of a run: plain values only. Stage, continues, lost tries, the skip, the flawless state and the B5 answer are the run's state; the rest fixes its fighter, rivals, boss and fights.
+     scores: the fight scores of the stages played so far (Game.run.scores), which the grade of the whole run is the mean of. */
+  pack(run, scores = []) {
+    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, rivalB: run.rivalB, boss: run.boss, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
+  },
+  /* A saved run read back from storage as a fresh object of plain values of the right kind and size, or null when it is not a run that can be continued (a finished run, a bad stage, wrong types). Whether its fighters still exist is for Story.restore. */
+  clean(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const whole = (value, max) => (Number.isInteger(value) && value >= 0 && value <= max ? value : -1);
+    const word = (value) => (typeof value === 'string' && value.length <= STORY_ID_MAX ? value : '');
+    const saved = {
+      fighter: word(raw.fighter), stage: whole(raw.stage, STORY_STAGES), clears: whole(raw.clears, 999), level: typeof raw.level === 'string' ? raw.level : '', seed: whole(raw.seed, 0xffffffff),
+      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), rivalB: word(raw.rivalB), boss: word(raw.boss),
+      scores: Array.isArray(raw.scores) && raw.scores.length <= STORY_STAGES ? raw.scores.map((score) => (typeof score === 'number' && score >= 0 && score <= 100 ? score : null)) : [],   // a damaged list only loses the grade's history, not the run
+    };
+    const counts = [saved.stage, saved.clears, saved.seed, saved.continues, saved.lost];
+    if (!saved.fighter || saved.stage < 1 || counts.some((count) => count < 0) || !Object.hasOwn(DIFFICULTY, saved.level) || !['', 'hand', 'walk'].includes(saved.choice)) return null;
+    return saved;
+  },
+  /* The run to continue from a saved one (Story.clean's kind), or null when its fighter is gone. A rival or boss that is gone is drawn again, as a new run draws them. The saved fight scores come back as run.scores, for Game.continueArcade to take. */
+  restore(saved) {
+    const clean = this.clean(saved), profile = clean && ROSTER_BY_ID[clean.fighter];
+    if (!profile) return null;
+    const run = this.start(profile, clean.clears, clean.level, clean.seed);
+    for (const key of ['rivalA', 'rivalB', 'boss']) if (ROSTER_BY_ID[clean[key]]) run[key] = clean[key];
+    return Object.assign(run, { stage: clean.stage, choice: clean.choice, continues: clean.continues, lost: clean.lost, flawless: clean.flawless, skipped: clean.skipped, scores: clean.scores });
+  },
   reward(run) { return STORY_GOAL_BY_ID[run.goal].reward; },
   signHue(run) { return STORY_REGION_LIST.find((region) => region.tag === run.region).hue; },   // the matte colour of posters and signs in the run's levels (not painted yet)
 
@@ -11141,9 +11184,8 @@ const SimRunner = {
       const plan = MatchLineup.plan(lineup, cfg.difficulty);
       lineupCfg = { mode: 'brawl', slots: plan.slots.map((slot) => Object.assign({}, slot, { human: -1 })), teamNames: plan.teamNames, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)), playerId: plan.slots[0].id };
     }
-    const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
+    const savedHandlers = Events.handlers;
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
-    Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
     let damage = [{}, {}];   // per fighter (a brawl has more than two)
     const add = (side, type, dmg) => { const row = damage[side] || (damage[side] = {}); row[type] = (row[type] || 0) + dmg; };   // a wave brings new fighters: the lists grow with them
     let m = null;
@@ -11182,7 +11224,6 @@ const SimRunner = {
     } finally {
       if (m) m.dispose();
       Events.handlers = savedHandlers;
-      Settings.v.reducedMotion = savedReduced;
     }
   },
 };
@@ -11417,6 +11458,7 @@ const Cutscene = {
   choose(answer) {
     if (!this.active || this.phase !== 'choice' || !Object.hasOwn(SCENE_CHOICES, answer)) return;
     Story.choose(this.run, answer);
+    if (Game.run && Game.run.story === this.run) Game.saveArcadeRun();   // the answer of B5 is part of the saved run (not in the story preview)
     if (this.handlers && this.handlers.choice) this.handlers.choice(answer);
     this.phase = 'react';
     const poses = {};
@@ -11604,7 +11646,40 @@ const Game = {
     const sel = this.selection;
     const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now());
     this.run = { mode: 'arcade', player: sel.player, story, stage: 0, scores: [] };
+    this.saveArcadeRun();   // replaces the run saved before
     this.tellStory(this.beatIds('before', 1), () => this.beginStage());
+  },
+  /* P10-08: the story run is saved in Progress after every change (a new run, a win, a lost or left fight, a retry, a skip, the answer of B5), so quitting keeps it; a cleared run is not kept.
+     spentRetry: the fight just lost or left is saved as a retry already made, so leaving and continuing is no free retry; Story.retry then charges the live run the same amount. */
+  saveArcadeRun(spentRetry = false) {
+    const run = this.run;
+    if (!run || run.mode !== 'arcade') return;
+    const story = run.story;
+    const kept = spentRetry ? Object.assign({}, story, { continues: story.continues + 1, lost: (story.lost || 0) + 1 }) : story;   // a copy: the live run is charged by Story.retry when Retry is pressed
+    Progress.d.arcadeRun = Story.finished(story) ? null : Story.pack(kept, run.scores);
+    Progress.save();
+  },
+  /* The saved run as a story to continue, or null; a run that cannot be continued (its fighter was deleted or is not open, or it is out of date) is dropped from the save. */
+  savedArcadeRun() {
+    const saved = Progress.d.arcadeRun;
+    if (!saved) return null;
+    const story = Story.restore(saved);
+    if (story && Progress.isUnlocked(story.fighter)) return story;
+    Progress.d.arcadeRun = null;
+    Progress.save();
+    return null;
+  },
+  /* "Continue Arcade" on the main menu: the saved run goes on at its stage with its continues, flawless state and answer; the scenes before that stage are not told again. */
+  continueArcade() {
+    const story = this.savedArcadeRun();
+    if (!story) return;
+    this.endMatch();
+    this.selection.mode = 'arcade'; this.selection.player = story.fighter;
+    if (this.state === GS.MENU && !this.go(GS.CHARSEL)) return;   // a match starts from the fighter select, as after Play
+    const scores = story.scores;
+    delete story.scores;
+    this.run = { mode: 'arcade', player: story.fighter, story, stage: story.stage - 1, scores };
+    this.beginStage();
   },
   /* The fight of the story's current stage. */
   beginStage() {
@@ -11638,6 +11713,7 @@ const Game = {
   /* A lost stage is played again: the Get up scene (B15), then the same stage with a new seed. */
   retryStage() {
     Story.retry(this.run.story);
+    this.saveArcadeRun();
     this.tellStory(this.beatIds('lost', 0), () => this.beginStage());
   },
   /* "Skip stage" (Story.canSkip, never the last stage: the champion has to be beaten for the clear): the stage counts as passed, its closing scenes still play. */
@@ -11646,6 +11722,7 @@ const Game = {
     if (!this.canSkipStage()) return;
     this.run.scores[this.run.stage] = 0;   // a skipped stage scores nothing in the run grade
     Story.skip(story, true);
+    this.saveArcadeRun();
     this.nextStage();
   },
   /* Offered on the results of a lost stage: the try just lost counts towards STORY_SKIP_AFTER. */
@@ -11793,7 +11870,7 @@ const Game = {
     if (!this.config) return;
     if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
-    if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); Story.retry(this.run.story); this.beginStage(); return; }
+    if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Story.retry(this.run.story); this.saveArcadeRun(); this.beginStage(); return; }
     const again = Object.assign({}, this.config);
     delete again.items;   // read the Items setting again, like friendly fire
     delete again.hazards;
@@ -11812,6 +11889,7 @@ const Game = {
   },
   quitToMenu() {
     this.saveSurvivalRecord();
+    if (this.match && !this.match.matchOver) this.saveArcadeRun(true);   // an Arcade fight left before its end counts as a lost try, so Continue is no free retry
     this.endMatch();
     this.run = null;
     Cutscene.handlers = null;   // a scene still up (the error screen was left) must not start a fight of the run that is gone when it ends
@@ -11913,6 +11991,7 @@ const Game = {
       data.buttons = ['again', 'setup', 'menu'];
     } else data.buttons = ['again', 'setup', 'menu'];
     this.gradeResults(data, run);
+    if (run && run.mode === 'arcade') this.saveArcadeRun(!playerWon);   // after the grade, which adds this stage's score; a win saves the next stage (or no run after the clear), a loss a retry spent
     this.resultsData = data;
     this.endTimer = 0;
     this.go(playerWon || personWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
@@ -12988,6 +13067,7 @@ const UI = {
     Sound.ui(name === 'back' ? 'back' : 'ok');
     switch (name) {
       case 'play': this.go('modes'); break;
+      case 'continueArcade': Game.continueArcade(); break;
       case 'controls': this.push('controls'); break;
       case 'settings': this.push('settings'); break;
       case 'credits': this.push('credits'); break;
@@ -13111,8 +13191,10 @@ const UI = {
     return '<div class="opt" role="spinbutton" tabindex="0" aria-label="' + esc(label) + '" aria-valuetext="' + esc(value) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav ' + attr + '><span class="k">' + esc(label) + '</span><span class="v">' + extra + esc(value) + '</span></div>';
   },
   screen_main() {
-    return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Brawl, Co-op Brawl</small></button>' +
+    const saved = Game.savedArcadeRun();   // the run to continue: it takes the one current item, Play follows it
+    const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
+    return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
+      '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Brawl, Co-op Brawl</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -15041,6 +15123,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
+    REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
