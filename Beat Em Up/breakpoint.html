@@ -70,6 +70,9 @@ kbd{display:inline-block;padding:.05em .45em;border:1px solid #6d82b8;border-bot
 button.mi small.rec{color:var(--a1)}
 .c1{color:var(--a1)}.c2{color:var(--a2)}
 .newbest{font:900 italic 1.6em/1 Impact,"Arial Black",sans-serif;letter-spacing:.06em;color:var(--warn);margin:.4em 0}
+.gradebox{display:flex;flex-wrap:wrap;align-items:center;gap:.2em 1em;margin:.5em 0;color:var(--mut)}
+.gradebox>b{font:900 italic 3.4em/1 Impact,"Arial Black",sans-serif;color:var(--a1)}
+.gradebox span b{color:var(--txt)}
 /* ---------- character creator ---------- */
 .screen.creator{justify-content:flex-end;align-items:stretch;padding:1em 1.4em;cursor:grab;touch-action:none}
 .panel.cr{width:min(34em,56vw);min-width:min(22em,96vw);max-width:none;max-height:none;display:flex;flex-direction:column;padding:.8em 1em;cursor:auto;touch-action:auto}
@@ -834,10 +837,49 @@ function unlockRuleText(id) {
 }
 /* 'A', 'A and B', 'A, B and C'. */
 function joinNames(names) { return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]; }
+/* What counts toward an unlock, for the Unlocks screen ('' for a starter, a custom fighter or a rival or boss, who open by being beaten). */
+const UNLOCK_COUNTER_LABELS = { wins: 'Arcade wins', clears: 'Arcade clears', best: 'Best Arcade stage', streak: 'Survival streak' };
+function unlockProgressText(id) {
+  if (!hasUnlockRule(id) || UNLOCK_RULES[id][0] === 'beat') return '';
+  const [counter, need] = UNLOCK_RULES[id];
+  return UNLOCK_COUNTER_LABELS[counter] + ' ' + Math.min(Progress.d[UNLOCK_COUNTERS[counter]], need) + ' / ' + need;
+}
+/* Fight grade (P10-07): a pure function of the numbers of a fight, so nothing here reads or changes the fight. Score 0 to 100 = 40 time + 35 damage taken + 25 move variety. */
+const GRADE_LETTERS = ['D', 'C', 'B', 'A', 'S'];   // worst to best
+const GRADE_FROM = [0, 45, 60, 75, 90];            // the lowest score of each letter
+const GRADE_MODES = ['arcade', 'survival', 'free', 'brawl', 'coop'];   // the modes that save a best grade
+const GRADE_PAR_ROUND = 30;       // seconds allowed per round won in a duel (a Survival fight counts as one round)
+const GRADE_PAR_ENEMY = 20;       // seconds allowed per enemy in a brawl
+const GRADE_VARIETY_FULL = 8;     // different moves landed for the full variety points
+function gradeLetter(score) {
+  let letter = GRADE_LETTERS[0];
+  GRADE_FROM.forEach((from, i) => { if (score >= from) letter = GRADE_LETTERS[i]; });
+  return letter;
+}
+/* A lost fight has no grade ('-'). The three parts are 0 to 100 in the result. */
+function fightGrade({ won, seconds, par, taken, takenMax, distinct }) {
+  if (!won) return { letter: '-', score: 0, time: 0, damage: 0, variety: 0 };
+  const safePar = Math.max(1, finite(par, 1)), safeMax = Math.max(1, finite(takenMax, 1));
+  const time = clamp(1 - (finite(seconds, 0) - safePar) / (2 * safePar), 0, 1);
+  const damage = 1 - clamp(finite(taken, 0) / safeMax, 0, 1);
+  const variety = clamp(finite(distinct, 0) / GRADE_VARIETY_FULL, 0, 1);
+  const score = 40 * time + 35 * damage + 25 * variety;
+  return { letter: gradeLetter(score), score, time: Math.round(100 * time), damage: Math.round(100 * damage), variety: Math.round(100 * variety) };
+}
+/* The fightGrade input of one human's stats in a results record (MatchSim.results): par and the damage allowance depend on the fight type. */
+function gradeInputs(data, stats, maxHp) {
+  const group = data.enemies > 0;   // a brawl, a co-op or a lineup fights a crowd (MatchSim.results counts the enemies); a duel does not
+  const roundsWon = data.gradeMode === 'survival' ? 1 : Math.max(1, data.wins[0]);
+  return {
+    won: data.playerWon, seconds: data.seconds, par: group ? GRADE_PAR_ENEMY * data.enemies : GRADE_PAR_ROUND * roundsWon,
+    taken: stats.taken, takenMax: group ? maxHp : maxHp * Math.max(1, data.rounds), distinct: Object.keys(stats.landed).length,
+  };
+}
+const betterGrade = (a, b) => (GRADE_LETTERS.indexOf(a) >= GRADE_LETTERS.indexOf(b) ? a : b);   // either may be undefined or '-' (index -1)
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {} }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -856,6 +898,8 @@ const Progress = {
     for (const kind of CONTROL_CARD_KINDS) base.seenControls[kind] = !oldControls && (s.seenControls === true || (!!s.seenControls && s.seenControls[kind] === true));
     base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
     base.seenHold = s.seenHold === true;       // the same for the submission hold instructions
+    // best fight grade per mode (P10-07); a save from before it has none, and a value that is not a letter is dropped
+    if (s.grades && typeof s.grades === 'object') for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
     // the starters always come from DEFAULT_UNLOCKED, so a save from before the new presets gets the new starters; the saved unlocks of non-starters are kept
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && hasUnlockRule(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
@@ -878,6 +922,14 @@ const Progress = {
   unlock(id) {
     if (this.d.unlocked.includes(id)) return false;
     this.d.unlocked.push(id);
+    this.save();
+    return true;
+  },
+  /* Keeps the best fight grade of a mode (P10-07) and saves it; true when `letter` beats the saved one. */
+  saveGrade(mode, letter) {
+    const best = this.d.grades[mode];
+    if (!GRADE_MODES.includes(mode) || !GRADE_LETTERS.includes(letter) || betterGrade(best, letter) === best) return false;
+    this.d.grades[mode] = letter;
     this.save();
     return true;
   },
@@ -9589,7 +9641,7 @@ class MatchSim {
     if (!ids.length) ids = [pool[0].id];
     return ids.slice(0, BRAWL_MAX_ENEMIES).map((id) => ROSTER_BY_ID[id]);
   }
-  newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0 }; }
+  newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0, landed: {} }; }   // landed: the ids of the different moves that hit at least once (the fight grade's variety)
 
   /* ----- lineups (P4-08) ----- */
   /* The fighters of a lineup, in the order MatchLineup.plan gave them (the lead's team first, the lead first of all). A slot with a person plays on the controller of its input seat, a CPU slot gets an AI of
@@ -9833,6 +9885,7 @@ class MatchSim {
     on('hit', (e) => {
       const s = this.stats[e.att.index];
       s.damage += e.dmg; s.hits++; s.maxCombo = Math.max(s.maxCombo, e.combo || 1);
+      if (e.mv) s.landed[e.mv.id] = true;
       this.stats[e.def.index].taken += e.dmg;
       if (e.att.index !== 0 || !e.mv) return;
       if (CLINCH_MOVES[e.mv.id]) {   // a clinch strike lands the tick it is pressed; the victim stays held, so there is no hit-stun to count
@@ -9859,6 +9912,7 @@ class MatchSim {
     });
     on('throw', (e) => {
       this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg;
+      this.stats[e.att.index].landed['throw:' + e.name] = true;
       if (e.att.index === 0 && this.lastMove) { this.lastMove.result = 'thrown'; this.lastMove.dmg = e.dmg; }
     });
     on('throwStart', (e) => {
@@ -9877,6 +9931,7 @@ class MatchSim {
     on('submission', (e) => { if (e.att.index === 0) note({ mv: { id: 'hold', name: 'Hold' }, startup: 0, active: SUBMIT_MAX_TICKS, recovery: SUBMIT_AFTER_LOCK, result: 'holding', note: 'damage builds while the hold lasts; the held fighter taps Defend to escape' }); });
     on('submissionEnd', (e) => {
       this.stats[e.att.index].damage += e.damage; this.stats[e.def.index].taken += e.damage;
+      if (e.damage > 0) this.stats[e.att.index].landed.hold = true;
       if (e.att.index === 0 && this.lastMove && this.lastMove.mv.id === 'hold') { this.lastMove.result = e.reason; this.lastMove.dmg = e.damage; this.lastMove.active = e.ticks; }
     });
     on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; this.hazardBreak(e.obj, this.fighters[e.by]); this.leaveBehind(e.obj); });
@@ -11030,7 +11085,7 @@ class MatchSim {
     const [a, b] = this.fighters;
     const r = {
       winner: this.matchWinner, wins: this.wins.slice(), rounds: this.round, seconds: Math.round(this.matchTicks / 60),
-      stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name,
+      stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name, playerMaxHp: a.maxHp,
     };
     if (this.brawl) {   // the enemies as a group: how many there were and how much of their health is left
       const foes = this.fighters.filter((f) => f.team !== this.fighters[0].team);   // everyone not on the lead's team (the enemies, team 1, outside a lineup)
@@ -11042,12 +11097,13 @@ class MatchSim {
     if (this.setup) {   // a row per fighter for the lineup results screen (P4-08)
       r.lineup = this.fighters.map((f, k) => ({ name: f.name, team: f.team, tint: f.tint, seat: this.setup[k].human, alive: f.alive, hp: f.hp / f.maxHp, stats: this.stats[k] }));
       r.teamNames = this.teamNames.slice();
+      r.setupMode = this.cfg.setupMode;
       r.winnerName = this.matchWinner >= 0 ? this.teamNames[this.matchWinner] || '' : '';
       const rivals = this.fighters.length - this.partySize;
       r.opponent = rivals + (rivals === 1 ? ' rival' : ' rivals');
     }
     if (this.coop) {   // a row per player for the co-op results screen
-      r.players = this.coop.map((seat, k) => { const f = this.fighters[k]; return { slot: seat.slot, name: f.name, alive: f.alive, hp: f.hp / f.maxHp, stats: this.stats[k] }; });
+      r.players = this.coop.map((seat, k) => { const f = this.fighters[k]; return { slot: seat.slot, name: f.name, alive: f.alive, hp: f.hp / f.maxHp, maxHp: f.maxHp, stats: this.stats[k] }; });
       r.player = r.players.map((member) => member.name).join(' + ');
       r.friendlyFire = this.friendlyFire;
       const party = this.fighters.slice(0, this.partySize);
@@ -11543,7 +11599,7 @@ const Game = {
   startArcade(stage, keepRun) {
     const sel = this.selection;
     const same = keepRun && this.run && this.run.mode === 'arcade' && this.run.player === sel.player;
-    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0, clears: Progress.d.arcadeClears };   // clears: the ladder of this run (ladderFor) stays the same while it lasts
+    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0, clears: Progress.d.arcadeClears, scores: [] };   // clears: the ladder of this run (ladderFor) stays the same while it lasts
     const ladder = this.ladderFor(sel.player, this.run.clears);
     Object.assign(this.run, { ladder, stage });
     const opp = ladder[stage];
@@ -11747,6 +11803,26 @@ const Game = {
     if (gained.length) data.unlocked = joinNames(gained);
     Progress.save();
   },
+  /* P10-07: the grade of a won fight, from its stats only (it needs no input and changes nothing in the fight); the best grade of each mode is saved.
+     Arcade saves the grade of the whole run (the mean score of its stages) when the run is cleared. */
+  gradeResults(data, run) {
+    const gradeMode = data.mode === 'lineup' ? data.setupMode : data.mode;   // a menu Brawl or Free Fight runs as a lineup and grades as that mode; a Versus lineup gets no grade
+    if (!GRADE_MODES.includes(gradeMode) || !data.playerWon) return;
+    data.gradeMode = gradeMode;
+    if (gradeMode === 'coop') {
+      data.grades = data.players.map((member) => fightGrade(gradeInputs(data, member.stats, member.maxHp)));   // a grade per player column
+      data.grade = data.grades.reduce((best, grade) => (grade.score > best.score ? grade : best));
+      Progress.saveGrade('coop', data.grade.letter);
+      return;
+    }
+    data.grade = fightGrade(gradeInputs(data, data.stats[0], data.playerMaxHp));
+    if (gradeMode !== 'arcade') { Progress.saveGrade(gradeMode, data.grade.letter); return; }
+    run.scores[run.stage] = data.grade.score;
+    if (!data.cleared) return;
+    const scores = run.scores.filter(Number.isFinite);
+    data.runGrade = gradeLetter(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+    Progress.saveGrade('arcade', data.runGrade);
+  },
   onMatchEnd() {
     const m = this.match;
     if (!m) return;
@@ -11784,6 +11860,7 @@ const Game = {
       data.score = this.versus.score.slice();
       data.buttons = ['again', 'setup', 'menu'];
     } else data.buttons = ['again', 'setup', 'menu'];
+    this.gradeResults(data, run);
     this.resultsData = data;
     this.endTimer = 0;
     this.go(playerWon || personWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
@@ -12731,6 +12808,7 @@ const UI = {
       if (mode === 'brawl' || (['free', 'versus'].includes(mode) && !Game.lineupPlain(mode))) this.go('lineup'); else if (setup) this.go('setup');   // back to the screen the arena was chosen from
       return;
     }
+    if (cur === 'unlocks') this.guardUntil = performance.now() + SCENE_GUARD_MS;   // the second tap of a double tap on Back must not press a main menu button
     const prev = this.stack.pop();
     this.go(prev || (Game.state === GS.PAUSED ? 'pause' : 'main'));
     if (cur === 'story') { const opener = this.dom.screens.querySelector('[data-act="crstory"]'); if (opener) opener.focus(); }   // back to the creator's Preview story button
@@ -12796,7 +12874,7 @@ const UI = {
     }
   },
   onClick(e) {
-    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results' || this.current === 'scene' || this.current === 'story')) return;   // a double tap: the second one must not answer, nor reach Back or a beat card behind
+    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results' || this.current === 'scene' || this.current === 'story' || this.current === 'unlocks' || this.current === 'main')) return;   // a double tap: the second one must not answer, nor reach Back or a beat card behind
     const t = e.target.closest('[data-act]');
     if (t) { this.act(t.getAttribute('data-act'), t); return; }
     if (e.target.closest('input,textarea')) return;           // text fields and sliders handle themselves
@@ -12847,6 +12925,8 @@ const UI = {
       case 'controls': this.push('controls'); break;
       case 'settings': this.push('settings'); break;
       case 'credits': this.push('credits'); break;
+      case 'unlocks': this.guardUntil = performance.now() + SCENE_GUARD_MS; this.push('unlocks'); break;   // the second tap of a double tap must not press a card
+      case 'unlockinfo': this.unlockInfo(arg); break;
       case 'moves': this.push('moves'); break;
       case 'back': this.back(); break;
       case 'mode': Game.chooseMode(arg); break;
@@ -12970,6 +13050,7 @@ const UI = {
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
+      '<button class="mi" data-nav data-act="unlocks">Unlocks<small>Which fighters you can earn, and how</small></button>' +
       '<button class="mi" data-nav data-act="credits">About &amp; Help<small>Credits, compatibility, self-test</small></button></nav>' +
       '<p class="hint">Navigate with arrow keys / WASD, Enter to select, Esc to go back. Gamepad and touch also work.</p></div></section>';
   },
@@ -13165,7 +13246,7 @@ const UI = {
     const row = (f) => '<tr class="tc' + f.tint + '"><td><span class="pcname">' + (f.seat >= 0 ? 'P' + (f.seat + 1) : 'CPU') + ' ' + esc(f.name) + '</span></td><td>' + (/^TEAM /.test(d.teamNames[f.team]) ? esc(d.teamNames[f.team].replace('TEAM ', 'Team ')) : 'Solo') + '</td><td>' +
       (f.team === d.winner ? 'winner' : f.alive ? 'standing' : 'knocked out') + '</td><td>' + Math.round(f.stats.damage) + '</td><td>' + Math.round(f.stats.taken) + '</td><td>' + f.stats.hits + '</td><td>' + f.stats.kos + '</td></tr>';
     return '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.draw ? 'Draw' : esc(d.winnerName) + ' wins') + '</div>' +
-      '<p class="sub">' + d.lineup.length + ' fighters &middot; ' + clockText(d.seconds) + '</p><table class="ctl"><tr><th>Fighter</th><th>Team</th><th>Result</th><th>Damage</th><th>Taken</th><th>Hits</th><th>KOs</th></tr>' + d.lineup.map(row).join('') + '</table>' + this.resultsNav(d);
+      '<p class="sub">' + d.lineup.length + ' fighters &middot; ' + clockText(d.seconds) + '</p><table class="ctl"><tr><th>Fighter</th><th>Team</th><th>Result</th><th>Damage</th><th>Taken</th><th>Hits</th><th>KOs</th></tr>' + d.lineup.map(row).join('') + '</table>' + (d.grade ? this.gradeHtml(d) : '') + this.resultsNav(d);
   },
   screen_setup() {
     const sel = Game.selection;
@@ -13428,6 +13509,27 @@ const UI = {
     } else h += '<button class="scenebox" data-nav data-default data-act="scenenext"><span class="who" style="color:' + SCENE_COLOURS[v.who] + '">' + esc(v.name) + '</span>' + esc(v.text) + '</button>';
     return h + '</section>';
   },
+  /* P10-05: what opens what. Every fighter with an unlock rule shows its requirement and your progress (select one to hear it again in a toast); everything else is open from the start. */
+  screen_unlocks() {
+    const earnable = ROSTER.filter((r) => hasUnlockRule(r.id));
+    const open = earnable.filter((r) => Progress.isUnlocked(r.id)).length;
+    const starters = ROSTER.filter((r) => !hasUnlockRule(r.id)).map((r) => r.name);
+    const graded = GRADE_MODES.filter((mode) => Progress.d.grades[mode]).map((mode) => MODE_INFO[mode].label + ' ' + Progress.d.grades[mode]);
+    let h = '<section class="screen on" aria-label="Unlocks"><div class="panel"><h2>Unlocks</h2><p class="sub">Fighters to earn: ' + open + ' of ' + earnable.length + ' open. Select a fighter to see how it opens.</p><div class="cards">';
+    earnable.forEach((r, k) => {
+      const locked = !Progress.isUnlocked(r.id), progress = unlockProgressText(r.id);
+      h += '<button class="card' + (locked ? ' locked' : '') + '" data-nav ' + (k === 0 ? 'data-default ' : '') + 'data-act="unlockinfo:' + r.id + '"><b>' + esc(r.name) + '</b><em>' + (locked ? 'LOCKED' : 'OPEN') + ' &middot; ' + esc(r.title) + '</em><em>' + esc(unlockRuleText(r.id)) + '</em>' + (progress ? '<em>' + esc(progress) + '</em>' : '') + '</button>';
+    });
+    h += '</div><p class="hint">Open from the start: ' + esc(joinNames(starters)) + '; all ' + ARENA_ORDER.length + ' arenas; all ' + MODE_ORDER.length + ' game modes; all ' + MOVE_STYLE_IDS.length + ' fighting styles; every customization item, face and intro emote in the fighter creator.</p>' +
+      (graded.length ? '<p class="hint">Best fight grades: ' + graded.map((text) => esc(text)).join(' &middot; ') + '</p>' : '');
+    return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button></div></div></section>';
+  },
+  unlockInfo(id) {
+    const r = ROSTER_BY_ID[id];
+    if (!r || !hasUnlockRule(id)) return;
+    const locked = !Progress.isUnlocked(id), progress = unlockProgressText(id);
+    this.toast(r.name + (locked ? ' is locked: ' : ' is open: ') + unlockRuleText(id) + (progress ? ' (' + progress + ')' : ''), locked ? 'warn' : '');
+  },
   screen_credits() {
     const p = Progress.d;
     return '<section class="screen on" aria-label="About"><div class="panel wide"><h2>About BREAKPOINT</h2>' +
@@ -13464,12 +13566,19 @@ const UI = {
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
     h += '<div class="statgrid">' + (d.mode === 'brawl' ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
+    if (d.grade) h += this.gradeHtml(d);
     if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
     if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
     if (d.unlocked) h += '<p><b>Unlocked: ' + d.unlocked + '</b></p>';
     void s1;
     return h + this.resultsNav(d);
+  },
+  /* The fight grade (P10-07): the letter large, the three parts under it, then the run grade (Arcade clear) and the best grade of the mode. Nothing to press. */
+  gradeHtml(d) {
+    const g = d.grade, best = Progress.d.grades[d.gradeMode];
+    return '<div class="gradebox"><b>' + g.letter + '</b><span>Fight grade &middot; Time ' + g.time + ' &middot; Damage ' + g.damage + ' &middot; Variety ' + g.variety + '</span>' +
+      (d.runGrade ? '<span>Run grade: <b>' + d.runGrade + '</b></span>' : '') + (best ? '<span>Best grade: <b>' + best + '</b></span>' : '') + '</div>';
   },
   resultsNav(d) {
     const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
@@ -13480,10 +13589,12 @@ const UI = {
     const members = d.players;
     const rows = [['Status', (s) => (s.alive ? 'standing' : 'knocked out')], ['Damage dealt', (s) => Math.round(s.stats.damage)], ['Damage taken', (s) => Math.round(s.stats.taken)], ['Hits landed', (s) => s.stats.hits],
       ['Best combo', (s) => s.stats.maxCombo + ' hits'], ['Knock-outs', (s) => s.stats.kos], ['Throws', (s) => s.stats.throws], ['Objects destroyed', (s) => s.stats.objects]];
+    if (d.grades) rows.push(['Grade', (s) => d.grades[members.indexOf(s)].letter]);
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div>' +
       '<p class="sub">Co-op brawl &middot; enemies down ' + d.enemiesDown + ' / ' + d.enemies + ' &middot; ' + clockText(d.seconds) + (d.friendlyFire ? ' &middot; friendly fire on' : '') + '</p>';
     h += '<table class="ctl"><tr><th></th>' + members.map((s) => '<th><span class="pcname seat' + (s.slot + 1) + '">P' + (s.slot + 1) + ' ' + esc(s.name) + '</span></th>').join('') + '</tr>' +
       rows.map((row) => '<tr><td>' + row[0] + '</td>' + members.map((s) => '<td>' + row[1](s) + '</td>').join('') + '</tr>').join('') + '</table>';
+    if (d.grades && Progress.d.grades.coop) h += '<p>Best grade: <b>' + Progress.d.grades.coop + '</b></p>';
     return h + this.resultsNav(d);
   },
   /* Versus: the winner, the session score and both players' stats side by side. */
@@ -14849,6 +14960,7 @@ function testApi() {
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
+    fightGrade, gradeInputs, gradeLetter,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };

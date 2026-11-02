@@ -317,12 +317,14 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P10-04 - Mini cutscenes: in-engine, skippable, short, mobile readable text.
   Done when: every beat in P10-02 plays and can be skipped.
   Status (2026-11-02): done for the creator's "Preview story": all 16 beats play alone or in order and can be skipped on touch, gamepad and keyboard; B5 asks its question as two cards. Checked by eye at phone width. There is no story play screen yet, so these wait for P10-06: B7's pause in the fight (the match already sends `waveBeat`), the "Skip stage" button, and the "Story scenes" (Full, Short, Off) and "Auto-advance" settings.
-- [ ] P10-05 - Progression and unlocks: clear list of what unlocks what (fighters, styles, items, levels, faces, emotes, modes) and how; shown in a menu.
+- [x] P10-05 - Progression and unlocks: clear list of what unlocks what (fighters, styles, items, levels, faces, emotes, modes) and how; shown in a menu.
   Done when: an unlock screen shows locked items with the requirement, and `Progress` save migrates from 1.0.0.
+  Status (2026-11-02): done: an Unlocks button on the main menu lists the 22 fighters to earn, open or locked, with each rule and the progress towards it; a line says the starters, arenas, modes, styles, items, faces and intro emotes are open from the start, because the game has no locks for those yet (the Appendix C `UNLOCKS` plan is not built). `Progress` needed no new fields for this screen.
 - [ ] P10-06 - Arcade uses brawler levels (multi-opponent) and 1v1 boss / rival fights (hybrid direction).
   Done when: a full Arcade run mixes both fight types.
-- [ ] P10-07 - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress.
+- [x] P10-07 - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress.
   Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
+  Status (2026-11-02): done: `fightGrade` scores time 40, damage 35, variety 25, a loss gets "-"; the best letter per mode is saved in `Progress.grades`. Arcade saves one grade for a cleared run; Free Fight, Survival, Brawl and Co-op save theirs (lineups under `brawl` or `free`); Training and Versus get none; the Tournament key waits for P11.
 
 ## Phase 11 - Tournament mode
 

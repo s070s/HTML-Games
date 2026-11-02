@@ -46,6 +46,7 @@ const {
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES,
+  fightGrade, gradeInputs, gradeLetter,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -2628,6 +2629,152 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return labelled && charged ? true : JSON.stringify({ labelled, charged });
+    });
+    test('Fight grade (P10-07): one pure function grades a clean win S, a close win C and a loss "-"; the match records the moves that landed; the best grade of a mode is kept, saved and migrated', () => {
+      const saved = keepProgress(), problems = [];
+      try {
+        const nine = Object.fromEntries('abcdefghi'.split('').map((id) => [id, true]));
+        const input = { won: true, seconds: 50, par: 60, taken: 10, takenMax: 200, distinct: 9 };
+        const clean = fightGrade(input), close = fightGrade({ won: true, seconds: 120, par: 60, taken: 180, takenMax: 300, distinct: 5 });
+        const brawl = fightGrade({ won: true, seconds: 400, par: 200, taken: 70, takenMax: 100, distinct: 3 }), lost = fightGrade({ won: false, seconds: 5, par: 60, taken: 0, takenMax: 100, distinct: 20 });
+        if (clean.letter !== 'S' || Math.abs(clean.score - 98.25) > 0.01 || clean.time !== 100 || clean.damage !== 95 || clean.variety !== 100) problems.push('clean win ' + JSON.stringify(clean));
+        if (close.letter !== 'C' || Math.abs(close.score - 49.625) > 0.01 || close.time !== 50 || close.damage !== 40 || close.variety !== 63) problems.push('close win ' + JSON.stringify(close));
+        if (brawl.letter !== 'D' || Math.abs(brawl.score - 39.875) > 0.01) problems.push('brawl ' + JSON.stringify(brawl));
+        if (lost.letter !== '-' || lost.score !== 0) problems.push('loss ' + JSON.stringify(lost));
+        if (JSON.stringify(fightGrade(input)) !== JSON.stringify(clean) || input.seconds !== 50) problems.push('not pure');
+        if (fightGrade({ won: true, seconds: NaN, par: 0, taken: -5, takenMax: 0, distinct: Infinity }).letter === undefined) problems.push('bad numbers');
+        const letters = [0, 44.9, 45, 59.9, 60, 74.9, 75, 89.9, 90, 100].map(gradeLetter).join('');
+        if (letters !== 'DDCCBBAASS') problems.push('letter limits ' + letters);
+        const duel = { mode: 'arcade', gradeMode: 'arcade', playerWon: true, seconds: 50, wins: [2, 0], rounds: 2, stats: [{ taken: 10, landed: nine }], playerMaxHp: 100 };
+        const mapped = fightGrade(gradeInputs(duel, duel.stats[0], 100));
+        const group = gradeInputs({ mode: 'coop', gradeMode: 'coop', playerWon: true, seconds: 400, enemies: 10, wins: [1, 0], rounds: 3 }, { taken: 70, landed: { a: true, b: true, c: true } }, 100);
+        if (mapped.letter !== 'S' || group.par !== 200 || group.takenMax !== 100 || group.distinct !== 3) problems.push('inputs ' + JSON.stringify([mapped.letter, group]));
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 14) it.punch = true; if (mm.tick === 60) it.kick = true; });
+        self.place(m, 1.1); self.run(m, 120);
+        const landed = Object.keys(m.stats[0].landed), result = m.results();
+        if (!m.stats[0].hits || !landed.length || landed.length > m.stats[0].hits || Object.keys(m.stats[1].landed).length || !(result.playerMaxHp > 0)) problems.push('landed ' + landed.join() + ' of ' + m.stats[0].hits + ' hits');
+        Progress.d = Progress.fresh();
+        const first = Progress.saveGrade('free', 'B'), worse = Progress.saveGrade('free', 'C'), same = Progress.saveGrade('free', 'B'), better = Progress.saveGrade('free', 'A');
+        const refused = Progress.saveGrade('versus', 'S') || Progress.saveGrade('free', '-') || Progress.saveGrade('free', 'Z');
+        if (!first || worse || same || !better || refused || Progress.d.grades.free !== 'A' || JSON.parse(Store.get(KEY_PROGRESS)).grades.free !== 'A') problems.push('best grade ' + JSON.stringify(Progress.d.grades));
+        const stage = (stageNumber, scores) => ({ data: Object.assign({}, duel, { cleared: stageNumber === 4, mode: 'arcade' }), run: { stage: stageNumber, scores } });
+        let play = stage(4, [100, 100, 100, 100]);
+        Game.gradeResults(play.data, play.run);
+        if (play.data.grade.letter !== 'S' || play.data.runGrade !== 'S' || Progress.d.grades.arcade !== 'S' || Math.abs(play.run.scores[4] - 98.25) > 0.01) problems.push('arcade run ' + JSON.stringify(play.data.grade) + play.data.runGrade);
+        play = stage(1, [60]);
+        Game.gradeResults(play.data, play.run);
+        const midRun = play.data.grade && !play.data.runGrade && play.run.scores.length === 2;
+        const none = Object.assign({}, duel, { playerWon: false }), versus = Object.assign({}, duel, { mode: 'versus' });
+        Game.gradeResults(none, { stage: 0, scores: [] }); Game.gradeResults(versus, null);
+        if (!midRun || none.grade || versus.grade) problems.push('mid run or no grade: ' + midRun + none.grade + versus.grade);
+        Store.set(KEY_PROGRESS, JSON.stringify({ wins: 3 }));   // 1.0.0: no grades
+        Progress.init();
+        const old = Progress.d.wins === 3 && JSON.stringify(Progress.d.grades) === '{}';
+        Store.set(KEY_PROGRESS, JSON.stringify({ wins: 3, grades: { arcade: 'A', free: 'Z', versus: 'S', coop: 7, survival: 'D' } }));
+        Progress.init();
+        const kept = JSON.stringify(Progress.d.grades) === JSON.stringify({ arcade: 'A', survival: 'D' });
+        Store.set(KEY_PROGRESS, JSON.stringify({ grades: 'S' }));
+        Progress.init();
+        const corrupt = JSON.stringify(Progress.d.grades) === '{}';
+        if (!old || !kept || !corrupt) problems.push('migration ' + old + kept + corrupt);
+      } finally { restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Results: the grade shows on the results screen with its three parts, the best grade of the mode, and nothing to press', () => {
+      const saved = keepProgress(), keepData = Game.resultsData, problems = [];
+      try {
+        Progress.d = Progress.fresh();
+        Progress.d.grades.free = 'A';
+        const stats = { damage: 90, taken: 10, hits: 9, blocks: 0, perfect: 0, maxCombo: 3, throws: 0, objects: 0, kos: 1, landed: {} };
+        const grade = fightGrade({ won: true, seconds: 50, par: 60, taken: 10, takenMax: 200, distinct: 9 });
+        const data = { mode: 'free', gradeMode: 'free', playerWon: true, player: 'KAI', opponent: 'MARA', wins: [2, 0], seconds: 50, stats: [stats, stats], buttons: ['again', 'menu'], grade };
+        Game.resultsData = data;
+        let html = UI.screen_results();
+        const buttons = (html.match(/<button/g) || []).length;
+        if (!html.includes('<div class="gradebox"><b>S</b>') || !html.includes('Time 100 &middot; Damage 95 &middot; Variety 100') || !html.includes('Best grade: <b>A</b>') || buttons !== 2) problems.push('single ' + buttons);
+        delete data.grade;
+        html = UI.screen_results();
+        if (html.includes('gradebox')) problems.push('a lost fight shows a grade');
+        const member = (slot) => ({ slot, name: 'P' + slot, alive: true, hp: 1, maxHp: 100, stats });
+        Game.resultsData = { mode: 'coop', playerWon: true, enemies: 2, enemiesDown: 2, seconds: 30, friendlyFire: false, buttons: ['menu'], players: [member(0), member(1)], grades: [grade, fightGrade({ won: true, seconds: 400, par: 20, taken: 100, takenMax: 100, distinct: 0 })] };
+        html = UI.screen_results();
+        if (!html.includes('<td>Grade</td><td>S</td><td>D</td>')) problems.push('co-op column ' + html.slice(html.indexOf('Grade') - 10, html.indexOf('Grade') + 40));
+      } finally { Game.resultsData = keepData; restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Fight grade: a real match end grades a Free Fight, a menu Brawl or Free Fight lineup shows and saves its grade, a Versus lineup and a loss get none', () => {
+      const saved = keepProgress(), keep = { match: Game.match, run: Game.run, data: Game.resultsData, go: Game.go }, problems = [];
+      try {
+        Progress.d = Progress.fresh();
+        Game.go = () => true;   // only the results record is checked, not the state change after it
+        const nine = Object.fromEntries('abcdefghi'.split('').map((id) => [id, true]));
+        const finish = (m, run, winner) => {
+          Game.match = m; Game.run = run;
+          m.matchOver = true; m.matchWinner = winner; m.matchTicks = 50 * 60;
+          m.stats[0].landed = Object.assign({}, nine); m.stats[0].taken = 10;
+          Game.onMatchEnd();
+          return Game.resultsData;
+        };
+        const duel = mk({});
+        duel.wins = [2, 0];
+        const won = finish(duel, { mode: 'free', player: 'kai' }, 0);
+        if (!won.grade || won.grade.letter === '-' || won.gradeMode !== 'free' || Progress.d.grades.free !== won.grade.letter || !UI.screen_results().includes('class="gradebox"')) problems.push('duel ' + JSON.stringify(won.grade));
+        if (finish(mk({}), { mode: 'free', player: 'kai' }, 1).grade) problems.push('a loss has a grade');
+        const plan = MatchLineup.plan(MatchLineup.fix({ slots: [{ id: 'kai', team: 1, human: true }, { id: 'mara', team: 2, human: false }, { id: 'brutus', team: 2, human: false }], timer: 0, handicap: true }), 'normal');
+        const lineupEnd = (setupMode, winner) => {
+          const m = new MatchSim({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode, countdown: false, timer: 0, seed: 3, difficulty: 'normal' });
+          self.made.push(m);
+          return finish(m, { mode: 'lineup', player: 'kai' }, winner);
+        };
+        for (const setupMode of ['brawl', 'free']) {
+          const data = lineupEnd(setupMode, 0), html = UI.screen_results();
+          if (!data.grade || data.gradeMode !== setupMode || data.enemies !== 2 || Progress.d.grades[setupMode] !== data.grade.letter || !html.includes('class="gradebox"')) problems.push(setupMode + ' lineup ' + JSON.stringify(data.grade));
+        }
+        const versus = lineupEnd('versus', 0);
+        if (versus.grade || Progress.d.grades.versus || UI.screen_results().includes('gradebox') || lineupEnd('brawl', 1).grade) problems.push('a Versus lineup or a lost lineup has a grade');
+      } finally { Game.match = keep.match; Game.run = keep.run; Game.resultsData = keep.data; Game.go = keep.go; restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Unlocks screen (P10-05): the main menu lists it, every earnable fighter shows OPEN or LOCKED with its rule and progress, a double tap on open or Back is ignored, and it works from keys, pad and touch alike', () => {
+      const saved = keepProgress(), problems = [];
+      const keep = { act: UI.act, push: UI.push, go: UI.go, toast: UI.toast, current: UI.current, stack: UI.stack, guard: UI.guardUntil };
+      const toasts = [], acts = [], pages = [];
+      try {
+        Progress.d = Progress.fresh();
+        const earnable = ROSTER.filter((r) => hasUnlockRule(r.id));
+        const cards = (html, pattern) => (html.match(pattern) || []).length;
+        let html = UI.screen_unlocks();
+        const missing = earnable.filter((r) => !html.includes('data-act="unlockinfo:' + r.id + '"') || !html.includes(esc(unlockRuleText(r.id)))).map((r) => r.id);
+        if (earnable.length !== 22 || missing.length || cards(html, /class="card locked"/g) !== earnable.length || cards(html, /OPEN/g) !== 0) problems.push('fresh ' + missing.join() + cards(html, /class="card locked"/g));
+        if (!html.includes('Arcade wins 0 / 3') || !html.includes('Survival streak 0 / 8') || !html.includes('Best Arcade stage 0 / 3') || !html.includes('Arcade clears 0 / 4') || !html.includes(esc(ROSTER_BY_ID.kai.name))) problems.push('progress or starters');
+        if (cards(html, /<button/g) !== cards(html, /<button[^>]* data-nav/g)) problems.push('a button cannot be reached by keys or pad');
+        if (!UI.screen_main().includes('data-act="unlocks"') || !html.includes('data-act="back"')) problems.push('menu entry or Back');
+        Progress.d.wins = 4;
+        Progress.checkUnlocks(false);
+        html = UI.screen_unlocks();
+        if (cards(html, /class="card locked"/g) !== earnable.length - 1 || !html.includes('Arcade wins 4 / 6') || !html.includes('OPEN')) problems.push('after 4 wins ' + cards(html, /class="card locked"/g));
+        UI.toast = (msg, kind) => toasts.push(msg + '|' + (kind || ''));
+        UI.unlockInfo('zero'); UI.unlockInfo('lars'); UI.unlockInfo('kai');
+        if (toasts.length !== 2 || toasts[0] !== 'ZERO is locked: Clear Arcade (Arcade clears 0 / 1)|warn' || !toasts[1].startsWith('LARS is open: Win 3 Arcade fights (Arcade wins 3 / 3)')) problems.push('toasts ' + toasts.join(' / '));
+        UI.act = (a) => acts.push(a);
+        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero' }) };
+        for (const screen of ['unlocks', 'main']) {
+          UI.current = screen; UI.guardUntil = performance.now() + 1000; UI.onClick({ target });
+          const ignored = acts.length === 0;
+          UI.guardUntil = 0; UI.onClick({ target });
+          if (!ignored || acts.length !== 1) problems.push('double tap on ' + screen);
+          acts.length = 0;
+        }
+        UI.act = keep.act;
+        UI.push = (name) => pages.push(name); UI.guardUntil = 0;
+        UI.act('unlocks');
+        const guarded = UI.guardUntil > performance.now();
+        UI.go = (name) => { pages.push('go:' + name); UI.current = name; };
+        UI.current = 'unlocks'; UI.stack = ['main']; UI.guardUntil = 0;
+        UI.back();
+        if (pages.join() !== 'unlocks,go:main' || !guarded || !(UI.guardUntil > performance.now())) problems.push('open and back guards ' + pages.join() + guarded);
+      } finally { Object.assign(UI, { act: keep.act, push: keep.push, go: keep.go, toast: keep.toast, current: keep.current, stack: keep.stack, guardUntil: keep.guard }); restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
     });
     /* ----- character creator ----- */
     const keepCustoms = () => ({ raw: Store.get(KEY_CUSTOM), backup: Store.get(KEY_CUSTOM_BACKUP), slots: CustomRoster.slots.slice() });
