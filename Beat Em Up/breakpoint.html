@@ -267,6 +267,20 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
 .seatcard em{display:block;font-style:normal;color:var(--mut);font-size:.8em}
 .seatcard .dev{display:block;font-size:.75em;color:var(--pc);margin-top:.3em}
 .pcname{color:var(--pc)}
+.bracketpanel{max-width:96vw;padding-top:.5em;padding-bottom:.5em}
+.bracketpanel h2{margin:0 0 .2em;font-size:1.2em}
+.bracket{position:relative;display:flex;gap:.5em;overflow-x:auto;padding:2px}
+.bracket.tall{overflow-y:auto;max-height:calc(100vh - 9.5em)}
+.bcol{display:flex;flex-direction:column;gap:4px;flex:1 1 6.2em;min-width:6.2em}   /* four columns (8 fighters) fit in 640 px; 16 fighters need 5 and fit too, a narrower window scrolls sideways */
+.bcol h3{margin:0;font-size:.8em;color:var(--mut);text-align:center}
+.bslots{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:6px}
+.bm{border:2px solid var(--line);border-radius:6px;background:#0f1830}
+.bm.now{border-color:var(--warn)}
+.br{display:flex;justify-content:space-between;gap:.5em;height:18px;line-height:18px;font-size:12px;padding:0 6px;white-space:nowrap}
+.br span:first-child{overflow:hidden;text-overflow:ellipsis}
+.br.won{font-weight:900}
+.br.lost{opacity:.5}
+.br.seat1,.br.seat2,.br.seat3,.br.seat4{color:var(--pc)}
 .pop{position:absolute;left:0;top:0;white-space:nowrap;font:900 italic 1.3em/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;will-change:transform,opacity;text-shadow:0 2px 3px #000,0 0 4px #000}
 .hc .bar{border-width:3px;background:#000}
 .hc .bar.mo{border-width:1px;height:.6em}
@@ -859,7 +873,7 @@ function unlockProgressText(id) {
 /* Fight grade (P10-07): a pure function of the numbers of a fight, so nothing here reads or changes the fight. Score 0 to 100 = 40 time + 35 damage taken + 25 move variety. */
 const GRADE_LETTERS = ['D', 'C', 'B', 'A', 'S'];   // worst to best
 const GRADE_FROM = [0, 45, 60, 75, 90];            // the lowest score of each letter
-const GRADE_MODES = ['arcade', 'survival', 'free', 'brawl', 'coop'];   // the modes that save a best grade
+const GRADE_MODES = ['arcade', 'survival', 'free', 'brawl', 'coop', 'tournament'];   // the modes that save a best grade
 const GRADE_PAR_ROUND = 30;       // seconds allowed per round won in a duel (a Survival fight counts as one round)
 const GRADE_PAR_ENEMY = 20;       // seconds allowed per enemy in a brawl
 const GRADE_VARIETY_FULL = 8;     // different moves landed for the full variety points
@@ -891,7 +905,7 @@ const betterGrade = (a, b) => (GRADE_LETTERS.indexOf(a) >= GRADE_LETTERS.indexOf
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null, tournamentWins: 0, tournamentBest: 0, tournamentRun: null }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -913,6 +927,10 @@ const Progress = {
     // best fight grade per mode (P10-07); a save from before it has none, and a value that is not a letter is dropped
     if (s.grades && typeof s.grades === 'object') for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
     base.arcadeRun = Story.clean(s.arcadeRun);   // the Arcade run to continue (P10-08); a save from before it has none, and a damaged one is dropped
+    // Tournament titles won, the most bracket wins in one tournament, and the bracket to continue (P11-01); a save from before them has none
+    base.tournamentWins = num(s.tournamentWins, 999);
+    base.tournamentBest = num(s.tournamentBest, TOURNAMENT_MAX_WINS);
+    base.tournamentRun = s.tournamentRun && typeof s.tournamentRun === 'object' && !Array.isArray(s.tournamentRun) ? s.tournamentRun : null;   // kept as saved: it may name a custom fighter, which is not loaded yet; Game.savedTournament cleans it
     // the starters always come from DEFAULT_UNLOCKED, so a save from before the new presets gets the new starters; the saved unlocks of non-starters are kept
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && hasUnlockRule(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
@@ -1373,6 +1391,7 @@ const Inputs = {
     const match = Game.match;
     if (match && match.setup) { const slot = match.setup[index]; return slot && slot.human >= 0 ? this.players[slot.human] : null; }   // a lineup (P4-08): the person in that slot reads its own input seat
     if (this.coop && match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; }
+    if (match && match.cfg.seats) { const seat = match.cfg.seats[index]; return seat >= 0 ? this.players[seat] : null; }   // a bracket fight (P11): the person on that seat
     return index === 0 ? Input : this.versus && index === 1 ? Input2 : null;
   },
   setVersus(on) {
@@ -9626,6 +9645,9 @@ class MatchSim {
     this.controllers = this.coop ? this.coop.map((seat) => HUMAN_CONTROLLERS[clamp(Math.floor(seat.slot) || 0, 0, COOP_MAX_PLAYERS - 1)]) : [PlayerController];
     for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
     if (this.setup) { this.buildLineup(); count = this.fighters.length; }
+    if (Array.isArray(this.cfg.seats) && !this.setup) {   // a bracket fight (P11): fighter k is steered by the input seat cfg.seats[k] (-1 = the CPU keeps it), so each person reads only their own device
+      this.cfg.seats.slice(0, 2).forEach((seat, k) => { if (Number.isInteger(seat) && seat >= 0 && seat < COOP_MAX_PLAYERS && this.controllers[k]) this.controllers[k] = HUMAN_CONTROLLERS[seat]; });
+    }
     if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;   // the enemies hit harder or softer by difficulty
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
@@ -11509,6 +11531,155 @@ const Cutscene = {
   },
 };
 
+/* ---------- Tournament (P11): a knock-out bracket of 8 or 16 fighters ----------
+   Entrant i stands in bracket slot i; round 0 pairs slots 2m and 2m + 1, and a later round pairs the winners of the two matches before it, so the whole bracket is a formula.
+   People sit as far apart as the bracket allows (person k in slot floor(k x size / people)), so they meet as late as possible; the CPU places are a seeded shuffle of the presets,
+   never a fighter a person took. A CPU against CPU match is played by SimRunner with the seed `seed + match number`, so the same draw always plays out the same way.
+   Tournament is data and rules only (no screens, no input); Game and UI play and show it. */
+const TOURNAMENT_SIZES = [8, 16];     // P1-05: the entrant counts (3 and 4 bracket rounds)
+const TOURNAMENT_MAX_WINS = 4;        // the most matches one fighter can win: the rounds of the biggest bracket
+const TOURNAMENT_TIMER = 60;          // seconds of a round
+const TOURNAMENT_FINAL_WINS = 2;      // the final is first to 2 round wins; every other match is one round
+const TOURNAMENT_NAME_MAX = 10;       // characters of a name on a bracket card
+const TOURNAMENT_ROUND_NAMES = ['Final', 'Semi-final', 'Quarter-final', 'Round of 16'];   // counted back from the final
+const TOURNAMENT_STAGES = ARENA_ORDER.filter((id) => ARENAS[id].ring && ARENAS[id].ring[4]);   // the levels with a ring-out edge, one per bracket round in turn
+const Tournament = {
+  rounds(t) { return Math.log2(t.size); },
+  blank(size, entrants, seed, difficulty) {
+    const matches = [];
+    for (let round = 0; round < Math.log2(size); round++) matches.push(Array.from({ length: size >> (round + 1) }, () => ({ winner: -1, score: [0, 0] })));
+    return { size, seed, difficulty, entrants, matches, scores: [], open: null };   // scores: the grade scores of the person's won matches (one person only), for the run grade; open: the match being fought, { round, index }, saved at its start so closing the page mid-fight is a loss
+  },
+  /* A new bracket. options: humans [{ seat, id }] (1 to 4, the seat 0 to 3 and the picked fighter), size (8 or 16), seed, difficulty (the CPU level of every CPU fighter). A repeated or unknown pick becomes the first fighter nobody has. */
+  draw(options) {
+    const size = TOURNAMENT_SIZES.includes(options.size) ? options.size : TOURNAMENT_SIZES[0];
+    const people = [], taken = new Set();
+    for (const person of Array.isArray(options.humans) ? options.humans : []) {
+      const seat = person && Number.isInteger(person.seat) && person.seat >= 0 && person.seat < COOP_MAX_PLAYERS ? person.seat : -1;
+      if (seat < 0 || people.some((other) => other.seat === seat)) continue;
+      const wanted = person.id;
+      const id = ROSTER_BY_ID[wanted] && !taken.has(wanted) ? wanted : ROSTER.find((r) => !taken.has(r.id)).id;
+      taken.add(id);
+      people.push({ seat, id });
+    }
+    if (!people.length) { people.push({ seat: 0, id: ROSTER[0].id }); taken.add(ROSTER[0].id); }
+    const seed = (Number.isFinite(options.seed) ? Math.floor(options.seed) : 1) >>> 0;
+    const pool = shuffled(ROSTER.map((r) => r.id).filter((id) => !taken.has(id)), makeRng(seed));
+    const entrants = new Array(size).fill(null);
+    people.forEach((person, k) => { entrants[Math.floor(k * size / people.length)] = { id: person.id, human: person.seat }; });
+    for (let slot = 0; slot < size; slot++) if (!entrants[slot]) entrants[slot] = { id: pool.shift(), human: -1 };
+    return this.blank(size, entrants, seed, DIFFICULTY_ORDER.includes(options.difficulty) ? options.difficulty : 'normal');
+  },
+  /* The two entrants of a match (-1 while a match before it is not played). */
+  sides(t, round, index) {
+    if (round === 0) return [2 * index, 2 * index + 1];
+    const before = t.matches[round - 1];
+    return [before[2 * index].winner, before[2 * index + 1].winner];
+  },
+  /* The first match not played yet, as { round, index }, or null when the bracket is over. */
+  next(t) {
+    for (let round = 0; round < t.matches.length; round++) {
+      for (let index = 0; index < t.matches[round].length; index++) {
+        if (t.matches[round][index].winner < 0) return { round, index };
+      }
+    }
+    return null;
+  },
+  champion(t) { return t.matches[t.matches.length - 1][0].winner; },
+  /* The people (entrant numbers) in a match. */
+  people(t, ref) { return this.sides(t, ref.round, ref.index).filter((i) => i >= 0 && t.entrants[i].human >= 0); },
+  /* The people still in the bracket. */
+  alive(t) {
+    const beaten = new Set();
+    t.matches.forEach((round, r) => round.forEach((match, index) => {
+      if (match.winner >= 0) for (const side of this.sides(t, r, index)) if (side !== match.winner) beaten.add(side);
+    }));
+    return t.entrants.map((e, i) => i).filter((i) => t.entrants[i].human >= 0 && !beaten.has(i));
+  },
+  winsOf(t, entrant) { return t.matches.reduce((sum, round) => sum + round.filter((match) => match.winner === entrant).length, 0); },
+  roundName(t, round) { return TOURNAMENT_ROUND_NAMES[this.rounds(t) - 1 - round] || 'Round ' + (round + 1); },
+  matchNumber(t, round, index) { return t.size - (t.size >> round) + index; },   // the matches of the rounds before it, then its place in the round
+  /* The level, round wins and clock of a round: the levels with a ring-out edge in turn, ring-out on, no items or hazards. */
+  rules(t, round) {
+    return { arenaId: TOURNAMENT_STAGES[round % TOURNAMENT_STAGES.length], winsNeeded: round === this.rounds(t) - 1 ? TOURNAMENT_FINAL_WINS : 1, timer: TOURNAMENT_TIMER };
+  },
+  /* Writes a match result (wins: round wins of the two sides); false when the match is not open (a side is still unknown, or it is played) or the winner is not in it. */
+  record(t, round, index, winner, wins) {
+    const match = t.matches[round] && t.matches[round][index];
+    if (!match || match.winner >= 0) return false;
+    const sides = this.sides(t, round, index);
+    if (sides.includes(-1) || !sides.includes(winner)) return false;
+    match.winner = winner;
+    match.score = [0, 1].map((side) => clamp(Math.floor(finite(wins && wins[side], 0)), 0, 9));
+    return true;
+  },
+  /* Plays a CPU against CPU match headless and returns { winner, wins }; a run that reached the time cap goes to the side with more health left, then to the first side. */
+  simulate(t, ref) {
+    const sides = this.sides(t, ref.round, ref.index), rules = this.rules(t, ref.round);
+    const result = SimRunner.run({ playerId: t.entrants[sides[0]].id, opponentId: t.entrants[sides[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, seed: (t.seed + this.matchNumber(t, ref.round, ref.index)) >>> 0, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: true, ringOut: true });
+    if (result.error) return { winner: sides[0], wins: [0, 0] };
+    const side = result.winner === 0 || result.winner === 1 ? result.winner : result.hpLeft[1] > result.hpLeft[0] ? 1 : 0;
+    return { winner: sides[side], wins: result.wins };
+  },
+  /* How many CPU matches Continue plays from here: the matches not played yet, in bracket order, up to the first one with a person still in the bracket under it (that person reaches it, or an earlier match, first). */
+  cpuMatches(t) {
+    const alive = this.alive(t);
+    let count = 0;
+    for (let round = 0; round < t.matches.length; round++) {
+      for (let index = 0; index < t.matches[round].length; index++) {
+        if (t.matches[round][index].winner >= 0) continue;
+        const span = 2 << round;   // the slots under a match
+        if (alive.some((slot) => slot >= index * span && slot < (index + 1) * span)) return count;
+        count++;
+      }
+    }
+    return count;
+  },
+  /* Who goes on when a fight with a person in it is left (the Quit button, or the page closed): the quitter cannot be known, so one person loses to the CPU, and two people both count as losing and the CPU rule (simulate) decides. */
+  forfeitWinner(t, ref) {
+    const people = this.people(t, ref);
+    return people.length === 1 ? this.sides(t, ref.round, ref.index).find((i) => i !== people[0]) : this.simulate(t, ref).winner;
+  },
+  /* The bracket as plain saved data. */
+  pack(t) {
+    return {
+      size: t.size, seed: t.seed, difficulty: t.difficulty, entrants: t.entrants.map((e) => ({ id: e.id, human: e.human })),
+      matches: t.matches.map((round) => round.map((match) => ({ winner: match.winner, score: match.score.slice() }))), scores: t.scores.slice(), open: t.open ? { round: t.open.round, index: t.open.index } : null,
+    };
+  },
+  /* A bracket made safe from saved data, or null when it cannot be played on: a size, fighter, seat or seed that is wrong, nobody to play it, or a bracket already over. A result that does not fit its match (and every match after it) is dropped. */
+  clean(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !TOURNAMENT_SIZES.includes(raw.size) || !Array.isArray(raw.entrants) || raw.entrants.length !== raw.size) return null;
+    if (!Number.isInteger(raw.seed) || raw.seed < 0 || raw.seed > 0xFFFFFFFF) return null;
+    const ids = new Set(), seats = new Set(), entrants = [];
+    for (const entry of raw.entrants) {
+      const id = entry && typeof entry.id === 'string' ? entry.id : '';
+      const human = entry && Number.isInteger(entry.human) && entry.human >= 0 && entry.human < COOP_MAX_PLAYERS ? entry.human : -1;
+      if (!ROSTER_BY_ID[id] || ids.has(id) || (human >= 0 && seats.has(human))) return null;
+      ids.add(id);
+      if (human >= 0) seats.add(human);
+      entrants.push({ id, human });
+    }
+    if (!seats.size) return null;
+    const t = this.blank(raw.size, entrants, raw.seed, DIFFICULTY_ORDER.includes(raw.difficulty) ? raw.difficulty : 'normal');
+    const saved = Array.isArray(raw.matches) ? raw.matches : [];
+    for (let round = 0; round < t.matches.length; round++) {
+      for (let index = 0; index < t.matches[round].length; index++) {
+        const entry = Array.isArray(saved[round]) ? saved[round][index] : null;
+        if (entry && typeof entry === 'object') this.record(t, round, index, entry.winner, Array.isArray(entry.score) ? entry.score : null);
+      }
+    }
+    const open = raw.open && typeof raw.open === 'object' ? raw.open : null;   // a fight that was still on when the page closed is lost
+    const left = open && Number.isInteger(open.round) && Number.isInteger(open.index) && t.matches[open.round] ? { round: open.round, index: open.index } : null;
+    if (left && t.matches[left.round][left.index] && t.matches[left.round][left.index].winner < 0 && !this.sides(t, left.round, left.index).includes(-1) && this.people(t, left).length) {
+      this.record(t, left.round, left.index, this.forfeitWinner(t, left), [0, 0]);
+    }
+    if (this.champion(t) >= 0) return null;
+    if (Array.isArray(raw.scores)) t.scores = raw.scores.filter((score) => typeof score === 'number' && score >= 0 && score <= 100).slice(0, TOURNAMENT_MAX_WINS);
+    return t;
+  },
+};
+
 /* ---------- game state manager ---------- */
 const GS = { LOADING: 'LOADING', MENU: 'MENU', CHARSEL: 'CHARSEL', ARENASEL: 'ARENASEL', COUNTDOWN: 'COUNTDOWN', FIGHT: 'FIGHT', PAUSED: 'PAUSED', ROUND_END: 'ROUND_END', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT', RESULTS: 'RESULTS', ERROR: 'ERROR' };
 const GS_TRANSITIONS = {
@@ -11557,9 +11728,15 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS) },   // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] },   // new players start on the easiest settings; party: the co-op pick per seat (the Tournament seats too)
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {},           // P4-08: the lineup being set up for each mode (free, versus, brawl), made on first use; see lineupFor
+  tournament: null,      // P11: the bracket being played (Tournament.draw), or null before the draw and after it is left
+  tournamentMatch: null, // the bracket match being fought: { round, index, order } (order = the entrants in fighter order, people first); null on the bracket screen
+  tournamentTwoPlayers: false,   // the fight being fought has two people in it (without seats they share the keyboard and the pads like Versus)
+  tournamentSeats: false,        // every person of the bracket sits on a joined device (Inputs.seats), kept for the whole tournament: each fight reads the people's own seats
+  tournamentWork: null,          // CPU matches being played out one per timer tick: { done, total }; null when idle
+  tournamentTimer: 0,            // the pending timer of tournamentStep
   endTimer: 0,
   frameAvg: 16,
   rafId: 0,
@@ -11594,12 +11771,16 @@ const Game = {
   inputPlan() {
     const people = this.lineupPeople();
     if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
+    if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo';   // the join screen seats the devices and a bracket that was drawn there keeps them (each person reads their own seat); a bracket with no seats (continued after a reload, or one touch player) uses the P1 / P2 inputs
     return this.selection.mode === 'versus' ? 'versus' : this.selection.mode === 'coop' ? 'coop' : 'solo';
   },
 
   /* ----- menu flow ----- */
   chooseMode(mode) {
     this.selection.mode = mode;
+    this.stopTournamentWork();
+    this.tournament = null;
+    this.tournamentSeats = false;
     if (mode === 'versus') this.versus = { score: [0, 0] };
     this.ensureSelection();
     this.go(GS.CHARSEL);
@@ -11612,6 +11793,7 @@ const Game = {
     if (!ROSTER_BY_ID[sel.player2]) sel.player2 = 'mara';
     if (!Array.isArray(sel.party)) sel.party = [];
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) if (!ROSTER_BY_ID[sel.party[seat]]) sel.party[seat] = DEFAULT_UNLOCKED[seat];
+    if (!TOURNAMENT_SIZES.includes(sel.tournamentSize)) sel.tournamentSize = TOURNAMENT_SIZES[0];
   },
   chooseArena(id) { this.selection.arena = id; },
 
@@ -11771,6 +11953,162 @@ const Game = {
     return true;
   },
 
+  /* ----- Tournament (P11) ----- */
+  /* The draw: the people who joined on the join screen (Inputs.seatedSlots, each with the fighter picked for its seat; nobody joined = one person on seat 1, so touch can play) against the CPU in a bracket of the chosen size, at the selected CPU level.
+     `people` ([{ seat, id }]) replaces the seats, and `seed` the clock that draws the CPU places. Then the bracket screen. */
+  startTournament(people, seed = Date.now() >>> 0) {
+    const sel = this.selection, seated = Inputs.seatedSlots();
+    const picks = people || (seated.length ? seated : [0]).map((seat) => ({ seat, id: sel.party[seat] }));
+    return this.playTournament(Tournament.draw({ humans: picks, size: sel.tournamentSize, seed, difficulty: sel.difficulty }));
+  },
+  /* Takes a bracket into play: the selected mode, the run, the saved copy, then the bracket screen. */
+  playTournament(t) {
+    this.endMatch();
+    this.stopTournamentWork();
+    this.tournament = t;
+    this.tournamentMatch = null;
+    this.tournamentTwoPlayers = false;
+    const seated = Inputs.seatedSlots();
+    this.tournamentSeats = seated.length > 0 && t.entrants.every((e) => e.human < 0 || seated.includes(e.human));   // the people drawn on the join screen sit on their devices; a continued bracket has none
+    this.selection.mode = 'tournament';
+    this.run = { mode: 'tournament', player: t.entrants.find((e) => e.human >= 0).id };
+    this.saveTournament();
+    return this.showBracket();
+  },
+  /* "Continue tournament" on the mode list: the saved bracket goes on at its next match. */
+  continueTournament() {
+    const saved = this.savedTournament();
+    return saved ? this.playTournament(saved) : false;
+  },
+  /* The saved bracket is written after the draw and after every match; a bracket that is over is not kept. */
+  saveTournament() {
+    const t = this.tournament;
+    Progress.d.tournamentRun = t && Tournament.champion(t) < 0 ? Tournament.pack(t) : null;
+    Progress.save();
+  },
+  /* The saved bracket, or null; one that cannot be played on is dropped from the save. It is cleaned here and not when the save is read, because it may hold a custom fighter, which is loaded later. A fight that was still open
+     when the page closed is lost (Tournament.clean), and the bracket is saved again with that result. */
+  savedTournament() {
+    const raw = Progress.d.tournamentRun, saved = Tournament.clean(raw);
+    if (!saved && raw) { Progress.d.tournamentRun = null; Progress.save(); }
+    else if (saved && raw.open) { Progress.d.tournamentRun = Tournament.pack(saved); Progress.save(); Showcase.arenaId = null; }   // a lost fight between two people was decided by a headless match
+    return saved;
+  },
+  /* The bracket screen, between fights. The screen's own match is gone first: a CPU match is played by SimRunner and never touches a match on screen. */
+  showBracket() {
+    this.endMatch();
+    this.tournamentMatch = null;
+    this.tournamentTwoPlayers = false;
+    if (this.state !== GS.CHARSEL && !this.go(GS.CHARSEL)) return false;   // a match starts from a menu screen that may go on to the countdown
+    this.syncVersusInput();
+    UI.showBracket();
+    return true;
+  },
+  /* Back from the bracket: the bracket stays saved (Continue tournament) unless it is over. */
+  leaveTournament() {
+    this.stopTournamentWork();
+    this.tournament = null;
+    this.tournamentMatch = null;
+    this.tournamentTwoPlayers = false;
+    this.tournamentSeats = false;
+    this.run = null;
+    if (this.state !== GS.MENU) this.go(GS.MENU);
+  },
+  /* The Continue button of the bracket: a champion leaves the bracket; a match with a person in it is fought; otherwise the CPU matches are played out headless, one per timer tick, up to the next fight with a person (or to the end). */
+  tournamentContinue() {
+    const t = this.tournament;
+    if (!t || this.tournamentWork) return;
+    if (Tournament.champion(t) >= 0) { this.leaveTournament(); UI.go('modes'); return; }
+    const next = Tournament.next(t);
+    if (Tournament.people(t, next).length) { this.beginTournamentMatch(next); return; }
+    this.endMatch();
+    this.tournamentWork = { done: 0, total: Tournament.cpuMatches(t) };
+    UI.bracketProgress();
+    this.tournamentTimer = setTimeout(() => this.tournamentStep(), 0);
+  },
+  /* One CPU match of the work in hand (a call also cancels the timer that would have made it); the bracket is saved after each, so leaving in between loses nothing. After the last one the bracket screen comes back. */
+  tournamentStep() {
+    clearTimeout(this.tournamentTimer);
+    const t = this.tournament, work = this.tournamentWork, ref = t && work ? Tournament.next(t) : null;
+    if (!work) return;
+    if (ref && !Tournament.people(t, ref).length) {
+      const result = Tournament.simulate(t, ref);
+      if (Tournament.record(t, ref.round, ref.index, result.winner, result.wins)) {
+        work.done++;
+        this.saveTournament();
+        UI.bracketProgress();
+        this.tournamentTimer = setTimeout(() => this.tournamentStep(), 0);
+        return;
+      }
+    }
+    this.tournamentWork = null;
+    Showcase.arenaId = null;   // the runs built their levels in the scene
+    this.showBracket();
+  },
+  stopTournamentWork() {
+    clearTimeout(this.tournamentTimer);
+    this.tournamentWork = null;
+  },
+  /* A fight with a person in it: one person against the CPU plays as Free Fight, two people as Versus. With seats (tournamentSeats) fighter k is steered by its person's own input seat (cfg.seats), otherwise by the P1 / P2 inputs. Items and hazards are off; ring-out is on.
+     The bracket is saved at once with the fight marked open, so closing the page mid-fight is a loss (Tournament.clean), not a free retry. */
+  beginTournamentMatch(ref) {
+    const t = this.tournament, entrants = t.entrants;
+    const rank = (i) => (entrants[i].human >= 0 ? entrants[i].human : COOP_MAX_PLAYERS);   // people first, by seat
+    const order = Tournament.sides(t, ref.round, ref.index).sort((x, y) => rank(x) - rank(y)), rules = Tournament.rules(t, ref.round);
+    this.tournamentMatch = { round: ref.round, index: ref.index, order };
+    this.tournamentTwoPlayers = Tournament.people(t, ref).length > 1;
+    this.run = { mode: 'tournament', player: entrants[order[0]].id };
+    t.open = { round: ref.round, index: ref.index };
+    this.saveTournament();
+    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: true, ringOut: true, items: false, hazards: false,
+      seats: this.tournamentSeats ? order.map((i) => entrants[i].human) : undefined });
+  },
+  /* A bracket fight left before its end (the Quit button): see Tournament.forfeitWinner. */
+  forfeitTournamentMatch() {
+    const t = this.tournament, at = this.tournamentMatch;
+    this.closeTournamentMatch(at.order.indexOf(Tournament.forfeitWinner(t, at)), [0, 0]);
+  },
+  /* Writes the fight just finished (or left) into the bracket, the person's record and the saved copy; wins = the round wins in fighter order. Returns { winner (entrant number), champion, runGrade }.
+     The record and the rewards are for a single person; leaving a fight is a loss (no continues). */
+  closeTournamentMatch(winnerSide, wins) {
+    const t = this.tournament, at = this.tournamentMatch, entrants = t.entrants;
+    const sides = Tournament.sides(t, at.round, at.index), result = { winner: at.order[winnerSide], champion: false, runGrade: '' };
+    Tournament.record(t, at.round, at.index, result.winner, sides.map((i) => wins[at.order.indexOf(i)]));
+    const people = entrants.filter((e) => e.human >= 0), you = people.length === 1 ? entrants.indexOf(people[0]) : -1;
+    if (you >= 0 && at.order.includes(you)) {
+      Progress.d.tournamentBest = Math.max(Progress.d.tournamentBest, Tournament.winsOf(t, you));
+      if (Tournament.champion(t) === you) {
+        result.champion = true;
+        Progress.d.tournamentWins = Math.min(999, Progress.d.tournamentWins + 1);
+        if (t.scores.length) { result.runGrade = gradeLetter(t.scores.reduce((sum, score) => sum + score, 0) / t.scores.length); Progress.saveGrade('tournament', result.runGrade); }
+      }
+    }
+    this.tournamentMatch = null;
+    t.open = null;
+    this.saveTournament();
+    return result;
+  },
+  /* The results of a bracket fight (onMatchEnd): the bracket and record are written, a single person's win is graded like a duel (the run grade is the mean of them, saved with the title), and a rival or boss beaten opens. */
+  finishTournamentMatch(m, data) {
+    const t = this.tournament, at = this.tournamentMatch, winnerSide = m.matchWinner === 1 ? 1 : 0;
+    const people = at.order.filter((i) => t.entrants[i].human >= 0), single = t.entrants.filter((e) => e.human >= 0).length === 1;
+    const beatenId = t.entrants[at.order[1]].id;
+    data.round = Tournament.roundName(t, at.round);
+    data.twoPeople = people.length > 1;
+    data.out = people.length === 1 && winnerSide === 1;
+    if (single && winnerSide === 0) {
+      data.gradeMode = 'tournament';
+      data.grade = fightGrade(gradeInputs(data, data.stats[0], data.playerMaxHp));
+      t.scores.push(data.grade.score);
+      if (hasUnlockRule(beatenId) && UNLOCK_RULES[beatenId][0] === 'beat' && Progress.unlock(beatenId)) data.unlocked = ROSTER_BY_ID[beatenId].name;
+    }
+    const result = this.closeTournamentMatch(winnerSide, data.wins);
+    data.winnerName = ROSTER_BY_ID[t.entrants[result.winner].id].name;
+    data.champion = result.champion;
+    if (result.runGrade) data.runGrade = result.runGrade;
+    data.buttons = ['bracket', 'menu'];
+  },
+
   /* ----- match setup (P4-08) ----- */
   /* The lineup of a mode ('free', 'versus', 'brawl'), made on first use from the selected fighters: Free Fight a player against the CPU, Versus two players, Brawl a player on Team A against three CPU on Team B. */
   lineupFor(mode) {
@@ -11867,7 +12205,7 @@ const Game = {
   },
   /* In Survival a restart abandons the run (no free retries): the record is kept and a new run starts. */
   restartMatch() {
-    if (!this.config) return;
+    if (!this.config || (this.run && this.run.mode === 'tournament')) return;   // a bracket fight is played once: no restart
     if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Story.retry(this.run.story); this.saveArcadeRun(); this.beginStage(); return; }
@@ -11890,7 +12228,14 @@ const Game = {
   quitToMenu() {
     this.saveSurvivalRecord();
     if (this.match && !this.match.matchOver) this.saveArcadeRun(true);   // an Arcade fight left before its end counts as a lost try, so Continue is no free retry
+    const leftBracketFight = !!this.match && !this.match.matchOver && !!this.tournamentMatch;
     this.endMatch();
+    if (leftBracketFight) this.forfeitTournamentMatch();   // a bracket fight left before its end is lost (no continues); the bracket stays saved. After endMatch: a headless match may decide it
+    this.stopTournamentWork();
+    this.tournament = null;
+    this.tournamentMatch = null;
+    this.tournamentTwoPlayers = false;
+    this.tournamentSeats = false;
     this.run = null;
     Cutscene.handlers = null;   // a scene still up (the error screen was left) must not start a fight of the run that is gone when it ends
     if (!CreatorUI.returnState) this.versus = null;   // a creator fight preview returns to the creator, so the Versus session score stays
@@ -11932,7 +12277,7 @@ const Game = {
      Arcade saves the grade of the whole run (the mean score of its stages) when the run is cleared. */
   gradeResults(data, run) {
     const gradeMode = data.mode === 'lineup' ? data.setupMode : data.mode;   // a menu Brawl or Free Fight runs as a lineup and grades as that mode; a Versus lineup gets no grade
-    if (!GRADE_MODES.includes(gradeMode) || !data.playerWon) return;
+    if (!GRADE_MODES.includes(gradeMode) || gradeMode === 'tournament' || !data.playerWon) return;   // a bracket fight is graded in finishTournamentMatch: the run grade is saved with the title
     data.gradeMode = gradeMode;
     if (gradeMode === 'coop') {
       data.grades = data.players.map((member) => fightGrade(gradeInputs(data, member.stats, member.maxHp)));   // a grade per player column
@@ -11989,17 +12334,19 @@ const Game = {
       this.versus.score[m.matchWinner]++;
       data.score = this.versus.score.slice();
       data.buttons = ['again', 'setup', 'menu'];
-    } else data.buttons = ['again', 'setup', 'menu'];
+    } else if (run && run.mode === 'tournament' && this.tournamentMatch) this.finishTournamentMatch(m, data);
+    else data.buttons = ['again', 'setup', 'menu'];
     this.gradeResults(data, run);
     if (run && run.mode === 'arcade') this.saveArcadeRun(!playerWon);   // after the grade, which adds this stage's score; a win saves the next stage (or no run after the clear), a loss a retry spent
     this.resultsData = data;
     this.endTimer = 0;
-    this.go(playerWon || personWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
+    this.go(playerWon || personWon || data.mode === 'versus' || data.twoPeople ? GS.VICTORY : GS.DEFEAT);   // Versus (and a bracket fight of two people) always has a winner to celebrate
   },
   resultsAction(kind) {
     const run = this.run;
     if (kind === 'menu') { this.quitToMenu(); return; }
     if (kind === 'setup') { this.endMatch(); this.go(GS.CHARSEL); return; }
+    if (kind === 'bracket') { this.showBracket(); return; }
     if (kind === 'next') {
       if (run.mode === 'arcade') this.nextStage();
       else if (run.mode === 'survival') this.nextSurvivalMatch();
@@ -12568,10 +12915,11 @@ const MODE_INFO = {
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
   brawl: { label: 'Brawl', desc: 'Up to eight fighters in one fight: choose who is a player and who is the CPU, and who is on which team, or fight free-for-all.' },
   coop: { label: 'Co-op Brawl', desc: 'Up to four players on keyboards and gamepads against a crowd. A knocked-out player sits out until the brawl is over.' },
+  tournament: { label: 'Tournament', desc: 'A knock-out bracket of 8 or 16 fighters, with ring-outs. Win every fight to be champion; lose one and you are out. One to four players share a bracket, and the CPU plays the other places.' },
 };
 const SETUP_LABEL = { free: 'FREE FIGHT', versus: 'VERSUS', brawl: 'BRAWL' };   // what a lineup match is called on the HUD (cfg.setupMode)
 const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };
-const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus', 'brawl', 'coop'];
+const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus', 'brawl', 'coop', 'tournament'];
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 /* Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two
@@ -12839,7 +13187,8 @@ const UI = {
         break;
       case GS.CHARSEL:
         this.stack = []; this.pickSide = 0;
-        if (Game.selection.mode === 'coop') { this.showCoopScene(); this.go('coop'); } else { this.showPick(); this.go('char'); }
+        if (Game.selection.mode === 'tournament' && Game.tournament) break;   // the bracket screen follows (Game.showBracket)
+        if (Game.selection.mode === 'coop' || Game.selection.mode === 'tournament') { this.showCoopScene(); this.go('coop'); } else { this.showPick(); this.go('char'); }   // a Tournament is joined like a co-op
         break;
       case GS.ARENASEL: this.menuScene(Game.selection.arena, Game.selection.player, this.rivalId(), false); this.go('arena'); break;
       case GS.COUNTDOWN: case GS.FIGHT:
@@ -12862,7 +13211,7 @@ const UI = {
     const d = Game.resultsData;
     if (d && d.mode === 'versus') this.banner('P' + (d.winner + 1) + ' WINS', d.winner === 0 ? d.player : d.opponent, 3000);
     else if (d && d.mode === 'coop') this.banner('VICTORY', 'The party wins', 3000);
-    else if (d && d.mode === 'lineup') this.banner('VICTORY', d.winnerName + ' wins', 3000);
+    else if (d && (d.mode === 'lineup' || d.mode === 'tournament')) this.banner('VICTORY', d.winnerName + ' wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
@@ -12894,7 +13243,7 @@ const UI = {
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
-    if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
+    if (match.versus && !match.cfg.seats && this.cardSession !== Game.versus) this.showVersusCard();   // a bracket fight on seats says nothing of the Versus keys
     else if (!match.coop && this.controlsCardDue(match)) this.showOnboarding();   // the co-op join screen has said who plays on what
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
@@ -12943,6 +13292,7 @@ const UI = {
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
     if (cur === 'coop') { this.syncPadPrev(); Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
+    if (cur === 'bracket') { this.syncPadPrev(); Game.leaveTournament(); this.go('modes'); return; }   // the bracket stays saved; Continue tournament is on the mode list
     if (cur === 'char' && this.pickSide === 1) { this.pickSide = 0; this.showPick(); this.go('char'); return; }   // Versus: back to P1's pick
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
     if (cur === 'lineup') { const mode = Game.selection.mode; Game.lineupToSelection(mode); this.go(mode === 'brawl' ? 'char' : 'setup'); return; }
@@ -13055,6 +13405,7 @@ const UI = {
     if (name === 'diff') { const i = DIFFICULTY_ORDER.indexOf(sel.difficulty); sel.difficulty = DIFFICULTY_ORDER[(i + dir + 4) % 4]; }
     else if (name === 'rounds') { const list = [1, 2, 3]; sel.rounds = list[(list.indexOf(sel.rounds) + dir + 3) % 3]; }
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
+    else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
     else if (name === 'alevel') { const i = ARCADE_LEVELS.indexOf(sel.arcadeLevel); sel.arcadeLevel = ARCADE_LEVELS[(i + dir + ARCADE_LEVELS.length) % ARCADE_LEVELS.length]; }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
@@ -13087,6 +13438,8 @@ const UI = {
       case 'coopStart': this.coopStart(); break;
       case 'coopcycle': if (Inputs.seats[Number(arg)]) this.coopCycle(Number(arg), 1); break;
       case 'coopdiff': this.changeLocal('diff', 1); break;
+      case 'continueTournament': Game.continueTournament(); break;
+      case 'bracketGo': Game.tournamentContinue(); break;
       case 'rebind': this.startRebind(Keymap, arg); break;
       case 'rebind2': this.startRebind(Keymap2, arg); break;
       case 'resetKeys': Keymap.resetAll(); this.toast('Keyboard bindings reset'); break;
@@ -13194,7 +13547,7 @@ const UI = {
     const saved = Game.savedArcadeRun();   // the run to continue: it takes the one current item, Play follows it
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
-      '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Brawl, Co-op Brawl</small></button>' +
+      '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Brawl, Co-op Brawl, Tournament</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -13204,6 +13557,8 @@ const UI = {
   },
   screen_modes() {
     let h = '<section class="screen on" aria-label="Game modes"><div class="panel"><h2>Select mode</h2><nav>';
+    const bracket = Game.savedTournament();   // a bracket to continue (P11-01)
+    if (bracket) h += '<button class="mi" data-nav data-act="continueTournament">Continue tournament<small>' + bracket.size + ' fighters &middot; next: ' + Tournament.roundName(bracket, Tournament.next(bracket).round) + '</small></button>';
     for (const k of MODE_ORDER) {
       const rec = this.modeRecord(k);
       h += '<button class="mi" data-nav ' + (k === 'arcade' ? 'data-default ' : '') + 'data-act="mode:' + k + '">' + MODE_INFO[k].label + '<small>' + MODE_INFO[k].desc + '</small>' + (rec ? '<small class="rec">' + rec + '</small>' : '') + '</button>';
@@ -13218,6 +13573,7 @@ const UI = {
     if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; ' + fewest + 'record ' + p.wins + '-' + p.losses;
     if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + STORY_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
     if (mode === 'survival' && (p.survivalKills || p.survivalSeconds)) return 'Best: ' + p.survivalKills + ' wins &middot; longest run ' + clockText(p.survivalSeconds);
+    if (mode === 'tournament' && (p.tournamentWins || p.tournamentBest)) return 'Titles: ' + p.tournamentWins + ' &middot; best run: ' + p.tournamentBest + (p.tournamentBest === 1 ? ' win' : ' wins') + (p.grades.tournament ? ' &middot; best grade ' + p.grades.tournament : '');
     return '';
   },
   statBars(attrs) {
@@ -13253,15 +13609,16 @@ const UI = {
      A card per seat. A device joins with Punch (a keyboard layout) or A / Start (a gamepad), leaves with Defend / B, and chooses its fighter with left / right (Inputs.lobbyKey and
      Inputs.pollLobby read the devices; this screen redraws on their 'lobby' events). Start: Enter on the button, or Start on a joined gamepad. */
   screen_coop() {
-    const sel = Game.selection, seated = Inputs.seatedSlots();
+    const sel = Game.selection, seated = Inputs.seatedSlots(), tournament = sel.mode === 'tournament';   // a Tournament is joined on the same screen
     const key = (keymap, action) => '<kbd>' + esc(keyLabel(keymap.bindings[action][0])) + '</kbd>';
-    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Co-op join screen"><div class="panel" style="max-width:min(40em,96vw)"><h2>Co-op brawl</h2>' +
-      '<p class="sub">Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.</p><div class="seats">';
+    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="' + (tournament ? 'Tournament' : 'Co-op') + ' join screen"><div class="panel" style="max-width:min(40em,96vw)"><h2>' + (tournament ? 'Tournament' : 'Co-op brawl') + '</h2>' +
+      '<p class="sub">' + (tournament ? 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.' : 'Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
     h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. <b>Fighter</b>: left / right. ' +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. Touch controls are not used in co-op.</p>';
-    h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)</small></button>';
-    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="coopStart"' + (seated.length ? '' : ' disabled') + '>Choose arena</button></div></div></section>';
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. ' + (tournament ? 'With nobody joined, Start gives one player any device, touch included.' : 'Touch controls are not used in co-op.') + '</p>';
+    if (tournament) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '');
+    h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>' + (tournament ? 'The level of every CPU fighter' : 'Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)') + '</small></button>';
+    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="coopStart"' + (seated.length || tournament ? '' : ' disabled') + '>' + (tournament ? 'Draw the bracket' : 'Choose arena') + '</button></div></div></section>';
     return h;
   },
   seatCard(seat) {
@@ -13307,6 +13664,7 @@ const UI = {
   /* The join screen's Start: on to the arena once somebody has joined. */
   coopStart() {
     const sel = Game.selection, seated = Inputs.seatedSlots();
+    if (sel.mode === 'tournament') { this.syncPadPrev(); Game.startTournament(); return; }   // the draw: the people who joined (or one on seat 1)
     if (!seated.length) { Sound.ui('bad'); this.toast('Nobody has joined yet: press Punch on a keyboard or A on a gamepad', 'warn'); return; }
     this.syncPadPrev();
     sel.player = sel.party[seated[0]];   // the scene on the arena screen
@@ -13707,14 +14065,14 @@ const UI = {
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.55)" aria-label="Paused"><div class="panel"><h2>Paused</h2><nav>' +
       '<button class="mi" data-nav data-default data-act="resume">Resume</button>' +
       (mode === 'survival' ? '<button class="mi" data-nav data-act="restart">Abandon run<small>Your record is kept; a new run starts</small></button>' :
-        mode === 'arcade' ? '<button class="mi" data-nav data-act="restart">Retry (uses a continue)<small>Counts as a loss</small></button>' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
+        mode === 'arcade' ? '<button class="mi" data-nav data-act="restart">Retry (uses a continue)<small>Counts as a loss</small></button>' : mode === 'tournament' ? '' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
     if (m && m.training) {
       h += this.optRow('Dummy', dummyLabel(m),'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
         '<button class="mi" data-nav data-act="treset">Reset positions &amp; health<small>Tab</small></button><button class="mi" data-nav data-act="tarena">Reset arena objects<small>F2</small></button>' +
         this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-6)</button>';
     }
-    h += '<button class="mi" data-nav data-act="moves">Move list</button><button class="mi" data-nav data-act="controls">Controls</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + '</button></nav></div></section>';
+    h += '<button class="mi" data-nav data-act="moves">Move list</button><button class="mi" data-nav data-act="controls">Controls</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + (mode === 'tournament' ? '<small>Leaving a tournament fight counts as a loss</small>' : '') + '</button></nav></div></section>';
     return h;
   },
   screen_results() {
@@ -13723,6 +14081,7 @@ const UI = {
     if (d.mode === 'versus') return this.versusResults(d);
     if (d.mode === 'coop') return this.coopResults(d);
     if (d.mode === 'lineup') return this.lineupResults(d);
+    if (d.mode === 'tournament') return this.tournamentResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
@@ -13743,7 +14102,7 @@ const UI = {
       (d.runGrade ? '<span>Run grade: <b>' + d.runGrade + '</b></span>' : '') + (best ? '<span>Best grade: <b>' + best + '</b></span>' : '') + '</div>';
   },
   resultsNav(d) {
-    const labels = { next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
+    const labels = { bracket: 'Continue', next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
     return '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
   },
   /* Co-op: the outcome and a column per player (seat colour, fighter, who was still standing, damage and hits). */
@@ -13769,6 +14128,66 @@ const UI = {
     h += '<p>Session score: <b class="c1">P1 ' + d.score[0] + '</b> - <b class="c2">' + d.score[1] + ' P2</b></p>';
     h += '<table class="ctl"><tr><th></th><th><span class="c1">P1 ' + esc(names[0]) + '</span></th><th><span class="c2">P2 ' + esc(names[1]) + '</span></th></tr>' + rows.map((r) => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>').join('') + '</table>';
     return h + this.resultsNav(d);
+  },
+  /* Tournament (P11): the fight, the way on (or out) and, for a single player, the fight grade, run grade and title. Continue goes to the bracket. */
+  tournamentResults(d) {
+    const s0 = d.stats[0];
+    const title = d.champion ? 'Champion' : d.twoPeople ? esc(d.winnerName) + ' wins' : d.playerWon ? 'Victory' : 'Defeat';
+    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + title + '</div><p class="sub">Tournament &middot; ' + esc(d.round) + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
+    h += '<div class="statgrid"><span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span><span>Fight time</span><span>' + clockText(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span></div>';
+    if (d.grade) h += this.gradeHtml(d);
+    h += '<p>' + (d.champion ? 'You are the champion!' : d.out ? 'You are out of the tournament.' : d.twoPeople ? esc(d.winnerName) + ' goes through.' : 'You go through.') + '</p>';
+    if (d.unlocked) h += '<p><b>Unlocked: ' + d.unlocked + '</b></p>';
+    return h + this.resultsNav(d);
+  },
+  /* ----- Tournament bracket (P11-03) -----
+     One column per round, a card per match (two 18 px rows: name, round wins), later columns centred on the pairs they follow, then the champion. 8 fighters fit without scrolling; 16 scroll inside the panel, to the next match.
+     The next match has a gold border, winners are bold and losers dimmed, people wear their seat colour. One Continue button (bracketGo) plays on; Back leaves with the bracket saved. */
+  showBracket() {
+    const t = Game.tournament;
+    if (!t) return;
+    const ref = Tournament.next(t) || { round: t.matches.length - 1, index: 0 };
+    const [left, right] = Tournament.sides(t, ref.round, ref.index).map((i) => t.entrants[i].id);
+    this.menuScene(Tournament.rules(t, ref.round).arenaId, left, right, false);
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;   // the press that came here must not press Continue as well
+    this.go('bracket');
+  },
+  bracketName(t, entrant) { return entrant < 0 ? '...' : esc(ROSTER_BY_ID[t.entrants[entrant].id].name.slice(0, TOURNAMENT_NAME_MAX)); },
+  /* The CPU fights are being played out: the status line counts them and Continue waits. */
+  bracketProgress() {
+    if (this.current === 'bracket') this.rerender(true);
+  },
+  bracketStatus(t, next, champion) {
+    const work = Game.tournamentWork;
+    if (work) return 'Simulating CPU fights: ' + Math.min(work.done + 1, work.total) + ' of ' + work.total + '...';
+    if (champion >= 0) return 'Champion: ' + this.bracketName(t, champion) + '. Continue leaves the bracket.';
+    const names = Tournament.sides(t, next.round, next.index).map((i) => this.bracketName(t, i));
+    if (Tournament.people(t, next).length) return Tournament.roundName(t, next.round) + ': ' + names[0] + ' vs ' + names[1] + '. Continue starts the fight.';
+    return Tournament.alive(t).length ? 'The CPU fights come first. Continue plays them.' : 'All players are out. Continue plays the bracket to the end.';
+  },
+  bracketCard(t, round, index, next) {
+    const sides = Tournament.sides(t, round, index), match = t.matches[round][index], now = !!next && next.round === round && next.index === index, decided = match.winner >= 0;
+    const rows = sides.map((entrant, side) => {
+      const person = entrant >= 0 && t.entrants[entrant].human >= 0;
+      return '<div class="br' + (decided ? (match.winner === entrant ? ' won' : ' lost') : '') + (person ? ' seat' + (t.entrants[entrant].human + 1) : '') + '"><span>' + this.bracketName(t, entrant) + '</span><span>' + (decided ? match.score[side] : '') + '</span></div>';
+    });
+    return '<div class="bm' + (now ? ' now' : '') + '"' + (now ? ' aria-current="step"' : '') + ' role="group" aria-label="' + Tournament.roundName(t, round) + ': ' + this.bracketName(t, sides[0]) + ' versus ' + this.bracketName(t, sides[1]) + '">' + rows.join('') + '</div>';
+  },
+  screen_bracket() {
+    const t = Game.tournament;
+    if (!t) return '';
+    const next = Tournament.next(t), champion = Tournament.champion(t);
+    let h = '<section class="screen on" aria-label="Tournament bracket"><div class="panel bracketpanel"><h2>Tournament &middot; ' + t.size + ' fighters</h2><p class="sub">' + this.bracketStatus(t, next, champion) + '</p><div class="bracket' + (t.size > 8 ? ' tall' : '') + '" id="bracketView">';
+    t.matches.forEach((round, r) => { h += '<div class="bcol"><h3>' + Tournament.roundName(t, r) + '</h3><div class="bslots">' + round.map((match, index) => this.bracketCard(t, r, index, next)).join('') + '</div></div>'; });
+    h += '<div class="bcol"><h3>Champion</h3><div class="bslots"><div class="bm' + (champion >= 0 ? ' now' : '') + '"><div class="br' + (champion >= 0 && t.entrants[champion].human >= 0 ? ' seat' + (t.entrants[champion].human + 1) : '') + '"><span>' + this.bracketName(t, champion) + '</span></div></div></div></div></div>';
+    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="bracketGo"' + (Game.tournamentWork ? ' disabled' : '') + '>Continue</button></div></div></section>';
+    if (t.size > 8) setTimeout(() => this.scrollBracket(), 0);
+    return h;
+  },
+  /* A bracket of 16 scrolls inside its panel: the next match is brought to the middle. */
+  scrollBracket() {
+    const view = $('bracketView'), card = view && view.querySelector('.bm.now');
+    if (card) view.scrollTop = Math.max(0, card.offsetTop - (view.clientHeight - card.offsetHeight) / 2);
   },
   showFatal(msg) {
     const f = this.dom.fatal;
@@ -15123,6 +15542,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
+    TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },

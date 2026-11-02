@@ -47,6 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
+  TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
 } = api;
 
@@ -9827,6 +9828,401 @@ const SelfTest = {
       const without = items(UI.screen_main());
       if (withRun.length !== without.length + 1 || !withRun[0].includes('data-act="continueArcade"') || !withRun.every((tag) => tag.includes(' data-nav') && tag.includes('data-act="'))) bad.push('items ' + withRun.length + ' and ' + without.length);
       if (withRun.filter((tag) => tag.includes('data-default')).length !== 1 || without.filter((tag) => tag.includes('data-default')).length !== 1 || !without[0].includes('data-act="play"')) bad.push('current item');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    /* ---------- Tournament (P11) ---------- */
+    /* withArcade's stand-ins (Game.go sets the state, rerenders do nothing) with Tournament selected, a fresh Progress and no bracket; the bracket state is put back afterwards. */
+    const withTournament = (fn) => withArcade(() => {
+      const keep = { tournament: Game.tournament, match: Game.tournamentMatch, two: Game.tournamentTwoPlayers };
+      Object.assign(Game.selection, { mode: 'tournament', difficulty: 'normal', tournamentSize: 8 });
+      Game.tournament = null; Game.tournamentMatch = null; Game.tournamentTwoPlayers = false;
+      try { return fn(); } finally { Game.tournament = keep.tournament; Game.tournamentMatch = keep.match; Game.tournamentTwoPlayers = keep.two; }
+    });
+    const KAI_MARA = [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }];
+    /* The Continue button, with the CPU matches it plays (one per timer tick on a page) played out at once. */
+    const continueBracket = () => {
+      Game.tournamentContinue();
+      while (Game.tournamentWork) Game.tournamentStep();
+    };
+    const playBracket = (t) => {   // every open match, headless; the number played
+      let played = 0;
+      for (let ref = Tournament.next(t); ref; ref = Tournament.next(t)) {
+        const result = Tournament.simulate(t, ref);
+        if (!Tournament.record(t, ref.round, ref.index, result.winner, result.wins)) break;
+        played++;
+      }
+      return played;
+    };
+    /* What a finished bracket must be: size - 1 matches, each won by one of its two different entrants, one champion who won every round, every other entrant beaten exactly once, no repeated or missing fighter. */
+    const bracketProblems = (t, size) => {
+      const bad = [], ids = t.entrants.map((e) => e.id), lost = new Array(size).fill(0), played = new Array(size).fill(0);
+      if (t.size !== size || ids.length !== size || new Set(ids).size !== size || ids.some((id) => !ROSTER_BY_ID[id])) bad.push('entrants ' + ids.join());
+      let matches = 0;
+      t.matches.forEach((round, r) => round.forEach((match, index) => {
+        const sides = Tournament.sides(t, r, index);
+        if (sides[0] === sides[1] || sides.some((i) => i < 0 || i >= size) || !sides.includes(match.winner)) { bad.push('match ' + r + '.' + index + ' ' + sides + ' won by ' + match.winner); return; }
+        matches++;
+        for (const i of sides) { played[i]++; if (i !== match.winner) lost[i]++; }
+      }));
+      const champion = Tournament.champion(t);
+      if (matches !== size - 1 || champion < 0) bad.push(matches + ' matches, champion ' + champion);
+      else if (played[champion] !== Math.log2(size) || lost[champion] !== 0 || lost.filter((n) => n === 1).length !== size - 1 || played.some((n) => n < 1)) bad.push('played ' + played + ' lost ' + lost);
+      return bad;
+    };
+    test('Tournament (P11-01): a full bracket of 8 and of 16 plays from the draw to one champion with no repeated or missing entrant, and the same draw plays out the same way', () => withTournament(() => {
+      const bad = [];
+      for (const size of TOURNAMENT_SIZES) {
+        const t = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size, seed: 77, difficulty: 'normal' });
+        const played = playBracket(t);
+        if (played !== size - 1) bad.push(size + ': ' + played + ' matches played');
+        bad.push(...bracketProblems(t, size).map((text) => size + ': ' + text));
+        if (t.entrants[0].id !== 'kai' || t.entrants[0].human !== 0 || t.entrants.filter((e) => e.human >= 0).length !== 1) bad.push(size + ': the person is not in slot 0');
+        const again = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size, seed: 77, difficulty: 'normal' });
+        if (JSON.stringify(again.entrants) !== JSON.stringify(t.entrants)) bad.push(size + ': the same seed drew other entrants');
+        if (size === 8) {
+          playBracket(again);
+          if (JSON.stringify(Tournament.pack(again)) !== JSON.stringify(Tournament.pack(t))) bad.push('the same draw played out differently');
+          const other = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size, seed: 78, difficulty: 'normal' });
+          if (other.entrants.map((e) => e.id).join() === t.entrants.map((e) => e.id).join()) bad.push('another seed drew the same entrants');
+        }
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-02): 2 to 4 people are placed apart so they meet as late as the bracket allows, picks never repeat, and the CPU places leave their fighters alone', () => withTournament(() => {
+      const bad = [], picks = [{ seat: 0, id: 'kai' }, { seat: 1, id: 'kai' }, { seat: 2, id: 'mara' }, { seat: 3, id: 'kai' }];
+      for (const size of TOURNAMENT_SIZES) {
+        for (let people = 1; people <= 4; people++) {
+          const t = Tournament.draw({ humans: picks.slice(0, people), size, seed: 5, difficulty: 'hard' });
+          const slots = t.entrants.map((e, i) => (e.human >= 0 ? i : -1)).filter((i) => i >= 0), want = Array.from({ length: people }, (v, k) => Math.floor(k * size / people));
+          const name = size + ' with ' + people;
+          if (slots.join() !== want.join() || slots.some((slot, k) => t.entrants[slot].human !== k)) bad.push(name + ': people in slots ' + slots + ', seats ' + slots.map((slot) => t.entrants[slot].human));
+          const ids = t.entrants.map((e) => e.id);
+          if (new Set(ids).size !== size || t.entrants.some((e) => !ROSTER_BY_ID[e.id])) bad.push(name + ': a repeated or unknown fighter');
+          if (t.entrants.filter((e) => e.human < 0).some((e) => picks.slice(0, people).some((pick) => pick.id === e.id))) bad.push(name + ': the CPU took a fighter a person picked');
+          const pairs = slots.flatMap((a, i) => slots.slice(i + 1).map((b) => 31 - Math.clz32(a ^ b)));   // the round in which two slots first meet
+          if (pairs.length && Math.min(...pairs) < Math.log2(size) - Math.ceil(Math.log2(people))) bad.push(name + ': people meet in round ' + Math.min(...pairs));
+          if (Tournament.people(t, { round: 0, index: 0 }).join() !== '0') bad.push(name + ': the first match is not the first person\'s');
+        }
+      }
+      const hostile = Tournament.draw({ humans: [{ seat: 4, id: 'kai' }, { seat: -1, id: 'kai' }, { seat: 1.5, id: 'kai' }, { seat: '1', id: 'kai' }, null, { seat: 2, id: 'ghost' }, { seat: 2, id: 'mara' }], size: 12, seed: 'x', difficulty: 'nope' });
+      if (hostile.size !== 8 || hostile.entrants.filter((e) => e.human >= 0).length !== 1 || hostile.entrants.find((e) => e.human === 2).id !== ROSTER[0].id || hostile.difficulty !== 'normal' || new Set(hostile.entrants.map((e) => e.id)).size !== 8) bad.push('a hostile draw: ' + JSON.stringify(hostile.entrants.filter((e) => e.human >= 0)));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with ring-out on, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
+      const bad = [], fights = [];
+      Game.selection.difficulty = 'hard';
+      Game.startTournament(KAI_MARA, 9);
+      const t = Game.tournament;
+      for (let guard = 0; guard < 16 && Tournament.champion(t) < 0; guard++) {
+        const before = Game.match;
+        continueBracket();
+        if (!Game.match || Game.match === before) continue;
+        const cfg = Game.match.cfg, at = Game.tournamentMatch;
+        fights.push({ mode: cfg.mode, round: at.round, first: cfg.playerId, second: cfg.opponentId, two: Game.tournamentTwoPlayers, plan: Game.inputPlan(), cfg });
+        winStage();   // the first fighter wins
+        Game.resultsAction('bracket');
+        if (Game.match || Game.state !== GS.CHARSEL || UI.current !== 'bracket') bad.push('the bracket did not come back: ' + Game.state + ' ' + UI.current + ' ' + !!Game.match);
+      }
+      const rounds = fights.map((f) => f.mode + '@' + f.round).join();
+      if (rounds !== 'free@0,free@0,free@1,free@1,versus@2') bad.push('fights ' + rounds);
+      const last = fights[fights.length - 1];
+      if (!last || last.first !== 'kai' || last.second !== 'mara' || !last.two || last.plan !== 'versus') bad.push('the final is not kai against mara as Versus: ' + JSON.stringify(last && [last.first, last.second, last.two, last.plan]));
+      if (fights.slice(0, -1).some((f) => f.two || f.plan !== 'solo')) bad.push('a fight with one person used the Versus inputs');
+      fights.forEach((f, k) => {
+        const cfg = f.cfg, rules = Tournament.rules(t, f.round);
+        if (cfg.ring !== true || cfg.ringOut !== true || cfg.items !== false || cfg.hazards !== false || cfg.difficulty !== 'hard' || cfg.timer !== TOURNAMENT_TIMER || cfg.arenaId !== rules.arenaId || cfg.winsNeeded !== (f.round === 2 ? TOURNAMENT_FINAL_WINS : 1) || !TOURNAMENT_STAGES.includes(cfg.arenaId)) bad.push('fight ' + k + ' rules ' + JSON.stringify([cfg.ring, cfg.ringOut, cfg.items, cfg.hazards, cfg.difficulty, cfg.timer, cfg.arenaId, cfg.winsNeeded]));
+      });
+      if (Tournament.champion(t) !== 0 || Progress.d.tournamentWins !== 0 || Progress.d.tournamentBest !== 0 || Progress.d.grades.tournament || Progress.d.tournamentRun !== null) bad.push('two people earned a record or the bracket was kept');
+      continueBracket();
+      if (Game.tournament || UI.current !== 'modes' || Game.state !== GS.MENU) bad.push('the champion\'s Continue did not leave: ' + UI.current);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): a person who loses is out and the bracket is still played to its champion; a person who wins every fight takes the title, the best result, the run grade and the rivals beaten', () => withTournament(() => {
+      const bad = [];
+      Game.startTournament([{ seat: 0, id: 'kai' }], 3);
+      continueBracket();
+      loseStage();
+      const out = Game.resultsData, saved = Progress.d.tournamentRun;
+      if (!out.out || out.playerWon || out.champion || out.buttons.join() !== 'bracket,menu' || out.grade || saved.matches[0][0].winner !== 1) bad.push('the loss: ' + JSON.stringify([out.out, out.buttons, saved.matches[0][0]]));
+      const results = UI.screen_results();
+      if (!results.includes('data-act="res:bracket"') || !results.includes('Continue') || !results.includes('You are out') || (results.match(/data-default/g) || []).length !== 1) bad.push('the loss screen');
+      Game.resultsAction('bracket');
+      const status = UI.screen_bracket();
+      if (!status.includes('All players are out') || Tournament.alive(Game.tournament).length !== 0) bad.push('the bracket after the loss');
+      const t = Game.tournament;
+      continueBracket();
+      const problems = bracketProblems(t, 8);
+      if (problems.length || Progress.d.tournamentRun !== null || Progress.d.tournamentWins !== 0 || Progress.d.tournamentBest !== 0 || Progress.d.grades.tournament) bad.push('after the loss: ' + problems.concat(JSON.stringify(Progress.d.tournamentRun)).join(' '));
+      continueBracket();   // the champion's Continue leaves
+      Game.startTournament([{ seat: 0, id: 'kai' }], 3);
+      const won = Game.tournament;
+      for (let guard = 0; guard < 8 && Tournament.champion(won) < 0; guard++) {
+        continueBracket();
+        if (!Game.match) continue;
+        winStage();
+        const d = Game.resultsData;
+        if (!d.grade || d.gradeMode !== 'tournament' || (!d.champion && Progress.d.grades.tournament)) bad.push('a win was graded wrong: ' + JSON.stringify([d.grade && d.grade.letter, Progress.d.grades.tournament]));
+        Game.resultsAction('bracket');
+      }
+      const final = Game.resultsData, mean = won.scores.reduce((sum, score) => sum + score, 0) / won.scores.length;
+      if (Tournament.champion(won) !== 0 || won.scores.length !== 3 || !final.champion || final.runGrade !== gradeLetter(mean) || Progress.d.grades.tournament !== final.runGrade) bad.push('the title: ' + JSON.stringify([Tournament.champion(won), won.scores.length, final.champion, final.runGrade, Progress.d.grades.tournament]));
+      if (Progress.d.tournamentWins !== 1 || Progress.d.tournamentBest !== 3 || Progress.d.tournamentRun !== null || JSON.parse(Store.get(KEY_PROGRESS)).tournamentWins !== 1 || JSON.parse(Store.get(KEY_PROGRESS)).grades.tournament !== final.runGrade) bad.push('the record ' + JSON.stringify([Progress.d.tournamentWins, Progress.d.tournamentBest]));
+      const beaten = won.matches.flatMap((round, r) => round.map((match, index) => Tournament.sides(won, r, index)).filter((sides) => sides.includes(0)).map((sides) => won.entrants[sides.find((i) => i !== 0)].id));
+      const missed = beaten.filter((id) => hasUnlockRule(id) && UNLOCK_RULES[id][0] === 'beat' && !Progress.isUnlocked(id));
+      if (beaten.length !== 3 || missed.length) bad.push('a rival beaten did not open: ' + missed);
+      if (!Progress.saveGrade('tournament', 'S') && Progress.d.grades.tournament !== 'S') bad.push('the grade key');
+      if (UI.screen_modes().includes('Continue tournament') || !UI.modeRecord('tournament').includes('Titles: 1')) bad.push('the mode list record');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): quitting a fight is a loss, Back keeps the bracket for Continue tournament, a fight cannot be restarted, and the player always has a way on', () => withTournament(() => {
+      const bad = [];
+      Game.startTournament([{ seat: 0, id: 'kai' }], 4);
+      continueBracket();
+      const match = Game.match, pause = UI.screen_pause();
+      Game.restartMatch();
+      if (!match || Game.match !== match || pause.includes('data-act="restart"') || !pause.includes('data-act="quit"') || !pause.includes('counts as a loss')) bad.push('the pause screen offered a restart');
+      Game.quitToMenu();
+      const kept = Progress.d.tournamentRun;
+      if (Game.tournament || Game.match || Game.run || Game.state !== GS.MENU || !kept || kept.matches[0][0].winner !== 1 || JSON.parse(Store.get(KEY_PROGRESS)).tournamentRun.matches[0][0].winner !== 1) bad.push('the quit: ' + JSON.stringify(kept && kept.matches[0][0]));
+      const modes = UI.screen_modes();
+      if (!modes.includes('data-act="continueTournament"') || !/class="mi" data-nav data-act="continueTournament"/.test(modes) || !modes.includes('Quarter-final')) bad.push('the mode list after the quit');
+      Game.continueTournament();
+      if (!Game.tournament || Game.state !== GS.CHARSEL || UI.current !== 'bracket' || !UI.screen_bracket().includes('All players are out')) bad.push('Continue tournament: ' + UI.current);
+      UI.guardUntil = 0; UI.back();
+      if (Game.tournament || Game.state !== GS.MENU || UI.current !== 'modes' || !Progress.d.tournamentRun || !UI.screen_modes().includes('Continue tournament')) bad.push('Back from the bracket: ' + UI.current + ' ' + !!Progress.d.tournamentRun);
+      Game.continueTournament();
+      continueBracket();
+      if (Tournament.champion(Game.tournament) < 0 || Progress.d.tournamentRun !== null) bad.push('the bracket was not played to its end');
+      continueBracket();
+      if (Game.tournament || Game.state !== GS.MENU || UI.current !== 'modes' || UI.screen_modes().includes('Continue tournament')) bad.push('the end did not leave');
+      Game.startTournament([{ seat: 0, id: 'kai' }], 4);   // a win, then Main menu on the results: the win stays, nothing is lost
+      continueBracket(); winStage(); Game.resultsAction('menu');
+      if (Progress.d.tournamentRun.matches[0][0].winner !== 0 || Game.tournament || Game.state !== GS.MENU) bad.push('Main menu on the results lost the win');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): saved Tournament fields that are hostile, damaged or out of date are dropped without an error, a good bracket keeps its matches, and a save from before loads', () => withTournament(() => {
+      const bad = [], good = Tournament.pack(Tournament.draw({ humans: [{ seat: 0, id: 'kai' }, { seat: 2, id: 'mara' }], size: 8, seed: 5, difficulty: 'hard' }));
+      const load = (text) => { Store.set(KEY_PROGRESS, text); Progress.init(); };
+      const save = (raw) => JSON.stringify({ wins: 4, controlsRevision: KEYS_REVISION, tournamentRun: raw });
+      const withChange = (change) => Object.assign({}, good, change);
+      const withEntrant = (index, change) => withChange({ entrants: good.entrants.map((e, i) => (i === index ? (change === null ? null : Object.assign({}, e, change)) : e)) });
+      const shapes = {
+        'size 7': withChange({ size: 7 }), 'text size': withChange({ size: '8' }), 'size 16 with 8 entrants': withChange({ size: 16 }), 'no entrants': withChange({ entrants: null }), 'text entrants': withChange({ entrants: 'kai' }), 'short entrants': withChange({ entrants: good.entrants.slice(1) }),
+        'a repeated fighter': withEntrant(3, { id: good.entrants[0].id }), 'an unknown fighter': withEntrant(3, { id: 'ghost' }), 'a prototype fighter': withEntrant(3, { id: '__proto__' }), 'a method fighter': withEntrant(3, { id: 'toString' }), 'a number fighter': withEntrant(3, { id: 12 }), 'a null entrant': withEntrant(3, null),
+        'two people on one seat': withEntrant(3, { human: 0 }), 'nobody': withChange({ entrants: good.entrants.map((e) => ({ id: e.id, human: -1 })) }),
+        'negative seed': withChange({ seed: -1 }), 'fraction seed': withChange({ seed: 2.5 }), 'huge seed': withChange({ seed: 2 ** 32 }), 'text seed': withChange({ seed: '5' }), 'no seed': withChange({ seed: undefined }),
+        'a finished bracket': withChange({ matches: [[{ winner: 0, score: [1, 0] }, { winner: 2, score: [1, 0] }, { winner: 4, score: [1, 0] }, { winner: 6, score: [1, 0] }], [{ winner: 0, score: [1, 0] }, { winner: 4, score: [1, 0] }], [{ winner: 0, score: [1, 0] }]] }),
+        'array': [good], 'text': 'kai', 'number': 5, 'true': true, 'empty object': {},
+      };
+      for (const name in shapes) {
+        try { load(save(shapes[name])); } catch (err) { bad.push(name + ' threw ' + err.message); continue; }
+        if (Game.savedTournament() !== null || Progress.d.tournamentRun !== null || Progress.d.wins !== 4 || UI.screen_modes().includes('Continue tournament')) bad.push(name + ' was kept');   // the save is read as it is and cleaned when the bracket is asked for
+      }
+      load(save(withEntrant(3, { human: 9 })));
+      const seatKept = Game.savedTournament();
+      if (!seatKept || seatKept.entrants[3].human !== -1) bad.push('a seat out of range is a CPU place');
+      load('{"wins":4,"tournamentRun":{"__proto__":{"size":8},"constructor":{"prototype":{"polluted":true}},"size":8,"seed":5,"entrants":[]}}');
+      if (({}).size !== undefined || ({}).polluted !== undefined || Game.savedTournament() !== null || Progress.d.tournamentRun !== null) bad.push('prototype keys got through');
+      load(save(Object.assign({ polluted: true, extra: [1, 2] }, good)));
+      const goodKept = Game.savedTournament();
+      if (!goodKept || JSON.stringify(Tournament.pack(goodKept)) !== JSON.stringify(good) || !UI.screen_modes().includes('Continue tournament')) bad.push('a good bracket was changed: ' + JSON.stringify(goodKept && Tournament.pack(goodKept)));
+      const played = JSON.parse(JSON.stringify(good));
+      played.matches[0][0] = { winner: 0, score: [1, 0] }; played.matches[0][1] = { winner: 5, score: [1, 0] }; played.matches[0][2] = { winner: 4, score: [2, 'x'] }; played.matches[1][0] = { winner: 0, score: [0, 0] }; played.scores = [60, 'a', 120, -1, 80, 90, 70, 50];
+      load(save(played));
+      const halfKept = Game.savedTournament(), run = halfKept && Tournament.pack(halfKept);
+      if (!run || run.matches[0][0].winner !== 0 || run.matches[0][1].winner !== -1 || run.matches[0][2].winner !== 4 || run.matches[0][2].score.join() !== '2,0' || run.matches[1][0].winner !== -1 || run.scores.join() !== '60,80,90,70') bad.push('the matches of a half-played bracket: ' + JSON.stringify(run && [run.matches[0], run.matches[1][0], run.scores]));
+      for (const text of ['{"tournamentWins":"x","tournamentBest":"y"}', '{"tournamentWins":-5,"tournamentBest":-1}', '{"tournamentWins":2.7,"tournamentBest":99}', '{"tournamentWins":1e12,"tournamentBest":1e12}', '{"tournamentWins":[3],"tournamentBest":{"a":1}}']) {
+        load(text);
+        const p = Progress.d;
+        if (!Number.isInteger(p.tournamentWins) || !Number.isInteger(p.tournamentBest) || p.tournamentWins < 0 || p.tournamentWins > 999 || p.tournamentBest < 0 || p.tournamentBest > TOURNAMENT_MAX_WINS) bad.push('counters of ' + text + ': ' + p.tournamentWins + ' ' + p.tournamentBest);
+      }
+      load('{"tournamentWins":2.7,"tournamentBest":99}');
+      if (Progress.d.tournamentWins !== 2 || Progress.d.tournamentBest !== TOURNAMENT_MAX_WINS) bad.push('counters were not clamped');
+      load('{"grades":{"tournament":"Z"}}');
+      if (Progress.d.grades.tournament !== undefined) bad.push('a bad grade was kept');
+      load('{"grades":{"tournament":"A"}}');
+      if (Progress.d.grades.tournament !== 'A') bad.push('a good grade was dropped');
+      load(JSON.stringify({ wins: 3 }));
+      if (Progress.d.tournamentRun !== null || Progress.d.tournamentWins !== 0 || Progress.d.tournamentBest !== 0 || Progress.d.grades.tournament !== undefined || Progress.d.wins !== 3) bad.push('a save from before');
+      load('{"tournamentRun":');
+      if (Progress.d.tournamentRun !== null) bad.push('a corrupt save');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-03): the bracket screen has a column per round and a card per match, marks the next match once, keeps names inside a card, offers one default Continue, and scrolls only for 16', () => withTournament(() => {
+      const bad = [];
+      if (UI.screen_bracket() !== '') bad.push('a screen without a bracket');
+      for (const size of TOURNAMENT_SIZES) {
+        Game.selection.tournamentSize = size;
+        Game.startTournament(KAI_MARA, 21);
+        const t = Game.tournament, rounds = Math.log2(size), html = UI.screen_bracket(), name = size + ': ';
+        const cards = html.match(/class="(bm[^"]*)"/g) || [];
+        if ((html.match(/class="bcol"/g) || []).length !== rounds + 1 || cards.length !== size) bad.push(name + (html.match(/class="bcol"/g) || []).length + ' columns, ' + cards.length + ' cards');
+        if (cards.filter((card) => card.includes(' now')).length !== 1 || cards[0] !== 'class="bm now"') bad.push(name + 'the next match is not marked once, first');
+        if (html.includes('bracket tall') !== (size > 8) || !html.includes('id="bracketView"')) bad.push(name + 'scroll class');
+        const buttons = html.match(/<button[^>]*>/g) || [];
+        if (buttons.length !== 2 || !buttons.every((tag) => tag.includes(' data-nav')) || buttons.filter((tag) => tag.includes('data-default')).length !== 1 || !buttons.find((tag) => tag.includes('data-default')).includes('data-act="bracketGo"')) bad.push(name + 'buttons ' + buttons.length);
+        if (!html.includes('br seat1') || !html.includes('br seat2')) bad.push(name + 'seat colours');
+        const names = (html.match(/<div class="br[^"]*"><span>[^<]*<\/span>/g) || []).map((row) => row.replace(/^.*?<span>/, '').replace(/<\/span>$/, '').replace(/&[a-z#0-9]+;/g, 'x'));
+        if (names.length !== 2 * (size - 1) + 1) bad.push(name + names.length + ' rows');
+        if (names.some((text) => text.length > TOURNAMENT_NAME_MAX)) bad.push(name + 'a long name: ' + names.find((text) => text.length > TOURNAMENT_NAME_MAX));
+        Tournament.record(t, 0, 0, 0, [1, 0]);
+        const after = (UI.screen_bracket().match(/class="(bm[^"]*)"/g) || []).findIndex((card) => card.includes(' now'));
+        if (after !== 1) bad.push(name + 'the mark did not move to the next match: ' + after);
+        Game.leaveTournament();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): a CPU match is seeded and played headless with no match on screen; Continue plays the CPU fights up to the next person', () => withTournament(() => {
+      const bad = [];
+      Game.startTournament([{ seat: 1, id: 'kai' }], 12);
+      const t = Game.tournament, ref = { round: 0, index: 1 };
+      const first = Tournament.simulate(t, ref), second = Tournament.simulate(t, ref);
+      if (JSON.stringify(first) !== JSON.stringify(second) || !Tournament.sides(t, 0, 1).includes(first.winner)) bad.push('a CPU match is not repeatable');
+      continueBracket();   // the person's match first (the person is on seat 2 and still takes slot 0)
+      const fight = Game.match;
+      if (!fight || Game.tournamentMatch.order[0] !== 0 || fight.cfg.playerId !== 'kai') bad.push('the first fight is not the person\'s');
+      winStage(); Game.resultsAction('bracket');
+      if (Game.match !== null) bad.push('a match stayed on the bracket screen');
+      continueBracket();   // the CPU matches after it, up to the next fight with the person
+      const next = Tournament.next(t);
+      if (Game.match !== null || !next || !Tournament.people(t, next).length || !Tournament.sides(t, 0, 1).includes(t.matches[0][1].winner) || t.matches[0][3].winner < 0) bad.push('Continue stopped in the wrong place: ' + JSON.stringify(next));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-02): with devices joined on the join screen each person is steered by their own seat - seat 3 against seat 4 plays on seats 3 and 4, and a fight with one person reads that seat only', () => withTournament(() => {
+      const bad = [], keep = { coop: Inputs.coop, versus: Inputs.versus }, fights = [];
+      Inputs.setCoop(true);
+      try {
+        for (const device of ['key1', 'key2', 'pad0', 'pad1']) Inputs.join(device);
+        if (Inputs.seatedSlots().join() !== '0,1,2,3') return 'the devices did not take seats 1 to 4: ' + Inputs.seatedSlots();
+        Game.startTournament([{ seat: 2, id: 'kai' }, { seat: 3, id: 'mara' }], 31);
+        for (let guard = 0; guard < 16 && Tournament.champion(Game.tournament) < 0; guard++) {
+          const before = Game.match;
+          continueBracket();
+          if (!Game.match || Game.match === before) continue;
+          const m = Game.match;
+          fights.push({ mode: m.cfg.mode, seats: m.cfg.seats.join(), plan: Game.inputPlan(), first: m.controllers[0], second: m.controllers[1], f0: Inputs.forFighter(0), f1: Inputs.forFighter(1) });
+          if (fights.length === 1) {   // the person on seat 3 is steered by seat 3's input and by no other
+            const it = makeIntent();
+            Inputs.players[3].press('punch');
+            m.controllers[0].think(m.fighters[0], m.fighters[1], m, it);
+            if (it.punch) bad.push('a press on seat 4 steered the person on seat 3');
+            Inputs.players[2].press('punch');
+            clearIntent(it);
+            m.controllers[0].think(m.fighters[0], m.fighters[1], m, it);
+            if (!it.punch) bad.push('a press on seat 3 did not steer the person on seat 3');
+          }
+          winStage();
+          Game.resultsAction('bracket');
+        }
+        const want = ['free 2,-1', 'free 3,-1', 'free 2,-1', 'free 3,-1', 'versus 2,3'];
+        if (fights.map((f) => f.mode + ' ' + f.seats).join('|') !== want.join('|')) bad.push('fights ' + fights.map((f) => f.mode + ' ' + f.seats));
+        if (fights.some((f) => f.plan !== 'coop')) bad.push('a fight did not use the seats: ' + fights.map((f) => f.plan));
+        fights.forEach((f, k) => {
+          const seats = f.seats.split(',').map(Number);
+          if (f.first !== HUMAN_CONTROLLERS[seats[0]] || (seats[1] >= 0 ? f.second !== HUMAN_CONTROLLERS[seats[1]] : !(f.second instanceof AIController))) bad.push('fight ' + k + ' has the wrong controllers');
+          if (f.f0 !== Inputs.players[seats[0]] || f.f1 !== (seats[1] >= 0 ? Inputs.players[seats[1]] : null)) bad.push('fight ' + k + ' reads the wrong inputs');
+        });
+        if (Inputs.seatedSlots().join() !== '0,1,2,3') bad.push('the seats were lost: ' + Inputs.seatedSlots());
+      } finally { Inputs.setCoop(keep.coop); Inputs.setVersus(keep.versus); Inputs.reset(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): a saved bracket with a custom fighter survives a reload - the save is read as it is and cleaned when the bracket is asked for, after the custom fighters are loaded', () => withTournament(() => {
+      const bad = [], saved = keepCustoms(), nobody = () => { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.register(); };
+      try {
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(3, validateCustom(randomCustom(12345)).value);
+        Game.startTournament([{ seat: 0, id: 'c4' }], 5);
+        if (Game.tournament.entrants[0].id !== 'c4') return 'the custom fighter was not drawn';
+        Game.leaveTournament();
+        nobody();   // the page starts again: Progress is read before the custom fighters are loaded
+        Progress.init();
+        if (!Progress.d.tournamentRun || Progress.d.tournamentRun.entrants[0].id !== 'c4') bad.push('the bracket was cleaned before the custom fighters were loaded');
+        CustomRoster.init();
+        const back = Game.savedTournament();
+        if (!back || back.entrants[0].id !== 'c4' || !ROSTER_BY_ID.c4 || !UI.screen_modes().includes('Continue tournament')) bad.push('the bracket did not resolve once the custom fighters were loaded');
+        if (!Game.continueTournament() || !Game.tournament || Game.tournament.entrants[0].id !== 'c4') bad.push('Continue tournament did not open it');
+        Game.leaveTournament();
+        nobody();   // the fighter was deleted
+        if (Game.savedTournament() !== null || Progress.d.tournamentRun !== null) bad.push('a bracket with a deleted fighter was kept');
+      } finally { restoreCustoms(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): closing the page in the middle of a fight is a loss - one person loses to the CPU, two people both count as losing and the CPU rule decides who goes on, and Quit does the same', () => withTournament(() => {
+      const bad = [];
+      Game.startTournament([{ seat: 0, id: 'kai' }], 8);
+      continueBracket();
+      const open = Progress.d.tournamentRun.open;
+      if (!open || open.round !== 0 || open.index !== 0 || Progress.d.tournamentRun.matches[0][0].winner !== -1) bad.push('the fight was not marked open at its start: ' + JSON.stringify(open));
+      Game.endMatch(); Game.tournament = null; Game.tournamentMatch = null; Game.run = null;   // the page closes: nothing runs any more
+      Progress.init();
+      const back = Game.savedTournament();
+      if (!back || back.matches[0][0].winner !== 1 || back.open || Progress.d.tournamentRun.open !== null || Progress.d.tournamentRun.matches[0][0].winner !== 1) bad.push('a closed fight was not lost: ' + JSON.stringify(Progress.d.tournamentRun && Progress.d.tournamentRun.matches[0][0]));
+      Game.continueTournament();
+      if (!UI.screen_bracket().includes('All players are out') || Progress.d.tournamentBest !== 0) bad.push('the person is not out after the closed fight');
+      Game.leaveTournament();
+      Game.startTournament([{ seat: 0, id: 'kai' }], 8);   // a finished fight leaves no mark
+      continueBracket(); winStage();
+      if (Progress.d.tournamentRun.open !== null || Progress.d.tournamentRun.matches[0][0].winner !== 0) bad.push('a finished fight left its mark');
+      const pair = Tournament.draw({ humans: KAI_MARA, size: 8, seed: 41, difficulty: 'normal' });   // both people in the first match
+      [pair.entrants[1], pair.entrants[4]] = [pair.entrants[4], pair.entrants[1]];
+      const want = Tournament.simulate(pair, { round: 0, index: 0 }).winner;   // the CPU rule
+      pair.open = { round: 0, index: 0 };
+      const record = [Progress.d.tournamentWins, Progress.d.tournamentBest].join();   // one win from the fight above
+      Progress.d.tournamentRun = Tournament.pack(pair); Progress.save(); Progress.init();
+      const both = Game.savedTournament();
+      if (!both || both.matches[0][0].winner !== want || !Tournament.sides(both, 0, 0).includes(want) || Progress.d.tournamentRun.open !== null || [Progress.d.tournamentWins, Progress.d.tournamentBest].join() !== record) bad.push('a closed fight of two people: ' + JSON.stringify(both && both.matches[0][0]) + ' want ' + want);
+      pair.open = null;
+      Game.playTournament(pair);
+      continueBracket();
+      if (!Game.match || Game.match.cfg.mode !== 'versus') bad.push('the first fight of the pair is not Versus');
+      Game.quitToMenu();
+      if (Progress.d.tournamentRun.matches[0][0].winner !== want || Progress.d.tournamentRun.open !== null || Game.match || Game.tournament) bad.push('Quit in a fight of two people: ' + JSON.stringify(Progress.d.tournamentRun.matches[0][0]));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-01): Continue plays the CPU fights one per timer tick with their count on the bracket screen and Continue off meanwhile, a second Continue starts nothing, and leaving stops them', () => withTournament(() => {
+      const bad = [];
+      Game.startTournament([{ seat: 0, id: 'kai' }], 3);
+      continueBracket(); winStage(); Game.resultsAction('bracket');   // the person's first fight is won
+      const t = Game.tournament, total = Tournament.cpuMatches(t), decided = () => t.matches.flat().filter((match) => match.winner >= 0).length, start = decided();
+      Game.tournamentContinue();
+      const work = Game.tournamentWork, html = UI.screen_bracket();
+      if (!work || work.total !== total || work.done !== 0 || total !== 3 || Game.match || decided() !== start || !html.includes('Simulating CPU fights: 1 of 3') || !html.includes('data-act="bracketGo" disabled')) bad.push('the work did not start: ' + JSON.stringify(work) + ' ' + total);
+      Game.tournamentContinue();
+      if (Game.tournamentWork !== work) bad.push('a second Continue restarted the work');
+      Game.tournamentStep();
+      if (work.done !== 1 || decided() !== start + 1 || Progress.d.tournamentRun.matches[0].filter((match) => match.winner >= 0).length !== 2 || !UI.screen_bracket().includes('Simulating CPU fights: 2 of 3')) bad.push('one step did not play one match');
+      while (Game.tournamentWork) Game.tournamentStep();
+      const next = Tournament.next(t), done = UI.screen_bracket();
+      if (decided() !== start + total || !next || !Tournament.people(t, next).length || UI.current !== 'bracket' || done.includes('Simulating') || done.includes('bracketGo" disabled')) bad.push('the work did not end at the next fight: ' + decided());
+      continueBracket(); winStage(); Game.resultsAction('bracket');   // round 2, then one CPU match is left before the final
+      Game.tournamentContinue();
+      const saved = JSON.stringify(Progress.d.tournamentRun);
+      if (!Game.tournamentWork) bad.push('no work before the final');
+      UI.guardUntil = 0; UI.back();
+      Game.tournamentStep();
+      if (Game.tournamentWork || Game.tournament || JSON.stringify(Progress.d.tournamentRun) !== saved) bad.push('leaving did not stop the work');
+      Game.selection.mode = 'tournament';
+      if (!UI.screen_coop().includes('no rewards')) bad.push('the join screen does not say that 2 to 4 players earn nothing');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-03): the CPU fights to play are counted exactly - cpuMatches is what Continue plays, with no person alive it is every match left', () => withTournament(() => {
+      const bad = [];
+      for (const size of TOURNAMENT_SIZES) {
+        const t = Tournament.draw({ humans: KAI_MARA, size, seed: 6, difficulty: 'normal' });
+        if (Tournament.cpuMatches(t) !== 0) bad.push(size + ': the first match is a person\'s');
+        Tournament.record(t, 0, 0, 0, [1, 0]);
+        const total = Tournament.cpuMatches(t), before = t.matches.flat().filter((match) => match.winner >= 0).length;
+        for (let ref = Tournament.next(t), played = 0; played < total; ref = Tournament.next(t), played++) {
+          if (Tournament.people(t, ref).length) { bad.push(size + ': a person\'s match inside the count'); break; }
+          const result = Tournament.simulate(t, ref);
+          Tournament.record(t, ref.round, ref.index, result.winner, result.wins);
+        }
+        const next = Tournament.next(t);
+        if (!next || !Tournament.people(t, next).length || t.matches.flat().filter((match) => match.winner >= 0).length !== before + total) bad.push(size + ': Continue would stop elsewhere than the count says');
+      }
+      const lone = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size: 8, seed: 6, difficulty: 'normal' });
+      lone.matches[0][0] = { winner: 1, score: [0, 1] };   // the person lost
+      if (Tournament.cpuMatches(lone) !== 6) bad.push('no person alive: ' + Tournament.cpuMatches(lone));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     /* ---------- reduce intense effects (P13-03) ---------- */

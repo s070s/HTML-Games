@@ -332,12 +332,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 11 - Tournament mode
 
-- [ ] P11-01 - Tournament mode modeled on the Budokai / Budokai Tenkaichi tournaments (rules from P1-08): elimination bracket, entrant count from P1-05, AI fill for empty slots, rewards.
+- [x] P11-01 - Tournament mode modeled on the Budokai / Budokai Tenkaichi tournaments (rules from P1-08): elimination bracket, entrant count from P1-05, AI fill for empty slots, rewards.
   Done when: a full tournament runs from bracket draw to champion.
+  Status (2026-11-02): done: 1-4 people join on the seat screen, CPUs fill an 8 or 16 bracket, CPU fights are simulated one per tick with progress shown, and the bracket is saved so the Tournament menu offers "Continue tournament". Closing the page in a fight counts as a loss. A single person's wins, best finish and grade are saved; 2-4 people earn nothing, and the join screen says so. Not built yet from Appendix C: tiers, the rules screen, the separate save key, Face rewards and the rooftop final.
 - [ ] P11-02 - Tournament with multiple humans: local (up to 4) and online (up to 4, Phase 12); AI vs AI matches can be watched or simulated (P0-06 runner).
   Done when: a tournament with 2-4 humans runs locally and online.
+  Status (2026-11-02): local part built: each person's fighter reads only that person's controller or keys. Open: online (Phase 12), watching CPU fights, and a bracket continued after a reload has no seats, so with 3-4 people the shared controls steer the fights (fix: send Continue through the seat screen). Two lows: a CPU fight that throws an error leaves Continue greyed out (needs try/finally), and a two-person fight left open by a closed page is settled on the menu with a short freeze.
 - [ ] P11-03 - Bracket screen readable on mobile.
   Done when: the bracket fits a phone screen in landscape with scroll only if the count exceeds 8.
+  Status (2026-11-02): the four columns fit 640 px wide, but with 8 fighters the first column still needs a short vertical scroll at 640 x 360 (the cards and the status line are taller than the plan's 42 px).
 
 ## Phase 12 - Online multiplayer
 
