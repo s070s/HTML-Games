@@ -337,10 +337,10 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Status (2026-11-02): done: 1-4 people join on the seat screen, CPUs fill an 8 or 16 bracket, CPU fights are simulated one per tick with progress shown, and the bracket is saved so the Tournament menu offers "Continue tournament". Closing the page in a fight counts as a loss. A single person's wins, best finish and grade are saved; 2-4 people earn nothing, and the join screen says so. Not built yet from Appendix C: tiers, the rules screen, the separate save key, Face rewards and the rooftop final.
 - [ ] P11-02 - Tournament with multiple humans: local (up to 4) and online (up to 4, Phase 12); AI vs AI matches can be watched or simulated (P0-06 runner).
   Done when: a tournament with 2-4 humans runs locally and online.
-  Status (2026-11-02): local part built: each person's fighter reads only that person's controller or keys. Open: online (Phase 12), watching CPU fights, and a bracket continued after a reload has no seats, so with 3-4 people the shared controls steer the fights (fix: send Continue through the seat screen). Two lows: a CPU fight that throws an error leaves Continue greyed out (needs try/finally), and a two-person fight left open by a closed page is settled on the menu with a short freeze.
-- [ ] P11-03 - Bracket screen readable on mobile.
+  Status (2026-11-02): local part done: each person's fighter reads only that person's controller or keys. Continue on a saved bracket with 2 or more people still in sends them through the seat screen, with their fighters locked on the cards. A CPU fight that fails ends the work with a toast, and an open two-person fight is settled when the bracket opens, not on the menu. Open: online (Phase 12) and watching CPU fights.
+- [x] P11-03 - Bracket screen readable on mobile.
   Done when: the bracket fits a phone screen in landscape with scroll only if the count exceeds 8.
-  Status (2026-11-02): the four columns fit 640 px wide, but with 8 fighters the first column still needs a short vertical scroll at 640 x 360 (the cards and the status line are taller than the plan's 42 px).
+  Status (2026-11-02): done: at 640 x 360, 8 fighters fit with no scroll (40 px cards, one-line round headers and status). With 16, only the first-round column scrolls, to the next match. A browser self-test draws the bracket and checks the fit at the window size of the run.
 
 ## Phase 12 - Online multiplayer
 
@@ -402,6 +402,12 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
 - [ ] P17-02 - Animations: tone down exaggerated poses and swings overall; every attack's limb reaches its hit volume at the active frames, so no attack visibly hits the air (owner's example: a Yuki kick).
   Done when: a self-test checks, for every move of every style against a standing opponent at the move's range, that the striking limb tip lies within the opponent's hit volume on the active frames; the Yuki kick passes; P0-06 results stay within the P14-01 targets.
 - [ ] P17-03 - Sway: sway sideways (left and right) as well as back; reduce the spine angle; make the sway window easy to time against enemy attacks. DECIDE the directions, window length and what each direction avoids.
+  Owner (2026-11-02): the spine still goes too far back, and a side sway must lean towards its own side instead of tipping back. Fact: `SWAY_POSE` leans the torso back 0.9 rad (about 52 degrees) with the head 0.4 rad further back, and a sideways sway adds roll 0.5 but "still tips back". The 'Sway pose' self-test needs head and torso 0.1 m clear of every style's strikes, so a smaller lean needs more root or hip movement to stay clear. This look is visual only and the i-frames stay the same.
+  Owner (2026-11-02): pair the spine and head with other movement (backsteps, sidesteps, lowering the torso); the coordinator suggests the joints and applies them. Proposal, modelled on boxing slips and the lay-back; the angles are starting values to tune against the 'Sway pose' self-test:
+    - **Back sway (lay-back):** a half backstep (root back about 0.25-0.3 m, weight onto the rear foot), torso back only about 15-20 degrees, knees bent about 0.2, and the chin tucked (the head tilts slightly forward against the torso, never further back). The clearance comes from the step, not the spine.
+    - **Side sway (slip):** no backward tilt at all. The torso bends sideways about 15-20 degrees towards the slip side and turns about 20 degrees, the root shifts sideways about 0.25 m with a small sidestep onto that side's leg, and the knees drop the root about 0.08-0.12 m. The head moves outside the strike line and stays level, with the eyes on the opponent (the neck counter-rolls).
+    - **Optional duck (bob) against high strikes:** knees bend so the root drops about 0.15-0.2 m, the hips hinge forward about 20 degrees, and the head stays up. Decide in P17-03 whether it is its own direction or part of the side slip.
+    - The pose is reached on the first i-frame tick and back upright SWAY_POSE_RETURN_TICKS after them, as today; the feet slide with the root shift so they do not skate.
   Done when: Appendix C has the rule; sway left / right / back works on touch, gamepad and keyboard; sway fighters meet the P14-01 targets with the P0-06 runner.
 - [ ] P17-04 - Move list: one move list for the current fighter and style only, showing only moves that fighter can do now (shared moves included where they apply).
   Done when: the move list in every mode shows only the current fighter's style and its shared moves, with inputs for the active device (touch, gamepad, keyboard), readable at phone width.
@@ -545,6 +551,7 @@ Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appe
 | Added 2026-10-31: audit the whole app for these and other issues | P17-01 |
 | Added 2026-10-31: exaggerated animations; attacks that visually hit the air (a Yuki kick) | P17-02 |
 | Added 2026-10-31: sway only goes back, spine angle exaggerated, hard to time | P17-03 |
+| Added 2026-11-02: sway spine goes way too far back; side sways should lean to their side, not back | P17-03 |
 | Added 2026-10-31: move list confusing; one conditional list for the current fighter and style | P17-04 |
 | Added 2026-10-31: remove design / dev comments from the app (moves menu example) | P17-05 |
 | Added 2026-10-31: crouch and context-sensitive actions hard to use, especially on mobile | P17-06 |
@@ -692,6 +699,13 @@ The main reason I asked was to get an idea of how people perceive the game's cur
 -Co-Op Brawl,Brawl ,Versus and Free Fight collapse into one mode named Free Fight with all the options of the four of them. Arcade and Survival can have brawls vs cpus or with ally cpus (configurable,balanced according to difficulty)
 -Design and integrate a system to recreate the group special attacks of urban reign (search on it) where for example two people attack one target,one person grabs the target and the other attacks the target.
 -Evaluate if throwing fighters on other participants causes damage and if not then choose which is better to do
+```
+
+### Owner sway feedback of 2026-11-02 (verbatim)
+
+```text
+Also when swaying in breakpoint the spine goes way too back
+Also for side sways its unnatural for the spine to move back it should lean to the direction
 ```
 
 ### Friend's feedback of 2026-11-02, passed on by the owner (verbatim)

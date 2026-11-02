@@ -227,7 +227,7 @@ const SelfTest = {
     const self = this;
     const test = (name, fn) => {
       let m = null;
-      try { const r = fn(); results.push({ name, pass: r === true, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
+      try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
@@ -10169,8 +10169,12 @@ const SelfTest = {
       pair.open = { round: 0, index: 0 };
       const record = [Progress.d.tournamentWins, Progress.d.tournamentBest].join();   // one win from the fight above
       Progress.d.tournamentRun = Tournament.pack(pair); Progress.save(); Progress.init();
-      const both = Game.savedTournament();
-      if (!both || both.matches[0][0].winner !== want || !Tournament.sides(both, 0, 0).includes(want) || Progress.d.tournamentRun.open !== null || [Progress.d.tournamentWins, Progress.d.tournamentBest].join() !== record) bad.push('a closed fight of two people: ' + JSON.stringify(both && both.matches[0][0]) + ' want ' + want);
+      const both = Game.savedTournament();   // no headless match is played while the mode list is drawn (see the next test): the fight stays open until the bracket is opened
+      if (!both || both.matches[0][0].winner !== -1 || !both.open) bad.push('a closed fight of two people was decided when the save was read: ' + JSON.stringify(both && both.matches[0][0]));
+      Game.playTournament(both);
+      const armed = !!Game.tournamentWork;   // the settle work starts with the bracket; it is stepped by hand below (a step also cancels the timer that would have run it), so no real timer decides the result
+      while (Game.tournamentWork) Game.tournamentStep();
+      if (both.matches[0][0].winner !== want || !Tournament.sides(both, 0, 0).includes(want) || both.open || Progress.d.tournamentRun.open !== null || Progress.d.tournamentRun.matches[0][0].winner !== want || [Progress.d.tournamentWins, Progress.d.tournamentBest].join() !== record) bad.push('a closed fight of two people: ' + JSON.stringify(both.matches[0][0]) + ' want ' + want + (armed ? '' : ', the settle work did not start') + ', last log ' + Diag.logs[Diag.logs.length - 1]);
       pair.open = null;
       Game.playTournament(pair);
       continueBracket();
@@ -10223,6 +10227,170 @@ const SelfTest = {
       const lone = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size: 8, seed: 6, difficulty: 'normal' });
       lone.matches[0][0] = { winner: 1, score: [0, 1] };   // the person lost
       if (Tournament.cpuMatches(lone) !== 6) bad.push('no person alive: ' + Tournament.cpuMatches(lone));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-02): Continue tournament on a saved bracket of 3 people asks for their seats first - Start waits until as many devices have joined as it has people, they take the joined seats in order, and each device steers only its own person', () => withTournament(() => {
+      const bad = [], keep = { coop: Inputs.coop, versus: Inputs.versus, toast: UI.toast, say: UI.say, party: Game.selection.party.slice() }, fights = [], toasts = [], said = [];
+      UI.toast = (msg) => toasts.push(msg); UI.say = (text) => said.push(text);
+      Progress.d.tournamentRun = Tournament.pack(Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size: 8, seed: 9, difficulty: 'normal' }));
+      if (!Game.continueTournament() || !Game.tournament || Game.tournamentResume) bad.push('one person was asked for seats');   // one person goes on as before
+      Game.leaveTournament();
+      const three = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }, { seat: 3, id: 'elise' }], size: 8, seed: 14, difficulty: 'normal' });   // the third person sat on seat 4 last time
+      Progress.d.tournamentRun = Tournament.pack(three);
+      Inputs.setCoop(true);
+      try {
+        Inputs.join('key1'); Inputs.join('key2');
+        if (!Game.continueTournament() || Game.tournament || !Game.tournamentResume || Game.state !== GS.CHARSEL || Game.selection.mode !== 'tournament' || Game.inputPlan() !== 'coop') bad.push('Continue did not ask for seats: ' + Game.state);
+        const waiting = UI.screen_coop();
+        if (!waiting.includes('3 players') || !waiting.includes('2 of 3 joined') || !/data-act="coopStart" disabled/.test(waiting) || waiting.includes('data-local="tsize"')) bad.push('the join screen with 2 of 3 devices');
+        Game.selection.party[0] = 'elise';   // a party pick that is not the person of the bracket
+        const cards = [UI.seatCard(0), UI.seatCard(1)], names = ['kai', 'mara'].map((id) => ROSTER_BY_ID[id].name);   // the k-th joined seat plays the k-th person, by old seat
+        if (!cards[0].includes(names[0]) || !cards[1].includes(names[1]) || cards[0].includes(ROSTER_BY_ID.elise.name) || cards.some((card) => card.includes('coopcycle') || card.includes('&#9664;') || !card.includes('locked'))) bad.push('the seat cards of a saved bracket: ' + cards.join(' '));
+        UI.coopCycle(0, 1);
+        if (Game.selection.party[0] !== 'elise' || UI.seatCard(0) !== cards[0] || !said.join().includes('locked')) bad.push('the arrows changed a locked fighter');
+        UI.coopStart();
+        if (Game.tournament || !Game.tournamentResume || Game.resumeTournament() || toasts.length !== 1 || !toasts[0].includes('2 of 3')) bad.push('Start went on with 2 of 3 devices: ' + toasts);
+        Inputs.join('pad0');
+        const ready = UI.screen_coop();
+        if (!ready.includes('3 of 3 joined') || /data-act="coopStart" disabled/.test(ready) || !UI.seatCard(2).includes(ROSTER_BY_ID.elise.name)) bad.push('the join screen with 3 of 3 devices');
+        UI.coopStart();
+        const t = Game.tournament, seatsOf = (run) => run.entrants.filter((e) => e.human >= 0).map((e) => e.human).join();
+        if (!t || Game.tournamentResume || !Game.tournamentSeats || Game.inputPlan() !== 'coop' || seatsOf(t) !== '0,1,2' || seatsOf(Progress.d.tournamentRun) !== '0,1,2') return bad.concat('the bracket did not go on with the seats: ' + (t && seatsOf(t) + ' ' + Game.tournamentSeats)).slice(0, 4).join('; ');
+        const it = makeIntent();
+        for (let guard = 0; guard < 16 && Tournament.champion(Game.tournament) < 0; guard++) {
+          const before = Game.match;
+          continueBracket();
+          if (!Game.match || Game.match === before) continue;
+          const m = Game.match;
+          fights.push(m.cfg.seats.join());
+          if (Game.inputPlan() !== 'coop') bad.push('a fight did not use the seats');
+          m.cfg.seats.forEach((seat, k) => {   // a press on the person's own seat steers the fighter, a press on any other seat does not
+            if (seat < 0) return;
+            for (let device = 0; device < COOP_MAX_PLAYERS; device++) {
+              clearIntent(it);
+              Inputs.players[device].press('punch');
+              m.controllers[k].think(m.fighters[k], m.fighters[1 - k], m, it);
+              Inputs.players[device].releaseAll();
+              if (!!it.punch !== (device === seat)) bad.push('fight ' + fights.length + ': a press on seat ' + (device + 1) + (device === seat ? ' did not steer' : ' steered') + ' the person on seat ' + (seat + 1));
+            }
+          });
+          winStage();
+          Game.resultsAction('bracket');
+        }
+        if (fights.length < 3 || !fights.some((seats) => Number(seats.split(',')[0]) === 2) || fights.some((seats) => seats.split(',').some((seat) => Number(seat) > 2))) bad.push('fights ' + fights);
+      } finally { UI.toast = keep.toast; UI.say = keep.say; Game.selection.party.splice(0, Infinity, ...keep.party); Inputs.setCoop(keep.coop); Inputs.setVersus(keep.versus); Inputs.reset(); Game.tournamentResume = null; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-03): an error while a CPU fight is played ends the work - no timer is left, Continue is on again, one line is logged and the bracket is not changed', () => withTournament(() => {
+      const bad = [], simulate = Tournament.simulate, errors = Diag.errors, setTimer = globalThis.setTimeout, keepToast = UI.toast, toasts = [];
+      UI.toast = (msg) => toasts.push(msg);
+      Game.startTournament([{ seat: 0, id: 'kai' }], 3);
+      continueBracket(); winStage(); Game.resultsAction('bracket');
+      const before = JSON.stringify(Progress.d.tournamentRun);
+      let timers = 0;
+      try {
+        Tournament.simulate = () => { throw new Error('boom'); };
+        Game.tournamentContinue();
+        if (!Game.tournamentWork || !UI.screen_bracket().includes('bracketGo" disabled')) bad.push('the work did not start');
+        globalThis.setTimeout = (...args) => { timers++; return setTimer(...args); };
+        Showcase.arenaId = 'warehouse';   // as a run that built its level in the scene leaves it
+        Game.tournamentStep();
+      } finally { Tournament.simulate = simulate; globalThis.setTimeout = setTimer; UI.toast = keepToast; }
+      const logged = Diag.logs[Diag.logs.length - 1] || '';
+      if (toasts.join() !== 'A CPU fight failed; try Continue again') bad.push('the toast: ' + toasts);
+      if (Showcase.arenaId !== null) bad.push('the scene still holds the level of the failed run');
+      if (Game.tournamentWork || timers !== 0) bad.push('the work went on after the error: ' + timers + ' timers');
+      if (UI.screen_bracket().includes('bracketGo" disabled') || UI.screen_bracket().includes('Simulating')) bad.push('Continue stayed off');
+      if (Diag.errors !== errors + 1 || !logged.includes('boom')) bad.push('the error was not logged once: ' + logged);
+      Diag.errors = errors;
+      if (JSON.stringify(Progress.d.tournamentRun) !== before || Game.tournament.matches[0].filter((match) => match.winner >= 0).length !== 1) bad.push('the bracket changed');
+      Game.tournamentContinue();
+      if (!Game.tournamentWork) bad.push('Continue does nothing after the error');
+      Game.stopTournamentWork();
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-03): a fight of two people left open by a closed page is not played while the mode list is drawn - the bracket settles it when it is continued, one match in one timer tick, and a fight of one person is settled without a match', () => withTournament(() => {
+      const bad = [], keep = { coop: Inputs.coop, versus: Inputs.versus }, simulate = Tournament.simulate;
+      let played = 0;
+      Tournament.simulate = (...args) => { played++; return simulate.apply(Tournament, args); };
+      Inputs.setCoop(true);
+      try {
+        const pair = Tournament.draw({ humans: KAI_MARA, size: 8, seed: 41, difficulty: 'normal' });   // both people in the first match
+        [pair.entrants[1], pair.entrants[4]] = [pair.entrants[4], pair.entrants[1]];
+        const want = simulate.call(Tournament, pair, { round: 0, index: 0 }).winner;   // the CPU rule
+        pair.open = { round: 0, index: 0 };
+        Progress.d.tournamentRun = Tournament.pack(pair);
+        const modes = UI.screen_modes(), saved = Game.savedTournament();
+        if (played !== 0 || !modes.includes('Continue tournament') || !saved || !saved.open || saved.matches[0][0].winner !== -1 || Game.tournamentWork) bad.push('the mode list played a match: ' + played + ' ' + JSON.stringify(saved && saved.matches[0][0]));
+        Inputs.join('key1'); Inputs.join('key2');
+        Game.continueTournament();   // the seats first
+        if (played !== 0 || Game.tournamentWork || !Game.tournamentResume) bad.push('Continue played before the seats');
+        Game.resumeTournament();
+        const work = Game.tournamentWork;
+        if (!work || work.total !== 1 || played !== 0 || !UI.screen_bracket().includes('Simulating CPU fights: 1 of 1') || !UI.screen_bracket().includes('bracketGo" disabled')) bad.push('the bracket did not wait for its tick: ' + JSON.stringify(work));
+        Game.tournamentStep();
+        const match = Game.tournament.matches[0][0];
+        if (played !== 1 || Game.tournamentWork || match.winner !== want || Game.tournament.open || Progress.d.tournamentRun.open !== null || Progress.d.tournamentRun.matches[0][0].winner !== want || UI.current !== 'bracket') bad.push('the open fight was not settled in one step: ' + played + ' ' + match.winner + ' want ' + want);
+        Game.leaveTournament();
+        const lone = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size: 8, seed: 8, difficulty: 'normal' });
+        lone.open = { round: 0, index: 0 };
+        Progress.d.tournamentRun = Tournament.pack(lone);
+        played = 0;
+        const one = Game.savedTournament();
+        if (played !== 0 || !one || one.open || one.matches[0][0].winner !== 1 || Progress.d.tournamentRun.open !== null) bad.push('a fight of one person: ' + played + ' ' + JSON.stringify(one && one.matches[0][0]));
+      } finally { Tournament.simulate = simulate; Inputs.setCoop(keep.coop); Inputs.setVersus(keep.versus); Inputs.reset(); Game.tournamentResume = null; Game.stopTournamentWork(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-02): a saved bracket counts only the people still in it - with 2 or more in, only they take seats (people already out keep spare seat numbers), with 1 or none Continue goes straight on, and Back from the seat screen forgets the wait', () => withTournament(() => {
+      const bad = [], keep = { coop: Inputs.coop, versus: Inputs.versus, current: UI.current };
+      const three = () => Tournament.draw({ humans: [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }, { seat: 3, id: 'elise' }], size: 8, seed: 14, difficulty: 'normal' });   // people in slots 0, 2 and 5
+      const lose = (t, ...matches) => matches.forEach((index) => Tournament.record(t, 0, index, Tournament.sides(t, 0, index).find((i) => t.entrants[i].human < 0), [0, 1]));   // the person in that first-round match loses to the CPU beside them
+      const seats = (t) => t.entrants.map((e) => e.human).join();
+      const bracket = three();
+      lose(bracket, 1);   // the person on seat 2 is out
+      Progress.d.tournamentRun = Tournament.pack(bracket);
+      Inputs.setCoop(true);
+      try {
+        Inputs.join('key1'); Inputs.join('key2');
+        if (!Game.continueTournament() || Game.tournament || !Game.tournamentResume || Game.resumePeople().length !== 2) bad.push('2 of 3 people in: ' + Game.resumePeople().length);
+        const html = UI.screen_coop();
+        if (!html.includes('2 of 2 joined') || /data-act="coopStart" disabled/.test(html)) bad.push('the join screen needed more than the 2 people in');
+        UI.current = 'coop'; UI.guardUntil = 0; UI.back();   // Back from the seat screen
+        if (Game.tournamentResume || UI.current !== 'modes' || !Game.savedTournament()) bad.push('Back kept the wait or lost the bracket');
+        Game.continueTournament();
+        UI.coopStart();
+        const t = Game.tournament;
+        if (!t || Game.tournamentResume || !Game.tournamentSeats || seats(t) !== '0,-1,2,-1,-1,1,-1,-1' || Progress.d.tournamentRun.entrants.map((e) => e.human).join() !== seats(t) || !Game.savedTournament()) bad.push('the people in did not take seats 1 and 2: ' + (t && seats(t)));
+        Game.leaveTournament();
+        const one = three();
+        lose(one, 1, 2);   // one person left
+        Progress.d.tournamentRun = Tournament.pack(one);
+        if (!Game.continueTournament() || !Game.tournament || Game.tournamentResume) bad.push('one person in was asked for seats');
+        Game.leaveTournament();
+        const none = three();
+        lose(none, 0, 1, 2);   // everybody is out
+        Progress.d.tournamentRun = Tournament.pack(none);
+        if (!Game.continueTournament() || !Game.tournament || Game.tournamentResume || !UI.screen_bracket().includes('All players are out')) bad.push('nobody in was asked for seats');
+      } finally { Inputs.setCoop(keep.coop); Inputs.setVersus(keep.versus); Inputs.reset(); Game.tournamentResume = null; UI.current = keep.current; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament (P11-03): the bracket of 8 drawn in the page fits - no title, status line or column header wraps, every card is 40 px, nothing inside the panel overflows vertically and the panel is not taller than the window (a headless run has no layout and says so)', () => withTournament(() => {
+      const sheets = typeof document !== 'undefined' && document.styleSheets, root = UI.dom.screens;
+      if (!sheets || !sheets.length || !root || typeof root.getBoundingClientRect !== 'function' || !root.getBoundingClientRect().height) return 'skipped: no page stylesheet or layout (a headless run); a browser self-test draws the bracket and measures it';
+      const bad = [], keepHtml = root.innerHTML;
+      Game.selection.tournamentSize = 8;
+      Game.startTournament(KAI_MARA, 21);
+      try {
+        root.innerHTML = UI.screen_bracket();
+        const panel = root.querySelector('.bracketpanel'), box = root.querySelector('.bracket'), status = root.querySelector('.bracketpanel p.sub'), view = panel.ownerDocument.defaultView;
+        const overflow = (el) => el.scrollHeight - el.clientHeight;
+        const cards = Array.from(root.querySelectorAll('.bm')), heads = Array.from(root.querySelectorAll('.bcol h3'));
+        if (overflow(panel) > 1 || overflow(box) > 1 || box.scrollWidth - box.clientWidth > 1) bad.push('the panel or the bracket overflows: ' + [overflow(panel), overflow(box), box.scrollWidth - box.clientWidth]);
+        const rect = panel.getBoundingClientRect();
+        if (rect.height > view.innerHeight || rect.top < -1 || rect.bottom > view.innerHeight + 1) bad.push('the panel (' + Math.round(rect.height) + ' px) does not fit the window (' + view.innerHeight + ' px)');
+        if (cards.length !== 8 || cards.some((card, i) => i < 4 && card.offsetHeight !== 40)) bad.push('card heights ' + cards.map((card) => card.offsetHeight));
+        if (heads.some((head) => head.offsetHeight > 17) || status.offsetHeight > 20) bad.push('a header or the status line wraps: ' + heads.map((head) => head.offsetHeight) + ' ' + status.offsetHeight);
+      } finally { root.innerHTML = keepHtml; Game.leaveTournament(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     /* ---------- reduce intense effects (P13-03) ---------- */

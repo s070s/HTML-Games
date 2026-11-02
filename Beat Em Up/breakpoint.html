@@ -267,12 +267,16 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
 .seatcard em{display:block;font-style:normal;color:var(--mut);font-size:.8em}
 .seatcard .dev{display:block;font-size:.75em;color:var(--pc);margin-top:.3em}
 .pcname{color:var(--pc)}
-.bracketpanel{max-width:96vw;padding-top:.5em;padding-bottom:.5em}
+.bracketpanel{max-width:96vw}
+.panel.bracketpanel{display:flex;flex-direction:column;padding-top:.5em;padding-bottom:.5em}   /* the title, status line and buttons keep their height; the bracket takes the rest and scrolls inside the panel (16 fighters). 8 fighters at 360 px high: 20 panel + 25 title + 22 status + 202 bracket + 48 buttons = 317 of 331 */
 .bracketpanel h2{margin:0 0 .2em;font-size:1.2em}
-.bracket{position:relative;display:flex;gap:.5em;overflow-x:auto;padding:2px}
-.bracket.tall{overflow-y:auto;max-height:calc(100vh - 9.5em)}
+.bracketpanel p.sub{margin:0 0 .3em;font-size:.85em;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* one line */
+.bracketpanel .row.sticky{padding:.2em 0;margin-top:.2em}
+.bracketpanel .row.sticky button.mi{margin:0}
+.bracket{overflow:auto;padding:2px;flex:0 1 auto;min-height:0}   /* the scroll box: as tall as its columns, or the room left in the panel (16 fighters: the columns scroll together, so later ones stay centred on their pairs) */
+.bcols{position:relative;display:flex;gap:.5em}
 .bcol{display:flex;flex-direction:column;gap:4px;flex:1 1 6.2em;min-width:6.2em}   /* four columns (8 fighters) fit in 640 px; 16 fighters need 5 and fit too, a narrower window scrolls sideways */
-.bcol h3{margin:0;font-size:.8em;color:var(--mut);text-align:center}
+.bcol h3{margin:0;font-size:.68em;line-height:16px;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mut);text-align:center}   /* one line: QUARTER-FINAL is about 84 px at this size, a column is 99 px or more */
 .bslots{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:6px}
 .bm{border:2px solid var(--line);border-radius:6px;background:#0f1830}
 .bm.now{border-color:var(--warn)}
@@ -11671,9 +11675,9 @@ const Tournament = {
     }
     const open = raw.open && typeof raw.open === 'object' ? raw.open : null;   // a fight that was still on when the page closed is lost
     const left = open && Number.isInteger(open.round) && Number.isInteger(open.index) && t.matches[open.round] ? { round: open.round, index: open.index } : null;
-    if (left && t.matches[left.round][left.index] && t.matches[left.round][left.index].winner < 0 && !this.sides(t, left.round, left.index).includes(-1) && this.people(t, left).length) {
-      this.record(t, left.round, left.index, this.forfeitWinner(t, left), [0, 0]);
-    }
+    const lost = left && t.matches[left.round][left.index] && t.matches[left.round][left.index].winner < 0 && !this.sides(t, left.round, left.index).includes(-1) ? this.people(t, left).length : 0;
+    if (lost === 1) this.record(t, left.round, left.index, this.forfeitWinner(t, left), [0, 0]);
+    else if (lost > 1) t.open = left;   // two people: the CPU rule plays a headless match, so the fight stays open until Game.tournamentStep settles it (not while a screen is drawn)
     if (this.champion(t) >= 0) return null;
     if (Array.isArray(raw.scores)) t.scores = raw.scores.filter((score) => typeof score === 'number' && score >= 0 && score <= 100).slice(0, TOURNAMENT_MAX_WINS);
     return t;
@@ -11735,6 +11739,7 @@ const Game = {
   tournamentMatch: null, // the bracket match being fought: { round, index, order } (order = the entrants in fighter order, people first); null on the bracket screen
   tournamentTwoPlayers: false,   // the fight being fought has two people in it (without seats they share the keyboard and the pads like Versus)
   tournamentSeats: false,        // every person of the bracket sits on a joined device (Inputs.seats), kept for the whole tournament: each fight reads the people's own seats
+  tournamentResume: null,        // a saved bracket of 2 or more people waiting on the join screen until as many devices have joined as it has people (continueTournament, resumeTournament)
   tournamentWork: null,          // CPU matches being played out one per timer tick: { done, total }; null when idle
   tournamentTimer: 0,            // the pending timer of tournamentStep
   endTimer: 0,
@@ -11771,7 +11776,7 @@ const Game = {
   inputPlan() {
     const people = this.lineupPeople();
     if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
-    if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo';   // the join screen seats the devices and a bracket that was drawn there keeps them (each person reads their own seat); a bracket with no seats (continued after a reload, or one touch player) uses the P1 / P2 inputs
+    if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo';   // the join screen seats the devices and a bracket that was drawn there keeps them (each person reads their own seat); a bracket with no seats (one person continued after a reload, or one touch player) uses the P1 / P2 inputs
     return this.selection.mode === 'versus' ? 'versus' : this.selection.mode === 'coop' ? 'coop' : 'solo';
   },
 
@@ -11781,6 +11786,7 @@ const Game = {
     this.stopTournamentWork();
     this.tournament = null;
     this.tournamentSeats = false;
+    this.tournamentResume = null;
     if (mode === 'versus') this.versus = { score: [0, 0] };
     this.ensureSelection();
     this.go(GS.CHARSEL);
@@ -11968,17 +11974,47 @@ const Game = {
     this.tournament = t;
     this.tournamentMatch = null;
     this.tournamentTwoPlayers = false;
+    this.tournamentResume = null;
     const seated = Inputs.seatedSlots();
-    this.tournamentSeats = seated.length > 0 && t.entrants.every((e) => e.human < 0 || seated.includes(e.human));   // the people drawn on the join screen sit on their devices; a continued bracket has none
+    const alive = Tournament.alive(t);
+    this.tournamentSeats = seated.length > 0 && t.entrants.every((e, i) => e.human < 0 || !alive.includes(i) || seated.includes(e.human));   // the people drawn or seated again on the join screen sit on their devices (a person already out needs none); a bracket of one touch player has none
     this.selection.mode = 'tournament';
     this.run = { mode: 'tournament', player: t.entrants.find((e) => e.human >= 0).id };
     this.saveTournament();
-    return this.showBracket();
+    const shown = this.showBracket();
+    if (shown && t.open) this.beginTournamentWork();   // a fight of two people that a closed page left open is settled now, one tick later
+    return shown;
   },
-  /* "Continue tournament" on the mode list: the saved bracket goes on at its next match. */
+  /* "Continue tournament" on the mode list: with one person left (or none: the CPU plays the rest) the bracket goes on at its next match; 2 or more people still in first sit down again on the join screen (resumeTournament), because the seats are not saved. */
   continueTournament() {
     const saved = this.savedTournament();
-    return saved ? this.playTournament(saved) : false;
+    if (!saved) return false;
+    if (Tournament.alive(saved).length < 2) return this.playTournament(saved);
+    this.stopTournamentWork();
+    this.selection.mode = 'tournament';
+    this.ensureSelection();
+    this.tournament = null;
+    this.tournamentSeats = false;
+    this.tournamentResume = saved;
+    if (this.go(GS.CHARSEL)) return true;   // the join screen follows (UI.onGameState)
+    this.tournamentResume = null;
+    return false;
+  },
+  /* The people of the saved bracket that waits on the join screen and are still in it, in the order of their old seats: the k-th device that joins plays the k-th of them. */
+  resumePeople() {
+    const t = this.tournamentResume;
+    return t ? Tournament.alive(t).map((i) => t.entrants[i]).sort((a, b) => a.human - b.human) : [];
+  },
+  /* Start on the join screen of a saved bracket: with as many devices joined as people are still in it they take their places in the order of their old seats, and the bracket goes on with the seats.
+     A person already out keeps a seat number nobody else has (a saved bracket never holds one seat twice). */
+  resumeTournament() {
+    const t = this.tournamentResume, people = this.resumePeople(), seats = Inputs.seatedSlots();
+    if (!t || seats.length !== people.length) return false;
+    const gone = t.entrants.filter((e) => e.human >= 0 && !people.includes(e)).sort((a, b) => a.human - b.human);
+    const spare = Array.from({ length: COOP_MAX_PLAYERS }, (_, seat) => seat).filter((seat) => !seats.includes(seat));
+    people.forEach((e, k) => { e.human = seats[k]; });
+    gone.forEach((e, k) => { e.human = spare[k]; });
+    return this.playTournament(t);
   },
   /* The saved bracket is written after the draw and after every match; a bracket that is over is not kept. */
   saveTournament() {
@@ -11986,12 +12022,12 @@ const Game = {
     Progress.d.tournamentRun = t && Tournament.champion(t) < 0 ? Tournament.pack(t) : null;
     Progress.save();
   },
-  /* The saved bracket, or null; one that cannot be played on is dropped from the save. It is cleaned here and not when the save is read, because it may hold a custom fighter, which is loaded later. A fight that was still open
-     when the page closed is lost (Tournament.clean), and the bracket is saved again with that result. */
+  /* The saved bracket, or null; one that cannot be played on is dropped from the save. It is cleaned here and not when the save is read, because it may hold a custom fighter, which is loaded later. A fight of one person that was still open
+     when the page closed is lost (Tournament.clean), and the bracket is saved again with that result; one of two people stays open (no match is played here, the mode list calls this while it is drawn) until playTournament settles it. */
   savedTournament() {
     const raw = Progress.d.tournamentRun, saved = Tournament.clean(raw);
     if (!saved && raw) { Progress.d.tournamentRun = null; Progress.save(); }
-    else if (saved && raw.open) { Progress.d.tournamentRun = Tournament.pack(saved); Progress.save(); Showcase.arenaId = null; }   // a lost fight between two people was decided by a headless match
+    else if (saved && raw.open && !saved.open) { Progress.d.tournamentRun = Tournament.pack(saved); Progress.save(); }
     return saved;
   },
   /* The bracket screen, between fights. The screen's own match is gone first: a CPU match is played by SimRunner and never touches a match on screen. */
@@ -12020,18 +12056,37 @@ const Game = {
     if (!t || this.tournamentWork) return;
     if (Tournament.champion(t) >= 0) { this.leaveTournament(); UI.go('modes'); return; }
     const next = Tournament.next(t);
-    if (Tournament.people(t, next).length) { this.beginTournamentMatch(next); return; }
+    if (!t.open && Tournament.people(t, next).length) { this.beginTournamentMatch(next); return; }
+    this.beginTournamentWork();
+  },
+  /* Starts the work of tournamentStep: the fight a closed page left open (one step), else the CPU matches up to the next fight with a person. */
+  beginTournamentWork() {
+    const t = this.tournament;
     this.endMatch();
-    this.tournamentWork = { done: 0, total: Tournament.cpuMatches(t) };
+    this.tournamentWork = { done: 0, total: t.open ? 1 : Tournament.cpuMatches(t) };
     UI.bracketProgress();
     this.tournamentTimer = setTimeout(() => this.tournamentStep(), 0);
   },
-  /* One CPU match of the work in hand (a call also cancels the timer that would have made it); the bracket is saved after each, so leaving in between loses nothing. After the last one the bracket screen comes back. */
+  /* One match of the work in hand (a call also cancels the timer that would have made it); the bracket is saved after each, so leaving in between loses nothing. After the last one the bracket screen comes back.
+     An error ends the work: the timer is gone, Continue is on again, one line is logged and a toast says so. The matches played and saved before it stay; the one that failed is not written. */
   tournamentStep() {
     clearTimeout(this.tournamentTimer);
-    const t = this.tournament, work = this.tournamentWork, ref = t && work ? Tournament.next(t) : null;
-    if (!work) return;
-    if (ref && !Tournament.people(t, ref).length) {
+    if (!this.tournamentWork) return;
+    try { this.playTournamentStep(); } catch (err) {
+      this.stopTournamentWork();
+      Showcase.arenaId = null;   // the runs built their levels in the scene
+      Diag.log('error', 'Tournament: a match failed, the work was stopped: ' + (err && err.message ? err.message : err));
+      UI.bracketProgress();
+      UI.toast('A CPU fight failed; try Continue again', 'warn');
+    }
+  },
+  playTournamentStep() {
+    const t = this.tournament, work = this.tournamentWork, ref = t ? Tournament.next(t) : null;
+    if (t && t.open) {   // a fight of two people that a closed page left open: both count as losing and the CPU rule decides (Tournament.forfeitWinner)
+      Tournament.record(t, t.open.round, t.open.index, Tournament.forfeitWinner(t, t.open), [0, 0]);
+      t.open = null;
+      this.saveTournament();
+    } else if (ref && !Tournament.people(t, ref).length) {
       const result = Tournament.simulate(t, ref);
       if (Tournament.record(t, ref.round, ref.index, result.winner, result.wins)) {
         work.done++;
@@ -13291,7 +13346,7 @@ const UI = {
     if (cur === 'scene') { Cutscene.skipBeat(); return; }   // Esc / B skip the beat (a pending answer is still asked)
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
-    if (cur === 'coop') { this.syncPadPrev(); Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
+    if (cur === 'coop') { this.syncPadPrev(); Game.tournamentResume = null; Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
     if (cur === 'bracket') { this.syncPadPrev(); Game.leaveTournament(); this.go('modes'); return; }   // the bracket stays saved; Continue tournament is on the mode list
     if (cur === 'char' && this.pickSide === 1) { this.pickSide = 0; this.showPick(); this.go('char'); return; }   // Versus: back to P1's pick
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
@@ -13610,21 +13665,29 @@ const UI = {
      Inputs.pollLobby read the devices; this screen redraws on their 'lobby' events). Start: Enter on the button, or Start on a joined gamepad. */
   screen_coop() {
     const sel = Game.selection, seated = Inputs.seatedSlots(), tournament = sel.mode === 'tournament';   // a Tournament is joined on the same screen
+    const resume = tournament ? Game.tournamentResume : null, people = Game.resumePeople(), need = people.length;   // a saved bracket: the people still in it sit down again, as many devices as people
+    const resumeText = resume ? 'Continue tournament: ' + need + ' players are still in this bracket (' + people.map((e) => esc(ROSTER_BY_ID[e.id].name)).join(', ') + '). Each sits down again on a device, in the order of their old seats; the fighters are locked. ' + seated.length + ' of ' + need + ' joined' + (seated.length === need ? '.' : ': Continue waits until it is ' + need + '.') : '';
     const key = (keymap, action) => '<kbd>' + esc(keyLabel(keymap.bindings[action][0])) + '</kbd>';
     let h = '<section class="screen on" style="justify-content:flex-end" aria-label="' + (tournament ? 'Tournament' : 'Co-op') + ' join screen"><div class="panel" style="max-width:min(40em,96vw)"><h2>' + (tournament ? 'Tournament' : 'Co-op brawl') + '</h2>' +
-      '<p class="sub">' + (tournament ? 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.' : 'Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.') + '</p><div class="seats">';
+      '<p class="sub">' + (resume ? resumeText : tournament ? 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.' : 'Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
-    h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. <b>Fighter</b>: left / right. ' +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. ' + (tournament ? 'With nobody joined, Start gives one player any device, touch included.' : 'Touch controls are not used in co-op.') + '</p>';
-    if (tournament) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '');
-    h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>' + (tournament ? 'The level of every CPU fighter' : 'Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)') + '</small></button>';
-    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="coopStart"' + (seated.length || tournament ? '' : ' disabled') + '>' + (tournament ? 'Draw the bracket' : 'Choose arena') + '</button></div></div></section>';
+    h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. ' + (resume ? '' : '<b>Fighter</b>: left / right. ') +
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. ' + (tournament && !resume ? 'With nobody joined, Start gives one player any device, touch included.' : 'Touch controls are not used in co-op.') + '</p>';
+    if (tournament && !resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '');   // a saved bracket keeps its size and CPU level
+    if (!resume) h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>' + (tournament ? 'The level of every CPU fighter' : 'Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)') + '</small></button>';
+    const startOff = resume ? seated.length !== need : !seated.length && !tournament;
+    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="coopStart"' + (startOff ? ' disabled' : '') + '>' + (resume ? 'Continue tournament' : tournament ? 'Draw the bracket' : 'Choose arena') + '</button></div></div></section>';
     return h;
   },
   seatCard(seat) {
     const tag = 'seat' + (seat + 1), who = 'P' + (seat + 1), device = Inputs.seats[seat];
     if (!device) return '<div class="seatcard open ' + tag + '" role="group" aria-label="Player ' + (seat + 1) + ': open"><b class="seatno">' + who + '</b><em>Open</em></div>';
-    const r = ROSTER_BY_ID[Game.selection.party[seat]] || ROSTER_BY_ID.kai, label = this.deviceLabel(device);
+    const r = ROSTER_BY_ID[this.seatFighter(seat)] || ROSTER_BY_ID.kai, label = this.deviceLabel(device);
+    if (Game.tournamentResume) {   // the fighter is the person's in the saved bracket: no arrows, no change
+      if (!this.seatFighter(seat)) return '<div class="seatcard ' + tag + '" role="group" aria-label="Player ' + (seat + 1) + ': not needed by this bracket"><b class="seatno">' + who + '</b><em>Not needed: the bracket has fewer players</em><span class="dev">' + esc(label) + '</span></div>';
+      return '<div class="seatcard ' + tag + '" role="group" aria-label="Player ' + (seat + 1) + ': ' + esc(r.name) + ' on ' + esc(label) + ', fighter locked"><b class="seatno">' + who + '</b>' +
+        '<b>' + esc(r.name) + '</b><em>' + esc(r.title) + ' &middot; locked: saved bracket</em><span class="dev">' + esc(label) + '</span></div>';
+    }
     return '<div class="seatcard ' + tag + '" role="group" data-act="coopcycle:' + seat + '" aria-label="Player ' + (seat + 1) + ': ' + esc(r.name) + ' on ' + esc(label) + '"><b class="seatno">' + who + '</b>' +
       '<b>&#9664; ' + esc(r.name) + ' &#9654;</b><em>' + esc(r.title) + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em><span class="dev">' + esc(label) + '</span></div>';
   },
@@ -13635,10 +13698,16 @@ const UI = {
     }
     return 'Gamepad ' + (Number(device.slice(3)) + 1);
   },
+  /* The fighter on a seat: its party pick, or while a saved bracket waits for its people the fighter of the person that seat plays (the k-th joined seat plays the k-th person still in); '' for a seat with no person. */
+  seatFighter(seat) {
+    if (!Game.tournamentResume) return Game.selection.party[seat];
+    const person = Game.resumePeople()[Inputs.seatedSlots().indexOf(seat)];
+    return person ? person.id : '';
+  },
   /* The scene behind the join screen: the first seated player's fighter (P1's pick before anyone has joined). */
   showCoopScene(seat) {
-    const sel = Game.selection;
-    this.menuScene(sel.arena, sel.party[seat === undefined ? Inputs.seatedSlots()[0] || 0 : seat], null, true);
+    const sel = Game.selection, slot = seat === undefined ? Inputs.seatedSlots()[0] || 0 : seat;
+    this.menuScene(sel.arena, this.seatFighter(slot) || (Game.tournamentResume ? Game.resumePeople()[0].id : sel.party[slot]), null, true);
   },
   /* A join, leave, fighter change, Start or back from a device. */
   onLobby(e) {
@@ -13655,6 +13724,7 @@ const UI = {
   },
   /* Seat's next (dir 1) or previous (dir -1) fighter of the unlocked roster. */
   coopCycle(seat, dir) {
+    if (Game.tournamentResume) { Sound.ui('bad'); this.say('The fighters of a saved bracket are locked'); return; }
     const id = Game.cycleParty(seat, dir);
     Sound.ui('move');
     this.say('Player ' + (seat + 1) + ': ' + ROSTER_BY_ID[id].name);
@@ -13664,6 +13734,11 @@ const UI = {
   /* The join screen's Start: on to the arena once somebody has joined. */
   coopStart() {
     const sel = Game.selection, seated = Inputs.seatedSlots();
+    if (sel.mode === 'tournament' && Game.tournamentResume) {   // a saved bracket goes on once as many devices have joined as it has people
+      const need = Game.resumePeople().length;
+      if (seated.length !== need) { Sound.ui('bad'); this.toast(seated.length + ' of ' + need + ' players have joined: the saved bracket needs ' + need, 'warn'); return; }
+      this.syncPadPrev(); Game.resumeTournament(); return;
+    }
     if (sel.mode === 'tournament') { this.syncPadPrev(); Game.startTournament(); return; }   // the draw: the people who joined (or one on seat 1)
     if (!seated.length) { Sound.ui('bad'); this.toast('Nobody has joined yet: press Punch on a keyboard or A on a gamepad', 'warn'); return; }
     this.syncPadPrev();
@@ -14177,9 +14252,9 @@ const UI = {
     const t = Game.tournament;
     if (!t) return '';
     const next = Tournament.next(t), champion = Tournament.champion(t);
-    let h = '<section class="screen on" aria-label="Tournament bracket"><div class="panel bracketpanel"><h2>Tournament &middot; ' + t.size + ' fighters</h2><p class="sub">' + this.bracketStatus(t, next, champion) + '</p><div class="bracket' + (t.size > 8 ? ' tall' : '') + '" id="bracketView">';
+    let h = '<section class="screen on" aria-label="Tournament bracket"><div class="panel bracketpanel"><h2>Tournament &middot; ' + t.size + ' fighters</h2><p class="sub">' + this.bracketStatus(t, next, champion) + '</p><div class="bracket' + (t.size > 8 ? ' tall' : '') + '" id="bracketView"><div class="bcols">';
     t.matches.forEach((round, r) => { h += '<div class="bcol"><h3>' + Tournament.roundName(t, r) + '</h3><div class="bslots">' + round.map((match, index) => this.bracketCard(t, r, index, next)).join('') + '</div></div>'; });
-    h += '<div class="bcol"><h3>Champion</h3><div class="bslots"><div class="bm' + (champion >= 0 ? ' now' : '') + '"><div class="br' + (champion >= 0 && t.entrants[champion].human >= 0 ? ' seat' + (t.entrants[champion].human + 1) : '') + '"><span>' + this.bracketName(t, champion) + '</span></div></div></div></div></div>';
+    h += '<div class="bcol"><h3>Champion</h3><div class="bslots"><div class="bm' + (champion >= 0 ? ' now' : '') + '"><div class="br' + (champion >= 0 && t.entrants[champion].human >= 0 ? ' seat' + (t.entrants[champion].human + 1) : '') + '"><span>' + this.bracketName(t, champion) + '</span></div></div></div></div></div></div>';
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="bracketGo"' + (Game.tournamentWork ? ' disabled' : '') + '>Continue</button></div></div></section>';
     if (t.size > 8) setTimeout(() => this.scrollBracket(), 0);
     return h;
