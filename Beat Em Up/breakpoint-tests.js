@@ -49,6 +49,7 @@ const {
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+  PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -7111,9 +7112,9 @@ const SelfTest = {
       const ok = log.length === 1 && log[0].id === 'throw_brick' && log[0].def === far.index && log[0].kind === 'knockdown' && near.hp === near.maxHp && p.hp === p.maxHp && !p.item && left && left.dur === WEAPONS.brick.dur - 1 && far.hp < far.maxHp;
       return ok ? true : JSON.stringify({ log, nearHurt: near.hp < near.maxHp, left: left && left.dur, item: p.item });
     });
-    test('Items: Crouch + Use drops the held item at the feet with its wear; Use alone throws it along the facing when nothing is locked; touch USE shows only with an item held or in reach', () => {
+    test('Items: a held Use (the setDown intent) puts the held item at the feet with its wear; Use alone throws it along the facing when nothing is locked; touch USE shows only with an item held or in reach', () => {
       const problems = [];
-      const drop = itemDuel(5, once(2, 'use', { crouch: true })), f = drop.fighters[0];
+      const drop = itemDuel(5, once(2, 'setDown')), f = drop.fighters[0];
       f.item = { id: 'bat', dur: 4, sprays: 3 };
       self.run(drop, 4);
       const lying = drop.items[0];
@@ -7363,6 +7364,299 @@ const SelfTest = {
       const down = itemDuel(1.2), d = down.fighters[1]; d.item = held('bat'); d.setState(S.HIT); d.setState(S.DOWN);
       if (d.item || down.items.length !== 1) problems.push('down state keeps the item');
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ---------- Use is one scheme on every device (P17-06) ---------- */
+    /* The Use button of each device, pressed through the real input path (the key map, the pad poll, the touch button state). down() / up() change the button, and playUse reads it with Input.update() on every tick.
+       crouch(on) holds the device's Crouch, to show that it changes nothing. */
+    const useDevices = (pad) => {
+      const useKey = Keymap.bindings.use[0], crouchKey = Keymap.bindings.crouch[0], padButton = PAD_BUTTONS.use[0];
+      return {
+        keyboard: { down: () => Input.onKey({ code: useKey, repeat: false }), up: () => Input.kb.delete(useKey), crouch: (on) => (on ? Input.kb.add(crouchKey) : Input.kb.delete(crouchKey)) },
+        gamepad: { down: () => { pad.buttons[padButton].pressed = true; }, up: () => { pad.buttons[padButton].pressed = false; }, crouch: (on) => { Input.padCrouch = on; } },
+        touch: { down: () => Input.touchSet('use', true), up: () => Input.touchSet('use', false), crouch: (on) => Input.touchSet('crouch', on) },
+      };
+    };
+    /* Runs body with the three devices ready (a stub gamepad in navigator.getGamepads) and puts every piece of input state back afterwards. */
+    const withDevices = (body) => {
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      Input.reset(); Input.releaseAll();
+      try { return body(useDevices(pad)); } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+    };
+    /* Gives fighter 0 of m the real input (a person) and counts the ticks its intent held Crouch. */
+    const asPerson = (m) => {
+      const seat = { crouched: 0 };
+      m.controllers[0] = { input: Input, human: true, think(f, opp, match, it) { Input.fillIntent(it, f, opp); if (it.crouch) seat.crouched++; return it; }, reset() {} };
+      return seat;
+    };
+    /* Plays `ticks` ticks of m: the device's Use goes down at tick 3 and up `hold` ticks later (hold 0: it stays down), then lets go. */
+    const playUse = (m, device, hold, ticks) => {
+      for (let t = 1; t <= ticks; t++) {
+        if (t === 3) device.down();
+        if (hold && t === 3 + hold) device.up();
+        Input.update();
+        m.step();
+      }
+      device.up(); Input.update();
+    };
+    /* A duel on the dojo floor with the player a person on the real input ({ m, f, seat }), and the number of times each named event fires while body runs. */
+    const personDuel = () => { const m = itemDuel(6), seat = asPerson(m); Input.reset(); Input.releaseAll(); return { m, seat, f: m.fighters[0] }; };
+    const countEvents = (names, body) => {
+      const seen = Object.fromEntries(names.map((name) => [name, 0])), offs = names.map((name) => Events.on(name, () => seen[name]++));
+      try { body(); } finally { offs.forEach((off) => off()); }
+      return seen;
+    };
+    /* The spots a fighter can walk to on a level, from the start: 0.2 m cells, y = the deck under the cell (as the Arena bounds test walks). */
+    const standingSpots = (m, arenaId) => {
+      const r = 0.34, cell = 0.2, b = ARENAS[arenaId].bounds, nx = Math.floor((b.x - r) / cell), nz = Math.floor((b.z - r) / cell);
+      const decks = Arena.colliders.filter((d) => d.deck && d.active), footings = new Map(), key = (i, j) => (i + nx) * (2 * nz + 1) + j + nz;
+      const footing = (i, j) => {
+        if (!footings.has(key(i, j))) footings.set(key(i, j), Math.max(0, ...decks.filter((d) => Math.abs(i * cell - d.x) <= d.hx && Math.abs(j * cell - d.z) <= d.hz).map((d) => d.top)));
+        return footings.get(key(i, j));
+      };
+      const free = (i, j) => Math.abs(i) <= nx && Math.abs(j) <= nz && !Arena.blockedAt(i * cell, j * cell, r, footing(i, j));
+      const seen = new Set(), queue = [], spots = [], start = m.fighters[0], i0 = Math.round(start.x / cell), j0 = Math.round(start.z / cell);
+      if (free(i0, j0)) { seen.add(key(i0, j0)); queue.push([i0, j0]); }
+      while (queue.length) {
+        const [i, j] = queue.pop();
+        spots.push({ x: i * cell, z: j * cell, y: footing(i, j) });
+        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const a = i + di, c = j + dj;
+          if (free(a, c) && !seen.has(key(a, c)) && Math.abs(footing(a, c) - footing(i, j)) <= 0.5) { seen.add(key(a, c)); queue.push([a, c]); }
+        }
+      }
+      return spots;
+    };
+    /* Where `person` stands to take `loose`: a floor item from about 0.8 m away, a raised one from the nearest spot (beside its table, shelf or car); null when no spot is within reach.
+       Only a spot the body really stands on counts: put there, the fighter is not pushed out of a prop or lifted onto a bench. */
+    const spotBeside = (spots, loose, person) => {
+      const standsAt = (spot) => {
+        person.x = spot.x; person.z = spot.z; person.y = spot.y;
+        Arena.resolveFighter(person);
+        return Math.abs(person.groundY - spot.y) < 0.01 && Math.abs(person.x - spot.x) < 0.01 && Math.abs(person.z - spot.z) < 0.01;
+      };
+      let best = null, bestScore = Infinity;
+      for (const spot of spots) {
+        const rise = loose.y - spot.y, gap = Math.hypot(loose.x - spot.x, loose.z - spot.z);
+        if (rise > PICKUP_UP || rise < -PICKUP_DOWN || gap > PICKUP_AROUND) continue;
+        const score = rise < PICKUP_LOW_BELOW ? Math.abs(gap - 0.8) : gap;
+        if (score < bestScore && standsAt(spot)) { bestScore = score; best = spot; }
+      }
+      return best;
+    };
+    test('Use (P17-06): on every level, every kind of item lying on every placement row (floor, table, shelf, car top, deck, pillar) is picked up by Use alone, with no Crouch, from a spot a fighter can walk to, on keyboard, gamepad and touch, facing the item or away from it', () => withDevices((devices) => {
+      const names = Object.keys(devices), kinds = Object.keys(WEAPONS), bad = [];
+      let runs = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', arenaId, countdown: false, timer: 0, seed: 4, items: true }));
+        m.controllers[1] = self.scripted(() => {});   // a foe that stands still (a CPU would take the item itself)
+        const seat = asPerson(m), bounds = ARENAS[arenaId].bounds, spots = standingSpots(m, arenaId), rows = m.items.slice();
+        const [person, foe] = m.fighters;
+        const pickUpOnce = (loose, kind, spot, away, device) => {
+          Object.assign(loose, { id: kind, dur: WEAPONS[kind].dur, sprays: SPRAY_CHARGES });
+          m.items.length = 0; m.items.push(loose);
+          const length = Math.hypot(loose.x - spot.x, loose.z - spot.z) || 1, side = away ? -1 : 1;   // the foe stands on the side the fighter will face
+          const foeX = clamp(spot.x + side * (loose.x - spot.x) / length * 4, -bounds.x + 0.5, bounds.x - 0.5), foeZ = clamp(spot.z + side * (loose.z - spot.z) / length * 4, -bounds.z + 0.5, bounds.z - 0.5);
+          for (const f of m.fighters) { f.item = null; f.pickup = null; f.move = null; f.useBuffer = 0; f.lock = 0; f.vx = f.vy = f.vz = 0; f.setState(S.IDLE); }
+          self.stand(person, spot.x, spot.z, foeX, foeZ); self.stand(foe, foeX, foeZ, spot.x, spot.z);
+          person.y = person.prevY = spot.y; foe.y = foe.prevY = spot.y;
+          Input.reset(); Input.releaseAll(); seat.crouched = 0;
+          playUse(m, device, 4, 26);
+          runs++;
+          return person.item && person.item.id === kind && !m.items.includes(loose) && !seat.crouched;
+        };
+        rows.forEach((loose, row) => {
+          const own = { id: loose.id, dur: loose.dur, sprays: loose.sprays }, spot = spotBeside(spots, loose, person), label = arenaId + ' ' + own.id + ' at y ' + loose.y + (loose.host ? ' on ' + loose.host.id : '');
+          if (!spot) { bad.push(label + ': no spot to walk to within ' + PICKUP_AROUND + ' m'); return; }
+          const cases = kinds.map((kind, k) => [kind, (row + k) % 2 === 1, names[(row + k) % names.length]]);
+          for (const name of names) for (const away of [false, true]) cases.push([own.id, away, name]);
+          for (const [kind, away, name] of cases) {
+            if (!pickUpOnce(loose, kind, spot, away, devices[name])) bad.push(label + ' as ' + kind + ' on ' + name + (away ? ' facing away' : ' facing it') + ' at ' + spot.x.toFixed(1) + ', ' + spot.z.toFixed(1) + ', y ' + spot.y);
+          }
+          Object.assign(loose, own);
+        });
+      }
+      if (runs < 1400) bad.push('only ' + runs + ' pick-ups tried');   // 73 placement rows, 20 tries each
+      return bad.length ? bad.slice(0, 6).join('; ') + (bad.length > 6 ? ' (+' + (bad.length - 6) + ')' : '') : true;
+    }));
+    test('Use (P17-06): throw and set down on each device: a short press throws when the finger lifts (a press just under the hold too), a hold puts the item down without throwing, Crouch changes neither, a pick-up that is held on keeps the item, and a throw goes to the locked enemy', () => withDevices((devices) => {
+      const bad = [];
+      for (const name in devices) {
+        const device = devices[name];
+        for (const crouching of [false, true]) {
+          const label = name + (crouching ? ' with Crouch held' : '');
+          device.crouch(crouching);
+          for (const hold of [1, 5, SETDOWN_TICKS - 1]) {   // a tap, a slow tap, a press one tick short of the hold
+            const { m, f } = personDuel(); f.item = held('bat');
+            const seen = countEvents(['itemThrow', 'itemDrop'], () => playUse(m, device, hold, hold + 20));
+            if (seen.itemThrow !== 1 || seen.itemDrop !== 0 || f.item) bad.push(label + ': a ' + hold + '-tick press did not throw ' + JSON.stringify(seen));
+          }
+          for (const hold of [0, SETDOWN_TICKS, SETDOWN_TICKS + 20]) {   // held on, a hold lifted at the mark, a hold lifted later
+            const { m, f } = personDuel(); f.item = held('bat');
+            const seen = countEvents(['itemThrow', 'itemDrop'], () => playUse(m, device, hold, SETDOWN_TICKS + 40));
+            const lying = m.items.find((i) => i.id === 'bat');
+            if (seen.itemThrow !== 0 || seen.itemDrop !== 1 || f.item || !lying || Math.hypot(lying.x - f.x, lying.z - f.z) > 0.8) bad.push(label + ': a hold of ' + (hold || 'for ever') + ' did not put it down ' + JSON.stringify(seen));
+          }
+          const pick = personDuel(); pick.m.placeItem('bat', 0, 0.6, 0);
+          const taken = countEvents(['itemTake', 'itemDrop', 'itemThrow'], () => playUse(pick.m, device, 0, SETDOWN_TICKS + 50));
+          if (taken.itemTake !== 1 || taken.itemDrop + taken.itemThrow !== 0 || !pick.f.item) bad.push(label + ': a pick-up held on lost the item ' + JSON.stringify(taken));
+          device.crouch(false);
+        }
+        const brawl = self.makeBrawl({ enemies: 2, arenaId: 'dojo', items: true }), [p, near, far] = brawl.fighters;   // a locked enemy that is not the nearest one
+        brawl.items.length = 0; asPerson(brawl); Input.reset(); Input.releaseAll();
+        self.stand(p, 0, 0, 0, 5); self.stand(near, 2.5, 1.5, 0, 0); self.stand(far, -1, 4.5, 0, 0);
+        p.item = held('brick'); p.lockOn = far;
+        playUse(brawl, device, 4, 10);
+        const flying = brawl.items.find((i) => i.owner === p), aim = Math.hypot(far.x - p.x, far.z - p.z);
+        if (!flying || (flying.vx * (far.x - p.x) + flying.vz * (far.z - p.z)) / (Math.hypot(flying.vx, flying.vz) * aim) < 0.98) bad.push(name + ': the throw did not go to the locked enemy');
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    }));
+    test('Use (P17-06): Use never takes an item behind a wall, a pillar or a tall rack, or past the reach (1.4 m round the fighter, 2.2 m up, 0.6 m down), but reaches over a table and takes one on a tall rack it stands beside', () => {
+      const bad = [], wall = { x: 0, z: 0.7, hx: 3, hz: 0.1, base: 0, top: 3, active: true, standable: false, deck: false, obj: null };
+      const m = itemDuel(6), f = m.fighters[0], taken = (x, z, y, host) => { m.items.length = 0; const loose = m.placeItem('bat', x, z, y); if (host) loose.host = host; return m.itemToUse(f) === loose; };
+      if (!taken(0, 1.2, 0)) bad.push('no wall: a floor item 1.2 m ahead is not taken');
+      if (!taken(0, -1.3, 0) || !taken(1.3, 0, 0)) bad.push('behind or beside, 1.3 m: not taken');
+      if (taken(0, -1.5, 0) || taken(1.0, 1.1, 0)) bad.push('past 1.4 m: taken');
+      if (!taken(0.5, 0.2, 2.1) || taken(0.5, 0.2, 2.3)) bad.push('height: 2.1 m up must be taken and 2.3 m not');
+      if (!taken(0, 0.5, -0.5) || taken(0, 0.5, -0.7)) bad.push('depth: 0.5 m below the feet (a kerb) must be taken and 0.7 m not');
+      Arena.colliders.push(wall);
+      try {
+        if (taken(0, 1.2, 0) || taken(0.8, 1.15, 0) || taken(0, 1.2, 0.9)) bad.push('behind a 3 m wall: taken');
+        if (!taken(0, -1.2, 0)) bad.push('a wall in front hid an item behind');
+        wall.top = 0.9;   // a table-high wall is reached over
+        if (!taken(0, 1.2, 0)) bad.push('a 0.9 m wall hid an item');
+        wall.top = 3; wall.active = false;
+        if (!taken(0, 1.2, 0)) bad.push('a broken wall still hid an item');
+      } finally { Arena.colliders.splice(Arena.colliders.indexOf(wall), 1); }
+      let racks = 0;
+      for (const arenaId of ARENA_ORDER) {   // every tall rack, pillar and cabinet with an item on it: the item is taken from the spot beside it
+        const level = track(new MatchSim({ mode: 'free', arenaId, countdown: false, timer: 0, seed: 4, items: true })), spots = standingSpots(level, arenaId), person = level.fighters[0];
+        for (const loose of level.items.filter((i) => i.host && i.y >= 1.2)) {
+          const spot = spotBeside(spots, loose, person);
+          if (!spot) { bad.push(arenaId + ' ' + loose.id + ' on ' + loose.host.id + ': no spot beside it'); continue; }
+          level.items.length = 0; level.items.push(loose);
+          self.stand(person, spot.x, spot.z, spot.x + 1, spot.z); person.y = person.groundY = spot.y;   // (this test does not step: the footing is set by hand)
+          racks++;
+          if (level.itemToUse(person) !== loose) bad.push(arenaId + ' ' + loose.id + ' on ' + loose.host.id + ' (' + loose.y + ' m) is not taken from beside it');
+        }
+      }
+      if (racks < 15) bad.push('only ' + racks + ' high items checked');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Use (P17-06): with several items near, Use takes the one in front (nearest the facing line) first, else the nearest on any side (a raised one counts), and the first placed of two alike', () => {
+      const bad = [], m = itemDuel(6), f = m.fighters[0];
+      const pick = (...rows) => { m.items.length = 0; const placed = rows.map(([id, x, z, y]) => m.placeItem(id, x, z, y || 0)); return placed.indexOf(m.itemToUse(f)); };
+      if (pick(['brick', 0, -0.5], ['bat', 0, 0.9]) !== 1) bad.push('in front beats a nearer one behind');
+      if (pick(['brick', 0.3, 0.5], ['bat', 0.02, 0.95]) !== 1) bad.push('of two in front, the one nearest the facing line beats the nearer one');
+      if (pick(['brick', 0, -1.3], ['bat', 0.5, -0.8]) !== 1) bad.push('behind: the nearer');
+      if (pick(['wrench', 0.9, -0.6, 0.9], ['brick', 0, -0.7]) !== 1) bad.push('a nearer floor item behind beats a raised one further off');
+      if (pick(['brick', 0, -1.1], ['wrench', 0.8, -0.2, 0.9]) !== 1) bad.push('a nearer raised item beats a floor item further off');
+      if (pick(['brick', 1.2, 0], ['bat', -1.2, 0]) !== 0) bad.push('two alike: the first placed');
+      if (pick(['brick', 0, 2], ['bat', 1.5, 0]) !== -1) bad.push('out of reach: something taken');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Use (P17-06): the bright ring is drawn under the item Use takes and under no other (only for a person, never with an item in hand), the touch USE button shows exactly then, and pressing Use takes the ringed item', () => withDevices((devices) => {
+      const bad = [], m = itemDuel(6), f = m.fighters[0], foe = m.fighters[1];
+      asPerson(m);
+      const rings = () => {
+        const put = R.put, push = R.push, found = [];
+        R.put = (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, rgb) => { if (rgb === ITEM_CUE_RGB) found.push({ x, y, z, size: sx }); };
+        R.push = () => {};   // the items' own parts are not looked at here
+        try { m.drawItems(); } finally { R.put = put; R.push = push; }
+        return found;
+      };
+      const ringedItem = () => { const found = rings(); return found.length === 1 ? m.items.find((i) => Math.abs(i.x - found[0].x) < 1e-9 && Math.abs(i.z - found[0].z) < 1e-9 && Math.abs(i.y + 0.02 - found[0].y) < 1e-9) : null; };
+      if (rings().length || touchUseVisible(f, m)) bad.push('a ring or a USE button with nothing lying about');
+      const front = m.placeItem('bat', 0, 0.8, 0), behind = m.placeItem('brick', 0.2, -0.6, 0);
+      if (ringedItem() !== front || m.itemToUse(f) !== front || !touchUseVisible(f, m) || rings()[0].size !== ITEM_CUE_SIZE) bad.push('the ring is not under the item in front');
+      m.items.splice(m.items.indexOf(front), 1);
+      if (ringedItem() !== behind || m.itemToUse(f) !== behind) bad.push('the ring is not under the item behind');
+      m.items.length = 0; m.placeItem('bat', 0, 2.5, 0);
+      if (rings().length || m.itemToUse(f) || touchUseVisible(f, m)) bad.push('a ring or a USE button for an item out of reach');
+      m.items.length = 0; m.placeItem('bat', 0, 0.8, 0); f.item = held('brick');
+      if (rings().length || m.itemToUse(f) || !touchUseVisible(f, m)) bad.push('with an item in hand: no ring, USE shown to throw');
+      f.item = null;
+      m.controllers[0] = self.scripted(() => {});
+      if (rings().length) bad.push('a ring for a fighter that is not a person');
+      m.controllers[0] = { input: Input, human: true, think: () => makeIntent(), reset() {} }; m.controllers[1] = Object.assign(self.scripted(() => {}), { human: true });
+      m.items.length = 0; self.stand(f, -2, 0, 0, 5); self.stand(foe, 2, 0, 0, 0);
+      m.placeItem('bat', -2, 0.8, 0); m.placeItem('brick', 2, 0.8, 0);
+      if (rings().length !== 2) bad.push('two people, two rings: ' + rings().length);
+      // Use on each device takes the item the ring is under, from 16 spots round a set of items (the fighter looks at the foe, so it does not turn before the press)
+      m.controllers[1] = self.scripted(() => {}); asPerson(m);
+      for (const name in devices) {
+        for (let k = 0; k < 16; k++) {
+          m.items.length = 0;
+          const loose = [m.placeItem('bat', 0.7, 0.1, 0), m.placeItem('brick', -0.4, 0.9, 0), m.placeItem('wrench', 0.2, -0.9, 0.9), m.placeItem('pipe', 1.1, -0.2, 0)];
+          loose[2].host = { destroyed: false };   // the wrench lies on a table
+          const angle = k * 0.9;
+          for (const g of m.fighters) { g.item = null; g.pickup = null; g.move = null; g.useBuffer = 0; g.lock = 0; g.setState(S.IDLE); }
+          self.stand(f, Math.cos(angle) * 0.5, Math.sin(angle) * 0.5, 0, 6); self.stand(foe, 0, 6, 0, 0);
+          Input.reset(); Input.releaseAll();
+          const ringed = ringedItem();
+          playUse(m, devices[name], 4, 26);
+          if (!ringed || !f.item || f.item.id !== ringed.id || m.items.includes(ringed) || m.items.length !== 3) bad.push(name + ' try ' + k + ': ' + (ringed ? ringed.id : 'no ring') + ' ringed, ' + (f.item ? f.item.id : 'nothing') + ' taken');
+        }
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    }));
+    test('Use (P17-06, phone width): at 375 x 667 and 667 x 375 a finger on USE touches USE alone, and 30 pick-ups, 30 throws and 30 set-downs by that one finger (no DUCK finger) all work, on the page\'s own USE button where the browser has it', () => withDevices((devices) => {
+      const bad = [];
+      for (const [orientation, w, h] of [['portrait', 375, 667], ['landscape', 667, 375]]) {
+        const rects = touchLayoutRects(orientation, { w, h, sat: 0, sar: 0, sab: 0, sal: 0 }), use = rects.use, cx = (use.x0 + use.x1) / 2, cy = (use.y0 + use.y1) / 2;
+        const FINGER = 20;   // px: the half width of a thumb's contact
+        if (use.x1 - use.x0 < 44) bad.push(orientation + ': USE is under 44 px');
+        for (const name in rects) {
+          if (name === 'use') continue;
+          const r = rects[name], gap = Math.hypot(Math.max(r.x0 - cx, 0, cx - r.x1), Math.max(r.y0 - cy, 0, cy - r.y1));
+          if (gap < FINGER) bad.push(orientation + ': a finger on USE also touches ' + name);
+        }
+        if (use.x0 < 0 || use.y0 < 0 || use.x1 > w || use.y1 > h) bad.push(orientation + ': USE leaves the screen');
+      }
+      const page = UI.touchButtons && UI.touchButtons.use && UI.touchButtons.use.el && UI.touchButtons.use.el.dispatchEvent ? UI.touchButtons.use.el : null;
+      const fire = (type) => (typeof PointerEvent === 'function' ? page.dispatchEvent(new PointerEvent(type, { pointerId: 41, bubbles: true, cancelable: true })) : page.dispatchEvent({ type, pointerId: 41, preventDefault() {} }));
+      const finger = page ? { down: () => fire('pointerdown'), up: () => fire('pointerup'), crouch: devices.touch.crouch } : devices.touch;   // the same finger: the page's button, else the input it feeds
+      let pickups = 0, throws = 0, downs = 0, ducked = 0;
+      try {
+        for (let k = 0; k < 30; k++) {
+          const tap = 1 + (k % 12), hold = SETDOWN_TICKS + (k % 10) * 3;   // a finger rests 1 to 12 ticks on a tap and 0.5 to 0.95 s on a hold
+          const spot = [[0, 0.8], [0.6, 0.3], [-0.5, -0.7], [0.9, -0.4], [-1.0, 0.5]][k % 5];
+          const pick = personDuel(), loose = pick.m.placeItem('bat', spot[0], spot[1], 0);
+          const shown = touchUseVisible(pick.f, pick.m);
+          playUse(pick.m, finger, tap, 26);
+          if (shown && pick.f.item && !pick.m.items.includes(loose)) pickups++;
+          ducked += pick.seat.crouched;
+          const thrower = personDuel(); thrower.f.item = held('bat');
+          const seen = countEvents(['itemThrow', 'itemDrop'], () => playUse(thrower.m, finger, tap, 20));
+          if (seen.itemThrow === 1 && seen.itemDrop === 0 && !thrower.f.item) throws++;
+          ducked += thrower.seat.crouched;
+          const setter = personDuel(); setter.f.item = held('bat');
+          const put = countEvents(['itemThrow', 'itemDrop'], () => playUse(setter.m, finger, hold, hold + 30));
+          if (put.itemThrow === 0 && put.itemDrop === 1 && !setter.f.item) downs++;
+          ducked += setter.seat.crouched;
+        }
+      } finally { if (page) finger.up(); }
+      if (pickups !== 30 || throws !== 30 || downs !== 30 || ducked) bad.push('of 30: ' + pickups + ' pick-ups, ' + throws + ' throws, ' + downs + ' set-downs, ' + ducked + ' ticks of Crouch');
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Use (P17-06): the Controls screen and the Move list tell the scheme in plain words on every device (Use takes the ringed item, throws it, a hold puts it down, no crouching), and nothing still says Crouch + Use', () => {
+      const bad = [], plain = (html) => String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+      const controls = plain(UI.screen_controls());
+      for (const part of ['picks up the item marked by the bright ring', 'no crouching needed', 'hold Use to put it down']) if (!controls.includes(part)) bad.push('Controls lacks "' + part + '"');
+      if (/Crouch \+ Use/i.test(controls)) bad.push('Controls still says Crouch + Use');
+      for (const kind of ['keyboard', 'gamepad', 'touch']) {
+        const button = (action) => plain(UI.controlLabel(kind, action).split(' / ')[0]), crate = plain(UI.screen_moves(ROSTER_BY_ID.kai, kind, 'crate')), bat = plain(UI.screen_moves(ROSTER_BY_ID.kai, kind, 'bat')), bare = plain(UI.screen_moves(ROSTER_BY_ID.kai, kind));
+        if (!crate.includes('hold Use ' + button('use') + ' to put it down') || !crate.includes('Use ' + button('use') + ' throws it')) bad.push(kind + ': the crate hint');
+        if (!bat.includes('Use ' + button('use') + ' throws it; hold Use ' + button('use') + ' to put it down')) bad.push(kind + ': the held-item hint');
+        if (bare.includes('to put it down')) bad.push(kind + ': an item hint with nothing in hand');
+        if (/Crouch \+ Use/i.test(crate + bat)) bad.push(kind + ': Crouch + Use');
+      }
+      return bad.length ? bad.join('; ') : true;
     });
     test('Items: next round an item whose table broke falls onto the rubble or floor instead of starting inside it, and pillar items are mounted on a bracket along the wall', () => {
       const problems = [];

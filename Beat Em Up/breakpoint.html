@@ -995,7 +995,7 @@ function touchAttackHeight(kind, self, opp) {
 function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
-    jump: false, punch: false, kick: false, grapple: false, use: false, lock: false, // use / lock: one-tick presses (lock: lock-on, P4-03; use: no gameplay yet, items P7)
+    jump: false, punch: false, kick: false, grapple: false, use: false, setDown: false, lock: false, // use / setDown / lock: one-tick presses (lock: lock-on, P4-03; use: pick up or throw; setDown: put the held item down, P17-06)
     sidestep: 0, grapDir: 'fwd', noParry: false, assist: false, // assist: the Auto-assist setting, set by human input only
     stickAnalog: false, // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on
   };
@@ -1003,7 +1003,7 @@ function makeIntent() {
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.stickAnalog = false;
+  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.stickAnalog = false;
   return it;
 }
 
@@ -1044,6 +1044,8 @@ class PlayerInput {
     this.touchStick = { x: 0, y: 0, active: false };
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
+    this.useWatch = false;           // a Use press that began with an item in hand is still being watched: lifted soon = throw, held SETDOWN_TICKS = put down
+    this.useTicks = 0;
     this.lastDevice = 'keyboard';
     this.analog = { fwd: 0, side: 0, stick: false }; // stick: the values come from a gamepad stick or the touch stick, not from keys or the d-pad (lock-on flicks need that)
   }
@@ -1076,6 +1078,7 @@ class PlayerInput {
     this.latch = {};
     this.attackQueue.length = 0;
     this.runDir = null;
+    this.useWatch = false;
     this.releasePad();
   }
   releasePad() {
@@ -1089,7 +1092,7 @@ class PlayerInput {
     this.padInfo.connected = false;
     this.flick = null;
   }
-  reset() { this.latch = {}; this.attackQueue.length = 0; this.lastPress = {}; this.runDir = null; this.flick = null; }
+  reset() { this.latch = {}; this.attackQueue.length = 0; this.lastPress = {}; this.runDir = null; this.flick = null; this.useWatch = false; }
 
   /* A press edge from any device. A double tap on a direction is latched and resolved in fillIntent
      (run / sidestep), because its meaning depends on the movement mode and facing. */
@@ -1261,7 +1264,7 @@ class PlayerInput {
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
     it.grapple = this.take('grapple');
-    it.use = this.take('use');
+    this.fillUse(it, self);
     it.lock = this.take('lock');
     it.stickAnalog = this.analog.stick;
     it.assist = Settings.v.autoAssist === true; // every device and both Versus players; the AI and the dummy never set it
@@ -1280,6 +1283,21 @@ class PlayerInput {
     if (it.grapple) it.grapDir = this.grappleDirection(it, self, opp);
     if (!it.grapple && this.flick) this.flick = null;
     return it;
+  }
+  /* Use (P17-06), the same on every device. Empty-handed it fires on the press (pick up). With an item in hand it is judged when the finger lifts: a short press throws, and a press held
+     SETDOWN_TICKS puts the item down (without waiting for the lift). A press that began empty-handed is never read again, so a pick-up held on does not put the item straight down. */
+  fillUse(it, self) {
+    const pressed = this.take('use'), down = !!this.held.use;
+    if (pressed) {
+      this.useTicks = 0;
+      this.useWatch = !!(self && self.item);
+      if (!this.useWatch) it.use = true;
+    }
+    if (!this.useWatch) return;
+    if (!self.item) { this.useWatch = false; return; } // knocked out of the hand meanwhile: nothing to throw, and a lift must not pick something up
+    if (!down) { this.useWatch = false; it.use = true; return; }
+    this.useTicks++;
+    if (this.useTicks >= SETDOWN_TICKS) { this.useWatch = false; it.setDown = true; }
   }
   /* Screen-relative mode: input describes a direction on screen (x = screen right, up = away from the camera). */
   toFighterFrame(screenX, screenUp, self, out) {
@@ -5321,6 +5339,8 @@ const WEAPON_ARM = 0.8;               // m: the fist's own reach, to which an it
 const PICKUP_REACH = 1.0, PICKUP_FEET = 0.55, PICKUP_CONE_COS = Math.cos(70 * Math.PI / 180); // an item is in reach within 1.0 m in front (70 degrees), or at the feet (within 0.55 m, any side)
 const PICKUP_TICKS = 14, PICKUP_TAKE_TICK = 9; // the grab lasts 14 ticks and the item is in the hand at tick 9: a hit before that cancels it
 const PICKUP_LOW_BELOW = 0.4, PICKUP_HIGH_FROM = 1.1; // item heights (m): floor grab below 0.4, waist grab to 1.1, high reach above
+const PICKUP_AROUND = 1.4, PICKUP_UP = 2.2, PICKUP_DOWN = 0.6, REACH_OVER = 1.2; // Use takes the nearest item within 1.4 m on any side, from 0.6 m below the feet (a kerb or a stair step) to 2.2 m above them; a solid more than 1.2 m above both the fighter and the item hides it
+const SETDOWN_TICKS = 30;             // holding Use this long with an item in hand puts it down; a shorter press throws it when the finger lifts
 const ITEM_MAX = 12;                  // loose items in a scene; the oldest goes first
 const ITEM_RADIUS = 0.18;             // m: a thrown item hits a fighter this close to its body
 const ITEM_FOOTING = 0.03;            // m: a loose item rests on a table, crate or deck its centre is this close to
@@ -5338,6 +5358,7 @@ const CHEST_AIM = 1.05, HEAD_AIM = 1.5, THROW_BLIND_RANGE = 5; // where a throw 
 const ITEM_SLIDE_DRAG = 1.6, ITEM_SLIDE_STOP = 0.8, ITEM_BOUNCE_MIN = 1.5, ITEM_SPIN = 14, ITEM_DEBRIS = 5; // loose item physics: a sliding skateboard slows by this share per second, a bounce needs this fall speed, tumble rate, pieces of a broken item
 const ITEM_SRC_BASE = -1000000000; // scenery damage source ids of thrown items: a range of their own (fighter impacts count down from IMPACT_SRC_BASE)
 const ITEM_MARK_RGB = [1.0, 0.85, 0.4]; // the glow disc under a loose item
+const ITEM_CUE_RGB = [0.75, 1.0, 0.85], ITEM_CUE_SIZE = 1.35; // the wider, brighter ring under the one item a person's Use would take
 const ITEM_BRACKET_RGB = C('#4a505a');    // the steel bracket of a mounted item
 const ITEM_VIEW_SCALE = 1.2, ITEM_VIEW_LIGHT = 0.22; // a loose item is drawn this much larger, and with this much light of its own
 /* Weapon swings (visual only; the move rows, ticks, reach and hit boxes are below). One row per swing shape; k = three key poses (wind-up, contact, follow-through), each
@@ -5542,7 +5563,7 @@ class Fighter {
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.poseId = ''; this.poseT0 = 0; this.poseEnd = 0; this.expr = -1; this.reach = 0; // a non-combat pose being played (setPose), when it began and ended (animT; 0 = no end), the face it forces (-1 = none) and how far a scene raised the right arm to meet a hand (rad); visual only
-    this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false; // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
+    this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useDrop = false; // P7: useBuffer / useDrop = a Use press waiting to be used and whether it puts the held item down (a hold) instead of throwing it; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.lastFoe = null; this.target = null; // lastFoe: who dealt the last damage (combo and scenery credit)
@@ -5799,17 +5820,17 @@ class Fighter {
     this.setState(S.SIDESTEP);
     Events.emit('sidestep', { f: this, dir });
   }
-  /* ----- items: one Use press. Holding an item: Crouch + Use drops it, Use throws it at the locked target (else the way the fighter faces).
-     Empty-handed with an item in reach: a 14-tick grab whose pose follows the item's height. Anything else does nothing. Returns true when the press was used. */
+  /* ----- items: one Use press (P17-06). Holding an item: Use throws it at the locked target (else the way the fighter faces), a held Use (intent setDown) puts it at the feet. No crouch for any of it.
+     Empty-handed with an item to use (Match.itemToUse): a 14-tick grab whose pose follows the item's height. Anything else does nothing. Returns true when the press was used. */
   tryUse(match) {
     if (this.useBuffer <= 0 || !match) return false;
     this.useBuffer = 0; // one press, used or not, once the fighter is free
     if (this.item) {
-      if (this.useCrouch) match.dropItem(this); else match.throwItem(this);
+      if (this.useDrop) match.dropItem(this); else match.throwItem(this);
       this.lock = THROW_LOCK_TICKS;
       return true;
     }
-    const found = match.itemInReach(this);
+    const found = match.isHuman(this) ? match.itemToUse(this) : match.itemInReach(this); // a CPU keeps its own, narrower reading
     return !!found && this.startPickup(found);
   }
   startPickup(found) {
@@ -5822,7 +5843,7 @@ class Fighter {
   }
   /* A grab or a hold needs both hands: a two-handed item or a crate goes down first. */
   dropBothHands() { if (this.item && (this.itemDef.cls === 'two' || this.itemDef.cls === 'carry')) this.dropHeld(); }
-  /* The held item goes to the floor at the fighter's feet (Crouch + Use, a disarm, a Grapple with both hands needed). */
+  /* The held item goes to the floor at the fighter's feet (a held Use, a disarm, a Grapple with both hands needed). */
   dropHeld() {
     const match = Match.current;
     if (match && match.fighters[this.index] === this) match.dropItem(this); else this.item = null;
@@ -5855,7 +5876,7 @@ class Fighter {
     if (this.defendPressed && this.guardMode === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
     else if (this.swayBuffer > 0) this.swayBuffer--;
     this.assist = it.assist === true; // Auto-assist: read by pickString
-    if (it.use) { this.useBuffer = BUFFER_TICKS; this.useCrouch = !!it.crouch; } else if (this.useBuffer > 0) this.useBuffer--; // a Use press waits for the fighter to be free, like an attack press
+    if (it.use || it.setDown) { this.useBuffer = BUFFER_TICKS; this.useDrop = !!it.setDown; } else if (this.useBuffer > 0) this.useBuffer--; // a Use press waits for the fighter to be free, like an attack press
     this.bufferInput(it);
     this.regenerate();
     const attackBefore = this.moveId;
@@ -9948,6 +9969,31 @@ class MatchSim {
     }
     return best || raised;
   }
+  /* The item a person's Use takes (P17-06; the glow ring and the touch USE button show the same one), with no crouch and no exact spot needed. Of the items within PICKUP_AROUND on any side, from the floor up to
+     PICKUP_UP above the feet (PICKUP_DOWN below them), and not hidden behind a wall (reachBlocked): 1. the one in front, within PICKUP_REACH and PICKUP_CONE_COS, nearest the facing line; 2. else the nearest, the first placed of two alike.
+     A CPU keeps the narrower itemInReach (its own plans walk onto an item), so its fights do not change. */
+  itemToUse(f) {
+    if (!f.alive || f.item || f.airborne) return null;
+    let front = null, frontCos = -2, around = null, aroundGap = Infinity;
+    for (const loose of this.items) {
+      const rise = loose.y - f.y, dx = loose.x - f.x, dz = loose.z - f.z, gap = Math.hypot(dx, dz);
+      if (loose.mode !== 'rest' || rise > PICKUP_UP || rise < -PICKUP_DOWN || gap > PICKUP_AROUND || this.reachBlocked(f, loose)) continue;
+      const cos = gap < 1e-3 ? 1 : (dx * f.fwdX + dz * f.fwdZ) / gap;
+      if (gap <= PICKUP_REACH && cos >= PICKUP_CONE_COS && cos > frontCos) { frontCos = cos; front = loose; }
+      if (gap < aroundGap) { aroundGap = gap; around = loose; }
+    }
+    return front || around;
+  }
+  /* True when a solid thing stands on the straight line from f to the item and rises more than REACH_OVER above both of them: a wall, a pillar, a tall rack. Low furniture (a table, a bench, a crate) is reached over;
+     the object the item itself lies on or hangs from, and the deck a fighter stands on, never count. */
+  reachBlocked(f, loose) {
+    const level = Math.max(f.y, loose.y), dx = loose.x - f.x, dz = loose.z - f.z;
+    for (const c of Arena.colliders) {
+      if (!c.active || c.haz || c.top <= level + REACH_OVER || c.base > level + SUPPORT_BASE_SLACK || (loose.host && c.obj === loose.host) || !Arena.crossesFootprint(c, f.x, f.z, dx, dz)) continue;
+      return true;
+    }
+    return false;
+  }
   /* The grab ends: the item is in f's hand unless something else took it first. */
   takeItem(f, loose) {
     f.pickup = null;
@@ -10104,11 +10150,23 @@ class MatchSim {
       if (this.moveItem(it) && this.items.includes(it)) this.items.splice(this.items.indexOf(it), 1);
     }
   }
-  /* Loose items in the scene: a glow disc under each one that lies about, and the item itself in the world's matrix. */
+  /* The items a person's Use would take now (one for each person, the same itemToUse answers): they get the ring that tells which one it is. */
+  useCues() {
+    const cued = [];
+    for (const f of this.fighters) {
+      const control = this.controllers[f.index];
+      const target = control && control.human ? this.itemToUse(f) : null;
+      if (target) cued.push(target);
+    }
+    return cued;
+  }
+  /* Loose items in the scene: a glow disc under each one that lies about, a ring under the one Use would take, and the item itself in the world's matrix. */
   drawItems() {
+    const cued = this.useCues();
     for (const it of this.items) {
       const w = WEAPONS[it.id];
       const m = it.mount;
+      if (cued.includes(it)) R.put(LAYER.ALPHA, MESH.CYL, it.x, it.y + 0.02, it.z, ITEM_CUE_SIZE, 0.006, ITEM_CUE_SIZE, 0, 0, 0, ITEM_CUE_RGB, 0.6, 0.8, 1, false, 0);
       if (m && it.mode === 'rest') { // mounted high: two pegs and a plate against the wall, and a small upright glow behind the item
         const span = clamp(w.len * 0.5, 0.2, 0.5), alongX = m[1] !== 0;
         M4.identity(FBASE); FMS.reset(FBASE);
@@ -12877,8 +12935,8 @@ function touchLayoutCss() {
   };
   return rules(TOUCH_LAYOUT.landscape) + '@media (orientation:portrait){' + rules(TOUCH_LAYOUT.portrait) + '}';
 }
-/* USE shows while an item is within pick-up reach or is held. */
-function touchUseVisible(fighter, match) { return !!fighter && (!!fighter.item || (!!match.itemInReach && !!match.itemInReach(fighter))); }
+/* USE shows while an item is held or Use has an item to take (the one the glow ring marks). */
+function touchUseVisible(fighter, match) { return !!fighter && (!!fighter.item || (!!match.itemToUse && !!match.itemToUse(fighter))); }
 /* LOCK shows while 2 or more hostile fighters are alive (every other fighter is hostile until P4 adds teams): never in the 1v1 modes. */
 function touchLockVisible(fighter, match) { return match.fighters.filter((other) => other !== fighter && other.alive).length >= 2; }
 /* The held item for the HUD: its name and one pip per durability point left. */
@@ -13726,7 +13784,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up an item in reach and throws the one you hold (Crouch + Use drops it); Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Co-op Brawl: up to four players; each keyboard layout (P1\'s and P2\'s columns) and each gamepad joins on the join screen and keeps its seat, seats 3 and 4 are gamepad-only, and touch is not used.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -13794,7 +13852,8 @@ const UI = {
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
-      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it; Grapple ' + key('grapple') + ' drops it and grabs.</p>' : '') +
+      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
+        : held ? '<p class="hint">Use ' + key('use') + ' throws it; hold Use ' + key('use') + ' to put it down. You never need to crouch.</p>' : '') +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
@@ -15432,6 +15491,7 @@ function testApi() {
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
