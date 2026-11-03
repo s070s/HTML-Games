@@ -15582,11 +15582,13 @@ UI.runSelfTestWith = function runSelfTestWith(tests) {
   Diag.illegalTransitions = illegalBefore;
   this.resetMenuScene();
   if (screen && this.current !== screen) { this.go(screen); this.stack = stack; } // flow tests visit other screens: show the results where the run started
-  const pass = res.filter((r) => r.pass).length;
-  const text = 'Self-test: ' + pass + ' / ' + res.length + ' passed in ' + Math.round(performance.now() - t0) + ' ms\n' + res.map((r) => (r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
+  const failed = res.filter((r) => !r.pass).length, skipped = res.filter((r) => r.skipped).map((r) => r.name);   // a skip keeps pass: true for callers that count passes; it is counted and listed here so a hidden pane cannot skip a check unseen
+  const counts = (res.length - failed - skipped.length) + ' passed, ' + failed + ' failed, ' + skipped.length + ' skipped';
+  const skipList = skipped.length ? '\nSkipped, not run here:\n' + skipped.map((name) => '  ' + name).join('\n') : '';
+  const text = 'Self-test: ' + counts + ' (of ' + res.length + ') in ' + Math.round(performance.now() - t0) + ' ms' + skipList + '\n' + res.map((r) => (r.skipped ? '[skip] ' : r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
   const shown = $('selftestOut');
   if (shown) shown.textContent = text;
-  Diag.log(pass === res.length ? 'info' : 'warn', 'Self-test ' + pass + '/' + res.length);
+  Diag.log(failed || skipped.length ? 'warn' : 'info', 'Self-test ' + counts + (skipped.length ? '; skipped: ' + skipped.join(' | ') : ''));
   return res;
 };
 

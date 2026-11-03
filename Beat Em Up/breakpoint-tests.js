@@ -227,11 +227,12 @@ const SelfTest = {
     const self = this;
     const test = (name, fn) => {
       let m = null;
-      try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
+      try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
     };
+    const hasLayoutEngine = () => typeof document !== 'undefined' && 'contentDocument' in document.createElement('iframe');   // the headless stub has no frames and no layout engine; every real browser has both. A test may skip only when this is false
     const mk = (...a) => self.make(...a);
     const styleProfile = (id, over) => Object.assign({}, ROSTER_BY_ID.kai, { id: 'ml_' + id, name: id.toUpperCase(), moveStyle: id, defense: defaultDefense(id) }, over);   // a fighter of one move style (the Move list reads the profile)
     const track = (m) => { self.made.push(m); return m; };   // a match built with `new MatchSim` directly: the wrapper disposes it even if the test throws
@@ -11209,7 +11210,7 @@ const SelfTest = {
     });
     test('Move list (P17-04): neither the Move list nor the other menu screens scroll sideways on a phone (375 px wide, and 640 x 360 on its side) or on a desktop window', () => {
       const bad = [], styles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');
-      const stub = !('contentDocument' in document.createElement('iframe'));   // the headless stub has no frames and no layout engine; every real browser has both
+      const stub = !hasLayoutEngine();
       /* The page in a frame as wide as the phone, so the vw units, the percentages and the phone rules of the style sheet resolve against that width. Returns how far the screen, the panel and the page run past the frame. */
       const lay = (html, width, height) => {
         const frame = document.createElement('iframe');
@@ -11435,6 +11436,13 @@ const SelfTest = {
       if (beside < 6 || lobs < 2) bad.push('too few checks: ' + beside + ' drops beside a taller part, ' + lobs + ' lobs');
       for (const look in seen) if (seen[look] < 8 || sides[look] < 2) bad.push('too few ' + look + ' checks: ' + seen[look] + ' landings, ' + sides[look] + ' side hits');
       return bad.length ? bad.slice(0, 2).join('; ') + (bad.length > 2 ? ' (+' + (bad.length - 2) + ')' : '') : true;
+    });
+    /* ---------- no skipped test in a real browser (P17-15) ---------- */
+    /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
+    test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
+      if (!hasLayoutEngine()) return true;
+      const skippedNames = results.filter((r) => r.skipped).map((r) => r.name);
+      return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     return results;
