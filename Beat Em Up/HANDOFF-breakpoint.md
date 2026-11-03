@@ -11,7 +11,9 @@ Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`
     - 3a77f3a: the first P15-03 size pass. 42.4 KB was freed by cutting comments and removing 15 dead names; a token compare with HEAD shows no other code change. `breakpoint.html` is now 1,157,562 LF bytes, with 42,438 left. P15-03 stays open for its final pass.
     - 478/478 browser self-tests; 97 tasks ticked.
     - f06ea20 P17-11 sway polish, ticked (drawing only): the head levelling fades out; the torso holds the exact bend and turn; the drawn sway stops short of ropes and props; a slip against a round kick steps back 0.15 m more, so the Hapkido slip goes from 0 to 8.1 cm of air. 482/482 browser self-tests.
-  - **Next:** P17-15 (skipped self-tests counted), then the order in the 16:20 bullet.
+    - 2e91dd8 P17-15, ticked: results carry a `skipped` flag; the summary reads passed, failed and skipped; a last guard test fails on any skip in a real browser. Chrome run: 483 passed, 0 skipped.
+  - **Next:** P17-06 (crouch and context actions on mobile, DECIDE), then P17-01, P17-02, P17-09, P17-10, then P12, P13-02, P14-02 to P14-05, P15, P18 and P16.
+  - The review agent `bp-p17-08-review` has this session's context; a new session starts fresh reviewers.
   - **Open lows:**
     - An item on a stage-3 damaged block floats about 4 cm, because the drawn block is 0.94 of its height. Crates and tables have the same gap.
     - An item centred within 3 cm in front of the sofa back can rest on the back's top. This is the same overhang as table edges.
