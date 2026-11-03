@@ -10,7 +10,8 @@ Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`
     - 27598bd: P17-12 sofa and P17-13 car roofs and racks, both ticked. Items rest on the drawn seat, arms, back, roof, bonnet and top shelf through the `lay` flag and `Arena.lookTop`.
     - 3a77f3a: the first P15-03 size pass. 42.4 KB was freed by cutting comments and removing 15 dead names; a token compare with HEAD shows no other code change. `breakpoint.html` is now 1,157,562 LF bytes, with 42,438 left. P15-03 stays open for its final pass.
     - 478/478 browser self-tests; 97 tasks ticked.
-  - **Next:** P17-11 (sway polish, including the owner's Hapkido roundhouse fix), then P17-15, then the order in the 16:20 bullet.
+    - f06ea20 P17-11 sway polish, ticked (drawing only): the head levelling fades out; the torso holds the exact bend and turn; the drawn sway stops short of ropes and props; a slip against a round kick steps back 0.15 m more, so the Hapkido slip goes from 0 to 8.1 cm of air. 482/482 browser self-tests.
+  - **Next:** P17-15 (skipped self-tests counted), then the order in the 16:20 bullet.
   - **Open lows:**
     - An item on a stage-3 damaged block floats about 4 cm, because the drawn block is 0.94 of its height. Crates and tables have the same gap.
     - An item centred within 3 cm in front of the sofa back can rest on the back's top. This is the same overhang as table edges.
