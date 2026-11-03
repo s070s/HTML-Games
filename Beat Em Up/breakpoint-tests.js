@@ -48,7 +48,7 @@ const {
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
-  REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
+  REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -4271,9 +4271,11 @@ const SelfTest = {
     });
     /* ----- weapon attack animations (P5-07): the poses only, never the move rows ----- */
     /* fnv1a of every gameplay field of the attack rows, the item move rows, the items, the string tables, the throws, the style fields that decide play and the submission constants (everything except the
-       visual fields in VISUAL_FIELDS), taken from the code of commit 3b006f3, before P5-06 (git show of breakpoint.html): the P5 animation work is visual only. */
+       visual fields in VISUAL_FIELDS), taken from the code of commit 3b006f3, before P5-06 (git show of breakpoint.html): the P5 animation work is visual only.
+       Re-recorded on purpose for the weapons part (3785869874 -> 3777507740, P17-07): the pipe wrench's and the hammer's `rest` (the drawn half thickness of a lying item, read only by Match.drawItems) went 0.03 -> 0.02 and 0.04 -> 0.032 so
+       they lie on the floor and on tables instead of floating 1.4 cm and 1.1 cm; no move row, tick, damage or reach changed (the attacks, items, strings, throws, style and submit parts are as before). */
     const VISUAL_FIELDS = ['name', 'anim', 'swing', 'parts', 'hex', 'hold', 'tilt', 'len'];
-    const MOVE_FINGERPRINT_BEFORE_P506 = 'attacks:18840380 items:707883862 weapons:3785869874 strings:1188394447 styleStrings:3626361966 throws:4268682286 styleThrows:369119152 style:2002661752 submit:2781949150';
+    const MOVE_FINGERPRINT_BEFORE_P506 = 'attacks:18840380 items:707883862 weapons:3777507740 strings:1188394447 styleStrings:3626361966 throws:4268682286 styleThrows:369119152 style:2002661752 submit:2781949150';
     const moveFingerprint = () => {
       const canon = (value) => JSON.stringify(value, (key, v) => {
         if (VISUAL_FIELDS.includes(key)) return undefined;
@@ -10584,6 +10586,174 @@ const SelfTest = {
         }
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- no design or developer notes in the player's text (P17-05) ---------- */
+    test('Player-facing text (P17-05): no screen, label, hint or panel the tests can open shows a task id (P3-02) or a design word (tuning, TODO, placeholder, "no effect yet", "after Phase 12", ...)', () => {
+      const TASK_ID = /\bP\d{1,2}-\d{2}\b/;
+      const DESIGN_WORDS = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note|another name for it|other names? for it|the real arts)\b/i;
+      const texts = [], opened = [], bad = [];
+      const plain = (html) => String(html).replace(/<[^>]*>/g, ' ') + ' ' + (String(html).match(/(?:aria-label|title|alt)="[^"]*"/g) || []).join(' ');
+      const collect = (value, depth = 0) => (typeof value === 'string' ? [value] : value && typeof value === 'object' && depth < 4 ? Object.values(value).flatMap((v) => collect(v, depth + 1)) : []);
+      const open = (name, make) => {
+        try { const html = make(); if (html) { texts.push([name, plain(html)]); opened.push(name); } } catch (error) { /* a screen that needs a state this run lacks is not scanned; the count below says how many were */ }
+      };
+      const keep = { dom: UI.dom, selection: Object.assign({}, Game.selection), data: Game.resultsData, view: UI.storyView, draft: CreatorUI.draft, tab: CreatorUI.tab, tournament: Game.tournament };
+      try {
+        for (const name of ['main', 'modes', 'controls', 'moves', 'settings', 'unlocks', 'credits', 'pause']) open(name, () => UI['screen_' + name]());
+        for (const mode of MODE_ORDER) {
+          Game.selection.mode = mode;
+          for (const name of ['char', 'arena', 'setup', 'lineup', 'coop']) open(name + ' (' + mode + ')', () => UI['screen_' + name]());
+        }
+        const stats = { damage: 90, taken: 10, hits: 9, blocks: 0, perfect: 0, maxCombo: 3, throws: 0, objects: 0, kos: 1, landed: {} };
+        for (const mode of ['free', 'arcade', 'survival', 'training']) {
+          Game.resultsData = { mode, gradeMode: mode, playerWon: true, player: 'KAI', opponent: 'MARA', wins: [2, 0], seconds: 50, stats: [stats, stats], buttons: ['again', 'menu'], stage: 1, stages: 7, continues: 0, kills: 3, survivalSeconds: 60, enemies: 0, enemiesDown: 0 };
+          open('results (' + mode + ')', () => UI.screen_results());
+        }
+        UI.storyView = { profile: ROSTER_BY_ID.kai, choice: 'hand', flawless: false, continues: 0, clears: 0 };
+        open('story', () => UI.screen_story());
+        const draft = CreatorUI.draft = defaultCustom(0);
+        for (const tab of ['body', 'head', 'outfit', 'style', 'identity', 'library']) { CreatorUI.tab = tab; open('creator (' + tab + ')', () => UI.screen_creator()); }
+        void draft;
+        for (const id of ['kai', 'dmitri']) {   // a striker and a hold style: the panel text differs
+          const m = mk({ mode: 'training', playerId: id, opponentId: 'mara' }, () => {}, () => {});
+          m.scenario(6);
+          UI.dom = Object.assign({}, keep.dom, { training: { innerHTML: '', hidden: false } });   // a stand-in for the panel element, so the test needs no screen
+          UI.cache.train = null;
+          open('training panel (' + id + ')', () => { UI.trainingPanel(m); return UI.dom.training.innerHTML; });
+        }
+      } finally {
+        UI.dom = keep.dom; UI.cache.train = null;
+        Object.assign(Game.selection, keep.selection); Game.resultsData = keep.data; UI.storyView = keep.view; CreatorUI.draft = keep.draft; CreatorUI.tab = keep.tab; Game.tournament = keep.tournament;
+      }
+      /* the tables the screens are made from (labels, descriptions, blurbs, hints) */
+      const tables = { SETTING_DEFS, ACTION_LABELS, GAMEPAD_LABELS, TOUCH_LABELS, MODE_INFO, MOVE_STYLE, STYLE_FAMILY_LABEL, GROUND_NOTES, ARCHETYPES, ARENAS: ARENA_ORDER.map((id) => [ARENAS[id].name, ARENAS[id].blurb]) };
+      for (const name of Object.keys(tables)) texts.push([name, collect(tables[name]).join(' ')]);
+      for (const [name, text] of texts) {
+        const id = text.match(TASK_ID), word = text.match(DESIGN_WORDS);
+        if (id) bad.push(name + ': task id ' + id[0]);
+        if (word) bad.push(name + ': "' + word[0] + '" in "' + text.slice(Math.max(0, word.index - 40), word.index + 40).replace(/\s+/g, ' ') + '"');
+      }
+      if (opened.length < 40) bad.push('only ' + opened.length + ' screens could be opened: ' + opened.join(', '));
+      if (!opened.includes('moves') || !opened.includes('controls') || !opened.includes('credits') || !opened.some((name) => name.startsWith('creator')) || !opened.some((name) => name.startsWith('training panel'))) bad.push('a screen is missing from the scan: ' + opened.join(', '));
+      if (!TASK_ID.test('P3-02 shows') || !DESIGN_WORDS.test('This is a placeholder') || !DESIGN_WORDS.test('Use has no effect yet.')) bad.push('the patterns do not match what they should');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    /* ---------- items rest on their surfaces (P17-07) ---------- */
+    /* The drawn model of one loose item: its lowest point (m, world). Mounted items are measured without their bracket (the bracket's pegs are what they rest on, at the item's own y). */
+    const itemBottom = (match, loose) => {
+      const items = match.items, mount = loose.mount, put = R.put, push = R.push, lows = [];
+      match.items = [loose]; loose.mount = null;
+      R.put = () => {};
+      R.push = (layer, mesh, mat) => { lows.push(mat[13] - (mesh === CY ? 0.5 * Math.abs(mat[5]) + 0.5 * Math.hypot(mat[1], mat[9]) : 0.5 * (Math.abs(mat[1]) + Math.abs(mat[5]) + Math.abs(mat[9])))); };   // the half height of the box / cylinder the matrix draws
+      try { match.drawItems(); } finally { match.items = items; loose.mount = mount; R.put = put; R.push = push; }
+      return Math.min(...lows);
+    };
+    /* The highest drawn top under (x, z) of one object, not above `ceiling`: flat boxes and upright cylinders, and the bar of a rail (a cylinder lying on its side). */
+    const drawnTop = (object, x, z, ceiling) => {
+      const put = R.put, tops = [];
+      R.put = (layer, mesh, px, py, pz, sx, sy, sz, rx, ry, rz) => {
+        if (layer !== LAYER.SOLID) return;
+        if (mesh === CY && Math.abs(rx) + Math.abs(rz) > 1.4) {   // a bar: its axis runs along x (turned about z) or along z (turned about x)
+          const along = Math.abs(rz) > 1.4 ? [Math.abs(x - px) <= sy / 2, Math.abs(z - pz) <= sx / 2 + 0.05] : [Math.abs(z - pz) <= sy / 2, Math.abs(x - px) <= sx / 2 + 0.05];
+          if (along[0] && along[1]) tops.push(py + sx / 2);
+          return;
+        }
+        if (Math.abs(rx) + Math.abs(rz) + Math.abs(ry) > 0.01 || Math.abs(x - px) > sx / 2 || Math.abs(z - pz) > sz / 2) return;
+        tops.push(py + sy / 2);
+      };
+      try { Arena.drawObject(object); } finally { R.put = put; }
+      const under = tops.filter((top) => top <= ceiling);
+      return under.length ? Math.max(...under) : null;
+    };
+    const FLAT_TOPS = ['', 'table', 'bench', 'barrier', 'crate', 'kiosk'];   // the looks whose collider top is the drawn top (a sofa's collider is a standing proxy above its seat)
+    const REST_TOLERANCE = 0.01;   // m
+    test('Items on surfaces (P17-07): on every level each item of the placement rows rests on its surface - the lowest point of the drawn model is within 1 cm of the drawn top of its table, crate, deck or rail bar, of the floor, or of the pegs of its wall bracket - and the tables are drawn no higher than they stand', () => {
+      const bad = [];
+      let checked = 0;
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', arenaId: id, countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+        if (m.items.length !== ARENAS[id].items.length) bad.push(id + ': ' + m.items.length + ' items placed of ' + ARENAS[id].items.length + ' rows');
+        for (const loose of m.items) {
+          checked++;
+          const bottom = itemBottom(m, loose), host = loose.host;
+          const surface = loose.mount ? loose.y : host ? drawnTop(host, loose.x, loose.z, loose.y + 0.15) : 0;
+          const label = id + ' ' + loose.id + ' at y ' + loose.y + (host ? ' on ' + host.id : '');
+          if (surface === null) bad.push(label + ': the host has no drawn surface under it');
+          else if (Math.abs(bottom - surface) > REST_TOLERANCE) bad.push(label + ': bottom ' + bottom.toFixed(3) + ', surface ' + surface.toFixed(3));
+        }
+      }
+      if (checked < 60) bad.push('only ' + checked + ' items checked');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Items on surfaces (P17-07): an item dropped or thrown onto a table, bench, crate, kiosk or kerb of every level lies on its drawn top, every time (also when it falls fast enough to cross the top between two ticks); just inside an edge it lies on the top, just past an edge it comes down beside the box; a sliding board does not ride a table top or hit a floor fighter from it', () => {
+      const bad = [];
+      let landed = 0, edges = 0;
+      const settle = (match, loose) => {
+        match.items.push(loose);
+        for (let tick = 0; tick < 400 && loose.mode !== 'rest' && match.items.includes(loose); tick++) match.stepItems();
+        match.items.length = 0;
+        return loose.mode === 'rest';
+      };
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', arenaId: id, countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+        for (const f of m.fighters) { f.x = 100; f.z = 100; }   // out of the way: nobody catches a thrown item
+        m.items.length = 0;
+        for (const host of Arena.objects) {
+          const top = host.base + host.h;
+          if (host.type !== 'box' || host.destroyed || !(host.collider.shelf || host.collider.standable) || !FLAT_TOPS.includes(host.look)) continue;
+          for (const how of ['drop', 'throw']) {
+            for (const kind of how === 'drop' ? ['bat', 'brick'] : ['pipe']) {
+              for (const height of [0.3, 0.7, 1.3]) {   // different fall speeds: some cross the top between two ticks
+                const loose = m.newItem(kind, host.x - (how === 'throw' ? 0.3 : 0), top + height, host.z, 0);
+                if (how === 'drop') loose.mode = 'fall'; else { loose.mode = 'fly'; loose.owner = m.fighters[0]; loose.vx = 1; }
+                const label = id + ' ' + host.id + ' ' + how + ' ' + kind + ' from +' + height;
+                if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+                landed++;
+                const surface = drawnTop(host, loose.x, loose.z, top + 0.15), bottom = itemBottom(m, loose);
+                if (surface === null || Math.abs(loose.y - top) > 1e-6 || Math.abs(bottom - surface) > REST_TOLERANCE) bad.push(label + ': rests at ' + loose.y.toFixed(3) + ' (model bottom ' + bottom.toFixed(3) + ') on a top at ' + top.toFixed(3) + ' drawn at ' + (surface === null ? 'nothing' : surface.toFixed(3)));
+              }
+            }
+          }
+          /* the edges: a brick dropped just inside each edge lies on the top, one dropped past it (0.06 m: more than the 0.03 m of footing, less than the 0.1 m of push-out) comes down beside the box, never in the air at the top's height */
+          for (const [axis, half] of [['x', host.hx], ['z', host.hz]]) {
+            for (const side of [-1, 1]) {
+              for (const [gap, inside] of [[-0.02, true], [0.06, false]]) {
+                const reach = side * (half + gap), loose = m.newItem('brick', host.x + (axis === 'x' ? reach : 0), top + 0.7, host.z + (axis === 'z' ? reach : 0), 0);
+                loose.mode = 'fall';
+                const label = id + ' ' + host.id + ' brick dropped ' + (inside ? 'inside' : 'outside') + ' the ' + axis + (side > 0 ? '+' : '-') + ' edge';
+                if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+                edges++;
+                if (inside && Math.abs(loose.y - top) > 1e-6) bad.push(label + ': rests at ' + loose.y.toFixed(3) + ', not on the top at ' + top.toFixed(3));
+                const held = Arena.colliders.some((c) => c.active && Math.abs(c.top - loose.y) < 1e-6 && Math.abs(loose.x - c.x) <= c.hx + 0.005 && Math.abs(loose.z - c.z) <= c.hz + 0.005);   // over the top of some box, to within 5 mm
+                if (!inside && loose.y > top - 0.05 && !held) bad.push(label + ': rests in the air at ' + loose.y.toFixed(3) + ' beside a top at ' + top.toFixed(3));   // (a neighbouring box of the same height may take it: then something holds it up)
+              }
+            }
+          }
+          /* a board that slides in from a table top never rides it at that height: it is on the floor (or the deck the table stands on) from the first tick, so it cannot reach a fighter from table height */
+          if (host.collider.standable) continue;   // a fighter can stand on it: a board may ride it, like a deck
+          const board = m.newItem('skateboard', host.x, top, host.z, 0);
+          board.mode = 'slide'; board.owner = m.fighters[0]; board.vx = 2;
+          m.items.push(board);
+          let highest = -1;
+          for (let tick = 0; tick < 30 && m.items.includes(board); tick++) { m.stepItems(); if (board.mode === 'slide') highest = Math.max(highest, board.y); }
+          m.items.length = 0;
+          if (highest > host.base + 0.3) bad.push(id + ' ' + host.id + ': a skateboard slid at ' + highest.toFixed(2) + ' m above a table top at ' + top.toFixed(2));
+        }
+      }
+      {   // a board slid at table height does not hit a fighter on the floor; at the floor it does
+        const m = track(new MatchSim({ mode: 'free', arenaId: 'dojo', countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+        const [thrower, target] = m.fighters, hits = [];
+        target.x = 0; target.z = 0;
+        for (const height of [0.9, 0]) {
+          const board = m.newItem('skateboard', 0, height, 0, 0);
+          board.mode = 'slide'; board.owner = thrower;
+          hits.push(m.itemStrike(board) !== undefined);
+        }
+        if (hits.join() !== 'false,true') bad.push('a sliding board hit a floor fighter from table height or missed at the floor: ' + hits);
+      }
+      if (edges < 100) bad.push('only ' + edges + ' edge drops checked');
+      if (landed < 200) bad.push('only ' + landed + ' landings checked');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     return results;

@@ -3033,7 +3033,7 @@ const ARENAS = {
       { id: 'cartons', type: 'box', look: 'crate', mat: 'paper', x: -7.2, z: 2.4, hx: 0.45, hz: 0.45, h: 0.8 },
     ],
     builds: [['stair', 'ramp', -10.7, 1.5, 2, 1.6, 0, 2.0, 'concrete', 'ramp', '']],
-    items: [['bat', 2.0, 5.0, 0.9, 'carB'], ['wrench', -5.5, 6.45, 0.9, 'carA'], ['chain', 9.0, 2.4, 1.0, 'arm'], ['pipe', -3.6, 3.8, 0], ['brick', 3.8, -1.6, 0], ['crate', 0.6, 3.4, 0], ['binlid', 3.0, 5.6, 0],
+    items: [['bat', 2.0, 5.0, 0.63, 'carB'], ['wrench', -5.5, 6.45, 0.63, 'carA'], ['chain', 9.0, 2.4, 1.0, 'arm'], ['pipe', -3.6, 3.8, 0], ['brick', 3.8, -1.6, 0], ['crate', 0.6, 3.4, 0], ['binlid', 3.0, 5.6, 0],
       ['extinguisher', 5.4, -1.33, 1.3, 'pillB'], ['skateboard', -5.0, -5.8, 2.0, 'upper'], ['bottle', 7.6, 5.4, 0]],
     hazards: [['panel', 11.15, -1.4], ['fire', 5.6, 0.8], ['glass', 0, 0, { obj: 'boothGlass' }]],
     waves: [[3, 2.6, 0.5, 0], [4, -9.9, -5.8, 0], [5, 9.8, -5.5, 0], [6, 9.8, -5.5, 1, [-9.9, -5.8]]],
@@ -3059,7 +3059,7 @@ const ARENAS = {
     ],
     builds: [['scaffold', 'scaf', -6, -4.2, 3, 2, -1]],
     items: [['hammer', -6.0, 3.3, 0.9, 'sawhorse'], ['bottle', -5.2, 3.3, 0.9, 'sawhorse'], ['wrench', 1.8, 4.5, 0.9, 'stackB'], ['brick', 2.2, 4.5, 0.9, 'stackB'], ['brick', -2.6, 4.0, 0],
-      ['crate', 3.4, 3.2, 0], ['pipe', -5.0, -4.8, 1.5, 'scaf.t0.1'], ['chain', 4.0, 6.94, 1.05, 'fenceF'], ['broom', -8.73, -6.6, 1.3, 'container'], ['extinguisher', -8.73, -6.0, 1.3, 'container']],
+      ['crate', 3.4, 3.2, 0], ['pipe', -5.0, -4.8, 1.5, 'scaf.t0.1'], ['chain', 4.0, 6.94, 1.01, 'fenceF'], ['broom', -8.73, -6.6, 1.3, 'container'], ['extinguisher', -8.73, -6.0, 1.3, 'container']],
     hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -1.0, 1.9, { tx: -1.0, tz: 3.6 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8]],
     waves: [[3, 2.8, 0.5, 0], [4, -10.4, 3.0, 0], [5, -7.8, -2.6, 0], [6, -10.4, 3.0, 0], [6, -3.0, -6.0, 1, [-10.4, 3.0]]],
   },
@@ -3223,6 +3223,7 @@ function makeObject(def, rng) {
   o.collider = {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
     standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
+    shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''),   // an item thrown onto it lies on its top (P17-07)
   };
   return o;
 }
@@ -3247,13 +3248,13 @@ const LOOKS = {
   dumpster: [1, [0, 0, 1, 0, 1.06, 0.07, 1.08, '#1d2a21'], [0, 0, 0.5, 1.02, 0.92, 0.1, 0.03, '#d6b32a'], [0, -1.02, 0.5, 0, 0.03, 0.8, 0.9, '#2c3b30']],
   vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.96, 1.01, 1.02, 0.08, 0.04, '#b32a2a']],
   speaker: [1, [0, 0, 0.3, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 0.72, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 1, 0, 1.04, 0.04, 1.04, '#202020']],
-  table: [0, [0, 0, 1, 0, 1.12, 0.08, 1.2, '#a87846'], [0, -0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, -0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c']],
+  table: [0, [0, 0, 0.96, 0, 1.12, 0.08, 1.2, '#a87846'], [0, -0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, -0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c']],
   sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c']],
   container: [1, [0, -0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, -0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 1, 0, 1.02, 0.03, 1.02, '#5a1f14']],
   lockers: [1, [0, -1.01, 0.5, -0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.5, 0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.62, -0.18, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.62, 0.48, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.9, 0, 0.03, 0.04, 0.9, '#20272e']],
   car: [0.55, [0, -0.1, 0.8, 0, 0.5, 0.42, 0.92, '#25323f'], [0, -0.1, 1, 0, 0.52, 0.05, 0.94, '#b9bec6'], [0, -0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, -0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'],
     [0, 1.01, 0.38, -0.7, 0.03, 0.1, 0.2, '#fff2b8', 0.7], [0, 1.01, 0.38, 0.7, 0.03, 0.1, 0.2, '#fff2b8', 0.7], [0, -1.01, 0.38, -0.7, 0.03, 0.1, 0.2, '#d62828', 0.5], [0, -1.01, 0.38, 0.7, 0.03, 0.1, 0.2, '#d62828', 0.5]],
-  kiosk: [1, [0, 0, 1.02, 0, 1.04, 0.06, 1.08, '#8d6a3f'], [1, -0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, -0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'],
+  kiosk: [1, [0, 0, 0.975, 0, 1.04, 0.06, 1.08, '#8d6a3f'], [1, -0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, -0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'],
     [0, 0, 2.42, 0, 1.12, 0.06, 1.2, '#c0392b'], [0, -0.4, 1.12, 0.3, 0.3, 0.12, 0.4, '#e8d9a8'], [0, 0.35, 1.12, 0.3, 0.3, 0.12, 0.4, '#d0b070']],
   chair: [0, [0, -0.8, 0.25, -0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0.8, 0.25, -0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, -0.8, 0.25, 0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0.8, 0.25, 0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0, 0.55, 0, 1.15, 0.1, 1.15, '#4a7fb5'], [0, 0, 0.88, -0.92, 1.1, 0.5, 0.1, '#4a7fb5']],
   atm: [1, [0, 0, 0.74, 1.01, 0.72, 0.2, 0.03, '#9ee7ff', 0.8], [0, 0, 0.55, 1.01, 0.5, 0.1, 0.03, '#202428'], [0, 0, 0.4, 1.01, 0.5, 0.04, 0.03, '#0b0b0d'], [0, 0, 1.01, 0, 1.04, 0.08, 1.06, '#1a6fd6', 0.5]],
@@ -3663,14 +3664,16 @@ const Arena = {
     return false;
   },
 
-  /* Height of the footing under a fighter's cylinder at (x, z) standing at height y: the groundY rule of resolveFighter without moving anything (AI edge checks). */
-  supportAt(x, z, y, r) {
+  /* Height of the footing under a fighter's cylinder at (x, z) standing at height y: the groundY rule of resolveFighter without moving anything (AI edge checks).
+     item: a loose item has no body: it rests on any low table, bench or crate its centre is over (c.shelf, ITEM_FOOTING beyond the edge), standable for a fighter or not (P17-07). */
+  supportAt(x, z, y, r, item) {
     let top = 0;
+    if (item) r = ITEM_FOOTING;
     for (const c of this.colliders) {
       if (!c.active) continue;
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
-      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable)) top = Math.max(top, c.top);
+      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
   },
@@ -3832,10 +3835,10 @@ const Arena = {
       this.put(LAYER.SOLID, MESH.CUBE, x + o.hx + 0.01, o.h * 0.5, z, 0.02, o.h * 1.25, 0.1, 0, 0, 0.75, dark, 1, 0, 0.9, false, 0);
       if (st >= 2) this.put(LAYER.SOLID, MESH.CUBE, x + 0.1, o.h * 0.8, z + o.hz + 0.05, o.hx * 1.5, 0.14, 0.05, 0, 0, 0.12, col, 1, 0, 0.9, false, 0);
     } else if (o.look === 'bench') {
-      this.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, o.hx * 2.1, 0.08, o.hz * 2.2, 0, 0, lean, C('#a87846'), 1, 0, 0.8, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h - 0.036, z, o.hx * 2.1, 0.08, o.hz * 2.2, 0, 0, lean, C('#a87846'), 1, 0, 0.8, true, 0);
       for (const sx of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (o.hx - 0.1), o.h * 0.5, z, 0.12, o.h, o.hz * 1.8, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
     } else if (o.look === 'barrier') {
-      this.put(LAYER.SOLID, MESH.CUBE, x, o.h + 0.02, z, o.hx * 2.02, 0.05, o.hz * 2.02, 0, 0, 0, C('#d6b32a'), 1, 0, 0.7, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h - 0.0225, z, o.hx * 2.02, 0.05, o.hz * 2.02, 0, 0, 0, C('#d6b32a'), 1, 0, 0.7, false, 0);
       this.put(LAYER.SOLID, MESH.CUBE, x, 0.12, z, o.hx * 2.12, 0.24, o.hz * 2.5, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
     } else if (look) this.drawLook(o, x, z, look);
     this.drawCracks(o, x, z, o.hx, o.hz);
@@ -4643,12 +4646,12 @@ const HOLD_PROMPT_STACK_PX = 34;     // the second human's prompt sits this far 
 const HOLD_SCENARIO_DOWN = 8;        // the scenario foe's down time multiplier (8 x 52 ticks x get-up stat is 7 s or more)
 /* One sentence per style on what it does with a foe on the floor (the Move list and About & Help). Every hold plays the same way (the taps, the meter, the damage of P3-05); a style's hold names are the one it shows and its other names, and its pose is the `hold` field of its row. */
 const GROUND_NOTES = {
-  wrestler: 'The hold is a pin: kneel on the foe and clamp a limb (the choke is another name for it).',
-  judoka: 'The hold is a hold-down: pin the foe on their back (arm lock and choke are other names for it).',
-  sambo: 'The hold is a leg lock: sit back with the foe\'s leg trapped under your arms (heel hook is its other name).',
-  bjj: 'The hold is an armbar: lie back with your legs across the foe\'s arm (choke and leg lock are other names for it).',
-  hapkido: 'The hold is a wrist lock: kneel low and twist one wrist (elbow lock is its other name).',
-  mma: 'The hold is an armbar: finish a takedown from the top (choke is its other name).',
+  wrestler: 'The hold is a pin: kneel on the foe and clamp a limb.',
+  judoka: 'The hold is a hold-down: pin the foe on their back.',
+  sambo: 'The hold is a leg lock: sit back with the foe\'s leg trapped under your arms.',
+  bjj: 'The hold is an armbar: lie back with your legs across the foe\'s arm.',
+  hapkido: 'The hold is a wrist lock: kneel low and twist one wrist.',
+  mma: 'The hold is an armbar: finish a takedown from the top.',
 };
 const SUBMIT_ESCAPE_LOCK = 20;       // ... after the victim escapes
 /* Heavy tackle (P3-06): weight class comes from look.scale x look.build (the creator's fitness picker, P6-03, sets the build from weight and muscle).
@@ -4952,7 +4955,7 @@ const MOVE_STYLE = {
     bounce: 0.01, bounceHz: 1.1, sway: 0.05, swayHz: 0.7, headBob: 0.03,
     punchHip: 1.0, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.0, kickChamber: 0.6, kickPivot: 0.65, kickLean: 0.2, kickSnap: 1.1,
     stride: 0.95, armSwing: 0.08, walkBounce: 0.01, react: 1.0, victory: 'bow' },
-  kali: { label: 'Kali / Eskrima', desc: 'Stick fighting without the stick for now: weaving angles, quick flowing strikes and a live hand that traps and checks.',
+  kali: { label: 'Kali / Eskrima', desc: 'Stick fighting without the stick: weaving angles, quick flowing strikes and a live hand that traps and checks.',
     family: 'weapon', moves: 'kali', grab: 'default', throws: 'front', defense: 'sway', submit: [],
     signature: [['Live-Hand Trap', 'grab'], ['Angle 1', 'angle_one'], ['Angle 2', 'angle_two'], ['Thrust', 'power_jab']],
     guardHands: 0.04, guardTight: -0.1, guardTwist: -0.14, guardLean: 0.04, guardCrouch: 0.12, guardWidth: 0.0, guardSplit: 0.08, guardTuck: 0.06,
@@ -5376,10 +5379,10 @@ const WEAPONS = {
   pipe: { name: 'Steel pipe', cls: 'heavy', dur: 12, dmg: 14, reach: 0.85, startup: 9, thrown: 12, mat: 'metal', sp: '', metal: 1, len: 0.85, rest: 0.03, lie: 1,
     parts: [[CY, 0, 0.425, 0, 0.042, 0.85, 0.042, '#858e99', 0.35], [CY, 0, 0.08, 0, 0.052, 0.14, 0.052, '#2a2d33', 0.9], [CY, 0, 0.82, 0, 0.056, 0.05, 0.056, '#5f6772', 0.4],
       [CY, 0, 0.52, 0, 0.0435, 0.16, 0.0435, '#7a5a40', 0.9]] },
-  hammer: { name: 'Hammer', cls: 'heavy', dur: 8, dmg: 15, reach: 0.45, startup: 8, thrown: 14, mat: 'metal', sp: 'smash', len: 0.45, rest: 0.04, lie: 1, hold: [0, 0, -1.5708], hex: '#6d7580',
+  hammer: { name: 'Hammer', cls: 'heavy', dur: 8, dmg: 15, reach: 0.45, startup: 8, thrown: 14, mat: 'metal', sp: 'smash', len: 0.45, rest: 0.032, lie: 1, hold: [0, 0, -1.5708], hex: '#6d7580',
     parts: [[CY, 0, 0.19, 0, 0.032, 0.41, 0.032, '#a06b3a', 0.75], [CY, 0, 0.057, 0, 0.04, 0.145, 0.04, '#2a2a2e', 0.9], [CY, -0.005, 0.42, 0, 0.055, 0.12, 0.055, '#6d7580', 0.4, 0, 1.5708],
       [CY, 0.075, 0.42, 0, 0.062, 0.03, 0.062, '#a3adb8', 0.3, 0, 1.5708], [CB, -0.085, 0.42, 0, 0.05, 0.026, 0.026, '#6d7580', 0.4], [CB, -0.12, 0.405, 0, 0.03, 0.026, 0.026, '#6d7580', 0.4, 0, 0.9]] },
-  wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.03, lie: 1, hold: [0, 0, -1.5708],
+  wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.02, lie: 1, hold: [0, 0, -1.5708],
     parts: [[CB, 0, 0.25, 0, 0.035, 0.5, 0.03, '#bb3a2b', 0.55], [CB, 0, 0.07, 0, 0.044, 0.14, 0.036, '#25262b', 0.9], [CB, 0, 0.525, 0, 0.07, 0.15, 0.034, '#bb3a2b', 0.55],
       [CB, 0.06, 0.58, 0, 0.05, 0.04, 0.03, '#b9c0c8', 0.35], [CB, 0.055, 0.49, 0, 0.04, 0.04, 0.03, '#b9c0c8', 0.35]] },
   chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 1.0, rest: 0.03, lie: 1, hex: '#7b8591',
@@ -5419,6 +5422,7 @@ const PICKUP_TICKS = 14, PICKUP_TAKE_TICK = 9;   // the grab lasts 14 ticks and 
 const PICKUP_LOW_BELOW = 0.4, PICKUP_HIGH_FROM = 1.1;   // item heights (m): floor grab below 0.4, waist grab to 1.1, high reach above
 const ITEM_MAX = 12;                  // loose items in a scene; the oldest goes first
 const ITEM_RADIUS = 0.18;             // m: a thrown item hits a fighter this close to its body
+const ITEM_FOOTING = 0.03;            // m: a loose item rests on a table, crate or deck its centre is this close to (P17-07)
 const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3;   // m/s (a crate and a skateboard are slower), release height (m; the same for every body: size is cosmetic)
 const THROW_LOCK_TICKS = 10, THROW_ANIM_TICKS = 14;
 const ITEM_BREAK_AHEAD = 0.3, ITEM_BREAK_HEIGHT = 1.2;   // m: an item that wears out in the hand breaks this far in front of the fighter's centre and this high, whatever the pose
@@ -10164,7 +10168,7 @@ class MatchSim {
   }
   itemDebris(id, x, y, z) {
     const w = WEAPONS[id], size = clamp(w.len * 0.3, 0.06, 0.14);
-    if (w.sp === 'shatter') this.glassPatch(x, z, Arena.supportAt(x, z, y, ITEM_RADIUS));   // a bottle leaves its glass on the floor (P7-05)
+    if (w.sp === 'shatter') this.glassPatch(x, z, Arena.supportAt(x, z, y, ITEM_RADIUS, true));   // a bottle leaves its glass on the surface under it: the floor, or a table top it is over (P7-05)
     for (let k = 0; k < ITEM_DEBRIS; k++) {   // fixed fan of pieces: the match's random numbers stay untouched
       const a = k * 2.4;
       Debris.spawn(w.mat, x + Math.cos(a) * 0.08, y + 0.1, z + Math.sin(a) * 0.08, Math.cos(a) * 1.8, 1.5 + (k % 3) * 0.6, Math.sin(a) * 1.8, size, w.mat === 'glass' ? size * 0.2 : size, size * 1.3, w.hex, 1);
@@ -10214,7 +10218,7 @@ class MatchSim {
       if (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) continue;   // dodged
       if (Math.hypot(def.x - it.x, def.z - it.z) > def.radius + ITEM_RADIUS) continue;
       const top = def.y + (def.state === S.CROUCH || def.state === S.BLOCK_L ? 1.25 : 1.85);   // the standard body: size is cosmetic
-      if (sliding ? def.y > it.y + 0.35 : it.y < def.y - 0.05 || it.y > top) continue;   // a board takes the feet of a grounded fighter; anything else must be at body height
+      if (sliding ? Math.abs(def.y - it.y) > 0.35 : it.y < def.y - 0.05 || it.y > top) continue;   // a board takes the feet of a fighter on its own level (not one far above or below it); anything else must be at body height
       const stopped = Combat.itemBlock(it, def, this);
       if (!stopped) Combat.itemHit(it, def, this);
       if (w.burst || --it.dur <= 0) return this.burstItem(it, stopped ? null : def, stopped);
@@ -10225,14 +10229,16 @@ class MatchSim {
   }
   /* One tick of a moving item; true when it is gone. */
   moveItem(it) {
-    const w = WEAPONS[it.id], thrown = !!it.owner && (it.mode === 'fly' || it.mode === 'slide');
+    const w = WEAPONS[it.id], thrown = !!it.owner && (it.mode === 'fly' || it.mode === 'slide'), y0 = it.y;
     if (it.mode === 'slide') { const keep = Math.max(0, 1 - ITEM_SLIDE_DRAG * DT); it.vx *= keep; it.vz *= keep; } else it.vy -= GRAVITY * DT;
     it.x += it.vx * DT; it.y += it.vy * DT; it.z += it.vz * DT;
     if (it.mode === 'fly') it.spin += ITEM_SPIN * DT;
     if (it.x < Arena.ax0 + 0.1 || it.x > Arena.ax1 - 0.1) { it.x = clamp(it.x, Arena.ax0 + 0.1, Arena.ax1 - 0.1); it.vx *= -0.3; }
     if (it.z < Arena.az0 + 0.1 || it.z > Arena.az1 - 0.1) { it.z = clamp(it.z, Arena.az0 + 0.1, Arena.az1 - 0.1); it.vz *= -0.3; }
+    const above = Math.max(it.y, y0);   // a fall that crossed a top in this tick still came from above it: it lands on it, it does not drop through (P17-07)
     for (const c of Arena.colliders) {   // scenery taller than the item
       if (!c.active || it.y >= c.top - 0.05 || Math.abs(it.x - c.x) > c.hx + 0.1 || Math.abs(it.z - c.z) > c.hz + 0.1) continue;
+      if (above >= c.top - 0.05 && (c.shelf || c.standable) && Math.abs(it.x - c.x) <= c.hx + ITEM_FOOTING && Math.abs(it.z - c.z) <= c.hz + ITEM_FOOTING) continue;   // it fell onto the top between two ticks: it lands, only an item over the top (not beside it) skips the push-out
       if (!thrown) {   // a dropped item that came down inside a footprint is moved out to the nearest side
         const left = it.x - (c.x - c.hx), right = c.x + c.hx - it.x, near = it.z - (c.z - c.hz), far = c.z + c.hz - it.z, least = Math.min(left, right, near, far);
         if (least === left) it.x = c.x - c.hx - 0.15; else if (least === right) it.x = c.x + c.hx + 0.15; else if (least === near) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
@@ -10245,7 +10251,7 @@ class MatchSim {
       break;
     }
     if (it.owner && (it.mode === 'fly' || it.mode === 'slide')) { const gone = this.itemStrike(it); if (gone !== undefined) return gone; }
-    const floor = Arena.supportAt(it.x, it.z, it.y, ITEM_RADIUS);
+    const floor = Arena.supportAt(it.x, it.z, above, ITEM_RADIUS, it.mode !== 'slide');   // a sliding board stays on the floor: it never rides a table top at a fighter's height
     if (it.mode === 'slide') {
       it.y = floor;
       if (Math.hypot(it.vx, it.vz) < ITEM_SLIDE_STOP) this.settleItem(it, floor);
@@ -10261,7 +10267,7 @@ class MatchSim {
     for (const it of this.items.slice()) {   // a copy: a hit can drop another item into the list mid-loop
       if (!this.items.includes(it)) continue;
       if (it.mode === 'rest') {   // the table broke under it, or the deck it lay on
-        if (it.host && it.host.destroyed) { it.host = null; it.mode = 'fall'; } else if (!it.host && Arena.supportAt(it.x, it.z, it.y, ITEM_RADIUS) < it.y - 0.05) it.mode = 'fall';
+        if (it.host && it.host.destroyed) { it.host = null; it.mode = 'fall'; } else if (!it.host && Arena.supportAt(it.x, it.z, it.y, ITEM_RADIUS, true) < it.y - 0.05) it.mode = 'fall';
         continue;
       }
       if (this.moveItem(it) && this.items.includes(it)) this.items.splice(this.items.indexOf(it), 1);
@@ -13811,7 +13817,7 @@ const UI = {
     h += '</div>' + this.optRow('CPU level', DIFFICULTY[Game.selection.difficulty].label, 'data-local="diff"', '') + this.optRow('Even teams', lineup.handicap ? 'On' : 'Off', 'data-local="lhand"', '');
     if (!MatchLineup.plain(mode, lineup)) h += this.optRow('Clock', lineup.timer ? lineup.timer + ' s' : 'Off', 'data-local="ltimer"', '');
     const boost = Math.max(1, ...plan.slots.map((s) => s.hp)), percent = Math.round((boost - 1) * 100), lessCpu = plan.slots.some((s) => s.hp < 1), uneven = new Set(plan.sizes).size > 1, level = DIFFICULTY[Game.selection.difficulty].label;
-    h += '<p class="hint">' + this.lineupDevicesText(plan.people) + ' Online players join here after Phase 12.' +
+    h += '<p class="hint">' + this.lineupDevicesText(plan.people) +
       (!lineup.handicap ? ' Even teams is off: every fighter has its own health and damage.' : !uneven ? ' Even teams: the teams are equal, nothing changes.' : boost > 1 ? ' Even teams (' + level + ' CPU): a fighter of a smaller team gets up to ' + percent + '% more health and damage; a player is never weakened' + (lessCpu ? ', and a CPU-only team that is outnumbered by another CPU-only team gets slightly less' : '') + '.' : ' The teams are uneven. Even teams (' + level + ' CPU) gives nobody extra health or damage here, and a player is never weakened' + (lessCpu ? '; a CPU-only team that is outnumbered by another CPU-only team gets slightly less' : '') + '.') +
       (MatchLineup.plain(mode, lineup) ? ' Plain one-on-one: rounds and the round timer are on the previous screen.' : ' One fight, last team standing wins.') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '');
     return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="lineupNext"' + (problem ? ' disabled' : '') + '>Choose arena</button></div></div></section>';
@@ -13918,7 +13924,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up an item in reach and throws the one you hold (Crouch + Use drops it); Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Co-op Brawl: up to four players; each keyboard layout (P1\'s and P2\'s columns) and each gamepad joins on the join screen and keeps its seat, seats 3 and 4 are gamepad-only, and touch is not used.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -13979,13 +13985,13 @@ const UI = {
       return '<tr><td>' + esc(s.label) + '</td><td>' + esc(STYLE_FAMILY_LABEL[s.family]) + '</td><td>' + DEFENSE_LABEL[s.defense] + '</td><td>' + esc(s.signature.map((x) => x[0]).join(', ')) + '</td><td>' + (s.submit.length ? esc(s.submit.join(', ')) : '-') + '</td></tr>';
     };
     const styleOverview = '<table class="ctl"><tr><th>Move style</th><th>Family</th><th>Defense</th><th>Signature moves</th><th>Holds</th></tr>' + MOVE_STYLE_IDS.map(overviewRow).join('') + '</table>';
-    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. There is no hold: Punch and Kick attack on every press, and the strong moves are steps of the attack strings below.</p>' +
+    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       stringTable +
       '<p>The table is the default (Kickboxing, Street Brawler). Every other move style changes some rows: Boxing and Wing Chun favour punches, Karate, Taekwondo and Capoeira kicks, Muay Thai, Kali, Krav Maga and MMA swap a few steps for moves of their own (teep, elbow, angle strikes, parry strike, overhand), and the throwing and locking styles play short strings (2 moves at most) that leave the foe staggered or down for a grab or a hold. A removed row means that press starts a new string.</p>' +
       styleTable +
-      '<h3>Move styles</h3><p>All ' + MOVE_STYLE_IDS.length + ' styles, their family, their default defense, their signature moves and their holds. Each style has its own stance and footwork. The moves that carry a style name in the table above, the style throws and the hold poses are unique to that style; everything else is shared where the real arts share it. In Training the panel names the style of both fighters and its signature moves (try a style in the character creator with Fight preview).</p>' +
+      '<h3>Move styles</h3><p>All ' + MOVE_STYLE_IDS.length + ' styles, their family, their default defense, their signature moves and their holds. In Training the panel names the style of both fighters and its signature moves (try a style in the character creator with Fight preview).</p>' +
       styleOverview +
       '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
@@ -14004,8 +14010,8 @@ const UI = {
     return '<h3>Holds on a downed opponent</h3><ol>' +
       '<li>Knock the opponent down: a throw, a knock-down move or a fall.</li>' +
       '<li>Walk up to the body (within about ' + SUBMIT_RANGE + ' m). If your style can hold, a prompt over the foe says <b>HOLD</b> with the button to press; farther away (up to ' + HOLD_PROMPT_RANGE + ' m) it says STEP CLOSER.</li>' +
-      '<li>Press Grapple: the hold starts. Every hold plays the same way; only its pose and name belong to the style. A meter over the pair shows the contest: you tap Grapple to squeeze, the held fighter taps Defend to escape, and a tired fighter taps weaker. The bar fills green as the held fighter gets free.</li>' +
-      '<li>The damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s (about 22 hp in all). A hit on the holder breaks the hold, and a fighter can be held once per knockdown.</li></ol>' +
+      '<li>Press Grapple: the hold starts. Every hold plays the same way. A meter over the pair shows the contest: you tap Grapple to squeeze, the held fighter taps Defend to escape, and a tired fighter taps weaker. The bar fills green as the held fighter gets free.</li>' +
+      '<li>The damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. A hit on the holder breaks the hold, and a fighter can be held once per knockdown.</li></ol>' +
       '<p>Only ' + esc(submissionStyleText()) + ' fighters can hold; the other styles keep to striking. To practise, open the pause menu in Training and load scenario 6 (or press 6): the dummy lies on the floor within reach.</p>' +
       '<table class="ctl"><tr><th>Move style</th><th>Hold names (the first is on screen)</th><th>On the ground</th></tr>' + rows + '</table>';
   },
@@ -15520,7 +15526,7 @@ const CreatorUI = {
       '<h3>Fitness</h3><div class="fitpad" role="img" aria-label="Fitness picker: weight across, muscle up. Press or drag it, or use the Weight and Muscle rows with the arrow keys.">' +
       '<i style="left:' + Math.round(body.weight * 100) + '%;top:' + Math.round((1 - body.muscle) * 100) + '%"></i><span class="fx">Weight &rarr;</span><span class="fy">Muscle &uarr;</span></div>' +
       this.row('Weight', this.pct(body.weight), 'fit:weight') + this.row('Muscle', this.pct(body.muscle), 'fit:muscle') +
-      '<p class="hint">Build: <b id="fitBuild">' + this.buildText() + '</b>. Fitness shapes the body and the weight class the heavy tackle uses, never the attribute points.</p>' +
+      '<p class="hint">Build: <b id="fitBuild">' + this.buildText() + '</b>. Fitness shapes the body and the weight class the heavy tackle uses.</p>' +
       this.row('Age', this.ageText(), 'body:age', this.rangeInput('body:age', AGE_MIN, AGE_MAX, 1, body.age, 'Age')) +
       this.row('Gender', GENDER_LABEL[body.gender], 'gender') +
       this.swatchRow('skin') + '<h3>Fine skin tone</h3>' + this.fineRows('skin') +
@@ -15653,7 +15659,7 @@ function testApi() {
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
-    REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS,
+    REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
