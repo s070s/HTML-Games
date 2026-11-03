@@ -233,6 +233,7 @@ const SelfTest = {
       void m;
     };
     const mk = (...a) => self.make(...a);
+    const styleProfile = (id, over) => Object.assign({}, ROSTER_BY_ID.kai, { id: 'ml_' + id, name: id.toUpperCase(), moveStyle: id, defense: defaultDefense(id) }, over);   // a fighter of one move style (the Move list reads the profile)
     const track = (m) => { self.made.push(m); return m; };   // a match built with `new MatchSim` directly: the wrapper disposes it even if the test throws
     /* A match whose second fighter (MARA, a Sway fighter by default) holds Defend as a Block fighter: for the block tests. */
     const mkBlock = (...a) => { const m = self.make(...a); m.fighters[1].defense = 'block'; return m; };
@@ -1042,10 +1043,14 @@ const SelfTest = {
       striker.dispose();
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Submission help: the Move list and About & Help both explain how a hold works with a line for each of the 16 styles (holds and ground game); the six hold styles have their own line, the others say they have no hold', () => {
+    test('Submission help: About & Help explains how a hold works with a line for each of the 16 styles (holds and ground game; the six hold styles have their own line, the others say they have no hold), and the Move list of a hold fighter has its own holds and ground game, of any other fighter none', () => {
       const problems = [];
       if (Object.keys(GROUND_NOTES).sort().join() !== [...SUBMISSION_STYLES].sort().join()) problems.push('a note per hold style');
-      for (const [name, html] of [['Move list', UI.screen_moves()], ['About & Help', UI.screen_credits()]]) {
+      for (const id of MOVE_STYLE_IDS) {
+        const s = MOVE_STYLE[id], html = UI.screen_moves(styleProfile(id), 'keyboard');
+        if (s.submit.length ? !html.includes('<h3>Holds</h3>') || !html.includes('scenario 6') || !html.includes('<kbd>G</kbd>') || !html.includes(esc(GROUND_NOTES[id])) || !html.includes(esc(s.submit.join(', '))) : html.includes('<h3>Holds</h3>') || html.includes('scenario 6')) problems.push('Move list holds for ' + id);
+      }
+      for (const [name, html] of [['About & Help', UI.screen_credits()]]) {
         if (!html.includes('Holds on a downed opponent') || !html.includes('scenario 6') || !html.includes('STEP CLOSER') || !html.includes('Press Grapple') || !html.includes('Every hold plays the same way')) problems.push(name + ' text');
         for (const id of MOVE_STYLE_IDS) {
           const s = MOVE_STYLE[id];
@@ -3704,10 +3709,12 @@ const SelfTest = {
       m.dispose();
       return problems.length ? problems.join('; ') : true;
     });
-    test('Move list: clinch strikes and the tackle have rows with their frame data next to the attacks', () => {
-      const html = UI.screen_moves();
-      const rows = ['Clinch Knee', 'Clinch Elbow', TACKLE_MOVE.name].filter((name) => !html.includes('<td>' + name + '</td>'));
-      return !rows.length && html.includes('0 / 1 / ' + CLINCH_STRIKE_COOLDOWN) ? true : 'missing rows ' + rows.join();
+    test('Move list: clinch strikes have rows with their frame data next to the attacks, and the tackle has one only for a fighter heavy enough to run it', () => {
+      const light = UI.screen_moves(ROSTER_BY_ID.mara, 'keyboard'), heavy = UI.screen_moves(ROSTER_BY_ID.brutus, 'keyboard'), cell = (name) => '<td>' + name + '</td>';
+      const rows = ['Clinch Knee', 'Clinch Elbow'].filter((name) => !light.includes(cell(name)) || !heavy.includes(cell(name)));
+      const classes = weightClass(ROSTER_BY_ID.mara) < TACKLE_MIN_GAP && weightClass(ROSTER_BY_ID.brutus) >= TACKLE_MIN_GAP;
+      const tackle = heavy.includes(cell(TACKLE_MOVE.name)) && !light.includes(cell(TACKLE_MOVE.name));
+      return !rows.length && classes && tackle && light.includes('0 / 1 / ' + CLINCH_STRIKE_COOLDOWN) && heavy.includes('0 / 1 / ' + CLINCH_STRIKE_COOLDOWN) ? true : 'rows ' + rows.join() + ' classes ' + classes + ' tackle ' + tackle;
     });
     test('Throws: a rear throw started at once can still be escaped', () => {
       const problems = [];
@@ -4028,10 +4035,12 @@ const SelfTest = {
       if (new Set(seen).size !== 16 || seen[16] !== seen[0]) problems.push('cycle ' + new Set(seen).size);
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
-    test('Styles: the Move list names every style with its family, defense, signature moves and holds', () => {
-      const html = UI.screen_moves();
-      const missing = MOVE_STYLE_IDS.filter((id) => !html.includes(esc(MOVE_STYLE[id].label)) || !html.includes(esc(MOVE_STYLE[id].signature[0][0])));
-      const holds = html.includes(esc(submissionStyleText())) && submissionStyleText().includes('Brazilian Jiu-Jitsu') && !submissionStyleText().includes('Boxing');
+    test('Styles: the Move list of a fighter of each style names its style, family, defense, signature moves and holds', () => {
+      const missing = MOVE_STYLE_IDS.filter((id) => {
+        const s = MOVE_STYLE[id], html = UI.screen_moves(styleProfile(id), 'keyboard');
+        return !html.includes(esc(s.label)) || !html.includes(esc(STYLE_FAMILY_LABEL[s.family])) || !html.includes('Defend: ' + (s.defense === 'sway' ? 'Sway' : 'Block')) || !s.signature.every((x) => html.includes(esc(x[0]))) || (s.submit.length > 0 && !html.includes(esc(s.submit.join(', '))));
+      });
+      const holds = UI.screen_credits().includes(esc(submissionStyleText())) && submissionStyleText().includes('Brazilian Jiu-Jitsu') && !submissionStyleText().includes('Boxing');
       return missing.length === 0 && holds ? true : 'missing ' + missing.join() + ' holds ' + holds;
     });
     test('Styles: every style plays an AI match against every style (and itself) without errors, and all of them land hits', () => {
@@ -4088,10 +4097,9 @@ const SelfTest = {
         for (const id of used) if (STYLE_MOVE_OWNERS[id] !== style) problems.push(style + ' plays ' + id);
         for (const id of ids) if (STYLE_MOVE_OWNERS[id] === style && !used.has(id)) problems.push(style + ' lacks ' + id);
       }
-      const html = UI.screen_moves();
       for (const id of ids) {
         if (!MOVE_STYLE[STYLE_MOVE_OWNERS[id]].signature.some((x) => x[1] === id)) problems.push(id + ' is not in its style\'s signature list');
-        if (!html.includes('<td>' + esc(ATTACKS[id].name) + '</td><td>' + esc(MOVE_STYLE[STYLE_MOVE_OWNERS[id]].label) + ': ')) problems.push(id + ' missing from the Move list');   // its own row: name, then the style's name in the input column
+        if (!UI.screen_moves(styleProfile(STYLE_MOVE_OWNERS[id]), 'keyboard').includes('<td>' + esc(ATTACKS[id].name) + '</td>')) problems.push(id + ' missing from the Move list of its style');
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
@@ -10637,6 +10645,202 @@ const SelfTest = {
       if (!opened.includes('moves') || !opened.includes('controls') || !opened.includes('credits') || !opened.some((name) => name.startsWith('creator')) || !opened.some((name) => name.startsWith('training panel'))) bad.push('a screen is missing from the scan: ' + opened.join(', '));
       if (!TASK_ID.test('P3-02 shows') || !DESIGN_WORDS.test('This is a placeholder') || !DESIGN_WORDS.test('Use has no effect yet.')) bad.push('the patterns do not match what they should');
       return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    /* ---------- the Move list is for one fighter (P17-04) ---------- */
+    /* Every roster fighter, and a creator fighter of each of the 16 styles (alternating the defense, and a heavy and a light body). */
+    const moveListCases = () => {
+      const cases = ROSTER.map((r) => ({ name: r.id, profile: r }));
+      MOVE_STYLE_IDS.forEach((id, i) => {
+        const custom = Object.assign(defaultCustom(0), { name: 'MAKER' + i, moveStyle: id, defense: DEFENSE_TYPES[(DEFENSE_TYPES.indexOf(defaultDefense(id)) + (i % 2)) % 2] });
+        Object.assign(custom.look, i % 3 === 0 ? { scale: 1.12, build: 1.3 } : { scale: 0.92, build: 0.88 });
+        cases.push({ name: 'creator ' + id, profile: customProfile(custom, 0) });
+      });
+      return cases;
+    };
+    const defenseLabelOf = (profile) => ((DEFENSE_TYPES.includes(profile.defense) ? profile.defense : defaultDefense(moveStyleFor(profile))) === 'sway' ? 'Sway' : 'Block');
+    const moveListNames = (html) => [...html.matchAll(/<tr><td>([^<]*)<\/td>/g)].map((x) => x[1]).sort();   // the first cell of every row with a plain name (the string rows start with a key cap)
+    test('Move list (P17-04): for every fighter it lists the moves of that fighter\'s style and the shared moves, nothing of another style, and the inputs of the device in use', () => {
+      const bad = [], kinds = ['keyboard', 'gamepad', 'touch'];
+      const faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      for (const { name, profile } of moveListCases()) {
+        const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = stringsFor(styleId), mine = new Set(), htmls = [];
+        for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
+        const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(m.name)).concat(Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+        if (weightClass(profile) >= TACKLE_MIN_GAP) expected.push(esc(TACKLE_MOVE.name));
+        for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
+        for (const kind of kinds) {
+          const html = UI.screen_moves(profile, kind);
+          htmls.push(html);
+          if (moveListNames(html).join('|') !== expected.sort().join('|')) bad.push(name + ' ' + kind + ' lists ' + moveListNames(html).filter((x) => !expected.includes(x)).join() + ' lacks ' + expected.filter((x) => !moveListNames(html).includes(x)).join());
+          if (!html.includes(esc(profile.name)) || !html.includes(esc(style.label)) || !html.includes('<h3>Defend: ' + (defenseLabelOf(profile)) + '</h3>') || html.includes('<h3>Defend: ' + (defenseLabelOf(profile) === 'Sway' ? 'Block' : 'Sway') + '</h3>')) bad.push(name + ' ' + kind + ' fighter, style or defense');
+          const sway = defenseLabelOf(profile) === 'Sway';   // the counters, the sway help (the device's own direction names) and the block and get-up lines
+          if (!html.includes('After a perfect ' + (sway ? 'sway' : 'block') + ': ') || html.includes('After a perfect ' + (sway ? 'block' : 'sway')) || html.includes('block or sway') || !html.includes('Strong moves break a block unless it is perfect') || !html.includes('get up quickly')) bad.push(name + ' ' + kind + ' counters or defend lines');
+          if (sway && (html.includes('Stick left / right') || !html.includes(esc(faces[kind]('left')) + ' / ' + esc(faces[kind]('right')))) ) bad.push(name + ' ' + kind + ' sway help does not use the ' + kind + ' directions');
+          if (html.includes('weight classes lighter') && !html.includes('at least ' + TACKLE_MIN_GAP + ' weight classes lighter')) bad.push(name + ' ' + kind + ' tackle wording');
+          if ((style.submit.length > 0) !== html.includes('<h3>Holds</h3>') || (style.submit.length > 0 && !html.includes('Your holds: ' + esc(style.submit.join(', ')) + '.'))) bad.push(name + ' ' + kind + ' holds');   // the sentence is exact, so no hold of another style is in it
+          for (const row of html.match(/<tr><td>[^<]*<\/td><td>[^]*?<\/tr>/g) || []) if (/<td>[^<]*<\/td><td><\/td>/.test(row)) bad.push(name + ' ' + kind + ' a move without an input');
+          const cells = html.match(/<tr>.*?<\/tr>/g) || [];
+          if (/font-size|nowrap|white-space|<pre/.test(html) || cells.some((row) => (row.match(/<t[dh]>/g) || []).length > 3)) bad.push(name + ' ' + kind + ' markup too wide for a phone');
+          for (const a of ['punch', 'kick', 'grapple']) {
+            if (!html.includes('<kbd>' + esc(faces[kind](a)) + '</kbd>')) bad.push(name + ' ' + kind + ' lacks the ' + a + ' control');
+            for (const other of kinds) if (other !== kind && faces[other](a) !== faces[kind](a) && html.includes('<kbd>' + esc(faces[other](a)) + '</kbd>')) bad.push(name + ' ' + kind + ' shows the ' + other + ' ' + a + ' control');
+          }
+        }
+        if (new Set(htmls).size !== kinds.length) bad.push(name + ' the device changes nothing');
+        // no other style's own moves or throws
+        for (const otherId of MOVE_STYLE_IDS) {
+          if (otherId === styleId) continue;
+          const other = stringsFor(otherId), html = htmls[0];
+          for (const side of ['stand', 'crouch']) for (const keys in other[side]) other[side][keys].forEach((id) => {
+            if (!mine.has(id) && !ATTACKS[id].ctx && html.includes('<td>' + esc(ATTACKS[id].name) + '</td>')) bad.push(name + ' shows ' + id + ' of ' + otherId);
+          });
+          for (const grip in STYLE_THROWS[otherId] || {}) for (const dir in STYLE_THROWS[otherId][grip]) {
+            const throwName = STYLE_THROWS[otherId][grip][dir].name;
+            if (throwFor(grip, dir, styleId).name !== throwName && html.includes('<td>' + esc(throwName) + '</td>')) bad.push(name + ' shows the throw ' + throwName);
+          }
+        }
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') + (bad.length > 5 ? ' (+' + (bad.length - 5) + ')' : '') : true;
+    });
+    test('Move list (P17-04): the current fighter is the one who paused in a fight (the seat in Versus), else the fighter picked in the menus', () => {
+      const bad = [], saved = { state: Game.state, match: Game.match, by: Game.pausedBy, versus: Inputs.versus, player: Game.selection.player };
+      const opens = (profile) => UI.screen_moves().includes('<b>' + esc(profile.name) + '</b>');
+      try {
+        Game.state = GS.MENU; Game.match = null; Game.selection.player = 'dmitri';
+        if (!opens(ROSTER_BY_ID.dmitri)) bad.push('menu: the picked fighter');
+        Game.selection.player = 'nobody';
+        if (!opens(ROSTER_BY_ID.kai)) bad.push('menu: no known fighter gives KAI');
+        const m = mk({ mode: 'free', playerId: 'brutus', opponentId: 'mara' });
+        Game.match = m; Game.state = GS.PAUSED; Game.pausedBy = null;
+        if (!opens(ROSTER_BY_ID.brutus)) bad.push('paused: the player');
+        Game.pausedBy = Input2;
+        if (!opens(ROSTER_BY_ID.brutus)) bad.push('paused: a seat with no fighter falls back to the player');
+        Inputs.versus = true;
+        if (!opens(ROSTER_BY_ID.mara) || !UI.screen_moves().includes('<kbd>' + esc(keyLabel(Keymap2.bindings.punch[0])) + '</kbd>')) bad.push('paused: Versus P2 gets its fighter and its own keys');
+        Game.pausedBy = Input;
+        if (!opens(ROSTER_BY_ID.brutus)) bad.push('paused: Versus P1');
+        Inputs.versus = false;
+        Game.pausedBy = Input2; const keyboard = UI.moveKind(); Input2.lastDevice = 'gamepad';
+        const pad = UI.moveKind(); Input2.lastDevice = 'touch'; const touch = UI.moveKind(); Input2.lastDevice = 'keyboard';
+        if (keyboard + pad + touch !== 'keyboardgamepadtouch') bad.push('paused: the device of the seat is ' + keyboard + pad + touch);
+      } finally {
+        Game.state = saved.state; Game.match = saved.match; Game.pausedBy = saved.by; Inputs.versus = saved.versus; Game.selection.player = saved.player; Input2.lastDevice = 'keyboard';
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
+    /* The pause press goes through the real poll (Game.pollMatchInput), so it is the poll that has to name who paused. The state change itself (screens, sound) is not under test. */
+    test('Move list (P17-04): a real pause press names who paused (a non-first seat in Versus, a seat of a bracket fight) and the page shows that seat\'s fighter and device; a watched fight falls back to the picked fighter', () => {
+      const bad = [], go = Game.go;
+      const saved = { state: Game.state, match: Game.match, by: Game.pausedBy, versus: Inputs.versus, coop: Inputs.coop, party: Inputs.party, player: Game.selection.player, devices: Inputs.players.map((p) => p.lastDevice) };
+      const pauseBy = (match, input) => {
+        Game.match = match; Game.state = GS.FIGHT; Game.pausedBy = null;
+        if (input) input.press('pause');
+        Game.pollMatchInput();
+        return Game.state === GS.PAUSED;
+      };
+      const shows = (label, id, kind, by) => {
+        const html = UI.screen_moves();
+        if (Game.pausedBy !== by || !html.includes('<b>' + esc(ROSTER_BY_ID[id].name) + '</b>') || !html.includes(kind + ' controls')) bad.push(label + ': ' + (Game.pausedBy === by ? 'page shows the wrong fighter or device' : 'the poll did not keep who paused'));
+        return html;
+      };
+      try {
+        Game.go = function (to) { this.state = to; return true; };
+        Inputs.versus = true; Inputs.coop = false; Input.lastDevice = 'touch'; Input2.lastDevice = 'gamepad';
+        const versus = mk({ mode: 'versus', playerId: 'brutus', opponentId: 'mara' });
+        if (!pauseBy(versus, Input2)) bad.push('Versus P2: no pause');
+        const html = shows('Versus P2', 'mara', 'gamepad', Input2);
+        if (!html.includes('<kbd>' + esc(GAMEPAD_LABELS.grapple.split(' / ')[0]) + '</kbd>')) bad.push('Versus P2: not the gamepad buttons');
+        if (!pauseBy(versus, Input)) bad.push('Versus P1: no pause');
+        shows('Versus P1', 'brutus', 'touch', Input);
+        Inputs.versus = false; Inputs.coop = true; Inputs.party = [Input, Input3]; Input3.lastDevice = 'gamepad';
+        const bracket = mk({ mode: 'free', playerId: 'dmitri', opponentId: 'yuki', seats: [0, 2] });
+        bracket.fighters[1].item = { id: 'broom' };   // the second seat's fighter holds a broom: its Punch steps are the broom's
+        if (!pauseBy(bracket, Input3)) bad.push('Bracket seat 3: no pause');
+        const seat = shows('Bracket seat 3', 'yuki', 'gamepad', Input3);
+        if (!seat.includes('holding Broom') || !seat.includes('<td>' + esc(WEAPON_MOVES['broom:1'].name) + '</td>') || seat.includes('<td>Jab</td>')) bad.push('Bracket seat 3: the broom strings are not shown');
+        if (!pauseBy(bracket, Input)) bad.push('Bracket seat 1: no pause');
+        const first = shows('Bracket seat 1', 'dmitri', 'touch', Input);
+        if (first.includes('holding')) bad.push('Bracket seat 1: shows the other fighter\'s item');
+        const lineup = self.makeBrawl({ slots: [{ id: 'kai', human: 0, team: 0, tint: 0, hp: 1, dmg: 1 }, { id: 'mara', human: 2, team: 1, tint: 1, hp: 1, dmg: 1 }, { id: 'brutus', human: -1, team: 1, tint: 1, hp: 1, dmg: 1 }] });   // a lineup: seat 3 plays the second slot
+        if (!pauseBy(lineup, Input3)) bad.push('Lineup seat 3: no pause');
+        shows('Lineup seat 3', 'mara', 'gamepad', Input3);
+        const party = self.makeBrawl({ coop: [{ slot: 0, id: 'dmitri' }, { slot: 2, id: 'zero' }] });   // a co-op: seat 3 plays the second member
+        if (!pauseBy(party, Input3)) bad.push('Co-op seat 3: no pause');
+        shows('Co-op seat 3', 'zero', 'gamepad', Input3);
+        if (!pauseBy(party, Input)) bad.push('Co-op seat 1: no pause');
+        shows('Co-op seat 1', 'dmitri', 'touch', Input);
+        const watched = mk({ mode: 'free', playerId: 'dmitri', opponentId: 'yuki', seats: [-1, -1] });   // two CPU fighters; the person only watches
+        Game.selection.player = 'zero';
+        if (!pauseBy(watched, Input)) bad.push('Watched: no pause');
+        shows('Watched fight', 'zero', 'touch', Input);
+      } finally {
+        Game.go = go; Game.state = saved.state; Game.match = saved.match; Game.pausedBy = saved.by; Inputs.versus = saved.versus; Inputs.coop = saved.coop; Inputs.party = saved.party; Game.selection.player = saved.player;
+        Inputs.players.forEach((p, i) => { p.lastDevice = saved.devices[i]; });
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Move list (P17-04): with an item in hand the list shows the strings the fighter has now (the item\'s Punch steps in place of the style\'s), its defense (the bin lid makes every fighter block), and for a carried crate only the kicks, the grab and what follows (Punch plays nothing, no running)', () => {
+      const bad = [];
+      for (const { name, profile } of moveListCases()) {
+        for (const item of ['bat', 'broom', 'stick', 'bottle', 'binlid', 'crate']) {
+          const f = new Fighter(profile, 0), styleId = moveStyleFor(profile);
+          f.item = { id: item };
+          const table = f.strings, mine = new Set(), carry = item === 'crate';   // a crate in the arms: a row with a Punch press cannot be played, nor any punch move; no run, so no lunge and no tackle
+          for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (!(carry && keys.includes('P'))) table[side][keys].forEach((id) => mine.add(id));
+          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(m.name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+          if (weightClass(profile) >= TACKLE_MIN_GAP && !carry) expected.push(esc(TACKLE_MOVE.name));
+          for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
+          const html = UI.screen_moves(profile, 'keyboard', item), label = name + ' with ' + item;
+          if (moveListNames(html).join('|') !== expected.sort().join('|')) bad.push(label + ' lists ' + moveListNames(html).filter((x) => !expected.includes(x)).join() + ' lacks ' + expected.filter((x) => !moveListNames(html).includes(x)).join());
+          if (!html.includes((carry ? 'carrying ' : 'holding ') + esc(WEAPONS[item].name)) || html.includes(carry ? 'holding ' : 'carrying ')) bad.push(label + ': the item line');
+          if (carry) {   // the claim is the fighter's own: a Punch press plays nothing, a Kick press does
+            const press = (btn) => f.resolveMove({ btn, height: false, tick: 1 });
+            if (!f.carrying || press('punch') !== null || press('kick') === null || ['Running Lunge', 'Counter Strike', 'Air Strike', 'Jab', TACKLE_MOVE.name].some((n) => html.includes('<td>' + n + '</td>'))) bad.push(label + ': a punch or a run is listed');
+          }
+          if (!html.includes('<h3>Defend: ' + (f.guardMode === 'sway' ? 'Sway' : 'Block') + '</h3>') || !html.includes('After a perfect ' + (f.guardMode === 'sway' ? 'sway' : 'block') + ': ')) bad.push(label + ': the defense');
+        }
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Move list (P17-04): neither the Move list nor the other menu screens scroll sideways on a phone (375 px wide, and 640 x 360 on its side) or on a desktop window', () => {
+      const bad = [], styles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+      const stub = !('contentDocument' in document.createElement('iframe'));   // the headless stub has no frames and no layout engine; every real browser has both
+      /* The page in a frame as wide as the phone, so the vw units, the percentages and the phone rules of the style sheet resolve against that width. Returns how far the screen, the panel and the page run past the frame. */
+      const lay = (html, width, height) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+        document.body.appendChild(frame);
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) return { error: 'the frame has no document' };
+          doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+          const screen = doc.querySelector('.screen'), panel = doc.querySelector('.panel');
+          if (!screen || !panel || !(panel.clientWidth > 0)) return { error: 'the page did not lay out' };
+          return { screen: screen.scrollWidth - screen.clientWidth, panel: panel.scrollWidth - panel.clientWidth, page: doc.documentElement.scrollWidth - width };
+        } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+      };
+      if (stub) return 'skipped: this run is the headless stub (no frames, no layout), so the widths were not measured (the markup rules are checked in the first Move list test: three columns at most, no fixed widths or font sizes)';
+      const keep = Object.assign({}, Game.selection);
+      let measured = 0;
+      try {
+        const pages = [];   // [name, html, check the panel too]: the Move list is held to its panel; the other screens may scroll inside their own panel (the Controls table), but the screen and the page must not run past the edge
+        for (const kind of ['keyboard', 'gamepad', 'touch']) for (const id of ['brutus', 'dmitri', 'mara']) pages.push(['Move list ' + id + ' ' + kind, UI.screen_moves(ROSTER_BY_ID[id], kind), true]);   // a heavy fighter (tackle), a hold style, a sway fighter
+        Game.selection.mode = 'free';
+        for (const name of ['main', 'modes', 'controls', 'settings', 'unlocks', 'credits', 'pause', 'char', 'arena']) {
+          try { pages.push([name, UI['screen_' + name](), false]); } catch (error) { bad.push(name + ' could not be built: ' + error.message); }
+        }
+        for (const [width, height] of [[375, 667], [640, 360], [1280, 720]]) {
+          for (const [name, html, panelToo] of pages) {
+            if (width === 1280 && panelToo && !name.endsWith('keyboard')) continue;   // one desktop page of the Move list is enough
+            const spill = lay(html, width, height);
+            if (spill.error) { bad.push(name + ' at ' + width + ' px: ' + spill.error); continue; }
+            measured++;
+            if (spill.screen > 1 || spill.page > 1 || (panelToo && spill.panel > 1)) bad.push(name + ' at ' + width + ' px runs past the edge: ' + JSON.stringify(spill));
+          }
+        }
+      } finally { Object.assign(Game.selection, keep); }
+      if (!measured) bad.push('nothing was measured in a browser');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
     });
     /* ---------- items rest on their surfaces (P17-07) ---------- */
     /* The drawn model of one loose item: its lowest point (m, world). Mounted items are measured without their bracket (the bracket's pegs are what they rest on, at the item's own y). */

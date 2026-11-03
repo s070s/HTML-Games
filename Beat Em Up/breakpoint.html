@@ -30,7 +30,7 @@ canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block;outli
 .screen{position:absolute;inset:0;display:none;padding:2.2em 2.5em;align-items:center;pointer-events:none;overflow:auto;overscroll-behavior:contain;border:solid transparent;border-width:var(--sat) var(--sar) var(--sab) var(--sal)}
 .screen.on{display:flex;pointer-events:auto}
 .screen.center{justify-content:center;text-align:center}
-.panel{background:var(--panel);border:2px solid var(--line);border-radius:.7em;padding:1.1em 1.3em;min-width:min(26em,92vw);max-width:min(46em,96vw);max-height:calc(92vh - var(--sat) - var(--sab));max-height:calc(92dvh - var(--sat) - var(--sab));overflow:auto;overscroll-behavior:contain;box-shadow:0 .5em 2em rgba(0,0,0,.6)}
+.panel{background:var(--panel);border:2px solid var(--line);border-radius:.7em;padding:1.1em 1.3em;min-width:min(26em,100%);max-width:min(46em,96vw);max-height:calc(92vh - var(--sat) - var(--sab));max-height:calc(92dvh - var(--sat) - var(--sab));overflow:auto;overscroll-behavior:contain;box-shadow:0 .5em 2em rgba(0,0,0,.6)}
 .panel.wide{max-width:min(64em,96vw);width:min(64em,96vw)}
 h1.logo{padding-right:.12em;font:900 italic clamp(2.4em,9vmin,5em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.06em;margin:0 0 .15em;text-transform:uppercase;background:linear-gradient(90deg,var(--a1),#fff 45%,var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 .06em .06em #000)}
 h2{margin:.1em 0 .6em;font:800 1.5em/1.1 Impact,"Arial Black",sans-serif;letter-spacing:.08em;text-transform:uppercase}
@@ -4405,7 +4405,6 @@ function throwFor(grip, dir, styleId) {
   const set = THROW_SETS[grip] || THROW_SETS.front, own = STYLE_THROWS[styleId] && STYLE_THROWS[styleId][grip];
   return (own && own[dir]) || set[dir] || set.fwd;
 }
-const THROWS = THROW_SETS.front;   // the classic front-grip set (move list, tests)
 
 /* Where the thrower carries the defender during the throw, in the thrower's frame.
    Keyframes: [u (0..1 of startup), fwd, side, up, pitch, roll, yaw] - side, roll and yaw mirror for left throws.
@@ -11768,6 +11767,7 @@ function shuffled(list, rng) {
 const Game = {
   state: GS.LOADING,
   pausedFrom: null,
+  pausedBy: null,   // the input of the person who paused (the Move list is for that person's fighter), or null
   acc: 0,
   last: 0,
   alpha: 0,
@@ -12463,9 +12463,10 @@ const Game = {
   },
 
   /* ----- pause ----- */
-  pause() {
+  pause(by) {
     if (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN) return false;
     this.pausedFrom = this.state;
+    this.pausedBy = by || null;
     return this.go(GS.PAUSED);
   },
   resume() {
@@ -12543,7 +12544,8 @@ const Game = {
     const reset = Inputs.take('reset');   // gamepad: hold Select
     if (!this.match) return;
     if (reset && st === GS.FIGHT && this.match.training) this.match.resetFighters();
-    if ((st === GS.FIGHT || st === GS.COUNTDOWN) && Inputs.take('pause')) { this.pause(); return; }
+    const paused = st === GS.FIGHT || st === GS.COUNTDOWN ? Inputs.active().filter((p) => p.take('pause'))[0] : null;   // every seat's press is taken; the first is who paused
+    if (paused) { this.pause(paused); return; }
     if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
     if (!Inputs.takeAny(SKIP_ACTIONS)) return;
     if (st === GS.ROUND_END) this.match.skipRoundEnd();
@@ -13219,7 +13221,7 @@ const UI = {
   controlsCardHtml(kind) {
     const touch = kind === 'touch';
     // labels follow the card's input type, not the device used last (a phone's first fight still reads 'keyboard' then)
-    const label = (a) => touch ? TOUCH_LABELS[a] : kind === 'gamepad' ? GAMEPAD_LABELS[a] : keyLabel(Keymap.bindings[a][0]);
+    const label = (a) => this.controlLabel(kind, a);
     const k = (a) => '<kbd>' + esc(label(a)) + '</kbd>';
     const named = (label, action) => (touch ? '' : label + ' ') + k(action);   // on-screen buttons carry their own names
     const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
@@ -13928,79 +13930,80 @@ const UI = {
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Co-op Brawl: up to four players; each keyboard layout (P1\'s and P2\'s columns) and each gamepad joins on the join screen and keeps its seat, seats 3 and 4 are gamepad-only, and touch is not used.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
-  screen_moves() {
+  /* The Move list (P17-04) is for one fighter. In a paused fight: the fighter of the person who paused (the first person when the pause came from a button on screen); null when no person plays (a watched bracket fight) and in the menus, where it is the fighter picked last. */
+  moveFighter() {
+    const match = Game.state === GS.PAUSED && Game.match, people = match ? match.fighters.filter((f) => Inputs.forFighter(f.index)) : [];
+    return people.find((f) => Inputs.forFighter(f.index) === Game.pausedBy) || people[0] || null;
+  },
+  /* The input type of the person who paused, else the one the controls card uses. */
+  moveKind() {
+    const by = Game.state === GS.PAUSED && Game.pausedBy;
+    return by ? (by.lastDevice === 'gamepad' || by.lastDevice === 'touch' ? by.lastDevice : 'keyboard') : this.onboardKind();
+  },
+  /* What one action is called on one input type (the Controls screen and the controls card use the same tables); keys come from the given layout. */
+  controlLabel(kind, action, keymap) {
+    return kind === 'touch' ? TOUCH_LABELS[action] : kind === 'gamepad' ? GAMEPAD_LABELS[action] : keyLabel((keymap || Keymap).bindings[action][0]);
+  },
+  /* held: the id of the item in hand, whose Punch steps replace the style's (the strings the fighter has now). */
+  screen_moves(profile, kind = this.moveKind(), held) {
+    const who = profile ? null : this.moveFighter();
+    if (!profile) { profile = who ? who.profile : ROSTER_BY_ID[Game.selection.player] || ROSTER_BY_ID.kai; held = who && who.item && who.item.id; }
+    const carry = !!held && WEAPONS[held].cls === 'carry';   // a crate in the arms: Punch plays nothing and the fighter cannot run, so no punch move, no lunge and no tackle
+    const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = held && !carry ? weaponTable(styleId, held) : stringsFor(styleId), defense = held === 'binlid' ? 'block' : defenseFor(profile);   // the bin lid makes a Sway fighter block
+    const keymap = Game.state === GS.PAUSED && Game.pausedBy && Game.pausedBy.keymap;
+    const label = (action) => this.controlLabel(kind, action, keymap);
+    const key = (action) => '<kbd>' + esc(label(action).split(' / ')[0]) + '</kbd>';   // a button with two faces (Square / Triangle) shows the first
+    const presses = (keys, low) => (low ? key('crouch') + ' + ' : '') + keys.split('').map((k) => key(k === 'P' ? 'punch' : 'kick')).join(' ');
     const adv = (n) => (n > 0 ? '+' : '') + n;
-    const pressWords = (keys) => keys.split('').map((k) => (k === 'P' ? 'Punch' : 'Kick')).join(', ');
-    const styleNames = (styleId) => MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].moves === styleId).map((id) => MOVE_STYLE[id].label).join(', ');   // several styles may share one table
-    const stringInputs = (m) => {   // every press sequence that ends on this move (it is the last step of that row); a style's own move: its rows, with the style's name
-      const found = [];
-      for (const table of ['stand', 'crouch']) {
-        for (const keys in STRINGS[table]) if (STRINGS[table][keys][keys.length - 1] === m.id) found.push((table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys));
+    const found = {}, stringRows = [];   // found: move id -> [number of presses, input] of every row that ends on the move
+    for (const table of ['stand', 'crouch']) {
+      for (const keys in own[table]) {
+        if (carry && keys.includes('P')) continue;   // a row with a Punch press cannot be played
+        const steps = own[table][keys];
+        steps.forEach((id) => { found[id] = found[id] || []; });
+        found[steps[steps.length - 1]].push([keys.length, presses(keys, table === 'crouch')]);
+        stringRows.push('<tr><td>' + presses(keys, table === 'crouch') + '</td><td>' + esc(steps.map((id) => moveById(id).name).join(' → ')) + '</td></tr>');
       }
-      if (!found.length) {
-        const own = [];
-        for (const styleId in STYLE_STRINGS) for (const table of ['stand', 'crouch']) for (const keys in STYLE_STRINGS[styleId][table]) {
-          const row = STYLE_STRINGS[styleId][table][keys];
-          if (row && row[row.length - 1] === m.id) own.push([keys.length, styleNames(styleId) + ': ' + (table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys)]);
-        }
-        found.push(...own.sort((x, y) => x[0] - y[0]).map((x) => x[1]));   // the shortest presses first
-      }
-      return found.slice(0, 2).join(' / ');
-    };
-    const rows = ALL_MOVES.map((m) => {
-      const punch = m.btn[1] === 'p';
-      let input = m.type === 'grab' ? 'Grapple' : stringInputs(m);
-      if (m.ctx === 'air') input = 'In the air: ' + (punch ? 'any punch' : 'any kick');
-      else if (m.ctx === 'run') input = 'Running: Punch';
-      else if (m.ctx === 'counter') input = 'After a perfect block or sway: ' + (punch ? 'any punch' : 'any kick');
+    }
+    const listed = ALL_MOVES.filter((m) => (m.ctx || found[m.id]) && !(carry && m.btn[1] === 'p')).concat(Object.keys(found).filter((id) => !ATTACKS[id]).map(moveById));   // the moves of the rows, and the ones every fighter has (air, running, counter, grab); then the item's
+    const rows = listed.map((m) => {
+      const punch = m.btn[1] === 'p', grab = m.type === 'grab';
+      let input;
+      if (grab) input = key('grapple');
+      else if (m.ctx === 'air') input = 'In the air: ' + key(punch ? 'punch' : 'kick');
+      else if (m.ctx === 'run') input = 'Running: ' + key('punch');
+      else if (m.ctx === 'counter') input = 'After a perfect ' + (defense === 'sway' ? 'sway' : 'block') + ': ' + key(punch ? 'punch' : 'kick');
+      else input = found[m.id].sort((x, y) => x[0] - y[0]).slice(0, 2).map((x) => x[1]).join(' / ');   // the two shortest rows that end on this move
       const fa = frameAdvantage(m);
-      const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', m.type === 'grab' ? 'beats blocks' : ''].filter(Boolean).join(', ');
-      return '<tr><td>' + esc(m.name) + '</td><td>' + esc(input) + '</td><td>' + (m.type === 'grab' ? '-' : { H: 'High', M: 'Mid', L: 'Low' }[m.h]) + '</td><td>' + m.startup + ' / ' + m.active + ' / ' + m.recovery + '</td><td>' + m.dmg + '</td><td>' + m.stam + '</td><td>' + (m.type === 'grab' ? '-' : adv(fa.onHit) + ' / ' + adv(fa.onBlock)) + '</td><td>' + note + '</td></tr>';
+      const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
+      return '<tr><td>' + esc(m.name) + '</td><td>' + input + '</td><td>' + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + m.startup + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
     }).join('');
-    // clinch strikes and the tackle are not in ATTACKS, but they have frame data too (the same numbers the Training panel shows)
+    // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too (the same numbers the Training panel shows)
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
       const c = CLINCH_MOVES[id];
-      return '<tr><td>' + esc(c.name) + '</td><td>In a clinch: ' + (id === 'elbow' ? 'Punch' : 'Kick') + '</td><td>Mid</td><td>0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + '</td><td>' + c.dmg + '</td><td>' + c.stam + '</td><td>-</td><td>the victim stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart</td></tr>';
+      return '<tr><td>' + esc(c.name) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + c.stam + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
     }).join('');
     const tackleHit = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: 0, hitstun: Math.round(TACKLE_MOVE.hitstun * 1.15) }).onHit, tackleBlock = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock;
-    const tackleRow = '<tr><td>' + esc(TACKLE_MOVE.name) + '</td><td>Run into a much lighter fighter</td><td>Mid</td><td>0 / 1 / 0</td><td>' + TACKLE_MOVE.dmg + '</td><td>-</td><td>' + adv(tackleHit) + ' / ' + adv(tackleBlock) + '</td><td>stagger; Block stops it (no damage), Sway or Sidestep dodges</td></tr>';
-    let stringRows = '';
-    for (const table of ['stand', 'crouch']) {
-      for (const keys in STRINGS[table]) stringRows += '<tr><td>' + esc((table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys)) + '</td><td>' + esc(STRINGS[table][keys].map((id) => ATTACKS[id].name).join(' → ')) + '</td></tr>';
-    }
-    const stringTable = '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows + '</table>';
-    // move styles with their own rows (P3-10): only the rows that differ from the table above, and the rows they do without
-    const styleLine = (styleId) => {
-      const own = stringsFor(styleId), parts = [];
-      for (const table of ['stand', 'crouch']) {
-        const prefix = table === 'crouch' ? 'Crouch + ' : '';
-        for (const keys in own[table]) if (!STRINGS[table][keys] || own[table][keys].join() !== STRINGS[table][keys].join()) parts.push('<b>' + esc(prefix + pressWords(keys)) + '</b>: ' + esc(own[table][keys].map((id) => ATTACKS[id].name).join(' → ')));
-        for (const keys in STRINGS[table]) if (!own[table][keys]) parts.push('no ' + esc(prefix + pressWords(keys)));
-      }
-      return '<tr><td>' + esc(styleNames(styleId)) + '</td><td>' + parts.join('; ') + '</td></tr>';
-    };
-    const styleTable = '<table class="ctl"><tr><th>Move style</th><th>Differs from the table above</th></tr>' + Object.keys(STYLE_STRINGS).map(styleLine).join('') + '</table>';
-    const overviewRow = (id) => {
-      const s = MOVE_STYLE[id];
-      return '<tr><td>' + esc(s.label) + '</td><td>' + esc(STYLE_FAMILY_LABEL[s.family]) + '</td><td>' + DEFENSE_LABEL[s.defense] + '</td><td>' + esc(s.signature.map((x) => x[0]).join(', ')) + '</td><td>' + (s.submit.length ? esc(s.submit.join(', ')) : '-') + '</td></tr>';
-    };
-    const styleOverview = '<table class="ctl"><tr><th>Move style</th><th>Family</th><th>Defense</th><th>Signature moves</th><th>Holds</th></tr>' + MOVE_STYLE_IDS.map(overviewRow).join('') + '</table>';
-    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
-      '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
+    const tackleRow = weightClass(profile) < TACKLE_MIN_GAP || carry ? '' : '<tr><td>' + esc(TACKLE_MOVE.name) + '</td><td>Run into a fighter at least ' + TACKLE_MIN_GAP + ' weight classes lighter</td><td>Mid, 0 / 1 / 0 frames, ' + TACKLE_MOVE.dmg + ' dmg, hit ' + adv(tackleHit) + ' / block ' + adv(tackleBlock) + ' (stagger; Block stops it with no damage, Sway or Sidestep dodges it)</td></tr>';
+    const throwRows = ['front', 'rear', 'low'].flatMap((grip) => THROW_DIRS.filter((dir) => dir !== 'left').map((dir) => {   // left and right are mirror images; the style's own throws replace some of the set
+      const t = throwFor(grip, dir, styleId);
+      return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + t.stam + ' stam</td></tr>';
+    })).join('');
+    const legend = [['Punch', 'punch'], ['Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
+    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
+      '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
+      '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
+      '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
+      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works, and Grapple drops it.</p>' : '') +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
-      stringTable +
-      '<p>The table is the default (Kickboxing, Street Brawler). Every other move style changes some rows: Boxing and Wing Chun favour punches, Karate, Taekwondo and Capoeira kicks, Muay Thai, Kali, Krav Maga and MMA swap a few steps for moves of their own (teep, elbow, angle strikes, parry strike, overhand), and the throwing and locking styles play short strings (2 moves at most) that leave the foe staggered or down for a grab or a hold. A removed row means that press starts a new string.</p>' +
-      styleTable +
-      '<h3>Move styles</h3><p>All ' + MOVE_STYLE_IDS.length + ' styles, their family, their default defense, their signature moves and their holds. In Training the panel names the style of both fighters and its signature moves (try a style in the character creator with Fight preview).</p>' +
-      styleOverview +
-      '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
-      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
-      this.holdHelpHtml() +
-      '<h3>Heavy tackle</h3><p>A fighter at least ' + TACKLE_MIN_GAP + ' weight classes (' + esc(WEIGHT_CLASS_NAMES.join(' / ')) + ', from height and fitness (build)) above its target knocks them back by running into them, with no button. Block stops the charge (no damage), and a Sway or a Sidestep lets it run past. Once per run.</p>' +
-      this.throwTable() +
+      '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
+      '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
+      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes, or a throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<table class="ctl"><tr><th>Throw</th><th>Input</th><th>Data</th></tr>' + throwRows + '</table>' +
+      (style.submit.length ? '<h3>Holds</h3><p>Knock the foe down, step up to the body (within about ' + SUBMIT_RANGE + ' m) and press ' + key('grapple') + '. Your holds: ' + esc(style.submit.join(', ')) + '. ' + esc(GROUND_NOTES[styleId]) + ' Tap Grapple to keep the hold tight; the held fighter taps Defend to escape. To practise, load scenario 6 in Training.</p>' : '') +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
-  /* How a submission works and what every style does on the ground (P5-08): the Move list and About & Help both show it. */
+  /* How a submission works and what every style does on the ground (P5-08): About & Help shows it. */
   holdHelpHtml() {
     const rows = MOVE_STYLE_IDS.map((id) => {
       const s = MOVE_STYLE[id];
@@ -14014,21 +14017,6 @@ const UI = {
       '<li>The damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. A hit on the holder breaks the hold, and a fighter can be held once per knockdown.</li></ol>' +
       '<p>Only ' + esc(submissionStyleText()) + ' fighters can hold; the other styles keep to striking. To practise, open the pause menu in Training and load scenario 6 (or press 6): the dummy lies on the floor within reach.</p>' +
       '<table class="ctl"><tr><th>Move style</th><th>Hold names (the first is on screen)</th><th>On the ground</th></tr>' + rows + '</table>';
-  },
-  throwTable() {
-    const rows = [];
-    for (const grip of ['front', 'rear', 'low']) {
-      for (const dir of THROW_DIRS) {
-        if (dir === 'left') continue;                       // left and right are mirror images
-        const t = THROW_SETS[grip][dir];
-        rows.push('<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ', hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + '</td><td>' + t.dmg + '</td><td>' + t.startup + '</td><td>' + t.escapeUntil + '</td><td>' + t.recovery + '</td><td>' + t.stam + '</td></tr>');
-      }
-    }
-    for (const styleId in STYLE_THROWS) for (const grip in STYLE_THROWS[styleId]) for (const dir in STYLE_THROWS[styleId][grip]) {   // a style's own throw replaces one of the set
-      const t = STYLE_THROWS[styleId][grip][dir];
-      rows.push('<tr><td>' + esc(t.name) + '</td><td>' + esc(MOVE_STYLE[styleId].label) + ' only: ' + GRIP_LABEL[grip].toLowerCase() + ', hold ' + DIR_WORD[dir] + ' (instead of ' + esc(THROW_SETS[grip][dir].name) + ')</td><td>' + t.dmg + '</td><td>' + t.startup + '</td><td>' + t.escapeUntil + '</td><td>' + t.recovery + '</td><td>' + t.stam + '</td></tr>');
-    }
-    return '<table class="ctl"><tr><th>Throw</th><th>Input</th><th>Dmg</th><th>Startup</th><th>Escape until</th><th>Recovery</th><th>Stam</th></tr>' + rows.join('') + '</table>';
   },
   screen_settings() {
     let h = '<section class="screen on" aria-label="Settings"><div class="panel"><h2>Settings</h2>';
