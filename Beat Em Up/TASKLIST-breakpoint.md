@@ -490,7 +490,8 @@ Numbered after the other phases because it was added later; it follows Phase 17 
   Done when: Appendix C has the attack list with the input per device, the counter and the numbers.
 - [ ] P18-24 - Implement P18-23: moves, paired animation (hands really meet the target), AI use for allies and enemies, move list, Training demo.
   Done when: every group attack works in Free Fight, Arcade and Survival on touch, gamepad and keyboard, a self-test starts and escapes each one, no attack hits the air (P17-02's check), and the P14-01 targets pass.
-- [ ] P18-25 - Throwing a fighter into other participants: check whether it hurts them today, across every throw, grapple and team setup. If it does not, DECIDE which is better for the game (damage, a knockdown or stagger only, or no effect) and how friendly fire applies.
+- [ ] P18-25 - Throwing a fighter into other participants: check whether it hurts them today, across every throw, grapple and team setup. If it does not, DECIDE which is better for the game (damage, a knockdown or stagger only, or no effect) and how friendly fire applies. Owner (2026-11-03): "when throwing an enemy the thrown enemy cant hit other enemies", so today it does not; P18-32 implements the choice.
+  Done when: Appendix C has what the game did and the choice with its reason; if it changes, a self-test covers a thrown fighter meeting an enemy, an ally and a downed fighter, and the P14-01 targets pass.
 
 Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appendix A). The game stays 3D (owner, 2026-11-02).
 
@@ -506,7 +507,17 @@ Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appe
   Done when: Appendix C has the list with before screenshots and the chosen fix per item.
 - [ ] P18-31 - Implement P18-30.
   Done when: each fix is in on every quality preset; before and after screenshots are in the report; the P0-04 performance check passes on the low preset.
-  Done when: Appendix C has what the game did and the choice with its reason; if it changes, a self-test covers a thrown fighter meeting an enemy, an ally and a downed fighter, and the P14-01 targets pass.
+
+Added 2026-11-03 from the owner's Arcade playtest (text in Appendix A).
+
+- [ ] P18-32 - Thrown fighters hit others: a thrown enemy flies through the other enemies without touching them. Implement P18-25's choice: the thrown body meets every fighter in its path (enemies, and allies by the friendly-fire rule), with a hit, knockdown or stagger by its speed and weight, sound and flash, on the fixed sim; the CPU uses it (throws towards a group when it can).
+  Done when: a self-test throws a fighter into one and into two standing enemies, an ally and a downed fighter, on every throw that sends a body flying, and each gets the chosen result once; replays and online determinism hold; fingerprints that change are re-recorded with the reason; the P14-01 targets pass.
+- [ ] P18-33 - Stamina rebalance across the game: in Arcade on Easy, with any fighter, stamina runs out very fast and group fights leave no moment to rest and recover. Measure stamina use and recovery today (per move, block, sway, run, item, per style and weight), how long a player is out of stamina in a 1v1 and in each group size, per difficulty and mode; then DECIDE new numbers for the whole game (cost, recovery rate and delay, what recovers it, how many CPUs attack at once and how long they wait at each difficulty) so a fight has a rhythm of pressing and recovering. Easy must be forgiving.
+  Done when: Appendix C has the before and after numbers per difficulty and group size and the reason for each change; a headless run shows a player-like script out of stamina for at most the decided share of a group fight on Easy and Normal; the P14-01 targets and style balance pass; the owner's Easy Arcade run is the final check.
+- [ ] P18-34 - CPU item throws: the CPU throws pickable items very often. Measure throws per minute per difficulty and mode today, DECIDE a rate that keeps items a treat (a cooldown, a chance by distance and situation, a cap per fight, fewer on Easy), and apply it to enemies and allies.
+  Done when: Appendix C has the before and after rates; a self-test over seeded fights keeps each difficulty inside its decided rate; the CPU still picks up and uses items (P7 tests pass).
+- [ ] P18-35 - Story dialogue: the owner finds the story beats cheesy, as if an AI wrote them, and without cohesion, even after the rewrite of baae2b5. Write it again with a different method: one plain voice, short lines, people who talk like people (no slogans, no grand speeches), and one through-line per run so every beat follows from the one before (the rival, the goal and the setbacks keep coming back, and the ending answers the opening). Show the owner the full text of one run first (all 16 beats for one origin and goal) and wait for an OK before rewriting the rest.
+  Done when: the owner approves the sample run; every origin, goal, rival, boss, setback and epilogue line is rewritten to that sample's standard; the story limits of the self-tests still pass; Appendix C lists the method and the old and new lines.
 
 ## Phase 16 - Final audit and release
 
@@ -593,6 +604,10 @@ Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appe
 | Added 2026-11-02 (friend): sound design needs work | P18-28, P18-29 |
 | Added 2026-11-02 (friend): graphics need work to feel polished | P18-30, P18-31, P18-10 |
 | Added 2026-11-02 (friend): "2D fighting genre" | none: the owner said the game stays 3D |
+| Added 2026-11-03: a thrown enemy cannot hit other enemies | P18-25, P18-32 |
+| Added 2026-11-03: Arcade on Easy drains stamina very fast with any fighter, no rest in group fights; rebalance for the whole game | P18-33 |
+| Added 2026-11-03: the CPU throws pickable items very often | P18-34 |
+| Added 2026-11-03: story beat dialogue is cheesy, reads as AI-made, no cohesion | P18-35 |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -733,6 +748,14 @@ Personally, I see it more as a mobile game, since I don't really spend much time
 That said, I'm not sure how valuable my opinion is from a business perspective, since I'm not very familiar with the gaming market, its audience, or how monetization works in this industry.
 
 In terms of gameplay, if it can establish its own identity within the 2D fighting genre, perhaps with a more accessible approach compared to games like Tekken, I think there could be potential. However, I believe it still needs some work, particularly in terms of sound design and graphics, to feel more polished and complete.
+```
+
+### Owner's Arcade playtest of 2026-11-03 (verbatim)
+
+```text
+new tasks
+-when throwing an enemy the thrown enemy cant hit other enemies
+-In arcade on easy difficulty regardless of whom you choose stamina is drained very fast and im left fighting groups without being able to rest replenish stamina.Rebalance this according to the whole game. Also cpu throws pickables very frequently.The dialog in story beats is cheesy and definitely reads as AI made it and without cohesion
 ```
 
 ## Appendix B - Research log
