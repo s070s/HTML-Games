@@ -15,7 +15,7 @@ const {
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
   COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2, DEFAULT_UNLOCKED,
   DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID, FACE_POOL_FIRST,
-  FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FX, FaceTex, Fighter,
+  FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex, Fighter,
   GAMEPAD_LABELS, GRIP_POSES, GS, GUARD_ORTHO, Game, HAIR_CAP, HAIR_SWATCHES, HOLD_POSES, HUMAN_CONTROLLERS, IMPACT_SRC_BASE, ITEMS,
   Input, Input2, Input3, Input4, Inputs, J, JUGGLE_LIMIT, KEYMAPS, KEYS_REVISION, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM,
   KEY_PROGRESS, KEY_SETTINGS, KO_DELAY_TICKS, Keymap, Keymap2, LAYER, LEGACY_STYLE_MAP, LOCK_FLICK_TICKS, LOCK_RANGE, LOCK_RELEASE_RANGE,
@@ -27,8 +27,8 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_TICKS,
-  SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_TICKS,
+  SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
   VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, arcadeDifficulty, attrCost, attrTotal, canSetAttr,
@@ -4699,7 +4699,7 @@ const SelfTest = {
         'muaythai heavy_front -1': { torso: 0.30, why: 'a heavy front kick drives straight along the slip side' },
         'taekwondo heavy_front -1': { torso: 0.29, why: 'a heavy front kick drives straight along the slip side' },
         'capoeira heavy_front -1': { torso: 0.32, why: 'a heavy front kick drives straight along the slip side' },
-        'hapkido heavy_roundhouse -1': { torso: 0.24, why: 'the roundhouse curves into the slip side' },
+        'hapkido heavy_roundhouse -1': { torso: 0.32, why: 'the roundhouse curves into the slip side (P17-11: the slip steps back 0.15 m further for a round kick, up from 0.24)' },
         'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
       };
@@ -4807,6 +4807,118 @@ const SelfTest = {
         if (!trail.some((r) => !r.swaying) || !last || !within(Math.max(...slides), 0, 0.02) || !within(last.off, 0, 0.03)) bad.push([styleId, 'dir', dir, 'fastest', Math.max(...slides).toFixed(3), 'off at the end', last ? last.off.toFixed(3) : '-'].join(' '));
       }
       return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    /* ----- Sway pose (P17-11): the head after a hit, the torso on the way in and out, props in the way, the roundhouse ----- */
+    const SWAY_HEAD_TURN_STEP = 0.05;     // rad: the most the head's distance from a hit's own head motion may change in one tick (2.9 degrees; the snap it replaces was 0.15 and more)
+    const SWAY_TORSO_TOLERANCE = 0.005;   // rad: how far the drawn torso's tilt may stray from the bend that goes with the turn drawn, or from the guard's forward / back tilt (0.3 degrees)
+    const SWAY_PROP_TOLERANCE = 0.01;     // m: how much deeper into a prop the body may stand during a sway than it did standing flush against it
+    const SWAY_ROUNDHOUSE_AIR = 0.04;     // m of air between the drawn round kick and the torso the owner asked for (2026-11-03)
+    const headTurn = (a, b) => {   // the angle between two head matrices (columns 0, 4 and 8 are the head's axes)
+      let trace = 0;
+      for (const col of [0, 4, 8]) trace += (a[col] * b[col] + a[col + 1] * b[col + 1] + a[col + 2] * b[col + 2]) / (Math.hypot(a[col], a[col + 1], a[col + 2]) * Math.hypot(b[col], b[col + 1], b[col + 2]));
+      return Math.acos(clamp((trace - 1) / 2, -1, 1));
+    };
+    /* Fighter 2 of a style slips to `dir` on match tick 10 and is hit when its sway has run hitAt - 1 ticks.
+       Returns the head matrix the renderer draws it with once per tick (read in drawHead from FMS) and the match tick of the hit. */
+    const swayHeadRun = (styleId, dir, hitAt) => {
+      const id = 'swayhead_' + styleId;
+      ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' });
+      try {
+        let hitOn = -1;
+        const m = mk({ playerId: id, opponentId: id }, null, (it, f, o, mm) => {
+          if (mm.tick === 10) { it.defend = true; it.side = dir; }
+          if (hitOn >= 0 || f.state !== S.SWAY || f.stateTicks !== hitAt - 1) return;
+          hitOn = mm.tick; f.hitKind = 'mid'; f.reactDur = 20; f.setState(S.HIT);
+        });
+        self.place(m, 4);
+        const heads = [];
+        m.fighters[1].drawHead = () => { heads.push(Array.from(FMS.m)); };
+        for (let t = 0; t < 50; t++) m.step();
+        m.dispose();
+        return { heads, hitOn };
+      } finally { delete ROSTER_BY_ID[id]; }
+    };
+    /* A slip hit on `hitAt` against the same slip hit on its last tick (the pose is the guard again by then, so that run shows only what a hit does to the head): how far apart the two heads are
+       at each tick from 2 before the hit to 6 after, and the most that distance changes in one tick. refs caches the last-tick runs. */
+    const swayHeadJump = (styleId, dir, hitAt, refs) => {
+      const slip = swayHeadRun(styleId, dir, hitAt), key = styleId + ' ' + dir;
+      const ref = refs[key] || (refs[key] = swayHeadRun(styleId, dir, SWAY_TOTAL_TICKS - 1));
+      const apart = (k) => headTurn(slip.heads[slip.hitOn + k], ref.heads[ref.hitOn + k]);
+      let jump = 0;
+      for (let k = -2; k <= 6; k++) jump = Math.max(jump, Math.abs(apart(k) - apart(k - 1)));
+      return { jump, hitOn: slip.hitOn };
+    };
+    test('Sway pose (P17-11): a slip hit on any recovery tick does not snap the head - the hit moves it as it moves a head at the guard, with no extra turn over 0.05 rad in one tick', () => {
+      const bad = [], refs = {};
+      let trials = 0, worst = 0;
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [1, -1]) for (let hitAt = SWAY_IFRAME_TICKS; hitAt < SWAY_TOTAL_TICKS; hitAt++) {   // every recovery tick
+        const { jump, hitOn } = swayHeadJump(styleId, dir, hitAt, refs);
+        trials++; worst = Math.max(worst, jump);
+        if (hitOn < 0 || !(jump <= SWAY_HEAD_TURN_STEP)) bad.push([styleId, dir, 'hit at', hitAt, 'turn', jump.toFixed(3)].join(' '));
+      }
+      return bad.length === 0 && trials === MOVE_STYLE_IDS.length * 2 * SWAY_RECOVERY_TICKS ? true : JSON.stringify({ trials, worst, bad: bad.slice(0, 6) });
+    });
+    test('Sway pose (P17-11): the slip torso is level on every tick, in and out as well as at the target - its sideways tilt is the bend in the share of the turn drawn, its forward / back tilt the guard\'s', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [1, -1]) {
+        const rows = swayDrawn(styleId, dir).trail.filter((r) => r.swaying);
+        const guard = rows.find((r) => r.st === SWAY_TOTAL_TICKS - 7), full = rows.find((r) => r.st === SWAY_IFRAME_TICKS / 2);   // the pose is the guard again well before the state ends
+        if (!guard || !full) { bad.push(styleId + ' dir ' + dir + ' has no sway rows'); continue; }
+        const tiltFull = dir * (full.toward - guard.toward);
+        let worstTilt = 0, worstBack = 0;
+        for (const r of rows) {
+          const share = dir * r.twist / SWAY_POSE.side.turn;   // how much of the turn is drawn: the bend goes with it
+          worstTilt = Math.max(worstTilt, Math.abs(dir * (r.toward - guard.toward) - tiltFull * share));
+          worstBack = Math.max(worstBack, Math.abs(r.back - guard.back));
+        }
+        if (!within(tiltFull, 0.2, 0.4) || !within(worstTilt, 0, SWAY_TORSO_TOLERANCE) || !within(worstBack, 0, SWAY_TORSO_TOLERANCE)) bad.push([styleId, 'dir', dir, 'bend', tiltFull.toFixed(3), 'tilt off by', worstTilt.toFixed(3), 'back off by', worstBack.toFixed(3)].join(' '));
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    test('Sway pose (P17-11): on every level a drawn sway - back, and to each side - against a solid prop or a rope never takes the body into it', () => {
+      const solid = (c, y) => c.active && c.base <= y + SUPPORT_BASE_SLACK && c.top > STEP_HEIGHT && y < c.top - (c.up || 0.25);   // what resolveFighter pushes a body out of
+      const depthIn = (x, z, radius, y) => {   // how far a body of this radius at (x, z) stands inside the deepest solid thing
+        let deepest = 0;
+        for (const c of Arena.colliders) if (solid(c, y)) deepest = Math.max(deepest, radius - Math.hypot(x - clamp(x, c.x - c.hx, c.x + c.hx), z - clamp(z, c.z - c.hz, c.z + c.hz)));
+        return deepest;
+      };
+      const bad = [];
+      let trials = 0, through = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const press = { tick: -1, side: 0 };
+        const m = mk({ arenaId, items: false, hazards: false }, null, (it, f, o, mm) => { if (mm.tick === press.tick) { it.defend = true; it.side = press.side; } });
+        const a = m.fighters[0], d = m.fighters[1], radius = d.radius;
+        const free = (x, z) => !Arena.outside(x, z, radius) && depthIn(x, z, radius, 0) < 0.001 && Arena.supportAt(x, z, 0, radius) === 0;   // clear floor: not on a stair or a step
+        for (const c of Arena.colliders.filter((q) => solid(q, 0))) for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const side of [0, 1, -1]) {
+          const px = c.x + nx * (c.hx + radius + 0.002), pz = c.z + nz * (c.hz + radius + 0.002);   // flush against one face of the prop
+          const fx = side === 0 ? nx : -side * nz, fz = side === 0 ? nz : side * nx;   // facing the foe so that this sway (back, or to this side) goes into the face
+          const ox = px + fx * 1.4, oz = pz + fz * 1.4;
+          if (!free(px, pz) || !free(ox, oz)) continue;
+          self.stand(d, px, pz, ox, oz); self.stand(a, ox, oz, px, pz);
+          for (const f of [a, d]) { f.vx = f.vz = 0; f.stam = f.maxStam; f.noRegen = 0; f.lock = 0; }
+          press.tick = m.tick + 3; press.side = side;
+          const shift = side === 0 ? SWAY_POSE.back.step : SWAY_POSE.side.shift, stepBack = side === 0 ? 0 : SWAY_POSE.side.back;   // the offsets the pose would draw with nothing in the way
+          if (depthIn(px - nx * shift - fx * stepBack, pz - nz * shift - fz * stepBack, radius, 0) > 0.05) through++;
+          let rest = 0, deepest = 0, swayed = false;
+          for (let t = 0; t < 45; t++) {
+            m.step();
+            const sunk = depthIn(d.pts[0], d.pts[2], radius, d.y);
+            if (d.state === S.SWAY) { swayed = true; deepest = Math.max(deepest, sunk); } else if (swayed) break; else rest = sunk;   // rest: the last tick before the sway
+          }
+          trials++;
+          if (!swayed || deepest > rest + SWAY_PROP_TOLERANCE) bad.push([arenaId, c.obj ? c.obj.id : '?', 'face', nx, nz, 'sway', side, swayed ? 'sank ' + (deepest - rest).toFixed(3) : 'no sway'].join(' '));
+        }
+      }
+      return bad.length === 0 && trials >= 300 && through === trials ? true : JSON.stringify({ trials, through, bad: bad.slice(0, 6), more: bad.length });
+    });
+    test('Sway pose (P17-11): the Hapkido heavy roundhouse, slipped to either side at either timing, leaves at least 4 cm of air between the drawn kick and the torso (centre distance - 0.25)', () => {
+      const bad = [], need = SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP;
+      const trials = swayPoseTrials('hapkido', ATTACKS.heavy_roundhouse, [1, -1], [0, SWAY_IFRAME_TICKS - 1]);
+      for (const t of trials) {
+        const air = t.clear.torso - (SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip);
+        if (!t.unhurt || !(air >= SWAY_ROUNDHOUSE_AIR) || !(t.clear.head >= need)) bad.push(['dir', t.dir, 'lead', t.lead, t.unhurt ? '' : 'HIT', 'air', air.toFixed(3), 'head', t.clear.head.toFixed(3)].join(' '));
+      }
+      return bad.length === 0 && trials.length === 4 ? true : bad.join('; ') || 'trials ' + trials.length;
     });
     test('Sway pose (P3-11): a swayed strike passes by - no hit flash, no reaction, no spark or ring at the body (a perfect sway marks the floor), no damage', () => {
       const calls = [], real = { sparks: FX.sparks, flash: FX.flash };
