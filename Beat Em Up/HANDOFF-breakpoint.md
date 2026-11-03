@@ -5,6 +5,15 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Update of 2026-11-03 17:20. The owner said at 16:31, verbatim: "raise the threshold to 40%" (stop cleanly before 40% of weekly usage; it was 33% at 17:17). This wins over the 16:20 bullet below where they differ:**
+  - **Done after 16:20**, each reviewed by Opus and browser-tested, and pushed:
+    - 27598bd: P17-12 sofa and P17-13 car roofs and racks, both ticked. Items rest on the drawn seat, arms, back, roof, bonnet and top shelf through the `lay` flag and `Arena.lookTop`.
+    - 3a77f3a: the first P15-03 size pass. 42.4 KB was freed by cutting comments and removing 15 dead names; a token compare with HEAD shows no other code change. `breakpoint.html` is now 1,157,562 LF bytes, with 42,438 left. P15-03 stays open for its final pass.
+    - 478/478 browser self-tests; 97 tasks ticked.
+  - **Next:** P17-11 (sway polish, including the owner's Hapkido roundhouse fix), then P17-15, then the order in the 16:20 bullet.
+  - **Open lows:**
+    - An item on a stage-3 damaged block floats about 4 cm, because the drawn block is 0.94 of its height. Crates and tables have the same gap.
+    - An item centred within 3 cm in front of the sofa back can rest on the back's top. This is the same overhang as table edges.
 - **Stop of 2026-11-03 16:20. The owner said at 13:49, verbatim: "Raise to 35%" (stop cleanly before 35% of weekly usage). The weekly reading was about 31% after the last batch. This bullet wins over the older ones below where they differ:**
   - **Done since 11:55**, each after an Opus review and a browser self-test, and pushed:
     - **2c82968 P17-08 arena bounds:**
