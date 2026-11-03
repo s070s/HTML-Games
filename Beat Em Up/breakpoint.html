@@ -3222,6 +3222,7 @@ function makeObject(def, rng) {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
     standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
     shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''),   // an item thrown onto it lies on its top (P17-07)
+    lay: def.type === 'box' && /^(sofa|car|rack)$/.test(def.look || ''),   // an item lies on the highest drawn part under it (Arena.lookTop, P17-12 / P17-13)
   };
   return o;
 }
@@ -3671,9 +3672,22 @@ const Arena = {
       if (!c.active) continue;
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
+      if (item && c.lay) { top = Math.max(top, this.lookTop(c, x, z, y)); continue; }
       if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
+  },
+  /* P17-12 / P17-13: where an item at height y over (x, z) lies on a sofa, car or rack (c.lay): the highest drawn top of its block and look parts that it is not below (ITEM_FOOTING beyond a part); 0 inside a taller part (a side hit). */
+  lookTop(c, x, z, y) {
+    const o = c.obj, look = LOOKS[o.look];
+    let top = 0, inside = false;
+    for (let i = 0; i < look.length; i++) {
+      const [, px, py, pz, w, h, d] = i ? look[i] : [0, 0, look[0] / 2, 0, 1, look[0], 1];
+      const beyondX = Math.abs(x - c.x - px * o.hx) - w * o.hx, beyondZ = Math.abs(z - c.z - pz * o.hz) - d * o.hz, partTop = c.base + (py + h / 2) * o.h;
+      if (!h || beyondX > ITEM_FOOTING || beyondZ > ITEM_FOOTING) continue;
+      if (partTop <= y + 0.05) top = Math.max(top, partTop); else if (beyondX <= 0 && beyondZ <= 0) inside = true;
+    }
+    return inside ? 0 : top;
   },
 
   /* Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info. */
@@ -10235,7 +10249,7 @@ class MatchSim {
     const above = Math.max(it.y, y0);   // a fall that crossed a top in this tick still came from above it: it lands on it, it does not drop through (P17-07)
     for (const c of Arena.colliders) {   // scenery taller than the item
       if (!c.active || it.y >= c.top - 0.05 || Math.abs(it.x - c.x) > c.hx + 0.1 || Math.abs(it.z - c.z) > c.hz + 0.1) continue;
-      if (above >= c.top - 0.05 && (c.shelf || c.standable) && Math.abs(it.x - c.x) <= c.hx + ITEM_FOOTING && Math.abs(it.z - c.z) <= c.hz + ITEM_FOOTING) continue;   // it fell onto the top between two ticks: it lands, only an item over the top (not beside it) skips the push-out
+      if (c.lay ? Arena.lookTop(c, clamp(it.x, c.x - c.hx, c.x + c.hx), clamp(it.z, c.z - c.hz, c.z + c.hz), above) : above >= c.top - 0.05 && (c.shelf || c.standable) && Math.abs(it.x - c.x) <= c.hx + ITEM_FOOTING && Math.abs(it.z - c.z) <= c.hz + ITEM_FOOTING) continue;   // it fell onto the top between two ticks: it lands, only an item over the top (not beside it) skips the push-out
       if (!thrown) {   // a dropped item that came down inside a footprint is moved out to the nearest side
         const left = it.x - (c.x - c.hx), right = c.x + c.hx - it.x, near = it.z - (c.z - c.hz), far = c.z + c.hz - it.z, least = Math.min(left, right, near, far);
         if (least === left) it.x = c.x - c.hx - 0.15; else if (least === right) it.x = c.x + c.hx + 0.15; else if (least === near) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
@@ -15639,7 +15653,7 @@ function testApi() {
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, ITEM_BREAK_HEIGHT, POSE_SCRATCH, FREE_SET, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
-    CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
+    CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, GRAVITY, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,

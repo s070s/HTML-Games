@@ -38,7 +38,7 @@ const {
   randomCustom, randomItems, resolveLook, shareChecksum, stringsFor, styleFor, submissionStyleText, throwFor, toBase64Url,
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
-  CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
+  CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, GRAVITY, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
   BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
@@ -11164,6 +11164,13 @@ const SelfTest = {
     };
     const FLAT_TOPS = ['', 'table', 'bench', 'barrier', 'crate', 'kiosk'];   // the looks whose collider top is the drawn top (a sofa's collider is a standing proxy above its seat)
     const REST_TOLERANCE = 0.01;   // m
+    /* Steps a loose item alone in the match until it lies still; false when it did not (or was used up). */
+    const settle = (match, loose) => {
+      match.items.push(loose);
+      for (let tick = 0; tick < 400 && loose.mode !== 'rest' && match.items.includes(loose); tick++) match.stepItems();
+      match.items.length = 0;
+      return loose.mode === 'rest';
+    };
     test('Items on surfaces (P17-07): on every level each item of the placement rows rests on its surface - the lowest point of the drawn model is within 1 cm of the drawn top of its table, crate, deck or rail bar, of the floor, or of the pegs of its wall bracket - and the tables are drawn no higher than they stand', () => {
       const bad = [];
       let checked = 0;
@@ -11185,12 +11192,6 @@ const SelfTest = {
     test('Items on surfaces (P17-07): an item dropped or thrown onto a table, bench, crate, kiosk or kerb of every level lies on its drawn top, every time (also when it falls fast enough to cross the top between two ticks); just inside an edge it lies on the top, just past an edge it comes down beside the box; a sliding board does not ride a table top or hit a floor fighter from it', () => {
       const bad = [];
       let landed = 0, edges = 0;
-      const settle = (match, loose) => {
-        match.items.push(loose);
-        for (let tick = 0; tick < 400 && loose.mode !== 'rest' && match.items.includes(loose); tick++) match.stepItems();
-        match.items.length = 0;
-        return loose.mode === 'rest';
-      };
       for (const id of ARENA_ORDER) {
         const m = track(new MatchSim({ mode: 'free', arenaId: id, countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
         for (const f of m.fighters) { f.x = 100; f.z = 100; }   // out of the way: nobody catches a thrown item
@@ -11251,6 +11252,77 @@ const SelfTest = {
       if (edges < 100) bad.push('only ' + edges + ' edge drops checked');
       if (landed < 200) bad.push('only ' + landed + ' landings checked');
       return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Items on surfaces (P17-12, P17-13): an item dropped or thrown onto a sofa (seat, back, arms), a car (roof, bonnet, boot) or a rack (its top shelf) of every level lies on the drawn top under it within 1 cm and one thrown at a side drops to the floor', () => {
+      const bad = [], seen = { sofa: 0, car: 0, rack: 0 }, sides = { sofa: 0, car: 0, rack: 0 };
+      let beside = 0, lobs = 0;
+      const FAR_THROWS = { sofa: [[0, -1, 0.73]], car: [[-1, 0, 0.75]] };   // [direction x, z, height above the base]: from the front onto the seat; from the boot end onto the bonnet
+      const SIDE_THROWS = { sofa: [[1, 0, 0.25], [0, 1, 0.25], [1, 0, 0.75], [0, 1, 0.75]], car: [[1, 0, 0.25], [0, 1, 0.25], [1, 0, 0.9], [0, 1, 0.9]], rack: [[1, 0, 0.25], [0, 1, 0.25], [1, 0, 1], [0, 1, 1]] };
+      const inRoom = (x, z) => x > Arena.ax0 + 0.15 && x < Arena.ax1 - 0.15 && z > Arena.az0 + 0.15 && z < Arena.az1 - 0.15;   // an item cannot lie in the wall zone
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', arenaId: id, countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+        for (const f of m.fighters) { f.x = 100; f.z = 100; }   // out of the way: nobody catches a thrown item
+        m.items.length = 0;
+        for (const host of Arena.objects) {
+          if (host.type !== 'box' || host.destroyed || !(host.look in seen)) continue;
+          const parts = LOOKS[host.look], spots = [[host.x + 0.9 * host.hx, host.z], [host.x - 0.9 * host.hx, host.z]];   // the ends of the block, then the middle of every part that lies over the footprint
+          for (let i = 1; i < parts.length; i++) if (Math.abs(parts[i][1]) <= 1 && Math.abs(parts[i][3]) <= 1) spots.push([host.x + parts[i][1] * host.hx, host.z + parts[i][3] * host.hz]);
+          for (const [x, z] of spots) {
+            const top = drawnTop(host, x, z, 99);
+            if (top === null || x - 0.3 < Arena.ax0 + 0.15 || x + 0.6 > Arena.ax1 - 0.15 || z < Arena.az0 + 0.15 || z > Arena.az1 - 0.15) continue;   // (an item cannot lie in the wall zone, nor drift into it)
+            for (const how of ['drop', 'throw']) {
+              for (const height of [0.3, 1.3]) {
+                if (host.destroyed) break;   // an earlier throw broke it
+                const loose = m.newItem(how === 'drop' ? 'brick' : 'pipe', x - (how === 'throw' ? 0.3 : 0), top + height, z, 0);
+                if (how === 'drop') loose.mode = 'fall'; else { loose.mode = 'fly'; loose.owner = m.fighters[0]; loose.vx = 1; }
+                const label = id + ' ' + host.id + ' ' + how + ' from +' + height + ' at ' + x.toFixed(2) + ',' + z.toFixed(2);
+                if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+                const surface = drawnTop(host, loose.x, loose.z, 99), bottom = itemBottom(m, loose);
+                seen[host.look]++;
+                if (surface === null) { if (Math.abs(loose.y - Arena.supportAt(loose.x, loose.z, host.base, 0.03)) > REST_TOLERANCE) bad.push(label + ': rests at ' + loose.y.toFixed(3) + ' beside the ' + host.look); }   // came down past an edge: on the floor
+                else if (Math.abs(bottom - surface) > REST_TOLERANCE || Math.abs(loose.y - surface) > REST_TOLERANCE + 0.05) bad.push(label + ': rests at ' + loose.y.toFixed(3) + ' (model bottom ' + bottom.toFixed(3) + ') on a top drawn at ' + surface.toFixed(3) + ' under ' + loose.x.toFixed(2) + ',' + loose.z.toFixed(2) + ', first drawn at ' + top.toFixed(3));
+              }
+            }
+          }
+          for (let i = 1; i < parts.length; i++) {   // a brick dropped 1.5 cm beside a part that stands 20 cm or more above the top there (back, arm, windscreen, post) lies on that lower top, where it fell
+            const [, px, py, pz, w, h, d] = parts[i], tall = host.base + (py + h / 2) * host.h;
+            for (const [sx, sz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const x = host.x + px * host.hx + sx * (w * host.hx + 0.015), z = host.z + pz * host.hz + sz * (d * host.hz + 0.015), low = drawnTop(host, x, z, 99);
+              if (host.destroyed || low === null || tall - low < 0.2 || !inRoom(x, z)) continue;
+              const loose = m.newItem('brick', x, low + 0.1, z, 0), label = id + ' ' + host.id + ' brick dropped 1.5 cm beside part ' + i + ' (' + sx + ',' + sz + ')';
+              loose.mode = 'fall';
+              if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+              beside++;
+              if (Math.abs(loose.x - x) + Math.abs(loose.z - z) > 1e-6 || Math.abs(itemBottom(m, loose) - low) > REST_TOLERANCE) bad.push(label + ': rests at ' + loose.x.toFixed(3) + ',' + loose.y.toFixed(3) + ',' + loose.z.toFixed(3) + ', not on the lower top ' + low.toFixed(3));
+            }
+          }
+          for (const [dx, dz, height] of FAR_THROWS[host.look] || []) {   // lobbed from 2 m away to arrive at seat or bonnet height: it lands on the part, not beside it
+            const x = host.x - dx * (host.hx + 2), z = host.z - dz * (host.hz + 2);
+            if (host.destroyed || !inRoom(x, z)) continue;
+            const loose = m.newItem('pipe', x, host.base + height, z, 0), label = id + ' ' + host.id + ' pipe lobbed along ' + (dx ? 'x' : 'z') + (dx + dz > 0 ? '+' : '-');
+            loose.mode = 'fly'; loose.owner = m.fighters[0]; loose.vx = dx * 4; loose.vz = dz * 4; loose.vy = GRAVITY / 4;   // 0.5 s to the edge, back at its height there
+            if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+            const surface = drawnTop(host, loose.x, loose.z, 99);
+            lobs++;
+            if (surface === null || Math.abs(itemBottom(m, loose) - surface) > REST_TOLERANCE) bad.push(label + ': rests at ' + loose.x.toFixed(2) + ',' + loose.y.toFixed(3) + ',' + loose.z.toFixed(2) + ', not on the part');
+          }
+          for (const [dx, dz, height] of SIDE_THROWS[host.look]) {   // thrown at a side below the top of a part (low, or at mid height into an arm, a back, a cabin or between rack shelves): it bounces off and lies on the floor beside it
+            const x = host.x - dx * (host.hx + 0.6), z = host.z - dz * (host.hz + 0.6);
+            if (host.destroyed || !inRoom(x, z)) continue;
+            const loose = m.newItem('pipe', x, host.base + height, z, 0);
+            loose.mode = 'fly'; loose.owner = m.fighters[0]; loose.vx = dx * 6; loose.vz = dz * 6;
+            const label = id + ' ' + host.id + ' pipe thrown at ' + height + ' m along ' + (dx ? 'x' : 'z');
+            if (!settle(m, loose)) { bad.push(label + ': did not come to rest'); continue; }
+            sides[host.look]++;
+            const floor = Arena.supportAt(loose.x, loose.z, host.base, 0.03);   // the floor there (or the deck, or a low step)
+            if (Math.abs(loose.y - floor) > REST_TOLERANCE) bad.push(label + ': rests at ' + loose.y.toFixed(3) + ', not on the floor at ' + floor.toFixed(3));
+            else if (Math.abs(loose.x - host.x) < host.hx && Math.abs(loose.z - host.z) < host.hz) bad.push(label + ': came to rest inside the footprint');
+          }
+        }
+      }
+      if (beside < 6 || lobs < 2) bad.push('too few checks: ' + beside + ' drops beside a taller part, ' + lobs + ' lobs');
+      for (const look in seen) if (seen[look] < 8 || sides[look] < 2) bad.push('too few ' + look + ' checks: ' + seen[look] + ' landings, ' + sides[look] + ' side hits');
+      return bad.length ? bad.slice(0, 2).join('; ') + (bad.length > 2 ? ' (+' + (bad.length - 2) + ')' : '') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     return results;
