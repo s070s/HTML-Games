@@ -13,14 +13,7 @@ Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`
     - 466/466 browser self-tests. 93 tasks are ticked and 63 are open.
   - **Waiting for the owner's look:** P17-03 (sway, on devices, plus the P14-01 targets), P17-04 (the move list on a phone), P17-05 (the rewritten texts in Appendix C), P17-07 (items on tables in a browser). They stay unticked until then. The 7 `shortSlips` exceptions to the 0.1 m sway clearance bar need the owner's OK.
   - **Next, first:** P17-08 arena bounds (DECIDE the bounds per level, then the P0-04 check). After it come P17-06, P17-01, P17-02, P17-09 and P17-10, then P12, P13-02, P14-02 to P14-05, P15, P18 and P16. After the tasklists come the owner's items of 2026-11-02: the MIDI soundtrack (waiting for the files) and a shared profiling script.
-  - **Review lows left open:**
-    - The sway head snaps for 1 tick if a slip is hit on recovery tick 12-13.
-    - The sway torso correction is exact only at the target pose.
-    - `swayRoom` does not clamp to ring ropes or props.
-    - A sofa collider rests items 0.29 m above the seat.
-    - Items thrown at car roofs or racks drop beside them.
-    - The crate hint in the Move list does not say that Use throws the crate.
-    - A 'skipped: ' self-test still counts as a pass, and the summary does not count skips.
+  - **Review lows left open, now tasks P17-11 to P17-15** (owner, 2026-11-03 11:59: "Add the issues as tasks"): the sway head, torso and room (P17-11), the sofa (P17-12), car roofs and racks (P17-13), the crate hint (P17-14), skipped self-tests (P17-15).
   - **Size:** `breakpoint.html` is 1,197,893 bytes counted with LF line endings, out of 1,200,000.
 - **Stop of 2026-11-02 21:10 (owner, 20:20, verbatim: "Resume with development and when you finish everything then we do the items i gave you today / Resume and stop cleanly before 11% out of 100% of weekly usage"; the weekly reading was 10%), this bullet wins over the older ones below where they differ:**
   - **Done this session:** the story rewrite (baae2b5); P11-03 ticked; P11-02's local part done, with online and watching CPU fights left open (454/454 browser self-tests).

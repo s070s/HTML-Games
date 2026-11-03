@@ -427,6 +427,16 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
   Done when: Appendix C has a table per style with its signature moves and its shared moves with the reason for each share.
 - [ ] P17-10 - Implement P17-09: moves, animations and AI use for every style.
   Done when: no two styles share a move outside the P17-09 share list (self-test); every style meets the P14-01 targets with the P0-06 runner.
+- [ ] P17-11 - Sway polish (review lows of 9e796fe): the head snaps for one tick when a slip is hit on recovery tick 12-13; the torso correction is exact only at the target pose, not on the way in and out; `swayRoom` keeps the drawn sway inside the walls but not inside ring ropes or props.
+  Done when: a self-test hits a slip on every recovery tick and finds no head jump over one tick's normal motion; the torso stays level with the target bend and turn through the whole sway (self-test on the in-between ticks); no drawn sway passes a ring rope or a solid prop on any level (self-test); fingerprints unchanged.
+- [ ] P17-12 - Sofa: items placed on or dropped onto a sofa rest 0.29 m above its seat, because the collider is the sofa's full height.
+  Done when: items rest on the drawn seat within 1 cm (and on the back or arms where they land there); the 'Items on surfaces (P17-07)' self-test covers the sofa.
+- [ ] P17-13 - Items thrown at car roofs and racks drop beside them instead of landing on top.
+  Done when: an item thrown or dropped onto a car roof or a rack shelf comes to rest on it within 1 cm, and one that hits a side drops to the floor (self-test on every level that has them); thrown-item hits on fighters unchanged.
+- [ ] P17-14 - Move list: the "carrying" hint for a crate does not say that Use throws it.
+  Done when: the carrying hint names Use (throw) and Grapple (drop and grab) with the active device's buttons; the 'Move list (P17-04)' tests check it.
+- [ ] P17-15 - Self-test runner: a test whose detail starts with 'skipped: ' counts as a pass, and the summary line does not count skips, so a hidden browser pane can skip a check unseen.
+  Done when: the summary shows passed, failed and skipped counts; the browser runs list each skipped test by name; no test that a real browser can run is skipped there (check in headless Chrome).
 
 ## Phase 18 - Owner feedback of 2026-11-01 (do it before Phase 16)
 
@@ -562,6 +572,7 @@ Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appe
 | Added 2026-10-31: items on tables clip into the table (Construction site) | P17-07 |
 | Added 2026-10-31: restrictive arena bounds (Night Club, Construction yellow borders) | P17-08 |
 | Added 2026-10-31: styles not distinct enough (Capoeira has no acrobatic moves); share only real shared techniques | P17-09, P17-10 |
+| Added 2026-11-03: open review lows of the P17-03 to P17-07 work (sway head, torso and room; sofa; car roofs and racks; crate hint; skipped tests) | P17-11 to P17-15 |
 | Added 2026-11-01: faster character movement | P18-01 |
 | Added 2026-11-01: clearer combo breaks and animations, perfect block; consistent, intuitive timing | P18-02, P18-03, P18-04 |
 | Added 2026-11-01: difficulty selection in all modes, before starting | P18-05 |
