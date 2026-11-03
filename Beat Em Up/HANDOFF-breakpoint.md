@@ -5,6 +5,10 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Owner answers of 2026-11-04 00:30 (weekly usage 38%). This bullet wins over the older ones below where they differ:**
+  - "each stage's boss bring their own goons!": recorded in P18-20 + P18-37 (each brawl takes its stage boss's goon theme) and P18-21.
+  - "Tournament char selection should work on mobile too as in all other game modes": new Critical task P18-41 in Path stage 1 (every entrant, joined devices too, picks on the full fighter screen, on touch and phone screens). The touch pick with nobody joined was checked on 390x844 and 844x390 and works.
+  - Next: P18-41, then P18-40, then P18-33.
 - **Stop of 2026-11-03 20:25 (weekly usage 37 to 38%, under the 40% rule). main == origin/main. This bullet wins over the older ones below where they differ:**
   - Owner 19:56 ideas recorded as tasks (Appendix A has the text): P18-37 Arcade goons themed after the final boss with at most 3 bosses, merged into P18-20; P18-38 ground submissions float; P18-39 Tournament fighter choice; P18-40 critical issue sweep.
   - 572c8ea: the tasklist now has one **Path** section after section 3: every not-started task in 18 stages, in order, each with one rule and no hedges; owner picks kept. Work it top to bottom. The 9 open tasks done in code and waiting for the owner's device check stay in their phases.
