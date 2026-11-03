@@ -9335,6 +9335,22 @@ const SelfTest = {
       } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
+    test('Story (P17-16): a simulated stage gets the same items and hazards options as the live stage, on every stage and for every Items / Hazards setting', () => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 5), go = Game.go, kept = { config: Game.config, run: Game.run, items: Settings.v.items, hazards: Settings.v.hazards };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const [items, hazards] of [[true, true], [false, false], [true, false], [false, true]]) {
+          Settings.v.items = items; Settings.v.hazards = hazards;
+          for (let n = 1; n <= STORY_STAGES; n++) {
+            const cfg = Story.cfg(run, n), sim = Story.simOpts(cfg), tag = 'stage ' + n + ' items ' + items + ' hazards ' + hazards;
+            Game.beginMatch(Object.assign({}, cfg));   // the real start of the stage fight
+            if (sim.items !== Game.config.items || sim.items !== Game.match.itemsOn || sim.items !== items) bad.push(tag + ': items ' + sim.items + ' live ' + Game.config.items);
+            if (sim.hazards !== Game.config.hazards || sim.hazards !== Game.match.hazardsOn || sim.hazards !== hazards) bad.push(tag + ': hazards ' + sim.hazards + ' live ' + Game.config.hazards);
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.items = kept.items; Settings.v.hazards = kept.hazards; }
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
+    });
     test('Story (P10-03): a whole run plays through real matches - 7 stages in order, all 16 beats told, the cast on the match start side, retries and results change the story', () => {
       const bad = [], run = Story.start(ROSTER_BY_ID.elise, 1, 'easy', 7), told = new Set(), order = [];
       const tell = (when, stage) => { for (const beat of Story.moment(run, when, stage)) { told.add(beat.id); if (!beat.boxes.length) bad.push(beat.id + ' has no box'); } };
@@ -11069,6 +11085,10 @@ const SelfTest = {
           if (carry) {   // the claim is the fighter's own: a Punch press plays nothing, a Kick press does
             const press = (btn) => f.resolveMove({ btn, height: false, tick: 1 });
             if (!f.carrying || press('punch') !== null || press('kick') === null || ['Running Lunge', 'Counter Strike', 'Air Strike', 'Jab', TACKLE_MOVE.name].some((n) => html.includes('<td>' + n + '</td>'))) bad.push(label + ': a punch or a run is listed');
+            for (const kind of ['keyboard', 'gamepad', 'touch']) {   // P17-14: the hint names Use (throw) and Grapple (drop and grab) with the buttons of the device in use
+              const hint = (UI.screen_moves(profile, kind, item).match(/<p class="hint">While you carry it[^]*?<\/p>/) || [''])[0], button = (action) => '<kbd>' + esc(UI.controlLabel(kind, action).split(' / ')[0]) + '</kbd>';
+              if (!hint.includes('Use ' + button('use') + ' throws it') || !hint.includes('Grapple ' + button('grapple') + ' drops it and grabs')) bad.push(label + ' on ' + kind + ': the carrying hint ' + hint);
+            }
           }
           if (!html.includes('<h3>Defend: ' + (f.guardMode === 'sway' ? 'Sway' : 'Block') + '</h3>') || !html.includes('After a perfect ' + (f.guardMode === 'sway' ? 'sway' : 'block') + ': ')) bad.push(label + ': the defense');
         }

@@ -5,6 +5,27 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Stop of 2026-11-03 16:20. The owner said at 13:49, verbatim: "Raise to 35%" (stop cleanly before 35% of weekly usage). The weekly reading was about 31% after the last batch. This bullet wins over the older ones below where they differ:**
+  - **Done since 11:55**, each after an Opus review and a browser self-test, and pushed:
+    - **2c82968 P17-08 arena bounds:**
+      - Every 1v1 has the whole room. The ring is used only with Ring-out on; the owner said at 15:11, verbatim: "use the whole room for tournament".
+      - Walls stand 0.1 m behind the bounds.
+      - The start side is drawn and swapped for every 1v1 except Training.
+      - The story scenes match the opening spot.
+    - **P17-14** (the crate hint in the Move list) and **P17-16** (simulated Arcade stages follow the Items and Hazards settings), both ticked.
+    - The self-tests pass 477/477. 95 tasks are ticked and 71 are open.
+  - **Owner decisions today:**
+    - 6 of the 7 short sway slips are accepted. The Hapkido roundhouse slip is to be fixed, in P17-11.
+    - The owner's Arcade playtest became P18-32 to P18-35: thrown fighters hit others, a stamina rebalance across the game, the CPU item-throw rate, and the story dialogue written again with a sample run shown first.
+    - The owner has not yet tested P17-03 to P17-08 on devices; they stay unticked.
+  - **Next, first:**
+    1. P17-11 to P17-13 (sway polish with the Hapkido fix, sofa items, car roofs and racks).
+    2. Then P17-15, P17-06, P17-01, P17-02, P17-09, P17-10, then P12, P13-02, P14-02 to P14-05, P15, P18 and P16.
+    3. Ask the owner whether P18-33 (stamina) should come sooner: it affects every Arcade run.
+  - **Review lows left open:**
+    - The crate hint could add "Crouch + Use sets it down".
+    - The whole-run Story self-test follows the player's Items and Hazards options, so its fights vary with them (it checks structure only).
+  - **Size:** `breakpoint.html` is 1,198,692 bytes counted with LF line endings, out of 1,200,000, so about 1.3 KB is left. P15-03 (shrink the file) may have to come before the bigger P17 and P18 features.
 - **Stop of 2026-11-03 11:55. The owner said at 08:54, verbatim: "resume development. Stop cleanly before 25% out of 100% of weekly usage". The weekly reading was 20% after the last batch; the next batch, P17-08, is too large to finish under 25%. This bullet wins over the older ones below where they differ:**
   - **Done this session**, each after an Opus review and a browser self-test, and pushed:
     - 9e796fe P17-03 sway pose;

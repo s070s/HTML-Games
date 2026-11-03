@@ -8238,10 +8238,10 @@ const Story = {
     else if (n === 6) { if (run.choice === 'walk') cfg.rival = run.rivalA; else cfg.waveCut = 1; }   // "Walk away": rival A leads the last wave; "Offer a hand": one enemy fewer in the first wave and no rival A
     return cfg;
   },
-  /* The options of SimRunner.run for a stage config (a headless fight of the stage). */
+  /* The options of SimRunner.run for a stage config (a headless fight of the stage); items and hazards follow the Options like Game.beginMatch does. */
   simOpts(cfg) {
     const brawl = cfg.mode === 'brawl';
-    const opts = { playerId: cfg.playerId, arenaId: cfg.arenaId, difficulty: cfg.difficulty, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer, sides: !brawl, enemies: brawl ? 1 : 0, waves: brawl, matchCfg: cfg };
+    const opts = { playerId: cfg.playerId, arenaId: cfg.arenaId, difficulty: cfg.difficulty, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer, sides: !brawl, enemies: brawl ? 1 : 0, waves: brawl, items: Settings.v.items !== false, hazards: Settings.v.hazards !== false, matchCfg: cfg };
     if (cfg.opponentId) opts.opponentId = cfg.opponentId;   // a brawl has no single opponent: SimRunner keeps its default
     return opts;
   },
@@ -13993,7 +13993,7 @@ const UI = {
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
-      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works, and Grapple drops it.</p>' : '') +
+      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it; Grapple ' + key('grapple') + ' drops it and grabs.</p>' : '') +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
