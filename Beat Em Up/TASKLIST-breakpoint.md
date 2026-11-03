@@ -66,9 +66,10 @@ Work this section top to bottom. It holds every task that was not started on 202
 
 Purpose: a mode or choice that cannot be used blocks every playtest, so it comes first.
 
-- [ ] P18-39 - Tournament fighter choice (Critical): in Tournament mode the player cannot pick the fighter they enter with (owner, 2026-11-03 19:56). Find the cause, then add the pick for every human entrant before the bracket starts, for every playable and custom fighter, with the picker the other modes use.
+- [x] P18-39 - Tournament fighter choice (Critical): in Tournament mode the player cannot pick the fighter they enter with (owner, 2026-11-03 19:56). Find the cause, then add the pick for every human entrant before the bracket starts, for every playable and custom fighter, with the picker the other modes use.
   Fact: the Tournament plan (Appendix C, "Tournament (P11-01 plan)") says each human picks an unlocked preset or a custom fighter on the seat screen, so the pick is missing or cannot be reached. Record the cause in Appendix D.
   Done when: each human entrant picks a fighter on keyboard, gamepad and touch; the bracket and every bout use that fighter; a self-test drives the pick and checks the first bout's fighter.
+  Status (2026-11-03): done. With nobody joined (touch, mouse) the join screen's Start now opens the normal fighter screen (custom fighters, the locked check, Back to the join screen), and its confirm draws the bracket with that fighter; joined keyboards and gamepads pick with left and right on their seat card, a tap on a card steps to the next fighter; every pick reaches the bracket and that person's bouts. 3 self-tests in 'Tournament pick (P18-39)' (the first two fail on the old code; the third guards the joined path, which already worked). 495/495 browser self-tests. Owner to try: a joined device steps through the roster one fighter at a time, with no grid.
 - [ ] P18-40 - Critical issue sweep: play every mode's whole flow (menu, setup, pick, fight, results, back) on keyboard, gamepad and touch and list every Critical issue (a mode or choice that cannot be used, a soft lock, lost progress, a crash), as P18-39 was one; fix each one.
   Done when: Appendix D lists every Critical issue found, each fixed with a self-test, and a repeat of the sweep finds none.
 
@@ -3014,6 +3015,11 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 - Numbers and facts corrected, each marked "as of": fighters 26 to 32; the start-side rule (P17-08); the P0-04 benchmark note for P15-01 (not comparable with runs before P17-08); P14-05 now carries the bands of the P14-01 ladder rows; P13-02 now lists the rows of the P13-01 table that are still new.
 - Where a task keeps an owner step: the owner's OK on the story sample (P18-35), the owner's Easy Arcade run (P18-33), the owner's pick of the X-factor (P18-14), the price report (P18-15) and the release choice (P18-26). Everything else is the coordinator's.
 - Checks run on this edit: the list of task IDs with their ticked state before and after is identical (61 open IDs moved, all ticked tasks in place); every ID in the Path stands once; the file keeps its CRLF line endings and its BOM.
+
+### P18-39 Tournament fighter choice (2026-11-03)
+
+- Root cause: Tournament reuses the co-op join screen, where only a joined device (Punch or A) has a fighter card. Start with nobody joined drew the bracket at once with the default fighter (party[0], Kai), so touch and mouse had no pick.
+- Fix: Start with nobody joined opens the same fighter screen as the other modes; its confirm draws the bracket with that fighter, Back returns to the join screen. The Versus flag for P2's pick is cleared there, so a Versus game before cannot keep Back on the fighter screen (seen in the Chrome self-test run).
 
 ## Appendix D - Audit findings
 

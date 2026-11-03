@@ -10975,6 +10975,105 @@ const SelfTest = {
       } finally { restoreCustoms(saved); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Tournament pick (P18-39) ---------- */
+    test('Tournament pick (P18-39): with nobody joined (touch, mouse) Start opens the fighter screen instead of drawing, a locked fighter is not drawn, the picked fighter is the person of the bracket and of its first bout, and Back returns to the join screen with no bracket', () => withTournament(() => {
+      const bad = [], keep = { toast: UI.toast, say: UI.say };
+      UI.toast = () => {}; UI.say = () => {};
+      try {
+        Game.ensureSelection();
+        Game.selection.party[0] = 'kai';
+        UI.go('coop');
+        UI.act('coopStart');
+        if (Game.tournament || UI.current !== 'char' || !UI.screen_char().includes('data-act="pick:elise"')) bad.push('Start did not open the fighter screen: ' + UI.current + ' ' + !!Game.tournament);
+        UI.act('back');
+        if (UI.current !== 'coop' || Game.tournament) bad.push('Back did not return to the join screen: ' + UI.current);
+        UI.act('coopStart');
+        const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id));
+        if (!locked) bad.push('no locked fighter to try');
+        else { UI.act('pick:' + locked.id); UI.act('pick:' + locked.id); if (Game.tournament || UI.current !== 'char') bad.push('a locked fighter was drawn'); }
+        UI.act('pick:elise');
+        if (Game.tournament) bad.push('one tap already drew the bracket');
+        UI.act('pick:elise');   // the second tap on the picked card confirms
+        const t = Game.tournament, people = t ? t.entrants.filter((e) => e.human >= 0) : [];
+        if (!t || people.length !== 1 || people[0].id !== 'elise' || people[0].human !== 0 || UI.current !== 'bracket') bad.push('the bracket did not take the picked fighter: ' + JSON.stringify(people) + ' ' + UI.current);
+        else {
+          continueBracket();
+          const cfg = Game.match && Game.match.cfg;
+          if (!cfg || cfg.playerId !== 'elise' || Game.inputPlan() !== 'solo') bad.push('the first bout is not the picked fighter: ' + (cfg && cfg.playerId));
+        }
+      } finally { UI.toast = keep.toast; UI.say = keep.say; Game.leaveTournament(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament pick (P18-39): a custom fighter picked on the fighter screen takes the bracket, its first bout and the saved copy', () => withTournament(() => {
+      const bad = [], saved = keepCustoms(), keep = { toast: UI.toast, say: UI.say };
+      UI.toast = () => {}; UI.say = () => {};
+      try {
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(3, validateCustom(randomCustom(12345)).value);
+        UI.go('coop');
+        UI.act('coopStart');
+        if (!UI.screen_char().includes('data-act="pick:c4"')) bad.push('the custom fighter is not on the fighter screen');
+        UI.act('pick:c4'); UI.act('pick:c4');
+        const t = Game.tournament;
+        if (!t || t.entrants[0].id !== 'c4' || t.entrants[0].human !== 0) bad.push('the custom fighter was not drawn');
+        continueBracket();
+        if (!Game.match || Game.match.cfg.playerId !== 'c4') bad.push('the first bout is not the custom fighter');
+        Game.leaveTournament();
+        const back = Game.savedTournament();
+        if (!back || back.entrants[0].id !== 'c4' || !Game.continueTournament() || Game.tournament.entrants[0].id !== 'c4') bad.push('the saved bracket did not load the custom fighter');
+      } finally { UI.toast = keep.toast; UI.say = keep.say; Game.leaveTournament(); restoreCustoms(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament pick (P18-39): joined devices pick on their seat card - keyboard 1 with left / right, a gamepad stick, a tap on a card - and the bracket and each person\'s bout use that fighter, for 2 and for 4 people', () => withTournament(() => {
+      const bad = [], pads = [fakePad('a'), fakePad('b')], keep = { toast: UI.toast, say: UI.say };
+      UI.toast = () => {}; UI.say = () => {};
+      const roster = Game.coopRoster().map((r) => r.id), after = (id, steps) => roster[(roster.indexOf(id) + steps + roster.length) % roster.length];
+      const press = (pad, button) => { padButton(pad, button, true); Inputs.pollLobby(); padButton(pad, button, false); Inputs.pollLobby(); };
+      const keepLobby = UI.onLobby, heard = []; let handled = 0;   // a page already routes the device events to the join screen; a headless run does not, so they are replayed
+      UI.onLobby = (e) => { handled++; keepLobby.call(UI, e); };
+      const off = Events.on("lobby", (e) => heard.push(e));
+      const settle = () => { if (!handled) heard.forEach((e) => keepLobby.call(UI, e)); handled = 0; heard.length = 0; };
+      try {
+        return withCoopInput(pads, () => {
+          Game.selection.party = ['kai', 'mara', 'brutus', 'yuki'];
+          UI.go('coop');
+          Inputs.pollLobby();   // the pads are recorded as released
+          Inputs.lobbyKey(keyEvent(Keymap.bindings.punch[0]));   // keyboard 1 joins, then picks the next fighter
+          Inputs.lobbyKey(keyEvent(Keymap.bindings.right[0])); settle();
+          press(pads[0], 0);   // gamepad 1 joins (A), then the stick goes left: the fighter before
+          pads[0].axes[0] = -1; Inputs.pollLobby(); pads[0].axes[0] = 0; Inputs.pollLobby(); settle();
+          const keySeat = Inputs.seatOf('key1'), padSeat = Inputs.seatOf('pad0');
+          const two = [after('kai', 1), after('mara', -1)];
+          if (keySeat !== 0 || padSeat !== 1 || Game.selection.party.slice(0, 2).join() !== two.join()) return 'the keyboard and gamepad picks: ' + Inputs.seats.join() + ' ' + Game.selection.party;
+          UI.act('coopStart');
+          let t = Game.tournament;
+          const humans = () => t.entrants.filter((e) => e.human >= 0).map((e) => e.human + ':' + e.id).join();
+          if (!t || humans() !== '0:' + two[0] + ',1:' + two[1]) bad.push('the bracket of 2: ' + (t && humans()));
+          continueBracket();
+          if (!Game.match || Game.match.cfg.playerId !== two[0]) bad.push('the first bout is not the keyboard pick');
+          winStage(); Game.resultsAction('bracket');
+          continueBracket();   // the CPU fights up to the next person, then the second Continue starts that fight
+          if (!Game.match) continueBracket();
+          if (!Game.match || Game.match.cfg.playerId !== two[1]) bad.push('the gamepad person\'s bout is not their pick: ' + (Game.match && Game.match.cfg.playerId));
+          Game.leaveTournament();
+          UI.go('coop');
+          Inputs.pollLobby();   // the pads are recorded as released again
+          for (const device of Inputs.seats.slice()) if (device) Inputs.leave(device);   // four people: both keyboards, then both gamepads
+          Game.selection.party = ['kai', 'mara', 'yuki', 'rosa'];
+          Inputs.lobbyKey(keyEvent(Keymap.bindings.punch[0])); Inputs.lobbyKey(keyEvent(Keymap2.bindings.punch[0]));
+          press(pads[0], 0); press(pads[1], 0); settle();
+          UI.act('coopcycle:1'); UI.act('coopcycle:3'); UI.act('coopcycle:3');   // taps on the cards (touch, mouse): the next fighter each
+          const party = Game.selection.party, picks = [0, 1, 2, 3].map((seat) => seat + ':' + party[seat]);
+          if (Inputs.seats.join() !== 'key1,key2,pad0,pad1' || party.slice(0, 4).join() !== ['kai', after('mara', 1), 'yuki', after('rosa', 2)].join()) return 'the taps: ' + Inputs.seats.join() + ' ' + party;
+          UI.act('coopStart');
+          t = Game.tournament;
+          if (!t || humans() !== picks.join()) bad.push('the bracket of 4: ' + (t && humans()) + ' vs ' + picks);
+          continueBracket();
+          if (!Game.match || Game.match.cfg.playerId !== party[0]) bad.push('the first bout of 4 is not seat 1\'s pick');
+          return bad.length ? bad.slice(0, 4).join('; ') : true;
+        });
+      } finally { off(); UI.onLobby = keepLobby; UI.toast = keep.toast; UI.say = keep.say; Game.leaveTournament(); }
+    }));
     test('Tournament (P11-01): closing the page in the middle of a fight is a loss - one person loses to the CPU, two people both count as losing and the CPU rule decides who goes on, and Quit does the same', () => withTournament(() => {
       const bad = [];
       Game.startTournament([{ seat: 0, id: 'kai' }], 8);
