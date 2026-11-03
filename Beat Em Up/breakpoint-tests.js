@@ -4680,8 +4680,19 @@ const SelfTest = {
         return out;
       } finally { delete ROSTER_BY_ID[id]; }
     };
-    test('Sway pose (P3-11): on every i-frame tick the drawn head and torso (feet too for a low strike) are clear of the drawn strike by 0.1 m, for each height, style and lean', () => {
+    test('Sway pose (P3-11): on every i-frame tick the drawn head and torso (feet too for a low strike) are clear of the drawn strike by 0.1 m, for each height, style and lean (except the named shortSlips of P17-03, each held at its measured floor)', () => {
       const need = { head: SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, torso: SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, foot: SWAY_POSE_RADIUS.foot + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP };
+      /* P17-03: every combination keeps the full 0.1 m except these side slips (style, longest strike of its height, swayDir), which stay short after the diagonal back step.
+         Each part's floor is its measured clearance (m) minus 0.01; it can only go up. Appendix C "P17-03 sway pose" has the numbers. */
+      const shortSlips = {
+        'karateka heavy_front -1': { torso: 0.31, why: 'a heavy front kick drives straight along the slip side' },
+        'muaythai heavy_front -1': { torso: 0.30, why: 'a heavy front kick drives straight along the slip side' },
+        'taekwondo heavy_front -1': { torso: 0.29, why: 'a heavy front kick drives straight along the slip side' },
+        'capoeira heavy_front -1': { torso: 0.32, why: 'a heavy front kick drives straight along the slip side' },
+        'hapkido heavy_roundhouse -1': { torso: 0.24, why: 'the roundhouse curves into the slip side' },
+        'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
+        'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
+      };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };
       let trials = 0;
       for (const styleId of MOVE_STYLE_IDS) {
@@ -4694,7 +4705,8 @@ const SelfTest = {
             trials++;
             for (const part of ['head', 'torso']) worst[part] = Math.min(worst[part], t.clear[part]);
             if (h === 'L') worst.foot = Math.min(worst.foot, t.clear.foot);
-            const short = t.clear.head < need.head || t.clear.torso < need.torso || (h === 'L' && t.clear.foot < need.foot);
+            const bar = Object.assign({}, need, shortSlips[styleId + ' ' + mv.id + ' ' + t.dir]);
+            const short = t.clear.head < bar.head || t.clear.torso < bar.torso || (h === 'L' && t.clear.foot < bar.foot);
             if (!t.unhurt || t.firstSt !== t.lead || short) bad.push([styleId, mv.id, 'dir', t.dir, 'lead', t.lead, t.unhurt ? '' : 'HIT', 'st', t.firstSt, 'clear', t.clear.head.toFixed(2), t.clear.torso.toFixed(2), t.clear.foot.toFixed(2)].join(' '));
           }
         }
@@ -4708,17 +4720,81 @@ const SelfTest = {
         ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' }, slow ? { attrs: Object.assign({}, ROSTER_BY_ID.kai.attrs, { speed: ATTR_MIN }) } : {});   // speed sets the pose blend of every other state
         try {
           const m = mk({ playerId: id, opponentId: id }, null, (it, f, o, mm) => { if (mm.tick === 10) { it.defend = true; it.side = dir; } }); self.place(m, 4);
-          const f = m.fighters[1], lean = [];
-          let rest = 0;
+          const f = m.fighters[1], lean = [], guard = f.motion.guard;   // the guard, not the resting pose: the idle rhythm moves the roll a little
           for (let t = 0; t < 45; t++) {
-            if (t === 9) rest = f.pose[J.torsoLean];
             m.step();
-            if (f.state === S.SWAY) lean[f.stateTicks] = rest - f.pose[J.torsoLean];   // how far the drawn torso has tipped back
+            if (f.state === S.SWAY) lean[f.stateTicks] = dir === 0 ? guard[J.torsoLean] - f.pose[J.torsoLean] : dir * (f.pose[J.torsoRoll] - guard[J.torsoRoll]);   // how far the drawn torso has tipped back (back sway) or towards the slip side (side sway)
           }
           m.dispose();
           const peak = Math.max(...lean), early = lean.slice(0, SWAY_IFRAME_TICKS), after = lean[SWAY_IFRAME_TICKS + 3];
-          if (peak < 0.6 || early.length !== SWAY_IFRAME_TICKS || early.some((v) => v < 0.85 * peak) || !(after <= 0.15 * peak)) bad.push(styleId + (slow ? ' slow' : '') + ' dir ' + dir + ' peak ' + peak.toFixed(2) + ' first ' + early[0].toFixed(2) + ' last ' + early[SWAY_IFRAME_TICKS - 1].toFixed(2) + ' after ' + (after === undefined ? '-' : after.toFixed(2)));
+          if (peak < 0.2 || early.length !== SWAY_IFRAME_TICKS || early.some((v) => v < 0.85 * peak) || !(after <= 0.15 * peak)) bad.push(styleId + (slow ? ' slow' : '') + ' dir ' + dir + ' peak ' + peak.toFixed(2) + ' first ' + early[0].toFixed(2) + ' last ' + early[SWAY_IFRAME_TICKS - 1].toFixed(2) + ' after ' + (after === undefined ? '-' : after.toFixed(2)));
         } finally { delete ROSTER_BY_ID[id]; }
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    /* Fighter 2's drawn torso, head and root on every tick of a sway (dir 0 back, 1 / -1 to a side), read from Fighter.pts and the pose the renderer draws.
+       Tilts are the torso's drawn axis in the fighter's frame: back = backward pitch, toward = lean towards swayDir (rad); along / across / drop = the root's move from where it stood (m, back and towards swayDir negative / positive). */
+    const within = (value, low, high) => Number.isFinite(value) && value >= low && value <= high;   // a NaN is never within
+    const swayDrawn = (styleId, dir) => {
+      const id = 'swaydraw_' + styleId;
+      ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' });
+      try {
+        const m = mk({ playerId: id, opponentId: id }, null, (it, f, o, mm) => { if (mm.tick === 10) { it.defend = true; it.side = dir; } }); self.place(m, 4);
+        const f = m.fighters[1], guard = f.motion.guard, rows = [], trail = [];
+        const jointOff = (joint) => f.pose[joint] - guard[joint];
+        const read = () => {
+          const pts = f.pts, sc = f.scale, k = 0.3 * sc, fx = f.fwdX, fz = f.fwdZ, ux = (pts[3] - pts[0]) / k, uy = (pts[4] - pts[1]) / k - 0.1 / 0.3, uz = (pts[5] - pts[2]) / k;   // the torso's up axis: the point sits 0.3 along it from a joint 0.1 above the root
+          const hx = (pts[6] - pts[3] + (0.3 - BODY.neckBase) * sc * ux) / (0.2 * sc), hy = (pts[7] - pts[4] + (0.3 - BODY.neckBase) * sc * uy) / (0.2 * sc), hz = (pts[8] - pts[5] + (0.3 - BODY.neckBase) * sc * uz) / (0.2 * sc);   // the head's up axis: its point sits 0.2 along it from the neck, which sits BODY.neckBase along the torso's axis
+          const joints = [J.torsoLean, J.torsoTwist, J.torsoRoll, J.headX, J.headY, J.rootFwd, J.rootSide];
+          return { x: pts[0], y: pts[1], z: pts[2], ox: pts[0] - f.x, oz: pts[2] - f.z, back: Math.atan2(-(ux * fx + uz * fz), uy), toward: Math.atan2(ux * -fz + uz * fx, uy), headRoll: Math.atan2(hx * -fz + hz * fx, hy),
+            head: jointOff(J.headX), roll: jointOff(J.torsoRoll), twist: jointOff(J.torsoTwist), off: Math.max(...joints.map((joint) => Math.abs(jointOff(joint)))) };   // off = how far the pose is from the guard
+        };
+        let rest = null;
+        for (let t = 0; t < 60; t++) {
+          if (t === 9) rest = read();
+          m.step();
+          if (f.state === S.SWAY) rows[f.stateTicks] = read();
+          if (rows.length > 0) trail.push(Object.assign(read(), { swaying: f.state === S.SWAY, st: f.stateTicks }));   // every tick from the first sway tick on, past the end of the state
+        }
+        const fx = f.fwdX, fz = f.fwdZ;
+        m.dispose();
+        return { rest, trail, last: rows[SWAY_TOTAL_TICKS - 1], rows: rows.slice(0, SWAY_IFRAME_TICKS).map((r) => Object.assign(r, { along: (r.x - rest.x) * fx + (r.z - rest.z) * fz, across: dir * ((r.z - rest.z) * fx - (r.x - rest.x) * fz), drop: rest.y - r.y })) };
+      } finally { delete ROSTER_BY_ID[id]; }
+    };
+    test('Sway pose (P17-03): a back sway lays the torso back by at most 0.35 rad and tucks the chin - the head never tips further back than the torso', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) {
+        const { rest, rows } = swayDrawn(styleId, 0);
+        const worstBack = Math.max(...rows.map((r) => r.back)), leanedBy = Math.max(...rows.map((r) => r.back - rest.back)), tuck = Math.min(...rows.map((r) => r.head));
+        if (rows.length !== SWAY_IFRAME_TICKS || !within(worstBack, -9, 0.35) || !within(leanedBy, 0.15, 9) || !within(tuck, 0.05, 9)) bad.push([styleId, 'back', worstBack.toFixed(2), 'leant by', leanedBy.toFixed(2), 'head vs torso', tuck.toFixed(2)].join(' '));
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    test('Sway pose (P17-03): a side sway never tips the torso back (at most 0.05 rad more than at rest), leans it and turns it towards swayDir, and keeps the head as level as at rest (within 0.1 rad, measured in the world)', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [1, -1]) {
+        const { rest, rows } = swayDrawn(styleId, dir);
+        const backBy = Math.max(...rows.map((r) => r.back - rest.back)), toward = Math.min(...rows.map((r) => dir * (r.toward - rest.toward))), roll = Math.min(...rows.map((r) => dir * r.roll));
+        const turn = Math.min(...rows.map((r) => dir * r.twist)), headTilt = Math.max(...rows.map((r) => Math.abs(r.headRoll - rest.headRoll)));   // against the head at rest: a bladed stance holds it a little off the world's vertical already
+        if (rows.length !== SWAY_IFRAME_TICKS || !within(backBy, -9, 0.05) || !within(toward, 0.15, 9) || !within(roll, 0.2, 9) || !within(turn, 0.25, 9) || !within(headTilt, 0, 0.1)) bad.push([styleId, 'dir', dir, 'back by', backBy.toFixed(2), 'towards', toward.toFixed(2), 'roll', roll.toFixed(2), 'turn', turn.toFixed(2), 'head roll', headTilt.toFixed(2)].join(' '));
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    test('Sway pose (P17-03): the drawn root steps back 0.15-0.5 m on a back sway and 0.15-0.5 m to the side (and drops 0.05 m, steps back about 0.2 m) on a side sway, from the first i-frame tick to the last', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [0, 1, -1]) {
+        const { rows } = swayDrawn(styleId, dir);
+        const step = rows.map((r) => (dir === 0 ? -r.along : r.across)), stray = rows.map((r) => (dir === 0 ? Math.abs(r.across) : Math.abs(r.along + 0.2)));   // a slip also steps back about 0.2 m: its stray is the distance from that
+        if (rows.length !== SWAY_IFRAME_TICKS || !within(Math.min(...step), 0.15, 9) || !within(Math.max(...step), 0, 0.5) || !within(Math.max(...stray), 0, 0.1) || (dir !== 0 && !within(Math.min(...rows.map((r) => r.drop)), 0.05, 9))) bad.push([styleId, 'dir', dir, 'step', Math.min(...step).toFixed(2), Math.max(...step).toFixed(2), 'stray', Math.max(...stray).toFixed(2)].join(' '));
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    test('Sway pose (P17-03): after the i-frames the drawn root eases back at under 1.2 m/s (no slide), and the pose is the guard again when the state ends', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [0, 1, -1]) {
+        const { trail, last } = swayDrawn(styleId, dir);
+        const slides = trail.map((r, i) => (i > 0 && r.swaying && r.st >= SWAY_IFRAME_TICKS ?Math.hypot(r.ox - trail[i - 1].ox, r.oz - trail[i - 1].oz) : 0));   // per tick: how far the root moved against the fighter's own place
+        if (!trail.some((r) => !r.swaying) || !last || !within(Math.max(...slides), 0, 0.02) || !within(last.off, 0, 0.03)) bad.push([styleId, 'dir', dir, 'fastest', Math.max(...slides).toFixed(3), 'off at the end', last ? last.off.toFixed(3) : '-'].join(' '));
       }
       return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
     });

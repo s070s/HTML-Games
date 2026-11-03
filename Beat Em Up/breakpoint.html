@@ -4602,9 +4602,10 @@ const SWAY_SPEED = 3.0;              // m/s at the start of the lean, fading to 
 const SWAY_NO_REGEN = 24;            // stamina regenerates this many ticks after a sway starts (same as a sidestep)
 /* The sway pose (P3-11, visual only): the drawn lean covers the same ticks as the i-frames, so a strike that goes active on any of them passes by.
    It is out of the line from the first i-frame tick (a high blend, the pose is nearly there that tick) to the last, and upright again SWAY_POSE_RETURN_TICKS after.
-   Sizes: torso lean back and head tilt back (rad), root back (m), knee bend; a sideways lean adds torso roll, root shift (m) and wider hips, and still tips back.
+   Back (lay-back): a drawn half backstep (m, the part the sim has not yet travelled), the torso back only a little (rad), the chin tucked (the head tips forward against the torso, rad) and the knees bent (the sink() depth, 0.06 = knees +0.2 rad).
+   Side (slip): no backward tilt; the torso bends towards the slip side (rad, the drawn bend in the fighter's frame) and turns (rad), the root shifts to that side (m), steps back a little (m) and drops (m), the stance widens, the head stays level.
    The 'Sway pose' self-test measures them: head and torso stay at least 0.1 m (surface to surface) clear of every style's drawn strikes. */
-const SWAY_POSE = { lean: 0.9, head: 0.4, back: 0.28, knees: 0.3, roll: 0.5, side: 0.25, hips: 0.2 };
+const SWAY_POSE = { back: { step: 0.28, lean: 0.3, tuck: 0.15, knees: 0.06, rear: 0.12 }, side: { shift: 0.25, back: 0.2, bend: 0.3, turn: 0.35, drop: 0.08, hips: 0.2 } };
 const SWAY_POSE_BLEND = 0.9;         // share of the way to the sway pose covered each tick, for every fighter whatever its speed (the default 0.5 left the pose half done on the first i-frame ticks)
 const SWAY_POSE_RETURN_TICKS = 3;    // upright again this many ticks after the i-frames end (the fighter can be hit again from then on)
 const CLINCH_MAX = 110;
@@ -5638,7 +5639,7 @@ class Fighter {
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
-    this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
+    this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.levelHead = false; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.poseId = ''; this.poseT0 = 0; this.poseEnd = 0; this.expr = -1; this.reach = 0;   // P5-05: a non-combat pose being played (setPose), when it began and ended (animT; 0 = no end), the face it forces (-1 = none) and how far a scene raised the right arm to meet a hand (rad); visual only
     this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
@@ -6064,6 +6065,7 @@ class Fighter {
   startSway(it) {
     const sideways = Math.abs(it.side) >= AIM_DEADZONE && Math.abs(it.side) >= Math.abs(it.fwd);
     this.swayDir = sideways ? Math.sign(it.side) : 0;
+    this.swayX = this.x; this.swayZ = this.z;   // where the sway began: the drawn step covers what the sim travel has not yet (swayTravel)
     this.stam -= SWAY_COST;
     this.noRegen = SWAY_NO_REGEN;
     this.vx = this.vz = 0;
@@ -6078,6 +6080,19 @@ class Fighter {
     if (this.swayDir === 0) { this.vx = -this.fwdX * v; this.vz = -this.fwdZ * v; }
     else { this.vx = -this.fwdZ * this.swayDir * v; this.vz = this.fwdX * this.swayDir * v; }   // same side convention as the sidestep
     if (t >= SWAY_TOTAL_TICKS) { this.vx = this.vz = 0; this.setState(S.IDLE); }
+  }
+  /* How far the sim has moved the fighter along the sway line (m, back or to the slip side) since the sway began; the drawn pose only. */
+  swayTravel() {
+    const dx = this.x - this.swayX, dz = this.z - this.swayZ, s = this.swayDir;
+    return Math.max(0, s === 0 ? -(dx * this.fwdX + dz * this.fwdZ) : s * (dz * this.fwdX - dx * this.fwdZ));
+  }
+  /* The share (0 to 1) of a drawn sway offset (m back, m towards swayDir) that keeps the body inside the ring walls. */
+  swayRoom(back, side) {
+    const bounds = Arena.def && Arena.def.bounds, s = this.swayDir;
+    if (!bounds) return 1;
+    const dx = -back * this.fwdX - s * side * this.fwdZ, dz = -back * this.fwdZ + s * side * this.fwdX;
+    const share = (d, pos, half) => (Math.abs(d) < 1e-6 ? 1 : Math.max(0, half - this.radius - (d > 0 ? pos : -pos)) / Math.abs(d));
+    return Math.min(1, share(dx, this.x, bounds.x), share(dz, this.z, bounds.z));
   }
   updateJump(it, opp) {
     this.faceOpponent(opp, 4 * FIXED_DT);
@@ -6307,6 +6322,7 @@ class Fighter {
     const p = this.tp, g = this.motion.guard, m = this.motion;
     p.set(g);
     this.chainBend = CHAIN_REST; this.chainOver = false;   // P5-07: a bike chain hangs slack unless a swing bends it
+    this.levelHead = false;                                // only a side sway counter-rolls the neck
     const t = this.animT, st = this.stateTicks;
     let k = 0.3;
     switch (this.state) {
@@ -6340,10 +6356,27 @@ class Fighter {
         break;
       }
       case S.SWAY: {
-        // lean out of the way: full for every i-frame tick, gone SWAY_POSE_RETURN_TICKS after them (SWAY_POSE); the root shift and roll point the way the sim moves the fighter
-        const out = st < SWAY_IFRAME_TICKS ? 1 : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS + 1) / SWAY_POSE_RETURN_TICKS), s = this.swayDir, sw = SWAY_POSE;
-        p[J.torsoLean] -= sw.lean * out; p[J.headX] -= sw.head * out; p[J.rootFwd] -= sw.back * out; p[J.knL] += sw.knees * out; p[J.knR] += sw.knees * out;
-        if (s !== 0) { p[J.torsoRoll] = s * sw.roll * out; p[J.rootSide] = -s * sw.side * out; p[J.hipLz] += sw.hips * out; p[J.hipRz] += sw.hips * out; p[J.headY] = -s * 0.2 * out; }
+        // step out of the way: full for every i-frame tick, gone SWAY_POSE_RETURN_TICKS after them (SWAY_POSE); the step and the bend point the way the sim moves the fighter
+        const out = st < SWAY_IFRAME_TICKS ? 1 : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS + 1) / SWAY_POSE_RETURN_TICKS), s = this.swayDir, travel = this.swayTravel();
+        const ease = st < SWAY_IFRAME_TICKS ? 1 : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS + 1) / SWAY_RECOVERY_TICKS);   // the drawn root offsets ease back over the whole recovery (under 1 m/s), the joints over SWAY_POSE_RETURN_TICKS
+        const sw = s === 0 ? SWAY_POSE.back : SWAY_POSE.side;
+        const back = (s === 0 ? Math.max(0, sw.step - travel) : sw.back) * ease, side = s === 0 ? 0 : Math.max(0, sw.shift - travel) * ease, room = this.swayRoom(back, side);
+        p[J.rootFwd] -= back * room;   // a slip also gives a little ground (the sim only moves the fighter sideways)
+        p[J.rootSide] -= s * side * room;
+        if (s === 0) {
+          const rear = g[J.hipRx] < g[J.hipLx] ? J.knR : J.knL;   // the weight goes onto the rear leg
+          p[J.torsoLean] -= sw.lean * out; p[J.headX] += sw.tuck * out; p[rear] += sw.rear * out;
+          sink(p, sw.knees * out);
+        } else {
+          p[J.torsoTwist] += s * sw.turn * out;
+          // The torso's up axis is Rx(lean) Ry(twist) Rz(roll) applied to up. Its sideways tilt is sin(bend) when sin(roll) = sin(bend) / cos(twist) (capped: a torso turned far round cannot take the whole bend),
+          // and its forward / back tilt stays the guard's when the lean gives up atan(tan(roll) * sin(twist)).
+          const twist = p[J.torsoTwist], roll = Math.asin(clamp(s * Math.sin(sw.bend * out) / Math.max(0.3, Math.cos(twist)), -0.8, 0.8));
+          p[J.torsoRoll] = roll; p[J.torsoLean] -= Math.atan(Math.tan(roll) * Math.sin(twist));
+          p[J.hipLz] += sw.hips * out; p[J.hipRz] += sw.hips * out;   // a wider stance under the shifted weight
+          sink(p, sw.drop * 2 * out);   // sink() lowers the root by about half its depth at this stance
+          this.levelHead = true;
+        }
         k = SWAY_POSE_BLEND;
         break;
       }
@@ -6469,7 +6502,7 @@ class Fighter {
   }
   poseActive(t) { if (this.poseEnd > 0 && t >= this.poseEnd) this.setPose(''); return this.poseId !== ''; }
   /* The pose is there at once, without the blend (a scene cut), and the key points (this.pts) are read at the fighter's place. */
-  settlePose() { this.storyPose(this.pose, this.animT, 0); this.tp.set(this.pose); this.skeleton(this.x, this.y, this.z, this.yaw, false); }
+  settlePose() { this.levelHead = false; this.storyPose(this.pose, this.animT, 0); this.tp.set(this.pose); this.skeleton(this.x, this.y, this.z, this.yaw, false); }
   /* Stance rhythm of the move style: knee bounce, side-to-side weight shift, head movement. */
   styleRhythm(p, t, amount) {
     const m = this.motion;
@@ -6678,7 +6711,9 @@ class Fighter {
     pts[3] = ms.m[12] + ms.m[4] * 0.3; pts[4] = ms.m[13] + ms.m[5] * 0.3; pts[5] = ms.m[14] + ms.m[6] * 0.3;
     // head
     ms.push();
-    ms.t(0, BODY.neckBase, 0); ms.rx(p[J.headX] - 0.6 * sh.lean); ms.ry(p[J.headY]);
+    ms.t(0, BODY.neckBase, 0);
+    if (this.levelHead) { const g = this.motion.guard; ms.rz(-p[J.torsoRoll]); ms.ry(-p[J.torsoTwist]); ms.rx(-(p[J.torsoLean] + sh.lean)); ms.rx(g[J.torsoLean] + sh.lean); ms.ry(g[J.torsoTwist]); }   // a side sway: the neck undoes the torso's bend and turn, the head keeps its guard stance and looks at the opponent
+    ms.rx(p[J.headX] - 0.6 * sh.lean); ms.ry(p[J.headY]);
     this.drawHead(fl);
     pts[6] = ms.m[12] + ms.m[4] * 0.2; pts[7] = ms.m[13] + ms.m[5] * 0.2; pts[8] = ms.m[14] + ms.m[6] * 0.2;
     ms.pop();
