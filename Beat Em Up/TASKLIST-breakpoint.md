@@ -1,13 +1,13 @@
 ﻿# BREAKPOINT - Complete Tasklist
 
 Single tasklist for every item in the former `Ideas-breakpoint.txt` (deleted; its full text is kept in Appendix A).
-Work top to bottom. Tick a box only when its "Done when" check passes.
+Work the Path (after section 3) top to bottom. Tick a box only when its "Done when" check passes.
 
 ## 0. How to use this file
 
-- Phases are in dependency order. A later phase may rely on anything an earlier phase finished.
-- Each task: `- [ ] ID - task` followed by `Done when:` (the acceptance check).
-- `DECIDE` tasks produce a written decision. Record it in Appendix C (Decision log) before starting dependent tasks.
+- Work the Path section (after section 3) top to bottom: it holds every task not started on 2026-11-03, in one order, in numbered stages. A later stage may rely on anything an earlier stage finished. The phases keep the done work and the history; in each phase, one line names the tasks that moved to the Path.
+- Each task: `- [ ] ID - Title: what to do.` followed by an optional `Fact:` line, an optional `DECIDE:` line and `Done when:` (the acceptance check).
+- `DECIDE` tasks produce a written decision. Record it in Appendix C (Decision log) before starting dependent tasks. A `DECIDE:` line names the choice and the recommended option; the coordinator picks the recommended option (or a better one with a reason) and records it, except where the task says the owner picks or approves.
 - `RESEARCH` tasks produce written notes. Record the result in Appendix B (Research log), with the source for each fact.
 - Facts and proposals are kept apart: "Fact" = verified in `breakpoint.html` 1.0.0 or the owner's answers. "Proposal" = a design option still to be confirmed by a DECIDE task.
 - Every new file is UTF-8 with BOM. Use plain ASCII characters in code, data and text where possible.
@@ -51,6 +51,259 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - Keep file size as small as possible: prefer data tables and shared generators over hand-written duplicates.
 - Every phase ends with: self-test passes, no console errors, low-spec performance check (P0-04 method) not worse than the baseline unless a decision accepts it.
 - Owner (2026-10-29): "Keep things balanced". Every new or changed option, move, weapon or mode is measured with the P0-06 runner against the P14-01 targets before its task is ticked.
+
+## Path - the open tasks in order (2026-11-03)
+
+Work this section top to bottom. It holds every task that was not started on 2026-11-03, in one order, in 18 numbered stages. Task IDs are unchanged: commits, tests and Appendix C cite them. The reasons for the order and for every rewrite are in Appendix C, "Path reorder (2026-11-03)".
+
+- Not repeated here: tasks done in code that wait for the owner's check, and tasks partly done. They stay in their phase: P4-08, P6-06, P11-02 (its online part is finished with P12-03 and P12-06), P15-03 (its final pass is pointed at in Stage 17), P17-03, P17-04, P17-05, P17-07 and P17-08.
+- Task shape: `- [ ] ID - Title: what to do.` then an optional `Fact:` line, an optional `DECIDE:` line and one `Done when:` line.
+- A `DECIDE:` line names what to choose between and the recommended option. The coordinator picks the recommended option (or a better one with a reason) and records it in Appendix C before the steps that depend on it. Where a task says the owner picks or approves, the owner does.
+- When a stage finds new work (an audit, a research or a decision that adds tasks), the new tasks are added at the end of that stage.
+- Why a stage stands where it does is in its purpose line.
+
+### Stage 1 - Critical fixes
+
+Purpose: a mode or choice that cannot be used blocks every playtest, so it comes first.
+
+- [ ] P18-39 - Tournament fighter choice (Critical): in Tournament mode the player cannot pick the fighter they enter with (owner, 2026-11-03 19:56). Find the cause, then add the pick for every human entrant before the bracket starts, for every playable and custom fighter, with the picker the other modes use.
+  Fact: the Tournament plan (Appendix C, "Tournament (P11-01 plan)") says each human picks an unlocked preset or a custom fighter on the seat screen, so the pick is missing or cannot be reached. Record the cause in Appendix D.
+  Done when: each human entrant picks a fighter on keyboard, gamepad and touch; the bracket and every bout use that fighter; a self-test drives the pick and checks the first bout's fighter.
+- [ ] P18-40 - Critical issue sweep: play every mode's whole flow (menu, setup, pick, fight, results, back) on keyboard, gamepad and touch and list every Critical issue (a mode or choice that cannot be used, a soft lock, lost progress, a crash), as P18-39 was one; fix each one.
+  Done when: Appendix D lists every Critical issue found, each fixed with a self-test, and a repeat of the sweep finds none.
+
+### Stage 2 - Owner priority: stamina
+
+Purpose: the owner's own Easy Arcade run is the first thing to feel right (owner, 2026-11-03 19:40: the next task after P18-39 and P18-40). The group sizes it measures are the current ones, before the later brawl work.
+
+- [ ] P18-33 - Stamina rebalance across the game: in Arcade on Easy, with any fighter, stamina runs out very fast and group fights leave no moment to rest and recover (owner, 2026-11-03). Step 1: measure stamina use and recovery today (per move, block, sway, run, item, per style and weight) and how long a player is out of stamina in a 1v1 and in each group size, per difficulty and mode. Step 2: set new numbers for the whole game (cost, recovery rate and delay, what recovers it, how many CPUs attack at once and how long they wait at each difficulty) so a fight has a rhythm of pressing and recovering. Easy is forgiving.
+  Fact (as of P3-02 and P4-02, 2026-10-28): a sway costs 10 stamina; attack tokens per target (`BRAWL_ATTACK_TOKENS`) are Easy 1, Normal 2, Hard 2, Expert 3, with `TOKEN_GRANT_GAP_TICKS` and `TOKEN_REST_TICKS` by difficulty.
+  DECIDE: the largest share of a group fight a player-like script may spend out of stamina, per difficulty. The coordinator sets it from the step 1 measurement, with Easy the lowest, and records it in Appendix C.
+  Done when: Appendix C has the before and after numbers per difficulty and group size and the reason for each change; a headless run shows a player-like script out of stamina for at most the decided share of a group fight on Easy and Normal; the P14-01 targets and style balance pass; the owner's Easy Arcade run is the final check.
+
+### Stage 3 - Bugs
+
+Purpose: fix what is visibly wrong before more content is built on top of it.
+
+- [ ] P18-38 - Submissions on the ground: in a ground armbar the attacker floats above the floor (owner, 2026-11-03 19:56). Check every submission and ground hold of every style (attacker and held fighter), find why the bodies leave the floor, and fix the poses so both lie on it.
+  Done when: a self-test runs every submission and ground hold and finds every body part of both fighters within 3 cm above the floor and never below it; before and after screenshots of the armbar are in the report.
+- [ ] P18-25 + P18-32 - Thrown fighters hit others: a thrown enemy flies through the other enemies without touching them (owner, 2026-11-03: "when throwing an enemy the thrown enemy cant hit other enemies"). Step 1: decide the rule. Step 2: implement it. The thrown body meets every fighter in its path, with a hit, knockdown or stagger by its speed and weight, sound and flash, on the fixed sim; the CPU uses it (it throws towards a group when it can). Merged: P18-25 was the check and the decision, P18-32 the implementation.
+  Check first: whether a thrown body hurts anyone today, across every throw, grapple and team setup (allies included). The owner's line covers enemies only: a thrown enemy does not hit other enemies. Appendix C (P4-01) says damage goes only to another team and CPU enemies never hurt each other, friendly fire or not.
+  DECIDE: (1) who is hurt: every fighter in the path that is hostile to the thrower, which includes the thrown fighter's own teammates (this replaces "CPU enemies never hurt each other" for thrown bodies only), and the thrower's own team only when Friendly fire is on; "no effect" is out because the owner asked for an effect. (2) the effect and its numbers: recommended a stagger below a speed threshold and a knockdown above it, with small damage that grows with speed and weight; the coordinator sets the threshold and the damage and records them in Appendix C.
+  Done when: Appendix C has what the check found and the rule with its reason; a self-test throws a fighter into one and into two standing enemies, an ally and a downed fighter, on every throw that sends a body flying, and each gets the chosen result once; replays and online determinism hold; fingerprints that change are re-recorded with the reason; the P14-01 targets pass.
+- [ ] P18-36 - Crowd camera and body stacking: in some seeded brawls the camera stays hidden behind a prop far too long and two bodies squeeze closer than 0.3 m. Found during P18-34.
+  Fact (as of P18-34, 2026-11-03): Brawl camera, seeds 3 and 8 before P18-34 and 5 and 7 after: warehouse 141 ticks, limit 54; 1v6 brawl, seed 2 before and 5 and 9 after: bodies closer than 0.3 m. Both tests now run on seed 6, which passes old and new.
+  Done when: the Brawl camera and 1v6 brawl tests pass on seeds 1 to 12, not one chosen seed.
+
+### Stage 4 - Audits and polish from the owner's playtest (Phase 17)
+
+Purpose: find and fix the animation, hit and style problems of the 2026-10-31 playtest before any new move or ability is added. P17-02 runs before P17-10, so the new style moves must pass its hit check.
+
+- [ ] P17-01 - Audit the whole game for the issues the owner listed on 2026-10-31 and others of the same kind (animation scale, attacks that miss visually, defence timing, menus, controls on mobile, props, level bounds, style identity). Classify each Critical, High, Medium, Low or Informational. P17-03 to P17-08 are done in code: audit the game as it is now. Critical issues that P18-40 fixed are listed as fixed.
+  Done when: Appendix D lists each finding with a fix task: P17-02, P17-09, P17-10, or a new task added at the end of this stage.
+- [ ] P17-02 - Animations: tone down exaggerated poses and swings overall; every attack's limb reaches its hit volume at the active frames, so no attack visibly hits the air (owner's example: a Yuki kick).
+  Fact (as of P3-11, 2026-10-30): the drawn fist reaches about 0.9 to 1.1 m from the striker's root while the sim reach is 1.2 to 1.65 m plus the 0.34 m body radius, so a strike can register from further away than it is drawn.
+  DECIDE: for each move that fails, a longer drawn reach or a shorter sim reach. Recommended: a longer drawn reach made by the stride and the shoulder with calmer swing angles, because the sim reach values are balanced (P14-01) and changing them re-runs every balance row. The coordinator records any exception in Appendix C.
+  Done when: a self-test checks, for every move of every style against a standing opponent at the move's range, that the striking limb tip lies within the opponent's hit volume on the active frames; the Yuki kick passes; P0-06 results stay within the P14-01 targets.
+- [ ] P17-09 - DECIDE: make styles distinct. Each style gets its own signature moves and motion (owner's example: Capoeira has no acrobatic moves and the styles look very similar). Styles share moves only where the real arts do (owner's example: kickboxing and boxing punches). This replaces the P1-04 rule that a family shares animation (for example the linear kick set of Karate and Taekwondo) wherever the real arts do not share it.
+  Done when: Appendix C has a table per style with its signature moves and its shared moves with the reason for each share.
+- [ ] P17-10 - Implement P17-09: moves, animations and AI use for every style.
+  Done when: no two styles share a move outside the P17-09 share list (self-test); every new move passes the P17-02 hit check; every style meets the P14-01 targets with the P0-06 runner.
+
+### Stage 5 - Combat timing and speed
+
+Purpose: one timing rule for blocks, stun and combos, and the new movement speed, decided before abilities, group attacks and difficulty are built on them. Fingerprints move here on purpose and are re-recorded once per task.
+
+- [ ] P18-02 - DECIDE the combat timing rules in one place: hit stun, block stun, what makes a combo true, when a chain can be escaped, the perfect block, and whether a combo break is added (owner, 2026-11-01: clearer combo breaks, animations and perfect block; timing consistent and intuitive).
+  Fact (as of P3-02 and P4-02): the game has no combo break; a perfect block is a 6-tick window (`PERFECT_BLOCK_TICKS`, 0.1 s) after pressing Defend with a 30-tick cooldown and opens one counter; a perfect sway is a strike that would have hit in the last 6 ticks of the 12-tick dodge; combos are counted per attacker (a hit by another attacker ends the open combo).
+  DECIDE: (1) combo break: option A adds one (a defender input during hit stun that costs stamina and has its own flash and sound); option B adds none and makes the existing ways out of a chain readable. Recommended B, because P1-03 accepts nothing that adds an input, unless the P0-06 runner shows chains with no way out, then A. (2) the window and cooldown: recommended unchanged unless the P18-03 test finds exceptions.
+  Done when: Appendix C has the rule table, and the choice on the combo break with its reason.
+- [ ] P18-03 + P18-04 - Implement P18-02 and make the timing readable: the same press timing gives the same result on every move, style, weapon and CPU level; a perfect block, a late block and (when P18-02 chose option A) a combo break each have their own clear flash and sound; Training shows too early or too late by how many ticks; the help and the move list explain combos, stun and the perfect block in plain words. Merged: P18-04 is the readable half of P18-03.
+  Done when: a self-test presses Defend at each tick before the hit, for every attack of every style, and finds the same perfect-block window everywhere (exceptions listed in Appendix C); P0-06 results stay within the P14-01 targets; each outcome can be told apart by sight alone and by sound alone; a Training run shows the early / late reading on touch, gamepad and keyboard; the text passes the P17-05 scan (no design notes).
+- [ ] P18-01 - Movement speed: the owner wants fighters a little faster (2026-11-01).
+  Fact (as of 2026-11-03): walk forward 2.2 m/s, back 1.6, side 1.8, run 4.6 (`WALK_FORWARD`, `RUN_SPEED`).
+  DECIDE: the new speeds. Recommended start: 10 percent faster on all four (walk forward 2.4, back 1.8, side 2.0, run 5.1), then tuned until ranges and the AI's spacing work.
+  Done when: Appendix C has the old and new numbers with the reason; ranges and the AI's spacing still work; P0-06 results stay within the P14-01 targets; the fingerprints are re-recorded on purpose.
+
+### Stage 6 - Modes and difficulty
+
+Purpose: settle the mode list first, then give every mode the same difficulty choice (P18-05 comes after the merge because it lists the modes the merge removes).
+
+- [ ] P18-18 - DECIDE the merge: Versus, Brawl, Co-op Brawl and Free Fight become one mode named Free Fight, with all the options of the four (owner, 2026-11-01). It builds on P4-08's lineup (slots, teams, Even teams, clock). Tournament (P11) and online (P12) use the same setup.
+  Fact (recorded decisions that stay): Friendly fire is a setting, off by default (owner, P4-07); a knocked-out player sits out until the fight ends and the fight is lost when every player is out (owner, P4-07); a 1v1 of two people keeps rounds, the round timer and the Versus score across rematches (P4-08).
+  DECIDE: where each option of the four modes sits on the setup screen so it stays short on a phone. Recommended: the first screen holds Players and teams, Level and Difficulty; every other option sits under one "More options" row.
+  Done when: Appendix C has the option list with each old mode's option mapped to its new place; nothing a player could set before is lost without a recorded reason.
+- [ ] P18-19 - Implement P18-18: one Free Fight on the mode list, old saves and settings moved over, help and text updated, including the Unlocks screen.
+  Done when: every setup the four old modes allowed can be started from Free Fight on touch, gamepad and keyboard; the mode list has no Versus, Brawl or Co-op Brawl; old saves load with their settings; the fingerprints pass.
+- [ ] P18-05 - Difficulty in every mode with a CPU: one difficulty choice before the game starts (owner, 2026-11-01), not only at the end of Character Select in Arcade.
+  Fact: today it sits on three screens with three names ("Arcade difficulty" on fighter select, "CPU level" in match setup, "Difficulty" in fight options). Modes with no CPU do not show it.
+  DECIDE: the step. Recommended: the first setup screen of the mode, before fighter select, with one name, "Difficulty".
+  Done when: Arcade, Survival, Free Fight (any lineup with a CPU) and Tournament all offer the same control, named "Difficulty", at the same step before the fight, on touch, gamepad and keyboard; the choice is saved per mode; old saves load with their current level.
+
+### Stage 7 - Arcade and Survival brawls, goons and allies
+
+Purpose: the brawl rules, the Arcade goons and the allies are decided together, because the Arcade half (goons, bosses, story allies) and the Survival half share one balance table. They come before the story text (Stage 12) and the balance pass (Stage 15).
+
+- [ ] P18-20 + P18-37 - DECIDE Arcade and Survival brawls and the Arcade goons: brawls against several CPUs or with ally CPUs, balanced by difficulty (owner, 2026-11-01); and in Arcade the brawls use themed goons made with the character creator, themed after the character you fight in the end, weaker than a main fighter because they come in groups (owner, 2026-11-03 19:56). Merged: P18-37 is the Arcade half of P18-20; Survival is the rest.
+  Fact: a run has 7 stages, 4 brawls and 3 duels; its main-fighter opponents are rival A (stage 2, and stage 6 after "Walk away"), rival B (leads the last wave of stage 3), the boss (stage 4) and ZERO (stage 7; MARA when the player is ZERO) (Appendix C, "Arcade story structure"). P1-03 rejected AI allies with orders and tag switching, so allies get no orders.
+  DECIDE: (1) Arcade allies come from the story (owner, 2026-11-03 19:56: "depending on the story you might get cpu allies too"), not from a player setting; Survival allies are a player setting (owner, 2026-11-01). (2) The final opponent: keep the P10-02 rule (ZERO; MARA when the player is ZERO), so there are 2 goon themes. (3) The cap of 3 main-fighter bosses per run (today 4): recommended that rival B stops being a main fighter and leads the last wave of stage 3 as the strongest goon of the theme. (4) The goon variants per theme: at least 3; the coordinator picks the count the size budget allows. Goons are creator characters with less health, damage and stamina than a main fighter, with numbers per difficulty. (5) For Survival: the options, how many allies and enemies at each difficulty, how allies change the enemy count and the rewards, and the record rule; recommended: records are kept apart for runs with allies.
+  Done when: Appendix C has the goon themes, variants and numbers per difficulty, the boss cap rule, the ally rule, the Survival table per difficulty and the record rule.
+- [ ] P18-21 - Implement P18-20 + P18-37 with AI for allies and enemies.
+  Done when: Arcade and Survival run with and without allies at every difficulty (Arcade allies only where the story gives them); every Arcade brawl uses the final opponent's goons; no run has more than 3 main-fighter bosses; self-tests cover the theme pick, the variant count, the boss cap and the allies; a headless run of each difficulty keeps the group fights inside the P14-01 targets with the P0-06 runner; the P0-04 performance check passes with the most fighters allowed.
+
+### Stage 8 - Unique abilities and the ultimate
+
+Purpose: abilities build on the distinct styles of Stage 4 and the timing of Stage 5. The ultimate comes after the abilities so its charge and input fit them.
+
+- [ ] P18-06 - DECIDE unique abilities per fighter: each of the 32 preset fighters gets a few abilities on top of its style's moves (owner, 2026-11-01: "a few unique abilities"), so two fighters of one style still play differently. Inputs use existing buttons only (P2-01, P17-06: no new on-screen button).
+  DECIDE: (1) the count, the same for every fighter: 2 or 3; recommended 2 (64 abilities instead of 96: less file size and balance load). (2) how custom fighters get theirs; recommended: they pick from the same list in the creator, paid from the 44-point budget.
+  Done when: Appendix C has a table of every fighter with each ability's input, cost and counter; no two fighters share an ability unless the table says why.
+- [ ] P18-07 - Implement P18-06: moves, animations, AI use, move list entries, and custom fighters (the ability field is appended to the share code and the custom store like Age and Gender; old codes and saves load with the default).
+  Done when: a self-test finds every ability in the data, reachable by its input and used by the CPU in P0-06 runs; every fighter meets the P14-01 targets; old codes and saves load.
+- [ ] P18-08 - DECIDE the ultimate ability: charged before use (owner, 2026-11-01). This replaces the P1-03 rejection of resource-spent specials, because the owner asked for it later.
+  Fact: the Momentum gauge (0 to 100) already exists; it fills from damage dealt and taken and from perfect defence, and a full gauge starts a 5 s boost of x1.15 damage (Appendix C, P3-09).
+  DECIDE: (1) the charge: recommended that the Momentum gauge charges it (no second bar, no clutter) and the player spends the full gauge on the ultimate instead of the automatic boost; the other option is a new, slower gauge. (2) one per style or one per fighter: recommended per style (16 instead of 32 animations; custom fighters get their style's with no new creator row). (3) the input on touch, gamepad and keyboard from existing buttons only; recommended Punch and Kick pressed together. (4) how it can be avoided, and what it costs.
+  Done when: Appendix C has the rule, the input per device and the damage cap against a round's health.
+- [ ] P18-09 - Implement P18-08: charge display, activation, a short readable effect on the fixed sim, AI use, Training demo.
+  Done when: it works on touch, gamepad and keyboard; a full gauge cannot end a full-health round alone; the CPU uses it in P0-06 runs; every fighter meets the P14-01 targets; the P0-04 performance check passes.
+
+### Stage 9 - Group attacks
+
+Purpose: team attacks need the ally and enemy groups of Stage 7 and the timing of Stage 5.
+
+- [ ] P18-22 - RESEARCH Urban Reign's group special attacks: how two fighters attack one target together, one holding the target while the other hits it, how they are triggered, how they can be stopped, and what enemies and partners do (owner, 2026-11-01).
+  Done when: Appendix B has the notes with a source for each fact.
+- [ ] P18-23 - DECIDE our group attack system from P18-22, in our own design. The attack list has at least these two: one fighter grabs the target and the other hits it; both strike one target. Anyone can start one: people, CPU allies and CPU enemies.
+  DECIDE: the input on touch, gamepad and keyboard (existing buttons only, P17-06's no-clutter rule), the cost, how the target breaks out, the damage cap, and any further attack that P18-22 shows fits.
+  Done when: Appendix C has the attack list with the input per device, the counter and the numbers.
+- [ ] P18-24 - Implement P18-23: moves, paired animation (hands really meet the target), AI use for allies and enemies, move list, Training demo.
+  Done when: every group attack works in Free Fight, Arcade and Survival on touch, gamepad and keyboard, a self-test starts and escapes each one, no attack hits the air (P17-02's check), and the P14-01 targets pass.
+
+### Stage 10 - Environment, start side and menu selection
+
+Purpose: level and menu work that needs the final mode list (Stage 6) and the final fight rules.
+
+- [ ] P18-12 - DECIDE more environment interaction: the owner likes the new levels and the object interaction and wants it taken further (2026-11-01). Go level by level through the 8 levels and list new things to do with objects and the room (builds on P9-02 to P9-04, P17-07, P17-08).
+  Done when: Appendix C has at least 2 new interactions per level, each with what triggers it, how a CPU uses it and how it stays fair to both sides.
+- [ ] P18-13 - Implement P18-12.
+  Done when: each interaction works on touch, gamepad and keyboard and in 1v1, wave and Brawl fights; a self-test triggers each one; the CPU uses them; the P14-01 targets and the P0-04 performance check pass.
+- [ ] P18-16 - Start side: let the player choose left or right as the side they start on in a level (owner, 2026-11-01).
+  Fact (as of P17-08, 2026-11-03): every 1v1 except Training draws the first fighter's start side from the match seed and swaps it every round (`cfg.sides`, `MatchSim.sideFor`), with or without a ring, because levels favour one seat; Arcade duels do the same; brawls and Training start the player on the left.
+  DECIDE: recommended: the choice is offered in Free Fight, Arcade duels and Training; "Random" stays the default so the seat balance of P9 holds; a chosen side holds for round 1 and swaps every round as now; when two people pick the same side, player 1 keeps it and player 2 gets the other; the CPU takes the other side.
+  Done when: Appendix C has the rule; the choice works on touch, gamepad and keyboard in every mode that offers it; "Random" stays the default so the seat balance of P9 holds; the fingerprints pass unchanged when nobody picks a side.
+- [ ] P18-17 - Audit menu selection: find every place where more than the current item looks selected or the look is wrong (owner's example: an outline on items other than the current one).
+  Fact: hover, keyboard focus and the `.sel` class all draw the same outline on buttons, options and cards, so a mouse-over and a focused item can both show it, and so can a remembered pick.
+  Done when: Appendix D lists each finding; on every screen exactly one item looks current with mouse, keyboard, gamepad and touch; a remembered pick has its own different look; a self-test checks the rule on each menu screen.
+
+### Stage 11 - Fighter looks
+
+Purpose: the model details come after the fight rules, so they are made once and checked against the part limit.
+
+- [ ] P18-11 - Giorgi (the owner's "Giorgiy"): add a Soviet-style ushanka to the headwear (today 10: none, headband, half mask, full mask, cap, beanie, hood, bandana, boxing headgear, balaclava), wear it on Giorgi in every mode and offer it in the creator. It is appended at the end of the headwear list, because share codes store the index.
+  Done when: Giorgi wears it in every mode, it follows the head without clipping through hair or shoulders in any animation, and a custom fighter can pick it.
+- [ ] P18-10 - Fighter models: review all 32 preset fighters side by side and give each one or two carefully made details (silhouette, headwear, gear) so each is recognisable at phone size (owner, 2026-11-01). Stay inside the 40-part worst case.
+  Done when: Appendix C lists each fighter's added detail; a contact sheet of all fighters shows no two with the same silhouette and colours; the P0-04 performance check passes.
+
+### Stage 12 - Story text
+
+Purpose: the story is written last among the content, once the rival, boss, goon and ally rules of Stage 7 are fixed, so the text is written once.
+
+- [ ] P18-35 - Story dialogue: the owner finds the story beats cheesy, as if an AI wrote them, and without cohesion, even after the rewrite of baae2b5 (2026-11-03). Write it again with one method: one plain voice, short lines, people who talk like people (no slogans, no grand speeches), and one through-line per run so every beat follows from the one before (the rival, the goal and the setbacks keep coming back, and the ending answers the opening). The rows follow the cast and ally rules of P18-20 + P18-37.
+  Step 1: write the full text of one run (all 16 beats for one origin and goal) and show it to the owner. Stop and wait for the owner's OK; this is the only owner gate in the task. Step 2: after the OK, rewrite the rest.
+  Done when: the owner approves the sample run; every origin, goal, rival, boss, setback and epilogue line is rewritten to that sample's standard; the story limits of the self-tests still pass; Appendix C lists the method and the old and new lines.
+
+### Stage 13 - Research and identity
+
+Purpose: research and decisions that feed later work. P18-27 runs before P18-14 because it is one of the options P18-14 weighs, and P18-26 runs before P18-15 because its result feeds the price estimate. Tasks that these add are placed at the end of this stage, so they run before the balance pass.
+
+- [ ] P18-27 - DECIDE accessibility as part of the game's identity: the friend (2026-11-02) sees potential if the game is easier to get into than games like Tekken. List what a new player must learn today before a first win (inputs, defence, strings, stamina), compare with how Tekken and other 3D fighters teach and simplify it, and choose what to change from: a first-fight guide, simpler defaults, assisted inputs, a clearer move list. Tips keep the show-once rule. The game stays 3D (owner, 2026-11-02).
+  Done when: Appendix C has the list, the comparison with sources in Appendix B and the chosen changes as tasks added at the end of this stage.
+- [ ] P18-14 - RESEARCH and DECIDE the X-factor: one genuinely unique feature that gives the game its own identity (owner, 2026-11-01). Check what the closest games in the genre already do, then write 3 to 5 options with what each costs to build; P18-27's result is one of them.
+  DECIDE: the owner picks from the options (the owner's wording of 2026-11-01); the coordinator gives a recommended one.
+  Done when: the options and their sources are in Appendix B; the pick and its reason are in Appendix C, with new tasks for it added at the end of this stage.
+- [ ] P18-26 - RESEARCH a mobile release and free-to-play: the friend (2026-11-02) sees it as a mobile game, would download it if free, and would pay about EUR 3-5 for one that caught their interest. Compare ways to put the one-file HTML game on phones (an installable web app, an app-store wrapper), their costs and store rules, and free-to-play models that sell nothing that wins fights (P1-03 rejected an in-game economy) against a one-off price. Feed the result into P18-15. The game does not change in this task.
+  Done when: Appendix B has the options with their sources and costs; Appendix C has a recommendation the owner can pick from, with no change to the game yet.
+- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine (owner, 2026-11-01). Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. This is a market estimate, not a plan to sell it now.
+  Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content; the friend (2026-11-02) said EUR 3-5 and sees it more as a mobile game (P18-26).
+  Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99, EUR 5 and the EUR 5-10 opinion; the owner has read it, and the price itself stays the owner's choice.
+
+### Stage 14 - Audio and visual
+
+Purpose: feedback, sound and graphics after the content and the X-factor are in, so each is built and checked once. P13-02 builds the audio rows 12 and 13 of the feedback list, so the sound audit (P18-28) finds them already there.
+
+- [ ] P13-02 - Implement the feedback list of P13-01 (Appendix C, "Feedback list (P13-01)") within the performance budget: the rows marked new or partly existing: 4 KO finisher, 5 bruise tint, 6 sweat sheen, 7 dust and scuffs, 8 breathing and panting, 9 hurt posture, 11 weapon wear, 12 layered impact sound, 13 low-health heartbeat, 16 lamp sway and prop jolt, 17 touch vibration. Add the four settings P13-03 left for these features: Slow-motion finisher, Camera cuts, Wear marks and Low-health heartbeat (On / Off).
+  Fact: cost per the list is about 7,000 bytes of new code, no new parts and no new draw calls; everything is drawn or played outside the simulation.
+  Done when: each listed item works and has its setting where the list gives one; the P0-04 check passes on the low preset.
+- [ ] P18-28 - Sound design pass: audit every sound in the game (all made in code with the Web Audio API, no sound files), including hits, blocks, footsteps, objects, menus, crowd and music (friend, 2026-11-02). Find what is missing, repeats too much or sounds thin, then decide the changes.
+  Done when: Appendix C has the sound list with each sound's trigger, its problem and the fix.
+- [ ] P18-29 - Implement P18-28 within the performance budget: at most 12 impact voices at once (the oldest stops), as P13-01 row 12 sets.
+  Done when: each listed fix is in; the volume and mute settings still cover every sound; the P0-04 performance check passes.
+- [ ] P18-30 - Graphics polish pass (3D): review lighting, shadows, materials and colour, level detail, effects and menus side by side on phone and desktop, beyond P18-10's fighter details (friend, 2026-11-02). List what looks unfinished, then decide the changes for each quality preset.
+  Done when: Appendix C has the list with before screenshots and the chosen fix per item.
+- [ ] P18-31 - Implement P18-30.
+  Done when: each fix is in on every quality preset; before and after screenshots are in the report; the P0-04 performance check passes on the low preset.
+
+### Stage 15 - Balance
+
+Purpose: balance runs after all content and rules are in, so each case is measured once. The bands are in Appendix C, "Balance targets (P14-01)".
+
+- [ ] P14-02 - For every option that affects gameplay, write benefits, drawbacks and explicit use: each stat, each style, defense type (block / sway), height, fitness triangle (muscle, weight), each weapon class, each pickup, and the abilities, the ultimate, the group attacks and the goon variants added in Stages 7 to 9.
+  Fact: age and gender change the look only (decisions P6-04, P6-05; no gameplay effect is planned), and the story settings never change a stat or a fight rule (Appendix C, "Story lists"). The table lists age and gender as "look only" and they are exempt from the unique-profile rule.
+  Done when: Appendix C has a table where every other option has at least one benefit, one drawback and one explicit use, and no two options have the same profile.
+- [ ] P14-03 - Smart testing plan (not every configuration): test extremes and corners (fitness triangle corners, age ends, height ends, stat extremes), one-factor-at-a-time sensitivity around a baseline, pairwise (orthogonal array) combinations for interactions, all style pairs once with seeded AI vs AI.
+  Done when: the plan lists every test case and the total count.
+- [ ] P14-04 - Run the plan with the P0-06 runner; fix outliers by data (attributes, frame data, AI weights), never a special case per matchup; re-run only the affected cases.
+  Fact (as of P10-03, 2026-10-29): the brawl-stage band is not met by the old waves; the Hard AI cleared 0 of 8 seeds on the full Garage and Subway waves.
+  Done when: all cases meet the P14-01 targets, results summarized in Appendix C.
+- [ ] P14-05 - Tune AI difficulty levels for 1v1 and groups, with the one-sided damage bonus option on `simulate` that the P14-01 table says P14-05 adds.
+  Done when: against the scripted reference player (the Normal AI without a bonus) the CPU wins a 1v1 Easy 20-30 %, Normal 45-55 %, Hard 65-75 %, Expert 80-90 % (n 400 each), and the reference player wins against 3 CPU enemies Easy 85 % or more, Normal 50-70 %, Hard 25-45 %, Expert 10-25 % (n 100 each).
+
+### Stage 16 - Online multiplayer
+
+Purpose: online comes after the determinism and timing work. P12-05 and P12-04 run first because the netcode needs a deterministic sim and the connection must be tested under the real CSP. The decisions are in Appendix C, "Online signaling (P12-01) and netcode choice (P12-02)".
+
+- [ ] P12-05 - Determinism audit: all gameplay randomness through the seeded RNG, no frame-rate-dependent logic, no use of `Math.random` in simulation, no viewer setting that changes the sim.
+  Fact: Reduced motion no longer shortens hitstop (P13-03, 2026-11-02), so Appendix D row D08 is fixed in code; this task proves it with a test and closes the row.
+  Done when: two runs with the same seed and inputs give identical state checksums, also with Reduced motion on and off.
+- [ ] P12-04 - CSP: run the real CSP under WebRTC in current browsers. No change is expected, because the stream uses `srcObject` and no URL. Change nothing unless a test fails; then add only what WebRTC needs and keep everything else `'none'`.
+  Done when: the CSP is the minimum needed and documented in Appendix C.
+- [ ] P12-01 - Signaling by copy-paste, no server: the host makes one offer code per open seat, the guest pastes it and returns an answer code. Codes are packed binary in base64url with the prefixes BPO- (offer) and BPA- (answer), `iceServers: []`, ICE gathering ends when complete or after 3 s, and a deflate-raw fallback covers an SDP the packer cannot express. QR display is in (an inline encoder, error correction L, versions 1 to 13; a longer code shows text only). QR scan is offered only where `BarcodeDetector` lists `qr_code`, `getUserMedia` exists and `isSecureContext` is true; elsewhere the player pastes.
+  Done when: two devices on the same local network connect with copy-paste only, no server; the packed form is proven between Chrome, Firefox and Safari (Android, iPhone, desktop) before it is the default; the QR round trip works where scan exists.
+- [ ] P12-02 - Netcode: delay-based lockstep on the fixed 60 Hz simulation, relayed by the host. Input delay is 2 frames on a LAN; in the lobby and between rounds the host sets it to clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6) from 20 ping samples. Inputs go on an unordered channel with the last 8 frames in each packet; the lobby, the match config, pings and checksums go on a reliable channel. A state checksum (FNV-1a 32) every 60 frames; a mismatch stops the match with "Out of sync" and offers a rematch. A missing input stalls the sim, "Waiting for P3..." shows after 0.5 s, and the peer is dropped after 10 s (a 1v1 ends, a brawl seats it out, a tournament match is lost). Rollback only later, if saving and restoring the sim becomes cheap.
+  Done when: a 1v1 online match on LAN completes without desync in a 10-minute test.
+- [ ] P12-03 - Up to 4 peers (the host relays to guests, star topology, one connection per guest).
+  Done when: 4 devices play one brawl level or tournament round together.
+- [ ] P12-06 - Online lobby UI: create / join, player list, ready check, mode select, latency display. Online slots join the lineup row of P4-08 here.
+  Done when: usable on touch, gamepad and keyboard.
+- [ ] P12-07 - Document limits: networks that block peer-to-peer (no TURN server) cannot connect; show a clear message.
+  Done when: failed connections show the reason text.
+
+Pointer (not a task): P11-02 stays in Phase 11. Its online part (a tournament with 2 to 4 humans online) is finished and ticked after P12-03 and P12-06.
+
+### Stage 17 - Performance and size
+
+Purpose: profile and trim after all content is in.
+
+- [ ] P15-01 - Profile with the P0-04 method after all content is in.
+  Fact: the P0-04 benchmark 1v1 has the whole room since P17-08 (2026-11-03), so compare only with runs made after that date.
+  Done when: numbers recorded in Appendix C.
+- [ ] P15-02 - Optimize the hot paths found in P15-01 (allocation per frame, draw calls, instance updates, AI per-enemy cost, audio voices).
+  Done when: the low-spec target from P0-04 is met.
+
+Pointer (not a task): P15-03 stays in Phase 15 (first pass done, not ticked). Run its final size pass here, after P15-02 and before Stage 18, then tick it.
+
+### Stage 18 - Final audit and release
+
+Purpose: the last checks on the final build (Phase 16).
+
+- [ ] P16-01 - Repeat the full audit (same categories as P0-02) on the final build. Classify Critical, High, Medium, Low, Informational.
+  Done when: Appendix D has the final audit; no Critical or High remain open.
+- [ ] P16-02 - Save migration test: 1.0.0 settings, progress, bindings and custom fighters load correctly.
+  Done when: a self-test covers each store key migration.
+- [ ] P16-03 - Device test matrix: low-spec Android phone, iPhone, desktop with keyboard, desktop with gamepad, online 2 and 4 peers.
+  Done when: each row passes or has a recorded known issue.
+- [ ] P16-04 - Update in-game help, About and credits; bump `VERSION`.
+  Done when: all texts match the final features.
 
 ---
 
@@ -344,28 +597,14 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 12 - Online multiplayer
 
-- [ ] P12-01 - Signaling by copy-paste: host creates an offer code, guest pastes it and returns an answer code. Compress codes. DECIDE whether to add QR display / scan (QR display needs an inline encoder; camera scan may not be possible on all browsers - verify).
-  Done when: two devices on the same local network connect with copy-paste only, no server.
-- [ ] P12-02 - Netcode per P1-09 recommendation (delay-based or rollback) on the fixed 60 Hz simulation; input sync, desync detection (state checksum), reconnect / leave handling.
-  Done when: a 1v1 online match on LAN completes without desync in a 10-minute test.
-- [ ] P12-03 - Up to 4 peers (host relays to guests, star topology).
-  Done when: 4 devices play one brawler level or tournament round together.
-- [ ] P12-04 - CSP update: allow only what WebRTC needs. Verify in current browsers whether `connect-src` affects WebRTC; keep everything else `'none'`.
-  Done when: the CSP change is the minimum needed and documented in Appendix C.
-- [ ] P12-05 - Determinism audit: all gameplay randomness through the seeded RNG, no frame-rate-dependent logic, no use of `Math.random` in simulation.
-  Done when: two runs with the same seed and inputs give identical state checksums.
-- [ ] P12-06 - Online lobby UI: create / join, player list, ready check, mode select, latency display.
-  Done when: usable on touch and gamepad.
-- [ ] P12-07 - Document limits: networks that block peer-to-peer (no TURN server) cannot connect; show a clear message.
-  Done when: failed connections show the reason text.
+Not started on 2026-11-03: moved to the Path section (P12-01, P12-02, P12-03, P12-04, P12-05, P12-06, P12-07).
 
 ## Phase 13 - Audiovisual feedback
 
 - [x] P13-01 - DECIDE: feedback list, strong and diegetic (on the characters and the world), keeping only obvious UI (health, stamina, timer). Examples to evaluate: bruises and swelling, sweat, torn clothes, breathing / panting, expression faces (P6-09), impact sound layers, camera shake / zoom, hitstop, slow-motion finishers, crowd / bystander reactions, debris, controller rumble.
   Done when: Appendix C lists accepted feedback with its trigger and cost.
   Status (2026-10-29): decided, Appendix C "Feedback list (P13-01) ...".
-- [ ] P13-02 - Implement P13-01 within the performance budget.
-  Done when: each accepted item works and P0-04 check passes on low preset.
+Not started on 2026-11-03: moved to the Path section (P13-02).
 - [x] P13-03 - Settings to reduce intense effects (shake, flashes) for accessibility.
   Done when: each intense effect has an off / reduced option.
   Status (2026-11-02): done: Camera shake (0 to 1, it also scales the field-of-view pulse) and Reduced motion were there; new are Flashes and Controller rumble (Full, Reduced, Off) and Strike trails (On, Off). Turning Reduced motion on sets those three once, and each can be changed after. Reduced motion no longer shortens hitstop, so it cannot change a fight. No club strobe, slow-motion finisher or heartbeat exists to cover. Defaults keep today's look.
@@ -375,33 +614,21 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P14-01 - Define the balance targets (example: win rate range between equal-skill AI per matchup, time-to-KO range).
   Done when: targets are in Appendix C.
   Status (2026-10-29): decided, Appendix C "Balance targets (P14-01)".
-- [ ] P14-02 - For every option that affects gameplay, write benefits, drawbacks and explicit use: each stat, each style, defense type (block / sway), height, fitness triangle (muscle, weight), age, gender, each weapon class, each pickup, each story setting if it affects gameplay.
-  Done when: Appendix C has a table where every option has at least one benefit, one drawback and one explicit use, and no two options have the same profile.
-- [ ] P14-03 - Smart testing plan (not every configuration): test extremes and corners (fitness triangle corners, age ends, height ends, stat extremes), one-factor-at-a-time sensitivity around a baseline, pairwise (orthogonal array) combinations for interactions, all style pairs once with seeded AI vs AI.
-  Done when: the plan lists every test case and the total count.
-- [ ] P14-04 - Run the plan with the P0-06 runner; fix outliers; re-run only affected cases.
-  Done when: all cases meet the P14-01 targets, results summarized in Appendix C.
-- [ ] P14-05 - Tune AI difficulty levels for 1v1 and groups.
-  Done when: each difficulty meets its target win rate against a scripted reference player.
+Not started on 2026-11-03: moved to the Path section (P14-02, P14-03, P14-04, P14-05).
 
 ## Phase 15 - Performance and file size
 
-- [ ] P15-01 - Profile with the P0-04 method after all content is in.
-  Done when: numbers recorded in Appendix C.
-- [ ] P15-02 - Optimize hot paths found in P15-01 (allocation per frame, draw calls, instance updates, AI per-enemy cost, audio voices).
-  Done when: the low-spec target from P0-04 is met.
+Not started on 2026-11-03: moved to the Path section (P15-01, P15-02).
 - [ ] P15-03 - Reduce file size: remove dead code and duplicated data, compact data tables, share generators, shorten repeated strings. Keep the file readable (no build step).
   Done when: final size recorded and compared to the baseline in Appendix C.
   Status (2026-11-03): first pass done, not ticked (the final pass comes after all content is in): `breakpoint.html` 1,199,913 -> 1,157,562 bytes (LF, BOM counted), 42,351 freed with no change to play; comments, 15 dead names and nothing else. Numbers, removed symbols and what was kept: Appendix C, "P15-03 first size pass (2026-11-03)".
+  Final pass: listed in the Path, Stage 17 (after P15-02, before the final audit).
 
 ## Phase 17 - Owner playtest feedback (added 2026-10-31; do it before Phase 16)
 
 Numbered after the other phases because it was added later; Phase 16 checks the result. Owner's text verbatim in Appendix A.
 
-- [ ] P17-01 - Audit the whole game for the issues below and others of the same kind (animation scale, attacks that miss visually, defence timing, menus, controls on mobile, props, level bounds, style identity). Classify Critical, High, Medium, Low, Informational.
-  Done when: Appendix D lists each finding with a fix task (P17-02 to P17-10 or a new task).
-- [ ] P17-02 - Animations: tone down exaggerated poses and swings overall; every attack's limb reaches its hit volume at the active frames, so no attack visibly hits the air (owner's example: a Yuki kick).
-  Done when: a self-test checks, for every move of every style against a standing opponent at the move's range, that the striking limb tip lies within the opponent's hit volume on the active frames; the Yuki kick passes; P0-06 results stay within the P14-01 targets.
+Not started on 2026-11-03: moved to the Path section (P17-01, P17-02).
 - [ ] P17-03 - Sway: sway sideways (left and right) as well as back; reduce the spine angle; make the sway window easy to time against enemy attacks. DECIDE the directions, window length and what each direction avoids.
   Owner (2026-11-02): the spine still goes too far back, and a side sway must lean towards its own side instead of tipping back. Fact: `SWAY_POSE` leans the torso back 0.9 rad (about 52 degrees) with the head 0.4 rad further back, and a sideways sway adds roll 0.5 but "still tips back". The 'Sway pose' self-test needs head and torso 0.1 m clear of every style's strikes, so a smaller lean needs more root or hip movement to stay clear. This look is visual only and the i-frames stay the same.
   Owner (2026-11-02): pair the spine and head with other movement (backsteps, sidesteps, lowering the torso); the coordinator suggests the joints and applies them. Proposal, modelled on boxing slips and the lay-back; the angles are starting values to tune against the 'Sway pose' self-test:
@@ -426,10 +653,7 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
 - [ ] P17-08 - Arena bounds: remove restrictive bounds (Night Club; the yellow borders on the Construction site) so levels feel free to explore and destroy. DECIDE the new bounds per level.
   Done when: Appendix C has the bounds per level; each level can be walked to its real walls and its destructibles reached; the camera stays inside the room (P4-09 rule); AI and multi-opponent fights still work; P0-04 check passes.
   Status (2026-11-03): done in code, awaiting the owner's look in a browser and the P0-04 frame check. Cause and the decision per level in Appendix C "P17-08 arena bounds (2026-11-03)". What boxed a 1v1 in was the level's ring (the Construction slab with its yellow tape, the Night Club dance floor, the Gym mat, the Rooftop helipad), not the level bounds: every plain 1v1 fought inside it. Now a 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room, and the ring fences Free Fight and Versus in only when the Ring-out setting is on (on a level with a ring edge); the Tournament too (owner, 2026-11-03 15:11: "use the whole room for tournament": its live bouts and its simulated CPU fights are set up like every other 1v1; a saved bracket carries no ring data, so it continues). The first fighter's start side is still drawn from the seed and swapped every round for every 1v1 but Training (`cfg.sides`, set by `Game.beginMatch`; it was lost for a moment with the ring, and the reviewer measured Garage 70%, Construction 26.7%, Rooftop 38.3% and Subway 36.7% without it, Appendix C). The cutscene cast of an Arcade duel stands on that start side. The eight bounds stay as they are (every object stands flush against them, which the 'Levels' test requires); the drawn walls that stood 0.2 to 0.8 m behind them now stand 0.1 m behind, so a fighter walks up to the wall. Self-tests: 'Arena bounds (P17-08)' (10: walls and corners, every destructible reachable by a walking path, camera, spawns / hazards / items / wave entries, CPU 1v1 and brawl on every level, the ring default in five modes and its restart, wall decoration on its wall, the Tournament bout, the drawn start side, the drawn opening spot of a SimRunner 1v1) and the Story start-side test now plays every stage through `Game.beginMatch`. Headless 459 of 476; the 17 failures are the known 16 "needs the main menu" plus "blank faces". No fingerprint changed (none covers an Arcade fight) and the balance runs are identical before and after (the sim never had the ring in them). Not verified: how the nearer walls and the open Night Club and Construction 1v1 look and play in a browser; P0-04.
-- [ ] P17-09 - DECIDE: make styles distinct. Each style gets its own signature moves and motion (example: Capoeira acrobatic moves); styles share moves only where the real arts do (kickboxing and boxing punches).
-  Done when: Appendix C has a table per style with its signature moves and its shared moves with the reason for each share.
-- [ ] P17-10 - Implement P17-09: moves, animations and AI use for every style.
-  Done when: no two styles share a move outside the P17-09 share list (self-test); every style meets the P14-01 targets with the P0-06 runner.
+Not started on 2026-11-03: moved to the Path section (P17-09, P17-10).
 - [x] P17-11 - Sway polish (review lows of 9e796fe): the head snaps for one tick when a slip is hit on recovery tick 12-13; the torso correction is exact only at the target pose, not on the way in and out; `swayRoom` keeps the drawn sway inside the walls but not inside ring ropes or props. Owner (2026-11-03 13:21, on the 7 `shortSlips` of P17-03, verbatim "Yes, add it" to the coordinator's advice): the other 6 short slips are accepted (4-10 cm of air, like a real slip), but the Hapkido heavy roundhouse slip (swayDir -1, about 0 cm of air, the kick visibly touches the chest) must be fixed with a deeper step back or a small duck for curving strikes only.
   Done when: the Hapkido heavy roundhouse slip leaves at least 4 cm of air between the drawn kick and the torso, its `shortSlips` floor is raised to match, and the other 6 entries stay at or above their floors; a self-test hits a slip on every recovery tick and finds no head jump over one tick's normal motion; the torso stays level with the target bend and turn through the whole sway (self-test on the in-between ticks); no drawn sway passes a ring rope or a solid prop on any level (self-test); fingerprints unchanged.
   Status (2026-11-03): done in code, not ticked until the owner's look. All four points are fixed and each has a self-test that fails on the old code; cause, fix and numbers in Appendix C "P17-11 sway polish (2026-11-03)". The Hapkido heavy roundhouse slip now leaves 8.1 cm of air (was 0); the other 6 short slips are untouched; no fingerprint changed. A hit on a slip no longer snaps the head, the torso is exactly level on every tick (a tilt off by up to 1.3 degrees on the first tick before), and a slip is stopped by props and ropes as it was by walls (it used to go up to 27 cm into them).
@@ -453,108 +677,18 @@ Numbered after the other phases because it was added later; Phase 16 checks the 
 
 Numbered after the other phases because it was added later; it follows Phase 17 (abilities build on P17-09's distinct styles) and Phase 16 checks the result. Owner's text verbatim in Appendix A.
 
-- [ ] P18-01 - Movement speed: the owner wants fighters a little faster. Fact: walk forward 2.2 m/s, back 1.6, side 1.8, run 4.6 (`WALK_FORWARD`, `RUN_SPEED`). DECIDE the new speeds, then set them.
-  Done when: Appendix C has the old and new numbers with the reason; ranges and the AI's spacing still work; P0-06 results stay within the P14-01 targets; the fingerprints are re-recorded on purpose.
-- [ ] P18-02 - DECIDE the combat timing rules in one place: hit stun, block stun, what makes a combo true, when a chain can be escaped, the perfect block. Fact: the game has no combo break today; a perfect block is a 6-tick window (0.1 s) after pressing Defend, with a 30-tick cooldown. Decide whether a combo break is added, what it costs and how it reads on screen, and whether the window or cooldown change.
-  Done when: Appendix C has the rule table, and the choice on the combo break with its reason.
-- [ ] P18-03 - Implement P18-02 so timing is consistent: the same press timing gives the same result on every move, style, weapon and CPU level.
-  Done when: a self-test presses Defend at each tick before the hit, for every attack of every style, and finds the same perfect-block window everywhere (exceptions listed in Appendix C); P0-06 results stay within the P14-01 targets.
-- [ ] P18-04 - Make the timing readable: a perfect block, a late block and (if added) a combo break each have their own clear flash and sound; Training shows too early / too late by how many ticks, and the help and move list explain combos, stun and the perfect block in plain words.
-  Done when: each outcome can be told apart by sight alone and by sound alone; a Training run shows the early / late reading on touch, gamepad and keyboard; the text passes the P17-05 rule (no design notes).
-- [ ] P18-05 - Difficulty in every mode: one difficulty choice before the game starts in every mode with a CPU, not only at the end of Character Select in Arcade. Fact: today it sits on three different screens with three names ("Arcade difficulty" on fighter select, "CPU level" in match setup, "Difficulty" in fight options). Modes with no CPU do not show it.
-  Done when: Arcade, Survival, Free Fight, Versus with a CPU, Brawl, Co-op Brawl and Tournament all offer the same control at the same step before the fight, on touch, gamepad and keyboard; the choice is saved per mode; old saves load with their current level.
-- [ ] P18-06 - DECIDE unique abilities per fighter: 2 or 3 for each of the 26 fighters, on top of the style's moves, so two fighters of one style still play differently. Say how custom fighters get theirs.
-  Done when: Appendix C has a table of every fighter with each ability's input, cost and counter; no two fighters share an ability unless the table says why.
-- [ ] P18-07 - Implement P18-06: moves, animations, AI use, move list entries, and custom fighters (with a share code and store version bump if needed).
-  Done when: a self-test finds every ability in the data, reachable by its input and used by the CPU in P0-06 runs; every fighter meets the P14-01 targets; old codes and saves load.
-- [ ] P18-08 - DECIDE the ultimate ability: one per fighter (or per style), charged before use. Fact: the Momentum gauge (0 to 100, fills from damage dealt and taken and from perfect defence) already exists, so decide whether it charges the ultimate or a new gauge does. Decide the input on touch (P17-06's no-clutter rule), how it can be avoided, and what it costs.
-  Done when: Appendix C has the rule, the input per device and the damage cap against a round's health.
-- [ ] P18-09 - Implement P18-08: charge display, activation, a short readable effect on the fixed sim, AI use, Training demo.
-  Done when: it works on touch, gamepad and keyboard; a full gauge cannot end a full-health round alone; the CPU uses it in P0-06 runs; every fighter meets the P14-01 targets; the P0-04 performance check passes.
-- [ ] P18-10 - Fighter models: review all 26 fighters side by side and give each one or two carefully made details (silhouette, headwear, gear) so each is recognisable at phone size.
-  Done when: Appendix C lists each fighter's added detail; a contact sheet of all fighters shows no two with the same silhouette and colours; the P0-04 performance check passes.
-- [ ] P18-11 - Giorgi (the owner's "Giorgiy"): add a Soviet-style ushanka to the headwear items (there is a cap, beanie, hood, bandana, headgear and balaclava today), wear it on Giorgi and offer it in the creator.
-  Done when: Giorgi wears it in every mode, it follows the head without clipping through hair or shoulders in any animation, and a custom fighter can pick it.
-- [ ] P18-12 - DECIDE more environment interaction: the owner likes the new levels and the object interaction and wants it taken further. Go level by level and list new things to do with objects and the room (builds on P9-02 to P9-04, P17-07, P17-08).
-  Done when: Appendix C has at least 2 new interactions per level, each with what triggers it, how a CPU uses it and how it stays fair to both sides.
-- [ ] P18-13 - Implement P18-12.
-  Done when: each interaction works on touch, gamepad and keyboard and in 1v1, wave and Brawl fights; a self-test triggers each one; the CPU uses them; P14-01 targets and the P0-04 performance check pass.
-- [ ] P18-14 - RESEARCH and DECIDE the X-factor: one genuinely unique feature that gives the game its own identity. Check what the closest games in the genre already do, then write 3 to 5 options with what each costs to build. The owner picks.
-  Done when: the options and their sources are in Appendix B; the owner's choice is in Appendix C with new tasks for it placed before Phase 16.
-- [ ] P18-15 - RESEARCH the Steam price: an honest estimate of what people would pay for the game as it stands today, judged on its current content and quality and not dismissed for being unfinished; a low figure is fine. Compare with similar paid games on Steam (price, reviews, content) and judge the owner's first idea of EUR 2.99, and EUR 5 if the game is polished enough. Fact: informal opinions the owner gathered (not market research) said EUR 3-5 for a smaller indie game and EUR 5-10 depending on quality and content; a friend (2026-11-02) said EUR 3-5 and sees it more as a mobile game (P18-26). This is a market estimate, not a plan to sell it now.
-  Done when: Appendix B has the comparison with sources, a likely price range with the reasoning, and a clear answer on EUR 2.99, EUR 5 and the EUR 5-10 opinion; the owner has read it.
-- [ ] P18-16 - Start side: let the player choose left or right as the side they start on in a level. Fact: a 1v1 in a ring draws the start side from the match seed and swaps it every round (`MatchSim.startSide`), because levels favour one seat; brawls, Training and fights without a ring always start left. DECIDE how the choice works with that rule: which modes offer it, what happens in later rounds, who gets the side when two people pick the same one, and what the CPU does.
-  Done when: Appendix C has the rule; the choice works on touch, gamepad and keyboard in every mode that offers it; "Random" stays the default so the seat balance of P9 holds; the fingerprints pass unchanged when nobody picks a side.
-- [ ] P18-17 - Audit menu selection: find every place where more than the current item looks selected or the look is wrong (owner's example: an outline on items other than the current one). Fact: hover, keyboard focus and the `.sel` class all draw the same outline on buttons, options and cards, so a mouse-over and a focused item can both show it, and so can a remembered pick.
-  Done when: Appendix D lists each finding; on every screen exactly one item looks current with mouse, keyboard, gamepad and touch; a remembered pick has its own different look; a self-test checks the rule on each menu screen.
-- [ ] P18-18 - DECIDE the merge: Versus, Brawl, Co-op Brawl and Free Fight become one mode named Free Fight, with all the options of the four (builds on P4-08's lineup). List every option kept, how the setup screen stays short on a phone, and what happens to Versus's rematch score, Co-op's friendly fire and sitting out after a knockout. Tournament (P11) and online (P12) use the same setup.
-  Done when: Appendix C has the option list with each old mode's option mapped to its new place; nothing a player could set before is lost without a recorded reason.
-- [ ] P18-19 - Implement P18-18: one Free Fight on the mode list, old saves and settings moved over, help and text updated.
-  Done when: every setup the four old modes allowed can be started from Free Fight on touch, gamepad and keyboard; the mode list has no Versus, Brawl or Co-op Brawl; old saves load with their settings; the fingerprints pass.
-- [ ] P18-20 - DECIDE Arcade and Survival brawls: both modes can have brawls against several CPUs or with ally CPUs, set by the player, balanced by difficulty. Decide the options, how many allies and enemies at each difficulty, how allies change the enemy count and rewards, and how they fit Arcade's ladder and Survival's records (with allies on, are records kept apart?).
-  Done when: Appendix C has the table per difficulty and the record rule.
-- [ ] P18-21 - Implement P18-20 with AI for allies and enemies.
-  Done when: Arcade and Survival run with and without allies at every difficulty; the win rates stay within the P14-01 targets with the P0-06 runner; the P0-04 performance check passes with the most fighters allowed.
-- [ ] P18-22 - RESEARCH Urban Reign's group special attacks: how two fighters attack one target together, one holding the target while the other hits it, how they are triggered, how they can be stopped, and what enemies and partners do.
-  Done when: Appendix B has the notes with a source for each fact.
-- [ ] P18-23 - DECIDE our group attack system from P18-22, in our own design: the attacks (at least: one grabs and the other hits; both strike one target), who can start them (people, CPU allies, CPU enemies), the input on touch (P17-06's no-clutter rule), the cost, how the target breaks out, and the damage cap.
-  Done when: Appendix C has the attack list with the input per device, the counter and the numbers.
-- [ ] P18-24 - Implement P18-23: moves, paired animation (hands really meet the target), AI use for allies and enemies, move list, Training demo.
-  Done when: every group attack works in Free Fight, Arcade and Survival on touch, gamepad and keyboard, a self-test starts and escapes each one, no attack hits the air (P17-02's check), and the P14-01 targets pass.
-- [ ] P18-25 - Throwing a fighter into other participants: check whether it hurts them today, across every throw, grapple and team setup. If it does not, DECIDE which is better for the game (damage, a knockdown or stagger only, or no effect) and how friendly fire applies. Owner (2026-11-03): "when throwing an enemy the thrown enemy cant hit other enemies", so today it does not; P18-32 implements the choice.
-  Done when: Appendix C has what the game did and the choice with its reason; if it changes, a self-test covers a thrown fighter meeting an enemy, an ally and a downed fighter, and the P14-01 targets pass.
+Not started on 2026-11-03: moved to the Path section (P18-01, P18-02, P18-03, P18-04, P18-05, P18-06, P18-07, P18-08, P18-09, P18-10, P18-11, P18-12, P18-13, P18-14, P18-15, P18-16, P18-17, P18-18, P18-19, P18-20, P18-21, P18-22, P18-23, P18-24, P18-25, P18-26, P18-27, P18-28, P18-29, P18-30, P18-31, P18-32, P18-33).
 
-Added 2026-11-02 from a friend's feedback that the owner passed on (text in Appendix A). The game stays 3D (owner, 2026-11-02).
+Where the tasks came from (owner text verbatim in Appendix A): P18-01 to P18-25 from the owner feedback of 2026-11-01; P18-26 to P18-31 from the friend feedback of 2026-11-02; P18-32 to P18-35 from the Arcade playtest of 2026-11-03; P18-36 found during P18-34; P18-37 to P18-40 from the owner ideas of 2026-11-03 19:56. The game stays 3D (owner, 2026-11-02).
 
-- [ ] P18-26 - RESEARCH a mobile release and free-to-play: the friend sees it as a mobile game, would download it if free, and would pay about EUR 3-5 for one that caught their interest. Compare ways to put the one-file HTML game on phones (an installable web app, an app-store wrapper), their costs and store rules, and free-to-play models that sell nothing that wins fights (P1-03 rejected an in-game economy) against a one-off price. Feed the result into P18-15.
-  Done when: Appendix B has the options with their sources and costs; Appendix C has a recommendation the owner can pick from, with no change to the game yet.
-- [ ] P18-27 - DECIDE accessibility as part of the game's identity: the friend sees potential if it is easier to get into than games like Tekken. List what a new player must learn today before a first win (inputs, defence, strings, stamina), compare with how Tekken and other 3D fighters teach and simplify it, and decide what to change: a first-fight guide, simpler defaults, assisted inputs, clearer move list. Tips keep the show-once rule. Weigh it as an X-factor option for P18-14.
-  Done when: Appendix C has the list, the comparison with sources in Appendix B and the chosen changes as tasks placed before Phase 16.
-- [ ] P18-28 - Sound design pass: audit every sound in the game (all made in code with the Web Audio API, no sound files), including hits, blocks, footsteps, objects, menus, crowd and music. Find what is missing, repeats too much or sounds thin, then DECIDE the changes.
-  Done when: Appendix C has the sound list with each sound's trigger, its problem and the fix.
-- [ ] P18-29 - Implement P18-28 within the performance budget (P15-02's audio voices).
-  Done when: each listed fix is in; the volume and mute settings still cover every sound; the P0-04 performance check passes.
-- [ ] P18-30 - Graphics polish pass (3D): review lighting, shadows, materials and colour, level detail, effects and menus side by side on phone and desktop, beyond P18-10's fighter details. List what looks unfinished, then DECIDE the changes for each quality preset.
-  Done when: Appendix C has the list with before screenshots and the chosen fix per item.
-- [ ] P18-31 - Implement P18-30.
-  Done when: each fix is in on every quality preset; before and after screenshots are in the report; the P0-04 performance check passes on the low preset.
-
-Added 2026-11-03 from the owner's Arcade playtest (text in Appendix A).
-
-- [ ] P18-32 - Thrown fighters hit others: a thrown enemy flies through the other enemies without touching them. Implement P18-25's choice: the thrown body meets every fighter in its path (enemies, and allies by the friendly-fire rule), with a hit, knockdown or stagger by its speed and weight, sound and flash, on the fixed sim; the CPU uses it (throws towards a group when it can).
-  Done when: a self-test throws a fighter into one and into two standing enemies, an ally and a downed fighter, on every throw that sends a body flying, and each gets the chosen result once; replays and online determinism hold; fingerprints that change are re-recorded with the reason; the P14-01 targets pass.
-- [ ] P18-33 - Stamina rebalance across the game: in Arcade on Easy, with any fighter, stamina runs out very fast and group fights leave no moment to rest and recover. Measure stamina use and recovery today (per move, block, sway, run, item, per style and weight), how long a player is out of stamina in a 1v1 and in each group size, per difficulty and mode; then DECIDE new numbers for the whole game (cost, recovery rate and delay, what recovers it, how many CPUs attack at once and how long they wait at each difficulty) so a fight has a rhythm of pressing and recovering. Easy must be forgiving.
-  Done when: Appendix C has the before and after numbers per difficulty and group size and the reason for each change; a headless run shows a player-like script out of stamina for at most the decided share of a group fight on Easy and Normal; the P14-01 targets and style balance pass; the owner's Easy Arcade run is the final check.
-  Priority (2026-11-03 19:40, The owner said at 19:36, verbatim: "1.,3.,4. select the correct option among the options"): moved up; it is the next task after this stop, before P17-01.
 - [x] P18-34 - CPU item throws: the CPU throws pickable items very often. Measure throws per minute per difficulty and mode today, DECIDE a rate that keeps items a treat (a cooldown, a chance by distance and situation, a cap per fight, fewer on Easy), and apply it to enemies and allies.
   Done when: Appendix C has the before and after rates; a self-test over seeded fights keeps each difficulty inside its decided rate; the CPU still picks up and uses items (P7 tests pass).
   Status (2026-11-03): done in code. A team's CPUs fetch a throwable or a crate only once per rest window (Easy 90 s, Normal 60 s, Hard 45 s, Expert 40 s, `AI_TOSS_REST_TICKS`), enemies and allies alike, no random number; brawl throws per minute fell 39 to 54 percent and the most in one fight from 4 or 5 to 1 to 3. Before and after rates, the decision and the rejected ideas are in Appendix C "P18-34 CPU item throws (2026-11-03)". Self-tests "CPU item throws (P18-34)" (2). Two hazards-and-items fingerprints re-recorded and the Brawl camera and 1v6 brawl tests moved from seed 5 to 6 (reasons in Appendix C; a camera weakness and bodies squeezed in a crowd, both seen on other seeds of the old code, stay open).
-- [ ] P18-35 - Story dialogue: the owner finds the story beats cheesy, as if an AI wrote them, and without cohesion, even after the rewrite of baae2b5. Write it again with a different method: one plain voice, short lines, people who talk like people (no slogans, no grand speeches), and one through-line per run so every beat follows from the one before (the rival, the goal and the setbacks keep coming back, and the ending answers the opening). Show the owner the full text of one run first (all 16 beats for one origin and goal) and wait for an OK before rewriting the rest.
-  Done when: the owner approves the sample run; every origin, goal, rival, boss, setback and epilogue line is rewritten to that sample's standard; the story limits of the self-tests still pass; Appendix C lists the method and the old and new lines.
-- [ ] P18-36 - Crowd camera and body stacking: in some seeded brawls the camera stays hidden behind a prop far too long (Brawl camera, seeds 3 and 8 before P18-34, 5 and 7 after: warehouse 141 ticks, limit 54) and two bodies squeeze closer than 0.3 m (1v6 brawl, seed 2 before, 5 and 9 after). Found during P18-34; both tests now run on seed 6, which passes old and new.
-  Done when: the Brawl camera and 1v6 brawl tests pass on seeds 1 to 12, not one chosen seed.
-
-Added 2026-11-03 19:56 from the owner's ideas (text in Appendix A).
-
-- [ ] P18-37 - Arcade goons and bosses: the brawls of an Arcade run use themed goons built with the character creator, themed after the run's final boss (one of the existing playable fighters: look, clothes, colours, style). Each theme has several goon variants. Goons are weaker than a main fighter (less health, damage and stamina; they come in groups), balanced so a group fight on each difficulty stays inside the P14-01 targets. A run has at most 3 main fighters as bosses; the story can give the player CPU allies. This sets the Arcade half of P18-20 (Survival stays with P18-20).
-  Done when: Appendix C has the goon themes, variants and their numbers per difficulty and the boss and ally rule; every Arcade brawl uses the final boss's goons; no run has more than 3 main-fighter bosses; a headless run of each difficulty keeps the group fights inside the P14-01 targets; self-tests cover the theme pick, the variant count, the boss cap and the allies.
-- [ ] P18-38 - Submissions on the ground: in a ground armbar the attacker floats above the floor. Check every submission and ground hold of every style (attacker and held fighter), find why the bodies leave the floor, and fix the poses so both lie on it.
-  Done when: a self-test runs every submission and ground hold and finds every body part of both fighters within 3 cm above the floor and never below it; before and after screenshots of the armbar are in the report.
-- [ ] P18-39 - Tournament fighter choice (Critical): in Tournament mode the player cannot pick the fighter they enter with. Add the pick (every playable and custom fighter, the same picker as the other modes) for every human entrant before the bracket starts.
-  Done when: each human entrant picks a fighter on keyboard, gamepad and touch; the bracket and every bout use that fighter; a self-test drives the pick and checks the first bout's fighter.
-- [ ] P18-40 - Critical issue sweep: play every mode's whole flow (menu, setup, pick, fight, results, back) on keyboard, gamepad and touch and list every Critical issue (a mode or choice that cannot be used, a soft lock, lost progress, a crash) like P18-39; fix each one.
-  Done when: Appendix D lists every Critical issue found, each fixed with a self-test, and a repeat of the sweep finds none.
+Not started on 2026-11-03: moved to the Path section (P18-35, P18-36, P18-37, P18-38, P18-39, P18-40).
 
 ## Phase 16 - Final audit and release
 
-- [ ] P16-01 - Repeat the full audit (same categories as P0-02) on the final build. Classify Critical, High, Medium, Low, Informational.
-  Done when: Appendix D has the final audit; no Critical or High remain open.
-- [ ] P16-02 - Save migration test: 1.0.0 settings, progress, bindings and custom fighters load correctly.
-  Done when: self-test covers each store key migration.
-- [ ] P16-03 - Device test matrix: low-spec Android phone, iPhone, desktop with keyboard, desktop with gamepad, online 2 and 4 peers.
-  Done when: each row passes or has a recorded known issue.
-- [ ] P16-04 - Update in-game help, About, credits; bump `VERSION`.
-  Done when: all texts match the final features.
+Not started on 2026-11-03: moved to the Path section (P16-01, P16-02, P16-03, P16-04).
 
 ---
 
@@ -611,7 +745,7 @@ Added 2026-11-03 19:56 from the owner's ideas (text in Appendix A).
 | Added 2026-10-31: styles not distinct enough (Capoeira has no acrobatic moves); share only real shared techniques | P17-09, P17-10 |
 | Added 2026-11-03: open review lows of the P17-03 to P17-07 work (sway head, torso and room; sofa; car roofs and racks; crate hint; skipped tests) and of P17-08 (simulated Arcade stages without items) | P17-11 to P17-16 |
 | Added 2026-11-01: faster character movement | P18-01 |
-| Added 2026-11-01: clearer combo breaks and animations, perfect block; consistent, intuitive timing | P18-02, P18-03, P18-04 |
+| Added 2026-11-01: clearer combo breaks and animations, perfect block; consistent, intuitive timing | P18-02, P18-03 + P18-04 |
 | Added 2026-11-01: difficulty selection in all modes, before starting | P18-05 |
 | Added 2026-11-01: a few unique abilities per character | P18-06, P18-07 |
 | Added 2026-11-01: an ultimate ability that needs charging | P18-08, P18-09 |
@@ -622,23 +756,23 @@ Added 2026-11-03 19:56 from the owner's ideas (text in Appendix A).
 | Added 2026-11-01: choose the side you start on in a level | P18-16 |
 | Added 2026-11-01: audit menu selection issues (outline on items other than the current one) | P18-17 |
 | Added 2026-11-01: Co-op Brawl, Brawl, Versus and Free Fight become one Free Fight with all their options | P18-18, P18-19 |
-| Added 2026-11-01: Arcade and Survival brawls against CPUs or with ally CPUs, balanced by difficulty | P18-20, P18-21 |
+| Added 2026-11-01: Arcade and Survival brawls against CPUs or with ally CPUs, balanced by difficulty | P18-20 + P18-37, P18-21 |
 | Added 2026-11-01: group special attacks like Urban Reign (two on one, one grabs and one attacks) | P18-22, P18-23, P18-24 |
-| Added 2026-11-01: does throwing a fighter onto others cause damage; choose what is better | P18-25 |
+| Added 2026-11-01: does throwing a fighter onto others cause damage; choose what is better | P18-25 + P18-32 |
 | Added 2026-11-02 (friend): more of a mobile game; would download it if free-to-play, pay about EUR 3-5 | P18-26, P18-15 |
 | Added 2026-11-02 (friend): its own identity, easier to get into than games like Tekken | P18-27, P18-14 |
 | Added 2026-11-02 (friend): sound design needs work | P18-28, P18-29 |
 | Added 2026-11-02 (friend): graphics need work to feel polished | P18-30, P18-31, P18-10 |
 | Added 2026-11-02 (friend): "2D fighting genre" | none: the owner said the game stays 3D |
-| Added 2026-11-03: a thrown enemy cannot hit other enemies | P18-25, P18-32 |
+| Added 2026-11-03: a thrown enemy cannot hit other enemies | P18-25 + P18-32 |
 | Added 2026-11-03: Arcade on Easy drains stamina very fast with any fighter, no rest in group fights; rebalance for the whole game | P18-33 |
 | Added 2026-11-03: the CPU throws pickable items very often | P18-34 |
 | Added 2026-11-03: story beat dialogue is cheesy, reads as AI-made, no cohesion | P18-35 |
 | Added 2026-11-03 (found in P18-34): crowd camera hides too long, bodies can stack in some seeded brawls | P18-36 |
-| Added 2026-11-03 19:56: Arcade brawls use themed goons after the final boss, weaker, several variants; at most 3 main fighters as bosses; CPU allies by story | P18-37, P18-20 |
+| Added 2026-11-03 19:56: Arcade brawls use themed goons after the final boss, weaker, several variants; at most 3 main fighters as bosses; CPU allies by story | P18-20 + P18-37 |
 | Added 2026-11-03 19:56: ground armbar floats above the floor | P18-38 |
 | Added 2026-11-03 19:56: fix all critical issues, for example no fighter choice in Tournament | P18-39, P18-40 |
-| Added 2026-11-03 19:56: reorder the tasks not started and make them one path without uncertainties | done in the reorder of 2026-11-03 (section 0 and the phase order) |
+| Added 2026-11-03 19:56: reorder the tasks not started and make them one path without uncertainties | done in the Path section (2026-11-03) |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -2834,6 +2968,52 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 - Fingerprints: the three Free Fight hashes (Hard, Easy, Expert; no items) and the old-layout hashes are unchanged. Of the three hazards-and-items hashes (`HAZARD_1V1`) Rooftop is unchanged; Garage went from 54:1ch5240 to 85:1tnve97 and Construction from 49:kjptyk to 84:1lk7k6v, because a team's second brick or crate now waits for the window (the first take and throw of each fight are the same ticks as before: Garage take at tick 81, throw at 87). The test "Brawl camera" walks the player behind each prop with 3 Normal enemies on seed 5; the enemies' new item play moved them and the warehouse camera was hidden 141 ticks (limit 54), so it uses seed 6 now. Seeds 3 and 8 give the same long hiding on the code before this change, so this is a camera weakness that depends on where the enemies stand: not fixed here, open for the owner or a camera task. The same happened to "N fighters: a 1v6 brawl runs to a winner ..." (seed 5, two bodies squeezed to 0.24 m, the test wants over 0.3 m): it uses seed 6 now, and seed 2 squeezed bodies to 0.15 m on the code before this change, so crowding can still stack two bodies in some seeded brawls (now P18-36, with the camera).
 - Easy 1v1 decided 2026-11-03 19:40 (The owner said at 19:36, verbatim: "1.,3.,4. select the correct option among the options"): Easy keeps its 90 s window. Why: the window only holds back a team's second throwable; the first of each fight is untouched, and the Easy 1v1 count was 2 throws in 16 fights before, so a shorter window would not bring more throws to a short Easy 1v1, only to Easy brawls, where the owner asked for fewer.
 - Known lows (review): the Training dummy on a CPU level is not throttled (its AI sits inside the dummy controller), and a CPU walking to a melee item can take a nearer throwable in reach while its window is closed, which restarts the window; both rare. The Easy cap in the test is 0.3 so the rate check binds (the set gave 0.36 before).
+
+### Path reorder (2026-11-03)
+
+- Request (owner, 2026-11-03 19:56, verbatim): "Also for the tasks not yet started reorder logically and normalize them to follow one path without uncertainties and instructions that are x here and y there". Done by the coordinator's delegate; the owner can change any row.
+- What moved: the 61 task IDs that were open and not started (P12-01 to P12-07, P13-02, P14-02 to P14-05, P15-01, P15-02, P16-01 to P16-04, P17-01, P17-02, P17-09, P17-10, P18-01 to P18-33, P18-35 to P18-40) are now in the section "Path - the open tasks in order", in 18 stages. Each old phase keeps one line naming what moved. Left in place: the ticked tasks, the tasks done in code that wait for the owner (P4-08, P6-06, P17-04, P17-05, P17-07, P17-08), and the partly done ones (P11-02, P15-03, P17-03). No ID was changed; no task was dropped.
+- Stage order, with the cause where it is not obvious:
+  1. Critical fixes (P18-39, P18-40); 2. stamina (P18-33, the owner's priority of 2026-11-03 19:40); 3. bugs (P18-38, P18-25 + P18-32, P18-36); 4. the Phase 17 audits and polish (P17-01, P17-02, P17-09, P17-10); 5. timing and speed; 6. modes and difficulty; 7. Arcade and Survival brawls, goons, allies; 8. abilities and the ultimate; 9. group attacks; 10. environment, start side, menu audit; 11. fighter looks; 12. story text; 13. research and identity; 14. audio and visual; 15. balance; 16. online; 17. performance and size; 18. final audit.
+  - P18-18 and P18-19 (the mode merge) run before P18-05 (difficulty), which the owner's list had the other way round: P18-05 lists Versus, Brawl and Co-op Brawl, which the merge removes, so it is done once on the final mode list.
+  - P18-01 (speed) sits in Stage 5 with the timing work, because both re-record fingerprints and the speed must be settled before abilities, group attacks and balance runs.
+  - P18-20 + P18-37 and P18-21 run before the story text P18-35, because the cast and ally rules change which story rows exist.
+  - P18-27 runs before P18-14 (it is one of the X-factor options), and P18-26 before P18-15 (its result feeds the price estimate).
+  - P13-02 runs before the sound pass P18-28 and builds feedback rows 12 and 13 (impact layers, heartbeat), so the audit finds them in place.
+  - P12-05 (determinism) and P12-04 (CSP under WebRTC) run before P12-01, P12-02 and P12-03, which the owner's list had in number order: the netcode needs a deterministic sim and the connection is tested under the real CSP.
+  - P17-02 runs before P17-10, so the new style moves must pass its hit check; the Phase 17 audit P17-01 follows the critical sweep P18-40.
+  - Balance (P14-02 to P14-05) runs after all content, and P14-02 now also lists the abilities, the ultimate, the group attacks and the goon variants.
+  - New tasks that P17-01, P18-27 and P18-14 create are added at the end of their own stage; they replace "before Phase 16".
+- Merges (both IDs kept on the task line):
+  - P18-03 + P18-04: P18-04 (readable timing, flashes, sounds, Training readout, help text) is the second half of P18-03; one Done when.
+  - P18-25 + P18-32: P18-25 was the check and the decision, P18-32 the implementation of that decision; the check comes first (the owner's line covers enemies only).
+  - P18-20 + P18-37: P18-37 sets the Arcade half of P18-20; Survival stays in P18-20. P18-21 implements both.
+  - Appendix A's coverage map was updated for these three merges only.
+- Contradictions resolved (old text, winning rule, source):
+  - P12-01 "DECIDE whether to add QR display / scan" against the decision "QR display: yes; scan only where BarcodeDetector exists" (Appendix C, Online signaling, 2026-10-29): the decision wins; P12-01 now states it.
+  - P12-02 "delay-based or rollback" against "delay-based lockstep, rollback only later" (same entry): the decision wins.
+  - P12-05 and Appendix D row D08 (hitstop halved by Reduced motion, open) against P13-03 (2026-11-02: Reduced motion no longer shortens hitstop): P13-03 wins; P12-05 proves it with a test and closes the row.
+  - P12-06 "usable on touch and gamepad" against global rule 3 (touch, gamepad and keyboard): the rule wins; keyboard added.
+  - P14-02 "each story setting if it affects gameplay" against "story settings never change stats or a fight rule" (Appendix C, Story lists): the story settings are dropped from the table. "age, gender" against "look only" (P6-04, P6-05): they are listed as look only and exempt from the unique-profile rule.
+  - P17-09 against the P1-04 families that share animation: the owner's rule of 2026-10-31 (share only where the real arts do) wins; the share list of P17-09 is the one list.
+  - P18-06, P18-10 "26 fighters" against 32 presets (6 kept + 26 new, P5-04): 32 (as of 2026-10-29).
+  - P18-08 (an ultimate that needs charging) against the P1-03 rejection of resource-spent specials and taunt-for-meter: the owner's request of 2026-11-01 wins; the ultimate uses existing buttons only.
+  - P18-16 "a 1v1 in a ring draws the start side ... fights without a ring always start left" against P17-08 (every 1v1 except Training draws and swaps it, ring or not): P17-08 wins (as of 2026-11-03).
+  - P18-32 "allies by the friendly-fire rule" and the P4-01 rule "CPU enemies never hurt each other" against the owner's "when throwing an enemy the thrown enemy cant hit other enemies" (2026-11-03): the owner wins for thrown bodies only; nothing else about enemy-on-enemy damage changes.
+  - P18-20 "Arcade and Survival allies set by the player" (owner, 2026-11-01) against P18-37 "depending on the story you might get cpu allies" (owner, 2026-11-03 19:56): the newest wins for Arcade (allies come from the story); Survival keeps the player setting. If the owner wants a player setting in Arcade too, this is the one row to change.
+  - P18-37 "at most 3 main fighters as bosses" against the current run, which has 4 (rival A, rival B, boss, ZERO; Appendix C, Arcade story structure): the cap wins; the task decides which one stops being a main fighter (recommended: rival B).
+  - P18-29 "within the performance budget (P15-02's audio voices)" against the order (P15-02 comes later): the cap of 12 impact voices from P13-01 row 12 is the budget.
+  - P18-14, P18-15 and P18-26 keep the owner's own wording (the owner picks the X-factor, has read the price report, picks from the release recommendation); an earlier draft of this reorder had handed those to the coordinator, and the review put them back.
+  - Owner to see: P18-20 + P18-37 themes the goons after the run's final boss, which is ZERO (MARA when the player is ZERO), so a run has 2 goon themes at most; this follows "the character you fight in the end" but narrows the variety.
+  - P17-01 "fix task (P17-02 to P17-10)" listed done tasks: it now names P17-02, P17-09, P17-10 or a new task added at the end of Stage 4.
+  - P18-33 "Priority: moved up; the next task after this stop, before P17-01": now Stage 2, after Stage 1 and before Stage 4.
+- Hedges turned into a recorded choice or a DECIDE (the coordinator picks the recommended option and records it here):
+  - Answered by a recorded decision: QR (P12-01), delay-based or rollback (P12-02), the story settings and gender (P14-02), the sit-out rule, Friendly fire and the Versus score in P18-18 (P4-07, P4-08), the Arcade ally source (P18-20 + P18-37), the ultimate against the rejected specials (P18-08), "if added" for the combo break (P18-03 + P18-04, tied to the choice in P18-02).
+  - Now an explicit DECIDE with a recommended option: speeds (P18-01, +10 percent as a start), combo break A or B and the window (P18-02), the difficulty step (P18-05), the setup screen layout (P18-18), the stamina share (P18-33), the drawn or sim reach of a failing move (P17-02), the thrown-body numbers (P18-25 + P18-32), the final opponent, the boss cap, the goon variant count and the Survival record rule (P18-20 + P18-37), the ability count and how custom fighters get abilities (P18-06), the ultimate's charge, scope, input and cost (P18-08), the start-side rules (P18-16), the X-factor pick (P18-14), the chosen accessibility changes (P18-27).
+  - The share-code and store "version bump if needed" of P18-07 became: the ability field is appended like Age and Gender (no bump; old codes take the default).
+- Numbers and facts corrected, each marked "as of": fighters 26 to 32; the start-side rule (P17-08); the P0-04 benchmark note for P15-01 (not comparable with runs before P17-08); P14-05 now carries the bands of the P14-01 ladder rows; P13-02 now lists the rows of the P13-01 table that are still new.
+- Where a task keeps an owner step: the owner's OK on the story sample (P18-35), the owner's Easy Arcade run (P18-33), the owner's pick of the X-factor (P18-14), the price report (P18-15) and the release choice (P18-26). Everything else is the coordinator's.
+- Checks run on this edit: the list of task IDs with their ticked state before and after is identical (61 open IDs moved, all ticked tasks in place); every ID in the Path stands once; the file keeps its CRLF line endings and its BOM.
 
 ## Appendix D - Audit findings
 
