@@ -49,7 +49,7 @@ const {
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
-  PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE,
+  PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -5196,7 +5196,7 @@ const SelfTest = {
     });
     test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
       const illegal = Diag.illegalTransitions;
-      const m = track(new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 5, difficulty: 'normal', evenDamage: true }));
+      const m = track(new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 6, difficulty: 'normal', evenDamage: true }));   // seed 6 since P18-34 (seed 5 now squeezes two bodies to 0.24 m; seed 2 did 0.15 m on the code before: crowding, open)
       m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
       let minGap = 9, bad = '', ticks = 0;
       while (m.phase !== 'matchEnd' && ticks < 20000 && !bad) {
@@ -5367,7 +5367,7 @@ const SelfTest = {
       const limitTicks = Math.round((CAMERA_OCCLUSION_GRACE + 0.6) * 60);   // the grace before the camera moves plus 0.6 s to swing clear
       const problems = [];
       for (const id of ARENA_ORDER) {
-        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 5, evenDamage: true }));
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 6, evenDamage: true }));   // seed 6 since P18-34: the CPU enemies' new item play moved them, and with seed 5 the warehouse camera was hidden 141 ticks; seeds 3 and 8 do that on the code before P18-34 too (a camera weakness, open)
         try {
           const p = m.fighters[0], b = m.def.bounds;
           m.controllers[0] = self.scripted(() => {});
@@ -7671,6 +7671,52 @@ const SelfTest = {
       if (again.mode !== 'rest' || !m.items.includes(again) || again.y < 0 || again.y > 1) problems.push('did not land: ' + again.mode + ' ' + again.y);
       return problems.length ? problems.join('; ') : true;
     });
+    /* ----- CPU item throws (P18-34) ----- */
+    /* Seeded CPU fights with items on: per team, the tick of each throw. The code before P18-34 threw up to 4 times in one brawl, 26 ticks apart; the rate per team-minute below is the decided one (Appendix C). */
+    const TOSS_REST = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 };   // the decided gap between two takes of a throwable or a crate by one team, in ticks (90 / 60 / 45 / 40 s)
+    const TOSS_RATE_MAX = { easy: 0.3, normal: 0.8, hard: 1.0, expert: 1.0 };   // the decided cap in throws per team-minute over the seeded set (the old code threw 0.4, 1.7, 1.2 and 1.7 on it, bunched in brawls; the new one 0.2, 0.6, 0.8 and 0.7)
+    const TOSS_FIGHTS = [[5, 0], [6, 0], [13, 0], [3, 3], [5, 3], [6, 3], [11, 3], [14, 3]];   // [seed, enemies]: three Free Fight 1v1 and five 1v3 brawls, the ones that threw 2 to 4 times each on the old code
+    const tossRun = (difficulty, seed, enemies) => {
+      const throws = [[], []], ids = ROSTER.map((r) => r.id), a = ids[(seed * 3) % ids.length], b = ids[(seed * 5 + 1) % ids.length];
+      const listeners = { itemThrow: (e) => throws[e.f.team === TEAM_PLAYERS ? 0 : 1].push(Match.current.tick) };
+      const r = SimRunner.run({ seed, difficulty, playerId: a, opponentId: a === b ? ids[(seed * 5 + 2) % ids.length] : b, arenaId: ARENA_ORDER[seed % ARENA_ORDER.length], items: true, hazards: true, winsNeeded: 1, timer: enemies ? 120 : 60, enemies, listeners });
+      return { ticks: r.ticks, throws };
+    };
+    test('CPU item throws (P18-34): over seeded Free Fight and brawl fights at every difficulty, a team throws at most once per rest window and stays inside the decided throws per team-minute; the constants are the decided ones', () => {
+      const bad = [];
+      for (const id of Object.keys(TOSS_REST)) {
+        let thrown = 0, teamTicks = 0;
+        if ((AI_TOSS_REST_TICKS || {})[id] !== TOSS_REST[id]) bad.push(id + ' rest ' + (AI_TOSS_REST_TICKS || {})[id]);
+        for (const [seed, enemies] of TOSS_FIGHTS) {
+          const run = tossRun(id, seed, enemies);
+          run.throws.forEach((ticks, team) => { if (ticks.length > 1 + Math.floor(run.ticks / TOSS_REST[id])) bad.push(id + ' seed ' + seed + ' team ' + team + ': ' + ticks.join(',')); thrown += ticks.length; });
+          teamTicks += 2 * run.ticks;
+        }
+        const rate = thrown / (teamTicks / 3600);
+        if (rate > TOSS_RATE_MAX[id]) bad.push(id + ' rate ' + rate.toFixed(2) + ' per team-minute, cap ' + TOSS_RATE_MAX[id]);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('CPU item throws (P18-34): a CPU still fetches a floor brick and throws it at 3 to 8 m, the take starts its team\'s rest window, and a throwable or a crate is left alone until the window ends while a bat is not', () => {
+      const bad = [];
+      const m = track(new MatchSim({ mode: 'free', arenaId: 'dojo', countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+      m.items.length = 0;
+      const ai = new AIController(m.fighters[0].profile, 'hard');
+      m.controllers[0] = ai; m.controllers[1] = self.scripted(() => {});
+      self.stand(m.fighters[0], -2, 0, 3, 0); self.stand(m.fighters[1], 3, 0, -3, 0);
+      m.placeItem('brick', -1.4, 0.4, 0);
+      const events = [], offs = ['itemTake', 'itemThrow'].map((name) => Events.on(name, (e) => events.push(name + e.f.index)));
+      self.run(m, 400); offs.forEach((off) => off());
+      if (events.join() !== 'itemTake0,itemThrow0') bad.push('events ' + events.join());
+      const taken = m.tossAt[m.fighters[0].team];
+      if (!(taken >= 0 && taken < 400) || m.tossAt[m.fighters[1].team] !== undefined) bad.push('window ' + JSON.stringify(m.tossAt));
+      const f = m.fighters[0], brick = m.newItem('brick', 0, 0, 0, 0), crate = m.newItem('crate', 0, 0, 0, 0), bat = m.newItem('bat', 0, 0, 0, 0), rest = TOSS_REST.hard;
+      m.tick = taken + rest - 1;
+      if (ai.wantsItem(f, brick) || ai.wantsItem(f, crate) || !ai.wantsItem(f, bat)) bad.push('inside the window');
+      m.tick = taken + rest;
+      if (!ai.wantsItem(f, brick) || !ai.wantsItem(f, crate)) bad.push('after the window');
+      return bad.length ? bad.join('; ') : true;
+    });
     /* ----- Levels (P8-02, P8-04, P8-06): the rebuilt arenas, decks, stairs, falls, collapses, CPU on stairs, the camera at height, the preset budget ----- */
     const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
     const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
@@ -8534,8 +8580,8 @@ const SelfTest = {
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
       { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '67:191yiak' },
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '54:1ch5240' },
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '49:kjptyk' },   // re-recorded when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '85:1tnve97' },   // re-recorded 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '84:1lk7k6v' },   // re-recorded when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);

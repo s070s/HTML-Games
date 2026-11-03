@@ -8275,6 +8275,8 @@ const RETREAT_COOLDOWN_TICKS = 600; // before the same fighter may back off agai
 const AI_PICKUP_RANGE = 2.5;          // m: a CPU fetches a floor item this close
 const AI_PICKUP_STOP = 0.45;          // m: it walks onto the item, because it faces its target and the item has to be at its feet or in front
 const AI_THROW_MIN = 3, AI_THROW_MAX = 8; // m: the target distances at which a CPU throws a throwable or a crate
+const isTossItem = (id) => WEAPONS[id].cls === 'throwable' || WEAPONS[id].cls === 'carry'; // the items a CPU throws
+const AI_TOSS_REST_TICKS = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 }; // by difficulty (90 / 60 / 45 / 40 s): once a CPU takes a throwable or a crate, nobody on its team fetches another until then, so a throw stays a treat (P18-34: a group threw every brick in turn)
 const ATTACK_PLAN_KINDS = ['attack', 'grab', 'submit', 'jumpkick']; // the plans that start an attack on the target: they need a token in a crowd
 
 class AIController {
@@ -8301,7 +8303,7 @@ class AIController {
   chainLimit(f) { const c = this.crowd; return c && c.engaged[f.index] ? Math.min(3, TOKEN_CHAIN_LIMIT[this.d.id]) : 3; }
   waitsOnRing(f) { const c = this.crowd; return !!c && c.engaged[f.index] && !c.token[f.index]; }
   /* Item and hazard hooks. considerPickup: an empty-handed fighter with no attack token fetches a floor item within AI_PICKUP_RANGE closer than its target (or uses one in reach); a fighter holding a throwable
-     throws it when the target is AI_THROW_MIN to AI_THROW_MAX away (a crate: even point-blank). Each returns a plan like decide()'s, or null (no item or hazard in the scene: null, no random number drawn). decideRing() and decide() ask the pickup hook, decide() the hazard hook. */
+     throws it when the target is AI_THROW_MIN to AI_THROW_MAX away (a crate: even point-blank); a throwable or a crate is fetched only when its team's rest window (AI_TOSS_REST_TICKS) is over. Each returns a plan like decide()'s, or null (no item or hazard in the scene: null, no random number drawn). decideRing() and decide() ask the pickup hook, decide() the hazard hook. */
   considerPickup(f, opp, dist) {
     const match = this.match;
     if (!match || !f.alive || (this.crowd && this.crowd.token[f.index])) return null;
@@ -8317,7 +8319,8 @@ class AIController {
     }
     return best ? { kind: 'pickup', ticks: 90, item: best } : null;
   }
-  wantsItem(f, loose) { return loose.id !== 'binlid' || f.defense === 'block'; } // the lid turns a Sway fighter's dodge into a block: a CPU that sways leaves it
+  wantsItem(f, loose) { return (loose.id !== 'binlid' || f.defense === 'block') && (!isTossItem(loose.id) || this.tossReady(f)); } // the lid turns a Sway fighter's dodge into a block: a CPU that sways leaves it
+  tossReady(f) { const last = this.match.tossAt[f.team]; return last === undefined || this.match.tick - last >= AI_TOSS_REST_TICKS[this.d.id]; }
   considerThrow(f, opp, dist) {
     const w = f.itemDef;
     if (w.cls !== 'throwable' && w.cls !== 'carry') return null;
@@ -9081,7 +9084,7 @@ class AIController {
       case 'ring': this.ringStep(f, it, opp); break;
       case 'pickup': { // walk onto the item, then press Use once
         const loose = p.item;
-        if (f.item || loose.mode !== 'rest' || !this.match.items.includes(loose)) { this.plan = null; break; }
+        if (f.item || loose.mode !== 'rest' || !this.match.items.includes(loose) || !this.wantsItem(f, loose)) { this.plan = null; break; } // a team-mate took the team's treat on the way: drop the plan
         const dx = loose.x - f.x, dz = loose.z - f.z;
         if (Math.hypot(dx, dz) > AI_PICKUP_STOP && this.match.itemInReach(f) !== loose) { this.moveToward(f, it, dx, dz, false); break; }
         it.use = true; this.plan = null;
@@ -9567,6 +9570,7 @@ class MatchSim {
     this.itemsOn = this.cfg.items !== false; // the Items setting: off = nothing lies about, nothing to pick up
     this.items = [];                           // the loose items of the scene (see newItem)
     this.itemSeq = 0;
+    this.tossAt = {};                          // team -> tick at which a CPU of that team last took a throwable or a crate (AI_TOSS_REST_TICKS)
     this.hazardsOn = this.cfg.hazards !== false; // the Hazards setting: off = the arena is safe, nothing is placed
     this.hazards = [];                         // the hazards of the scene (see newHazard)
     this.hazardSeq = 0;
@@ -10001,6 +10005,7 @@ class MatchSim {
     if (at < 0 || f.item || loose.mode !== 'rest') return false;
     this.items.splice(at, 1);
     f.item = { id: loose.id, dur: loose.dur, sprays: loose.sprays };
+    if (isTossItem(loose.id) && this.controllers[f.index] instanceof AIController) this.tossAt[f.team] = this.tick; // a CPU's take opens its team's rest window (AI_TOSS_REST_TICKS)
     Events.emit('itemTake', { f, id: loose.id, x: loose.x, y: loose.y, z: loose.z });
     return true;
   }
@@ -15491,7 +15496,7 @@ function testApi() {
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
-    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE,
+    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
