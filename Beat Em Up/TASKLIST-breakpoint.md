@@ -534,6 +534,17 @@ Added 2026-11-03 from the owner's Arcade playtest (text in Appendix A).
 - [ ] P18-36 - Crowd camera and body stacking: in some seeded brawls the camera stays hidden behind a prop far too long (Brawl camera, seeds 3 and 8 before P18-34, 5 and 7 after: warehouse 141 ticks, limit 54) and two bodies squeeze closer than 0.3 m (1v6 brawl, seed 2 before, 5 and 9 after). Found during P18-34; both tests now run on seed 6, which passes old and new.
   Done when: the Brawl camera and 1v6 brawl tests pass on seeds 1 to 12, not one chosen seed.
 
+Added 2026-11-03 19:56 from the owner's ideas (text in Appendix A).
+
+- [ ] P18-37 - Arcade goons and bosses: the brawls of an Arcade run use themed goons built with the character creator, themed after the run's final boss (one of the existing playable fighters: look, clothes, colours, style). Each theme has several goon variants. Goons are weaker than a main fighter (less health, damage and stamina; they come in groups), balanced so a group fight on each difficulty stays inside the P14-01 targets. A run has at most 3 main fighters as bosses; the story can give the player CPU allies. This sets the Arcade half of P18-20 (Survival stays with P18-20).
+  Done when: Appendix C has the goon themes, variants and their numbers per difficulty and the boss and ally rule; every Arcade brawl uses the final boss's goons; no run has more than 3 main-fighter bosses; a headless run of each difficulty keeps the group fights inside the P14-01 targets; self-tests cover the theme pick, the variant count, the boss cap and the allies.
+- [ ] P18-38 - Submissions on the ground: in a ground armbar the attacker floats above the floor. Check every submission and ground hold of every style (attacker and held fighter), find why the bodies leave the floor, and fix the poses so both lie on it.
+  Done when: a self-test runs every submission and ground hold and finds every body part of both fighters within 3 cm above the floor and never below it; before and after screenshots of the armbar are in the report.
+- [ ] P18-39 - Tournament fighter choice (Critical): in Tournament mode the player cannot pick the fighter they enter with. Add the pick (every playable and custom fighter, the same picker as the other modes) for every human entrant before the bracket starts.
+  Done when: each human entrant picks a fighter on keyboard, gamepad and touch; the bracket and every bout use that fighter; a self-test drives the pick and checks the first bout's fighter.
+- [ ] P18-40 - Critical issue sweep: play every mode's whole flow (menu, setup, pick, fight, results, back) on keyboard, gamepad and touch and list every Critical issue (a mode or choice that cannot be used, a soft lock, lost progress, a crash) like P18-39; fix each one.
+  Done when: Appendix D lists every Critical issue found, each fixed with a self-test, and a repeat of the sweep finds none.
+
 ## Phase 16 - Final audit and release
 
 - [ ] P16-01 - Repeat the full audit (same categories as P0-02) on the final build. Classify Critical, High, Medium, Low, Informational.
@@ -624,6 +635,10 @@ Added 2026-11-03 from the owner's Arcade playtest (text in Appendix A).
 | Added 2026-11-03: the CPU throws pickable items very often | P18-34 |
 | Added 2026-11-03: story beat dialogue is cheesy, reads as AI-made, no cohesion | P18-35 |
 | Added 2026-11-03 (found in P18-34): crowd camera hides too long, bodies can stack in some seeded brawls | P18-36 |
+| Added 2026-11-03 19:56: Arcade brawls use themed goons after the final boss, weaker, several variants; at most 3 main fighters as bosses; CPU allies by story | P18-37, P18-20 |
+| Added 2026-11-03 19:56: ground armbar floats above the floor | P18-38 |
+| Added 2026-11-03 19:56: fix all critical issues, for example no fighter choice in Tournament | P18-39, P18-40 |
+| Added 2026-11-03 19:56: reorder the tasks not started and make them one path without uncertainties | done in the reorder of 2026-11-03 (section 0 and the phase order) |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -772,6 +787,21 @@ In terms of gameplay, if it can establish its own identity within the 2D fightin
 new tasks
 -when throwing an enemy the thrown enemy cant hit other enemies
 -In arcade on easy difficulty regardless of whom you choose stamina is drained very fast and im left fighting groups without being able to rest replenish stamina.Rebalance this according to the whole game. Also cpu throws pickables very frequently.The dialog in story beats is cheesy and definitely reads as AI made it and without cohesion
+```
+
+### Owner's ideas of 2026-11-03 19:56 (verbatim)
+
+```text
+For breakpoint i have some ideas
+-In Arcade the brawls use themed goons that utilize the character creator.They are themed according to the character you fight in the end (one of the existing playable characters). Goons have several variants and due to them being fought at groups they are weaker (balance things out).
+The main characters used as bosses can be at max 3 and depending on the story you might get cpu allies too.
+
+-Submissions look wrong. On a ground armbar i float above the ground for some reason.
+
+-Fix all critical issues like the following
+On Tournament mode i cant select the character with which i participate
+
+Also for the tasks not yet started reorder logically and normalize them to follow one path without uncertainties and instructions that are x here and y there
 ```
 
 ## Appendix B - Research log
