@@ -5,6 +5,12 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Stop of 2026-11-03 20:25 (weekly usage 37 to 38%, under the 40% rule). main == origin/main. This bullet wins over the older ones below where they differ:**
+  - Owner 19:56 ideas recorded as tasks (Appendix A has the text): P18-37 Arcade goons themed after the final boss with at most 3 bosses, merged into P18-20; P18-38 ground submissions float; P18-39 Tournament fighter choice; P18-40 critical issue sweep.
+  - 572c8ea: the tasklist now has one **Path** section after section 3: every not-started task in 18 stages, in order, each with one rule and no hedges; owner picks kept. Work it top to bottom. The 9 open tasks done in code and waiting for the owner's device check stay in their phases.
+  - 53aa2ce: P18-39 done and ticked (with nobody joined, Start opens the fighter screen). 495/495 browser self-tests; breakpoint.html is about 1,167,400 LF bytes.
+  - **Next:** Path stage 1: P18-40 (critical issue sweep), then stage 2 P18-33 stamina, then on down the Path.
+  - **Owner to see:** the goons take the theme of the final boss, ZERO (or MARA when you play ZERO), so a run has 2 goon themes at most; a joined keyboard or gamepad picks its Tournament fighter one step at a time, with no grid.
 - **Stop of 2026-11-03 19:35 (weekly usage 36%, under the owner's 40% rule of 16:31; one more batch would have come too close). main == origin/main. This bullet wins over the older ones below where they differ:**
   - **Done after 17:20**, each reviewed by Opus and browser-tested, and pushed:
     - 3c38637 P17-06 context actions, ticked after the owner's 19:36 answer. One Use press takes the item in front, else the nearest within 1.4 m on any side (floor, table, shelf), never through a wall or tall rack; a bright ring marks it; a short press throws on release; holding Use 0.5 s sets the item down; crouch has no item job; CPU unchanged. Waits for the owner: it overrides the P7-03 "no hold" decision (a tap throw now leaves 17 to 200 ms later, on release), and a phone look. Scheme in Appendix C "P17-06 context actions".
