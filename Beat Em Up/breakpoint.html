@@ -621,7 +621,7 @@ const SETTING_DEFS = {
   friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
-  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off keeps both fighters inside it. Versus and Free Fight only; from the next match.' },
+  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Versus and Free Fight only; from the next match.' },
   storyScenes: { type: 'enum', options: ['full', 'short', 'off'], def: 'full', label: 'Story scenes', labels: { full: 'Full', short: 'Short', off: 'Off' }, hint: 'The little scenes of Arcade. Full shows every line, Short only the first line of each scene, Off skips the scenes (the choice after stage 2 is then "Offer a hand").' },
   storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
@@ -3112,24 +3112,22 @@ function buildProps(id) {
   // The floor is a single quad; its pattern (lines, planks, mat, stains) is drawn by the floor shader (uFloor).
   propBox(p, 0, -0.1, 0, 60, 0.2, 40, '#555555', { l: LAYER.GROUND });
   if (id === 'warehouse') {
-    propBox(p, 0, 3.5, -7.4, 30, 7, 0.4, '#454a52');
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5, -7.15, 0.26, 7, 0.22, '#363a41');
-    propBox(p, 1.5, 1.7, -7.08, 5, 3.4, 0.16, '#6b727c');
-    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.96, 5, 0.04, 0.06, '#4b5159');
-    propBox(p, -12.4, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 12.4, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
+    propBox(p, 0, 3.5, -6.8, 30, 7, 0.4, '#454a52');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5, -6.67, 0.26, 7, 0.22, '#363a41');
+    propBox(p, 1.5, 1.7, -6.62, 5, 3.4, 0.16, '#6b727c');
+    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 5, 0.04, 0.06, '#4b5159');
+    propBox(p, -11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
     for (const x of [-8, -4, 0, 4, 8]) { propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222'); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4 }); }
-    propBox(p, -12.1, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c');   // the loading-bay door above the dock
-    for (let i = 0; i < 9; i++) propBox(p, -12.0, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
-    propCyl(p, -11.0, 0.5, -6.95, 0.8, 1.0, '#a3361f'); propCyl(p, -8.8, 0.5, -6.95, 0.8, 1.0, '#2d5a8c'); propCyl(p, 2.5, 0.5, -6.95, 0.8, 1.0, '#6b6f78');   // barrels and pallets stand behind the back line (no collider): nobody can reach them
-    for (let i = 0; i < 3; i++) propBox(p, 4.2 + i * 0.9, 0.12, -6.95, 0.7, 0.24, 0.9, '#8a5f30');
+    propBox(p, -11.57, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c');   // the loading-bay door above the dock
+    for (let i = 0; i < 9; i++) propBox(p, -11.525, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
   } else if (id === 'dojo') {
-    propBox(p, 0, 3.0, -6.8, 24, 6, 0.4, '#d5dae0');
-    propBox(p, 0, 0.5, -6.55, 24, 1.0, 0.3, '#2b3a4a');
-    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.57, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 });   // mirror strips
-    propBox(p, -10.6, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.6, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
-    propBox(p, 0, 3.2, -6.5, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.45, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.45, 0.14, 1.2, 0.04, '#f4f0e6');
+    propBox(p, 0, 3.0, -6.3, 24, 6, 0.4, '#d5dae0');
+    propBox(p, 0, 0.5, -6.15, 24, 1.0, 0.3, '#2b3a4a');
+    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.085, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 });   // mirror strips
+    propBox(p, -10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
+    propBox(p, 0, 3.2, -6.05, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6');
     for (const x of [-6, -2, 2, 6]) { propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7 }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222'); }   // fluorescent strips
-    for (const z of [-5.6, 4.8]) propBox(p, -10.3, 2.5, z, 0.45, 5, 0.45, '#9aa3ad');
+    for (const z of [-5.6, 4.8]) propBox(p, -10.1, 2.5, z, 0.2, 5, 0.45, '#9aa3ad');
   } else if (id === 'rooftop') {
     for (let i = 0; i < 16; i++) {   // the city beyond the roof edge: dark towers with a few lit windows
       const h = 6 + (i * 7) % 9, x = -24 + i * 3.2, z = -13 - (i % 3) * 3.5;
@@ -3144,23 +3142,23 @@ function buildProps(id) {
     propBox(p, 5.8, 3.5, -4.8, 1.0, 0.16, 1.0, '#4a2f28');   // the chimney's cap
     for (let i = 0; i < 5; i++) propSph(p, 5.6 + i * 0.8, 3.2, 4.8, 0.09, '#ffe3a0', { e: 2 });   // string lights over the lounge
   } else if (id === 'subway') {
-    propBox(p, 0, 3.2, -7.5, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -7.26, 30, 0.9, 0.06, '#1f5f8f');   // the tiled wall behind the track and the blue station band
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -7.28, 0.05, 6.4, 0.05, '#aab2b8');
-    propBox(p, 12.4, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.4, 3.0, 0, 0.4, 6, 17, '#cfd6da');
+    propBox(p, 0, 3.2, -6.8, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -6.56, 30, 0.9, 0.06, '#1f5f8f');   // the tiled wall behind the track (its face on the back bound) and the blue station band
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -6.58, 0.05, 6.4, 0.05, '#aab2b8');
+    propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507');   // the tunnel mouth in the east wall
-    propBox(p, 3.0, 3.8, -7.2, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -7.17, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 });   // the station name board
+    propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 });   // the station name board
     for (const x of [-8, -4, 0, 4, 8]) { propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8 }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222'); }   // fluorescent tubes
     for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 });   // red warning lamps along the platform edge
     propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 });   // the ticket hall's wall under the sign
   } else if (id === 'garage') {
-    propBox(p, 0, 2.2, -7.5, 30, 4.4, 0.5, '#6e716f'); propBox(p, -12.0, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 12.0, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
-    for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.2, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a');   // hazard stripes on the wall foot
+    propBox(p, 0, 2.2, -7.35, 30, 4.4, 0.5, '#6e716f'); propBox(p, -11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
+    for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.05, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a');   // hazard stripes on the wall foot
     for (const x of [-7, -2, 3, 8]) { propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7 }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222'); }   // green-white tubes
-    propBox(p, 4.0, 3.0, -7.2, 1.6, 0.9, 0.06, '#1f7f4f', { e: 0.5 }); propBox(p, 4.0, 3.0, -7.16, 0.8, 0.5, 0.04, '#f4f4f4', { e: 0.7 });   // the level sign
-    propBox(p, 9.8, 2.4, -7.2, 1.6, 0.2, 0.08, '#f4f4f4', { e: 0.8 });   // EXIT over the stairwell door
+    propBox(p, 4.0, 3.0, -7.05, 1.6, 0.9, 0.06, '#1f7f4f', { e: 0.5 }); propBox(p, 4.0, 3.0, -7.01, 0.8, 0.5, 0.04, '#f4f4f4', { e: 0.7 });   // the level sign
+    propBox(p, 9.8, 2.4, -7.05, 1.6, 0.2, 0.08, '#f4f4f4', { e: 0.8 });   // EXIT over the stairwell door
     propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a');   // the ticket booth's counter
   } else if (id === 'construction') {
-    propBox(p, 0, 3.5, -7.6, 30, 7, 0.5, '#6b6a66');   // the unfinished building behind the scaffold
+    propBox(p, 0, 3.5, -7.35, 30, 7, 0.5, '#6b6a66');   // the unfinished building behind the scaffold
     for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5, -7.25, 0.5, 7, 0.4, '#8a8984');
     for (const y of [3.2, 6.4]) propBox(p, 0, y, -7.2, 30, 0.35, 0.8, '#8a8984');
     for (let i = 0; i < 12; i++) propCyl(p, -13 + i * 2.4, 7.2, -7.2, 0.05, 1.4, '#7a4a2a');   // rebar sticking out of the top
@@ -3169,19 +3167,19 @@ function buildProps(id) {
     for (let i = 0; i < 6; i++) propBox(p, 9.4, 0.5, -1.5 + i * 0.7, 0.04, 0.9, 0.5, i % 2 ? '#d6b32a' : '#2a2a2a');   // the tape round the lift shaft
     propBox(p, -11.4, 1.5, 3.0, 0.2, 3, 3.6, '#7a7d82', { l: LAYER.ALPHA, a: 0.35 });   // the site gate in the mesh fence
   } else if (id === 'club') {
-    propBox(p, 0, 3.0, -7.5, 24, 6, 0.4, '#0c0a12'); propBox(p, -11.4, 3.0, 0, 0.4, 6, 16, '#0c0a12'); propBox(p, 11.4, 3.0, 0, 0.4, 6, 16, '#0c0a12');
-    propBox(p, 0, 4.0, -7.2, 8, 3.0, 0.1, '#6a2bd6', { e: 1.2 }); propBox(p, 0, 4.0, -7.14, 7.4, 2.4, 0.06, '#1b0f3a', { e: 0.5 });   // the DJ screen
-    for (let i = 0; i < 8; i++) propBox(p, -10 + i * 2.9, 5.4, -7.2, 0.12, 0.12, 0.12, i % 3 ? '#ff3fae' : '#3f8cff', { e: 2.2 });   // moving lights, never aimed at the fighters
+    propBox(p, -11.45, 3.0, -7.3, 1.1, 6, 0.4, '#0c0a12'); propBox(p, 2.75, 3.0, -7.3, 18.5, 6, 0.4, '#0c0a12'); propBox(p, -8.7, 3.0, -7.9, 4.8, 6, 0.4, '#0c0a12'); propBox(p, -6.4, 3.0, -7.6, 0.2, 6, 0.2, '#0c0a12'); propBox(p, -11.3, 3.0, 0, 0.4, 6, 16, '#0c0a12'); propBox(p, 11.3, 3.0, 0, 0.4, 6, 16, '#0c0a12');
+    propBox(p, 0, 4.0, -7.05, 8, 3.0, 0.1, '#6a2bd6', { e: 1.2 }); propBox(p, 0, 4.0, -7.02, 7.4, 2.4, 0.06, '#1b0f3a', { e: 0.5 });   // the DJ screen
+    for (let i = 0; i < 8; i++) propBox(p, -10 + i * 2.9, 5.4, -7.04, 0.12, 0.12, 0.12, i % 3 ? '#ff3fae' : '#3f8cff', { e: 2.2 });   // moving lights, never aimed at the fighters
     propBox(p, 0, 5.6, -2, 16, 0.08, 0.08, '#ff3fae', { e: 1.6 }); propBox(p, 0, 5.2, 2, 16, 0.08, 0.08, '#3f8cff', { e: 1.6 });   // LED strips
     propSph(p, 0, 4.4, 1.2, 0.35, '#e8e8f4', { e: 0.8 });   // the mirror ball
-    propBox(p, -10.92, 2.0, 5.4, 0.12, 4, 1.4, '#6a2bd6', { e: 0.6 });   // the front door
-    for (let i = 0; i < 5; i++) propCyl(p, -10.6 + i * 0.9, 0.55, -7.2, 0.42, 1.1, '#07060c', { bob: 0.04 + (i % 4) * 0.012, ph: i * 1.3 });   // the crowd behind the back line, silhouettes
+    propBox(p, -11.04, 2.0, 5.4, 0.12, 4, 1.4, '#6a2bd6', { e: 0.6 });   // the front door
+    for (let i = 0; i < 5; i++) propCyl(p, -10.6 + i * 0.9, 0.55, -7.45, 0.42, 1.1, '#07060c', { bob: 0.04 + (i % 4) * 0.012, ph: i * 1.3 });   // the crowd in a recess of the back wall, silhouettes
   } else if (id === 'pit') {
-    propBox(p, 0, 2.0, -7.5, 30, 4, 0.5, '#26272c'); propBox(p, -11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c'); propBox(p, 11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c');
-    propBox(p, 0, 3.2, -7.1, 22, 0.28, 0.28, '#5a5f66'); propBox(p, 0, 2.6, -7.1, 22, 0.2, 0.2, '#4a4f56');   // the boiler wall's pipes
-    for (const x of [-9, -4, 3, 9]) propCyl(p, x, 1.6, -7.05, 0.3, 3.2, '#4a4f56');
-    for (let i = -12; i <= 12; i++) propCyl(p, i * 1.2, 4.55, -7.0, 0.06, 1.1, '#1a1a1e');
-    propBox(p, 0, 5.1, -7.0, 30, 0.08, 0.08, '#1a1a1e');
+    propBox(p, 0, 2.0, -6.85, 30, 4, 0.5, '#26272c'); propBox(p, -10.35, 2.0, -0.5, 0.5, 4, 17, '#26272c'); propBox(p, 10.35, 2.0, -0.5, 0.5, 4, 17, '#26272c');
+    propBox(p, 0, 3.2, -6.69, 22, 0.28, 0.28, '#5a5f66'); propBox(p, 0, 2.6, -6.65, 22, 0.2, 0.2, '#4a4f56');   // the boiler wall's pipes
+    for (const x of [-9, -4, 3, 9]) propCyl(p, x, 1.6, -6.7, 0.3, 3.2, '#4a4f56');
+    for (let i = -12; i <= 12; i++) propCyl(p, i * 1.2, 4.55, -6.58, 0.06, 1.1, '#1a1a1e');
+    propBox(p, 0, 5.1, -6.58, 30, 0.08, 0.08, '#1a1a1e');
     propBox(p, 0, 4.0, -8.9, 30, 0.5, 3, '#1b1b1f');
     for (let i = 0; i < 30; i++) {
       const x = -13 + i * 0.9;
@@ -3189,7 +3187,7 @@ function buildProps(id) {
       propSph(p, x, 5.65, -8.6 - (i % 2) * 0.5, 0.13, '#0d0d10', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
     }
     for (const x of [-6, 0, 6]) { propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0 }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111'); }
-    propBox(p, 10.8, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 });   // the street door above the landing
+    propBox(p, 10.07, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 });   // the street door above the landing
   }
   return p;
 }
@@ -8243,14 +8241,14 @@ const Story = {
   /* The options of SimRunner.run for a stage config (a headless fight of the stage). */
   simOpts(cfg) {
     const brawl = cfg.mode === 'brawl';
-    const opts = { playerId: cfg.playerId, arenaId: cfg.arenaId, difficulty: cfg.difficulty, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer, ring: !brawl, enemies: brawl ? 1 : 0, waves: brawl, matchCfg: cfg };
+    const opts = { playerId: cfg.playerId, arenaId: cfg.arenaId, difficulty: cfg.difficulty, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer, sides: !brawl, enemies: brawl ? 1 : 0, waves: brawl, matchCfg: cfg };
     if (cfg.opponentId) opts.opponentId = cfg.opponentId;   // a brawl has no single opponent: SimRunner keeps its default
     return opts;
   },
-  /* Where a scene at stage n puts its cast: the fighter on its round 1 start side (MatchSim.sideFor), STORY_CAST_GAP from the ring centre; a brawl keeps the fighter on the left. */
+  /* Where a scene at stage n puts its cast: the fighter on its round 1 start side (MatchSim.sideFor), STORY_CAST_GAP from the middle of the room (a stage fight has the whole room, P17-08); a brawl keeps the fighter on the left. */
   cast(run, n) {
-    const ring = this.foe(run, n) ? ARENAS[this.arena(run, n)].ring : null, side = ring ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1, cx = ring ? ring[0] : 0;
-    return { side, playerX: cx - side * STORY_CAST_GAP, otherX: cx + side * STORY_CAST_GAP, z: ring ? ring[1] : 0 };
+    const side = this.foe(run, n) ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1;
+    return { side, playerX: -side * STORY_CAST_GAP, otherX: side * STORY_CAST_GAP, z: 0 };
   },
   /* A line about stage n for the story screen. */
   stageInfo(run, n) {
@@ -10783,9 +10781,9 @@ class MatchSim {
 
   /* Which start spot the first fighter takes (P9 balance): 1 = the left one (ring centre - spawn), -1 = the right one. The layouts of the levels are not mirror images (a barrel, a falling load or a pile of items lies nearer one start
      spot), so a seat that always started on the left always got the same side of them. A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after; no random number is drawn, so the match's sequence is untouched.
-     Brawls, Training and fights without a ring always start on the left. */
+     Brawls and Training always start on the left, and so does a fight with neither a ring nor `sides` (the simulation runner's default; Game.beginMatch sets sides for every 1v1 but Training, P17-08). */
   startSide() {
-    if (!Arena.ring || this.brawl || this.training) return 1;
+    if (!(Arena.ring || this.cfg.sides) || this.brawl || this.training) return 1;
     return MatchSim.sideFor(this.cfg.seed, this.round);
   }
   /* The start side of round `round` of a 1v1 in a ring with this match seed (1 = left, -1 = right): startSide above and the story cutscenes (Story.cast) read the same rule. */
@@ -11260,7 +11258,7 @@ const SimRunner = {
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, sides: cfg.sides === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, stage));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -11643,7 +11641,7 @@ const Tournament = {
   winsOf(t, entrant) { return t.matches.reduce((sum, round) => sum + round.filter((match) => match.winner === entrant).length, 0); },
   roundName(t, round) { return TOURNAMENT_ROUND_NAMES[this.rounds(t) - 1 - round] || 'Round ' + (round + 1); },
   matchNumber(t, round, index) { return t.size - (t.size >> round) + index; },   // the matches of the rounds before it, then its place in the round
-  /* The level, round wins and clock of a round: the levels with a ring-out edge in turn, ring-out on, no items or hazards. */
+  /* The level, round wins and clock of a round: the levels with a ring-out edge in turn, no items or hazards; the whole room, with the ring only under the Ring-out setting (P17-08). */
   rules(t, round) {
     return { arenaId: TOURNAMENT_STAGES[round % TOURNAMENT_STAGES.length], winsNeeded: round === this.rounds(t) - 1 ? TOURNAMENT_FINAL_WINS : 1, timer: TOURNAMENT_TIMER };
   },
@@ -11660,7 +11658,7 @@ const Tournament = {
   /* Plays a CPU against CPU match headless and returns { winner, wins }; a run that reached the time cap goes to the side with more health left, then to the first side. */
   simulate(t, ref) {
     const sides = this.sides(t, ref.round, ref.index), rules = this.rules(t, ref.round);
-    const result = SimRunner.run({ playerId: t.entrants[sides[0]].id, opponentId: t.entrants[sides[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, seed: (t.seed + this.matchNumber(t, ref.round, ref.index)) >>> 0, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: true, ringOut: true });
+    const result = SimRunner.run({ playerId: t.entrants[sides[0]].id, opponentId: t.entrants[sides[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, seed: (t.seed + this.matchNumber(t, ref.round, ref.index)) >>> 0, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: Settings.v.ringOut === true, ringOut: Settings.v.ringOut === true, sides: true });   // as Game.beginMatch sets a live bout up
     if (result.error) return { winner: sides[0], wins: [0, 0] };
     const side = result.winner === 0 || result.winner === 1 ? result.winner : result.hpLeft[1] > result.hpLeft[0] ? 1 : 0;
     return { winner: sides[side], wins: result.wins };
@@ -12156,7 +12154,7 @@ const Game = {
     this.run = { mode: 'tournament', player: entrants[order[0]].id };
     t.open = { round: ref.round, index: ref.index };
     this.saveTournament();
-    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: true, ringOut: true, items: false, hazards: false,
+    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, items: false, hazards: false,
       seats: this.tournamentSeats ? order.map((i) => entrants[i].human) : undefined });
   },
   /* A bracket fight left before its end (the Quit button): see Tournament.forfeitWinner. */
@@ -12271,9 +12269,10 @@ const Game = {
     if (!cfg.keepSeed) cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;   // a story stage (P10-03) brings its own seed, so its cutscene knows the start side
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false;   // read at every start, so a rematch follows the Options toggle
     if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false;   // the same for the Hazards setting (P7-05)
-    if (cfg.mode !== 'brawl') {   // a 1v1 fights inside its level's ring (P8-05); the Ring-out setting adds the loss by leaving it, in Versus and Free Fight only
-      if (cfg.ring === undefined) cfg.ring = true;
+    if (cfg.mode !== 'brawl') {   // a 1v1 has the whole room (P17-08); only the Ring-out setting, on a level that has a ring edge, fences it into the level's ring (P8-05) and adds the loss by leaving it, in Versus and Free Fight only. A Tournament bout passes its own ring
       if (cfg.ringOut === undefined) cfg.ringOut = Settings.v.ringOut === true && (cfg.mode === 'versus' || cfg.mode === 'free');
+      if (cfg.ring === undefined) cfg.ring = cfg.ringOut && !!(ARENAS[cfg.arenaId] || ARENAS.warehouse).ring[4];
+      if (cfg.sides === undefined) cfg.sides = cfg.mode !== 'training';   // the first fighter's start side is drawn per match and swapped every round (P9 seat balance), in a ring or not
     }
     if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire;   // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
@@ -12308,7 +12307,7 @@ const Game = {
     const again = Object.assign({}, this.config);
     delete again.items;   // read the Items setting again, like friendly fire
     delete again.hazards;
-    delete again.ringOut;
+    delete again.ringOut; delete again.ring;
     this.beginMatch(again);
   },
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
@@ -13013,7 +13012,7 @@ const MODE_INFO = {
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
   brawl: { label: 'Brawl', desc: 'Up to eight fighters in one fight: choose who is a player and who is the CPU, and who is on which team, or fight free-for-all.' },
   coop: { label: 'Co-op Brawl', desc: 'Up to four players on keyboards and gamepads against a crowd. A knocked-out player sits out until the brawl is over.' },
-  tournament: { label: 'Tournament', desc: 'A knock-out bracket of 8 or 16 fighters, with ring-outs. Win every fight to be champion; lose one and you are out. One to four players share a bracket, and the CPU plays the other places.' },
+  tournament: { label: 'Tournament', desc: 'A knock-out bracket of 8 or 16 fighters, on the levels with a ring edge (turn Ring-out on in the Settings to fence the fights into the ring). Win every fight to be champion; lose one and you are out. One to four players share a bracket, and the CPU plays the other places.' },
 };
 const SETUP_LABEL = { free: 'FREE FIGHT', versus: 'VERSUS', brawl: 'BRAWL' };   // what a lineup match is called on the HUD (cfg.setupMode)
 const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };

@@ -8793,6 +8793,252 @@ const SelfTest = {
       if (!garageClose) problems.push('the walk never came near a Garage tube, so the test proved nothing');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     }));
+    /* ----- P17-08: arena bounds (Appendix C "P17-08 arena bounds"): a level's bounds are its real walls, a 1v1 has the whole room ----- */
+    const WALL_SLACK = 0.15;   // m: a body stops at most this far (plus its radius) short of a wall or of a solid thing
+    const wallFaces = {}, isWallProp = (p) => p.l === LAYER.SOLID && p.sy >= 4 && ((p.sx <= 0.6 && p.sz >= 10) || (p.sz <= 0.6 && p.sx >= 1 && p.z < 0));   // a wall slab: tall, thin, long (a side wall, or a back wall or a piece of it)
+    const wallsOf = (id) => {   // the inner faces of the drawn walls of a level, read from its props: x = the side walls, z = the back wall; null where none is drawn (an open roof or site). The front of every room is open: the camera looks in over it
+      if (wallFaces[id]) return wallFaces[id];
+      Arena.build(ARENAS[id]);
+      const faces = { x: null, z: null };
+      for (const p of Arena.props) {
+        if (!isWallProp(p)) continue;
+        if (p.sx <= 0.6) faces.x = Math.min(faces.x === null ? Infinity : faces.x, Math.abs(p.x) - p.sx / 2);
+        else faces.z = Math.min(faces.z === null ? Infinity : faces.z, -p.z - p.sz / 2);
+      }
+      return (wallFaces[id] = faces);
+    };
+    const walkInto = (f, dx, dz) => {   // 5 cm at a time, each step through the collision code, until the body no longer moves
+      for (let step = 0; step < 600; step++) {
+        const x = f.x, z = f.z;
+        f.x += dx * 0.05; f.z += dz * 0.05;
+        Arena.resolveFighter(f);
+        if (Math.hypot(f.x - x, f.z - z) < 0.004) return;
+      }
+    };
+    const touchesSolid = (f) => Arena.colliders.some((c) => c.active && c.top > STEP_HEIGHT && !(c.base > f.y + 1.2) && Math.hypot(Math.max(Math.abs(f.x - c.x) - c.hx, 0), Math.max(Math.abs(f.z - c.z) - c.hz, 0)) <= f.radius + WALL_SLACK);
+    test('Arena bounds (P17-08): on every level a fighter walked toward each wall and into each corner stops within a body radius plus 15 cm of the real wall (or of a solid thing in the way), never at an invisible line short of it and never inside the wall', () => {
+      const problems = [], r = 0.34, span = (limit) => { const list = []; for (let t = -limit; t < limit; t += 0.5) list.push(t); list.push(limit); return list; };
+      for (const id of ARENA_ORDER) wallsOf(id);
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), f = m.fighters[0], b = ARENAS[id].bounds, faces = wallsOf(id);
+        const wallX = faces.x === null ? b.x : faces.x, wallZ = faces.z === null ? b.z : faces.z, lx = b.x - r, lz = b.z - r, reached = { x: 0, z: 0 };
+        const start = (x, z) => { f.x = f.prevX = x; f.z = f.prevZ = z; f.y = f.prevY = 0; f.groundY = 0; return !Arena.blockedAt(x, z, r, 0); };
+        const judge = (axis, pos, wall, tag) => {   // 1 = the body reached the wall, 0 = a solid thing stopped it, -1 = a problem
+          if (pos > wall - r + 1e-6) { problems.push(id + ' ' + tag + ': inside the wall'); return -1; }
+          if (pos >= wall - r - WALL_SLACK) { reached[axis]++; return 1; }
+          if (touchesSolid(f)) return 0;
+          problems.push(id + ' ' + tag + ': stopped ' + (wall - r - pos).toFixed(2) + ' m short of the wall at ' + f.x.toFixed(2) + ',' + f.z.toFixed(2));
+          return -1;
+        };
+        for (const s of [-1, 1]) {
+          for (const z of span(lz)) { if (start(s * (lx - 3), z)) { walkInto(f, s, 0); judge('x', s * f.x, wallX, 'x ' + s + ' lane ' + z); } }
+          for (const x of span(lx)) { if (start(x, s * (lz - 3))) { walkInto(f, 0, s); judge('z', s * f.z, wallZ, 'z ' + s + ' lane ' + x); } }
+          for (const t of [-1, 1]) {
+            if (!start(s * (lx - 3), t * (lz - 3))) continue;
+            walkInto(f, s * Math.SQRT1_2, t * Math.SQRT1_2);
+            judge('x', s * f.x, wallX, 'corner ' + s + ',' + t); judge('z', t * f.z, wallZ, 'corner ' + s + ',' + t);
+          }
+        }
+        if (reached.x < 8 || reached.z < 8) problems.push(id + ' only ' + reached.x + ' x lanes and ' + reached.z + ' z lanes reach a wall');
+        if (b.x > wallX + 1e-6 || b.z > wallZ + 1e-6) problems.push(id + ' bounds ' + b.x + ',' + b.z + ' pass the wall faces ' + wallX + ',' + wallZ);
+        if (faces.z !== null && Math.abs(faces.z - b.z) > WALL_SLACK) problems.push(id + ' the front line (' + b.z + ') is not as deep as the back wall (' + faces.z + ')');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): on every level every destructible can be reached: a fighter can stand within strike range of it, on a spot the start can walk to (a floor spot, or a deck reached by its steps, stair or ramp)', () => {
+      const problems = [], r = 0.34, reach = 1.2, cell = 0.25;   // reach: the hit sphere sits at 0.8 of a move's reach (about 1 m) in front, with a radius of 0.4
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), b = ARENAS[id].bounds, f = m.fighters[0];
+        const nx = Math.floor((b.x - r) / cell), nz = Math.floor((b.z - r) / cell), seen = new Set(), queue = [];
+        const key = (i, j) => (i + nx) * (2 * nz + 1) + j + nz, footings = new Map();
+        const footing = (i, j) => {   // the deck top under the centre of a cell (a stair step, a ramp, a stage, a mezzanine), else the floor
+          const k = key(i, j);
+          if (!footings.has(k)) footings.set(k, Math.max(0, ...Arena.colliders.filter((d) => d.deck && d.active && Math.abs(i * cell - d.x) <= d.hx && Math.abs(j * cell - d.z) <= d.hz).map((d) => d.top)));
+          return footings.get(k);
+        };
+        const free = (i, j) => Math.abs(i) <= nx && Math.abs(j) <= nz && !Arena.blockedAt(i * cell, j * cell, r, footing(i, j));
+        const i0 = Math.round(f.x / cell), j0 = Math.round(f.z / cell);
+        if (free(i0, j0)) { seen.add(key(i0, j0)); queue.push([i0, j0]); } else problems.push(id + ' the start is blocked');
+        while (queue.length) {   // walking: a step up or down of at most STAIR_UP (0.5 m, one stair step with slack), so a deck counts when a stair, ramp or step leads to it
+          const [i, j] = queue.pop();
+          for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, c = j + dj; if (free(a, c) && !seen.has(key(a, c)) && Math.abs(footing(a, c) - footing(i, j)) <= 0.5) { seen.add(key(a, c)); queue.push([a, c]); } }
+        }
+        for (const o of Arena.objects) {
+          if (o.fixed || o.destroyed) continue;
+          const c = o.collider;   // struck from the floor, or from a deck (a tier of a scaffold, a stage) when that is the nearer way: the hit sphere reaches from the feet to 1.8 m above them
+          let found = false;
+          for (let i = -nx; i <= nx && !found; i++) {
+            for (let j = -nz; j <= nz && !found; j++) {
+              const x = i * cell, z = j * cell, away = Math.hypot(Math.max(Math.abs(x - c.x) - c.hx, 0), Math.max(Math.abs(z - c.z) - c.hz, 0));
+              if (away > reach || (away === 0 && Math.abs(x - c.x) < c.hx && Math.abs(z - c.z) < c.hz)) continue;
+              found = seen.has(key(i, j)) && c.top >= footing(i, j) && c.base <= footing(i, j) + 1.5;   // a spot the start can walk to, with the thing inside the hit band from there
+            }
+          }
+          if (!found) problems.push(id + ' ' + o.id + ' cannot be reached');
+        }
+      }
+      return problems.length ? problems.slice(0, 8).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): with the pair (a 1v1) and the party (a brawl) at every real wall and corner of every level, the eye stays inside the drawn room and nobody is off screen, on a wide, a phone-landscape and a portrait screen; the eye keeps the near plane and its corners clear of the wall face', () => withCamera(() => {
+      const problems = [], out = [0, 0, 0], r = 0.34, screens = [[1280, 720], [800, 360], [390, 844]];
+      for (const id of ARENA_ORDER) wallsOf(id);
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], b = def.bounds, faces = wallsOf(id), roomX = faces.x === null ? b.x : faces.x, roomZ = faces.z === null ? b.z : faces.z, lx = b.x - r, lz = b.z - r;
+        const spots = [[-lx, 0, 1, 0], [lx, 0, -1, 0], [0, -lz, 0, 1], [0, lz, 0, -1], [-lx, -lz, 1, 0], [lx, -lz, -1, 0], [-lx, lz, 1, 0], [lx, lz, -1, 0]];   // x, z, then the way in from the wall
+        for (const mode of ['duel', 'brawl']) {
+          const m = track(new MatchSim(mode === 'duel' ? { mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id } : { mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 3, arenaId: id })), f = m.fighters;
+          for (const [w, h] of screens) {
+            R.cssW = w; R.cssH = h;
+            for (const [x, z, inX, inZ] of spots) {
+              f.forEach((fighter, i) => { fighter.x = fighter.prevX = clamp(x + inX * i * 1.1, -lx, lx); fighter.z = fighter.prevZ = clamp(z + inZ * i * 1.1, -lz, lz); fighter.y = fighter.prevY = 0; });
+              Camera.snapNext = true; Camera.resetGroup();
+              for (let i = 0; i < 60; i++) { if (mode === 'duel') Camera.follow(1 / 60, f[0], f[1], def); else Camera.followGroup(1 / 60, f, def); }
+              const tag = id + ' ' + mode + ' ' + w + 'x' + h + ' at ' + x.toFixed(1) + ',' + z.toFixed(1);
+              const clear = 0.3 * (1 + Math.tan(Camera.baseFov / 2) * w / h);   // the near plane (0.3 m) and how far its corners reach sideways
+              if (roomX - Math.abs(Camera.pos[0]) < clear || Camera.pos[2] + roomZ < clear) problems.push(tag + ': the eye is at ' + Camera.pos.map((v) => v.toFixed(2)) + ', less than ' + clear.toFixed(2) + ' m from the wall face');
+              for (const fighter of f) {
+                if (fighter.index >= m.partySize + (mode === 'duel' ? 1 : 0)) continue;
+                if (Camera.offscreenMark(fighter.x, fighter.y + 1.0, fighter.z, w, h, 0, out) || Camera.offscreenMark(fighter.x, fighter.y + 0.1, fighter.z, w, h, 0, out)) problems.push(tag + ': fighter ' + fighter.index + ' is off screen');
+              }
+            }
+          }
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    }));
+    test('Arena bounds (P17-08): on every level the spawns, the hazard posts with standing room beside them, the placed items and the wave entries lie inside the bounds and clear of solid things, in the whole room and in the 1v1 ring', () => {
+      const problems = [], r = 0.34;
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], b = def.bounds;
+        for (const [mode, ring] of [['free', false], ['free', true], ['brawl', false]]) {
+          const m = track(new MatchSim({ mode, enemies: 3, ring, ringOut: ring, waves: mode === 'brawl', countdown: false, timer: 0, seed: 3, arenaId: id, hazards: true, items: true })), tag = id + ' ' + mode + (ring ? ' ring' : '');
+          m.fighters.forEach((f) => { if (Arena.outside(f.x, f.z, r) || Arena.blockedAt(f.x, f.z, r, f.y)) problems.push(tag + ': fighter ' + f.index + ' spawns at ' + f.x.toFixed(2) + ',' + f.z.toFixed(2)); });
+          for (const h of m.hazards) {
+            if (Math.abs(h.x) > b.x || Math.abs(h.z) > b.z || Math.abs(h.tx) > b.x || Math.abs(h.tz) > b.z) problems.push(tag + ': hazard ' + h.type + ' lies outside the bounds');
+            let room = 0;
+            for (let k = 0; k < 16; k++) for (const d of [1.2, 1.8, 2.5]) { const x = h.tx + Math.cos(k * Math.PI / 8) * d, z = h.tz + Math.sin(k * Math.PI / 8) * d; if (!Arena.outside(x, z, r) && !Arena.blockedAt(x, z, r, 0)) room++; }
+            if (h.type !== 'glass' && room === 0) problems.push(tag + ': no standing room beside hazard ' + h.type);
+          }
+          for (const row of m.waveRows || []) {
+            for (const [x, z] of [[row[1], row[2]], row[4] || [row[1], row[2]]]) {
+              const top = Math.max(0, ...Arena.colliders.filter((c) => c.deck && c.active && Math.abs(x - c.x) <= c.hx && Math.abs(z - c.z) <= c.hz).map((c) => c.top));   // an entry on a deck stands on it
+              if (Arena.outside(x, z, r) || Arena.blockedAt(x, z, r, top)) problems.push(tag + ': wave entry ' + x + ',' + z + ' is outside the room or inside a solid thing');
+            }
+          }
+        }
+        for (const [item, x, z] of def.items) if (Math.abs(x) > b.x || Math.abs(z) > b.z) problems.push(id + ' item ' + item + ' lies outside the bounds');
+      }
+      return problems.length ? problems.slice(0, 8).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): on every level a CPU against CPU 1v1 and a CPU against three CPUs (with the level waves) finish, and no fighter is ever outside the walls', () => {
+      const problems = [], r = 0.34;
+      for (const id of ARENA_ORDER) {
+        const b = ARENAS[id].bounds;
+        for (const mode of ['duel', 'brawl']) {
+          const base = { countdown: false, seed: 5, arenaId: id, difficulty: 'hard', items: true, hazards: true };
+          const m = track(new MatchSim(mode === 'duel' ? Object.assign({ mode: 'free', timer: 30, winsNeeded: 1 }, base) : Object.assign({ mode: 'brawl', enemies: 3, waves: true, timer: 0 }, base)));
+          m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
+          if (mode === 'duel') m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+          let ticks = 0, bad = '';
+          while (m.phase !== 'matchEnd' && ticks < (mode === 'duel' ? 60 * 60 * 3 : 20000) && !bad) {
+            m.step(); ticks++;
+            for (const f of m.fighters) if (!(Math.abs(f.x) <= b.x - r + 1e-6 && Math.abs(f.z) <= b.z - r + 1e-6)) bad = 'fighter ' + f.index + ' at ' + f.x.toFixed(2) + ',' + f.z.toFixed(2) + ' tick ' + ticks;
+          }
+          if (bad) problems.push(id + ' ' + mode + ': ' + bad);
+          else if (m.phase !== 'matchEnd') problems.push(id + ' ' + mode + ' did not finish in ' + ticks + ' ticks');
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): a plain 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room; the Ring-out setting fences Free Fight and Versus into the level ring only on a level with a ring edge (also after a restart); an explicit ring is kept', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run, ringOut: Settings.v.ringOut };
+      Game.go = () => true; Game.run = null;
+      const begin = (id, extra, mode) => { Game.beginMatch(Object.assign({ mode: mode || 'free', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'easy', winsNeeded: 1, timer: 30, items: false, hazards: false }, extra)); return Arena.ring !== null; };
+      try {
+        for (const ringOut of [false, true]) {
+          Settings.v.ringOut = ringOut;
+          for (const id of ARENA_ORDER) {
+            for (const mode of ['free', 'versus', 'arcade', 'survival', 'training']) {
+              const want = ringOut && (mode === 'free' || mode === 'versus') && !!ARENAS[id].ring[4], b = ARENAS[id].bounds;
+              if (begin(id, {}, mode) !== want) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': ring ' + !want);
+              if (!want && (Arena.ax1 !== b.x || Arena.az1 !== b.z || Arena.ringOut)) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': the whole room is not open');
+            }
+          }
+        }
+        Settings.v.ringOut = false; begin('club');
+        Settings.v.ringOut = true; Game.restartMatch();
+        if (Arena.ring === null || !Arena.ringOut) problems.push('a restart did not read the Ring-out setting again');
+        if (!begin('warehouse', { ring: true, ringOut: true })) problems.push('an explicit ring was ignored');   // the Tournament's own bouts are checked in 'a Tournament bout has the whole room too'
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.ringOut = kept.ringOut; }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Arena bounds (P17-08): on every level the wall decoration sits on its wall: every part that touches a wall shows its front face in front of the wall face (never hidden inside it), does not poke out behind it, and nothing below head height stands in the walking room past the bounds', () => {
+      const problems = [], hair = 0.005, head = 2.2;
+      for (const id of ARENA_ORDER) {
+        const b = ARENAS[id].bounds;
+        Arena.build(ARENAS[id]);
+        const walls = [], parts = [];
+        for (const p of Arena.props) { if (isWallProp(p)) walls.push(p); else if (p.l === LAYER.SOLID) parts.push(p); }
+        // each wall in its own frame: n runs from the wall's back into the room, t along it; [n0, n1] = the slab, n1 = the front face, line = where the bounds are
+        const frames = walls.map((w) => (w.sx <= 0.6
+          ? { sign: Math.sign(w.x), axis: 'x', n0: -Math.abs(w.x) - w.sx / 2, n1: -Math.abs(w.x) + w.sx / 2, line: -b.x, t: 'z', tc: w.z, th: w.sz / 2, y0: w.y - w.sy / 2, y1: w.y + w.sy / 2 }
+          : { sign: 1, axis: 'z', n0: w.z - w.sz / 2, n1: w.z + w.sz / 2, line: -b.z, t: 'x', tc: w.x, th: w.sx / 2, y0: w.y - w.sy / 2, y1: w.y + w.sy / 2 }));
+        for (const p of parts) {
+          const half = { x: p.sx / 2, y: p.sy / 2, z: p.sz / 2 };
+          let touched = 0, fine = false, why = '';
+          for (const fr of frames) {
+            const nPos = fr.axis === 'x' ? -Math.abs(p.x) : p.z, lo = nPos - half[fr.axis], hi = nPos + half[fr.axis];   // the part's slab along n (the side walls: minus the distance from the middle)
+            const overT = Math.abs(p[fr.t] - fr.tc) < half[fr.t] + fr.th, overY = p.y + half.y > fr.y0 && p.y - half.y < fr.y1, sameSide = fr.axis === 'z' || Math.sign(p.x) === fr.sign;
+            if (!overT || !overY || !sameSide || lo >= fr.n1 + 0.1 || hi <= fr.n0) continue;
+            touched++;
+            const problems2 = [];
+            if (hi < fr.n1 + hair && !(p.y + half.y > fr.y1 + hair)) problems2.push('hidden inside the wall');   // (rebar sticking up out of a wall top shows above it)
+            if (lo < fr.n0 - hair) problems2.push('pokes out behind the wall');
+            if (p.y - half.y < head && hi > fr.line + 0.03) problems2.push('stands ' + (hi - fr.line).toFixed(2) + ' m into the walking room');
+            if (!problems2.length) { fine = true; break; }
+            why = problems2.join(', ');
+          }
+          if (touched && !fine) problems.push(id + ' part at ' + [p.x, p.y, p.z].join(',') + ' size ' + [p.sx, p.sy, p.sz].join('x') + ' ' + why);
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): a default 1v1 with no ring (Free Fight, Versus, Arcade, Survival) draws its start side from the seed and swaps it every round, around the middle of the room; Training and a brawl always start on the left', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run }, seen = { free: new Set(), versus: new Set(), arcade: new Set(), survival: new Set() };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const mode of ['free', 'versus', 'arcade', 'survival', 'training', 'brawl']) {
+          for (const id of ['warehouse', 'garage', 'construction', 'subway']) {
+            for (let seed = 1; seed <= 12; seed++) {
+              Game.beginMatch({ mode, playerId: 'kai', opponentId: 'mara', enemies: 1, arenaId: id, difficulty: 'easy', winsNeeded: 3, timer: 0, items: false, hazards: false, seed, keepSeed: true });
+              const m = Game.match, [a, c] = m.fighters, s = ARENAS[id].spawn, tag = mode + ' ' + id + ' seed ' + seed;
+              if (Arena.ring) problems.push(tag + ': a ring');
+              for (let round = 1; round <= 3; round++) {
+                if (round > 1) m.startRound();
+                const want = mode === 'training' || mode === 'brawl' ? 1 : MatchSim.sideFor(seed, round);
+                if (round === 1 && seen[mode]) seen[mode].add(want);
+                if (Math.abs(a.x + want * s) > 1e-9 || (mode !== 'brawl' && (Math.abs(c.x - want * s) > 1e-9 || c.z !== 0)) || a.z !== 0) problems.push(tag + ' round ' + round + ': the first fighter stands at ' + a.x.toFixed(2) + ', wanted ' + (-want * s));
+              }
+            }
+          }
+        }
+        for (const mode in seen) if (seen[mode].size !== 2) problems.push(mode + ' never drew the right-hand side');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Arena bounds (P17-08): a SimRunner 1v1 with sides on opens the first fighter at the drawn spot in round 1 and at the other spot in round 2, for seeds that draw the left and seeds that draw the right (a lopsided layout is measured by a P14 balance run with the side forced, not here)', () => {
+      const problems = [], left = [], right = [];
+      for (let seed = 1; (left.length < 3 || right.length < 3) && seed < 100; seed++) (MatchSim.sideFor(seed, 1) === 1 ? left : right).push(seed);
+      for (const seed of left.slice(0, 3).concat(right.slice(0, 3))) {
+        for (const id of ['warehouse', 'club']) {
+          const opens = [];
+          const res = SimRunner.run({ playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'hard', seed, winsNeeded: 2, timer: 3, sides: true, listeners: { roundStart: (e) => { if (opens.length < 2) opens.push(e.match.fighters[0].x); } } });
+          const want = MatchSim.sideFor(seed, 1) * -ARENAS[id].spawn;
+          if (res.error || opens.length !== 2 || Math.abs(opens[0] - want) > 1e-9 || Math.abs(opens[1] + want) > 1e-9) problems.push(id + ' seed ' + seed + ': opens at ' + opens.map((x) => x.toFixed(2)) + ', wanted ' + want + ' then ' + -want);
+        }
+      }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
     /* ---------- story settings (P6-10) ---------- */
     test('Story settings (P6-10): 64 countries, 24 origins, 24 goals, 12 intro emotes; every preset maps by name; missing or bad values take the defaults', () => {
       const bad = [], unique = (list) => new Set(list.map((row) => row.id)).size === list.length;
@@ -9021,7 +9267,7 @@ const SelfTest = {
       function kaiOf() { return ROSTER_BY_ID.kai; }
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
-    test('Story (P10-03): wave shaping and the start side - the level\'s own waves are untouched, MatchSim.sideFor is the rule startSide uses, Story.cast reads it', () => {
+    test('Story (P10-03): wave shaping and the start side - the level\'s own waves are untouched, MatchSim.sideFor is the rule startSide uses in a ring, and the cast of a scene stands where the stage fight really opens', () => {
       const bad = [], waves = JSON.stringify(ARENA_ORDER.map((id) => ARENAS[id].waves)), rows = [[3, 1, 1, 0], [4, 1, 1, 0], [5, 1, 1, 0], [6, 1, 1, 1]];
       const keep3 = MatchSim.shapeWaves(rows, 3, 0), cut1 = MatchSim.shapeWaves(rows, 0, 1), cut9 = MatchSim.shapeWaves(rows, 0, 9);
       if (keep3.length !== 3 || cut1.length !== 4 || cut1[0][0] !== 2 || cut1[1][0] !== 4 || cut9[0][0] !== 1 || MatchSim.shapeWaves(rows, 0, 0).length !== 4 || rows[0][0] !== 3 || waves !== JSON.stringify(ARENA_ORDER.map((id) => ARENAS[id].waves))) bad.push('shapeWaves');
@@ -9033,16 +9279,22 @@ const SelfTest = {
         if (MatchSim.sideFor(seed, 2) === MatchSim.sideFor(seed, 1)) bad.push('swap ' + seed);
       }
       if (sides.size !== 2) bad.push('one side only');
-      const run = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 9), seen = new Set();
-      for (let tries = 0; tries < 30; tries++) {
-        run.continues = tries;
-        for (const n of [2, 4, 7]) {
-          const cfg = Story.cfg(run, n), cast = Story.cast(run, n), ring = ARENAS[cfg.arenaId].ring, m = mk(Object.assign({ ring: true }, cfg));
-          if (!ring || cast.side !== m.startSide() || Math.sign(m.fighters[0].x - ring[0]) !== -cast.side || Math.sign(cast.playerX - ring[0]) !== -cast.side || Math.sign(cast.otherX - ring[0]) !== cast.side) bad.push('cast side at stage ' + n + ' try ' + tries);
-          seen.add(cast.side);
+      const run = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 9), seen = new Set(), go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (let tries = 0; tries < 30; tries++) {   // 30 seeds per stage, as a retry plays another seed (P17-08: a stage fight has the whole room, no ring, but still a drawn start side)
+          run.continues = tries;
+          for (let n = 1; n <= STORY_STAGES; n++) {
+            const cfg = Story.cfg(run, n), cast = Story.cast(run, n), tag = 'stage ' + n + ' try ' + tries;
+            Game.beginMatch(Object.assign({}, cfg));   // the real start of the stage fight
+            const [first, second] = Game.match.fighters, centre = Story.foe(run, n) ? (first.x + second.x) / 2 : (cast.playerX + cast.otherX) / 2;
+            if (Arena.ring || Game.config.ring) bad.push(tag + ': the stage fight has a ring');
+            if (Story.simOpts(cfg).ring) bad.push(tag + ': simOpts asks for a ring');
+            if (Math.sign(first.x) !== -cast.side || Math.sign(cast.playerX) !== -cast.side || Math.sign(cast.otherX) !== cast.side || Math.abs(centre - (cast.playerX + cast.otherX) / 2) > 1e-9 || Math.abs(first.z - cast.z) > 1e-9) bad.push(tag + ': the scene puts the cast at ' + cast.playerX + ',' + cast.z + ' but the fight opens at ' + first.x.toFixed(2) + ',' + first.z.toFixed(2));
+            if (Story.foe(run, n)) { seen.add(cast.side); if (Math.sign(second.x) !== cast.side || Math.abs(second.z - cast.z) > 1e-9) bad.push(tag + ': the opponent does not open opposite'); } else if (cast.side !== 1) bad.push(tag + ': a brawl cast is not on the left');
+          }
         }
-      }
-      for (const n of [1, 3, 5, 6]) { const cast = Story.cast(run, n); if (cast.side !== 1 || cast.playerX >= cast.otherX) bad.push('brawl cast ' + n); }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
       if (seen.size !== 2) bad.push('cast sides never swap');
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
@@ -9061,7 +9313,7 @@ const SelfTest = {
           if (Story.seedOf(run, n) !== cfg.seed || Story.seedOf(run, n) === Story.seedOf(run, n % 7 + 1)) bad.push('seed ' + n);
         }
       }
-      const zero = mk(Object.assign({ ring: true }, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'hard', 1), 7)));
+      const zero = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'hard', 1), 7)));
       if (zero.fighters[1].id !== 'zero' || zero.fighters[1].maxHp !== deriveStats(ROSTER_BY_ID.zero.bossAttrs.hard).maxHp) bad.push('ZERO keeps its boss tuning');
       const stage1 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 1))), stage6 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 6)));
       if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0] - 1) bad.push('wave rows');
@@ -9994,7 +10246,7 @@ const SelfTest = {
       if (hostile.size !== 8 || hostile.entrants.filter((e) => e.human >= 0).length !== 1 || hostile.entrants.find((e) => e.human === 2).id !== ROSTER[0].id || hostile.difficulty !== 'normal' || new Set(hostile.entrants.map((e) => e.id)).size !== 8) bad.push('a hostile draw: ' + JSON.stringify(hostile.entrants.filter((e) => e.human >= 0)));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with ring-out on, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
+    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out setting is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
       const bad = [], fights = [];
       Game.selection.difficulty = 'hard';
       Game.startTournament(KAI_MARA, 9);
@@ -10016,11 +10268,32 @@ const SelfTest = {
       if (fights.slice(0, -1).some((f) => f.two || f.plan !== 'solo')) bad.push('a fight with one person used the Versus inputs');
       fights.forEach((f, k) => {
         const cfg = f.cfg, rules = Tournament.rules(t, f.round);
-        if (cfg.ring !== true || cfg.ringOut !== true || cfg.items !== false || cfg.hazards !== false || cfg.difficulty !== 'hard' || cfg.timer !== TOURNAMENT_TIMER || cfg.arenaId !== rules.arenaId || cfg.winsNeeded !== (f.round === 2 ? TOURNAMENT_FINAL_WINS : 1) || !TOURNAMENT_STAGES.includes(cfg.arenaId)) bad.push('fight ' + k + ' rules ' + JSON.stringify([cfg.ring, cfg.ringOut, cfg.items, cfg.hazards, cfg.difficulty, cfg.timer, cfg.arenaId, cfg.winsNeeded]));
+        if (cfg.ring !== false || cfg.ringOut !== false || cfg.sides !== true || cfg.items !== false || cfg.hazards !== false || cfg.difficulty !== 'hard' || cfg.timer !== TOURNAMENT_TIMER || cfg.arenaId !== rules.arenaId || cfg.winsNeeded !== (f.round === 2 ? TOURNAMENT_FINAL_WINS : 1) || !TOURNAMENT_STAGES.includes(cfg.arenaId)) bad.push('fight ' + k + ' rules ' + JSON.stringify([cfg.ring, cfg.ringOut, cfg.items, cfg.hazards, cfg.difficulty, cfg.timer, cfg.arenaId, cfg.winsNeeded]));
       });
       if (Tournament.champion(t) !== 0 || Progress.d.tournamentWins !== 0 || Progress.d.tournamentBest !== 0 || Progress.d.grades.tournament || Progress.d.tournamentRun !== null) bad.push('two people earned a record or the bracket was kept');
       continueBracket();
       if (Game.tournament || UI.current !== 'modes' || Game.state !== GS.MENU) bad.push('the champion\'s Continue did not leave: ' + UI.current);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Arena bounds (P17-08): a Tournament bout has the whole room like every 1v1, with the ring only under the Ring-out setting and a drawn start side, and the CPU fights of the bracket are set up the same way', () => withTournament(() => {
+      const bad = [], kept = Settings.v.ringOut, realRun = SimRunner.run, runs = [];
+      SimRunner.run = (opts) => { runs.push(opts); return realRun(opts); };
+      try {
+        for (const ringOut of [false, true]) {
+          Settings.v.ringOut = ringOut;
+          Game.selection.difficulty = 'hard';
+          Game.startTournament(KAI_MARA, 9);
+          const before = Game.match;
+          continueBracket();   // plays the CPU fights up to the first person's fight, then starts it
+          if (!Game.match || Game.match === before) { bad.push('ring-out ' + ringOut + ': no fight started'); continue; }
+          const cfg = Game.match.cfg;
+          if (!!Arena.ring !== ringOut || Arena.ringOut !== ringOut || cfg.sides !== true || !!cfg.ring !== ringOut) bad.push('ring-out ' + ringOut + ': live bout ring ' + !!Arena.ring + ' ringOut ' + Arena.ringOut + ' sides ' + cfg.sides);
+          runs.length = 0;
+          for (let index = 0; index < 4 && !runs.length; index++) if (!Tournament.people(Game.tournament, { round: 0, index }).length) Tournament.simulate(Game.tournament, { round: 0, index });   // a fight of two CPU fighters, as tournamentStep plays it
+          if (!runs.length || runs.some((o) => !!o.ring !== ringOut || !!o.ringOut !== ringOut || o.sides !== true || o.hazards || o.items)) bad.push('ring-out ' + ringOut + ': a simulated CPU fight was set up another way: ' + JSON.stringify(runs.slice(0, 1)));
+          Game.quitToMenu();
+        }
+      } finally { SimRunner.run = realRun; Settings.v.ringOut = kept; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     test('Tournament (P11-01): a person who loses is out and the bracket is still played to its champion; a person who wins every fight takes the title, the best result, the run grade and the rivals beaten', () => withTournament(() => {
