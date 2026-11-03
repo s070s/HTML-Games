@@ -392,6 +392,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: the low-spec target from P0-04 is met.
 - [ ] P15-03 - Reduce file size: remove dead code and duplicated data, compact data tables, share generators, shorten repeated strings. Keep the file readable (no build step).
   Done when: final size recorded and compared to the baseline in Appendix C.
+  Status (2026-11-03): first pass done, not ticked (the final pass comes after all content is in): `breakpoint.html` 1,199,913 -> 1,157,562 bytes (LF, BOM counted), 42,351 freed with no change to play; comments, 15 dead names and nothing else. Numbers, removed symbols and what was kept: Appendix C, "P15-03 first size pass (2026-11-03)".
 
 ## Phase 17 - Owner playtest feedback (added 2026-10-31; do it before Phase 16)
 
@@ -2688,6 +2689,16 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
+
+### P15-03 first size pass (2026-11-03)
+
+- Size (LF, BOM counted, `breakpoint.html`): 1,199,913 before, 1,157,562 after; 42,351 bytes freed, 42,438 bytes now left under the 1,200,000 budget (87 before). The 585,241 baseline is in P0-01.
+- Where it came from (about): long doc comments cut by hand to the rule and the why 10.0 KB; one-line trims of the remaining long comments (first clauses kept, 265 comments) 27.2 KB; task-id tags like "(P7-05)" and the spare spaces before trailing comments 3.3 KB; the eleven "=====" section banners folded to one line 1.5 KB; dead code 0.7 KB (the rounded parts add to 42.7 of the 42.8 KB). Nothing else was touched: no code, data, CSS or player text.
+- Safety: the code with every comment removed is identical to HEAD apart from the dead code below (checked with two separate comment strippers); `node --check` passes; headless run 461 / 478 with exactly the 17 known failures (16 "needs the main menu", 1 "blank faces"); every fight, hazard, items and weapons fingerprint passes unchanged and none was re-recorded.
+- Dead code removed (each name is only defined or written in `breakpoint.html`, never read, and is not in `breakpoint-tests.js`): constant `DEBRIS_REPLACE_FRAME`; method `Arena.navCell`; `UI` fields `setupSel` and `lastToast`; `Sound` field `humNode`; `Debris` pool fields `born` and `maxLife`; `Fighter` fields `hitDirX`, `hitDirZ`, `fvx`, `fvz`; `MatchSim.disposed`; `Showcase` field `orbit`; `AIController` snapshot fields `pendingThrow` and `mvCat`.
+- Kept on purpose: `MatchSim.reviveTeam` and `COOP_REVIVE_HP` (no game caller yet, but a self-test uses them); `opponentHp` and the other `simulate` result fields (a public result shape); every comment that holds a data format, a key legend or a rule that is not obvious from the code (shortened; a few return-value and side-effect notes were dropped by the trims and restored after review); aligned trailing comments in tables (only the standard 3-space gap was narrowed).
+- Looked at and left: repeated string literals (14 of 20+ characters, under 1 KB in all), repeated lines (short code lines, no shared helper would be smaller or clearer), unused CSS (none: all 143 classes are used, the `seat3` and `tc0` to `tc7` ones are built from a number), spaces inside number arrays (about 3 KB, but it would hurt reading the tables), indentation (55 KB, kept for readability).
+- For the final pass: about 214 KB of comments remain (block comments 113 KB, trailing comments 88 KB, full-line `//` comments 12 KB), the biggest lever left; the P3-10 and P14-01 balance numbers are in this log already, so their code comments could shrink to a pointer.
 
 ### P0-02 - Audit of 1.0.0 (2026-10-28)
 
