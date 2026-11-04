@@ -100,6 +100,9 @@ Purpose: fix what is visibly wrong before more content is built on top of it.
 - [ ] P18-36 - Crowd camera and body stacking: in some seeded brawls the camera stays hidden behind a prop far too long and two bodies squeeze closer than 0.3 m. Found during P18-34.
   Fact (as of P18-34, 2026-11-03): Brawl camera, seeds 3 and 8 before P18-34 and 5 and 7 after: warehouse 141 ticks, limit 54; 1v6 brawl, seed 2 before and 5 and 9 after: bodies closer than 0.3 m. Both tests now run on seed 6, which passes old and new.
   Done when: the Brawl camera and 1v6 brawl tests pass on seeds 1 to 12, not one chosen seed.
+- [ ] P18-44 - Fighting on raised ground: attacks, grabs and item use miss or cannot be used when fighters go up to a raised part of a level (owner, 2026-11-04 16:16: steps and stairs to upper levels, scaffolding, the ring in the Gym). Audit every raised surface of every level (decks, stairs, steps, scaffolds, stages, balconies, rings) with both fighters on it, one on it and one below, and on the slope of a stair: every strike, throw, grab, submission, ground attack and item action, for player and CPU, then fix each failure.
+  Fact (as of P8-04, 2026-10-29): decks, stairs and scaffolds are climbable in the reworked arenas (Appendix C "Levels").
+  Done when: Appendix D lists each failure found (level, surface, move, cause); each is fixed; a self-test per surface kind (deck, stair, scaffold, ring) lands a strike, a grab and an item action with both fighters on it and checks the rule for one above and one below.
 
 ### Stage 4 - Audits and polish from the owner's playtest (Phase 17)
 
@@ -126,9 +129,9 @@ Purpose: one timing rule for blocks, stun and combos, and the new movement speed
   Done when: Appendix C has the rule table, and the choice on the combo break with its reason.
 - [ ] P18-03 + P18-04 - Implement P18-02 and make the timing readable: the same press timing gives the same result on every move, style, weapon and CPU level; a perfect block, a late block and (when P18-02 chose option A) a combo break each have their own clear flash and sound; Training shows too early or too late by how many ticks; the help and the move list explain combos, stun and the perfect block in plain words. Merged: P18-04 is the readable half of P18-03.
   Done when: a self-test presses Defend at each tick before the hit, for every attack of every style, and finds the same perfect-block window everywhere (exceptions listed in Appendix C); P0-06 results stay within the P14-01 targets; each outcome can be told apart by sight alone and by sound alone; a Training run shows the early / late reading on touch, gamepad and keyboard; the text passes the P17-05 scan (no design notes).
-- [ ] P18-01 - Movement speed: the owner wants fighters a little faster (2026-11-01).
+- [ ] P18-01 - Movement speed: the owner wants fighters a little faster (2026-11-01); "Movement is too slow" (owner, 2026-11-04 16:16).
   Fact (as of 2026-11-03): walk forward 2.2 m/s, back 1.6, side 1.8, run 4.6 (`WALK_FORWARD`, `RUN_SPEED`).
-  DECIDE: the new speeds. Recommended start: 10 percent faster on all four (walk forward 2.4, back 1.8, side 2.0, run 5.1), then tuned until ranges and the AI's spacing work.
+  DECIDE: the new speeds. Recommended start: 20 percent faster on all four (walk forward 2.6, back 1.9, side 2.2, run 5.5; the 2026-11-04 feedback is stronger than "a little"), then tuned until ranges and the AI's spacing work.
   Done when: Appendix C has the old and new numbers with the reason; ranges and the AI's spacing still work; P0-06 results stay within the P14-01 targets; the fingerprints are re-recorded on purpose.
 
 ### Stage 6 - Modes and difficulty
@@ -712,7 +715,7 @@ Numbered after the other phases because it was added later; it follows Phase 17 
 
 Not started on 2026-11-03: moved to the Path section (P18-01, P18-02, P18-03, P18-04, P18-05, P18-06, P18-07, P18-08, P18-09, P18-10, P18-11, P18-12, P18-13, P18-14, P18-15, P18-16, P18-17, P18-18, P18-19, P18-20, P18-21, P18-22, P18-23, P18-24, P18-25, P18-26, P18-27, P18-28, P18-29, P18-30, P18-31, P18-32, P18-33).
 
-Where the tasks came from (owner text verbatim in Appendix A): P18-01 to P18-25 from the owner feedback of 2026-11-01; P18-26 to P18-31 from the friend feedback of 2026-11-02; P18-32 to P18-35 from the Arcade playtest of 2026-11-03; P18-36 found during P18-34; P18-37 to P18-40 from the owner ideas of 2026-11-03 19:56. P18-41 from the owner answers of 2026-11-04 00:30; P18-42 and P18-43 from the owner tasks of 2026-11-04 05:40. The game stays 3D (owner, 2026-11-02).
+Where the tasks came from (owner text verbatim in Appendix A): P18-01 to P18-25 from the owner feedback of 2026-11-01; P18-26 to P18-31 from the friend feedback of 2026-11-02; P18-32 to P18-35 from the Arcade playtest of 2026-11-03; P18-36 found during P18-34; P18-37 to P18-40 from the owner ideas of 2026-11-03 19:56. P18-41 from the owner answers of 2026-11-04 00:30; P18-42 and P18-43 from the owner tasks of 2026-11-04 05:40; P18-44 from the owner feedback of 2026-11-04 16:16. The game stays 3D (owner, 2026-11-02).
 
 - [x] P18-34 - CPU item throws: the CPU throws pickable items very often. Measure throws per minute per difficulty and mode today, DECIDE a rate that keeps items a treat (a cooldown, a chance by distance and situation, a cap per fight, fewer on Easy), and apply it to enemies and allies.
   Done when: Appendix C has the before and after rates; a self-test over seeded fights keeps each difficulty inside its decided rate; the CPU still picks up and uses items (P7 tests pass).
@@ -808,6 +811,8 @@ Not started on 2026-11-03: moved to the Path section (P16-01, P16-02, P16-03, P1
 | Added 2026-11-04 00:30: each stage's boss brings their own goons | P18-20 + P18-37 |
 | Added 2026-11-04 00:30: Tournament fighter choice works on mobile as in all other modes | P18-41 |
 | Added 2026-11-04 05:40: Free Fight, Brawl and Co-op Brawl collapse into Free Fight | P18-18, P18-19 |
+| Added 2026-11-04 16:16: movement is too slow | P18-01 |
+| Added 2026-11-04 16:16: attacks, grabs and item use fail on raised parts of levels (stairs, scaffolding, the Gym ring) | P18-44 |
 | Added 2026-11-04 05:40: Free Fight sets up any fight: open level or square ring, ring-out, weapons, breakables, all settings | P18-42, P18-43 |
 | Added 2026-11-03 19:56: reorder the tasks not started and make them one path without uncertainties | done in the Path section (2026-11-03) |
 
@@ -980,6 +985,15 @@ Also for the tasks not yet started reorder logically and normalize them to follo
 ```text
 -each stage's boss bring their own goons!
 -Tournament char selection should work on mobile too as in all other game modes
+```
+
+### Owner feedback of 2026-11-04 16:16 (verbatim)
+
+```text
+new tasks from feedback
+
+* Movement is too slow
+* Audit not being able to use,land attacks,grabs when going up platforms (ex steps stairs to upper levels of a level,scaffolding,the ring in the gym etc)
 ```
 
 ### Owner tasks of 2026-11-04 05:40 (verbatim)
