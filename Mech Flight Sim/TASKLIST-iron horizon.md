@@ -40,6 +40,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## 3. Global rules for every phase
 
+- Owner device checks come last (owner, 2026-11-04 05:45): a task finished in code with its self-tests is ticked, and what the owner must try on a real phone, gamepad or browser is added to the device test in the last phase, never left as a reason to keep a task open. The coordinator's own build, self-test and performance checks still run with every phase.
 - Every feature must work on touch, gamepad and keyboard / mouse, and in online co-op.
 - No external dependencies. Output stays one HTML file.
 - Bump `SAVE_VERSION` and migrate saves whenever saved data changes.
@@ -265,10 +266,15 @@ Numbered after the other phases because it was added later; Phase 10 checks the 
   Done when: no Critical or High finding remains open in Appendix D.
 - [ ] P10-02 - Re-run P1-01 spawn and P1-02 naval audits.
   Done when: no failures.
-- [ ] P10-03 - Device test: low-spec Android phone, iPhone, desktop keyboard / mouse, desktop gamepad, co-op with 2 and 4 peers.
-  Done when: each passes or has a recorded known issue.
 - [ ] P10-04 - Update in-game help and texts; bump the save version where needed.
   Done when: all texts match the final features.
+
+## Phase 12 - Owner device checks (last)
+
+Owner device checks come last (owner, 2026-11-04 05:45: "Can you restructure the tasks for all games so that tests happen at the end", answering which tests: "Your device checks"): the device test moved to its own last phase.
+
+- [ ] P10-03 - Device test: low-spec Android phone, iPhone, desktop keyboard / mouse, desktop gamepad, co-op with 2 and 4 peers.
+  Done when: each passes or has a recorded known issue; a failure becomes a fix task added at the end of this phase.
 
 ---
 

@@ -40,6 +40,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## 3. Global rules for every phase
 
+- Owner device checks come last (owner, 2026-11-04 05:45): a task finished in code with its self-tests is ticked, and what the owner must try on a real phone, gamepad or browser is added to the device test in the last phase, never left as a reason to keep a task open. The coordinator's own build, self-test and performance checks still run with every phase.
 - Mobile first. Every feature must be playable on touch, gamepad and keyboard / mouse.
 - No external dependencies. Output stays one HTML file, built from `src/`.
 - Update the matching `docs/api/*.md`, `docs/SPECIFICATION.md` and `docs/LIVE-TESTS.md` in the same change as the code.
@@ -146,15 +147,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P6-02 - Implement the reload animations from P6-01, including partial reload, empty reload and reload cancel.
   Done when: every weapon shows its reload animation and the animation end matches the ammo refill time.
   Status (2026-10-29): 14 reload sets on all 38 weapons, partial / empty / shell-by-shell / cancel, first and third person; anims tests check the animation end equals the refill step for every weapon; reload poses tilt about the magazine well and stay under 30 % of the screen and 0.12 m from the eye on every frame (review sheet checked by the coordinator). Self-test 6663 / 6663.
-  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": 14 sets on all 32 weapons with a magazine, a self-test per weapon (partial and empty) proves the animation ends on the refill step; sim values unchanged.
+  Status (2026-10-29): implemented, not ticked then (ticked later; its live test is in P9-03, Phase 10); Appendix C "P6-02 to P6-04 - Implementation": 14 sets on all 32 weapons with a magazine, a self-test per weapon (partial and empty) proves the animation ends on the refill step; sim values unchanged.
 - [x] P6-03 - DECIDE + implement better melee animations: per melee weapon and for the quick melee of guns (wind-up, strike, follow-through, hit reaction on the target), first-person and third-person.
   Done when: each melee weapon and the quick melee has a distinct animation that matches its hit timing.
   Status (2026-10-29): per-weapon melee and quick melee with wind-up, contact on the first frame after damage, follow-through ending when the weapon can act again, hit reaction on the target; strikes land toward the crosshair (tested per frame).
-  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": 8 strike rows, contact pose on the first frame after the hit tick, end on the step the weapon may act again (self-tested for every melee weapon and the quick melee), hit reaction, stagger, hit-stop, surface impact.
+  Status (2026-10-29): implemented, not ticked then (ticked later; its live test is in P9-03, Phase 10); Appendix C "P6-02 to P6-04 - Implementation": 8 strike rows, contact pose on the first frame after the hit tick, end on the step the weapon may act again (self-tested for every melee weapon and the quick melee), hit reaction, stagger, hit-stop, surface impact.
 - [x] P6-04 - Swap, ADS / alt, sprint and inspect motions reviewed so they do not conflict with the new reload and melee motions.
   Done when: no animation pops or overlaps in a live test of every weapon.
   Status (2026-10-29): priority swap > reload > melee > block > charge > aim > sprint > kick with blends; swap split 35 / 65 with equip time unchanged; pop test over every weapon and transition passes. Live device check LT-M-074 to LT-M-076 still to run; pose values are data rows the owner can retune.
-  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": one layer rule with blends, swap split 35 / 65, a self-test that samples pose continuity across swap, reload, melee, ADS and sprint for all 38 weapons; the live test (LT-M-074 to LT-M-076) is written and not run.
+  Status (2026-10-29): implemented, not ticked then (ticked later; its live test is in P9-03, Phase 10); Appendix C "P6-02 to P6-04 - Implementation": one layer rule with blends, swap split 35 / 65, a self-test that samples pose continuity across swap, reload, melee, ADS and sprint for all 38 weapons; the live test (LT-M-074 to LT-M-076) is written and not run.
 
 ## Phase 7 - Audiovisual feedback
 
@@ -164,11 +165,11 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P7-02 - Implement P7-01 within the performance budget.
   Done when: each accepted item works and `node tools/perf.mjs` meets the P0-02 target.
   Status (2026-10-29): every accepted P7-01 item works (hit marker, kill confirm, damage direction, per-surface impacts and water splash, own-gun flash about 40 px with light, brass casing streaks, reload sound cues and particles, low-health and low-ammo cues, ability-ready cues, rumble, roll-only damage shake), A-09 fixed; gameplay values unchanged; perf.mjs A/B medians inside the P0-02 gate (Low render 3.23 to 2.77 ms) and the storm worst case adds no draw call; coordinator checked the review sheet. Self-test 6791 / 6793 (2 timing checks under load in untouched world / nav code).
-  Status (2026-10-29): implemented, not ticked; Appendix C "P7-02 to P7-03 - Implementation": F01 to F13 work (F14 and F15 were P6-03), the P6 sound cues and the four P6 particles (R2 casings, the R4 round, the W36 vent, the W35 flare) are in, A-09 is fixed; 6793 self-tests run, all pass except two timing checks that flake under load on this host (nav big map, world ray query; untouched code, both pass on a rerun), the P0-02 gate: see the performance table there.
+  Status (2026-10-29): implemented, not ticked then (ticked later; its live test is in P9-03, Phase 10); Appendix C "P7-02 to P7-03 - Implementation": F01 to F13 work (F14 and F15 were P6-03), the P6 sound cues and the four P6 particles (R2 casings, the R4 round, the W36 vent, the W35 flare) are in, A-09 is fixed; 6793 self-tests run, all pass except two timing checks that flake under load on this host (nav big map, world ray query; untouched code, both pass on a rerun), the P0-02 gate: see the performance table there.
 - [x] P7-03 - Settings to reduce intense effects (shake, flashes).
   Done when: each intense effect has an off / reduced option.
   Status (2026-10-29): weapon motion %, muzzle flash full / reduced (1 particle, half size, half alpha, no light) / off, vibration strength %, heartbeat on / off, camera shake %; photosensitivity turns the flash off above 3 shots / s; additive save keys with migration and clamping; reachable on touch, gamepad and keyboard.
-  Status (2026-10-29): implemented, not ticked; Appendix C "P7-02 to P7-03 - Implementation": weapon motion %, muzzle flash full / reduced / off, vibration strength %, heartbeat on / off, and the camera shake slider that was there; each is a saved additive setting (an older save gets the defaults), each has a settings row reached by keyboard, touch and gamepad, each is self-tested (reduced really reduces, off really turns off).
+  Status (2026-10-29): implemented, not ticked then (ticked later; its live test is in P9-03, Phase 10); Appendix C "P7-02 to P7-03 - Implementation": weapon motion %, muzzle flash full / reduced / off, vibration strength %, heartbeat on / off, and the camera shake slider that was there; each is a saved additive setting (an older save gets the defaults), each has a settings row reached by keyboard, touch and gamepad, each is self-tested (reduced really reduces, off really turns off).
 
 ## Phase 8 - Rebalance
 
@@ -191,10 +192,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: no Critical or High finding remains open in Appendix D.
 - [ ] P9-02 - Save migration test from VERSION 0.1.0 (settings, bindings, touch layouts, progress, unlocks, custom matches).
   Done when: a 0.1.0 save loads with no errors and no lost progress.
-- [ ] P9-03 - Device test: low-spec Android phone, iPhone (HTTPS and Home Screen app), desktop keyboard / mouse, desktop gamepad.
-  Done when: each passes or has a recorded known issue.
 - [ ] P9-04 - Update README, docs and in-game help; bump VERSION; rebuild and commit `ClassTimeKiller.html`.
   Done when: all texts match the final features and the shipped file logs 0 errors.
+
+## Phase 10 - Owner device checks (last)
+
+Owner device checks come last (owner, 2026-11-04 05:45: "Can you restructure the tasks for all games so that tests happen at the end", answering which tests: "Your device checks"): the device test moved to its own last phase.
+
+- [ ] P9-03 - Device test: low-spec Android phone, iPhone (HTTPS and Home Screen app), desktop keyboard / mouse, desktop gamepad; on them, the owner runs the open live tests of `docs/LIVE-TESTS.md`, including LT-M-074 to LT-M-076 (the P6-02 to P6-04 animations), LT-M-077 to LT-M-079 (the P7-02 and P7-03 feedback, with sound) and the phone layout of the four spectator buttons (P2-01).
+  Done when: each passes or has a recorded known issue; a failure becomes a fix task added at the end of this phase, and a fix there rebuilds the file and bumps VERSION again (P9-04).
 
 ---
 
@@ -1018,7 +1024,7 @@ Both cells are inside the gate (no cell worse than +10 % and +0.3 ms) and the al
 - The P7-03 weapon motion setting does not exist yet: the offsets are not scaled by it (the charge tremble already honours reduce motion; `ViewAction.update` is the one place to scale).
 - Two existing tests described the old swap and were changed to the swap split: `weapons` "a swap raises the new weapon..." and `render` "a swap starts lowered and rises".
 - `weapon.fire` gained `magShare` (P7 F09) because the brief asked for the event table; no listener uses it yet.
-- The live tests LT-M-074 to LT-M-076 are written and not run (they need devices). The tasks are not ticked.
+- The live tests LT-M-074 to LT-M-076 are written and not run (they need devices). The tasks were not ticked then (ticked later; the live tests are in P9-03, Phase 10).
 
 ### P7-01 - Feedback list (decided 2026-10-29 by the coordinator; the owner can change any row)
 
@@ -1127,7 +1133,7 @@ No cell is worse than +10 % and +0.3 ms: the gate holds (the machine was shared,
 - The vibration strength row says "controller only" where the phone cannot vibrate (iPhone), like the switch above it.
 - The flash colour of a kinetic gun changed from the class body colour to warm (see F04). If the owner wants the old look: one line in `ShotFx.flash`.
 - The weapon motion setting does not scale another body's gun kick (that is not the player's own motion).
-- The live tests LT-M-077 to LT-M-079 are written and not run (they need devices and ears). The tasks are not ticked.
+- The live tests LT-M-077 to LT-M-079 are written and not run (they need devices and ears). The tasks were not ticked then (ticked later; the live tests are in P9-03, Phase 10).
 - Contact sheet of the visual effects (hit marker, kill confirm, damage direction, impacts on four surfaces and water, muzzle flash full and reduced and off, casings, low health): `C:\Users\GS\AppData\Local\Temp\claude\ctk-p6tools\sheet-p7.png`; `__CTK.feedbackDemo(scene)` makes each still.
 
 ### P8-01 - Balance targets (decided 2026-10-30 by the coordinator; the owner can change any row)
