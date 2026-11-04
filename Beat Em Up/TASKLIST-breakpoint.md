@@ -134,7 +134,7 @@ Purpose: one timing rule for blocks, stun and combos, and the new movement speed
 
 Purpose: settle the mode list first, then give every mode the same difficulty choice (P18-05 comes after the merge because it lists the modes the merge removes).
 
-- [ ] P18-18 - DECIDE the merge: Versus, Brawl, Co-op Brawl and Free Fight become one mode named Free Fight, with all the options of the four (owner, 2026-11-01). It builds on P4-08's lineup (slots, teams, Even teams, clock). Tournament (P11) and online (P12) use the same setup.
+- [ ] P18-18 - DECIDE the merge: Versus, Brawl, Co-op Brawl and Free Fight become one mode named Free Fight, with all the options of the four (owner, 2026-11-01; again 2026-11-04 05:40: "Free Fight Brawl and CoOp Brawl collapse into Free Fight"). It builds on P4-08's lineup (slots, teams, Even teams, clock). Tournament (P11) and online (P12) use the same setup.
   Fact (recorded decisions that stay): Friendly fire is a setting, off by default (owner, P4-07); a knocked-out player sits out until the fight ends and the fight is lost when every player is out (owner, P4-07); a 1v1 of two people keeps rounds, the round timer and the Versus score across rematches (P4-08).
   DECIDE: where each option of the four modes sits on the setup screen so it stays short on a phone. Recommended: the first screen holds Players and teams, Level and Difficulty; every other option sits under one "More options" row.
   Done when: Appendix C has the option list with each old mode's option mapped to its new place; nothing a player could set before is lost without a recorded reason.
@@ -144,6 +144,12 @@ Purpose: settle the mode list first, then give every mode the same difficulty ch
   Fact: today it sits on three screens with three names ("Arcade difficulty" on fighter select, "CPU level" in match setup, "Difficulty" in fight options). Modes with no CPU do not show it.
   DECIDE: the step. Recommended: the first setup screen of the mode, before fighter select, with one name, "Difficulty".
   Done when: Arcade, Survival, Free Fight (any lineup with a CPU) and Tournament all offer the same control, named "Difficulty", at the same step before the fight, on touch, gamepad and keyboard; the choice is saved per mode; old saves load with their current level.
+- [ ] P18-42 - DECIDE the Free Fight fight rules: any kind of fight can be set up in Free Fight (owner, 2026-11-04 05:40): the area (the open level or the square ring of that level, P8-05), ring-out on or off, weapons and items on or off, breakables on or off, and every other match setting (rounds, round time, health, difficulty, teams, friendly fire, start side), so any fight of the game (an Arcade duel, a brawl, a Tournament bout, a Survival wave) can be recreated.
+  Fact: every level has a `ring` row (centre, half sizes, ring-out flag) used by the 1v1 modes (P8-05, Appendix C "Levels"); P18-18 places the options on the setup screen, P18-42 sets which rules exist.
+  DECIDE: the rule list, each rule's values and default, and which combinations are refused (for example ring-out with the open level). Recommended: defaults equal today's Free Fight; ring-out is offered only with the ring; the rules sit under P18-18's "More options" row with one "Rules preset" row (Default, Arcade duel, Tournament bout, Brawl, Survival wave, Custom) that sets them all at once.
+  Done when: Appendix C has the rule list with values, defaults, refused combinations and the presets, each preset matching the mode it copies.
+- [ ] P18-43 - Implement P18-42 in Free Fight: every rule works in every lineup (1v1, teams, crowds, people and CPUs) and is saved with the Free Fight settings.
+  Done when: each rule changes the fight as set (the ring bounds and ring-outs, no items or no breakables in the level, the round and health numbers) on touch, gamepad and keyboard; each preset starts a fight with the rules of the mode it copies; self-tests cover every rule and preset; old saves load with the defaults; the fingerprints pass.
 
 ### Stage 7 - Arcade and Survival brawls, goons and allies
 
@@ -684,7 +690,7 @@ Numbered after the other phases because it was added later; it follows Phase 17 
 
 Not started on 2026-11-03: moved to the Path section (P18-01, P18-02, P18-03, P18-04, P18-05, P18-06, P18-07, P18-08, P18-09, P18-10, P18-11, P18-12, P18-13, P18-14, P18-15, P18-16, P18-17, P18-18, P18-19, P18-20, P18-21, P18-22, P18-23, P18-24, P18-25, P18-26, P18-27, P18-28, P18-29, P18-30, P18-31, P18-32, P18-33).
 
-Where the tasks came from (owner text verbatim in Appendix A): P18-01 to P18-25 from the owner feedback of 2026-11-01; P18-26 to P18-31 from the friend feedback of 2026-11-02; P18-32 to P18-35 from the Arcade playtest of 2026-11-03; P18-36 found during P18-34; P18-37 to P18-40 from the owner ideas of 2026-11-03 19:56. P18-41 from the owner answers of 2026-11-04 00:30. The game stays 3D (owner, 2026-11-02).
+Where the tasks came from (owner text verbatim in Appendix A): P18-01 to P18-25 from the owner feedback of 2026-11-01; P18-26 to P18-31 from the friend feedback of 2026-11-02; P18-32 to P18-35 from the Arcade playtest of 2026-11-03; P18-36 found during P18-34; P18-37 to P18-40 from the owner ideas of 2026-11-03 19:56. P18-41 from the owner answers of 2026-11-04 00:30; P18-42 and P18-43 from the owner tasks of 2026-11-04 05:40. The game stays 3D (owner, 2026-11-02).
 
 - [x] P18-34 - CPU item throws: the CPU throws pickable items very often. Measure throws per minute per difficulty and mode today, DECIDE a rate that keeps items a treat (a cooldown, a chance by distance and situation, a cap per fight, fewer on Easy), and apply it to enemies and allies.
   Done when: Appendix C has the before and after rates; a self-test over seeded fights keeps each difficulty inside its decided rate; the CPU still picks up and uses items (P7 tests pass).
@@ -779,6 +785,8 @@ Not started on 2026-11-03: moved to the Path section (P16-01, P16-02, P16-03, P1
 | Added 2026-11-03 19:56: fix all critical issues, for example no fighter choice in Tournament | P18-39, P18-40 |
 | Added 2026-11-04 00:30: each stage's boss brings their own goons | P18-20 + P18-37 |
 | Added 2026-11-04 00:30: Tournament fighter choice works on mobile as in all other modes | P18-41 |
+| Added 2026-11-04 05:40: Free Fight, Brawl and Co-op Brawl collapse into Free Fight | P18-18, P18-19 |
+| Added 2026-11-04 05:40: Free Fight sets up any fight: open level or square ring, ring-out, weapons, breakables, all settings | P18-42, P18-43 |
 | Added 2026-11-03 19:56: reorder the tasks not started and make them one path without uncertainties | done in the Path section (2026-11-03) |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
@@ -950,6 +958,13 @@ Also for the tasks not yet started reorder logically and normalize them to follo
 ```text
 -each stage's boss bring their own goons!
 -Tournament char selection should work on mobile too as in all other game modes
+```
+
+### Owner tasks of 2026-11-04 05:40 (verbatim)
+
+```text
+Free Fight Brawl and CoOp Brawl collapse into Free Fight
+Any kind of fight can be configured there incl if the level is open or constrained to the square ring also an option for ring out existence of weapons and breakables and overall settings to recreate any kind of fight
 ```
 
 ## Appendix B - Research log
