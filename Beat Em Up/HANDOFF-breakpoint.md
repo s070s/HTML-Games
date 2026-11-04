@@ -5,6 +5,8 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Stop of 2026-11-04 (owner: "Commit push and Stop asap at a clean boundary"). main == origin/main. This bullet wins over the older ones below where they differ:**
+  - P18-41 done and ticked: every joined Tournament entrant picks on the full fighter screen, one after another, on any device and on phone screens. Next: P18-40 (critical issue sweep), then P18-33 stamina, then down the Path.
 - **Owner answers of 2026-11-04 00:30 (weekly usage 38%). This bullet wins over the older ones below where they differ:**
   - "each stage's boss bring their own goons!": recorded in P18-20 + P18-37 (each brawl takes its stage boss's goon theme) and P18-21.
   - "Tournament char selection should work on mobile too as in all other game modes": new Critical task P18-41 in Path stage 1 (every entrant, joined devices too, picks on the full fighter screen, on touch and phone screens). The touch pick with nobody joined was checked on 390x844 and 844x390 and works.
