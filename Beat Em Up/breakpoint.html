@@ -4221,6 +4221,17 @@ function canTransition(from, to) {
 /* ---------- attributes -> gameplay (attribute scale 1..10, 5 = baseline 1.0) ----------
    Slopes tuned so +2 in any one attribute (7 vs 5, hard CPU mirrors of KAI, MARA and DMITRI, 432 matches each) wins 61-69%; reach, balance's heavy-hit impact and recovery's stamina regen were flattened (they won .69, .74, .74). */
 const ATTR_KEYS = ['health', 'stamina', 'strength', 'speed', 'reach', 'defense', 'balance', 'recovery'];
+/* Stamina (P18-33). The people's side of a match at the CPU levels (not Versus, Training, a lineup or an even-damage run: the rule of the CPU damage level) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack (ATTACK_NO_REGEN)
+   or a blocked hit (GUARD_NO_REGEN); attackShare = the share of the rate while still attacking; perfectBlock and perfectSway = the stamina a perfect block and a perfect sway give back. Hard, Expert and every CPU fighter keep the plain rules (STAMINA_EDGE_NONE).
+   Move costs are in ATTACKS; SWAY_COST, SIDESTEP_COST, JUMP_COST and RUN_DRAIN are with the other movement. */
+const ATTACK_NO_REGEN = 36, GUARD_NO_REGEN = 50;
+const STAMINA_EDGE_NONE = { regen: 1, delay: 1, attackShare: 0, perfectBlock: 6, perfectSway: 0 };
+const PLAYER_STAMINA_EDGE = {
+  easy: { regen: 1.6, delay: 0.5, attackShare: 0.35, perfectBlock: 8, perfectSway: 5 },
+  normal: { regen: 1.2, delay: 0.55, attackShare: 0.3, perfectBlock: 8, perfectSway: 4 },
+  hard: STAMINA_EDGE_NONE,
+  expert: STAMINA_EDGE_NONE,
+};
 function normalizeAttrs(a) {
   const out = {};
   for (const k of ATTR_KEYS) out[k] = clamp(Math.round(finite(a[k], 5)), 1, 10);
@@ -4241,6 +4252,7 @@ function deriveStats(raw) {
     guard: 1.25 - a.balance * 0.05,                  // 1.20..0.75  guard (block stamina) cost
     impact: 1.15 - a.balance * 0.03,                 // 1.12..0.85  damage from heavy hits, counters, throws and scenery
     regen: 12.5 + a.recovery * 1.5,                  // 14..27.5 stamina per second
+    edge: STAMINA_EDGE_NONE,                         // the people's side of a CPU match swaps it (MatchSim)
     getup: 1.2 - a.recovery * 0.04,                  // 1.16..0.80  knockdown duration
   };
 }
@@ -5752,7 +5764,7 @@ class Fighter {
     if (mv.ctx === 'air') this.airAttackUsed = true;    // one air attack per jump
     this.exhaustedMove = this.stam < mv.stam;
     this.stam = Math.max(0, this.stam - mv.stam);
-    this.noRegen = 36;
+    this.noRegen = Math.round(ATTACK_NO_REGEN * this.stats.edge.delay);
     if (this.stam <= 0 && mv.stam > 0) this.exhaust = 50;
     const sp = this.moveSpeedMult(mv);
     this.move = mv;
@@ -5921,6 +5933,7 @@ class Fighter {
     let k = 0;
     switch (this.state) {
       case S.IDLE: case S.CROUCH: k = 1; break;
+      case S.ATTACK: k = this.stats.edge.attackShare; break;
       case S.WALK: k = 0.6; break;
       case S.BLOCK_H: case S.BLOCK_L: k = this.blockStun > 0 ? 0.1 : 0.4; break;
       case S.DOWN: k = this.pinnedBy ? 0 : 0.6; break; // held in a submission: the hold drains stamina, it never regenerates
@@ -6913,7 +6926,7 @@ const Combat = {
     const dirx = it.vx / (Math.hypot(it.vx, it.vz) || 1), dirz = it.vz / (Math.hypot(it.vx, it.vz) || 1);
     if (!perfect && !shield) def.stam = Math.max(0, def.stam - w.thrown * 0.9 * (1 + 0.15 * def.guardPressure) * def.stats.taken * def.stats.guard * WEAPON_BLOCK_COST);
     if (shield && --def.item.dur <= 0) match.breakHeld(def);
-    if (perfect) def.counterWindow = COUNTER_WINDOW_PERFECT; else { def.guardPressure++; def.noRegen = 50; }
+    if (perfect) def.counterWindow = COUNTER_WINDOW_PERFECT; else { def.guardPressure++; def.noRegen = Math.round(GUARD_NO_REGEN * def.stats.edge.delay); }
     def.flash = 0.5;
     match.hitStop = Math.max(match.hitStop, 3);
     const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: 2, cat: 'punch', h: low ? 'L' : 'M', kind: 'hit', hitStop: 3, active: 1, recovery: 0, hitstun: 0, blockstun: 8 };
@@ -6980,7 +6993,7 @@ const Combat = {
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
       def.gainMomentum(MOMENTUM_PERFECT);
-      def.stam = Math.min(def.maxStam, def.stam + 6);
+      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfectBlock);
       def.blockStun = 0;
       att.reactDur = 26; att.hitKind = 'mid';
       att.setState(S.STAGGER);
@@ -6992,7 +7005,7 @@ const Combat = {
       if (shield && --def.item.dur <= 0) match.breakHeld(def);
       def.stam = Math.max(0, def.stam - cost);
       def.guardPressure++;
-      def.noRegen = 50;
+      def.noRegen = Math.round(GUARD_NO_REGEN * def.stats.edge.delay);
       if (mv.tier === 3) this.chipDamage(def, mv.dmg * 0.08);
       if (def.stam <= 0 || mv.gb) { // a guard-break move breaks any block short of a perfect one
         broke = true;
@@ -7022,6 +7035,7 @@ const Combat = {
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
       def.gainMomentum(MOMENTUM_PERFECT);
+      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfectSway);
       match.hitStop = Math.max(match.hitStop, 4);
     }
     Events.emit('block', { att, def, mv, perfect, broke: false, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
@@ -9563,6 +9577,7 @@ class MatchSim {
       this.cfg.seats.slice(0, 2).forEach((seat, k) => { if (Number.isInteger(seat) && seat >= 0 && seat < COOP_MAX_PLAYERS && this.controllers[k]) this.controllers[k] = HUMAN_CONTROLLERS[seat]; });
     }
     if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg; // the enemies hit harder or softer by difficulty
+    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.partySize; k++) { const edge = PLAYER_STAMINA_EDGE[this.cfg.difficulty] || STAMINA_EDGE_NONE, stats = this.fighters[k].stats; stats.edge = edge; stats.regen *= edge.regen; } // the people's side recovers sooner on the easy levels (P18-33)
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false); // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
@@ -15516,6 +15531,7 @@ function testApi() {
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS,
+    ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };

@@ -2374,6 +2374,74 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 - Owner (2026-11-04 05:43, verbatim): "Can you restructure the tasks for all games so that tests happen at the end"; asked which tests, the owner chose "Your device checks" (not the test and audit tasks, not the coordinator's per-batch tests).
 - Done: a last Stage 19 holds P16-03, the device matrix with one line per owner check; the 7 tasks that were done in code and kept open only for the owner's check (P4-08, P6-06, P17-03, P17-04, P17-05, P17-07, P17-08) are ticked and listed there; the owner's Easy Arcade run of P18-33 moved there; P17-08's P0-04 frame check runs with P15-01. Class Time Killer and IRON HORIZON got the same last phase; Finger Lickin Music already ends with its device tests (Phase 15) and lists the ones it cannot run in its final report.
 
+### P18-33 stamina rebalance (2026-11-05)
+
+- Owner (2026-11-03, Arcade playtest): "in Arcade on Easy, with any fighter, stamina runs out very fast and group fights leave no moment to rest and recover". Rule: keep things balanced. Decided by the coordinator's delegate under the owner's standing go; the owner can change any number below. Method and every number are from the code of commit a023ded and a headless run of the P0-06 runner (`SimRunner.run`, the code behind `BREAKPOINT.simulate`).
+- Step 1 - what the code did (per move, block, sway, run, item, style and weight):
+
+  | Thing | Stamina |
+  |---|---|
+  | Tank | 60 + 10 x Stamina attribute: 70 to 160 (the 32 presets 100 to 130). Weight class 0 (11 fighters) 120-130, class 1 (10) 110-130, class 2 (7) 110-120, class 3 (3) 100-110, class 4 (1) 110: no stamina rule reads weight, only the attributes do |
+  | Plain strikes | tier 1 punches 2-3, tier 2 punches 4-6, tier 1 kicks 4-5, tier 2 kicks 6-7, strong moves 9-13 (a counter 4 / 6, an air kick 6, a running heavy 8, the grab punch 10); average of the moves a style's strings use 6.7 (Taekwondo) to 7.9 (Kickboxer, Brawler), the longest string 18 (Wrestler, Judoka, Sambo, BJJ, Hapkido) to 25 (21 Wing Chun and Taekwondo) |
+  | Clinch, grab, hold | knee 4 (and 10 off the foe), elbow 6, 12 throws 6-13, hold tap 1.5 each (the held foe loses 0.05 per tick), a failed escape 10 (an escape needs 6), a quick get-up 8 |
+  | Items | a weapon step 3 (light) / 6 / 9 (strong), a pick-up 0, a thrown item blocked costs the blocker 1.5 times a weapon block, the bin lid 0 |
+  | Block | per blocked hit damage x guard factor x 0.9 x (1 + 0.15 x hits blocked lately) x the blocker's damage taken x guard: for KAI at the start Jab 4.5, Front Kick 5.4, Cross 6.3, Power Jab 8.1, Roundhouse 9.9, Heavy Body Kick 14.4; empty tank = the guard breaks |
+  | Movement | sway 10 (below it the press does nothing), sidestep 6, jump 4, run 7 per second |
+  | Regeneration | (12.5 + 1.5 x Recovery) per second: 14 to 27.5 (KAI 21.5), times a share by state: standing or crouching 1, walking 0.6, blocking 0.4 (0.1 in block stun), getting up and knocked down 0.6, jumping and sidestepping 0.2, being hit 0.15, attacking, running and swaying 0, pinned in a hold 0; times 0.8 under 25 % of the tank. An empty KAI tank (120) fills in 5.6 s standing still |
+  | Delay before it starts | after an attack 36 ticks, jump 20, run 20, sidestep and sway 24, a blocked hit and a weapon block 50, a throw 40, a clinch strike 30 |
+  | Gives back | a perfect block 6; nothing else |
+
+- How it was measured: fighter 0 (KAI) against the CPU enemies at the row's difficulty, with the CPU damage levels on (`matchCfg: { evenDamage: false, difficulty }`, as in the game; the runner's default is even damage), on the Warehouse, 16 seeded fights per row (seeds 1 to 16): a 1v1 against MARA (best of 3 rounds, 60 s), a brawl against 2, 3, 4 or 6 enemies (`enemies`) and the Warehouse waves (`waves`: the level's waves up to 6 at once). A run ends when one side is out; a fight is counted while the player is up and a foe is up. "Out of stamina" = under 25 % of the tank (`LOW_STAMINA`: the LOW STAMINA warning, attacks 15 % weaker, walk 8 % slower, regeneration 20 % slower). The player is a script in place of the AI (a player is an AI controller at a player-like level; the scripts are in the self-test file, `staminaPlayer`, and in the session scratch):
+  - Press (the player-like script, the one the shares below are about): presses Punch, Punch, Kick, Kick every 20 ticks while a foe is within 1.6 m, walks in or runs (over 4.5 m) otherwise, blocks 65 % of the strikes it sees start (low guard against low moves), and when LOW STAMINA shows walks away from the nearest foe to rest until the tank is back at 55 %.
+  - Mash: the same, never resting (a stress test, not a player).
+  - AI: the Normal AI as the player (it rests by itself and does not read attacks from foes other than its target).
+- What the numbers said (Step 1, before):
+  - The Press script was under 25 % of its tank 16 % of an Easy group fight (1v3 to 1v6, 16.2 to 16.4 %), 14 to 16.5 % at Normal and 7 to 19 % at Hard and Expert. In an Easy 1v3 it pressed 4.6 s, hit LOW STAMINA after 8.8 s of fight, rested 4.5 s and went back: half of every cycle was rest.
+  - The Mash script sat at the bottom of the tank 82 % of every group fight at every difficulty (6 to 24 % in a 1v1). Costs are small (2 to 13 against a tank of 120) but nothing regenerates during an attack: 1.1 attacks a second spend 6.5 a second and the tank is empty in 20 seconds. At an empty tank an attack still works, at 0.6 damage and 3 ticks slower.
+  - The enemies are not what drains it: on Easy the player takes 12 to 16 attacks a minute in a group (blocked hits cost 0.2 to 0.3 stamina a second) and is not under attack 91 to 93 % of the fight, the longest quiet spell 20 to 22 s; Normal 28 to 32 attacks a minute, 82 to 85 % quiet (7 to 13 s); Hard and Expert 16 to 23 a minute, 86 to 90 % quiet. The tokens already leave room to rest; the player's own pressing is the drain, and the wait before regeneration (36 ticks after every attack, 50 after every block) keeps the tank from refilling between presses.
+- DECIDE (the largest share of a group fight the Press script may spend under 25 % of its tank): Easy 9 %, Normal 12 %, Hard 20 %, Expert 20 %. Easy lowest, as asked: the 1v3 to 1v6 and waves fights of the table below must stay inside it. Why these numbers: the script has a floor near 5 % (it only stops pressing once the warning shows, and an attack in progress or a blocked hit takes it a little deeper), so 0 is not a target; Easy halves from 16 % to 7 to 8.5 %, Normal falls from 14 to 16.5 % to 7.5 to 11.3 %, and Hard and Expert keep today's rules (13 to 19 % measured, so 20 %). The self-test guards Easy and Normal on a seeded 1v3 (4 seeds).
+- Step 2 - what changed, and what did not:
+
+  | What | Before | After | Why |
+  |---|---|---|---|
+  | The human side of a match with the CPU levels (not Versus, Training, a lineup or an even-damage run: the rule of the CPU damage level) - regeneration rate | plain (KAI 21.5 per second) | Easy x1.6 (34.4), Normal x1.2 (25.8), Hard and Expert x1 | the tank refills in 3.5 s (Easy) and 4.7 s (Normal) instead of 5.6 s; "Easy is forgiving" |
+  | - wait before regeneration after an attack | 36 ticks | Easy 18, Normal 20, Hard and Expert 36 | the main brake on pressing: a press every 36 ticks never regenerated |
+  | - wait after a blocked hit and a weapon block | 50 ticks | Easy 25, Normal 28, Hard and Expert 50 | blocking in a crowd stops starving the tank |
+  | - share of the rate while still attacking | 0 | Easy 0.35, Normal 0.3, Hard and Expert 0 | a string of attacks regenerates a little between presses |
+  | - stamina a perfect block gives back | 6 | Easy 8, Normal 8, Hard and Expert 6 | what recovers it: well-timed defence pays more |
+  | - stamina a perfect sway gives back | 0 | Easy 5, Normal 4, Hard and Expert 0 | a Sway fighter pays 10 for every sway; a perfect one now pays half back (a Block fighter already got 6 for a perfect block) |
+  | Every CPU fighter, AI against AI, Hard and Expert, Versus, Training, lineups | plain rules | unchanged | a first try changed the rates for every fighter: the CPUs then fought differently (the hazard self-test saw CPU hazard use fall from 5 / 8 / 11 of 12 seeded fights to 0 / 2 / 3 on the Pit / Construction / Garage, four fingerprint tests changed and the item-throw rate crossed its cap). The people's side only keeps the balance work of P14-01 and every fingerprint as they are |
+  | Move costs, sway 10, sidestep 6, jump 4, run 7 per second | as above | unchanged | the style tables were balanced on these costs (P14-01); the drain is the rate of pressing, not the price of one press |
+  | Attack tokens per target (Easy 1, Normal 2, Hard 2, Expert 3), grant gaps (120 / 90 / 200 / 200 ticks), rests (200 / 150 / 300 / 300 ticks) | as listed | unchanged | measured above: the enemies leave 82 to 93 % of a group fight quiet; a try with a slower Easy (150 / 240 ticks) changed the seeded Easy brawls and the item-throw rate without helping the tank |
+
+  The numbers live in `PLAYER_STAMINA_EDGE` and `STAMINA_EDGE_NONE` (next to the attributes), `ATTACK_NO_REGEN` and `GUARD_NO_REGEN`; `deriveStats` gives every fighter `edge: STAMINA_EDGE_NONE` and MatchSim swaps it for the people's side next to the CPU damage level.
+- After (the same runs, the final code; "before > after"). Under 25 % of the tank, the Press script, % of the fight:
+
+  | Difficulty | 1v1 | 1v2 | 1v3 | 1v4 | 1v6 | waves |
+  |---|---|---|---|---|---|---|
+  | Easy | 3.2 > 0 | 13 > 3.3 | 16.3 > 7 | 16.2 > 7.3 | 16.2 > 8.3 | 16.4 > 8.5 |
+  | Normal | 4 > 0.7 | 12.6 > 7.5 | 14 > 9.6 | 16.1 > 9.2 | 15.7 > 11.3 | 16.5 > 11 |
+  | Hard | 9.9 > 9.9 | 19.1 > 19.1 | 15.6 > 15.6 | 13.8 > 13.8 | 14.2 > 14.2 | 14.1 > 14.1 |
+  | Expert | 15.9 > 15.9 | 6.9 > 6.9 | 12.5 > 12.5 | 14.8 > 14.8 | 14.2 > 14.2 | 13.4 > 13.4 |
+
+  Under 10 stamina (cannot sway, strong moves exhausted), %: Easy 0 / 0.4 / 0.5 / 0.5 / 0 / 0 > all 0; Normal 0 / 0 / 0 / 0.3 / 0 / 0.3 > 0 / 0 / 0.1 / 0.2 / 0 / 0; Hard 1.9 / 3.4 / 1.1 / 0 / 0 / 0 and Expert 7.2 / 0 / 0 / 0.7 / 0 / 0 unchanged. Longest single spell under 25 % (seconds), before > after: Easy 1v3 6.1 > 2.9, 1v4 5.7 > 1.7, 1v6 3.4 > 1.6, waves 3.6 > 2.3; Normal 1v3 3.2 > 3.1, 1v4 4.9 > 3.4, 1v6 3.8 > 3.8, waves 6 > 1.9; Hard 1v1 13.4 and Expert 1v1 23 unchanged.
+
+  Rhythm of the Press script (seconds pressing before a rest / seconds resting; the second the first LOW STAMINA shows), before > after:
+
+  | Difficulty | Group | Press / rest s | First LOW at s |
+  |---|---|---|---|
+  | Easy | 1v3 | 4.6 / 4.5 > 10.6 / 2.8 | 8.8 > 13.7 |
+  | Easy | 1v4 | 4.4 / 4.4 > 8.4 / 2.7 | 8.3 > 12.2 |
+  | Easy | 1v6 | 3.8 / 4.4 > 7.1 / 2.7 | 8.7 > 13.6 |
+  | Normal | 1v3 | 5.2 / 4.6 > 8 / 3.8 | 9.2 > 11.6 |
+  | Normal | 1v4 | 4.4 / 4.7 > 6.3 / 3.5 | 8.7 > 11 |
+  | Normal | 1v6 | 4.2 / 4.5 > 5.4 / 3.7 | 9.9 > 11.7 |
+
+  The script presses more as well (attacks per minute of fight, before > after): Easy 1v3 60 > 86, 1v6 57 > 84, Normal 1v3 59 > 73, 1v6 57 > 70. Player wins of the Press script, %: Easy 1v1 to 1v6 100 > 100, waves 0 > 13; Normal 1v3 69 > 88, 1v4 19 > 56, 1v6 0 > 0, waves 0 > 0; Hard and Expert unchanged. Seconds of fight (mean): Easy 1v3 56 > 38, 1v6 115 > 77; Normal 1v3 56 > 46, 1v6 83 > 80. Stress and reference: the Mash script (never rests) under 25 % in a 1v3: Easy 82.5 > 67.2, Normal 81.7 > 74.8, Hard and Expert 82 unchanged (1v1: Easy 6.6 > 0, Normal 9 > 1.9, Hard 14.1, Expert 18.2 unchanged); the Normal AI as the player in a 1v3: Easy 1.7 > 0, Normal 4.1 > 0.8.
+- P14-01 targets and style balance: nothing a CPU or an even-damage run uses changed (the new fields are `STAMINA_EDGE_NONE`, the old numbers, for everyone but the human side of a CPU-damage match on Easy and Normal), so the rows of the table above keep their numbers. Checked: the seeded 1v1 fingerprints (N fighters, the pre-P8 layouts, the P9 hazard fingerprints, the effect settings), the Group AI token tests and the CPU item-throw test pass unchanged and none was re-recorded; spot checks of the runner give identical numbers on the old and the new code - Block vs Sway (60 seeds, both seats; Block wins 49.2 / 52.5 / 50.8 / 56.8 % at Easy / Normal / Hard / Expert), the group rows (reference Normal AI against 3 CPUs, 40 seeds: it wins 70 / 0 / 2.5 / 0 % because the runner has no one-sided bonus until P14-05, so the P14-01 group bands cannot be read yet), the Hard AI against Normal grunts on the 6 wave levels (16 seeds each, 0 cleared for the same reason), the 1v1 ladder (60 seeds) and the 136 style pairs at Easy, Normal and Hard (4 seeds each, pair by pair the same).
+- Self-tests (section "Stamina (P18-33)", names start `Stamina (P18-33):`): the stamina numbers are the decided ones (edge table, plain regeneration 14 to 27.5, delays 36 / 50, costs, tokens, gaps, rests); only the human side of a CPU-damage match gets the edge, and the enemies, Hard and Expert, an even-damage run and Training keep the plain rules; the edge shortens the delays, gives the attack share and the perfect block / perfect sway refunds while a plain fighter keeps 36 and 50 ticks, 6 and 0; a seeded 1v3 Easy and Normal brawl (4 seeds) keeps the Press script under 25 % of its tank at most 9 % and 12 % of the fight (the old code: 16.0 % and 15.8 %). All four fail on the old code. No fingerprint or hash was re-recorded.
+- Open: (1) a player who mashes without ever pausing is still at the bottom of the tank 67 % of an Easy 1v3 (was 82 %): stamina is the brake on mashing and an empty tank still attacks, weaker; more would make Easy mashing free. (2) Hard and Expert keep today's rules (the Press script is under 25 % of the tank 13 to 19 % there, the longest spell 13 s in the Hard and 23 s in the Expert 1v1): the owner asked for Easy; say if Hard should get a smaller edge. (3) A latent hole of P18-34 found on the way: a CPU on a pick-up plan can take a neighbouring throwable that its team may not fetch yet (the Hard seed 14 test fight took a crate at tick 76 and a bottle at tick 984 for the hammer beside it; the old code did the same at tick 932, hidden by a longer fight); not fixed here, nothing in the final code touches it. (4) The owner's Easy Arcade run is on the P16-03 list (Stage 19).
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
