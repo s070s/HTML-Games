@@ -4663,7 +4663,7 @@ const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.
    back to the pose's own lowest, at most PLANT_SPEED a tick, whatever the pose blend does meanwhile, so a hold or a fall starting or ending neither sinks the body into the floor nor jumps it. */
 const PLANT_SPEED = 1.5;          // m/s: how fast the lowest part may move to the floor or back (2.5 cm a tick)
 const PLANT_MIN = 0.002;          // m: a shift smaller than this is dropped once the pose is free again
-const PLANT_RELEASE_TICKS = 20;   // ticks the body stays on the floor after the hold or the lying pose ends: the pose blend back to the stance is over by then
+const PLANT_RELEASE_TICKS = 20;   // ticks the lowest part stays at the depth of the guard stance after the hold or the lying pose ends: the pose blend back to it is over by then
 let PROBE_LOW = null;       // while a number: part() records the lowest drawn height instead of drawing
 
 function makePose(vals) { const p = new Float32Array(NP); for (const k in vals) p[J[k]] = vals[k]; return p; }
@@ -5573,7 +5573,7 @@ class Fighter {
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
     this.momentum = 0; this.boostTicks = 0; // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
-    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.throwPitch = 0; this.throwRoll = 0;
+    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.plantStance = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
@@ -6611,11 +6611,20 @@ class Fighter {
   /* Once a tick, after the pose: the holder and anybody lying on the floor or getting up from it (held, knocked down or out) are measured and plantShift is set so that their lowest part is on the floor, whatever the pose and build.
      See PLANT_SPEED: the body never jumps and never sinks while the pose blends. */
   plantFloor(dt, planted) {
+    if (!planted && this.plantHold === PLANT_RELEASE_TICKS) this.plantStance = this.stanceLow(); // the first tick the pose is free: the depth of the stance it blends back to
     this.plantHold = planted ? PLANT_RELEASE_TICKS : this.plantHold - 1;
     const own = this.lowestPart(), reach = PLANT_SPEED * dt;
-    this.plantLow += clamp((this.plantHold > 0 ? 0 : own) - this.plantLow, -reach, reach);
+    this.plantLow += clamp((this.plantHold <= 0 ? own : planted ? 0 : this.plantStance) - this.plantLow, -reach, reach);
     this.plantShift = this.plantLow - own;
     if (this.plantHold <= 0 && Math.abs(this.plantShift) < PLANT_MIN) { this.plantOn = false; this.plantShift = 0; }
+  }
+  /* The lowest part of the fighter's guard stance above the floor (at most 0): the standing stance draws the toes a little into the floor, so a fighter getting up is not lifted above it. */
+  stanceLow() {
+    const lying = this.pose;
+    this.pose = this.motion.guard;
+    const low = this.lowestPart();
+    this.pose = lying;
+    return Math.min(0, low);
   }
   /* The height of the lowest part of the pose as it stands, above the fighter's floor (a walk without drawing, the held item included). */
   lowestPart() {

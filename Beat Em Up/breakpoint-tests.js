@@ -11983,17 +11983,18 @@ const SelfTest = {
     const traceProblems = (trace, label, stats) => {   // the checks of one hold; stats collects the worst numbers
       const bad = [];
       for (const [who, rows] of [['holder', trace.a], ['held', trace.v]]) {
-        const standing = Math.min(...rows.slice(5, STANCE_TICKS).map((row) => row.low));   // the deepest the standing stance draws the toes into the floor; that stays as it is
-        let previous = null, lying = 0;
+        const stance = rows.slice(5, STANCE_TICKS).map((row) => row.low), standing = Math.min(...stance), standingTop = Math.max(...stance);   // how deep and how high the standing stance draws the toes against the floor; that stays as it is
+        let previous = null, lying = 0, free = 0;   // free = ticks since the pose was last a lying one
         rows.forEach((row, tick) => {
           if (tick < 5) return;
           const down = row.state === S.SUBMIT || row.state === S.DOWN || row.state === S.KO || row.state === S.GETUP;
-          lying = down ? lying + 1 : 0;
-          const limit = tick >= STANCE_TICKS && down ? Math.min(-GROUND_SINK, standing) - GROUND_SINK : standing - GROUND_JUMP;   // lying: on the floor, or still at the stance it came from; otherwise no deeper than 3 cm under the stance
+          lying = down ? lying + 1 : 0; free = down ? 0 : free + 1;
+          const limit = tick >= STANCE_TICKS && down ? (lying > GROUND_SETTLE_TICKS ? -GROUND_SINK : Math.min(-GROUND_SINK, standing) - GROUND_SINK) : standing - GROUND_JUMP;   // lying: on the floor once settled (before that, still at the stance it came from); otherwise no deeper than 3 cm under the stance
           const jump = previous === null ? 0 : Math.abs(row.low - previous);
           if (tick >= STANCE_TICKS) { stats.low = Math.min(stats.low, down ? row.low : 0); stats.jump = Math.max(stats.jump, jump); }
           if (row.low < limit) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): ' + (row.low * 100).toFixed(1) + ' cm');
           else if (lying > GROUND_SETTLE_TICKS && row.low > GROUND_REACH) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): ' + (row.low * 100).toFixed(1) + ' cm above the floor');
+          else if (free > 4 && row.low > standingTop + GROUND_JUMP) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): lifted ' + (row.low * 100).toFixed(1) + ' cm, the stance is ' + (standingTop * 100).toFixed(1) + ' cm');
           else if (jump > GROUND_JUMP) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): jumps ' + (jump * 100).toFixed(1) + ' cm');
           previous = row.low;
         });
