@@ -9126,6 +9126,7 @@ class AIController {
   }
   /* The throw that sends the foe through the most fighters this CPU may hurt (P18-32): the thrown body flies about a throw's reach (speed x airtime) and hits every such fighter standing in a lane as wide as two bodies. '' = nobody in any lane. */
   groupThrowDir(f, opp) {
+    if (!this.match) return '';
     const fighters = this.match.fighters;
     let best = '', bestCount = 0;
     for (const dir of THROW_DIRS) {

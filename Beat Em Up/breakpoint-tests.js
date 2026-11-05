@@ -13090,11 +13090,11 @@ const SelfTest = {
       return hits;
     };
     const HIP_TOSS = { dir: 'fwd', data: THROW_SETS.front.fwd };   // a 2.4 m flight at 5.6 m/s
-    /* Thrower, thrown fighter and the others in the lane (lane: [{ who, z, prep }]: fighter index, metres along the flight, how to set it up), the throw done, played for BODY_RUN_TICKS. */
+    /* Thrower, thrown fighter and the others in the lane (lane: [{ who, x, z, prep }]: fighter index, metres across and along the flight, how to set it up), the throw done, played for BODY_RUN_TICKS. */
     const laneScene = (opts) => {
       const m = bodyMatch(opts.enemies, opts.friendlyFire), f = m.fighters;
       self.stand(f[opts.thrower], -2.5, 0, 0, 0); self.stand(f[opts.thrown], 0, 0, 0, 1);
-      for (const slot of opts.lane) { self.stand(f[slot.who], 0, slot.z, 0, slot.z + 1); if (slot.prep) slot.prep(f[slot.who], m); }
+      for (const slot of opts.lane) { self.stand(f[slot.who], slot.x || 0, slot.z, slot.x || 0, slot.z + 1); if (slot.prep) slot.prep(f[slot.who], m); }
       bodyThrow(m, f[opts.thrower], f[opts.thrown], opts.row || HIP_TOSS);
       const hp = f.map((fighter) => fighter.hp);
       const hits = bodyHitsOf(m, () => self.run(m, BODY_RUN_TICKS));
@@ -13118,33 +13118,47 @@ const SelfTest = {
       if (rows.length < 12 || !kinds.stagger || !kinds.knockdown) bad.push(rows.length + ' throws, ' + kinds.stagger + ' staggers, ' + kinds.knockdown + ' knockdowns');
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
     });
-    test('Thrown bodies (P18-25 + P18-32): one throw through two standing enemies hits each once, the nearer first, and a fighter standing off the lane is not touched', () => {
-      const { f, hits } = laneScene({ enemies: 3, thrower: 0, thrown: 2, lane: [{ who: 3, z: 0.7 }, { who: 4, z: 1.5 }, { who: 1, z: 1.0, prep: (g) => self.stand(g, 1.6, 1.0, 0, 0) }] });
-      const who = hits.map((hit) => hit.def.index).join();
-      return who === '3,4' && hits[0].tick < hits[1].tick && hits.every((hit) => hit.att === f[0]) && f[1].hp === f[1].maxHp ? true : 'hits on ' + who + ' (wanted 3,4), ally hp ' + f[1].hp;
-    });
-    test('Thrown bodies (P18-25 + P18-32): an ally in the path is hit only with Friendly fire on; a CPU that throws a player hurts the other player and not its own team; the thrower is never hit', () => {
-      const bad = [];
-      for (const friendlyFire of [false, true]) {
-        const { f, hits } = laneScene({ enemies: 2, friendlyFire, thrower: 0, thrown: 2, lane: [{ who: 1, z: 0.7 }, { who: 3, z: 1.5 }] });   // the enemy flies through player 1 (ally of the thrower), then an enemy
-        const onAlly = hits.filter((hit) => hit.def === f[1]).length, onEnemy = hits.filter((hit) => hit.def === f[3]).length;
-        if (onAlly !== (friendlyFire ? 1 : 0) || onEnemy !== 1 || hits.some((hit) => hit.def === f[0] || hit.def === f[2])) bad.push('Friendly fire ' + friendlyFire + ': ally ' + onAlly + ', enemy ' + onEnemy + ', total ' + hits.length);
+    const nearZ = 0.7, SIDE = 0.35;   // two bystanders side by side across the lane (a body apart, both within reach of the shortest flight, 0.9 m; one behind the other would be pushed out of reach by the first one's stagger)
+    const rowProblem = (row, text) => row.label + ' (' + row.data.name + '): ' + text;
+    test('Thrown bodies (P18-25 + P18-32): on every throw, one throw through two standing enemies hits each once, the nearer first, and a fighter standing off the lane is not touched', () => {
+      const bad = [], rows = bodyRows();
+      for (const row of rows) {
+        const { f, hits } = laneScene({ enemies: 3, thrower: 0, thrown: 2, row, lane: [{ who: 3, x: -SIDE, z: nearZ }, { who: 4, x: SIDE, z: nearZ }, { who: 1, z: 1.0, prep: (g) => self.stand(g, 1.6, 1.0, 0, 0) }] });
+        const who = hits.map((hit) => hit.def.index).join();
+        if (who !== '3,4' || !hits.every((hit) => hit.att === f[0]) || f[1].hp !== f[1].maxHp) bad.push(rowProblem(row, 'hits on ' + who + ' (wanted 3,4), ally hp ' + f[1].hp));
+        if (row.data.launch * 2 * row.data.arc / GRAVITY < 2.2) continue;
+        const line = laneScene({ enemies: 3, thrower: 0, thrown: 2, row, lane: [{ who: 3, z: nearZ }, { who: 4, z: 1.5 }] }).hits;   // a long flight also goes through two in a line, the nearer first
+        if (line.map((hit) => hit.def.index).join() !== '3,4' || !(line[0].tick < line[1].tick)) bad.push(rowProblem(row, 'in a line: ' + line.map((hit) => hit.def.index + '@' + hit.tick).join()));
       }
-      const cpu = laneScene({ enemies: 2, thrower: 2, thrown: 0, lane: [{ who: 1, z: 0.7 }, { who: 3, z: 1.5 }] });   // an enemy throws player 0 through player 1 and then through its own teammate
-      const on = cpu.hits.map((hit) => hit.att.index + '>' + hit.def.index).join();
-      if (on !== '2>1') bad.push('a CPU throw hit ' + on + ' (wanted 2>1)');
-      return bad.length ? bad.join('; ') : true;
+      return bad.length ? bad.length + ' problems in ' + rows.length + ' throws: ' + bad.slice(0, 3).join('; ') : true;
     });
-    test('Thrown bodies (P18-25 + P18-32): a fighter lying in the path takes the damage and stays down, a knocked-out fighter and one that has just risen are not touched', () => {
-      const bad = [], stand = laneScene({ enemies: 2, thrower: 0, thrown: 2, lane: [{ who: 3, z: 0.7 }] }).hits;
-      const down = laneScene({ enemies: 2, thrower: 0, thrown: 2, lane: [{ who: 3, z: 0.7, prep: lieDown }] });
-      const dh = down.hits[0];
-      if (down.hits.length !== 1 || dh.def !== down.f[3] || dh.kind !== 'ground' || dh.state !== S.DOWN || !(dh.dmg > 0) || !(dh.dmg < stand[0].dmg) || !(down.f[3].hp < down.hp[3])) bad.push('lying: ' + JSON.stringify(down.hits.map((hit) => [hit.def.index, hit.kind, hit.state, hit.dmg])) + ' against standing ' + stand[0].dmg);
-      const out = laneScene({ enemies: 2, thrower: 0, thrown: 2, lane: [{ who: 3, z: 0.7, prep: knockedOut }] });
-      if (out.hits.length || out.f[3].hp !== out.hp[3] || out.f[3].state !== S.KO) bad.push('knocked out: ' + out.hits.length + ' hits, state ' + out.f[3].state);
-      const risen = laneScene({ enemies: 2, thrower: 0, thrown: 2, lane: [{ who: 3, z: 0.7, prep: (g) => { g.invuln = 60; } }] });
-      if (risen.hits.length || risen.f[3].hp !== risen.hp[3]) bad.push('just risen: ' + risen.hits.length + ' hits');
-      return bad.length ? bad.join('; ') : true;
+    test('Thrown bodies (P18-25 + P18-32): on every throw, an ally in the path is hit only with Friendly fire on; a CPU that throws a player hurts the other player and not its own team; the thrower is never hit', () => {
+      const bad = [], rows = bodyRows();
+      for (const row of rows) {
+        for (const friendlyFire of [false, true]) {
+          const { f, hits } = laneScene({ enemies: 2, friendlyFire, thrower: 0, thrown: 2, row, lane: [{ who: 1, x: -SIDE, z: nearZ }, { who: 3, x: SIDE, z: nearZ }] });   // the enemy flies through player 1 (ally of the thrower) and an enemy beside him
+          const onAlly = hits.filter((hit) => hit.def === f[1]).length, onEnemy = hits.filter((hit) => hit.def === f[3]).length;
+          if (onAlly !== (friendlyFire ? 1 : 0) || onEnemy !== 1 || hits.some((hit) => hit.def === f[0] || hit.def === f[2])) bad.push(rowProblem(row, 'Friendly fire ' + friendlyFire + ': ally ' + onAlly + ', enemy ' + onEnemy + ', total ' + hits.length));
+        }
+        const cpu = laneScene({ enemies: 2, thrower: 2, thrown: 0, row, lane: [{ who: 1, x: -SIDE, z: nearZ }, { who: 3, x: SIDE, z: nearZ }] });   // an enemy throws player 0 through player 1 and the thrower's own teammate beside him
+        const on = cpu.hits.map((hit) => hit.att.index + '>' + hit.def.index).join();
+        if (on !== '2>1') bad.push(rowProblem(row, 'a CPU throw hit ' + on + ' (wanted 2>1)'));
+      }
+      return bad.length ? bad.length + ' problems in ' + rows.length + ' throws: ' + bad.slice(0, 3).join('; ') : true;
+    });
+    test('Thrown bodies (P18-25 + P18-32): on every throw, a fighter lying in the path takes the damage and stays down, a knocked-out fighter and one that has just risen are not touched', () => {
+      const bad = [], rows = bodyRows();
+      for (const row of rows) {
+        const stand = laneScene({ enemies: 2, thrower: 0, thrown: 2, row, lane: [{ who: 3, z: nearZ }] }).hits;
+        const down = laneScene({ enemies: 2, thrower: 0, thrown: 2, row, lane: [{ who: 3, z: nearZ, prep: lieDown }] });
+        const dh = down.hits[0];
+        if (down.hits.length !== 1 || dh.def !== down.f[3] || dh.kind !== 'ground' || dh.state !== S.DOWN || !(dh.dmg > 0) || !stand.length || !(dh.dmg < stand[0].dmg) || !(down.f[3].hp < down.hp[3])) bad.push(rowProblem(row, 'lying: ' + JSON.stringify(down.hits.map((hit) => [hit.def.index, hit.kind, hit.state, hit.dmg])) + ' against standing ' + (stand[0] && stand[0].dmg)));
+        const out = laneScene({ enemies: 2, thrower: 0, thrown: 2, row, lane: [{ who: 3, z: nearZ, prep: knockedOut }] });
+        if (out.hits.length || out.f[3].hp !== out.hp[3] || out.f[3].state !== S.KO) bad.push(rowProblem(row, 'knocked out: ' + out.hits.length + ' hits, state ' + out.f[3].state));
+        const risen = laneScene({ enemies: 2, thrower: 0, thrown: 2, row, lane: [{ who: 3, z: nearZ, prep: (g) => { g.invuln = 60; } }] });
+        if (risen.hits.length || risen.f[3].hp !== risen.hp[3]) bad.push(rowProblem(row, 'just risen: ' + risen.hits.length + ' hits'));
+      }
+      return bad.length ? bad.length + ' problems in ' + rows.length + ' throws: ' + bad.slice(0, 3).join('; ') : true;
     });
     /* One tick of a flight, with the speed and weight set exactly: the thrown body (thrower 0, body 2) at the origin and a standing enemy 0.6 m ahead. */
     const flyScene = (speed, weight, around, enemies = 2) => {
@@ -13206,6 +13220,9 @@ const SelfTest = {
           self.stand(mate, x, z, 0, 0);
           const picked = ai.chooseThrowDir(cpu, foe), group = ai.groupThrowDir(cpu, foe);
           if (picked !== dir || group !== dir) bad.push(level + ' ' + dir + ': chose ' + picked + ' / ' + group);
+          ai.match = null;
+          if (ai.groupThrowDir(cpu, foe) !== '') bad.push(level + ' ' + dir + ': found a lane with no match');
+          ai.match = m;
           self.stand(mate, -6, -4.5, 0, 0);
           if (ai.groupThrowDir(cpu, foe) !== '') bad.push(level + ' ' + dir + ': found a fighter on an empty floor');
           self.stand(team, x, z, 0, 0);
