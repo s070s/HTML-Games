@@ -4,9 +4,11 @@ A single-file browser music game: four-button rhythm play, free play, a multitra
 MIDI/MusicXML/Guitar Pro import, a procedural 3D band, dance mode and optional peer-to-peer
 multiplayer. Plain JavaScript, Web Audio, WebGL, no libraries, no network requests.
 
-Status: implementation plan version 1.0.0 (assembled, mechanical checks pass). The coverage review
-(stage 5) has not been run and some cross-part follow-ups remain; docs/plan-work/RESUME.md and
-docs/plan-work/OPEN-ISSUES-stage1.md list them. There is no game yet. Nothing in this folder runs.
+Status: the game is being built from the implementation plan (version 1.0.0). Phases 01 to 03 are
+finished; Phase 04 (audio engine) is built and its performance gate is open. FingerLickinMusic.html
+builds and runs but is not finished. Cross-part plan follow-ups: docs/plan-work/OPEN-ISSUES-stage1.md.
+Work order and state: the handoffs task list (C:\Users\GS\Desktop\handoffs\FingerLickinMusic\TASKS.md),
+docs/LEDGER.md and docs/STATUS.md.
 
 - docs/IMPLEMENTATION-PLAN.md is the complete design and the executable roadmap (Phases 0-16),
   written to be implemented in one go by an AI coding session (Opus 5.5, high effort).
@@ -25,7 +27,7 @@ docs/plan-work/OPEN-ISSUES-stage1.md list them. There is no game yet. Nothing in
 ## Develop (once the source exists)
 - Source: src/shell.html and src/*.js, joined in file-name order by node tools/build.mjs into
   FingerLickinMusic.html (shipped) and FingerLickinMusic.test.html (with self-tests, not committed).
-- Test: node tools/selftest.mjs --all (headless Chromium via preinstalled Playwright); node tools/perf.mjs.
+- Test: node tools/selftest.mjs --all (headless Chrome through tools/lib-cdp.mjs; Playwright is used only when installed); node tools/perf.mjs.
 - Corpus: node tools/make-corpus.mjs writes test-corpus/; --check verifies it.
 - Optional relay for online multiplayer: node server/relay.mjs (plan Part 3.7).
 - Compatibility matrix: docs/COMPATIBILITY.md (written in Phase 12).

@@ -5162,7 +5162,7 @@ const EYE_COL = C('#15110f'), EYE_MASK_COL = C('#101014');
 const EYE_SIZE = { normal: [0.045, 0.028], narrow: [0.05, 0.016], wide: [0.05, 0.04] };
 const BROW_HEIGHT = { thin: 0.012, thick: 0.024 };
 /* ---------- customization items: data rows fed to a few shared generators ----------
-   Modern Urban only, all matte. A fighter draws 24 body parts plus the extras of each slot, at most 40 (self-test). Row formats: Appendix C of TASKLIST-breakpoint.md.
+   Modern Urban only, all matte. A fighter draws 24 body parts plus the extras of each slot, at most 40 (self-test). Row formats: Appendix C of REFERENCE-breakpoint.md.
    A piece is one part in a joint's frame: [frame h/t/u/w/x/l, mesh, x, y, z, width, height, depth, colour (key of Fighter.col), roughness, tilt, flags 1 both sides / 2 stays under headwear]. */
 /* The bare body's sizes (diameters and lengths in metres, before height): the draw code and the clipping self-test both read these. */
 const BODY = { head: [0.23, 0.25, 0.24], headY: 0.2, neck: 0.1, neckY: 0.04, neckBase: 0.56, torso: [0.35, 0.5, 0.21], torsoY: 0.26, chest: [0.4, 0.28, 0.25], chestY: 0.4, chestZ: 0.02,

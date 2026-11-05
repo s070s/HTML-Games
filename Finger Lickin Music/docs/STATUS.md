@@ -2,8 +2,8 @@
 
 Plan version: 1.0.0
 Updated: 2026-10-29 (UTC date of the last change to this file)
-Current phase: Phase 05
-Last completed T section: T04.12
+Current phase: Phase 04 (gate open)
+Last completed T section: T04.11
 Build: FingerLickinMusic.html 1001619 bytes
 Self-test (--all): 774/775 on the final code on 2026-10-29 (25 groups; only IT-040 under load); 775/775 three times before the last harness edit
 Live and device tests (LT, XT): not run

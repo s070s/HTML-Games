@@ -6,4 +6,4 @@
 - Checks: each game's in-browser self-test (IRON HORIZON `__IH.selfTest()`, Breakpoint `window.BREAKPOINT.selfTest()`), run through the preview server (`.claude/launch.json`, "games"). Gate chain: a node syntax parse of the changed games' inline scripts.
 - e2e: none.
 - Known flaky CI patterns: none (no CI).
-- Line endings: keep each file's own (IRON HORIZON is LF in the working copy; Breakpoint is CRLF with a BOM).
+- Line endings: keep each file's own (IRON HORIZON is CRLF with a BOM in the working copy, git stores LF; Breakpoint is CRLF with a BOM).
