@@ -13182,6 +13182,275 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
+    /* ---------- Raised ground (P18-44) ---------- */
+    /* Appendix C "Raised ground (P18-44)": a strike, grab, hold, throw or item use is judged from each fighter's own footing, so a fight on a deck, a stair, a scaffold tier or the ring plays as it does on the floor.
+       The rule between two footings (g = the foe's footing minus the attacker's): a strike reaches while the two are within RAISED_STRIKE_LEDGE; a Low strike (and a stomp on a downed foe) only a foe at most RAISED_LOW_UP above,
+       a Mid strike at most RAISED_MID_UP above; a grab, a throw and a tackle need the two within RAISED_GRAB_LEDGE; a hold within RAISED_HOLD_LEDGE (the old SUBMIT_LEVEL_GAP). Every raised surface is read from the built level. */
+    const RAISED_LOW_UP = 0.35, RAISED_MID_UP = 0.9, RAISED_STRIKE_LEDGE = 1.05, RAISED_GRAB_LEDGE = 0.55, RAISED_HOLD_LEDGE = 0.6;   // m
+    const RAISED_GAP = 0.9, RAISED_LEDGE_GAP = 1.1, RAISED_INSET = 0.6, RAISED_BODY = 0.34, RAISED_STEP_PAIR = 0.7;   // m: the two fighters of a pair stand this far apart (a pair across a ledge: farther, the one above stands this far in from the edge); a body's radius; the least distance between the two steps of a stair pair
+    const raisedStrikeLands = (height, g) => Math.abs(g) <= RAISED_STRIKE_LEDGE && (height === 'L' ? g <= RAISED_LOW_UP : height === 'M' ? g <= RAISED_MID_UP : true);
+    const raisedSpread = (half) => { const out = [0]; for (let d = 0.25; d <= half; d += 0.25) out.push(d, -d); return out; };   // 0, +0.25, -0.25, +0.5 ... the spots tried, the middle first
+    const raisedKind = (o) => (/\.t\d+\.\d+$/.test(o.id) ? 'scaffold' : o.look === 'stage' ? 'ring' : 'deck');
+    const raisedSpotOk = (spot) => !Arena.outside(spot.x, spot.z, RAISED_BODY) && !Arena.insideSolid(spot.x, spot.z, RAISED_BODY, spot.y) && Math.abs(Arena.supportAt(spot.x, spot.z, spot.y, RAISED_BODY) - spot.y) < 0.001;
+    const raisedInside = (spot, c) => Math.abs(spot.x - c.x) <= c.hx - 0.1 && Math.abs(spot.z - c.z) <= c.hz - 0.1;
+    const raisedCache = {};
+    /* The cases of one level, from the built colliders: { name, kind, how, lo, hi }: lo and hi are the two spots ({ x, z, y }), at one height ('same') or the lower one on the floor beside the surface ('ledge') or lower on a stair ('slope'). */
+    const raisedCases = (arenaId) => {
+      if (raisedCache[arenaId]) return raisedCache[arenaId];
+      track(new MatchSim({ mode: 'free', arenaId, countdown: false, timer: 0, seed: 11, items: false, hazards: false }));   // builds the level
+      const cases = [], problems = [];
+      const decks = Arena.colliders.filter((c) => c.active && c.deck && c.obj && !c.obj.step).map((c) => ({ x: c.x, z: c.z, hx: c.hx, hz: c.hz, top: c.top, id: c.obj.id, kind: raisedKind(c.obj) }));
+      for (const d of decks) {
+        let found = 0;
+        for (const ox of raisedSpread(d.hx)) {   // two fighters on the surface
+          for (const oz of raisedSpread(d.hz)) {
+            for (const [ax, az] of [[1, 0], [0, 1]]) {
+              if (found) break;
+              const lo = { x: d.x + ox - ax * RAISED_GAP / 2, z: d.z + oz - az * RAISED_GAP / 2, y: d.top }, hi = { x: d.x + ox + ax * RAISED_GAP / 2, z: d.z + oz + az * RAISED_GAP / 2, y: d.top };
+              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi }); found = 1; }
+            }
+          }
+        }
+        if (!found) problems.push(arenaId + ' ' + d.id + ': no room for two fighters');
+        let ledge = 0;   // a surface with no free floor beside it (a scaffold tier above another) has no ledge case
+        for (const [sx, sz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // one on the surface at an edge, one on the floor beside it
+          for (const lat of raisedSpread(sx ? d.hz : d.hx)) {
+            if (ledge) break;
+            const hi = { x: sx ? d.x + sx * d.hx - sx * RAISED_INSET : d.x + lat, z: sz ? d.z + sz * d.hz - sz * RAISED_INSET : d.z + lat, y: d.top }, lo = { x: hi.x + sx * RAISED_LEDGE_GAP, z: hi.z + sz * RAISED_LEDGE_GAP, y: 0 };
+            if (raisedInside(hi, d) && raisedSpotOk(hi) && raisedSpotOk(lo)) { cases.push({ name: d.id, kind: d.kind, how: 'ledge', lo, hi }); ledge = 1; }
+          }
+        }
+      }
+      for (const s of builtOf(ARENAS[arenaId]).stairs) {   // the slope of a stair: two steps apart
+        const steps = Arena.colliders.filter((c) => c.active && c.obj && c.obj.step && c.obj.id.slice(0, c.obj.id.lastIndexOf('.')) === s.id).sort((p, q) => p.top - q.top);
+        const run = 2 * (s.dx ? steps[0].hx : steps[0].hz), apart = Math.ceil(RAISED_STEP_PAIR / run);
+        const spotOn = (c) => ({ x: c.x, z: c.z, y: Arena.supportAt(c.x, c.z, 99, RAISED_BODY) });   // a body at the middle of a step stands on the highest step within its radius
+        let found = 0;
+        for (const from of new Set([0, Math.floor((steps.length - 1 - apart) / 2)])) {
+          const lo = spotOn(steps[from]), hi = spotOn(steps[from + apart]);
+          if (from + apart > steps.length - 2 || !raisedSpotOk(lo) || !raisedSpotOk(hi)) continue;
+          cases.push({ name: s.id + ' steps ' + (from + 1) + ' and ' + (from + 1 + apart), kind: 'stair', how: 'slope', lo, hi }); found++;
+        }
+        if (!found) problems.push(arenaId + ' ' + s.id + ': no two steps to stand on');
+      }
+      return (raisedCache[arenaId] = { cases, problems });
+    };
+    const raisedLabel = (arenaId, c, up) => arenaId + ' ' + c.name + ' (' + c.kind + ', ' + c.how + (c.how === 'same' ? '' : up ? ', foe above' : ', foe below') + ')';
+    /* Every case of every level, both ways round where the heights differ: { arenaId, c, att, def, label } (att and def are the spots of the attacker and the foe). */
+    const raisedRuns = (kinds) => {
+      const runs = [];
+      for (const arenaId of ARENA_ORDER) {
+        for (const c of raisedCases(arenaId).cases) {
+          if (kinds && !kinds.includes(c.kind)) continue;
+          runs.push({ arenaId, c, att: c.lo, def: c.hi, up: true, label: raisedLabel(arenaId, c, true) });
+          if (c.how !== 'same') runs.push({ arenaId, c, att: c.hi, def: c.lo, up: false, label: raisedLabel(arenaId, c, false) });
+        }
+      }
+      return runs;
+    };
+    const personScript = (fn) => ({ human: true, think(f, opp, match, it) { clearIntent(it); fn(it, f, opp, match); return it; }, reset() {} });
+    /* A duel of the run: fighter 0 (the attacker) and fighter 1 (the foe, standing still) on their spots, facing each other, settled for one tick. person: fighter 0 is a person (the Use path of a person), else a CPU seat. */
+    const raisedDuel = (run, attScript, opts, person) => {
+      const m = mk(Object.assign({ arenaId: run.arenaId, items: false, hazards: false }, opts), person ? () => {} : attScript, () => {});
+      if (person) m.controllers[0] = personScript(attScript);
+      const [att, def] = m.fighters;
+      for (const [f, spot, other] of [[att, run.att, run.def], [def, run.def, run.att]]) { self.stand(f, spot.x, spot.z, other.x, other.z); f.y = f.prevY = f.groundY = f.supportY = spot.y; f.vy = 0; }
+      m.step();
+      return m;
+    };
+    const raisedGap = (m) => m.fighters[1].groundY - m.fighters[0].groundY;   // g
+    const raisedBad = (run, text) => run.label + ': ' + text;
+
+    test('Raised ground (P18-44): every level lists its decks, stairs, scaffold tiers and rings, each with room for two fighters and, where there is a free floor spot, a floor spot beside it', () => {
+      const problems = [], seen = new Set();
+      for (const arenaId of ARENA_ORDER) {
+        const { cases, problems: missing } = raisedCases(arenaId);
+        problems.push(...missing);
+        cases.forEach((c) => seen.add(c.kind + " " + c.how));
+      }
+      for (const want of ['deck same', 'deck ledge', 'ring same', 'ring ledge', 'scaffold same', 'scaffold ledge', 'stair slope']) if (!seen.has(want)) problems.push('no case of ' + want);
+      if (raisedRuns().length < 40) problems.push('only ' + raisedRuns().length + ' runs');
+      return problems.length ? problems.slice(0, 8).join('; ') : true;
+    });
+    const raisedEffectLow = (run, events) => events.find((e) => e.y < run.def.y + 0.2);   // an effect (flash, dust) drawn at the foe's feet or below, e.g. at the floor under a deck
+    const raisedReport = (problems) => (problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true);
+    /* One strike script per way to strike: a press at tick 3 (a jump kick presses Kick in the air, a running lunge presses Punch at a run). */
+    const raisedStrikes = [
+      ['punch', (it, f, o, mm) => { if (mm.tick === 3) it.punch = true; }],
+      ['crouch punch', (it, f, o, mm) => { if (mm.tick === 3) { it.punch = true; it.height = true; it.crouch = true; } }],
+      ['kick', (it, f, o, mm) => { if (mm.tick === 3) it.kick = true; }],
+      ['crouch kick', (it, f, o, mm) => { if (mm.tick === 3) { it.kick = true; it.height = true; it.crouch = true; } }],
+      ['jump kick', (it, f, o, mm) => { if (mm.tick === 3) it.jump = true; if (mm.tick === 8) it.kick = true; }],
+      ['running lunge', (it, f, o, mm) => { if (mm.tick >= 3 && mm.tick < 9) { it.fwd = 1; it.run = true; } if (mm.tick === 9) it.punch = true; }],
+    ];
+    /* Plays a strike script and returns { height, landed } (the height class of the first move the attacker started, whether the foe lost health). */
+    const raisedStrike = (run, script, item) => {
+      const log = self.capture(['hit']);   // a hit event, not lost health: a hammer that breaks the deck under the foe hurts it by the fall
+      const m = raisedDuel(run, script, {}, true), [att, def] = m.fighters, g = raisedGap(m);
+      if (item) att.item = { id: item, dur: 9, sprays: 0 };
+      let height = '', move = '';
+      for (let t = 0; t < 60; t++) { m.step(); if (att.state === S.ATTACK && att.move && !height) { height = att.move.h; move = att.move.id; } }
+      log.stop();
+      return { height, landed: log.hit.some((e) => e.att === att && e.def === def), g, move };
+    };
+    test('Raised ground (P18-44): every strike, Punch or Kick, crouched, jumping or running, lands, or misses by the ledge rule, with both fighters on a surface and with one above the other', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        for (const [name, script] of raisedStrikes) {
+          if (name === 'running lunge' && run.c.how === 'ledge') continue;   // a run toward a ledge is a run off it or into it, not a lunge
+          const r = raisedStrike(run, script);
+          if (!r.height) problems.push(raisedBad(run, name + ' started no move'));
+          else if (r.landed !== raisedStrikeLands(r.height, r.g)) problems.push(raisedBad(run, name + ' (' + r.move + ', ' + r.height + ') ' + (r.landed ? 'landed' : 'missed') + ' at g ' + r.g.toFixed(2)));
+        }
+      }
+      return raisedReport(problems);
+    });
+    test('Raised ground (P18-44): a grab and its throw work on every surface when the two footings are within the grab ledge, and not across a taller one', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const log = self.capture(['clinch', 'throw', 'fall']);
+        const m = raisedDuel(run, thrower('fwd', false), {}, true), g = raisedGap(m);
+        for (let t = 0; t < 200 && !log.throw.length; t++) m.step();   // until the throw leaves the hands: what happens after it (a weak deck breaking under the landing) is the deck rules
+        log.stop();
+        const grabbed = log.clinch.length > 0, thrown = log.throw.length > 0, want = Math.abs(g) <= RAISED_GRAB_LEDGE;
+        if (grabbed !== want) problems.push(raisedBad(run, 'the grab ' + (grabbed ? 'held' : 'missed') + ' at g ' + g.toFixed(2)));
+        else if (grabbed && !thrown) problems.push(raisedBad(run, 'held but never threw'));
+        else if (grabbed && log.fall.length) problems.push(raisedBad(run, 'the pulled foe fell before the throw ' + log.fall[0].drop.toFixed(2) + ' m'));
+        else if (raisedEffectLow(run, [...log.clinch, ...log.throw])) problems.push(raisedBad(run, 'the grab or throw effect was drawn at the floor level, ' + raisedEffectLow(run, [...log.clinch, ...log.throw]).y.toFixed(2) + ' m'));
+      }
+      return raisedReport(problems);
+    });
+    test('Raised ground (P18-44): a heavy runner tackles a lighter fighter on a surface, and not across a ledge taller than the grab ledge', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const log = self.capture(['tackle']);
+        const m = raisedDuel(run, (it) => { it.fwd = 1; it.run = true; }, { playerId: 'brutus', opponentId: 'yuki' }, true), g = raisedGap(m);
+        self.run(m, 40); log.stop();
+        const tackled = log.tackle.some((e) => e.result === 'hit'), want = Math.abs(g) <= RAISED_GRAB_LEDGE;
+        if (tackled !== want) problems.push(raisedBad(run, 'the tackle ' + (tackled ? 'hit' : 'missed') + ' at g ' + g.toFixed(2)));
+        else if (raisedEffectLow(run, log.tackle)) problems.push(raisedBad(run, 'the tackle effect was drawn at the floor level, ' + raisedEffectLow(run, log.tackle).y.toFixed(2) + ' m'));
+      }
+      return raisedReport(problems);
+    });
+    /* A foe on the ground: knocked down as the Submission tests do. */
+    const raisedDown = (m) => { const def = m.fighters[1]; def.setState(S.HIT); def.setState(S.DOWN); };
+    test('Raised ground (P18-44): a stomp on a downed foe lands on a surface and across a ledge the Low rule allows', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const log = self.capture(['hit']);
+        const m = raisedDuel(run, raisedStrikes[3][1], {}, true), g = raisedGap(m);
+        raisedDown(m);
+        self.run(m, 30); log.stop();
+        const stomped = log.hit.some((e) => e.kind === 'ground'), want = raisedStrikeLands('L', g);
+        if (stomped !== want) problems.push(raisedBad(run, 'the stomp ' + (stomped ? 'landed' : 'missed') + ' at g ' + g.toFixed(2)));
+        else if (raisedEffectLow(run, log.hit.filter((e) => e.kind === 'ground'))) problems.push(raisedBad(run, 'the stomp effect was drawn at the floor level'));
+      }
+      return raisedReport(problems);
+    });
+    test('Raised ground (P18-44): a ground hold starts on a surface and across a ledge within the hold ledge', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const m = raisedDuel(run, (it, f, o, mm) => { if (mm.tick === 3) it.grapple = true; }, { playerId: 'dmitri', opponentId: 'kai' }, true), g = raisedGap(m);
+        raisedDown(m);
+        const log = self.capture(['submission']);
+        self.run(m, 20); log.stop();
+        const held = m.fighters[0].state === S.SUBMIT, want = Math.abs(g) < RAISED_HOLD_LEDGE;
+        if (held !== want) problems.push(raisedBad(run, 'the hold ' + (held ? 'started' : 'did not start') + ' at g ' + g.toFixed(2)));
+        else if (raisedEffectLow(run, log.submission)) problems.push(raisedBad(run, 'the hold effect was drawn at the floor level'));
+      }
+      return raisedReport(problems);
+    });
+    /* Where an item lies beside a spot (0.3 m to the side of the line to the other fighter, or 0.5 m toward the other fighter): { x, z, y } with y = the support under the item. */
+    const raisedItemSpot = (spot, other, toward) => {
+      const dx = other.x - spot.x, dz = other.z - spot.z, len = Math.hypot(dx, dz) || 1;
+      for (const [fx, fz] of toward ? [[dx / len * 0.5, dz / len * 0.5]] : [[-dz / len * 0.3, dx / len * 0.3], [dz / len * 0.3, -dx / len * 0.3], [-dx / len * 0.3, -dz / len * 0.3]]) {
+        const y = Arena.supportAt(spot.x + fx, spot.z + fz, spot.y, ITEM_RADIUS, true);
+        if (Math.abs(y - spot.y) < 0.3) return { x: spot.x + fx, z: spot.z + fz, y };
+      }
+      return null;
+    };
+    test('Raised ground (P18-44): an item lying beside a fighter on a surface is picked up by Use, by a person and by a CPU seat, and one on the other fighter surface is reached within the pick-up heights', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        for (const person of [true, false]) {
+          for (const own of [true, false]) {
+            const m = raisedDuel(run, (it, f, o, mm) => { if (mm.tick === 3) it.use = true; }, { items: true }, person), spot = own ? run.att : run.def, at = raisedItemSpot(spot, own ? run.def : run.att, !own);   // the level is built by now
+            if (!at) { if (own) problems.push(raisedBad(run, 'no spot for an item')); continue; }
+            m.items.length = 0; m.placeItem('pipe', at.x, at.z, at.y);
+            const att = m.fighters[0], rise = at.y - att.groundY, reached = own || (rise >= -PICKUP_LOW_BELOW + 0.01 && rise <= 2);   // on the foe's surface: from a little below to the grab-high reach
+            self.run(m, 30);
+            const took = !!att.item && att.item.id === 'pipe';
+            if (reached && !took) problems.push(raisedBad(run, (person ? 'person' : 'CPU') + ' did not pick up the pipe ' + (own ? 'at its feet' : 'on the foe\'s surface') + ' (item y ' + at.y.toFixed(2) + ', fighter ' + att.y.toFixed(2) + ')'));
+          }
+        }
+      }
+      return raisedReport(problems);
+    });
+    /* One run of every kind of surface and arrangement: the first case with that kind, how and direction (the weapon checks play each of the 14 items on it). */
+    const raisedSample = () => { const seen = new Set(); return raisedRuns().filter((r) => { const key = r.c.kind + r.c.how + r.up; return seen.has(key) ? false : seen.add(key); }); };
+    test('Raised ground (P18-44): every held weapon swings on a surface and lands by the ledge rule', () => {
+      const problems = [];
+      for (const run of raisedSample()) {
+        for (const kind of Object.keys(WEAPONS)) {
+          if (WEAPONS[kind].cls === 'throwable' || WEAPONS[kind].cls === 'carry') continue;   // thrown things and crates are not swung
+          const r = raisedStrike(run, raisedStrikes[0][1], kind);
+          if (!r.height) problems.push(raisedBad(run, 'the ' + kind + ' started no swing'));
+          else if (r.landed !== raisedStrikeLands(r.height, r.g)) problems.push(raisedBad(run, 'the ' + kind + ' (' + r.move + ', ' + r.height + ') ' + (r.landed ? 'landed' : 'missed') + ' at g ' + r.g.toFixed(2)));
+        }
+      }
+      return raisedReport(problems);
+    });
+    test('Raised ground (P18-44): a thrown item leaves the hand toward the foe and hits one on the same footing or within the grab ledge, and a set-down item comes to rest on a surface', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const log = self.capture(['itemThrow']);
+        const t = raisedDuel(run, (it, f, o, mm) => { f.lockOn = o; if (mm.tick === 3) it.use = true; }, {}, true), foe = t.fighters[1], foeHp = foe.hp, g = raisedGap(t);
+        t.fighters[0].item = { id: 'brick', dur: 3, sprays: 0 };
+        self.run(t, 70); log.stop();
+        if (log.itemThrow.length !== 1) problems.push(raisedBad(run, 'the brick was not thrown'));
+        else if (Math.abs(g) <= RAISED_GRAB_LEDGE && foe.hp >= foeHp) problems.push(raisedBad(run, 'the brick missed a foe at g ' + g.toFixed(2)));
+        const s = raisedDuel(run, (it, f, o, mm) => { if (mm.tick === 3) it.setDown = true; }, {}, true), me = s.fighters[0];
+        me.item = { id: 'pipe', dur: 9, sprays: 0 };
+        let loose = null;
+        for (let wait = 0; wait < 400; wait++) { s.step(); loose = s.items.find((item) => item.id === 'pipe'); if (loose && loose.mode === 'rest') break; }   // it may fall off the highest deck, or with a weak deck that gives way under the pair
+        if (me.item || !loose) problems.push(raisedBad(run, 'the set-down pipe was not put at the feet'));
+        else if (loose.mode !== 'rest' || Math.abs(loose.y - Arena.supportAt(loose.x, loose.z, loose.y, ITEM_RADIUS, true)) > 0.06) problems.push(raisedBad(run, 'the set-down pipe ' + loose.mode + ' at y ' + loose.y.toFixed(2) + ', the surface under it is at ' + Arena.supportAt(loose.x, loose.z, loose.y, ITEM_RADIUS, true).toFixed(2)));
+      }
+      return raisedReport(problems);
+    });
+    /* A CPU seat on the run's spots: the AI controller steers fighter 0 (a hard one), the foe stands still and cannot be knocked out. */
+    const raisedCpu = (run) => {
+      const m = raisedDuel(run, () => {}, {}, false), [cpu, dummy] = m.fighters, ai = new AIController(cpu.profile, 'hard');
+      ai.match = m; m.controllers[0] = ai;
+      dummy.hp = dummy.maxHp = 99999;
+      return { m, cpu, dummy, ai };
+    };
+    test('Raised ground (P18-44): a CPU fighter on a surface sees the foe as standing at the height above its own footing, whichever level each stands on', () => {
+      const problems = [];
+      for (const run of raisedRuns()) {
+        const { m, cpu, dummy, ai } = raisedCpu(run);
+        self.run(m, 6);
+        const seen = ai.hist[(ai.head + ai.hist.length - 1) % ai.hist.length].y, rise = dummy.y - cpu.groundY;
+        if (Math.abs(seen - rise) > 1e-6) problems.push(raisedBad(run, 'the CPU saw the foe ' + seen.toFixed(2) + ' m up, it is ' + rise.toFixed(2)));
+      }
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Raised ground (P18-44): a CPU fighter on a surface lands its strikes and its grab on a foe standing on the same surface, as on the floor', () => {
+      const problems = [];
+      for (const run of raisedRuns().filter((r) => r.c.how === 'same')) {
+        const log = self.capture(['hit', 'clinch']);
+        const { m, cpu } = raisedCpu(run);
+        self.run(m, 900);
+        const strikes = log.hit.filter((e) => e.att === cpu).length;
+        log.stop();
+        const grab = self.capture(['clinch']), forced = raisedCpu(run);
+        forced.ai.plan = { kind: 'grab', ticks: 60, dir: 'fwd', low: false, fired: false };   // the plan the CPU makes when it decides to grab
+        self.run(forced.m, 60); grab.stop();
+        if (!strikes) problems.push(raisedBad(run, 'the CPU landed no strike in 900 ticks'));
+        if (!grab.clinch.some((e) => e.att === forced.cpu)) problems.push(raisedBad(run, 'the CPU grab plan held nobody'));
+      }
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true;
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
