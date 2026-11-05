@@ -2472,7 +2472,7 @@ const CAMERA_SAFE_X = 0.8, CAMERA_SAFE_Y = 0.72; // the screen's safe zone (-1..
 const CAMERA_KEEP_PASSES = 4;         // corrections per frame (a pull-back changes what the next shift has to be)
 const CAMERA_VERT_SLACK = 1.0;        // m of height difference between the framed fighters that needs no extra distance (a jump, a crate)
 const CAMERA_AZ_LIMIT = 0.55, CAMERA_AZ_BIAS = 0.18; // the azimuth follows the fighter axis within +-LIMIT of straight on, plus BIAS towards the +z side
-const CAMERA_ELEV_MAX = 1.15;         // rad: the steepest pitch the occlusion fix may use (66 degrees: clears a 1.9 m screen with a fighter 0.3 m behind it)
+const CAMERA_ELEV_MAX = 1.4;          // rad: the steepest pitch the occlusion fix may use (80 degrees: clears a 2.4 m rack with a fighter 0.4 m behind its end, which 66 degrees did not)
 const CAMERA_CHEST = 1.3;             // m above the feet: the point on a player the camera has to see
 const CAMERA_OCCLUSION_GRACE = 0.3; // s a player may stay hidden behind scenery before the camera moves
 const CAMERA_OCCLUSION_RELEASE = 0.6; // s the normal view has to be clear before a swing is undone
@@ -2480,7 +2480,7 @@ const CAMERA_EYE_SPREAD = 0.3;        // m: a view only counts as clear when it 
 /* [azimuth offset, pitch offset, aim at the players] tried in this order: first small moves round the prop, then a steeper view, then the same centred on the players (the
    camera looks along the line to the group, so a prop beside a fighter at the group's edge needs the view from right above/behind it). Azimuth stays inside its limits, pitch inside CAMERA_ELEV_MAX. */
 const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.3, 0], [0.25, 0.3, 0], [-0.25, 0.3, 0], [0, 0.7, 0],
-  [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1]];
+  [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1], [0, 0.9, 0], [0, 0.9, 1]]; // the last two: nearly straight down, for a player in a corner behind a long rack (P18-36)
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10; // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
 const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0; // m: a ceiling prop (its underside this high) fades out when the eye passes within this of it, so a light tube never fills the picture
 const CAMERA_AIM_REACH = 0.95;       // share of the half size of the room the camera may aim out to (the fighters at a wall are in the middle of the picture, the eye is kept inside the room)
@@ -11000,7 +11000,8 @@ class MatchSim {
   separate(a, b) {
     const pinnedA = a.state === S.CLINCH || a.state === S.GRAPPLE || a.state === S.SUBMIT || !!a.pinnedBy, pinnedB = b.state === S.CLINCH || b.state === S.GRAPPLE || b.state === S.SUBMIT || !!b.pinnedBy; // a hold pair is carried like a clinch pair
     if ((pinnedA || pinnedB) && (this.fighters.length === 2 || a.partner === b || b.partner === a || (pinnedA && pinnedB))) return;
-    if (a.state === S.THROWN || b.state === S.THROWN) return;
+    const flyingA = a.state === S.THROWN && !(a.y <= a.groundY && a.vy <= 0), flyingB = b.state === S.THROWN && !(b.y <= b.groundY && b.vy <= 0); // a thrown body flies over the others; on the tick it lands (afterCollision will set it down) it is a body again, or it would land inside one and stay stacked for a tick
+    if (flyingA || flyingB) return;
     if (Math.abs(a.y - b.y) > 1.25) return;
     if (this.brawl && (!a.alive || !b.alive)) return;
     let dx = b.x - a.x, dz = b.z - a.z;
