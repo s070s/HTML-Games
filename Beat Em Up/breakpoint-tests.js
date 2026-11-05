@@ -5195,29 +5195,34 @@ const SelfTest = {
       const got = ONE_V_ONE_FINGERPRINTS.map((f) => fingerprint(f.opts)), want = ONE_V_ONE_FINGERPRINTS.map((f) => f.hash);
       return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
     });
+    const CROWD_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];   // the seeds the crowd tests run (P18-36; they were seed 6 only)
     test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
-      const illegal = Diag.illegalTransitions;
-      const m = track(new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 6, difficulty: 'normal', evenDamage: true }));   // seed 6 since P18-34 (seed 5 now squeezes two bodies to 0.24 m; seed 2 did 0.15 m on the code before: crowding, open)
-      m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
-      let minGap = 9, bad = '', ticks = 0;
-      while (m.phase !== 'matchEnd' && ticks < 20000 && !bad) {
-        m.step(); ticks++;
-        for (let i = 0; i < m.fighters.length && !bad; i++) {
-          const f = m.fighters[i];
-          if (![f.x, f.y, f.z, f.yaw, f.hp, f.stam].every(Number.isFinite)) bad = 'NaN in fighter ' + i + ' at tick ' + ticks;
-          for (let j = i + 1; j < m.fighters.length; j++) {
-            const g = m.fighters[j];
-            if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.CLINCH && g.state !== S.GRAPPLE && f.state !== S.THROWN && g.state !== S.THROWN) minGap = Math.min(minGap, Math.hypot(f.x - g.x, f.z - g.z));
+      const oneSeed = (seed) => {
+        const illegal = Diag.illegalTransitions;
+        const m = track(new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed, difficulty: 'normal', evenDamage: true }));
+        m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
+        let minGap = 9, bad = '', ticks = 0;
+        while (m.phase !== 'matchEnd' && ticks < 20000 && !bad) {
+          m.step(); ticks++;
+          for (let i = 0; i < m.fighters.length && !bad; i++) {
+            const f = m.fighters[i];
+            if (![f.x, f.y, f.z, f.yaw, f.hp, f.stam].every(Number.isFinite)) bad = 'NaN in fighter ' + i + ' at tick ' + ticks;
+            for (let j = i + 1; j < m.fighters.length; j++) {
+              const g = m.fighters[j];
+              if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.CLINCH && g.state !== S.GRAPPLE && f.state !== S.THROWN && g.state !== S.THROWN) minGap = Math.min(minGap, Math.hypot(f.x - g.x, f.z - g.z));
+            }
           }
         }
-      }
-      const teams = m.fighters.map((f) => f.team).join('');
-      const winnerLives = m.matchWinner === 0 ? m.teamAlive(TEAM_PLAYERS) && !m.teamAlive(TEAM_ENEMIES) : !m.teamAlive(TEAM_PLAYERS);
-      const info = JSON.stringify({ bad, ticks, phase: m.phase, winner: m.matchWinner, teams, minGap: Math.round(minGap * 100) / 100, illegal: Diag.illegalTransitions - illegal });
-      const ok = m.fighters.length === 1 + BRAWL_MAX_ENEMIES && teams === '0111111' && !bad && m.phase === 'matchEnd' && m.matchOver && (m.matchWinner === 0 || m.matchWinner === 1) && winnerLives &&
-        Diag.illegalTransitions === illegal && minGap > 0.3;   // a body is 0.68 m wide: crowding may squeeze, never stack
-      m.dispose();
-      return ok ? true : info;
+        const teams = m.fighters.map((f) => f.team).join('');
+        const winnerLives = m.matchWinner === 0 ? m.teamAlive(TEAM_PLAYERS) && !m.teamAlive(TEAM_ENEMIES) : !m.teamAlive(TEAM_PLAYERS);
+        const info = JSON.stringify({ bad, ticks, phase: m.phase, winner: m.matchWinner, teams, minGap: Math.round(minGap * 100) / 100, illegal: Diag.illegalTransitions - illegal });
+        const ok = m.fighters.length === 1 + BRAWL_MAX_ENEMIES && teams === '0111111' && !bad && m.phase === 'matchEnd' && m.matchOver && (m.matchWinner === 0 || m.matchWinner === 1) && winnerLives &&
+          Diag.illegalTransitions === illegal && minGap > 0.3;   // a body is 0.68 m wide: crowding may squeeze, never stack
+        m.dispose();
+        return ok ? true : info;
+      };
+      const failed = CROWD_SEEDS.map((seed) => [seed, oneSeed(seed)]).filter((r) => r[1] !== true);
+      return failed.length ? failed.map((r) => 'seed ' + r[0] + ' ' + r[1]).join('; ') : true;
     });
     test('N fighters: a brawl is won when every enemy is out, lost when every player is out (also on a draw or the clock), and not decided before', () => {
       const result = (kill, opts) => {
@@ -5367,8 +5372,8 @@ const SelfTest = {
     test('Brawl camera: in every arena, with the player walked behind each tall prop, the camera never leaves the player hidden for more than the limit (and the run does hide the player where a prop can)', () => withCamera(() => {
       const limitTicks = Math.round((CAMERA_OCCLUSION_GRACE + 0.6) * 60);   // the grace before the camera moves plus 0.6 s to swing clear
       const problems = [];
-      for (const id of ARENA_ORDER) {
-        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 6, evenDamage: true }));   // seed 6 since P18-34: the CPU enemies' new item play moved them, and with seed 5 the warehouse camera was hidden 141 ticks; seeds 3 and 8 do that on the code before P18-34 too (a camera weakness, open)
+      for (const seed of CROWD_SEEDS) for (const id of ARENA_ORDER) {   // seeds 1 to 12 since P18-36 (it was seed 6 only: other seeds hid the warehouse camera 141 ticks)
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed, evenDamage: true }));
         try {
           const p = m.fighters[0], b = m.def.bounds;
           m.controllers[0] = self.scripted(() => {});
@@ -5404,8 +5409,8 @@ const SelfTest = {
             for (let s = 0; s < 120; s++) tick(gx, gz);
             x = gx; z = gz;
           }
-          if (props.length && hiddenTicks === 0) problems.push(id + ': the player was never hidden (the check proved nothing)');
-          if (worst > limitTicks) problems.push(id + ': hidden for ' + worst + ' ticks in a row (limit ' + limitTicks + ')');
+          if (props.length && hiddenTicks === 0) problems.push('seed ' + seed + ' ' + id + ': the player was never hidden (the check proved nothing)');
+          if (worst > limitTicks) problems.push('seed ' + seed + ' ' + id + ': hidden for ' + worst + ' ticks in a row (limit ' + limitTicks + ')');
         } finally { m.dispose(); }
       }
       return problems.length ? problems.join('; ') : true;
