@@ -4658,8 +4658,8 @@ const J = {};
   'hipLx', 'hipLz', 'knL', 'hipRx', 'hipRz', 'knR', 'rootFwd', 'rootSide', 'rootDrop', 'bodyPitch', 'bodyRoll', 'bodyYaw', 'lie'].forEach((n, i) => { J[n] = i; });
 const NP = 26;
 const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.17;
-/* Ground holds (P18-38): rootHeight() puts the root where the legs of a standing body reach the floor, which is wrong for a body that kneels, sits or lies, so a hold's two fighters are lowered (or raised) until the lowest drawn part touches the floor.
-   plant = how much of that shift is applied (0..1): it eases in and out over a few ticks so a hold starting or ending does not pop. */
+/* Ground poses (P18-38): rootHeight() puts the root where the legs of a standing body reach the floor, which is wrong for a body that kneels, sits or lies, so a holder and every fighter lying down (held, knocked down or out) is lowered (or raised) until the lowest drawn part touches the floor.
+   plant = how much of that shift is applied (0..1): it eases in and out over a few ticks so a pose starting or ending does not pop. */
 const PLANT_RATE = 20;      // 1/s: how fast plant follows its target
 const PLANT_MIN = 0.002;    // below this plant is 0 and the extra pass is skipped
 let PROBE_LOW = null;       // while a number: part() records the lowest drawn height instead of drawing
@@ -6223,7 +6223,7 @@ class Fighter {
       if (idx !== this.stepIndex) { this.stepIndex = idx; if (!this.airborne) Events.emit('step', { f: this, run: this.state === S.RUN }); }
     }
     this.computePose(dt);
-    const planted = this.state === S.SUBMIT || (this.state === S.DOWN && !!this.pinnedBy); // the holder and the held fighter
+    const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO; // the holder, and anybody lying on the floor (held, knocked down or out)
     this.plant += ((planted ? 1 : 0) - this.plant) * (1 - Math.exp(-PLANT_RATE * dt));
     this.plant = this.plant < PLANT_MIN ? 0 : this.plant > 1 - PLANT_MIN ? 1 : this.plant;
     this.skeleton(this.x, this.y, this.z, this.yaw, false);

@@ -11942,12 +11942,12 @@ const SelfTest = {
       const half = mesh === CB ? 0.5 * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])) : mesh === SP ? 0.5 * Math.hypot(m[1], m[5], m[9]) : 0.5 * (Math.hypot(m[1], m[9]) + Math.abs(m[5]));
       return Math.min(low, m[13] - half);
     }, Infinity);
-    const holdFighters = (style, holderBody, heldBody, faceDown) => {   // temporary fighters of the two bodies; the holder has the style, the held one lies face up or face down
+    const holdFighters = (style, holderBody, heldBody, faceDown, holds = true) => {   // temporary fighters of the two bodies; the holder has the style (and taps Grapple if holds), the other lies face up or face down
       const holder = defaultCustom(0), held = defaultCustom(1);
       holder.moveStyle = style; Object.assign(holder.look, holderBody); Object.assign(held.look, heldBody);
       ROSTER_BY_ID.gsub_a = Object.assign(customProfile(holder, 0), { id: 'gsub_a' });
       ROSTER_BY_ID.gsub_v = Object.assign(customProfile(held, 1), { id: 'gsub_v' });
-      const m = holdMatch({ playerId: 'gsub_a', opponentId: 'gsub_v' }, holdAt2);
+      const m = holdMatch({ playerId: 'gsub_a', opponentId: 'gsub_v' }, holds ? holdAt2 : undefined);
       m.fighters[1].lieSign = faceDown ? -1 : 1;
       return m;
     };
@@ -11978,7 +11978,7 @@ const SelfTest = {
       if (kinds.size !== 4) bad.push('only ' + [...kinds].join() + ' holds checked');
       return bad.length ? bad.length + ' of ' + checks + ' checks: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (worstLow * 100).toFixed(1) + ' cm, highest ' + (worstHigh * 100).toFixed(1) + ' cm)' : true;
     });
-    test('Ground submissions (P18-38): only the two fighters of a hold are lowered to the floor; they ease into it as the hold starts and out of it when it ends', () => {
+    test('Ground submissions (P18-38): only the holder and a fighter lying down are lowered to the floor; they ease into it as the hold starts and out of it when it ends', () => {
       const bad = [];
       try {
         const m = holdFighters('bjj', itemBodies[4], itemBodies[4], false), a = m.fighters[0], v = m.fighters[1];
@@ -11988,11 +11988,32 @@ const SelfTest = {
         Combat.endSubmission(a, 'broken');
         self.run(m, 4);
         if (a.plant <= 0 || a.plant >= 1) bad.push('no easing out: ' + a.plant);
+        if (v.state !== S.DOWN || v.plant < 0.99) bad.push('the foe still lies on the floor after the hold: ' + v.state + ' ' + v.plant);
         self.run(m, 60);
-        if (a.plant !== 0 || v.plant !== 0) bad.push('still lowered after the hold: ' + a.plant + ' ' + v.plant + ' ' + a.state + ' ' + v.state);
+        if (a.plant !== 0 || v.plant !== 0) bad.push('still lowered once both are on their feet: ' + a.plant + ' ' + v.plant + ' ' + a.state + ' ' + v.state);
         m.dispose();
       } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
       return bad.length ? bad.join('; ') : true;
+    });
+    test('Ground submissions (P18-38): a fighter knocked down or knocked out, face up and face down, on the 8 test body types, lies at rest with every drawn part within 3 cm above the floor and none below it', () => {
+      const bad = [];
+      let checks = 0, worstLow = 0, worstHigh = 0;
+      try {
+        itemBodies.forEach((body, i) => {
+          for (const [state, faceDown] of [[S.DOWN, false], [S.DOWN, true], [S.KO, false], [S.KO, true]]) {
+            const m = holdFighters('wrestler', itemBodies[(i + 3) % itemBodies.length], body, faceDown, false), v = m.fighters[1];
+            v.setState(S.HIT); v.setState(state); v.lieSign = faceDown ? -1 : 1;   // the fall is over; the foe lies where the pose says
+            for (let tick = 0; tick < 40; tick++) m.step();   // a knock-out takes 26 ticks to fall
+            const label = 'body ' + i + (state === S.KO ? ' knocked out ' : ' knocked down ') + (faceDown ? 'face down' : 'face up');
+            if (v.state !== state) { bad.push(label + ': in state ' + v.state); m.dispose(); continue; }
+            const low = lowestDrawn(v);
+            checks++; worstLow = Math.min(worstLow, low); worstHigh = Math.max(worstHigh, low);
+            if (low < -GROUND_SINK || low > GROUND_REACH) bad.push(label + ': ' + (low * 100).toFixed(1) + ' cm from the floor');
+            m.dispose();
+          }
+        });
+      } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
+      return bad.length ? bad.length + ' of ' + checks + ' checks: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (worstLow * 100).toFixed(1) + ' cm, highest ' + (worstHigh * 100).toFixed(1) + ' cm)' : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
