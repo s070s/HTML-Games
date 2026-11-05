@@ -2472,13 +2472,14 @@ const CAMERA_SAFE_X = 0.8, CAMERA_SAFE_Y = 0.72; // the screen's safe zone (-1..
 const CAMERA_KEEP_PASSES = 4;         // corrections per frame (a pull-back changes what the next shift has to be)
 const CAMERA_VERT_SLACK = 1.0;        // m of height difference between the framed fighters that needs no extra distance (a jump, a crate)
 const CAMERA_AZ_LIMIT = 0.55, CAMERA_AZ_BIAS = 0.18; // the azimuth follows the fighter axis within +-LIMIT of straight on, plus BIAS towards the +z side
-const CAMERA_ELEV_MAX = 1.4;          // rad: the steepest pitch the occlusion fix may use (80 degrees: clears a 2.4 m rack with a fighter 0.4 m behind its end, which 66 degrees did not)
+const CAMERA_ELEV_MAX = 1.15;         // rad: the steepest pitch the occlusion fix may use (66 degrees: clears a 1.9 m screen with a fighter 0.3 m behind it)
+const CAMERA_STEEP_SWING = 0.9, CAMERA_ELEV_STEEP_MAX = 1.4; // a pitch swing of at least this much (the two last tries) may reach 80 degrees: that clears a 2.4 m rack with a fighter 0.4 m behind its end, which 66 degrees did not
 const CAMERA_CHEST = 1.3;             // m above the feet: the point on a player the camera has to see
 const CAMERA_OCCLUSION_GRACE = 0.3; // s a player may stay hidden behind scenery before the camera moves
 const CAMERA_OCCLUSION_RELEASE = 0.6; // s the normal view has to be clear before a swing is undone
 const CAMERA_EYE_SPREAD = 0.3;        // m: a view only counts as clear when it is also clear from this far to each side of the eye (no grazing an edge)
 /* [azimuth offset, pitch offset, aim at the players] tried in this order: first small moves round the prop, then a steeper view, then the same centred on the players (the
-   camera looks along the line to the group, so a prop beside a fighter at the group's edge needs the view from right above/behind it). Azimuth stays inside its limits, pitch inside CAMERA_ELEV_MAX. */
+   camera looks along the line to the group, so a prop beside a fighter at the group's edge needs the view from right above/behind it). Azimuth stays inside its limits, pitch inside CAMERA_ELEV_MAX (CAMERA_ELEV_STEEP_MAX for the last two). */
 const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.3, 0], [0.25, 0.3, 0], [-0.25, 0.3, 0], [0, 0.7, 0],
   [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1], [0, 0.9, 0], [0, 0.9, 1]]; // the last two: nearly straight down, for a player in a corner behind a long rack (P18-36)
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10; // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
@@ -2597,7 +2598,7 @@ const Camera = {
     const azBase = azWanted;
     if (group) azWanted = clamp(azBase + this.occAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT);
     const cam = def.camera;
-    this.elev = lerp(this.elev, group ? Math.min(cam.elev + this.occElev, CAMERA_ELEV_MAX) : cam.elev, 1 - Math.exp(-dt * (swing ? CAMERA_SWING_ELEV_RATE : 2)));
+    this.elev = lerp(this.elev, group ? this.swungElev(cam.elev, this.occElev) : cam.elev, 1 - Math.exp(-dt * (swing ? CAMERA_SWING_ELEV_RATE : 2)));
     const fovy = this.baseFov;
     const fovx = 2 * Math.atan(Math.tan(fovy / 2) * this.aspect);
     const needW = (sep * 0.92 + 3.4) * 0.5 / Math.tan(fovx / 2);
@@ -2684,11 +2685,13 @@ const Camera = {
     }
     return false;
   },
+  /* The pitch of a swing: the normal pitch plus the swing, at most CAMERA_ELEV_MAX (CAMERA_ELEV_STEEP_MAX for the near-top-down swings). */
+  swungElev(baseElev, swingElev) { return Math.min(baseElev + swingElev, swingElev >= CAMERA_STEEP_SWING ? CAMERA_ELEV_STEEP_MAX : CAMERA_ELEV_MAX); },
   /* Whether the pose "normal view (this.base) plus this swing" shows every player clearly (see hidden). */
   poseClear(swingAz, swingElev, focus) {
     const base = this.base, bx = base[4], bz = base[5];
     const tx = focus ? clamp(this.box.playerX / this.playerCount, -bx * CAMERA_AIM_REACH, bx * CAMERA_AIM_REACH) : base[2], tz = focus ? clamp(this.box.playerZ / this.playerCount, -bz * CAMERA_AIM_REACH, bz * CAMERA_AIM_REACH) : base[3];
-    const az = clamp(base[0] + swingAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT), elev = Math.min(base[1] + swingElev, CAMERA_ELEV_MAX);
+    const az = clamp(base[0] + swingAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT), elev = this.swungElev(base[1], swingElev);
     const eye = this.eyeAt(tx, this.target[1], tz, az, elev, this.dist, bx, bz, this.eye);
     return !this.hidden(eye[0], eye[1], eye[2], CAMERA_EYE_SPREAD, tx, tz);
   },
