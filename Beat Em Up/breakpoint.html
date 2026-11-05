@@ -4649,6 +4649,14 @@ const AI_NAV_REPLAN = 30, AI_NAV_MOVED = 0.8, AI_NAV_STAGGER = 4, AI_NAV_STAGGER
 const AI_CREAK_DROP = 1.1;          // m: the deepest step down a CPU takes to leave a creaking deck (the fall costs at most AI_EDGE_SAFE_DAMAGE)
 const AI_EDGE_SAFE_DAMAGE = 5;      // ... and only where the drop costs at most this much fall damage (crate and rubble tops yes, a balcony never)
 const THROWN_MAX_TICKS = 150, THROWN_HARD_CAP_TICKS = 300; // throw flights end by landing; past these the fighter is landed anyway (rubble softlock net)
+/* Thrown bodies (P18-25 + P18-32): a fighter sent flying by a throw meets each fighter in its path once. Power = flight speed (m/s) x (BODY_WEIGHT_BASE + BODY_WEIGHT_STEP x the thrown body's weight class). */
+const BODY_HIT_BAND = 1.25;          // m: the most two bodies may differ in height and still touch
+const BODY_WEIGHT_BASE = 0.8, BODY_WEIGHT_STEP = 0.1; // power factor of a Light (0.8) to a Super heavy (1.2) body
+const BODY_KNOCKDOWN_POWER = 5;      // from this power the body knocks the other down; below it the other staggers
+const BODY_DAMAGE_BASE = 2, BODY_DAMAGE_PER_POWER = 0.8; // damage before the fighters' stats: 4.3 (slowest, lightest) to 8.2 (fastest, heaviest)
+const BODY_DOWN_SHARE = 0.5;         // a fighter already lying takes this share of the damage and no reaction
+const BODY_KNOCK_SPEED = 4, BODY_KNOCK_LIFT = 2.6; // m/s: a knockdown by a body flies the other on along the flight, like a thrown item's knockdown
+const BODY_STAGGER_TICKS = 24, BODY_STAGGER_PUSH = 0.8; // stagger length before the fighter's stun stat; the push is in metres before the knock damping
 const GUARD_WALK_SPEED = 0.15;       // m/s: above this a crouching or guarding fighter steps its legs instead of sliding
 const SIDESTEP_COST = 6, JUMP_COST = 4, RUN_DRAIN = 7;
 const GROUND_DAMP = 9, AIR_DAMP = 0.35;
@@ -5577,6 +5585,7 @@ class Fighter {
     this.momentum = 0; this.boostTicks = 0; // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.plantStance = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
+    this.bodyBy = null; this.bodyFlight = 0; this.bodyHits = []; // a thrown body: who threw it, the flight (flightId) it is valid for and the fighters it has met on that flight
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
@@ -7000,6 +7009,39 @@ const Combat = {
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: it.x, y: it.y, z: it.z, dirx, dirz, kind, combo: att.comboHits, ko: def.state === S.KO });
   },
 
+  /* A thrown fighter meets another fighter (P18-25 + P18-32; MatchSim.stepBodies decides who and when). No block or sway, like a thrown item. Standing: a knockdown from BODY_KNOCKDOWN_POWER up, a stagger below it;
+     lying: the damage only. The damage is the thrower's, so the combo, momentum and a knock-out are credited to the thrower. */
+  bodyHit(body, def, match) {
+    const att = body.bodyBy, speed = Math.hypot(body.kx, body.kz) || 1, dirx = body.kx / speed, dirz = body.kz / speed;
+    const power = speed * (BODY_WEIGHT_BASE + BODY_WEIGHT_STEP * body.weight);
+    const lying = def.state === S.DOWN, knock = !lying && power >= BODY_KNOCKDOWN_POWER;
+    const mv = { id: 'body_throw', name: 'Thrown body', tier: knock ? 3 : 2, cat: 'heavy', h: 'M', kind: knock ? 'knockdown' : 'stagger', hitStop: knock ? 9 : 6 };
+    const dmg = Math.max(1, Math.round((BODY_DAMAGE_BASE + BODY_DAMAGE_PER_POWER * power) * (lying ? BODY_DOWN_SHARE : 1) * att.stats.damage * att.boostMult() * def.stats.taken * (knock ? def.stats.impact : 1) * 10) / 10);
+    def.hp = Math.max(0, def.hp - dmg);
+    if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
+    if (!lying) {
+      this.claimCombo(att, def);
+      if (def.gotHits === 0) { att.comboHits = 0; att.comboDamage = 0; def.gotDamage = 0; }
+      def.gotHits++; def.calmTicks = 0; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
+    }
+    this.momentum(att, def, dmg);
+    def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = 'mid';
+    if (def.hp <= 0) this.knockOut(def, att, mv, match);
+    else if (knock) {
+      def.setState(S.THROWN);
+      def.lieSign = 1; def.downMult = 1; def.throwPitch = 0; def.throwRoll = 0; def.juggle = false;
+      def.flightId = ++this.flightCounter;
+      def.vy = BODY_KNOCK_LIFT; def.y = Math.max(def.y, def.groundY) + 0.02;
+      def.kx = dirx * BODY_KNOCK_SPEED; def.kz = dirz * BODY_KNOCK_SPEED;
+    } else if (!lying) {
+      def.reactDur = Math.round(BODY_STAGGER_TICKS * def.stats.stun);
+      def.setState(S.STAGGER);
+      def.kx = dirx * BODY_STAGGER_PUSH * KNOCK_DAMP; def.kz = dirz * BODY_STAGGER_PUSH * KNOCK_DAMP;
+    }
+    match.hitStop = Math.max(match.hitStop, mv.hitStop);
+    Events.emit('hit', { att, def, mv, dmg, counter: false, x: (body.x + def.x) / 2, y: def.y + 0.9, z: (body.z + def.z) / 2, dirx, dirz, kind: lying ? 'ground' : mv.kind, combo: att.comboHits, ko: def.state === S.KO });
+  },
+
   groundHit(d, match) {
     const { att, def, mv } = d;
     const dmg = Math.max(1, Math.round(mv.dmg * att.damageMult(mv) * 0.5 * def.stats.taken * 10) / 10);
@@ -7167,6 +7209,7 @@ const Combat = {
     def.setState(S.THROWN);
     def.juggle = false;
     def.flightId = ++this.flightCounter;
+    def.bodyBy = att; def.bodyFlight = def.flightId; def.bodyHits.length = 0; // the flight can hurt others (MatchSim.stepBodies); any later launch has a new flightId and so cannot
     def.partner = null; def.clinchTick = 0; def.gotHits = 0;
     def.kx = vx * speed; def.kz = vz * speed;
     def.vy = t.arc;
@@ -9081,6 +9124,23 @@ class AIController {
     }
     return null;
   }
+  /* The throw that sends the foe through the most fighters this CPU may hurt (P18-32): the thrown body flies about a throw's reach (speed x airtime) and hits every such fighter standing in a lane as wide as two bodies. '' = nobody in any lane. */
+  groupThrowDir(f, opp) {
+    const fighters = this.match.fighters;
+    let best = '', bestCount = 0;
+    for (const dir of THROW_DIRS) {
+      const v = Combat.throwVector(f, dir), dx = v[0], dz = v[1], data = throwFor(f.grip, dir, moveStyleFor(f.profile));
+      const reach = data.launch * 2 * data.arc / GRAVITY;
+      let count = 0;
+      for (const other of fighters) {
+        if (other === f || other === opp || !this.match.canHurt(f, other) || TERMINAL_STATES.includes(other.state)) continue;
+        const rx = other.x - opp.x, rz = other.z - opp.z, along = rx * dx + rz * dz, across = Math.abs(rx * dz - rz * dx);
+        if (along > 0 && along <= reach + opp.radius + other.radius && across <= opp.radius + other.radius) count++;
+      }
+      if (count > bestCount) { best = dir; bestCount = count; }
+    }
+    return best;
+  }
   /* True when the thrower's own back is near a wall. */
   cornered(f) {
     const bx = f.x - f.fwdX * 1.4, bz = f.z - f.fwdZ * 1.4;
@@ -9092,6 +9152,8 @@ class AIController {
     const target = this.d.env ? this.throwTarget(f, opp) : null;
     if (target) return target.dir;
     if (this.cornered(f)) return 'back';                     // the opponent lands in our corner, we face the open floor
+    const group = this.d.env ? this.groupThrowDir(f, opp) : '';
+    if (group) return group;
     const st = this.profile.style, roll = simRng();
     if (roll < st.heavy * 0.45 + st.grab * 0.25) return 'back';
     if (roll < st.heavy * 0.45 + st.grab * 0.25 + st.circle * 0.35) return simRng() < 0.5 ? 'left' : 'right';
@@ -10194,6 +10256,23 @@ class MatchSim {
     return false;
   }
   settleItem(it, floor) { it.mode = 'rest'; it.y = floor; it.vx = it.vy = it.vz = 0; it.spin = 0; it.owner = null; }
+  /* Thrown fighters (P18-25 + P18-32): a body in flight touches each fighter in its path once, as the flight goes. It hurts what its thrower may hurt (canHurt: the thrown fighter's own teammates too, the thrower's team only with friendly fire),
+     and the fighters a strike may touch (Combat.strikable) plus one lying down. */
+  stepBodies() {
+    if (!this.live) return;
+    const fighters = this.fighters, count = fighters.length;
+    for (let i = 0; i < count; i++) {
+      const body = fighters[i], thrower = body.bodyBy;
+      if (body.state !== S.THROWN || !thrower || body.bodyFlight !== body.flightId) continue;
+      for (let j = 0; j < count; j++) {
+        const def = fighters[j];
+        if (def === body || def.state === S.THROWN || !this.canHurt(thrower, def) || body.bodyHits.includes(def) || Math.abs(def.y - body.y) > BODY_HIT_BAND) continue;
+        if (Math.hypot(def.x - body.x, def.z - body.z) > body.radius + def.radius || !Combat.strikable(thrower, def)) continue;
+        body.bodyHits.push(def);
+        Combat.bodyHit(body, def, this);
+      }
+    }
+  }
   stepItems() {
     for (const it of this.items.slice()) { // a copy: a hit can drop another item into the list mid-loop
       if (!this.items.includes(it)) continue;
@@ -10939,6 +11018,7 @@ class MatchSim {
     this.updateFighters();
     this.resolveCombat();
     this.physics();
+    this.stepBodies();
     this.stepItems();
     this.stepHazards();
     this.stepLoad();
@@ -15592,7 +15672,7 @@ function testApi() {
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
-    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS,
+    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
