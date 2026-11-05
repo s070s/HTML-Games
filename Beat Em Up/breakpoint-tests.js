@@ -11378,6 +11378,1015 @@ const SelfTest = {
       } finally { root.innerHTML = keepHtml; Game.leaveTournament(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Mode flows (P18-40) ---------- */
+    /* Every mode from the main menu to the results and back, pressing only what the screen on show offers: the data-act of its enabled buttons, which is what a tap, Enter and a pad's A all press (an enabled
+       button is also what the arrow keys and the pad stick can focus). The game state moves the way a page moves it (Game.go checks GS_TRANSITIONS and UI.onGameState puts the screen up, on stand-in page elements),
+       fights are played to their end by the match itself, and every screen drawn must give a way out. */
+    const flowElement = () => {
+      const el = { hidden: false, innerHTML: '', textContent: '', className: '', children: [], style: {}, dataset: {} };
+      el.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
+      el.appendChild = (child) => { el.children.push(child); return child; };
+      el.removeChild = (child) => { const at = el.children.indexOf(child); if (at >= 0) el.children.splice(at, 1); return child; };
+      el.querySelector = () => null; el.querySelectorAll = () => []; el.addEventListener = () => {}; el.setAttribute = () => {}; el.focus = () => {};
+      Object.defineProperty(el, 'firstChild', { get: () => el.children[0] || null });
+      return el;
+    };
+    const flowDom = () => new Proxy({}, { get: (made, id) => (typeof id === 'string' ? made[id] || (made[id] = flowElement()) : made[id]), set: (made, id, value) => { made[id] = value; return true; } });
+    /* What each screen must offer so nobody is stuck on it: enabled buttons that go back (or out). */
+    const FLOW_EXITS = { main: ['play'], modes: ['back'], char: ['back'], setup: ['back'], lineup: ['back'], arena: ['back'], coop: ['back'], bracket: ['back'], controls: ['back'], moves: ['back'], settings: ['back'], credits: ['back'], unlocks: ['back'], story: ['back'], pause: ['resume', 'quit'], results: ['res:menu'], scene: ['sceneskip'], replace: ['back', 'replace'] };
+    const flowActs = (html) => {
+      const acts = [];
+      for (const tag of html.match(/<button\b[^>]*>/g) || []) { const act = /data-act="([^"]*)"/.exec(tag); if (act && !/\sdisabled[\s>]/.test(tag)) acts.push(act[1]); }
+      return acts;
+    };
+    /* Runs body(flow) from the main menu with the page stood in for: pads is what navigator.getGamepads gives. flow.problems collects what a player would be stuck on. */
+    const realGo = Game.go;   // the real transition check, kept before any test stands in for it
+    const withFlow = (pads, body) => withTournament(() => {
+      const flow = { html: '', problems: [], rejected: [], toasts: [], seen: [] };
+      const keep = { go: Game.go, rerender: UI.rerender, toast: UI.toast, say: UI.say, dom: UI.dom, unload: window.onbeforeunload, versus: Game.versus, lineups: Game.lineups, errors: Diag.errors, settings: Object.assign({}, Settings.v), settingsRaw: Store.get(KEY_SETTINGS), resume: Game.tournamentResume, seats: Game.tournamentSeats, active: Object.getOwnPropertyDescriptor(document, 'activeElement'), state: Game.state, pickSide: UI.pickSide, pickSeats: UI.pickSeats, pickAt: UI.pickAt };
+      flow.acts = () => (UI.current ? flowActs(flow.html) : []);
+      flow.screen = () => UI.current || (Game.match ? 'fight' : '');
+      flow.press = (act) => {
+        const offered = flow.acts();
+        if (!offered.includes(act)) throw new Error('"' + act + '" is not on the ' + flow.screen() + ' screen (it offers: ' + offered.join(' ') + ')');
+        UI.guardUntil = 0;
+        UI.act(act);
+      };
+      flow.escape = () => { UI.guardUntil = 0; UI.onKey(keyEvent('Escape')); };   // the Esc key
+      flow.expect = (name, what) => { if (UI.current !== name) flow.problems.push(what + ': on ' + flow.screen() + ', not ' + name); return UI.current === name; };
+      flow.go = function (next) {
+        const from = Game.state, moved = realGo.call(Game, next);
+        if (!moved) flow.rejected.push(from + ' > ' + next);
+        else if (!UI.listeners.length) UI.onGameState({ from, to: next });   // a page has UI listening to the game state (UI.init); the headless run has not
+        return moved;
+      };
+      /* The focusable elements of the screen as the page lists them (UI.navItems reads dom.screens), with a focus that document.activeElement reports; a click on one goes the way a page's click goes (UI.onClick). */
+      const makeItem = (tag) => {
+        const attrs = {};
+        for (const found of tag.matchAll(/\s([a-zA-Z-]+)(?:="([^"]*)")?/g)) attrs[found[1]] = found[2] === undefined ? '' : found[2];
+        const el = { tagName: /^<button/.test(tag) ? 'BUTTON' : 'DIV', attrs, disabled: 'disabled' in attrs, scrollIntoView() {} };
+        el.classList = { contains: (name) => (attrs.class || '').split(/\s+/).includes(name), add() {}, remove() {}, toggle() {} };
+        el.getAttribute = (name) => (name in attrs ? attrs[name] : null);
+        el.closest = (selector) => (selector === '[data-nav]' || (selector === '[data-act]' && 'data-act' in attrs) || (selector === '.opt' && el.classList.contains('opt')) ? el : null);
+        el.focus = () => { flow.focused = el; };
+        el.click = () => UI.onClick({ target: el });
+        return el;
+      };
+      flow.items = [];
+      flow.focused = null;
+      flow.enabled = () => flow.items.filter((el) => !el.disabled);
+      flow.rerender = function (keepFocus) {
+        const make = UI['screen_' + UI.current], name = UI.current;
+        const before = flow.enabled(), at = Math.max(0, before.indexOf(flow.focused));
+        flow.html = make ? make.call(UI) : '';
+        flow.items = (flow.html.match(/<(?:button|div)\b[^>]*\sdata-nav[\s>][^>]*>/g) || []).map(makeItem);
+        const enabled = flow.enabled(), preferred = enabled.find((el) => 'data-default' in el.attrs);
+        flow.focused = (keepFocus ? enabled[Math.min(at, enabled.length - 1)] : preferred || enabled[0]) || null;
+        flow.seen.push(name);
+        const acts = flowActs(flow.html), nav = (flow.html.match(/<[^>]*\sdata-nav[\s>][^>]*>/g) || []).filter((tag) => !/\sdisabled[\s>]/.test(tag));
+        if (!flow.html || !nav.length) flow.problems.push('the ' + name + ' screen is empty or has nothing to focus');
+        for (const tag of name === 'creator' ? [] : flow.html.match(/<button\b[^>]*data-act=[^>]*>/g) || []) if (!/\sdata-nav[\s>]/.test(tag) && !/aria-label="(decrease|increase)"/.test(tag) && !/\sdisabled[\s>]/.test(tag)) flow.problems.push('the ' + name + ' screen has a button the keys and the pad cannot reach (only the arrows of a Settings row have their own keys; the creator has its own tests): ' + tag.slice(0, 90));
+        for (const need of FLOW_EXITS[name] || []) if (!acts.includes(need)) flow.problems.push('the ' + name + ' screen has no "' + need + '" button');
+      };
+      /* The fight on screen, played to its end: the first fighter's team wins (or loses), the match steps to its Victory / Defeat and the frame loop's step to the results is taken. Returns the state it reached. */
+      /* The story scene on screen, played through: the next box, the answer of a choice, now and then Skip. Returns how many presses it took, or -1 when the scene has no way on. */
+      flow.scenes = (skip) => {
+        let shown = 0;
+        for (let guard = 0; guard < 300 && UI.current === 'scene'; guard++, shown++) {
+          const acts = flow.acts();
+          if (acts.includes('scenego:walk')) flow.press('scenego:walk');
+          else if (skip && guard % 3 === 0 && acts.includes('sceneskip')) flow.press('sceneskip');
+          else if (acts.includes('scenenext')) flow.press('scenenext');
+          else return -1;
+        }
+        return UI.current === 'scene' ? -1 : shown;
+      };
+      flow.finish = (result) => {
+        const m = Game.match;
+        if (!m) throw new Error('no fight to finish on the ' + flow.screen() + ' screen');
+        for (let guard = 0; guard < 8000 && Game.match === m && Game.state !== GS.VICTORY && Game.state !== GS.DEFEAT; guard++) {
+          if (Game.state === GS.PAUSED) { if (UI.current === 'scene') { if (flow.scenes(false) < 0) throw new Error('a scene in the fight has no way on'); } else flow.press('resume'); continue; }   // the wave scene of Arcade stage 3 pauses the fight
+          if (m.phase === 'fight') for (const f of m.fighters) if (f.alive && (f.team === m.fighters[0].team) === (result === 'lose')) Combat.knockOut(f, null, null, m);
+          m.step();
+        }
+        if (Game.state !== GS.VICTORY && Game.state !== GS.DEFEAT) throw new Error('the fight did not end: state ' + Game.state + ' phase ' + m.phase);
+        flow.go(GS.RESULTS);
+        return Game.resultsData;
+      };
+      /* The game loop for real (fixed 60 Hz frames, nothing drawn) until done() says so: the way a fight ends on a page. Returns whether it did. */
+      flow.frames = (done) => {
+        const keep = { render: Game.render, last: Game.last, acc: Game.acc, avg: Game.frameAvg, errors: Game.errorCount, ms: Diag.frameMs, fps: Diag.fps, sim: Diag.simMs, count: Diag.frameCount, samples: Diag.frameSamples.slice() };
+        let now = performance.now(), finished = false;
+        Game.render = () => {}; Game.last = now;
+        try { for (let n = 0; n < 8000 && !finished; n++) { now += 1000 / 60; Game.frame(now); finished = !!done(); } } finally {
+          Game.render = keep.render; Game.last = keep.last; Game.acc = keep.acc; Game.frameAvg = keep.avg; Game.errorCount = keep.errors;
+          Diag.frameMs = keep.ms; Diag.fps = keep.fps; Diag.simMs = keep.sim; Diag.frameCount = keep.count; Diag.frameSamples.set(keep.samples);   // the loop tests above put these back the same way
+        }
+        return finished;
+      };
+      /* The fight's countdown played out, so the first fighter can be paused. */
+      flow.fightOn = () => { const m = Game.match; for (let guard = 0; guard < 600 && Game.state === GS.COUNTDOWN; guard++) m.step(); return Game.state; };
+      /* A gamepad button or stick press and release, read the way the page reads it: the join screen reads the pads itself (Inputs.pollLobby, its events to UI.onLobby), every other screen goes through Inputs.update and UI.update. */
+      const PAD_INPUT = { a: [0, 'button'], b: [1, 'button'], start: [9, 'button'], up: [1, -1], down: [1, 1], left: [0, -1], right: [0, 1] };
+      flow.padTap = (pad, name) => {
+        const [index, value] = PAD_INPUT[name];
+        const set = (on) => { if (value === 'button') padButton(pad, index, on); else pad.axes[index] = on ? value : 0; };
+        const read = () => { UI.guardUntil = 0; if (UI.current === 'coop') flow.hear(() => Inputs.pollLobby()); else { Inputs.update(); UI.update(); } };
+        read(); set(true); read(); set(false); read();   // the first read is what the pad held before
+      };
+      /* The enabled elements the focus never lands on when move() is done once per element: what a device cannot reach. The focus is put back. */
+      flow.unreached = (move) => {
+        const items = flow.enabled(), seen = new Set(), at = flow.focused;
+        try { for (let n = 0; n <= items.length; n++) { if (flow.focused) seen.add(flow.focused); move(); } } finally { flow.focused = at; }
+        return items.filter((el) => !seen.has(el));
+      };
+      /* Every enabled element of the screen on show is reached by the arrow keys, and by the pad when there is one (the pad's stick down once per element). */
+      flow.reach = (label, pad) => {
+        const lost = flow.unreached(() => { UI.guardUntil = 0; UI.onKey(keyEvent('ArrowDown')); });
+        if (lost.length) flow.problems.push(label + ': the arrow keys never reach ' + lost.map((el) => el.attrs['data-act'] || el.attrs['data-local']).join(', '));
+        const padLost = pad ? flow.unreached(() => flow.padTap(pad, 'down')) : [];
+        if (padLost.length) flow.problems.push(label + ': the gamepad never reaches ' + padLost.map((el) => el.attrs['data-act'] || el.attrs['data-local']).join(', '));
+      };
+      /* The focus moved down (as the keys do) until it stands on an element that fits. */
+      flow.focusOn = (fits) => {
+        for (let n = 0; n <= flow.items.length && !(flow.focused && fits(flow.focused)); n++) UI.onKey(keyEvent('ArrowDown'));
+        return !!flow.focused && fits(flow.focused);
+      };
+      /* A tap on a button of the screen on show without clearing the double tap guard: what a second tap of a double tap does. */
+      flow.tap = (act) => {
+        const item = flow.items.find((el) => el.attrs['data-act'] === act);
+        if (!item) throw new Error('"' + act + '" is not on the ' + flow.screen() + ' screen');
+        UI.onClick({ target: item });
+      };
+      flow.drain = () => { while (Game.tournamentWork) Game.tournamentStep(); };
+      /* The main menu, as it must be after any way out of a mode. */
+      flow.mainMenu = (label, keepsRun) => {
+        if (Game.state !== GS.MENU || UI.current !== 'main' || Game.match || (Game.run && !keepsRun) || Inputs.coop || Inputs.versus || window.onbeforeunload || !flow.acts().includes('play')) flow.problems.push(label + ' did not end on the main menu: ' + Game.state + ' ' + flow.screen() + ' match ' + !!Game.match + ' run ' + !!Game.run + ' coop ' + Inputs.coop + ' versus ' + Inputs.versus);
+      };
+      /* Pause, then Quit to main menu. */
+      flow.quit = (label) => { Game.pause(); flow.press('quit'); flow.mainMenu(label); };
+      /* Runs fn and hands the join screen the lobby events it made (a page has UI listening to them; the headless run has not). */
+      flow.hear = (fn) => { const heard = [], off = Events.on('lobby', (e) => heard.push(e)); try { fn(); } finally { off(); } if (!UI.listeners.length) heard.forEach((e) => UI.onLobby(e)); return heard.map((e) => e.kind); };
+      /* Back to the mode list with Back / Esc alternately, from wherever the flow stands; the screens passed. */
+      flow.backOut = () => {
+        const path = [];
+        for (let guard = 0; guard < 12 && UI.current !== 'modes' && UI.current !== 'main'; guard++) {
+          path.push(UI.current);
+          if (guard % 2) flow.escape(); else flow.press('back');
+        }
+        return path;
+      };
+      Object.defineProperty(document, 'activeElement', { get: () => flow.focused, configurable: true });
+      Game.go = flow.go; UI.rerender = flow.rerender; UI.toast = (msg) => { flow.toasts.push(msg); }; UI.say = () => {}; UI.dom = flowDom(); UI.dom.fatal.hidden = true; UI.dom.onboard.hidden = true;
+      UI.dom.screens.querySelectorAll = (selector) => (selector === '[data-nav]' ? flow.items.slice() : []);   // UI.navItems
+      Game.versus = null; Game.lineups = {}; Game.selection.party = DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS);
+      Object.assign(Game.selection, { arena: 'warehouse', opponent: 'mara', player2: 'mara', difficulty: 'normal', rounds: 2, timer: 60 });   // the choices of a new game: earlier tests on a page leave theirs behind (one picks the Dojo), and a tap on the arena that is already chosen starts the fight
+      try {
+        return withCoopInput(pads, () => {
+          Game.state = GS.MENU; Game.syncVersusInput(); UI.pickSide = 0; UI.pickSeats = []; UI.pickAt = 0; UI.go('main');
+          const result = body(flow, pads);
+          if (result !== undefined && result !== true) return result;
+          if (flow.rejected.length) flow.problems.push('refused state changes: ' + flow.rejected.join(', '));
+          if (Diag.errors !== keep.errors) flow.problems.push('the diagnostics counted ' + (Diag.errors - keep.errors) + ' error(s): ' + Diag.logs[Diag.logs.length - 1]);
+          return flow.problems.length ? flow.problems.slice(0, 4).join('; ') : true;
+        });
+      } finally {
+        Game.stopTournamentWork(); Game.endMatch(); Game.tournament = null; Game.tournamentMatch = null; Game.tournamentSeats = keep.seats; Game.tournamentResume = keep.resume; Game.pausedFrom = null; Game.pausedBy = null;
+        clearTimeout(UI.onboardTimer);
+        if (keep.active) Object.defineProperty(document, 'activeElement', keep.active); else delete document.activeElement;
+        Settings.v = keep.settings; if (keep.settingsRaw === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keep.settingsRaw);   // a pressed Settings row stays in this test
+        Game.go = keep.go; UI.rerender = keep.rerender; UI.toast = keep.toast; UI.say = keep.say; UI.dom = keep.dom;
+        if (UI.listeners.length) {   // on a page the music, the touch buttons and the unload prompt follow the game state, so the state goes to the menu the real way (the run then shows the screen it started on)
+          if (Game.state !== GS.MENU) realGo.call(Game, GS.MENU); else UI.onGameState({ from: 'FORCED', to: GS.MENU });
+        }
+        window.onbeforeunload = keep.unload;
+        Game.versus = keep.versus; Game.lineups = keep.lineups; UI.pickSide = keep.pickSide; UI.pickSeats = keep.pickSeats; UI.pickAt = keep.pickAt;
+      }
+    });
+    /* The main menu to the mode's first screen: Play, then the mode on the list. */
+    const flowEnter = (flow, mode) => { flow.press('play'); flow.expect('modes', 'Play'); flow.press('mode:' + mode); };
+    test('Mode flows (P18-40): Arcade from the mode list through a won stage, a lost stage with its retry, a pause with Resume and the screens behind it, and a Quit with Continue Arcade after it', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise'; Settings.v.storyScenes = 'off';
+      flow.reach('the main menu');
+      flowEnter(flow, 'arcade');
+      flow.reach('the fighter screen');
+      if (!flow.expect('char', 'Arcade did not open the fighter screen') || Game.state !== GS.CHARSEL) return 'Arcade: ' + flow.screen() + ' ' + Game.state;
+      flow.press('confirm');
+      if (!Game.match || Game.state !== GS.COUNTDOWN || UI.current !== null) return 'the first stage did not start: ' + Game.state + ' ' + flow.screen();
+      if (flow.fightOn() !== GS.FIGHT) return 'the countdown did not end in a fight: ' + Game.state;
+      Game.pause();
+      flow.expect('pause', 'Pause');
+      flow.reach('the pause menu');
+      for (const side of ['moves', 'controls', 'settings']) { flow.press(side); flow.press('back'); flow.expect('pause', 'Back from ' + side); }
+      flow.press('resume');
+      if (Game.state !== GS.FIGHT || UI.current !== null) return 'Resume did not return to the fight: ' + Game.state + ' ' + flow.screen();
+      const won = flow.finish('win');
+      if (!flow.expect('results', 'the win') || !won.playerWon || !flow.acts().includes('res:next')) return 'the won stage has no Next stage: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:next');
+      if (!Game.match || Game.run.stage !== 1 || Game.state !== GS.COUNTDOWN) return 'Next stage did not start stage 2: ' + Game.state + ' ' + (Game.run && Game.run.stage);
+      flow.fightOn();
+      const lost = flow.finish('lose');
+      if (!flow.expect('results', 'the loss') || lost.playerWon || !flow.acts().includes('res:retry') || !flow.acts().includes('res:menu')) return 'the lost stage has no Retry: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:retry');
+      if (!Game.match || Game.run.stage !== 1 || Game.run.story.continues !== 1) return 'Retry did not replay stage 2 with a continue spent: ' + (Game.run && Game.run.story.continues);
+      flow.fightOn();
+      Game.pause();
+      flow.press('quit');
+      if (Game.state !== GS.MENU || UI.current !== 'main' || Game.match || Game.run) return 'Quit did not return to the main menu: ' + Game.state + ' ' + flow.screen();
+      if (!flow.acts().includes('continueArcade') || !Progress.d.arcadeRun) return 'the quit run is not offered on the main menu: ' + flow.acts();
+      flow.press('continueArcade');
+      if (!Game.match || Game.run.stage !== 1 || Game.state !== GS.COUNTDOWN) return 'Continue Arcade did not return to stage 2: ' + (Game.run && Game.run.stage) + ' ' + Game.state;
+      flow.fightOn();
+      flow.finish('win'); flow.press('res:menu');   // a won stage, then Main menu: the next stage is what Continue Arcade offers
+      flow.mainMenu('Arcade results');
+      if (!flow.html.includes('stage 3 / ' + STORY_STAGES) || !Progress.d.arcadeRun || Progress.d.arcadeRun.stage !== 3) return 'Continue Arcade after a won stage does not offer stage 3: ' + (Progress.d.arcadeRun && Progress.d.arcadeRun.stage);
+      flow.press('continueArcade'); flow.fightOn();
+      Game.pause(); flow.press('quit');
+      const missing = ['main', 'modes', 'char', 'pause', 'moves', 'controls', 'settings', 'results'].filter((name) => !flow.seen.includes(name));
+      return missing.length ? 'screens never shown: ' + missing : true;
+    }));
+    /* Survival: a run of fights, the record kept on every win, Abandon run in the pause menu, New run after a loss. */
+    test('Mode flows (P18-40): Survival from the mode list through the arena screen, Abandon run, a won and a lost fight with Next fight and New run, a locked fighter refused, and the record kept when the run is left', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise'; Progress.d.survivalKills = 0; Progress.d.survivalSeconds = 0;
+      flowEnter(flow, 'survival');
+      const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id));
+      flow.press('pick:' + locked.id); flow.press('confirm');
+      if (UI.current !== 'char' || Game.state !== GS.CHARSEL || Game.match || !flow.toasts.some((msg) => msg.startsWith('Locked'))) return 'a locked fighter was not refused: ' + flow.screen() + ' ' + flow.toasts;
+      flow.press('pick:elise'); flow.press('confirm');
+      if (!flow.expect('arena', 'Confirm') || Game.state !== GS.ARENASEL) return 'Survival did not open the arena screen: ' + flow.screen() + ' ' + Game.state;
+      flow.press('back');
+      if (!flow.expect('char', 'Back from the arena screen') || Game.state !== GS.CHARSEL) return 'Back from the arena screen: ' + flow.screen() + ' ' + Game.state;
+      flow.press('confirm'); flow.press('start');
+      if (!Game.match || Game.run.mode !== 'survival' || Game.state !== GS.COUNTDOWN) return 'the run did not start: ' + Game.state;
+      flow.fightOn();
+      Game.pause(); flow.press('restart');
+      if (!Game.match || Game.run.kills !== 0 || Game.state !== GS.COUNTDOWN) return 'Abandon run did not start a new run: ' + Game.state;
+      flow.fightOn();
+      const won = flow.finish('win');
+      if (!flow.expect('results', 'the win') || !won.playerWon || !flow.acts().includes('res:next') || !flow.acts().includes('res:menu')) return 'the won fight has no Next fight: ' + flow.screen() + ' ' + flow.acts();
+      if (JSON.parse(Store.get(KEY_PROGRESS)).survivalKills !== 1) return 'the win was not saved at once';
+      flow.press('res:next');
+      if (!Game.match || Game.run.kills !== 1 || Game.state !== GS.COUNTDOWN) return 'Next fight did not start the second opponent: ' + Game.state + ' ' + Game.run.kills;
+      flow.fightOn();
+      const lost = flow.finish('lose');
+      if (!flow.expect('results', 'the loss') || lost.playerWon || !flow.acts().includes('res:again') || !flow.acts().includes('res:menu')) return 'the lost run has no New run: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again');
+      if (!Game.match || Game.run.kills !== 0 || Game.state !== GS.COUNTDOWN) return 'New run did not start: ' + Game.state;
+      flow.fightOn();
+      flow.finish('win'); flow.press('res:menu');
+      flow.mainMenu('Survival results');
+      flow.press('play');
+      if (Progress.d.survivalKills < 1 || !flow.html.includes('Best: ')) return 'the Survival record is gone from the mode list: ' + Progress.d.survivalKills;
+      flow.press('mode:survival'); flow.press('confirm'); flow.press('start'); flow.fightOn();
+      flow.quit('Survival pause');
+      return flow.seen.includes('arena') ? true : 'the arena screen was never shown';
+    }));
+    /* Training: the pause menu is its only way out. */
+    test('Mode flows (P18-40): Training from the mode list through the sparring partner and arena screens into a fight whose pause menu holds the dummy tools and a Quit, Back from every screen on the way', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise'; Game.selection.opponent = 'mara';
+      flowEnter(flow, 'training');
+      flow.press('confirm');
+      if (!flow.expect('setup', 'Confirm') || !flow.acts().includes('opp:kai') || !flow.acts().includes('setupNext')) return 'Training setup: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('opp:kai'); flow.press('setupNext');
+      if (!flow.expect('arena', 'Choose arena') || Game.state !== GS.ARENASEL) return 'the arena screen: ' + flow.screen() + ' ' + Game.state;
+      flow.press('back');
+      if (!flow.expect('setup', 'Back from the arena') || Game.state !== GS.CHARSEL) return 'Back from the arena screen: ' + flow.screen() + ' ' + Game.state;
+      flow.press('setupNext'); flow.press('start');
+      if (!Game.match || !Game.match.training || Game.state !== GS.FIGHT || Game.match.cfg.opponentId !== 'kai') return 'Training did not start against the chosen partner: ' + Game.state;
+      Game.pause();
+      for (const tool of ['thp', 'tstam', 'treset', 'tarena', 'tscenGo', 'resume', 'quit']) if (!flow.acts().includes(tool)) return 'the training pause menu has no "' + tool + '": ' + flow.acts();
+      flow.press('thp'); flow.press('tstam');
+      if (!Game.match.infiniteHp || !Game.match.infiniteStam || UI.current !== 'pause') return 'the dummy switches did not work: ' + UI.current;
+      flow.press('tscenGo');
+      if (Game.state !== GS.FIGHT || UI.current !== null) return 'Load scenario did not return to the fight: ' + Game.state + ' ' + flow.screen();
+      Game.pause(); flow.press('treset');
+      if (Game.state !== GS.FIGHT) return 'Reset did not return to the fight: ' + Game.state;
+      Game.pause(); flow.press('tarena'); Game.pause();
+      flow.quit('Training pause');
+      flow.press('play'); flow.press('mode:training'); flow.press('confirm'); flow.press('back');
+      flow.expect('char', 'Back from the sparring partner screen'); flow.press('back');
+      return flow.expect('modes', 'Back from the fighter screen') ? flow.problems.length ? flow.problems[0] : true : 'Back from the fighter screen: ' + flow.screen();
+    }));
+    /* Free Fight: rules, a lineup of three, a fight ended by the clock, Rematch, Change fighters and Main menu. */
+    test('Mode flows (P18-40): Free Fight from the mode list through its rules and arena into a fight ended by the clock, Rematch, Change fighters and Main menu, and the same through the Players and teams screen', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise'; Game.selection.opponent = 'kai';
+      flowEnter(flow, 'free');
+      flow.press('confirm');
+      if (!flow.expect('setup', 'Confirm') || !flow.acts().includes('lineup') || !flow.acts().includes('opp:mara')) return 'Free Fight setup: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('opp:mara'); UI.changeLocal('rounds', 1); UI.changeLocal('timer', -1); UI.changeLocal('diff', 1);
+      flow.press('setupNext'); flow.press('arena:dojo'); flow.expect('arena', 'a first tap on an arena');
+      if (Game.selection.arena !== 'dojo' || Game.match) return 'a first tap on an arena that was not chosen started the fight or chose another: ' + Game.selection.arena;
+      flow.press('arena:dojo');   // the second tap on the chosen arena starts the fight
+      if (!Game.match || Game.state !== GS.COUNTDOWN || Game.match.cfg.arenaId !== 'dojo' || Game.match.cfg.opponentId !== 'mara') return 'Free Fight did not start: ' + Game.state + ' ' + (Game.match && Game.match.cfg.arenaId);
+      flow.fightOn();
+      const m = Game.match;
+      if (!flow.frames(() => Game.state === GS.FIGHT)) return 'the countdown did not end by itself: ' + Game.state;
+      const reached = flow.frames(() => { if (m.phase === 'fight') { m.fighters[1].hp = Math.min(m.fighters[1].hp, m.fighters[0].hp * 0.5); m.roundTicks = Math.min(m.roundTicks, 2); } return Game.state === GS.RESULTS; });   // the clock runs out with the player ahead, and the game loop takes it from there
+      if (!reached || !Game.resultsData.playerWon) return 'the clock did not end the fight with the player ahead by itself: ' + Game.state;
+      if (!flow.expect('results', 'the time-out') || !Game.resultsData.playerWon || !['res:again', 'res:setup', 'res:menu'].every((act) => flow.acts().includes(act))) return 'the Free Fight results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again');
+      if (!Game.match || Game.state !== GS.COUNTDOWN || Game.match === m) return 'Rematch did not start a new fight: ' + Game.state;
+      flow.fightOn(); flow.finish('lose');
+      if (flow.acts().includes('res:next') || !flow.acts().includes('res:again')) return 'the lost Free Fight: ' + flow.acts();
+      flow.press('res:setup');
+      if (!flow.expect('char', 'Change fighters') || Game.state !== GS.CHARSEL || Game.match) return 'Change fighters: ' + flow.screen() + ' ' + Game.state;
+      flow.press('confirm'); flow.press('lineup');
+      if (!flow.expect('lineup', 'Players and teams')) return 'Players and teams: ' + flow.screen();
+      UI.changeLocal('lopp', 1);
+      if (Game.lineups.free.slots.length !== 3) return 'Opponents did not add a fighter';
+      flow.press('lineupNext'); flow.press('arena:warehouse'); flow.press('start');
+      if (!Game.match || !Game.match.setup || Game.match.fighters.length !== 3) return 'the lineup fight did not start: ' + Game.state;
+      flow.fightOn();
+      Game.pause(); flow.press('restart'); flow.fightOn();
+      flow.finish('win');
+      if (!flow.expect('results', 'the lineup win') || !['res:again', 'res:setup', 'res:menu'].every((act) => flow.acts().includes(act))) return 'the lineup results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again'); flow.fightOn(); flow.finish('lose');
+      flow.press('res:setup'); flow.press('confirm');
+      if (!flow.expect('setup', 'Change fighters again')) return 'setup: ' + flow.screen();
+      flow.press('setupNext'); flow.press('start'); flow.fightOn(); flow.finish('win');
+      flow.press('res:menu');
+      flow.mainMenu('Free Fight results');
+      flow.press('play'); flow.press('mode:free'); flow.press('confirm'); flow.press('setupNext'); flow.press('start'); flow.fightOn();
+      flow.quit('Free Fight pause');
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* Versus: two fighters picked one after the other, the session score across rematches, Change fighters, and the main menu ending the session. */
+    test('Mode flows (P18-40): Versus from the mode list through both fighter screens, a locked fighter refused for P2, Esc back to P1, the rules and arena, two fights with the score carried over, Change fighters and Main menu', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise'; Game.selection.player2 = 'mara';
+      flowEnter(flow, 'versus');
+      if (!flow.expect('char', 'Versus') || !flow.html.includes('Player 1</span>') || !Game.versus) return 'Versus did not open P1\'s fighter screen: ' + flow.screen();
+      flow.press('confirm');
+      if (!flow.expect('char', 'P1 confirm') || !flow.html.includes('Player 2</span>') || UI.pickSide !== 1) return 'P1\'s confirm did not hand over to P2: ' + UI.pickSide;
+      const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id));
+      flow.press('pick:' + locked.id); flow.press('confirm');
+      if (UI.current !== 'char' || UI.pickSide !== 1 || !flow.toasts.some((msg) => msg.startsWith('Locked'))) return 'a locked fighter was not refused for P2: ' + UI.pickSide + ' ' + flow.toasts;
+      flow.escape();
+      if (!flow.expect('char', 'Esc on P2\'s screen') || UI.pickSide !== 0 || !flow.html.includes('Player 1</span>')) return 'Esc did not return to P1\'s pick: ' + UI.pickSide;
+      flow.press('confirm'); flow.press('pick:brutus'); flow.press('confirm');
+      if (!flow.expect('setup', 'P2 confirm') || Game.selection.player2 !== 'brutus' || !flow.acts().includes('setupNext')) return 'Versus setup: ' + flow.screen() + ' ' + Game.selection.player2;
+      flow.press('back');
+      if (!flow.expect('char', 'Back from the Versus rules') || UI.pickSide !== 1) return 'Back from the rules did not return to P2: ' + flow.screen() + ' ' + UI.pickSide;
+      flow.press('confirm'); flow.press('setupNext');
+      if (!flow.expect('arena', 'Choose arena')) return 'Versus arena: ' + flow.screen();
+      flow.press('back');
+      if (!flow.expect('setup', 'Back from the arena')) return 'Back from the Versus arena: ' + flow.screen();
+      flow.press('setupNext'); flow.press('start');
+      if (!Game.match || !Game.match.versus || Game.inputPlan() !== 'versus' || !Inputs.versus || Game.state !== GS.COUNTDOWN) return 'Versus did not start: ' + Game.state + ' ' + Inputs.versus;
+      flow.fightOn();
+      flow.finish('win');
+      if (!flow.expect('results', 'P1 wins') || Game.versus.score.join() !== '1,0' || !['res:again', 'res:setup', 'res:menu'].every((act) => flow.acts().includes(act))) return 'the Versus results: ' + flow.screen() + ' ' + Game.versus.score + ' ' + flow.acts();
+      flow.press('res:again');
+      if (!Game.match || Game.state !== GS.COUNTDOWN) return 'Rematch did not start: ' + Game.state;
+      let waited = 0, mashed = false;   // P2 wins by the game loop alone, and P1 mashes Punch on the victory pose (it skips to the results)
+      const m2 = Game.match;
+      const reached = flow.frames(() => {
+        if (m2.phase === 'fight' && m2.fighters[0].alive) Combat.knockOut(m2.fighters[0], null, null, m2);
+        if (Game.state === GS.VICTORY || Game.state === GS.DEFEAT) { waited++; if (!mashed && Game.endTimer >= 0.5) { Inputs.onKeyDown(keyEvent('KeyJ')); mashed = true; } }
+        return Game.state === GS.RESULTS;
+      });
+      if (!reached || waited > 90) return 'the second fight did not reach the results quickly: ' + Game.state + ' after ' + waited + ' frames of the victory pose';
+      if (Game.versus.score.join() !== '1,1' || !flow.html.includes('P2 wins')) return 'P2\'s win was not counted: ' + Game.versus.score;
+      flow.press('res:setup');
+      if (!flow.expect('char', 'Change fighters') || UI.pickSide !== 0 || Game.versus.score.join() !== '1,1') return 'Change fighters: ' + flow.screen() + ' ' + UI.pickSide + ' ' + Game.versus.score;
+      flow.press('confirm'); flow.press('confirm'); flow.press('setupNext'); flow.press('start'); flow.fightOn();
+      flow.quit('Versus pause');
+      if (Game.versus) return 'the Versus session outlived the main menu';
+      return true;
+    }));
+    /* Brawl: the players and teams screen between the fighter and arena screens. */
+    test('Mode flows (P18-40): Brawl from the mode list through the fighter, Players and teams and arena screens into a fight, a win and a loss with Rematch and Change fighters, and Back to the mode list', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise';
+      flowEnter(flow, 'brawl');
+      flow.press('confirm');
+      if (!flow.expect('lineup', 'Confirm') || !flow.acts().includes('lineupNext')) return 'Brawl lineup: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('back');
+      if (!flow.expect('char', 'Back from Players and teams')) return 'Back from Players and teams: ' + flow.screen();
+      flow.press('confirm'); flow.press('lineupNext');
+      if (!flow.expect('arena', 'Choose arena') || Game.state !== GS.ARENASEL) return 'Brawl arena: ' + flow.screen() + ' ' + Game.state;
+      flow.press('back');
+      if (!flow.expect('lineup', 'Back from the arena') || Game.state !== GS.CHARSEL) return 'Back from the Brawl arena: ' + flow.screen() + ' ' + Game.state;
+      flow.press('lineupNext'); flow.press('start');
+      if (!Game.match || !Game.match.setup || Game.state !== GS.COUNTDOWN) return 'Brawl did not start: ' + Game.state;
+      flow.fightOn();
+      Game.pause(); flow.press('resume');
+      flow.finish('win');
+      if (!flow.expect('results', 'the Brawl win') || !Game.resultsData.playerWon || !['res:again', 'res:setup', 'res:menu'].every((act) => flow.acts().includes(act))) return 'the Brawl results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again'); flow.fightOn(); flow.finish('lose');
+      if (Game.resultsData.playerWon || !flow.expect('results', 'the Brawl loss') || !flow.acts().includes('res:again')) return 'the lost Brawl: ' + flow.screen();
+      flow.press('res:setup');
+      if (!flow.expect('char', 'Change fighters') || Game.state !== GS.CHARSEL) return 'Change fighters: ' + flow.screen() + ' ' + Game.state;
+      flow.press('confirm'); flow.press('lineupNext'); flow.press('start'); flow.fightOn(); flow.finish('win'); flow.press('res:menu');
+      flow.mainMenu('Brawl results');
+      flow.press('play'); flow.press('mode:brawl'); flow.press('confirm'); flow.press('lineupNext'); flow.press('start'); flow.fightOn();
+      flow.quit('Brawl pause');
+      flow.press('play'); flow.press('mode:brawl'); flow.press('confirm'); flow.press('lineupNext');
+      return flow.backOut().join() === 'arena,lineup,char' && flow.expect('modes', 'Back to the mode list') && Game.state === GS.MENU ? flow.problems.length ? flow.problems[0] : true : 'Back out of Brawl: ' + flow.screen() + ' ' + Game.state;
+    }));
+    /* Co-op Brawl: a keyboard and a pad join, the pad pauses and resumes the fight, B on a pad that has not joined goes back. */
+    test('Mode flows (P18-40): Co-op Brawl from the mode list - nobody joined cannot start, a keyboard and a gamepad join, arena, a fight paused and resumed with the pad, a win and a loss with Rematch and Change fighters, and B on an unjoined pad goes back', () => withFlow([fakePad('a'), fakePad('b')], (flow, pads) => {
+      Game.selection.party = ['elise', 'mara', 'brutus', 'yuki'];
+      flowEnter(flow, 'coop');
+      flow.reach('the Co-op join screen', pads[0]);
+      if (!flow.expect('coop', 'Co-op Brawl') || Game.state !== GS.CHARSEL || flow.acts().includes('coopStart') || !flow.acts().includes('back')) return 'the Co-op join screen with nobody on it: ' + flow.screen() + ' ' + flow.acts();
+      flow.hear(() => Inputs.pollLobby());   // the pads are read once before a press counts
+      flow.hear(() => Inputs.join('key1'));
+      padButton(pads[0], 0, true);
+      const joined = flow.hear(() => Inputs.pollLobby());
+      padButton(pads[0], 0, false);
+      if (Inputs.seatedSlots().join() !== '0,1' || joined.join() !== 'join') return 'the keyboard and the pad did not join: ' + Inputs.seatedSlots() + ' ' + joined;
+      if (!flow.acts().includes('coopStart') || !flow.html.includes('coopcycle:1')) return 'Choose arena is not offered once two have joined: ' + flow.acts();
+      flow.hear(() => Inputs.pollLobby());
+      padButton(pads[0], 15, true);
+      flow.hear(() => Inputs.pollLobby());   // the pad's right changes its fighter
+      padButton(pads[0], 15, false);
+      if (Game.selection.party[1] === 'mara') return 'right on the pad did not change its fighter';
+      flow.press('coopStart');
+      if (!flow.expect('arena', 'Choose arena') || Game.state !== GS.ARENASEL) return 'Co-op arena: ' + flow.screen() + ' ' + Game.state;
+      flow.press('back');
+      if (!flow.expect('coop', 'Back from the arena') || Game.state !== GS.CHARSEL || Inputs.seatedSlots().join() !== '0,1') return 'Back from the Co-op arena: ' + flow.screen() + ' ' + Inputs.seatedSlots();
+      flow.press('coopStart'); flow.press('start');
+      if (!Game.match || !Game.match.coop || Game.match.partySize !== 2 || Game.inputPlan() !== 'coop' || Game.state !== GS.COUNTDOWN) return 'Co-op did not start with two players: ' + Game.state;
+      flow.fightOn();
+      padButton(pads[0], 9, true);   // Start on the pad
+      Inputs.update(); Game.pollMatchInput();
+      padButton(pads[0], 9, false);
+      if (Game.state !== GS.PAUSED || !flow.expect('pause', 'Start on the pad')) return 'Start on the pad did not pause: ' + Game.state;
+      Inputs.update(); UI.update();   // the press is let go: the next one closes the pause screen
+      padButton(pads[0], 9, true); UI.guardUntil = 0;
+      Inputs.update(); UI.update();
+      padButton(pads[0], 9, false);
+      if (Game.state !== GS.FIGHT) return 'Start on the pad did not resume: ' + Game.state + ' ' + flow.screen();
+      flow.finish('win');
+      flow.reach('the Co-op results', pads[0]);
+      if (!flow.expect('results', 'the Co-op win') || !Game.resultsData.playerWon || !['res:again', 'res:setup', 'res:menu'].every((act) => flow.acts().includes(act))) return 'the Co-op results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again'); flow.fightOn(); flow.finish('lose');
+      if (Game.resultsData.playerWon || !flow.expect('results', 'the Co-op loss')) return 'the lost Co-op: ' + flow.screen();
+      flow.press('res:setup');
+      if (!flow.expect('coop', 'Change fighters') || Inputs.seatedSlots().join() !== '0,1' || Game.state !== GS.CHARSEL) return 'Change fighters did not return to the join screen with the seats: ' + flow.screen() + ' ' + Inputs.seatedSlots();
+      flow.press('coopStart'); flow.press('start'); flow.fightOn();
+      flow.quit('Co-op pause');
+      flow.press('play'); flow.press('mode:coop');
+      flow.hear(() => Inputs.pollLobby());
+      padButton(pads[1], 1, true);
+      flow.hear(() => Inputs.pollLobby());   // B on a pad that has not joined
+      padButton(pads[1], 1, false);
+      return flow.expect('modes', 'B on an unjoined pad') && Game.state === GS.MENU ? flow.problems.length ? flow.problems[0] : true : 'B on an unjoined pad went to ' + flow.screen() + ' ' + Game.state;
+    }));
+    /* Tournament, one person with no device joined (touch, mouse): the whole bracket to the title. */
+    test('Mode flows (P18-40): Tournament for one person on touch from the mode list - fighter screen, bracket, the CPU fights, a bout paused and resumed, every win back to the bracket, the champion leaving the bracket, and the title kept', () => withFlow([], (flow) => {
+      Game.selection.party[0] = 'kai';
+      flowEnter(flow, 'tournament');
+      if (!flow.expect('coop', 'Tournament') || Game.state !== GS.CHARSEL || !flow.acts().includes('coopStart') || !flow.acts().includes('back')) return 'the Tournament join screen: ' + flow.screen() + ' ' + flow.acts();
+      for (let tap = 0; tap < 2; tap++) flow.items.find((el) => el.attrs['data-local'] === 'tsize').click();   // two taps on the Entrants row
+      if (Game.selection.tournamentSize !== 8) return 'Entrants did not come round to 8 again: ' + Game.selection.tournamentSize;
+      flow.press('coopdiff');
+      flow.press('coopStart');
+      if (!flow.expect('char', 'Choose fighters') || Game.tournament) return 'Choose fighters: ' + flow.screen();
+      const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id));
+      flow.press('pick:' + locked.id); flow.press('confirm');
+      if (UI.current !== 'char' || Game.tournament || !flow.toasts.some((msg) => msg.startsWith('Locked'))) return 'a locked fighter was not refused: ' + flow.screen() + ' ' + !!Game.tournament;
+      flow.press('pick:cruz'); flow.press('confirm');
+      if (!flow.expect('bracket', 'Confirm') || !Game.tournament || Game.state !== GS.CHARSEL || !flow.acts().includes('bracketGo') || !flow.acts().includes('back')) return 'the bracket did not follow the pick: ' + flow.screen() + ' ' + flow.acts();
+      if (!Progress.d.tournamentRun) return 'the drawn bracket was not saved';
+      let wins = 0;
+      for (let round = 0; round < 6 && !flow.html.includes('Champion: '); round++) {
+        for (let guard = 0; guard < 5 && !Game.match; guard++) { flow.press('bracketGo'); flow.drain(); if (flow.html.includes('Champion: ')) break; }
+        if (!Game.match) break;
+        if (Game.state !== GS.COUNTDOWN || Game.match.cfg.playerId !== 'cruz') return 'the bout is not the picked fighter\'s: ' + Game.state + ' ' + Game.match.cfg.playerId;
+        flow.fightOn();
+        if (round === 0) {
+          Game.pause();
+          if (flow.acts().includes('restart') || !flow.acts().includes('quit') || !flow.acts().includes('resume')) return 'the bout pause menu: ' + flow.acts();
+          flow.press('resume');
+        }
+        flow.finish('win'); wins++;
+        if (!flow.expect('results', 'the bout win') || !flow.acts().includes('res:bracket') || !flow.acts().includes('res:menu')) return 'the bout results: ' + flow.screen() + ' ' + flow.acts();
+        flow.press('res:bracket');
+        if (!flow.expect('bracket', 'Continue after the bout') || Game.state !== GS.CHARSEL || Game.match) return 'Continue after the bout: ' + flow.screen() + ' ' + Game.state;
+      }
+      if (wins !== 3 || !flow.html.includes('Champion: ') || Progress.d.tournamentWins !== 1 || Progress.d.tournamentRun || JSON.parse(Store.get(KEY_PROGRESS)).tournamentWins !== 1 || JSON.parse(Store.get(KEY_PROGRESS)).tournamentRun) return 'the title: wins ' + wins + ' titles ' + Progress.d.tournamentWins + ' saved ' + !!Progress.d.tournamentRun;
+      flow.press('bracketGo');
+      if (!flow.expect('modes', 'the champion\'s Continue') || Game.tournament || Game.state !== GS.MENU || flow.acts().includes('continueTournament')) return 'the champion\'s Continue: ' + flow.screen() + ' ' + Game.state;
+      return flow.html.includes('Titles: 1') ? true : 'the title is not on the mode list';
+    }));
+    /* Tournament, left in the middle: a lost bout, Quit in a bout, Back from the bracket and Continue tournament. */
+    test('Mode flows (P18-40): Tournament left and taken up again - Main menu after a won bout, Continue tournament on the mode list, Quit in a bout counts as a loss, Back from the bracket keeps it, and a lost bracket still plays out to the end', () => withFlow([], (flow) => {
+      Game.selection.party[0] = 'kai';
+      flowEnter(flow, 'tournament');
+      flow.press('coopStart'); flow.press('pick:elise'); flow.press('confirm');
+      flow.press('bracketGo'); flow.drain();
+      if (!Game.match) flow.press('bracketGo');
+      flow.fightOn(); flow.finish('win');
+      flow.press('res:menu');
+      flow.mainMenu('Main menu after a bout');
+      flow.press('play');
+      const saved = Progress.d.tournamentRun;
+      if (!saved || !flow.acts().includes('continueTournament')) return 'Continue tournament is not offered with the saved bracket: ' + flow.acts() + ' ' + !!saved;
+      flow.press('continueTournament');
+      if (!flow.expect('bracket', 'Continue tournament') || Game.state !== GS.CHARSEL || !Game.tournament || Tournament.alive(Game.tournament).length !== 1) return 'Continue tournament did not open the bracket: ' + flow.screen() + ' ' + Game.state;
+      flow.press('back');
+      if (!flow.expect('modes', 'Back from the bracket') || Game.state !== GS.MENU || Game.tournament || !Progress.d.tournamentRun || !flow.acts().includes('continueTournament')) return 'Back from the bracket lost the bracket: ' + flow.screen() + ' ' + !!Progress.d.tournamentRun;
+      flow.press('continueTournament'); flow.press('bracketGo'); flow.drain();
+      for (let guard = 0; guard < 4 && !Game.match; guard++) { flow.press('bracketGo'); flow.drain(); }
+      if (!Game.match) return 'the second bout did not start';
+      flow.fightOn();
+      Game.pause(); flow.press('quit');
+      flow.mainMenu('Quit in a bout');
+      const after = Game.savedTournament();
+      if (!after || Tournament.alive(after).length !== 0) return 'Quit in a bout did not count as a loss: alive ' + (after && Tournament.alive(after).length);
+      flow.press('play'); flow.press('continueTournament');
+      if (!flow.expect('bracket', 'Continue tournament after a loss') || !flow.html.includes('All players are out')) return 'a lost bracket: ' + flow.screen();
+      flow.press('bracketGo');
+      if (!Game.tournamentWork) return 'Continue did not play the CPU fights';
+      flow.drain();
+      if (!flow.html.includes('Champion: ') || Progress.d.tournamentRun) return 'the lost bracket did not play out to a champion: ' + !!Progress.d.tournamentRun;
+      flow.press('bracketGo');
+      return flow.expect('modes', 'the end of a lost bracket') && Game.state === GS.MENU ? flow.problems.length ? flow.problems[0] : true : 'the end of a lost bracket: ' + flow.screen();
+    }));
+    /* Tournament with two devices: both join, both pick, both fight their bouts, and Continue tournament sits them down again. */
+    test('Mode flows (P18-40): Tournament for two on a keyboard and a gamepad - join, the two fighter screens in seat order, the bracket, a bout each, Main menu, then Continue tournament sits both down again before the bracket opens', () => withFlow([fakePad('a')], (flow, pads) => {
+      Game.selection.party = ['kai', 'mara', 'brutus', 'yuki'];
+      flowEnter(flow, 'tournament');
+      flow.hear(() => Inputs.pollLobby());
+      flow.hear(() => Inputs.join('key1'));
+      padButton(pads[0], 0, true);
+      flow.hear(() => Inputs.pollLobby());
+      padButton(pads[0], 0, false);
+      if (Inputs.seatedSlots().join() !== '0,1') return 'two devices did not join: ' + Inputs.seatedSlots();
+      flow.press('coopStart');
+      if (!flow.expect('char', 'Choose fighters') || UI.pickAt !== 0) return 'seat 1\'s fighter screen: ' + flow.screen();
+      flow.press('pick:elise'); flow.press('confirm');
+      if (!flow.expect('char', 'seat 1\'s confirm') || UI.pickAt !== 1) return 'seat 2\'s fighter screen: ' + flow.screen() + ' ' + UI.pickAt;
+      flow.press('pick:rosa'); flow.press('confirm');
+      if (!flow.expect('bracket', 'seat 2\'s confirm') || Tournament.alive(Game.tournament).length !== 2 || Game.inputPlan() !== 'coop') return 'the bracket of two: ' + flow.screen() + ' ' + Game.inputPlan();
+      const played = [];
+      for (let bout = 0; bout < 2; bout++) {
+        for (let guard = 0; guard < 5 && !Game.match; guard++) { flow.press('bracketGo'); flow.drain(); }
+        if (!Game.match) return 'bout ' + (bout + 1) + ' did not start';
+        played.push(Game.match.cfg.playerId);
+        flow.fightOn(); flow.finish('win');
+        if (!flow.expect('results', 'bout ' + (bout + 1)) || !flow.acts().includes('res:bracket')) return 'results of bout ' + (bout + 1) + ': ' + flow.screen() + ' ' + flow.acts();
+        if (bout === 1) break;
+        flow.press('res:bracket');
+      }
+      if (played.join() !== 'elise,rosa') return 'the bouts were not each person\'s: ' + played;
+      flow.press('res:menu');
+      flow.mainMenu('Tournament for two');
+      flow.press('play'); flow.press('continueTournament');
+      if (!flow.expect('coop', 'Continue tournament') || flow.acts().includes('coopStart') || !flow.acts().includes('back') || !Game.tournamentResume) return 'a saved bracket of two does not wait for two devices: ' + flow.screen() + ' ' + flow.acts();
+      flow.hear(() => Inputs.join('key1'));
+      if (flow.acts().includes('coopStart')) return 'Continue is offered with one of two devices';
+      flow.hear(() => Inputs.join('key2'));
+      flow.press('coopStart');
+      if (!flow.expect('bracket', 'Continue with both seated') || !Game.tournament || Tournament.alive(Game.tournament).length !== 2) return 'the saved bracket did not open with both: ' + flow.screen();
+      flow.press('back');
+      return flow.expect('modes', 'Back from the resumed bracket') ? flow.problems.length ? flow.problems[0] : true : 'Back from the resumed bracket: ' + flow.screen();
+    }));
+    /* Tournament, two people drawn into the same bout: it is played as Versus on their two seats, the loser is out and the other goes on. */
+    test('Mode flows (P18-40): Tournament with two people in the same bout on a keyboard each - the bout is Versus on two seats, either one wins, the loser is out and the winner goes on, and Continue tournament takes the bracket up with one person', () => withFlow([], (flow) => {
+      flowEnter(flow, 'tournament');
+      for (const result of ['win', 'lose']) {
+        flow.hear(() => Inputs.join('key1')); flow.hear(() => Inputs.join('key2'));
+        const pair = Tournament.draw({ humans: KAI_MARA, size: 8, seed: 41, difficulty: 'normal' });
+        [pair.entrants[1], pair.entrants[4]] = [pair.entrants[4], pair.entrants[1]];   // both people in the first bout
+        Game.playTournament(pair);
+        if (!flow.expect('bracket', 'the drawn bracket') || Game.inputPlan() !== 'coop') return 'the bracket: ' + flow.screen() + ' ' + Game.inputPlan();
+        for (let guard = 0; guard < 5 && !Game.match; guard++) { flow.press('bracketGo'); flow.drain(); }
+        if (!Game.match || !Game.match.versus || Game.state !== GS.COUNTDOWN) return 'the bout of two people did not start as Versus: ' + Game.state;
+        const people = Tournament.people(pair, Game.tournamentMatch);
+        flow.fightOn();
+        const data = flow.finish(result);
+        if (!flow.expect('results', 'the bout of two people') || !data.twoPeople || !flow.acts().includes('res:bracket') || !flow.acts().includes('res:menu')) return 'the results of the bout of two people: ' + flow.screen() + ' ' + flow.acts();
+        flow.press('res:bracket');
+        const alive = Tournament.alive(pair);
+        if (!flow.expect('bracket', 'Continue after the bout of two people') || alive.length !== 1 || alive[0] !== people[result === 'win' ? 0 : 1]) return 'the winner of the bout of two people is not the only person left: ' + alive + ' of ' + people;
+        flow.press('back');
+        flow.expect('modes', 'Back from the bracket');
+        flow.press('continueTournament');
+        if (!flow.expect('bracket', 'Continue tournament with one person left') || Tournament.alive(Game.tournament).length !== 1) return 'Continue tournament with one person left: ' + flow.screen();
+        flow.press('back');
+        flow.press('mode:tournament');
+      }
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* Back from every screen of every mode: each step back lands on the screen before it, and the last one on the mode list. */
+    test('Mode flows (P18-40): Back and Esc from every screen of every mode lead back screen by screen to the mode list, and the mode list to the main menu, with the game state back in the menu', () => withFlow([fakePad('a')], (flow) => {
+      const bad = [];
+      const via = (label, steps, expected, join) => {
+        flow.press('play');
+        flow.press('mode:' + label.split(' ')[0]);
+        if (join) flow.hear(() => Inputs.join('key1'));
+        for (const step of steps) { if (typeof step === 'function') step(); else flow.press(step); }
+        const path = flow.backOut().join();
+        if (path !== expected || UI.current !== 'modes' || Game.state !== GS.MENU || Game.match) bad.push(label + ': ' + path + ' then ' + flow.screen() + ' ' + Game.state + ', wanted ' + expected);
+        if (UI.current === 'modes') flow.press('back');
+        if (UI.current !== 'main') bad.push(label + ': the mode list\'s Back went to ' + flow.screen());
+      };
+      Game.selection.player = 'elise';
+      via('arcade', [], 'char');
+      via('survival', ['confirm'], 'arena,char');
+      via('training', ['confirm', 'setupNext'], 'arena,setup,char');
+      via('free', ['confirm', 'setupNext'], 'arena,setup,char');
+      via('free with a lineup', ['confirm', 'lineup', () => UI.changeLocal('lopp', 1), 'lineupNext'], 'arena,lineup,setup,char');
+      via('versus', ['confirm', 'confirm', 'setupNext'], 'arena,setup,char,char');
+      via('versus with a lineup', ['confirm', 'confirm', 'lineup', () => UI.changeLocal('lopp', 1), 'lineupNext'], 'arena,lineup,setup,char,char');
+      via('brawl', ['confirm', 'lineupNext'], 'arena,lineup,char');
+      via('coop', ['coopStart'], 'arena,coop', true);
+      via('coop', [], 'coop');
+      via('tournament', ['coopStart'], 'char,coop');
+      via('tournament', ['coopStart', 'confirm'], 'bracket');
+      via('tournament with two', [() => flow.hear(() => Inputs.join('key2')), 'coopStart', 'confirm'], 'char,char,coop', true);
+      return bad.length ? bad.slice(0, 3).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* The screens of the main menu and the pause menu that are not modes. */
+    test('Mode flows (P18-40): Controls with the Move list, Settings, Unlocks, About and the fighter creator open from the main menu and from the fighter screen and come back to where they were opened, on Back and on Esc', () => withFlow([], (flow) => {
+      const bad = [], saved = keepCustoms(), creator = Object.assign({}, CreatorUI);   // the creator's own fields, put back after
+      try {
+        for (const side of ['controls', 'settings', 'unlocks', 'credits']) {
+          flow.press(side);
+          if (!flow.expect(side, 'the ' + side + ' button')) continue;
+          if (side === 'controls') { flow.press('moves'); flow.expect('moves', 'Move list'); flow.press('back'); flow.expect('controls', 'Back from the Move list'); }
+          if (side === 'settings') { flow.press('inc:shake'); flow.press('dec:shake'); flow.expect('settings', 'a Settings row'); }
+          if (side === 'unlocks') { const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id)), open = ROSTER.find((r) => hasUnlockRule(r.id) && Progress.isUnlocked(r.id)); flow.press('unlockinfo:' + locked.id); if (open) flow.press('unlockinfo:' + open.id); if (!flow.toasts.some((msg) => msg.includes('is locked'))) bad.push('Unlocks: a locked fighter said nothing'); }
+          if (side === 'credits') { const progress = flow.html.includes('Unlocked fighters'); if (!progress) bad.push('About: no progress section'); }
+          flow.escape();
+          if (UI.current !== 'main') bad.push(side + ': Esc went to ' + flow.screen());
+          if (UI.current !== 'main') flow.press('back');
+        }
+        flow.press('create');
+        if (UI.current !== 'creator') bad.push('Create Fighter opened ' + flow.screen());
+        UI.guardUntil = 0; UI.back();
+        if (UI.current !== 'main') bad.push('Back from the creator went to ' + flow.screen());
+        flow.press('create'); flow.press('crfight');   // the fight preview, opened from the main menu
+        if (!Game.match || Game.state !== GS.FIGHT) bad.push('the preview from the main menu did not start: ' + Game.state);
+        else {
+          Game.pause(); flow.press('quit');
+          if (UI.current !== 'creator' || Game.state !== GS.MENU) bad.push('Back to the creator from the main menu preview: ' + flow.screen() + ' ' + Game.state);
+          UI.guardUntil = 0; UI.back();
+          if (UI.current !== 'main' || Game.state !== GS.MENU) bad.push('Back from the creator after the main menu preview: ' + flow.screen() + ' ' + Game.state);
+        }
+        flow.press('play'); flow.press('mode:free');
+        flow.press('create');
+        if (UI.current !== 'creator') bad.push('+ CREATE opened ' + flow.screen());
+        UI.guardUntil = 0; UI.back();
+        if (UI.current !== 'char' || Game.state !== GS.CHARSEL) bad.push('Back from the creator went to ' + flow.screen() + ' ' + Game.state);
+        flow.press('create'); flow.press('crfight');
+        if (!Game.match || !Game.match.training || Game.state !== GS.FIGHT) bad.push('the creator fight preview did not start: ' + Game.state);
+        else {
+          Game.pause();
+          if (!flow.html.includes('Back to the creator')) bad.push('the preview pause menu does not say Back to the creator');
+          flow.press('quit');
+          if (UI.current !== 'creator' || Game.state !== GS.MENU) bad.push('Back to the creator went to ' + flow.screen() + ' ' + Game.state);
+          UI.guardUntil = 0; UI.back();
+          if (UI.current !== 'char' || Game.state !== GS.CHARSEL || Game.selection.mode !== 'free') bad.push('Back from the creator after a preview: ' + flow.screen() + ' ' + Game.state + ' ' + Game.selection.mode);
+        }
+        flow.press('create'); flow.press('crsave');
+        const made = CustomRoster.profiles();
+        if (made.length !== 1) bad.push('Save did not keep the new fighter: ' + made.length);
+        UI.guardUntil = 0; UI.back();
+        if (UI.current !== 'char' || !made.length || !flow.html.includes('data-act="pick:' + made[0].id + '"')) bad.push('the saved fighter is not on the fighter screen: ' + flow.screen());
+        else {
+          if (Game.selection.player !== made[0].id) flow.press('pick:' + made[0].id);   // a fighter saved in the creator is already the pick
+          flow.press('confirm'); flow.press('setupNext'); flow.press('start');
+          if (!Game.match || Game.match.cfg.playerId !== made[0].id) bad.push('Free Fight did not start with the new fighter: ' + Game.state);
+          else { flow.fightOn(); flow.quit('the fight of a saved fighter'); }
+        }
+        if (UI.current !== 'main') { flow.press('back'); flow.press('back'); }
+        if (UI.current !== 'main') bad.push('Back out of the free fight: ' + flow.screen());
+      } finally { restoreCustoms(saved); for (const key of ['draft', 'slot', 'savedJson', 'tab', 'origin', 'confirm', 'exportCode', 'returnState', 'crop']) CreatorUI[key] = creator[key]; }
+      return bad.length ? bad.slice(0, 3).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* Arcade with its story scenes: every scene between the fights is a screen with a way on (the next box, the answer, Skip), a clear gives the ending and Play again. */
+    test('Mode flows (P18-40): Arcade with the story scenes from the first scene to the clear - Skip stage after three lost tries, the ending, Play again and the clear kept when the run is left', () => withFlow([], (flow) => {
+      Game.selection.player = 'elise';
+      const scenes = flow.scenes;
+      flowEnter(flow, 'arcade'); flow.press('confirm');
+      if (!flow.expect('scene', 'the first scene') || Game.state !== GS.CHARSEL || Game.match) return 'the first story scene: ' + flow.screen() + ' ' + Game.state;
+      if (scenes(false) < 1 || !Game.match || Game.state !== GS.COUNTDOWN) return 'the scenes did not lead to stage 1: ' + flow.screen() + ' ' + Game.state;
+      let ending = false;
+      for (let stage = 0; stage < STORY_STAGES; stage++) {
+        if (!Game.match || Game.run.stage !== stage) return 'stage ' + (stage + 1) + ' did not start: ' + (Game.run && Game.run.stage) + ' ' + Game.state;
+        flow.fightOn();
+        if (stage === 1) {   // three lost tries of stage 2 offer Skip stage
+          for (let tries = 0; tries < 3; tries++) {
+            flow.finish('lose');
+            if (!flow.expect('results', 'a lost try') || !flow.acts().includes('res:retry')) return 'a lost try has no Retry: ' + flow.screen() + ' ' + flow.acts();
+            if (tries < 2) { flow.press('res:retry'); if (scenes(true) < 0 || !Game.match) return 'Retry did not lead to the fight: ' + flow.screen(); flow.fightOn(); }
+          }
+          if (!flow.acts().includes('res:skip')) return 'Skip stage is not offered after three lost tries: ' + flow.acts();
+          flow.press('res:skip');
+          if (scenes(false) < 0 || !Game.match || Game.run.stage !== 2) return 'Skip stage did not lead to stage 3: ' + flow.screen() + ' ' + (Game.run && Game.run.stage);
+          continue;
+        }
+        const result = flow.finish('win');
+        if (!flow.expect('results', 'a won stage') || !result.playerWon) return 'a won stage: ' + flow.screen();
+        if (stage < STORY_STAGES - 1) {
+          if (!flow.acts().includes('res:next') || flow.acts().includes('res:ending')) return 'a won stage offers ' + flow.acts();
+          flow.press('res:next');
+          if (scenes(stage % 2 === 0) < 0) return 'the scenes after stage ' + (stage + 1) + ' have no way on: ' + flow.screen();
+        } else ending = result.cleared;
+      }
+      if (!ending || !flow.acts().includes('res:ending') || !flow.acts().includes('res:again') || !flow.acts().includes('res:menu')) return 'the cleared run offers ' + flow.acts();
+      const stored = JSON.parse(Store.get(KEY_PROGRESS));   // what a reload would read
+      if (Progress.d.arcadeClears !== 1 || Progress.d.arcadeRun || !Progress.isUnlocked('zero') || stored.arcadeClears !== 1 || stored.arcadeRun || !stored.unlocked.includes('zero') || !stored.unlocked.includes('dmitri')) return 'the clear was not kept: clears ' + Progress.d.arcadeClears + ' saved run ' + !!Progress.d.arcadeRun + ' stored ' + stored.arcadeClears + ' ' + stored.unlocked;
+      flow.press('res:ending');
+      if (scenes(false) < 0 || !flow.expect('results', 'the ending') || flow.acts().includes('res:ending') || !flow.acts().includes('res:again')) return 'the ending did not return to the results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:again');
+      if (scenes(true) < 0 || !Game.match || Game.run.stage !== 0 || Game.state !== GS.COUNTDOWN) return 'Play again did not start a new run: ' + flow.screen() + ' ' + Game.state;
+      flow.fightOn();
+      flow.quit('Arcade run');
+      flow.press('play');
+      return Progress.d.arcadeClears === 1 && flow.html.includes('Cleared 1') && flow.problems.length === 0 ? true : flow.problems[0] || 'the clear is not on the mode list';
+    }));
+    /* Fights with several people: the pads and keyboards that play them can pause, and a lineup that cannot start says why. */
+    test('Mode flows (P18-40): Brawl for three people on a keyboard and two gamepads and Versus on two gamepads - any person pauses, the results and Main menu follow, and a lineup of four people with one gamepad says why it cannot start and starts once a CPU takes a slot', () => withFlow([fakePad('a'), fakePad('b')], (flow, pads) => {
+      Game.selection.player = 'elise';
+      flowEnter(flow, 'brawl'); flow.press('confirm');
+      UI.changeLocal('lctl:1', 1); UI.changeLocal('lctl:2', 1);
+      if (MatchLineup.people(Game.lineups.brawl) !== 3) return 'the lineup has ' + MatchLineup.people(Game.lineups.brawl) + ' people, not 3';
+      flow.press('lineupNext'); flow.press('start');
+      if (!Game.match || Game.match.setup.filter((slot) => slot.human >= 0).length !== 3 || Game.inputPlan() !== 'coop' || Inputs.seatedSlots().length !== 3) return 'the three-person Brawl did not start on three seats: ' + Game.state + ' ' + Inputs.seatedSlots();
+      flow.fightOn();
+      padButton(pads[1], 9, true); Inputs.update(); Game.pollMatchInput(); padButton(pads[1], 9, false);
+      if (Game.state !== GS.PAUSED || !flow.expect('pause', 'Start on the second pad')) return 'Start on the second pad did not pause: ' + Game.state;
+      flow.press('resume');
+      flow.finish('win');
+      if (!flow.expect('results', 'the three-person win') || !flow.acts().includes('res:menu')) return 'the three-person results: ' + flow.screen() + ' ' + flow.acts();
+      flow.press('res:menu');
+      flow.mainMenu('three-person Brawl');
+      flow.press('play'); flow.press('mode:versus'); flow.press('confirm'); flow.press('confirm'); flow.press('setupNext'); flow.press('start');
+      if (!Game.match || !Game.match.versus || Game.inputPlan() !== 'versus') return 'Versus did not start: ' + Game.state;
+      flow.fightOn();
+      padButton(pads[1], 9, true); Inputs.update(); Game.pollMatchInput(); padButton(pads[1], 9, false);
+      if (Game.state !== GS.PAUSED) return 'Start on the second pad did not pause Versus: ' + Game.state;
+      flow.press('quit');
+      flow.mainMenu('Versus on two gamepads');
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    test('Mode flows (P18-40): a lineup that cannot start - four people with one gamepad, everyone on one team, Versus with one person - offers no Choose arena, says why, and a change of the lineup or Back goes on', () => withFlow([fakePad('a')], (flow) => {
+      Game.selection.player = 'elise';
+      flowEnter(flow, 'brawl'); flow.press('confirm');
+      UI.changeLocal('lctl:1', 1); UI.changeLocal('lctl:2', 1); UI.changeLocal('lctl:3', 1);
+      UI.changeLocal('ldeal', -1);   // everyone for themselves: with all four on Team A there would be nobody to fight
+      if (flow.acts().includes('lineupNext') || !flow.html.includes('gamepads connected')) return 'four people with one gamepad: ' + flow.acts() + ' ' + flow.html.includes('gamepads connected');
+      UI.act('lineupNext');   // Enter on the button of a screen that was drawn before
+      if (UI.current !== 'lineup' || Game.state !== GS.CHARSEL || !flow.toasts.some((msg) => msg.includes('gamepads'))) return 'the refused Choose arena: ' + flow.screen() + ' ' + flow.toasts;
+      UI.changeLocal('lctl:3', 1);
+      if (!flow.acts().includes('lineupNext')) return 'three people with one gamepad (keyboard 1 and 2) did not start: ' + flow.html.match(/warnline[^<]*/);
+      for (let slot = 0; slot < 4; slot++) UI.changeLocal('ltm:' + slot, 1);   // every slot on Team A
+      if (flow.acts().includes('lineupNext') || !flow.html.includes('one team')) return 'everyone on one team: ' + flow.acts();
+      flow.press('back');
+      if (!flow.expect('char', 'Back from a lineup that cannot start')) return 'Back: ' + flow.screen();
+      flow.press('back');   // the mode list
+      flow.press('mode:versus'); flow.press('confirm'); flow.press('confirm');
+      flow.press('lineup'); UI.changeLocal('lctl:1', 1);
+      if (flow.acts().includes('lineupNext') || !flow.html.includes('needs a second player')) return 'Versus with one person: ' + flow.acts();
+      flow.press('back');
+      if (!flow.expect('setup', 'Back from the Versus lineup')) return 'Back: ' + flow.screen();
+      flow.press('setupNext'); flow.press('start');   // Start fight on an arena screen for a lineup that cannot start
+      if (Game.match || UI.current !== 'arena' || Game.state !== GS.ARENASEL) return 'Start fight with a lineup that cannot start: ' + flow.screen() + ' ' + Game.state + ' ' + !!Game.match;
+      flow.press('back');
+      if (!flow.expect('lineup', 'Back from the arena of a lineup that cannot start')) return 'Back: ' + flow.screen();
+      UI.changeLocal('lctl:1', 1);
+      flow.press('lineupNext'); flow.press('start');
+      if (!Game.match) return 'the corrected lineup did not start';
+      flow.fightOn(); flow.quit('Versus lineup');
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* A saved Arcade run or Tournament bracket is the player's progress: starting a new one asks first. */
+    test('Mode flows (P18-40): a saved Arcade run is not replaced without asking - Confirm asks which run goes, Keep, Back, Esc and the gamepad leave the run as it was, a tap straight after the question does not answer it, and Replace starts the new run', () => withFlow([fakePad('a')], (flow, pads) => {
+      Game.selection.player = 'elise'; Settings.v.storyScenes = 'off';
+      flowEnter(flow, 'arcade'); flow.press('confirm');
+      for (let stage = 0; stage < 4; stage++) { flow.fightOn(); flow.finish('win'); flow.press('res:next'); }
+      flow.fightOn(); flow.quit('Arcade stage 5');
+      const kept = JSON.stringify(Progress.d.arcadeRun);
+      if (!Progress.d.arcadeRun || Progress.d.arcadeRun.stage !== 5) return 'there is no saved run at stage 5: ' + kept;
+      flow.press('play'); flow.press('mode:arcade'); flow.press('pick:mara'); flow.press('confirm');
+      if (!flow.expect('replace', 'Confirm with a saved run') || Game.match || !flow.html.includes('Replace your saved run: ' + ROSTER_BY_ID.elise.name + ', stage 5 of ' + STORY_STAGES + '?') || flow.focused.attrs['data-act'] !== 'back') return 'Confirm did not ask: ' + flow.screen() + ' ' + !!Game.match;
+      flow.tap('replace');
+      if (UI.current !== 'replace' || Game.match) return 'a tap straight after the question answered it';
+      const steps = [['Keep', () => flow.press('back')], ['Esc', () => flow.escape()], ['the gamepad B', () => flow.padTap(pads[0], 'b')]];
+      for (const [how, answer] of steps) {
+        answer();
+        if (!flow.expect('char', how) || Game.match || Game.selection.player !== 'mara' || JSON.stringify(Progress.d.arcadeRun) !== kept) return how + ' did not leave the saved run and the fighter screen as they were: ' + flow.screen();
+        flow.press('confirm');
+        if (!flow.expect('replace', 'Confirm again after ' + how)) return 'Confirm did not ask again after ' + how;
+      }
+      flow.padTap(pads[0], 'down');
+      if (flow.focused.attrs['data-act'] !== 'replace') return 'the gamepad cannot reach Replace: ' + flow.focused.attrs['data-act'];
+      flow.padTap(pads[0], 'a');
+      const saved = Progress.d.arcadeRun;
+      if (!Game.match || Game.run.player !== 'mara' || !saved || saved.stage !== 1 || saved.fighter !== 'mara' || UI.current !== null) return 'Replace did not start the new run: ' + Game.state + ' ' + (saved && saved.stage + ' ' + saved.fighter);
+      flow.fightOn(); flow.quit('the new run');
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    test('Mode flows (P18-40): a saved Tournament bracket is not replaced without asking - the last fighter confirm asks, Keep leaves the bracket and the pick, Replace draws the new bracket, for one person on touch and for two on devices', () => withFlow([fakePad('a')], (flow, pads) => {
+      Game.selection.party = ['kai', 'mara', 'brutus', 'yuki'];
+      flowEnter(flow, 'tournament'); flow.press('coopStart'); flow.press('pick:elise'); flow.press('confirm');
+      const first = Game.tournament, kept = JSON.stringify(Progress.d.tournamentRun);
+      flow.press('back');
+      if (!flow.expect('modes', 'Back from the bracket') || !kept || kept === 'null') return 'there is no saved bracket';
+      const asked = 'Replace your saved tournament: 8 fighters, next: ' + Tournament.roundName(first, Tournament.next(first).round) + '?';
+      flow.press('mode:tournament'); flow.press('coopStart'); flow.press('pick:cruz'); flow.press('confirm');
+      if (!flow.expect('replace', 'the last confirm') || Game.tournament || !flow.html.includes(asked)) return 'the confirm did not ask: ' + flow.screen() + ' ' + !!Game.tournament;
+      flow.press('back');
+      if (!flow.expect('char', 'Keep') || Game.tournament || JSON.stringify(Progress.d.tournamentRun) !== kept) return 'Keep did not leave the bracket and the fighter screen: ' + flow.screen();
+      flow.press('confirm'); flow.press('replace');
+      const people = Game.tournament ? Game.tournament.entrants.filter((e) => e.human >= 0) : [];
+      if (!flow.expect('bracket', 'Replace') || people.length !== 1 || people[0].id !== 'cruz' || JSON.stringify(Progress.d.tournamentRun) === kept) return 'Replace did not draw the new bracket: ' + flow.screen() + ' ' + JSON.stringify(people);
+      flow.press('back'); flow.press('mode:tournament');
+      flow.padTap(pads[0], 'a'); flow.hear(() => Inputs.join('key1'));   // two people: the pad and keyboard 1
+      const two = JSON.stringify(Progress.d.tournamentRun);
+      flow.press('coopStart'); flow.press('pick:rosa'); flow.press('confirm');
+      if (!flow.expect('char', 'the first of two confirms') || UI.pickAt !== 1) return 'the first confirm of two asked too early: ' + flow.screen();
+      flow.press('pick:yuki'); flow.press('confirm');
+      if (!flow.expect('replace', 'the last confirm of two') || Game.tournament) return 'the last confirm of two did not ask: ' + flow.screen();
+      flow.press('back');
+      if (!flow.expect('char', 'Keep, of two') || UI.pickAt !== 1 || UI.pickSeats.length !== 2 || JSON.stringify(Progress.d.tournamentRun) !== two) return 'Keep, of two, lost the pick: ' + flow.screen() + ' ' + UI.pickAt;
+      flow.press('confirm'); flow.press('replace');
+      return flow.expect('bracket', 'Replace, of two') && Tournament.alive(Game.tournament).length === 2 && flow.problems.length === 0 ? true : flow.problems[0] || 'Replace, of two, did not draw: ' + flow.screen();
+    }));
+    /* The join screens, reached by the devices alone: the keys and a gamepad (joined or not) move the focus to every row and change the rows, and the lobby keeps its own meaning for the same buttons. */
+    test('Mode flows (P18-40): on the Tournament and Co-op join screens the arrow keys and a gamepad, joined or not, reach every row and change Entrants and the CPU level, and A, B, Start and left / right still join, leave, go on and choose a fighter', () => withFlow([fakePad('a')], (flow, pads) => {
+      Game.selection.party = ['kai', 'mara', 'brutus', 'yuki'];
+      const pad = pads[0], on = (name) => (el) => el.attrs['data-act'] === name || el.attrs['data-local'] === name;
+      flowEnter(flow, 'tournament');
+      flow.reach('the Tournament join screen', pad);
+      if (Inputs.seatedSlots().length) return 'moving the focus joined a device: ' + Inputs.seatedSlots();
+      if (!flow.focusOn(on('tsize'))) return 'the focus never reached the Entrants row';
+      flow.padTap(pad, 'right');
+      if (Game.selection.tournamentSize !== 16 || Inputs.seatedSlots().length) return 'right on a gamepad that has not joined did not change Entrants: ' + Game.selection.tournamentSize;
+      flow.padTap(pad, 'left');
+      UI.onKey(keyEvent('ArrowRight'));
+      if (Game.selection.tournamentSize !== 16) return 'the right arrow key did not change Entrants: ' + Game.selection.tournamentSize;
+      UI.onKey(keyEvent('ArrowLeft'));
+      if (Game.selection.tournamentSize !== 8) return 'the left arrow key did not change Entrants back: ' + Game.selection.tournamentSize;
+      if (!flow.focusOn(on('coopdiff'))) return 'the focus never reached the CPU level';
+      const level = Game.selection.difficulty;
+      flow.padTap(pad, 'right');
+      if (Game.selection.difficulty === level || Inputs.seatedSlots().length) return 'right on a gamepad that has not joined did not change the CPU level';
+      flow.padTap(pad, 'left');
+      if (Game.selection.difficulty !== level) return 'left did not change the CPU level back';
+      UI.guardUntil = 0; UI.onKey(keyEvent('Enter'));
+      if (Game.selection.difficulty === level) return 'Enter did not change the CPU level';
+      Game.selection.difficulty = level;
+      flow.padTap(pad, 'a');   // joins
+      if (Inputs.seatedSlots().join() !== '0') return 'A on a gamepad did not join: ' + Inputs.seatedSlots();
+      if (!flow.focusOn(on('tsize'))) return 'the focus never reached the Entrants row of a joined gamepad';
+      flow.padTap(pad, 'a');
+      if (Game.selection.tournamentSize !== 16) return 'A on a joined gamepad did not change Entrants: ' + Game.selection.tournamentSize;
+      flow.padTap(pad, 'a');
+      if (!flow.focusOn(on('coopStart'))) return 'the focus never reached Choose fighters';
+      flow.padTap(pad, 'b');
+      if (Inputs.seatedSlots().length || UI.current !== 'coop') return 'B on a joined gamepad did not leave the seat only: ' + Inputs.seatedSlots() + ' ' + flow.screen();
+      flow.padTap(pad, 'a'); flow.padTap(pad, 'start');
+      if (!flow.expect('char', 'Start on a joined gamepad') || UI.pickSeats.join() !== '0') return 'Start on a joined gamepad did not go on: ' + flow.screen();
+      flow.padTap(pad, 'b');
+      if (!flow.expect('coop', 'B on the fighter screen')) return 'B on the fighter screen: ' + flow.screen();
+      flow.press('back');
+      // Co-op Brawl: left / right on a joined gamepad still choose its fighter, whatever row is in focus, and A changes the CPU level once the focus was moved to it
+      flow.press('mode:coop');
+      flow.reach('the Co-op join screen', pad);
+      flow.padTap(pad, 'a');
+      const fighter = Game.selection.party[0];
+      flow.padTap(pad, 'right');
+      if (Game.selection.party[0] === fighter) return 'right on a joined gamepad no longer chooses its Co-op fighter';
+      if (!flow.focusOn(on('coopdiff'))) return 'the focus never reached the Co-op CPU level';
+      const coopLevel = Game.selection.difficulty, chosen = Game.selection.party[0];
+      flow.padTap(pad, 'a');
+      if (Game.selection.difficulty === coopLevel) return 'A on a joined gamepad did not change the Co-op CPU level';
+      const afterA = Game.selection.difficulty;
+      flow.padTap(pad, 'left');
+      if (Game.selection.party[0] === chosen || Game.selection.difficulty !== afterA) return 'left on a joined gamepad no longer only chooses its Co-op fighter, whatever row is in focus: ' + Game.selection.party[0] + ' ' + Game.selection.difficulty;
+      flow.reach('the Co-op join screen after a join', pad);
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* A key reaches the page twice on the join screen (the lobby and the menu keys), so the row in focus must change once per press, joined or not. */
+    test('Mode flows (P18-40): on the Tournament join screen a keyboard changes Entrants exactly once per press, before and after it has joined, for keyboard 1 (A / D) and keyboard 2 (the arrows), and a joined keyboard still joins, leaves and chooses nothing there', () => withFlow([], (flow) => {
+      const press = (code) => { const e = keyEvent(code); flow.hear(() => Inputs.onKeyDown(e)); UI.guardUntil = 0; UI.onKey(e); Inputs.onKeyUp(e); };   // what a page does with one key: the input handler and the menu handler
+      const sizes = [];
+      for (const [device, left, right] of [['key1', 'KeyA', 'KeyD'], ['key2', 'ArrowLeft', 'ArrowRight']]) {
+        flowEnter(flow, 'tournament');
+        if (!flow.focusOn((el) => el.attrs['data-local'] === 'tsize')) return 'the focus never reached the Entrants row';
+        for (const joined of [false, true]) {
+          if (joined) { flow.hear(() => Inputs.join(device)); if (!flow.focusOn((el) => el.attrs['data-local'] === 'tsize')) return 'the focus never reached Entrants after ' + device + ' joined'; }
+          const start = Game.selection.tournamentSize;
+          press(right); sizes.push(Game.selection.tournamentSize);
+          press(right); sizes.push(Game.selection.tournamentSize);
+          press(left); sizes.push(Game.selection.tournamentSize);
+          if (sizes.slice(-3).join() !== [16, 8, 16].map((n) => (start === 8 ? n : 24 - n)).join() || Inputs.seatedSlots().length !== (joined ? 1 : 0)) return device + (joined ? ' joined' : ' not joined') + ' did not step Entrants once per press: ' + start + ' then ' + sizes.slice(-3) + ' seats ' + Inputs.seatedSlots();
+        }
+        flow.press('back'); flow.press('back');
+        if (UI.current !== 'main') return 'Back out of the join screen: ' + flow.screen();
+        Game.selection.tournamentSize = 8;
+      }
+      return flow.problems.length ? flow.problems[0] : true;
+    }));
+    /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
+       that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
+    const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
+    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator'], CHARSEL: ['char', 'coop', 'setup', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
+      const customs = keepCustoms();
+      try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
+    });
+    const flowWalkOn = (seed, steps, pads, flow) => {
+      let rng = (seed * 2654435761 + 12345) >>> 0;
+      const random = () => { rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0; return rng / 4294967296; };
+      const pick = (list) => list[Math.floor(random() * list.length)];
+      const weigh = (act) => (/^(pick|opp|unlockinfo|scene|coopcycle):/.test(act) ? 0.06 : act === 'confirm' ? 6 : act.startsWith('arena:') ? 0.3 : /^(settings|controls|credits|unlocks|moves|dec|inc|rebind|rebind2|resetKeys|resetKeys2|resetSettings|unlockinfo|scene|sceneall|create|editcustom)/.test(act) ? 0.15 : act === 'back' ? 0.4 : /^(confirm|start|setupNext|lineupNext|coopStart|bracketGo|play|continueArcade|continueTournament|mode|arena|res|resume|restart|quit)/.test(act) ? 3 : 1);   // a player mostly goes on
+      const pickAct = (acts) => { const weights = acts.map(weigh); let roll = random() * weights.reduce((a, b) => a + b, 0); for (let i = 0; i < acts.length; i++) { roll -= weights[i]; if (roll <= 0) return acts[i]; } return acts[acts.length - 1]; };
+      const trace = [], inFight = () => [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT].includes(Game.state);
+      const note = (text) => { trace.push(text); if (trace.length > 14) trace.shift(); };
+      const advance = () => {   // the match plays on by itself until the results come (the frame loop's part is taken here)
+        const m = Game.match;
+        for (let guard = 0; guard < 4000 && Game.match === m && Game.state !== GS.VICTORY && Game.state !== GS.DEFEAT; guard++) m.step();
+        if (Game.match === m && (Game.state === GS.VICTORY || Game.state === GS.DEFEAT)) flow.go(GS.RESULTS);
+      };
+      if (seed % 4 === 1 || seed % 4 === 3) Progress.d.arcadeRun = Story.pack(Story.start(ROSTER_BY_ID.elise, 0, 'easy', seed), []);   // a run to continue
+      if (seed % 4 >= 2) Progress.d.tournamentRun = Tournament.pack(Tournament.draw({ humans: seed % 4 === 2 ? [{ seat: 0, id: 'kai' }] : [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }], size: 8, seed, difficulty: 'normal' }));   // a bracket of one or two people to continue
+      Progress.save();
+      const COUNTERS = ['wins', 'losses', 'arcadeClears', 'arcadeBest', 'survivalKills', 'survivalSeconds', 'tournamentWins', 'tournamentBest'];
+      let kept = COUNTERS.map((key) => Progress.d[key]);
+      const wrong = () => {   // the saved progress: never less than it was, and what is on disk is what is in memory (a reload loses nothing)
+        const state = Game.state, screen = UI.current, stored = JSON.parse(Store.get(KEY_PROGRESS) || '{}');
+        for (let k = 0; k < COUNTERS.length; k++) {
+          const key = COUNTERS[k];
+          if (Progress.d[key] < kept[k]) return 'the record ' + key + ' fell from ' + kept[k] + ' to ' + Progress.d[key];
+          if (stored[key] !== Progress.d[key]) return 'the record ' + key + ' is ' + Progress.d[key] + ' on screen and ' + stored[key] + ' in the save';
+          kept[k] = Progress.d[key];
+        }
+        if (Progress.d.unlocked.some((id) => !(stored.unlocked || []).includes(id)) || (stored.unlocked || []).some((id) => !Progress.d.unlocked.includes(id))) return 'the unlocked fighters differ between memory and the save';
+        if (flow.rejected.length) return 'refused state change ' + flow.rejected[0];
+        if (flow.problems.length) return flow.problems[0];
+        if (inFight() && (!Game.match || (screen !== null && screen !== 'scene'))) return state + ' with the ' + screen + ' screen and ' + (Game.match ? 'a' : 'no') + ' match';
+        if (state === GS.MENU && Game.match) return 'a match in the main menu state';
+        if (FLOW_SCREENS[state] && !FLOW_SCREENS[state].includes(screen)) return state + ' with the ' + screen + ' screen';
+        if (state === GS.PAUSED && !Game.match) return 'paused without a match';
+        if (screen === 'coop' && !(Inputs.coop && Inputs.lobby)) return 'the join screen with co-op input ' + Inputs.coop + ' and the lobby ' + Inputs.lobby;
+        if (screen !== 'coop' && Inputs.lobby) return 'the lobby is open on the ' + screen + ' screen';
+        if ((state === GS.COUNTDOWN || state === GS.FIGHT) && Game.match) {   // every person in the fight is read from a device that is in play
+          const m = Game.match, people = m.setup ? m.setup.map((slot, k) => (slot.human >= 0 ? k : -1)).filter((k) => k >= 0) : m.coop ? m.coop.map((seat, k) => k) : m.versus ? [0, 1] : [0];
+          for (const k of people) if (!Inputs.forFighter(k) || !Inputs.active().includes(Inputs.forFighter(k))) return 'fighter ' + k + ' of the ' + (m.cfg.mode) + ' fight is read from no device in play (plan ' + Game.inputPlan() + ')';
+        }
+        if (FLOW_SCREENS[state] && screen !== 'scene' && !flow.acts().length) return 'the ' + screen + ' screen offers nothing to press';
+        return '';
+      };
+      const leave = () => {   // only Back, Esc, Quit and the results' Main menu
+        for (let n = 0; n < 30 && !(Game.state === GS.MENU && UI.current === 'main'); n++) {
+          const acts = flow.acts();
+          if (Inputs.captureCallback) Inputs.onKeyDown(keyEvent('Escape'));
+          else if (Game.state === GS.COUNTDOWN || Game.state === GS.FIGHT) Game.pause();
+          else if (inFight()) advance();
+          else if (UI.current === 'pause') flow.press('quit');
+          else if (UI.current === 'results') flow.press('res:menu');
+          else if (UI.current === 'scene') flow.press(acts.includes('scenego:walk') ? 'scenego:walk' : 'sceneskip');   // Skip still asks the answer of a choice
+          else if (UI.current === 'creator') { UI.guardUntil = 0; UI.back(); }
+          else if (acts.includes('back')) flow.press('back');
+          else flow.escape();
+        }
+        return Game.state === GS.MENU && UI.current === 'main';
+      };
+      const devices = ['key1', 'key2', 'pad0', 'pad1'];
+      Object.assign(Settings.v, { storyScenes: pick(['full', 'short', 'off']), storyAuto: random() < 0.3, ringOut: random() < 0.5, items: random() < 0.7, hazards: random() < 0.7, friendlyFire: random() < 0.5 });   // the walk's own settings, put back with the rest
+      if (seed % 2) { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.put(3, validateCustom(randomCustom(seed)).value); }   // odd walks have a custom fighter to pick
+      for (let step = 0; step < steps; step++) {
+        const state = Game.state, screen = UI.current, label = state + '/' + flow.screen();
+        let did = '';
+        if (Inputs.captureCallback) { Inputs.onKeyDown(keyEvent('Escape')); did = 'Esc (rebind)'; }
+        else if (state === GS.COUNTDOWN || state === GS.FIGHT) {
+          const roll = random();
+          if (roll < 0.2) { Game.pause(); did = 'pause'; } else if (roll < 0.35) { Inputs.onKeyDown(keyEvent('Escape')); Inputs.update(); Game.pollMatchInput(); did = 'Esc in the fight'; } else if (roll < 0.6) { advance(); did = 'play on'; } else { const m = Game.match; for (let t = 0; t < 40 + Math.floor(random() * 200) && Game.match === m && (Game.state === GS.COUNTDOWN || Game.state === GS.FIGHT); t++) m.step(); did = 'some ticks'; }
+        } else if (inFight()) { advance(); did = 'play on'; } else {
+          const acts = flow.acts().filter((act) => !FLOW_SKIP_ACTS.test(act)), roll = random();
+          const rows = flow.enabled().filter((el) => el.attrs['data-local'] !== undefined);   // the option rows: tapped, or in focus with left / right
+          if (roll < 0.1) { flow.escape(); did = 'Esc'; }
+          else if (roll < 0.2 && rows.length) { const row = pick(rows), side = random() < 0.5; if (side) row.click(); else { row.focus(); UI.onKey(keyEvent(random() < 0.5 ? 'ArrowLeft' : 'ArrowRight')); } did = 'option ' + row.attrs['data-local']; }
+          else if (roll < 0.3 && screen === 'coop') { const device = pick(devices); if (random() < 0.7) flow.hear(() => Inputs.join(device)); else flow.hear(() => Inputs.leave(device)); did = 'device ' + device; }
+          else if (roll < 0.34 && screen === 'coop') { padButton(pads[0], 1, false); flow.hear(() => Inputs.pollLobby()); padButton(pads[0], 1, true); flow.hear(() => Inputs.pollLobby()); padButton(pads[0], 1, false); did = 'B on the pad'; }
+          else if (acts.length) { const act = pickAct(acts); flow.press(act); did = act; }
+          else { flow.escape(); did = 'Esc (nothing offered)'; }
+        }
+        note(label + ' > ' + did);
+        const problem = wrong();
+        if (problem) return 'walk ' + seed + ' step ' + step + ': ' + problem + ' after ' + trace.join(' | ');
+        if (random() < 0.05 && !leave()) return 'walk ' + seed + ' step ' + step + ': stuck on ' + Game.state + '/' + flow.screen() + ' offering ' + flow.acts() + ' after ' + trace.join(' | ');
+        const afterLeave = wrong();
+        if (afterLeave) return 'walk ' + seed + ' step ' + step + ': ' + afterLeave + ' after ' + trace.join(' | ');
+      }
+      if (!leave()) return 'walk ' + seed + ': stuck at the end on ' + Game.state + '/' + flow.screen() + ' offering ' + flow.acts() + ' after ' + trace.join(' | ');
+      flow.mainMenu('walk ' + seed, true);   // Back from a fighter screen leaves the last run behind: every mode starts its own
+      return true;
+    };
+    const FLOW_WALKS = [1, 5];   // first seed, how many
+    test('Mode flows (P18-40): seeded random walks through every screen - presses of what is offered, Esc, joins, pauses and fights, with a custom fighter, saved runs and brackets and other settings - never leave the game state and the screen disagreeing, refuse a state change, lose a record or run out of ways back to the main menu', () => {
+      const bad = [];
+      for (let seed = FLOW_WALKS[0]; seed < FLOW_WALKS[0] + FLOW_WALKS[1]; seed++) {
+        const result = flowWalk(seed, 100, [fakePad('a'), fakePad('b')]);
+        if (result !== true) bad.push(result);
+      }
+      return bad.length ? bad.slice(0, 2).join('; ') + (bad.length > 2 ? ' (+' + (bad.length - 2) + ')' : '') : true;
+    });
     /* ---------- reduce intense effects (P13-03) ---------- */
     test('Effect settings (P13-03): Flashes, Controller rumble and Strike trails join Camera shake and Reduced motion, are saved, an old save keeps its look, Reduced motion sets them once, each does what it says, and a fight does not change', () => {
       const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);

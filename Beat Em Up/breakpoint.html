@@ -1508,8 +1508,8 @@ const Inputs = {
       const pad = pads[i];
       if (!live(i)) { delete this.lobbyHeld[i]; continue; }
       const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
-      const x = finite(pad.axes[0], 0);
-      const now = { join: COOP_JOIN_BUTTONS.some(down), leave: down(COOP_LEAVE_BUTTON), start: down(COOP_START_BUTTON), left: x < -PAD_DIGITAL || down(14), right: x > PAD_DIGITAL || down(15) };
+      const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
+      const now = { join: COOP_JOIN_BUTTONS.some(down), ok: down(0), leave: down(COOP_LEAVE_BUTTON), start: down(COOP_START_BUTTON), left: x < -PAD_DIGITAL || down(14), right: x > PAD_DIGITAL || down(15), up: y < -PAD_DIGITAL || down(12), down: y > PAD_DIGITAL || down(13) };
       const before = this.lobbyHeld[i];
       this.lobbyHeld[i] = now;
       if (before) this.lobbyPad('pad' + i, now, before);
@@ -1517,14 +1517,16 @@ const Inputs = {
   },
   lobbyPad(device, now, before) {
     const pressed = (k) => now[k] && !before[k];
-    const seat = this.seatOf(device);
+    const seat = this.seatOf(device), row = pressed('up') ? -1 : pressed('down') ? 1 : 0, side = pressed('left') ? -1 : pressed('right') ? 1 : 0;
+    if (row) Events.emit('lobby', { kind: 'focus', dir: row }); // up / down move between the rows of the screen, on any gamepad, joined or not; left / right change the row in focus (a joined one's 'cycle' does that too, or chooses its fighter)
     if (seat < 0) {
-      if (pressed('join')) this.join(device); else if (pressed('leave')) Events.emit('lobby', { kind: 'back' });
+      if (pressed('join')) this.join(device); else if (pressed('leave')) Events.emit('lobby', { kind: 'back' }); else if (side) Events.emit('lobby', { kind: 'adjust', dir: side, pad: true });
       return;
     }
     if (pressed('leave')) this.leave(device);
     else if (pressed('start')) Events.emit('lobby', { kind: 'start' });
-    else if (pressed('left') || pressed('right')) Events.emit('lobby', { kind: 'cycle', seat, dir: pressed('left') ? -1 : 1 });
+    else if (side) Events.emit('lobby', { kind: 'cycle', seat, dir: side, pad: true });
+    else if (pressed('ok')) Events.emit('lobby', { kind: 'press' }); // A on a joined gamepad changes the row in focus
   },
   capture(callback) { this.captureCallback = callback; },
 
@@ -13241,7 +13243,7 @@ const UI = {
   },
 
   /* ----- screens ----- */
-  go(name) { Inputs.capture(null); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
+  go(name) { Inputs.capture(null); this.current = name; if (name === 'coop') this.focusMoved = false; Inputs.setLobby(name === 'coop'); this.rerender(false); },
   push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
   hideScreen() { Inputs.capture(null); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
   back() {
@@ -13293,6 +13295,7 @@ const UI = {
     let i = items.indexOf(document.activeElement);
     i = i < 0 ? 0 : (i + dir + items.length) % items.length;
     items[i].focus();
+    this.focusMoved = true; // the join screen's A changes a row only after the focus was moved to it
     Sound.ui('move');
   },
   onKey(e) {
@@ -13332,7 +13335,7 @@ const UI = {
     }
   },
   onClick(e) {
-    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results' || this.current === 'scene' || this.current === 'story' || this.current === 'unlocks' || this.current === 'main')) return; // a double tap: the second one must not answer, nor reach Back or a beat card behind
+    if (performance.now() < this.guardUntil && (this.current === 'pause' || this.current === 'results' || this.current === 'scene' || this.current === 'story' || this.current === 'unlocks' || this.current === 'main' || this.current === 'replace')) return; // a double tap: the second one must not answer, nor reach Back or a beat card behind
     const t = e.target.closest('[data-act]');
     if (t) { this.act(t.getAttribute('data-act'), t); return; }
     if (e.target.closest('input,textarea')) return;           // text fields and sliders handle themselves
@@ -13399,6 +13402,7 @@ const UI = {
       case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, this.rivalId(), false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
       case 'coopStart': this.coopStart(); break;
+      case 'replace': { const ask = this.replaceAsk; this.replaceAsk = null; this.stack = []; if (ask) ask.run(); break; }
       case 'coopcycle': if (Inputs.seats[Number(arg)]) this.coopCycle(Number(arg), 1); break;
       case 'coopdiff': this.changeLocal('diff', 1); break;
       case 'continueTournament': Game.continueTournament(); break;
@@ -13458,8 +13462,11 @@ const UI = {
   confirmFighter() {
     const sel = Game.selection;
     if (!Progress.isUnlocked(sel[this.pickKey()])) { Sound.ui('bad'); this.toast('Locked. ' + unlockRuleText(sel[this.pickKey()]) + ' to unlock this fighter.', 'warn'); return; }
-    if (sel.mode === 'arcade') Game.startFromSelection();
-    else if (sel.mode === 'versus') this.confirmVersusPick();
+    if (sel.mode === 'arcade') {
+      const saved = Game.savedArcadeRun();
+      if (saved) this.askReplace('Replace your saved run: ' + ROSTER_BY_ID[saved.fighter].name + ', stage ' + saved.stage + ' of ' + STORY_STAGES + '?', () => Game.startFromSelection());
+      else Game.startFromSelection();
+    } else if (sel.mode === 'versus') this.confirmVersusPick();
     else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.mode === 'training' && sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
     else if (sel.mode === 'brawl') { Game.lineupFromSelection('brawl'); this.go('lineup'); }
     else if (sel.mode === 'tournament') this.confirmTournamentPick();
@@ -13472,8 +13479,21 @@ const UI = {
     const sel = Game.selection, seats = this.pickSeats.length ? this.pickSeats : [0];
     sel.party[seats[this.pickAt] ?? seats[0]] = sel.player;
     if (this.pickAt + 1 < seats.length) { this.showSeatPick(this.pickAt + 1); return; }
-    this.pickSeats = []; this.syncPadPrev();
-    Game.startTournament(seats.map((seat) => ({ seat, id: sel.party[seat] })));
+    const draw = () => { this.pickSeats = []; this.syncPadPrev(); Game.startTournament(seats.map((seat) => ({ seat, id: sel.party[seat] }))); };
+    const saved = Game.savedTournament(), next = saved && Tournament.next(saved);
+    if (next) this.askReplace('Replace your saved tournament: ' + saved.size + ' fighters, next: ' + Tournament.roundName(saved, next.round) + '?', draw);
+    else draw();
+  },
+  /* A new Arcade run or Tournament would wipe the saved one: ask first (Keep is Back, and the default). */
+  askReplace(text, run) {
+    this.replaceAsk = { text, run };
+    this.guardUntil = performance.now() + SCENE_GUARD_MS;
+    this.push('replace');
+  },
+  screen_replace() {
+    const ask = this.replaceAsk;
+    return '<section class="screen on center" style="background:rgba(0,0,0,.55)" aria-label="Replace the saved game"><div class="panel"><h2>Replace the saved game?</h2><p>' + esc(ask ? ask.text : '') + '</p><nav>' +
+      '<button class="mi" data-nav data-default data-act="back">Keep<small>Go back; the saved game stays</small></button><button class="mi" data-nav data-act="replace">Replace<small>Start the new one; the saved game is lost</small></button></nav></div></section>';
   },
   /* The fighter screen for the entrant at position `at` of pickSeats; its card starts on that seat's last pick. */
   showSeatPick(at) { const sel = Game.selection; this.pickAt = at; this.pickSide = 0; sel.player = sel.party[this.pickSeats[at] ?? 0]; this.showPick(); this.go('char'); },
@@ -13594,7 +13614,7 @@ const UI = {
       '<p class="sub">' + (resume ? resumeText : tournament ? 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.' : 'Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
     h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. ' + (resume ? '' : tournament ? 'After Start each joined player chooses a fighter on the fighter screen. ' : '<b>Fighter</b>: left / right. ') +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. ' + (tournament && !resume ? 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.' : 'Touch controls are not used in co-op.') + '</p>';
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes the CPU level). ' + (tournament && !resume ? 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.' : 'Touch controls are not used in co-op.') + '</p>';
     if (tournament && !resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', ''); // a saved bracket keeps its size and CPU level
     if (!resume) h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>' + (tournament ? 'The level of every CPU fighter' : 'Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)') + '</small></button>';
     const startOff = resume ? seated.length !== need : !seated.length && !tournament;
@@ -13637,13 +13657,23 @@ const UI = {
     if (this.current !== 'coop') return;
     if (e.kind === 'back') { this.back(); return; }
     if (e.kind === 'start') { this.coopStart(); return; }
-    if (e.kind === 'cycle') this.coopCycle(e.seat, e.dir);
-    else {
-      Sound.ui(e.kind === 'join' ? 'ok' : 'back');
-      this.say('Player ' + (e.seat + 1) + (e.kind === 'join' ? ' joined' : ' left'));
-      this.showCoopScene(e.kind === 'join' ? e.seat : undefined);
-      this.rerender(true);
+    if (e.kind === 'focus') { this.moveFocus(e.dir); return; }
+    const row = this.joinRowFocused(), tournament = Game.selection.mode === 'tournament'; // Co-op keeps left / right for the fighter of a joined gamepad, so its CPU level is changed by A, once the gamepad has moved the focus there
+    if (e.kind === 'adjust' || e.kind === 'cycle') { // left / right: a gamepad changes the row in focus (the keys do it in onKey), else a joined device chooses its fighter
+      if (e.pad && row === 'opt') this.adjust(document.activeElement, e.dir); else if (e.pad && row === 'diff' && tournament) this.changeLocal('diff', e.dir); else if (e.kind === 'cycle') this.coopCycle(e.seat, e.dir);
+      return;
     }
+    if (e.kind === 'press') { if (this.focusMoved && row === 'opt') this.adjust(document.activeElement, 1, true); else if (this.focusMoved && row === 'diff') this.changeLocal('diff', 1); return; }
+    Sound.ui(e.kind === 'join' ? 'ok' : 'back');
+    this.say('Player ' + (e.seat + 1) + (e.kind === 'join' ? ' joined' : ' left'));
+    this.showCoopScene(e.kind === 'join' ? e.seat : undefined);
+    this.rerender(true);
+  },
+  /* The row of the join screen the focus is on that left / right and A change: 'opt' (Entrants), 'diff' (the CPU level button) or ''. */
+  joinRowFocused() {
+    const el = document.activeElement;
+    if (!el || !el.classList) return '';
+    return el.classList.contains('opt') ? 'opt' : el.getAttribute('data-act') === 'coopdiff' ? 'diff' : '';
   },
   /* Seat's next (dir 1) or previous (dir -1) fighter of the unlocked roster. */
   coopCycle(seat, dir) {
