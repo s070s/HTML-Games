@@ -4658,6 +4658,11 @@ const J = {};
   'hipLx', 'hipLz', 'knL', 'hipRx', 'hipRz', 'knR', 'rootFwd', 'rootSide', 'rootDrop', 'bodyPitch', 'bodyRoll', 'bodyYaw', 'lie'].forEach((n, i) => { J[n] = i; });
 const NP = 26;
 const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.17;
+/* Ground holds (P18-38): rootHeight() puts the root where the legs of a standing body reach the floor, which is wrong for a body that kneels, sits or lies, so a hold's two fighters are lowered (or raised) until the lowest drawn part touches the floor.
+   plant = how much of that shift is applied (0..1): it eases in and out over a few ticks so a hold starting or ending does not pop. */
+const PLANT_RATE = 20;      // 1/s: how fast plant follows its target
+const PLANT_MIN = 0.002;    // below this plant is 0 and the extra pass is skipped
+let PROBE_LOW = null;       // while a number: part() records the lowest drawn height instead of drawing
 
 function makePose(vals) { const p = new Float32Array(NP); for (const k in vals) p[J[k]] = vals[k]; return p; }
 /* Guard tuned to the references (plates 344 / 336, savate pad work): torso lean ~8 deg, shoulders ~30 deg to the hips, front knee ~155 deg. */
@@ -5037,18 +5042,18 @@ function chamberPose(mv, m) {
 const HOLD_POSES = {
   pin(p, q) { // kneeling low over the victim, both hands clamped on a limb
     p[J.torsoLean] = 0.85 + 0.1 * q; p[J.headX] = 0.3; p[J.torsoTwist] = 0;
-    p[J.hipLx] = 1.0; p[J.hipRx] = 0.75; p[J.hipLz] = 0.2; p[J.hipRz] = 0.2; p[J.knL] = 1.7; p[J.knR] = 1.9;
+    p[J.hipLx] = 1.0; p[J.hipRx] = 0.75; p[J.hipLz] = 0.2; p[J.hipRz] = 0.2; p[J.knL] = 2.5; p[J.knR] = 2.55;
     p[J.shLx] = 0.9 + 0.25 * q; p[J.shRx] = 0.8 + 0.25 * q; p[J.shLz] = -0.1; p[J.shRz] = -0.1; p[J.elL] = 1.2 - 0.35 * q; p[J.elR] = 1.3 - 0.35 * q;
   },
   leg(p, q) {
-    p[J.bodyPitch] = -0.45; p[J.torsoLean] = 0.35 + 0.1 * q; p[J.headX] = 0.2; p[J.torsoTwist] = 0.3 * q;
-    p[J.hipLx] = 1.3; p[J.hipRx] = 1.15; p[J.hipLz] = 0.25; p[J.hipRz] = 0.25; p[J.knL] = 2.2; p[J.knR] = 2.0;
-    p[J.shLx] = 1.15 + 0.2 * q; p[J.shRx] = 1.0 + 0.2 * q; p[J.shLz] = -0.2; p[J.shRz] = -0.2; p[J.elL] = 0.9 - 0.3 * q; p[J.elR] = 1.0 - 0.3 * q;
+    p[J.bodyPitch] = -1.1; p[J.lie] = 1; p[J.torsoLean] = 0.45 + 0.1 * q; p[J.headX] = 0.2; p[J.torsoTwist] = 0.3 * q; // sat back on the floor, leaning on the back; the limbs keep their old directions in the room (the body used to lean back 0.45)
+    p[J.hipLx] = 1.3; p[J.hipRx] = 1.15; p[J.hipLz] = 0.25; p[J.hipRz] = 0.25; p[J.knL] = 1.3; p[J.knR] = 1.1;
+    p[J.shLx] = 0.5 + 0.2 * q; p[J.shRx] = 0.35 + 0.2 * q; p[J.shLz] = -0.2; p[J.shRz] = -0.2; p[J.elL] = 0.9 - 0.3 * q; p[J.elR] = 1.0 - 0.3 * q;
   },
   arm(p, q) {
-    p[J.bodyPitch] = -0.9; p[J.torsoLean] = 0.2; p[J.headX] = 0.3;
-    p[J.hipLx] = 1.5; p[J.hipRx] = 1.3; p[J.hipRz] = -0.3; p[J.knL] = 0.5; p[J.knR] = 0.8;
-    p[J.shLx] = 1.2 + 0.3 * q; p[J.shRx] = 1.2 + 0.2 * q; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.elL] = 0.6; p[J.elR] = 0.6;
+    p[J.bodyPitch] = -1.5; p[J.lie] = 1; p[J.torsoLean] = 0.35; p[J.headX] = 0.4; p[J.torsoTwist] = 0; // flat on the back, head up to watch the arm; the limbs keep their old directions in the room (the body used to lean back 0.9, now 1.5)
+    p[J.hipLx] = 0.9; p[J.hipRx] = 0.7; p[J.hipRz] = -0.3; p[J.knL] = 0.5; p[J.knR] = 0.8;
+    p[J.shLx] = 0.6 + 0.3 * q; p[J.shRx] = 0.6 + 0.2 * q; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.elL] = 0.6; p[J.elR] = 0.6;
   },
   wrist(p, q) {
     p[J.torsoLean] = 0.55; p[J.headX] = 0.25; p[J.torsoTwist] = 0.3 + 0.25 * q;
@@ -5139,11 +5144,18 @@ const FBASE = M4.create();
 const FMS = new MatStack(14);
 let DRAW_NOW = false;
 function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = true) {
-  if (!DRAW_NOW) return;
+  if (!DRAW_NOW) { if (PROBE_LOW !== null) probeLow(mesh, cx, cy, cz, sx, sy, sz); return; }
   FSCRATCH.set(FMS.m);
   M4.translate(FSCRATCH, cx, cy, cz);
   M4.scale(FSCRATCH, sx, sy, sz);
   R.push(LAYER.SOLID, mesh, FSCRATCH, col, 1, em, rough, flash, cast);
+}
+/* The lowest height a part would reach if drawn (the same box, ball or cylinder part() would queue), exact for those shapes: half the part's extent along world up. */
+function probeLow(mesh, cx, cy, cz, sx, sy, sz) {
+  const m = FMS.m, ax = m[1] * sx, ay = m[5] * sy, az = m[9] * sz;
+  const half = mesh === MESH.CUBE ? 0.5 * (Math.abs(ax) + Math.abs(ay) + Math.abs(az)) : mesh === MESH.SPHERE ? 0.5 * Math.hypot(ax, ay, az) : 0.5 * (Math.hypot(ax, az) + Math.abs(ay));
+  const low = m[1] * cx + m[5] * cy + m[9] * cz + m[13] - half;
+  if (low < PROBE_LOW) PROBE_LOW = low;
 }
 const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const AIM_DEADZONE = 0.35;
@@ -5557,7 +5569,7 @@ class Fighter {
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
     this.momentum = 0; this.boostTicks = 0; // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
-    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
+    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plant = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
@@ -5595,7 +5607,7 @@ class Fighter {
   }
   /* The piece generator: draws the pieces of list in frame, for the side (1, -1; 0 in the centre frames) being drawn. */
   pieces(list, frame, side, fl) {
-    if (!DRAW_NOW || !list.length) return;
+    if ((!DRAW_NOW && PROBE_LOW === null) || !list.length) return; // a probe pass counts the pieces too
     const col = this.col, [wx, wz] = frameScale(frame, this.build, this.shape, this.hand);
     for (const p of list) {
       if (p[0] !== frame || (side < 0 && !(p[11] & 1))) continue;
@@ -6211,6 +6223,9 @@ class Fighter {
       if (idx !== this.stepIndex) { this.stepIndex = idx; if (!this.airborne) Events.emit('step', { f: this, run: this.state === S.RUN }); }
     }
     this.computePose(dt);
+    const planted = this.state === S.SUBMIT || (this.state === S.DOWN && !!this.pinnedBy); // the holder and the held fighter
+    this.plant += ((planted ? 1 : 0) - this.plant) * (1 - Math.exp(-PLANT_RATE * dt));
+    this.plant = this.plant < PLANT_MIN ? 0 : this.plant > 1 - PLANT_MIN ? 1 : this.plant;
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
     if (this.state === S.ATTACK && this.move && this.move.type === 'strike' && (this.move.tier >= 2) && Settings.v.effects !== 'low') {
       const t = this.moveTick;
@@ -6589,8 +6604,17 @@ class Fighter {
     }
   }
 
-  /* Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts. */
+  /* The skeleton, standing on the floor under (px, py, pz): a fighter in a hold is first walked once without drawing to find its lowest part, then lowered by that gap, so it lies on the floor whatever its pose and build. */
   skeleton(px, py, pz, yaw, draw) {
+    if (this.plant < PLANT_MIN) { this.walkSkeleton(px, py, pz, yaw, draw); return; }
+    PROBE_LOW = Infinity;
+    this.walkSkeleton(px, py, pz, yaw, false);
+    const gap = PROBE_LOW - py;
+    PROBE_LOW = null;
+    this.walkSkeleton(px, py - gap * this.plant, pz, yaw, draw);
+  }
+  /* Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts. */
+  walkSkeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
     const p = this.pose, col = this.col, sc = this.scale, b = this.build, pts = this.pts, sh = this.shape;
     M4.identity(FBASE);

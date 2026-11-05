@@ -11934,6 +11934,66 @@ const SelfTest = {
       for (const look in seen) if (seen[look] < 8 || sides[look] < 2) bad.push('too few ' + look + ' checks: ' + seen[look] + ' landings, ' + sides[look] + ' side hits');
       return bad.length ? bad.slice(0, 2).join('; ') + (bad.length > 2 ? ' (+' + (bad.length - 2) + ')' : '') : true;
     });
+    /* ---------- Ground submissions (P18-38) ---------- */
+    /* A hold's two fighters must lie, kneel or sit ON the floor: the lowest drawn part of each is within GROUND_REACH above it and never below it (GROUND_SINK is the rounding of the matrices).
+       The drawn parts are read the way the Items tests read them (drawnParts); the fighters stand at height 0 on the flat floor of the free-fight arena. */
+    const GROUND_REACH = 0.03, GROUND_SINK = 0.002;
+    const lowestDrawn = (f) => drawnParts(f).reduce((low, [, , mesh, m]) => {   // a box, ball or cylinder reaches half its extent along up below its centre
+      const half = mesh === CB ? 0.5 * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])) : mesh === SP ? 0.5 * Math.hypot(m[1], m[5], m[9]) : 0.5 * (Math.hypot(m[1], m[9]) + Math.abs(m[5]));
+      return Math.min(low, m[13] - half);
+    }, Infinity);
+    const holdFighters = (style, holderBody, heldBody, faceDown) => {   // temporary fighters of the two bodies; the holder has the style, the held one lies face up or face down
+      const holder = defaultCustom(0), held = defaultCustom(1);
+      holder.moveStyle = style; Object.assign(holder.look, holderBody); Object.assign(held.look, heldBody);
+      ROSTER_BY_ID.gsub_a = Object.assign(customProfile(holder, 0), { id: 'gsub_a' });
+      ROSTER_BY_ID.gsub_v = Object.assign(customProfile(held, 1), { id: 'gsub_v' });
+      const m = holdMatch({ playerId: 'gsub_a', opponentId: 'gsub_v' }, holdAt2);
+      m.fighters[1].lieSign = faceDown ? -1 : 1;
+      return m;
+    };
+    test('Ground submissions (P18-38): in every hold of every style that can hold, on the 8 test body types and with the held fighter face up and face down, the lowest drawn part of the holder and of the held fighter is within 3 cm above the floor and none is below it, over a full squeeze', () => {
+      const bad = [], kinds = new Set();
+      let checks = 0, worstLow = 0, worstHigh = 0;
+      try {
+        itemBodies.forEach((body, i) => {
+          MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0).forEach((style, n) => {
+            const m = holdFighters(style, body, itemBodies[(i + 3) % itemBodies.length], (i + n) % 2 === 1);
+            const a = m.fighters[0], v = m.fighters[1], label = style + ' (' + (a.motion.hold || 'pin') + ') body ' + i + (v.lieSign < 0 ? ' held face down' : ' held face up');
+            kinds.add(a.motion.hold || 'pin');
+            let broken = false;
+            for (let tick = 0; tick < 100 && !broken; tick++) {   // the hold rhythm repeats every 63 ticks; the first 30 let the pose settle
+              m.step();
+              if (tick < 30) continue;
+              if (a.state !== S.SUBMIT || v.pinnedBy !== a) { bad.push(label + ': no hold at tick ' + tick); broken = true; continue; }
+              for (const [who, f] of [['holder', a], ['held', v]]) {
+                const low = lowestDrawn(f);
+                checks++; worstLow = Math.min(worstLow, low); worstHigh = Math.max(worstHigh, low);
+                if (low < -GROUND_SINK || low > GROUND_REACH) { bad.push(label + ': the ' + who + ' is ' + (low * 100).toFixed(1) + ' cm from the floor at tick ' + tick); broken = true; break; }
+              }
+            }
+            m.dispose();
+          });
+        });
+      } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
+      if (kinds.size !== 4) bad.push('only ' + [...kinds].join() + ' holds checked');
+      return bad.length ? bad.length + ' of ' + checks + ' checks: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (worstLow * 100).toFixed(1) + ' cm, highest ' + (worstHigh * 100).toFixed(1) + ' cm)' : true;
+    });
+    test('Ground submissions (P18-38): only the two fighters of a hold are lowered to the floor; they ease into it as the hold starts and out of it when it ends', () => {
+      const bad = [];
+      try {
+        const m = holdFighters('bjj', itemBodies[4], itemBodies[4], false), a = m.fighters[0], v = m.fighters[1];
+        if (a.plant !== 0 || v.plant !== 0) bad.push('lowered before the hold: ' + a.plant + ' ' + v.plant);
+        self.run(m, 40);
+        if (a.state !== S.SUBMIT || a.plant < 0.99 || v.plant < 0.99) bad.push('not lowered in the hold: ' + a.state + ' ' + a.plant.toFixed(2) + ' ' + v.plant.toFixed(2));
+        Combat.endSubmission(a, 'broken');
+        self.run(m, 4);
+        if (a.plant <= 0 || a.plant >= 1) bad.push('no easing out: ' + a.plant);
+        self.run(m, 60);
+        if (a.plant !== 0 || v.plant !== 0) bad.push('still lowered after the hold: ' + a.plant + ' ' + v.plant + ' ' + a.state + ' ' + v.state);
+        m.dispose();
+      } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
+      return bad.length ? bad.join('; ') : true;
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
