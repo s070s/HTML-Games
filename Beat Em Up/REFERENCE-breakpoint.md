@@ -2608,6 +2608,28 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 - Rejected: keeping Versus, Brawl and Co-op Brawl as list rows that open Free Fight preset (it keeps eight rows and the owner asked for one mode); folding the crowd and waves into the lineup engine now (see above); a single flat screen with every row (a phone would scroll 14 rows before Start); one "Rules" screen shared by everything (P18-42 owns the rules); keeping the join screen for Free Fight (the auto deal already does Brawl and Versus); aliasing `chooseMode('versus' | 'brawl' | 'coop')` for the tests (dead code in the game; the tests use the fight type call instead); persisting the setup of every fight type apart (one setup, one label is simpler and what the owner asked for); a watch mode with no person (see edge cases).
 - Decided, with the owner able to change each (none of these blocks P18-19): (1) a watch mode (all CPU) is a later task, slot 1 stays a person. (2) Devices: the join screen is gone from Free Fight; the pads-only deal above settles odd mixes, a "Devices" row can be asked for later. (3) Friendly fire in a lineup applies to people on every team, not only the first (because a team-mate fair-play option should not favour the lead's team); say if only the first team should have it. (4) The best grades of Free Fight, Brawl and Co-op are pooled into one best letter (because a Free Fight is now all of them). (5) The crowd keeps no clock (as the old Co-op); Co-op defaults to 1 person when the last device used was touch, else 2 (because a phone cannot seat a second person). No question is open that stops P18-19 from starting.
 
+### Raised ground (P18-44) (2026-11-05)
+
+- Owner, 2026-11-04 16:16: attacks, grabs and item use miss or cannot be used when fighters go up to a raised part of a level (steps and stairs to upper levels, scaffolding, the ring in the Gym). Decided by the task's delegate under the owner's standing go (rule: keep things balanced; the floor stays exactly as it was).
+- Cause: `Combat.evaluate`, `Combat.tackle` and the CPU's view of its foe (`AIController.observe`) read the foe's and the attacker's HEIGHT ABOVE THE FLOOR (`y`), not above their own footing (`groundY`). On a deck, a stair step or the ring every fighter is at `y` = the footing, so a grab (needs `y` below 0.5 and 0.3), a Low strike (`y` below 0.35), a Mid strike (`y` below 0.9) and a tackle (`y` below 0.3 / 0.5) all failed, and the CPU never grabbed or kept to Low strikes. The same rows let a fighter on the floor hit one on a 2.5 m mezzanine (and the reverse), because nothing compared the two footings.
+- Rule (one function, `Combat.evaluate`; `g` = the foe's footing minus the attacker's, in m; a floor fight has `g` = 0, so nothing on the floor changed):
+
+  | Action | Reaches when |
+  |---|---|
+  | Any strike, a stomp on a downed foe, a weapon swing | `|g|` is at most 1.05 (`STRIKE_LEDGE`: a ring, stage or dock of 1.0 m counts, a tank, catwalk, scaffold tier or mezzanine of 1.5 m and more does not) |
+  | Low strike (and the stomp) | the foe's feet are at most 0.35 above the attacker's footing (`LOW_REACH_UP`, the old limit now measured from the attacker's own footing; a foe a step up is reached, two steps up is not; a foe below always is) |
+  | Mid strike | the foe's feet are at most 0.9 above the attacker's footing (`MID_REACH_UP`; a juggled foe excepted, as before) |
+  | High strike | within the strike ledge only |
+  | Grab (and its throw, the clinch strikes) | `|g|` is at most 0.55 (`GRAB_LEDGE`, two stair steps) and the foe is not more than 0.5 above its own footing (a jump), the attacker not more than 0.3 |
+  | Tackle | the same as a grab |
+  | Ground hold | unchanged: the two fighters within 0.6 of each other (`SUBMIT_LEVEL_GAP`) |
+  | Pick up | unchanged (P17-06): from 0.6 below to 2.2 above the fighter's feet, all measured from its own footing |
+  | Thrown item | unchanged: it flies and lands by the level's solids. The foe at the foot of a 2.5 m mezzanine is covered by its lip, a ring's ropes stop an item; on a stair, a stage, a dock and a scaffold tier on the same level it hits |
+
+- The CPU sees its foe as `opp.y - f.groundY` (`AIController.observe`); `snap.y` keeps its two uses (a Low move is rated 0.1 above 0.4, a grab is considered below 0.3).
+- Effects: a stomp, clinch, throw, escape, hold, tackle, KO, impact, wall slam and fall-damage effect were placed at a fixed height above the FLOOR (0.2 to 1.1 m), so on a deck they were drawn inside it; they now sit on the fighter (`def.y + height`). Event payload only; the simulation does not read it.
+- Not covered: crates, tables and benches a fighter can jump onto (they break under the first strike, which then changes the footing mid-test); hazards (they stand on the floor and cover the floor only, `HAZARD_FLOOR_TOP`); the flight and landing of a THROWN body (other task).
+- Self-tests (section "Raised ground (P18-44)", names start `Raised ground (P18-44):`): 11 tests over 99 runs (every deck, stair, scaffold tier and ring of the 8 levels, read from the built colliders, with both on it, one above and one below, and on two steps of every stair).
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
@@ -2696,3 +2718,20 @@ Method: four read-only auditors, one per area (input / storage / UI; renderer / 
 - Body cause: `MatchSim.separate` skipped every pair with a THROWN body, however low it was. A body that is thrown (or juggled) lands in `afterCollision`, after the separation of that tick, so one that came down on a standing or walking fighter stayed inside it for the whole landing tick (0.22 to 0.24 m apart; the next tick pushed them apart, so it lasted exactly one tick in every case found). In the test seed 5 was a thrown enemy landing on the standing player, seed 9 the thrown player landing on a walking enemy.
 - Body fix (`MatchSim.separate`): a THROWN body counts as flying only while it is above its footing or rising; once it is at its footing and not rising (the same test that lands it in `afterCollision`) it is pushed apart like any body on that tick. The push, the height test (1.25 m) and the clinch, hold and grapple exceptions are unchanged; a body still in flight passes over the others as before.
 - Balance: no combat number changed. The simulation changes only on the landing tick of a throw that lands inside another body.
+
+### P18-44 raised ground (2026-11-05)
+
+- Audit: every raised surface of the 8 levels (19 decks, rings and scaffold tiers and 23 stair slopes) was played with both fighters on it, one on it and one on the floor beside it, and on two steps of each stair slope, for every strike class (Punch, Crouch + Punch, Kick, Crouch + Kick, jump kick, running lunge), every one of the 14 items swung, the grab and its throw, the tackle, the stomp, the ground hold, the pick-up (person and CPU seat), the thrown item and the set-down item, and for a CPU seat (how it sees the foe, its strikes and its grab). On the old code 8 of the 11 tests failed, on the new code none.
+
+| ID | Sev | Surface | Action | Cause | Fix |
+|---|---|---|---|---|---|
+| R01 | High | every deck, scaffold tier, ring, stage and stair step above 0.3 m, every level | Grab, throw, clinch (player and CPU) | `Combat.evaluate` refused a grab when `att.y > 0.3` or `def.y > 0.5`, measured from the floor: a fighter standing on a footing above 0.3 could never grab (65 of the 99 runs wrong) | measured from the fighter's own footing, plus the grab ledge (`breakpoint.html` `Combat.evaluate`) |
+| R02 | High | the same | Mid and Low strikes, crouched or not, a weapon swing (all 14 items), jump kick, lunge | the same rows: Low missed at `def.y > 0.35`, Mid at `def.y > 0.9`, so on a deck of 1.0 m and more a Mid strike missed and a Low strike never landed; on the mezzanines (2.5 m) only High strikes landed (320 wrong results of the strike presses, 66 of the weapon swings) | measured from the attacker's footing (`rise`) |
+| R03 | High | the same | Stomp on a downed foe | no height check at all for a foe lying down, so a fighter on the floor stomped one on a 2.5 m mezzanine and the reverse (96 wrong results with the effect checks) | the Low rule and the strike ledge apply to the stomp |
+| R04 | Medium | the same, one above the other | Any strike across a tall ledge | nothing compared the two footings: a fighter under a mezzanine hit one up on it with a High strike, and the reverse | strike ledge 1.05 m, grab ledge 0.55 m (Appendix C) |
+| R05 | Medium | the same | Heavy tackle | `Combat.tackle` read `att.y > 0.3` and `def.y > 0.5` from the floor (51 runs wrong) | from the footings, plus the grab ledge |
+| R06 | High | every raised surface | CPU: grab, Low strikes | `AIController.observe` stored the foe's height above the floor, so a CPU on a deck saw a foe on the same deck as 2.5 m up: it never planned a grab and rated every Low move 0.1 (82 runs wrong; a forced grab plan held nobody in 19 surfaces) | the foe's height above the CPU's own footing (`AIController.observe`) |
+| R07 | Low | every raised surface | Effects of a stomp, clinch, throw, escape, hold, tackle, KO, impact, wall slam, fall damage | fixed heights above the floor (0.2 to 1.1 m): the flash and dust were drawn inside the deck | `def.y + height` |
+
+- Checked and fine (no failure): picking up an item at the feet of a fighter on any surface (person and CPU seat), the thrown item leaving the hand, the set-down item coming to rest on the surface it fell to, a ground hold within 0.6 m, a grab pulling the foe down a stair (no fall).
+- Left to the owner: nothing to decide. The numbers (1.05 / 0.55 / 0.35 / 0.9) are in Appendix C; the strike ledge could be raised to 1.55 to let a floor fighter reach a foe on a scaffold tier.

@@ -6815,6 +6815,9 @@ const IMPACT_SRC_BASE = -1000000;
 const KNOCK_DAMP = GROUND_DAMP;
 
 const THROW_VEC = [0, 0]; // scratch for Combat.throwVector (no per-frame allocation)
+/* Raised ground (P18-44): every height a hit needs is measured from the attacker's own footing (groundY), never from the floor, so a fight on a deck, stair, scaffold tier or ring plays as on the floor. g = the foe's footing minus the attacker's (m). */
+const LOW_REACH_UP = 0.35, MID_REACH_UP = 0.9; // a Low strike (and a stomp) reaches a foe whose feet are at most this far above the attacker's footing, a Mid strike this far (a jumping foe included)
+const STRIKE_LEDGE = 1.05, GRAB_LEDGE = 0.55;  // a strike reaches a foe whose footing is within STRIKE_LEDGE above or below (a ring or stage apron, not a mezzanine); a grab, a throw and a tackle need |g| within GRAB_LEDGE (two stair steps)
 const Combat = {
   attackCounter: 0,
   flightCounter: 0,
@@ -6864,16 +6867,17 @@ const Combat = {
     if (fwd < -0.05 || fwd > reach) return null;
     if (lat > mv.width + def.radius * 0.6) return null;
     const st = def.state;
+    const g = def.groundY - att.groundY, rise = def.y - att.groundY; // rise: the foe's feet above the attacker's footing (a jump adds to it)
     if (mv.type === 'grab') {
-      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.y > 0.5 || att.y > 0.3) return null; // nobody grabs a holder or the held fighter (DOWN)
+      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.y - def.groundY > 0.5 || att.y - att.groundY > 0.3 || Math.abs(g) > GRAB_LEDGE) return null; // nobody grabs a holder or the held fighter (DOWN)
       return { type: 'grab', att, def, mv };
     }
-    if (!this.strikable(att, def)) return null; // wake-up grace, a clinch or a knockdown flight: strikes only (grabs were handled above)
-    if (st === S.DOWN) return mv.h === 'L' && def.groundHits < 1 ? { type: 'ground', att, def, mv } : null;
+    if (!this.strikable(att, def) || Math.abs(g) > STRIKE_LEDGE) return null; // wake-up grace, a clinch or a knockdown flight: strikes only (grabs were handled above); nothing reaches across a mezzanine's edge
+    if (st === S.DOWN) return mv.h === 'L' && def.groundHits < 1 && rise <= LOW_REACH_UP ? { type: 'ground', att, def, mv } : null;
     const crouched = st === S.CROUCH || st === S.BLOCK_L;
     if (mv.h === 'H' && crouched) return null;
-    if (mv.h === 'L' && def.y > 0.35) return null;
-    if (mv.h === 'M' && def.y > 0.9 && !def.juggle) return null;
+    if (mv.h === 'L' && rise > LOW_REACH_UP) return null;
+    if (mv.h === 'M' && rise > MID_REACH_UP && !def.juggle) return null;
     // Sway i-frames: strikes that would have hit miss (grabs were handled above and still connect)
     if (st === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) return { type: 'sway', att, def, mv, perfect: def.stateTicks >= SWAY_IFRAME_TICKS - SWAY_PERFECT_TICKS };
     let block = 'none';
@@ -7068,7 +7072,7 @@ const Combat = {
     def.flash = 1;
     att.moveConnected = true;
     const pos = this.hitPoint(att, def, mv);
-    pos.y = 0.3;
+    pos.y = def.y + 0.3; // the effect is drawn at the downed fighter, not at the floor level (P18-44)
     match.hitStop = Math.max(match.hitStop, 4);
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'ground', combo: 1, ko: def.state === S.KO });
@@ -7163,7 +7167,7 @@ const Combat = {
     def.yaw = grip === 'rear' ? att.yaw : wrapAngle(att.yaw + Math.PI); // a rear hold keeps the defender facing away
     def.blockStun = 0;
     match.hitStop = Math.max(match.hitStop, 4);
-    Events.emit('clinch', { att, def, grip, x: def.x, y: 1.1, z: def.z });
+    Events.emit('clinch', { att, def, grip, x: def.x, y: def.y + 1.1, z: def.z });
   },
   /* Rear grip when the defender's back is turned, low grip when either fighter is crouched, otherwise front. */
   gripFor(att, def) {
@@ -7243,7 +7247,7 @@ const Combat = {
     att.lock = t.recovery;
     att.throwFollow = { anim: t.anim, side: p.side, recovery: t.recovery };
     match.hitStop = Math.max(match.hitStop, 7);
-    Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, name: t.name, x: def.x, y: 1.0, z: def.z });
+    Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, name: t.name, x: def.x, y: def.y + 1.0, z: def.z });
   },
   escapeClinch(def, att, match) {
     att.throwPending = null;
@@ -7253,7 +7257,7 @@ const Combat = {
     def.partner = null; att.partner = null;
     def.setState(S.HIT); att.setState(S.HIT);
     def.kx = dx / l * 4; def.kz = dz / l * 4; att.kx = -dx / l * 4; att.kz = -dz / l * 4;
-    Events.emit('escape', { def, att, x: (def.x + att.x) / 2, y: 1.1, z: (def.z + att.z) / 2 });
+    Events.emit('escape', { def, att, x: (def.x + att.x) / 2, y: def.y + 1.1, z: (def.z + att.z) / 2 });
   },
   releaseClinch(att, def) {
     const dx = def.x - att.x, dz = def.z - att.z, l = Math.hypot(dx, dz) || 1;
@@ -7278,7 +7282,7 @@ const Combat = {
     att.x = def.x + dx / l * SUBMIT_GAP; att.z = def.z + dz / l * SUBMIT_GAP;
     att.yaw = Math.atan2(-dx, -dz);
     att.vx = att.vz = att.kx = att.kz = def.vx = def.vz = def.kx = def.kz = 0;
-    Events.emit('submission', { att, def, x: def.x, y: 0.6, z: def.z });
+    Events.emit('submission', { att, def, x: def.x, y: def.y + 0.6, z: def.z });
     return true;
   },
   /* Unlinks a hold and tells everybody. The holder's state is not touched here (setState and endSubmission do that). */
@@ -7298,7 +7302,7 @@ const Combat = {
   },
   escapeSubmission(def, att) {
     const dx = att.x - def.x, dz = att.z - def.z, l = Math.hypot(dx, dz) || 1;
-    Events.emit('submissionEscape', { att, def, x: (def.x + att.x) / 2, y: 0.6, z: (def.z + att.z) / 2 });
+    Events.emit('submissionEscape', { att, def, x: (def.x + att.x) / 2, y: def.y + 0.6, z: (def.z + att.z) / 2 });
     this.dropSubmission(att, 'escape');
     def.quickRise = true;
     def.setState(S.GETUP);
@@ -7319,26 +7323,26 @@ const Combat = {
 
   /* ----- heavy tackle: called for each ordered pair after movement, before the bodies are pushed apart ----- */
   tackle(att, def, match) {
-    if (att.state !== S.RUN || att.tackleUsed || !match.live || att.weight - def.weight < TACKLE_MIN_GAP || att.y > 0.3) return;
+    if (att.state !== S.RUN || att.tackleUsed || !match.live || att.weight - def.weight < TACKLE_MIN_GAP || att.y - att.groundY > 0.3 || Math.abs(def.groundY - att.groundY) > GRAB_LEDGE) return;
     const dx = def.x - att.x, dz = def.z - att.z, dist = Math.hypot(dx, dz);
     if (dist > att.radius + def.radius + TACKLE_REACH || att.vx * dx + att.vz * dz <= 0) return; // body contact, moving into the target
     att.tackleUsed = true; // the first contact of a run decides it, whatever the answer: running into a downed or rising body uses it up too
-    if (TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state) || def.invuln > 0 || def.y > 0.5) return;
+    if (TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state) || def.invuln > 0 || def.y - def.groundY > 0.5) return;
     const x = (att.x + def.x) / 2, z = (att.z + def.z) / 2, nx = dx / (dist || 1), nz = dz / (dist || 1);
     if (def.state === S.SIDESTEP || (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS)) { // the tackler runs past
-      Events.emit('tackle', { att, def, result: 'dodged', x, y: 1.1, z });
+      Events.emit('tackle', { att, def, result: 'dodged', x, y: def.y + 1.1, z });
       return;
     }
     if (isBlockState(def.state) && def.fwdX * -dx + def.fwdZ * -dz > 0) { // a guard facing the charge stops it: no damage
       def.kx = nx * TACKLE_BLOCK_PUSH; def.kz = nz * TACKLE_BLOCK_PUSH; def.blockStun = TACKLE_BLOCK_STUN; def.flash = 0.5;
       att.setState(S.IDLE); att.vx = att.vz = 0; att.kx = -nx * TACKLE_STOP_KNOCK; att.kz = -nz * TACKLE_STOP_KNOCK; att.lock = Math.max(att.lock, TACKLE_STOP_LOCK); att.exhaust = Math.max(att.exhaust, TACKLE_STOP_LOCK); // exhaust: no new run (or sidestep) until the stop is over
       match.hitStop = Math.max(match.hitStop, 4);
-      Events.emit('tackle', { att, def, result: 'blocked', x, y: 1.1, z });
+      Events.emit('tackle', { att, def, result: 'blocked', x, y: def.y + 1.1, z });
       return;
     }
     att.exhaustedMove = false; // damageMult reads the last attack's flag
     this.landHit({ type: 'strike', att, def, mv: TACKLE_MOVE, block: 'none' }, match);
-    Events.emit('tackle', { att, def, result: 'hit', x, y: 1.1, z });
+    Events.emit('tackle', { att, def, result: 'hit', x, y: def.y + 1.1, z });
   },
 
   knockOut(def, att, mv, match) {
@@ -7356,7 +7360,7 @@ const Combat = {
     def.y = Math.max(def.y, def.groundY) + 0.02;
     def.buffer = null; def.bufferNext = null; def.move = null;
     match.hitStop = Math.max(match.hitStop, 16);
-    Events.emit('ko', { def, att, x: def.x, y: 1.1, z: def.z });
+    Events.emit('ko', { def, att, x: def.x, y: def.y + 1.1, z: def.z });
   },
 
   /* Thrown / knocked fighters hitting scenery or walls. */
@@ -7371,7 +7375,7 @@ const Combat = {
       match.hazardKnocked(f.hazardTouch, f);
       this.envDamage(f, 2 + speed * 0.35, match);
       f.kx *= -0.25; f.kz *= -0.25;
-      Events.emit('envImpact', { f, obj: null, speed, broke: false, x: f.x, y: 1.0, z: f.z });
+      Events.emit('envImpact', { f, obj: null, speed, broke: false, x: f.x, y: f.y + 1.0, z: f.z });
     } else if (f.obstacleHit) {
       const obj = f.obstacleHit;
       const nx = f.kx / speed, nz = f.kz / speed;
@@ -7381,14 +7385,14 @@ const Combat = {
       const dmg = broke ? 1.5 : 2 + speed * 0.35;
       this.envDamage(f, dmg, match);
       f.kx *= broke ? 0.7 : -0.25; f.kz *= broke ? 0.7 : -0.25;
-      Events.emit('envImpact', { f, obj, speed, broke, x: f.x, y: 1.0, z: f.z });
+      Events.emit('envImpact', { f, obj, speed, broke, x: f.x, y: f.y + 1.0, z: f.z });
     } else if (f.wallHit) {
       f.lastImpactTick = match.tick;
       const b = Arena.def.bounds;
       if (Math.abs(f.x) >= b.x - f.radius - 0.02) f.kx *= -0.2;
       if (Math.abs(f.z) >= b.z - f.radius - 0.02) f.kz *= -0.2;
       this.envDamage(f, 3 + speed * 0.3, match);
-      Events.emit('wallSlam', { f, speed, x: f.x, y: 1.0, z: f.z });
+      Events.emit('wallSlam', { f, speed, x: f.x, y: f.y + 1.0, z: f.z });
     }
   },
   envDamage(f, dmg, match) {
@@ -7406,7 +7410,7 @@ const Combat = {
     const dmg = this.fallDamageFor(drop);
     if (dmg <= 0 || f.state === S.KO || !match.live) return; // a knocked-out body bouncing, or a finished round, takes nothing and reports nothing
     this.envDamage(f, dmg, match);
-    Events.emit('fallDamage', { f, drop, dmg, x: f.x, y: 0.2, z: f.z });
+    Events.emit('fallDamage', { f, drop, dmg, x: f.x, y: f.y + 0.2, z: f.z });
   },
   /* Called after the fighter was moved and landed: a fighter whose footing is gone and who will drop past FALL_STATE_DROP ends any clinch or hold it is in and, from a grounded-only state, switches to FALL. */
   fallCheck(f, match) {
@@ -8717,7 +8721,7 @@ class AIController {
     const s = this.hist[this.head];
     const mv = opp.move;
     s.dist = Math.hypot(opp.x - f.x, opp.z - f.z);
-    s.state = opp.state; s.moveId = opp.moveId; s.y = opp.y;
+    s.state = opp.state; s.moveId = opp.moveId; s.y = opp.y - f.groundY; // the foe's feet above the CPU's own footing
     s.mvType = mv ? mv.type : ''; s.mvH = mv ? mv.h : ''; s.mvReach = mv ? mv.reach * opp.stats.reach : 0; s.mvWidth = mv ? mv.width : 0;
     s.moveTick = opp.moveTick; s.startup = opp.mStartup; s.active = opp.mActive; s.total = opp.mStartup + opp.mActive + opp.mRecovery + opp.whiffExtra;
     s.hp = opp.hp / opp.maxHp; s.stam = opp.stam / opp.maxStam;
