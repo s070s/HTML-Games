@@ -4221,14 +4221,14 @@ function canTransition(from, to) {
 /* ---------- attributes -> gameplay (attribute scale 1..10, 5 = baseline 1.0) ----------
    Slopes tuned so +2 in any one attribute (7 vs 5, hard CPU mirrors of KAI, MARA and DMITRI, 432 matches each) wins 61-69%; reach, balance's heavy-hit impact and recovery's stamina regen were flattened (they won .69, .74, .74). */
 const ATTR_KEYS = ['health', 'stamina', 'strength', 'speed', 'reach', 'defense', 'balance', 'recovery'];
-/* Stamina (P18-33). The people's side of a match at the CPU levels (not Versus, Training, a lineup or an even-damage run: the rule of the CPU damage level) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack (ATTACK_NO_REGEN)
+/* Stamina (P18-33). The people's side of a match at the CPU levels (not Versus, Training or an even-damage run, and not people alone: the rule of the CPU damage level; a lineup gives it to its people only) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack (ATTACK_NO_REGEN)
    or a blocked hit (GUARD_NO_REGEN); attackShare = the share of the rate while still attacking; perfectBlock and perfectSway = the stamina a perfect block and a perfect sway give back. Hard, Expert and every CPU fighter keep the plain rules (STAMINA_EDGE_NONE).
    Move costs are in ATTACKS; SWAY_COST, SIDESTEP_COST, JUMP_COST and RUN_DRAIN are with the other movement. */
 const ATTACK_NO_REGEN = 36, GUARD_NO_REGEN = 50;
 const STAMINA_EDGE_NONE = { regen: 1, delay: 1, attackShare: 0, perfectBlock: 6, perfectSway: 0 };
 const PLAYER_STAMINA_EDGE = {
   easy: { regen: 1.6, delay: 0.5, attackShare: 0.35, perfectBlock: 8, perfectSway: 5 },
-  normal: { regen: 1.2, delay: 0.55, attackShare: 0.3, perfectBlock: 8, perfectSway: 4 },
+  normal: { regen: 1.2, delay: 0.65, attackShare: 0.2, perfectBlock: 7, perfectSway: 3 },
   hard: STAMINA_EDGE_NONE,
   expert: STAMINA_EDGE_NONE,
 };
@@ -9577,7 +9577,7 @@ class MatchSim {
       this.cfg.seats.slice(0, 2).forEach((seat, k) => { if (Number.isInteger(seat) && seat >= 0 && seat < COOP_MAX_PLAYERS && this.controllers[k]) this.controllers[k] = HUMAN_CONTROLLERS[seat]; });
     }
     if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg; // the enemies hit harder or softer by difficulty
-    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.partySize; k++) { const edge = PLAYER_STAMINA_EDGE[this.cfg.difficulty] || STAMINA_EDGE_NONE, stats = this.fighters[k].stats; stats.edge = edge; stats.regen *= edge.regen; } // the people's side recovers sooner on the easy levels (P18-33)
+    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.partySize; k++) this.giveStaminaEdge(this.fighters[k]); // the people's side recovers sooner on the easy levels (P18-33); a lineup does it in buildLineup
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false); // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
@@ -9641,6 +9641,8 @@ class MatchSim {
 
   /* ----- lineups ----- */
   /* The fighters of a lineup, in the order MatchLineup.plan gave them. */
+  /* The edge of the difficulty (PLAYER_STAMINA_EDGE) for one person's fighter. */
+  giveStaminaEdge(fighter) { const edge = PLAYER_STAMINA_EDGE[this.cfg.difficulty] || STAMINA_EDGE_NONE; fighter.stats.edge = edge; fighter.stats.regen *= edge.regen; }
   buildLineup() {
     const slots = this.setup, level = DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal;
     this.fighters = []; this.controllers = [];
@@ -9651,6 +9653,7 @@ class MatchSim {
       fighter.stats.maxHp = Math.round(fighter.stats.maxHp * slot.hp); fighter.maxHp = fighter.stats.maxHp; fighter.hp = fighter.maxHp;
       fighter.stats.damage *= slot.dmg;
       if (!person && !this.cfg.evenDamage) fighter.stats.damage *= level.dmg;
+      if (person && !this.cfg.evenDamage && slots.some((other) => other.human < 0)) this.giveStaminaEdge(fighter); // only a person, never a CPU team-mate, and only where a CPU fights (the CPU damage level's rule: not people alone)
       this.fighters.push(fighter);
       this.controllers.push(person ? HUMAN_CONTROLLERS[clamp(Math.floor(slot.human) || 0, 0, LINEUP_HUMANS_MAX - 1)] : new AIController(profile, this.cfg.difficulty));
     });

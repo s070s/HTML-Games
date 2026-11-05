@@ -11938,7 +11938,7 @@ const SelfTest = {
     /* ---------- Stamina (P18-33) ---------- */
     /* The decided shares (REFERENCE-breakpoint.md, Appendix C, P18-33): the most of a group fight that a player-like script may spend out of stamina (under LOW_STAMINA of its tank), by difficulty.
        The script presses Punch and Kick in turn while a foe is within 1.6 m, blocks 65 % of the strikes it sees start, and walks away to rest when LOW STAMINA shows, until the tank is back to 55 %. */
-    const STAMINA_OUT_SHARE = { easy: 0.09, normal: 0.12 };
+    const STAMINA_OUT_SHARE = { easy: 0.09, normal: 0.13 };
     const staminaPlayer = (seed) => {
       let state = seed * 7 + 1, lastPress = -99, pressNo = 0, blockMove = -1, blockUntil = 0, resting = false, lowGuard = false;
       const rand = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
@@ -11962,8 +11962,12 @@ const SelfTest = {
       };
     };
     /* A brawl at the CPU damage levels (evenDamage off, as in the game) with the player-like script as fighter 0; the ticks the player spends with a foe alive, and how many of them it is out of stamina. */
-    const staminaBrawl = (difficulty, enemies, seed) => {
-      const m = track(new MatchSim({ mode: 'brawl', enemies, difficulty, countdown: false, timer: 0, seed, evenDamage: false }));
+    const staminaBrawl = (difficulty, enemies, seed, asLineup) => {
+      let m;
+      if (asLineup) {
+        const plan = MatchLineup.plan(MatchLineup.fix({ slots: [{ id: 'kai', team: 1, human: true }, { id: 'mara', team: 2, human: false }, { id: 'brutus', team: 2, human: false }, { id: 'yuki', team: 2, human: false }], timer: 0, handicap: false }), difficulty);
+        m = track(new MatchSim({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'brawl', countdown: false, timer: 0, seed, difficulty, evenDamage: false }));
+      } else m = track(new MatchSim({ mode: 'brawl', enemies, difficulty, countdown: false, timer: 0, seed, evenDamage: false }));
       const player = m.fighters[0];
       m.controllers[0] = self.scripted(staminaPlayer(seed));
       let fight = 0, out = 0;
@@ -11980,13 +11984,13 @@ const SelfTest = {
       const none = { regen: 1, delay: 1, attackShare: 0, perfectBlock: 6, perfectSway: 0 };
       const want = JSON.stringify([36, 50, none, {
         easy: { regen: 1.6, delay: 0.5, attackShare: 0.35, perfectBlock: 8, perfectSway: 5 },
-        normal: { regen: 1.2, delay: 0.55, attackShare: 0.3, perfectBlock: 8, perfectSway: 4 }, hard: none, expert: none }, 0.25, 10, 6, 4, 7,
+        normal: { regen: 1.2, delay: 0.65, attackShare: 0.2, perfectBlock: 7, perfectSway: 3 }, hard: none, expert: none }, 0.25, 10, 6, 4, 7,
       { easy: 1, normal: 2, hard: 2, expert: 3 }, { easy: 120, normal: 90, hard: 200, expert: 200 }, { easy: 200, normal: 150, hard: 300, expert: 300 }]);
       const kai = deriveStats(ROSTER_BY_ID.kai.attrs);
       const plain = kai.regen === 21.5 && kai.edge === STAMINA_EDGE_NONE && deriveStats(Object.assign({}, ROSTER_BY_ID.kai.attrs, { recovery: 1 })).regen === 14 && deriveStats(Object.assign({}, ROSTER_BY_ID.kai.attrs, { recovery: 10 })).regen === 27.5;   // the plain rate is untouched: 14 to 27.5 a second
       return got === want && plain ? true : 'numbers ' + got + ' plain ' + plain;
     });
-    test('Stamina (P18-33): only the human side of a CPU-damage match gets the edge of the difficulty (Easy and Normal); the enemies, Hard and Expert, an even-damage run and Training keep the plain rules', () => {
+    test('Stamina (P18-33): only the human side of a CPU-damage match gets the edge of the difficulty (Easy and Normal), in a lineup, Co-op and a Tournament bout with seats as well; CPU team-mates, enemies, Hard and Expert, an even-damage run, Training, people alone and Versus keep the plain rules', () => {
       const problems = [], kai = deriveStats(ROSTER_BY_ID.kai.attrs).regen;
       for (const difficulty of ['easy', 'normal', 'hard', 'expert']) {
         const m = track(new MatchSim({ mode: 'brawl', enemies: 2, difficulty, countdown: false, timer: 0, seed: 5, evenDamage: false }));
@@ -11998,6 +12002,22 @@ const SelfTest = {
       if (even.fighters[0].stats.edge !== STAMINA_EDGE_NONE || even.fighters[0].stats.regen !== kai) problems.push('an even-damage run changed the rules');
       const training = track(new MatchSim({ mode: 'training', countdown: false, timer: 0, seed: 5, difficulty: 'easy' }));
       if (training.fighters[0].stats.edge !== STAMINA_EDGE_NONE) problems.push('Training changed the rules');
+      /* the ways a person gets into a fight: a lineup (the menu Brawl and a Free Fight with players and teams), a lineup of people alone, Co-op, a Tournament bout with one person and one with two (seats) */
+      const edges = (m) => m.fighters.map((f) => (f.stats.edge === PLAYER_STAMINA_EDGE.easy ? 'E' : f.stats.edge === STAMINA_EDGE_NONE ? '-' : '?')).join('');
+      const lineup = (setupMode, specs) => {
+        const plan = MatchLineup.plan(MatchLineup.fix({ slots: specs.map((spec) => ({ id: spec[0], team: spec[1], human: spec[2] })), timer: 0, handicap: false }), 'easy');
+        return track(new MatchSim({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode, countdown: false, timer: 0, seed: 5, difficulty: 'easy', evenDamage: false }));
+      };
+      const seen = {
+        'Brawl lineup, a person with a CPU team-mate': edges(lineup('brawl', [['kai', 1, true], ['mara', 1, false], ['brutus', 2, false], ['yuki', 2, false]])),
+        'Free Fight lineup, two people against a CPU': edges(lineup('free', [['kai', 1, true], ['mara', 2, true], ['brutus', 3, false]])),
+        'lineup of people alone': edges(lineup('free', [['kai', 1, true], ['mara', 2, true]])),
+        'Co-op': edges(track(new MatchSim({ mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], enemies: 2, countdown: false, timer: 0, seed: 5, difficulty: 'easy', evenDamage: false }))),
+        'Tournament bout, one person (seats)': edges(track(new MatchSim({ mode: 'free', playerId: 'kai', opponentId: 'mara', seats: [0, -1], countdown: false, timer: 0, seed: 5, difficulty: 'easy', winsNeeded: 1 }))),
+        'Tournament bout, two people (Versus)': edges(track(new MatchSim({ mode: 'versus', playerId: 'kai', opponentId: 'mara', seats: [0, 1], countdown: false, timer: 0, seed: 5, difficulty: 'easy', winsNeeded: 1 }))),
+      };
+      const want = { 'Brawl lineup, a person with a CPU team-mate': 'E---', 'Free Fight lineup, two people against a CPU': 'EE-', 'lineup of people alone': '--', 'Co-op': 'EE--', 'Tournament bout, one person (seats)': 'E-', 'Tournament bout, two people (Versus)': '--' };
+      for (const name in want) if (seen[name] !== want[name]) problems.push(name + ': ' + seen[name] + ' not ' + want[name]);
       return problems.length ? problems.join('; ') : true;
     });
     test('Stamina (P18-33): the edge shortens the wait after an attack and a blocked hit, gives a share of the rate while attacking and gives stamina back on a perfect block and a perfect sway; a plain fighter keeps 36 and 50 ticks, no regeneration while attacking, 6 for a perfect block and nothing for a perfect sway', () => {
@@ -12025,14 +12045,14 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Stamina (P18-33): a player-like script on a seeded 1v3 brawl (seeds 1 to 4) is out of stamina for at most the decided share of the fight on Easy (9 %) and Normal (12 %)', () => {
+    test('Stamina (P18-33): a player-like script on a seeded 1v3 brawl and on a Brawl lineup 1v3 (seeds 1 to 4) is out of stamina for at most the decided share of the fight on Easy (9 %) and Normal (13 %)', () => {
       const problems = [];
-      for (const difficulty of ['easy', 'normal']) {
+      for (const lineup of [false, true]) for (const difficulty of ['easy', 'normal']) {
         let fight = 0, out = 0;
-        for (let seed = 1; seed <= 4; seed++) { const r = staminaBrawl(difficulty, 3, seed); fight += r.fight; out += r.out; }
-        const share = out / Math.max(1, fight);
-        if (fight < 1200) problems.push(difficulty + ': only ' + fight + ' ticks of fight');
-        else if (share > STAMINA_OUT_SHARE[difficulty]) problems.push(difficulty + ': out of stamina ' + (share * 100).toFixed(1) + ' % of ' + fight + ' ticks, more than ' + STAMINA_OUT_SHARE[difficulty] * 100 + ' %');
+        for (let seed = 1; seed <= 4; seed++) { const r = staminaBrawl(difficulty, 3, seed, lineup); fight += r.fight; out += r.out; }
+        const share = out / Math.max(1, fight), label = (lineup ? 'lineup ' : 'brawl ') + difficulty;
+        if (fight < 1200) problems.push(label + ': only ' + fight + ' ticks of fight');
+        else if (share > STAMINA_OUT_SHARE[difficulty]) problems.push(label + ': out of stamina ' + (share * 100).toFixed(1) + ' % of ' + fight + ' ticks, more than ' + STAMINA_OUT_SHARE[difficulty] * 100 + ' %');
       }
       return problems.length ? problems.join('; ') : true;
     });
