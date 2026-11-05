@@ -11951,46 +11951,81 @@ const SelfTest = {
       m.fighters[1].lieSign = faceDown ? -1 : 1;
       return m;
     };
-    test('Ground submissions (P18-38): in every hold of every style that can hold, on the 8 test body types and with the held fighter face up and face down, the lowest drawn part of the holder and of the held fighter is within 3 cm above the floor and none is below it, over a full squeeze', () => {
-      const bad = [], kinds = new Set();
-      let checks = 0, worstLow = 0, worstHigh = 0;
-      try {
-        itemBodies.forEach((body, i) => {
-          MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0).forEach((style, n) => {
-            const m = holdFighters(style, body, itemBodies[(i + 3) % itemBodies.length], (i + n) % 2 === 1);
-            const a = m.fighters[0], v = m.fighters[1], label = style + ' (' + (a.motion.hold || 'pin') + ') body ' + i + (v.lieSign < 0 ? ' held face down' : ' held face up');
-            kinds.add(a.motion.hold || 'pin');
-            let broken = false;
-            for (let tick = 0; tick < 100 && !broken; tick++) {   // the hold rhythm repeats every 63 ticks; the first 30 let the pose settle
-              m.step();
-              if (tick < 30) continue;
-              if (a.state !== S.SUBMIT || v.pinnedBy !== a) { bad.push(label + ': no hold at tick ' + tick); broken = true; continue; }
-              for (const [who, f] of [['holder', a], ['held', v]]) {
-                const low = lowestDrawn(f);
-                checks++; worstLow = Math.min(worstLow, low); worstHigh = Math.max(worstHigh, low);
-                if (low < -GROUND_SINK || low > GROUND_REACH) { bad.push(label + ': the ' + who + ' is ' + (low * 100).toFixed(1) + ' cm from the floor at tick ' + tick); broken = true; break; }
-              }
-            }
-            m.dispose();
-          });
+    const GROUND_JUMP = 0.03;          // the most the lowest drawn part may move in one tick, and the most it may lie under the standing stance
+    const GROUND_SETTLE_TICKS = 25;    // after this many ticks in a lying pose the lowest part is on the floor (it comes down at 2.5 cm a tick from the stance)
+    const STANCE_TICKS = 30;           // both fighters stand this long before the hold: their stance is the baseline
+    /* One hold, the way it is played: both fighters stand, the foe is knocked down, the holder presses Grapple 2 ticks later, the hold runs for holdTicks, then the holder lets go and both get up. The lowest drawn part of each
+       fighter is recorded on every tick until both stand again. The get-up is checked like the rest (it sank 28 cm into the floor on the old code). */
+    const holdSequence = (style, holderBody, heldBody, faceDown, item, holdTicks) => {
+      const holder = defaultCustom(0), held = defaultCustom(1);
+      holder.moveStyle = style; Object.assign(holder.look, holderBody); Object.assign(held.look, heldBody);
+      ROSTER_BY_ID.gsub_a = Object.assign(customProfile(holder, 0), { id: 'gsub_a' });
+      ROSTER_BY_ID.gsub_v = Object.assign(customProfile(held, 1), { id: 'gsub_v' });
+      let press = -1;
+      const m = mk({ playerId: 'gsub_a', opponentId: 'gsub_v' }, (it, f, o, mm) => { if (mm.tick === press) it.grapple = true; });
+      self.place(m, 1.0);
+      const a = m.fighters[0], v = m.fighters[1], trace = { a: [], v: [], held: false, hold: (a.motion.hold || 'pin'), m };
+      if (item) a.item = { id: item, dur: 9, sprays: 0 };
+      const record = () => { trace.a.push({ state: a.state, low: lowestDrawn(a) }); trace.v.push({ state: v.state, low: lowestDrawn(v) }); };
+      for (let tick = 0; tick < STANCE_TICKS; tick++) { m.step(); record(); }
+      trace.stanceOn = a.plantOn || v.plantOn;
+      v.setState(S.HIT); v.setState(S.DOWN); v.lieSign = faceDown ? -1 : 1;
+      press = m.tick + 2;
+      for (let tick = 0; tick < holdTicks; tick++) { m.step(); record(); }
+      trace.held = a.state === S.SUBMIT && v.pinnedBy === a;
+      Combat.endSubmission(a, 'broken');
+      for (let tick = 0, calm = 0; tick < 300 && calm < 30; tick++) {   // until both have stood for 30 ticks
+        m.step(); record();
+        calm = a.state === S.IDLE && v.state === S.IDLE ? calm + 1 : 0;
+      }
+      return trace;
+    };
+    const traceProblems = (trace, label, stats) => {   // the checks of one hold; stats collects the worst numbers
+      const bad = [];
+      for (const [who, rows] of [['holder', trace.a], ['held', trace.v]]) {
+        const standing = Math.min(...rows.slice(5, STANCE_TICKS).map((row) => row.low));   // the deepest the standing stance draws the toes into the floor; that stays as it is
+        let previous = null, lying = 0;
+        rows.forEach((row, tick) => {
+          if (tick < 5) return;
+          const down = row.state === S.SUBMIT || row.state === S.DOWN || row.state === S.KO || row.state === S.GETUP;
+          lying = down ? lying + 1 : 0;
+          const limit = tick >= STANCE_TICKS && down ? Math.min(-GROUND_SINK, standing) - GROUND_SINK : standing - GROUND_JUMP;   // lying: on the floor, or still at the stance it came from; otherwise no deeper than 3 cm under the stance
+          const jump = previous === null ? 0 : Math.abs(row.low - previous);
+          if (tick >= STANCE_TICKS) { stats.low = Math.min(stats.low, down ? row.low : 0); stats.jump = Math.max(stats.jump, jump); }
+          if (row.low < limit) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): ' + (row.low * 100).toFixed(1) + ' cm');
+          else if (lying > GROUND_SETTLE_TICKS && row.low > GROUND_REACH) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): ' + (row.low * 100).toFixed(1) + ' cm above the floor');
+          else if (jump > GROUND_JUMP) bad.push(label + ' ' + who + ' tick ' + tick + ' (' + row.state + '): jumps ' + (jump * 100).toFixed(1) + ' cm');
+          previous = row.low;
         });
+      }
+      return bad;
+    };
+    test('Ground submissions (P18-38): in every hold of every style that can hold, on the 8 test body types, face up and face down, with and without an item in the holder\'s hand, on every tick from the knock-down until both stand again no drawn part is deeper than the standing stance or more than 3 cm above the floor while lying, none is below the floor while lying, and the lowest part never moves more than 3 cm in a tick', () => {
+      const bad = [], kinds = new Set(), stats = { low: 0, jump: 0 };
+      let runs = 0;
+      try {
+        const styles = MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0);
+        const run = (label, trace) => {
+          runs++; kinds.add(trace.hold);
+          if (!trace.held) bad.push(label + ': no hold at the end of the hold time');
+          bad.push(...traceProblems(trace, label, stats));
+          trace.m.dispose();
+        };
+        itemBodies.forEach((body, i) => styles.forEach((style, n) => {
+          const faceDown = (i + n) % 2 === 1;
+          run(style + ' body ' + i + (faceDown ? ' face down' : ' face up'), holdSequence(style, body, itemBodies[(i + 3) % itemBodies.length], faceDown, null, 100));
+        }));
+        for (const item of ['bat', 'chain', 'bottle']) styles.forEach((style) => run(style + ' with a ' + item, holdSequence(style, itemBodies[4], itemBodies[2], false, item, 100)));   // a one-handed item stays in the hand through the hold and is part of the measure
       } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
       if (kinds.size !== 4) bad.push('only ' + [...kinds].join() + ' holds checked');
-      return bad.length ? bad.length + ' of ' + checks + ' checks: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (worstLow * 100).toFixed(1) + ' cm, highest ' + (worstHigh * 100).toFixed(1) + ' cm)' : true;
+      return bad.length ? bad.length + ' problems in ' + runs + ' holds: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (stats.low * 100).toFixed(1) + ' cm, biggest jump ' + (stats.jump * 100).toFixed(1) + ' cm)' : true;
     });
-    test('Ground submissions (P18-38): only the holder and a fighter lying down are lowered to the floor; they ease into it as the hold starts and out of it when it ends', () => {
+    test('Ground submissions (P18-38): only the holder and a fighter lying down are measured and moved; the shift starts with the hold and is gone once both are on their feet again', () => {
       const bad = [];
       try {
-        const m = holdFighters('bjj', itemBodies[4], itemBodies[4], false), a = m.fighters[0], v = m.fighters[1];
-        if (a.plant !== 0 || v.plant !== 0) bad.push('lowered before the hold: ' + a.plant + ' ' + v.plant);
-        self.run(m, 40);
-        if (a.state !== S.SUBMIT || a.plant < 0.99 || v.plant < 0.99) bad.push('not lowered in the hold: ' + a.state + ' ' + a.plant.toFixed(2) + ' ' + v.plant.toFixed(2));
-        Combat.endSubmission(a, 'broken');
-        self.run(m, 4);
-        if (a.plant <= 0 || a.plant >= 1) bad.push('no easing out: ' + a.plant);
-        if (v.state !== S.DOWN || v.plant < 0.99) bad.push('the foe still lies on the floor after the hold: ' + v.state + ' ' + v.plant);
-        self.run(m, 60);
-        if (a.plant !== 0 || v.plant !== 0) bad.push('still lowered once both are on their feet: ' + a.plant + ' ' + v.plant + ' ' + a.state + ' ' + v.state);
+        const trace = holdSequence('bjj', itemBodies[4], itemBodies[4], false, null, 100), m = trace.m, a = m.fighters[0], v = m.fighters[1];
+        if (trace.stanceOn) bad.push('measured while both stand');
+        if (a.plantOn || v.plantOn || a.plantShift !== 0 || v.plantShift !== 0) bad.push('still measured once both stand: ' + a.plantOn + ' ' + v.plantOn + ' ' + a.state + ' ' + v.state);
         m.dispose();
       } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
       return bad.length ? bad.join('; ') : true;

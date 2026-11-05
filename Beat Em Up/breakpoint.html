@@ -4659,9 +4659,11 @@ const J = {};
 const NP = 26;
 const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.17;
 /* Ground poses (P18-38): rootHeight() puts the root where the legs of a standing body reach the floor, which is wrong for a body that kneels, sits or lies, so a holder and every fighter lying down (held, knocked down or out) is lowered (or raised) until the lowest drawn part touches the floor.
-   plant = how much of that shift is applied (0..1): it eases in and out over a few ticks so a pose starting or ending does not pop. */
-const PLANT_RATE = 20;      // 1/s: how fast plant follows its target
-const PLANT_MIN = 0.002;    // below this plant is 0 and the extra pass is skipped
+   plantLow is the height of the lowest drawn part above the floor while this runs: it moves from where the last tick drew it to the floor, and (PLANT_RELEASE_TICKS after the pose ends, once the pose blend is done)
+   back to the pose's own lowest, at most PLANT_SPEED a tick, whatever the pose blend does meanwhile, so a hold or a fall starting or ending neither sinks the body into the floor nor jumps it. */
+const PLANT_SPEED = 1.5;          // m/s: how fast the lowest part may move to the floor or back (2.5 cm a tick)
+const PLANT_MIN = 0.002;          // m: a shift smaller than this is dropped once the pose is free again
+const PLANT_RELEASE_TICKS = 20;   // ticks the body stays on the floor after the hold or the lying pose ends: the pose blend back to the stance is over by then
 let PROBE_LOW = null;       // while a number: part() records the lowest drawn height instead of drawing
 
 function makePose(vals) { const p = new Float32Array(NP); for (const k in vals) p[J[k]] = vals[k]; return p; }
@@ -5274,9 +5276,11 @@ const ITEMS = {
 const BAND_OVER = ['undercut', 'fade']; // hair wider than the plain headband
 const headbandSize = (style) => (BAND_OVER.includes(style) ? 0.29 : (ITEMS.hairStyle[style] || [])[0] === HAIR_CAP ? 0.262 : 0.236); // diameter: over the hair cap when there is one
 /* x and z scale of a piece's frame: the body part it sits on. */
+const FRAME_SCALE = [1, 1]; // reused by frameScale: read both numbers before the next call
 function frameScale(frame, b, sh, hand) {
   const wide = frame === 'h' ? 1 : frame === 't' ? b * sh.chest : frame === 'l' ? b * sh.leg : frame === 'x' ? hand : b * sh.arm;
-  return [wide, frame === 't' ? b : wide];
+  FRAME_SCALE[0] = wide; FRAME_SCALE[1] = frame === 't' ? b : wide;
+  return FRAME_SCALE;
 }
 /* The hand is its row's size times the build; only where a long sleeve would be wider than the hand's cut at the wrist does it grow, to just wide enough. */
 function handScale(b, sh, T, H) {
@@ -5569,7 +5573,7 @@ class Fighter {
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
     this.momentum = 0; this.boostTicks = 0; // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
-    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plant = 0; this.throwPitch = 0; this.throwRoll = 0;
+    this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
@@ -6222,10 +6226,10 @@ class Fighter {
       const idx = Math.floor(this.walkPhase / Math.PI);
       if (idx !== this.stepIndex) { this.stepIndex = idx; if (!this.airborne) Events.emit('step', { f: this, run: this.state === S.RUN }); }
     }
+    const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP; // the holder, and anybody lying on the floor or getting up from it
+    if (planted && !this.plantOn) { this.plantLow = this.lowestPart(); this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew
     this.computePose(dt);
-    const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO; // the holder, and anybody lying on the floor (held, knocked down or out)
-    this.plant += ((planted ? 1 : 0) - this.plant) * (1 - Math.exp(-PLANT_RATE * dt));
-    this.plant = this.plant < PLANT_MIN ? 0 : this.plant > 1 - PLANT_MIN ? 1 : this.plant;
+    if (this.plantOn) this.plantFloor(dt, planted);
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
     if (this.state === S.ATTACK && this.move && this.move.type === 'strike' && (this.move.tier >= 2) && Settings.v.effects !== 'low') {
       const t = this.moveTick;
@@ -6604,15 +6608,25 @@ class Fighter {
     }
   }
 
-  /* The skeleton, standing on the floor under (px, py, pz): a fighter in a hold is first walked once without drawing to find its lowest part, then lowered by that gap, so it lies on the floor whatever its pose and build. */
-  skeleton(px, py, pz, yaw, draw) {
-    if (this.plant < PLANT_MIN) { this.walkSkeleton(px, py, pz, yaw, draw); return; }
-    PROBE_LOW = Infinity;
-    this.walkSkeleton(px, py, pz, yaw, false);
-    const gap = PROBE_LOW - py;
-    PROBE_LOW = null;
-    this.walkSkeleton(px, py - gap * this.plant, pz, yaw, draw);
+  /* Once a tick, after the pose: the holder and anybody lying on the floor or getting up from it (held, knocked down or out) are measured and plantShift is set so that their lowest part is on the floor, whatever the pose and build.
+     See PLANT_SPEED: the body never jumps and never sinks while the pose blends. */
+  plantFloor(dt, planted) {
+    this.plantHold = planted ? PLANT_RELEASE_TICKS : this.plantHold - 1;
+    const own = this.lowestPart(), reach = PLANT_SPEED * dt;
+    this.plantLow += clamp((this.plantHold > 0 ? 0 : own) - this.plantLow, -reach, reach);
+    this.plantShift = this.plantLow - own;
+    if (this.plantHold <= 0 && Math.abs(this.plantShift) < PLANT_MIN) { this.plantOn = false; this.plantShift = 0; }
   }
+  /* The height of the lowest part of the pose as it stands, above the fighter's floor (a walk without drawing, the held item included). */
+  lowestPart() {
+    PROBE_LOW = Infinity;
+    this.walkSkeleton(this.x, this.y, this.z, this.yaw, false);
+    const low = PROBE_LOW - this.y;
+    PROBE_LOW = null;
+    return low;
+  }
+  /* The skeleton, standing on the floor under (px, py, pz), lifted or lowered by plantShift. */
+  skeleton(px, py, pz, yaw, draw) { this.walkSkeleton(px, py + this.plantShift, pz, yaw, draw); }
   /* Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts. */
   walkSkeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
@@ -6691,7 +6705,7 @@ class Fighter {
       if (s < 0 && this.item) { // the right hand holds the item: its +y runs on out of the fist, leaning forward
         const w = this.itemDef;
         ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(w.hold[3] || 0, w.hold[0], w.hold[1]); if (w.hold[2]) ms.ry(w.hold[2]);
-        if (DRAW_NOW) { if (w.sp === 'wrap') this.drawChain(w, fl); else drawWeapon(w, fl); }
+        if (DRAW_NOW || PROBE_LOW !== null) { if (w.sp === 'wrap') this.drawChain(w, fl); else drawWeapon(w, fl); } // the measuring pass counts the item too
         const wm = ms.m; // the far end of the item (key points 21-23), where a swing is meant to land
         pts[21] = wm[12] + wm[4] * w.len; pts[22] = wm[13] + wm[5] * w.len; pts[23] = wm[14] + wm[6] * w.len;
         ms.pop();
