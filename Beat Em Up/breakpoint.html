@@ -679,7 +679,7 @@ const Setups = {
   init() {
     this.d = readJson(KEY_SETUPS);
     if (this.d) return;
-    this.d = { v: 1, freeFight: { friendlyFire: (readJson(KEY_SETTINGS) || {}).friendlyFire === true } }; // Friendly fire moves over from the old Settings row
+    this.d = { v: 1, freeFight: { friendlyFire: (readJson(KEY_SETTINGS) || {}).friendlyFire === true } }; // at start-up: Settings.save drops the old Friendly fire key
     this.save();
   },
   save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
@@ -1401,7 +1401,7 @@ const Inputs = {
   forFighter(index) {
     const match = Game.match;
     if (match && match.setup) { const slot = match.setup[index]; return slot && slot.human >= 0 ? this.players[slot.human] : null; } // a lineup: the person in that slot reads its own input seat
-    if (match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; }
+    if (match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; } // also with Inputs.coop off: 1 or 2 people sit on P1 and P2
     if (match && match.cfg.seats) { const seat = match.cfg.seats[index]; return seat >= 0 ? this.players[seat] : null; } // a bracket fight: the person on that seat
     return index === 0 ? Input : this.versus && index === 1 ? Input2 : null;
   },
@@ -12284,7 +12284,7 @@ const Game = {
   /* Sets the slots, deal and crowd flag of a fight type; fighters, options and time limits stay. */
   applyType(type) {
     const lineup = this.lineupFor(), kept = lineup.slots.map((slot) => slot.id), used = [];
-    const people = type === 'Versus' ? 2 : type === 'Co-op' ? (Input.lastDevice === 'touch' ? 1 : 2) : 1;
+    const people = type === 'Versus' ? 2 : type === 'Co-op' ? (Input.lastDevice === 'touch' ? 1 : 2) : 1; // touch seats one person
     lineup.slots = Array.from({ length: type === 'Brawl' ? 4 : type === 'Co-op' ? people : 2 }, (_, i) => {
       const human = i < people, pool = human ? this.coopRoster() : this.opponentChoices(null, true);
       const id = ROSTER_BY_ID[kept[i]] && (!human || Progress.isUnlocked(kept[i])) ? kept[i] : pool.find((r) => !used.includes(r.id)).id;
@@ -12441,7 +12441,7 @@ const Game = {
   gradeResults(data, run) {
     const gradeMode = data.mode === 'lineup' || data.mode === 'coop' ? 'free' : data.mode;
     if (!GRADE_MODES.includes(gradeMode) || gradeMode === 'tournament' || !data.playerWon) return; // a bracket fight is graded in finishTournamentMatch: the run grade is saved with the title
-    if (data.mode === 'lineup' && data.lineup.every((fighter) => fighter.seat >= 0)) return;
+    if (data.mode === 'lineup' && data.lineup.every((fighter) => fighter.seat >= 0)) return; // people only: no grade
     data.gradeMode = gradeMode;
     if (data.mode === 'coop') {
       data.grades = data.players.map((member) => fightGrade(gradeInputs(data, member.stats, member.maxHp))); // a grade per player column
@@ -13454,7 +13454,7 @@ const UI = {
     const free = ['char', 'lineup', 'freemore'].includes(cur); // the Free Fight screens opened from the first one
     if (free) {
       const slot = cur === 'char' ? Game.lineupFor().slots[this.pickSlot] : null;
-      if (slot && slot.human && !Progress.isUnlocked(slot.id)) slot.id = this.pickFrom;
+      if (slot && slot.human && !Progress.isUnlocked(slot.id)) slot.id = this.pickFrom; // a locked pick left on the cards: back to the old fighter
       this.pickSlot = -1; this.pickQueue = []; Game.lineupToSelection();
     }
     const prev = this.stack.pop();
@@ -13669,7 +13669,7 @@ const UI = {
   },
   confirmFighter() {
     const sel = Game.selection, slot = this.pickSlot >= 0 ? Game.lineupFor().slots[this.pickSlot] : null, picked = this.pickedId();
-    if ((!slot || slot.human) && !Progress.isUnlocked(picked)) { Sound.ui('bad'); this.toast('Locked. ' + unlockRuleText(picked) + ' to unlock this fighter.', 'warn'); return; }
+    if ((!slot || slot.human) && !Progress.isUnlocked(picked)) { Sound.ui('bad'); this.toast('Locked. ' + unlockRuleText(picked) + ' to unlock this fighter.', 'warn'); return; } // a CPU slot may take a locked fighter
     if (slot) this.nextPick();
     else if (sel.mode === 'arcade') {
       const saved = Game.savedArcadeRun();
@@ -13778,7 +13778,7 @@ const UI = {
     return rows.map((r) => '<div class="stat"><span>' + r[0] + '</span><i style="width:' + (r[1] * 10) + '%"></i><span>' + r[1] + '</span></div>').join('');
   },
   fighterCard(r, act, sel, lockable = true) {
-    const locked = lockable && !Progress.isUnlocked(r.id) && act.startsWith('pick');
+    const locked = lockable && !Progress.isUnlocked(r.id) && act.startsWith('pick'); // a CPU slot may take a locked fighter
     return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em>' + (locked ? '<em>' + esc(unlockRuleText(r.id)) + '</em>' : '') + this.statBars(r.attrs) + '</button>';
   },
   /* One short line about a preset: style, age, where from, goal (customs have none). */
@@ -13915,7 +13915,8 @@ const UI = {
     if (lineup.friendlyFire && this.hasTeammates(lineup)) parts.push('friendly fire on');
     return parts.length ? parts.join(', ') : 'Rounds, time limit, friendly fire';
   },
-  hasTeammates(lineup) { return lineup.crowd || lineup.slots.some((slot, i) => slot.human && slot.team > 0 && lineup.slots.some((other, j) => j !== i && other.team === slot.team)); },
+  hasTeammates(lineup) { return lineup.crowd || // any crowd fight counts
+     lineup.slots.some((slot, i) => slot.human && slot.team > 0 && lineup.slots.some((other, j) => j !== i && other.team === slot.team)); },
   screen_freefight() {
     const sel = Game.selection, lineup = Game.lineupFor(), problem = Game.lineupProblem(), cpu = lineup.crowd || lineup.slots.some((slot) => !slot.human);
     return this.panelOpen('Free Fight', '38em,64vw') + '<h2>Free Fight</h2>' +
@@ -13935,7 +13936,7 @@ const UI = {
         : plain ? this.optRow('Time limit', sel.timer ? sel.timer + ' s per round' : 'Off', 'data-local="timer"', '')
           : this.optRow('Time limit', lineup.timer ? lineup.timer + ' s, whole fight' : 'Off', 'data-local="ltimer"', '')) +
       (this.hasTeammates(lineup) ? this.optRow('Friendly fire', lineup.friendlyFire ? 'On' : 'Off', 'data-local="lff"', '') : this.unusedRow('Friendly fire', 'nobody has a teammate')) +
-      '<div class="row sticky">' + '<button class="mi" data-nav data-default data-act="back">Back</button>' + '</div></div></section>';
+      '<div class="row sticky"><button class="mi" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
   /* Who plays on what, for the number of people. */
   lineupDevicesText(people) {
@@ -13977,7 +13978,7 @@ const UI = {
     const lineup = Game.lineupFor(), slots = lineup.slots, [kind, arg] = name.split(':'), i = Number(arg);
     const open = Game.coopRoster().map((r) => r.id), everyone = Game.opponentChoices(null, true).map((r) => r.id);
     if (kind === 'lopp') {
-      const next = lineup.crowd ? (slots.length - 1 + dir + LINEUP_HUMANS_MAX) % LINEUP_HUMANS_MAX + 1 : (slots.length - 2 + dir + (LINEUP_MAX - 1)) % (LINEUP_MAX - 1) + 2;
+      const next = lineup.crowd ? (slots.length - 1 + dir + LINEUP_HUMANS_MAX) % LINEUP_HUMANS_MAX + 1 : (slots.length - 2 + dir + (LINEUP_MAX - 1)) % (LINEUP_MAX - 1) + 2; // 1-4 people or 2-8 fighters, wrapping
       while (slots.length > next) slots.pop();
       while (slots.length < next) {
         const last = slots[slots.length - 1], used = slots.map((s) => s.id);
