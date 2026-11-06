@@ -8,7 +8,7 @@ window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
-  ARCADE_ARENAS, ARCADE_LEVELS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
+  ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
@@ -31,7 +31,7 @@ const {
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
-  VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, arcadeDifficulty, attrCost, attrTotal, canSetAttr,
+  VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost, attrTotal, canSetAttr,
   canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom, defaultDefense,
   deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url, handScale,
   hasUnlockRule, headbandSize, hexToHsl, isBlockState, keyLabel, makeIntent, makeMotion, moveStyleFor, presetBuild, randomBody,
@@ -2597,7 +2597,7 @@ const SelfTest = {
       restoreProgress(saved);
       return lap && late ? true : JSON.stringify({ seen, lap, late });
     });
-    /* P10-06: Arcade is the 7-stage story run, so the old five-bout ramp of arcadeDifficulty is gone from the mode: the Arcade difficulty option is the difficulty of every stage. */
+    /* P10-06: Arcade is the 7-stage story run, so the old five-bout ramp is gone from the mode: the Arcade difficulty option is the difficulty of every stage. */
     test('Arcade: the difficulty option is every stage\'s difficulty, retries count continues, a clear offers Play again', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
       const saved = keepProgress(), scenes = Settings.v.storyScenes;
@@ -2871,7 +2871,7 @@ const SelfTest = {
       const totals = ROSTER.filter((r) => r.id !== 'zero').map((r) => attrTotal(r.attrs));
       const band = Math.min(...totals) === POINT_BUDGET && Math.max(...totals) - Math.min(...totals) <= 2;
       const zero = attrTotal(ROSTER_BY_ID.zero.attrs);
-      const bosses = ARCADE_LEVELS.map((level) => attrTotal(ROSTER_BY_ID.zero.bossAttrs[level]));
+      const bosses = ['easy', 'normal', 'hard'].map((level) => attrTotal(ROSTER_BY_ID.zero.bossAttrs[level]));
       const playable = zero >= POINT_BUDGET && zero <= POINT_BUDGET + 2 && bosses.every((total, i) => total > zero && (i === 0 || total >= bosses[i - 1]));
       const arcade = mk({ mode: 'arcade', opponentId: 'zero', arcadeLevel: 'hard' }), arcadeTotal = attrTotal(arcade.fighters[1].stats.attrs);
       arcade.dispose();
@@ -2884,7 +2884,7 @@ const SelfTest = {
       const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
-        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed, items: false, hazards: false }));   // a balance measure of the bare-handed boss in a bare arena: items and hazards (P7) change who wins it
+        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: 'expert', arcadeLevel: 'normal', seed, items: false, hazards: false }));   // a balance measure of the bare-handed boss in a bare arena: items and hazards (P7) change who wins it
         m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
         for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
         if (m.matchWinner === 0) wins++;
@@ -14126,7 +14126,7 @@ const SelfTest = {
       }
       Setups.d = { v: 1, arcade: 'junk' }; sel.mode = 'arcade'; sel.arcadeLevel = 'normal';
       try { Game.saveLevel(); } catch (error) { bad.push('saving over a damaged entry threw ' + error.message); }
-      if (JSON.parse(Store.get(KEY_SETUPS)).arcade.difficulty !== 'normal') bad.push('a damaged entry was not saved over');
+      if (JSON.stringify(JSON.parse(Store.get(KEY_SETUPS)).arcade) !== '{"difficulty":"normal"}') bad.push('a damaged entry was not saved over cleanly: ' + JSON.stringify(JSON.parse(Store.get(KEY_SETUPS)).arcade));
       return bad.length ? bad.join('; ') : true;
     }));
     test('Difficulty everywhere (P18-05): Survival Difficulty shifts the ramp - Easy is the old ramp exactly, each step up starts one rung higher and stops at Expert, and the run keeps its level', () => keepLevels((sel) => {

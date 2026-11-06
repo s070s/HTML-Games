@@ -676,6 +676,7 @@ const Settings = {
 const KEY_SETUPS = 'breakpoint.v1.setups';
 const Setups = {
   d: null, // { v: 1, freeFight: {...} }, read raw at start-up, cleaned on first use (Game.loadSetup)
+  plain: (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {}), // a saved entry that is not an object reads as empty
   init() {
     this.d = readJson(KEY_SETUPS);
     if (this.d) return;
@@ -11816,19 +11817,12 @@ const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT,
 const RESULTS_DELAY = 2.6;            // seconds of victory / defeat pose before the results screen
 const SKIP_ARM_SECONDS = 0.5;         // presses this soon after a victory / defeat are ignored
 const SKIP_ACTIONS = ['punch', 'kick', 'grapple', 'jump'];
-const ARCADE_DIFFS = ['easy', 'normal', 'hard', 'hard', 'expert'];
 const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
-const ARCADE_LEVELS = ['easy', 'normal', 'hard'];
 const LEVEL_FIELD = { arcade: 'arcadeLevel', survival: 'survivalLevel', tournament: 'tournamentLevel' }; // each mode's Difficulty in the selection, saved as setups.<mode>.difficulty (Free Fight's is `difficulty`)
-const ARCADE_LEVEL_SHIFT = { easy: -1, normal: 0, hard: 1 }; // the Arcade difficulty option moves every stage one step
 const SURVIVAL_TIMER = 50, SURVIVAL_TIMER_MIN = 30;
 const SURVIVAL_HEAL = 0.25, SURVIVAL_HEAL_MIN = 0.1;          // share of max health regained after each win
 const SURVIVAL_PEAK = 7;              // wins until the CPU reaches Expert; after that heal and timer keep shrinking
-function arcadeDifficulty(stage, level) {
-  const i = DIFFICULTY_ORDER.indexOf(ARCADE_DIFFS[stage]) + (ARCADE_LEVEL_SHIFT[level] || 0);
-  return DIFFICULTY_ORDER[clamp(i, 0, DIFFICULTY_ORDER.length - 1)];
-}
 /* Fisher-Yates with the given generator; returns a new array. */
 function shuffled(list, rng) {
   const out = list.slice();
@@ -11922,7 +11916,7 @@ const Game = {
   },
   saveLevel() {
     const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
-    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, old[mode], { difficulty: this.selection[LEVEL_FIELD[mode]] }) });
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }) });
     Setups.save();
   },
 
@@ -12036,7 +12030,7 @@ const Game = {
     const r = this.run;
     if (!r.order.length) r.order = shuffled(r.pool, r.rng); // every lap meets the whole roster (customs too) in a new order
     const opp = r.order.shift();
-    const rung = r.kills < 2 ? 0 : r.kills < 4 ? 1 : r.kills < SURVIVAL_PEAK ? 2 : 3, diff = DIFFICULTY_ORDER[Math.min(3, rung + DIFFICULTY_ORDER.indexOf(r.level))]; // Difficulty shifts the ramp; Easy is the plain ramp
+    const rung = r.kills < 2 ? 0 : r.kills < 4 ? 1 : r.kills < SURVIVAL_PEAK ? 2 : 3, diff = DIFFICULTY_ORDER[Math.min(3, rung + Math.max(0, DIFFICULTY_ORDER.indexOf(r.level)))]; // Difficulty shifts the ramp; Easy is the plain ramp
     const arena = ARENA_ORDER[(r.arenaStart + r.kills) % ARENA_ORDER.length];
     const timer = Math.max(SURVIVAL_TIMER_MIN, SURVIVAL_TIMER - 2 * this.survivalExtra(r.kills));
     this.beginMatch({ mode: 'survival', playerId: r.player, opponentId: opp.id, arenaId: arena, difficulty: diff, winsNeeded: 1, timer, playerHp: r.carryHp });
@@ -12282,7 +12276,7 @@ const Game = {
   },
   /* Writes the setup; unknown fields stay (P18-43 adds the fight rules there); a version other than 1 is replaced. */
   saveSetup() {
-    const lineup = this.lineups.free, sel = this.selection, plain = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+    const lineup = this.lineups.free, sel = this.selection, plain = Setups.plain;
     if (!lineup) return;
     const old = Setups.d && Setups.d.v === 1 ? plain(Setups.d) : {};
     Setups.d = Object.assign({}, old, { v: 1, freeFight: Object.assign({}, plain(old.freeFight), {
@@ -13825,7 +13819,7 @@ const UI = {
       '<p class="sub">' + (resume ? resumeText : 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
     h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. ' + (resume ? '' : 'After Start each joined player chooses a fighter on the fighter screen. ') +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes Difficulty). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes the focused row, Entrants or Difficulty). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
     if (!resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '') + this.levelRow(); // a saved bracket keeps its size and Difficulty
     h += '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="coopStart"' + (resume && seated.length !== need ? ' disabled' : '') + '>' + (resume ? 'Continue tournament' : 'Choose fighters') + '</button></div></div></section>';
     return h;
@@ -15743,7 +15737,7 @@ let selfTestRun = null;       // the run in progress (it includes the load)
 function testApi() {
   return {
     ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
-    ARCADE_ARENAS, ARCADE_LEVELS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
+    ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
     ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
@@ -15766,7 +15760,7 @@ function testApi() {
     SWAY_PERFECT_TICKS, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
     TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
-    UNLOCK_RULES, VETERAN_BUDGET, VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, arcadeDifficulty, attrCost,
+    UNLOCK_RULES, VETERAN_BUDGET, VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost,
     attrTotal, canSetAttr, canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom,
     defaultDefense, deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url,
     handScale, hasUnlockRule, headbandSize, hexToHsl, isBlockState, keyLabel, makeIntent, makeMotion, moveStyleFor, presetBuild,
