@@ -2993,3 +2993,7 @@ Method: four read-only auditors, one per area (input / storage / UI; renderer / 
 
 - Checked and fine (no failure): picking up an item at the feet of a fighter on any surface (person and CPU seat), the thrown item leaving the hand, the set-down item coming to rest on the surface it fell to, a ground hold within 0.6 m, a grab pulling the foe down a stair (no fall).
 - Left to the owner: nothing to decide. The numbers (1.05 / 0.55 / 0.35 / 0.9) are in Appendix C; the strike ledge could be raised to 1.55 to let a floor fighter reach a foe on a scaffold tier.
+
+### P18-19 note (2026-11-06)
+
+- A Hard CPU duel (kai vs mara, dojo, seed 7, 240 ticks) hashes 15qt6vg in Chrome and jh48sl in the headless harness on the same build: harness results for CPU fights are not browser results; compare within one run.
