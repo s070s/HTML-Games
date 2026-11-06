@@ -8703,11 +8703,13 @@ const SelfTest = {
       const old = defaultCustom(0); old.look.glow = 'on';
       if (!validateCustom(old).ok || validateCustom(old).value.look.glow !== 'on') problems.push('old glow slot');
       const man = { att: ROSTER_BY_ID.kai, def: Object.assign(Object.create(f), { y: 0 }), mv: ATTACKS.jab, x: 0, y: 1, z: 0, dirx: 1, dirz: 0 };
-      const realRing = FX.ring;   // the one named exception: P18-02 (REFERENCE, Appendix C) gives a perfect block, a perfect sway and a combo break a ring of light, which P9-04 otherwise bans; the Cues test checks those rings
-      FX.ring = () => {};
+      const realRing = FX.ring, rings = [];   // the one named exception: P18-02 (REFERENCE, Appendix C) gives a perfect block, a perfect sway and a combo break a ring of light, which P9-04 otherwise bans
+      let current = null;
+      FX.ring = (x, y, z, hex) => { rings.push(hex); if (!(current[0] === 'block' && current[1].perfect && (hex === CUE_COLOR.perfect || hex === CUE_COLOR.brk))) problems.push(current[0] + ' makes a ring (' + hex + ')'); };
       try {
         for (const [name, extra] of [['block', {}], ['block', { perfect: true }], ['block', { sway: true, perfect: true }], ['clinch', {}], ['escape', {}], ['submission', {}], ['submissionEscape', {}], ['tackle', { result: 'blocked', def: man.def }]]) {
           FX.clear();
+          current = [name, extra];
           Events.emit(name, Object.assign({}, man, extra));
           const live = FX.p.filter((q) => q.on);
           if (live.some((q) => q.kind === 2 || q.col[2] - q.col[0] > 0.3)) problems.push(name + ' makes a ring or a cyan particle');
