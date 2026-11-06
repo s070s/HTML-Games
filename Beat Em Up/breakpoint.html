@@ -9691,7 +9691,7 @@ class MatchSim {
     Arena.build(this.def, ring, !!(ring && this.cfg.ringOut && ring[4]));
     const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
-    if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs.normal }); // the Arcade final boss, scaled by the difficulty option
+    if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs[this.cfg.arcadeLevel === 'expert' ? 'hard' : 'normal'] }); // the Arcade final boss, scaled by the difficulty option (Expert: the Hard build)
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
     this.brawl = this.cfg.mode === 'brawl';
@@ -11820,6 +11820,7 @@ const ARCADE_DIFFS = ['easy', 'normal', 'hard', 'hard', 'expert'];
 const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
 const ARCADE_LEVELS = ['easy', 'normal', 'hard'];
+const LEVEL_FIELD = { arcade: 'arcadeLevel', survival: 'survivalLevel', tournament: 'tournamentLevel' }; // each mode's Difficulty in the selection, saved as setups.<mode>.difficulty (Free Fight's is `difficulty`)
 const ARCADE_LEVEL_SHIFT = { easy: -1, normal: 0, hard: 1 }; // the Arcade difficulty option moves every stage one step
 const SURVIVAL_TIMER = 50, SURVIVAL_TIMER_MIN = 30;
 const SURVIVAL_HEAL = 0.25, SURVIVAL_HEAL_MIN = 0.1;          // share of max health regained after each win
@@ -11844,7 +11845,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat (the Tournament seats too)
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat (the Tournament seats too)
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {},           // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null,      // P11: the bracket being played (Tournament.draw), or null before the draw and after it is left
@@ -11915,6 +11916,15 @@ const Game = {
     if (!TOURNAMENT_SIZES.includes(sel.tournamentSize)) sel.tournamentSize = TOURNAMENT_SIZES[0];
   },
   chooseArena(id) { this.selection.arena = id; },
+  /* The saved Difficulty of each mode (Free Fight's comes with its lineup); a missing or damaged one stays Easy. */
+  loadLevels() {
+    for (const mode in LEVEL_FIELD) { const saved = Setups.d && Setups.d.v === 1 && Setups.d[mode]; if (saved && DIFFICULTY_ORDER.includes(saved.difficulty)) this.selection[LEVEL_FIELD[mode]] = saved.difficulty; }
+  },
+  saveLevel() {
+    const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, old[mode], { difficulty: this.selection[LEVEL_FIELD[mode]] }) });
+    Setups.save();
+  },
 
   startFromSelection() {
     const sel = this.selection;
@@ -12017,7 +12027,7 @@ const Game = {
   canSkipStage() { const story = this.run.story; return Story.canSkip(story, true) && story.stage < STORY_STAGES; },
   startSurvival() {
     const sel = this.selection;
-    this.run = { mode: 'survival', player: sel.player, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: Progress.d.survivalKills };
+    this.run = { mode: 'survival', player: sel.player, level: sel.survivalLevel, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: Progress.d.survivalKills };
     this.nextSurvivalMatch();
   },
   /* Wins past the point where the CPU tops out at Expert. */
@@ -12026,7 +12036,7 @@ const Game = {
     const r = this.run;
     if (!r.order.length) r.order = shuffled(r.pool, r.rng); // every lap meets the whole roster (customs too) in a new order
     const opp = r.order.shift();
-    const diff = r.kills < 2 ? 'easy' : r.kills < 4 ? 'normal' : r.kills < SURVIVAL_PEAK ? 'hard' : 'expert';
+    const rung = r.kills < 2 ? 0 : r.kills < 4 ? 1 : r.kills < SURVIVAL_PEAK ? 2 : 3, diff = DIFFICULTY_ORDER[Math.min(3, rung + DIFFICULTY_ORDER.indexOf(r.level))]; // Difficulty shifts the ramp; Easy is the plain ramp
     const arena = ARENA_ORDER[(r.arenaStart + r.kills) % ARENA_ORDER.length];
     const timer = Math.max(SURVIVAL_TIMER_MIN, SURVIVAL_TIMER - 2 * this.survivalExtra(r.kills));
     this.beginMatch({ mode: 'survival', playerId: r.player, opponentId: opp.id, arenaId: arena, difficulty: diff, winsNeeded: 1, timer, playerHp: r.carryHp });
@@ -12054,7 +12064,7 @@ const Game = {
   startTournament(people, seed = Date.now() >>> 0) {
     const sel = this.selection, seated = Inputs.seatedSlots();
     const picks = people || (seated.length ? seated : [0]).map((seat) => ({ seat, id: sel.party[seat] }));
-    return this.playTournament(Tournament.draw({ humans: picks, size: sel.tournamentSize, seed, difficulty: sel.difficulty }));
+    return this.playTournament(Tournament.draw({ humans: picks, size: sel.tournamentSize, seed, difficulty: sel.tournamentLevel }));
   },
   /* Takes a bracket into play: the selected mode, the run, the saved copy, then the bracket screen. */
   playTournament(t) {
@@ -13560,11 +13570,10 @@ const UI = {
     if ((this.current === 'lineup' || this.current === 'freemore') && this.lineupLocal(name, dir)) { this.rerender(true); return; }
     if (name === 'ftype') { const at = FIGHT_TYPES.indexOf(MatchLineup.type(Game.lineupFor())); Game.applyType(FIGHT_TYPES[((at < 0 ? (dir > 0 ? -1 : 4) : at) + dir + FIGHT_TYPES.length) % FIGHT_TYPES.length]); this.showFreeScene(); }
     else if (name === 'flevel') { if (press) { Game.go(GS.ARENASEL); return; } sel.arena = ARENA_ORDER[(ARENA_ORDER.indexOf(sel.arena) + dir + ARENA_ORDER.length) % ARENA_ORDER.length]; this.showFreeScene(); }
-    else if (name === 'diff') { const i = DIFFICULTY_ORDER.indexOf(sel.difficulty); sel.difficulty = DIFFICULTY_ORDER[(i + dir + 4) % 4]; }
+    else if (name === 'diff') { const field = LEVEL_FIELD[sel.mode] || 'difficulty'; sel[field] = DIFFICULTY_ORDER[(DIFFICULTY_ORDER.indexOf(sel[field]) + dir + 4) % 4]; if (field !== 'difficulty') Game.saveLevel(); } // Free Fight saves with its setup
     else if (name === 'rounds') { const list = [1, 2, 3]; sel.rounds = list[(list.indexOf(sel.rounds) + dir + 3) % 3]; }
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
     else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
-    else if (name === 'alevel') { const i = ARCADE_LEVELS.indexOf(sel.arcadeLevel); sel.arcadeLevel = ARCADE_LEVELS[(i + dir + ARCADE_LEVELS.length) % ARCADE_LEVELS.length]; }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     else if (name.startsWith('story')) this.storyChange(name, dir);
@@ -13595,7 +13604,6 @@ const UI = {
       case 'start': Game.startFromSelection(); break;
       case 'coopStart': this.coopStart(); break;
       case 'replace': { const ask = this.replaceAsk; this.replaceAsk = null; this.stack = []; if (ask) ask.run(); break; }
-      case 'coopdiff': this.changeLocal('diff', 1); break;
       case 'continueTournament': Game.continueTournament(); break;
       case 'bracketGo': Game.tournamentContinue(); break;
       case 'rebind': this.startRebind(Keymap, arg); break;
@@ -13739,6 +13747,8 @@ const UI = {
   optRow(label, value, attr, extra) {
     return '<div class="opt" role="spinbutton" tabindex="0" aria-label="' + esc(label) + '" aria-valuetext="' + esc(value) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav ' + attr + '><span class="k">' + esc(label) + '</span><span class="v">' + extra + esc(value) + '</span></div>';
   },
+  /* The Difficulty row of the current mode, the same on every mode's first screen. */
+  levelRow() { const sel = Game.selection; return this.optRow('Difficulty', DIFFICULTY[sel[LEVEL_FIELD[sel.mode] || 'difficulty']].label, 'data-local="diff"', ''); },
   screen_main() {
     const saved = Game.savedArcadeRun(); // the run to continue: it takes the one current item, Play follows it
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
@@ -13792,14 +13802,13 @@ const UI = {
     const who = lineup ? (person ? 'Player ' + lineup.slots.slice(0, slotAt + 1).filter((slot) => slot.human).length : 'CPU ' + (slotAt + 1)) : '';
     const title = seat >= 0 ? '<span class="seat' + (seat + 1) + '" style="color:var(--pc)">Player ' + (seat + 1) + '</span>: choose your fighter' : lineup ? 'Choose fighter: ' + who : 'Choose your fighter';
     const sub = MODE_INFO[sel.mode].label + (seat >= 0 && Inputs.seats[seat] ? ' &middot; ' + esc(this.deviceLabel(Inputs.seats[seat])) : '');
-    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p><div class="cards">';
+    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
     h += '<button class="card create" data-nav data-act="create"><b>+ CREATE</b><em>Design a new fighter</em><span class="stat">Body, outfit, style, points</span></button>';
     for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === picked, person);
     h += '</div>';
     const customs = CustomRoster.profiles();
     if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === picked, person)).join('') + '</div>';
     const r = ROSTER_BY_ID[picked] || ROSTER_BY_ID.kai;
-    if (sel.mode === 'arcade') h += this.optRow('Arcade difficulty', DIFFICULTY[sel.arcadeLevel].label, 'data-local="alevel"', '');
     h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (!person || Progress.isUnlocked(r.id) ? '' : ' (locked: ' + esc(unlockRuleText(r.id)) + ')') + this.fighterBio(r) + '</p>';
     h += '<div class="row sticky">' + BACK_BUTTON + (r.custom ? '<button class="mi" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
@@ -13816,8 +13825,8 @@ const UI = {
       '<p class="sub">' + (resume ? resumeText : 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
     h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. ' + (resume ? '' : 'After Start each joined player chooses a fighter on the fighter screen. ') +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes the CPU level). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
-    if (!resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '') + '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>The level of every CPU fighter</small></button>'; // a saved bracket keeps its size and CPU level
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes Difficulty). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
+    if (!resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '') + this.levelRow(); // a saved bracket keeps its size and Difficulty
     h += '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="coopStart"' + (resume && seated.length !== need ? ' disabled' : '') + '>' + (resume ? 'Continue tournament' : 'Choose fighters') + '</button></div></div></section>';
     return h;
   },
@@ -13858,20 +13867,20 @@ const UI = {
     if (e.kind === 'focus') { this.moveFocus(e.dir); return; }
     const row = this.joinRowFocused();
     if (e.kind === 'adjust' || e.kind === 'cycle') { // left / right: a gamepad changes the row in focus (the keys do it in onKey), else a joined device chooses its fighter
-      if (e.pad && row === 'opt') this.adjust(document.activeElement, e.dir); else if (e.pad && row === 'diff') this.changeLocal('diff', e.dir); else if (e.kind === 'cycle') this.coopCycle();
+      if (e.pad && row === 'opt') this.adjust(document.activeElement, e.dir); else if (e.kind === 'cycle') this.coopCycle();
       return;
     }
-    if (e.kind === 'press') { if (this.focusMoved && row === 'opt') this.adjust(document.activeElement, 1, true); else if (this.focusMoved && row === 'diff') this.changeLocal('diff', 1); return; }
+    if (e.kind === 'press') { if (this.focusMoved && row === 'opt') this.adjust(document.activeElement, 1, true); return; }
     Sound.ui(e.kind === 'join' ? 'ok' : 'back');
     this.say('Player ' + (e.seat + 1) + (e.kind === 'join' ? ' joined' : ' left'));
     this.showCoopScene(e.kind === 'join' ? e.seat : undefined);
     this.rerender(true);
   },
-  /* The row of the join screen the focus is on that left / right and A change: 'opt' (Entrants), 'diff' (the CPU level button) or ''. */
+  /* The row of the join screen the focus is on that left / right and A change: 'opt' (Entrants or Difficulty) or ''. */
   joinRowFocused() {
     const el = document.activeElement;
     if (!el || !el.classList) return '';
-    return el.classList.contains('opt') ? 'opt' : el.getAttribute('data-act') === 'coopdiff' ? 'diff' : '';
+    return el.classList.contains('opt') ? 'opt' : '';
   },
   /* Left / right on a joined device: a saved bracket's fighters are locked. */
   coopCycle() {
@@ -13923,7 +13932,7 @@ const UI = {
       this.optRow('Fight type', MatchLineup.type(lineup), 'data-local="ftype"', '') +
       '<button class="mi" data-nav data-act="lineup">Players and teams<small>' + esc(this.lineupSummary(lineup)) + '</small></button>' +
       this.optRow('Level', ARENAS[sel.arena].name, 'data-local="flevel"', '') +
-      (cpu ? this.optRow('Difficulty', DIFFICULTY[sel.difficulty].label, 'data-local="diff"', '') : this.unusedRow('Difficulty', 'no CPU fighter')) +
+      (cpu ? this.levelRow() : this.unusedRow('Difficulty', 'no CPU fighter')) +
       '<button class="mi" data-nav data-act="freemore">More options<small>' + esc(this.moreSummary(lineup)) + '</small></button>' +
       (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') +
       '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="start"' + (problem ? ' disabled' : '') + '>Start fight</button></div></div></section>';
@@ -15992,7 +16001,7 @@ async function boot() {
     status('Checking browser features...', 0.05); await nextFrame();
     checkFeatures();
     status('Loading settings...', 0.2); await nextFrame();
-    Store.init(); Settings.init(); Setups.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init();
+    Store.init(); Settings.init(); Setups.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init(); Game.loadLevels();
     status('Creating renderer...', 0.4); await nextFrame();
     if (!R.init($('view'))) { UI.dom.fatal = $('fatal'); fatalStartup(R.error + ' BREAKPOINT needs WebGL 2 (current Chrome, Edge, Firefox or Safari 15+) with hardware acceleration enabled.' + (Device.ios ? ' On iPhone and iPad, update to iOS 15 or later; if it is still off, turn on WebGL 2.0 under Safari > Advanced > Feature Flags in the Settings app.' : '')); return; }
     R.resize(); Quality.apply();
