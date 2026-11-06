@@ -13958,6 +13958,29 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Co-op flow (P18-19): the Co-op fight type starts a crowd fight of 1 to 4 people with enemies = 2 + players (at most 6), Friendly fire follows the option at every start, and a crowd fight ends with the main menu', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const problems = [], pads = [fakePad('a'), fakePad('b'), fakePad('c')];
+      return withFree(() => withCoopInput(pads, () => {
+        try {
+          const sizes = [];
+          for (const [n, fire] of [[1, false], [2, true], [3, false], [4, true]]) {
+            Game.chooseMode('free'); Game.applyType('Co-op');
+            const lineup = Game.lineupFor();
+            while (lineup.slots.length < n) lineup.slots.push({ id: Game.coopRoster()[lineup.slots.length].id, human: true, team: 0 });
+            lineup.slots.length = n; lineup.friendlyFire = fire;
+            Game.startFromSelection();
+            const m = Game.match;
+            sizes.push(n + ':' + (m ? m.fighters.length : 0));
+            if (!m || !m.coop || m.coop.length !== n || m.friendlyFire !== fire || Game.state !== GS.COUNTDOWN || Game.run.mode !== 'coop') problems.push(n + ' people: ' + JSON.stringify({ coop: !!(m && m.coop), fire: m && m.friendlyFire, state: Game.state }));
+            Game.quitToMenu();
+            if (Inputs.coop || Inputs.versus || Inputs.seatedSlots().length || Game.versus) problems.push('the devices or the session outlived the crowd fight');
+          }
+          if (sizes.join() !== '1:4,2:6,3:8,4:10') problems.push('sizes ' + sizes.join());
+        } finally { if (Game.state !== GS.MENU) Game.quitToMenu(); }
+        return problems.length ? problems.join('; ') : true;
+      }));
+    });
     test('Free Fight merge (P18-19): the Free Fight screens fit a phone - at 390 x 844 and 844 x 390 the first screen, More options and Players and teams do not scroll sideways and keep their button row on screen', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the phone sizes were not measured';
       const bad = [], styles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');

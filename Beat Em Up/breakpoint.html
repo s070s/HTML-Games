@@ -13639,7 +13639,11 @@ const UI = {
   pickedId() { return this.pickSlot >= 0 ? Game.lineupFor().slots[this.pickSlot].id : Game.selection.player; },
   setPicked(id) { if (this.pickSlot >= 0) Game.lineupFor().slots[this.pickSlot].id = id; else Game.selection.player = id; },
   /* The fighter facing the lead in menus: the second slot in Free Fight, otherwise the chosen opponent. */
-  rivalId() { const sel = Game.selection, slots = Game.lineupFor().slots; return sel.mode === 'free' ? (slots[1] || slots[0]).id : sel.opponent; },
+  rivalId() {
+    if (Game.selection.mode !== 'free') return Game.selection.opponent;
+    const slots = Game.lineupFor().slots;
+    return (slots[1] || slots[0]).id;
+  },
   leadId() { return Game.selection.mode === 'free' ? Game.lineupFor().slots[0].id : Game.selection.player; },
   /* Picking the card that is already selected confirms it, so a double click or a second Enter moves on. */
   pickFighter(id) {
