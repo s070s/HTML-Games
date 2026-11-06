@@ -5177,11 +5177,11 @@ const SelfTest = {
        mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
     /* Re-recorded 2026-10-29 for the P8-02 arenas; the old values live in the engine-neutrality test ("Levels: the engine of P8 changes no 1v1 result"). */
     const ONE_V_ONE_FINGERPRINTS = [
-      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '101:e6hj22' },   // re-recorded 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '102:1o1588u' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: MARA is a Sway fighter; was 101:e6hj22) and 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
       { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '103:mtun1h' },
       { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '80:1dpzzwv' },
     ];
-    const ONE_V_ONE_OLD_HASHES = ['108:1ymo6d9', '64:1563zst', '81:g3xni6'];   // the values the code before P8-02 (commit 05e3c78) gives for the same three matches on the pre-P8 layouts (the engine-neutrality test); the first uses Hard's perfect-block chance 0.25 of P14-01 (0.2 gave 64:shp12u): that old code, run from a git copy with only that number changed, gives 108:1ymo6d9, the same hash today's engine gives, so it still guards neutrality at Hard
+    const ONE_V_ONE_OLD_HASHES = ['102:16yzha8', '64:1563zst', '81:g3xni6'];   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: the first match has a Sway fighter; was 108:1ymo6d9). The values the code before P8-02 (commit 05e3c78) gives for the same three matches on the pre-P8 layouts (the engine-neutrality test); the first uses Hard's perfect-block chance 0.25 of P14-01 (0.2 gave 64:shp12u): that old code, run from a git copy with only that number changed, gives 108:1ymo6d9, the same hash today's engine gives, so it still guards neutrality at Hard
     const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
     const fingerprint = (opts) => {
       const lines = [];
@@ -8585,9 +8585,9 @@ const SelfTest = {
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '67:191yiak' },
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '71:1nmpcb6' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
       { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '85:1tnve97' },   // re-recorded 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '84:1lk7k6v' },   // re-recorded when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '77:o5ps9z' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
