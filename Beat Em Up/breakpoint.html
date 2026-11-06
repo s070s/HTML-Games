@@ -607,7 +607,6 @@ const SETTING_DEFS = {
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
-  friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
   ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Versus and Free Fight only; from the next match.' },
@@ -670,6 +669,19 @@ const Settings = {
     }
     Events.emit('settings', this.v);
   },
+};
+
+/* ---------- saved setups (P18-18): the Free Fight setup, kept apart from Progress so a damaged setup can never cost a record ---------- */
+const KEY_SETUPS = 'breakpoint.v1.setups';
+const Setups = {
+  d: null, // { v: 1, freeFight: {...} }, read raw at start-up and cleaned on first use (Game.loadSetup), after the custom fighters are known
+  init() {
+    this.d = readJson(KEY_SETUPS);
+    if (this.d) return;
+    this.d = { v: 1, freeFight: { friendlyFire: (readJson(KEY_SETTINGS) || {}).friendlyFire === true } }; // no setups yet: Friendly fire moves over from the old Settings row, which Settings.save no longer writes
+    this.save();
+  },
+  save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
 };
 
 /* ---------- key bindings (remappable) ---------- */
@@ -860,7 +872,7 @@ function unlockProgressText(id) {
 /* Fight grade: a pure function of the numbers of a fight, so nothing here reads or changes the fight. */
 const GRADE_LETTERS = ['D', 'C', 'B', 'A', 'S']; // worst to best
 const GRADE_FROM = [0, 45, 60, 75, 90];            // the lowest score of each letter
-const GRADE_MODES = ['arcade', 'survival', 'free', 'brawl', 'coop', 'tournament']; // the modes that save a best grade
+const GRADE_MODES = ['arcade', 'survival', 'free', 'tournament']; // the modes that save a best grade
 const GRADE_PAR_ROUND = 30;       // seconds allowed per round won in a duel (a Survival fight counts as one round)
 const GRADE_PAR_ENEMY = 20;       // seconds allowed per enemy in a brawl
 const GRADE_VARIETY_FULL = 8;     // different moves landed for the full variety points
@@ -912,7 +924,10 @@ const Progress = {
     base.seenClinch = s.seenClinch === true; // the clinch instructions were shown (they appear in the first clinch only)
     base.seenHold = s.seenHold === true;       // the same for the submission hold instructions
     // best fight grade per mode; a save from before it has none, and a value that is not a letter is dropped
-    if (s.grades && typeof s.grades === 'object') for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
+    if (s.grades && typeof s.grades === 'object') {
+      for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
+      for (const old of ['brawl', 'coop']) if (GRADE_LETTERS.includes(s.grades[old])) base.grades.free = betterGrade(base.grades.free, s.grades[old]); // Brawl and Co-op Brawl became Free Fight: the best letter of the three stays (the old keys are dropped on the next save)
+    }
     base.arcadeRun = Story.clean(s.arcadeRun); // the Arcade run to continue; a save from before it has none, and a damaged one is dropped
     // Tournament titles won, the most bracket wins in one tournament, and the bracket to continue.
     base.tournamentWins = num(s.tournamentWins, 999);
@@ -1163,6 +1178,7 @@ class PlayerInput {
     const map = PAD_BUTTONS;
     this.padHeld.menuOk = down(0);
     this.padHeld.menuBack = down(1);
+    this.padHeld.menuStart = down(COOP_START_BUTTON); // Start on the Free Fight screen starts the fight
     this.padHeld.menuL1 = down(4); this.padHeld.menuR1 = down(5); this.padHeld.menuL2 = down(6); this.padHeld.menuR2 = down(7); // raw shoulder buttons: creator tabs and preview turn
     let anyButton = false;
     for (const action in map) {
@@ -1337,7 +1353,7 @@ const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
 const Input3 = new PlayerInput(2, null); // co-op only; the keyboard layout of a seat is set by Inputs.applySeats
 const Input4 = new PlayerInput(3, null);
-const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2']; // menu confirm / back, creator tabs (L1 / R1) and turning (L2 / R2): raw pad buttons
+const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2', 'menuStart']; // menu confirm / back, creator tabs (L1 / R1) and turning (L2 / R2): raw pad buttons
 /* Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to. */
 const Inputs = {
   players: [Input, Input2, Input3, Input4],
@@ -1384,7 +1400,7 @@ const Inputs = {
   forFighter(index) {
     const match = Game.match;
     if (match && match.setup) { const slot = match.setup[index]; return slot && slot.human >= 0 ? this.players[slot.human] : null; } // a lineup: the person in that slot reads its own input seat
-    if (this.coop && match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; }
+    if (match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; } // a crowd of 1 or 2 people reads P1 and P2 (solo and Versus plans), 3 or 4 their dealt seats
     if (match && match.cfg.seats) { const seat = match.cfg.seats[index]; return seat >= 0 ? this.players[seat] : null; } // a bracket fight: the person on that seat
     return index === 0 ? Input : this.versus && index === 1 ? Input2 : null;
   },
@@ -1455,14 +1471,20 @@ const Inputs = {
     Events.emit('lobby', { kind: 'leave', seat, device });
     return seat;
   },
-  /* The devices a lineup with 3 or 4 people plays on, in seat order: keyboard 1, then the connected gamepads. */
-  autoDevices(count) {
+  padDevices() {
     const pads = [];
     readPads().forEach((pad, i) => { if (pad && pad.connected) pads.push('pad' + i); });
+    return pads;
+  },
+  /* The devices a lineup with 3 or 4 people plays on, in seat order: only gamepads when there are enough (P1 on the first), else keyboard 1 and the gamepads, else both keyboards and the gamepads (null when they do not suffice). */
+  autoDevices(count) {
+    const pads = this.padDevices();
+    if (pads.length >= count) return pads.slice(0, count);
     if (pads.length >= count - 1) return ['key1'].concat(pads.slice(0, count - 1));
     if (pads.length >= count - 2) return ['key1', 'key2'].concat(pads.slice(0, count - 2));
     return null;
   },
+  missingText(count) { return count + ' players need ' + count + ' gamepads, or ' + (count - 1) + ' and keyboard 1, or ' + (count - 2) + ' and both keyboards (' + this.padDevices().length + ' connected)'; },
   /* Seats those devices in order (the person k of a lineup plays seat k) without a join screen; the co-op mode has to be on. */
   autoSeat(count) {
     const devices = this.coop ? this.autoDevices(count) : null;
@@ -9346,7 +9368,8 @@ const BRAWL_DEFAULT_ENEMIES = 3;
 const COOP_ENEMIES_BASE = 2;          // a co-op brawl faces this many enemies plus one per player (1 player: 3, as the debug brawl; 4 players: BRAWL_MAX_ENEMIES)
 const COOP_REVIVE_HP = 0.5;           // the share of its health a knocked-out player comes back with at a stage start (MatchSim.reviveTeam)
 function coopEnemyCount(players) { return Math.min(BRAWL_MAX_ENEMIES, COOP_ENEMIES_BASE + players); }
-/* Match setup: the lineup of a Free Fight, Versus or Brawl. A lineup is LINEUP_MIN to LINEUP_MAX slots { id, human, team }: id = the roster fighter, human = a person instead of the CPU, team = 0 for a free-for-all slot or 1 to 4 for Team A to D. */
+/* Match setup: the lineup of a Free Fight. A lineup is LINEUP_MIN to LINEUP_MAX slots { id, human, team }: id = the roster fighter, human = a person instead of the CPU, team = 0 for a free-for-all slot or 1 to 4 for Team A to D.
+   With crowd on it is 1 to 4 people on one side against the game's crowd (Co-op); friendlyFire lets a person hurt a teammate. */
 const LINEUP_MAX = 8;                 // 8 fighters in the scene in total (BRAWL_MAX_ENEMIES + 2)
 const LINEUP_MIN = 2;
 const LINEUP_HUMANS_MAX = 4;          // one per input seat (Inputs.players)
@@ -9362,15 +9385,17 @@ const LINEUP_HANDICAP = { // even-teams handicap: the factor on health and on da
 };
 const TEAM_TINTS = 8;                 // colours for teams: Team A to D keep their own, free-for-all slots take the others
 const MatchLineup = {
-  /* Makes a lineup safe in place: 2 to 8 known fighters, the first slot a person, at most 4 people, teams 0 to 4, a known clock. Returns it. */
+  /* Makes a lineup safe in place: 2 to 8 known fighters (a crowd: 1 to 4 people), the first slot a person, at most 4 people, teams 0 to 4, a known clock. Returns it. */
   fix(lineup) {
     if (!Array.isArray(lineup.slots)) lineup.slots = [];
-    lineup.slots.length = Math.min(lineup.slots.length, LINEUP_MAX);
+    const crowd = lineup.crowd = lineup.crowd === true;
+    lineup.friendlyFire = lineup.friendlyFire === true;
+    lineup.slots.length = Math.min(lineup.slots.length, crowd ? LINEUP_HUMANS_MAX : LINEUP_MAX);
     for (let i = 0; i < lineup.slots.length; i++) {
       const slot = lineup.slots[i] || {};
-      lineup.slots[i] = { id: ROSTER_BY_ID[slot.id] ? slot.id : 'kai', human: !!slot.human, team: Number.isInteger(slot.team) && slot.team >= 0 && slot.team <= LINEUP_TEAMS ? slot.team : 0 };
+      lineup.slots[i] = { id: ROSTER_BY_ID[slot.id] ? slot.id : 'kai', human: crowd || !!slot.human, team: !crowd && Number.isInteger(slot.team) && slot.team >= 0 && slot.team <= LINEUP_TEAMS ? slot.team : 0 };
     }
-    while (lineup.slots.length < LINEUP_MIN) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: false, team: 0 });
+    while (lineup.slots.length < (crowd ? 1 : LINEUP_MIN)) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: crowd, team: 0 });
     lineup.slots[0].human = true;
     let people = 0;
     for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; people--; }
@@ -9382,20 +9407,25 @@ const MatchLineup = {
   people(lineup) { return lineup.slots.filter((slot) => slot.human).length; },
   /* The group a slot fights in: its team, or itself for a free-for-all slot. */
   groupKeys(lineup) { return lineup.slots.map((slot, i) => (slot.team > 0 ? 't' + slot.team : 's' + i)); },
-  /* Whether the lineup can be played in this mode ('free', 'versus' or 'brawl'): { ok, msg }. */
-  check(mode, lineup) {
+  /* Whether the lineup can be played: { ok, msg }. */
+  check(lineup) {
     const count = lineup.slots.length, people = this.people(lineup);
+    if (lineup.crowd) return count >= 1 && count <= LINEUP_HUMANS_MAX ? { ok: true, msg: '' } : { ok: false, msg: 'A crowd fight needs 1 to ' + LINEUP_HUMANS_MAX + ' players' };
     if (count < LINEUP_MIN || count > LINEUP_MAX) return { ok: false, msg: 'A match needs 2 to ' + LINEUP_MAX + ' fighters' };
     if (people < 1) return { ok: false, msg: 'A match needs a player' };
-    if (mode === 'versus' && people < 2) return { ok: false, msg: 'Versus needs a second player: set another slot to Player' };
     if (new Set(this.groupKeys(lineup)).size < 2) return { ok: false, msg: 'Everyone is on one team: nobody to fight' };
     return { ok: true, msg: '' };
   },
-  /* True for the plain 1v1 of the mode (Free Fight: a player against the CPU; Versus: two players): those play through the old path, with rounds, the round timer and the Versus score. */
-  plain(mode, lineup) {
+  /* True for the plain 1v1 (a person against a CPU, or two people): those play through the old path, with rounds, the round timer and, for two people, the Versus score. */
+  plain(lineup) {
     const [first, second] = lineup.slots;
-    if (lineup.slots.length !== 2 || !first.human || (first.team > 0 && first.team === second.team)) return false;
-    return mode === 'free' ? !second.human : mode === 'versus' ? second.human : false;
+    return !lineup.crowd && lineup.slots.length === 2 && first.human && !(first.team > 0 && first.team === second.team);
+  },
+  /* The name of the fight type the shape of the lineup has, or 'Custom' (the only rule: crowd, then two fighters, then three or more dealt as players against the CPU). */
+  type(lineup) {
+    if (lineup.crowd) return 'Co-op';
+    if (lineup.slots.length === 2) return this.people(lineup) === 1 ? 'Duel' : 'Versus';
+    return lineup.slots.length > 2 && lineup.deal === 'players' ? 'Brawl' : 'Custom';
   },
   /* Deals the teams of a quick layout: 'ffa' everyone alone, 'players' the people on Team A against the CPU on Team B, '2' / '3' / '4' the slots in turn onto that many teams. */
   deal(lineup, kind) {
@@ -9669,7 +9699,7 @@ class MatchSim {
     if (this.waveRows && (this.cfg.waveKeep > 0 || this.cfg.waveCut > 0)) this.waveRows = MatchSim.shapeWaves(this.waveRows, this.cfg.waveKeep, this.cfg.waveCut); // a story stage plays the first rows of the level's waves only, or a first wave with fewer enemies
     this.wave = 0; this.waveCursor = 0; this.waveQueue = []; this.waveEntered = 0; this.waveDoors = [];
     this.ringedOut = null; // the fighter that left the ring this round
-    this.friendlyFire = !!this.cfg.friendlyFire; // damage between teammates (the co-op setting of P4-07)
+    this.friendlyFire = !!this.cfg.friendlyFire; // damage between teammates (the Free Fight option)
     /* A co-op brawl: cfg.coop is the party, [{ slot, id }] in seat order (slot = the input seat 0 to 3, id = the roster fighter) */
     this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
     this.setup = this.brawl && !this.coop && Array.isArray(this.cfg.slots) && this.cfg.slots.length >= LINEUP_MIN ? this.cfg.slots.slice(0, LINEUP_MAX) : null; // the lineup (MatchLineup.plan) of a Free Fight, Versus or Brawl with teams of its own.
@@ -9829,8 +9859,8 @@ class MatchSim {
   }
 
   /* ----- teams and targets ----- */
-  /* True when att may damage def: another team, or a teammate while the friendly-fire setting is on. */
-  canHurt(att, def) { return att !== def && (att.team !== def.team || (this.friendlyFire && att.team === TEAM_PLAYERS)); } // friendly fire is the players' setting: CPU enemies never hurt each other
+  /* True when att may damage def: another team, or a teammate while Friendly fire is on (a person hurts a teammate, a CPU never does; in a crowd fight the players hurt each other). */
+  canHurt(att, def) { return att !== def && (att.team !== def.team || (this.friendlyFire && (this.coop ? att.team === TEAM_PLAYERS : att.person))); }
   teamAlive(team) {
     for (const f of this.fighters) if (f.team === team && f.alive) return true;
     return false;
@@ -11286,7 +11316,7 @@ const SimRunner = {
     cfg.matchCfg = stage; // the result's config shows what was used
     let lineupCfg = null; // opts.lineup ({ slots: [{ id, team }], handicap }) runs a lineup, every slot a CPU.
     if (opts.lineup) {
-      const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check('brawl', lineup);
+      const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check(lineup);
       if (!check.ok) return { error: check.msg };
       lineup.slots.forEach((slot) => { slot.human = false; }); // fix() made slot 1 a person: here nobody is, so the handicap treats every team alike
       const plan = MatchLineup.plan(lineup, cfg.difficulty);
@@ -11780,6 +11810,7 @@ const GS_TRANSITIONS = {
   RESULTS: ['MENU', 'COUNTDOWN', 'CHARSEL', 'ARENASEL', 'ERROR'],
   ERROR: ['MENU'],
 };
+const FIGHT_TYPES = ['Duel', 'Versus', 'Brawl', 'Co-op']; // the quick starts of Free Fight, see Game.applyType
 const LINEUP_LIVE_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.PAUSED, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS]; // the game states in which a lineup match holds its input seats
 const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];
 const RESULTS_DELAY = 2.6;            // seconds of victory / defeat pose before the results screen
@@ -11813,9 +11844,9 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat (the Tournament seats too)
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat (the Tournament seats too)
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
-  lineups: {},           // the lineup being set up for each mode (free, versus, brawl), made on first use; see lineupFor
+  lineups: {},           // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null,      // P11: the bracket being played (Tournament.draw), or null before the draw and after it is left
   tournamentMatch: null, // the bracket match being fought: { round, index, order } (order = the entrants in fighter order, people first); null on the bracket screen
   tournamentTwoPlayers: false, // the fight being fought has two people in it (without seats they share the keyboard and the pads like Versus)
@@ -11848,17 +11879,19 @@ const Game = {
     if (people > 2 && Inputs.coop && Inputs.seatedSlots().length !== people) Inputs.autoSeat(people);
   },
 
-  /* How many people play the running lineup, or 0 when no lineup is running. */
+  /* How many people play the running lineup or crowd fight, or 0 when none is running. */
   lineupPeople() {
     const cfg = this.config;
-    return cfg && cfg.slots && LINEUP_LIVE_STATES.includes(this.state) ? cfg.humans : 0;
+    if (!cfg || !LINEUP_LIVE_STATES.includes(this.state)) return 0;
+    return cfg.slots ? cfg.humans : cfg.coop ? cfg.coop.length : 0;
   },
   /* Who reads which device: 'solo' (P1 on everything), 'versus' (P1 and P2 share the keyboard and the pads) or 'coop' (one device per seat). */
   inputPlan() {
     const people = this.lineupPeople();
     if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
     if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo'; // the join screen seats the devices and a bracket that was drawn there keeps them (each person reads their own seat)
-    return this.selection.mode === 'versus' ? 'versus' : this.selection.mode === 'coop' ? 'coop' : 'solo';
+    const cfg = this.config;
+    return this.selection.mode === 'free' && cfg && cfg.mode === 'versus' && LINEUP_LIVE_STATES.includes(this.state) ? 'versus' : 'solo'; // the setup screens are solo: every device drives the menus as P1
   },
 
   /* ----- menu flow ----- */
@@ -11868,7 +11901,7 @@ const Game = {
     this.tournament = null;
     this.tournamentSeats = false;
     this.tournamentResume = null;
-    if (mode === 'versus') this.versus = { score: [0, 0] };
+    if (mode === 'free') this.versus = { score: [0, 0] }; // a new Versus session score each time Free Fight is entered from the mode list
     this.ensureSelection();
     this.go(GS.CHARSEL);
   },
@@ -11877,7 +11910,6 @@ const Game = {
     const sel = this.selection;
     if (!ROSTER_BY_ID[sel.player]) sel.player = 'kai';
     if (!ROSTER_BY_ID[sel.opponent]) sel.opponent = sel.player === 'mara' ? 'kai' : 'mara';
-    if (!ROSTER_BY_ID[sel.player2]) sel.player2 = 'mara';
     if (!Array.isArray(sel.party)) sel.party = [];
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) if (!ROSTER_BY_ID[sel.party[seat]]) sel.party[seat] = DEFAULT_UNLOCKED[seat];
     if (!TOURNAMENT_SIZES.includes(sel.tournamentSize)) sel.tournamentSize = TOURNAMENT_SIZES[0];
@@ -11890,11 +11922,7 @@ const Game = {
     if (sel.mode === 'arcade') this.startArcade();
     else if (sel.mode === 'survival') this.startSurvival();
     else if (sel.mode === 'training') this.startTraining();
-    else if (sel.mode === 'versus') { if (this.lineupPlain('versus')) this.startVersus(); else this.startLineup('versus'); }
-    else if (sel.mode === 'coop') this.startCoop();
-    else if (sel.mode === 'brawl') this.startLineup('brawl');
-    else if (this.lineupPlain('free')) this.startFree();
-    else this.startLineup('free');
+    else this.startFree();
   },
   /* The fighters that have a rank, weakest first (the six of the 1.0 roster, ZERO last): the default Training opponent. */
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId && r.rank !== undefined).sort((x, y) => x.rank - y.rank); },
@@ -12016,25 +12044,15 @@ const Game = {
     this.run = { mode: 'training', player: sel.player };
     this.beginMatch({ mode: 'training', playerId: sel.player, opponentId: this.selection.opponent && this.selection.opponent !== sel.player ? this.selection.opponent : opp.id, arenaId: sel.arena, difficulty: 'normal', winsNeeded: 99, timer: 0, countdown: false, dummy: 'stand' });
   },
+  /* Free Fight: the lineup as set up on the Free Fight screens, as a plain 1v1 (Duel, Versus), a crowd fight (Co-op) or one fight with teams (Brawl and the rest). False, with a toast, when it cannot start. */
   startFree() {
-    const sel = this.selection;
-    this.run = { mode: 'free', player: sel.player };
-    this.beginMatch({ mode: 'free', playerId: sel.player, opponentId: sel.opponent, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer });
-  },
-  startVersus() {
-    const sel = this.selection;
-    if (!this.versus) this.versus = { score: [0, 0] };
-    this.run = { mode: 'versus', player: sel.player };
-    this.beginMatch({ mode: 'versus', playerId: sel.player, opponentId: sel.player2, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer });
-  },
-
-  /* Co-op brawl: the seated players (Inputs.seats; each plays its pick in selection.party) against coopEnemyCount CPU enemies, friendly fire from the setting. Returns false when nobody has joined. */
-  startCoop() {
-    const sel = this.selection;
-    const party = Inputs.seatedSlots().map((slot) => ({ slot, id: sel.party[slot] }));
-    if (!party.length) return false;
-    this.run = { mode: 'coop', player: party[0].id };
-    this.beginMatch({ mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves });
+    const problem = this.lineupProblem();
+    if (problem) { Events.emit('toast', { msg: problem, kind: 'warn' }); return false; }
+    this.saveSetup();
+    const { run, cfg } = this.freeConfig();
+    if (run === 'versus' && !this.versus) this.versus = { score: [0, 0] };
+    this.run = { mode: run, player: cfg.playerId };
+    this.beginMatch(cfg);
     return true;
   },
 
@@ -12238,54 +12256,78 @@ const Game = {
   },
 
   /* ----- match setup ----- */
-  /* The lineup of a mode ('free', 'versus', 'brawl'), made on first use from the selected fighters: Free Fight a player against the CPU, Versus two players, Brawl a player on Team A against three CPU on Team B. */
-  lineupFor(mode) {
-    const sel = this.selection;
-    let lineup = this.lineups[mode];
-    if (!lineup) {
-      const rivals = ROSTER.filter((r) => r.id !== sel.player).slice(0, 3).map((r) => r.id);
-      const slots = mode === 'versus' ? [{ id: sel.player, human: true, team: 0 }, { id: sel.player2, human: true, team: 0 }]
-        : mode === 'brawl' ? [{ id: sel.player, human: true, team: 1 }].concat(rivals.map((id) => ({ id, human: false, team: 2 })))
-          : [{ id: sel.player, human: true, team: 0 }, { id: sel.opponent, human: false, team: 0 }];
-      lineup = this.lineups[mode] = MatchLineup.fix({ slots, timer: 0, handicap: true, deal: mode === 'brawl' ? 'players' : 'ffa' });
-    }
-    return lineup;
+  /* The Free Fight lineup, made on first use from the saved setup or, without one, a Duel of the selected fighters. */
+  lineupFor() {
+    if (!this.lineups.free) this.lineups.free = this.loadSetup();
+    return this.lineups.free;
   },
-  /* True when the mode plays its old way: no lineup was opened, or it is still the plain 1v1 of the mode (rounds, round timer, Versus score). */
-  lineupPlain(mode) {
-    const lineup = this.lineups[mode];
-    return !lineup || MatchLineup.plain(mode, lineup);
+  /* Reads the saved setup (Setups, kept as saved until now because a custom fighter is only known after CustomRoster.init) field by field: whatever is missing, unknown, hostile or out of range falls back to the default. A person's fighter must be open, a deleted one is replaced. */
+  loadSetup() {
+    const sel = this.selection, saved = Setups.d && Setups.d.v === 1 && Setups.d.freeFight && typeof Setups.d.freeFight === 'object' ? Setups.d.freeFight : {};
+    const crowd = saved.crowd === true, open = (this.coopRoster()[0] || ROSTER[0]).id;
+    const slots = (Array.isArray(saved.slots) ? saved.slots : []).slice(0, LINEUP_MAX).map((slot, i) => {
+      const entry = slot && typeof slot === 'object' ? slot : {}, human = i === 0 || crowd || entry.human === true;
+      return { id: ROSTER_BY_ID[entry.id] && (!human || Progress.isUnlocked(entry.id)) ? entry.id : human ? open : 'mara', human, team: entry.team };
+    });
+    const fresh = slots.length === 0;
+    if (fresh) slots.push({ id: ROSTER_BY_ID[sel.player] ? sel.player : 'kai', human: true, team: 0 }, { id: ROSTER_BY_ID[sel.opponent] ? sel.opponent : 'mara', human: false, team: 0 });
+    if ([1, 2, 3].includes(saved.rounds)) sel.rounds = saved.rounds;
+    if ([30, 60, 90, 0].includes(saved.roundTimer)) sel.timer = saved.roundTimer;
+    if (Object.hasOwn(ARENAS, saved.arena)) sel.arena = saved.arena;
+    if (DIFFICULTY_ORDER.includes(saved.difficulty)) sel.difficulty = saved.difficulty;
+    return MatchLineup.fix({ slots, crowd: fresh ? false : crowd, deal: fresh ? 'ffa' : saved.deal, handicap: saved.handicap, timer: saved.clock, friendlyFire: saved.friendlyFire });
   },
-  /* The picks of the fighter cards (yours, the Free Fight opponent, Versus's second fighter) and slots 1 and 2 of the lineup stay the same fighters: a pick on a card writes into the lineup if there is one (this),
-     and leaving the lineup screen writes its first two slots back (lineupToSelection). Starting a match changes neither. */
-  lineupFromSelection(mode) {
-    const sel = this.selection, lineup = this.lineups[mode];
+  /* Writes the Free Fight setup (when the first screen is left to start a fight or to go back); fields this build does not know are kept. */
+  saveSetup() {
+    const lineup = this.lineups.free, sel = this.selection;
     if (!lineup) return;
-    if (ROSTER_BY_ID[sel.player]) lineup.slots[0].id = sel.player;
-    if (mode === 'free' && ROSTER_BY_ID[sel.opponent]) lineup.slots[1].id = sel.opponent;
-    if (mode === 'versus' && ROSTER_BY_ID[sel.player2]) lineup.slots[1].id = sel.player2;
+    const old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
+    Setups.d = Object.assign({}, old, { v: 1, freeFight: Object.assign({}, old.freeFight, {
+      type: MatchLineup.type(lineup), crowd: lineup.crowd, slots: lineup.slots.map((slot) => ({ id: slot.id, human: slot.human, team: slot.team })), deal: lineup.deal, handicap: lineup.handicap, clock: lineup.timer,
+      rounds: sel.rounds, roundTimer: sel.timer, arena: sel.arena, difficulty: sel.difficulty, friendlyFire: lineup.friendlyFire,
+    }) });
+    Setups.save();
   },
-  lineupToSelection(mode) {
-    const sel = this.selection, lineup = this.lineups[mode];
-    if (!lineup) return;
-    sel.player = lineup.slots[0].id;
-    if (mode === 'free') sel.opponent = lineup.slots[1].id;
-    if (mode === 'versus') sel.player2 = lineup.slots[1].id;
+  /* Sets the whole lineup to a fight type (FIGHT_TYPES): the slots, the deal and the crowd flag. Kept: the fighters the slots had, Level, Difficulty, Rounds, both time limits, Even teams and Friendly fire. */
+  applyType(type) {
+    const lineup = this.lineupFor(), kept = lineup.slots.map((slot) => slot.id), used = [];
+    const people = type === 'Versus' ? 2 : type === 'Co-op' ? (Input.lastDevice === 'touch' ? 1 : 2) : 1; // a phone seats one person
+    const count = type === 'Brawl' ? 4 : type === 'Co-op' ? people : 2;
+    lineup.slots = Array.from({ length: count }, (_, i) => {
+      const human = i < people, pool = human ? this.coopRoster() : ROSTER.concat(CustomRoster.profiles());
+      const id = ROSTER_BY_ID[kept[i]] && (!human || Progress.isUnlocked(kept[i])) ? kept[i] : pool.find((r) => !used.includes(r.id)).id;
+      used.push(id);
+      return { id, human, team: 0 };
+    });
+    lineup.crowd = type === 'Co-op';
+    MatchLineup.deal(lineup, type === 'Brawl' ? 'players' : 'ffa');
+    MatchLineup.fix(lineup);
   },
-  /* Why the lineup of a mode cannot start, or '' (too few or too many fighters, nobody to fight, Versus without a second player, 3 or 4 players without enough gamepads). */
-  lineupProblem(mode) {
-    const lineup = MatchLineup.fix(this.lineupFor(mode)), check = MatchLineup.check(mode, lineup), people = MatchLineup.people(lineup);
+  /* The first two slots stay the picks of the other modes (selection.player and opponent). */
+  lineupToSelection() {
+    const sel = this.selection, slots = this.lineupFor().slots;
+    sel.player = slots[0].id;
+    if (slots[1]) sel.opponent = slots[1].id;
+  },
+  /* Why the Free Fight setup cannot start, or '' (too few or too many fighters, nobody to fight, 3 or 4 people without enough devices). */
+  lineupProblem() {
+    const lineup = MatchLineup.fix(this.lineupFor()), check = MatchLineup.check(lineup), people = MatchLineup.people(lineup);
     if (!check.ok) return check.msg;
-    return people > 2 && !Inputs.autoDevices(people) ? people + ' players need ' + (people - 2) + ' or more gamepads connected' : '';
+    return people > 2 && !Inputs.autoDevices(people) ? Inputs.missingText(people) : '';
   },
-  /* Starts the lineup of a mode as one fight (a brawl: no rounds) with its own teams. */
-  startLineup(mode) {
-    const sel = this.selection, lineup = MatchLineup.fix(this.lineupFor(mode)), problem = this.lineupProblem(mode); // the lineup keeps its own picks: pickFighter and the opponent cards write into it (lineupFromSelection)
-    if (problem) { Events.emit('toast', { msg: problem, kind: 'warn' }); return false; }
+  /* The Free Fight setup as the config of one match (the Tournament bout and an online host build the same one): { run: the run mode, cfg }. The plain 1v1 (Duel, Versus) and the crowd (Co-op) keep their own paths and fingerprints; every other lineup is one fight with teams. */
+  freeConfig() {
+    const sel = this.selection, lineup = MatchLineup.fix(this.lineupFor()), [first, second] = lineup.slots;
+    if (lineup.crowd) {
+      const party = lineup.slots.map((slot, k) => ({ slot: k, id: slot.id }));
+      return { run: 'coop', cfg: { mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves, friendlyFire: lineup.friendlyFire } };
+    }
+    if (MatchLineup.plain(lineup)) {
+      if (second.human) return { run: 'versus', cfg: { mode: 'versus', playerId: first.id, opponentId: second.id, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer } };
+      return { run: 'free', cfg: { mode: 'free', playerId: first.id, opponentId: second.id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer } };
+    }
     const plan = MatchLineup.plan(lineup, sel.difficulty);
-    this.run = { mode: 'lineup', player: plan.slots[0].id };
-    this.beginMatch({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: mode, playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer });
-    return true;
+    return { run: 'lineup', cfg: { mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'free', playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer, friendlyFire: lineup.friendlyFire } };
   },
 
   /* P4-01 debug entry (URL flag ?brawl=N, BREAKPOINT.brawl(N)): the selected fighter against N CPU enemies (a count or a list of fighter ids, at most
@@ -12308,7 +12350,6 @@ const Game = {
       if (cfg.ring === undefined) cfg.ring = cfg.ringOut && !!(ARENAS[cfg.arenaId] || ARENAS.warehouse).ring[4];
       if (cfg.sides === undefined) cfg.sides = cfg.mode !== 'training'; // the first fighter's start side is drawn per match and swapped every round (P9 seat balance), in a ring or not
     }
-    if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire; // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
     this.match = new MatchSim(cfg);
     this.acc = 0;
@@ -12404,13 +12445,14 @@ const Game = {
   },
   /* the grade of a won fight, from its stats only (it needs no input and changes nothing in the fight) */
   gradeResults(data, run) {
-    const gradeMode = data.mode === 'lineup' ? data.setupMode : data.mode; // a menu Brawl or Free Fight runs as a lineup and grades as that mode.
+    const gradeMode = data.mode === 'lineup' || data.mode === 'coop' ? 'free' : data.mode; // a Free Fight with teams or a crowd runs as a lineup or a crowd fight and grades as Free Fight
     if (!GRADE_MODES.includes(gradeMode) || gradeMode === 'tournament' || !data.playerWon) return; // a bracket fight is graded in finishTournamentMatch: the run grade is saved with the title
+    if (data.mode === 'lineup' && data.lineup.every((fighter) => fighter.seat >= 0)) return; // only people: nobody to beat, no grade
     data.gradeMode = gradeMode;
-    if (gradeMode === 'coop') {
+    if (data.mode === 'coop') {
       data.grades = data.players.map((member) => fightGrade(gradeInputs(data, member.stats, member.maxHp))); // a grade per player column
       data.grade = data.grades.reduce((best, grade) => (grade.score > best.score ? grade : best));
-      Progress.saveGrade('coop', data.grade.letter);
+      Progress.saveGrade('free', data.grade.letter);
       return;
     }
     data.grade = fightGrade(gradeInputs(data, data.stats[0], data.playerMaxHp));
@@ -13199,7 +13241,7 @@ const UI = {
   },
   speaker(index) { // Versus and co-op announcements say whose they are
     const m = Game.match;
-    if (Inputs.coop && m && m.coop && m.partySize > 1 && m.coop[index]) return 'P' + (m.coop[index].slot + 1) + ': ';
+    if (m && m.coop) return m.partySize > 1 && m.coop[index] ? 'P' + (m.coop[index].slot + 1) + ': ' : '';
     if (m && m.setup) return m.setup[index] && m.setup[index].human >= 0 && m.personFighters.length > 1 ? 'P' + (m.setup[index].human + 1) + ': ' : '';
     return Inputs.versus ? 'P' + (index + 1) + ': ' : '';
   },
@@ -15690,7 +15732,7 @@ function testApi() {
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, ITEM_BREAK_HEIGHT, POSE_SCRATCH, FREE_SET, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
-  LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
+  FIGHT_TYPES, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, GRAVITY, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
@@ -15916,7 +15958,7 @@ async function boot() {
     status('Checking browser features...', 0.05); await nextFrame();
     checkFeatures();
     status('Loading settings...', 0.2); await nextFrame();
-    Store.init(); Settings.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init();
+    Store.init(); Settings.init(); Setups.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init();
     status('Creating renderer...', 0.4); await nextFrame();
     if (!R.init($('view'))) { UI.dom.fatal = $('fatal'); fatalStartup(R.error + ' BREAKPOINT needs WebGL 2 (current Chrome, Edge, Firefox or Safari 15+) with hardware acceleration enabled.' + (Device.ios ? ' On iPhone and iPad, update to iOS 15 or later; if it is still off, turn on WebGL 2.0 under Safari > Advanced > Feature Flags in the Settings app.' : '')); return; }
     R.resize(); Quality.apply();
