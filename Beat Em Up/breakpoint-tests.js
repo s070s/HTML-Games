@@ -8,7 +8,7 @@ window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
-  ARCADE_ARENAS, ARCADE_LEVELS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
+  ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
@@ -31,7 +31,7 @@ const {
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
-  VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, arcadeDifficulty, attrCost, attrTotal, canSetAttr,
+  VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost, attrTotal, canSetAttr,
   canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom, defaultDefense,
   deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url, handScale,
   hasUnlockRule, headbandSize, hexToHsl, isBlockState, keyLabel, makeIntent, makeMotion, moveStyleFor, presetBuild, randomBody,
@@ -2597,7 +2597,7 @@ const SelfTest = {
       restoreProgress(saved);
       return lap && late ? true : JSON.stringify({ seen, lap, late });
     });
-    /* P10-06: Arcade is the 7-stage story run, so the old five-bout ramp of arcadeDifficulty is gone from the mode: the Arcade difficulty option is the difficulty of every stage. */
+    /* P10-06: Arcade is the 7-stage story run, so the old five-bout ramp is gone from the mode: the Arcade difficulty option is the difficulty of every stage. */
     test('Arcade: the difficulty option is every stage\'s difficulty, retries count continues, a clear offers Play again', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
       const saved = keepProgress(), scenes = Settings.v.storyScenes;
@@ -2871,7 +2871,7 @@ const SelfTest = {
       const totals = ROSTER.filter((r) => r.id !== 'zero').map((r) => attrTotal(r.attrs));
       const band = Math.min(...totals) === POINT_BUDGET && Math.max(...totals) - Math.min(...totals) <= 2;
       const zero = attrTotal(ROSTER_BY_ID.zero.attrs);
-      const bosses = ARCADE_LEVELS.map((level) => attrTotal(ROSTER_BY_ID.zero.bossAttrs[level]));
+      const bosses = ['easy', 'normal', 'hard'].map((level) => attrTotal(ROSTER_BY_ID.zero.bossAttrs[level]));
       const playable = zero >= POINT_BUDGET && zero <= POINT_BUDGET + 2 && bosses.every((total, i) => total > zero && (i === 0 || total >= bosses[i - 1]));
       const arcade = mk({ mode: 'arcade', opponentId: 'zero', arcadeLevel: 'hard' }), arcadeTotal = attrTotal(arcade.fighters[1].stats.attrs);
       arcade.dispose();
@@ -2884,7 +2884,7 @@ const SelfTest = {
       const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
-        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed, items: false, hazards: false }));   // a balance measure of the bare-handed boss in a bare arena: items and hazards (P7) change who wins it
+        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: 'expert', arcadeLevel: 'normal', seed, items: false, hazards: false }));   // a balance measure of the bare-handed boss in a bare arena: items and hazards (P7) change who wins it
         m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
         for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
         if (m.matchWinner === 0) wins++;
@@ -10676,7 +10676,7 @@ const SelfTest = {
     }));
     test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out setting is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
       const bad = [], fights = [];
-      Game.selection.difficulty = 'hard';
+      Game.selection.tournamentLevel = 'hard';
       Game.startTournament(KAI_MARA, 9);
       const t = Game.tournament;
       for (let guard = 0; guard < 16 && Tournament.champion(t) < 0; guard++) {
@@ -10709,7 +10709,7 @@ const SelfTest = {
       try {
         for (const ringOut of [false, true]) {
           Settings.v.ringOut = ringOut;
-          Game.selection.difficulty = 'hard';
+          Game.selection.tournamentLevel = 'hard';
           Game.startTournament(KAI_MARA, 9);
           const before = Game.match;
           continueBracket();   // plays the CPU fights up to the first person's fight, then starts it
@@ -11792,7 +11792,7 @@ const SelfTest = {
       if (!flow.expect('coop', 'Tournament') || Game.state !== GS.CHARSEL || !flow.acts().includes('coopStart') || !flow.acts().includes('back')) return 'the Tournament join screen: ' + flow.screen() + ' ' + flow.acts();
       for (let tap = 0; tap < 2; tap++) flow.items.find((el) => el.attrs['data-local'] === 'tsize').click();   // two taps on the Entrants row
       if (Game.selection.tournamentSize !== 8) return 'Entrants did not come round to 8 again: ' + Game.selection.tournamentSize;
-      flow.press('coopdiff');
+      flow.items.find((el) => el.attrs['data-local'] === 'diff').click();   // a tap on Difficulty
       flow.press('coopStart');
       if (!flow.expect('char', 'Choose fighters') || Game.tournament) return 'Choose fighters: ' + flow.screen();
       const locked = ROSTER.find((r) => !Progress.isUnlocked(r.id));
@@ -12159,7 +12159,7 @@ const SelfTest = {
       return flow.expect('bracket', 'Replace, of two') && Tournament.alive(Game.tournament).length === 2 && flow.problems.length === 0 ? true : flow.problems[0] || 'Replace, of two, did not draw: ' + flow.screen();
     }));
     /* The join screens, reached by the devices alone: the keys and a gamepad (joined or not) move the focus to every row and change the rows, and the lobby keeps its own meaning for the same buttons. */
-    test('Mode flows (P18-40): on the Tournament join screen the arrow keys and a gamepad, joined or not, reach every row and change Entrants and the CPU level, and A, B and Start still join, leave and go on', () => withFlow([fakePad('a')], (flow, pads) => {
+    test('Mode flows (P18-40): on the Tournament join screen the arrow keys and a gamepad, joined or not, reach every row and change Entrants and Difficulty, and A, B and Start still join, leave and go on', () => withFlow([fakePad('a')], (flow, pads) => {
       Game.selection.party = ['kai', 'mara', 'brutus', 'yuki'];
       const pad = pads[0], on = (name) => (el) => el.attrs['data-act'] === name || el.attrs['data-local'] === name;
       flowEnter(flow, 'tournament');
@@ -12173,15 +12173,15 @@ const SelfTest = {
       if (Game.selection.tournamentSize !== 16) return 'the right arrow key did not change Entrants: ' + Game.selection.tournamentSize;
       UI.onKey(keyEvent('ArrowLeft'));
       if (Game.selection.tournamentSize !== 8) return 'the left arrow key did not change Entrants back: ' + Game.selection.tournamentSize;
-      if (!flow.focusOn(on('coopdiff'))) return 'the focus never reached the CPU level';
-      const level = Game.selection.difficulty;
+      if (!flow.focusOn(on('diff'))) return 'the focus never reached Difficulty';
+      const level = Game.selection.tournamentLevel;
       flow.padTap(pad, 'right');
-      if (Game.selection.difficulty === level || Inputs.seatedSlots().length) return 'right on a gamepad that has not joined did not change the CPU level';
+      if (Game.selection.tournamentLevel === level || Inputs.seatedSlots().length) return 'right on a gamepad that has not joined did not change Difficulty';
       flow.padTap(pad, 'left');
-      if (Game.selection.difficulty !== level) return 'left did not change the CPU level back';
+      if (Game.selection.tournamentLevel !== level) return 'left did not change Difficulty back';
       UI.guardUntil = 0; UI.onKey(keyEvent('Enter'));
-      if (Game.selection.difficulty === level) return 'Enter did not change the CPU level';
-      Game.selection.difficulty = level;
+      if (Game.selection.tournamentLevel === level) return 'Enter did not change Difficulty';
+      Game.selection.tournamentLevel = level;
       flow.padTap(pad, 'a');   // joins
       if (Inputs.seatedSlots().join() !== '0') return 'A on a gamepad did not join: ' + Inputs.seatedSlots();
       if (!flow.focusOn(on('tsize'))) return 'the focus never reached the Entrants row of a joined gamepad';
@@ -14651,6 +14651,121 @@ const SelfTest = {
         return bad.length ? bad.slice(0, 4).join('; ') : true;
       });
     });
+    /* ---------- Difficulty everywhere (P18-05) ---------- */
+    /* One row named "Difficulty" on the first screen of Arcade, Survival, Free Fight and Tournament, saved per mode; Survival's ramp is shifted by it. keepLevels puts the selection, the saved setups and the screen redraw back. */
+    const LEVELS = ['easy', 'normal', 'hard', 'expert'], LEVEL_FIELDS = { arcade: 'arcadeLevel', survival: 'survivalLevel', tournament: 'tournamentLevel', free: 'difficulty' };
+    const keepLevels = (body) => {
+      const sel = Game.selection, keep = { sel: Object.assign({}, sel), setups: Setups.d, lineups: Game.lineups, rerender: UI.rerender, resume: Game.tournamentResume };
+      UI.rerender = () => {};
+      try { return body(sel); } finally { UI.rerender = keep.rerender; Object.assign(sel, keep.sel); Setups.d = keep.setups; Game.lineups = keep.lineups; Game.tournamentResume = keep.resume; }
+    };
+    test('Difficulty everywhere (P18-05): Arcade, Survival, Free Fight and Tournament show the same row named Difficulty on their first screen - above the fighters on the fighter screen - Training has none, and no old name is left', () => keepLevels((sel) => {
+      const bad = [], row = /<div class="opt" role="spinbutton" tabindex="0" aria-label="Difficulty" [^>]*data-nav data-local="diff">/g;
+      const shows = (label, html, firstCard) => {
+        if ((html.match(row) || []).length !== 1) bad.push(label + ': ' + (html.match(row) || []).length + ' Difficulty rows');
+        if (/Arcade difficulty|CPU level|coopdiff|Difficulty:/.test(html)) bad.push(label + ' still has an old name');
+        if (firstCard && html.indexOf('data-local="diff"') > html.indexOf(firstCard)) bad.push(label + ': Difficulty comes after the fighters');
+      };
+      Game.tournamentResume = null;
+      sel.mode = 'arcade'; shows('Arcade', UI.screen_char(), 'class="card create"');
+      sel.mode = 'survival'; shows('Survival', UI.screen_char(), 'class="card create"');
+      sel.mode = 'training'; if (UI.screen_char().includes('Difficulty')) bad.push('Training has a Difficulty row');
+      sel.mode = 'tournament'; shows('Tournament', UI.screen_coop());
+      sel.mode = 'free'; Game.lineups = {}; Setups.d = null; shows('Free Fight', UI.screen_freefight());
+      Game.applyType('Versus');
+      if (UI.screen_freefight().includes('data-local="diff"') || !UI.screen_freefight().includes('Not used: no CPU fighter')) bad.push('a lineup with no CPU still offers Difficulty');
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Difficulty everywhere (P18-05): each mode keeps its own Difficulty - the row steps Easy, Normal, Hard, Expert and round, saves it under setups.<mode>.difficulty beside the Free Fight setup, and the next start-up reads it back', () => keepLevels((sel) => {
+      const bad = [], steps = { arcade: 2, survival: 3, tournament: 1 };
+      Setups.d = { v: 1, freeFight: { difficulty: 'hard', rounds: 3 } };
+      for (const field of Object.values(LEVEL_FIELDS)) sel[field] = 'easy';
+      for (const mode in steps) {
+        sel.mode = mode;
+        for (let step = 0; step < steps[mode]; step++) UI.changeLocal('diff', 1);
+      }
+      sel.mode = 'free'; UI.changeLocal('diff', 1);
+      const want = { arcadeLevel: 'hard', survivalLevel: 'expert', tournamentLevel: 'normal', difficulty: 'normal' };
+      for (const field in want) if (sel[field] !== want[field]) bad.push(field + ' is ' + sel[field]);
+      sel.mode = 'survival'; UI.changeLocal('diff', 1); UI.changeLocal('diff', -1);
+      if (sel.survivalLevel !== 'expert') bad.push('left did not undo right');
+      UI.changeLocal('diff', 1);
+      if (sel.survivalLevel !== 'easy') bad.push('Expert did not come round to Easy');
+      UI.changeLocal('diff', -1);
+      const saved = JSON.parse(Store.get(KEY_SETUPS));
+      if (saved.v !== 1 || saved.arcade.difficulty !== 'hard' || saved.survival.difficulty !== 'expert' || saved.tournament.difficulty !== 'normal' || saved.freeFight.difficulty !== 'hard' || saved.freeFight.rounds !== 3) bad.push('saved ' + Store.get(KEY_SETUPS));
+      for (const mode in steps) sel[LEVEL_FIELDS[mode]] = 'easy';
+      Setups.init(); Game.loadLevels();
+      if (sel.arcadeLevel !== 'hard' || sel.survivalLevel !== 'expert' || sel.tournamentLevel !== 'normal') bad.push('not read back: ' + sel.arcadeLevel + ' ' + sel.survivalLevel + ' ' + sel.tournamentLevel);
+      Game.lineups = {}; Game.lineupFor();
+      if (sel.difficulty !== 'hard') bad.push('Free Fight lost its saved Difficulty: ' + sel.difficulty);
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Difficulty everywhere (P18-05): old, missing and damaged saves load - a save with only the Free Fight setup leaves the other modes on Easy, a wrong value, a wrong version or a non-object is ignored field by field', () => keepLevels((sel) => {
+      const bad = [], readAll = () => ['arcadeLevel', 'survivalLevel', 'tournamentLevel'].map((field) => sel[field]).join();
+      const tries = [[{ v: 1, freeFight: { difficulty: 'expert' } }, 'easy,easy,easy'], [null, 'easy,easy,easy'], [{ v: 2, arcade: { difficulty: 'hard' } }, 'easy,easy,easy'], [{ v: 1, arcade: { difficulty: 'impossible' }, survival: 'hard', tournament: null }, 'easy,easy,easy'],
+        [['hard'], 'easy,easy,easy'], [{ v: 1, arcade: { difficulty: 'expert' }, survival: { difficulty: 'normal' }, tournament: { difficulty: 7 } }, 'expert,normal,easy']];
+      for (const [data, expected] of tries) {
+        for (const field of ['arcadeLevel', 'survivalLevel', 'tournamentLevel']) sel[field] = 'easy';
+        Setups.d = data;
+        try { Game.loadLevels(); } catch (error) { bad.push(JSON.stringify(data) + ' threw ' + error.message); }
+        if (readAll() !== expected) bad.push(JSON.stringify(data) + ' gave ' + readAll());
+      }
+      Setups.d = { v: 1, arcade: 'junk' }; sel.mode = 'arcade'; sel.arcadeLevel = 'normal';
+      try { Game.saveLevel(); } catch (error) { bad.push('saving over a damaged entry threw ' + error.message); }
+      if (JSON.stringify(JSON.parse(Store.get(KEY_SETUPS)).arcade) !== '{"difficulty":"normal"}') bad.push('a damaged entry was not saved over cleanly: ' + JSON.stringify(JSON.parse(Store.get(KEY_SETUPS)).arcade));
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Difficulty everywhere (P18-05): Survival Difficulty shifts the ramp - Easy is the old ramp exactly, each step up starts one rung higher and stops at Expert, and the run keeps its level', () => keepLevels((sel) => {
+      const keep = { begin: Game.beginMatch, run: Game.run }, bad = [], wins = [0, 1, 2, 3, 4, 6, 7, 12];
+      const expected = { easy: 'easy,easy,normal,normal,hard,hard,expert,expert', normal: 'normal,normal,hard,hard,expert,expert,expert,expert', hard: 'hard,hard,expert,expert,expert,expert,expert,expert', expert: 'expert,expert,expert,expert,expert,expert,expert,expert' };
+      let cfg = null;
+      Game.beginMatch = (made) => { cfg = made; };
+      try {
+        for (const level of LEVELS) {
+          sel.survivalLevel = level; Game.startSurvival();
+          const seen = wins.map((kills) => { Game.run.kills = kills; Game.nextSurvivalMatch(); return cfg.difficulty; });
+          if (seen.join() !== expected[level] || Game.run.level !== level) bad.push(level + ': ' + seen);
+        }
+      } finally { Game.beginMatch = keep.begin; Game.run = keep.run; }
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Difficulty everywhere (P18-05): Arcade offers Expert too - every stage plays at the chosen level, a saved run keeps it, and ZERO fights with the Hard build at Expert', () => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.kai, 2, 'expert', 4), bossTotal = (level) => { const m = mk({ mode: 'arcade', opponentId: 'zero', arcadeLevel: level }), total = attrTotal(m.fighters[1].stats.attrs); m.dispose(); return total; };
+      for (let n = 1; n <= STORY_STAGES; n++) { const cfg = Story.cfg(run, n); if (cfg.difficulty !== 'expert' || cfg.arcadeLevel !== 'expert') bad.push('stage ' + n + ' plays at ' + cfg.difficulty); }
+      const back = Story.restore(Story.pack(run, []));
+      if (!back || back.level !== 'expert') bad.push('a saved Expert run lost its level');
+      if (bossTotal('expert') !== bossTotal('hard') || bossTotal('hard') <= bossTotal('normal')) bad.push('ZERO at Expert: ' + bossTotal('expert') + ' / hard ' + bossTotal('hard'));
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Difficulty everywhere (P18-05): the Tournament draw uses the Tournament Difficulty, not the Free Fight one', () => keepLevels((sel) => {
+      const keep = Game.playTournament;
+      let drawn = null;
+      Game.playTournament = (bracket) => { drawn = bracket; };
+      try { sel.difficulty = 'easy'; sel.tournamentLevel = 'expert'; Game.startTournament(KAI_MARA, 9); } finally { Game.playTournament = keep; }
+      return drawn && drawn.difficulty === 'expert' ? true : 'the bracket was drawn at ' + (drawn && drawn.difficulty);
+    }));
+    test('Difficulty everywhere (P18-05): on the Arcade and Survival fighter screens the Difficulty row is reached by the arrow keys and a gamepad and stepped by an arrow key, the gamepad, Enter and a tap, and each step is saved', () => withFlow([fakePad('a')], (flow, pads) => {
+      const pad = pads[0], bad = [], isRow = (el) => el.attrs['data-local'] === 'diff', keepSetups = Setups.d;
+      try { for (const mode of ['arcade', 'survival']) {
+        const field = LEVEL_FIELDS[mode];
+        Game.selection[field] = 'easy';
+        if (UI.current === 'main') flowEnter(flow, mode); else flow.press('mode:' + mode);
+        if (!flow.expect('char', mode) || !flow.focusOn(isRow)) return mode + ': the focus never reached Difficulty';
+        UI.guardUntil = 0; UI.onKey(keyEvent('ArrowRight'));
+        if (Game.selection[field] !== 'normal') bad.push(mode + ': the right arrow key gave ' + Game.selection[field]);
+        flow.padTap(pad, 'right');
+        if (Game.selection[field] !== 'hard') bad.push(mode + ': the gamepad gave ' + Game.selection[field]);
+        UI.guardUntil = 0; UI.onKey(keyEvent('Enter'));
+        if (Game.selection[field] !== 'expert') bad.push(mode + ': Enter gave ' + Game.selection[field]);
+        flow.items.find(isRow).click();
+        if (Game.selection[field] !== 'easy') bad.push(mode + ': a tap gave ' + Game.selection[field]);
+        if (JSON.parse(Store.get(KEY_SETUPS))[mode].difficulty !== 'easy') bad.push(mode + ': the step was not saved');
+        flow.press('back');
+        if (!flow.expect('modes', 'Back from the ' + mode + ' fighter screen')) return 'Back: ' + flow.screen();
+      } } finally { Setups.d = keepSetups; }
+      return bad.length ? bad.join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }));
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
