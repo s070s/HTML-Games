@@ -13615,13 +13615,16 @@ const SelfTest = {
         'Co-op': { mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], playerId: 'kai', enemies: coopEnemyCount(2), arenaId: 'dojo', difficulty: 'hard', winsNeeded: 1, timer: 0, waves, friendlyFire: false },
       };
       const runs = { Duel: 'free', Versus: 'versus', Brawl: 'lineup', 'Co-op': 'coop' };
-      /* A seeded run of the config the setup built: 240 ticks, then a hash of where everybody stands (the recorded values come from the build before P18-19, run with the old start functions' configs). */
+      /* A seeded run of the config the setup built: 240 ticks with idle scripted people (no device state counts), then a hash of where everybody stands. The recorded values come from the build before P18-19, run the same way with the old start functions' configs. */
       const hashOf = (cfg) => {
+        Game.endMatch();   // no live match, no leftover debris or effects
         const run = track(new MatchSim(Object.assign({}, cfg, { countdown: false, seed: 7, items: false, hazards: false, ring: false, ringOut: false, sides: true })));
+        run.controllers.forEach((controller, k) => { if (controller.human) run.controllers[k] = self.scripted(() => {}); });
         for (let i = 0; i < 240; i++) run.step();
         return fnv1a(run.fighters.map((f) => [f.x.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|')).toString(36);
       };
       const recorded = { Duel: 'jh48sl', Versus: 'xm7p0h', 'Co-op': 'r0wqzy' };
+      const built = {};
       for (const type of FIGHT_TYPES) {
         Game.chooseMode('free');
         Game.applyType(type);
@@ -13631,9 +13634,15 @@ const SelfTest = {
         if (!m || Game.state !== GS.COUNTDOWN || !same(Game.config, old[type]) || Game.run.mode !== runs[type]) bad.push(type + ' config ' + JSON.stringify(canon(Game.config)).slice(0, 220) + ' run ' + (Game.run && Game.run.mode));
         if (m && type === 'Co-op' && (m.fighters.length !== 6 || m.partySize !== 2 || !m.coop)) bad.push('the crowd of two has ' + m.fighters.length + ' fighters');
         if (m && type === 'Brawl' && (m.fighters.length !== 4 || !m.setup)) bad.push('the Brawl has ' + m.fighters.length + ' fighters');
-        if (m && recorded[type] && hashOf(Game.config) !== recorded[type]) bad.push(type + ' plays differently from the recorded run: ' + hashOf(Game.config) + ' not ' + recorded[type]);
+        built[type] = Object.assign({}, Game.config);
         Game.quitToMenu();
       }
+      const keepSettings = Object.assign({}, Settings.v), keepSelection = Object.assign({}, sel), keepDevice = Input.lastDevice;
+      Object.assign(Settings.v, { autoAssist: true, movement: 'opponent', reducedMotion: true, flashes: 'off', ringOut: true });   // what the menu tests leave behind: the hash must not care
+      Object.assign(sel, { player: 'zero', opponent: 'kai', arena: 'pit', difficulty: 'easy', rounds: 1, timer: 0 }); Input.lastDevice = 'touch'; Input.kb.add('KeyL');
+      try {
+        for (const type of Object.keys(recorded)) if (hashOf(built[type]) !== recorded[type]) bad.push(type + ' plays differently from the recorded run: ' + hashOf(built[type]) + ' not ' + recorded[type]);
+      } finally { Input.kb.delete('KeyL'); Input.lastDevice = keepDevice; Object.assign(sel, keepSelection); Object.assign(Settings.v, keepSettings); }
       return bad.length ? bad.slice(0, 3).join('; ') : true;
     }));
     test('Free Fight merge (P18-19): the Fight type label follows the shape of the lineup (a fighter swap keeps it, a second player shows Versus, another slot shows Custom or Brawl by its deal, the crowd shows Co-op) and choosing a type again restores its preset and keeps the picks, Level, Difficulty, Rounds and the time limits', () => withFree(() => {
