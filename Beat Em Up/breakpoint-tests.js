@@ -2401,7 +2401,7 @@ const SelfTest = {
         UI.act('opp:' + Game.selection.opponent);
         const arena = Game.state === GS.ARENASEL;
         UI.act('arena:' + Game.selection.arena);
-        const started = !!Game.match && Game.state === GS.COUNTDOWN;
+        const started = !!Game.match && (Game.state === GS.COUNTDOWN || Game.state === GS.FIGHT);   // Training has no countdown
         return setup && arena && started ? true : JSON.stringify({ setup, arena, started, state: Game.state });
       } finally {
         if (Game.state !== GS.MENU) Game.quitToMenu();   // never leave a running match behind, whatever failed above
@@ -11341,7 +11341,7 @@ const SelfTest = {
     };
     const flowDom = () => new Proxy({}, { get: (made, id) => (typeof id === 'string' ? made[id] || (made[id] = flowElement()) : made[id]), set: (made, id, value) => { made[id] = value; return true; } });
     /* What each screen must offer so nobody is stuck on it: enabled buttons that go back (or out). */
-    const FLOW_EXITS = { main: ['play'], modes: ['back'], char: ['back'], setup: ['back'], freefight: ['back', 'start'], freemore: ['back'], lineup: ['back'], arena: ['back'], coop: ['back'], bracket: ['back'], controls: ['back'], moves: ['back'], settings: ['back'], credits: ['back'], unlocks: ['back'], story: ['back'], pause: ['resume', 'quit'], results: ['res:menu'], scene: ['sceneskip'], replace: ['back', 'replace'] };
+    const FLOW_EXITS = { main: ['play'], modes: ['back'], char: ['back'], setup: ['back'], freefight: ['back'], freemore: ['back'], lineup: ['back'], arena: ['back'], coop: ['back'], bracket: ['back'], controls: ['back'], moves: ['back'], settings: ['back'], credits: ['back'], unlocks: ['back'], story: ['back'], pause: ['resume', 'quit'], results: ['res:menu'], scene: ['sceneskip'], replace: ['back', 'replace'] };
     const flowActs = (html) => {
       const acts = [];
       for (const tag of html.match(/<button\b[^>]*>/g) || []) { const act = /data-act="([^"]*)"/.exec(tag); if (act && !/\sdisabled[\s>]/.test(tag)) acts.push(act[1]); }
@@ -12082,8 +12082,10 @@ const SelfTest = {
       if (!flow.html.includes('4 players need 4 gamepads') || !flow.html.includes('1 connected')) return 'four people with one gamepad say nothing on the lineup screen: ' + (flow.html.match(/warnline[^<]*/) || [''])[0];
       flow.press('back');
       if (!flow.expect('freefight', 'Back to the first screen') || flow.acts().includes('start') || !flow.html.includes('gamepads')) return 'four people with one gamepad: ' + flow.screen() + ' ' + flow.acts();
+      const heard = [], off = Events.on('toast', (e) => heard.push(e.msg));
       UI.act('start');   // Enter on the button of a screen that was drawn before
-      if (UI.current !== 'freefight' || Game.state !== GS.CHARSEL || Game.match || !flow.toasts.some((msg) => msg.includes('gamepads'))) return 'the refused Start: ' + flow.screen() + ' ' + flow.toasts;
+      off();
+      if (UI.current !== 'freefight' || Game.state !== GS.CHARSEL || Game.match || !heard.some((msg) => msg.includes('gamepads'))) return 'the refused Start: ' + flow.screen() + ' ' + heard;
       flow.press('lineup'); UI.changeLocal('lctl:3', 1); flow.press('back');
       if (!flow.acts().includes('start')) return 'three people with one gamepad (keyboard 1 and 2) did not start: ' + flow.html.match(/warnline[^<]*/);
       flow.press('lineup');
@@ -13645,13 +13647,13 @@ const SelfTest = {
         if (type() !== 'Brawl') bad.push('a third slot, players vs CPU: ' + type());
         lineup.crowd = true;
         if (type() !== 'Co-op') bad.push('the crowd flag: ' + type());
-        lineup.crowd = false; MatchLineup.deal(lineup, '2');
+        lineup.crowd = false; MatchLineup.deal(lineup, '2');   // three slots on two teams
         if (type() !== 'Custom') bad.push('two teams of three: ' + type());
         UI.changeLocal('ftype', 1);
         if (type() !== 'Duel') bad.push('the row from Custom, forward: ' + type());
         UI.changeLocal('ftype', -1);
         if (type() !== 'Co-op') bad.push('the row from Duel, backward: ' + type());
-        MatchLineup.deal(lineup, '3'); lineup.crowd = false;
+        lineup.slots = [{ id: 'kai', human: true, team: 1 }, { id: 'mara', human: false, team: 2 }, { id: 'brutus', human: false, team: 3 }]; lineup.crowd = false; lineup.deal = '3';
         UI.changeLocal('ftype', -1);
         if (type() !== 'Co-op') bad.push('the row from Custom, backward: ' + type());
         Object.assign(sel, { arena: 'dojo', difficulty: 'expert', rounds: 3, timer: 30 }); lineup.timer = 120; lineup.friendlyFire = true; lineup.handicap = false;
@@ -13717,7 +13719,7 @@ const SelfTest = {
         if (!Setups.d || Setups.d.v !== 1 || !storage.data[KEY_SETUPS]) bad.push('no setups key at start-up');
         self.freshFree(); Object.assign(Game.selection, { mode: 'free', player: 'kai', opponent: 'mara' });
         CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.put(3, validateCustom(randomCustom(3)).value);
-        const customId = CUSTOM_IDS[3], customSlots = CustomRoster.slots.slice();
+        const customId = CustomRoster.profiles()[0].id, customSlots = CustomRoster.slots.slice();
         Game.applyType('Brawl');
         const lineup = Game.lineupFor();
         lineup.slots[2].id = customId; lineup.timer = 120; lineup.friendlyFire = true; lineup.handicap = false;
@@ -13849,6 +13851,7 @@ const SelfTest = {
         Game.lineupFor().slots.forEach((slot, i) => { slot.human = i < 3; }); MatchLineup.deal(Game.lineupFor(), 'players');
         if (Game.inputPlan() !== 'solo' || Inputs.versus || Inputs.coop) flow.problems.push('the setup screens are not solo: ' + Game.inputPlan());
         const start = (people, label) => {
+          if (Game.state === GS.MENU) Game.chooseMode('free');
           Game.applyType('Co-op');
           const lineup = Game.lineupFor();
           while (lineup.slots.length < people) lineup.slots.push({ id: Game.coopRoster()[lineup.slots.length].id, human: true, team: 0 });
@@ -13871,6 +13874,7 @@ const SelfTest = {
         m = start(4, '4 people');
         if (m && (Inputs.seats.join() !== 'key1,pad0,pad1,pad2' || m.fighters.length !== 10)) flow.problems.push('4 people on 3 gamepads and keyboard 1: ' + Inputs.seats + ' ' + (m && m.fighters.length));
         Game.quitToMenu();
+        if (Game.state === GS.MENU) Game.chooseMode('free');
         Game.applyType('Brawl'); Game.lineupFor().slots.forEach((slot, i) => { slot.human = i === 0 || i === 3; });
         MatchLineup.deal(Game.lineupFor(), 'players');
         Game.startFromSelection();
