@@ -13615,6 +13615,13 @@ const SelfTest = {
         'Co-op': { mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], playerId: 'kai', enemies: coopEnemyCount(2), arenaId: 'dojo', difficulty: 'hard', winsNeeded: 1, timer: 0, waves, friendlyFire: false },
       };
       const runs = { Duel: 'free', Versus: 'versus', Brawl: 'lineup', 'Co-op': 'coop' };
+      /* A seeded run of the config the setup built: 240 ticks, then a hash of where everybody stands (the recorded values come from the build before P18-19, run with the old start functions' configs). */
+      const hashOf = (cfg) => {
+        const run = track(new MatchSim(Object.assign({}, cfg, { countdown: false, seed: 7, items: false, hazards: false, ring: false, ringOut: false, sides: true })));
+        for (let i = 0; i < 240; i++) run.step();
+        return fnv1a(run.fighters.map((f) => [f.x.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|')).toString(36);
+      };
+      const recorded = { Duel: 'jh48sl', Versus: 'xm7p0h', 'Co-op': 'r0wqzy' };
       for (const type of FIGHT_TYPES) {
         Game.chooseMode('free');
         Game.applyType(type);
@@ -13624,6 +13631,7 @@ const SelfTest = {
         if (!m || Game.state !== GS.COUNTDOWN || !same(Game.config, old[type]) || Game.run.mode !== runs[type]) bad.push(type + ' config ' + JSON.stringify(canon(Game.config)).slice(0, 220) + ' run ' + (Game.run && Game.run.mode));
         if (m && type === 'Co-op' && (m.fighters.length !== 6 || m.partySize !== 2 || !m.coop)) bad.push('the crowd of two has ' + m.fighters.length + ' fighters');
         if (m && type === 'Brawl' && (m.fighters.length !== 4 || !m.setup)) bad.push('the Brawl has ' + m.fighters.length + ' fighters');
+        if (m && recorded[type] && hashOf(Game.config) !== recorded[type]) bad.push(type + ' plays differently from the recorded run: ' + hashOf(Game.config) + ' not ' + recorded[type]);
         Game.quitToMenu();
       }
       return bad.length ? bad.slice(0, 3).join('; ') : true;
@@ -13985,6 +13993,45 @@ const SelfTest = {
         return problems.length ? problems.join('; ') : true;
       }));
     });
+    test('Free Fight merge (P18-19): the creator from the cards of a Free Fight slot - Edit fighter edits the fighter of that slot, a saved fighter goes into that slot, the cards and Players and teams are back on Confirm and Back, also after a Fight preview', () => withFlow([], (flow) => {
+      const bad = [], saved = keepCustoms(), creator = Object.assign({}, CreatorUI), stack = () => JSON.stringify(UI.stack);
+      try {
+        Game.selection.player = 'kai';
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.register();
+        flow.press('play'); flow.press('mode:free'); flow.press('lineup');
+        flow.items.find((el) => el.attrs['data-local'] === 'lfig:1').click();
+        if (UI.current !== 'char' || UI.pickSlot !== 1 || stack() !== '["freefight","lineup"]') bad.push('cards of slot 2: ' + UI.current + ' ' + UI.pickSlot + ' ' + stack());
+        flow.press('create');
+        if (UI.current !== 'creator' || stack() !== '["freefight","lineup","char"]') bad.push('creator opened: ' + UI.current + ' ' + stack());
+        flow.press('crsave'); UI.guardUntil = 0; UI.back();
+        const made = CustomRoster.profiles()[0], lineup = Game.lineups.free;
+        if (UI.current !== 'char' || UI.pickSlot !== 1 || stack() !== '["freefight","lineup"]' || !made || lineup.slots[1].id !== made.id || lineup.slots[0].id !== 'kai' || Game.selection.player !== 'kai') bad.push('back from the creator: ' + UI.current + ' ' + UI.pickSlot + ' ' + stack() + ' slot2=' + lineup.slots[1].id + ' player=' + Game.selection.player);
+        flow.press('editcustom');
+        if (UI.current !== 'creator' || !made || CreatorUI.slot !== 0) bad.push('Edit fighter opened slot ' + CreatorUI.slot);
+        UI.guardUntil = 0; UI.back();
+        flow.press('confirm');
+        if (UI.current !== 'lineup' || UI.pickSlot !== -1 || stack() !== '["freefight"]') bad.push('Confirm: ' + UI.current + ' ' + UI.pickSlot + ' ' + stack());
+        flow.press('back');
+        if (UI.current !== 'freefight') bad.push('Back: ' + UI.current);
+        // slot 1's cards show no Edit fighter for a built-in fighter
+        UI.openCards(0);
+        if (flow.html.includes('editcustom')) bad.push('Edit fighter on a built-in fighter');
+        UI.guardUntil = 0; UI.back();
+        // a Fight preview from the cards, then the creator again
+        flow.press('lineup'); UI.openCards(1); flow.press('create'); flow.press('crfight');
+        if (!Game.match || Game.state !== GS.FIGHT) bad.push('the preview did not start: ' + Game.state);
+        else {
+          Game.pause(); flow.press('quit');
+          if (UI.current !== 'creator') bad.push('after the preview: ' + UI.current);
+          flow.press('crsave'); UI.guardUntil = 0; UI.back();
+          const second = CustomRoster.profiles()[1];
+          if (UI.current !== 'char' || UI.pickSlot !== 1 || stack() !== '["freefight","lineup"]' || !second || lineup.slots[1].id !== second.id || Game.selection.player !== 'kai' || Game.selection.mode !== 'free') bad.push('back after the preview: ' + UI.current + ' ' + UI.pickSlot + ' ' + stack() + ' slot2=' + lineup.slots[1].id + ' player=' + Game.selection.player + ' ' + Game.selection.mode);
+          flow.press('confirm');
+          if (UI.current !== 'lineup') bad.push('Confirm after the preview: ' + UI.current);
+        }
+      } finally { for (const key of ['draft', 'slot', 'savedJson', 'tab', 'origin', 'confirm', 'exportCode', 'returnState', 'crop']) CreatorUI[key] = creator[key]; restoreCustoms(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }));
     test('Free Fight merge (P18-19): the Free Fight screens fit a phone - at 390 x 844 and 844 x 390 the first screen, More options and Players and teams do not scroll sideways and keep their button row on screen', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the phone sizes were not measured';
       const bad = [], styles = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');
