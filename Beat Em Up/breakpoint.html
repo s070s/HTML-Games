@@ -1112,8 +1112,6 @@ const PAD_SELECT_BUTTON = 8; // Select / Back: hold = reset in Training (not an 
 // Standard mapping, fight actions -> buttons
 const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [6], grapple: [7, 11], pause: [9] };
 const TOUCH_RUN_TICKS = 27; // touch stick held fully toward the opponent this long = run
-const TOUCH_DUCK_TICKS = 18; // stick held down this long = crouch
-const TOUCH_DUCK_PULL = 0.8; // ...pulled this far of the radius
 const ATTACK_STRING_SECONDS = 0.8; // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT); // counted in simulation ticks, so the headless sim and the AI stay deterministic
 const ASSIST_STRING_WINDOW = 2; // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
@@ -1140,14 +1138,14 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
     jump: false, punch: false, kick: false, grapple: false, use: false, setDown: false, lock: false, // use / setDown / lock: one-tick presses (lock: lock-on; use: pick up or throw; setDown: put the held item down)
-    sidestep: 0, grapDir: 'fwd', noParry: false, unduck: false, assist: false, guardAssist: false, // unduck: touch only; assist, guardAssist: the match's cfg.assist, set for human seats only
+    sidestep: 0, grapDir: 'fwd', noParry: false, assist: false, guardAssist: false, // assist, guardAssist: the match's cfg.assist, set for human seats only
     stickAnalog: false, // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.unduck = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
+  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
   return it;
 }
 
@@ -1188,8 +1186,6 @@ class PlayerInput {
     this.touchStick = { x: 0, y: 0, active: false };
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
-    this.touchDuck = false;
-    this.touchDuckTicks = 0;
     this.useWatch = false; // a Use press that began with an item in hand is still being watched: lifted soon = throw, held SETDOWN_TICKS = put down
     this.useTicks = 0;
     this.lastDevice = 'keyboard';
@@ -1216,7 +1212,6 @@ class PlayerInput {
     this.touchHeld = {};
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
-    this.touchDuck = false; this.touchDuckTicks = 0;
     this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
   }
   releaseAll() {
@@ -1392,15 +1387,6 @@ class PlayerInput {
     }
   }
 
-  // Touch stick crouch: down and held; never arms toward or away from the foe (run, guard)
-  touchStickDuck(it) {
-    const ts = this.touchStick, x = Math.abs(ts.x), y = ts.y;
-    if (this.touchDuck) this.touchDuck = ts.active && y >= 0.5 && x <= 0.7 * y;
-    else if (ts.active && y >= TOUCH_DUCK_PULL && x <= 0.4 * y && Math.abs(it.fwd) <= 0.5) {
-      if (++this.touchDuckTicks >= TOUCH_DUCK_TICKS) { this.touchDuck = true; this.touchDuckTicks = 0; }
-    } else this.touchDuckTicks = 0;
-  }
-
   // Fill an intent for the player-controlled fighter; self/opp only give the right-stick flick direction relative to the opponent
   fillIntent(it, self, opp) {
     clearIntent(it);
@@ -1414,8 +1400,7 @@ class PlayerInput {
     }
     it.defend = !!h.defend || this.take('defend'); // with crouch held it guards low; a tap shorter than a frame still counts once
     it.jump = this.take('jump');
-    if (it.jump) { it.unduck = this.touchDuck; this.touchDuck = false; this.touchDuckTicks = 0; } else this.touchStickDuck(it); // Jump ends the stick crouch and the hold
-    it.crouch = !!h.crouch || this.touchDuck;
+    it.crouch = !!h.crouch; // only a crouch input (DUCK, the bound key, the pad's tap-then-hold) crouches: the touch stick held down just walks (owner 2026-11-07)
     if (it.jump && it.crouch) { it.jump = false; if (!it.defend) it.crouch = false; } // conflicting vertical inputs cancel; a low guard stays low
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
@@ -4460,6 +4445,7 @@ for (const r of ROSTER) ROSTER_BY_ID[r.id] = r;
 
 // --- attack catalogue
 const TIER_HITSTOP = { 1: 4, 2: 6, 3: 9 };
+const CROWD_HITSTOP_MAX = 4; // more than two fighters: a person's own hit freezes the match this long at most (owner 2026-11-07, BP-P18-53)
 const ATTACKS = {};
 function makeAttack(id, over) { // a move row; defAttack also puts it in ATTACKS, the weapon moves stay out of it
   const base = { id, name: id, btn: 'lp', strong: false, height: false, limb: 'LA', anim: 'straight', h: 'H', tier: 1, cat: 'punch', startup: 6, active: 3, recovery: 12,
@@ -6156,7 +6142,7 @@ class Fighter {
       if (this.defendPressed && this.swayBuffer > 0 && this.stam < SWAY_COST) Events.emit('lowStamina', { f: this, refused: true });
       if (this.trySubmission(opp, match)) return; // Grapple next to a downed foe holds them instead of grabbing
       if (this.tryBufferedAttack(it)) return;
-      if (it.jump && this.stam >= 1 && (this.state !== S.CROUCH || it.unduck) && !this.airborne) { this.startJump(it); return; }
+      if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
     }
     let target = S.IDLE;
@@ -7153,7 +7139,7 @@ const Combat = {
       def.kx = dirx * v0; def.kz = dirz * v0;
     }
     if (def.wallHit) { att.kx = -dirx * v0 * 0.45; att.kz = -dirz * v0 * 0.45; }
-    match.hitStop = Math.max(match.hitStop, hs);
+    match.addHitStop(hs, att, def);
     if (def.item && mv.tier === 3) def.dropHeld(); // a strong step that lands disarms
     if (mv.wpn) this.weaponHit(att, def, mv, match, false);
     Events.emit('hit', { att, def, mv, dmg, counter, x: pos.x, y: pos.y, z: pos.z, dirx, dirz, kind: mv.kind, combo: att.comboHits, ko: def.state === S.KO, gap, swayLate, crouched });
@@ -7177,7 +7163,7 @@ const Combat = {
     if (shield && --def.item.dur <= 0) match.breakHeld(def);
     if (perfect) def.counterWindow = COUNTER_WINDOW_PERFECT; else { def.guardPressure++; def.noRegen = Math.round(GUARD_NO_REGEN * def.stats.edge.delay); }
     def.flash = 0.5;
-    match.hitStop = Math.max(match.hitStop, 3);
+    match.addHitStop(3, it.owner, def);
     const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: 2, cat: 'punch', h: low ? 'L' : 'M', kind: 'hit', hitStop: 3, active: 1, recovery: 0, hitstun: 0, blockstun: 8 };
     Events.emit('block', { att: it.owner, def, mv, perfect, broke: false, age: def.stateTicks, x: it.x, y: it.y, z: it.z, dirx, dirz });
     return true;
@@ -7209,7 +7195,7 @@ const Combat = {
       def.setState(S.HIT);
       def.kx = dirx * 0.6 * KNOCK_DAMP; def.kz = dirz * 0.6 * KNOCK_DAMP;
     }
-    match.hitStop = Math.max(match.hitStop, mv.hitStop);
+    match.addHitStop(mv.hitStop, att, def);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: it.x, y: it.y, z: it.z, dirx, dirz, kind, combo: att.comboHits, ko: def.state === S.KO });
   },
 
@@ -7241,7 +7227,7 @@ const Combat = {
       def.setState(S.STAGGER);
       def.kx = dirx * BODY_STAGGER_PUSH * KNOCK_DAMP; def.kz = dirz * BODY_STAGGER_PUSH * KNOCK_DAMP;
     }
-    match.hitStop = Math.max(match.hitStop, mv.hitStop);
+    match.addHitStop(mv.hitStop, att, def);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: (body.x + def.x) / 2, y: def.y + 0.9, z: (body.z + def.z) / 2, dirx, dirz, kind: lying ? 'ground' : mv.kind, combo: att.comboHits, ko: def.state === S.KO });
   },
 
@@ -7256,7 +7242,7 @@ const Combat = {
     att.moveConnected = true;
     const pos = this.hitPoint(att, def, mv);
     pos.y = def.y + 0.3; // the effect is drawn at the downed fighter, not at the floor level
-    match.hitStop = Math.max(match.hitStop, 4);
+    match.addHitStop(4, att, def);
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'ground', combo: 1, ko: def.state === S.KO });
     if (mv.wpn) this.weaponHit(att, def, mv, match, false);
@@ -7280,7 +7266,7 @@ const Combat = {
       att.reactDur = 26; att.hitKind = 'mid';
       att.setState(S.STAGGER); att.hitAt = -99;
       att.kx = -dirx * 1.4 * KNOCK_DAMP * 0.5; att.kz = -dirz * 1.4 * KNOCK_DAMP * 0.5;
-      match.hitStop = Math.max(match.hitStop, 8);
+      match.addHitStop(8, att, def);
     } else {
       const shield = !!def.item && def.item.id === 'binlid'; // a held bin lid takes the stamina cost of a block in front on itself, and 1 durability
       const cost = shield ? 0 : mv.dmg * mv.gdm * 0.9 * (1 + 0.15 * def.guardPressure) * (mv.gb ? 2.2 : 1) * def.stats.taken * def.stats.guard * (mv.wpn ? WEAPON_BLOCK_COST : 1);
@@ -7295,14 +7281,14 @@ const Combat = {
         def.setState(S.STUN);
         this.chipDamage(def, mv.dmg * 0.3);
         def.kx = dirx * 2; def.kz = dirz * 2;
-        match.hitStop = Math.max(match.hitStop, 12);
+        match.addHitStop(12, att, def);
       } else {
         def.blockStun = Math.round(mv.blockstun * def.stats.stun);
         // ticks the attacker is still recovering once the guard drops
         def.blockRead = { id: att.moveId, edge: att.mStartup + att.mActive + att.mRecovery - att.moveTick - def.blockStun };
         def.kx = dirx * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5; def.kz = dirz * mv.blockPush * 0.6 * KNOCK_DAMP * 0.5;
         att.kx = -dirx * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5; att.kz = -dirz * mv.blockPush * 0.4 * KNOCK_DAMP * 0.5;
-        match.hitStop = Math.max(match.hitStop, 3);
+        match.addHitStop(3, att, def);
       }
     }
     if (mv.sp === 'wrap' && !perfect) this.chipDamage(def, mv.dmg * att.damageMult(mv) * 0.5 * def.stats.taken); // a chain wraps the guard: half its damage gets through
@@ -7320,7 +7306,7 @@ const Combat = {
       def.gainMomentum(MOMENTUM_PERFECT);
       def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfectSway);
       def.swayEnd = SWAY_PERFECT_FREE_TICK;
-      match.hitStop = Math.max(match.hitStop, 4);
+      match.addHitStop(4, att, def);
     }
     Events.emit('block', { att, def, mv, perfect, broke: false, brk, age, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
   },
@@ -7332,7 +7318,7 @@ const Combat = {
     const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult(); // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
     const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index); // R1: a bottle cuts
-    if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
+    if (n > 0) match.addHitStop(3, att, null);
     if (match.hazards && match.hazards.length) match.hazardStrike(att, cx, cy, cz); // a hazard's post
     return n;
   },
@@ -7352,7 +7338,7 @@ const Combat = {
     def.x = att.x + att.fwdX * gap; def.z = att.z + att.fwdZ * gap;
     def.yaw = grip === 'rear' ? att.yaw : wrapAngle(att.yaw + Math.PI); // a rear hold keeps the defender facing away
     def.blockStun = 0;
-    match.hitStop = Math.max(match.hitStop, 4);
+    match.addHitStop(4, att, def);
     Events.emit('clinch', { att, def, grip, x: def.x, y: def.y + 1.1, z: def.z });
   },
   // Rear grip when the defender's back is turned, low grip when either fighter is crouched, otherwise front
@@ -7399,7 +7385,7 @@ const Combat = {
     if (def.gotHits === 0) def.gotDamage = 0;
     def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     this.momentum(att, def, dmg);
-    match.hitStop = Math.max(match.hitStop, 5);
+    match.addHitStop(5, att, def);
     if (def.hp <= 0) this.knockOut(def, att, null, match); // before the hit event, so the KO blow gets its full feedback
     Events.emit('hit', { att, def, mv: { id: cm.id, name: cm.name, tier: 2, cat: cm.cat, h: 'M', kind: 'hit', hitStop: 5 }, dmg, counter: false, x: def.x, y: def.y + 0.9, z: def.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'hit', combo: att.comboHits, ko: def.state === S.KO });
   },
@@ -7432,7 +7418,7 @@ const Combat = {
     att.setState(S.IDLE);
     att.lock = t.recovery;
     att.throwFollow = { anim: t.anim, side: p.side, recovery: t.recovery };
-    match.hitStop = Math.max(match.hitStop, 7);
+    match.addHitStop(7, att, def);
     Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, name: t.name, x: def.x, y: def.y + 1.0, z: def.z });
   },
   escapeClinch(def, att, match) {
@@ -7522,7 +7508,7 @@ const Combat = {
     if (isBlockState(def.state) && def.fwdX * -dx + def.fwdZ * -dz > 0) { // a guard facing the charge stops it: no damage
       def.kx = nx * TACKLE_BLOCK_PUSH; def.kz = nz * TACKLE_BLOCK_PUSH; def.blockStun = TACKLE_BLOCK_STUN; def.flash = 0.5;
       att.setState(S.IDLE); att.vx = att.vz = 0; att.kx = -nx * TACKLE_STOP_KNOCK; att.kz = -nz * TACKLE_STOP_KNOCK; att.lock = Math.max(att.lock, TACKLE_STOP_LOCK); att.exhaust = Math.max(att.exhaust, TACKLE_STOP_LOCK); // exhaust: no new run (or sidestep) until the stop is over
-      match.hitStop = Math.max(match.hitStop, 4);
+      match.addHitStop(4, att, def);
       Events.emit('tackle', { att, def, result: 'blocked', x, y: def.y + 1.1, z });
       return;
     }
@@ -7545,7 +7531,7 @@ const Combat = {
     def.vy = Math.max(def.vy, 3.4);
     def.y = Math.max(def.y, def.groundY) + 0.02;
     def.buffer = null; def.bufferNext = null; def.move = null;
-    match.hitStop = Math.max(match.hitStop, 16);
+    match.addHitStop(16, att, def);
     Events.emit('ko', { def, att, x: def.x, y: def.y + 1.1, z: def.z });
   },
 
@@ -11508,6 +11494,18 @@ class MatchSim {
     return true;
   }
   hitStopTick() { if (this.hitStop > 0) this.hitStop = 0; }
+  // Hit freeze (owner 2026-11-07, BP-P18-53): a 1v1 freezes on every hit as before. With more than two fighters a freeze stops everyone, so
+  // only a hit the one person lands or takes freezes, and briefly; with two or more people nobody's hit stops the others' fight.
+  addHitStop(ticks, att, def) {
+    if (this.fighters.length > 2) {
+      const people = this.controllers.filter((controller) => controller.human).length;
+      const attacker = att || (def && def.lastFoe); // a knockout on landing or from a fall has no attacker: the last one to hurt the fighter counts
+      const personInvolved = (attacker && this.isHuman(attacker)) || (def && this.isHuman(def));
+      if (people !== 1 || !personInvolved) return;
+      ticks = Math.min(ticks, CROWD_HITSTOP_MAX);
+    }
+    this.hitStop = Math.max(this.hitStop, ticks);
+  }
   stepIdle() {
     this.assignTargets();
     for (const f of this.fighters) { f.update(clearIntent(makeIntent()), f.target, this); f.animate(DT); }
@@ -13364,7 +13362,7 @@ const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'tournament'];
 const BACK_BUTTON = '<button class="mi" data-nav data-act="back">Back</button>';
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
-const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down (hold = crouch)', left: 'Stick left', right: 'Stick right' };
+const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 // Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two context buttons
 const TOUCH_BUTTONS = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm'], ['use', 'USE', 'sm'], ['lock', 'LOCK', 'sm']];
 const TOUCH_CONTEXT_ACTIONS = ['use', 'lock'];
@@ -16055,7 +16053,7 @@ function testApi() {
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
@@ -16073,7 +16071,7 @@ function testApi() {
     STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
-    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
+    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
     UNLOCK_RULES, VETERAN_BUDGET, VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost,
     attrTotal, canSetAttr, canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom,
     defaultDefense, deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url,
@@ -16203,13 +16201,13 @@ UI.runBrawl = function runBrawl(enemies, opts) {
   return { enemies: Game.match ? Game.match.fighters.length - 1 : 0, arena: Game.match ? Game.match.def.id : '' };
 };
 
-// Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet
-UI.runSelfTest = function runSelfTest() {
+// Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet; only (optional) picks tests by name (see run_all)
+UI.runSelfTest = function runSelfTest(only) {
   if (selfTestRun) return selfTestRun;
   if (!this.selfTestAllowed()) return Promise.resolve();
   this.showSelfTest('Loading ' + SELFTEST_FILE + '...');
   selfTestRun = loadSelfTests().then(
-    (tests) => (this.selfTestAllowed() ? this.runSelfTestWith(tests) : undefined), // the state may have changed while the file loaded
+    (tests) => (this.selfTestAllowed() ? this.runSelfTestWith(tests, only) : undefined), // the state may have changed while the file loaded
     (error) => this.selfTestUnavailable(error.message),
   ).finally(() => { selfTestRun = null; });
   return selfTestRun;
@@ -16233,12 +16231,12 @@ UI.selfTestUnavailable = function selfTestUnavailable(message) {
   return [{ name: 'Self-test file loads', pass: false, detail: message }];
 };
 
-UI.runSelfTestWith = function runSelfTestWith(tests) {
+UI.runSelfTestWith = function runSelfTestWith(tests, only) {
   const t0 = performance.now();
   const illegalBefore = Diag.illegalTransitions;
   const screen = this.current, stack = this.stack.slice();
   const saved = tests.snapshot();
-  const res = tests.run_all();
+  const res = tests.run_all(only);
   tests.restore(saved);
   Diag.illegalTransitions = illegalBefore;
   this.resetMenuScene();
@@ -16246,7 +16244,7 @@ UI.runSelfTestWith = function runSelfTestWith(tests) {
   const failed = res.filter((r) => !r.pass).length, skipped = res.filter((r) => r.skipped).map((r) => r.name); // a skip keeps pass: true for callers that count passes; it is counted and listed here so a hidden pane cannot skip a check unseen
   const counts = (res.length - failed - skipped.length) + ' passed, ' + failed + ' failed, ' + skipped.length + ' skipped';
   const skipList = skipped.length ? '\nSkipped, not run here:\n' + skipped.map((name) => '  ' + name).join('\n') : '';
-  const text = 'Self-test: ' + counts + ' (of ' + res.length + ') in ' + Math.round(performance.now() - t0) + ' ms' + skipList + '\n' + res.map((r) => (r.skipped ? '[skip] ' : r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
+  const text = 'Self-test: ' + counts + ' (of ' + res.length + (res.filtered ? ' picked by name' : '') + ') in ' + Math.round(performance.now() - t0) + ' ms' + skipList + '\n' + res.map((r) => (r.skipped ? '[skip] ' : r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
   const shown = $('selftestOut');
   if (shown) shown.textContent = text;
   Diag.log(failed || skipped.length ? 'warn' : 'info', 'Self-test ' + counts + (skipped.length ? '; skipped: ' + skipped.join(' | ') : ''));
@@ -16337,7 +16335,7 @@ function fatalStartup(msg) {
   $('screens').innerHTML = '';
 }
 
-window.BREAKPOINT = { version: VERSION, selfTest: () => UI.runSelfTest(), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
+window.BREAKPOINT = { version: VERSION, selfTest: (only) => UI.runSelfTest(only), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
 boot();
 
 })();

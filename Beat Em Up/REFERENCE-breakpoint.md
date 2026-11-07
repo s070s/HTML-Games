@@ -4343,6 +4343,12 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Not done: the 600-seed seat balance, the BREAKPOINT.benchmark performance check, the raised-ground tests (S2 tier, Club stage, Gym ropes), the Gym ring-out throw test (only the geometry is checked), CPU use of the Warehouse, Rooftop and Construction hydrants (none in 20 seeds; only the Garage hydrant and the jets are checked), the Appendix C level descriptions of P8-01.
 - Owner device checks for P16-03: phone (390x844 and 844x390), gamepad and keyboard: strike each hydrant and see the warning, spray and push; break a vending machine (Gym, Subway) and pick the bottle up with Use; throw a fighter into a Gym bag and the ropes (bounce, bag stays); watch the Warehouse and Subway fire chains and the Garage tyres; check the red hydrant and its spray read clearly on a small screen.
 
+### P18-53 built: hit freeze with more than two fighters
+
+- Owner 2026-11-07: in a Free Fight free-for-all of 4 CPUs and the owner, a CPU's strong hit froze the whole fight ("this abrupt timestop ... disoriented me"); the owner asked for the best rule for modes with more people and delegated the pick ("go with the best choice").
+- Decision: a 1v1 keeps every freeze as before. With more than two fighters a freeze stops everyone, so only a hit the one person lands or takes freezes, at most `CROWD_HITSTOP_MAX` (4) ticks; with two or more people, and on every CPU against CPU hit, nothing freezes (flash, shake, sound and rumble still mark the hit). It depends only on the seats, so replays stay the same.
+- Code: `MatchSim.addHitStop(ticks, att, def)` replaces the 15 direct `match.hitStop` writes; test `Hit freeze (P18-53)`. Chrome self-test 625 of 625 with no fingerprint change (the fingerprint fights are 1v1s).
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
