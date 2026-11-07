@@ -613,7 +613,6 @@ const SETTING_DEFS = {
   guardAssist: { type: 'bool', def: false, label: 'Guard assist', hint: 'Defend alone guards high and low for you, no Duck needed (not the CPU). A guard that switches height is never perfect. From the next match.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed. Free Fight has its own.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe. Free Fight has its own.' },
-  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Tournament bouts only; Free Fight has its own.' },
   storyScenes: { type: 'enum', options: ['full', 'short', 'off'], def: 'full', label: 'Story scenes', labels: { full: 'Full', short: 'Short', off: 'Off' }, hint: 'The little scenes of Arcade. Full shows every line, Short only the first line of each scene, Off skips the scenes (the choice after stage 2 is then "Offer a hand").' },
   storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
@@ -682,9 +681,11 @@ const Setups = {
   plain: (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {}), // a saved entry that is not an object reads as empty
   init() {
     const old = readJson(KEY_SETTINGS) || {}, stored = readJson(KEY_SETUPS), edge = +(old.ringOut === true); // at start-up: Settings.save drops the old Friendly fire and Ring-out keys
-    const d = this.d = stored || { v: 1, freeFight: { friendlyFire: old.friendlyFire === true } }, ff = d.v === 1 ? this.plain(d.freeFight) : null;
-    if (ff && !ff.rules) { d.freeFight = Object.assign(ff, { rules: { area: edge, ringOut: edge, items: +(old.items !== false), hazards: +(old.hazards !== false), breakables: 1, health: 1, side: 0 } }); this.save(); } // only rules are added: no cleaning before the custom fighters load
-    else if (!stored) this.save();
+    const d = this.d = stored || { v: 1, freeFight: { friendlyFire: old.friendlyFire === true } }, ff = d.v === 1 ? this.plain(d.freeFight) : null, tour = d.v === 1 ? this.plain(d.tournament) : null;
+    const seedRules = ff && !ff.rules, seedRing = tour && typeof tour.ringOut !== 'boolean';
+    if (seedRules) d.freeFight = Object.assign(ff, { rules: { area: edge, ringOut: edge, items: +(old.items !== false), hazards: +(old.hazards !== false), breakables: 1, health: 1, side: 0 } }); // only rules are added: no cleaning before the custom fighters load
+    if (seedRing) d.tournament = Object.assign(tour, { ringOut: edge === 1 }); // the Tournament's Ring-out row, seeded once from the old switch
+    if (!stored || seedRules || seedRing) this.save();
   },
   save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
 };
@@ -11824,12 +11825,12 @@ const TOURNAMENT_ROUND_NAMES = ['Final', 'Semi-final', 'Quarter-final', 'Round o
 const TOURNAMENT_STAGES = ARENA_ORDER.filter((id) => ARENAS[id].ring && ARENAS[id].ring[4]); // the levels with a ring-out edge, one per bracket round in turn
 const Tournament = {
   rounds(t) { return Math.log2(t.size); },
-  blank(size, entrants, seed, difficulty) {
+  blank(size, entrants, seed, difficulty, ringOut) {
     const matches = [];
     for (let round = 0; round < Math.log2(size); round++) matches.push(Array.from({ length: size >> (round + 1) }, () => ({ winner: -1, score: [0, 0] })));
-    return { size, seed, difficulty, entrants, matches, scores: [], open: null }; // scores: the grade scores of the person's won matches (one person only), for the run grade; open: the match being fought, { round, index }, saved at its start so closing the page mid-fight is a loss
+    return { size, seed, difficulty, ringOut, entrants, matches, scores: [], open: null }; // ringOut: every bout is fenced into the level's ring, leaving it loses the round; scores: the grade scores of the person's won matches (one person only), for the run grade; open: the match being fought, { round, index }, saved at its start so closing the page mid-fight is a loss
   },
-  // A new bracket. options: humans [{ seat, id }] (1 to 4, the seat 0 to 3 and the picked fighter), size (8 or 16), seed, difficulty
+  // A new bracket. options: humans [{ seat, id }] (1 to 4, the seat 0 to 3 and the picked fighter), size (8 or 16), seed, difficulty, ringOut
   draw(options) {
     const size = TOURNAMENT_SIZES.includes(options.size) ? options.size : TOURNAMENT_SIZES[0];
     const people = [], taken = new Set();
@@ -11847,7 +11848,7 @@ const Tournament = {
     const entrants = new Array(size).fill(null);
     people.forEach((person, k) => { entrants[Math.floor(k * size / people.length)] = { id: person.id, human: person.seat }; });
     for (let slot = 0; slot < size; slot++) if (!entrants[slot]) entrants[slot] = { id: pool.shift(), human: -1 };
-    return this.blank(size, entrants, seed, DIFFICULTY_ORDER.includes(options.difficulty) ? options.difficulty : 'normal');
+    return this.blank(size, entrants, seed, DIFFICULTY_ORDER.includes(options.difficulty) ? options.difficulty : 'normal', options.ringOut === true);
   },
   // The two entrants of a match (-1 while a match before it is not played)
   sides(t, round, index) {
@@ -11895,7 +11896,7 @@ const Tournament = {
   // Plays a CPU against CPU match headless and returns { winner, wins }.
   simulate(t, ref) {
     const sides = this.sides(t, ref.round, ref.index), rules = this.rules(t, ref.round);
-    const result = SimRunner.run({ playerId: t.entrants[sides[0]].id, opponentId: t.entrants[sides[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, seed: (t.seed + this.matchNumber(t, ref.round, ref.index)) >>> 0, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: Settings.v.ringOut === true, ringOut: Settings.v.ringOut === true, sides: true }); // as Game.beginMatch sets a live bout up
+    const result = SimRunner.run({ playerId: t.entrants[sides[0]].id, opponentId: t.entrants[sides[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, seed: (t.seed + this.matchNumber(t, ref.round, ref.index)) >>> 0, winsNeeded: rules.winsNeeded, timer: rules.timer, ring: t.ringOut, ringOut: t.ringOut, sides: true }); // as Game.beginMatch sets a live bout up
     if (result.error) return { winner: sides[0], wins: [0, 0] };
     const side = result.winner === 0 || result.winner === 1 ? result.winner : result.hpLeft[1] > result.hpLeft[0] ? 1 : 0;
     return { winner: sides[side], wins: result.wins };
@@ -11922,7 +11923,7 @@ const Tournament = {
   // The bracket as plain saved data
   pack(t) {
     return {
-      size: t.size, seed: t.seed, difficulty: t.difficulty, entrants: t.entrants.map((e) => ({ id: e.id, human: e.human })),
+      size: t.size, seed: t.seed, difficulty: t.difficulty, ringOut: t.ringOut, entrants: t.entrants.map((e) => ({ id: e.id, human: e.human })),
       matches: t.matches.map((round) => round.map((match) => ({ winner: match.winner, score: match.score.slice() }))), scores: t.scores.slice(), open: t.open ? { round: t.open.round, index: t.open.index } : null,
     };
   },
@@ -11940,7 +11941,8 @@ const Tournament = {
       entrants.push({ id, human });
     }
     if (!seats.size) return null;
-    const t = this.blank(raw.size, entrants, raw.seed, DIFFICULTY_ORDER.includes(raw.difficulty) ? raw.difficulty : 'normal');
+    const ringOut = typeof raw.ringOut === 'boolean' ? raw.ringOut : !!(Setups.d && Setups.d.v === 1 && Setups.plain(Setups.d.tournament).ringOut === true); // a bracket saved before the row existed takes the saved row
+    const t = this.blank(raw.size, entrants, raw.seed, DIFFICULTY_ORDER.includes(raw.difficulty) ? raw.difficulty : 'normal', ringOut);
     const saved = Array.isArray(raw.matches) ? raw.matches : [];
     for (let round = 0; round < t.matches.length; round++) {
       for (let index = 0; index < t.matches[round].length; index++) {
@@ -12003,7 +12005,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {}, // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null, // the bracket being played, or null before the draw and after it is left
@@ -12077,10 +12079,11 @@ const Game = {
   // The saved Difficulty of each mode; a missing or damaged one stays Easy
   loadLevels() {
     for (const mode in LEVEL_FIELD) { const saved = Setups.d && Setups.d.v === 1 && Setups.d[mode]; if (saved && DIFFICULTY_ORDER.includes(saved.difficulty)) this.selection[LEVEL_FIELD[mode]] = saved.difficulty; }
+    this.selection.tournamentRing = !!(Setups.d && Setups.d.v === 1 && Setups.plain(Setups.d.tournament).ringOut === true); // the Tournament's Ring-out row
   },
   saveLevel() {
     const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
-    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }) });
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : {}) });
     Setups.save();
   },
 
@@ -12222,7 +12225,7 @@ const Game = {
   startTournament(people, seed = Date.now() >>> 0) {
     const sel = this.selection, seated = Inputs.seatedSlots();
     const picks = people || (seated.length ? seated : [0]).map((seat) => ({ seat, id: sel.party[seat] }));
-    return this.playTournament(Tournament.draw({ humans: picks, size: sel.tournamentSize, seed, difficulty: sel.tournamentLevel }));
+    return this.playTournament(Tournament.draw({ humans: picks, size: sel.tournamentSize, seed, difficulty: sel.tournamentLevel, ringOut: sel.tournamentRing }));
   },
   // Takes a bracket into play: the selected mode, the run, the saved copy, then the bracket screen
   playTournament(t) {
@@ -12282,7 +12285,7 @@ const Game = {
   savedTournament() {
     const raw = Progress.d.tournamentRun, saved = Tournament.clean(raw);
     if (!saved && raw) { Progress.d.tournamentRun = null; Progress.save(); }
-    else if (saved && raw.open && !saved.open) { Progress.d.tournamentRun = Tournament.pack(saved); Progress.save(); }
+    else if (saved && ((raw.open && !saved.open) || typeof raw.ringOut !== 'boolean')) { Progress.d.tournamentRun = Tournament.pack(saved); Progress.save(); } // an old bracket keeps the Ring-out it was read with
     return saved;
   },
   // The bracket screen, between fights. The screen's own match is gone first: a CPU match is played by SimRunner and never touches a match on screen.
@@ -12368,7 +12371,7 @@ const Game = {
     this.run = { mode: 'tournament', player: entrants[order[0]].id };
     t.open = { round: ref.round, index: ref.index };
     this.saveTournament();
-    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, items: false, hazards: false,
+    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, items: false, hazards: false, ring: t.ringOut, ringOut: t.ringOut,
       seats: this.tournamentSeats ? order.map((i) => entrants[i].human) : undefined });
   },
   // A bracket fight left before its end: see Tournament.forfeitWinner
@@ -12508,8 +12511,8 @@ const Game = {
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false; // read at every start, so a rematch follows the Options toggle
     if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false; // the same for the Hazards setting
     if (cfg.assist === undefined) cfg.assist = (Settings.v.autoAssist ? ASSIST_STRINGS : 0) | (Settings.v.guardAssist ? ASSIST_GUARD : 0); // a rematch re-reads it
-    if (cfg.mode !== 'brawl') { // a 1v1 has the whole room; only the Ring-out setting, on a level that has a ring edge, fences it into the level's ring and adds the loss by leaving it, in Versus and Free Fight only. A Tournament bout passes its own ring
-      if (cfg.ringOut === undefined) cfg.ringOut = Settings.v.ringOut === true && (cfg.mode === 'versus' || cfg.mode === 'free');
+    if (cfg.mode !== 'brawl') { // a 1v1 has the whole room; a Free Fight and a Tournament bout pass their own ring and ring-out
+      if (cfg.ringOut === undefined) cfg.ringOut = false;
       if (cfg.ring === undefined) cfg.ring = cfg.ringOut && !!(ARENAS[cfg.arenaId] || ARENAS.warehouse).ring[4];
       if (cfg.sides === undefined) cfg.sides = cfg.mode !== 'training'; // the first fighter's start side is drawn per match and swapped every round, in a ring or not
     }
@@ -12544,7 +12547,7 @@ const Game = {
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Story.retry(this.run.story); this.saveArcadeRun(); this.beginStage(); return; }
     const again = Object.assign({}, this.config);
     delete again.assist;
-    if (!again.rulesSet) { delete again.items; delete again.hazards; delete again.ringOut; delete again.ring; } // a Free Fight keeps its rules; others re-read Settings
+    if (!again.rulesSet) { delete again.items; delete again.hazards; delete again.ringOut; delete again.ring; } // a Free Fight keeps its rules; others re-read the Items and Hazards settings
     this.beginMatch(again);
   },
   // Best streak and time are saved after every win and whenever a run ends, so quitting never loses them
@@ -13249,7 +13252,7 @@ const MODE_INFO = {
   survival: { label: 'Survival', desc: 'Endless opponents, limited recovery between fights. How long can you last?' },
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Any fight you can set up: one on one, two players, a brawl with teams, or co-op against a crowd. Choose the fighters, level, difficulty and rules.' },
-  tournament: { label: 'Tournament', desc: 'A knock-out bracket of 8 or 16 fighters, on the levels with a ring edge (turn Ring-out on in the Settings to fence the fights into the ring). Win every fight to be champion; lose one and you are out. One to four players share a bracket, and the CPU plays the other places.' },
+  tournament: { label: 'Tournament', desc: 'A knock-out bracket of 8 or 16 fighters, on the levels with a ring edge (turn Ring-out on to fence the fights into the ring). Win every fight to be champion; lose one and you are out. One to four players share a bracket, and the CPU plays the other places.' },
 };
 const SETUP_LABEL = { free: 'FREE FIGHT' }; // what a lineup match is called on the HUD
 const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };
@@ -13745,6 +13748,7 @@ const UI = {
     else if (name === 'rounds') { const list = [1, 2, 3]; sel.rounds = list[(list.indexOf(sel.rounds) + dir + 3) % 3]; }
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
     else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
+    else if (name === 'tring') { sel.tournamentRing = !sel.tournamentRing; Game.saveLevel(); }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     else if (name.startsWith('story')) this.storyChange(name, dir);
@@ -13994,8 +13998,8 @@ const UI = {
       '<p class="sub">' + (resume ? resumeText : 'One to four players share a bracket of ' + sel.tournamentSize + ' fighters; the CPU plays the other places. Win every fight to be champion. A player who loses is out, and the bracket is played on to the end. Titles, grades and unlocks are for one player only: with 2 to 4 players the tournament earns no rewards.') + '</p><div class="seats">';
     for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
     h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. ' + (resume ? '' : 'After Start each joined player chooses a fighter on the fighter screen. ') +
-      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes the focused row, Entrants or Difficulty). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
-    if (!resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '') + this.levelRow(); // a saved bracket keeps its size and Difficulty
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. On a gamepad up / down move between the rows and left / right change one (A on a joined gamepad changes the focused row: Entrants, Difficulty or Ring-out). ' + (resume ? 'Touch controls are not used here.' : 'With nobody joined, Start lets one player choose a fighter and play on any device, touch included.') + '</p>';
+    if (!resume) h += this.optRow('Entrants', sel.tournamentSize + ' fighters', 'data-local="tsize"', '') + this.levelRow() + this.optRow('Ring-out', sel.tournamentRing ? 'On' : 'Off', 'data-local="tring"', ''); // a saved bracket keeps its size, Difficulty and Ring-out
     h += '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="coopStart"' + (resume && seated.length !== need ? ' disabled' : '') + '>' + (resume ? 'Continue tournament' : 'Choose fighters') + '</button></div></div></section>';
     return h;
   },
