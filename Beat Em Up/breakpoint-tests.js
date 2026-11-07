@@ -5336,9 +5336,9 @@ const SelfTest = {
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the most the same moves reached on main before P17-02 (rad): arms 2.02 and 2.0, elbows 2.48 and 2.63, hips 1.68 and 1.78, torso roll 0.9; and lean 1.05, turn 1.5 and knees 1.8, which P17-02 brought down', () => {
+    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the most the same moves reached on main before P17-02 (rad): arms 2.02 and 2.0, elbows 2.48 and 2.63, hips 1.68 and 1.78, torso roll 0.9, head 0.68; and lean 1.05, turn 1.5 and knees 1.8, which P17-02 brought down', () => {
       const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
-      const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9]];   // left and right limbs have their own main maxima
+      const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // left and right limbs have their own main maxima
       const problems = [];
       for (const r of ROSTER) {
         const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
