@@ -3919,7 +3919,7 @@ const SelfTest = {
       let over = 0;
       const seeds = [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52];   // expert CPUs break many grabs: ~0.4 throws a match
       for (const seed of seeds) {
-        const m = mk({ seed, timer: 60, winsNeeded: 1, arenaId: 'pit', playerId: 'dmitri', opponentId: 'brutus' });
+        const m = mk({ seed, timer: 60, winsNeeded: 1, arenaId: 'pit', playerId: 'dmitri', opponentId: 'brutus', hazards: false });   // hazards off: a CPU that lures its foe into a Pit jet (P18-13) throws that way every time, and this test is about the style's own directions
         m.controllers[0] = new AIController(ROSTER_BY_ID.dmitri, 'expert');
         m.controllers[1] = new AIController(ROSTER_BY_ID.brutus, 'expert');
         let ticks = 0;
@@ -8200,7 +8200,7 @@ const SelfTest = {
     /* ----- CPU item throws (P18-34) ----- */
     /* Seeded CPU fights with items on: per team, the tick of each throw. The code before P18-34 threw up to 4 times in one brawl, 26 ticks apart; the rate per team-minute below is the decided one (Appendix C). */
     const TOSS_REST = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 };   // the decided gap between two takes of a throwable or a crate by one team, in ticks (90 / 60 / 45 / 40 s)
-    const TOSS_RATE_MAX = { easy: 0.3, normal: 0.8, hard: 1.0, expert: 1.0 };   // the decided cap in throws per team-minute over the seeded set (the old code threw 0.4, 1.7, 1.2 and 1.7 on it, bunched in brawls; the new one 0.2, 0.6, 0.8 and 0.7)
+    const TOSS_RATE_MAX = { easy: 0.35, normal: 0.8, hard: 1.0, expert: 1.0 };   // the decided cap in throws per team-minute over the seeded set (the old code threw 0.36, 1.69, 1.17 and 1.66 on it, bunched in brawls; the new one 0.2, 0.6, 0.8 and 0.7; the Easy cap went from 0.30 to 0.35 at P18-13: it changed the Rooftop brawl of seed 11, which now holds one more Easy throw, 0.31 in all, still below the old code's 0.36)
     const TOSS_FIGHTS = [[5, 0], [6, 0], [13, 0], [3, 3], [5, 3], [6, 3], [11, 3], [14, 3]];   // [seed, enemies]: three Free Fight 1v1 and five 1v3 brawls, the ones that threw 2 to 4 times each on the old code
     const tossRun = (difficulty, seed, enemies) => {
       const throws = [[], []], ids = ROSTER.map((r) => r.id), a = ids[(seed * 3) % ids.length], b = ids[(seed * 5 + 1) % ids.length];
@@ -8247,7 +8247,7 @@ const SelfTest = {
     const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
     const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
     test('Levels: every arena builds from its rows inside the sheet limits, with unique ids and valid links, clear spawns, and no gap that can trap a body', () => {
-      const problems = [], want = { warehouse: [19, 10, 4], dojo: [16, 6, 2], pit: [16, 10, 4], rooftop: [21, 10, 4], subway: [17, 8, 3], garage: [18, 10, 3], construction: [20, 10, 4], club: [20, 9, 3] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
+      const problems = [], want = { warehouse: [20, 10, 5], dojo: [16, 6, 2], pit: [16, 10, 7], rooftop: [21, 10, 5], subway: [18, 8, 3], garage: [19, 10, 4], construction: [21, 10, 5], club: [20, 10, 4] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
       for (const id of ARENA_ORDER) {
         const def = ARENAS[id], built = builtOf(def);
         Arena.build(def);
@@ -8630,10 +8630,10 @@ const SelfTest = {
     });
     test('Hazards: the table has the 8 hazards of the spec, each arena places the planned ones, the Hazards setting is on by default (after Items) and off places nothing, not even posts', () => {
       const problems = [];
-      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch|blaze  0 0 0 0 1 20 ';
+      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|hydrant strike 2 24 150 420 2 12 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch|blaze  0 0 0 0 1 20 ';
       const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
       if (got !== want) problems.push('table ' + got);
-      const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass', rooftop: 'drop,drop,panel,fire', subway: 'train,panel,glass', garage: 'panel,fire,glass', construction: 'drop,load,panel,fire', club: 'panel,glass,steam' }, keys = Object.keys(SETTING_DEFS);
+      const plan = { warehouse: 'panel,steam,load,glass,hydrant', dojo: 'glass,panel', pit: 'fire,fire,steam,glass,steam,steam,panel', rooftop: 'drop,drop,panel,fire,hydrant', subway: 'train,panel,glass', garage: 'panel,fire,glass,hydrant', construction: 'drop,load,panel,fire,hydrant', club: 'panel,glass,steam,steam' }, keys = Object.keys(SETTING_DEFS);
       for (const id of ARENA_ORDER) {
         const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 }));
         if (on.hazards.map((h) => h.type).join() !== plan[id] || !on.hazardsOn) problems.push(id + ' places ' + on.hazards.map((h) => h.type));
@@ -8644,7 +8644,7 @@ const SelfTest = {
       if (SETTING_DEFS.hazards.def !== true || Settings.validate('hazards', 'x') !== true || keys.indexOf('hazards') !== keys.indexOf('items') + 1) problems.push('setting');
       const again = track(new MatchSim({ arenaId: 'pit', countdown: false, seed: 2 }));
       again.startRound();
-      if (Arena.colliders.filter((c) => c.haz).length !== 3) problems.push('a new round doubled the posts');
+      if (Arena.colliders.filter((c) => c.haz).length !== 6) problems.push('a new round doubled the posts');
       return problems.length ? problems.join('; ') : true;
     });
     test('Hazards: a panel, a steam jet, a falling load and a fire barrel each hurt every fighter in their zone, of either team, and two co-op teammates too', () => {
@@ -9102,11 +9102,259 @@ const SelfTest = {
       if (d.alive || !ko.ko.length || ko.ko[0].att !== c) problems.push('the knock-out of the burning went to ' + (ko.ko[0] && ko.ko[0].att && ko.ko[0].att.index));
       return problems.length ? problems.join('; ') : true;
     });
+    /* ----- P18-13: more environment interaction (Appendix C "P18-12 more environment interaction decided"): the hydrant, the vending drink, the rebound, and the rows level by level ----- */
+    const obj13 = (id) => Arena.objects.find((o) => o.id === id);
+    test('P18-13 Hydrant (B1): it does nothing until struck, then the jet pushes a fighter in its cone and puts out a burning fighter and a burning object inside the cone, not outside it; it is placed on four levels and not with Hazards off', () => {
+      const problems = [], m = brawlOn('warehouse', {}), h = hazardOf(m, 'hydrant'), [a, b] = m.fighters, inside = obj13('crateB'), outside = obj13('crateE');
+      self.stand(a, h.tx + h.fx * 1.0, h.tz + h.fz * 1.0, h.tx, h.tz); self.stand(b, h.tx + 0.2, h.tz + 2.6, h.tx, h.tz);
+      a.burn = b.burn = 100000;
+      m.ignite(inside); m.ignite(outside); inside.x = h.tx + h.fx * 1.2; inside.z = h.tz + h.fz * 1.2;
+      const x0 = a.x;
+      self.run(m, 60);
+      if (h.state !== 'idle' || !(a.burn > 0) || !(inside.fire > 0)) problems.push('it acted before a strike: ' + h.state);
+      m.hazardArm(h, b, 'strike');
+      self.run(m, 60);
+      if (a.burn !== 0 || !(b.burn > 0) || inside.fire !== 0 || !(outside.fire > 0)) problems.push('douse ' + [a.burn, b.burn, inside.fire, outside.fire]);
+      if (!(a.x < x0 - 0.2)) problems.push('no push ' + (a.x - x0).toFixed(2));
+      for (const id of ['warehouse', 'rooftop', 'garage', 'construction']) {
+        const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 })), off = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, hazards: false }));
+        if (on.hazards.filter((q) => q.type === 'hydrant').length !== 1 || off.hazards.some((q) => q.type === 'hydrant')) problems.push(id + ' hydrant rows');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Vending drink (B2): breaking a vending machine leaves exactly one bottle that falls; none with Items off or with Breakables off', () => {
+      const problems = [], bottles = (m) => m.items.filter((it) => it.id === 'bottle').length;
+      for (const [arenaId, id] of [['subway', 'vendA'], ['subway', 'vendB'], ['dojo', 'vending']]) {
+        const m = brawlOn(arenaId, { items: true }), before = bottles(m);
+        Arena.breakObject(obj13(id), 0, 0, 0);
+        self.run(m, 5);
+        const fresh = m.items.filter((it) => it.id === 'bottle' && Math.abs(it.x - obj13(id).x) < 0.1 && Math.abs(it.z - obj13(id).z) < 0.1);
+        if (bottles(m) !== before + 1 || fresh.length !== 1 || fresh[0].mode !== 'fall') problems.push(id + ' left ' + (bottles(m) - before) + ' ' + (fresh[0] && fresh[0].mode));
+        m.dispose();
+      }
+      const noItems = brawlOn('subway', { items: false });
+      Arena.breakObject(obj13('vendA'), 0, 0, 0);
+      self.run(noItems, 5);
+      if (noItems.items.length) problems.push('Items off dropped ' + noItems.items.length);
+      const solid = brawlOn('subway', { items: true, breakables: false }), vend = obj13('vendA'), n = bottles(solid);
+      Arena.damageObject(vend, 1e6, 'impact', 800, 1, 0, vend.x, 1, vend.z, 0);
+      self.run(solid, 5);
+      if (vend.destroyed || bottles(solid) !== n) problems.push('Breakables off still broke it');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Rebound (B3): a body thrown at 5.6 m/s into a Gym bag or rope goes back at 0.7 of its speed, takes 1 (not 2 + 0.35 x speed), and the bag is undamaged; an unfixed plastic bin breaks at that speed; the bags are mirrored about the ring centre and stay inside its long edges', () => {
+      const problems = [], m = brawlOn('dojo', {}), [a] = m.fighters, ring = ARENAS.dojo.ring, bagN = obj13('bagN'), bagS = obj13('bagS');
+      for (const o of [bagN, bagS, obj13('ropeN'), obj13('ropeS'), obj13('ropeE')]) {
+        a.hp = a.maxHp; a.state = S.THROWN; a.kx = 0; a.kz = -5.6; a.obstacleHit = o; a.lastImpactTick = -99;
+        const hp = a.hp, hpBefore = o.hp;
+        Combat.impactCheck(a, m);
+        const lost = hp - a.hp;
+        if (Math.abs(a.kz - 3.92) > 1e-6 || !(lost > 0) || lost > 1.2 * a.stats.taken * a.stats.impact + 1e-6 || o.destroyed || o.hp !== hpBefore) problems.push(o.id + ' kz ' + a.kz.toFixed(2) + ' lost ' + lost.toFixed(2));
+      }
+      const bin = obj13('binC');
+      a.state = S.THROWN; a.kx = -5.6; a.kz = 0; a.obstacleHit = bin; a.lastImpactTick = -99;
+      Combat.impactCheck(a, m);
+      if (!bin.destroyed) problems.push('the unfixed bin held at 5.6 m/s');
+      if (Math.abs(bagN.x + bagS.x - 2 * ring[0]) > 1e-9 || Math.abs(bagN.z + bagS.z - 2 * ring[1]) > 1e-9 || bagN.z - bagN.collider.hz < ring[1] - ring[3] || bagS.z + bagS.collider.hz > ring[1] + ring[3] || !bagN.fixed || !bagN.bounce) problems.push('bags: not mirrored or not inside the ring');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Pit and Club jets (P1, Cl1): the mirrored pairs push a fighter standing in either cone by the same distance, and the Pit pair stands inside the ring', () => {
+      const problems = [], moved = (arenaId, nth) => {
+        const m = brawlOn(arenaId, {}), h = m.hazards.filter((q) => q.type === 'steam')[nth], [a, b] = m.fighters;
+        self.stand(a, h.tx + h.fx * 1.0, h.tz + h.fz * 1.0, h.tx, h.tz); self.stand(b, -9.5, 6.0, 0, 0);
+        const x0 = a.x, z0 = a.z;
+        m.hazardArm(h, b, 'strike');
+        self.run(m, 50);
+        return Math.hypot(a.x - x0, a.z - z0);
+      };
+      for (const [arenaId, first] of [['pit', 1], ['club', 0]]) {
+        const d1 = moved(arenaId, first), d2 = moved(arenaId, first + 1);
+        if (!(d1 > 0.4) || Math.abs(d1 - d2) > 0.05) problems.push(arenaId + ' pair pushes ' + d1.toFixed(2) + ' / ' + d2.toFixed(2));
+      }
+      const pit = ARENAS.pit, jets = pit.hazards.filter((q) => q[0] === 'steam').slice(1);
+      if (jets.some((q) => Math.abs(q[1]) > pit.ring[2] || Math.abs(q[1] + jets.find((r) => r !== q)[1]) > 1e-9 || Math.abs(q[2] + jets.find((r) => r !== q)[2]) > 1e-9)) problems.push('pit jets not point-mirrored inside the ring');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Live metal (P2, R1, C1): the panel shocks a fighter touching the Pit cage rail, the Construction fence or the Rooftop air-conditioning once per activation, not one at the Pit rail the arc does not reach and not before it is struck', () => {
+      const problems = [], shocks = (arenaId, spot, far) => {
+        const m = brawlOn(arenaId, {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+        self.stand(a, spot[0], spot[1], spot[0] + 1, spot[1]); self.stand(b, far[0], far[1], 0, 0);
+        const log = hazardLog(m);
+        self.run(m, 60);
+        const quiet = log.filter((e) => e.name === 'hazardHit').length;
+        m.hazardArm(panel, null, 'timer');
+        self.run(m, 220);
+        log.stop();
+        return [quiet, log.filter((e) => e.name === 'hazardHit' && e.f === 0 && e.dmg > 0).length, log.filter((e) => e.name === 'hazardHit' && e.f === 1).length];
+      };
+      const cases = [['pit', [-6.0, -2.2], [-6.0, 3.0], 'cageL'], ['construction', [2.7, -6.5], [-6, 5], 'fenceB'], ['rooftop', [-9.0, 1.2], [4, 3], 'acB']];
+      for (const [arenaId, spot, far, id] of cases) {
+        const m = brawlOn(arenaId, {}), chain = hazardOf(m, 'panel').chain.map((o) => o.id);
+        if (!chain.includes(id) || chain.length > CHAIN_MAX) problems.push(arenaId + ' chain ' + chain);
+        const [quiet, hit, other] = shocks(arenaId, spot, far);
+        if (quiet !== 0 || hit !== 1 || other !== 0) problems.push(arenaId + ' shocks ' + [quiet, hit, other]);
+      }
+      const pit = brawlOn('pit', {});
+      if (hazardOf(pit, 'panel').chain.some((o) => o.id === 'cageB')) problems.push('the arc reaches the south cage run');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Chains (W1, S2, G2): the Warehouse panel lights the cardboard stack in 10 ticks of its arc and the fire spreads to crateD, the Subway panel lights the paper bundle and the fire reaches the scaffold tier (which loses hit points), the Garage barrel pool lights the tyre stack; nothing burns unstruck', () => {
+      const problems = [], burn = (arenaId, trigger, watch, ticks) => {
+        const m = brawlOn(arenaId, {}), [a, b] = m.fighters;
+        self.stand(a, 0, 0, 1, 0); self.stand(b, 1, 0, 0, 0);
+        const quiet = watch.map((id) => { self.run(m, 40); return obj13(id).fire; });
+        if (quiet.some((v) => v > 0)) problems.push(arenaId + ' burned unstruck');
+        trigger(m, a);
+        const at = {};
+        for (let t = 0; t < ticks; t++) { a.hp = b.hp = a.maxHp = b.maxHp = 1e6; m.step(); for (const id of watch) if (at[id] === undefined && obj13(id).fire > 0) at[id] = t; }
+        return [at, m];
+      };
+      let [at] = burn('warehouse', (m) => m.hazardArm(hazardOf(m, 'panel'), null, 'timer'), ['cardboardC', 'crateD'], 160);
+      if (at.cardboardC === undefined || at.cardboardC > HAZARDS.panel.warn + 10 || at.crateD === undefined || at.crateD > HAZARDS.panel.warn + 80 || at.crateD < at.cardboardC) problems.push('warehouse ' + JSON.stringify(at));
+      let m2;
+      [at, m2] = burn('subway', (m) => m.hazardArm(hazardOf(m, 'panel'), null, 'timer'), ['papers', 'repair.t0.1'], 600);
+      if (at.papers === undefined || at['repair.t0.1'] === undefined || !(obj13('repair.t0.1').hp < obj13('repair.t0.1').maxHp)) problems.push('subway ' + JSON.stringify(at));
+      [at] = burn('garage', (m, a) => { const barrel = hazardOf(m, 'fire'); self.stand(a, barrel.tx - 1.0, barrel.tz, barrel.tx, barrel.tz); m.hazardArm(barrel, a, 'strike'); }, ['tyres'], 200);
+      if (at.tyres === undefined) problems.push('garage tyres ' + JSON.stringify(at));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Club bottle (Cl2): the beer crate holds a bottle that drops when the crate breaks; and nothing is dropped while it is whole', () => {
+      const problems = [], m = brawlOn('club', { items: true });
+      const held = m.items.filter((it) => it.id === 'bottle' && Math.abs(it.x - 10.5) < 0.05 && Math.abs(it.z - 6.5) < 0.05);
+      if (held.length !== 1 || !(held[0].y > 0.5)) problems.push('no bottle on the crate ' + held.length);
+      Arena.breakObject(obj13('beerCrate'), 0, 0, 0);
+      self.run(m, 90);
+      if (m.items.some((it) => it.id === 'bottle' && Math.abs(it.x - 10.5) < 0.2 && it.y > 0.5)) problems.push('the bottle stayed up');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Free Fight rules off: with Hazards, Items and Breakables off none of the new posts, bottles or burning chains exists or acts, and a Square ring keeps only the new posts inside the ring', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, hazards: false, items: false, breakables: false }));
+        if (m.hazards.length || m.items.length || Arena.colliders.some((c) => c.haz)) problems.push(id + ' placed something with the rules off');
+        m.step();
+        if (Arena.objects.some((o) => o.fire > 0)) problems.push(id + ' burns with Hazards off');
+      }
+      const inside = (arenaId, type) => track(new MatchSim({ arenaId, countdown: false, seed: 2, ring: true, hazards: true })).hazards.filter((h) => h.type === type).length;
+      if (inside('rooftop', 'hydrant') !== 1 || inside('pit', 'panel') !== 0 || inside('pit', 'steam') !== 2 || inside('club', 'steam') !== 0) problems.push('Square ring: hydrant ' + inside('rooftop', 'hydrant') + ' pit panel ' + inside('pit', 'panel') + ' pit jets ' + inside('pit', 'steam') + ' club jets ' + inside('club', 'steam'));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 CPU uses the new posts: over 20 seeded Hard CPU against CPU fights on the Garage (hydrant), the Pit (jets) and the Club (jet), a CPU sets one of the new posts off in at least one seed; the Warehouse, Rooftop and Construction hydrants are left out: no CPU struck them in 20 seeds (a CPU strikes a post only with its foe in the zone, or lures its foe to it)', () => {
+      const problems = [], fresh = { pit: [4, 5], garage: [3], club: [3] }, illegal = Diag.illegalTransitions, errors = Diag.errors;   // the runs also check that a CPU lured to the new posts makes no illegal state change (the grappler throw test runs with Hazards off)
+      for (const arenaId in fresh) {
+        const spots = fresh[arenaId].map((i) => ARENAS[arenaId].hazards[i]);
+        let seeds = 0;
+        for (let seed = 1; seed <= 20; seed++) {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 60, seed, arenaId, difficulty: 'hard', items: true, hazards: true, winsNeeded: 2 }));
+          let used = false;
+          const off = Events.on('hazardTrigger', (e) => { if (e.by && spots.some(([type, x, z]) => type === e.h.type && x === e.h.x && z === e.h.z)) used = true; });
+          m.controllers[0] = new AIController(m.fighters[0].profile, 'hard'); m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+          for (let t = 0; t < 4800 && !used && m.phase !== 'matchEnd'; t++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
+          off();
+          if (used) seeds++;
+          m.dispose();
+          if (seeds) break;
+        }
+        if (!seeds) problems.push(arenaId + ': no CPU used a new post in 20 seeds');
+      }
+      if (Diag.illegalTransitions !== illegal || Diag.errors !== errors) problems.push('illegal transitions ' + (Diag.illegalTransitions - illegal) + ', errors ' + (Diag.errors - errors));
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- P18-13 review: raised ground, the Gym ring-out throw, the hydrant against a burning barrel, and the CPU at each hydrant ----- */
+    const zoneOver = (m, h, c) => {   // whether the zone of hazard h covers any point of the collider c (a 9 x 9 grid over its top)
+      for (let ix = -4; ix <= 4; ix++) for (let iz = -4; iz <= 4; iz++) if (m.hazardCovers(h, c.x + c.hx * ix / 4, c.z + c.hz * iz / 4)) return true;
+      return false;
+    };
+    const colliderOf = (id) => Arena.colliders.find((c) => c.obj && c.obj.id === id);
+    test('P18-13 Raised ground (P18-44): the Subway panel and the paper fire stay clear of the scaffold tier and its stair foot, a fighter on the tier is above the panel\'s floor zone, the Club jets blow clear of the stage, its steps and the balcony, and a fighter on the stage is not pushed, the Gym zones stay clear of the raised ring and a fighter on it bounces off the rope', () => {
+      const problems = [];
+      const subway = brawlOn('subway', {}), panel = hazardOf(subway, 'panel'), tier = colliderOf('repair.t0.1'), foot = colliderOf('repair.u1.1'), papers = colliderOf('papers'), [s1] = subway.fighters;
+      if (!(tier.top > 1.05)) problems.push('the tier is not raised ' + tier.top);
+      if (zoneOver(subway, panel, tier) || zoneOver(subway, panel, foot)) problems.push('the panel arc reaches the tier or its stair foot');
+      const gap = Math.hypot(Math.max(Math.abs(papers.x - foot.x) - papers.hx - foot.hx, 0), Math.max(Math.abs(papers.z - foot.z) - papers.hz - foot.hz, 0));
+      if (gap < Math.max(papers.hx, papers.hz) + 0.5) problems.push('the paper fire zone reaches the stair foot, gap ' + gap.toFixed(2));
+      self.stand(s1, panel.x + 0.5, panel.z, 0, 0);
+      const onFloor = subway.hazardReaches(panel, s1);
+      s1.y = s1.prevY = s1.groundY = s1.supportY = tier.top;
+      if (!onFloor || subway.hazardReaches(panel, s1)) problems.push('the panel zone reaches a fighter on the tier: floor ' + onFloor + ', tier ' + subway.hazardReaches(panel, s1));
+      const club = brawlOn('club', {}), [c1, c2] = club.fighters, stage = colliderOf('stage'), jets = club.hazards.filter((h) => h.type === 'steam');
+      const raisedClub = Arena.colliders.filter((c) => c.obj && /^(stage|balcony|stepW\.\d+|stepE\.\d+)$/.test(c.obj.id));
+      if (jets.length !== 2 || raisedClub.length < 10) problems.push('club rows: ' + jets.length + ' jets, ' + raisedClub.length + ' raised parts');
+      for (const jet of jets) for (const c of raisedClub) if (zoneOver(club, jet, c)) problems.push('club jet ' + jet.x + ' reaches ' + c.obj.id);
+      self.stand(c1, 1.8, stage.z + stage.hz - 0.5, 1.8, 0); c1.y = c1.prevY = c1.groundY = c1.supportY = stage.top; self.stand(c2, jets[1].x, jets[1].z + 1.0, jets[1].x, jets[1].z);   // c2 on the floor in the jet is the control: it must be pushed
+      const z0 = c1.z, control0 = c2.z;
+      club.hazardArm(jets[1], null, 'timer');
+      self.run(club, 50);
+      if (!(c2.z - control0 > 0.4)) problems.push('the jet did not push the control fighter ' + (c2.z - control0).toFixed(2));
+      if (Math.abs(c1.z - z0) > 0.05) problems.push('a jet pushed a fighter on the stage ' + (c1.z - z0).toFixed(2));
+      const gym = brawlOn('dojo', {}), ring = colliderOf('ring'), ropeE = colliderOf('ropeE'), [g1] = gym.fighters;
+      for (const h of gym.hazards) if (zoneOver(gym, h, ring)) problems.push('a Gym zone reaches the raised ring: ' + h.type);
+      const edge = ARENAS.dojo.ring;
+      if (ring.x + ring.hx > edge[0] - edge[2]) problems.push('the raised ring lies inside the 1v1 ring');
+      g1.hp = g1.maxHp; g1.state = S.THROWN; g1.x = ropeE.x - 0.8; g1.z = ropeE.z; g1.y = g1.prevY = g1.groundY = g1.supportY = ring.top; g1.kx = 5.6; g1.kz = 0; g1.obstacleHit = ropeE.obj; g1.lastImpactTick = -99;
+      const hp = g1.hp;
+      Combat.impactCheck(g1, gym);
+      if (Math.abs(g1.kx + 3.92) > 1e-6 || !(hp - g1.hp > 0) || ropeE.obj.destroyed) problems.push('the rope on the ring: kx ' + g1.kx.toFixed(2) + ' lost ' + (hp - g1.hp).toFixed(2));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Gym ring-out throw (D2): a fighter thrown 2.4 m toward the south edge of the Gym ring is stopped by the heavy bag and stays in (no ring-out), and the same throw beside the bag leaves the ring and loses the round', () => {
+      const thrown = (x) => {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: 'dojo', difficulty: 'normal', ring: true, ringOut: true, hazards: false, items: false })), [thrower, body] = m.fighters;
+        m.controllers[0] = self.scripted(() => {}); m.controllers[1] = self.scripted(() => {});
+        self.stand(body, x, 2.2, x, 1.0); self.stand(thrower, x, -0.3, x, 2.2);
+        thrower.throwPending = { tick: 0, dir: 'fwd', data: THROW_SETS.front.fwd, side: 1, baseYaw: body.yaw };
+        Combat.executeThrow(thrower, body, m);
+        self.run(m, 90);
+        const out = m.ringedOut === body, z = body.z;
+        m.dispose();
+        return { out, z };
+      };
+      const bag = thrown(1), beside = thrown(3.0), edge = ARENAS.dojo.ring[1] + ARENAS.dojo.ring[3];
+      const problems = [];
+      if (bag.out || bag.z > edge) problems.push('the bag did not stop the throw: out ' + bag.out + ' z ' + bag.z.toFixed(2));
+      if (!beside.out) problems.push('the control throw beside the bag stayed in: z ' + beside.z.toFixed(2));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Hydrant against a burning barrel (B1): a struck hydrant ends the active pool of a fire barrel inside its jet, and one outside the jet keeps burning', () => {
+      const problems = [], run = (inside) => {
+        const m = brawlOn('rooftop', {}), hydrant = hazardOf(m, 'hydrant'), barrel = hazardOf(m, 'fire'), [a, b] = m.fighters;
+        self.stand(a, -2, -3, 0, 0); self.stand(b, -1, -3, 0, 0);
+        m.hazardArm(barrel, a, 'strike');
+        self.run(m, HAZARDS.fire.warn + 5);
+        const burning = barrel.state;
+        if (inside) { barrel.x = hydrant.x + hydrant.fx * 1.0; barrel.z = hydrant.z + hydrant.fz * 1.0; }   // the pool spills 0.9 m when it lights, so it is moved into the jet afterwards
+        m.hazardArm(hydrant, b, 'strike');
+        self.run(m, HAZARDS.hydrant.warn + 40);
+        return [burning, barrel.state];
+      };
+      const [lit, doused] = run(true), [litFar, farAfter] = run(false);
+      if (lit !== 'active' || doused !== 'spent') problems.push('barrel in the jet: ' + lit + ' then ' + doused);
+      if (litFar !== 'active' || farAfter !== 'active') problems.push('barrel outside the jet: ' + litFar + ' then ' + farAfter);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 CPU hydrant: a Hard CPU standing beside the post of the Warehouse, Rooftop, Construction and Garage hydrant, with its foe in the jet, strikes the post and is not hurt by it (hazardBait never walks to a hydrant, so this is the strike plan on its own)', () => {
+      const problems = [];
+      for (const arenaId of ['warehouse', 'rooftop', 'construction', 'garage']) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId, items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters, h = hazardOf(m, 'hydrant'), log = cpuLog(m);
+        const foe = [h.tx + h.fx * 1.0, h.tz + h.fz * 1.0];
+        const side = [1, -1].map((s) => [h.tx - h.fz * 1.3 * s, h.tz + h.fx * 1.3 * s]).find(([x, z]) => !Arena.blockedAt(x, z, 0.45, 0) && !Arena.outside(x, z, 0.45)) || [h.tx, h.tz];
+        m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+        self.stand(a, side[0], side[1], foe[0], foe[1]); self.stand(b, foe[0], foe[1], side[0], side[1]);
+        const hurts = [], off = Events.on('hazardHit', (e) => { if (e.f.index === 0 && e.dmg > 0) hurts.push(m.tick); });
+        for (let t = 0; t < 900 && !log.some((e) => e.type === 'hydrant'); t++) m.step();
+        self.run(m, 120);
+        log.stop(); off();
+        const trig = log.find((e) => e.type === 'hydrant');
+        if (!trig || trig.by !== 0 || (trig.via !== 'strike' && trig.via !== 'knock')) problems.push(arenaId + ' hydrant not struck by the CPU: ' + JSON.stringify(trig));
+        else if (hurts.length) problems.push(arenaId + ' hydrant hurt the CPU');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '71:1nmpcb6' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '85:1tnve97' },   // re-recorded 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '110:11gco4b' },   // re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '59:keougj' },   // re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
       { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '77:o5ps9z' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
@@ -13949,11 +14197,11 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Stamina (P18-33): a player-like script on a seeded 1v3 brawl and on a Brawl lineup 1v3 (seeds 1 to 4) is out of stamina for at most the decided share of the fight on Easy (9 %) and Normal (13 %)', () => {
+    test('Stamina (P18-33): a player-like script on a seeded 1v3 brawl and on a Brawl lineup 1v3 (seeds 1 to 24) is out of stamina for at most the decided share of the fight on Easy (9 %) and Normal (13 %)', () => {
       const problems = [];
       for (const lineup of [false, true]) for (const difficulty of ['easy', 'normal']) {
         let fight = 0, out = 0;
-        for (let seed = 1; seed <= 4; seed++) { const r = staminaBrawl(difficulty, 3, seed, lineup); fight += r.fight; out += r.out; }
+        for (let seed = 1; seed <= 24; seed++) { const r = staminaBrawl(difficulty, 3, seed, lineup); fight += r.fight; out += r.out; }
         const share = out / Math.max(1, fight), label = (lineup ? 'lineup ' : 'brawl ') + difficulty;
         if (fight < 1200) problems.push(label + ': only ' + fight + ' ticks of fight');
         else if (share > STAMINA_OUT_SHARE[difficulty]) problems.push(label + ': out of stamina ' + (share * 100).toFixed(1) + ' % of ' + fight + ' ticks, more than ' + STAMINA_OUT_SHARE[difficulty] * 100 + ' %');

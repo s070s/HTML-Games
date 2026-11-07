@@ -2939,9 +2939,9 @@ const Crowd = {
 
 /* --- arenas (pristine definitions; live state is built from them)
    items: [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
-   objects: plain rows, and `builds` rows (stairs, scaffolds) that builtOf() expands; a row may also have y (stands on a deck), on (the id it rests on), weak (weight that breaks it), fixed (no damage), type 'deck'.
+   objects: plain rows, and `builds` rows (stairs, scaffolds) that builtOf() expands; a row may also have y (stands on a deck), on (the id it rests on), weak (weight that breaks it), fixed (no damage), bounce (a thrown or knocked body rebounds off it: the Gym bags and ropes), type 'deck'.
    ring: [x, z, hx, hz, ringOut] the 1v1 area (centre, half sizes), ringOut = 1 where leaving it can lose the round; waves: [count, x, z, rival, second entry [x, z]], the first stands in the level at the start.
-   hazards: [hazard type (HAZARDS), x, z, options]: yaw (way a steam jet blows), tx / tz (trigger post, if not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
+   hazards: [hazard type (HAZARDS), x, z, options]: yaw (way a steam jet or a hydrant blows), tx / tz (trigger post, if not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
 const ARENAS = {
   warehouse: {
     id: 'warehouse', name: 'Industrial Warehouse', blurb: 'A big hall: crates, racks and a shipping container, a steel mezzanine office up a stair, a timber loading dock that gives way. Echoing.',
@@ -2953,11 +2953,12 @@ const ARENAS = {
       { id: 'crateA', type: 'box', look: 'crate', mat: 'wood', x: -5.4, z: -2.6, hx: 0.55, hz: 0.55, h: 0.95 },
       { id: 'crateB', type: 'box', look: 'crate', mat: 'wood', x: 5.6, z: 2.3, hx: 0.55, hz: 0.55, h: 0.95 },
       { id: 'crateC', type: 'box', look: 'crate', mat: 'wood', x: -5.6, z: 3.2, hx: 0.5, hz: 0.5, h: 0.9 },
-      { id: 'crateD', type: 'box', look: 'crate', mat: 'wood', x: 5.7, z: -3.4, hx: 0.55, hz: 0.55, h: 0.95 },
+      { id: 'crateD', type: 'box', look: 'crate', mat: 'wood', x: 5.7, z: -3.2, hx: 0.55, hz: 0.55, h: 0.95 },
       { id: 'crateE', type: 'box', look: 'crate', mat: 'wood', x: -2.0, z: -6.0, hx: 0.5, hz: 0.5, h: 0.9 },
       { id: 'crateF', type: 'box', look: 'crate', mat: 'wood', x: 11.0, z: 6.0, hx: 0.5, hz: 0.5, h: 0.9 },
       { id: 'cardboardA', type: 'box', look: 'crate', mat: 'paper', x: -1.4, z: 6.05, hx: 0.45, hz: 0.45, h: 0.8 },
       { id: 'cardboardB', type: 'box', look: 'crate', mat: 'paper', x: 8.4, z: 1.4, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'cardboardC', type: 'box', look: 'crate', mat: 'paper', x: 7.47, z: -1.7, hx: 0.42, hz: 0.45, h: 0.8 }, // P18-13 W1: in the panel's arc, 0.5 m from crateD (the fire spreads to it); crateD moved 0.2 m south for it
       { id: 'pillarL', type: 'column', mat: 'concrete', x: -3.2, z: -4.2, hx: 0.42, hz: 0.42, h: 3.4 },
       { id: 'pillarR', type: 'column', mat: 'concrete', x: 3.2, z: -3.8, hx: 0.42, hz: 0.42, h: 3.4 },
       { id: 'container', type: 'box', look: 'container', mat: 'sheet', color: '#a3361f', x: -6.0, z: -5.8, hx: 1.6, hz: 0.7, h: 2.6 },
@@ -2974,7 +2975,7 @@ const ARENAS = {
     builds: [['stair', 'stair', 3.5, -6.0, 1, 1.0, 0, 2.5, 'metal', 'grate', '']],
     items: [['pipe', -10.23, -4.2, 1.4, 'rackA'], ['chain', -10.23, -3.8, 1.4, 'rackA'], ['wrench', 0.0, -6.1, 0.9, 'bench'], ['hammer', 0.8, -6.1, 0.9, 'bench'], ['bottle', -5.3, -2.6, 0.95, 'crateA'],
       ['extinguisher', 3.2, -3.28, 1.3, 'pillarR'], ['crate', -1.8, 4.2, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['binlid', 6.6, 4.5, 0]],
-    hazards: [['panel', 6.0, -1.6], ['steam', -9.8, 0.9, { yaw: Math.PI / 2 }], ['load', -3.8, -3.4, { tx: -3.8, tz: -1.7 }], ['glass', 0, 0, { obj: 'window' }]],
+    hazards: [['panel', 6.0, -1.6], ['steam', -9.8, 0.9, { yaw: Math.PI / 2 }], ['load', -3.8, -3.4, { tx: -3.8, tz: -1.7 }], ['glass', 0, 0, { obj: 'window' }], ['hydrant', 2.5, 3.4, { yaw: -Math.PI / 2 }]],
     waves: [[3, 2.6, 0.4, 0], [4, -6.4, 5.2, 0], [5, 10.0, 1.0, 0], [6, 9.0, -5.2, 1]],
   },
   dojo: {
@@ -2998,13 +2999,15 @@ const ARENAS = {
       { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'z', x: -9.92, z: -4.0, hx: 0.08, hz: 0.5, h: 2.0 },
       { id: 'pillar', type: 'column', mat: 'tile', x: -9.6, z: 4.5, hx: 0.4, hz: 0.4, h: 3.0 },
       { id: 'ring', type: 'deck', look: 'stage', mat: 'wood', fixed: 1, x: -7.8, z: 0, hx: 2.2, hz: 2.2, h: 1.0 },
-      { id: 'ropeN', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'x', y: 1.0, x: -7.8, z: -2.1, hx: 2.2, hz: 0.06, h: 1.05 },
-      { id: 'ropeS', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'x', y: 1.0, x: -7.8, z: 2.1, hx: 2.2, hz: 0.06, h: 1.05 },
-      { id: 'ropeE', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'z', y: 1.0, x: -5.7, z: -0.9, hx: 0.06, hz: 1.3, h: 1.05 },
+      { id: 'ropeN', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, bounce: 1, axis: 'x', y: 1.0, x: -7.8, z: -2.1, hx: 2.2, hz: 0.06, h: 1.05 },
+      { id: 'ropeS', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, bounce: 1, axis: 'x', y: 1.0, x: -7.8, z: 2.1, hx: 2.2, hz: 0.06, h: 1.05 },
+      { id: 'ropeE', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, bounce: 1, axis: 'z', y: 1.0, x: -5.7, z: -0.9, hx: 0.06, hz: 1.3, h: 1.05 },
       { id: 'mezz', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: 7, z: -4.8, hx: 3, hz: 1.2, h: 2.5 },
       { id: 'balA', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 5.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
       { id: 'balB', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 8.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
       { id: 'binC', type: 'column', mat: 'plastic', color: '#3f4a52', x: 9.0, z: -0.4, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'bagN', type: 'column', mat: 'plastic', color: '#8a3b2a', fixed: 1, bounce: 1, x: 1, z: -2.55, hx: 0.3, hz: 0.3, h: 1.8 }, // P18-13 D2: two hanging heavy bags on the ring's long edges, mirrored about its centre (1, 0.5); a thrown body bounces off them
+      { id: 'bagS', type: 'column', mat: 'plastic', color: '#8a3b2a', fixed: 1, bounce: 1, x: 1, z: 3.55, hx: 0.3, hz: 0.3, h: 1.8 },
     ],
     builds: [['stair', 'ringStep', -4.2, 1.4, 3, 1.2, 0, 1.0, 'wood', 'stage', ''], ['stair', 'mezzStair', 0.5, -5.4, 1, 1.2, 0, 2.5, 'metal', 'grate', '']],
     items: [['stick', -9.78, -4.12, 1.4, 'fireDoor'], ['stick', -9.78, -3.88, 1.4, 'fireDoor'], ['broom', 9.2, 2.5, 1.3, 'lockerA'], ['bottle', -1.5, 5.75, 0.5, 'benchL'], ['chair', -4.3, -1.0, 0], ['extinguisher', -9.6, 4.0, 1.3, 'pillar']],
@@ -3038,7 +3041,8 @@ const ARENAS = {
     builds: [['stair', 'street', 3.5, -3.9, 1, 1.2, 0, 2.5, 'metal', 'grate', '']],
     items: [['binlid', -1.2, 4.4, 0], ['chain', -3.4, 3.7, 0.85, 'barrierB'], ['brick', 3.8, 3.9, 0.85, 'barrierC'], ['pipe', 0.8, -3.45, 1.4, 'pillarB'], ['wrench', 8.4, -0.35, 1.3, 'pillarA'],
       ['crate', 5.6, 4.6, 0], ['extinguisher', -5.4, 0.4, 0], ['bottle', -8.8, 2.6, 1.05, 'bar'], ['bottle', -8.8, 4.4, 1.05, 'bar'], ['bat', -9.35, 3.6, 1.3, 'bar']],
-    hazards: [['fire', -7.9, -0.6], ['fire', 8.0, 3.2], ['steam', -8.5, -5.6, { yaw: Math.PI / 2 }], ['glass', 0, 0, { obj: 'obsGlass' }]],
+    hazards: [['fire', -7.9, -0.6], ['fire', 8.0, 3.2], ['steam', -8.5, -5.6, { yaw: Math.PI / 2 }], ['glass', 0, 0, { obj: 'obsGlass' }],
+      ['steam', -4.2, -0.8, { yaw: Math.PI / 2 }], ['steam', 4.2, 0.8, { yaw: -Math.PI / 2 }], ['panel', -5.3, -3.9]],
   },
   rooftop: {
     id: 'rooftop', name: 'City Rooftop', blurb: 'A night roof above the city: a painted helipad, a brick parapet with two broken gaps, a water-tank deck up a stair, a billboard catwalk that will not hold a crowd, a lounge corner. Wind.',
@@ -3056,8 +3060,8 @@ const ARENAS = {
       { id: 'parC', type: 'box', look: 'barrier', mat: 'brick', x: 9.0, z: -6.7, hx: 2.0, hz: 0.3, h: 0.85 },
       { id: 'parD', type: 'box', look: 'barrier', mat: 'brick', x: 10.7, z: -5.0, hx: 0.3, hz: 2.0, h: 0.85 },
       { id: 'parE', type: 'box', look: 'barrier', mat: 'brick', x: 10.7, z: 6.0, hx: 0.3, hz: 1.0, h: 0.85 },
-      { id: 'acA', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -8.6, z: -0.5, hx: 0.7, hz: 0.5, h: 1.0 },
-      { id: 'acB', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -8.6, z: 1.4, hx: 0.7, hz: 0.5, h: 1.0 },
+      { id: 'acA', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -9.0, z: -0.5, hx: 0.7, hz: 0.5, h: 1.0 },
+      { id: 'acB', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -9.0, z: 0.5, hx: 0.7, hz: 0.5, h: 1.0 },
       { id: 'acC', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -6.0, z: 3.0, hx: 0.7, hz: 0.5, h: 1.0 },
       { id: 'chimney', type: 'column', mat: 'brick', x: 5.8, z: -4.8, hx: 0.45, hz: 0.45, h: 3.4 },
       { id: 'housing', type: 'box', mat: 'concrete', hpMul: 3, x: 9.2, z: -1.0, hx: 1.8, hz: 2.0, h: 3.2 },
@@ -3072,8 +3076,8 @@ const ARENAS = {
     ],
     builds: [['stair', 'tankStair', -4.2, -5.4, 3, 1.0, 0, 2.0, 'metal', 'grate', '']],
     items: [['brick', -2.6, -5.2, 0], ['brick', 2.6, -5.2, 0], ['bottle', 7.0, 4.8, 0.75, 'table'], ['skateboard', 1.5, 2.8, 0], ['chair', -1.0, -2.6, 0], ['pipe', -7.19, -6.6, 3.4, 'postB'],
-      ['binlid', -9.9, 5.4, 0], ['wrench', -8.6, 1.4, 1.0, 'acB'], ['extinguisher', 7.33, 0.45, 1.3, 'housing'], ['broom', 7.33, -2.4, 1.3, 'housing']],
-    hazards: [['drop', 0, -6.4, { hx: 2, hz: 0.6 }], ['drop', 10.4, 3.5, { hx: 0.6, hz: 1.5 }], ['panel', -10.65, -1.0], ['fire', 4.2, -2.6]],
+      ['binlid', -9.9, 5.4, 0], ['wrench', -9.0, 0.5, 1.0, 'acB'], ['extinguisher', 7.33, 0.45, 1.3, 'housing'], ['broom', 7.33, -2.4, 1.3, 'housing']],
+    hazards: [['drop', 0, -6.4, { hx: 2, hz: 0.6 }], ['drop', 10.4, 3.5, { hx: 0.6, hz: 1.5 }], ['panel', -10.65, -1.0], ['fire', 4.2, -2.6], ['hydrant', 3.8, 2.4, { yaw: -Math.PI / 2 }]],
     waves: [[3, 3.0, 0, 0], [4, 5.9, -1.0, 0], [5, 5.9, -1.0, 0], [6, 5.9, -1.0, 1, [-9.4, -5.2]]],
   },
   subway: {
@@ -3096,6 +3100,7 @@ const ARENAS = {
       { id: 'shelter', type: 'panel', look: 'busstop', mat: 'glass', axis: 'x', x: 8.0, z: 4.4, hx: 1.3, hz: 0.08, h: 2.2 },
       { id: 'kiosk', type: 'box', look: 'kiosk', mat: 'wood', x: 5.0, z: 6.0, hx: 1.0, hz: 0.5, h: 0.9 },
       { id: 'cartons', type: 'box', look: 'crate', mat: 'paper', x: 10.3, z: 3.0, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'papers', type: 'box', look: 'crate', mat: 'paper', x: 10.2, z: -4.65, hx: 0.4, hz: 0.35, h: 0.8 }, // P18-13 S2: in the panel's arc, 0.7 m from the scaffold tier (the fire spreads to it)
       { id: 'binA', type: 'column', mat: 'plastic', color: '#3f4a52', x: -6.2, z: 6.2, hx: 0.3, hz: 0.3, h: 0.8 },
       { id: 'binB', type: 'column', mat: 'plastic', color: '#3f4a52', x: 7.6, z: 6.2, hx: 0.3, hz: 0.3, h: 0.8 },
       { id: 'serviceDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'x', x: 10.0, z: 6.42, hx: 0.6, hz: 0.08, h: 2.1 },
@@ -3133,11 +3138,12 @@ const ARENAS = {
       { id: 'binA', type: 'column', mat: 'plastic', color: '#3f4a52', x: 4.0, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
       { id: 'binB', type: 'column', mat: 'plastic', color: '#3f4a52', x: 5.3, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
       { id: 'cartons', type: 'box', look: 'crate', mat: 'paper', x: -7.2, z: 2.4, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'tyres', type: 'column', mat: 'plastic', color: '#1d1f22', x: 6.7, z: 2.2, hx: 0.3, hz: 0.3, h: 0.6 }, // P18-13 G2: burns when the barrel's pool reaches it
     ],
     builds: [['stair', 'ramp', -10.7, 1.5, 2, 1.6, 0, 2.0, 'concrete', 'ramp', '']],
     items: [['bat', 2.0, 5.0, 0.63, 'carB'], ['wrench', -5.5, 6.45, 0.63, 'carA'], ['chain', 9.0, 2.4, 1.0, 'arm'], ['pipe', -3.6, 3.8, 0], ['brick', 3.8, -1.6, 0], ['crate', 0.6, 3.4, 0], ['binlid', 3.0, 5.6, 0],
       ['extinguisher', 5.4, -1.33, 1.3, 'pillB'], ['skateboard', -5.0, -5.8, 2.0, 'upper'], ['bottle', 7.6, 5.4, 0]],
-    hazards: [['panel', 11.15, -1.4], ['fire', 5.6, 0.8], ['glass', 0, 0, { obj: 'boothGlass' }]],
+    hazards: [['panel', 11.15, -1.4], ['fire', 5.6, 0.8], ['glass', 0, 0, { obj: 'boothGlass' }], ['hydrant', -3.6, 0.8, { yaw: 0 }]],
     waves: [[3, 2.6, 0.5, 0], [4, -9.9, -5.8, 0], [5, 9.8, -5.5, 0], [6, 9.8, -5.5, 1, [-9.9, -5.8]]],
   },
   construction: {
@@ -3157,12 +3163,13 @@ const ARENAS = {
       { id: 'toilet', type: 'column', mat: 'plastic', color: '#2f8f5b', x: 10.8, z: 6.55, hx: 0.45, hz: 0.45, h: 2.2 },
       { id: 'fenceF', type: 'rail', mat: 'metal', axis: 'x', x: 4.0, z: 6.94, hx: 2.0, hz: 0.06, h: 1.05 },
       { id: 'fenceW', type: 'rail', mat: 'metal', axis: 'z', x: -11.94, z: -1.0, hx: 0.06, hz: 2.0, h: 1.05 },
+      { id: 'fenceB', type: 'rail', mat: 'metal', axis: 'x', x: 3.0, z: -6.94, hx: 0.75, hz: 0.06, h: 1.05 }, // P18-13 C1: a fence in the generator panel's arc
       { id: 'crate', type: 'box', look: 'crate', mat: 'wood', x: 7.0, z: 1.2, hx: 0.5, hz: 0.5, h: 0.95 },
     ],
     builds: [['scaffold', 'scaf', -6, -4.2, 3, 2, -1]],
     items: [['hammer', -6.0, 3.3, 0.9, 'sawhorse'], ['bottle', -5.2, 3.3, 0.9, 'sawhorse'], ['wrench', 1.8, 4.5, 0.9, 'stackB'], ['brick', 2.2, 4.5, 0.9, 'stackB'], ['brick', -2.6, 4.0, 0],
       ['crate', 3.4, 3.2, 0], ['pipe', -5.0, -4.8, 1.5, 'scaf.t0.1'], ['chain', 4.0, 6.94, 1.01, 'fenceF'], ['broom', -8.73, -6.6, 1.3, 'container'], ['extinguisher', -8.73, -6.0, 1.3, 'container']],
-    hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -1.0, 1.9, { tx: -1.0, tz: 3.6 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8]],
+    hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -1.0, 1.9, { tx: -1.0, tz: 3.6 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8], ['hydrant', 4.1, 3.0, { yaw: -Math.PI / 2 }]],
     waves: [[3, 2.8, 0.5, 0], [4, -10.4, 3.0, 0], [5, -7.8, -2.6, 0], [6, -10.4, 3.0, 0], [6, -3.0, -6.0, 1, [-10.4, 3.0]]],
   },
   club: {
@@ -3197,8 +3204,8 @@ const ARENAS = {
     ],
     builds: [['stair', 'stepW', -6.4, -5.8, 1, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'stepE', 4.0, -3.2, 2, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'vipStair', 10.4, 2.5, 2, 1.2, 0, 2.5, 'metal', 'grate', '']],
     items: [['bottle', -10.6, 2.6, 1.05, 'bar'], ['bottle', -7.0, 5.0, 0.75, 'tableA'], ['bottle', -3.8, 5.6, 0.75, 'tableB'], ['chair', -2.0, -1.6, 0], ['bat', -10.13, 1.7, 1.3, 'bar'],
-      ['chain', 9.0, 3.9, 0], ['binlid', 9.3, 5.6, 0], ['extinguisher', 10.78, 4.55, 1.3, 'fireDoor'], ['crate', 9.4, 6.2, 0]],
-    hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }]],
+      ['chain', 9.0, 3.9, 0], ['binlid', 9.3, 5.6, 0], ['extinguisher', 10.78, 4.55, 1.3, 'fireDoor'], ['crate', 9.4, 6.2, 0], ['bottle', 10.5, 6.5, 0.9, 'beerCrate']],
+    hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }], ['steam', 1.8, -2.6, { yaw: 0 }]],
     waves: [[3, 0.0, 1.5, 0], [4, -10.0, 4.8, 0], [5, 9.2, 4.6, 0], [6, 9.4, -2.2, 0], [6, 2.3, -5.8, 1, [-10.0, 4.8]]],
   },
 };
@@ -3316,7 +3323,7 @@ function makeObject(def, rng) {
     stage: 0, destroyed: false, phase: 'intact', phaseTimer: 0,
     wob: 0, wobPhase: 0, lastSrc: -1, lastImpactTick: -99,
     cracks, collider: null, rubble: null, heat: 0, fire: 0, blaze: null, near: null, alarm: 0, // ticks in a fire zone, ticks of fire left, its fire zone, flammable neighbours (Arena.build), car alarm seconds
-    base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, step: !!def.step, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false, // standing height, rests on, weight that breaks it, takes no damage
+    base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, bounce: !!def.bounce, step: !!def.step, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false, // standing height, rests on, weight that breaks it, takes no damage
   };
   const thin = def.type === 'panel' || def.type === 'rail';
   const deck = def.type === 'deck';
@@ -3604,7 +3611,7 @@ const Arena = {
   nearestObject(x, z, maxDist, aliveOnly) {
     let best = null, bd = maxDist * maxDist;
     for (const o of this.objects) {
-      if (aliveOnly && o.destroyed) continue;
+      if (aliveOnly && (o.destroyed || o.bounce)) continue; // (a Gym bag or rope gives a body back: it is no target for a throw)
       const dx = o.x - x, dz = o.z - z, d = dx * dx + dz * dz;
       if (d < bd) { bd = d; best = o; }
     }
@@ -5667,10 +5674,11 @@ const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES }); /
    dmg is dealt every `gap` ticks to a fighter in the zone (0 = once per activation); first = only on the first active tick. fx = what the victim suffers: stun (`stun` ticks), flinch, push (m/s along the jet),
    down (knockdown flight away from the centre at `push` m/s), throw (flight along the yaw), out (over the edge: down, and out of a brawl for an enemy).
    post = [half x, half z, height] of the solid post that carries the trigger. shard = damage to a fighter knocked down on broken glass. metalOnly: only a thrown metal item sets it off. spill: the barrel tips away from whoever struck it and its fire pool lies this far beyond.
-   snd = sound recipe (Sound.hazard). arc = also energises touching conductors (Arena.linkConductors); fire = sets fighters alight and heats objects (MatchSim.stepFire); `blaze` = the zone a burning object makes (no level places it). */
+   douse = also puts out fires in its cone (the hydrant). snd = sound recipe (Sound.hazard). arc = also energises touching conductors (Arena.linkConductors); fire = sets fighters alight and heats objects (MatchSim.stepFire); `blaze` = the zone a burning object makes (no level places it). */
 const HAZARDS = {
   panel: { name: 'Electric panel', trig: 'strike', shape: 'circle', r: 1.2, warn: 24, dur: 120, cool: 360, dmg: 14, gap: 0, fx: 'stun', stun: 40, post: [0.35, 0.2, 1.3], metalOnly: 1, arc: 1, snd: 'zap' },
   steam: { name: 'Steam pipe', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 180, cool: 300, dmg: 3, gap: 15, fx: 'push', push: 3.2, post: [0.12, 0.12, 1.2], snd: 'hiss' },
+  hydrant: { name: 'Hydrant', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 150, cool: 420, dmg: 2, gap: 12, fx: 'push', push: 3.2, post: [0.2, 0.2, 0.85], douse: 1, snd: 'hiss' }, // P18-13: a steam pipe that also puts out fire (MatchSim.hazardEffects calls douse): it puts out burning fighters and objects in its jet; no level's jet reaches a fire barrel, so it is no counter to the barrels
   drop: { name: 'Open drop', trig: 'edge', shape: 'rect', dmg: 25, fx: 'out', push: 4, snd: 'crash' },
   glass: { name: 'Glass wall', trig: 'break', shape: 'rect', dmg: 10, fx: 'flinch', shard: 2, snd: 'glass' },
   load: { name: 'Falling load', trig: 'strike', shape: 'circle', r: 1.5, warn: 36, dur: 90, cool: 600, dmg: 30, gap: 0, first: 1, fx: 'down', push: 3, post: [0.15, 0.15, 1.9], snd: 'crash' },
@@ -7603,11 +7611,11 @@ const Combat = {
       const obj = f.obstacleHit;
       const nx = f.kx / speed, nz = f.kz / speed;
       f.lastImpactTick = match.tick;
-      Arena.damageObject(obj, speed * 6, 'impact', IMPACT_SRC_BASE - f.flightId * 8 - (match.tick & 7), nx, nz, f.x, 1.0, f.z, match.foeIndex(f)); // credit whoever sent them flying
-      const broke = obj.destroyed;
-      const dmg = broke ? 1.5 : 2 + speed * 0.35;
+      if (!obj.bounce) Arena.damageObject(obj, speed * 6, 'impact', IMPACT_SRC_BASE - f.flightId * 8 - (match.tick & 7), nx, nz, f.x, 1.0, f.z, match.foeIndex(f)); // credit whoever sent them flying
+      const broke = obj.destroyed, rebound = obj.bounce; // a bag or a rope takes no damage and gives the body back 70% of its speed
+      const dmg = rebound ? 1 : broke ? 1.5 : 2 + speed * 0.35;
       this.envDamage(f, dmg, match);
-      f.kx *= broke ? 0.7 : -0.25; f.kz *= broke ? 0.7 : -0.25;
+      f.kx *= rebound ? -0.7 : broke ? 0.7 : -0.25; f.kz *= rebound ? -0.7 : broke ? 0.7 : -0.25;
       Events.emit('envImpact', { f, obj, speed, broke, x: f.x, y: f.y + 1.0, z: f.z });
     } else if (f.wallHit) {
       f.lastImpactTick = match.tick;
@@ -8714,14 +8722,14 @@ class AIController {
     this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
     return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
   }
-  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel; within AI_HAZARD_BAIT_RANGE) and waits there on guard
+  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel or a hydrant, P18-13: with bait the Warehouse CPU stopped using the load; within AI_HAZARD_BAIT_RANGE) and waits there on guard
   hazardBait(f, opp) {
     const match = this.match, chance = AI_HAZARD_BAIT[this.d.id];
     if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null; // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once
     let best = null, spot = null, bestGap = AI_HAZARD_BAIT_RANGE;
     for (const h of match.hazards) { // the nearest idle strike hazard that has a spot to wait at
       const gap = Math.hypot(h.x - f.x, h.z - f.z);
-      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
+      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || h.def.douse || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
       const at = this.baitSpot(f, opp, h);
       if (at) { bestGap = gap; best = h; spot = at; }
     }
@@ -10898,6 +10906,7 @@ class MatchSim {
   leaveBehind(o) {
     const leave = MATERIALS[o.mat].leave;
     if (leave === 'brick' && this.itemsOn) this.placeItem('brick', o.x, o.z, o.base + o.h * 0.5).mode = 'fall';
+    else if (o.look === 'vending' && this.itemsOn) this.placeItem('bottle', o.x, o.z, o.base + o.h * 0.5).mode = 'fall'; // a broken vending machine drops a drink
     else if (leave === 'shard' && o.type !== 'deck' && !this.hazards.some((h) => h.obj === o)) this.glassPatch(o.x, o.z, o.base);
   }
   // The active tick of a hazard: every fighter in the zone that is due is hurt (the same fighter again only after `gap` ticks, or never within one activation when gap is 0)
@@ -10905,6 +10914,7 @@ class MatchSim {
     const def = h.def;
     if (!this.live) return;
     if (def.shard) { this.shardEffects(h); return; }
+    if (def.douse && this.tick % FIRE_CHECK_TICKS === 0) this.douse(h.x, h.z, h.fx, h.fz, def.len, def.cos); // the hydrant's jet puts out what burns in it
     if (def.first && h.t > 0) return;
     for (const f of this.fighters) {
       if (!f.alive || f.invuln > 0 || TERMINAL_STATES.includes(f.state) || !this.hazardReaches(h, f)) continue;
@@ -11000,8 +11010,8 @@ class MatchSim {
     } else if (h.type === 'fire' && h.state === 'active' && n % 3 === 0) {
       const a = hash01(n) * TAU, r = Math.sqrt(hash01(n + 1)) * def.r;
       FX.spawn(MESH.SPHERE, true, h.x + Math.cos(a) * r, 0.1, h.z + Math.sin(a) * r, 0, 1.4, 0, 0.8, 0.12, -0.1, hash01(n + 2) < 0.5 ? '#ff8a1f' : '#ffcf4a', 0.8, -1.2, 0.5, 2); // sparks and smoke over the pool; the flames themselves are drawn
-    } else if (h.type === 'steam' && (h.state === 'active' ? n % 2 === 0 : n % 6 === 0)) {
-      FX.spawn(MESH.SPHERE, false, h.tx + h.fx * 0.2, 1.15, h.tz + h.fz * 0.2, h.fx * 3.2 + (hash01(n) - 0.5), (hash01(n + 1) - 0.4) * 0.6, h.fz * 3.2 + (hash01(n + 2) - 0.5), 0.55, 0.18, 0.9, '#eef3f7', 0.5, -0.2, 0.6, 0);
+    } else if ((h.type === 'steam' || h.type === 'hydrant') && (h.state === 'active' ? n % 2 === 0 : n % 6 === 0)) {
+      FX.spawn(MESH.SPHERE, false, h.tx + h.fx * 0.2, h.def.post[2] - 0.05, h.tz + h.fz * 0.2, h.fx * 3.2 + (hash01(n) - 0.5), (hash01(n + 1) - 0.4) * 0.6, h.fz * 3.2 + (hash01(n + 2) - 0.5), 0.55, 0.18, 0.9, h.type === 'hydrant' ? '#cfe6ff' : '#eef3f7', 0.5, -0.2, 0.6, 0);
     } else if (h.type === 'panel' && h.state === 'active' && n % 4 === 0) {
       FX.sparks(h.tx, 0.9 + hash01(n) * 0.5, h.tz, 4, 3, '#cfe8ff');
     } else if (h.type === 'panel' && h.state === 'warn' && n % 8 === 0) {
@@ -11051,15 +11061,15 @@ class MatchSim {
           const a = k * 1.26 + hash01(t * 0.5 + k) * 1.1, len = h.def.r * (0.6 + 0.4 * hash01(t + k * 3));
           if (hash01(t * 0.5 + k * 7) > 0.25) hput(LAYER.ADD, MESH.CUBE, h.x + Math.sin(a) * len / 2, 0.12, h.z + Math.cos(a) * len / 2, 0.04, 0.04, len, a, '#dff3ff', 0.85, 1.6, 0.4);
         }
-      } else if (h.type === 'steam') {
-        const alongX = Math.abs(h.fx) > Math.abs(h.fz);
-        hput(LAYER.SOLID, MESH.CYL, x, 0.6, z, 0.16, 1.2, 0.16, 0, '#6e7783', 1, 0, 0.35);
-        hput(LAYER.SOLID, MESH.CYL, x + h.fx * 0.25, 1.15, z + h.fz * 0.25, 0.12, 0.5, 0.12, 0, '#6e7783', 1, 0, 0.35, alongX ? 0 : Math.PI / 2, alongX ? Math.PI / 2 : 0);
-        hput(LAYER.SOLID, MESH.CYL, x, 1.24, z, 0.26, 0.03, 0.26, 0, '#c0392b', 1, 0, 0.5);
-        if (warn) hput(LAYER.ALPHA, MESH.SPHERE, x + h.fx * 0.7, 1.12, z + h.fz * 0.7, 0.25, 0.25, 0.25, 0, '#eef3f7', 0.4, 0, 0.9); // it leaks before it blows
+      } else if (h.type === 'steam' || h.type === 'hydrant') {
+        const alongX = Math.abs(h.fx) > Math.abs(h.fz), hyd = h.type === 'hydrant', top = h.def.post[2]; // the hydrant is a short, thick red body with a blue-white spray
+        hput(LAYER.SOLID, MESH.CYL, x, top / 2, z, hyd ? 0.34 : 0.16, top, hyd ? 0.34 : 0.16, 0, hyd ? '#b3281c' : '#6e7783', 1, 0, 0.35);
+        hput(LAYER.SOLID, MESH.CYL, x + h.fx * 0.25, top - 0.05, z + h.fz * 0.25, 0.12, 0.5, 0.12, 0, '#6e7783', 1, 0, 0.35, alongX ? 0 : Math.PI / 2, alongX ? Math.PI / 2 : 0);
+        hput(LAYER.SOLID, MESH.CYL, x, top + 0.04, z, 0.26, 0.03, 0.26, 0, hyd ? '#e0b100' : '#c0392b', 1, 0, 0.5);
+        if (warn) hput(LAYER.ALPHA, MESH.SPHERE, x + h.fx * 0.7, top - 0.08, z + h.fz * 0.7, 0.25, 0.25, 0.25, 0, '#eef3f7', 0.4, 0, 0.9); // it leaks before it blows
         if (on) for (let k = 0; k < 6; k++) { // the jet: puffs that swell and thin out along it
           const u = ((k + t * 0.06) % 6) / 6, size = 0.3 + 0.7 * u;
-          hput(LAYER.ALPHA, MESH.SPHERE, h.x + h.fx * u * h.def.len, 1.1, h.z + h.fz * u * h.def.len, size, size, size, 0, '#f2f6fa', 0.42 * (1 - u), 0.1, 0.9);
+          hput(LAYER.ALPHA, MESH.SPHERE, h.x + h.fx * u * h.def.len, top - 0.1, h.z + h.fz * u * h.def.len, size, size, size, 0, hyd ? '#cfe6ff' : '#f2f6fa', 0.42 * (1 - u), 0.1, 0.9);
         }
         if (warn) for (let k = 0; k < 4; k++) { const u = (k + 1) / 5; hput(LAYER.ALPHA, MESH.CYL, h.x + h.fx * u * h.def.len, 0.02, h.z + h.fz * u * h.def.len, 0.5 + u * 0.6, 0.01, 0.5 + u * 0.6, 0, '#ffb000', blink ? 0.3 : 0.12, 0.4, 0.9); }
       } else if (h.type === 'fire') {
