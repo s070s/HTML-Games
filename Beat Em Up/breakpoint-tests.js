@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
@@ -5292,6 +5292,267 @@ const SelfTest = {
       const got = ONE_V_ONE_FINGERPRINTS.map((f) => fingerprint(f.opts)), want = ONE_V_ONE_FINGERPRINTS.map((f) => f.hash);
       return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
     });
+    /* ---------- Accessibility (P18-27): coaching lines, Guard assist, the Move list start ---------- */
+    const accPerson = (fn) => Object.assign(self.scripted(fn || (() => {})), { human: true });   // a person's controller: the only kind the assists and the tips reach
+    const accRig = (body) => {   // a fight with a person on seat 1 and no saved tips; the saves, the match and the settings are put back
+      const saved = keepProgress(), keepMatch = Game.match, keepDevice = Input.lastDevice, keepCoach = Object.assign({}, Coach), keepSettings = Object.assign({}, Settings.v), keepDom = UI.dom;
+      try {
+        UI.dom = Object.assign({}, keepDom, { onboard: { hidden: true } });   // a stand-in for the controls card: closed
+        Progress.d = Progress.fresh();
+        const m = mk({});
+        m.controllers[0] = accPerson();
+        Game.match = m;
+        Object.assign(Coach, { pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0 });
+        return body(m, m.fighters[0], m.fighters[1]);
+      } finally { Game.match = keepMatch; Input.lastDevice = keepDevice; Object.assign(Coach, keepCoach); Object.assign(Settings.v, keepSettings); UI.dom = keepDom; restoreProgress(saved); }
+    };
+    const ACC_TRIGGERS = {   // what makes each line ask for the strip (the polled ones are read by Coach.line itself)
+      punch: (m) => { m.matchTicks = COACH_PUNCH_TICKS; },
+      stam: (m, a) => Events.emit('lowStamina', { f: a }),
+      block: (m, a, b) => Events.emit('block', { att: b, def: a, perfect: false }),
+      perfect: (m, a, b) => Events.emit('block', { att: b, def: a, perfect: true }),
+      low: (m, a, b) => Events.emit('hit', { att: b, def: a, mv: { h: 'L' }, combo: 1, crouched: false }),
+      stun: (m, a, b) => Events.emit('hit', { att: b, def: a, mv: { h: 'M' }, combo: 3, crouched: false }),
+      down: (m, a) => Events.emit('knockdown', { f: a }),
+      grab: (m, a, b) => { m.intents[0].defend = true; Events.emit('clinch', { att: b, def: a, grip: 'front' }); },
+      item: (m) => { m.itemToUse = () => ({}); },
+    };
+    test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
+      const bad = [], strip = () => Coach.line(m, a), nextRound = () => { m.tick += COACH_SHOW_TICKS + 1; m.round++; };
+      if (m.phase !== 'fight' || m.round !== 1) return 'the test fight is not in round 1 of the fight phase';
+      a.stringKeys = 'PP'; ACC_TRIGGERS.punch(m); strip();   // a chain was thrown: no Punch line
+      if (Progress.d.tips.punch || Coach.pending) bad.push('Punch line after a chain');
+      a.stringKeys = ''; Coach.chained = false;
+      for (const tip of COACH_TIPS) {   // every line in turn, each in a round of its own
+        if (tip.key === 'lose') continue;
+        ACC_TRIGGERS[tip.key](m, a, b);
+        const text = strip();
+        if (text !== Coach.textOf(tip.key) || Progress.d.tips[tip.key] !== true || JSON.parse(Store.get(KEY_PROGRESS)).tips[tip.key] !== true) bad.push(tip.key + ' did not show or was not saved: "' + text + '"');
+        if (strip() !== text) bad.push(tip.key + ' did not stay on the strip');
+        const snap = JSON.stringify(Progress.d.tips), probe = ['down', 'stam', 'block', 'perfect'].find((key) => key !== tip.key && Progress.d.tips[key] === false);
+        if (probe) ACC_TRIGGERS[probe](m, a, b);   // another line asks in the same round: it waits, and does not come in that round at all
+        if (Coach.pending) bad.push('a second line in the round of ' + tip.key);
+        m.tick += COACH_SHOW_TICKS; if (strip() !== '') bad.push(tip.key + ' stayed past 4 s');
+        if (JSON.stringify(Progress.d.tips) !== snap || strip() !== '') bad.push('a second line later in the round of ' + tip.key);
+        nextRound();
+        ACC_TRIGGERS[tip.key](m, a, b);
+        if (strip() !== '') bad.push(tip.key + ' shown twice');
+        delete m.itemToUse;
+        nextRound();
+      }
+      const missing = COACH_TIPS.filter((tip) => tip.key !== 'lose' && !Progress.d.tips[tip.key]).map((tip) => tip.key);
+      if (missing.length) bad.push('not shown: ' + missing.join());
+      Progress.init();   // a reload reads the saved file
+      if (COACH_TIPS.some((tip) => tip.key !== 'lose' && Progress.d.tips[tip.key] !== true)) bad.push('not kept after a reload');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Accessibility (P18-27): no coaching line for the CPU, seat 2, a benchmark, a replay, a countdown, Training, an open controls card or after 20 fights; a line held back is not used up and comes back', () => accRig((m, a, b) => {
+      const bad = [], card = UI.dom.onboard;
+      const quiet = (label, setup, undo, who) => {
+        setup();
+        Coach.pending = null; Events.emit('knockdown', { f: who || a });
+        const text = Coach.line(m, a), used = Progress.d.tips.down;
+        undo();
+        Coach.pending = Coach.shown = null; Coach.last = null; Progress.d.tips.down = false;
+        if (text !== '' || used) bad.push(label);
+      };
+      const person = m.controllers[0];
+      quiet('seat 2', () => {}, () => {}, b);
+      quiet('a CPU', () => { m.controllers[0] = self.scripted(() => {}); }, () => { m.controllers[0] = person; });
+      quiet('a benchmark', () => { m.cfg.benchmark = true; }, () => { delete m.cfg.benchmark; });
+      quiet('a replay', () => { m.cfg.replay = true; }, () => { delete m.cfg.replay; });
+      quiet('a countdown', () => { m.phase = 'countdown'; }, () => { m.phase = 'fight'; });
+      quiet('Training', () => { m.training = true; }, () => { m.training = false; });
+      quiet('20 fights', () => { Progress.d.wins = COACH_MAX_FIGHTS - 5; Progress.d.losses = 5; }, () => { Progress.d.wins = Progress.d.losses = 0; });
+      card.hidden = false;
+      Events.emit('knockdown', { f: a });
+      const held = Coach.line(m, a), unused = Progress.d.tips.down === false;
+      card.hidden = true;
+      Events.emit('knockdown', { f: a });   // the same thing happens again with the card closed
+      if (Progress.d.tips.down !== false || !Coach.pending) bad.push('a line was used up before the strip showed it');
+      const back = Coach.line(m, a);
+      if (held !== '' || !unused || Progress.d.tips.down !== true || back !== Coach.textOf('down')) bad.push('a held-back line: "' + held + '" then "' + back + '"');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Accessibility (P18-27): every coaching line is plain ASCII, at most 70 characters (the loss offer, a toast, 90), free of design notes, and names the control of the device used last', () => {
+      const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
+      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'Down'], touch: ['DEFEND', 'DUCK'] };
+      try {
+        if (COACH_TIPS.length !== 10 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 10) bad.push('the table does not have 10 keys');
+        for (const device of ['keyboard', 'gamepad', 'touch']) {
+          Input.lastDevice = device;
+          for (const tip of COACH_TIPS) {
+            const text = Coach.textOf(tip.key);
+            if (!/^[\x20-\x7e]+$/.test(text) || text.length > (tip.key === 'lose' ? 90 : 70) || note.test(text)) bad.push(device + ' ' + tip.key + ': ' + text);
+          }
+          if (!Coach.textOf('stun').includes(named[device][0]) || !Coach.textOf('low').includes(named[device][0]) || !Coach.textOf('low').includes(named[device][1])) bad.push(device + ' lines do not name its controls: ' + Coach.textOf('low'));
+        }
+      } finally { Input.lastDevice = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): Progress keeps which lines were shown; a missing, damaged or foreign tips field loads as none shown, and extra keys are dropped', () => {
+      const bad = [], saved = keepProgress();
+      try {
+        if (!COACH_TIPS.every((tip) => Progress.fresh().tips[tip.key] === false) || Object.keys(Progress.fresh().tips).length !== COACH_TIPS.length) bad.push('fresh');
+        const load = (extra) => { Store.set(KEY_PROGRESS, JSON.stringify(Object.assign({ wins: 3 }, extra))); Progress.init(); return Progress.d.tips; };
+        const old = load({});
+        if (COACH_TIPS.some((tip) => old[tip.key] !== false) || Progress.d.wins !== 3) bad.push('an old save');
+        for (const damaged of [5, 'yes', null, [true, true], true]) if (COACH_TIPS.some((tip) => load({ tips: damaged })[tip.key] !== false)) bad.push('damaged ' + JSON.stringify(damaged));
+        const mixed = load({ tips: { block: true, perfect: 'yes', stun: 1, down: true, bogus: true } });
+        if (mixed.block !== true || mixed.down !== true || mixed.perfect !== false || mixed.stun !== false || 'bogus' in mixed || Object.keys(mixed).length !== COACH_TIPS.length) bad.push('mixed ' + JSON.stringify(mixed));
+      } finally { restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const accGuardMatch = (assist, kind) => {   // fighter 1 strikes, fighter 2 (a Block fighter, a person) guards
+      const m = mk({ assist });
+      m.controllers[1] = accPerson();
+      m.fighters[1].defense = kind || 'block';
+      self.place(m, 1.0);
+      return m;
+    };
+    const accStrike = (m, mv) => { const att = m.fighters[0]; att.startAttack(mv); att.moveTick = att.mStartup + 1; return Combat.evaluate(att, m.fighters[1]); };
+    test('Accessibility (P18-27): Guard assist blocks the other height as a plain block while Defend is held (standing or ducked), never perfect on a height switch, and grabs, a Sway fighter and the CPU are untouched', () => {
+      const bad = [], low = ATTACKS.low_kick, mid = Object.values(ATTACKS).find((mv) => mv.type === 'strike' && mv.h === 'M' && mv.reach >= 1.2);
+      if (!low || low.h !== 'L' || !mid) return 'no low or mid strike to test with';
+      const verdict = (assist, state, mv, fresh) => {
+        const m = accGuardMatch(assist), def = m.fighters[1];
+        m.step();   // the person's intent is read once so the flag reaches the fighter
+        def.setState(state); def.stateTicks = 2; def.blockFresh = !!fresh;
+        const d = accStrike(m, mv);
+        return d ? d.type + ':' + d.block : 'none';
+      };
+      const cases = [   // [what, on, off]
+        ['standing guard, low strike', verdict(ASSIST_GUARD, S.BLOCK_H, low), verdict(0, S.BLOCK_H, low), 'strike:block', 'strike:none'],
+        ['ducked guard, mid strike', verdict(ASSIST_GUARD, S.BLOCK_L, mid), verdict(0, S.BLOCK_L, mid), 'strike:block', 'strike:none'],
+        ['standing guard, mid strike', verdict(ASSIST_GUARD, S.BLOCK_H, mid, true), verdict(0, S.BLOCK_H, mid, true), 'strike:perfect', 'strike:perfect'],
+        ['standing guard, low strike, fresh', verdict(ASSIST_GUARD, S.BLOCK_H, low, true), verdict(0, S.BLOCK_H, low, true), 'strike:block', 'strike:none'],
+        ['ducked guard, low strike, fresh', verdict(ASSIST_GUARD, S.BLOCK_L, low, true), verdict(0, S.BLOCK_L, low, true), 'strike:perfect', 'strike:perfect'],
+        ['no guard at all', verdict(ASSIST_GUARD, S.IDLE, low), verdict(0, S.IDLE, low), 'strike:none', 'strike:none'],
+      ];
+      for (const [what, on, off, wantOn, wantOff] of cases) if (on !== wantOn || off !== wantOff) bad.push(what + ': on ' + on + ' off ' + off);
+      const grab = (assist, state) => { const m = accGuardMatch(assist), def = m.fighters[1]; m.step(); def.setState(state); const d = accStrike(m, ATTACKS.grab); return d ? d.type : 'none'; };
+      if (grab(ASSIST_GUARD, S.BLOCK_H) !== 'grab' || grab(ASSIST_GUARD, S.BLOCK_L) !== 'grab') bad.push('a grab was blocked');
+      const swayKinds = (assist) => { const m = accGuardMatch(assist, 'sway'), def = m.fighters[1], kinds = []; m.step(); def.setState(S.SWAY); for (let n = 0; n < SWAY_TOTAL_TICKS; n++) { def.stateTicks = n; const d = accStrike(m, low); kinds.push(d ? d.type + (d.perfect ? '+' : '') + ':' + d.block : 'none'); } return kinds.join(); };
+      if (swayKinds(ASSIST_GUARD) !== swayKinds(0)) bad.push('a Sway fighter changed');
+      const cpu = mk({ assist: ASSIST_GUARD | ASSIST_STRINGS }), person = accGuardMatch(ASSIST_GUARD | ASSIST_STRINGS);
+      cpu.controllers[0] = new AIController(cpu.fighters[0].profile, 'hard'); cpu.controllers[1] = new AIController(cpu.fighters[1].profile, 'hard');
+      self.run(cpu, 120); self.run(person, 5);
+      if (cpu.intents.some((it) => it.guardAssist || it.assist) || cpu.fighters.some((f) => f.guardAssist)) bad.push('the CPU got an assist');
+      if (!person.intents[1].guardAssist || !person.intents[1].assist || person.intents[0].guardAssist) bad.push('the person did not get it, or the CPU seat did');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): with the assists Off, or in a match of CPUs only, the three recorded 1v1 fights keep their exact event log and result', () => {
+      const bad = [];
+      for (const f of ONE_V_ONE_FINGERPRINTS) for (const assist of [0, ASSIST_GUARD | ASSIST_STRINGS]) {   // a CPU fight is the same with the bits on: nobody there is a person
+        const got = fingerprint(Object.assign({}, f.opts, { matchCfg: { assist } }));
+        if (got !== f.hash) bad.push('seed ' + f.opts.seed + ' assist ' + assist + ': ' + got + ' not ' + f.hash);
+      }
+      if (makeIntent().guardAssist !== false || clearIntent(Object.assign(makeIntent(), { guardAssist: true })).guardAssist !== false) bad.push('the intent field');
+      return bad.length ? bad.slice(0, 3).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the assists come from the match config, so one input log gives the same fight after a JSON round trip and whatever Settings says mid-fight; On differs from Off', () => {
+      const bad = [], keep = Object.assign({}, Settings.v);
+      const fight = (assist, midFight) => {   // the attacker kicks low every 36 ticks; the person stands and holds Defend
+        const m = mk({ assist, seed: 5 });
+        m.fighters[1].defense = 'block';
+        self.place(m, 1.0);
+        m.controllers[0] = self.scripted(pressString(['K', 'K', 'K', 'K', 'K', 'K', 'K', 'K', 'K', 'K'], { height: true }));
+        m.controllers[1] = accPerson((it) => { it.defend = true; });
+        for (let t = 0; t < 360; t++) { if (t === 100 && midFight) midFight(); m.step(); }
+        const [x, y] = m.fighters;
+        return fnv1a([x.hp, y.hp, x.stam.toFixed(2), y.stam.toFixed(2), x.x.toFixed(3), y.x.toFixed(3), m.tick].join()).toString(36) + ':' + y.hp.toFixed(1);
+      };
+      try {
+        const off = fight(0), on = fight(ASSIST_GUARD), onJson = fight(JSON.parse(JSON.stringify({ assist: ASSIST_GUARD })).assist);
+        if (on !== onJson) bad.push('JSON round trip ' + on + ' ' + onJson);
+        if (on === off) bad.push('On plays like Off: ' + on);
+        const settingsOn = () => { Settings.v.autoAssist = true; Settings.v.guardAssist = true; }, settingsOff = () => { Settings.v.autoAssist = false; Settings.v.guardAssist = false; };
+        if (fight(ASSIST_GUARD, settingsOff) !== on) bad.push('Settings turned off mid-fight changed an On fight');
+        if (fight(0, settingsOn) !== off) bad.push('Settings turned on mid-fight changed an Off fight');
+        const strings = (assist, setting) => {   // out of reach: only Auto-assist lets the string go on
+          Settings.v.autoAssist = setting;
+          const m = mk({ assist });
+          m.controllers[0] = accPerson((it, f, o, mm) => { if (mm.tick % 14 === 3) it.punch = true; });
+          self.place(m, 3.0);
+          let longest = 0;
+          for (let t = 0; t < 70; t++) { m.step(); longest = Math.max(longest, m.fighters[0].stringKeys.length); }
+          return longest;
+        };
+        if (strings(ASSIST_STRINGS, false) < 2) bad.push('the config bit did not turn the string assist on');
+        if (strings(0, true) > 1) bad.push('Settings alone turned the string assist on in a match with its own config');
+      } finally { Object.assign(Settings.v, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): a match started from the menu copies the assists from Settings into its config, a rematch reads them again, and Guard assist is a saved setting that is Off by default', () => {
+      const bad = [], keep = Object.assign({}, Settings.v), keepGame = { config: Game.config, match: Game.match, state: Game.state, go: Game.go, run: Game.run };
+      try {
+        if (SETTING_DEFS.guardAssist.def !== false || Settings.validate('guardAssist', 'yes') !== false || !SETTING_DEFS.guardAssist.hint || SETTING_DEFS.guardAssist.hint.length > 200) bad.push('definition');
+        Settings.set('guardAssist', true);
+        if (JSON.parse(Store.get(KEY_SETTINGS)).guardAssist !== true) bad.push('not saved');
+        const read = () => { Settings.v.autoAssist = true; Settings.v.guardAssist = false; Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy', winsNeeded: 2, timer: 0 }); return Game.config.assist; };
+        Game.go = () => true;   // no screens in the test
+        if (read() !== ASSIST_STRINGS) bad.push('Auto-assist alone gave ' + Game.config.assist);
+        Settings.v.guardAssist = true;
+        Game.restartMatch();
+        if (Game.config.assist !== (ASSIST_STRINGS | ASSIST_GUARD)) bad.push('a rematch gave ' + Game.config.assist);
+      } catch (error) { bad.push(String(error.message || error)); } finally {
+        Game.endMatch(); Game.go = keepGame.go; Game.config = keepGame.config; Game.match = keepGame.match; Game.state = keepGame.state; Game.run = keepGame.run; Object.assign(Settings.v, keep); Settings.save();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the Move list opens with Start here in the device\'s key names, and stars the signature moves of the style (the same data the Training panel lists)', () => {
+      const bad = [], faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      for (const id of MOVE_STYLE_IDS) {
+        const profile = styleProfile(id), style = MOVE_STYLE[id];
+        for (const kind of ['keyboard', 'gamepad', 'touch']) {
+          const html = UI.screen_moves(profile, kind), start = html.indexOf('<b>Start here:</b>');
+          const block = start < 0 ? '' : html.slice(start, html.indexOf('</p>', start));
+          if (!block || !block.includes('<kbd>' + esc(faces[kind]('punch')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('defend')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('grapple')) + '</kbd>') || html.indexOf('<table') < start) { bad.push(id + ' ' + kind + ' start block'); continue; }
+          const marked = style.signature.filter(([, uses]) => ATTACKS[uses] && html.includes('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'));
+          const stars = html.split('<b>*</b>').length - 1;
+          if (stars !== marked.length) bad.push(id + ' ' + kind + ' has ' + stars + ' stars, the signature lists ' + marked.length);
+          for (const [, uses] of marked) { const at = html.indexOf('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'); if (!html.slice(at, html.indexOf('</tr>', at)).includes('<b>*</b>')) bad.push(id + ' ' + kind + ' ' + uses + ' is not starred'); }
+        }
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): Start here names the first string the fighter really has (three, two or one press), with Kick when a crate is carried and with a weapon in hand, for all 16 styles', () => {
+      const bad = [], seen = new Set(), ids = Object.keys(WEAPONS), carryId = ids.find((id) => WEAPONS[id].cls === 'carry'), armId = ids.find((id) => WEAPONS[id].cls !== 'carry');
+      const words = { 3: 'three times in a row', 2: 'twice in a row', 1: 'once' };
+      if (MOVE_STYLE_IDS.length !== 16 || !carryId || !armId) return 'no 16 styles or no carried / held item to test with';
+      for (const id of MOVE_STYLE_IDS) for (const held of [undefined, carryId, armId]) {
+        const carry = held === carryId, own = held && !carry ? weaponTable(id, held) : stringsFor(id), first = carry ? 'K' : 'P';
+        const want = words[own.stand[first.repeat(3)] ? 3 : own.stand[first + first] ? 2 : 1];
+        const html = UI.screen_moves(styleProfile(id), 'keyboard', held), start = html.indexOf('<b>Start here:</b>'), block = html.slice(start, html.indexOf('</p>', start));
+        seen.add(want);
+        if (start < 0 || !block.includes(' ' + want + ': your first string')) bad.push(id + ' ' + (held || 'bare-handed') + ' wants "' + want + '": ' + block.slice(0, 90));
+      }
+      if (seen.size < 2) bad.push('every case reads the same: ' + [...seen].join());
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the loss offer shows after the second loss in a row among the first 10 fights, once, and not when both assists are already on', () => accRig((m) => {
+      const bad = [], toasts = [], keepToast = UI.toast, end = (won) => { m.matchWinner = won ? 0 : 1; Coach.matchEnd(m); };
+      UI.toast = (msg, kind, ms) => toasts.push(msg);
+      try {
+        end(false); end(true); end(false);   // a win in between starts the count again
+        if (toasts.length) bad.push('shown after loss, win, loss');
+        end(false);
+        if (toasts.length !== 1 || toasts[0] !== Coach.textOf('lose') || !Progress.d.tips.lose || JSON.parse(Store.get(KEY_PROGRESS)).tips.lose !== true) bad.push('not shown after the second loss in a row');
+        end(false); end(false);
+        if (toasts.length !== 1) bad.push('shown more than once');
+        const again = (setup) => { Progress.d.tips.lose = false; Coach.streak = 0; setup(); end(false); end(false); return toasts.length; };
+        const before = toasts.length;
+        if (again(() => { Settings.v.autoAssist = Settings.v.guardAssist = true; }) !== before) bad.push('shown with both assists on');
+        if (again(() => { Settings.v.autoAssist = false; Progress.d.wins = COACH_LOSS_FIGHTS + 1; }) !== before) bad.push('shown after 10 fights');
+        if (again(() => { Progress.d.wins = 0; m.controllers[0] = self.scripted(() => {}); }) !== before) bad.push('shown for a CPU');
+        m.controllers[0] = accPerson();
+        m.versus = true;
+        if (again(() => {}) !== before) bad.push('shown in Versus');
+        m.versus = false;
+        if (again(() => {}) !== before + 1) bad.push('not shown again once the case allows it');
+      } finally { UI.toast = keepToast; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
     const CROWD_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];   // the seeds the crowd tests run (P18-36; they were seed 6 only)
     test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
       const oneSeed = (seed) => {
@@ -14633,7 +14894,7 @@ const SelfTest = {
       Input.lastDevice = 'keyboard';   // a phone seats one person in a crowd fight
       Object.assign(sel, { player: 'kai', opponent: 'mara', arena: 'dojo', difficulty: 'hard', rounds: 3, timer: 90 });
       const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'rulesSet']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
+      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'rulesSet', 'assist']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
       const waves = !!ARENAS.dojo.waves;
       const brawlPlan = MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]]), 'hard');
       const old = {
