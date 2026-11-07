@@ -16193,13 +16193,13 @@ UI.runBrawl = function runBrawl(enemies, opts) {
   return { enemies: Game.match ? Game.match.fighters.length - 1 : 0, arena: Game.match ? Game.match.def.id : '' };
 };
 
-// Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet
-UI.runSelfTest = function runSelfTest() {
+// Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet; only (optional) picks tests by name (see run_all)
+UI.runSelfTest = function runSelfTest(only) {
   if (selfTestRun) return selfTestRun;
   if (!this.selfTestAllowed()) return Promise.resolve();
   this.showSelfTest('Loading ' + SELFTEST_FILE + '...');
   selfTestRun = loadSelfTests().then(
-    (tests) => (this.selfTestAllowed() ? this.runSelfTestWith(tests) : undefined), // the state may have changed while the file loaded
+    (tests) => (this.selfTestAllowed() ? this.runSelfTestWith(tests, only) : undefined), // the state may have changed while the file loaded
     (error) => this.selfTestUnavailable(error.message),
   ).finally(() => { selfTestRun = null; });
   return selfTestRun;
@@ -16223,12 +16223,12 @@ UI.selfTestUnavailable = function selfTestUnavailable(message) {
   return [{ name: 'Self-test file loads', pass: false, detail: message }];
 };
 
-UI.runSelfTestWith = function runSelfTestWith(tests) {
+UI.runSelfTestWith = function runSelfTestWith(tests, only) {
   const t0 = performance.now();
   const illegalBefore = Diag.illegalTransitions;
   const screen = this.current, stack = this.stack.slice();
   const saved = tests.snapshot();
-  const res = tests.run_all();
+  const res = tests.run_all(only);
   tests.restore(saved);
   Diag.illegalTransitions = illegalBefore;
   this.resetMenuScene();
@@ -16236,7 +16236,7 @@ UI.runSelfTestWith = function runSelfTestWith(tests) {
   const failed = res.filter((r) => !r.pass).length, skipped = res.filter((r) => r.skipped).map((r) => r.name); // a skip keeps pass: true for callers that count passes; it is counted and listed here so a hidden pane cannot skip a check unseen
   const counts = (res.length - failed - skipped.length) + ' passed, ' + failed + ' failed, ' + skipped.length + ' skipped';
   const skipList = skipped.length ? '\nSkipped, not run here:\n' + skipped.map((name) => '  ' + name).join('\n') : '';
-  const text = 'Self-test: ' + counts + ' (of ' + res.length + ') in ' + Math.round(performance.now() - t0) + ' ms' + skipList + '\n' + res.map((r) => (r.skipped ? '[skip] ' : r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
+  const text = 'Self-test: ' + counts + ' (of ' + res.length + (res.filtered ? ' picked by name' : '') + ') in ' + Math.round(performance.now() - t0) + ' ms' + skipList + '\n' + res.map((r) => (r.skipped ? '[skip] ' : r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
   const shown = $('selftestOut');
   if (shown) shown.textContent = text;
   Diag.log(failed || skipped.length ? 'warn' : 'info', 'Self-test ' + counts + (skipped.length ? '; skipped: ' + skipped.join(' | ') : ''));
@@ -16327,7 +16327,7 @@ function fatalStartup(msg) {
   $('screens').innerHTML = '';
 }
 
-window.BREAKPOINT = { version: VERSION, selfTest: () => UI.runSelfTest(), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
+window.BREAKPOINT = { version: VERSION, selfTest: (only) => UI.runSelfTest(only), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
 boot();
 
 })();

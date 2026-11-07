@@ -227,12 +227,21 @@ const SelfTest = {
     return log;
   },
 
-  run_all() {
+  /* only (optional) picks the tests to run by name: a RegExp, a list of name parts, or one string of name parts split by '|'
+     (plain text, any case: 'Hazards|P18-13'). Without it every test runs. Each result carries ms, the time the test took. */
+  run_all(only) {
     const results = [];
     const self = this;
+    const parts = typeof only === 'string' ? only.split('|') : Array.isArray(only) ? only : [];
+    const wanted = parts.map((part) => String(part).trim().toLowerCase()).filter(Boolean);
+    const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
+    const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const test = (name, fn) => {
+      if (!picked(name)) return;
       let m = null;
+      const started = performance.now();
       try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
+      results[results.length - 1].ms = Math.round(performance.now() - started);
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
@@ -16110,6 +16119,7 @@ const SelfTest = {
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
+    results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     return results;
   },
 };
