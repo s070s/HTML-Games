@@ -9230,7 +9230,7 @@ const SelfTest = {
         const brawl = track(new MatchSim({ mode: 'brawl', ring: true, ringOut: true, enemies: 2, countdown: false, seed: 3, arenaId: id }));
         if (Arena.ring) problems.push(id + ' a brawl got a ring');
       }
-      if (SETTING_DEFS.ringOut.def !== false || Settings.validate('ringOut', 'x') !== false) problems.push('setting');
+      if (SETTING_DEFS.ringOut !== undefined || Settings.validate('ringOut', true) !== undefined) problems.push('Ring-out is still a Setting');   // it lives on the Tournament screen and in Free Fight
       return problems.length ? problems.join('; ') : true;
     });
     test('1v1 areas (P8-05): with ring-out a fighter whose feet touch the floor outside the ring loses the round with the reason ringout, one in the air is safe until it lands, and nothing happens with the option off or on a level without it', () => {
@@ -9719,26 +9719,24 @@ const SelfTest = {
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Arena bounds (P17-08): a plain 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room; the Ring-out setting fences Free Fight and Versus into the level ring only on a level with a ring edge (also after a restart); an explicit ring is kept', () => {
-      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run, ringOut: Settings.v.ringOut };
+    test('Arena bounds (P17-08): a plain 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room, also after a restart and whatever Ring-out value an old Settings object still holds (nothing reads it any more); an explicit ring is kept', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
       Game.go = () => true; Game.run = null;
       const begin = (id, extra, mode) => { Game.beginMatch(Object.assign({ mode: mode || 'free', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'easy', winsNeeded: 1, timer: 30, items: false, hazards: false }, extra)); return Arena.ring !== null; };
       try {
-        for (const ringOut of [false, true]) {
-          Settings.v.ringOut = ringOut;
+        for (const stale of [false, true]) {
+          Settings.v.ringOut = stale;
           for (const id of ARENA_ORDER) {
             for (const mode of ['free', 'versus', 'arcade', 'survival', 'training']) {
-              const want = ringOut && (mode === 'free' || mode === 'versus') && !!ARENAS[id].ring[4], b = ARENAS[id].bounds;
-              if (begin(id, {}, mode) !== want) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': ring ' + !want);
-              if (!want && (Arena.ax1 !== b.x || Arena.az1 !== b.z || Arena.ringOut)) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': the whole room is not open');
+              const b = ARENAS[id].bounds;
+              if (begin(id, {}, mode) || Arena.ax1 !== b.x || Arena.az1 !== b.z || Arena.ringOut) problems.push(id + ' ' + mode + ' old value ' + stale + ': the whole room is not open');
             }
           }
         }
-        Settings.v.ringOut = false; begin('club');
-        Settings.v.ringOut = true; Game.restartMatch();
-        if (Arena.ring === null || !Arena.ringOut) problems.push('a restart did not read the Ring-out setting again');
+        begin('club'); Game.restartMatch();
+        if (Arena.ring !== null || Arena.ringOut) problems.push('a restart fenced a plain fight into the ring');
         if (!begin('warehouse', { ring: true, ringOut: true })) problems.push('an explicit ring was ignored');   // the Tournament's own bouts are checked in 'a Tournament bout has the whole room too'
-      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.ringOut = kept.ringOut; }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; delete Settings.v.ringOut; }
       return problems.length ? problems.join('; ') : true;
     });
     test('Arena bounds (P17-08): on every level the wall decoration sits on its wall: every part that touches a wall shows its front face in front of the wall face (never hidden inside it), does not poke out behind it, and nothing below head height stands in the walking room past the bounds', () => {
@@ -10957,7 +10955,7 @@ const SelfTest = {
     /* withArcade's stand-ins (Game.go sets the state, rerenders do nothing) with Tournament selected, a fresh Progress and no bracket; the bracket state is put back afterwards. */
     const withTournament = (fn) => withArcade(() => {
       const keep = { tournament: Game.tournament, match: Game.tournamentMatch, two: Game.tournamentTwoPlayers };
-      Object.assign(Game.selection, { mode: 'tournament', difficulty: 'normal', tournamentSize: 8 });
+      Object.assign(Game.selection, { mode: 'tournament', difficulty: 'normal', tournamentSize: 8, tournamentRing: false });
       Game.tournament = null; Game.tournamentMatch = null; Game.tournamentTwoPlayers = false;
       try { return fn(); } finally { Game.tournament = keep.tournament; Game.tournamentMatch = keep.match; Game.tournamentTwoPlayers = keep.two; }
     });
@@ -11031,7 +11029,7 @@ const SelfTest = {
       if (hostile.size !== 8 || hostile.entrants.filter((e) => e.human >= 0).length !== 1 || hostile.entrants.find((e) => e.human === 2).id !== ROSTER[0].id || hostile.difficulty !== 'normal' || new Set(hostile.entrants.map((e) => e.id)).size !== 8) bad.push('a hostile draw: ' + JSON.stringify(hostile.entrants.filter((e) => e.human >= 0)));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out setting is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
+    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out of the bracket is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
       const bad = [], fights = [];
       Game.selection.tournamentLevel = 'hard';
       Game.startTournament(KAI_MARA, 9);
@@ -11060,12 +11058,13 @@ const SelfTest = {
       if (Game.tournament || UI.current !== 'modes' || Game.state !== GS.MENU) bad.push('the champion\'s Continue did not leave: ' + UI.current);
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Arena bounds (P17-08): a Tournament bout has the whole room like every 1v1, with the ring only under the Ring-out setting and a drawn start side, and the CPU fights of the bracket are set up the same way', () => withTournament(() => {
-      const bad = [], kept = Settings.v.ringOut, realRun = SimRunner.run, runs = [];
+    test('Arena bounds (P17-08): a Tournament bout has the whole room like every 1v1, with the ring only when the Ring-out of the bracket is on (an old Settings value is ignored) and a drawn start side, and the CPU fights of the bracket are set up the same way', () => withTournament(() => {
+      const bad = [], realRun = SimRunner.run, runs = [];
       SimRunner.run = (opts) => { runs.push(opts); return realRun(opts); };
       try {
         for (const ringOut of [false, true]) {
-          Settings.v.ringOut = ringOut;
+          Settings.v.ringOut = !ringOut;   // the opposite, left over from an old save: the bracket decides
+          Game.selection.tournamentRing = ringOut;
           Game.selection.tournamentLevel = 'hard';
           Game.startTournament(KAI_MARA, 9);
           const before = Game.match;
@@ -11078,7 +11077,7 @@ const SelfTest = {
           if (!runs.length || runs.some((o) => !!o.ring !== ringOut || !!o.ringOut !== ringOut || o.sides !== true || o.hazards || o.items)) bad.push('ring-out ' + ringOut + ': a simulated CPU fight was set up another way: ' + JSON.stringify(runs.slice(0, 1)));
           Game.quitToMenu();
         }
-      } finally { SimRunner.run = realRun; Settings.v.ringOut = kept; }
+      } finally { SimRunner.run = realRun; delete Settings.v.ringOut; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     test('Tournament (P11-01): a person who loses is out and the bracket is still played to its champion; a person who wins every fight takes the title, the best result, the run grade and the rivals beaten', () => withTournament(() => {
@@ -12576,6 +12575,91 @@ const SelfTest = {
       }
       return flow.problems.length ? flow.problems[0] : true;
     }));
+    /* Ring-out of the Tournament (P18-45): the choice lives in the bracket; the Settings no longer hold it. */
+    test('Tournament ring-out (P18-45): a bracket stores Ring-out (only true counts), saves and cleans it, an old bracket without it (or with a damaged one) takes the saved Tournament row, and Settings has no Ring-out row', () => withTournament(() => {
+      const bad = [], humans = [{ seat: 0, id: 'kai' }], keep = Setups.d, copy = (value) => JSON.parse(JSON.stringify(value));
+      try {
+        for (const [given, want] of [[true, true], [false, false], [undefined, false], [1, false], ['true', false], [null, false]]) {
+          const t = Tournament.draw({ humans, size: 8, seed: 5, ringOut: given }), back = Tournament.clean(copy(Tournament.pack(t)));
+          if (t.ringOut !== want || Tournament.pack(t).ringOut !== want || !back || back.ringOut !== want) bad.push('draw ' + given + ' gave ' + t.ringOut);
+        }
+        const old = copy(Tournament.pack(Tournament.draw({ humans, size: 8, seed: 5 })));
+        delete old.ringOut;
+        for (const saved of [true, false]) {
+          Setups.d = { v: 1, tournament: { ringOut: saved } };
+          if (Tournament.clean(old).ringOut !== saved) bad.push('an old bracket did not take the saved row ' + saved);
+        }
+        Setups.d = { v: 1, tournament: { ringOut: true } };
+        for (const damaged of ['on', 1, null, [], {}]) if (Tournament.clean(Object.assign({}, old, { ringOut: damaged })).ringOut !== true) bad.push('a damaged ringOut ' + JSON.stringify(damaged) + ' was kept');
+        if (Tournament.clean(Object.assign({}, old, { ringOut: false })).ringOut !== false) bad.push('a stored Off was replaced by the row');
+        Progress.d.tournamentRun = copy(old);
+        if (!Game.savedTournament() || Progress.d.tournamentRun.ringOut !== true) bad.push('an old saved bracket was not pinned when it was loaded');
+        Setups.d = null;
+        if (Tournament.clean(old).ringOut !== false) bad.push('no saved row is Off');
+      } finally { Setups.d = keep; }
+      const page = UI.screen_settings();
+      if (page.includes('Ring-out') || page.includes('data-set="ringOut"')) bad.push('the Settings screen still has a Ring-out row');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament ring-out (P18-45): the join screen has a Ring-out row that a gamepad, the arrow keys and a tap change and save with the Difficulty, a saved bracket hides it, and the draw and its save carry it', () => withFlow([fakePad('a')], (flow, pads) => {
+      const pad = pads[0], on = (name) => (el) => el.attrs['data-local'] === name, sel = Game.selection, tour = () => Setups.plain(Setups.d && Setups.d.tournament), keepStore = Store.get(KEY_SETUPS);
+      const row = () => flow.items.find(on('tring'));
+      try {
+        Setups.d = { v: 1 }; sel.tournamentRing = false;
+        flowEnter(flow, 'tournament');
+        flow.reach('the Tournament join screen', pad);
+        if (!row() || !UI.screen_coop().includes('Ring-out')) return 'the join screen has no Ring-out row';
+        if (!flow.focusOn(on('tring'))) return 'the focus never reached the Ring-out row';
+        flow.padTap(pad, 'right');
+        if (!sel.tournamentRing || tour().ringOut !== true || JSON.parse(Store.get(KEY_SETUPS)).tournament.ringOut !== true || Inputs.seatedSlots().length) return 'right on a gamepad did not turn Ring-out on and save it: ' + sel.tournamentRing + ' ' + JSON.stringify(tour());
+        flow.padTap(pad, 'left');
+        if (sel.tournamentRing || tour().ringOut !== false) return 'left on a gamepad did not turn Ring-out off';
+        UI.onKey(keyEvent('ArrowRight'));
+        if (!sel.tournamentRing || tour().ringOut !== true) return 'the right arrow key did not turn Ring-out on';
+        row().click(); row().click();
+        if (!sel.tournamentRing) return 'two taps did not come round to On';
+        row().click();
+        if (sel.tournamentRing || !UI.screen_coop().includes('aria-label="Ring-out" aria-valuetext="Off"')) return 'a tap did not turn Ring-out off';
+        if (!flow.focusOn(on('diff'))) return 'the focus never reached Difficulty';
+        flow.padTap(pad, 'right');
+        if (tour().difficulty !== sel.tournamentLevel || tour().ringOut !== false) return 'Difficulty and Ring-out were not saved together: ' + JSON.stringify(tour());
+        Game.saveLevel(); sel.tournamentRing = true; Game.loadLevels();
+        if (sel.tournamentRing) return 'loadLevels did not read the saved Off';
+        sel.tournamentRing = true; Game.saveLevel(); sel.tournamentRing = false; Game.loadLevels();
+        if (!sel.tournamentRing) return 'a saved On was not read back';
+        Game.startTournament([{ seat: 0, id: 'kai' }], 9);
+        if (Game.tournament.ringOut !== true || Progress.d.tournamentRun.ringOut !== true) return 'the draw did not carry Ring-out: ' + Game.tournament.ringOut + ' ' + Progress.d.tournamentRun.ringOut;
+        Game.tournamentResume = Game.savedTournament();
+        if (UI.screen_coop().includes('data-local="tring"')) return 'a saved bracket still shows the Ring-out row';
+        Game.tournamentResume = null; Game.quitToMenu();
+        return flow.problems.length ? flow.problems[0] : true;
+      } finally { Game.tournamentResume = null; if (keepStore === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keepStore); }
+    }));
+    test('Tournament ring-out (P18-45): at start-up the Tournament row is seeded once from the old Ring-out switch, beside the Free Fight rules, and nothing else in the saved setups is touched', () => {
+      const bad = [], keep = { settings: Store.get(KEY_SETTINGS), setups: Store.get(KEY_SETUPS), d: Setups.d, v: Settings.v };
+      const put = (key, value) => { if (value === null) Store.remove(key); else Store.set(key, typeof value === 'string' ? value : JSON.stringify(value)); };
+      try {
+        Settings.v = Object.assign({}, keep.v);
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== true || JSON.parse(Store.get(KEY_SETUPS)).tournament.ringOut !== true) bad.push('from nothing ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('an old Off');
+        put(KEY_SETTINGS, {}); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('no old switch');
+        const rules = FightRules.fix({ area: 1 });
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, { v: 1, freeFight: { rules, future: 5 }, tournament: { difficulty: 'hard' }, survival: { difficulty: 'normal' } }); Setups.init();
+        if (Setups.d.tournament.ringOut !== true || Setups.d.tournament.difficulty !== 'hard' || Setups.d.freeFight.future !== 5 || JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify(rules) || Setups.d.survival.difficulty !== 'normal') bad.push('the seed beside saved setups ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, { v: 1, freeFight: { rules }, tournament: { ringOut: true } }); Setups.init();
+        if (Setups.d.tournament.ringOut !== true) bad.push('the seed ran again over a stored row');
+        put(KEY_SETUPS, { v: 3, tournament: {} }); Setups.init();
+        if ('ringOut' in Setups.d.tournament) bad.push('an unknown version was changed');
+        put(KEY_SETUPS, { v: 1, freeFight: { rules }, tournament: 'x' }); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('a damaged Tournament entry');
+        put(KEY_SETTINGS, { ringOut: true, storyAuto: true }); Settings.init(); Settings.save();
+        if ('ringOut' in JSON.parse(Store.get(KEY_SETTINGS))) bad.push('Settings.save kept the Ring-out key');
+      } finally { put(KEY_SETTINGS, keep.settings); put(KEY_SETUPS, keep.setups); Setups.d = keep.d; Settings.v = keep.v; Settings.apply(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
@@ -12642,7 +12726,7 @@ const SelfTest = {
         return Game.state === GS.MENU && UI.current === 'main';
       };
       const devices = ['key1', 'key2', 'pad0', 'pad1'];
-      Object.assign(Settings.v, { storyScenes: pick(['full', 'short', 'off']), storyAuto: random() < 0.3, ringOut: random() < 0.5, items: random() < 0.7, hazards: random() < 0.7 });   // the walk's own settings, put back with the rest
+      Object.assign(Settings.v, { storyScenes: pick(['full', 'short', 'off']), storyAuto: random() < 0.3, items: random() < 0.7, hazards: random() < 0.7 });   // the walk's own settings, put back with the rest
       if (seed % 2) { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.put(3, validateCustom(randomCustom(seed)).value); }   // odd walks have a custom fighter to pick
       for (let step = 0; step < steps; step++) {
         const state = Game.state, screen = UI.current, label = state + '/' + flow.screen();
@@ -14581,7 +14665,7 @@ const SelfTest = {
         Game.quitToMenu();
       }
       const keepSettings = Object.assign({}, Settings.v), keepSelection = Object.assign({}, sel), keepDevice = Input.lastDevice;
-      Object.assign(Settings.v, { autoAssist: true, movement: 'opponent', reducedMotion: true, flashes: 'off', ringOut: true });   // what the menu tests leave behind: the hash must not care
+      Object.assign(Settings.v, { autoAssist: true, movement: 'opponent', reducedMotion: true, flashes: 'off' });   // what the menu tests leave behind: the hash must not care
       Object.assign(sel, { player: 'zero', opponent: 'kai', arena: 'pit', difficulty: 'easy', rounds: 1, timer: 0 }); Input.lastDevice = 'touch'; Input.kb.add('KeyL');
       try {
         for (const type of FIGHT_TYPES) if (hashOf(built[type]) !== hashOf(old[type])) bad.push(type + ' plays differently from the old config: ' + hashOf(built[type]) + ' not ' + hashOf(old[type]));
