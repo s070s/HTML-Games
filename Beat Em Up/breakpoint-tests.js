@@ -2779,7 +2779,7 @@ const SelfTest = {
         UI.unlockInfo('zero'); UI.unlockInfo('lars'); UI.unlockInfo('kai');
         if (toasts.length !== 2 || toasts[0] !== 'ZERO is locked: Clear Arcade (Arcade clears 0 / 1)|warn' || !toasts[1].startsWith('LARS is open: Win 3 Arcade fights (Arcade wins 3 / 3)')) problems.push('toasts ' + toasts.join(' / '));
         UI.act = (a) => acts.push(a);
-        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero' }) };
+        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero', focus() {} }) };
         for (const screen of ['unlocks', 'main']) {
           UI.current = screen; UI.guardUntil = performance.now() + 1000; UI.onClick({ target });
           const ignored = acts.length === 0;
@@ -11949,6 +11949,191 @@ const SelfTest = {
       } finally { root.innerHTML = keepHtml; Game.leaveTournament(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Menu selection (P18-17) ---------- */
+    /* One item looks current on a menu screen, and it is the DOM focus. A remembered pick (.sel) and a chosen swatch (.sw.on) have looks of their own, the mouse moves the focus only when it moves, and a click focuses what it clicked. */
+    const MENU_SELECT_SCREENS = ['main', 'modes', 'char', 'setup', 'arena', 'freefight', 'freemore', 'lineup', 'coop', 'controls', 'settings', 'unlocks', 'credits', 'pause', 'replace'];
+    const menuTags = (html, pattern) => (html.match(/<(?:button|div|label|input)\b[^>]*>/g) || []).filter((tag) => pattern.test(tag));
+    /* document.activeElement is read-only in a page: stand in for it on the document itself for the length of body(state), state.el being the focused element. */
+    const withActiveElement = (start, body) => {
+      const own = Object.getOwnPropertyDescriptor(document, 'activeElement'), state = { el: start };
+      Object.defineProperty(document, 'activeElement', { configurable: true, get: () => state.el });
+      try { return body(state); } finally { if (own) Object.defineProperty(document, 'activeElement', own); else delete document.activeElement; }
+    };
+    /* A stand-in menu item that takes the focus the way a page element does. */
+    const menuItem = (state, props) => {
+      const el = Object.assign({ tagName: 'BUTTON', disabled: false, focused: 0, options: null, attrs: {} }, props);
+      el.getAttribute = (name) => (name in el.attrs ? el.attrs[name] : null);
+      el.closest = (selector) => (selector === '[data-nav]' || (selector === '[data-act]' && 'data-act' in el.attrs) ? el : null);
+      el.focus = (options) => { el.focused++; el.options = options || null; state.el = el; };
+      return el;
+    };
+    /* The style rules that give a menu item its look, checked as text so a headless run with the style text and a browser read the same rules. Returns what is wrong. */
+    const menuStyleProblems = (css) => {
+      const bad = [], text = css.replace(/\/\*[\s\S]*?\*\//g, ''), MENU_ITEM = /button\.mi|\.card|\.opt|\.tab\b|\.beat|\.scenebox/;
+      for (const [, selectors, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const outline = /(?:^|;)\s*outline\s*:\s*(?!none\b|0\b)[^;]+/.test(body);
+        const hoverLook = /(?:^|;)\s*(?:outline|background|background-color|border-color|box-shadow)\s*:/.test(body);
+        for (const raw of selectors.split(',')) {
+          const selector = raw.trim();
+          if (outline && /:hover/.test(selector)) bad.push('a hover outline: ' + selector);
+          if (outline && /\.sel\b/.test(selector) && !/:focus/.test(selector)) bad.push('an outline on a remembered pick: ' + selector);
+          if (outline && /\.sw\.on/.test(selector)) bad.push('an outline on the chosen swatch: ' + selector);
+          if (/:focus-visible/.test(selector) && MENU_ITEM.test(selector)) bad.push('a focus look that depends on the browser\'s :focus-visible guess: ' + selector);
+          if (hoverLook && /:hover/.test(selector) && MENU_ITEM.test(selector) && !/:not\(\[disabled\]\)/.test(selector)) bad.push('a hover look on an item that can be disabled or locked: ' + selector);
+        }
+      }
+      return bad;
+    };
+    test('Menu selection (P18-17): on every menu screen at most one item is the default and at most one is a remembered pick, every remembered pick says so to a screen reader (aria-pressed), and a disabled button is out of the focus order', () => {
+      const bad = [], keep = Object.assign({}, Game.selection), keepDom = UI.dom;
+      try {
+        for (const name of MENU_SELECT_SCREENS) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          const defaults = menuTags(html, /\sdata-default[\s>=]/).length, picks = menuTags(html, /\sclass="[^"]*\bsel\b/);
+          if (defaults > 1) bad.push(name + ' has ' + defaults + ' default items');
+          if (picks.length > 1) bad.push(name + ' has ' + picks.length + ' remembered picks');
+          for (const tag of picks) if (!/\saria-pressed="true"/.test(tag)) bad.push(name + ' has a remembered pick without aria-pressed: ' + tag.slice(0, 60));
+          const items = menuTags(html, /\sdata-nav[\s>=]/).map((tag) => ({ tag, disabled: /\sdisabled[\s>=]/.test(tag) }));
+          UI.dom = Object.assign({}, keepDom, { screens: { querySelectorAll: () => items } });
+          const reached = UI.navItems();
+          if (reached.some((item) => item.disabled)) bad.push(name + ' lets the keys and the pad reach a disabled button');
+          if (reached.length !== items.filter((item) => !item.disabled).length) bad.push(name + ' leaves an enabled item out of the focus order');
+        }
+      } finally { UI.dom = keepDom; Object.assign(Game.selection, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style sheet gives the focus the only outline - no hover rule, remembered pick or chosen swatch draws one, no menu item depends on :focus-visible, and no hover look can reach a disabled or locked item', () => {
+      const css = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n');
+      if (!css) return 'skipped: this run has no page style sheet (a headless run); a browser self-test reads it';
+      const bad = menuStyleProblems(css);
+      if (!/button\.mi:focus\{[^}]*outline:3px/.test(css) || !/\.opt:focus\{[^}]*outline:3px/.test(css) || !/\.card:focus\{[^}]*outline:3px/.test(css)) bad.push('the focus look of the buttons, rows or cards is missing');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style rule check finds what it looks for (a hover outline, an outline on a remembered pick or a chosen swatch, a :focus-visible look, a hover look on a button that can be disabled) and passes the rules that replace them', () => {
+      const wrong = ['button.mi:hover,button.mi.sel{outline:3px solid var(--a1)}', '.sw.on{outline:3px solid #fff;border-color:#fff}', '.card:focus-visible{outline:3px solid red}', '.opt:hover{background:#182a55}'];
+      const right = ['button.mi.sel{border-color:#0f0;background:#122}', 'button.mi:focus{outline:3px solid var(--a1)}', '.opt button.mi:focus{outline:none}', '.sw.on{border-color:#fff}', '.sw:hover{border-color:#fff}', '@media (max-height:520px){ .tab:focus{outline:3px solid red} }'];
+      const bad = [];
+      for (const rule of wrong) if (!menuStyleProblems(rule).length) bad.push('not found: ' + rule);
+      for (const rule of right) if (menuStyleProblems(rule).length) bad.push('wrongly found: ' + rule + ' > ' + menuStyleProblems(rule)[0]);
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Menu selection (P18-17): the mouse moves the focus only when it moves - a parked pointer, a touch, a disabled item, a text field being typed in and a creator drag leave the focus where it is', () => withActiveElement(null, (state) => {
+      const bad = [], keep = { dom: UI.dom, current: UI.current, at: UI.pointerAt, drag: CreatorUI.drag };
+      const [a, b, c, off, field] = [menuItem(state), menuItem(state), menuItem(state), menuItem(state, { disabled: true }), menuItem(state, { tagName: 'INPUT', type: 'text' })];
+      const move = (target, x, y, kind) => UI.onPointerMove({ pointerType: kind || 'mouse', clientX: x, clientY: y, target });
+      UI.dom = Object.assign({}, keep.dom, { fatal: { hidden: true } }); UI.current = 'main'; UI.pointerAt = null; CreatorUI.drag = null; state.el = a;
+      try {
+        move(b, 10, 10);
+        if (state.el !== b) bad.push('a mouse move onto an item did not focus it');
+        else if (!b.options || b.options.preventScroll !== true) bad.push('the focus by the mouse scrolls the panel');
+        move(c, 10, 10);   // the item under a parked pointer changes (a scroll, a redraw): the same coordinates
+        if (state.el !== b) bad.push('a parked pointer took the focus back');
+        move(c, 11, 10);
+        if (state.el !== c) bad.push('a second move onto another item did not focus it');
+        move(off, 12, 10);
+        if (state.el !== c || off.focused) bad.push('a disabled item took the focus');
+        move(a, 13, 10, 'touch'); move(a, 14, 10, 'pen');
+        if (state.el !== c) bad.push('a touch or a pen moved the focus');
+        state.el = field; move(a, 15, 10);
+        if (state.el !== field) bad.push('the mouse took the focus out of a text field being typed in');
+        state.el = c; move(field, 16, 10);
+        if (field.focused) bad.push('the mouse focused a text field');
+        CreatorUI.drag = { id: 1 }; move(a, 17, 10);
+        if (state.el !== c) bad.push('the focus moved during a creator drag');
+        CreatorUI.drag = null; move(a, 18, 10);
+        if (state.el !== a) bad.push('the mouse did not move the focus after the drag');
+        if (UI.listeners.length && !UI.listeners.some(([, type]) => type === 'pointermove')) bad.push('no pointermove handler is registered (UI.init)');   // a page has UI listening; the headless run has not
+      } finally { UI.dom = keep.dom; UI.current = keep.current; UI.pointerAt = keep.at; CreatorUI.drag = keep.drag; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): in a page exactly one item in the screens is outlined after the keys, the pad (moveFocus) and a mouse move have moved the focus, and a redraw or a scroll under a parked pointer leaves the focus where it is (a headless run has no styles and says so)', () => {
+      const root = UI.dom.screens;
+      if (!hasLayoutEngine() || !root || typeof root.getBoundingClientRect !== 'function' || !root.getBoundingClientRect().height || !document.querySelectorAll('style').length) return 'skipped: no page style sheet or layout (a headless run); a browser self-test counts the outlines';
+      const bad = [], keep = { html: root.innerHTML, current: UI.current, selection: Object.assign({}, Game.selection), at: UI.pointerAt, active: document.activeElement };
+      const outlined = () => Array.from(root.querySelectorAll('*')).filter((el) => { const look = getComputedStyle(el); return look.outlineStyle !== 'none' && parseFloat(look.outlineWidth) > 0; });
+      let x = 5000;   // coordinates no earlier move used
+      const hover = (el) => el.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', clientX: x++, clientY: 7, bubbles: true }));
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['main', 'modes', 'char', 'arena', 'freefight', 'settings', 'unlocks']) {
+          UI.current = name; root.innerHTML = UI['screen_' + name]();
+          const items = UI.navItems();
+          if (items.length < 3) { bad.push(name + ' has fewer than 3 items to move between'); continue; }
+          items[0].focus();
+          let count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items at the start');
+          UI.moveFocus(1); count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items after the keys');
+          hover(items[2]); count = outlined().length;
+          if (document.activeElement !== items[2] || count !== 1) bad.push(name + ' shows ' + count + ' outlined items after a mouse move, focus on item ' + items.indexOf(document.activeElement));
+          UI.moveFocus(-1); hover(items[2]);
+          const focusedAt = UI.navItems().indexOf(document.activeElement);
+          x--; hover(UI.navItems()[0]);   // the same coordinates as the last move: a parked pointer under a changed page
+          UI.rerender(true);
+          if (UI.navItems().indexOf(document.activeElement) !== focusedAt || outlined().length !== 1) bad.push(name + ': a redraw under a parked pointer moved the focus (' + focusedAt + ' > ' + UI.navItems().indexOf(document.activeElement) + ')');
+        }
+      } finally { root.innerHTML = keep.html; UI.current = keep.current; Object.assign(Game.selection, keep.selection); UI.pointerAt = keep.at; }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): a click focuses the item it clicked before it acts (Safari and iOS do not focus a clicked button) - also the row of an arrow button, never a disabled item - so a redraw keeps the focus on it', () => withActiveElement({ tagName: 'BODY' }, (state) => {
+      const bad = [], keep = { act: UI.act, adjust: UI.adjust, guard: UI.guardUntil }, seen = [];
+      const items = [0, 1, 2].map((n) => menuItem(state, { attrs: { 'data-act': 'pick:' + n } }));
+      const arrow = menuItem(state, { attrs: { 'data-act': 'inc:sfx' } }), row = menuItem(state, { attrs: { 'data-set': 'sfx' } }), plain = menuItem(state, { attrs: { 'data-act': 'pick:9' }, disabled: true });
+      arrow.closest = (selector) => (selector === '[data-nav]' ? row : selector === '[data-act]' ? arrow : null);
+      const body = state.el;
+      const clickRow = menuItem(state, { attrs: { 'data-set': 'sfx' } });
+      clickRow.closest = (selector) => (selector === '[data-nav]' || selector === '.opt' ? clickRow : null);
+      UI.act = (act) => { seen.push({ act, on: state.el }); }; UI.adjust = (el) => { seen.push({ act: 'adjust', on: state.el, el }); }; UI.guardUntil = 0;
+      try {
+        UI.onClick({ target: items[2] });
+        if (state.el !== items[2] || !items[2].options || items[2].options.preventScroll !== true) bad.push('the clicked third item was not focused (without scrolling)');
+        if (!seen.length || seen[0].on !== items[2]) bad.push('the click acted before the item had the focus');
+        UI.onClick({ target: items[2] });
+        if (items[2].focused !== 1) bad.push('a click on the focused item focused it again');
+        state.el = body; UI.onClick({ target: arrow });
+        if (state.el !== row) bad.push('a click on an arrow button did not focus its row');
+        state.el = body; UI.onClick({ target: clickRow });
+        if (state.el !== clickRow || seen[seen.length - 1].act !== 'adjust' || seen[seen.length - 1].on !== clickRow) bad.push('a click on a row did not focus it before it changed');
+        state.el = body; UI.onClick({ target: plain });
+        if (state.el !== body || plain.focused) bad.push('a click on a disabled item focused it');
+      } finally { UI.act = keep.act; UI.adjust = keep.adjust; UI.guardUntil = keep.guard; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): on the fighter, sparring partner, arena, More options and Unlocks screens the focused item scrolls clear of the sticky Back bar, at 1280 x 720 and 844 x 390 (a headless run has no layout and says so)', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the screens were not laid out';
+      const bad = [], styles = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n'), keep = Object.assign({}, Game.selection);
+      let measured = 0;
+      const check = (name, html, width, height) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+        document.body.appendChild(frame);
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) { bad.push(name + ': the frame has no document'); return; }
+          doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+          const bar = doc.querySelector('.row.sticky');
+          if (!bar) return;
+          measured++;
+          for (const item of Array.from(doc.querySelectorAll('[data-nav]'))) {
+            if (bar.contains(item)) continue;
+            item.scrollIntoView({ block: 'nearest' });   // what focus() does, scroll-padding included
+            const box = item.getBoundingClientRect(), barBox = bar.getBoundingClientRect();
+            if (box.bottom > barBox.top + 2 && box.top < barBox.bottom) { bad.push(name + ' at ' + width + ' px: an item sits under the sticky bar (' + Math.round(box.bottom - barBox.top) + ' px)'); return; }
+          }
+        } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+      };
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['char', 'setup', 'arena', 'freemore', 'unlocks']) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          for (const [width, height] of [[1280, 720], [844, 390]]) check(name, html, width, height);
+        }
+      } finally { Object.assign(Game.selection, keep); }
+      if (!measured) bad.push('nothing was measured in a browser');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
     /* ---------- Mode flows (P18-40) ---------- */
     /* Every mode from the main menu to the results and back, pressing only what the screen on show offers: the data-act of its enabled buttons, which is what a tap, Enter and a pad's A all press (an enabled
        button is also what the arrow keys and the pad stick can focus). The game state moves the way a page moves it (Game.go checks GS_TRANSITIONS and UI.onGameState puts the screen up, on stand-in page elements),
