@@ -41,6 +41,7 @@ button.mi small{display:block;font-weight:500;letter-spacing:0;text-transform:no
 /* one meaning per look: the focus (the one current item, set by keys, pad, pointer move and click) has the outline and the arrow; a remembered pick (.sel) has a green border, a tint and a corner tick, never an outline */
 button.mi.sel,.card.sel{position:relative;border-color:var(--ok);background:#12261f}
 button.mi.sel::after,.card.sel::after{content:"\2713";position:absolute;z-index:1;width:1.5em;height:1.5em;border-radius:50%;background:var(--ok);color:#06210f;font:900 .8em/1.5em system-ui,sans-serif;letter-spacing:0;text-align:center;text-shadow:none}
+button.mi.sel{padding-right:2.6em}
 button.mi.sel::after{top:50%;right:.8em;margin-top:-.75em}
 .card.sel::after{top:-.6em;right:-.5em}
 button.mi:focus{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
@@ -143,7 +144,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
  .screen.creator{padding:.4em .6em}
  .panel.cr{width:min(36em,66vw);padding:.4em .6em}
  .cr-head h2{font-size:1.1em}
- .tabs,.cr-foot{flex-wrap:nowrap;overflow-x:auto;margin:.1em 0;padding:.4em .4em}
+ .tabs,.cr-foot{flex-wrap:nowrap;overflow-x:auto;margin:.1em 0;padding:.4em}
  .tab,.cr-foot button.mi{flex:0 0 auto}
  .cr-foot{padding-top:.4em}
  .cr-keys{display:none}
@@ -13604,7 +13605,7 @@ const UI = {
   },
   /* The mouse moves the focus only when it really moves (pointermove with new coordinates): a rerender or a scroll under a parked pointer fires boundary events but no move, and must not take the focus back. A tap or a pen is a click, which onClick handles. */
   onPointerMove(e) {
-    if (e.pointerType !== 'mouse') return;
+    if (e.pointerType !== 'mouse' || e.buttons) return; // a held button is a drag (a creator slider), not a pointing move
     const last = this.pointerAt;
     if (last && last[0] === e.clientX && last[1] === e.clientY) return;
     this.pointerAt = [e.clientX, e.clientY];
@@ -13616,7 +13617,7 @@ const UI = {
   },
   focusClicked(target) { // Safari and iOS do not focus a clicked button: the clicked item becomes the focus here, so rerender(true) and the keys go on from it
     const item = target.closest ? target.closest('[data-nav]') : null;
-    if (item && !item.disabled && item !== document.activeElement) item.focus({ preventScroll: true });
+    if (item && !item.disabled && item.tagName !== 'INPUT' && item !== document.activeElement) item.focus({ preventScroll: true });
   },
   onKey(e) {
     if (Inputs.captureCallback) return;
