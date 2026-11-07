@@ -26,7 +26,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -5306,15 +5306,20 @@ const SelfTest = {
         f.attackPose(); f.skeleton(0, 0, 0, 0, false);
         return { rootZ: f.pts[2], pose: Float32Array.from(f.pose) };
       };
-      const OWN_LEAN = 0.5;   // m: the pose's own forward lean and style step (rootFwd of the builder and the technique), outside the cap
+      const OWN_LEAN = 0.4;   // m: the pose's own forward lean and style step (rootFwd of the builder and the technique), outside the cap
       for (const id of ['yuki', 'hao', 'brutus', 'kai', 'dmitri']) {
         const f = new Fighter(ROSTER.find((r) => r.id === id), 0);
         for (const moveId of ['cross', 'jab', 'roundhouse']) {   // two hand strikes and a kick on the right leg (the left leg is the lead and the support)
           const mv = ATTACKS[moveId], hand = mv.limb[1] === 'A';
           f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.x = f.z = 0;
-          const at = id + ' ' + moveId, guard = frame(f, 0), rest = guard.rootZ, far = frame(f, mv.startup + 1), near = frame(f, mv.startup + 1, 0.9);
+          const at = id + ' ' + moveId, guard = frame(f, 0), rest = guard.rootZ, far = frame(f, mv.startup + 1);
           if (!(far.rootZ - rest > 0.1 && far.rootZ - rest <= STRIKE_STRIDE_MAX + OWN_LEAN)) problems.push(at + ' step ' + (far.rootZ - rest).toFixed(2));
-          if (!(near.rootZ <= far.rootZ && near.rootZ <= 0.9 - STRIKE_ROOM + OWN_LEAN)) problems.push(at + ' near foe: body at ' + near.rootZ.toFixed(2));
+          const own = frame(f, mv.startup + 1, STRIKE_ROOM).rootZ;   // a foe at STRIKE_ROOM leaves no room to step: what is left is the lean of the pose itself
+          if (own > OWN_LEAN) problems.push(at + ' own lean ' + own.toFixed(2));
+          for (const distance of [0.8, 1.2, 3]) {   // the step is the fitted one, or what is left of the distance beyond STRIKE_ROOM, to within 5 mm
+            const stepped = frame(f, mv.startup + 1, distance).rootZ - own, allowed = Math.min(f.strikeStride(mv), distance - STRIKE_ROOM);
+            if (Math.abs(stepped - allowed) > 0.005) problems.push(at + ' foe at ' + distance + ': stepped ' + stepped.toFixed(3) + ' of ' + allowed.toFixed(3));
+          }
           let back = 0, kneeUp = 0, thighUp = 0;
           for (let t = 0; t <= mv.startup + 1; t++) {
             const g = frame(f, t);
@@ -5331,9 +5336,9 @@ const SelfTest = {
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the limits (rad): the arms 2.4 and the elbows 2.8, the hips 2.0, the knees 1.9, the torso lean 1.05, turn 1.5 and roll 1.2', () => {
+    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the most the same moves reached on main before P17-02 (rad): arms 2.02 and 2.0, elbows 2.48 and 2.63, hips 1.68 and 1.78, torso roll 0.9; and lean 1.05, turn 1.5 and knees 1.8, which P17-02 brought down', () => {
       const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
-      const LIMITS = [[J.shLx, 2.4], [J.shRx, 2.4], [J.elL, 2.8], [J.elR, 2.8], [J.hipLx, 2.0], [J.hipRx, 2.0], [J.knL, 1.9], [J.knR, 1.9], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 1.2]];
+      const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9]];   // left and right limbs have their own main maxima
       const problems = [];
       for (const r of ROSTER) {
         const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
@@ -5342,10 +5347,38 @@ const SelfTest = {
           const mv = ATTACKS[id];
           f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0; f.x = f.z = 0; f.target = null;
           f.attackPose();
-          for (const [joint, limit] of LIMITS) if (Math.abs(f.pose[joint]) > limit) problems.push(r.id + ' ' + id + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
+          for (const [joint, limit] of LIMITS) if (Math.abs(f.pose[joint]) > limit + 0.005) problems.push(r.id + ' ' + id + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
         }
       }
       return problems.length ? problems.length + ' too far: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Strike step (P17-02): the drawn step also stops short of another fighter in its way (not only the target), of the arena wall and of a prop', () => {
+      const keep = Arena.def, problems = [];
+      Arena.build(ARENAS.warehouse);
+      try {
+        const f = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross, tick = mv.startup + 1;
+        f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.moveTick = tick;
+        const rootZ = () => { f.attackPose(); f.skeleton(0, 0, 0, 0, false); return f.pts[2]; };
+        const place = (x, z, yaw, foes) => { f.x = x; f.z = z; f.yaw = yaw; f.y = 0; f.target = null; f.mates = foes ? [f].concat(foes) : null; };
+        place(0, 0, 0);
+        const free = rootZ(), step = f.strikeStride(mv), own = free - step;
+        const stepped = () => rootZ() - own;   // what the stride moved the body, from the pose's own lean
+        const near = (what, got, want) => { if (Math.abs(got - want) > 0.005) problems.push(what + ': stepped ' + got.toFixed(3) + ' of ' + want.toFixed(3)); };
+        near('free', stepped(), step);
+        const bounds = Arena.def.bounds;
+        place(0, bounds.z - f.radius - 0.2, 0); near('wall ahead (z)', stepped(), 0.2);
+        place(bounds.x - f.radius - 0.15, 0, Math.PI / 2); near('wall ahead (x)', stepped(), 0.15);
+        place(2, -(bounds.z - f.radius - 0.25), Math.PI); near('wall ahead (-z)', stepped(), 0.25);
+        place(0, 0, 0, [{ x: 0.1, z: 1.0, alive: true }]); near('fighter in the way', stepped(), Math.min(step, Math.hypot(0.1, 1.0) - STRIKE_ROOM));
+        place(0, 0, 0, [{ x: 0.1, z: 1.0, alive: true }, { x: -0.2, z: 0.9, alive: true }]); near('two in the way', stepped(), Math.min(step, Math.hypot(0.2, 0.9) - STRIKE_ROOM));
+        place(0, 0, 0, [{ x: 1.5, z: 1.0, alive: true }]); near('fighter off to the side', stepped(), step);
+        place(0, 0, 0, [{ x: 0, z: -1.0, alive: true }]); near('fighter behind', stepped(), step);
+        place(0, 0, 0, [{ x: 0, z: 1.0, alive: false }]); near('fighter down and out', stepped(), step);
+        const pillar = Arena.colliders.find((c) => c.obj && c.obj.id === 'pillarL');
+        if (!pillar) problems.push('no pillar to test against');
+        else { place(pillar.x, pillar.z - pillar.hz - f.radius - 0.25, 0); const got = stepped(); if (!(got < step && got <= 0.25 + 1e-6 && got >= 0.25 - STRIKE_PROBE - 1e-6)) problems.push('prop: stepped ' + got.toFixed(3) + ' with 0.25 of room'); }
+      } finally { if (keep) Arena.build(keep); }
+      return problems.length ? problems.join('; ') : true;
     });
     test('Headless AI vs AI runner: seeded match ends with a winner, duration and damage per move type', () => {
       const opts = { seed: 3, timer: 30, winsNeeded: 1, playerId: 'kai', opponentId: 'brutus' };
