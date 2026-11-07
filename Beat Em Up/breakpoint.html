@@ -971,7 +971,7 @@ const COACH_TIPS = [
 ];
 const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
 const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
-const COACH_PAD = { grapple: 'R2', crouch: 'Down' }; // short gamepad names where the label is a sentence
+const COACH_PAD = { grapple: 'R2', crouch: 'L2' }; // short gamepad names where the label is a sentence
 const Coach = {
   pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0,
   fights() { return Progress.d.wins + Progress.d.losses; },
@@ -1101,16 +1101,14 @@ const DOUBLE_TAP_SECONDS = 0.28;
 const PAD_DEADZONE = 0.22;
 const PAD_DIGITAL = 0.5;
 const PAD_JUMP_TAP_MS = 150;
-const PAD_CROUCH_REARM_MS = 250;
-const PAD_CROUCH_TAP_MS = 200;
 const PAD_FLICK_ON = 0.65;
 const PAD_FLICK_OFF = 0.4;
 const PAD_JUMP_TAP_STRENGTH = 0.9; // a stick tap must be pushed this far up to jump
 const warnedPadIds = new Set(); // the non-standard layout toast shows once per controller id per session
 const PAD_SELECT_HOLD_MS = 500; // Select held this long = reset positions in Training
 const PAD_SELECT_BUTTON = 8; // Select / Back: hold = reset in Training (not an action)
-// Standard mapping, fight actions -> buttons
-const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [6], grapple: [7, 11], pause: [9] };
+// Standard mapping, fight actions -> buttons. L2 held = Duck and R3 = Use (owner 2026-11-07, BP-P18-50): the stick and D-pad never crouch.
+const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [11], grapple: [7], crouch: [6], pause: [9] };
 const TOUCH_RUN_TICKS = 27; // touch stick held fully toward the opponent this long = run
 const ATTACK_STRING_SECONDS = 0.8; // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT); // counted in simulation ticks, so the headless sim and the AI stay deterministic
@@ -1175,12 +1173,10 @@ class PlayerInput {
     this.padAxis = { fwd: 0, side: 0, active: false, digital: false }; // digital: a d-pad button is held (the stick values are then -1 / 0 / 1)
     this.padDir = { up: false, down: false, left: false, right: false };
     this.padDownAt = { up: 0, down: 0 };
-    this.padTapDownRelease = -9999;
     this.padUpPeak = 0;
     this.padUpDouble = false;
     this.padSelectAt = 0; // 0 = released, > 0 = time pressed, -1 = hold already used
     this.padIndex = -1;
-    this.padCrouch = false;
     this.rightWas = 0;
     this.flick = null;
     this.touchStick = { x: 0, y: 0, active: false };
@@ -1228,7 +1224,6 @@ class PlayerInput {
     this.padAxis.fwd = this.padAxis.side = 0;
     this.padAxis.active = false; this.padAxis.digital = false;
     this.padDir.up = this.padDir.down = this.padDir.left = this.padDir.right = false;
-    this.padCrouch = false;
     this.padSelectAt = 0;
     this.padIndex = -1;
     this.padInfo.connected = false;
@@ -1337,18 +1332,12 @@ class PlayerInput {
         if (name === 'up') { this.padUpPeak = -ay; this.padUpDouble = now / 1000 - (this.lastPress.up || -10) < DOUBLE_TAP_SECONDS; }
         this.press(name);
         this.padDownAt[name] = now;
-        if (name === 'down' && now - this.padTapDownRelease < PAD_CROUCH_REARM_MS) this.padCrouch = true;
       } else if (!is && was) {
         // a quick, firm tap jumps; the second tap of a double tap never does
         if (name === 'up' && now - this.padDownAt.up < PAD_JUMP_TAP_MS && this.padUpPeak >= PAD_JUMP_TAP_STRENGTH && !this.padUpDouble) this.press('jump');
-        if (name === 'down') {
-          if (now - this.padDownAt.down < PAD_CROUCH_TAP_MS) this.padTapDownRelease = now;
-          this.padCrouch = false;
-        }
       }
       this.padDir[name] = is;
     }
-    this.padHeld.crouch = this.padCrouch;
     // right stick flick = grapple intent
     const rx = finite(pad.axes[2], 0), ry = finite(pad.axes[3], 0);
     const rmag = Math.hypot(rx, ry);
@@ -1400,7 +1389,7 @@ class PlayerInput {
     }
     it.defend = !!h.defend || this.take('defend'); // with crouch held it guards low; a tap shorter than a frame still counts once
     it.jump = this.take('jump');
-    it.crouch = !!h.crouch; // only a crouch input (DUCK, the bound key, the pad's tap-then-hold) crouches: the touch stick held down just walks (owner 2026-11-07)
+    it.crouch = !!h.crouch; // only a crouch input (DUCK, the bound key, L2 on a pad) crouches: the touch stick held down just walks (owner 2026-11-07)
     if (it.jump && it.crouch) { it.jump = false; if (!it.defend) it.crouch = false; } // conflicting vertical inputs cancel; a low guard stays low
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
@@ -13351,7 +13340,7 @@ const SETUP_LABEL = { free: 'FREE FIGHT' }; // what a lineup match is called on 
 const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'tournament'];
 const BACK_BUTTON = '<button class="mi" data-nav data-act="back">Back</button>';
-const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
+const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'R3 (click the right stick)', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'L2', grapple: 'R2 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 // Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two context buttons
 const TOUCH_BUTTONS = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm'], ['use', 'USE', 'sm'], ['lock', 'LOCK', 'sm']];
@@ -16043,7 +16032,7 @@ function testApi() {
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,

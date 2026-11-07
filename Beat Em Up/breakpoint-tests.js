@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -1460,9 +1460,9 @@ const SelfTest = {
         padTap(2); const square = it.punch;
         padTap(1); const circle = it.kick;
         padTap(0); const cross = it.kick;
-        Input.padCrouch = true; Input.update();
+        buttons[PAD_BUTTONS.crouch[0]].pressed = true; Input.update();   // L2 held = Duck
         padTap(2); const padLow = it.punch && it.height;
-        Input.padCrouch = false; Input.update();
+        buttons[PAD_BUTTONS.crouch[0]].pressed = false; Input.update();
         const actions = !['lp', 'rp', 'lk', 'rk', 'stance', 'strong', 'height'].some((a) => ACTIONS.includes(a)) && ACTIONS.includes('punch') && ACTIONS.includes('kick');
         const res = { punch, again, kick, lowPunch, lowKick, triangle, square, circle, cross, padLow, actions };
         r = Object.values(res).every(Boolean) ? true : JSON.stringify(res);
@@ -1589,7 +1589,7 @@ const SelfTest = {
         for (const row of stringRows) {
           Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
           const got = playString(row.keys, (it, f, o, kind) => {
-            Input.padCrouch = row.low;   // the pad's tap-down-then-hold gesture is tested with the movement checks
+            buttons[PAD_BUTTONS.crouch[0]].pressed = row.low;   // L2 held = Duck
             const button = kind === 'punch' ? 2 : 0;
             if (kind) buttons[button].pressed = true;
             Input.update();
@@ -1600,7 +1600,7 @@ const SelfTest = {
         }
       } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
-        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -1784,7 +1784,7 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Gamepad: firm taps jump but double taps do not, R3 grapples, a Select tap does nothing and a hold resets', () => {
+    test('Gamepad: firm taps jump but double taps do not, R3 uses the item, a Select tap does nothing and a hold resets', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
       const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
       const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
@@ -1800,7 +1800,7 @@ const SelfTest = {
         Input.reset(); tap(-1); Input.take('jump'); tap(-1);
         const double = !Input.take('jump') && Input.latch.dtap === 'up';
         Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
-        const grab = Input.take('grapple');
+        const grab = Input.take('use') && !Input.take('grapple');
         Input.reset(); buttons[8].pressed = true; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
         const tapIgnored = !Input.take('reset');
         buttons[8].pressed = true; Input.pollPad(); Input.padSelectAt -= PAD_SELECT_HOLD_MS; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
@@ -1811,6 +1811,39 @@ const SelfTest = {
         Input.releasePad(); Input.reset(); Input.lastDevice = device;
       }
       return r;
+    });
+    test('Gamepad (P18-50): the stick or the D-pad held down, even right after a quick tap down, never crouches; L2 held crouches, R3 uses the item, and the labels say so', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      const bad = [];
+      const crouchTicks = (setDown, ticks) => {
+        let crouched = 0;
+        for (let t = 0; t < ticks; t++) { setDown(true); Input.update(); Input.fillIntent(it, f, o); if (it.crouch) crouched++; }
+        setDown(false); Input.update(); Input.fillIntent(it, f, o);
+        return crouched;
+      };
+      try {
+        Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
+        const sticks = [['stick', (on) => { pad.axes[1] = on ? 1 : 0; }], ['D-pad', (on) => { buttons[13].pressed = on; }]];
+        for (const [name, setDown] of sticks) {
+          setDown(true); Input.update(); setDown(false); Input.update();   // the quick tap down that used to arm the crouch
+          const crouched = crouchTicks(setDown, 60);
+          if (crouched) bad.push(name + ' held down crouched ' + crouched + ' ticks');
+        }
+        const held = crouchTicks((on) => { buttons[PAD_BUTTONS.crouch[0]].pressed = on; }, 10);
+        if (held !== 10 || PAD_BUTTONS.crouch.join() !== '6') bad.push('L2 crouched ' + held + ' of 10 ticks');
+        if (it.crouch) bad.push('L2 let go still crouches');
+        Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
+        if (!Input.take('use') || Input.take('grapple')) bad.push('R3 is not Use');
+        if (/crouch/i.test(GAMEPAD_LABELS.down) || !/L2/.test(GAMEPAD_LABELS.crouch) || !/R3/.test(GAMEPAD_LABELS.use) || /R3/.test(GAMEPAD_LABELS.grapple) || COACH_PAD.crouch !== 'L2') bad.push('labels ' + JSON.stringify([GAMEPAD_LABELS.down, GAMEPAD_LABELS.crouch, GAMEPAD_LABELS.use, GAMEPAD_LABELS.grapple, COACH_PAD.crouch]));
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return bad.length ? bad.join('; ') : true;
     });
     test('Gamepad rumbles on hits taken and on a KO, only while the pad is in use', () => {
       const calls = [];
@@ -2003,18 +2036,18 @@ const SelfTest = {
       try {
         const owner = {}; let shared = false;
         for (const action in PAD_BUTTONS) for (const button of PAD_BUTTONS[action]) { if (owner[button]) shared = true; owner[button] = action; }
-        const stickActions = ['up', 'down', 'left', 'right', 'jump', 'crouch'];   // the stick and D-pad
+        const stickActions = ['up', 'down', 'left', 'right', 'jump'];   // the stick and D-pad
         const covered = ACTIONS.every((a) => stickActions.includes(a) || a in PAD_BUTTONS) && Object.keys(PAD_BUTTONS).every((a) => ACTIONS.includes(a));
         const reserved = [PAD_SELECT_BUTTON, 10, 12, 13, 14, 15].every((b) => !owner[b]);   // Select, L3 and the D-pad are not fight buttons
         const intentOf = (button) => {
           Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
           buttons[button].pressed = true; Input.update(); Input.fillIntent(it, f, o);
-          const got = ['punch', 'kick', 'defend', 'grapple', 'use', 'lock', 'jump'].filter((a) => it[a]);
+          const got = ['punch', 'kick', 'defend', 'grapple', 'use', 'lock', 'jump', 'crouch'].filter((a) => it[a]);
           const raw = ['menuL1', 'menuR1', 'menuL2', 'menuR2'].filter((k) => Input.padHeld[k]);
           buttons[button].pressed = false; Input.update(); Input.fillIntent(it, f, o);
           return { got, raw };
         };
-        const meaning = { punch: 'punch', kick: 'kick', defend: 'defend', grapple: 'grapple', use: 'use', lock: 'lock' };
+        const meaning = { punch: 'punch', kick: 'kick', defend: 'defend', grapple: 'grapple', use: 'use', lock: 'lock', crouch: 'crouch' };
         const problems = [];
         for (const action in meaning) for (const button of PAD_BUTTONS[action]) { const g = intentOf(button).got; if (g.join() !== meaning[action]) problems.push('button ' + button + ' -> ' + g.join()); }
         const l3 = intentOf(10).got.length === 0;
@@ -5384,7 +5417,7 @@ const SelfTest = {
     }));
     test('Accessibility (P18-27): every coaching line is plain ASCII, at most 70 characters (the loss offer, a toast, 90), free of design notes, and names the control of the device used last', () => {
       const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
-      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'Down'], touch: ['DEFEND', 'DUCK'] };
+      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'L2'], touch: ['DEFEND', 'DUCK'] };
       try {
         if (COACH_TIPS.length !== 10 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 10) bad.push('the table does not have 10 keys');
         for (const device of ['keyboard', 'gamepad', 'touch']) {
@@ -7715,7 +7748,7 @@ const SelfTest = {
       const useKey = Keymap.bindings.use[0], crouchKey = Keymap.bindings.crouch[0], padButton = PAD_BUTTONS.use[0];
       return {
         keyboard: { down: () => Input.onKey({ code: useKey, repeat: false }), up: () => Input.kb.delete(useKey), crouch: (on) => (on ? Input.kb.add(crouchKey) : Input.kb.delete(crouchKey)) },
-        gamepad: { down: () => { pad.buttons[padButton].pressed = true; }, up: () => { pad.buttons[padButton].pressed = false; }, crouch: (on) => { Input.padCrouch = on; } },
+        gamepad: { down: () => { pad.buttons[padButton].pressed = true; }, up: () => { pad.buttons[padButton].pressed = false; }, crouch: (on) => { pad.buttons[PAD_BUTTONS.crouch[0]].pressed = on; } },
         touch: { down: () => Input.touchSet('use', true), up: () => Input.touchSet('use', false), crouch: (on) => Input.touchSet('crouch', on) },
       };
     };
@@ -7727,7 +7760,7 @@ const SelfTest = {
       Input.reset(); Input.releaseAll();
       try { return body(useDevices(pad)); } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
-        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
       }
     };
     /* Gives fighter 0 of m the real input (a person) and counts the ticks its intent held Crouch. */
