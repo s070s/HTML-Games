@@ -193,6 +193,8 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .reduced #warn.on,.reduced #warn2.on{animation:none}
 @keyframes blink{50%{opacity:.45}}
 #grappleHint,#grappleHint2{position:absolute;left:50%;transform:translateX(-50%);bottom:5.5em;padding:.4em 1em;border:2px solid #fff;background:rgba(0,0,0,.7);letter-spacing:.08em;font-size:1.05em;text-align:center}
+#grappleHint{width:max-content;max-width:min(92%,26em)}
+@media (orientation:portrait){#grappleHint{bottom:auto;top:34%}}
 .vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
 #grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
 #onboard{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.82);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
@@ -619,7 +621,8 @@ const SETTING_DEFS = {
   shadows: { type: 'enum', options: ['off', 'blob', 'full'], def: 'full', label: 'Shadows' },
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
-  autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
+  autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays after a miss too, with twice the time to press it. From the next match.' },
+  guardAssist: { type: 'bool', def: false, label: 'Guard assist', hint: 'Defend alone guards high and low for you, no Duck needed (not the CPU). A guard that switches height is never perfect. From the next match.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed. Free Fight has its own.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe. Free Fight has its own.' },
   storyScenes: { type: 'enum', options: ['full', 'short', 'off'], def: 'full', label: 'Story scenes', labels: { full: 'Full', short: 'Short', off: 'Off' }, hint: 'The little scenes of Arcade. Full shows every line, Short only the first line of each scene, Off skips the scenes (the choice after stage 2 is then "Offer a hand").' },
@@ -953,10 +956,76 @@ function gradeInputs(data, stats, maxHp) {
   };
 }
 const betterGrade = (a, b) => (GRADE_LETTERS.indexOf(a) >= GRADE_LETTERS.indexOf(b) ? a : b); // either may be undefined or '-' (index -1)
+// Coaching lines (P18-27): each shows once, ever (Progress.d.tips), on the hint strip, for the first seat's person only
+const COACH_TIPS = [
+  { key: 'punch', text: (k) => 'Press ' + k('punch') + ' again as a hit lands to chain a string.' },
+  { key: 'stam', text: () => 'Strikes cost stamina. Pause a moment and it fills again.' },
+  { key: 'block', text: () => 'Blocked. Strong moves break a block unless perfect.' },
+  { key: 'perfect', text: () => 'PERFECT! That breaks a combo.' },
+  { key: 'low', text: (k) => 'That was low. Hold ' + k('crouch') + ' with ' + k('defend') + ' to guard low.' },
+  { key: 'stun', text: (k) => 'You cannot act while hit. Hold ' + k('defend') + ' to guard when free.' },
+  { key: 'down', text: (k) => 'Press ' + k('defend') + ' on the ground to get up quickly.' },
+  { key: 'grab', text: (k) => 'A grab beats a guard. Move away, or tap ' + k('grapple') + ' to escape.' },
+  { key: 'item', text: (k) => k('use') + ' picks it up. Hit with it, or throw it.' },
+  { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
+];
+const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
+const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
+const COACH_PAD = { grapple: 'R2', crouch: 'Down' }; // short gamepad names where the label is a sentence
+const Coach = {
+  pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0,
+  fights() { return Progress.d.wins + Progress.d.losses; },
+  textOf(key) {
+    const pad = Inputs.players[0].lastDevice === 'gamepad';
+    return COACH_TIPS.find((tip) => tip.key === key).text((action) => (pad && COACH_PAD[action]) || UI.keyName(action, 0).replace(/ \(.*/, '').split(' / ')[0]);
+  },
+  eligible(m) { return !!m && !m.training && !m.cfg.benchmark && !m.cfg.replay && m.controllers[0].human && !(m.coop && m.partySize > 1) && !(m.setup && m.personFighters.length > 2); },
+  ready(m) { // a live fight, no card open, no tip yet this round
+    const card = UI.dom && UI.dom.onboard;
+    return this.eligible(m) && m.phase === 'fight' && this.fights() < COACH_MAX_FIGHTS && !(card && !card.hidden) && !(this.last && this.last.m === m && this.last.round === m.round);
+  },
+  offer(key) { const m = Game.match; if (Progress.d.tips[key] === false && !this.pending && this.ready(m)) this.pending = { key, m, round: m.round }; }, // saved only once shown, so a held-back tip comes again
+  line(m, f) { // the strip text of this frame, asked while no clinch or hold hint is up
+    if (this.watched !== m) { this.watched = m; this.chained = false; this.shown = this.pending = null; }
+    if (this.shown && m.tick >= this.until) this.shown = null;
+    if (f.stringKeys.length > 1) this.chained = true;
+    if (!this.shown && this.ready(m)) {
+      if (m.round === 1 && !this.chained && m.matchTicks >= COACH_PUNCH_TICKS) this.offer('punch');
+      else if (!f.item && f.alive && Progress.d.tips.item === false && m.itemToUse(f)) this.offer('item');
+      const want = this.pending;
+      this.pending = null;
+      if (want && want.m === m && want.round === m.round) { Progress.d.tips[want.key] = true; Progress.save(); this.shown = want.key; this.until = m.tick + COACH_SHOW_TICKS; this.last = { m, round: m.round }; }
+    }
+    return this.shown ? this.textOf(this.shown) : '';
+  },
+  hook() { // read-only listeners: they only ask for a tip
+    const mine = (f) => !!Game.match && f === Game.match.fighters[0];
+    Events.on('block', (e) => { if (mine(e.def) && (e.perfect || !e.sway)) this.offer(e.perfect ? 'perfect' : 'block'); });
+    Events.on('lowStamina', (e) => { if (!e.refused && mine(e.f)) this.offer('stam'); });
+    Events.on('hit', (e) => {
+      if (!mine(e.def)) return;
+      if (e.combo >= 3) this.offer('stun');
+      else if (e.crouched === false && e.mv.h === 'L' && this.fights() < COACH_LOW_FIGHTS && !(Game.match.cfg.assist & ASSIST_GUARD)) this.offer('low');
+    });
+    Events.on('knockdown', (e) => { if (mine(e.f)) this.offer('down'); });
+    Events.on('clinch', (e) => { if (mine(e.def) && Game.match.intents[0].defend) this.offer('grab'); });
+    Events.on('matchEnd', (e) => this.matchEnd(e.match));
+  },
+  matchEnd(m) { // two losses in a row among the first fights: one toast, once
+    if (m !== Game.match || m.versus || !this.eligible(m)) return;
+    if (m.setup ? m.peopleWon() : m.matchWinner === 0) { this.streak = 0; return; }
+    const v = Settings.v;
+    if (++this.streak < 2 || this.fights() > COACH_LOSS_FIGHTS || Progress.d.tips.lose || (v.autoAssist && v.guardAssist)) return;
+    Progress.d.tips.lose = true;
+    Progress.save();
+    UI.toast(this.textOf('lose'), '', COACH_OFFER_MS);
+  },
+};
+Coach.hook();
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch']; // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null, tournamentWins: 0, tournamentBest: 0, tournamentRun: null }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, tips: Object.fromEntries(COACH_TIPS.map((tip) => [tip.key, false])), controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null, tournamentWins: 0, tournamentBest: 0, tournamentRun: null }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -975,6 +1044,7 @@ const Progress = {
     for (const kind of CONTROL_CARD_KINDS) base.seenControls[kind] = !oldControls && (s.seenControls === true || (!!s.seenControls && s.seenControls[kind] === true));
     base.seenClinch = s.seenClinch === true; // the clinch instructions were shown (they appear in the first clinch only)
     base.seenHold = s.seenHold === true; // the same for the submission hold instructions
+    if (s.tips && typeof s.tips === 'object') for (const tip of COACH_TIPS) base.tips[tip.key] = s.tips[tip.key] === true;
     // best fight grade per mode; a save from before it has none, and a value that is not a letter is dropped
     if (s.grades && typeof s.grades === 'object') {
       for (const mode of GRADE_MODES) if (GRADE_LETTERS.includes(s.grades[mode])) base.grades[mode] = s.grades[mode];
@@ -1043,6 +1113,7 @@ const TOUCH_DUCK_PULL = 0.8; // ...pulled this far of the radius
 const ATTACK_STRING_SECONDS = 0.8; // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT); // counted in simulation ticks, so the headless sim and the AI stay deterministic
 const ASSIST_STRING_WINDOW = 2; // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
+const ASSIST_STRINGS = 1, ASSIST_GUARD = 2; // bits of cfg.assist: the assists of a match's human seats
 const ATTACK_QUEUE_MAX = 3; // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
 
 // Local co-op: up to COOP_MAX_PLAYERS players, each on one device
@@ -1065,14 +1136,14 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
     jump: false, punch: false, kick: false, grapple: false, use: false, setDown: false, lock: false, // use / setDown / lock: one-tick presses (lock: lock-on; use: pick up or throw; setDown: put the held item down)
-    sidestep: 0, grapDir: 'fwd', noParry: false, unduck: false, assist: false, // unduck: touch only; assist: the Auto-assist setting, set by human input only
+    sidestep: 0, grapDir: 'fwd', noParry: false, unduck: false, assist: false, guardAssist: false, // unduck: touch only; assist, guardAssist: the match's cfg.assist, set for human seats only
     stickAnalog: false, // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.unduck = false; it.assist = false; it.stickAnalog = false;
+  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.unduck = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
   return it;
 }
 
@@ -6005,6 +6076,7 @@ class Fighter {
     if (this.defendPressed && this.guardMode === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
     else if (this.swayBuffer > 0) this.swayBuffer--;
     this.assist = it.assist === true; // Auto-assist: read by pickString
+    this.guardAssist = it.guardAssist === true; // Guard assist: read by Combat.evaluate
     if (it.use || it.setDown) { this.useBuffer = BUFFER_TICKS; this.useDrop = !!it.setDown; } else if (this.useBuffer > 0) this.useBuffer--; // a Use press waits for the fighter to be free, like an attack press
     this.bufferInput(it);
     this.regenerate();
@@ -6976,12 +7048,13 @@ const Combat = {
     if (mv.h === 'M' && rise > MID_REACH_UP && !def.juggle) return null;
     // Sway i-frames: strikes that would have hit miss (grabs were handled above and still connect)
     if (st === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) return { type: 'sway', att, def, mv, perfect: def.stateTicks <= PERFECT_BLOCK_TICKS };
-    let block = 'none';
+    let block = 'none', switched = false;
     const facing = def.fwdX * -dx + def.fwdZ * -dz > 0;
     if (facing) {
       if (st === S.BLOCK_H && (mv.h === 'H' || mv.h === 'M')) block = 'block';
       else if (st === S.BLOCK_L && mv.h === 'L') block = 'block';
-      if (block === 'block' && def.blockFresh && def.stateTicks <= PERFECT_BLOCK_TICKS) block = 'perfect';
+      else if (def.guardAssist && isBlockState(st)) { block = 'block'; switched = true; } // Guard assist: the other height is a plain block
+      if (block === 'block' && !switched && def.blockFresh && def.stateTicks <= PERFECT_BLOCK_TICKS) block = 'perfect';
     }
     return { type: 'strike', att, def, mv, block };
   },
@@ -7005,6 +7078,7 @@ const Combat = {
   landHit(d, match) {
     const { att, def, mv } = d;
     const counter = def.state === S.ATTACK && !!def.move && def.move.type === 'strike' && def.moveTick <= def.mStartup + def.mActive;
+    const crouched = def.state === S.CROUCH || def.state === S.BLOCK_L; // before the hit changes it
     this.claimCombo(att, def);
     const gap = def.gotHits === 0 ? null : isStunState(def.state) ? Math.min(0, def.stateTicks - def.reactDur) : REACTION_STATES.includes(def.state) ? 0 : def.age - def.freedAt; // Training LINK
     const swayLate = def.state === S.SWAY ? def.stateTicks - SWAY_IFRAME_TICKS + 1 : 0;
@@ -7070,7 +7144,7 @@ const Combat = {
     match.hitStop = Math.max(match.hitStop, hs);
     if (def.item && mv.tier === 3) def.dropHeld(); // a strong step that lands disarms
     if (mv.wpn) this.weaponHit(att, def, mv, match, false);
-    Events.emit('hit', { att, def, mv, dmg, counter, x: pos.x, y: pos.y, z: pos.z, dirx, dirz, kind: mv.kind, combo: att.comboHits, ko: def.state === S.KO, gap, swayLate });
+    Events.emit('hit', { att, def, mv, dmg, counter, x: pos.x, y: pos.y, z: pos.z, dirx, dirz, kind: mv.kind, combo: att.comboHits, ko: def.state === S.KO, gap, swayLate, crouched });
   },
 
   // A weapon move connected: the item pays 1 durability (landed or blocked) and breaks at 0.
@@ -11141,6 +11215,11 @@ class MatchSim {
       Events.emit('fightStart', {});
     }
   }
+  readAssist(it) { // from the match's cfg.assist, never from Settings, so a replay or an online seat plays the same
+    const bits = this.cfg.assist | 0;
+    it.assist = (bits & ASSIST_STRINGS) !== 0;
+    it.guardAssist = (bits & ASSIST_GUARD) !== 0;
+  }
   readIntents() {
     const fighters = this.fighters;
     for (let i = 0; i < fighters.length; i++) {
@@ -11148,7 +11227,7 @@ class MatchSim {
       if (this.locked || !f.alive) { clearIntent(this.intents[i]); f.lockOn = null; f.stickMag = 0; } // the lock ends with the fight and with a knock-out
       else {
         this.controllers[i].think(f, f.target, this, this.intents[i]);
-        if (this.controllers[i].human) this.updateLock(f, this.intents[i]);
+        if (this.controllers[i].human) { this.updateLock(f, this.intents[i]); this.readAssist(this.intents[i]); }
       }
     }
     if (this.training) {
@@ -12443,6 +12522,7 @@ const Game = {
     if (!cfg.keepSeed) cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0; // a story stage brings its own seed, so its cutscene knows the start side
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false; // read at every start, so a rematch follows the Options toggle
     if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false; // the same for the Hazards setting
+    if (cfg.assist === undefined) cfg.assist = (Settings.v.autoAssist ? ASSIST_STRINGS : 0) | (Settings.v.guardAssist ? ASSIST_GUARD : 0); // a rematch re-reads it
     if (cfg.mode !== 'brawl') { // a 1v1 has the whole room; a Free Fight and a Tournament bout pass their own ring and ring-out
       if (cfg.ringOut === undefined) cfg.ringOut = false;
       if (cfg.ring === undefined) cfg.ring = cfg.ringOut && !!(ARENAS[cfg.arenaId] || ARENAS.warehouse).ring[4];
@@ -12478,6 +12558,7 @@ const Game = {
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Story.retry(this.run.story); this.saveArcadeRun(); this.beginStage(); return; }
     const again = Object.assign({}, this.config);
+    delete again.assist;
     if (!again.rulesSet) { delete again.items; delete again.hazards; delete again.ringOut; delete again.ring; } // a Free Fight keeps its rules; others re-read the Items and Hazards settings
     this.beginMatch(again);
   },
@@ -13338,14 +13419,14 @@ const UI = {
   },
 
   // --- helpers
-  toast(msg, kind) {
+  toast(msg, kind, ms) {
     if (!msg) return;
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
     el.textContent = msg;
     this.dom.toast.appendChild(el);
     while (this.dom.toast.children.length > 3) this.dom.toast.removeChild(this.dom.toast.firstChild);
-    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3200);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, ms || 3200);
   },
   speaker(index) { // Versus and co-op announcements say whose they are
     const m = Game.match;
@@ -14198,7 +14279,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (two players)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card); Guard assist in Settings makes Defend alone guard high and low. Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Two players: a key belongs to one player only. P1\'s spare arrow keys switch off with two players, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Three or four players (Free Fight): the game deals the devices itself, only gamepads when there are enough (P1 on the first), else keyboard 1 and the gamepads, and keyboard 2 only when still short; seats 3 and 4 are gamepad-only and touch is not used.</p>' +
       '<div class="row">' + BACK_BUTTON + '<button class="mi" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -14226,6 +14307,7 @@ const UI = {
     const label = (action) => this.controlLabel(kind, action, keymap);
     const key = (action) => '<kbd>' + esc(label(action).split(' / ')[0]) + '</kbd>'; // a button with two faces shows the first
     const presses = (keys, low) => (low ? key('crouch') + ' + ' : '') + keys.split('').map((k) => key(k === 'P' ? 'punch' : 'kick')).join(' ');
+    const first = carry ? 'K' : 'P', times = own.stand[first.repeat(3)] ? 'three times in a row' : own.stand[first + first] ? 'twice in a row' : 'once'; // the first string this fighter really has with these hands
     const adv = (n) => (n > 0 ? '+' : '') + n;
     const found = {}, stringRows = []; // found: move id -> [number of presses, input] of every row that ends on the move
     for (const table of ['stand', 'crouch']) {
@@ -14248,7 +14330,7 @@ const UI = {
       else input = found[m.id].sort((x, y) => x[0] - y[0]).slice(0, 2).map((x) => x[1]).join(' / '); // the two shortest rows that end on this move
       const fa = frameAdvantage(m);
       const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
-      return '<tr><td>' + esc(m.name) + '</td><td>' + input + '</td><td>' + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + m.startup + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
+      return '<tr><td>' + esc(m.name) + '</td><td>' + input + '</td><td>' + (style.signature.some((x) => x[1] === m.id) ? '<b>*</b> ' : '') + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + m.startup + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
     }).join('');
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
@@ -14264,6 +14346,7 @@ const UI = {
     const legend = [['Punch', 'punch'], ['Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
+      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
       (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
@@ -14718,7 +14801,7 @@ const UI = {
     this.comboBox('combo2', this.dom.combo2, duo || b, !!duo);
     this.toggleOn('warn', this.dom.warn, lone && a.lowStamina && a.alive);
     this.toggleOn('warn2', this.dom.warn2, !!duo && duo.lowStamina && duo.alive);
-    this.showHint('hint', this.dom.grappleHint, lone ? this.grappleHint(a) : '');
+    this.showHint('hint', this.dom.grappleHint, lone ? this.grappleHint(a) || Coach.line(m, a) : '');
     this.showHint('hint2', this.dom.grappleHint2, duo ? this.grappleHint(duo) : '');
     this.holdUi(m);
     // name tags + popups
@@ -15872,10 +15955,10 @@ function testApi() {
   return {
     ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
     ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-    ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+    ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
