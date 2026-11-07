@@ -12,7 +12,7 @@ const {
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-  CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
+  CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
   COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2, DEFAULT_UNLOCKED,
   DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID, FACE_POOL_FIRST,
   FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex, Fighter,
@@ -6829,6 +6829,34 @@ const SelfTest = {
     const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
     const ROSTER_IDS = ROSTER.map((r) => r.id);
     const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    test('Hit freeze (P18-53): a 1v1 freezes on every hit as before; with more than two fighters a CPU against CPU hit never freezes, the one person\'s own hits freeze at most CROWD_HITSTOP_MAX ticks, and with two or more people nothing freezes', () => {
+      const bad = [];
+      const solo = mk({});
+      solo.addHitStop(16, solo.fighters[0], solo.fighters[1]);
+      if (solo.hitStop !== 16) bad.push('1v1 ' + solo.hitStop);
+      solo.hitStop = 0; solo.addHitStop(9, solo.fighters[1], solo.fighters[0]);
+      if (solo.hitStop !== 9) bad.push('1v1 CPU hit ' + solo.hitStop);
+      const one = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 3, false]]));
+      const [person, cpuA, cpuB] = one.fighters;
+      if (!one.isHuman(person) || one.isHuman(cpuA)) bad.push('seats');
+      one.addHitStop(9, cpuA, cpuB);
+      if (one.hitStop !== 0) bad.push('CPU on CPU froze ' + one.hitStop);
+      one.addHitStop(16, cpuA, person);
+      if (one.hitStop !== CROWD_HITSTOP_MAX) bad.push('hit taken by the person ' + one.hitStop);
+      one.hitStop = 0; one.addHitStop(2, person, null);
+      if (one.hitStop !== 2) bad.push('short person hit ' + one.hitStop);
+      one.hitStop = 0; cpuB.hp = 1;
+      Combat.clinchStrike(cpuA, cpuB, CLINCH_MOVES.elbow, one);
+      if (cpuB.state !== S.KO || one.hitStop !== 0) bad.push('a CPU knockout of a CPU: ' + cpuB.state + ', froze ' + one.hitStop);
+      one.hitStop = 0; cpuA.lastFoe = person; cpuA.hp = 0;
+      Combat.knockOut(cpuA, null, null, one);   // no attacker (a knockout on landing or from a fall): the last one to hurt counts
+      if (cpuA.state !== S.KO || one.hitStop !== CROWD_HITSTOP_MAX) bad.push('a knockout with no attacker after the person\'s hit: ' + cpuA.state + ', froze ' + one.hitStop);
+      const two = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, true], ['brutus', 3, false]]));
+      two.addHitStop(16, two.fighters[0], two.fighters[1]);
+      two.addHitStop(9, two.fighters[2], two.fighters[0]);
+      if (two.hitStop !== 0) bad.push('two people froze ' + two.hitStop);
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
       const problems = [];
       const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));

@@ -4330,6 +4330,12 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Size: +10,352 LF bytes in `breakpoint.html` (1,187,007 to 1,197,359), over the 5,300 estimate (the leader builder, the tag, the records and the comments); well inside the 4,000,000 budget.
 - Owner device checks for P16-03: on a phone (390x844 and 844x390) open Survival: the "Survival type" row fits with no sideways scroll, a tap steps the four types and the sticky Start row stays visible; start a Brawls + 2 allies run and look for 9 fighters on screen at once (frame rate, name tags, the ALLY tags and health bars fit); on a gamepad step the row with left and right and A; on a keyboard with arrow keys; play Arcade stage 6 after "Offer a hand" and check that the ally fights beside you and the stage 1, 3, 5 and 6 crews look like creator fighters in the boss's colours; run the P0-04 performance check (640x360, CPU throttle 4, quality low) with Survival Brawls + 2 allies and stage 6 with an ally.
 
+### P18-53 built: hit freeze with more than two fighters
+
+- Owner 2026-11-07: in a Free Fight free-for-all of 4 CPUs and the owner, a CPU's strong hit froze the whole fight ("this abrupt timestop ... disoriented me"); the owner asked for the best rule for modes with more people and delegated the pick ("go with the best choice").
+- Decision: a 1v1 keeps every freeze as before. With more than two fighters a freeze stops everyone, so only a hit the one person lands or takes freezes, at most `CROWD_HITSTOP_MAX` (4) ticks; with two or more people, and on every CPU against CPU hit, nothing freezes (flash, shake, sound and rumble still mark the hit). It depends only on the seats, so replays stay the same.
+- Code: `MatchSim.addHitStop(ticks, att, def)` replaces the 15 direct `match.hitStop` writes; test `Hit freeze (P18-53)`. Chrome self-test 625 of 625 with no fingerprint change (the fingerprint fights are 1v1s).
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
