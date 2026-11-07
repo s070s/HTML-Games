@@ -42,7 +42,7 @@ const {
   BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
-  FIGHT_TYPES, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
+  FIGHT_TYPES, FIGHT_RULES, FIGHT_PRESETS, FightRules, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
@@ -6767,15 +6767,15 @@ const SelfTest = {
       try {
         self.freshFree();
         Game.selection.mode = 'free';
-        const plain = UI.screen_freemore();
-        if (!plain.includes('data-local="rounds"') || !plain.includes('data-local="timer"') || (plain.match(/Not used/g) || []).length !== 1) problems.push('plain Duel rows');
+        const head = (html) => html.slice(0, html.indexOf('Rules preset')), plain = UI.screen_freemore();   // the rows before the fight rules (P18-43), which have their own dimmed rows
+        if (!plain.includes('data-local="rounds"') || !plain.includes('data-local="timer"') || (head(plain).match(/Not used/g) || []).length !== 1) problems.push('plain Duel rows');
         Game.lineupFor().slots.push({ id: 'brutus', human: false, team: 0 });
         const one = UI.screen_freemore();
-        if (one.includes('data-local="rounds"') || one.includes('data-local="timer"') || !one.includes('data-local="ltimer"') || (one.match(/Not used/g) || []).length !== 2 || !UI.screen_freefight().includes('data-local="diff"')) problems.push('Free Fight with 3 fighters');
+        if (one.includes('data-local="rounds"') || one.includes('data-local="timer"') || !one.includes('data-local="ltimer"') || (head(one).match(/Not used/g) || []).length !== 2 || !UI.screen_freefight().includes('data-local="diff"')) problems.push('Free Fight with 3 fighters');
         Game.applyType('Versus');
         Game.lineupFor().slots.push({ id: 'brutus', human: false, team: 0 });
         const vs = UI.screen_freemore();
-        if (vs.includes('data-local="rounds"') || (vs.match(/Not used/g) || []).length !== 2) problems.push('Versus with a CPU');
+        if (vs.includes('data-local="rounds"') || (head(vs).match(/Not used/g) || []).length !== 2) problems.push('Versus with a CPU');
         const teams = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), duel = lineupMatch(lineupOf([['kai', 0, true], ['mara', 0, false]])), crowd = lineupMatch(ffaOf(4));
         const labels = [teams, duel, crowd].map((m) => UI.roundSub(m));
         if (labels.join('|') !== '2 FIGHTERS · 2 TEAMS|2 FIGHTERS · ONE ON ONE|4 FIGHTERS · FREE-FOR-ALL') problems.push('labels ' + labels.join('|'));
@@ -14456,7 +14456,7 @@ const SelfTest = {
       Input.lastDevice = 'keyboard';   // a phone seats one person in a crowd fight
       Object.assign(sel, { player: 'kai', opponent: 'mara', arena: 'dojo', difficulty: 'hard', rounds: 3, timer: 90 });
       const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
+      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'rulesSet']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
       const waves = !!ARENAS.dojo.waves;
       const brawlPlan = MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]]), 'hard');
       const old = {
@@ -14546,7 +14546,7 @@ const SelfTest = {
       let first = UI.screen_freefight();
       if (!order(first, ['Fight type', 'Players and teams', 'Level', 'Difficulty', 'More options', '>Back<', '>Start fight<']) || navs(first) !== 7 || first.includes('Not used') || !/data-default data-act="start"/.test(first)) bad.push('Duel: the first screen');
       const more = UI.screen_freemore();
-      if (!order(more, ['Rounds', 'Time limit', 'Friendly fire']) || !more.includes('Best of 3') || !more.includes('60 s per round') || !more.includes('Not used: nobody has a teammate') || more.includes('Fight rules')) bad.push('Duel: More options ' + (more.match(/Not used[^<]*/g) || []));
+      if (!order(more, ['Rounds', 'Time limit', 'Friendly fire']) || !more.includes('Best of 3') || !more.includes('60 s per round') || !more.includes('Not used: nobody has a teammate') || !more.includes('Fight rules')) bad.push('Duel: More options ' + (more.match(/Not used[^<]*/g) || []));
       Game.applyType('Versus');
       first = UI.screen_freefight();
       if (!first.includes('Not used: no CPU fighter') || first.includes('data-local="diff"') || navs(first) !== 6) bad.push('Versus: no CPU fighter');
@@ -15030,6 +15030,325 @@ const SelfTest = {
       } } finally { Setups.d = keepSetups; }
       return bad.length ? bad.join('; ') : flow.problems.length ? flow.problems[0] : true;
     }));
+    /* ---------- Fight rules (P18-43): the rules of a Free Fight - area, ring-out, items, hazards, breakables, health, start side - and the presets ---------- */
+    const ruleLineup = () => lineupOf([['kai', 0, true], ['mara', 0, false]]);
+    const ruleCfg = (rules, lineup, id) => FightRules.cfg(Object.assign(FightRules.fix(), rules), lineup || ruleLineup(), ARENAS[id]);
+    const ruleDuel = (id, rules, extra) => track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: id, countdown: false, timer: 0, seed: 5, difficulty: 'hard', winsNeeded: 1, sides: true }, ruleCfg(rules, null, id), extra)));
+    const ruleLine = (list, id, rules, extra) => { const lineup = lineupOf(list); return lineupMatch(lineup, Object.assign({ arenaId: id }, ruleCfg(rules, lineup, id), extra)); };
+    const EDGE_LEVELS = ARENA_ORDER.filter((id) => ARENAS[id].ring[4]), PLAIN_LEVELS = ARENA_ORDER.filter((id) => !ARENAS[id].ring[4]);
+    const ruleHash = (m) => { aiAll(m, 'normal'); for (let i = 0; i < 150; i++) m.step(); return fnv1a(m.fighters.map((f) => [f.x.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|')).toString(36); };
+    test('Fight rules (P18-43): the table, the defaults and the clean-up - the defaults build the old Free Fight config and play the same fights (a 1v1, a 1v1 in a ring with ring-out, a lineup of two teams, a free-for-all and a crowd), a damaged value falls back field by field', () => {
+      const bad = [], defaults = FightRules.fix();
+      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side' || FIGHT_RULES.some(([key, labels, def]) => defaults[key] !== def || labels.length < 2) || FIGHT_PRESETS.some((preset) => preset[1].length !== FIGHT_RULES.length)) bad.push('the table');
+      for (const raw of [undefined, null, 'x', [1, 2], 7, { area: 2, ringOut: -1, items: 1.5, hazards: '1', breakables: null, health: 4, side: 3 }]) if (JSON.stringify(FightRules.fix(raw)) !== JSON.stringify(defaults)) bad.push('clean-up of ' + JSON.stringify(raw));
+      if (JSON.stringify(FightRules.fix({ area: 1, health: 3, side: 2, items: 'x' })) !== JSON.stringify(Object.assign({}, defaults, { area: 1, health: 3, side: 2 }))) bad.push('field by field');
+      const fields = { ring: false, ringOut: false, items: true, hazards: true, breakables: true, hpScale: 1, startSide: 0, rulesSet: true };
+      for (const [name, lineup] of [['duel', ruleLineup()], ['lineup', lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]])], ['crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true })]]) if (JSON.stringify(FightRules.cfg(defaults, lineup, ARENAS.dojo)) !== JSON.stringify(fields)) bad.push(name + ' default config');
+      const party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], people = lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]]), ffa = lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]]);
+      const same = (name, lineup, make) => { if (ruleHash(make(FightRules.cfg(defaults, lineup, ARENAS.dojo))) !== ruleHash(make({ items: true, hazards: true }))) bad.push(name + ' plays differently with the default rules'); };
+      const base = { arenaId: 'dojo', countdown: false, timer: 0, seed: 11, difficulty: 'normal', evenDamage: true };
+      same('1v1', ruleLineup(), (extra) => track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, extra))));
+      same('two teams', people, (extra) => lineupMatch(people, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      same('free-for-all', ffa, (extra) => lineupMatch(ffa, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      same('crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), (extra) => coopMatch(party, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      const ringed = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, ruleCfg({ area: 1, ringOut: 1 }, null, EDGE_LEVELS[0]), { arenaId: EDGE_LEVELS[0] })))), plainRing = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true }))));
+      if (ringed !== plainRing) bad.push('the ring match differs from the old ring options');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Area and Ring-out on all eight levels - the whole level or the level ring, the walls on the ring edge (and 1.5 m beyond with ring-out), the starts, items and hazards inside, the ring-out only on the four levels with a ring edge, and the dimmed reasons', () => {
+      const bad = [];
+      if (EDGE_LEVELS.length !== 4) bad.push('edge levels ' + EDGE_LEVELS);
+      for (const id of ARENA_ORDER) {
+        const row = ARENAS[id].ring, b = ARENAS[id].bounds;
+        ruleDuel(id, {});
+        if (Arena.ring !== null || Arena.ringOut || Arena.ax0 !== -b.x || Arena.ax1 !== b.x || Arena.az1 !== b.z) bad.push(id + ' whole level');
+        let m = ruleDuel(id, { area: 1 });
+        const x0 = Math.max(-b.x, row[0] - row[2]), x1 = Math.min(b.x, row[0] + row[2]), z0 = Math.max(-b.z, row[1] - row[3]), z1 = Math.min(b.z, row[1] + row[3]);
+        if (!Arena.ring || Arena.ringOut || [Arena.ax0, Arena.ax1, Arena.az0, Arena.az1].some((v, i) => Math.abs(v - [x0, x1, z0, z1][i]) > 1e-9)) bad.push(id + ' ring walls');
+        if (m.fighters.some((f) => !Arena.inRing(f.x, f.z)) || m.items.some((it) => !Arena.inRing(it.x, it.z)) || m.hazards.some((h) => h.type !== 'glass' && !Arena.inRing(h.x, h.z))) bad.push(id + ' starts, items or hazards outside the ring');
+        m = ruleDuel(id, { area: 1, ringOut: 1 });
+        const want = !!row[4];
+        if (Arena.ringOut !== want || m.cfg.ringOut !== want || !Arena.ring) { bad.push(id + ' ring-out ' + Arena.ringOut); continue; }
+        if (want && [Arena.ax0, Arena.ax1].some((v, i) => Math.abs(v - [Math.max(-b.x, x0 - RING_APRON), Math.min(b.x, x1 + RING_APRON)][i]) > 1e-9)) bad.push(id + ' ring-out walls');
+        const out = m.fighters[1];
+        if (want) {
+          m.step(); out.x = Arena.ring.x1 + 0.4; out.z = (z0 + z1) / 2;
+          for (let i = 0; i < 4 && out.alive; i++) m.step();
+          if (out.alive || m.ringedOut !== out) bad.push(id + ' nobody lost by leaving the ring');
+        } else if (Arena.outside(Arena.ring.x1 + 0.4, row[1], 0.34) !== true) bad.push(id + ' no wall on the ring edge');
+      }
+      const duel = ruleLineup(), reasons = (rules, lineup, id) => FIGHT_RULES.map(([key]) => FightRules.why(key, Object.assign(FightRules.fix(), rules), lineup, ARENAS[id])).join('|');
+      if (reasons({ area: 1 }, duel, EDGE_LEVELS[0]) !== '||||||' || !reasons({}, duel, EDGE_LEVELS[0]).includes('whole level is open') || !reasons({ area: 1 }, duel, PLAIN_LEVELS[0]).includes('no ring edge')) bad.push('reasons');
+      if (!/^the crowd uses the doors\|the crowd uses the doors\|{5}the doors decide$/.test(reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'))) bad.push('crowd reasons ' + reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'));
+      const crowd = coopMatch([{ slot: 0, id: 'kai' }], { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true });
+      if (Arena.ring !== null || crowd.cfg.ring !== true) bad.push('the crowd took the ring');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Weapons and items Off places no item, picks nothing up and leaves no brick from a wall, the electric panel stays idle; Hazards Off places none and no bottle glass; the same rules On leave the level as it was', () => {
+      const bad = [], brick = Object.keys(MATERIALS).find((key) => MATERIALS[key].leave === 'brick');
+      let withItems = 0;
+      for (const id of ARENA_ORDER) {
+        const on = ruleDuel(id, {}), off = ruleDuel(id, { items: 0, hazards: 0 });
+        withItems += on.items.length;
+        if (off.items.length || off.hazards.length || off.itemsOn || off.hazardsOn || off.drops.length) bad.push(id + ' items or hazards placed');
+        off.glassPatch(0, 0, 0); off.leaveBehind({ mat: brick, x: 0, z: 0, base: 0, h: 1 });
+        if (off.items.length || off.hazards.length) bad.push(id + ' bottle glass or a brick');
+        if (on.hazards.length < (ARENAS[id].hazards || []).length) bad.push(id + ' hazards On lost some');
+        if (!on.itemsOn || !on.hazardsOn) bad.push(id + ' On flags');
+      }
+      if (!withItems) bad.push('no level has an item');
+      const panelLevel = ARENA_ORDER.find((id) => (ARENAS[id].hazards || []).some((h) => h[0] === 'panel')), quiet = ruleDuel(panelLevel, { items: 0 });
+      quietAll(quiet);
+      for (let i = 0; i < 300; i++) quiet.step();
+      if (quiet.hazards.some((h) => h.type === 'panel' && h.state !== 'idle') || quiet.items.length) bad.push('a panel started or an item appeared with Items Off');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Breakables Off makes the scenery solid - hits, throws, falls, fire and load leave every object at full hit points (it still wobbles), weak decks hold, the glass wall hazard is not placed and the other hazards run; On is unchanged; the menu backdrop and Arena.reset behave', () => {
+      const bad = [];
+      for (const id of ARENA_ORDER) {
+        const on = ruleDuel(id, {}), onCounts = JSON.stringify(Arena.statusCounts()), onOther = on.hazards.length - (ARENAS[id].hazards || []).filter((h) => h[3] && h[3].obj).length;
+        const m = ruleDuel(id, { breakables: 0 });
+        if (!Arena.solid || on.cfg.breakables !== true) bad.push(id + ' flags');
+        const objects = Arena.objects.filter((o) => !o.fixed), placed = m.hazards.length; // counted before the fire below lights a zone
+        for (const o of objects) { Arena.damageObject(o, 1e4, 'impact', -2 - objects.indexOf(o), 1, 0, o.x, 1, o.z, 0); Arena.damageObject(o, 1e4, 'crush', -900 - objects.indexOf(o), 0, 0, o.x, 0.5, o.z, undefined); }
+        if (objects.some((o) => o.destroyed || o.hp !== o.maxHp || o.stage !== 0) || objects.length && !objects.some((o) => o.wob > 0) || JSON.stringify(Arena.statusCounts()) !== JSON.stringify({ intact: objects.length, damaged: 0, destroyed: 0, total: objects.length })) bad.push(id + ' scenery was damaged');
+        for (const o of objects.filter((q) => q.weak)) o.creak = 1;
+        m.tick = 0; m.stepLoad();
+        if (objects.some((o) => o.destroyed)) bad.push(id + ' a weak deck gave way');
+        const wood = objects.find((o) => MATERIALS[o.mat].burn);
+        if (wood) { m.ignite(wood, undefined); m.tick = 0; m.stepFire(); if (wood.hp !== wood.maxHp || wood.destroyed) bad.push(id + ' fire damaged scenery'); }
+        const glass = m.hazards.filter((h) => h.type === 'glass').length;
+        if (glass || placed !== onOther || m.drops.length) bad.push(id + ' hazards ' + placed + ' want ' + onOther);
+        ruleDuel(id, {}); if (JSON.stringify(Arena.statusCounts()) !== onCounts) bad.push(id + ' On changed');
+        if (!objects.some((o) => o.weak)) continue;
+        const live = ruleDuel(id, {}), weak = Arena.objects.filter((o) => o.weak);
+        for (const o of weak) o.creak = 1;
+        live.tick = 0; live.stepLoad();
+        if (!weak.some((o) => o.destroyed)) bad.push(id + ' a weak deck holds with Breakables On');
+      }
+      for (const solid of [true, false]) {   // two heavy fighters stand on the dock for 10 s: it holds when solid, gives way when not
+        const m = ruleDuel('warehouse', { breakables: solid ? 0 : 1 }), dock = Arena.objects.find((o) => o.id === 'dock');
+        quietAll(m);
+        m.fighters.forEach((f, i) => { onDeck(f, dock); f.x = f.prevX = dock.x - 0.4 + i * 0.8; f.weight = 9; });
+        for (let i = 0; i < 600; i++) m.step();
+        if (dock.destroyed === solid) bad.push('two heavy fighters on the dock for 10 s: ' + (solid ? 'it broke with Breakables Off' : 'it held with Breakables On'));
+      }
+      const id = ARENA_ORDER[0];
+      ruleDuel(id, { breakables: 0 }); Arena.reset();
+      if (!Arena.solid) bad.push('Arena.reset lost the solid scenery');
+      Arena.build(ARENAS[id]);
+      if (Arena.solid) bad.push('the menu backdrop stayed solid');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Health scales every fighter after the Even-teams handicap - a 1v1, a lineup, the crowd, an enemy who walks in later and the revive - full bars at the start, Normal changes nothing, and the grade par follows the scale', () => {
+      const bad = [], scaled = (m, base, scale) => m.fighters.every((f, i) => f.maxHp === Math.round(base[i] * scale) && f.hp === f.maxHp && f.stats.maxHp === f.maxHp);
+      const people = [['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]];
+      const wavy = ARENA_ORDER.find((id) => ARENAS[id].waves), party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }];
+      [0.5, 1, 1.5, 2].forEach((scale, k) => {
+        const make = [() => ruleDuel('dojo', { health: k }), () => ruleLine(people, 'dojo', { health: k }), () => coopMatch(party, { hpScale: scale, arenaId: 'dojo' })];
+        const plain = [() => ruleDuel('dojo', {}), () => ruleLine(people, 'dojo', {}), () => coopMatch(party, { arenaId: 'dojo' })];
+        make.forEach((build, n) => { const base = plain[n]().fighters.map((f) => f.maxHp), m = build(); if (!scaled(m, base, scale)) bad.push('kind ' + n + ' scale ' + scale); });
+        const profile = ROSTER_BY_ID.brutus, enter = (extra) => { const m = coopMatch([party[0]], Object.assign({ arenaId: wavy, waves: true }, extra)); m.enterEnemy({ k: 0, j: 0, n: 1, profile }); return m.fighters[m.fighters.length - 1]; };
+        const late = enter({ hpScale: scale }), lateBase = enter({});
+        if (late.maxHp !== Math.round(lateBase.maxHp * scale) || late.hp !== late.maxHp) bad.push('a late enemy at ' + scale);
+        const m = coopMatch([party[0]], { arenaId: 'dojo', hpScale: scale }), f = m.fighters[0];
+        Combat.knockOut(f, null, null, m); m.locked = false; m.reviveTeam(0.5);
+        if (!f.alive || f.maxHp !== Math.round(coopMatch([party[0]], { arenaId: 'dojo' }).fighters[0].maxHp * scale) || Math.abs(f.hp - f.maxHp * 0.5) > 1) bad.push('revive at ' + scale);
+        const data = Object.assign(coopMatch([party[0]], { arenaId: 'dojo', hpScale: scale }).results(), { playerWon: true, gradeMode: 'free', enemies: 0 });
+        if (data.hpScale !== scale || gradeInputs(data, data.stats[0], 100).par !== gradeInputs(Object.assign({}, data, { hpScale: 1 }), data.stats[0], 100).par * scale) bad.push('grade par at ' + scale);
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Player 1 starts - Left and Right in round 1 of a 1v1 and swapped in round 2, a lineup of two teams mirrored, the crowd and a circle ignore it, Automatic is the old rule', () => {
+      const bad = [];
+      for (const id of ['dojo', EDGE_LEVELS[0]]) for (const area of [0, 1]) {
+        for (const side of [1, 2]) {
+          const m = ruleDuel(id, { side, area }), first = () => Math.sign(m.fighters[0].x - m.fighters[1].x);
+          const want = side === 1 ? -1 : 1;
+          if (first() !== want) bad.push(id + ' round 1 side ' + side);
+          m.startRound();
+          if (first() !== -want) bad.push(id + ' round 2 side ' + side);
+        }
+        const auto = ruleDuel(id, { area }), drawn = MatchSim.sideFor(auto.cfg.seed, 1);
+        if (Math.sign(auto.fighters[0].x - auto.fighters[1].x) !== -drawn) bad.push(id + ' Automatic');
+      }
+      const teams = [['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]], mirror = ruleLine(teams, 'dojo', { side: 2 }), left = ruleLine(teams, 'dojo', {});
+      if (left.fighters[0].x >= 0 || mirror.fighters[0].x <= 0 || mirror.fighters[0].yaw === left.fighters[0].yaw) bad.push('the lineup was not mirrored');
+      const circle = [['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]], c1 = ruleLine(circle, 'dojo', { side: 2 }), c0 = ruleLine(circle, 'dojo', {});
+      if (c1.cfg.startSide !== 0 || c1.fighters.some((f, i) => f.x !== c0.fighters[i].x || f.z !== c0.fighters[i].z)) bad.push('a circle moved');
+      const party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], k1 = coopMatch(party, { startSide: -1 }), k0 = coopMatch(party, {});
+      if (k1.fighters.some((f, i) => f.x !== k0.fighters[i].x || f.z !== k0.fighters[i].z)) bad.push('the crowd moved');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): a lineup in the ring - 4 v 4 and a free-for-all of 8 start inside the ring and clear of scenery and of each other on all eight levels, a CPU fight finishes with nobody outside (ring-out on the four edge levels), the CPU waiting spots stay in the ring, and a ring-out knocks out one fighter while the rest fight on', () => {
+      const bad = [], eight = Array.from({ length: 8 }, (_, i) => [ROSTER[i].id, i < 4 ? 1 : 2, i === 0]), crowd8 = Array.from({ length: 8 }, (_, i) => [ROSTER[i].id, 0, i === 0]);
+      for (const id of ARENA_ORDER) for (const [name, list] of [['4 v 4', eight], ['ffa', crowd8]]) {
+        const m = ruleLine(list, id, { area: 1, ringOut: 1 });
+        const starts = m.fighters.every((f, i) => Arena.inRing(f.x, f.z) && f.x >= Arena.sx0 + f.radius - 1e-9 && f.x <= Arena.sx1 - f.radius + 1e-9 && !Arena.blockedAt(f.x, f.z, f.radius, 0) && m.fighters.every((o, j) => j <= i || Math.hypot(o.x - f.x, o.z - f.z) >= 2 * f.radius - 1e-9));
+        if (!starts) bad.push(id + ' ' + name + ' starts');
+        if (name !== 'ffa') continue;
+        for (let n = 3; n <= 7; n++) for (const split of [0, 1]) {   // 3 to 7 fighters, alone or in three teams, hazards on: nobody in a wall, a hazard post or off the ring
+          const few = ruleLine(crowd8.slice(0, n).map(([fighter, , person], i) => [fighter, split ? 1 + (i % 3) : 0, person]), id, { area: 1, ringOut: 1 });
+          if (few.fighters.some((f) => !Arena.inRing(f.x, f.z) || Arena.blockedAt(f.x, f.z, f.radius, 0))) bad.push(id + ' ' + n + (split ? ' in teams' : ' alone') + ' starts');
+        }
+        aiAll(m, 'hard'); m.cfg.timer = 10; m.roundTicks = 600;
+        for (let i = 0; i < 2400 && !m.matchOver; i++) {
+          m.step();
+          if (m.fighters.some((f) => f.alive && [S.IDLE, S.WALK, S.RUN].includes(f.state) && !Arena.inRing(f.x, f.z))) { bad.push(id + ' someone stood outside at tick ' + i); break; }
+          if (Arena.ringOut) for (let k = 0; k < m.fighters.length; k++) if (m.crowd.engaged[k] && (m.crowd.slotX[k] < Arena.sx0 - 1e-9 || m.crowd.slotX[k] > Arena.sx1 + 1e-9 || m.crowd.slotZ[k] < Arena.sz0 - 1e-9 || m.crowd.slotZ[k] > Arena.sz1 + 1e-9)) { bad.push(id + ' a waiting spot outside the ring'); i = 1e9; break; }
+        }
+        if (!m.matchOver && m.tick >= 2400) bad.push(id + ' did not finish');
+      }
+      const three = ruleLine([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false]], EDGE_LEVELS[0], { area: 1, ringOut: 1 }), out = three.fighters[2];
+      three.step(); out.x = Arena.ring.x1 + 0.4; out.z = (Arena.ring.z0 + Arena.ring.z1) / 2;
+      for (let i = 0; i < 4 && out.alive; i++) three.step();
+      if (out.alive || !three.fighters[0].alive || !three.fighters[1].alive || three.matchOver) bad.push('a ring-out in a lineup');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): the presets - each sets its rows, Rounds and Time limit and the label follows, editing a row shows Custom, a dimmed row is ignored by the label, and each preset starts a fight with the rules of the mode it copies (Tournament bout: no items, no hazards, one win, the bracket clock; Survival style: one win, items and hazards on; Ring match: the ring with ring-out)', () => withFree(() => {
+      const bad = [], sel = Game.selection, lineup = Game.lineupFor(), arena = () => ARENAS[sel.arena];
+      const go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true;
+      try {
+        sel.arena = EDGE_LEVELS[0];
+        FIGHT_PRESETS.forEach((preset, k) => {
+          FightRules.apply(k, sel.rules, lineup, sel);
+          if (FIGHT_RULES.some(([key], i) => sel.rules[key] !== preset[1][i]) || sel.rounds !== preset[2] || sel.timer !== preset[3] || lineup.timer !== 0) bad.push(preset[0] + ' rows');
+          const label = FightRules.match(sel.rules, lineup, arena(), sel);
+          if (label !== FIGHT_PRESETS.findIndex((other) => JSON.stringify(other.slice(1)) === JSON.stringify(preset.slice(1)))) bad.push(preset[0] + ' label ' + label);
+          Game.startFromSelection();
+          const cfg = Game.config, m = Game.match, want = FightRules.cfg(sel.rules, lineup, arena());
+          if (!m || Object.keys(want).some((key) => cfg[key] !== want[key]) || cfg.winsNeeded !== preset[2] || cfg.timer !== preset[3] || m.itemsOn !== (preset[1][2] === 1) || m.hazardsOn !== (preset[1][3] === 1) || !!Arena.ring !== (preset[1][0] === 1) || Arena.ringOut !== (preset[1][1] === 1)) bad.push(preset[0] + ' fight');
+          Game.endMatch();
+        });
+        if (FIGHT_PRESETS[1][1][2] !== 0 || FIGHT_PRESETS[1][1][3] !== 0 || FIGHT_PRESETS[1][2] !== 1 || FIGHT_PRESETS[1][3] !== TOURNAMENT_TIMER || FIGHT_PRESETS[2][2] !== 1 || FIGHT_PRESETS[0][2] !== 2 || FIGHT_PRESETS[3][1][1] !== 1) bad.push('the copied modes');
+        FightRules.apply(0, sel.rules, lineup, sel); sel.rules.health = 2;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== -1) bad.push('an edited row is not Custom');
+        sel.rules.health = 1; sel.rules.ringOut = 1;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== 0) bad.push('a dimmed row counted (Ring-out with the whole level)');
+        sel.rounds = 3;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== -1) bad.push('Rounds did not count in a 1v1');
+        Game.applyType('Brawl'); const brawl = Game.lineupFor(); sel.rounds = 3; sel.rules.ringOut = 0;
+        if (FightRules.match(sel.rules, brawl, arena(), sel) !== 0) bad.push('Rounds counted in a lineup');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Fight rules (P18-43): the More options screen - the rows in order after Friendly fire, their values, the dimmed reasons (crowd, whole level, a level with no ring edge, a circle) and the Level change that dims and restores Ring-out, taps and steps left and right change a value and wrap, the preset row steps the four presets, and the first screen subtitle lists the rules that are not default', () => withFree(() => {
+      const bad = [], sel = Game.selection, keepRerender = UI.rerender, keepCurrent = UI.current;
+      UI.rerender = () => {}; UI.current = 'freemore';
+      try {
+        let html = UI.screen_freemore();
+        const names = ['Friendly fire', 'Rules preset', 'Area', 'Ring-out', 'Weapons and items', 'Hazards', 'Breakables', 'Health', 'Player 1 starts'];
+        let at = -1;
+        for (const name of names) { const next = html.indexOf(name, at + 1); if (next < 0) { bad.push('row ' + name); break; } at = next; }
+        if (!html.includes('Standard') || !html.includes('Whole level') || !html.includes('Not used: the whole level is open') || html.includes('data-local="fr:ringOut"') || !html.includes('Normal') || !html.includes('Automatic')) bad.push('values');
+        sel.arena = EDGE_LEVELS[0]; UI.changeLocal('fr:area', 1, true);
+        if (sel.rules.area !== 1 || !UI.screen_freemore().includes('data-local="fr:ringOut"')) bad.push('a tap on Area');
+        UI.changeLocal('fr:ringOut', 1, true); sel.arena = PLAIN_LEVELS[0];
+        html = UI.screen_freemore();
+        if (!html.includes('Not used: this level has no ring edge') || html.includes('data-local="fr:ringOut"') || sel.rules.ringOut !== 1) bad.push('a level without a ring edge');
+        sel.arena = EDGE_LEVELS[0];
+        if (!UI.screen_freemore().includes('data-local="fr:ringOut"') || !UI.moreSummary(Game.lineupFor()).includes('ring-out on')) bad.push('Ring-out did not come back with the level');
+        for (const dir of [1, 1, 1, 1]) UI.changeLocal('fr:health', dir, false);
+        if (sel.rules.health !== 1 || !UI.screen_freemore().includes('Normal')) bad.push('Health did not wrap');
+        UI.changeLocal('fr:health', -1, false); UI.changeLocal('fr:health', -1, false);
+        if (sel.rules.health !== 3 || !UI.moreSummary(Game.lineupFor()).includes('health double')) bad.push('Health steps left');
+        const seen = [];
+        for (let i = 0; i < 4; i++) { UI.changeLocal('fr:preset', 1, true); seen.push(FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel)); }
+        if (seen.join() !== '0,1,2,3') bad.push('the preset row ' + seen);
+        UI.changeLocal('fr:preset', 1, true); UI.changeLocal('fr:preset', -1, true);
+        Game.applyType('Brawl');   // Survival style reads as Standard in a lineup: four taps must still reach Ring match
+        UI.changeLocal('fr:preset', -1, true); while (FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel) !== 0) UI.changeLocal('fr:preset', 1, true);
+        const brawlSeen = [];
+        for (let i = 0; i < 4; i++) { UI.changeLocal('fr:preset', 1, true); brawlSeen.push(FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel)); }
+        if (brawlSeen.join() !== '1,3,0,1') bad.push('the preset row in a lineup ' + brawlSeen);
+        Game.applyType('Co-op');
+        html = UI.screen_freemore();
+        if ((html.match(/Not used: the crowd uses the doors/g) || []).length !== 2 || !html.includes('Not used: the doors decide')) bad.push('the crowd rows');
+        Game.applyType('Brawl'); const lineup = Game.lineupFor(); lineup.slots.forEach((slot, i) => { slot.team = 1 + (i % 3); }); lineup.deal = 'custom';
+        if (!UI.screen_freemore().includes('Not used: everyone starts in a circle')) bad.push('the circle row');
+        if (!UI.screen_freefight().includes('More options')) bad.push('first screen');
+      } finally { UI.rerender = keepRerender; UI.current = keepCurrent; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Fight rules (P18-43): the rules are saved with the Free Fight setup and read back, a damaged, hostile or missing entry falls back field by field, and an old save seeds them once from the old Ring-out, Items and Hazards switches without cleaning anything else', () => {
+      const bad = [], keep = { settings: Store.get(KEY_SETTINGS), setups: Store.get(KEY_SETUPS), d: Setups.d, lineups: Game.lineups, rules: Game.selection.rules };
+      const put = (key, value) => { if (value === null) Store.remove(key); else Store.set(key, typeof value === 'string' ? value : JSON.stringify(value)); };
+      try {
+        self.freshFree(); Game.lineups.free = Game.loadSetup(); Game.selection.rules = FightRules.fix({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 });
+        Game.saveSetup();
+        const saved = JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules;
+        if (JSON.stringify(saved) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 })) bad.push('saved ' + JSON.stringify(saved));
+        Setups.d = JSON.parse(Store.get(KEY_SETUPS)); Game.lineups = {}; Game.loadSetup();
+        if (JSON.stringify(Game.selection.rules) !== JSON.stringify(saved)) bad.push('read back');
+        for (const rules of [undefined, 'x', [3], { area: 9, items: 'no', health: 2.5, side: -1, breakables: 0 }]) {
+          Setups.d = { v: 1, freeFight: { rules } }; Game.lineups = {}; Game.loadSetup();
+          const want = FightRules.fix(rules && rules.breakables === 0 ? { breakables: 0 } : undefined);
+          if (JSON.stringify(Game.selection.rules) !== JSON.stringify(want)) bad.push('damaged ' + JSON.stringify(rules));
+        }
+        Setups.d = { v: 2, freeFight: { rules: { area: 1 } } }; Game.lineups = {}; Game.loadSetup();
+        if (Game.selection.rules.area !== 0) bad.push('another version was read');
+        // the seed at start-up
+        put(KEY_SETTINGS, { ringOut: true, items: false, hazards: false, friendlyFire: true }); put(KEY_SETUPS, null);
+        Setups.init();
+        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 1, health: 1, side: 0 }) || Setups.d.freeFight.friendlyFire !== true || JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules.items !== 0) bad.push('seed from nothing ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, null); Setups.init();
+        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify(FightRules.fix({ items: 1, hazards: 1 }))) bad.push('seed of the defaults');
+        const custom = [{ id: 'c1', human: true, team: 0 }, { id: 'c8', human: false, team: 0 }];
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, { v: 1, freeFight: { friendlyFire: true, slots: custom, future: 5 }, survival: { difficulty: 'hard' } }); Setups.init();
+        const d = Setups.d;
+        if (JSON.stringify(d.freeFight.slots) !== JSON.stringify(custom) || d.freeFight.future !== 5 || d.survival.difficulty !== 'hard' || d.freeFight.rules.area !== 1) bad.push('the seed cleaned or lost something ' + JSON.stringify(d));
+        put(KEY_SETTINGS, { ringOut: false }); Setups.init();
+        if (Setups.d.freeFight.rules.area !== 1) bad.push('the seed ran twice');
+        put(KEY_SETUPS, { v: 3, freeFight: {} }); Setups.init();
+        if (Setups.d.freeFight.rules) bad.push('an unknown version was changed');
+        put(KEY_SETUPS, '{not json'); Setups.init();
+        if (!Setups.d || Setups.d.v !== 1 || !Setups.d.freeFight.rules) bad.push('an unreadable entry');
+        put(KEY_SETUPS, '"text"'); Setups.init();
+      } finally { put(KEY_SETTINGS, keep.settings); put(KEY_SETUPS, keep.setups); Setups.d = keep.d; Game.lineups = keep.lineups; Game.selection.rules = keep.rules; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): the other modes keep their own rules - Arcade, Survival and Training start with the whole room and read the Items and Hazards settings whatever the Free Fight rules say, and a rematch keeps the Free Fight rules while Training reads the settings again', () => {
+      const bad = [], go = Game.go, kept = { config: Game.config, run: Game.run, items: Settings.v.items, hazards: Settings.v.hazards, rules: Game.selection.rules };
+      Game.go = () => true;
+      const baseHp = ruleDuel(EDGE_LEVELS[0], {}).fighters[0].maxHp;
+      const begin = (mode, extra) => Game.beginMatch(Object.assign({ mode, playerId: 'kai', opponentId: 'mara', arenaId: EDGE_LEVELS[0], difficulty: 'easy', winsNeeded: 1, timer: 30 }, extra));
+      try {
+        Game.selection.rules = FightRules.fix({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 0, health: 3, side: 2 });
+        for (const mode of ['arcade', 'survival', 'training']) for (const on of [true, false]) {
+          Settings.v.items = on; Settings.v.hazards = on; Game.run = { mode, player: 'kai' }; begin(mode, {});
+          const m = Game.match;
+          if (Arena.ring !== null || Arena.ringOut || Arena.solid || m.itemsOn !== on || m.hazardsOn !== on || m.cfg.hpScale || m.fighters[0].maxHp !== baseHp) bad.push(mode + ' items ' + on);
+        }
+        Game.run = { mode: 'free', player: 'kai' }; Settings.v.items = true; Settings.v.hazards = true;
+        begin('free', Object.assign({ ring: true, ringOut: true, items: false, hazards: false }, { breakables: false, hpScale: 2, rulesSet: true }));
+        Game.restartMatch();
+        if (!Game.match.cfg.rulesSet || Game.match.itemsOn || Game.match.hazardsOn || !Arena.ringOut || !Arena.solid || Game.match.fighters[0].maxHp !== Math.round(baseHp * 2)) bad.push('a rematch lost the rules');
+        Game.run = { mode: 'training', player: 'kai' }; Settings.v.items = true; begin('training', {}); Settings.v.items = false; Game.restartMatch();
+        if (Game.match.itemsOn) bad.push('Training did not read Items again');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.items = kept.items; Settings.v.hazards = kept.hazards; Game.selection.rules = kept.rules; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): determinism - a rule set run twice by SimRunner gives the same result, the ring and Health change the fight, a config through JSON plays the same, and changing the Items and Hazards settings during a Free Fight changes nothing', () => {
+      const bad = [], kept = { items: Settings.v.items, hazards: Settings.v.hazards };
+      const sets = [{ ring: true, ringOut: true }, { breakables: false }, { hpScale: 0.5 }, { startSide: -1 }, { items: true, hazards: true }];
+      const base = { arenaId: EDGE_LEVELS[0], seed: 9, winsNeeded: 1, timer: 30, difficulty: 'hard', items: false, hazards: false };
+      const plain = JSON.stringify(SimRunner.run(Object.assign({}, base)));
+      for (const set of sets) {
+        const a = JSON.stringify(SimRunner.run(Object.assign({}, base, set))), b = JSON.stringify(SimRunner.run(Object.assign({}, base, set)));
+        if (a !== b) bad.push(JSON.stringify(set) + ' is not repeatable');
+        if (a === plain && (set.ring || set.hpScale)) bad.push(JSON.stringify(set) + ' changed nothing');
+      }
+      const lineupRun = SimRunner.run({ arenaId: EDGE_LEVELS[0], seed: 4, difficulty: 'hard', ring: true, ringOut: true, timer: 20, lineup: { slots: [{ id: 'kai', team: 1 }, { id: 'mara', team: 2 }, { id: 'brutus', team: 2 }] } });
+      if (lineupRun.error || !lineupRun.config.ring) bad.push('a lineup run in the ring ' + lineupRun.error);
+      const cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', winsNeeded: 1, timer: 0, countdown: false, seed: 6, sides: true }, ruleCfg({ area: 1, ringOut: 1, health: 2, breakables: 0, side: 2 }, null, EDGE_LEVELS[0]), { arenaId: EDGE_LEVELS[0] });
+      const first = ruleHash(track(new MatchSim(cfg))), again = ruleHash(track(new MatchSim(JSON.parse(JSON.stringify(cfg)))));
+      Settings.v.items = false; Settings.v.hazards = false;
+      const flipped = ruleHash(track(new MatchSim(JSON.parse(JSON.stringify(cfg)))));
+      Settings.v.items = kept.items; Settings.v.hazards = kept.hazards;
+      if (first !== again || first !== flipped) bad.push('the config plays differently');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
