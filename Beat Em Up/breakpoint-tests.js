@@ -27,7 +27,7 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
@@ -2779,7 +2779,7 @@ const SelfTest = {
         UI.unlockInfo('zero'); UI.unlockInfo('lars'); UI.unlockInfo('kai');
         if (toasts.length !== 2 || toasts[0] !== 'ZERO is locked: Clear Arcade (Arcade clears 0 / 1)|warn' || !toasts[1].startsWith('LARS is open: Win 3 Arcade fights (Arcade wins 3 / 3)')) problems.push('toasts ' + toasts.join(' / '));
         UI.act = (a) => acts.push(a);
-        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero' }) };
+        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero', focus() {} }) };
         for (const screen of ['unlocks', 'main']) {
           UI.current = screen; UI.guardUntil = performance.now() + 1000; UI.onClick({ target });
           const ignored = acts.length === 0;
@@ -4597,8 +4597,7 @@ const SelfTest = {
         beforeStreak = ['reid', 'camila', 'nia'].map((id) => Progress.isUnlocked(id));
         Progress.d.survivalKills = 8; const gained = Progress.checkUnlocks();
         const restLocked = ROSTER.filter((r) => !Progress.isUnlocked(r.id)).every((r) => UNLOCK_RULES[r.id][0] === 'beat');   // what is left opens by beating that fighter, who is not in KAI's story
-        const thirdBeaten = ROSTER_BY_ID[Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1).rivalB].name;   // stage 3 is led by rival B, who opens when beaten
-        if (runs > 5 || thirdWin !== 'DMITRI, ' + thirdBeaten + ' and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !restLocked) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' rest ' + restLocked);
+        if (runs > 5 || thirdWin !== 'DMITRI and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !restLocked) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' rest ' + restLocked);
         // the cards: a locked one names its rule, an open one does not
         Progress.d = Progress.fresh();
         const locked = UI.fighterCard(ROSTER_BY_ID.deacon, 'pick', false), open = UI.fighterCard(ROSTER_BY_ID.rosa, 'pick', false), opponent = UI.fighterCard(ROSTER_BY_ID.deacon, 'opp', false);
@@ -10320,7 +10319,7 @@ const SelfTest = {
       const bad = [], poses = new Set(STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES))), motive = (id) => STORY_MOTIVES.find((m) => m.id === id);
       if (STORY_POSE_IDS.length !== 28 || poses.size !== 34 || STORY_BEATS.length !== 16 || STORY_STAGES !== 7) bad.push('counts');
       for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten].some((t) => t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
-      for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro) || t.rivals.length !== 6 || t.rivals.some((id) => ROSTER_BY_ID[id].role !== 'rival')) bad.push('tone ' + t.id);
+      for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro)) bad.push('tone ' + t.id);
       for (const id of STORY_BOSS_IDS) if (ROSTER_BY_ID[id].role !== 'boss') bad.push('boss ' + id);
       for (const def of STORY_BEATS) if (def.shots.length > 3 || def.shots.some((s) => !['N', 'P', 'R', 'R2', 'B', 'Z'].includes(s.who) || !['wide', 'two', 'close'].includes(s.cam))) bad.push('beat ' + def.id);
       const texts = [];   // every text a scene can show, with the longest tokens
@@ -10366,7 +10365,7 @@ const SelfTest = {
       if (ta.filter((text, i) => text !== tb[i]).length < 14) bad.push('only ' + ta.filter((text, i) => text !== tb[i]).length + ' of 16 beats differ');
       if (JSON.stringify(ta) !== JSON.stringify(tc)) bad.push('not repeatable');
       if (!Story.beat(a, 'B1').boxes[0].text.includes('Toronto') || !Story.beat(b, 'B1').boxes[0].text.includes('Marseille') || Story.beat(a, 'B9').boxes[0].speaker === Story.beat(b, 'B9').boxes[0].speaker) bad.push('region, city or boss');
-      if (a.rivalA !== 'deacon' || b.rivalA !== 'kelsey' || a.rivalB !== 'diego' || b.rivalB !== 'roxy') bad.push('rivals ' + a.rivalA + a.rivalB + b.rivalA + b.rivalB);
+      if (a.rivalA !== 'deacon' || b.rivalA !== 'kelsey') bad.push('rivals ' + a.rivalA + b.rivalA);
       const run = Story.start(kai, 0, 'normal', 1);
       if (Story.beat(run, 'B5').boxes.length !== 1 || !Story.beat(run, 'B5').choice || Story.beat(run, 'B16').boxes.length !== 1) bad.push('plain B5 / B16');
       run.flawless = true; run.continues = 3;
@@ -10377,7 +10376,7 @@ const SelfTest = {
       const hand = Story.beat(run, 'B12').boxes[0].text, cfgHand = Story.cfg(run, 6);
       Story.choose(run, 'walk'); Story.choose(run, 'bogus');
       const walk = Story.beat(run, 'B12').boxes[0].text, cfgWalk = Story.cfg(run, 6);
-      if (run.choice !== 'walk' || hand === walk || cfgHand.waveCut !== 1 || cfgHand.rival || cfgWalk.waveCut || cfgWalk.rival !== run.rivalA || Story.cfg(run, 3).rival !== run.rivalB) bad.push('choice');
+      if (run.choice !== 'walk' || hand === walk || cfgHand.allies.join() !== run.rivalA || cfgHand.rival || cfgWalk.allies || cfgWalk.rival !== run.rivalA || Story.cfg(run, 3).rival) bad.push('choice');
       const revenge = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'revenge', intro: 'nod' } }, 0, 'easy', 1), friends = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'friends', intro: 'nod' } }, 0, 'easy', 1);
       if (Story.beat(revenge, 'B14').boxes[0].pose !== 'defeat_turn' || Story.beat(friends, 'B14').boxes[0].also.length !== 2 || Story.beat(a, 'B14').boxes[0].pose !== 'arms') bad.push('goal rows');
       const list = STORY_RULES_BY_SLOT['B3.1'], before = list.length;
@@ -10400,7 +10399,7 @@ const SelfTest = {
       const bad = [], fighters = ROSTER.concat(CustomRoster.profiles()), arenas = new Set(['dojo', 'pit', 'club', 'rooftop']);
       for (const f of fighters) {
         const run = Story.start(f, 1, 'easy', 1);
-        if (run.rivalA === f.id || run.rivalB === f.id || run.rivalB === run.rivalA || run.boss === f.id || run.champion === f.id || !STORY_BOSS_IDS.includes(run.boss) || !ROSTER_BY_ID[run.rivalA] || !ROSTER_BY_ID[run.rivalB]) bad.push('cast of ' + f.id);
+        if (run.rivalA === f.id || run.boss === f.id || run.champion === f.id || !STORY_BOSS_IDS.includes(run.boss) || !ROSTER_BY_ID[run.rivalA]) bad.push('cast of ' + f.id);
       }
       if (Story.champion('zero') !== 'mara' || Story.champion('kai') !== 'zero' || Story.rivalA('deacon', 'title') !== 'femke' || Story.rivalA('roxy', 'bond') !== 'deacon') bad.push('champion or rival A rule');
       const bosses = new Set();
@@ -10452,7 +10451,7 @@ const SelfTest = {
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
     test('Story (P10-03): stage fights are ordinary matches - the Arcade 1v1 rules and the level\'s waves, difficulty = the Arcade difficulty, only known fighters, nothing else added', () => {
-      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut', 'waveBeat']);
+      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut', 'waveBeat', 'goons', 'goonLeader', 'allies']);
       for (const level of ['easy', 'normal', 'hard']) for (const choice of ['', 'hand', 'walk']) for (const f of [ROSTER_BY_ID.kai, ROSTER_BY_ID.zero, ROSTER_BY_ID.hao, ROSTER_BY_ID.deacon]) {
         const run = Story.start(f, 2, level, 4);
         run.choice = choice;
@@ -10462,16 +10461,16 @@ const SelfTest = {
           if (cfg.difficulty !== level || cfg.arcadeLevel !== level || !DIFFICULTY[cfg.difficulty] || cfg.playerId !== f.id || !ROSTER_BY_ID[cfg.opponentId || f.id] || cfg.keepSeed !== true || !Number.isInteger(cfg.seed)) bad.push('cfg basics ' + n);
           if (Story.foe(run, n)) { if (cfg.mode !== 'arcade' || cfg.winsNeeded !== 2 || cfg.timer !== 60 || cfg.opponentId !== Story.foe(run, n) || cfg.waves) bad.push('duel ' + n); }
           else if (cfg.mode !== 'brawl' || cfg.waves !== true || cfg.winsNeeded !== 1 || cfg.timer !== 0 || !ARENAS[cfg.arenaId].waves) bad.push('brawl ' + n);
-          if (cfg.rival && (n !== 3 && !(n === 6 && choice === 'walk')) ) bad.push('rival at stage ' + n);
+          if (cfg.rival && !(n === 6 && choice === 'walk')) bad.push('rival at stage ' + n);
           if (Story.seedOf(run, n) !== cfg.seed || Story.seedOf(run, n) === Story.seedOf(run, n % 7 + 1)) bad.push('seed ' + n);
         }
       }
       const zero = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'hard', 1), 7)));
       if (zero.fighters[1].id !== 'zero' || zero.fighters[1].maxHp !== deriveStats(ROSTER_BY_ID.zero.bossAttrs.hard).maxHp) bad.push('ZERO keeps its boss tuning');
       const stage1 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 1))), stage6 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 6)));
-      if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0] - 1) bad.push('wave rows');
+      if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0]) bad.push('wave rows');
       const run = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 1), m3 = mk(Story.cfg(run, 3)), last = m3.waveRows.length - 1;
-      if (m3.waveProfiles(last, ['elise'])[0].id !== run.rivalB) bad.push('rival B does not lead the last wave');
+      if (m3.waveProfiles(last, ['elise'])[0].id !== 'g:L') bad.push('the leader goon does not lead the last wave');
       for (const wrong of [{ arenaId: 'nowhere' }, { playerId: 'nobody' }, { opponentId: 'nobody' }]) if (!SimRunner.run({ matchCfg: wrong }).error) bad.push('SimRunner took matchCfg ' + Object.keys(wrong)[0] + ' unchecked');
       for (const [field, value, expected] of [['winsNeeded', NaN, 2], ['winsNeeded', 0, 1], ['timer', -5, 0], ['timer', NaN, 60]]) {   // matchCfg gets the same clamps as the options
         const given = { arenaId: 'dojo', matchCfg: { winsNeeded: 1, timer: 1, [field]: value } }, res = SimRunner.run(given);
@@ -10516,7 +10515,7 @@ const SelfTest = {
         if (res.error || (res.winner !== 0 && res.winner !== 1) || res.config.arenaId !== Story.arena(run, n) || res.ticks <= 60) { bad.push('stage ' + n + ' did not finish: ' + (res.error || res.winner + ' ' + res.ticks)); break; }
         if (Story.foe(run, n) && (res.teams.length !== 2 || res.wins[res.winner] !== 2)) bad.push('duel ' + n + ' wins ' + res.wins);
         if (!Story.foe(run, n) && res.teams.length < 4) bad.push('brawl ' + n + ' had ' + res.teams.length + ' fighters');
-        if (res.winner === 0) { Story.win(run, Story.foe(run, n) ? res.wins[1] : 0); tell('after', n); }
+        if (res.winner === 0 && !(n === 3 && !lost)) { Story.win(run, Story.foe(run, n) ? res.wins[1] : 0); tell('after', n); }   // the goons are weak enough for the expert AI to win every stage: stage 3 is played as lost once, so the Get up scene and the retry stay covered
         else if (lost < 1) { lost++; tell('lost', 0); Story.retry(run); }
         else { Story.win(run, 9); tell('after', n); }   // a second lost brawl would need a stronger player: the test moves on, the story rules are what it checks
       }
@@ -12074,6 +12073,191 @@ const SelfTest = {
       } finally { root.innerHTML = keepHtml; Game.leaveTournament(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Menu selection (P18-17) ---------- */
+    /* One item looks current on a menu screen, and it is the DOM focus. A remembered pick (.sel) and a chosen swatch (.sw.on) have looks of their own, the mouse moves the focus only when it moves, and a click focuses what it clicked. */
+    const MENU_SELECT_SCREENS = ['main', 'modes', 'char', 'setup', 'arena', 'freefight', 'freemore', 'lineup', 'coop', 'controls', 'settings', 'unlocks', 'credits', 'pause', 'replace'];
+    const menuTags = (html, pattern) => (html.match(/<(?:button|div|label|input)\b[^>]*>/g) || []).filter((tag) => pattern.test(tag));
+    /* document.activeElement is read-only in a page: stand in for it on the document itself for the length of body(state), state.el being the focused element. */
+    const withActiveElement = (start, body) => {
+      const own = Object.getOwnPropertyDescriptor(document, 'activeElement'), state = { el: start };
+      Object.defineProperty(document, 'activeElement', { configurable: true, get: () => state.el });
+      try { return body(state); } finally { if (own) Object.defineProperty(document, 'activeElement', own); else delete document.activeElement; }
+    };
+    /* A stand-in menu item that takes the focus the way a page element does. */
+    const menuItem = (state, props) => {
+      const el = Object.assign({ tagName: 'BUTTON', disabled: false, focused: 0, options: null, attrs: {} }, props);
+      el.getAttribute = (name) => (name in el.attrs ? el.attrs[name] : null);
+      el.closest = (selector) => (selector === '[data-nav]' || (selector === '[data-act]' && 'data-act' in el.attrs) ? el : null);
+      el.focus = (options) => { el.focused++; el.options = options || null; state.el = el; };
+      return el;
+    };
+    /* The style rules that give a menu item its look, checked as text so a headless run with the style text and a browser read the same rules. Returns what is wrong. */
+    const menuStyleProblems = (css) => {
+      const bad = [], text = css.replace(/\/\*[\s\S]*?\*\//g, ''), MENU_ITEM = /button\.mi|\.card|\.opt|\.tab\b|\.beat|\.scenebox/;
+      for (const [, selectors, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const outline = /(?:^|;)\s*outline\s*:\s*(?!none\b|0\b)[^;]+/.test(body);
+        const hoverLook = /(?:^|;)\s*(?:outline|background|background-color|border-color|box-shadow)\s*:/.test(body);
+        for (const raw of selectors.split(',')) {
+          const selector = raw.trim();
+          if (outline && /:hover/.test(selector)) bad.push('a hover outline: ' + selector);
+          if (outline && /\.sel\b/.test(selector) && !/:focus/.test(selector)) bad.push('an outline on a remembered pick: ' + selector);
+          if (outline && /\.sw\.on/.test(selector)) bad.push('an outline on the chosen swatch: ' + selector);
+          if (/:focus-visible/.test(selector) && MENU_ITEM.test(selector)) bad.push('a focus look that depends on the browser\'s :focus-visible guess: ' + selector);
+          if (hoverLook && /:hover/.test(selector) && MENU_ITEM.test(selector) && !/:not\(\[disabled\]\)/.test(selector)) bad.push('a hover look on an item that can be disabled or locked: ' + selector);
+        }
+      }
+      return bad;
+    };
+    test('Menu selection (P18-17): on every menu screen at most one item is the default and at most one is a remembered pick, every remembered pick says so to a screen reader (aria-pressed), and a disabled button is out of the focus order', () => {
+      const bad = [], keep = Object.assign({}, Game.selection), keepDom = UI.dom;
+      try {
+        for (const name of MENU_SELECT_SCREENS) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          const defaults = menuTags(html, /\sdata-default[\s>=]/).length, picks = menuTags(html, /\sclass="[^"]*\bsel\b/);
+          if (defaults > 1) bad.push(name + ' has ' + defaults + ' default items');
+          if (picks.length > 1) bad.push(name + ' has ' + picks.length + ' remembered picks');
+          for (const tag of picks) if (!/\saria-pressed="true"/.test(tag)) bad.push(name + ' has a remembered pick without aria-pressed: ' + tag.slice(0, 60));
+          const items = menuTags(html, /\sdata-nav[\s>=]/).map((tag) => ({ tag, disabled: /\sdisabled[\s>=]/.test(tag) }));
+          UI.dom = Object.assign({}, keepDom, { screens: { querySelectorAll: () => items } });
+          const reached = UI.navItems();
+          if (reached.some((item) => item.disabled)) bad.push(name + ' lets the keys and the pad reach a disabled button');
+          if (reached.length !== items.filter((item) => !item.disabled).length) bad.push(name + ' leaves an enabled item out of the focus order');
+        }
+      } finally { UI.dom = keepDom; Object.assign(Game.selection, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style sheet gives the focus the only outline - no hover rule, remembered pick or chosen swatch draws one, no menu item depends on :focus-visible, and no hover look can reach a disabled or locked item', () => {
+      const css = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n');
+      if (!css) return 'skipped: this run has no page style sheet (a headless run); a browser self-test reads it';
+      const bad = menuStyleProblems(css);
+      if (!/button\.mi:focus\{[^}]*outline:3px/.test(css) || !/\.opt:focus\{[^}]*outline:3px/.test(css) || !/\.card:focus\{[^}]*outline:3px/.test(css)) bad.push('the focus look of the buttons, rows or cards is missing');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style rule check finds what it looks for (a hover outline, an outline on a remembered pick or a chosen swatch, a :focus-visible look, a hover look on a button that can be disabled) and passes the rules that replace them', () => {
+      const wrong = ['button.mi:hover,button.mi.sel{outline:3px solid var(--a1)}', '.sw.on{outline:3px solid #fff;border-color:#fff}', '.card:focus-visible{outline:3px solid red}', '.opt:hover{background:#182a55}'];
+      const right = ['button.mi.sel{border-color:#0f0;background:#122}', 'button.mi:focus{outline:3px solid var(--a1)}', '.opt button.mi:focus{outline:none}', '.sw.on{border-color:#fff}', '.sw:hover{border-color:#fff}', '@media (max-height:520px){ .tab:focus{outline:3px solid red} }'];
+      const bad = [];
+      for (const rule of wrong) if (!menuStyleProblems(rule).length) bad.push('not found: ' + rule);
+      for (const rule of right) if (menuStyleProblems(rule).length) bad.push('wrongly found: ' + rule + ' > ' + menuStyleProblems(rule)[0]);
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Menu selection (P18-17): the mouse moves the focus only when it moves - a parked pointer, a touch, a disabled item, a text field being typed in and a creator drag leave the focus where it is', () => withActiveElement(null, (state) => {
+      const bad = [], keep = { dom: UI.dom, current: UI.current, at: UI.pointerAt, drag: CreatorUI.drag };
+      const [a, b, c, off, field] = [menuItem(state), menuItem(state), menuItem(state), menuItem(state, { disabled: true }), menuItem(state, { tagName: 'INPUT', type: 'text' })];
+      const move = (target, x, y, kind) => UI.onPointerMove({ pointerType: kind || 'mouse', clientX: x, clientY: y, target });
+      UI.dom = Object.assign({}, keep.dom, { fatal: { hidden: true } }); UI.current = 'main'; UI.pointerAt = null; CreatorUI.drag = null; state.el = a;
+      try {
+        move(b, 10, 10);
+        if (state.el !== b) bad.push('a mouse move onto an item did not focus it');
+        else if (!b.options || b.options.preventScroll !== true) bad.push('the focus by the mouse scrolls the panel');
+        move(c, 10, 10);   // the item under a parked pointer changes (a scroll, a redraw): the same coordinates
+        if (state.el !== b) bad.push('a parked pointer took the focus back');
+        move(c, 11, 10);
+        if (state.el !== c) bad.push('a second move onto another item did not focus it');
+        move(off, 12, 10);
+        if (state.el !== c || off.focused) bad.push('a disabled item took the focus');
+        move(a, 13, 10, 'touch'); move(a, 14, 10, 'pen');
+        if (state.el !== c) bad.push('a touch or a pen moved the focus');
+        state.el = field; move(a, 15, 10);
+        if (state.el !== field) bad.push('the mouse took the focus out of a text field being typed in');
+        state.el = c; move(field, 16, 10);
+        if (field.focused) bad.push('the mouse focused a text field');
+        CreatorUI.drag = { id: 1 }; move(a, 17, 10);
+        if (state.el !== c) bad.push('the focus moved during a creator drag');
+        CreatorUI.drag = null; move(a, 18, 10);
+        if (state.el !== a) bad.push('the mouse did not move the focus after the drag');
+        if (UI.listeners.length && !UI.listeners.some(([, type]) => type === 'pointermove')) bad.push('no pointermove handler is registered (UI.init)');   // a page has UI listening; the headless run has not
+      } finally { UI.dom = keep.dom; UI.current = keep.current; UI.pointerAt = keep.at; CreatorUI.drag = keep.drag; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): in a page exactly one item in the screens is outlined after the keys, the pad (moveFocus) and a mouse move have moved the focus, and a redraw or a scroll under a parked pointer leaves the focus where it is (a headless run has no styles and says so)', () => {
+      const root = UI.dom.screens;
+      if (!hasLayoutEngine() || !root || typeof root.getBoundingClientRect !== 'function' || !root.getBoundingClientRect().height || !document.querySelectorAll('style').length) return 'skipped: no page style sheet or layout (a headless run); a browser self-test counts the outlines';
+      const bad = [], keep = { html: root.innerHTML, current: UI.current, selection: Object.assign({}, Game.selection), at: UI.pointerAt, active: document.activeElement };
+      const outlined = () => Array.from(root.querySelectorAll('*')).filter((el) => { const look = getComputedStyle(el); return look.outlineStyle !== 'none' && parseFloat(look.outlineWidth) > 0; });
+      let x = 5000;   // coordinates no earlier move used
+      const hover = (el) => el.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', clientX: x++, clientY: 7, bubbles: true }));
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['main', 'modes', 'char', 'arena', 'freefight', 'settings', 'unlocks']) {
+          UI.current = name; root.innerHTML = UI['screen_' + name]();
+          const items = UI.navItems();
+          if (items.length < 3) { bad.push(name + ' has fewer than 3 items to move between'); continue; }
+          items[0].focus();
+          let count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items at the start');
+          UI.moveFocus(1); count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items after the keys');
+          hover(items[2]); count = outlined().length;
+          if (document.activeElement !== items[2] || count !== 1) bad.push(name + ' shows ' + count + ' outlined items after a mouse move, focus on item ' + items.indexOf(document.activeElement));
+          UI.moveFocus(-1); hover(items[2]);
+          const focusedAt = UI.navItems().indexOf(document.activeElement);
+          x--; hover(UI.navItems()[0]);   // the same coordinates as the last move: a parked pointer under a changed page
+          UI.rerender(true);
+          if (UI.navItems().indexOf(document.activeElement) !== focusedAt || outlined().length !== 1) bad.push(name + ': a redraw under a parked pointer moved the focus (' + focusedAt + ' > ' + UI.navItems().indexOf(document.activeElement) + ')');
+        }
+      } finally { root.innerHTML = keep.html; UI.current = keep.current; Object.assign(Game.selection, keep.selection); UI.pointerAt = keep.at; }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): a click focuses the item it clicked before it acts (Safari and iOS do not focus a clicked button) - also the row of an arrow button, never a disabled item - so a redraw keeps the focus on it', () => withActiveElement({ tagName: 'BODY' }, (state) => {
+      const bad = [], keep = { act: UI.act, adjust: UI.adjust, guard: UI.guardUntil }, seen = [];
+      const items = [0, 1, 2].map((n) => menuItem(state, { attrs: { 'data-act': 'pick:' + n } }));
+      const arrow = menuItem(state, { attrs: { 'data-act': 'inc:sfx' } }), row = menuItem(state, { attrs: { 'data-set': 'sfx' } }), plain = menuItem(state, { attrs: { 'data-act': 'pick:9' }, disabled: true });
+      arrow.closest = (selector) => (selector === '[data-nav]' ? row : selector === '[data-act]' ? arrow : null);
+      const body = state.el;
+      const clickRow = menuItem(state, { attrs: { 'data-set': 'sfx' } });
+      clickRow.closest = (selector) => (selector === '[data-nav]' || selector === '.opt' ? clickRow : null);
+      UI.act = (act) => { seen.push({ act, on: state.el }); }; UI.adjust = (el) => { seen.push({ act: 'adjust', on: state.el, el }); }; UI.guardUntil = 0;
+      try {
+        UI.onClick({ target: items[2] });
+        if (state.el !== items[2] || !items[2].options || items[2].options.preventScroll !== true) bad.push('the clicked third item was not focused (without scrolling)');
+        if (!seen.length || seen[0].on !== items[2]) bad.push('the click acted before the item had the focus');
+        UI.onClick({ target: items[2] });
+        if (items[2].focused !== 1) bad.push('a click on the focused item focused it again');
+        state.el = body; UI.onClick({ target: arrow });
+        if (state.el !== row) bad.push('a click on an arrow button did not focus its row');
+        state.el = body; UI.onClick({ target: clickRow });
+        if (state.el !== clickRow || seen[seen.length - 1].act !== 'adjust' || seen[seen.length - 1].on !== clickRow) bad.push('a click on a row did not focus it before it changed');
+        state.el = body; UI.onClick({ target: plain });
+        if (state.el !== body || plain.focused) bad.push('a click on a disabled item focused it');
+      } finally { UI.act = keep.act; UI.adjust = keep.adjust; UI.guardUntil = keep.guard; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): on the fighter, sparring partner, arena, More options and Unlocks screens the focused item scrolls clear of the sticky Back bar, at 1280 x 720 and 844 x 390 (a headless run has no layout and says so)', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the screens were not laid out';
+      const bad = [], styles = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n'), keep = Object.assign({}, Game.selection);
+      let measured = 0;
+      const check = (name, html, width, height) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+        document.body.appendChild(frame);
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) { bad.push(name + ': the frame has no document'); return; }
+          doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+          const bar = doc.querySelector('.row.sticky');
+          if (!bar) return;
+          measured++;
+          for (const item of Array.from(doc.querySelectorAll('[data-nav]'))) {
+            if (bar.contains(item)) continue;
+            item.scrollIntoView({ block: 'nearest' });   // what focus() does, scroll-padding included
+            const box = item.getBoundingClientRect(), barBox = bar.getBoundingClientRect();
+            if (box.bottom > barBox.top + 2 && box.top < barBox.bottom) { bad.push(name + ' at ' + width + ' px: an item sits under the sticky bar (' + Math.round(box.bottom - barBox.top) + ' px)'); return; }
+          }
+        } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+      };
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['char', 'setup', 'arena', 'freemore', 'unlocks']) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          for (const [width, height] of [[1280, 720], [844, 390]]) check(name, html, width, height);
+        }
+      } finally { Object.assign(Game.selection, keep); }
+      if (!measured) bad.push('nothing was measured in a browser');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
     /* ---------- Mode flows (P18-40) ---------- */
     /* Every mode from the main menu to the results and back, pressing only what the screen on show offers: the data-act of its enabled buttons, which is what a tap, Enter and a pad's A all press (an enabled
        button is also what the arrow keys and the pad stick can focus). The game state moves the way a page moves it (Game.go checks GS_TRANSITIONS and UI.onGameState puts the screen up, on stand-in page elements),
@@ -15911,6 +16095,137 @@ const SelfTest = {
       Settings.v.items = kept.items; Settings.v.hazards = kept.hazards;
       if (first !== again || first !== flipped) bad.push('the config plays differently');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- Arcade goons, allies and Survival brawls (P18-21) ---------- */
+    const goonMatch = (over) => track(new MatchSim(Object.assign({ mode: 'brawl', playerId: 'kai', enemies: 1, waves: true, arenaId: 'warehouse', difficulty: 'normal', goons: 'hao', goonLeader: 'ABEL', seed: 3, countdown: false, timer: 0 }, over)));
+    test('Arcade goons (P18-21): the crews of all 32 fighters pass the creator\'s check, stay in the point budget, wear the theme and are in no roster list', () => {
+      const bad = [];
+      for (const theme of ROSTER) for (let variant = 0; variant <= GOON_LEADER; variant++) {
+        const record = goonRecord(theme.id, variant), check = validateCustom(record), profile = goonProfile(theme.id, variant);
+        if (!check.ok) { bad.push(theme.id + variant + ': ' + check.error); continue; }
+        if (attrTotal(record.attrs) > (variant === GOON_LEADER ? 38 : 36) || Object.values(record.attrs).some((v) => v < 3 || v > 7) || record.attrs.speed < 4) bad.push('points ' + theme.id + variant);
+        if (variant !== 2 && (record.moveStyle !== moveStyleFor(theme) || record.defense !== (theme.defense || defaultDefense(moveStyleFor(theme))))) bad.push('style ' + theme.id + variant);
+        if (variant === 0 && (record.look.glove !== (/^#[0-9a-f]{6}$/i.test(theme.look.glove) ? theme.look.glove : '#808894') || record.look.topStyle === 'bare')) bad.push('colours ' + theme.id);
+        if (!/^g:[0-2L]$/.test(profile.id) || ROSTER_BY_ID[profile.id] || ROSTER.some((r) => r.id === profile.id) || profile.custom || profile.rank !== undefined || /^c[1-8]$/.test(profile.id)) bad.push('id ' + profile.id);
+      }
+      if (goonRecord('brutus', 0).look.top !== '#808894') bad.push('a bare-top theme wears the neutral grey');
+      if (goonProfile('kai', GOON_LEADER, 'ABEL').name !== 'ABEL' || goonProfile('kai', 0, 'ABEL').name !== 'BRUISER') bad.push('names');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Arcade goons (P18-21): health, damage and stamina follow the table at every CPU level, every goon is weaker than every main fighter, the leader is above its crew, three variants are dealt in turn', () => {
+      const bad = [], weakestHp = Math.min(...ROSTER.map((r) => deriveStats(r.attrs).maxHp)), weakestDamage = Math.min(...ROSTER.map((r) => deriveStats(r.attrs).damage));
+      for (const level of ['easy', 'normal', 'hard', 'expert']) {
+        const m = goonMatch({ difficulty: level }), [hp, dmg, stam] = GOON_SCALE[level], foes = m.fighters.slice(1);
+        if (foes.map((f) => f.id).join() !== 'g:0,g:1,g:2') bad.push(level + ' variants ' + foes.map((f) => f.id));
+        foes.forEach((f, v) => {
+          const base = deriveStats(goonProfile('hao', v).attrs);
+          if (f.maxHp !== Math.round(base.maxHp * hp) || f.maxStam !== Math.round(base.maxStam * stam) || Math.abs(f.stats.damage - base.damage * dmg * DIFFICULTY[level].dmg) > 1e-9) bad.push(level + ' factors ' + v);
+          if (f.maxHp >= weakestHp || f.stats.damage >= weakestDamage) bad.push(level + ' a goon is not weaker than a main fighter ' + v);
+        });
+        const last = m.waveRows.length - 1, leader = m.waveProfiles(last, ['kai'])[0];
+        if (leader.id !== 'g:L' || leader.name !== 'ABEL') bad.push('leader ' + leader.id);
+        const lm = goonMatch({ difficulty: level, goons: 'hao' }), crew = lm.fighters[1].maxHp;
+        const lead = new Fighter(leader, 5, TEAM_ENEMIES); lm.crewScale(lead);
+        if (lead.maxHp <= crew || lead.maxHp >= weakestHp || lead.stats.damage >= weakestDamage) bad.push(level + ' leader strength');
+      }
+      const plain = goonMatch({ goons: undefined, goonLeader: undefined });
+      if (plain.fighters.slice(1).some((f) => f.id.startsWith('g:')) || plain.fighters[1].id !== ROSTER[0].id && plain.fighters[1].id !== ROSTER[1].id) bad.push('no goons without cfg.goons');
+      const a = goonMatch({}), b = goonMatch(JSON.parse(JSON.stringify(a.cfg)));
+      if (a.fighters.map((f) => f.id + f.maxHp).join() !== b.fighters.map((f) => f.id + f.maxHp).join()) bad.push('same cfg, different crew');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Arcade goons (P18-21): every stage uses its boss\'s crew, a run has three main-fighter bosses, rival B is gone, stage 3 has the leader goon and stage 1 none', () => {
+      const bad = [];
+      for (const f of ROSTER.concat([ROSTER_BY_ID.kai])) for (const clears of [0, 1, 2]) {
+        const run = Story.start(f, clears, 'normal', 7), cfgs = [1, 2, 3, 4, 5, 6, 7].map((n) => Story.cfg(run, n));
+        if ('rivalB' in run || 'rivalB' in Story.pack(run) || cfgs[0].goons !== run.rivalA || cfgs[2].goons !== run.boss || cfgs[4].goons !== run.champion || cfgs[5].goons !== run.champion) bad.push('map ' + f.id);
+        const mains = new Set([run.rivalA, run.boss, run.champion]);
+        if (mains.size !== 3 || mains.has(f.id) || cfgs.some((c) => c.rival && !mains.has(c.rival)) || cfgs.some((c) => (c.allies || []).some((id) => !mains.has(id)))) bad.push('bosses ' + f.id);
+        if (cfgs[0].goonLeader || !cfgs[2].goonLeader || !cfgs[4].goonLeader || cfgs[2].goonLeader === cfgs[4].goonLeader || cfgs[2].goonLeader === 'GRANITE' || !/^[A-Z0-9]{1,6}$/.test(cfgs[2].goonLeader)) bad.push('leaders ' + f.id);
+        if (Story.beaten(run, 3).length || Story.name(run, 'R2') !== cfgs[2].goonLeader || Story.idOf(run, 'R2') !== 'g:L') bad.push('stage 3 / B7 ' + f.id);
+      }
+      const run = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 7);
+      const m1 = goonMatch(Object.assign({}, Story.cfg(run, 1))), m3 = goonMatch(Object.assign({}, Story.cfg(run, 3)));
+      if (m1.waveProfiles(m1.waveRows.length - 1, ['kai']).some((p) => p.id === 'g:L') || m3.waveProfiles(m3.waveRows.length - 1, ['kai'])[0].id !== 'g:L') bad.push('leader rows');
+      Story.choose(run, 'walk');
+      const walk = Story.cfg(run, 6), mw = goonMatch(Object.assign({}, walk, { difficulty: 'normal' })), lead = mw.waveProfiles(mw.waveRows.length - 1, ['kai'])[0];
+      if (walk.goons !== run.rivalA || walk.rival !== run.rivalA || walk.allies || lead.id !== run.rivalA || deriveStats(lead.attrs).maxHp !== deriveStats(ROSTER_BY_ID[run.rivalA].attrs).maxHp) bad.push('walk away');
+      const old = Story.clean(Object.assign(Story.pack(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 7)), { stage: 3, rivalB: 'hostile' }));
+      if (!old || 'rivalB' in old || !Story.restore(old) || 'rivalB' in Story.restore(old)) bad.push('an old save with rivalB');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Allies (P18-21): stage 6 has rival A beside the player after Offer a hand (also with no choice), none after Walk away; the ally is a CPU of the players\' team that gets no stamina edge and starts at full health; only a person down loses', () => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 7); // Easy gives the people a stamina edge
+      for (const choice of ['', 'hand']) {
+        run.choice = choice;
+        const cfg = Story.cfg(run, 6);
+        if (cfg.allies.join() !== run.rivalA || cfg.waveCut || cfg.rival) bad.push('cfg ' + choice);
+      }
+      const m = track(new MatchSim(Object.assign({}, Story.cfg(run, 6), { countdown: false, playerHp: 0.4 }))), ally = m.fighters[1], person = m.fighters[0];
+      if (ally.id !== run.rivalA || ally.team !== TEAM_PLAYERS || m.partySize !== 2 || m.peopleCount !== 1 || !(m.controllers[1] instanceof AIController) || m.controllers[0] === m.controllers[1]) bad.push('party');
+      if (ally.hp !== ally.maxHp || Math.abs(person.hp / person.maxHp - 0.4) > 1e-9 || ally.stats.regen !== deriveStats(ally.profile.attrs).regen || person.stats.regen <= deriveStats(person.profile.attrs).regen) bad.push('health or stamina edge');
+      if (m.fighters.length - m.partySize !== ARENAS.club.waves[0][0] + 1) bad.push('one more enemy per ally: ' + (m.fighters.length - m.partySize));
+      if (m.canHurt(person, ally) || m.canHurt(ally, person) || !m.canHurt(m.fighters[2], ally) || !m.canHurt(ally, m.fighters[2])) bad.push('who may hurt whom');
+      ally.alive = false;
+      if (!m.playersAlive()) bad.push('an ally down loses the fight');
+      ally.alive = true; person.alive = false;
+      if (m.playersAlive()) bad.push('the person down with an ally up must be a defeat');
+      person.alive = true;
+      const solo = track(new MatchSim({ mode: 'brawl', playerId: 'kai', enemies: 2, countdown: false }));
+      if (solo.allies.length || solo.peopleCount !== 1 || solo.partySize !== 1) bad.push('no allies by default');
+      const more = track(new MatchSim({ mode: 'brawl', playerId: 'kai', enemies: ['mara', 'deacon', 'rosa'], allies: ['hao', 'femke', 'lars', 'kai', 'nobody'], countdown: false }));
+      if (more.allies.length !== 2 || more.fighters.length !== 6) bad.push('at most 2 allies, never the player or an unknown id: ' + more.allies.length);
+      const res = SimRunner.run({ playerId: 'kai', arenaId: 'club', difficulty: 'normal', seed: 5, winsNeeded: 1, timer: 20, waves: true, enemies: 1, matchCfg: Object.assign({}, Story.cfg(run, 6), { timer: 20 }) });
+      if (res.error) bad.push('headless stage 6: ' + res.error);
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Survival brawls (P18-21): the type row and its saved value, enemies by CPU level and ally count, no fighter twice in a fight, group strength, clock, records and the unlock counter', () => {
+      const bad = [], begin = Game.beginMatch, kept = { run: Game.run, setups: Setups.d, type: Game.selection.survivalType }, saved = keepProgress();
+      let cfg = null, seed = 7;
+      const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      Game.beginMatch = (c) => { cfg = c; };
+      try {
+        const pool = Game.opponentChoices('kai'), table = { easy: [2, 3, 4], normal: [3, 4, 5], hard: [3, 4, 5], expert: [4, 5, 6] };
+        for (const level of Object.keys(table)) for (let type = 1; type <= 3; type++) {
+          Game.run = { mode: 'survival', type, player: 'kai', level, kills: 0, seconds: 0, carryHp: 1, pool, order: [], rng, arenaStart: 0 };
+          Game.nextSurvivalMatch();
+          const ids = cfg.enemies.concat(cfg.allies);
+          if (cfg.mode !== 'brawl' || !cfg.survival || cfg.enemies.length !== table[level][type - 1] || cfg.allies.length !== type - 1 || cfg.difficulty !== level || cfg.timer !== SURVIVAL_TIMER + 8 * (cfg.enemies.length - 1)) bad.push('cfg ' + level + type);
+          if (new Set(ids).size !== ids.length || ids.includes('kai') || ids.some((id) => !ROSTER_BY_ID[id])) bad.push('draw ' + level + type);
+        }
+        Game.run = { mode: 'survival', type: 3, player: 'kai', level: 'expert', kills: 9, seconds: 0, carryHp: 1, pool, order: [pool[0]], rng, arenaStart: 0 };
+        Game.nextSurvivalMatch();
+        const ids = cfg.enemies.concat(cfg.allies);
+        if (cfg.enemies.length !== 6 || cfg.allies.length !== 2 || new Set(ids).size !== 8 || ids[0] !== pool[0].id) bad.push('the end of a lap: ' + ids);
+        Game.run = { mode: 'survival', type: 2, player: 'kai', level: 'easy', kills: 4, seconds: 0, carryHp: 0.3, pool, order: [], rng, arenaStart: 0 };
+        Game.nextSurvivalMatch();
+        const m = track(new MatchSim(Object.assign({ countdown: false, seed: 4 }, cfg))), foes = m.fighters.slice(m.partySize), ally = m.fighters[1], n = foes.length;
+        const hp = deriveStats(ROSTER_BY_ID[cfg.enemies[0]].attrs), allyBase = deriveStats(ROSTER_BY_ID[cfg.allies[0]].attrs), level = DIFFICULTY[cfg.difficulty].dmg;
+        if (foes[0].maxHp !== Math.round(hp.maxHp * SURVIVAL_GROUP[n]) || Math.abs(foes[0].stats.damage - hp.damage * 0.7 * level) > 1e-9 || foes[0].maxStam !== hp.maxStam) bad.push('group factors');
+        if (ally.maxHp !== allyBase.maxHp || Math.abs(ally.stats.damage - allyBase.damage * level) > 1e-9 || ally.hp !== ally.maxHp || Math.abs(m.fighters[0].hp / m.fighters[0].maxHp - 0.3) > 1e-9) bad.push('ally strength or the carried health');
+        // the HUD line of a Survival brawl (the match itself runs as a brawl) reads SURVIVAL, FIGHT n
+        Game.run = { mode: 'survival', type: 2, kills: 2, player: 'kai' };
+        if (!UI.survivalLine(m, Game.run).startsWith('SURVIVAL · FIGHT 3 · ') || UI.survivalLine(m, { type: 0, kills: 4 }).indexOf('DEFEATED 4') < 0) bad.push('HUD line "' + UI.survivalLine(m, Game.run) + '"');
+        // the row, saved as setups.survival.type: 0 to 3, anything else is Duels
+        for (const [stored, expected] of [[2, 2], [7, 0], ['x', 0], [-1, 0], [1.5, 0], [undefined, 0]]) { Setups.d = { v: 1, survival: { type: stored } }; Game.loadLevels(); if (Game.selection.survivalType !== expected) bad.push('stored type ' + stored); }
+        Game.selection.mode = 'survival'; Game.selection.survivalType = 3; Game.saveLevel();
+        if (Setups.d.survival.type !== 3 || SURVIVAL_TYPES.length !== 4) bad.push('type not saved');
+        // records: a set per type, a damaged one reads zeros, Duels keep the old fields, the streak reads Duels and Brawls without an ally
+        Progress.d = Progress.fresh();
+        Game.run = { mode: 'survival', type: 2, player: 'kai', kills: 4, seconds: 100 };
+        Game.saveSurvivalRecord();
+        Game.run = { mode: 'survival', type: 0, player: 'kai', kills: 2, seconds: 50 };
+        Game.saveSurvivalRecord();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[0,0],[4,100],[0,0]]' || Progress.d.survivalKills !== 2 || Progress.d.survivalSeconds !== 50) bad.push('records ' + JSON.stringify(Progress.d.survivalRec));
+        if (Progress.counter('streak') !== 2) bad.push('an ally record counted for the streak');
+        Progress.d.survivalRec[0][0] = 6;
+        if (Progress.counter('streak') !== 6 || Progress.counter('wins') !== Progress.d.wins) bad.push('streak counter');
+        Store.set(KEY_PROGRESS, JSON.stringify({ survivalRec: [[1], 'x', [99999, -1], [5, 5]] })); Progress.init();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[1,0],[0,0],[9999,0]]') bad.push('damaged records ' + JSON.stringify(Progress.d.survivalRec));
+        Store.set(KEY_PROGRESS, JSON.stringify({ survivalRec: 'bad', survivalKills: 3 })); Progress.init();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[0,0],[0,0],[0,0]]' || Progress.d.survivalKills !== 3) bad.push('a hostile survivalRec');
+      } finally { Game.beginMatch = begin; Game.run = kept.run; Setups.d = kept.setups; Game.selection.survivalType = kept.type; restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
