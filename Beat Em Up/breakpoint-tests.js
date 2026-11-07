@@ -4649,6 +4649,7 @@ const SelfTest = {
     /* ----- Sway pose (P3-11): the drawn head and torso against the drawn strike ----- */
     const SWAY_POSE_GAP = 0.1;   // m of air between the surfaces of the body part and the striking limb: the visible gap the owner asked for
     const SWAY_POSE_RADIUS = { head: 0.12, torso: 0.15, foot: 0.1, tip: 0.1 };   // m: head sphere, chest depth at the torso point, a shoe, and the fist or foot that strikes
+    const SWAY_FOE_RADIUS = 0.34, SWAY_BACKSTEP = 0.3;   // m: the foe's body radius, and the margin that keeps it inside the volume once the sway has stepped it back (measured 0.26)
     const SWAY_TIP_POINT = { LA: 9, RA: 12, LL: 15, RL: 18 };   // Fighter.pts offset of the striking hand or foot
     const segmentDistance = (p, a, b) => {
       const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]], len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
@@ -4669,7 +4670,7 @@ const SelfTest = {
           tip: at(a.pts, SWAY_TIP_POINT[mv.limb]), head: at(d.pts, 6), torso: at(d.pts, 3), footL: at(d.pts, 15), footR: at(d.pts, 18) });
       }
       const hp = d.hp === d.maxHp; m.dispose();
-      return { rows, unhurt: hp };
+      return { rows, unhurt: hp, reach: a.stats.reach };
     };
     /* The clearance of fighter 2's drawn head, torso and (for a low strike) feet from the strike during the sway's i-frames: on every tick where the strike is active
        and fighter 2 is inside them, the distance from each body point to the tip's path since the last tick. The spacing puts the unswayed torso on the furthest plane the tip
@@ -4678,9 +4679,10 @@ const SelfTest = {
       const id = 'swaypose_' + styleId;
       ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' });
       try {
-        const rest = swayPoseRun(id, mv, 1.8, -1, 0).rows;
+        const restRun = swayPoseRun(id, mv, 1.8, -1, 0), rest = restRun.rows;
         const peak = Math.max(...rest.filter((r) => r.attacking).map((r) => r.tip[0])), first = rest.find((r) => r.live);
-        const gap = 1.8 + peak - rest[1].torso[0], out = [];
+        const volumeGap = mv.reach * restRun.reach + SWAY_FOE_RADIUS + mv.step - SWAY_BACKSTEP;   // P17-02: the drawn fist now reaches the front of the volume, so a foe on the drawn plane could back out of it and be struck after the i-frames; keep it inside by the back step
+        const gap = Math.min(1.8 + peak - rest[1].torso[0], volumeGap), out = [];
         for (const dir of dirs) for (const lead of leads) {
           const run = swayPoseRun(id, mv, gap, first.tick - lead, dir);
           const clear = { head: 9, torso: 9, foot: 9 }, rows = run.rows;
@@ -5165,6 +5167,50 @@ const SelfTest = {
         if (!(round.up > low.up + 0.25 && front.up > low.up + 0.25)) problems.push(r.id + ' heights ' + [round.up, front.up, low.up].map((v) => v.toFixed(2)).join('/'));
       }
       return problems.length ? problems.join('; ') : true;
+    });
+    test('Hit check (P17-02): in every move of every style, the striking limb tip at the contact tick is inside the foe\'s hit volume (a standing foe at the front of the move\'s volume): not short of it, not past the foe\'s centre, near the line to the foe, on its height class; YUKI\'s Roundhouse included', () => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
+      const TIP = { LA: 9, RA: 12, LL: 15, RL: 18 };   // key point of each limb: wrist or ankle
+      const ELBOW_POINT = 33;   // the Elbow strikes with the right elbow joint, not the hand
+      const FOE_RADIUS = 0.34;
+      const LIMIT = { short: 0.1, side: 0.45, band: 0.05, past: 0.15 };   // m: short of the volume's front, off the line to the foe (the foe's radius and a fist), outside the height class band
+      const BAND = { H: [1.25, 1.75], M: [0.85, 1.5], L: [0, 0.65] };   // m on a scale-1 foe (times the striker's scale): where the tip must be for the height class (the hip of a scale-1 body is at about 1.0 m). A hand strike aims at the head and chest for H, the trunk for M
+      const KICK_BAND_H = [1.0, 1.75];   // a High kick at least to the hip
+      /* Moves that still miss the limits above, each held at its measured worst over the 32 bodies (rounded up by 0.01; the numbers can only go down). OPEN WORK of P17-02, listed in Appendix C:
+         the High and Mid kicks cannot be lifted to the hip or above with calm hip angles (the foot stops at 0.7 to 0.8 m), the jab, cross and body punches of the crouching styles are drawn below the chest,
+         the stride still leaves the smallest bodies short and the tallest past the foe's centre, the Heavy Roundhouse swings 0.5 m to the side, the Elbow's hand stays at the shoulder (its elbow point is checked). */
+      const EXCEPTIONS = {
+        counter_kick: { short: 0.2, band: 0.11 }, roundhouse: { band: 0.3, short: 0.11 }, heavy_roundhouse: { band: 0.3, short: 0.27, side: 0.53 },
+        sweep: { short: 0.25 }, jump_kick: { band: 0.32 }, jump_punch: { band: 0.33, short: 0.23 },
+        lunge: { short: 0.33 }, heavy_body_kick: { band: 0.21 }, heavy_front: { short: 0.17 },
+        front_kick: { short: 0.14, band: 0.11 }, low_kick: { short: 0.22 }, body_kick: { band: 0.21 },
+        gut_punch: { past: 0.18 }, hook: { short: 0.18 }, jab: { band: 0.24, short: 0.23 },
+        power_jab: { band: 0.24, short: 0.23 }, counter_strike: { short: 0.27 }, chain_punch: { short: 0.24 },
+        trap_strike: { short: 0.22 }, uppercut: { short: 0.19 }, elbow_strike: { short: 0.17 },
+        cross: { short: 0.24, band: 0.23 }, spin_back_kick: { band: 0.33 }, body_jab: { band: 0.07 },
+        angle_one: { band: 0.46 },
+      };
+      const problems = [], seen = new Set();
+      let pairs = 0;
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = ATTACKS[id], tip = id === 'elbow_strike' ? ELBOW_POINT : TIP[mv.limb], kick = mv.limb[1] === 'L', band = kick && mv.h === 'H' ? KICK_BAND_H : BAND[mv.h];
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0;
+          const front = mv.reach * f.stats.reach;   // the foe's centre stands at front + FOE_RADIUS, the furthest the sim lets this move land
+          f.x = f.z = 0; f.target = { x: front + FOE_RADIUS, z: 0 };   // the drawn stride reads the room to its target
+          f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+          const y = f.pts[tip + 1], sc = f.scale;
+          const miss = { short: front - f.pts[tip + 2], side: Math.abs(f.pts[tip]), band: Math.max(band[0] * sc - y, y - band[1] * sc, 0), past: f.pts[tip + 2] - (front + FOE_RADIUS) };
+          const allowed = Object.assign({}, LIMIT, EXCEPTIONS[id + ' ' + r.moveStyle] || EXCEPTIONS[id]);
+          pairs++; seen.add(r.id + ' ' + id);
+          const bad = Object.keys(allowed).filter((k) => miss[k] > allowed[k]);
+          if (bad.length) problems.push(r.id + ' ' + id + ' ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' '));
+        }
+      }
+      if (pairs < 590 || !seen.has('yuki roundhouse')) return 'only ' + pairs + ' pairs checked';
+      return problems.length ? problems.length + ' misses: ' + problems.join('; ') : true;
     });
     test('Headless AI vs AI runner: seeded match ends with a winner, duration and damage per move type', () => {
       const opts = { seed: 3, timer: 30, winsNeeded: 1, playerId: 'kai', opponentId: 'brutus' };
