@@ -5516,6 +5516,20 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Accessibility (P18-27): Start here names the first string the fighter really has (three, two or one press), with Kick when a crate is carried and with a weapon in hand, for all 16 styles', () => {
+      const bad = [], seen = new Set(), ids = Object.keys(WEAPONS), carryId = ids.find((id) => WEAPONS[id].cls === 'carry'), armId = ids.find((id) => WEAPONS[id].cls !== 'carry');
+      const words = { 3: 'three times in a row', 2: 'twice in a row', 1: 'once' };
+      if (MOVE_STYLE_IDS.length !== 16 || !carryId || !armId) return 'no 16 styles or no carried / held item to test with';
+      for (const id of MOVE_STYLE_IDS) for (const held of [undefined, carryId, armId]) {
+        const carry = held === carryId, own = held && !carry ? weaponTable(id, held) : stringsFor(id), first = carry ? 'K' : 'P';
+        const want = words[own.stand[first.repeat(3)] ? 3 : own.stand[first + first] ? 2 : 1];
+        const html = UI.screen_moves(styleProfile(id), 'keyboard', held), start = html.indexOf('<b>Start here:</b>'), block = html.slice(start, html.indexOf('</p>', start));
+        seen.add(want);
+        if (start < 0 || !block.includes(' ' + want + ': your first string')) bad.push(id + ' ' + (held || 'bare-handed') + ' wants "' + want + '": ' + block.slice(0, 90));
+      }
+      if (seen.size < 2) bad.push('every case reads the same: ' + [...seen].join());
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     test('Accessibility (P18-27): the loss offer shows after the second loss in a row among the first 10 fights, once, and not when both assists are already on', () => accRig((m) => {
       const bad = [], toasts = [], keepToast = UI.toast, end = (won) => { m.matchWinner = won ? 0 : 1; Coach.matchEnd(m); };
       UI.toast = (msg, kind, ms) => toasts.push(msg);

@@ -180,6 +180,8 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #warn.on,#warn2.on{opacity:1;animation:blink 1s steps(2) infinite}
 .reduced #warn.on,.reduced #warn2.on{animation:none}
 @keyframes blink{50%{opacity:.45}}
+#grappleHint{width:max-content;max-width:min(92%,26em)}
+@media (orientation:portrait){#grappleHint{bottom:auto;top:34%}}
 #grappleHint,#grappleHint2{position:absolute;left:50%;transform:translateX(-50%);bottom:5.5em;padding:.4em 1em;border:2px solid #fff;background:rgba(0,0,0,.7);letter-spacing:.08em;font-size:1.05em;text-align:center}
 .vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
 #grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
@@ -607,8 +609,8 @@ const SETTING_DEFS = {
   shadows: { type: 'enum', options: ['off', 'blob', 'full'], def: 'full', label: 'Shadows' },
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
-  autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
-  guardAssist: { type: 'bool', def: false, label: 'Guard assist', hint: 'Defend alone guards high and low for you, no Duck needed (not the CPU). A guard that switches height is never perfect.' },
+  autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays after a miss too, with twice the time to press it. From the next match.' },
+  guardAssist: { type: 'bool', def: false, label: 'Guard assist', hint: 'Defend alone guards high and low for you, no Duck needed (not the CPU). A guard that switches height is never perfect. From the next match.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed. Free Fight has its own.' },
   hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe. Free Fight has its own.' },
   ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Tournament bouts only; Free Fight has its own.' },
@@ -11202,7 +11204,7 @@ class MatchSim {
   }
   readAssist(it) { // from the match's cfg.assist, never from Settings, so a replay or an online seat plays the same
     const bits = this.cfg.assist | 0;
-    if (this.cfg.assist !== undefined) it.assist = (bits & ASSIST_STRINGS) !== 0; // no cfg.assist (a test, the simulator): Auto-assist keeps the Settings read
+    it.assist = (bits & ASSIST_STRINGS) !== 0;
     it.guardAssist = (bits & ASSIST_GUARD) !== 0;
   }
   readIntents() {
@@ -14272,6 +14274,7 @@ const UI = {
     const label = (action) => this.controlLabel(kind, action, keymap);
     const key = (action) => '<kbd>' + esc(label(action).split(' / ')[0]) + '</kbd>'; // a button with two faces shows the first
     const presses = (keys, low) => (low ? key('crouch') + ' + ' : '') + keys.split('').map((k) => key(k === 'P' ? 'punch' : 'kick')).join(' ');
+    const first = carry ? 'K' : 'P', times = own.stand[first.repeat(3)] ? 'three times in a row' : own.stand[first + first] ? 'twice in a row' : 'once'; // the first string this fighter really has with these hands
     const adv = (n) => (n > 0 ? '+' : '') + n;
     const found = {}, stringRows = []; // found: move id -> [number of presses, input] of every row that ends on the move
     for (const table of ['stand', 'crouch']) {
@@ -14310,7 +14313,7 @@ const UI = {
     const legend = [['Punch', 'punch'], ['Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
-      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' three times in a row: your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
+      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
       (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
