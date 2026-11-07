@@ -9,10 +9,10 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-  CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS,
+  CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
   COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2, DEFAULT_UNLOCKED,
   DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID, FACE_POOL_FIRST,
   FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex, Fighter,
@@ -27,10 +27,10 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
-  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
+  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
   VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost, attrTotal, canSetAttr,
   canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom, defaultDefense,
   deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url, handScale,
@@ -42,7 +42,7 @@ const {
   BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
-  FIGHT_TYPES, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
+  FIGHT_TYPES, FIGHT_RULES, FIGHT_PRESETS, FightRules, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
   STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
@@ -227,12 +227,21 @@ const SelfTest = {
     return log;
   },
 
-  run_all() {
+  /* only (optional) picks the tests to run by name: a RegExp, a list of name parts, or one string of name parts split by '|'
+     (plain text, any case: 'Hazards|P18-13'). Without it every test runs. Each result carries ms, the time the test took. */
+  run_all(only) {
     const results = [];
     const self = this;
+    const parts = typeof only === 'string' ? only.split('|') : Array.isArray(only) ? only : [];
+    const wanted = parts.map((part) => String(part).trim().toLowerCase()).filter(Boolean);
+    const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
+    const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const test = (name, fn) => {
+      if (!picked(name)) return;
       let m = null;
+      const started = performance.now();
       try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
+      results[results.length - 1].ms = Math.round(performance.now() - started);
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
@@ -2779,7 +2788,7 @@ const SelfTest = {
         UI.unlockInfo('zero'); UI.unlockInfo('lars'); UI.unlockInfo('kai');
         if (toasts.length !== 2 || toasts[0] !== 'ZERO is locked: Clear Arcade (Arcade clears 0 / 1)|warn' || !toasts[1].startsWith('LARS is open: Win 3 Arcade fights (Arcade wins 3 / 3)')) problems.push('toasts ' + toasts.join(' / '));
         UI.act = (a) => acts.push(a);
-        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero' }) };
+        const target = { closest: () => ({ getAttribute: () => 'unlockinfo:zero', focus() {} }) };
         for (const screen of ['unlocks', 'main']) {
           UI.current = screen; UI.guardUntil = performance.now() + 1000; UI.onClick({ target });
           const ignored = acts.length === 0;
@@ -2947,11 +2956,11 @@ const SelfTest = {
       } finally { Showcase.setPreviewPose(keep); }
       return poseCache;
     };
-    test('Items: 91 items in 9 slots have rows and labels, old indices stay, no sci-fi or fantasy words', () => {
+    test('Items: 92 items in 9 slots have rows and labels, old indices stay, no sci-fi or fantasy words', () => {
       const bad = [], words = /\b(ghost|dragon|demon|wizard|magic|laser|plasma|alien|robot|cyborg|armou?r|cape|horns?|wings?|neon|glow|ninja|samurai|helmet)\b/i, colours = Object.keys(new Fighter(ROSTER_BY_ID.kai, 0).col);
       const total = ITEM_KEYS.reduce((sum, key) => sum + LOOK_CHOICES[key].options.length, LOOK_CHOICES.headband.options.length - 1);   // None counts once per slot
       const kept = ['hairStyle', 'beard', 'mask', 'topStyle', 'legs', 'hands', 'feet'].map((key) => LOOK_CHOICES[key].options.slice(0, LOOK_CLASSIC[key].length)).join('|');
-      if (total !== 91 || kept !== 'short,ponytail,long,mohawk,bald,afro,topknot,braids,buzz,sideswept|none,stubble,goatee,full|none,half,full|bare,tank,tee,gi|shorts,pants|gloves,wraps|shoes,boots,barefoot') bad.push(total + ' ' + kept);
+      if (total !== 92 || kept !== 'short,ponytail,long,mohawk,bald,afro,topknot,braids,buzz,sideswept|none,stubble,goatee,full|none,half,full|bare,tank,tee,gi|shorts,pants|gloves,wraps|shoes,boots,barefoot') bad.push(total + ' ' + kept);
       for (const key of ITEM_KEYS) for (const id of LOOK_CHOICES[key].options) {
         const row = ITEMS[key][id], label = LOOK_CHOICES[key].labels[id];
         if (!label || words.test(label) || (!row && !['none', 'half', 'full'].includes(id))) bad.push(key + ' ' + id);
@@ -3059,6 +3068,99 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- ushanka (P18-11) ---------- */
+    test('Ushanka: last of the headwear, Giorgi wears it in every mode, the creator offers it, old codes and saves load unchanged', () => {
+      const bad = [], options = LOOK_CHOICES.mask.options, old = ['none', 'half', 'full', 'cap', 'beanie', 'hood', 'bandana', 'headgear', 'balaclava'];
+      if (options.slice(0, 9).join() !== old.join() || options[9] !== 'ushanka' || options.length !== 10 || LOOK_CHOICES.mask.labels.ushanka !== 'Ushanka' || LOOK_CLASSIC.mask.length !== 3) bad.push('list ' + options.join());
+      const giorgi = new Fighter(ROSTER_BY_ID.giorgi, 0);   // the fighter every mode builds from the preset
+      if (ROSTER_BY_ID.giorgi.look.mask !== 'ushanka' || giorgi.lk.mask !== 'ushanka' || !giorgi.hat || giorgi.hairP.length) bad.push('Giorgi look');
+      for (const hairStyle of LOOK_CHOICES.hairStyle.options) {   // the hat replaces the hair cap and top hair: only the pieces flagged "stays under headwear" remain
+        const f = itemFighter({}, { hairStyle, mask: 'ushanka' });
+        if (!f.hairP.every((p) => p[11] & 2)) { bad.push('hair ' + hairStyle + ' shows over the hat'); break; }
+      }
+      const versus = mk({ seed: 3, playerId: 'giorgi', opponentId: 'giorgi' }), practice = mk({ seed: 3, playerId: 'kai', opponentId: 'giorgi' });   // the second Giorgi wears the alternate colours, the hat stays
+      if (versus.fighters.some((f) => f.lk.mask !== 'ushanka') || practice.fighters[1].lk.mask !== 'ushanka' || practice.fighters[0].lk.mask === 'ushanka') bad.push('match fighters');
+      versus.dispose(); practice.dispose();
+      const base = validateCustom(randomCustom(4321)).value, withMask = (mask) => Object.assign({}, base, { look: Object.assign({}, base.look, { mask }) });
+      const fieldsOf = (custom) => JSON.parse(fromBase64Url(encodeCustom(custom).split('-')[1]));
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      const balaclava = fieldsOf(withMask('balaclava')), worn = fieldsOf(withMask('ushanka')), differs = balaclava.map((v, n) => (v !== worn[n] ? n : -1)).filter((n) => n >= 0);
+      if (differs.length !== 1 || balaclava[differs[0]] !== 8 || worn[differs[0]] !== 9) bad.push('index ' + differs.join());   // the new hat is index 9, the old last one stays 8
+      const back = decodeCustom(encodeCustom(withMask('ushanka')), true);
+      if (!back.ok || back.value.look.mask !== 'ushanka' || JSON.stringify(back.value) !== JSON.stringify(validateCustom(withMask('ushanka')).value)) bad.push('round trip');
+      old.forEach((id, n) => {   // a code from before the hat: every old index still reads the same hat
+        const copy = balaclava.slice(); copy[differs[0]] = n;
+        const r = recode(copy);
+        if (!r.ok || r.value.look.mask !== id || JSON.stringify(r.value) !== JSON.stringify(validateCustom(withMask(id)).value)) bad.push('old code ' + id);
+        if (!validateCustom(withMask(id)).ok) bad.push('old save ' + id);
+      });
+      for (const value of [10, -1, 1.5]) { const copy = balaclava.slice(); copy[differs[0]] = value; if (recode(copy).ok) bad.push('accepted ' + value); }
+      const keep = { draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender };
+      UI.say = () => {}; UI.rerender = () => {};
+      try {
+        const d = CreatorUI.draft = defaultCustom(0);
+        d.look.mask = 'none'; d.look.headband = 'band';
+        CreatorUI.cycleChoice('mask', -1);   // one step back from None reaches the last hat
+        if (d.look.mask !== 'ushanka' || !CreatorUI.tab_head().includes('Ushanka') || !CreatorUI.tab_head().includes('hidden by hat')) bad.push('creator pick');
+        CreatorUI.cycleChoice('mask', 1);
+        if (d.look.mask !== 'none') bad.push('creator cycle');
+        for (let n = 0; n < options.length - 1; n++) CreatorUI.cycleChoice('mask', 1);
+        if (d.look.mask !== 'ushanka' || !validateCustom(d).ok) bad.push('creator forward');
+      } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Ushanka: the dome and ear bar follow the head and stay clear of the chest, torso and shoulders in the creator poses and in a Giorgi fight', () => {
+      const bad = [], poses = Object.values(previewPoses()).map((pose) => Float32Array.from(pose)), axis = (m, o) => Math.hypot(m[o], m[o + 1], m[o + 2]);
+      const fight = mk({ seed: 9, playerId: 'giorgi', opponentId: 'mara', difficulty: 'hard' }, (it, f, o, mm) => {   // every 5th pose of 700 ticks of punches, kicks, grabs and walking
+        if (mm.tick % 5 === 0) poses.push(Float32Array.from(f.pose));
+        if (mm.tick % 37 === 3) it.punch = true;
+        if (mm.tick % 61 === 20) it.kick = true;
+        if (mm.tick % 150 === 90) it.grab = true;
+        it.fwd = mm.tick % 120 < 60 ? 1 : -0.5;
+      });
+      self.run(fight, 700); fight.dispose();
+      if (new Set(poses.map((pose) => Array.from(pose).map((v) => v.toFixed(2)).join())).size < 40) bad.push('too few different poses ' + poses.length);
+      const key = (m) => Array.from(m).map((v) => v.toFixed(4)).join();
+      const find = (list, mesh, dims, sc) => list.filter((q) => q[2] === mesh && dims.every((v, n) => Math.abs(axis(q[3], n * 4) - v * sc) < 1e-5));
+      const inside = (q, x, y, z, round) => {   // is the world point inside the unit cube or sphere part (axis lengths are its sizes)
+        let sum = 0;
+        for (const o of [0, 4, 8]) {
+          const u = ((x - q[3][12]) * q[3][o] + (y - q[3][13]) * q[3][o + 1] + (z - q[3][14]) * q[3][o + 2]) / axis(q[3], o) ** 2;
+          if (Math.abs(u) >= 0.5) return false;
+          sum += u * u;
+        }
+        return !round || sum < 0.25;
+      };
+      const surface = (q) => {   // 40 to 56 points on the surface of a sphere or cylinder part
+        const out = [], m = q[3];
+        for (let k = 0; k < 8; k++) for (const y of q[2] === CY ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45]) {
+          const r = q[2] === CY ? 0.5 : Math.sqrt(0.25 - y * y), x = r * Math.cos(k * Math.PI / 4), z = r * Math.sin(k * Math.PI / 4);
+          out.push([0, 1, 2].map((c) => m[c] * x + m[c + 4] * y + m[c + 8] * z + m[c + 12]));
+        }
+        return out;
+      };
+      let checked = 0;
+      for (const body of [ROSTER_BY_ID.giorgi, itemBodies[0], itemBodies[1]]) {
+        const f = body === ROSTER_BY_ID.giorgi ? new Fighter(body, 0) : itemFighter(body, { mask: 'ushanka' }), look = f.look, T = f.topRow, b = f.build, sh = f.shape, sc = f.scale, ball = (T[2] || BODY.ball) * b * sh.arm;
+        const solids = [[CB, [BODY.torso[0] * T[0] * b * sh.chest, BODY.torso[1], BODY.torso[2] * T[1] * b], false], [SP, [BODY.chest[0] * T[0] * b * sh.chest, BODY.chest[1], BODY.chest[2] * T[1] * b], true], [SP, [ball, ball, ball], true]];
+        poses.forEach((pose, n) => {
+          f.applyLook(Object.assign({}, look, { mask: 'ushanka' }));
+          const worn = drawnParts(f, pose);
+          f.applyLook(Object.assign({}, look, { mask: 'none' }));
+          const bare = drawnParts(f, pose), seen = new Set(bare.map((q) => key(q[3])));
+          const hat = worn.filter((q) => !seen.has(key(q[3]))), head = find(bare, SP, BODY.head, sc), dome = hat.filter((q) => q[2] === SP && Math.abs(axis(q[3], 0) - 0.31 * sc) < 1e-5);
+          const found = solids.map(([mesh, dims, round]) => find(bare, mesh, dims, sc).map((q) => [q, round]));
+          if (hat.length !== 2 || head.length !== 1 || dome.length !== 1 || found.some((list) => !list.length)) { if (bad.length < 6) bad.push('parts ' + hat.length + '/' + head.length + '/' + dome.length + '/' + found.map((list) => list.length) + ' pose ' + n); return; }
+          const centre = head[0][3], up = [4, 5, 6].map((o) => centre[o] / axis(centre, 4)), at = (q) => [q[3][12] - centre[12], q[3][13] - centre[13], q[3][14] - centre[14]];
+          const away = at(dome[0]), rise = away[0] * up[0] + away[1] * up[1] + away[2] * up[2];
+          if (Math.abs(Math.hypot(...away) - Math.hypot(0.285 - BODY.headY, -0.03) * sc) > 1e-3 * sc || rise <= 0) { if (bad.length < 6) bad.push('dome off the head, pose ' + n); }   // rigid with the head and above its centre
+          for (const q of hat) if (Math.hypot(...at(q)) > 0.25 * sc) { if (bad.length < 6) bad.push('part away from the head, pose ' + n); }
+          for (const q of hat) for (const point of surface(q)) for (const list of found) for (const [solid, round] of list) if (inside(solid, ...point, round)) { if (bad.length < 6) bad.push('hat enters the body, pose ' + n); }
+          checked++;
+        });
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : checked >= 120 ? true : 'only ' + checked + ' poses checked';
+    });
     test('Items: ink is drawn only where no top, sleeve, wrap or glove covers the skin', () => {
       const f = itemFighter({}, {}), bad = [], n = (extra) => { f.applyLook(Object.assign({}, f.look, extra)); return drawnParts(f).length; };
       const cost = (mark, extra) => n(Object.assign({ mark }, extra)) - n(Object.assign({ mark: 'none' }, extra));   // parts the mark adds
@@ -3128,7 +3230,7 @@ const SelfTest = {
         if (list.filter((p) => p.cast === -1 - n && p.layer === LAYER.SOLID).length !== 1 || list.length >= size({ brows }) || list.some((p) => p.em !== 0 || !p.finite)) bad.push(face);
       });
       if (shells({ face: 'f5' }, false) || shells({ face: 'f5' }, !!FaceTex.upload(fakeGl(true)))) bad.push('fallback');
-      for (const [mask, shown] of [['full', 0], ['balaclava', 0], ['half', 1], ['cap', 1], ['headgear', 1]]) if (shells({ face: 'f5', mask }) !== shown || (!shown && size({ face: 'f5', mask }) !== size({ mask }))) bad.push(mask);
+      for (const [mask, shown] of [['full', 0], ['balaclava', 0], ['half', 1], ['cap', 1], ['headgear', 1], ['ushanka', 1]]) if (shells({ face: 'f5', mask }) !== shown || (!shown && size({ face: 'f5', mask }) !== size({ mask }))) bad.push(mask);
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Faces: every face is painted into the atlas and, on a real GL context, into the uploaded texture (not blank)', () => {
@@ -3351,8 +3453,8 @@ const SelfTest = {
         return fnv1a(s) + ':' + s.length;
       };
       const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => { const c = randomCustom(seed); c.name = LEGACY_NAMES[NAME_IDEAS.indexOf(c.name)]; return hashOf(customProfile(validateCustom(c).value, 0)); })).join();
-      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
-      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,2281133330:8990,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
+      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
+      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,4086853331:9315,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
       const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
       const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
       const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
@@ -4504,8 +4606,7 @@ const SelfTest = {
         beforeStreak = ['reid', 'camila', 'nia'].map((id) => Progress.isUnlocked(id));
         Progress.d.survivalKills = 8; const gained = Progress.checkUnlocks();
         const restLocked = ROSTER.filter((r) => !Progress.isUnlocked(r.id)).every((r) => UNLOCK_RULES[r.id][0] === 'beat');   // what is left opens by beating that fighter, who is not in KAI's story
-        const thirdBeaten = ROSTER_BY_ID[Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1).rivalB].name;   // stage 3 is led by rival B, who opens when beaten
-        if (runs > 5 || thirdWin !== 'DMITRI, ' + thirdBeaten + ' and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !restLocked) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' rest ' + restLocked);
+        if (runs > 5 || thirdWin !== 'DMITRI and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !restLocked) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' rest ' + restLocked);
         // the cards: a locked one names its rule, an open one does not
         Progress.d = Progress.fresh();
         const locked = UI.fighterCard(ROSTER_BY_ID.deacon, 'pick', false), open = UI.fighterCard(ROSTER_BY_ID.rosa, 'pick', false), opponent = UI.fighterCard(ROSTER_BY_ID.deacon, 'opp', false);
@@ -5245,6 +5346,267 @@ const SelfTest = {
       const got = ONE_V_ONE_FINGERPRINTS.map((f) => fingerprint(f.opts)), want = ONE_V_ONE_FINGERPRINTS.map((f) => f.hash);
       return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
     });
+    /* ---------- Accessibility (P18-27): coaching lines, Guard assist, the Move list start ---------- */
+    const accPerson = (fn) => Object.assign(self.scripted(fn || (() => {})), { human: true });   // a person's controller: the only kind the assists and the tips reach
+    const accRig = (body) => {   // a fight with a person on seat 1 and no saved tips; the saves, the match and the settings are put back
+      const saved = keepProgress(), keepMatch = Game.match, keepDevice = Input.lastDevice, keepCoach = Object.assign({}, Coach), keepSettings = Object.assign({}, Settings.v), keepDom = UI.dom;
+      try {
+        UI.dom = Object.assign({}, keepDom, { onboard: { hidden: true } });   // a stand-in for the controls card: closed
+        Progress.d = Progress.fresh();
+        const m = mk({});
+        m.controllers[0] = accPerson();
+        Game.match = m;
+        Object.assign(Coach, { pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0 });
+        return body(m, m.fighters[0], m.fighters[1]);
+      } finally { Game.match = keepMatch; Input.lastDevice = keepDevice; Object.assign(Coach, keepCoach); Object.assign(Settings.v, keepSettings); UI.dom = keepDom; restoreProgress(saved); }
+    };
+    const ACC_TRIGGERS = {   // what makes each line ask for the strip (the polled ones are read by Coach.line itself)
+      punch: (m) => { m.matchTicks = COACH_PUNCH_TICKS; },
+      stam: (m, a) => Events.emit('lowStamina', { f: a }),
+      block: (m, a, b) => Events.emit('block', { att: b, def: a, perfect: false }),
+      perfect: (m, a, b) => Events.emit('block', { att: b, def: a, perfect: true }),
+      low: (m, a, b) => Events.emit('hit', { att: b, def: a, mv: { h: 'L' }, combo: 1, crouched: false }),
+      stun: (m, a, b) => Events.emit('hit', { att: b, def: a, mv: { h: 'M' }, combo: 3, crouched: false }),
+      down: (m, a) => Events.emit('knockdown', { f: a }),
+      grab: (m, a, b) => { m.intents[0].defend = true; Events.emit('clinch', { att: b, def: a, grip: 'front' }); },
+      item: (m) => { m.itemToUse = () => ({}); },
+    };
+    test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
+      const bad = [], strip = () => Coach.line(m, a), nextRound = () => { m.tick += COACH_SHOW_TICKS + 1; m.round++; };
+      if (m.phase !== 'fight' || m.round !== 1) return 'the test fight is not in round 1 of the fight phase';
+      a.stringKeys = 'PP'; ACC_TRIGGERS.punch(m); strip();   // a chain was thrown: no Punch line
+      if (Progress.d.tips.punch || Coach.pending) bad.push('Punch line after a chain');
+      a.stringKeys = ''; Coach.chained = false;
+      for (const tip of COACH_TIPS) {   // every line in turn, each in a round of its own
+        if (tip.key === 'lose') continue;
+        ACC_TRIGGERS[tip.key](m, a, b);
+        const text = strip();
+        if (text !== Coach.textOf(tip.key) || Progress.d.tips[tip.key] !== true || JSON.parse(Store.get(KEY_PROGRESS)).tips[tip.key] !== true) bad.push(tip.key + ' did not show or was not saved: "' + text + '"');
+        if (strip() !== text) bad.push(tip.key + ' did not stay on the strip');
+        const snap = JSON.stringify(Progress.d.tips), probe = ['down', 'stam', 'block', 'perfect'].find((key) => key !== tip.key && Progress.d.tips[key] === false);
+        if (probe) ACC_TRIGGERS[probe](m, a, b);   // another line asks in the same round: it waits, and does not come in that round at all
+        if (Coach.pending) bad.push('a second line in the round of ' + tip.key);
+        m.tick += COACH_SHOW_TICKS; if (strip() !== '') bad.push(tip.key + ' stayed past 4 s');
+        if (JSON.stringify(Progress.d.tips) !== snap || strip() !== '') bad.push('a second line later in the round of ' + tip.key);
+        nextRound();
+        ACC_TRIGGERS[tip.key](m, a, b);
+        if (strip() !== '') bad.push(tip.key + ' shown twice');
+        delete m.itemToUse;
+        nextRound();
+      }
+      const missing = COACH_TIPS.filter((tip) => tip.key !== 'lose' && !Progress.d.tips[tip.key]).map((tip) => tip.key);
+      if (missing.length) bad.push('not shown: ' + missing.join());
+      Progress.init();   // a reload reads the saved file
+      if (COACH_TIPS.some((tip) => tip.key !== 'lose' && Progress.d.tips[tip.key] !== true)) bad.push('not kept after a reload');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Accessibility (P18-27): no coaching line for the CPU, seat 2, a benchmark, a replay, a countdown, Training, an open controls card or after 20 fights; a line held back is not used up and comes back', () => accRig((m, a, b) => {
+      const bad = [], card = UI.dom.onboard;
+      const quiet = (label, setup, undo, who) => {
+        setup();
+        Coach.pending = null; Events.emit('knockdown', { f: who || a });
+        const text = Coach.line(m, a), used = Progress.d.tips.down;
+        undo();
+        Coach.pending = Coach.shown = null; Coach.last = null; Progress.d.tips.down = false;
+        if (text !== '' || used) bad.push(label);
+      };
+      const person = m.controllers[0];
+      quiet('seat 2', () => {}, () => {}, b);
+      quiet('a CPU', () => { m.controllers[0] = self.scripted(() => {}); }, () => { m.controllers[0] = person; });
+      quiet('a benchmark', () => { m.cfg.benchmark = true; }, () => { delete m.cfg.benchmark; });
+      quiet('a replay', () => { m.cfg.replay = true; }, () => { delete m.cfg.replay; });
+      quiet('a countdown', () => { m.phase = 'countdown'; }, () => { m.phase = 'fight'; });
+      quiet('Training', () => { m.training = true; }, () => { m.training = false; });
+      quiet('20 fights', () => { Progress.d.wins = COACH_MAX_FIGHTS - 5; Progress.d.losses = 5; }, () => { Progress.d.wins = Progress.d.losses = 0; });
+      card.hidden = false;
+      Events.emit('knockdown', { f: a });
+      const held = Coach.line(m, a), unused = Progress.d.tips.down === false;
+      card.hidden = true;
+      Events.emit('knockdown', { f: a });   // the same thing happens again with the card closed
+      if (Progress.d.tips.down !== false || !Coach.pending) bad.push('a line was used up before the strip showed it');
+      const back = Coach.line(m, a);
+      if (held !== '' || !unused || Progress.d.tips.down !== true || back !== Coach.textOf('down')) bad.push('a held-back line: "' + held + '" then "' + back + '"');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Accessibility (P18-27): every coaching line is plain ASCII, at most 70 characters (the loss offer, a toast, 90), free of design notes, and names the control of the device used last', () => {
+      const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
+      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'Down'], touch: ['DEFEND', 'DUCK'] };
+      try {
+        if (COACH_TIPS.length !== 10 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 10) bad.push('the table does not have 10 keys');
+        for (const device of ['keyboard', 'gamepad', 'touch']) {
+          Input.lastDevice = device;
+          for (const tip of COACH_TIPS) {
+            const text = Coach.textOf(tip.key);
+            if (!/^[\x20-\x7e]+$/.test(text) || text.length > (tip.key === 'lose' ? 90 : 70) || note.test(text)) bad.push(device + ' ' + tip.key + ': ' + text);
+          }
+          if (!Coach.textOf('stun').includes(named[device][0]) || !Coach.textOf('low').includes(named[device][0]) || !Coach.textOf('low').includes(named[device][1])) bad.push(device + ' lines do not name its controls: ' + Coach.textOf('low'));
+        }
+      } finally { Input.lastDevice = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): Progress keeps which lines were shown; a missing, damaged or foreign tips field loads as none shown, and extra keys are dropped', () => {
+      const bad = [], saved = keepProgress();
+      try {
+        if (!COACH_TIPS.every((tip) => Progress.fresh().tips[tip.key] === false) || Object.keys(Progress.fresh().tips).length !== COACH_TIPS.length) bad.push('fresh');
+        const load = (extra) => { Store.set(KEY_PROGRESS, JSON.stringify(Object.assign({ wins: 3 }, extra))); Progress.init(); return Progress.d.tips; };
+        const old = load({});
+        if (COACH_TIPS.some((tip) => old[tip.key] !== false) || Progress.d.wins !== 3) bad.push('an old save');
+        for (const damaged of [5, 'yes', null, [true, true], true]) if (COACH_TIPS.some((tip) => load({ tips: damaged })[tip.key] !== false)) bad.push('damaged ' + JSON.stringify(damaged));
+        const mixed = load({ tips: { block: true, perfect: 'yes', stun: 1, down: true, bogus: true } });
+        if (mixed.block !== true || mixed.down !== true || mixed.perfect !== false || mixed.stun !== false || 'bogus' in mixed || Object.keys(mixed).length !== COACH_TIPS.length) bad.push('mixed ' + JSON.stringify(mixed));
+      } finally { restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const accGuardMatch = (assist, kind) => {   // fighter 1 strikes, fighter 2 (a Block fighter, a person) guards
+      const m = mk({ assist });
+      m.controllers[1] = accPerson();
+      m.fighters[1].defense = kind || 'block';
+      self.place(m, 1.0);
+      return m;
+    };
+    const accStrike = (m, mv) => { const att = m.fighters[0]; att.startAttack(mv); att.moveTick = att.mStartup + 1; return Combat.evaluate(att, m.fighters[1]); };
+    test('Accessibility (P18-27): Guard assist blocks the other height as a plain block while Defend is held (standing or ducked), never perfect on a height switch, and grabs, a Sway fighter and the CPU are untouched', () => {
+      const bad = [], low = ATTACKS.low_kick, mid = Object.values(ATTACKS).find((mv) => mv.type === 'strike' && mv.h === 'M' && mv.reach >= 1.2);
+      if (!low || low.h !== 'L' || !mid) return 'no low or mid strike to test with';
+      const verdict = (assist, state, mv, fresh) => {
+        const m = accGuardMatch(assist), def = m.fighters[1];
+        m.step();   // the person's intent is read once so the flag reaches the fighter
+        def.setState(state); def.stateTicks = 2; def.blockFresh = !!fresh;
+        const d = accStrike(m, mv);
+        return d ? d.type + ':' + d.block : 'none';
+      };
+      const cases = [   // [what, on, off]
+        ['standing guard, low strike', verdict(ASSIST_GUARD, S.BLOCK_H, low), verdict(0, S.BLOCK_H, low), 'strike:block', 'strike:none'],
+        ['ducked guard, mid strike', verdict(ASSIST_GUARD, S.BLOCK_L, mid), verdict(0, S.BLOCK_L, mid), 'strike:block', 'strike:none'],
+        ['standing guard, mid strike', verdict(ASSIST_GUARD, S.BLOCK_H, mid, true), verdict(0, S.BLOCK_H, mid, true), 'strike:perfect', 'strike:perfect'],
+        ['standing guard, low strike, fresh', verdict(ASSIST_GUARD, S.BLOCK_H, low, true), verdict(0, S.BLOCK_H, low, true), 'strike:block', 'strike:none'],
+        ['ducked guard, low strike, fresh', verdict(ASSIST_GUARD, S.BLOCK_L, low, true), verdict(0, S.BLOCK_L, low, true), 'strike:perfect', 'strike:perfect'],
+        ['no guard at all', verdict(ASSIST_GUARD, S.IDLE, low), verdict(0, S.IDLE, low), 'strike:none', 'strike:none'],
+      ];
+      for (const [what, on, off, wantOn, wantOff] of cases) if (on !== wantOn || off !== wantOff) bad.push(what + ': on ' + on + ' off ' + off);
+      const grab = (assist, state) => { const m = accGuardMatch(assist), def = m.fighters[1]; m.step(); def.setState(state); const d = accStrike(m, ATTACKS.grab); return d ? d.type : 'none'; };
+      if (grab(ASSIST_GUARD, S.BLOCK_H) !== 'grab' || grab(ASSIST_GUARD, S.BLOCK_L) !== 'grab') bad.push('a grab was blocked');
+      const swayKinds = (assist) => { const m = accGuardMatch(assist, 'sway'), def = m.fighters[1], kinds = []; m.step(); def.setState(S.SWAY); for (let n = 0; n < SWAY_TOTAL_TICKS; n++) { def.stateTicks = n; const d = accStrike(m, low); kinds.push(d ? d.type + (d.perfect ? '+' : '') + ':' + d.block : 'none'); } return kinds.join(); };
+      if (swayKinds(ASSIST_GUARD) !== swayKinds(0)) bad.push('a Sway fighter changed');
+      const cpu = mk({ assist: ASSIST_GUARD | ASSIST_STRINGS }), person = accGuardMatch(ASSIST_GUARD | ASSIST_STRINGS);
+      cpu.controllers[0] = new AIController(cpu.fighters[0].profile, 'hard'); cpu.controllers[1] = new AIController(cpu.fighters[1].profile, 'hard');
+      self.run(cpu, 120); self.run(person, 5);
+      if (cpu.intents.some((it) => it.guardAssist || it.assist) || cpu.fighters.some((f) => f.guardAssist)) bad.push('the CPU got an assist');
+      if (!person.intents[1].guardAssist || !person.intents[1].assist || person.intents[0].guardAssist) bad.push('the person did not get it, or the CPU seat did');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): with the assists Off, or in a match of CPUs only, the three recorded 1v1 fights keep their exact event log and result', () => {
+      const bad = [];
+      for (const f of ONE_V_ONE_FINGERPRINTS) for (const assist of [0, ASSIST_GUARD | ASSIST_STRINGS]) {   // a CPU fight is the same with the bits on: nobody there is a person
+        const got = fingerprint(Object.assign({}, f.opts, { matchCfg: { assist } }));
+        if (got !== f.hash) bad.push('seed ' + f.opts.seed + ' assist ' + assist + ': ' + got + ' not ' + f.hash);
+      }
+      if (makeIntent().guardAssist !== false || clearIntent(Object.assign(makeIntent(), { guardAssist: true })).guardAssist !== false) bad.push('the intent field');
+      return bad.length ? bad.slice(0, 3).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the assists come from the match config, so one input log gives the same fight after a JSON round trip and whatever Settings says mid-fight; On differs from Off', () => {
+      const bad = [], keep = Object.assign({}, Settings.v);
+      const fight = (assist, midFight) => {   // the attacker kicks low every 36 ticks; the person stands and holds Defend
+        const m = mk({ assist, seed: 5 });
+        m.fighters[1].defense = 'block';
+        self.place(m, 1.0);
+        m.controllers[0] = self.scripted(pressString(['K', 'K', 'K', 'K', 'K', 'K', 'K', 'K', 'K', 'K'], { height: true }));
+        m.controllers[1] = accPerson((it) => { it.defend = true; });
+        for (let t = 0; t < 360; t++) { if (t === 100 && midFight) midFight(); m.step(); }
+        const [x, y] = m.fighters;
+        return fnv1a([x.hp, y.hp, x.stam.toFixed(2), y.stam.toFixed(2), x.x.toFixed(3), y.x.toFixed(3), m.tick].join()).toString(36) + ':' + y.hp.toFixed(1);
+      };
+      try {
+        const off = fight(0), on = fight(ASSIST_GUARD), onJson = fight(JSON.parse(JSON.stringify({ assist: ASSIST_GUARD })).assist);
+        if (on !== onJson) bad.push('JSON round trip ' + on + ' ' + onJson);
+        if (on === off) bad.push('On plays like Off: ' + on);
+        const settingsOn = () => { Settings.v.autoAssist = true; Settings.v.guardAssist = true; }, settingsOff = () => { Settings.v.autoAssist = false; Settings.v.guardAssist = false; };
+        if (fight(ASSIST_GUARD, settingsOff) !== on) bad.push('Settings turned off mid-fight changed an On fight');
+        if (fight(0, settingsOn) !== off) bad.push('Settings turned on mid-fight changed an Off fight');
+        const strings = (assist, setting) => {   // out of reach: only Auto-assist lets the string go on
+          Settings.v.autoAssist = setting;
+          const m = mk({ assist });
+          m.controllers[0] = accPerson((it, f, o, mm) => { if (mm.tick % 14 === 3) it.punch = true; });
+          self.place(m, 3.0);
+          let longest = 0;
+          for (let t = 0; t < 70; t++) { m.step(); longest = Math.max(longest, m.fighters[0].stringKeys.length); }
+          return longest;
+        };
+        if (strings(ASSIST_STRINGS, false) < 2) bad.push('the config bit did not turn the string assist on');
+        if (strings(0, true) > 1) bad.push('Settings alone turned the string assist on in a match with its own config');
+      } finally { Object.assign(Settings.v, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): a match started from the menu copies the assists from Settings into its config, a rematch reads them again, and Guard assist is a saved setting that is Off by default', () => {
+      const bad = [], keep = Object.assign({}, Settings.v), keepGame = { config: Game.config, match: Game.match, state: Game.state, go: Game.go, run: Game.run };
+      try {
+        if (SETTING_DEFS.guardAssist.def !== false || Settings.validate('guardAssist', 'yes') !== false || !SETTING_DEFS.guardAssist.hint || SETTING_DEFS.guardAssist.hint.length > 200) bad.push('definition');
+        Settings.set('guardAssist', true);
+        if (JSON.parse(Store.get(KEY_SETTINGS)).guardAssist !== true) bad.push('not saved');
+        const read = () => { Settings.v.autoAssist = true; Settings.v.guardAssist = false; Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy', winsNeeded: 2, timer: 0 }); return Game.config.assist; };
+        Game.go = () => true;   // no screens in the test
+        if (read() !== ASSIST_STRINGS) bad.push('Auto-assist alone gave ' + Game.config.assist);
+        Settings.v.guardAssist = true;
+        Game.restartMatch();
+        if (Game.config.assist !== (ASSIST_STRINGS | ASSIST_GUARD)) bad.push('a rematch gave ' + Game.config.assist);
+      } catch (error) { bad.push(String(error.message || error)); } finally {
+        Game.endMatch(); Game.go = keepGame.go; Game.config = keepGame.config; Game.match = keepGame.match; Game.state = keepGame.state; Game.run = keepGame.run; Object.assign(Settings.v, keep); Settings.save();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the Move list opens with Start here in the device\'s key names, and stars the signature moves of the style (the same data the Training panel lists)', () => {
+      const bad = [], faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      for (const id of MOVE_STYLE_IDS) {
+        const profile = styleProfile(id), style = MOVE_STYLE[id];
+        for (const kind of ['keyboard', 'gamepad', 'touch']) {
+          const html = UI.screen_moves(profile, kind), start = html.indexOf('<b>Start here:</b>');
+          const block = start < 0 ? '' : html.slice(start, html.indexOf('</p>', start));
+          if (!block || !block.includes('<kbd>' + esc(faces[kind]('punch')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('defend')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('grapple')) + '</kbd>') || html.indexOf('<table') < start) { bad.push(id + ' ' + kind + ' start block'); continue; }
+          const marked = style.signature.filter(([, uses]) => ATTACKS[uses] && html.includes('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'));
+          const stars = html.split('<b>*</b>').length - 1;
+          if (stars !== marked.length) bad.push(id + ' ' + kind + ' has ' + stars + ' stars, the signature lists ' + marked.length);
+          for (const [, uses] of marked) { const at = html.indexOf('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'); if (!html.slice(at, html.indexOf('</tr>', at)).includes('<b>*</b>')) bad.push(id + ' ' + kind + ' ' + uses + ' is not starred'); }
+        }
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): Start here names the first string the fighter really has (three, two or one press), with Kick when a crate is carried and with a weapon in hand, for all 16 styles', () => {
+      const bad = [], seen = new Set(), ids = Object.keys(WEAPONS), carryId = ids.find((id) => WEAPONS[id].cls === 'carry'), armId = ids.find((id) => WEAPONS[id].cls !== 'carry');
+      const words = { 3: 'three times in a row', 2: 'twice in a row', 1: 'once' };
+      if (MOVE_STYLE_IDS.length !== 16 || !carryId || !armId) return 'no 16 styles or no carried / held item to test with';
+      for (const id of MOVE_STYLE_IDS) for (const held of [undefined, carryId, armId]) {
+        const carry = held === carryId, own = held && !carry ? weaponTable(id, held) : stringsFor(id), first = carry ? 'K' : 'P';
+        const want = words[own.stand[first.repeat(3)] ? 3 : own.stand[first + first] ? 2 : 1];
+        const html = UI.screen_moves(styleProfile(id), 'keyboard', held), start = html.indexOf('<b>Start here:</b>'), block = html.slice(start, html.indexOf('</p>', start));
+        seen.add(want);
+        if (start < 0 || !block.includes(' ' + want + ': your first string')) bad.push(id + ' ' + (held || 'bare-handed') + ' wants "' + want + '": ' + block.slice(0, 90));
+      }
+      if (seen.size < 2) bad.push('every case reads the same: ' + [...seen].join());
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Accessibility (P18-27): the loss offer shows after the second loss in a row among the first 10 fights, once, and not when both assists are already on', () => accRig((m) => {
+      const bad = [], toasts = [], keepToast = UI.toast, end = (won) => { m.matchWinner = won ? 0 : 1; Coach.matchEnd(m); };
+      UI.toast = (msg, kind, ms) => toasts.push(msg);
+      try {
+        end(false); end(true); end(false);   // a win in between starts the count again
+        if (toasts.length) bad.push('shown after loss, win, loss');
+        end(false);
+        if (toasts.length !== 1 || toasts[0] !== Coach.textOf('lose') || !Progress.d.tips.lose || JSON.parse(Store.get(KEY_PROGRESS)).tips.lose !== true) bad.push('not shown after the second loss in a row');
+        end(false); end(false);
+        if (toasts.length !== 1) bad.push('shown more than once');
+        const again = (setup) => { Progress.d.tips.lose = false; Coach.streak = 0; setup(); end(false); end(false); return toasts.length; };
+        const before = toasts.length;
+        if (again(() => { Settings.v.autoAssist = Settings.v.guardAssist = true; }) !== before) bad.push('shown with both assists on');
+        if (again(() => { Settings.v.autoAssist = false; Progress.d.wins = COACH_LOSS_FIGHTS + 1; }) !== before) bad.push('shown after 10 fights');
+        if (again(() => { Progress.d.wins = 0; m.controllers[0] = self.scripted(() => {}); }) !== before) bad.push('shown for a CPU');
+        m.controllers[0] = accPerson();
+        m.versus = true;
+        if (again(() => {}) !== before) bad.push('shown in Versus');
+        m.versus = false;
+        if (again(() => {}) !== before + 1) bad.push('not shown again once the case allows it');
+      } finally { UI.toast = keepToast; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
     const CROWD_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];   // the seeds the crowd tests run (P18-36; they were seed 6 only)
     test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
       const oneSeed = (seed) => {
@@ -6513,6 +6875,34 @@ const SelfTest = {
     const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
     const ROSTER_IDS = ROSTER.map((r) => r.id);
     const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    test('Hit freeze (P18-53): a 1v1 freezes on every hit as before; with more than two fighters a CPU against CPU hit never freezes, the one person\'s own hits freeze at most CROWD_HITSTOP_MAX ticks, and with two or more people nothing freezes', () => {
+      const bad = [];
+      const solo = mk({});
+      solo.addHitStop(16, solo.fighters[0], solo.fighters[1]);
+      if (solo.hitStop !== 16) bad.push('1v1 ' + solo.hitStop);
+      solo.hitStop = 0; solo.addHitStop(9, solo.fighters[1], solo.fighters[0]);
+      if (solo.hitStop !== 9) bad.push('1v1 CPU hit ' + solo.hitStop);
+      const one = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 3, false]]));
+      const [person, cpuA, cpuB] = one.fighters;
+      if (!one.isHuman(person) || one.isHuman(cpuA)) bad.push('seats');
+      one.addHitStop(9, cpuA, cpuB);
+      if (one.hitStop !== 0) bad.push('CPU on CPU froze ' + one.hitStop);
+      one.addHitStop(16, cpuA, person);
+      if (one.hitStop !== CROWD_HITSTOP_MAX) bad.push('hit taken by the person ' + one.hitStop);
+      one.hitStop = 0; one.addHitStop(2, person, null);
+      if (one.hitStop !== 2) bad.push('short person hit ' + one.hitStop);
+      one.hitStop = 0; cpuB.hp = 1;
+      Combat.clinchStrike(cpuA, cpuB, CLINCH_MOVES.elbow, one);
+      if (cpuB.state !== S.KO || one.hitStop !== 0) bad.push('a CPU knockout of a CPU: ' + cpuB.state + ', froze ' + one.hitStop);
+      one.hitStop = 0; cpuA.lastFoe = person; cpuA.hp = 0;
+      Combat.knockOut(cpuA, null, null, one);   // no attacker (a knockout on landing or from a fall): the last one to hurt counts
+      if (cpuA.state !== S.KO || one.hitStop !== CROWD_HITSTOP_MAX) bad.push('a knockout with no attacker after the person\'s hit: ' + cpuA.state + ', froze ' + one.hitStop);
+      const two = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, true], ['brutus', 3, false]]));
+      two.addHitStop(16, two.fighters[0], two.fighters[1]);
+      two.addHitStop(9, two.fighters[2], two.fighters[0]);
+      if (two.hitStop !== 0) bad.push('two people froze ' + two.hitStop);
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
       const problems = [];
       const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));
@@ -6813,15 +7203,15 @@ const SelfTest = {
       try {
         self.freshFree();
         Game.selection.mode = 'free';
-        const plain = UI.screen_freemore();
-        if (!plain.includes('data-local="rounds"') || !plain.includes('data-local="timer"') || (plain.match(/Not used/g) || []).length !== 1) problems.push('plain Duel rows');
+        const head = (html) => html.slice(0, html.indexOf('Rules preset')), plain = UI.screen_freemore();   // the rows before the fight rules (P18-43), which have their own dimmed rows
+        if (!plain.includes('data-local="rounds"') || !plain.includes('data-local="timer"') || (head(plain).match(/Not used/g) || []).length !== 1) problems.push('plain Duel rows');
         Game.lineupFor().slots.push({ id: 'brutus', human: false, team: 0 });
         const one = UI.screen_freemore();
-        if (one.includes('data-local="rounds"') || one.includes('data-local="timer"') || !one.includes('data-local="ltimer"') || (one.match(/Not used/g) || []).length !== 2 || !UI.screen_freefight().includes('data-local="diff"')) problems.push('Free Fight with 3 fighters');
+        if (one.includes('data-local="rounds"') || one.includes('data-local="timer"') || !one.includes('data-local="ltimer"') || (head(one).match(/Not used/g) || []).length !== 2 || !UI.screen_freefight().includes('data-local="diff"')) problems.push('Free Fight with 3 fighters');
         Game.applyType('Versus');
         Game.lineupFor().slots.push({ id: 'brutus', human: false, team: 0 });
         const vs = UI.screen_freemore();
-        if (vs.includes('data-local="rounds"') || (vs.match(/Not used/g) || []).length !== 2) problems.push('Versus with a CPU');
+        if (vs.includes('data-local="rounds"') || (head(vs).match(/Not used/g) || []).length !== 2) problems.push('Versus with a CPU');
         const teams = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), duel = lineupMatch(lineupOf([['kai', 0, true], ['mara', 0, false]])), crowd = lineupMatch(ffaOf(4));
         const labels = [teams, duel, crowd].map((m) => UI.roundSub(m));
         if (labels.join('|') !== '2 FIGHTERS · 2 TEAMS|2 FIGHTERS · ONE ON ONE|4 FIGHTERS · FREE-FOR-ALL') problems.push('labels ' + labels.join('|'));
@@ -7657,7 +8047,7 @@ const SelfTest = {
       }
       return bad.length ? bad.join('; ') : true;
     });
-    /* ---------- Touch crouch by the stick (P17-18) ---------- */
+    /* ---------- Touch stick never crouches (owner 2026-11-07: "When i move the analog down player crouches. This is wrong / Duck button is for that"; replaces the P17-18 stick crouch) ---------- */
     /* Runs body with the given Movement setting and a camera where screen right = +x and screen down = +z, on a fresh input, and puts it all back. A fighter's yaw is then the foe's angle from screen-down: PI / 2 = a foe to the side. */
     const stickRig = (movement, body) => {
       const keep = { movement: Settings.v.movement, right: Camera.dirRight.slice(), fwd: Camera.dirFwd.slice(), device: Input.lastDevice };
@@ -7669,258 +8059,31 @@ const SelfTest = {
         Camera.dirRight[0] = keep.right[0]; Camera.dirRight[1] = keep.right[1]; Camera.dirFwd[0] = keep.fwd[0]; Camera.dirFwd[1] = keep.fwd[1];
       }
     };
-    const toRad = (degrees) => degrees * Math.PI / 180;
-    const polar = (pull, degrees) => [pull * Math.sin(toRad(degrees)), pull * Math.cos(toRad(degrees))];   // a stick position: pull of the radius, degrees from straight down (y positive = down)
-    const foeAt = (degrees) => { const f = new Fighter(ROSTER_BY_ID.kai, 0); f.yaw = toRad(degrees); return f; };   // a fighter whose foe is degrees from screen-down (90 = to the side)
-    const stickTick = (it, f, x, y, o) => { Input.touchStickSet(x, y, true); Input.update(); return Input.fillIntent(it, f, o || null); };   // one tick through the real touch path
-    const stickLift = (it, f) => { Input.touchStickSet(0, 0, false); Input.update(); return Input.fillIntent(it, f, null); };
-    /* The first tick (1-based) within `ticks` on which a stick held at (pull, degrees) gives a crouch intent; 0 = never. */
-    const duckTick = (f, pull, degrees, ticks) => {
-      const it = makeIntent(), [x, y] = polar(pull, degrees);
-      Input.reset(); Input.releaseAll();
-      let first = 0;
-      for (let t = 1; t <= ticks; t++) if (stickTick(it, f, x, y).crouch && !first) first = t;
-      Input.releaseAll(); Input.update();
-      return first;
-    };
-    /* Ticks of crouch over a walk whose stick angle is angleAt(t) at the given pull. */
-    const duckTicksOfWalk = (f, pull, angleAt, ticks) => {
-      const it = makeIntent();
-      Input.reset(); Input.releaseAll();
-      let crouched = 0;
-      for (let t = 0; t < ticks; t++) { const [x, y] = polar(pull, angleAt(t)); if (stickTick(it, f, x, y).crouch || Input.touchDuck) crouched++; }
-      Input.releaseAll(); Input.update();
-      return crouched;
-    };
-    /* A duel on the real touch path: fighter 0 is fed by feed(tick, f, o) (set the stick and buttons) and Input.fillIntent; look(tick, it, f, o) sees the intent. Fighter 0 stands at the left and the foe at the right, so the foe is to the screen side. */
-    const touchDuel = (feed, look, foeScript) => {
-      let tick = 0;
-      const m = mk({}, (it, f, o) => { tick++; feed(tick, f, o); Input.update(); Input.fillIntent(it, f, o); if (look) look(tick, it, f, o); }, foeScript);
-      self.stand(m.fighters[0], -0.6, 0, 0.6, 0); self.stand(m.fighters[1], 0.6, 0, -0.6, 0);
-      return m;
-    };
-    test('Touch stick crouch (P17-18): a pull of 0.8 or more within 21.8 degrees of straight down, held 18 ticks, crouches (17 do not); a wider cone, a shorter pull or a short hold never does', () => stickRig('screen', () => {
-      const f = foeAt(90), bad = [];
-      if (TOUCH_DUCK_TICKS !== 18 || TOUCH_DUCK_PULL !== 0.8) bad.push('constants');
-      for (const [pull, degrees] of [[1, 0], [1, 15], [1, -15], [1, 21], [1, -21], [0.86, 0], [0.86, 15], [0.86, -15], [0.81, 0]]) {
-        const got = duckTick(f, pull, degrees, 120);
-        if (got !== 18) bad.push('(' + pull + ', ' + degrees + ') crouched at tick ' + got);
-      }
-      for (const [pull, degrees] of [[1, 23], [1, -23], [1, 30], [1, -30], [1, 45], [1, -45], [1, 90], [1, 180], [0.81, 15], [0.81, -15], [0.79, 0], [0.6, 0]]) {
-        const got = duckTick(f, pull, degrees, 120);
-        if (got) bad.push('(' + pull + ', ' + degrees + ') crouched at tick ' + got);
-      }
-      return bad.length ? bad.join('; ') : true;
-    }));
-    test('Touch stick crouch (P17-18): a diagonal walk (with a wobble) and a stick swept round the rim never crouch', () => stickRig('screen', () => {
-      const f = foeAt(90), bad = [], wobble = (t) => 10 * Math.sin(t * 1.7);
-      for (const pull of [1, 0.6]) for (const side of [1, -1]) {
-        const got = duckTicksOfWalk(f, pull, (t) => side * 45 + wobble(t), 600);
-        if (got) bad.push('diagonal ' + pull + ' side ' + side + ': ' + got);
-      }
-      for (const side of [1, -1]) {
-        const fast = duckTicksOfWalk(f, 1, (t) => side * 360 * t / 120 + wobble(t), 600), slow = duckTicksOfWalk(f, 1, (t) => side * 360 * t / 140, 600);
-        if (fast || slow) bad.push('sweep side ' + side + ': ' + fast + ' / ' + slow);
-      }
-      return bad.length ? bad.join('; ') : true;
-    }));
-    test('Touch stick crouch (P17-18): 17 ticks no, 18 yes; a lift stands up on the next tick and the hold starts again; a flick of 12 ticks, even twice, never crouches and the double flick still sidesteps', () => stickRig('screen', () => {
-      const f = foeAt(90), it = makeIntent(), bad = [];
-      const [x, y] = polar(1, 0);
-      for (let t = 1; t <= 17; t++) if (stickTick(it, f, x, y).crouch) bad.push('crouched at ' + t);
-      if (stickLift(it, f).crouch) bad.push('crouch after a lift at 17');
-      Input.reset();
-      for (let t = 1; t <= 18; t++) stickTick(it, f, x, y);
-      if (!it.crouch) bad.push('no crouch at 18');
-      if (stickLift(it, f).crouch) bad.push('still crouched on the tick after the lift');
-      if (stickTick(it, f, x, y).crouch) bad.push('crouched again at once after a lift');
-      stickLift(it, f); Input.reset();
-      let crouched = 0, sidestepped = 0;
-      for (let flick = 0; flick < 2; flick++) {
-        for (let t = 0; t < 12; t++) { const got = stickTick(it, f, x, y); if (got.crouch) crouched++; if (got.sidestep) sidestepped++; }
-        const got = stickLift(it, f); if (got.crouch) crouched++;
-      }
-      if (crouched) bad.push('a flick crouched ' + crouched + ' ticks');
-      if (!sidestepped) bad.push('the double flick did not sidestep');
-      return bad.length ? bad.join('; ') : true;
-    }));
-    test('Touch stick crouch (P17-18): once crouched, the stick may drift to 35 degrees at half pull and stay down; past that, or under a pull of 0.5, it stands up at once and needs the full 18 ticks again', () => stickRig('screen', () => {
-      const f = foeAt(90), it = makeIntent(), bad = [];
-      const arm = () => { Input.reset(); Input.releaseAll(); for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1); return it.crouch; };
-      if (!arm()) bad.push('did not arm');
-      const [dx, dy] = polar(0.6, 30);
-      for (let t = 0; t < 60; t++) if (!stickTick(it, f, dx, dy).crouch) { bad.push('drifted stick stood up at ' + t); break; }
-      for (const [pull, degrees] of [[1, 40], [1, -40], [0.45, 0]]) {
-        if (!arm()) bad.push('did not arm again');
-        const [x, y] = polar(pull, degrees);
-        if (stickTick(it, f, x, y).crouch) bad.push('(' + pull + ', ' + degrees + ') kept the crouch');
-        let back = 0;
-        for (let t = 1; t <= 30 && !back; t++) if (stickTick(it, f, 0, 1).crouch) back = t;
-        if (back !== 18) bad.push('(' + pull + ', ' + degrees + ') crouched again at ' + back);
-      }
-      return bad.length ? bad.join('; ') : true;
-    }));
-    test('Touch stick crouch (P17-18): with the stick crouch alone (no Duck) Punch and Kick give the crouch string rows, Defend is a low guard (a Block fighter reaches BLOCK_L), Grab gives the low grip and the walk is at crouch speed; Duck held with it is one crouch and outlasts it', () => stickRig('screen', () => {
-      const bad = [], late = [];
-      for (const row of stringRows.filter((r) => r.low)) {
+    test('Touch stick: held down at any pull and angle for 120 ticks it walks and never crouches, in the intent or in the fighter\'s state; only DUCK crouches, DUCK with the stick down is a crouch walk, and the labels say so', () => stickRig('screen', () => {
+      const bad = [], it = makeIntent(), f = new Fighter(ROSTER_BY_ID.kai, 0);
+      f.yaw = Math.PI / 2;   // the foe to the side, where a down pull used to crouch
+      const tick = (x, y) => { Input.touchStickSet(x, y, true); Input.update(); return Input.fillIntent(it, f, null); };
+      for (const pull of [0.5, 0.8, 1]) for (const degrees of [0, 15, 30]) {
+        const x = pull * Math.sin(degrees * Math.PI / 180), y = pull * Math.cos(degrees * Math.PI / 180);
         Input.reset(); Input.releaseAll();
-        const got = playString(row.keys, (it, f, o, kind) => {
-          if (kind) Input.touchSet(kind, true);
-          Input.touchStickSet(0, 1, true); Input.touchDuck = true;   // the stick crouch is already on
-          Input.update();
-          Input.fillIntent(it, f, o);
-          if (kind) { if (!it[kind] || !it.height) late.push(row.keys); Input.touchSet(kind, false); }
-        }).join();
-        if (got !== row.moves.join()) bad.push('crouch ' + row.keys + ': ' + got);
+        let crouched = 0, walked = 0;
+        for (let t = 0; t < 120; t++) { tick(x, y); if (it.crouch) crouched++; if (it.fwd || it.side) walked++; }
+        if (crouched || walked < 100) bad.push('pull ' + pull + ' at ' + degrees + ' degrees: ' + crouched + ' crouch ticks, ' + walked + ' walk ticks');
       }
-      if (late.length) bad.push('presses not low at once ' + late.slice(0, 3));
+      Input.reset(); Input.releaseAll();
       const states = [];
-      const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) Input.touchSet('defend', true); }, (t, it, f) => { if (t >= 36) states.push(f.state + ':' + it.defend + it.crouch); });
-      m.fighters[0].defense = 'block';
-      self.run(m, 40);
-      if (states.length !== 5 || states.some((s) => s !== S.BLOCK_L + ':truetrue')) bad.push('low guard ' + states);
-      const it = makeIntent(), f = foeAt(90);
+      const m = mk({}, (intent, fighter, foe) => { Input.touchStickSet(0, 1, true); Input.update(); Input.fillIntent(intent, fighter, foe); states.push(fighter.state); });
+      self.run(m, 120); m.dispose();
+      if (states.includes(S.CROUCH)) bad.push('the fighter crouched on the stick: ' + [...new Set(states)].join(','));
       Input.reset(); Input.releaseAll();
-      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
-      Input.touchSet('grapple', true); Input.update(); Input.fillIntent(it, f, null);
-      if (!it.grapple || !it.crouch) bad.push('grab without the low grip');
-      const speedOf = (duck) => {
-        let speed = 0;
-        Input.reset(); Input.releaseAll();
-        const run = touchDuel(() => { Input.touchStickSet(duck ? 0 : 0.64, duck ? 1 : 0.77, true); }, null);
-        for (let t = 0; t < 50; t++) { run.step(); const g = run.fighters[0]; speed = Math.hypot(g.x - g.prevX, g.z - g.prevZ); }
-        const state = run.fighters[0].state;
-        Input.releaseAll(); Input.update();
-        return { speed, state };
-      };
-      const walk = speedOf(false), sneak = speedOf(true);
-      if (walk.state !== S.WALK || sneak.state !== S.CROUCH || sneak.speed > walk.speed * 0.5 || sneak.speed < walk.speed * 0.4) bad.push('speeds ' + JSON.stringify([walk, sneak]));
-      Input.reset(); Input.releaseAll();
-      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
-      Input.touchSet('crouch', true); Input.update(); Input.fillIntent(it, f, null);
-      const together = it.crouch;
-      stickLift(it, f);
-      if (!together || !it.crouch) bad.push('Duck and stick crouch together, then Duck alone');
+      Input.touchSet('crouch', true);
+      tick(0, 1);
+      if (!it.crouch || !(it.fwd || it.side)) bad.push('DUCK with the stick down is no crouch walk ' + JSON.stringify([it.crouch, it.fwd, it.side]));
+      Input.touchSet('crouch', false); Input.update(); Input.fillIntent(it, f, null);
+      if (it.crouch) bad.push('DUCK let go still crouches');
+      if (/crouch/i.test(TOUCH_LABELS.down) || TOUCH_LABELS.crouch !== 'DUCK' || !TOUCH_BUTTONS.some((b) => b[0] === 'crouch') || !TOUCH_LAYOUT.landscape.slots.crouch || !TOUCH_LAYOUT.portrait.slots.crouch) bad.push('Duck button or labels: ' + TOUCH_LABELS.down);
       return bad.length ? bad.join('; ') : true;
     }));
-    test('Touch stick crouch (P17-18): Jump wins over the stick crouch through the real fighter update (intent jump + unduck, crouch off, state JUMP); Duck + Jump still cancels both; a keyboard or CPU Jump from CROUCH is still refused', () => stickRig('screen', () => {
-      const bad = [], log = [];
-      const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) Input.touchSet('jump', true); }, (t, it, f) => {
-        log[t] = { jump: it.jump, unduck: it.unduck, crouch: it.crouch, state: f.state };
-        if (t === 30) Input.touchSet('jump', false);
-      });
-      self.run(m, 29);
-      const before = log[29], f = m.fighters[0];
-      m.step();
-      if (before.state !== S.CROUCH || !before.crouch) bad.push('not crouched before the press ' + JSON.stringify(before));
-      if (!log[30].jump || !log[30].unduck || log[30].crouch) bad.push('jump tick ' + JSON.stringify(log[30]));
-      if (f.state !== S.JUMP) bad.push('state after the press ' + f.state);
-      self.run(m, 1);
-      if (log[31].crouch || log[31].unduck) bad.push('tick after ' + JSON.stringify(log[31]));
-      Input.reset(); Input.releaseAll();
-      const both = [];
-      const m2 = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) { Input.touchSet('crouch', true); Input.touchSet('jump', true); } }, (t, it, f) => { both[t] = { jump: it.jump, crouch: it.crouch, state: f.state }; if (t === 30) Input.touchSet('jump', false); });
-      self.run(m2, 33);
-      if (both[30].jump || both[30].crouch || both[30].state !== S.CROUCH || both.some((e) => e && e.state === S.JUMP)) bad.push('duck + jump ' + JSON.stringify(both[30]) + ' ' + m2.fighters[0].state);
-      Input.releaseAll(); Input.update();
-      let jumped = 0, unducked = 0;
-      const m3 = mk({}, (it, f, o, mm) => { it.crouch = true; if (mm.tick >= 10 && mm.tick % 5 === 0) it.jump = true; if (it.unduck) unducked++; if (f.state === S.JUMP) jumped++; });
-      self.run(m3, 40);
-      if (jumped || unducked) bad.push('a plain intent jumped out of CROUCH ' + jumped + '/' + unducked);
-      Input.reset(); Input.releaseAll();
-      const edge = makeIntent(), still = foeAt(90);   // a Jump press on tick 18 of the hold, the tick the crouch would arm, is a jump and restarts the hold
-      for (let t = 1; t < 18; t++) stickTick(edge, still, 0, 1);
-      Input.touchSet('jump', true);
-      stickTick(edge, still, 0, 1);
-      Input.touchSet('jump', false);
-      if (!edge.jump || edge.crouch || Input.touchDuck || Input.touchDuckTicks) bad.push('jump on tick 18 ' + JSON.stringify([edge.jump, edge.crouch, Input.touchDuck, Input.touchDuckTicks]));
-      for (let t = 1; t < 18; t++) if (stickTick(edge, still, 0, 1).crouch) { bad.push('the hold did not restart'); break; }
-      if (!stickTick(edge, still, 0, 1).crouch) bad.push('no crouch 18 ticks after the jump');
-      return bad.length ? bad.join('; ') : true;
-    }));
-    test('Touch stick crouch (P17-18): it arms only when the foe is within 60 degrees of sideways on the screen; a push toward the foe runs, a push away or the Opponent setting never ducks, and a Block fighter backing off keeps the high guard', () => {
-      const bad = [], first = (degrees) => stickRig('screen', () => { const f = foeAt(degrees), it = makeIntent(); let crouch = 0, run = false; Input.reset(); Input.releaseAll(); for (let t = 1; t <= 40; t++) { const got = stickTick(it, f, 0, 1); if (got.crouch && !crouch) crouch = t; run = got.run; } return { crouch, run }; });
-      for (const degrees of [65, 90, 115]) { const got = first(degrees); if (got.crouch !== 18 || got.run) bad.push(degrees + ' degrees ' + JSON.stringify(got)); }
-      for (const degrees of [0, 45, 55, 125, 135, 180]) { const got = first(degrees); if (got.crouch || got.run !== (degrees === 0)) bad.push(degrees + ' degrees ' + JSON.stringify(got)); }
-      stickRig('opponent', () => {
-        const it = makeIntent();
-        for (const degrees of [0, 90, 180]) { const f = foeAt(degrees); Input.reset(); Input.releaseAll(); for (let t = 0; t < 60; t++) if (stickTick(it, f, 0, 1).crouch) { bad.push('opponent movement crouched at ' + degrees); break; } }
-      });
-      for (const movement of ['screen', 'opponent']) stickRig(movement, () => {
-        const states = [], blocks = [], hits = [];
-        const offs = [Events.on('block', (e) => blocks.push(e)), Events.on('hit', (e) => hits.push(e))];
-        try {
-          const m = mk({}, (it, f, o) => {
-            Input.touchStickSet(0, 1, true); Input.touchSet('defend', true); Input.update(); Input.fillIntent(it, f, o);
-            states.push(f.state);
-          }, (it, f, o, mm) => { f.x = o.x; f.z = o.z - 1.0; f.prevX = f.x; f.prevZ = f.z; if (mm.tick === 50) it.punch = true; });
-          m.fighters[0].defense = 'block';
-          self.stand(m.fighters[0], 0, 0, 0, -3); self.stand(m.fighters[1], 0, -1, 0, 1);
-          self.run(m, 70);
-          if (states.slice(8).some((s) => s !== S.BLOCK_H) || Input.touchDuck) bad.push(movement + ': the guard left BLOCK_H ' + [...new Set(states)]);
-          if (!blocks.length || hits.length) bad.push(movement + ': the punch was not blocked ' + blocks.length + '/' + hits.length);
-        } finally { offs.forEach((off) => off()); }
-      });
-      return bad.length ? bad.join('; ') : true;
-    });
-    test('Touch stick crouch (P17-18): a Sway fighter sways the way the stick points, crouched or not', () => stickRig('screen', () => {
-      const dirs = [];
-      for (const pressAt of [5, 25]) {   // before the stick crouch arms, and after
-        const log = self.capture(['sway']);
-        let ducked = false;
-        const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === pressAt) Input.touchSet('defend', true); if (t === pressAt + 1) Input.touchSet('defend', false); }, (t) => { if (t === pressAt) ducked = Input.touchDuck; });
-        m.fighters[0].defense = 'sway';
-        self.run(m, pressAt + 10); log.stop();
-        dirs.push({ ducked, dir: log.sway.length ? log.sway[0].dir : null });
-        Input.releaseAll(); Input.update(); Input.reset();
-      }
-      const same = dirs[0].dir !== null && dirs[0].dir !== 0 && dirs[0].dir === dirs[1].dir && !dirs[0].ducked && dirs[1].ducked;
-      return same ? true : JSON.stringify(dirs);
-    }));
-    test('Touch stick crouch (P17-18): Use throws, sets down (held) and picks up, and Lock works, exactly as without the crouch', () => withDevices((devices) => stickRig('screen', () => {
-      const bad = [], device = devices.touch, arm = () => { Input.touchStickSet(0, 1, true); Input.touchDuck = true; };
-      const toss = personDuel(); toss.f.item = held('bat'); arm();
-      const thrown = countEvents(['itemThrow', 'itemDrop'], () => playUse(toss.m, device, 4, 24));
-      if (thrown.itemThrow !== 1 || thrown.itemDrop !== 0 || toss.f.item || !toss.seat.crouched) bad.push('throw ' + JSON.stringify(thrown) + ' crouched ' + toss.seat.crouched);
-      Input.releaseAll(); Input.reset();
-      const hold = personDuel(); hold.f.item = held('bat'); arm();
-      const set = countEvents(['itemThrow', 'itemDrop'], () => playUse(hold.m, device, 0, SETDOWN_TICKS + 40));
-      if (set.itemThrow !== 0 || set.itemDrop !== 1 || hold.f.item || !hold.seat.crouched) bad.push('set down ' + JSON.stringify(set));
-      Input.releaseAll(); Input.reset();
-      const pick = personDuel(); pick.m.placeItem('bat', 0, 0.6, 0); arm();
-      const taken = countEvents(['itemTake', 'itemDrop', 'itemThrow'], () => playUse(pick.m, device, 0, SETDOWN_TICKS + 50));
-      if (taken.itemTake !== 1 || taken.itemDrop + taken.itemThrow !== 0 || !pick.f.item) bad.push('pick up ' + JSON.stringify(taken));
-      Input.releaseAll(); Input.reset();
-      const it = makeIntent(), f = foeAt(90);
-      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
-      Input.touchSet('lock', true); Input.update(); Input.fillIntent(it, f, null);
-      if (!it.lock || !it.crouch) bad.push('lock');
-      return bad.length ? bad.join('; ') : true;
-    })));
-    test('Touch stick crouch (P17-18): a lift, releaseAll and releaseTouch clear it and the count; keyboard and gamepad never get it (and never set unduck); Duck stays on the pad and the label says crouch', () => withDevices((devices) => stickRig('screen', () => {
-      const bad = [], it = makeIntent(), f = foeAt(90);
-      const armed = () => { Input.reset(); Input.releaseAll(); for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1); if (!Input.touchDuck) bad.push('did not arm'); return Input.touchDuck; };
-      armed();
-      stickLift(it, f);
-      if (Input.touchDuck || Input.touchDuckTicks) bad.push('a lift left ' + Input.touchDuck + Input.touchDuckTicks);
-      armed(); Input.releaseAll();
-      if (Input.touchDuck || Input.touchDuckTicks) bad.push('releaseAll left it');
-      armed(); Input.releaseTouch();
-      if (Input.touchDuck || Input.touchDuckTicks) bad.push('releaseTouch left it');
-      for (let t = 0; t < 10; t++) stickTick(it, f, 0, 1);
-      Input.releaseTouch();
-      if (Input.touchDuckTicks) bad.push('a partial count survived releaseTouch');
-      Input.reset(); Input.releaseAll(); Input.lastDevice = 'keyboard';
-      Input.kb.add(Keymap.bindings.down[0]);
-      for (let t = 0; t < 60; t++) { Input.update(); Input.fillIntent(it, f, null); if (it.crouch || it.unduck || Input.touchDuck) { bad.push('keyboard crouched'); break; } }
-      Input.releaseAll(); Input.update(); Input.reset();
-      const pad = navigator.getGamepads()[0];
-      pad.axes[1] = 1; Input.lastDevice = 'gamepad';
-      for (let t = 0; t < 60; t++) { Input.update(); Input.fillIntent(it, f, null); if (it.crouch || it.unduck || Input.touchDuck) { bad.push('gamepad crouched'); break; } }
-      pad.axes[1] = 0;
-      if (!TOUCH_BUTTONS.some((b) => b[0] === 'crouch') || TOUCH_LABELS.crouch !== 'DUCK' || !/crouch/i.test(TOUCH_LABELS.down) || !TOUCH_LAYOUT.landscape.slots.crouch || !TOUCH_LAYOUT.portrait.slots.crouch) bad.push('Duck button or labels ' + TOUCH_LABELS.down);
-      return bad.length ? bad.join('; ') : true;
-    })));
     test('Items: next round an item whose table broke falls onto the rubble or floor instead of starting inside it, and pillar items are mounted on a bracket along the wall', () => {
       const problems = [];
       const m = track(new MatchSim({ arenaId: 'warehouse', countdown: false, seed: 3 }));
@@ -9183,7 +9346,7 @@ const SelfTest = {
         const brawl = track(new MatchSim({ mode: 'brawl', ring: true, ringOut: true, enemies: 2, countdown: false, seed: 3, arenaId: id }));
         if (Arena.ring) problems.push(id + ' a brawl got a ring');
       }
-      if (SETTING_DEFS.ringOut.def !== false || Settings.validate('ringOut', 'x') !== false) problems.push('setting');
+      if (SETTING_DEFS.ringOut !== undefined || Settings.validate('ringOut', true) !== undefined) problems.push('Ring-out is still a Setting');   // it lives on the Tournament screen and in Free Fight
       return problems.length ? problems.join('; ') : true;
     });
     test('1v1 areas (P8-05): with ring-out a fighter whose feet touch the floor outside the ring loses the round with the reason ringout, one in the air is safe until it lands, and nothing happens with the option off or on a level without it', () => {
@@ -9672,26 +9835,24 @@ const SelfTest = {
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Arena bounds (P17-08): a plain 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room; the Ring-out setting fences Free Fight and Versus into the level ring only on a level with a ring edge (also after a restart); an explicit ring is kept', () => {
-      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run, ringOut: Settings.v.ringOut };
+    test('Arena bounds (P17-08): a plain 1v1 (Free Fight, Versus, Arcade, Survival, Training) has the whole room, also after a restart and whatever Ring-out value an old Settings object still holds (nothing reads it any more); an explicit ring is kept', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
       Game.go = () => true; Game.run = null;
       const begin = (id, extra, mode) => { Game.beginMatch(Object.assign({ mode: mode || 'free', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'easy', winsNeeded: 1, timer: 30, items: false, hazards: false }, extra)); return Arena.ring !== null; };
       try {
-        for (const ringOut of [false, true]) {
-          Settings.v.ringOut = ringOut;
+        for (const stale of [false, true]) {
+          Settings.v.ringOut = stale;
           for (const id of ARENA_ORDER) {
             for (const mode of ['free', 'versus', 'arcade', 'survival', 'training']) {
-              const want = ringOut && (mode === 'free' || mode === 'versus') && !!ARENAS[id].ring[4], b = ARENAS[id].bounds;
-              if (begin(id, {}, mode) !== want) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': ring ' + !want);
-              if (!want && (Arena.ax1 !== b.x || Arena.az1 !== b.z || Arena.ringOut)) problems.push(id + ' ' + mode + ' ring-out ' + ringOut + ': the whole room is not open');
+              const b = ARENAS[id].bounds;
+              if (begin(id, {}, mode) || Arena.ax1 !== b.x || Arena.az1 !== b.z || Arena.ringOut) problems.push(id + ' ' + mode + ' old value ' + stale + ': the whole room is not open');
             }
           }
         }
-        Settings.v.ringOut = false; begin('club');
-        Settings.v.ringOut = true; Game.restartMatch();
-        if (Arena.ring === null || !Arena.ringOut) problems.push('a restart did not read the Ring-out setting again');
+        begin('club'); Game.restartMatch();
+        if (Arena.ring !== null || Arena.ringOut) problems.push('a restart fenced a plain fight into the ring');
         if (!begin('warehouse', { ring: true, ringOut: true })) problems.push('an explicit ring was ignored');   // the Tournament's own bouts are checked in 'a Tournament bout has the whole room too'
-      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.ringOut = kept.ringOut; }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; delete Settings.v.ringOut; }
       return problems.length ? problems.join('; ') : true;
     });
     test('Arena bounds (P17-08): on every level the wall decoration sits on its wall: every part that touches a wall shows its front face in front of the wall face (never hidden inside it), does not poke out behind it, and nothing below head height stands in the walking room past the bounds', () => {
@@ -9889,7 +10050,7 @@ const SelfTest = {
       const bad = [], poses = new Set(STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES))), motive = (id) => STORY_MOTIVES.find((m) => m.id === id);
       if (STORY_POSE_IDS.length !== 28 || poses.size !== 34 || STORY_BEATS.length !== 16 || STORY_STAGES !== 7) bad.push('counts');
       for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten].some((t) => t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
-      for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro) || t.rivals.length !== 6 || t.rivals.some((id) => ROSTER_BY_ID[id].role !== 'rival')) bad.push('tone ' + t.id);
+      for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro)) bad.push('tone ' + t.id);
       for (const id of STORY_BOSS_IDS) if (ROSTER_BY_ID[id].role !== 'boss') bad.push('boss ' + id);
       for (const def of STORY_BEATS) if (def.shots.length > 3 || def.shots.some((s) => !['N', 'P', 'R', 'R2', 'B', 'Z'].includes(s.who) || !['wide', 'two', 'close'].includes(s.cam))) bad.push('beat ' + def.id);
       const texts = [];   // every text a scene can show, with the longest tokens
@@ -9935,7 +10096,7 @@ const SelfTest = {
       if (ta.filter((text, i) => text !== tb[i]).length < 14) bad.push('only ' + ta.filter((text, i) => text !== tb[i]).length + ' of 16 beats differ');
       if (JSON.stringify(ta) !== JSON.stringify(tc)) bad.push('not repeatable');
       if (!Story.beat(a, 'B1').boxes[0].text.includes('Toronto') || !Story.beat(b, 'B1').boxes[0].text.includes('Marseille') || Story.beat(a, 'B9').boxes[0].speaker === Story.beat(b, 'B9').boxes[0].speaker) bad.push('region, city or boss');
-      if (a.rivalA !== 'deacon' || b.rivalA !== 'kelsey' || a.rivalB !== 'diego' || b.rivalB !== 'roxy') bad.push('rivals ' + a.rivalA + a.rivalB + b.rivalA + b.rivalB);
+      if (a.rivalA !== 'deacon' || b.rivalA !== 'kelsey') bad.push('rivals ' + a.rivalA + b.rivalA);
       const run = Story.start(kai, 0, 'normal', 1);
       if (Story.beat(run, 'B5').boxes.length !== 1 || !Story.beat(run, 'B5').choice || Story.beat(run, 'B16').boxes.length !== 1) bad.push('plain B5 / B16');
       run.flawless = true; run.continues = 3;
@@ -9946,7 +10107,7 @@ const SelfTest = {
       const hand = Story.beat(run, 'B12').boxes[0].text, cfgHand = Story.cfg(run, 6);
       Story.choose(run, 'walk'); Story.choose(run, 'bogus');
       const walk = Story.beat(run, 'B12').boxes[0].text, cfgWalk = Story.cfg(run, 6);
-      if (run.choice !== 'walk' || hand === walk || cfgHand.waveCut !== 1 || cfgHand.rival || cfgWalk.waveCut || cfgWalk.rival !== run.rivalA || Story.cfg(run, 3).rival !== run.rivalB) bad.push('choice');
+      if (run.choice !== 'walk' || hand === walk || cfgHand.allies.join() !== run.rivalA || cfgHand.rival || cfgWalk.allies || cfgWalk.rival !== run.rivalA || Story.cfg(run, 3).rival) bad.push('choice');
       const revenge = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'revenge', intro: 'nod' } }, 0, 'easy', 1), friends = Story.start({ id: 'kai', name: 'KAI', story: { country: 'CA', origin: 'gymkid', goal: 'friends', intro: 'nod' } }, 0, 'easy', 1);
       if (Story.beat(revenge, 'B14').boxes[0].pose !== 'defeat_turn' || Story.beat(friends, 'B14').boxes[0].also.length !== 2 || Story.beat(a, 'B14').boxes[0].pose !== 'arms') bad.push('goal rows');
       const list = STORY_RULES_BY_SLOT['B3.1'], before = list.length;
@@ -9969,7 +10130,7 @@ const SelfTest = {
       const bad = [], fighters = ROSTER.concat(CustomRoster.profiles()), arenas = new Set(['dojo', 'pit', 'club', 'rooftop']);
       for (const f of fighters) {
         const run = Story.start(f, 1, 'easy', 1);
-        if (run.rivalA === f.id || run.rivalB === f.id || run.rivalB === run.rivalA || run.boss === f.id || run.champion === f.id || !STORY_BOSS_IDS.includes(run.boss) || !ROSTER_BY_ID[run.rivalA] || !ROSTER_BY_ID[run.rivalB]) bad.push('cast of ' + f.id);
+        if (run.rivalA === f.id || run.boss === f.id || run.champion === f.id || !STORY_BOSS_IDS.includes(run.boss) || !ROSTER_BY_ID[run.rivalA]) bad.push('cast of ' + f.id);
       }
       if (Story.champion('zero') !== 'mara' || Story.champion('kai') !== 'zero' || Story.rivalA('deacon', 'title') !== 'femke' || Story.rivalA('roxy', 'bond') !== 'deacon') bad.push('champion or rival A rule');
       const bosses = new Set();
@@ -10021,7 +10182,7 @@ const SelfTest = {
       return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
     test('Story (P10-03): stage fights are ordinary matches - the Arcade 1v1 rules and the level\'s waves, difficulty = the Arcade difficulty, only known fighters, nothing else added', () => {
-      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut', 'waveBeat']);
+      const bad = [], allowed = new Set(['playerId', 'opponentId', 'arenaId', 'difficulty', 'arcadeLevel', 'seed', 'keepSeed', 'mode', 'winsNeeded', 'timer', 'enemies', 'waves', 'rival', 'waveKeep', 'waveCut', 'waveBeat', 'goons', 'goonLeader', 'allies']);
       for (const level of ['easy', 'normal', 'hard']) for (const choice of ['', 'hand', 'walk']) for (const f of [ROSTER_BY_ID.kai, ROSTER_BY_ID.zero, ROSTER_BY_ID.hao, ROSTER_BY_ID.deacon]) {
         const run = Story.start(f, 2, level, 4);
         run.choice = choice;
@@ -10031,16 +10192,16 @@ const SelfTest = {
           if (cfg.difficulty !== level || cfg.arcadeLevel !== level || !DIFFICULTY[cfg.difficulty] || cfg.playerId !== f.id || !ROSTER_BY_ID[cfg.opponentId || f.id] || cfg.keepSeed !== true || !Number.isInteger(cfg.seed)) bad.push('cfg basics ' + n);
           if (Story.foe(run, n)) { if (cfg.mode !== 'arcade' || cfg.winsNeeded !== 2 || cfg.timer !== 60 || cfg.opponentId !== Story.foe(run, n) || cfg.waves) bad.push('duel ' + n); }
           else if (cfg.mode !== 'brawl' || cfg.waves !== true || cfg.winsNeeded !== 1 || cfg.timer !== 0 || !ARENAS[cfg.arenaId].waves) bad.push('brawl ' + n);
-          if (cfg.rival && (n !== 3 && !(n === 6 && choice === 'walk')) ) bad.push('rival at stage ' + n);
+          if (cfg.rival && !(n === 6 && choice === 'walk')) bad.push('rival at stage ' + n);
           if (Story.seedOf(run, n) !== cfg.seed || Story.seedOf(run, n) === Story.seedOf(run, n % 7 + 1)) bad.push('seed ' + n);
         }
       }
       const zero = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'hard', 1), 7)));
       if (zero.fighters[1].id !== 'zero' || zero.fighters[1].maxHp !== deriveStats(ROSTER_BY_ID.zero.bossAttrs.hard).maxHp) bad.push('ZERO keeps its boss tuning');
       const stage1 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 1))), stage6 = mk(Object.assign({}, Story.cfg(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), 6)));
-      if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0] - 1) bad.push('wave rows');
+      if (stage1.waveRows.length !== 3 || stage1.waveRows[0][0] !== 3 || stage6.waveRows.length !== ARENAS.club.waves.length || stage6.waveRows[0][0] !== ARENAS.club.waves[0][0]) bad.push('wave rows');
       const run = Story.start(ROSTER_BY_ID.elise, 0, 'easy', 1), m3 = mk(Story.cfg(run, 3)), last = m3.waveRows.length - 1;
-      if (m3.waveProfiles(last, ['elise'])[0].id !== run.rivalB) bad.push('rival B does not lead the last wave');
+      if (m3.waveProfiles(last, ['elise'])[0].id !== 'g:L') bad.push('the leader goon does not lead the last wave');
       for (const wrong of [{ arenaId: 'nowhere' }, { playerId: 'nobody' }, { opponentId: 'nobody' }]) if (!SimRunner.run({ matchCfg: wrong }).error) bad.push('SimRunner took matchCfg ' + Object.keys(wrong)[0] + ' unchecked');
       for (const [field, value, expected] of [['winsNeeded', NaN, 2], ['winsNeeded', 0, 1], ['timer', -5, 0], ['timer', NaN, 60]]) {   // matchCfg gets the same clamps as the options
         const given = { arenaId: 'dojo', matchCfg: { winsNeeded: 1, timer: 1, [field]: value } }, res = SimRunner.run(given);
@@ -10085,7 +10246,7 @@ const SelfTest = {
         if (res.error || (res.winner !== 0 && res.winner !== 1) || res.config.arenaId !== Story.arena(run, n) || res.ticks <= 60) { bad.push('stage ' + n + ' did not finish: ' + (res.error || res.winner + ' ' + res.ticks)); break; }
         if (Story.foe(run, n) && (res.teams.length !== 2 || res.wins[res.winner] !== 2)) bad.push('duel ' + n + ' wins ' + res.wins);
         if (!Story.foe(run, n) && res.teams.length < 4) bad.push('brawl ' + n + ' had ' + res.teams.length + ' fighters');
-        if (res.winner === 0) { Story.win(run, Story.foe(run, n) ? res.wins[1] : 0); tell('after', n); }
+        if (res.winner === 0 && !(n === 3 && !lost)) { Story.win(run, Story.foe(run, n) ? res.wins[1] : 0); tell('after', n); }   // the goons are weak enough for the expert AI to win every stage: stage 3 is played as lost once, so the Get up scene and the retry stay covered
         else if (lost < 1) { lost++; tell('lost', 0); Story.retry(run); }
         else { Story.win(run, 9); tell('after', n); }   // a second lost brawl would need a stronger player: the test moves on, the story rules are what it checks
       }
@@ -10910,7 +11071,7 @@ const SelfTest = {
     /* withArcade's stand-ins (Game.go sets the state, rerenders do nothing) with Tournament selected, a fresh Progress and no bracket; the bracket state is put back afterwards. */
     const withTournament = (fn) => withArcade(() => {
       const keep = { tournament: Game.tournament, match: Game.tournamentMatch, two: Game.tournamentTwoPlayers };
-      Object.assign(Game.selection, { mode: 'tournament', difficulty: 'normal', tournamentSize: 8 });
+      Object.assign(Game.selection, { mode: 'tournament', difficulty: 'normal', tournamentSize: 8, tournamentRing: false });
       Game.tournament = null; Game.tournamentMatch = null; Game.tournamentTwoPlayers = false;
       try { return fn(); } finally { Game.tournament = keep.tournament; Game.tournamentMatch = keep.match; Game.tournamentTwoPlayers = keep.two; }
     });
@@ -10984,7 +11145,7 @@ const SelfTest = {
       if (hostile.size !== 8 || hostile.entrants.filter((e) => e.human >= 0).length !== 1 || hostile.entrants.find((e) => e.human === 2).id !== ROSTER[0].id || hostile.difficulty !== 'normal' || new Set(hostile.entrants.map((e) => e.id)).size !== 8) bad.push('a hostile draw: ' + JSON.stringify(hostile.entrants.filter((e) => e.human >= 0)));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out setting is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
+    test('Tournament (P11-02): two people play the CPU as Free Fight and each other as Versus, in the round the bracket puts them together, with the whole room (the Ring-out of the bracket is off), a drawn start side, no items or hazards, and the mode\'s difficulty', () => withTournament(() => {
       const bad = [], fights = [];
       Game.selection.tournamentLevel = 'hard';
       Game.startTournament(KAI_MARA, 9);
@@ -11013,12 +11174,13 @@ const SelfTest = {
       if (Game.tournament || UI.current !== 'modes' || Game.state !== GS.MENU) bad.push('the champion\'s Continue did not leave: ' + UI.current);
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Arena bounds (P17-08): a Tournament bout has the whole room like every 1v1, with the ring only under the Ring-out setting and a drawn start side, and the CPU fights of the bracket are set up the same way', () => withTournament(() => {
-      const bad = [], kept = Settings.v.ringOut, realRun = SimRunner.run, runs = [];
+    test('Arena bounds (P17-08): a Tournament bout has the whole room like every 1v1, with the ring only when the Ring-out of the bracket is on (an old Settings value is ignored) and a drawn start side, and the CPU fights of the bracket are set up the same way', () => withTournament(() => {
+      const bad = [], realRun = SimRunner.run, runs = [];
       SimRunner.run = (opts) => { runs.push(opts); return realRun(opts); };
       try {
         for (const ringOut of [false, true]) {
-          Settings.v.ringOut = ringOut;
+          Settings.v.ringOut = !ringOut;   // the opposite, left over from an old save: the bracket decides
+          Game.selection.tournamentRing = ringOut;
           Game.selection.tournamentLevel = 'hard';
           Game.startTournament(KAI_MARA, 9);
           const before = Game.match;
@@ -11031,7 +11193,7 @@ const SelfTest = {
           if (!runs.length || runs.some((o) => !!o.ring !== ringOut || !!o.ringOut !== ringOut || o.sides !== true || o.hazards || o.items)) bad.push('ring-out ' + ringOut + ': a simulated CPU fight was set up another way: ' + JSON.stringify(runs.slice(0, 1)));
           Game.quitToMenu();
         }
-      } finally { SimRunner.run = realRun; Settings.v.ringOut = kept; }
+      } finally { SimRunner.run = realRun; delete Settings.v.ringOut; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     test('Tournament (P11-01): a person who loses is out and the bracket is still played to its champion; a person who wins every fight takes the title, the best result, the run grade and the rivals beaten', () => withTournament(() => {
@@ -11642,6 +11804,191 @@ const SelfTest = {
       } finally { root.innerHTML = keepHtml; Game.leaveTournament(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Menu selection (P18-17) ---------- */
+    /* One item looks current on a menu screen, and it is the DOM focus. A remembered pick (.sel) and a chosen swatch (.sw.on) have looks of their own, the mouse moves the focus only when it moves, and a click focuses what it clicked. */
+    const MENU_SELECT_SCREENS = ['main', 'modes', 'char', 'setup', 'arena', 'freefight', 'freemore', 'lineup', 'coop', 'controls', 'settings', 'unlocks', 'credits', 'pause', 'replace'];
+    const menuTags = (html, pattern) => (html.match(/<(?:button|div|label|input)\b[^>]*>/g) || []).filter((tag) => pattern.test(tag));
+    /* document.activeElement is read-only in a page: stand in for it on the document itself for the length of body(state), state.el being the focused element. */
+    const withActiveElement = (start, body) => {
+      const own = Object.getOwnPropertyDescriptor(document, 'activeElement'), state = { el: start };
+      Object.defineProperty(document, 'activeElement', { configurable: true, get: () => state.el });
+      try { return body(state); } finally { if (own) Object.defineProperty(document, 'activeElement', own); else delete document.activeElement; }
+    };
+    /* A stand-in menu item that takes the focus the way a page element does. */
+    const menuItem = (state, props) => {
+      const el = Object.assign({ tagName: 'BUTTON', disabled: false, focused: 0, options: null, attrs: {} }, props);
+      el.getAttribute = (name) => (name in el.attrs ? el.attrs[name] : null);
+      el.closest = (selector) => (selector === '[data-nav]' || (selector === '[data-act]' && 'data-act' in el.attrs) ? el : null);
+      el.focus = (options) => { el.focused++; el.options = options || null; state.el = el; };
+      return el;
+    };
+    /* The style rules that give a menu item its look, checked as text so a headless run with the style text and a browser read the same rules. Returns what is wrong. */
+    const menuStyleProblems = (css) => {
+      const bad = [], text = css.replace(/\/\*[\s\S]*?\*\//g, ''), MENU_ITEM = /button\.mi|\.card|\.opt|\.tab\b|\.beat|\.scenebox/;
+      for (const [, selectors, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const outline = /(?:^|;)\s*outline\s*:\s*(?!none\b|0\b)[^;]+/.test(body);
+        const hoverLook = /(?:^|;)\s*(?:outline|background|background-color|border-color|box-shadow)\s*:/.test(body);
+        for (const raw of selectors.split(',')) {
+          const selector = raw.trim();
+          if (outline && /:hover/.test(selector)) bad.push('a hover outline: ' + selector);
+          if (outline && /\.sel\b/.test(selector) && !/:focus/.test(selector)) bad.push('an outline on a remembered pick: ' + selector);
+          if (outline && /\.sw\.on/.test(selector)) bad.push('an outline on the chosen swatch: ' + selector);
+          if (/:focus-visible/.test(selector) && MENU_ITEM.test(selector)) bad.push('a focus look that depends on the browser\'s :focus-visible guess: ' + selector);
+          if (hoverLook && /:hover/.test(selector) && MENU_ITEM.test(selector) && !/:not\(\[disabled\]\)/.test(selector)) bad.push('a hover look on an item that can be disabled or locked: ' + selector);
+        }
+      }
+      return bad;
+    };
+    test('Menu selection (P18-17): on every menu screen at most one item is the default and at most one is a remembered pick, every remembered pick says so to a screen reader (aria-pressed), and a disabled button is out of the focus order', () => {
+      const bad = [], keep = Object.assign({}, Game.selection), keepDom = UI.dom;
+      try {
+        for (const name of MENU_SELECT_SCREENS) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          const defaults = menuTags(html, /\sdata-default[\s>=]/).length, picks = menuTags(html, /\sclass="[^"]*\bsel\b/);
+          if (defaults > 1) bad.push(name + ' has ' + defaults + ' default items');
+          if (picks.length > 1) bad.push(name + ' has ' + picks.length + ' remembered picks');
+          for (const tag of picks) if (!/\saria-pressed="true"/.test(tag)) bad.push(name + ' has a remembered pick without aria-pressed: ' + tag.slice(0, 60));
+          const items = menuTags(html, /\sdata-nav[\s>=]/).map((tag) => ({ tag, disabled: /\sdisabled[\s>=]/.test(tag) }));
+          UI.dom = Object.assign({}, keepDom, { screens: { querySelectorAll: () => items } });
+          const reached = UI.navItems();
+          if (reached.some((item) => item.disabled)) bad.push(name + ' lets the keys and the pad reach a disabled button');
+          if (reached.length !== items.filter((item) => !item.disabled).length) bad.push(name + ' leaves an enabled item out of the focus order');
+        }
+      } finally { UI.dom = keepDom; Object.assign(Game.selection, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style sheet gives the focus the only outline - no hover rule, remembered pick or chosen swatch draws one, no menu item depends on :focus-visible, and no hover look can reach a disabled or locked item', () => {
+      const css = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n');
+      if (!css) return 'skipped: this run has no page style sheet (a headless run); a browser self-test reads it';
+      const bad = menuStyleProblems(css);
+      if (!/button\.mi:focus\{[^}]*outline:3px/.test(css) || !/\.opt:focus\{[^}]*outline:3px/.test(css) || !/\.card:focus\{[^}]*outline:3px/.test(css)) bad.push('the focus look of the buttons, rows or cards is missing');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): the style rule check finds what it looks for (a hover outline, an outline on a remembered pick or a chosen swatch, a :focus-visible look, a hover look on a button that can be disabled) and passes the rules that replace them', () => {
+      const wrong = ['button.mi:hover,button.mi.sel{outline:3px solid var(--a1)}', '.sw.on{outline:3px solid #fff;border-color:#fff}', '.card:focus-visible{outline:3px solid red}', '.opt:hover{background:#182a55}'];
+      const right = ['button.mi.sel{border-color:#0f0;background:#122}', 'button.mi:focus{outline:3px solid var(--a1)}', '.opt button.mi:focus{outline:none}', '.sw.on{border-color:#fff}', '.sw:hover{border-color:#fff}', '@media (max-height:520px){ .tab:focus{outline:3px solid red} }'];
+      const bad = [];
+      for (const rule of wrong) if (!menuStyleProblems(rule).length) bad.push('not found: ' + rule);
+      for (const rule of right) if (menuStyleProblems(rule).length) bad.push('wrongly found: ' + rule + ' > ' + menuStyleProblems(rule)[0]);
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Menu selection (P18-17): the mouse moves the focus only when it moves - a parked pointer, a touch, a disabled item, a text field being typed in and a creator drag leave the focus where it is', () => withActiveElement(null, (state) => {
+      const bad = [], keep = { dom: UI.dom, current: UI.current, at: UI.pointerAt, drag: CreatorUI.drag };
+      const [a, b, c, off, field] = [menuItem(state), menuItem(state), menuItem(state), menuItem(state, { disabled: true }), menuItem(state, { tagName: 'INPUT', type: 'text' })];
+      const move = (target, x, y, kind) => UI.onPointerMove({ pointerType: kind || 'mouse', clientX: x, clientY: y, target });
+      UI.dom = Object.assign({}, keep.dom, { fatal: { hidden: true } }); UI.current = 'main'; UI.pointerAt = null; CreatorUI.drag = null; state.el = a;
+      try {
+        move(b, 10, 10);
+        if (state.el !== b) bad.push('a mouse move onto an item did not focus it');
+        else if (!b.options || b.options.preventScroll !== true) bad.push('the focus by the mouse scrolls the panel');
+        move(c, 10, 10);   // the item under a parked pointer changes (a scroll, a redraw): the same coordinates
+        if (state.el !== b) bad.push('a parked pointer took the focus back');
+        move(c, 11, 10);
+        if (state.el !== c) bad.push('a second move onto another item did not focus it');
+        move(off, 12, 10);
+        if (state.el !== c || off.focused) bad.push('a disabled item took the focus');
+        move(a, 13, 10, 'touch'); move(a, 14, 10, 'pen');
+        if (state.el !== c) bad.push('a touch or a pen moved the focus');
+        state.el = field; move(a, 15, 10);
+        if (state.el !== field) bad.push('the mouse took the focus out of a text field being typed in');
+        state.el = c; move(field, 16, 10);
+        if (field.focused) bad.push('the mouse focused a text field');
+        CreatorUI.drag = { id: 1 }; move(a, 17, 10);
+        if (state.el !== c) bad.push('the focus moved during a creator drag');
+        CreatorUI.drag = null; move(a, 18, 10);
+        if (state.el !== a) bad.push('the mouse did not move the focus after the drag');
+        if (UI.listeners.length && !UI.listeners.some(([, type]) => type === 'pointermove')) bad.push('no pointermove handler is registered (UI.init)');   // a page has UI listening; the headless run has not
+      } finally { UI.dom = keep.dom; UI.current = keep.current; UI.pointerAt = keep.at; CreatorUI.drag = keep.drag; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): in a page exactly one item in the screens is outlined after the keys, the pad (moveFocus) and a mouse move have moved the focus, and a redraw or a scroll under a parked pointer leaves the focus where it is (a headless run has no styles and says so)', () => {
+      const root = UI.dom.screens;
+      if (!hasLayoutEngine() || !root || typeof root.getBoundingClientRect !== 'function' || !root.getBoundingClientRect().height || !document.querySelectorAll('style').length) return 'skipped: no page style sheet or layout (a headless run); a browser self-test counts the outlines';
+      const bad = [], keep = { html: root.innerHTML, current: UI.current, selection: Object.assign({}, Game.selection), at: UI.pointerAt, active: document.activeElement };
+      const outlined = () => Array.from(root.querySelectorAll('*')).filter((el) => { const look = getComputedStyle(el); return look.outlineStyle !== 'none' && parseFloat(look.outlineWidth) > 0; });
+      let x = 5000;   // coordinates no earlier move used
+      const hover = (el) => el.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', clientX: x++, clientY: 7, bubbles: true }));
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['main', 'modes', 'char', 'arena', 'freefight', 'settings', 'unlocks']) {
+          UI.current = name; root.innerHTML = UI['screen_' + name]();
+          const items = UI.navItems();
+          if (items.length < 3) { bad.push(name + ' has fewer than 3 items to move between'); continue; }
+          items[0].focus();
+          let count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items at the start');
+          UI.moveFocus(1); count = outlined().length;
+          if (count !== 1) bad.push(name + ' shows ' + count + ' outlined items after the keys');
+          hover(items[2]); count = outlined().length;
+          if (document.activeElement !== items[2] || count !== 1) bad.push(name + ' shows ' + count + ' outlined items after a mouse move, focus on item ' + items.indexOf(document.activeElement));
+          UI.moveFocus(-1); hover(items[2]);
+          const focusedAt = UI.navItems().indexOf(document.activeElement);
+          x--; hover(UI.navItems()[0]);   // the same coordinates as the last move: a parked pointer under a changed page
+          UI.rerender(true);
+          if (UI.navItems().indexOf(document.activeElement) !== focusedAt || outlined().length !== 1) bad.push(name + ': a redraw under a parked pointer moved the focus (' + focusedAt + ' > ' + UI.navItems().indexOf(document.activeElement) + ')');
+        }
+      } finally { root.innerHTML = keep.html; UI.current = keep.current; Object.assign(Game.selection, keep.selection); UI.pointerAt = keep.at; }
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
+    test('Menu selection (P18-17): a click focuses the item it clicked before it acts (Safari and iOS do not focus a clicked button) - also the row of an arrow button, never a disabled item - so a redraw keeps the focus on it', () => withActiveElement({ tagName: 'BODY' }, (state) => {
+      const bad = [], keep = { act: UI.act, adjust: UI.adjust, guard: UI.guardUntil }, seen = [];
+      const items = [0, 1, 2].map((n) => menuItem(state, { attrs: { 'data-act': 'pick:' + n } }));
+      const arrow = menuItem(state, { attrs: { 'data-act': 'inc:sfx' } }), row = menuItem(state, { attrs: { 'data-set': 'sfx' } }), plain = menuItem(state, { attrs: { 'data-act': 'pick:9' }, disabled: true });
+      arrow.closest = (selector) => (selector === '[data-nav]' ? row : selector === '[data-act]' ? arrow : null);
+      const body = state.el;
+      const clickRow = menuItem(state, { attrs: { 'data-set': 'sfx' } });
+      clickRow.closest = (selector) => (selector === '[data-nav]' || selector === '.opt' ? clickRow : null);
+      UI.act = (act) => { seen.push({ act, on: state.el }); }; UI.adjust = (el) => { seen.push({ act: 'adjust', on: state.el, el }); }; UI.guardUntil = 0;
+      try {
+        UI.onClick({ target: items[2] });
+        if (state.el !== items[2] || !items[2].options || items[2].options.preventScroll !== true) bad.push('the clicked third item was not focused (without scrolling)');
+        if (!seen.length || seen[0].on !== items[2]) bad.push('the click acted before the item had the focus');
+        UI.onClick({ target: items[2] });
+        if (items[2].focused !== 1) bad.push('a click on the focused item focused it again');
+        state.el = body; UI.onClick({ target: arrow });
+        if (state.el !== row) bad.push('a click on an arrow button did not focus its row');
+        state.el = body; UI.onClick({ target: clickRow });
+        if (state.el !== clickRow || seen[seen.length - 1].act !== 'adjust' || seen[seen.length - 1].on !== clickRow) bad.push('a click on a row did not focus it before it changed');
+        state.el = body; UI.onClick({ target: plain });
+        if (state.el !== body || plain.focused) bad.push('a click on a disabled item focused it');
+      } finally { UI.act = keep.act; UI.adjust = keep.adjust; UI.guardUntil = keep.guard; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Menu selection (P18-17): on the fighter, sparring partner, arena, More options and Unlocks screens the focused item scrolls clear of the sticky Back bar, at 1280 x 720 and 844 x 390 (a headless run has no layout and says so)', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the screens were not laid out';
+      const bad = [], styles = Array.from(document.querySelectorAll('style')).map((tag) => tag.textContent).join('\n'), keep = Object.assign({}, Game.selection);
+      let measured = 0;
+      const check = (name, html, width, height) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+        document.body.appendChild(frame);
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) { bad.push(name + ': the frame has no document'); return; }
+          doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+          const bar = doc.querySelector('.row.sticky');
+          if (!bar) return;
+          measured++;
+          for (const item of Array.from(doc.querySelectorAll('[data-nav]'))) {
+            if (bar.contains(item)) continue;
+            item.scrollIntoView({ block: 'nearest' });   // what focus() does, scroll-padding included
+            const box = item.getBoundingClientRect(), barBox = bar.getBoundingClientRect();
+            if (box.bottom > barBox.top + 2 && box.top < barBox.bottom) { bad.push(name + ' at ' + width + ' px: an item sits under the sticky bar (' + Math.round(box.bottom - barBox.top) + ' px)'); return; }
+          }
+        } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+      };
+      try {
+        Game.selection.mode = 'free';
+        for (const name of ['char', 'setup', 'arena', 'freemore', 'unlocks']) {
+          let html;
+          try { html = UI['screen_' + name](); } catch (error) { bad.push(name + ' could not be built: ' + error.message); continue; }
+          for (const [width, height] of [[1280, 720], [844, 390]]) check(name, html, width, height);
+        }
+      } finally { Object.assign(Game.selection, keep); }
+      if (!measured) bad.push('nothing was measured in a browser');
+      return bad.length ? bad.slice(0, 4).join('; ') + (bad.length > 4 ? ' (+' + (bad.length - 4) + ')' : '') : true;
+    });
     /* ---------- Mode flows (P18-40) ---------- */
     /* Every mode from the main menu to the results and back, pressing only what the screen on show offers: the data-act of its enabled buttons, which is what a tap, Enter and a pad's A all press (an enabled
        button is also what the arrow keys and the pad stick can focus). The game state moves the way a page moves it (Game.go checks GS_TRANSITIONS and UI.onGameState puts the screen up, on stand-in page elements),
@@ -12529,6 +12876,91 @@ const SelfTest = {
       }
       return flow.problems.length ? flow.problems[0] : true;
     }));
+    /* Ring-out of the Tournament (P18-45): the choice lives in the bracket; the Settings no longer hold it. */
+    test('Tournament ring-out (P18-45): a bracket stores Ring-out (only true counts), saves and cleans it, an old bracket without it (or with a damaged one) takes the saved Tournament row, and Settings has no Ring-out row', () => withTournament(() => {
+      const bad = [], humans = [{ seat: 0, id: 'kai' }], keep = Setups.d, copy = (value) => JSON.parse(JSON.stringify(value));
+      try {
+        for (const [given, want] of [[true, true], [false, false], [undefined, false], [1, false], ['true', false], [null, false]]) {
+          const t = Tournament.draw({ humans, size: 8, seed: 5, ringOut: given }), back = Tournament.clean(copy(Tournament.pack(t)));
+          if (t.ringOut !== want || Tournament.pack(t).ringOut !== want || !back || back.ringOut !== want) bad.push('draw ' + given + ' gave ' + t.ringOut);
+        }
+        const old = copy(Tournament.pack(Tournament.draw({ humans, size: 8, seed: 5 })));
+        delete old.ringOut;
+        for (const saved of [true, false]) {
+          Setups.d = { v: 1, tournament: { ringOut: saved } };
+          if (Tournament.clean(old).ringOut !== saved) bad.push('an old bracket did not take the saved row ' + saved);
+        }
+        Setups.d = { v: 1, tournament: { ringOut: true } };
+        for (const damaged of ['on', 1, null, [], {}]) if (Tournament.clean(Object.assign({}, old, { ringOut: damaged })).ringOut !== true) bad.push('a damaged ringOut ' + JSON.stringify(damaged) + ' was kept');
+        if (Tournament.clean(Object.assign({}, old, { ringOut: false })).ringOut !== false) bad.push('a stored Off was replaced by the row');
+        Progress.d.tournamentRun = copy(old);
+        if (!Game.savedTournament() || Progress.d.tournamentRun.ringOut !== true) bad.push('an old saved bracket was not pinned when it was loaded');
+        Setups.d = null;
+        if (Tournament.clean(old).ringOut !== false) bad.push('no saved row is Off');
+      } finally { Setups.d = keep; }
+      const page = UI.screen_settings();
+      if (page.includes('Ring-out') || page.includes('data-set="ringOut"')) bad.push('the Settings screen still has a Ring-out row');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Tournament ring-out (P18-45): the join screen has a Ring-out row that a gamepad, the arrow keys and a tap change and save with the Difficulty, a saved bracket hides it, and the draw and its save carry it', () => withFlow([fakePad('a')], (flow, pads) => {
+      const pad = pads[0], on = (name) => (el) => el.attrs['data-local'] === name, sel = Game.selection, tour = () => Setups.plain(Setups.d && Setups.d.tournament), keepStore = Store.get(KEY_SETUPS);
+      const row = () => flow.items.find(on('tring'));
+      try {
+        Setups.d = { v: 1 }; sel.tournamentRing = false;
+        flowEnter(flow, 'tournament');
+        flow.reach('the Tournament join screen', pad);
+        if (!row() || !UI.screen_coop().includes('Ring-out')) return 'the join screen has no Ring-out row';
+        if (!flow.focusOn(on('tring'))) return 'the focus never reached the Ring-out row';
+        flow.padTap(pad, 'right');
+        if (!sel.tournamentRing || tour().ringOut !== true || JSON.parse(Store.get(KEY_SETUPS)).tournament.ringOut !== true || Inputs.seatedSlots().length) return 'right on a gamepad did not turn Ring-out on and save it: ' + sel.tournamentRing + ' ' + JSON.stringify(tour());
+        flow.padTap(pad, 'left');
+        if (sel.tournamentRing || tour().ringOut !== false) return 'left on a gamepad did not turn Ring-out off';
+        UI.onKey(keyEvent('ArrowRight'));
+        if (!sel.tournamentRing || tour().ringOut !== true) return 'the right arrow key did not turn Ring-out on';
+        row().click(); row().click();
+        if (!sel.tournamentRing) return 'two taps did not come round to On';
+        row().click();
+        if (sel.tournamentRing || !UI.screen_coop().includes('aria-label="Ring-out" aria-valuetext="Off"')) return 'a tap did not turn Ring-out off';
+        if (!flow.focusOn(on('diff'))) return 'the focus never reached Difficulty';
+        flow.padTap(pad, 'right');
+        if (tour().difficulty !== sel.tournamentLevel || tour().ringOut !== false) return 'Difficulty and Ring-out were not saved together: ' + JSON.stringify(tour());
+        Game.saveLevel(); sel.tournamentRing = true; Game.loadLevels();
+        if (sel.tournamentRing) return 'loadLevels did not read the saved Off';
+        sel.tournamentRing = true; Game.saveLevel(); sel.tournamentRing = false; Game.loadLevels();
+        if (!sel.tournamentRing) return 'a saved On was not read back';
+        Game.startTournament([{ seat: 0, id: 'kai' }], 9);
+        if (Game.tournament.ringOut !== true || Progress.d.tournamentRun.ringOut !== true) return 'the draw did not carry Ring-out: ' + Game.tournament.ringOut + ' ' + Progress.d.tournamentRun.ringOut;
+        Game.tournamentResume = Game.savedTournament();
+        if (UI.screen_coop().includes('data-local="tring"')) return 'a saved bracket still shows the Ring-out row';
+        Game.tournamentResume = null; Game.quitToMenu();
+        return flow.problems.length ? flow.problems[0] : true;
+      } finally { Game.tournamentResume = null; if (keepStore === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keepStore); }
+    }));
+    test('Tournament ring-out (P18-45): at start-up the Tournament row is seeded once from the old Ring-out switch, beside the Free Fight rules, and nothing else in the saved setups is touched', () => {
+      const bad = [], keep = { settings: Store.get(KEY_SETTINGS), setups: Store.get(KEY_SETUPS), d: Setups.d, v: Settings.v };
+      const put = (key, value) => { if (value === null) Store.remove(key); else Store.set(key, typeof value === 'string' ? value : JSON.stringify(value)); };
+      try {
+        Settings.v = Object.assign({}, keep.v);
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== true || JSON.parse(Store.get(KEY_SETUPS)).tournament.ringOut !== true) bad.push('from nothing ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('an old Off');
+        put(KEY_SETTINGS, {}); put(KEY_SETUPS, null); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('no old switch');
+        const rules = FightRules.fix({ area: 1 });
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, { v: 1, freeFight: { rules, future: 5 }, tournament: { difficulty: 'hard' }, survival: { difficulty: 'normal' } }); Setups.init();
+        if (Setups.d.tournament.ringOut !== true || Setups.d.tournament.difficulty !== 'hard' || Setups.d.freeFight.future !== 5 || JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify(rules) || Setups.d.survival.difficulty !== 'normal') bad.push('the seed beside saved setups ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, { v: 1, freeFight: { rules }, tournament: { ringOut: true } }); Setups.init();
+        if (Setups.d.tournament.ringOut !== true) bad.push('the seed ran again over a stored row');
+        put(KEY_SETUPS, { v: 3, tournament: {} }); Setups.init();
+        if ('ringOut' in Setups.d.tournament) bad.push('an unknown version was changed');
+        put(KEY_SETUPS, { v: 1, freeFight: { rules }, tournament: 'x' }); Setups.init();
+        if (Setups.d.tournament.ringOut !== false) bad.push('a damaged Tournament entry');
+        put(KEY_SETTINGS, { ringOut: true, storyAuto: true }); Settings.init(); Settings.save();
+        if ('ringOut' in JSON.parse(Store.get(KEY_SETTINGS))) bad.push('Settings.save kept the Ring-out key');
+      } finally { put(KEY_SETTINGS, keep.settings); put(KEY_SETUPS, keep.setups); Setups.d = keep.d; Settings.v = keep.v; Settings.apply(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
@@ -12595,7 +13027,7 @@ const SelfTest = {
         return Game.state === GS.MENU && UI.current === 'main';
       };
       const devices = ['key1', 'key2', 'pad0', 'pad1'];
-      Object.assign(Settings.v, { storyScenes: pick(['full', 'short', 'off']), storyAuto: random() < 0.3, ringOut: random() < 0.5, items: random() < 0.7, hazards: random() < 0.7 });   // the walk's own settings, put back with the rest
+      Object.assign(Settings.v, { storyScenes: pick(['full', 'short', 'off']), storyAuto: random() < 0.3, items: random() < 0.7, hazards: random() < 0.7 });   // the walk's own settings, put back with the rest
       if (seed % 2) { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.put(3, validateCustom(randomCustom(seed)).value); }   // odd walks have a custom fighter to pick
       for (let step = 0; step < steps; step++) {
         const state = Game.state, screen = UI.current, label = state + '/' + flow.screen();
@@ -14502,7 +14934,7 @@ const SelfTest = {
       Input.lastDevice = 'keyboard';   // a phone seats one person in a crowd fight
       Object.assign(sel, { player: 'kai', opponent: 'mara', arena: 'dojo', difficulty: 'hard', rounds: 3, timer: 90 });
       const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
+      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'rulesSet', 'assist']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
       const waves = !!ARENAS.dojo.waves;
       const brawlPlan = MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]]), 'hard');
       const old = {
@@ -14534,7 +14966,7 @@ const SelfTest = {
         Game.quitToMenu();
       }
       const keepSettings = Object.assign({}, Settings.v), keepSelection = Object.assign({}, sel), keepDevice = Input.lastDevice;
-      Object.assign(Settings.v, { autoAssist: true, movement: 'opponent', reducedMotion: true, flashes: 'off', ringOut: true });   // what the menu tests leave behind: the hash must not care
+      Object.assign(Settings.v, { autoAssist: true, movement: 'opponent', reducedMotion: true, flashes: 'off' });   // what the menu tests leave behind: the hash must not care
       Object.assign(sel, { player: 'zero', opponent: 'kai', arena: 'pit', difficulty: 'easy', rounds: 1, timer: 0 }); Input.lastDevice = 'touch'; Input.kb.add('KeyL');
       try {
         for (const type of FIGHT_TYPES) if (hashOf(built[type]) !== hashOf(old[type])) bad.push(type + ' plays differently from the old config: ' + hashOf(built[type]) + ' not ' + hashOf(old[type]));
@@ -14592,7 +15024,7 @@ const SelfTest = {
       let first = UI.screen_freefight();
       if (!order(first, ['Fight type', 'Players and teams', 'Level', 'Difficulty', 'More options', '>Back<', '>Start fight<']) || navs(first) !== 7 || first.includes('Not used') || !/data-default data-act="start"/.test(first)) bad.push('Duel: the first screen');
       const more = UI.screen_freemore();
-      if (!order(more, ['Rounds', 'Time limit', 'Friendly fire']) || !more.includes('Best of 3') || !more.includes('60 s per round') || !more.includes('Not used: nobody has a teammate') || more.includes('Fight rules')) bad.push('Duel: More options ' + (more.match(/Not used[^<]*/g) || []));
+      if (!order(more, ['Rounds', 'Time limit', 'Friendly fire']) || !more.includes('Best of 3') || !more.includes('60 s per round') || !more.includes('Not used: nobody has a teammate') || !more.includes('Fight rules')) bad.push('Duel: More options ' + (more.match(/Not used[^<]*/g) || []));
       Game.applyType('Versus');
       first = UI.screen_freefight();
       if (!first.includes('Not used: no CPU fighter') || first.includes('data-local="diff"') || navs(first) !== 6) bad.push('Versus: no CPU fighter');
@@ -15076,6 +15508,456 @@ const SelfTest = {
       } } finally { Setups.d = keepSetups; }
       return bad.length ? bad.join('; ') : flow.problems.length ? flow.problems[0] : true;
     }));
+    /* ---------- Fight rules (P18-43): the rules of a Free Fight - area, ring-out, items, hazards, breakables, health, start side - and the presets ---------- */
+    const ruleLineup = () => lineupOf([['kai', 0, true], ['mara', 0, false]]);
+    const ruleCfg = (rules, lineup, id) => FightRules.cfg(Object.assign(FightRules.fix(), rules), lineup || ruleLineup(), ARENAS[id]);
+    const ruleDuel = (id, rules, extra) => track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: id, countdown: false, timer: 0, seed: 5, difficulty: 'hard', winsNeeded: 1, sides: true }, ruleCfg(rules, null, id), extra)));
+    const ruleLine = (list, id, rules, extra) => { const lineup = lineupOf(list); return lineupMatch(lineup, Object.assign({ arenaId: id }, ruleCfg(rules, lineup, id), extra)); };
+    const EDGE_LEVELS = ARENA_ORDER.filter((id) => ARENAS[id].ring[4]), PLAIN_LEVELS = ARENA_ORDER.filter((id) => !ARENAS[id].ring[4]);
+    const ruleHash = (m) => { aiAll(m, 'normal'); for (let i = 0; i < 150; i++) m.step(); return fnv1a(m.fighters.map((f) => [f.x.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|')).toString(36); };
+    test('Fight rules (P18-43): the table, the defaults and the clean-up - the defaults build the old Free Fight config and play the same fights (a 1v1, a 1v1 in a ring with ring-out, a lineup of two teams, a free-for-all and a crowd), a damaged value falls back field by field', () => {
+      const bad = [], defaults = FightRules.fix();
+      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side' || FIGHT_RULES.some(([key, labels, def]) => defaults[key] !== def || labels.length < 2) || FIGHT_PRESETS.some((preset) => preset[1].length !== FIGHT_RULES.length)) bad.push('the table');
+      for (const raw of [undefined, null, 'x', [1, 2], 7, { area: 2, ringOut: -1, items: 1.5, hazards: '1', breakables: null, health: 4, side: 3 }]) if (JSON.stringify(FightRules.fix(raw)) !== JSON.stringify(defaults)) bad.push('clean-up of ' + JSON.stringify(raw));
+      if (JSON.stringify(FightRules.fix({ area: 1, health: 3, side: 2, items: 'x' })) !== JSON.stringify(Object.assign({}, defaults, { area: 1, health: 3, side: 2 }))) bad.push('field by field');
+      const fields = { ring: false, ringOut: false, items: true, hazards: true, breakables: true, hpScale: 1, startSide: 0, rulesSet: true };
+      for (const [name, lineup] of [['duel', ruleLineup()], ['lineup', lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]])], ['crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true })]]) if (JSON.stringify(FightRules.cfg(defaults, lineup, ARENAS.dojo)) !== JSON.stringify(fields)) bad.push(name + ' default config');
+      const party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], people = lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]]), ffa = lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]]);
+      const same = (name, lineup, make) => { if (ruleHash(make(FightRules.cfg(defaults, lineup, ARENAS.dojo))) !== ruleHash(make({ items: true, hazards: true }))) bad.push(name + ' plays differently with the default rules'); };
+      const base = { arenaId: 'dojo', countdown: false, timer: 0, seed: 11, difficulty: 'normal', evenDamage: true };
+      same('1v1', ruleLineup(), (extra) => track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, extra))));
+      same('two teams', people, (extra) => lineupMatch(people, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      same('free-for-all', ffa, (extra) => lineupMatch(ffa, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      same('crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), (extra) => coopMatch(party, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
+      const ringed = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, ruleCfg({ area: 1, ringOut: 1 }, null, EDGE_LEVELS[0]), { arenaId: EDGE_LEVELS[0] })))), plainRing = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true }))));
+      if (ringed !== plainRing) bad.push('the ring match differs from the old ring options');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Area and Ring-out on all eight levels - the whole level or the level ring, the walls on the ring edge (and 1.5 m beyond with ring-out), the starts, items and hazards inside, the ring-out only on the four levels with a ring edge, and the dimmed reasons', () => {
+      const bad = [];
+      if (EDGE_LEVELS.length !== 4) bad.push('edge levels ' + EDGE_LEVELS);
+      for (const id of ARENA_ORDER) {
+        const row = ARENAS[id].ring, b = ARENAS[id].bounds;
+        ruleDuel(id, {});
+        if (Arena.ring !== null || Arena.ringOut || Arena.ax0 !== -b.x || Arena.ax1 !== b.x || Arena.az1 !== b.z) bad.push(id + ' whole level');
+        let m = ruleDuel(id, { area: 1 });
+        const x0 = Math.max(-b.x, row[0] - row[2]), x1 = Math.min(b.x, row[0] + row[2]), z0 = Math.max(-b.z, row[1] - row[3]), z1 = Math.min(b.z, row[1] + row[3]);
+        if (!Arena.ring || Arena.ringOut || [Arena.ax0, Arena.ax1, Arena.az0, Arena.az1].some((v, i) => Math.abs(v - [x0, x1, z0, z1][i]) > 1e-9)) bad.push(id + ' ring walls');
+        if (m.fighters.some((f) => !Arena.inRing(f.x, f.z)) || m.items.some((it) => !Arena.inRing(it.x, it.z)) || m.hazards.some((h) => h.type !== 'glass' && !Arena.inRing(h.x, h.z))) bad.push(id + ' starts, items or hazards outside the ring');
+        m = ruleDuel(id, { area: 1, ringOut: 1 });
+        const want = !!row[4];
+        if (Arena.ringOut !== want || m.cfg.ringOut !== want || !Arena.ring) { bad.push(id + ' ring-out ' + Arena.ringOut); continue; }
+        if (want && [Arena.ax0, Arena.ax1].some((v, i) => Math.abs(v - [Math.max(-b.x, x0 - RING_APRON), Math.min(b.x, x1 + RING_APRON)][i]) > 1e-9)) bad.push(id + ' ring-out walls');
+        const out = m.fighters[1];
+        if (want) {
+          m.step(); out.x = Arena.ring.x1 + 0.4; out.z = (z0 + z1) / 2;
+          for (let i = 0; i < 4 && out.alive; i++) m.step();
+          if (out.alive || m.ringedOut !== out) bad.push(id + ' nobody lost by leaving the ring');
+        } else if (Arena.outside(Arena.ring.x1 + 0.4, row[1], 0.34) !== true) bad.push(id + ' no wall on the ring edge');
+      }
+      const duel = ruleLineup(), reasons = (rules, lineup, id) => FIGHT_RULES.map(([key]) => FightRules.why(key, Object.assign(FightRules.fix(), rules), lineup, ARENAS[id])).join('|');
+      if (reasons({ area: 1 }, duel, EDGE_LEVELS[0]) !== '||||||' || !reasons({}, duel, EDGE_LEVELS[0]).includes('whole level is open') || !reasons({ area: 1 }, duel, PLAIN_LEVELS[0]).includes('no ring edge')) bad.push('reasons');
+      if (!/^the crowd uses the doors\|the crowd uses the doors\|{5}the doors decide$/.test(reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'))) bad.push('crowd reasons ' + reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'));
+      const crowd = coopMatch([{ slot: 0, id: 'kai' }], { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true });
+      if (Arena.ring !== null || crowd.cfg.ring !== true) bad.push('the crowd took the ring');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Weapons and items Off places no item, picks nothing up and leaves no brick from a wall, the electric panel stays idle; Hazards Off places none and no bottle glass; the same rules On leave the level as it was', () => {
+      const bad = [], brick = Object.keys(MATERIALS).find((key) => MATERIALS[key].leave === 'brick');
+      let withItems = 0;
+      for (const id of ARENA_ORDER) {
+        const on = ruleDuel(id, {}), off = ruleDuel(id, { items: 0, hazards: 0 });
+        withItems += on.items.length;
+        if (off.items.length || off.hazards.length || off.itemsOn || off.hazardsOn || off.drops.length) bad.push(id + ' items or hazards placed');
+        off.glassPatch(0, 0, 0); off.leaveBehind({ mat: brick, x: 0, z: 0, base: 0, h: 1 });
+        if (off.items.length || off.hazards.length) bad.push(id + ' bottle glass or a brick');
+        if (on.hazards.length < (ARENAS[id].hazards || []).length) bad.push(id + ' hazards On lost some');
+        if (!on.itemsOn || !on.hazardsOn) bad.push(id + ' On flags');
+      }
+      if (!withItems) bad.push('no level has an item');
+      const panelLevel = ARENA_ORDER.find((id) => (ARENAS[id].hazards || []).some((h) => h[0] === 'panel')), quiet = ruleDuel(panelLevel, { items: 0 });
+      quietAll(quiet);
+      for (let i = 0; i < 300; i++) quiet.step();
+      if (quiet.hazards.some((h) => h.type === 'panel' && h.state !== 'idle') || quiet.items.length) bad.push('a panel started or an item appeared with Items Off');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Breakables Off makes the scenery solid - hits, throws, falls, fire and load leave every object at full hit points (it still wobbles), weak decks hold, the glass wall hazard is not placed and the other hazards run; On is unchanged; the menu backdrop and Arena.reset behave', () => {
+      const bad = [];
+      for (const id of ARENA_ORDER) {
+        const on = ruleDuel(id, {}), onCounts = JSON.stringify(Arena.statusCounts()), onOther = on.hazards.length - (ARENAS[id].hazards || []).filter((h) => h[3] && h[3].obj).length;
+        const m = ruleDuel(id, { breakables: 0 });
+        if (!Arena.solid || on.cfg.breakables !== true) bad.push(id + ' flags');
+        const objects = Arena.objects.filter((o) => !o.fixed), placed = m.hazards.length; // counted before the fire below lights a zone
+        for (const o of objects) { Arena.damageObject(o, 1e4, 'impact', -2 - objects.indexOf(o), 1, 0, o.x, 1, o.z, 0); Arena.damageObject(o, 1e4, 'crush', -900 - objects.indexOf(o), 0, 0, o.x, 0.5, o.z, undefined); }
+        if (objects.some((o) => o.destroyed || o.hp !== o.maxHp || o.stage !== 0) || objects.length && !objects.some((o) => o.wob > 0) || JSON.stringify(Arena.statusCounts()) !== JSON.stringify({ intact: objects.length, damaged: 0, destroyed: 0, total: objects.length })) bad.push(id + ' scenery was damaged');
+        for (const o of objects.filter((q) => q.weak)) o.creak = 1;
+        m.tick = 0; m.stepLoad();
+        if (objects.some((o) => o.destroyed)) bad.push(id + ' a weak deck gave way');
+        const wood = objects.find((o) => MATERIALS[o.mat].burn);
+        if (wood) { m.ignite(wood, undefined); m.tick = 0; m.stepFire(); if (wood.hp !== wood.maxHp || wood.destroyed) bad.push(id + ' fire damaged scenery'); }
+        const glass = m.hazards.filter((h) => h.type === 'glass').length;
+        if (glass || placed !== onOther || m.drops.length) bad.push(id + ' hazards ' + placed + ' want ' + onOther);
+        ruleDuel(id, {}); if (JSON.stringify(Arena.statusCounts()) !== onCounts) bad.push(id + ' On changed');
+        if (!objects.some((o) => o.weak)) continue;
+        const live = ruleDuel(id, {}), weak = Arena.objects.filter((o) => o.weak);
+        for (const o of weak) o.creak = 1;
+        live.tick = 0; live.stepLoad();
+        if (!weak.some((o) => o.destroyed)) bad.push(id + ' a weak deck holds with Breakables On');
+      }
+      for (const solid of [true, false]) {   // two heavy fighters stand on the dock for 10 s: it holds when solid, gives way when not
+        const m = ruleDuel('warehouse', { breakables: solid ? 0 : 1 }), dock = Arena.objects.find((o) => o.id === 'dock');
+        quietAll(m);
+        m.fighters.forEach((f, i) => { onDeck(f, dock); f.x = f.prevX = dock.x - 0.4 + i * 0.8; f.weight = 9; });
+        for (let i = 0; i < 600; i++) m.step();
+        if (dock.destroyed === solid) bad.push('two heavy fighters on the dock for 10 s: ' + (solid ? 'it broke with Breakables Off' : 'it held with Breakables On'));
+      }
+      const id = ARENA_ORDER[0];
+      ruleDuel(id, { breakables: 0 }); Arena.reset();
+      if (!Arena.solid) bad.push('Arena.reset lost the solid scenery');
+      Arena.build(ARENAS[id]);
+      if (Arena.solid) bad.push('the menu backdrop stayed solid');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Health scales every fighter after the Even-teams handicap - a 1v1, a lineup, the crowd, an enemy who walks in later and the revive - full bars at the start, Normal changes nothing, and the grade par follows the scale', () => {
+      const bad = [], scaled = (m, base, scale) => m.fighters.every((f, i) => f.maxHp === Math.round(base[i] * scale) && f.hp === f.maxHp && f.stats.maxHp === f.maxHp);
+      const people = [['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]];
+      const wavy = ARENA_ORDER.find((id) => ARENAS[id].waves), party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }];
+      [0.5, 1, 1.5, 2].forEach((scale, k) => {
+        const make = [() => ruleDuel('dojo', { health: k }), () => ruleLine(people, 'dojo', { health: k }), () => coopMatch(party, { hpScale: scale, arenaId: 'dojo' })];
+        const plain = [() => ruleDuel('dojo', {}), () => ruleLine(people, 'dojo', {}), () => coopMatch(party, { arenaId: 'dojo' })];
+        make.forEach((build, n) => { const base = plain[n]().fighters.map((f) => f.maxHp), m = build(); if (!scaled(m, base, scale)) bad.push('kind ' + n + ' scale ' + scale); });
+        const profile = ROSTER_BY_ID.brutus, enter = (extra) => { const m = coopMatch([party[0]], Object.assign({ arenaId: wavy, waves: true }, extra)); m.enterEnemy({ k: 0, j: 0, n: 1, profile }); return m.fighters[m.fighters.length - 1]; };
+        const late = enter({ hpScale: scale }), lateBase = enter({});
+        if (late.maxHp !== Math.round(lateBase.maxHp * scale) || late.hp !== late.maxHp) bad.push('a late enemy at ' + scale);
+        const m = coopMatch([party[0]], { arenaId: 'dojo', hpScale: scale }), f = m.fighters[0];
+        Combat.knockOut(f, null, null, m); m.locked = false; m.reviveTeam(0.5);
+        if (!f.alive || f.maxHp !== Math.round(coopMatch([party[0]], { arenaId: 'dojo' }).fighters[0].maxHp * scale) || Math.abs(f.hp - f.maxHp * 0.5) > 1) bad.push('revive at ' + scale);
+        const data = Object.assign(coopMatch([party[0]], { arenaId: 'dojo', hpScale: scale }).results(), { playerWon: true, gradeMode: 'free', enemies: 0 });
+        if (data.hpScale !== scale || gradeInputs(data, data.stats[0], 100).par !== gradeInputs(Object.assign({}, data, { hpScale: 1 }), data.stats[0], 100).par * scale) bad.push('grade par at ' + scale);
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): Player 1 starts - Left and Right in round 1 of a 1v1 and swapped in round 2, a lineup of two teams mirrored, the crowd and a circle ignore it, Automatic is the old rule', () => {
+      const bad = [];
+      for (const id of ['dojo', EDGE_LEVELS[0]]) for (const area of [0, 1]) {
+        for (const side of [1, 2]) {
+          const m = ruleDuel(id, { side, area }), first = () => Math.sign(m.fighters[0].x - m.fighters[1].x);
+          const want = side === 1 ? -1 : 1;
+          if (first() !== want) bad.push(id + ' round 1 side ' + side);
+          m.startRound();
+          if (first() !== -want) bad.push(id + ' round 2 side ' + side);
+        }
+        const auto = ruleDuel(id, { area }), drawn = MatchSim.sideFor(auto.cfg.seed, 1);
+        if (Math.sign(auto.fighters[0].x - auto.fighters[1].x) !== -drawn) bad.push(id + ' Automatic');
+      }
+      const teams = [['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]], mirror = ruleLine(teams, 'dojo', { side: 2 }), left = ruleLine(teams, 'dojo', {});
+      if (left.fighters[0].x >= 0 || mirror.fighters[0].x <= 0 || mirror.fighters[0].yaw === left.fighters[0].yaw) bad.push('the lineup was not mirrored');
+      const circle = [['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]], c1 = ruleLine(circle, 'dojo', { side: 2 }), c0 = ruleLine(circle, 'dojo', {});
+      if (c1.cfg.startSide !== 0 || c1.fighters.some((f, i) => f.x !== c0.fighters[i].x || f.z !== c0.fighters[i].z)) bad.push('a circle moved');
+      const party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], k1 = coopMatch(party, { startSide: -1 }), k0 = coopMatch(party, {});
+      if (k1.fighters.some((f, i) => f.x !== k0.fighters[i].x || f.z !== k0.fighters[i].z)) bad.push('the crowd moved');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): a lineup in the ring - 4 v 4 and a free-for-all of 8 start inside the ring and clear of scenery and of each other on all eight levels, a CPU fight finishes with nobody outside (ring-out on the four edge levels), the CPU waiting spots stay in the ring, and a ring-out knocks out one fighter while the rest fight on', () => {
+      const bad = [], eight = Array.from({ length: 8 }, (_, i) => [ROSTER[i].id, i < 4 ? 1 : 2, i === 0]), crowd8 = Array.from({ length: 8 }, (_, i) => [ROSTER[i].id, 0, i === 0]);
+      for (const id of ARENA_ORDER) for (const [name, list] of [['4 v 4', eight], ['ffa', crowd8]]) {
+        const m = ruleLine(list, id, { area: 1, ringOut: 1 });
+        const starts = m.fighters.every((f, i) => Arena.inRing(f.x, f.z) && f.x >= Arena.sx0 + f.radius - 1e-9 && f.x <= Arena.sx1 - f.radius + 1e-9 && !Arena.blockedAt(f.x, f.z, f.radius, 0) && m.fighters.every((o, j) => j <= i || Math.hypot(o.x - f.x, o.z - f.z) >= 2 * f.radius - 1e-9));
+        if (!starts) bad.push(id + ' ' + name + ' starts');
+        if (name !== 'ffa') continue;
+        for (let n = 3; n <= 7; n++) for (const split of [0, 1]) {   // 3 to 7 fighters, alone or in three teams, hazards on: nobody in a wall, a hazard post or off the ring
+          const few = ruleLine(crowd8.slice(0, n).map(([fighter, , person], i) => [fighter, split ? 1 + (i % 3) : 0, person]), id, { area: 1, ringOut: 1 });
+          if (few.fighters.some((f) => !Arena.inRing(f.x, f.z) || Arena.blockedAt(f.x, f.z, f.radius, 0))) bad.push(id + ' ' + n + (split ? ' in teams' : ' alone') + ' starts');
+        }
+        aiAll(m, 'hard'); m.cfg.timer = 10; m.roundTicks = 600;
+        for (let i = 0; i < 2400 && !m.matchOver; i++) {
+          m.step();
+          if (m.fighters.some((f) => f.alive && [S.IDLE, S.WALK, S.RUN].includes(f.state) && !Arena.inRing(f.x, f.z))) { bad.push(id + ' someone stood outside at tick ' + i); break; }
+          if (Arena.ringOut) for (let k = 0; k < m.fighters.length; k++) if (m.crowd.engaged[k] && (m.crowd.slotX[k] < Arena.sx0 - 1e-9 || m.crowd.slotX[k] > Arena.sx1 + 1e-9 || m.crowd.slotZ[k] < Arena.sz0 - 1e-9 || m.crowd.slotZ[k] > Arena.sz1 + 1e-9)) { bad.push(id + ' a waiting spot outside the ring'); i = 1e9; break; }
+        }
+        if (!m.matchOver && m.tick >= 2400) bad.push(id + ' did not finish');
+      }
+      const three = ruleLine([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false]], EDGE_LEVELS[0], { area: 1, ringOut: 1 }), out = three.fighters[2];
+      three.step(); out.x = Arena.ring.x1 + 0.4; out.z = (Arena.ring.z0 + Arena.ring.z1) / 2;
+      for (let i = 0; i < 4 && out.alive; i++) three.step();
+      if (out.alive || !three.fighters[0].alive || !three.fighters[1].alive || three.matchOver) bad.push('a ring-out in a lineup');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): the presets - each sets its rows, Rounds and Time limit and the label follows, editing a row shows Custom, a dimmed row is ignored by the label, and each preset starts a fight with the rules of the mode it copies (Tournament bout: no items, no hazards, one win, the bracket clock; Survival style: one win, items and hazards on; Ring match: the ring with ring-out)', () => withFree(() => {
+      const bad = [], sel = Game.selection, lineup = Game.lineupFor(), arena = () => ARENAS[sel.arena];
+      const go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true;
+      try {
+        sel.arena = EDGE_LEVELS[0];
+        FIGHT_PRESETS.forEach((preset, k) => {
+          FightRules.apply(k, sel.rules, lineup, sel);
+          if (FIGHT_RULES.some(([key], i) => sel.rules[key] !== preset[1][i]) || sel.rounds !== preset[2] || sel.timer !== preset[3] || lineup.timer !== 0) bad.push(preset[0] + ' rows');
+          const label = FightRules.match(sel.rules, lineup, arena(), sel);
+          if (label !== FIGHT_PRESETS.findIndex((other) => JSON.stringify(other.slice(1)) === JSON.stringify(preset.slice(1)))) bad.push(preset[0] + ' label ' + label);
+          Game.startFromSelection();
+          const cfg = Game.config, m = Game.match, want = FightRules.cfg(sel.rules, lineup, arena());
+          if (!m || Object.keys(want).some((key) => cfg[key] !== want[key]) || cfg.winsNeeded !== preset[2] || cfg.timer !== preset[3] || m.itemsOn !== (preset[1][2] === 1) || m.hazardsOn !== (preset[1][3] === 1) || !!Arena.ring !== (preset[1][0] === 1) || Arena.ringOut !== (preset[1][1] === 1)) bad.push(preset[0] + ' fight');
+          Game.endMatch();
+        });
+        if (FIGHT_PRESETS[1][1][2] !== 0 || FIGHT_PRESETS[1][1][3] !== 0 || FIGHT_PRESETS[1][2] !== 1 || FIGHT_PRESETS[1][3] !== TOURNAMENT_TIMER || FIGHT_PRESETS[2][2] !== 1 || FIGHT_PRESETS[0][2] !== 2 || FIGHT_PRESETS[3][1][1] !== 1) bad.push('the copied modes');
+        FightRules.apply(0, sel.rules, lineup, sel); sel.rules.health = 2;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== -1) bad.push('an edited row is not Custom');
+        sel.rules.health = 1; sel.rules.ringOut = 1;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== 0) bad.push('a dimmed row counted (Ring-out with the whole level)');
+        sel.rounds = 3;
+        if (FightRules.match(sel.rules, lineup, arena(), sel) !== -1) bad.push('Rounds did not count in a 1v1');
+        Game.applyType('Brawl'); const brawl = Game.lineupFor(); sel.rounds = 3; sel.rules.ringOut = 0;
+        if (FightRules.match(sel.rules, brawl, arena(), sel) !== 0) bad.push('Rounds counted in a lineup');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Fight rules (P18-43): the More options screen - the rows in order after Friendly fire, their values, the dimmed reasons (crowd, whole level, a level with no ring edge, a circle) and the Level change that dims and restores Ring-out, taps and steps left and right change a value and wrap, the preset row steps the four presets, and the first screen subtitle lists the rules that are not default', () => withFree(() => {
+      const bad = [], sel = Game.selection, keepRerender = UI.rerender, keepCurrent = UI.current;
+      UI.rerender = () => {}; UI.current = 'freemore';
+      try {
+        let html = UI.screen_freemore();
+        const names = ['Friendly fire', 'Rules preset', 'Area', 'Ring-out', 'Weapons and items', 'Hazards', 'Breakables', 'Health', 'Player 1 starts'];
+        let at = -1;
+        for (const name of names) { const next = html.indexOf(name, at + 1); if (next < 0) { bad.push('row ' + name); break; } at = next; }
+        if (!html.includes('Standard') || !html.includes('Whole level') || !html.includes('Not used: the whole level is open') || html.includes('data-local="fr:ringOut"') || !html.includes('Normal') || !html.includes('Automatic')) bad.push('values');
+        sel.arena = EDGE_LEVELS[0]; UI.changeLocal('fr:area', 1, true);
+        if (sel.rules.area !== 1 || !UI.screen_freemore().includes('data-local="fr:ringOut"')) bad.push('a tap on Area');
+        UI.changeLocal('fr:ringOut', 1, true); sel.arena = PLAIN_LEVELS[0];
+        html = UI.screen_freemore();
+        if (!html.includes('Not used: this level has no ring edge') || html.includes('data-local="fr:ringOut"') || sel.rules.ringOut !== 1) bad.push('a level without a ring edge');
+        sel.arena = EDGE_LEVELS[0];
+        if (!UI.screen_freemore().includes('data-local="fr:ringOut"') || !UI.moreSummary(Game.lineupFor()).includes('ring-out on')) bad.push('Ring-out did not come back with the level');
+        for (const dir of [1, 1, 1, 1]) UI.changeLocal('fr:health', dir, false);
+        if (sel.rules.health !== 1 || !UI.screen_freemore().includes('Normal')) bad.push('Health did not wrap');
+        UI.changeLocal('fr:health', -1, false); UI.changeLocal('fr:health', -1, false);
+        if (sel.rules.health !== 3 || !UI.moreSummary(Game.lineupFor()).includes('health double')) bad.push('Health steps left');
+        const seen = [];
+        for (let i = 0; i < 4; i++) { UI.changeLocal('fr:preset', 1, true); seen.push(FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel)); }
+        if (seen.join() !== '0,1,2,3') bad.push('the preset row ' + seen);
+        UI.changeLocal('fr:preset', 1, true); UI.changeLocal('fr:preset', -1, true);
+        Game.applyType('Brawl');   // Survival style reads as Standard in a lineup: four taps must still reach Ring match
+        UI.changeLocal('fr:preset', -1, true); while (FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel) !== 0) UI.changeLocal('fr:preset', 1, true);
+        const brawlSeen = [];
+        for (let i = 0; i < 4; i++) { UI.changeLocal('fr:preset', 1, true); brawlSeen.push(FightRules.match(sel.rules, Game.lineupFor(), ARENAS[sel.arena], sel)); }
+        if (brawlSeen.join() !== '1,3,0,1') bad.push('the preset row in a lineup ' + brawlSeen);
+        Game.applyType('Co-op');
+        html = UI.screen_freemore();
+        if ((html.match(/Not used: the crowd uses the doors/g) || []).length !== 2 || !html.includes('Not used: the doors decide')) bad.push('the crowd rows');
+        Game.applyType('Brawl'); const lineup = Game.lineupFor(); lineup.slots.forEach((slot, i) => { slot.team = 1 + (i % 3); }); lineup.deal = 'custom';
+        if (!UI.screen_freemore().includes('Not used: everyone starts in a circle')) bad.push('the circle row');
+        if (!UI.screen_freefight().includes('More options')) bad.push('first screen');
+      } finally { UI.rerender = keepRerender; UI.current = keepCurrent; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Fight rules (P18-43): the rules are saved with the Free Fight setup and read back, a damaged, hostile or missing entry falls back field by field, and an old save seeds them once from the old Ring-out, Items and Hazards switches without cleaning anything else', () => {
+      const bad = [], keep = { settings: Store.get(KEY_SETTINGS), setups: Store.get(KEY_SETUPS), d: Setups.d, lineups: Game.lineups, rules: Game.selection.rules };
+      const put = (key, value) => { if (value === null) Store.remove(key); else Store.set(key, typeof value === 'string' ? value : JSON.stringify(value)); };
+      try {
+        self.freshFree(); Game.lineups.free = Game.loadSetup(); Game.selection.rules = FightRules.fix({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 });
+        Game.saveSetup();
+        const saved = JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules;
+        if (JSON.stringify(saved) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 })) bad.push('saved ' + JSON.stringify(saved));
+        Setups.d = JSON.parse(Store.get(KEY_SETUPS)); Game.lineups = {}; Game.loadSetup();
+        if (JSON.stringify(Game.selection.rules) !== JSON.stringify(saved)) bad.push('read back');
+        for (const rules of [undefined, 'x', [3], { area: 9, items: 'no', health: 2.5, side: -1, breakables: 0 }]) {
+          Setups.d = { v: 1, freeFight: { rules } }; Game.lineups = {}; Game.loadSetup();
+          const want = FightRules.fix(rules && rules.breakables === 0 ? { breakables: 0 } : undefined);
+          if (JSON.stringify(Game.selection.rules) !== JSON.stringify(want)) bad.push('damaged ' + JSON.stringify(rules));
+        }
+        Setups.d = { v: 2, freeFight: { rules: { area: 1 } } }; Game.lineups = {}; Game.loadSetup();
+        if (Game.selection.rules.area !== 0) bad.push('another version was read');
+        // the seed at start-up
+        put(KEY_SETTINGS, { ringOut: true, items: false, hazards: false, friendlyFire: true }); put(KEY_SETUPS, null);
+        Setups.init();
+        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 1, health: 1, side: 0 }) || Setups.d.freeFight.friendlyFire !== true || JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules.items !== 0) bad.push('seed from nothing ' + JSON.stringify(Setups.d));
+        put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, null); Setups.init();
+        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify(FightRules.fix({ items: 1, hazards: 1 }))) bad.push('seed of the defaults');
+        const custom = [{ id: 'c1', human: true, team: 0 }, { id: 'c8', human: false, team: 0 }];
+        put(KEY_SETTINGS, { ringOut: true }); put(KEY_SETUPS, { v: 1, freeFight: { friendlyFire: true, slots: custom, future: 5 }, survival: { difficulty: 'hard' } }); Setups.init();
+        const d = Setups.d;
+        if (JSON.stringify(d.freeFight.slots) !== JSON.stringify(custom) || d.freeFight.future !== 5 || d.survival.difficulty !== 'hard' || d.freeFight.rules.area !== 1) bad.push('the seed cleaned or lost something ' + JSON.stringify(d));
+        put(KEY_SETTINGS, { ringOut: false }); Setups.init();
+        if (Setups.d.freeFight.rules.area !== 1) bad.push('the seed ran twice');
+        put(KEY_SETUPS, { v: 3, freeFight: {} }); Setups.init();
+        if (Setups.d.freeFight.rules) bad.push('an unknown version was changed');
+        put(KEY_SETUPS, '{not json'); Setups.init();
+        if (!Setups.d || Setups.d.v !== 1 || !Setups.d.freeFight.rules) bad.push('an unreadable entry');
+        put(KEY_SETUPS, '"text"'); Setups.init();
+      } finally { put(KEY_SETTINGS, keep.settings); put(KEY_SETUPS, keep.setups); Setups.d = keep.d; Game.lineups = keep.lineups; Game.selection.rules = keep.rules; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): the other modes keep their own rules - Arcade, Survival and Training start with the whole room and read the Items and Hazards settings whatever the Free Fight rules say, and a rematch keeps the Free Fight rules while Training reads the settings again', () => {
+      const bad = [], go = Game.go, kept = { config: Game.config, run: Game.run, items: Settings.v.items, hazards: Settings.v.hazards, rules: Game.selection.rules };
+      Game.go = () => true;
+      const baseHp = ruleDuel(EDGE_LEVELS[0], {}).fighters[0].maxHp;
+      const begin = (mode, extra) => Game.beginMatch(Object.assign({ mode, playerId: 'kai', opponentId: 'mara', arenaId: EDGE_LEVELS[0], difficulty: 'easy', winsNeeded: 1, timer: 30 }, extra));
+      try {
+        Game.selection.rules = FightRules.fix({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 0, health: 3, side: 2 });
+        for (const mode of ['arcade', 'survival', 'training']) for (const on of [true, false]) {
+          Settings.v.items = on; Settings.v.hazards = on; Game.run = { mode, player: 'kai' }; begin(mode, {});
+          const m = Game.match;
+          if (Arena.ring !== null || Arena.ringOut || Arena.solid || m.itemsOn !== on || m.hazardsOn !== on || m.cfg.hpScale || m.fighters[0].maxHp !== baseHp) bad.push(mode + ' items ' + on);
+        }
+        Game.run = { mode: 'free', player: 'kai' }; Settings.v.items = true; Settings.v.hazards = true;
+        begin('free', Object.assign({ ring: true, ringOut: true, items: false, hazards: false }, { breakables: false, hpScale: 2, rulesSet: true }));
+        Game.restartMatch();
+        if (!Game.match.cfg.rulesSet || Game.match.itemsOn || Game.match.hazardsOn || !Arena.ringOut || !Arena.solid || Game.match.fighters[0].maxHp !== Math.round(baseHp * 2)) bad.push('a rematch lost the rules');
+        Game.run = { mode: 'training', player: 'kai' }; Settings.v.items = true; begin('training', {}); Settings.v.items = false; Game.restartMatch();
+        if (Game.match.itemsOn) bad.push('Training did not read Items again');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; Settings.v.items = kept.items; Settings.v.hazards = kept.hazards; Game.selection.rules = kept.rules; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Fight rules (P18-43): determinism - a rule set run twice by SimRunner gives the same result, the ring and Health change the fight, a config through JSON plays the same, and changing the Items and Hazards settings during a Free Fight changes nothing', () => {
+      const bad = [], kept = { items: Settings.v.items, hazards: Settings.v.hazards };
+      const sets = [{ ring: true, ringOut: true }, { breakables: false }, { hpScale: 0.5 }, { startSide: -1 }, { items: true, hazards: true }];
+      const base = { arenaId: EDGE_LEVELS[0], seed: 9, winsNeeded: 1, timer: 30, difficulty: 'hard', items: false, hazards: false };
+      const plain = JSON.stringify(SimRunner.run(Object.assign({}, base)));
+      for (const set of sets) {
+        const a = JSON.stringify(SimRunner.run(Object.assign({}, base, set))), b = JSON.stringify(SimRunner.run(Object.assign({}, base, set)));
+        if (a !== b) bad.push(JSON.stringify(set) + ' is not repeatable');
+        if (a === plain && (set.ring || set.hpScale)) bad.push(JSON.stringify(set) + ' changed nothing');
+      }
+      const lineupRun = SimRunner.run({ arenaId: EDGE_LEVELS[0], seed: 4, difficulty: 'hard', ring: true, ringOut: true, timer: 20, lineup: { slots: [{ id: 'kai', team: 1 }, { id: 'mara', team: 2 }, { id: 'brutus', team: 2 }] } });
+      if (lineupRun.error || !lineupRun.config.ring) bad.push('a lineup run in the ring ' + lineupRun.error);
+      const cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', winsNeeded: 1, timer: 0, countdown: false, seed: 6, sides: true }, ruleCfg({ area: 1, ringOut: 1, health: 2, breakables: 0, side: 2 }, null, EDGE_LEVELS[0]), { arenaId: EDGE_LEVELS[0] });
+      const first = ruleHash(track(new MatchSim(cfg))), again = ruleHash(track(new MatchSim(JSON.parse(JSON.stringify(cfg)))));
+      Settings.v.items = false; Settings.v.hazards = false;
+      const flipped = ruleHash(track(new MatchSim(JSON.parse(JSON.stringify(cfg)))));
+      Settings.v.items = kept.items; Settings.v.hazards = kept.hazards;
+      if (first !== again || first !== flipped) bad.push('the config plays differently');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- Arcade goons, allies and Survival brawls (P18-21) ---------- */
+    const goonMatch = (over) => track(new MatchSim(Object.assign({ mode: 'brawl', playerId: 'kai', enemies: 1, waves: true, arenaId: 'warehouse', difficulty: 'normal', goons: 'hao', goonLeader: 'ABEL', seed: 3, countdown: false, timer: 0 }, over)));
+    test('Arcade goons (P18-21): the crews of all 32 fighters pass the creator\'s check, stay in the point budget, wear the theme and are in no roster list', () => {
+      const bad = [];
+      for (const theme of ROSTER) for (let variant = 0; variant <= GOON_LEADER; variant++) {
+        const record = goonRecord(theme.id, variant), check = validateCustom(record), profile = goonProfile(theme.id, variant);
+        if (!check.ok) { bad.push(theme.id + variant + ': ' + check.error); continue; }
+        if (attrTotal(record.attrs) > (variant === GOON_LEADER ? 38 : 36) || Object.values(record.attrs).some((v) => v < 3 || v > 7) || record.attrs.speed < 4) bad.push('points ' + theme.id + variant);
+        if (variant !== 2 && (record.moveStyle !== moveStyleFor(theme) || record.defense !== (theme.defense || defaultDefense(moveStyleFor(theme))))) bad.push('style ' + theme.id + variant);
+        if (variant === 0 && (record.look.glove !== (/^#[0-9a-f]{6}$/i.test(theme.look.glove) ? theme.look.glove : '#808894') || record.look.topStyle === 'bare')) bad.push('colours ' + theme.id);
+        if (!/^g:[0-2L]$/.test(profile.id) || ROSTER_BY_ID[profile.id] || ROSTER.some((r) => r.id === profile.id) || profile.custom || profile.rank !== undefined || /^c[1-8]$/.test(profile.id)) bad.push('id ' + profile.id);
+      }
+      if (goonRecord('brutus', 0).look.top !== '#808894') bad.push('a bare-top theme wears the neutral grey');
+      if (goonProfile('kai', GOON_LEADER, 'ABEL').name !== 'ABEL' || goonProfile('kai', 0, 'ABEL').name !== 'BRUISER') bad.push('names');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Arcade goons (P18-21): health, damage and stamina follow the table at every CPU level, every goon is weaker than every main fighter, the leader is above its crew, three variants are dealt in turn', () => {
+      const bad = [], weakestHp = Math.min(...ROSTER.map((r) => deriveStats(r.attrs).maxHp)), weakestDamage = Math.min(...ROSTER.map((r) => deriveStats(r.attrs).damage));
+      for (const level of ['easy', 'normal', 'hard', 'expert']) {
+        const m = goonMatch({ difficulty: level }), [hp, dmg, stam] = GOON_SCALE[level], foes = m.fighters.slice(1);
+        if (foes.map((f) => f.id).join() !== 'g:0,g:1,g:2') bad.push(level + ' variants ' + foes.map((f) => f.id));
+        foes.forEach((f, v) => {
+          const base = deriveStats(goonProfile('hao', v).attrs);
+          if (f.maxHp !== Math.round(base.maxHp * hp) || f.maxStam !== Math.round(base.maxStam * stam) || Math.abs(f.stats.damage - base.damage * dmg * DIFFICULTY[level].dmg) > 1e-9) bad.push(level + ' factors ' + v);
+          if (f.maxHp >= weakestHp || f.stats.damage >= weakestDamage) bad.push(level + ' a goon is not weaker than a main fighter ' + v);
+        });
+        const last = m.waveRows.length - 1, leader = m.waveProfiles(last, ['kai'])[0];
+        if (leader.id !== 'g:L' || leader.name !== 'ABEL') bad.push('leader ' + leader.id);
+        const lm = goonMatch({ difficulty: level, goons: 'hao' }), crew = lm.fighters[1].maxHp;
+        const lead = new Fighter(leader, 5, TEAM_ENEMIES); lm.crewScale(lead);
+        if (lead.maxHp <= crew || lead.maxHp >= weakestHp || lead.stats.damage >= weakestDamage) bad.push(level + ' leader strength');
+      }
+      const plain = goonMatch({ goons: undefined, goonLeader: undefined });
+      if (plain.fighters.slice(1).some((f) => f.id.startsWith('g:')) || plain.fighters[1].id !== ROSTER[0].id && plain.fighters[1].id !== ROSTER[1].id) bad.push('no goons without cfg.goons');
+      const a = goonMatch({}), b = goonMatch(JSON.parse(JSON.stringify(a.cfg)));
+      if (a.fighters.map((f) => f.id + f.maxHp).join() !== b.fighters.map((f) => f.id + f.maxHp).join()) bad.push('same cfg, different crew');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Arcade goons (P18-21): every stage uses its boss\'s crew, a run has three main-fighter bosses, rival B is gone, stage 3 has the leader goon and stage 1 none', () => {
+      const bad = [];
+      for (const f of ROSTER.concat([ROSTER_BY_ID.kai])) for (const clears of [0, 1, 2]) {
+        const run = Story.start(f, clears, 'normal', 7), cfgs = [1, 2, 3, 4, 5, 6, 7].map((n) => Story.cfg(run, n));
+        if ('rivalB' in run || 'rivalB' in Story.pack(run) || cfgs[0].goons !== run.rivalA || cfgs[2].goons !== run.boss || cfgs[4].goons !== run.champion || cfgs[5].goons !== run.champion) bad.push('map ' + f.id);
+        const mains = new Set([run.rivalA, run.boss, run.champion]);
+        if (mains.size !== 3 || mains.has(f.id) || cfgs.some((c) => c.rival && !mains.has(c.rival)) || cfgs.some((c) => (c.allies || []).some((id) => !mains.has(id)))) bad.push('bosses ' + f.id);
+        if (cfgs[0].goonLeader || !cfgs[2].goonLeader || !cfgs[4].goonLeader || cfgs[2].goonLeader === cfgs[4].goonLeader || cfgs[2].goonLeader === 'GRANITE' || !/^[A-Z0-9]{1,6}$/.test(cfgs[2].goonLeader)) bad.push('leaders ' + f.id);
+        if (Story.beaten(run, 3).length || Story.name(run, 'R2') !== cfgs[2].goonLeader || Story.idOf(run, 'R2') !== 'g:L') bad.push('stage 3 / B7 ' + f.id);
+      }
+      const run = Story.start(ROSTER_BY_ID.kai, 0, 'normal', 7);
+      const m1 = goonMatch(Object.assign({}, Story.cfg(run, 1))), m3 = goonMatch(Object.assign({}, Story.cfg(run, 3)));
+      if (m1.waveProfiles(m1.waveRows.length - 1, ['kai']).some((p) => p.id === 'g:L') || m3.waveProfiles(m3.waveRows.length - 1, ['kai'])[0].id !== 'g:L') bad.push('leader rows');
+      Story.choose(run, 'walk');
+      const walk = Story.cfg(run, 6), mw = goonMatch(Object.assign({}, walk, { difficulty: 'normal' })), lead = mw.waveProfiles(mw.waveRows.length - 1, ['kai'])[0];
+      if (walk.goons !== run.rivalA || walk.rival !== run.rivalA || walk.allies || lead.id !== run.rivalA || deriveStats(lead.attrs).maxHp !== deriveStats(ROSTER_BY_ID[run.rivalA].attrs).maxHp) bad.push('walk away');
+      const old = Story.clean(Object.assign(Story.pack(Story.start(ROSTER_BY_ID.kai, 0, 'normal', 7)), { stage: 3, rivalB: 'hostile' }));
+      if (!old || 'rivalB' in old || !Story.restore(old) || 'rivalB' in Story.restore(old)) bad.push('an old save with rivalB');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Allies (P18-21): stage 6 has rival A beside the player after Offer a hand (also with no choice), none after Walk away; the ally is a CPU of the players\' team that gets no stamina edge and starts at full health; only a person down loses', () => {
+      const bad = [], run = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 7); // Easy gives the people a stamina edge
+      for (const choice of ['', 'hand']) {
+        run.choice = choice;
+        const cfg = Story.cfg(run, 6);
+        if (cfg.allies.join() !== run.rivalA || cfg.waveCut || cfg.rival) bad.push('cfg ' + choice);
+      }
+      const m = track(new MatchSim(Object.assign({}, Story.cfg(run, 6), { countdown: false, playerHp: 0.4 }))), ally = m.fighters[1], person = m.fighters[0];
+      if (ally.id !== run.rivalA || ally.team !== TEAM_PLAYERS || m.partySize !== 2 || m.peopleCount !== 1 || !(m.controllers[1] instanceof AIController) || m.controllers[0] === m.controllers[1]) bad.push('party');
+      if (ally.hp !== ally.maxHp || Math.abs(person.hp / person.maxHp - 0.4) > 1e-9 || ally.stats.regen !== deriveStats(ally.profile.attrs).regen || person.stats.regen <= deriveStats(person.profile.attrs).regen) bad.push('health or stamina edge');
+      if (m.fighters.length - m.partySize !== ARENAS.club.waves[0][0] + 1) bad.push('one more enemy per ally: ' + (m.fighters.length - m.partySize));
+      if (m.canHurt(person, ally) || m.canHurt(ally, person) || !m.canHurt(m.fighters[2], ally) || !m.canHurt(ally, m.fighters[2])) bad.push('who may hurt whom');
+      ally.alive = false;
+      if (!m.playersAlive()) bad.push('an ally down loses the fight');
+      ally.alive = true; person.alive = false;
+      if (m.playersAlive()) bad.push('the person down with an ally up must be a defeat');
+      person.alive = true;
+      const solo = track(new MatchSim({ mode: 'brawl', playerId: 'kai', enemies: 2, countdown: false }));
+      if (solo.allies.length || solo.peopleCount !== 1 || solo.partySize !== 1) bad.push('no allies by default');
+      const more = track(new MatchSim({ mode: 'brawl', playerId: 'kai', enemies: ['mara', 'deacon', 'rosa'], allies: ['hao', 'femke', 'lars', 'kai', 'nobody'], countdown: false }));
+      if (more.allies.length !== 2 || more.fighters.length !== 6) bad.push('at most 2 allies, never the player or an unknown id: ' + more.allies.length);
+      const res = SimRunner.run({ playerId: 'kai', arenaId: 'club', difficulty: 'normal', seed: 5, winsNeeded: 1, timer: 20, waves: true, enemies: 1, matchCfg: Object.assign({}, Story.cfg(run, 6), { timer: 20 }) });
+      if (res.error) bad.push('headless stage 6: ' + res.error);
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Survival brawls (P18-21): the type row and its saved value, enemies by CPU level and ally count, no fighter twice in a fight, group strength, clock, records and the unlock counter', () => {
+      const bad = [], begin = Game.beginMatch, kept = { run: Game.run, setups: Setups.d, type: Game.selection.survivalType }, saved = keepProgress();
+      let cfg = null, seed = 7;
+      const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      Game.beginMatch = (c) => { cfg = c; };
+      try {
+        const pool = Game.opponentChoices('kai'), table = { easy: [2, 3, 4], normal: [3, 4, 5], hard: [3, 4, 5], expert: [4, 5, 6] };
+        for (const level of Object.keys(table)) for (let type = 1; type <= 3; type++) {
+          Game.run = { mode: 'survival', type, player: 'kai', level, kills: 0, seconds: 0, carryHp: 1, pool, order: [], rng, arenaStart: 0 };
+          Game.nextSurvivalMatch();
+          const ids = cfg.enemies.concat(cfg.allies);
+          if (cfg.mode !== 'brawl' || !cfg.survival || cfg.enemies.length !== table[level][type - 1] || cfg.allies.length !== type - 1 || cfg.difficulty !== level || cfg.timer !== SURVIVAL_TIMER + 8 * (cfg.enemies.length - 1)) bad.push('cfg ' + level + type);
+          if (new Set(ids).size !== ids.length || ids.includes('kai') || ids.some((id) => !ROSTER_BY_ID[id])) bad.push('draw ' + level + type);
+        }
+        Game.run = { mode: 'survival', type: 3, player: 'kai', level: 'expert', kills: 9, seconds: 0, carryHp: 1, pool, order: [pool[0]], rng, arenaStart: 0 };
+        Game.nextSurvivalMatch();
+        const ids = cfg.enemies.concat(cfg.allies);
+        if (cfg.enemies.length !== 6 || cfg.allies.length !== 2 || new Set(ids).size !== 8 || ids[0] !== pool[0].id) bad.push('the end of a lap: ' + ids);
+        Game.run = { mode: 'survival', type: 2, player: 'kai', level: 'easy', kills: 4, seconds: 0, carryHp: 0.3, pool, order: [], rng, arenaStart: 0 };
+        Game.nextSurvivalMatch();
+        const m = track(new MatchSim(Object.assign({ countdown: false, seed: 4 }, cfg))), foes = m.fighters.slice(m.partySize), ally = m.fighters[1], n = foes.length;
+        const hp = deriveStats(ROSTER_BY_ID[cfg.enemies[0]].attrs), allyBase = deriveStats(ROSTER_BY_ID[cfg.allies[0]].attrs), level = DIFFICULTY[cfg.difficulty].dmg;
+        if (foes[0].maxHp !== Math.round(hp.maxHp * SURVIVAL_GROUP[n]) || Math.abs(foes[0].stats.damage - hp.damage * 0.7 * level) > 1e-9 || foes[0].maxStam !== hp.maxStam) bad.push('group factors');
+        if (ally.maxHp !== allyBase.maxHp || Math.abs(ally.stats.damage - allyBase.damage * level) > 1e-9 || ally.hp !== ally.maxHp || Math.abs(m.fighters[0].hp / m.fighters[0].maxHp - 0.3) > 1e-9) bad.push('ally strength or the carried health');
+        // the HUD line of a Survival brawl (the match itself runs as a brawl) reads SURVIVAL, FIGHT n
+        Game.run = { mode: 'survival', type: 2, kills: 2, player: 'kai' };
+        if (!UI.survivalLine(m, Game.run).startsWith('SURVIVAL · FIGHT 3 · ') || UI.survivalLine(m, { type: 0, kills: 4 }).indexOf('DEFEATED 4') < 0) bad.push('HUD line "' + UI.survivalLine(m, Game.run) + '"');
+        // the row, saved as setups.survival.type: 0 to 3, anything else is Duels
+        for (const [stored, expected] of [[2, 2], [7, 0], ['x', 0], [-1, 0], [1.5, 0], [undefined, 0]]) { Setups.d = { v: 1, survival: { type: stored } }; Game.loadLevels(); if (Game.selection.survivalType !== expected) bad.push('stored type ' + stored); }
+        Game.selection.mode = 'survival'; Game.selection.survivalType = 3; Game.saveLevel();
+        if (Setups.d.survival.type !== 3 || SURVIVAL_TYPES.length !== 4) bad.push('type not saved');
+        // records: a set per type, a damaged one reads zeros, Duels keep the old fields, the streak reads Duels and Brawls without an ally
+        Progress.d = Progress.fresh();
+        Game.run = { mode: 'survival', type: 2, player: 'kai', kills: 4, seconds: 100 };
+        Game.saveSurvivalRecord();
+        Game.run = { mode: 'survival', type: 0, player: 'kai', kills: 2, seconds: 50 };
+        Game.saveSurvivalRecord();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[0,0],[4,100],[0,0]]' || Progress.d.survivalKills !== 2 || Progress.d.survivalSeconds !== 50) bad.push('records ' + JSON.stringify(Progress.d.survivalRec));
+        if (Progress.counter('streak') !== 2) bad.push('an ally record counted for the streak');
+        Progress.d.survivalRec[0][0] = 6;
+        if (Progress.counter('streak') !== 6 || Progress.counter('wins') !== Progress.d.wins) bad.push('streak counter');
+        Store.set(KEY_PROGRESS, JSON.stringify({ survivalRec: [[1], 'x', [99999, -1], [5, 5]] })); Progress.init();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[1,0],[0,0],[9999,0]]') bad.push('damaged records ' + JSON.stringify(Progress.d.survivalRec));
+        Store.set(KEY_PROGRESS, JSON.stringify({ survivalRec: 'bad', survivalKills: 3 })); Progress.init();
+        if (JSON.stringify(Progress.d.survivalRec) !== '[[0,0],[0,0],[0,0]]' || Progress.d.survivalKills !== 3) bad.push('a hostile survivalRec');
+      } finally { Game.beginMatch = begin; Game.run = kept.run; Setups.d = kept.setups; Game.selection.survivalType = kept.type; restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
@@ -15084,6 +15966,7 @@ const SelfTest = {
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
+    results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     return results;
   },
 };
