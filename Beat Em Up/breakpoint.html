@@ -2967,7 +2967,7 @@ const Crowd = {
    items: [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
    objects: plain rows, and `builds` rows (stairs, scaffolds) that builtOf() expands; a row may also have y (stands on a deck), on (the id it rests on), weak (weight that breaks it), fixed (no damage), bounce (a thrown or knocked body rebounds off it: the Gym bags and ropes), type 'deck'.
    ring: [x, z, hx, hz, ringOut] the 1v1 area (centre, half sizes), ringOut = 1 where leaving it can lose the round; waves: [count, x, z, rival, second entry [x, z]], the first stands in the level at the start.
-   hazards: [hazard type (HAZARDS), x, z, options]: yaw (way a steam jet blows), tx / tz (trigger post, if not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
+   hazards: [hazard type (HAZARDS), x, z, options]: yaw (way a steam jet or a hydrant blows), tx / tz (trigger post, if not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
 const ARENAS = {
   warehouse: {
     id: 'warehouse', name: 'Industrial Warehouse', blurb: 'A big hall: crates, racks and a shipping container, a steel mezzanine office up a stair, a timber loading dock that gives way. Echoing.',
@@ -3068,7 +3068,7 @@ const ARENAS = {
     items: [['binlid', -1.2, 4.4, 0], ['chain', -3.4, 3.7, 0.85, 'barrierB'], ['brick', 3.8, 3.9, 0.85, 'barrierC'], ['pipe', 0.8, -3.45, 1.4, 'pillarB'], ['wrench', 8.4, -0.35, 1.3, 'pillarA'],
       ['crate', 5.6, 4.6, 0], ['extinguisher', -5.4, 0.4, 0], ['bottle', -8.8, 2.6, 1.05, 'bar'], ['bottle', -8.8, 4.4, 1.05, 'bar'], ['bat', -9.35, 3.6, 1.3, 'bar']],
     hazards: [['fire', -7.9, -0.6], ['fire', 8.0, 3.2], ['steam', -8.5, -5.6, { yaw: Math.PI / 2 }], ['glass', 0, 0, { obj: 'obsGlass' }],
-      ['steam', -4.2, 0, { yaw: Math.PI / 2 }], ['steam', 4.2, 0, { yaw: -Math.PI / 2 }], ['panel', -5.3, -3.9]],
+      ['steam', -4.2, -0.8, { yaw: Math.PI / 2 }], ['steam', 4.2, 0.8, { yaw: -Math.PI / 2 }], ['panel', -5.3, -3.9]],
   },
   rooftop: {
     id: 'rooftop', name: 'City Rooftop', blurb: 'A night roof above the city: a painted helipad, a brick parapet with two broken gaps, a water-tank deck up a stair, a billboard catwalk that will not hold a crowd, a lounge corner. Wind.',
@@ -3231,7 +3231,7 @@ const ARENAS = {
     builds: [['stair', 'stepW', -6.4, -5.8, 1, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'stepE', 4.0, -3.2, 2, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'vipStair', 10.4, 2.5, 2, 1.2, 0, 2.5, 'metal', 'grate', '']],
     items: [['bottle', -10.6, 2.6, 1.05, 'bar'], ['bottle', -7.0, 5.0, 0.75, 'tableA'], ['bottle', -3.8, 5.6, 0.75, 'tableB'], ['chair', -2.0, -1.6, 0], ['bat', -10.13, 1.7, 1.3, 'bar'],
       ['chain', 9.0, 3.9, 0], ['binlid', 9.3, 5.6, 0], ['extinguisher', 10.78, 4.55, 1.3, 'fireDoor'], ['crate', 9.4, 6.2, 0], ['bottle', 10.5, 6.5, 0.9, 'beerCrate']],
-    hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }], ['steam', 1.5, -2.6, { yaw: 0 }]],
+    hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }], ['steam', 1.8, -2.6, { yaw: 0 }]],
     waves: [[3, 0.0, 1.5, 0], [4, -10.0, 4.8, 0], [5, 9.2, 4.6, 0], [6, 9.4, -2.2, 0], [6, 2.3, -5.8, 1, [-10.0, 4.8]]],
   },
 };
@@ -3637,7 +3637,7 @@ const Arena = {
   nearestObject(x, z, maxDist, aliveOnly) {
     let best = null, bd = maxDist * maxDist;
     for (const o of this.objects) {
-      if (aliveOnly && o.destroyed) continue;
+      if (aliveOnly && (o.destroyed || o.bounce)) continue; // (a Gym bag or rope gives a body back: it is no target for a throw)
       const dx = o.x - x, dz = o.z - z, d = dx * dx + dz * dz;
       if (d < bd) { bd = d; best = o; }
     }
@@ -8684,7 +8684,7 @@ class AIController {
     let best = null, spot = null, bestGap = AI_HAZARD_BAIT_RANGE;
     for (const h of match.hazards) { // the nearest idle strike hazard that has a spot to wait at
       const gap = Math.hypot(h.x - f.x, h.z - f.z);
-      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
+      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || h.def.douse || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
       const at = this.baitSpot(f, opp, h);
       if (at) { bestGap = gap; best = h; spot = at; }
     }
