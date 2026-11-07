@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -26,7 +26,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -1460,9 +1460,9 @@ const SelfTest = {
         padTap(2); const square = it.punch;
         padTap(1); const circle = it.kick;
         padTap(0); const cross = it.kick;
-        Input.padCrouch = true; Input.update();
+        buttons[PAD_BUTTONS.crouch[0]].pressed = true; Input.update();   // L2 held = Duck
         padTap(2); const padLow = it.punch && it.height;
-        Input.padCrouch = false; Input.update();
+        buttons[PAD_BUTTONS.crouch[0]].pressed = false; Input.update();
         const actions = !['lp', 'rp', 'lk', 'rk', 'stance', 'strong', 'height'].some((a) => ACTIONS.includes(a)) && ACTIONS.includes('punch') && ACTIONS.includes('kick');
         const res = { punch, again, kick, lowPunch, lowKick, triangle, square, circle, cross, padLow, actions };
         r = Object.values(res).every(Boolean) ? true : JSON.stringify(res);
@@ -1589,7 +1589,7 @@ const SelfTest = {
         for (const row of stringRows) {
           Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
           const got = playString(row.keys, (it, f, o, kind) => {
-            Input.padCrouch = row.low;   // the pad's tap-down-then-hold gesture is tested with the movement checks
+            buttons[PAD_BUTTONS.crouch[0]].pressed = row.low;   // L2 held = Duck
             const button = kind === 'punch' ? 2 : 0;
             if (kind) buttons[button].pressed = true;
             Input.update();
@@ -1600,7 +1600,7 @@ const SelfTest = {
         }
       } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
-        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -1784,7 +1784,7 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Gamepad: firm taps jump but double taps do not, R3 grapples, a Select tap does nothing and a hold resets', () => {
+    test('Gamepad: firm taps jump but double taps do not, R3 uses the item, a Select tap does nothing and a hold resets', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
       const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
       const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
@@ -1800,7 +1800,7 @@ const SelfTest = {
         Input.reset(); tap(-1); Input.take('jump'); tap(-1);
         const double = !Input.take('jump') && Input.latch.dtap === 'up';
         Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
-        const grab = Input.take('grapple');
+        const grab = Input.take('use') && !Input.take('grapple');
         Input.reset(); buttons[8].pressed = true; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
         const tapIgnored = !Input.take('reset');
         buttons[8].pressed = true; Input.pollPad(); Input.padSelectAt -= PAD_SELECT_HOLD_MS; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
@@ -1811,6 +1811,39 @@ const SelfTest = {
         Input.releasePad(); Input.reset(); Input.lastDevice = device;
       }
       return r;
+    });
+    test('Gamepad (P18-50): the stick or the D-pad held down, even right after a quick tap down, never crouches; L2 held crouches, R3 uses the item, and the labels say so', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      const bad = [];
+      const crouchTicks = (setDown, ticks) => {
+        let crouched = 0;
+        for (let t = 0; t < ticks; t++) { setDown(true); Input.update(); Input.fillIntent(it, f, o); if (it.crouch) crouched++; }
+        setDown(false); Input.update(); Input.fillIntent(it, f, o);
+        return crouched;
+      };
+      try {
+        Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
+        const sticks = [['stick', (on) => { pad.axes[1] = on ? 1 : 0; }], ['D-pad', (on) => { buttons[13].pressed = on; }]];
+        for (const [name, setDown] of sticks) {
+          setDown(true); Input.update(); setDown(false); Input.update();   // the quick tap down that used to arm the crouch
+          const crouched = crouchTicks(setDown, 60);
+          if (crouched) bad.push(name + ' held down crouched ' + crouched + ' ticks');
+        }
+        const held = crouchTicks((on) => { buttons[PAD_BUTTONS.crouch[0]].pressed = on; }, 10);
+        if (held !== 10 || PAD_BUTTONS.crouch.join() !== '6') bad.push('L2 crouched ' + held + ' of 10 ticks');
+        if (it.crouch) bad.push('L2 let go still crouches');
+        Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
+        if (!Input.take('use') || Input.take('grapple')) bad.push('R3 is not Use');
+        if (/crouch/i.test(GAMEPAD_LABELS.down) || !/L2/.test(GAMEPAD_LABELS.crouch) || !/R3/.test(GAMEPAD_LABELS.use) || /R3/.test(GAMEPAD_LABELS.grapple) || COACH_PAD.crouch !== 'L2') bad.push('labels ' + JSON.stringify([GAMEPAD_LABELS.down, GAMEPAD_LABELS.crouch, GAMEPAD_LABELS.use, GAMEPAD_LABELS.grapple, COACH_PAD.crouch]));
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return bad.length ? bad.join('; ') : true;
     });
     test('Gamepad rumbles on hits taken and on a KO, only while the pad is in use', () => {
       const calls = [];
@@ -2003,18 +2036,18 @@ const SelfTest = {
       try {
         const owner = {}; let shared = false;
         for (const action in PAD_BUTTONS) for (const button of PAD_BUTTONS[action]) { if (owner[button]) shared = true; owner[button] = action; }
-        const stickActions = ['up', 'down', 'left', 'right', 'jump', 'crouch'];   // the stick and D-pad
+        const stickActions = ['up', 'down', 'left', 'right', 'jump'];   // the stick and D-pad
         const covered = ACTIONS.every((a) => stickActions.includes(a) || a in PAD_BUTTONS) && Object.keys(PAD_BUTTONS).every((a) => ACTIONS.includes(a));
         const reserved = [PAD_SELECT_BUTTON, 10, 12, 13, 14, 15].every((b) => !owner[b]);   // Select, L3 and the D-pad are not fight buttons
         const intentOf = (button) => {
           Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
           buttons[button].pressed = true; Input.update(); Input.fillIntent(it, f, o);
-          const got = ['punch', 'kick', 'defend', 'grapple', 'use', 'lock', 'jump'].filter((a) => it[a]);
+          const got = ['punch', 'kick', 'defend', 'grapple', 'use', 'lock', 'jump', 'crouch'].filter((a) => it[a]);
           const raw = ['menuL1', 'menuR1', 'menuL2', 'menuR2'].filter((k) => Input.padHeld[k]);
           buttons[button].pressed = false; Input.update(); Input.fillIntent(it, f, o);
           return { got, raw };
         };
-        const meaning = { punch: 'punch', kick: 'kick', defend: 'defend', grapple: 'grapple', use: 'use', lock: 'lock' };
+        const meaning = { punch: 'punch', kick: 'kick', defend: 'defend', grapple: 'grapple', use: 'use', lock: 'lock', crouch: 'crouch' };
         const problems = [];
         for (const action in meaning) for (const button of PAD_BUTTONS[action]) { const g = intentOf(button).got; if (g.join() !== meaning[action]) problems.push('button ' + button + ' -> ' + g.join()); }
         const l3 = intentOf(10).got.length === 0;
@@ -4750,6 +4783,7 @@ const SelfTest = {
     /* ----- Sway pose (P3-11): the drawn head and torso against the drawn strike ----- */
     const SWAY_POSE_GAP = 0.1;   // m of air between the surfaces of the body part and the striking limb: the visible gap the owner asked for
     const SWAY_POSE_RADIUS = { head: 0.12, torso: 0.15, foot: 0.1, tip: 0.1 };   // m: head sphere, chest depth at the torso point, a shoe, and the fist or foot that strikes
+    const SWAY_FOE_RADIUS = 0.34, SWAY_BACKSTEP = 0.3;   // m: the foe's body radius, and the margin that keeps it inside the volume once the sway has stepped it back (measured 0.26)
     const SWAY_TIP_POINT = { LA: 9, RA: 12, LL: 15, RL: 18 };   // Fighter.pts offset of the striking hand or foot
     const segmentDistance = (p, a, b) => {
       const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]], len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
@@ -4770,7 +4804,7 @@ const SelfTest = {
           tip: at(a.pts, SWAY_TIP_POINT[mv.limb]), head: at(d.pts, 6), torso: at(d.pts, 3), footL: at(d.pts, 15), footR: at(d.pts, 18) });
       }
       const hp = d.hp === d.maxHp; m.dispose();
-      return { rows, unhurt: hp };
+      return { rows, unhurt: hp, reach: a.stats.reach };
     };
     /* The clearance of fighter 2's drawn head, torso and (for a low strike) feet from the strike during the sway's i-frames: on every tick where the strike is active
        and fighter 2 is inside them, the distance from each body point to the tip's path since the last tick. The spacing puts the unswayed torso on the furthest plane the tip
@@ -4779,9 +4813,10 @@ const SelfTest = {
       const id = 'swaypose_' + styleId;
       ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' });
       try {
-        const rest = swayPoseRun(id, mv, 1.8, -1, 0).rows;
+        const restRun = swayPoseRun(id, mv, 1.8, -1, 0), rest = restRun.rows;
         const peak = Math.max(...rest.filter((r) => r.attacking).map((r) => r.tip[0])), first = rest.find((r) => r.live);
-        const gap = 1.8 + peak - rest[1].torso[0], out = [];
+        const volumeGap = mv.reach * restRun.reach + SWAY_FOE_RADIUS + mv.step - SWAY_BACKSTEP;   // P17-02: the drawn fist now reaches the front of the volume, so a foe on the drawn plane could back out of it and be struck after the i-frames; keep it inside by the back step
+        const gap = Math.min(1.8 + peak - rest[1].torso[0], volumeGap), out = [];
         for (const dir of dirs) for (const lead of leads) {
           const run = swayPoseRun(id, mv, gap, first.tick - lead, dir);
           const clear = { head: 9, torso: 9, foot: 9 }, rows = run.rows;
@@ -5267,6 +5302,117 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
+    test('Hit check (P17-02): in every move of every style, the striking limb tip at the contact tick is inside the foe\'s hit volume (a standing foe at the front of the move\'s volume): not short of it, not past the foe\'s centre, near the line to the foe, on its height class; YUKI\'s Roundhouse included', () => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
+      const TIP = { LA: 9, RA: 12, LL: 15, RL: 18 };   // key point of each limb: wrist or ankle
+      const ELBOW_POINT = 33;   // the Elbow strikes with the right elbow joint, not the hand
+      const FOE_RADIUS = 0.34;
+      const LIMIT = { short: 0.1, side: 0.45, band: 0.05, past: 0.15 };   // m: short of the volume's front, off the line to the foe (the foe's radius and a fist), outside the height class band
+      const BAND = { H: [1.25, 1.75], M: [0.85, 1.5], L: [0, 0.65] };   // m on a scale-1 foe (times the striker's scale): where the tip must be for the height class (the hip of a scale-1 body is at about 1.0 m). A hand strike aims at the head and chest for H, the trunk for M
+      const KICK_BAND_H = [1.0, 1.75];   // a High kick at least to the hip
+      /* No move is pinned: every move of every style passes the limits above. A new move that cannot is fixed in its pose (or its style's technique), never given a looser limit here. */
+      const problems = [], seen = new Set();
+      let pairs = 0;
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = ATTACKS[id], tip = id === 'elbow_strike' ? ELBOW_POINT : TIP[mv.limb], kick = mv.limb[1] === 'L', band = kick && mv.h === 'H' ? KICK_BAND_H : BAND[mv.h];
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0;
+          const front = mv.reach * f.stats.reach;   // the foe's centre stands at front + FOE_RADIUS, the furthest the sim lets this move land
+          f.x = f.z = 0; f.target = { x: front + FOE_RADIUS, z: 0 };   // the drawn stride reads the room to its target
+          f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+          const y = f.pts[tip + 1], sc = f.scale;
+          const miss = { short: front - f.pts[tip + 2], side: Math.abs(f.pts[tip]), band: Math.max(band[0] * sc - y, y - band[1] * sc, 0), past: f.pts[tip + 2] - (front + FOE_RADIUS) };
+          pairs++; seen.add(r.id + ' ' + id);
+          const bad = Object.keys(LIMIT).filter((k) => miss[k] > LIMIT[k]);
+          if (bad.length) problems.push(r.id + ' ' + id + ' ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' '));
+        }
+      }
+      if (pairs < 590 || !seen.has('yuki roundhouse')) return 'only ' + pairs + ' pairs checked';
+      return problems.length ? problems.length + ' misses: ' + problems.join('; ') : true;
+    });
+    test('Strike step (P17-02): the drawn body steps forward into a blow (never back before it, at most STRIKE_STRIDE_MAX plus the lean of the pose itself), keeps STRIKE_ROOM from a near foe, and in a hand strike the lead leg steps (thigh forward, knee up) and is the strike pose again at the contact', () => {
+      const problems = [];
+      const frame = (f, tick, foeX) => {
+        f.moveTick = tick; f.target = foeX === undefined ? null : { x: foeX, z: 0 };
+        f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+        return { rootZ: f.pts[2], pose: Float32Array.from(f.pose) };
+      };
+      const OWN_LEAN = 0.4;   // m: the pose's own forward lean and style step (rootFwd of the builder and the technique), outside the cap
+      for (const id of ['yuki', 'hao', 'brutus', 'kai', 'dmitri']) {
+        const f = new Fighter(ROSTER.find((r) => r.id === id), 0);
+        for (const moveId of ['cross', 'jab', 'roundhouse']) {   // two hand strikes and a kick on the right leg (the left leg is the lead and the support)
+          const mv = ATTACKS[moveId], hand = mv.limb[1] === 'A';
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.x = f.z = 0;
+          const at = id + ' ' + moveId, guard = frame(f, 0), rest = guard.rootZ, far = frame(f, mv.startup + 1);
+          if (!(far.rootZ - rest > 0.1 && far.rootZ - rest <= STRIKE_STRIDE_MAX + OWN_LEAN)) problems.push(at + ' step ' + (far.rootZ - rest).toFixed(2));
+          const own = frame(f, mv.startup + 1, STRIKE_ROOM).rootZ;   // a foe at STRIKE_ROOM leaves no room to step: what is left is the lean of the pose itself
+          if (own > OWN_LEAN) problems.push(at + ' own lean ' + own.toFixed(2));
+          for (const distance of [0.8, 1.2, 3]) {   // the step is the fitted one, or what is left of the distance beyond STRIKE_ROOM, to within 5 mm
+            const stepped = frame(f, mv.startup + 1, distance).rootZ - own, allowed = Math.min(f.strikeStride(mv), distance - STRIKE_ROOM);
+            if (Math.abs(stepped - allowed) > 0.005) problems.push(at + ' foe at ' + distance + ': stepped ' + stepped.toFixed(3) + ' of ' + allowed.toFixed(3));
+          }
+          let back = 0, kneeUp = 0, thighUp = 0;
+          for (let t = 0; t <= mv.startup + 1; t++) {
+            const g = frame(f, t);
+            back = Math.max(back, rest - g.rootZ);
+            kneeUp = Math.max(kneeUp, g.pose[J.knL] - guard.pose[J.knL]); thighUp = Math.max(thighUp, g.pose[J.hipLx] - guard.pose[J.hipLx]);   // the lead (left) leg
+          }
+          if (back > 0.2) problems.push(at + ' glides back ' + back.toFixed(2));   // the lean of a big wind-up (the Brawler) is the most: 0.16; the old stride glided 0.4
+          if (hand) {
+            const strike = f.motion.strikes[mv.anim + mv.limb];
+            if (!(kneeUp > 0.2 && thighUp > STRIKE_STEP_HIP * 0.2)) problems.push(at + ' lead foot not lifted: knee ' + kneeUp.toFixed(2) + ' thigh ' + thighUp.toFixed(2));
+            if (Math.abs(far.pose[J.hipLx] - strike[J.hipLx]) > 1e-4 || Math.abs(far.pose[J.knL] - strike[J.knL]) > 1e-4) problems.push(at + ' lead leg not down at the contact');
+          }
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the most the same moves reached on main before P17-02 (rad): arms 2.02 and 2.0, elbows 2.48 and 2.63, hips 1.68 and 1.78, torso roll 0.9, head 0.68; and lean 1.05, turn 1.5 and knees 1.8, which P17-02 brought down', () => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
+      const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // left and right limbs have their own main maxima
+      const problems = [];
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = ATTACKS[id];
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0; f.x = f.z = 0; f.target = null;
+          f.attackPose();
+          for (const [joint, limit] of LIMITS) if (Math.abs(f.pose[joint]) > limit + 0.005) problems.push(r.id + ' ' + id + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
+        }
+      }
+      return problems.length ? problems.length + ' too far: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Strike step (P17-02): the drawn step also stops short of another fighter in its way (not only the target), of the arena wall and of a prop', () => {
+      const keep = Arena.def, problems = [];
+      Arena.build(ARENAS.warehouse);
+      try {
+        const f = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross, tick = mv.startup + 1;
+        f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.moveTick = tick;
+        const rootZ = () => { f.attackPose(); f.skeleton(0, 0, 0, 0, false); return f.pts[2]; };
+        const place = (x, z, yaw, foes) => { f.x = x; f.z = z; f.yaw = yaw; f.y = 0; f.target = null; f.mates = foes ? [f].concat(foes) : null; };
+        place(0, 0, 0);
+        const free = rootZ(), step = f.strikeStride(mv), own = free - step;
+        const stepped = () => rootZ() - own;   // what the stride moved the body, from the pose's own lean
+        const near = (what, got, want) => { if (Math.abs(got - want) > 0.005) problems.push(what + ': stepped ' + got.toFixed(3) + ' of ' + want.toFixed(3)); };
+        near('free', stepped(), step);
+        const bounds = Arena.def.bounds;
+        place(0, bounds.z - f.radius - 0.2, 0); near('wall ahead (z)', stepped(), 0.2);
+        place(bounds.x - f.radius - 0.15, 0, Math.PI / 2); near('wall ahead (x)', stepped(), 0.15);
+        place(2, -(bounds.z - f.radius - 0.25), Math.PI); near('wall ahead (-z)', stepped(), 0.25);
+        place(0, 0, 0, [{ x: 0.1, z: 1.0, alive: true }]); near('fighter in the way', stepped(), Math.min(step, Math.hypot(0.1, 1.0) - STRIKE_ROOM));
+        place(0, 0, 0, [{ x: 0.1, z: 1.0, alive: true }, { x: -0.2, z: 0.9, alive: true }]); near('two in the way', stepped(), Math.min(step, Math.hypot(0.2, 0.9) - STRIKE_ROOM));
+        place(0, 0, 0, [{ x: 1.5, z: 1.0, alive: true }]); near('fighter off to the side', stepped(), step);
+        place(0, 0, 0, [{ x: 0, z: -1.0, alive: true }]); near('fighter behind', stepped(), step);
+        place(0, 0, 0, [{ x: 0, z: 1.0, alive: false }]); near('fighter down and out', stepped(), step);
+        const pillar = Arena.colliders.find((c) => c.obj && c.obj.id === 'pillarL');
+        if (!pillar) problems.push('no pillar to test against');
+        else { place(pillar.x, pillar.z - pillar.hz - f.radius - 0.25, 0); const got = stepped(); if (!(got < step && got <= 0.25 + 1e-6 && got >= 0.25 - STRIKE_PROBE - 1e-6)) problems.push('prop: stepped ' + got.toFixed(3) + ' with 0.25 of room'); }
+      } finally { if (keep) Arena.build(keep); }
+      return problems.length ? problems.join('; ') : true;
+    });
     test('Headless AI vs AI runner: seeded match ends with a winner, duration and damage per move type', () => {
       const opts = { seed: 3, timer: 30, winsNeeded: 1, playerId: 'kai', opponentId: 'brutus' };
       const a = SimRunner.run(opts), b = SimRunner.run(opts);
@@ -5384,7 +5530,7 @@ const SelfTest = {
     }));
     test('Accessibility (P18-27): every coaching line is plain ASCII, at most 70 characters (the loss offer, a toast, 90), free of design notes, and names the control of the device used last', () => {
       const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
-      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'Down'], touch: ['DEFEND', 'DUCK'] };
+      const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'L2'], touch: ['DEFEND', 'DUCK'] };
       try {
         if (COACH_TIPS.length !== 10 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 10) bad.push('the table does not have 10 keys');
         for (const device of ['keyboard', 'gamepad', 'touch']) {
@@ -7715,7 +7861,7 @@ const SelfTest = {
       const useKey = Keymap.bindings.use[0], crouchKey = Keymap.bindings.crouch[0], padButton = PAD_BUTTONS.use[0];
       return {
         keyboard: { down: () => Input.onKey({ code: useKey, repeat: false }), up: () => Input.kb.delete(useKey), crouch: (on) => (on ? Input.kb.add(crouchKey) : Input.kb.delete(crouchKey)) },
-        gamepad: { down: () => { pad.buttons[padButton].pressed = true; }, up: () => { pad.buttons[padButton].pressed = false; }, crouch: (on) => { Input.padCrouch = on; } },
+        gamepad: { down: () => { pad.buttons[padButton].pressed = true; }, up: () => { pad.buttons[padButton].pressed = false; }, crouch: (on) => { pad.buttons[PAD_BUTTONS.crouch[0]].pressed = on; } },
         touch: { down: () => Input.touchSet('use', true), up: () => Input.touchSet('use', false), crouch: (on) => Input.touchSet('crouch', on) },
       };
     };
@@ -7727,7 +7873,7 @@ const SelfTest = {
       Input.reset(); Input.releaseAll();
       try { return body(useDevices(pad)); } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
-        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
       }
     };
     /* Gives fighter 0 of m the real input (a person) and counts the ticks its intent held Crouch. */
