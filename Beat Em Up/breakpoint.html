@@ -608,9 +608,9 @@ const SETTING_DEFS = {
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
-  items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
-  hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
-  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Free Fight only (Duel and Versus); from the next match.' },
+  items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed. Free Fight has its own.' },
+  hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe. Free Fight has its own.' },
+  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off leaves the whole room to both. Tournament bouts only; Free Fight has its own.' },
   storyScenes: { type: 'enum', options: ['full', 'short', 'off'], def: 'full', label: 'Story scenes', labels: { full: 'Full', short: 'Short', off: 'Off' }, hint: 'The little scenes of Arcade. Full shows every line, Short only the first line of each scene, Off skips the scenes (the choice after stage 2 is then "Offer a hand").' },
   storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
@@ -678,12 +678,49 @@ const Setups = {
   d: null, // { v: 1, freeFight: {...} }, read raw at start-up, cleaned on first use (Game.loadSetup)
   plain: (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {}), // a saved entry that is not an object reads as empty
   init() {
-    this.d = readJson(KEY_SETUPS);
-    if (this.d) return;
-    this.d = { v: 1, freeFight: { friendlyFire: (readJson(KEY_SETTINGS) || {}).friendlyFire === true } }; // at start-up: Settings.save drops the old Friendly fire key
-    this.save();
+    const old = readJson(KEY_SETTINGS) || {}, stored = readJson(KEY_SETUPS), edge = +(old.ringOut === true); // at start-up: Settings.save drops the old Friendly fire and Ring-out keys
+    const d = this.d = stored || { v: 1, freeFight: { friendlyFire: old.friendlyFire === true } }, ff = d.v === 1 ? this.plain(d.freeFight) : null;
+    if (ff && !ff.rules) { d.freeFight = Object.assign(ff, { rules: { area: edge, ringOut: edge, items: +(old.items !== false), hazards: +(old.hazards !== false), breakables: 1, health: 1, side: 0 } }); this.save(); } // only rules are added: no cleaning before the custom fighters load
+    else if (!stored) this.save();
   },
   save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
+};
+
+// --- Free Fight rules: [key, value labels, default index, row label]; one table drives rows, clean-up, presets and config
+const FIGHT_RULES = [
+  ['area', ['Whole level', 'Square ring'], 0, 'Area'],
+  ['ringOut', ['Off', 'On'], 0, 'Ring-out'],
+  ['items', ['Off', 'On'], 1, 'Weapons and items'],
+  ['hazards', ['Off', 'On'], 1, 'Hazards'],
+  ['breakables', ['Off', 'On'], 1, 'Breakables'],
+  ['health', ['Half', 'Normal', 'One and a half', 'Double'], 1, 'Health'],
+  ['side', ['Automatic', 'Left', 'Right'], 0, 'Player 1 starts'],
+];
+const FIGHT_PRESETS = [ // [name, rows in table order, rounds, seconds]
+  ['Standard', [0, 0, 1, 1, 1, 1, 0], 2, 60],
+  ['Tournament bout', [0, 0, 0, 0, 1, 1, 0], 1, 60],
+  ['Survival style', [0, 0, 1, 1, 1, 1, 0], 1, 60],
+  ['Ring match', [1, 1, 0, 0, 1, 1, 0], 2, 60],
+];
+const FightRules = {
+  fix(raw) { const src = Setups.plain(raw), rules = {}; for (const [key, labels, def] of FIGHT_RULES) rules[key] = Number.isInteger(src[key]) && src[key] >= 0 && src[key] < labels.length ? src[key] : def; return rules; },
+  // Why a row does not apply to this lineup and level, or ''
+  why(key, rules, lineup, arena) {
+    if (lineup.crowd) return key === 'side' ? 'the doors decide' : key === 'area' || key === 'ringOut' ? 'the crowd uses the doors' : '';
+    if (key === 'ringOut') return !rules.area ? 'the whole level is open' : arena.ring[4] ? '' : 'this level has no ring edge';
+    return key === 'side' && MatchLineup.plan(lineup).sizes.length > 2 ? 'everyone starts in a circle' : '';
+  },
+  // Config fields; a rule that does not apply is stored as its default
+  cfg(rules, lineup, arena) {
+    const ring = rules.area === 1 && !this.why('area', rules, lineup, arena);
+    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : [0, 1, -1][rules.side], rulesSet: true };
+  },
+  // The first preset the rows equal (dimmed rows ignored), or -1 for Custom
+  match(rules, lineup, arena, sel) {
+    const plain = MatchLineup.plain(lineup);
+    return FIGHT_PRESETS.findIndex(([, values, rounds, seconds]) => FIGHT_RULES.every(([key], k) => this.why(key, rules, lineup, arena) || rules[key] === values[k]) && (plain ? sel.rounds === rounds && sel.timer === seconds : lineup.crowd || !lineup.timer));
+  },
+  apply(index, rules, lineup, sel) { const [, values, rounds, seconds] = FIGHT_PRESETS[index]; FIGHT_RULES.forEach(([key], k) => { rules[key] = values[k]; }); sel.rounds = rounds; sel.timer = seconds; lineup.timer = 0; },
 };
 
 // --- key bindings (remappable)
@@ -898,7 +935,7 @@ function gradeInputs(data, stats, maxHp) {
   const group = data.enemies > 0; // a brawl, a co-op or a lineup fights a crowd (MatchSim.results counts the enemies)
   const roundsWon = data.gradeMode === 'survival' ? 1 : Math.max(1, data.wins[0]);
   return {
-    won: data.playerWon, seconds: data.seconds, par: group ? GRADE_PAR_ENEMY * data.enemies : GRADE_PAR_ROUND * roundsWon,
+    won: data.playerWon, seconds: data.seconds, par: (group ? GRADE_PAR_ENEMY * data.enemies : GRADE_PAR_ROUND * roundsWon) * (data.hpScale || 1),
     taken: stats.taken, takenMax: group ? maxHp : maxHp * Math.max(1, data.rounds), distinct: Object.keys(stats.landed).length,
   };
 }
@@ -3278,9 +3315,10 @@ function builtOf(def) {
 
 const Arena = {
   def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
-  marks: [], ring: null, ringRow: null, ringOut: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
-  build(def, ring, ringOut) {
+  marks: [], ring: null, ringRow: null, ringOut: false, solid: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
+  build(def, ring, ringOut, solid) {
     this.def = def;
+    this.solid = !!solid; // Breakables off: hits only wobble
     this.setArea(ring, ringOut);
     this.rng = makeRng(0x9e3779b1 ^ def.id.length * 977);
     const built = builtOf(def);
@@ -3298,7 +3336,7 @@ const Arena = {
     FX.clear();
     this.navMap(); // the CPU's walking map is made with the level, not in the middle of a fight
   },
-  reset() { this.build(this.def, this.ringRow, this.ringOut); },
+  reset() { this.build(this.def, this.ringRow, this.ringOut, this.solid); },
   // A 1v1's fighting area. ring = the level's [x, z, hx, hz] rectangle, null = the whole floor (a brawl, a menu scene)
   setArea(ring, ringOut) {
     const b = this.def.bounds, apron = ring && ringOut ? RING_APRON : 0, r = ring ? { x0: ring[0] - ring[2], x1: ring[0] + ring[2], z0: ring[1] - ring[3], z1: ring[1] + ring[3] } : null;
@@ -3339,7 +3377,7 @@ const Arena = {
     if (srcId !== undefined && o.lastSrc === srcId) return false;
     o.lastSrc = srcId;
     const mat = MATERIALS[o.mat];
-    const dmg = cat === 'electric' ? 0 : raw * OBJ_DAMAGE_SCALE * (mat.mult[cat] || 1) - mat.resist * 0.25; // R1: electric does no hit-point damage
+    const dmg = cat === 'electric' || this.solid ? 0 : raw * OBJ_DAMAGE_SCALE * (mat.mult[cat] || 1) - mat.resist * 0.25; // R1: electric does no hit-point damage
     o.wob = 1;
     Events.emit('objHit', { obj: o, dmg: Math.max(0, dmg), x: px, y: py, z: pz });
     if (dmg <= 0.2) return true;
@@ -9497,6 +9535,7 @@ const WAVE_SPREAD = 0.85; // m: a wave's enemies stand on a ring of this radius 
 const WAVE_BODY = 0.34; // m: a fighter's radius, for working out where a called enemy would stand
 const WAVE_WAIT_MAX = 300; // ticks a called enemy waits at its door for a live hazard zone to clear before it takes the other door
 const WAVE_NEXT_AT = 1; // the next wave comes when at most this many enemies are still up
+const RING_START_STEP = 0.4, RING_START_TRIES = 40; // metres between tried start spots, and how many
 const BRAWL_SPAWN_STAGGER = 0.5; // every second enemy starts this much farther from the player, so the line is not a wall
 const CROWD_SEPARATION_PASSES = 3; // body push-apart passes per tick with more than two fighters
 // Whether a knock-out ends the fight (the whole team is out): in a brawl a single enemy going down gets no K.O. banner, bell or rumble
@@ -9686,10 +9725,10 @@ class CrowdDirector {
   }
   // The world spot of fighter i: on the ring around its target, kept inside the walls
   placeSlot(i) {
-    const f = this.match.fighters[i], target = f.target, b = Arena.def.bounds;
+    const f = this.match.fighters[i], target = f.target;
     const radius = this.ringRadius(target) + (this.retreat[i] ? RETREAT_EXTRA : 0);
-    this.slotX[i] = clamp(target.x + Math.cos(this.slotAngle[i]) * radius, -(b.x - RING_WALL_MARGIN), b.x - RING_WALL_MARGIN);
-    this.slotZ[i] = clamp(target.z + Math.sin(this.slotAngle[i]) * radius, -(b.z - RING_WALL_MARGIN), b.z - RING_WALL_MARGIN);
+    this.slotX[i] = clamp(target.x + Math.cos(this.slotAngle[i]) * radius, Arena.sx0 + RING_WALL_MARGIN, Arena.sx1 - RING_WALL_MARGIN); // the ring, not the apron
+    this.slotZ[i] = clamp(target.z + Math.sin(this.slotAngle[i]) * radius, Arena.sz0 + RING_WALL_MARGIN, Arena.sz1 - RING_WALL_MARGIN);
   }
 }
 
@@ -9698,8 +9737,8 @@ class MatchSim {
     this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true, hazards: true }, cfg);
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
-    const ring = this.cfg.mode !== 'brawl' && this.cfg.ring && this.def.ring ? this.def.ring : null; // a 1v1 fights inside its level's ring; ring-out only where the level has it and the setting is on
-    Arena.build(this.def, ring, !!(ring && this.cfg.ringOut && ring[4]));
+    const ring = (this.cfg.mode !== 'brawl' || this.cfg.slots) && this.cfg.ring && this.def.ring ? this.def.ring : null; // a 1v1 or a lineup fights inside its level's ring (not the crowd); ring-out only where the level has it and the rule is on
+    Arena.build(this.def, ring, !!(ring && this.cfg.ringOut && ring[4]), this.cfg.breakables === false);
     const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
     if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs[this.cfg.arcadeLevel === 'expert' ? 'hard' : 'normal'] }); // the Arcade final boss, scaled by the difficulty option (Expert: the Hard build)
@@ -9738,6 +9777,7 @@ class MatchSim {
     }
     if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg; // the enemies hit harder or softer by difficulty
     if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.partySize; k++) this.giveStaminaEdge(this.fighters[k]); // the people's side recovers sooner on the easy levels
+    for (const f of this.fighters) this.scaleHp(f);
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false); // scratch for physics(): which fighters were airborne before landing
     this.descs = []; // scratch for resolveCombat()
@@ -9803,6 +9843,7 @@ class MatchSim {
   // --- lineups
   // The fighters of a lineup, in the order MatchLineup.plan gave them
   // The edge of the difficulty for one person's fighter
+  scaleHp(f) { const scale = this.cfg.hpScale || 1; if (scale !== 1) { f.stats.maxHp = Math.round(f.stats.maxHp * scale); f.maxHp = f.stats.maxHp; f.hp = f.maxHp; } } // the Health rule, after the Even-teams handicap
   giveStaminaEdge(fighter) { const edge = PLAYER_STAMINA_EDGE[this.cfg.difficulty] || STAMINA_EDGE_NONE; fighter.stats.edge = edge; fighter.stats.regen *= edge.regen; }
   buildLineup() {
     const slots = this.setup, level = DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal;
@@ -9855,19 +9896,33 @@ class MatchSim {
   }
   // Where a lineup starts: two teams face each other in two loose lines
   placeLineup(hpFrac) {
-    const s = this.def.spawn, fighters = this.fighters, count = fighters.length;
+    const s = this.def.spawn, fighters = this.fighters, count = fighters.length, ring = Arena.ring, row = this.def.ring, side = this.startSide(), placed = [];
+    const cx = ring ? row[0] : 0, cz = ring ? row[1] : 0, gap = ring ? Math.min(s, 0.6 * row[2]) : s;
+    const put = (f, x, z, yaw, frac) => { if (ring) [x, z] = this.clearSpot(f, x, z, placed); f.reset(x, z, yaw, frac, 1); placed.push(f); };
     if (this.teamCount <= 2) {
       const left = fighters.filter((f) => f.team === 0), right = fighters.filter((f) => f.team !== 0);
-      left.forEach((f, j) => f.reset(-s - (j & 1) * BRAWL_SPAWN_STAGGER, (j - (left.length - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, f === fighters[0] ? hpFrac : 1, 1));
-      right.forEach((f, j) => f.reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (right.length - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1));
+      left.forEach((f, j) => put(f, cx - side * (gap + (j & 1) * BRAWL_SPAWN_STAGGER), cz + (j - (left.length - 1) / 2) * BRAWL_SPAWN_SPACING, side * Math.PI / 2, f === fighters[0] ? hpFrac : 1));
+      right.forEach((f, j) => put(f, cx + side * (gap + (j & 1) * BRAWL_SPAWN_STAGGER), cz + (j - (right.length - 1) / 2) * BRAWL_SPAWN_SPACING, -side * Math.PI / 2, 1));
     } else {
-      const radius = Math.max(s, count * 0.5);
+      const radius = ring ? Math.min(Math.max(s, count * 0.5), row[2] - 0.7, (row[3] - 0.7) / 0.8) : Math.max(s, count * 0.5);
       fighters.forEach((f, j) => {
         const angle = TAU * j / count, x = Math.cos(angle) * radius, z = Math.sin(angle) * radius * 0.8;
-        f.reset(x, z, Math.atan2(-x, -z), f === fighters[0] ? hpFrac : 1, 1);
+        put(f, cx + x, cz + z, Math.atan2(-x, -z), f === fighters[0] ? hpFrac : 1);
       });
     }
     for (const f of fighters) { const top = Arena.supportAt(f.x, f.z, 0, f.radius); f.y = f.prevY = top; f.groundY = f.supportY = top; } // on the floor, or on a low step under the spot
+  }
+
+  // A ring start moves along z to the nearest free spot inside the ring
+  clearSpot(f, x, z, placed) {
+    const r = f.radius, px = clamp(x, Arena.sx0 + r, Arena.sx1 - r), lo = Arena.sz0 + r, hi = Arena.sz1 - r;
+    const posts = this.hazardsOn ? (this.def.hazards || []).filter((h) => HAZARDS[h[0]].post) : []; // posts are placed after the starts
+    const atPost = (pz) => posts.some(([type, hx, hz, o]) => Math.abs(px - (o?.tx ?? hx)) < HAZARDS[type].post[0] + r && Math.abs(pz - (o?.tz ?? hz)) < HAZARDS[type].post[1] + r);
+    for (let k = 0; k < RING_START_TRIES; k++) {
+      const pz = clamp(z + (k & 1 ? -1 : 1) * Math.ceil(k / 2) * RING_START_STEP, lo, hi);
+      if (!Arena.blockedAt(px, pz, r, 0) && !atPost(pz) && placed.every((o) => Math.hypot(o.x - px, o.z - pz) >= 2 * r)) return [px, pz];
+    }
+    return [px, clamp(z, lo, hi)];
   }
 
   // --- teams and targets
@@ -10411,12 +10466,13 @@ class MatchSim {
     Arena.navVersion++;
     if (!this.hazardsOn) { Arena.navMap(); return; }
     for (const [type, x, z, o] of this.def.hazards || []) {
+      if (Arena.solid && o && o.obj) continue; // a glass wall hazard goes off only when its wall breaks
       const wall = o && o.obj ? Arena.objects.find((q) => q.id === o.obj) : null; // a glass wall counts where it stands
       if (Arena.inRing(wall ? wall.x : x, wall ? wall.z : z)) this.hazards.push(this.newHazard(type, x, z, o || {}));
     }
     Arena.navVersion++;
     Arena.navMap(); // built here, not on the first replan in the middle of a fight
-    this.drops = Arena.objects.filter((o) => !o.fixed && o.type !== 'deck' && Arena.inRing(o.x, o.z) && Arena.objects.some((q) => q.on === o.id && q.type === 'deck' && !q.step)).map((o) => this.newDrop(o));
+    this.drops = Arena.solid ? [] : Arena.objects.filter((o) => !o.fixed && o.type !== 'deck' && Arena.inRing(o.x, o.z) && Arena.objects.some((q) => q.on === o.id && q.type === 'deck' && !q.step)).map((o) => this.newDrop(o));
     for (const o of Arena.objects) if (o.fire > 0) { const by = o.blaze && o.blaze.by; this.blazeFor(o).by = by || null; } // a new round: what still burns keeps its fire zone and the credit of whoever lit it
   }
   // R9: an object that drops decks when it breaks is a pseudo hazard a CPU may strike
@@ -10536,7 +10592,7 @@ class MatchSim {
   }
   // Weak decks: every LOAD_CHECK_TICKS a deck counts the weight standing on it (a heavy build counts 2)
   stepLoad() {
-    if (this.tick % LOAD_CHECK_TICKS !== 0) return;
+    if (Arena.solid || this.tick % LOAD_CHECK_TICKS !== 0) return;
     for (const o of Arena.objects) {
       if (!o.weak || o.destroyed) continue;
       if (o.creak > 0) {
@@ -10588,7 +10644,7 @@ class MatchSim {
     if (!burning && !zones) return;
     for (const o of objects) {
       const m = MATERIALS[o.mat];
-      if (!m.burn || o.destroyed || o.fixed) continue;
+      if (!m.burn || o.destroyed || o.fixed || Arena.solid) continue;
       if (o.fire > 0) { this.burnObject(o, m); continue; }
       let hot = null;
       if (o.base < HAZARD_FLOOR_TOP) for (const h of hazards) {
@@ -10772,6 +10828,11 @@ class MatchSim {
   }
   // One hazard type on the map: [drawn by drawHazards]. Flames are tongues that flicker (drawFlames)
   drawHazards() {
+    if (Arena.ring) { // the ring edge, orange when leaving it loses
+      const x0 = Arena.sx0, x1 = Arena.sx1, z0 = Arena.sz0, z1 = Arena.sz1, hex = Arena.ringOut ? '#ff8c1a' : '#fff';
+      for (const edge of [z0, z1]) hput(LAYER.SOLID, MESH.CUBE, (x0 + x1) / 2, 0.01, edge, x1 - x0, 0.02, 0.06, 0, hex, 1, 0.3, 0.9);
+      for (const edge of [x0, x1]) hput(LAYER.SOLID, MESH.CUBE, edge, 0.01, (z0 + z1) / 2, 0.06, 0.02, z1 - z0, 0, hex, 1, 0.3, 0.9);
+    }
     for (const f of this.fighters) if (f.burn > 0 && f.alive) this.drawFlames(f.x, f.y + 0.7, f.z, 0.3, 0.8, f.index * 5); // R4: a burning fighter
     for (const h of this.hazards) {
       const warn = h.state === 'warn', blink = warn && ((this.tick >> 2) & 1) === 1, on = h.state === 'active', shake = warn ? Math.sin(this.tick * 2.7) * 0.025 : 0;
@@ -10869,8 +10930,11 @@ class MatchSim {
   /* Which start spot the first fighter takes: 1 = the left one (ring centre - spawn), -1 = the right one. Level layouts are not mirror images, so a seat that always started left always got the same side of a barrel, falling load or item pile.
      A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after (no random number drawn); brawls, Training and a fight with neither ring nor `sides` always start left. */
   startSide() {
-    if (!(Arena.ring || this.cfg.sides) || this.brawl || this.training) return 1;
-    return MatchSim.sideFor(this.cfg.seed, this.round);
+    if (this.training) return 1;
+    if (this.brawl) return this.setup && this.teamCount <= 2 ? this.cfg.startSide || 1 : 1; // two teams may be mirrored; a crowd or circle ignores it
+    const fixed = this.cfg.startSide;
+    if (fixed) return this.round & 1 ? fixed : -fixed; // swapped every round
+    return Arena.ring || this.cfg.sides ? MatchSim.sideFor(this.cfg.seed, this.round) : 1;
   }
   // The start side of round `round` of a 1v1 in a ring with this match seed (1 = left, -1 = right)
   static sideFor(seed, round) { return ((Math.imul(seed | 0, 0x9e3779b1) >>> 31) + round) & 1 ? -1 : 1; }
@@ -10976,6 +11040,7 @@ class MatchSim {
     if (this.fighters.some((other, i) => i < this.partySize && other.id === e.profile.id)) foe.applyLook(alternateLook(e.profile.look)); // a rival who is also a player's fighter wears the alternate colours
     this.waveEntered++;
     if (!this.cfg.evenDamage) foe.stats.damage *= (DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
+    this.scaleHp(foe);
     if (slot === this.fighters.length) { this.fighters.push(foe); this.controllers.push(controller); this.intents.push(makeIntent()); this.stats.push(this.newStats()); }
     else { this.fighters[slot] = foe; this.controllers[slot] = controller; clearIntent(this.intents[slot]); this.crowd.forget(slot); }
     this.putWaveFighter(foe, e.k, e.j, e.n);
@@ -11278,7 +11343,7 @@ class MatchSim {
     const [a, b] = this.fighters;
     const r = {
       winner: this.matchWinner, wins: this.wins.slice(), rounds: this.round, seconds: Math.round(this.matchTicks / 60),
-      stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name, playerMaxHp: a.maxHp,
+      stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name, playerMaxHp: a.maxHp, hpScale: this.cfg.hpScale || 1,
     };
     if (this.brawl) { // the enemies as a group: how many there were and how much of their health is left
       const foes = this.fighters.filter((f) => f.team !== this.fighters[0].team); // everyone not on the lead's team
@@ -11339,7 +11404,7 @@ const SimRunner = {
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, sides: cfg.sides === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, sides: cfg.sides === true, breakables: cfg.breakables !== false, hpScale: cfg.hpScale, startSide: cfg.startSide, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, stage)); // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -11843,7 +11908,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0] }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {}, // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null, // the bracket being played, or null before the draw and after it is left
@@ -12276,6 +12341,7 @@ const Game = {
     if ([30, 60, 90, 0].includes(saved.roundTimer)) sel.timer = saved.roundTimer;
     if (Object.hasOwn(ARENAS, saved.arena)) sel.arena = saved.arena;
     if (DIFFICULTY_ORDER.includes(saved.difficulty)) sel.difficulty = saved.difficulty;
+    sel.rules = FightRules.fix(saved.rules);
     return MatchLineup.fix({ slots, crowd: fresh ? false : crowd, deal: fresh ? 'ffa' : saved.deal, handicap: saved.handicap, timer: saved.clock, friendlyFire: saved.friendlyFire });
   },
   // Writes the setup; unknown fields stay; a version other than 1 is replaced
@@ -12285,7 +12351,7 @@ const Game = {
     const old = Setups.d && Setups.d.v === 1 ? plain(Setups.d) : {};
     Setups.d = Object.assign({}, old, { v: 1, freeFight: Object.assign({}, plain(old.freeFight), {
       type: MatchLineup.type(lineup), crowd: lineup.crowd, slots: lineup.slots.map((slot) => ({ id: slot.id, human: slot.human, team: slot.team })), deal: lineup.deal, handicap: lineup.handicap, clock: lineup.timer,
-      rounds: sel.rounds, roundTimer: sel.timer, arena: sel.arena, difficulty: sel.difficulty, friendlyFire: lineup.friendlyFire,
+      rounds: sel.rounds, roundTimer: sel.timer, arena: sel.arena, difficulty: sel.difficulty, friendlyFire: lineup.friendlyFire, rules: { ...sel.rules },
     }) });
     Setups.save();
   },
@@ -12319,17 +12385,17 @@ const Game = {
   },
   // The setup as one match config { run, cfg }; Duel, Versus and Co-op keep their own paths
   freeConfig() {
-    const sel = this.selection, lineup = this.lineupFor(), [first, second] = lineup.slots;
+    const sel = this.selection, lineup = this.lineupFor(), [first, second] = lineup.slots, fight = FightRules.cfg(sel.rules, lineup, ARENAS[sel.arena]);
     if (lineup.crowd) {
       const party = lineup.slots.map((slot, k) => ({ slot: k, id: slot.id }));
-      return { run: 'coop', cfg: { mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves, friendlyFire: lineup.friendlyFire } };
+      return { run: 'coop', cfg: { mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves, friendlyFire: lineup.friendlyFire, ...fight } };
     }
     if (MatchLineup.plain(lineup)) {
-      if (second.human) return { run: 'versus', cfg: { mode: 'versus', playerId: first.id, opponentId: second.id, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer } };
-      return { run: 'free', cfg: { mode: 'free', playerId: first.id, opponentId: second.id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer } };
+      if (second.human) return { run: 'versus', cfg: { mode: 'versus', playerId: first.id, opponentId: second.id, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer, ...fight } };
+      return { run: 'free', cfg: { mode: 'free', playerId: first.id, opponentId: second.id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: sel.rounds, timer: sel.timer, ...fight } };
     }
     const plan = MatchLineup.plan(lineup, sel.difficulty);
-    return { run: 'lineup', cfg: { mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'free', playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer, friendlyFire: lineup.friendlyFire } };
+    return { run: 'lineup', cfg: { mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'free', playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer, friendlyFire: lineup.friendlyFire, ...fight } };
   },
 
   // debug entry (URL flag ?brawl=N, BREAKPOINT.brawl(N)): the selected fighter against N CPU enemies (a count or a list of fighter ids, at most BRAWL_MAX_ENEMIES) in the selected arena. No level, menu or waves yet.
@@ -12381,9 +12447,7 @@ const Game = {
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Story.retry(this.run.story); this.saveArcadeRun(); this.beginStage(); return; }
     const again = Object.assign({}, this.config);
-    delete again.items; // read the Items setting again
-    delete again.hazards;
-    delete again.ringOut; delete again.ring;
+    if (!again.rulesSet) { delete again.items; delete again.hazards; delete again.ringOut; delete again.ring; } // a Free Fight keeps its rules; others re-read Settings
     this.beginMatch(again);
   },
   // Best streak and time are saved after every win and whenever a run ends, so quitting never loses them
@@ -13930,6 +13994,7 @@ const UI = {
     if (plain && sel.timer !== 60) parts.push(sel.timer ? 'clock ' + sel.timer + ' s per round' : 'no clock');
     if (!plain && !lineup.crowd && lineup.timer) parts.push('clock ' + lineup.timer + ' s');
     if (lineup.friendlyFire && this.hasTeammates(lineup)) parts.push('friendly fire on');
+    for (const [key, labels, def, label] of FIGHT_RULES) if (sel.rules[key] !== def && !FightRules.why(key, sel.rules, lineup, ARENAS[sel.arena])) parts.push(label.toLowerCase() + ' ' + labels[sel.rules[key]].toLowerCase());
     return parts.length ? parts.join(', ') : 'Rounds, time limit, friendly fire';
   },
   hasTeammates(lineup) { return lineup.crowd || // any crowd fight counts
@@ -13946,13 +14011,15 @@ const UI = {
       '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="start"' + (problem ? ' disabled' : '') + '>Start fight</button></div></div></section>';
   },
   screen_freemore() {
-    const sel = Game.selection, lineup = Game.lineupFor(), plain = MatchLineup.plain(lineup);
+    const sel = Game.selection, lineup = Game.lineupFor(), plain = MatchLineup.plain(lineup), arena = ARENAS[sel.arena], preset = FightRules.match(sel.rules, lineup, arena, sel);
     return this.panelOpen('More options', '38em,64vw') + '<h2>More options</h2>' +
       (plain ? this.optRow('Rounds', ['', 'Best of 1', 'Best of 3', 'Best of 5'][sel.rounds], 'data-local="rounds"', '') : this.unusedRow('Rounds', 'this lineup is one fight')) +
       (lineup.crowd ? this.unusedRow('Time limit', 'a crowd fight has no clock')
         : plain ? this.optRow('Time limit', sel.timer ? sel.timer + ' s per round' : 'Off', 'data-local="timer"', '')
           : this.optRow('Time limit', lineup.timer ? lineup.timer + ' s, whole fight' : 'Off', 'data-local="ltimer"', '')) +
       (this.hasTeammates(lineup) ? this.optRow('Friendly fire', lineup.friendlyFire ? 'On' : 'Off', 'data-local="lff"', '') : this.unusedRow('Friendly fire', 'nobody has a teammate')) +
+      '<h3>Fight rules</h3>' + this.optRow('Rules preset', preset < 0 ? 'Custom' : FIGHT_PRESETS[preset][0], 'data-local="fr:preset"', '') +
+      FIGHT_RULES.map(([key, labels, , label]) => { const why = FightRules.why(key, sel.rules, lineup, arena); return why ? this.unusedRow(label, why) : this.optRow(label, labels[sel.rules[key]], 'data-local="fr:' + key + '"', ''); }).join('') +
       '<div class="row sticky"><button class="mi" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
   // Who plays on what, for the number of people
@@ -14021,7 +14088,11 @@ const UI = {
     } else if (kind === 'lhand') lineup.handicap = !lineup.handicap;
     else if (kind === 'lff') lineup.friendlyFire = !lineup.friendlyFire;
     else if (kind === 'ltimer') lineup.timer = LINEUP_TIMERS[(LINEUP_TIMERS.indexOf(lineup.timer) + dir + LINEUP_TIMERS.length) % LINEUP_TIMERS.length];
-    else return false;
+    else if (kind === 'fr') { // a fight rule or the preset row
+      const sel = Game.selection, row = FIGHT_RULES.find((r) => r[0] === arg), size = row ? row[1].length : FIGHT_PRESETS.length;
+      if (row) sel.rules[arg] = (sel.rules[arg] + dir + size) % size;
+      else { let next = FightRules.match(sel.rules, lineup, ARENAS[sel.arena], sel); do { next = (next + dir + size) % size; FightRules.apply(next, sel.rules, lineup, sel); } while (FightRules.match(sel.rules, lineup, ARENAS[sel.arena], sel) !== next); } // skips presets that read the same here
+    } else return false;
     return true;
   },
   // The two HUD labels of a lineup: the lead's team on the left, everyone else on the right
@@ -15783,7 +15854,7 @@ function testApi() {
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, ITEM_BREAK_HEIGHT, POSE_SCRATCH, FREE_SET, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
-  FIGHT_TYPES, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
+  FIGHT_TYPES, FIGHT_RULES, FIGHT_PRESETS, FightRules, KEY_SETUPS, Setups, LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, GRAVITY, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
     STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
