@@ -2947,11 +2947,11 @@ const SelfTest = {
       } finally { Showcase.setPreviewPose(keep); }
       return poseCache;
     };
-    test('Items: 91 items in 9 slots have rows and labels, old indices stay, no sci-fi or fantasy words', () => {
+    test('Items: 92 items in 9 slots have rows and labels, old indices stay, no sci-fi or fantasy words', () => {
       const bad = [], words = /\b(ghost|dragon|demon|wizard|magic|laser|plasma|alien|robot|cyborg|armou?r|cape|horns?|wings?|neon|glow|ninja|samurai|helmet)\b/i, colours = Object.keys(new Fighter(ROSTER_BY_ID.kai, 0).col);
       const total = ITEM_KEYS.reduce((sum, key) => sum + LOOK_CHOICES[key].options.length, LOOK_CHOICES.headband.options.length - 1);   // None counts once per slot
       const kept = ['hairStyle', 'beard', 'mask', 'topStyle', 'legs', 'hands', 'feet'].map((key) => LOOK_CHOICES[key].options.slice(0, LOOK_CLASSIC[key].length)).join('|');
-      if (total !== 91 || kept !== 'short,ponytail,long,mohawk,bald,afro,topknot,braids,buzz,sideswept|none,stubble,goatee,full|none,half,full|bare,tank,tee,gi|shorts,pants|gloves,wraps|shoes,boots,barefoot') bad.push(total + ' ' + kept);
+      if (total !== 92 || kept !== 'short,ponytail,long,mohawk,bald,afro,topknot,braids,buzz,sideswept|none,stubble,goatee,full|none,half,full|bare,tank,tee,gi|shorts,pants|gloves,wraps|shoes,boots,barefoot') bad.push(total + ' ' + kept);
       for (const key of ITEM_KEYS) for (const id of LOOK_CHOICES[key].options) {
         const row = ITEMS[key][id], label = LOOK_CHOICES[key].labels[id];
         if (!label || words.test(label) || (!row && !['none', 'half', 'full'].includes(id))) bad.push(key + ' ' + id);
@@ -3059,6 +3059,99 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- ushanka (P18-11) ---------- */
+    test('Ushanka: last of the headwear, Giorgi wears it in every mode, the creator offers it, old codes and saves load unchanged', () => {
+      const bad = [], options = LOOK_CHOICES.mask.options, old = ['none', 'half', 'full', 'cap', 'beanie', 'hood', 'bandana', 'headgear', 'balaclava'];
+      if (options.slice(0, 9).join() !== old.join() || options[9] !== 'ushanka' || options.length !== 10 || LOOK_CHOICES.mask.labels.ushanka !== 'Ushanka' || LOOK_CLASSIC.mask.length !== 3) bad.push('list ' + options.join());
+      const giorgi = new Fighter(ROSTER_BY_ID.giorgi, 0);   // the fighter every mode builds from the preset
+      if (ROSTER_BY_ID.giorgi.look.mask !== 'ushanka' || giorgi.lk.mask !== 'ushanka' || !giorgi.hat || giorgi.hairP.length) bad.push('Giorgi look');
+      for (const hairStyle of LOOK_CHOICES.hairStyle.options) {   // the hat replaces the hair cap and top hair: only the pieces flagged "stays under headwear" remain
+        const f = itemFighter({}, { hairStyle, mask: 'ushanka' });
+        if (!f.hairP.every((p) => p[11] & 2)) { bad.push('hair ' + hairStyle + ' shows over the hat'); break; }
+      }
+      const versus = mk({ seed: 3, playerId: 'giorgi', opponentId: 'giorgi' }), practice = mk({ seed: 3, playerId: 'kai', opponentId: 'giorgi' });   // the second Giorgi wears the alternate colours, the hat stays
+      if (versus.fighters.some((f) => f.lk.mask !== 'ushanka') || practice.fighters[1].lk.mask !== 'ushanka' || practice.fighters[0].lk.mask === 'ushanka') bad.push('match fighters');
+      versus.dispose(); practice.dispose();
+      const base = validateCustom(randomCustom(4321)).value, withMask = (mask) => Object.assign({}, base, { look: Object.assign({}, base.look, { mask }) });
+      const fieldsOf = (custom) => JSON.parse(fromBase64Url(encodeCustom(custom).split('-')[1]));
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      const balaclava = fieldsOf(withMask('balaclava')), worn = fieldsOf(withMask('ushanka')), differs = balaclava.map((v, n) => (v !== worn[n] ? n : -1)).filter((n) => n >= 0);
+      if (differs.length !== 1 || balaclava[differs[0]] !== 8 || worn[differs[0]] !== 9) bad.push('index ' + differs.join());   // the new hat is index 9, the old last one stays 8
+      const back = decodeCustom(encodeCustom(withMask('ushanka')), true);
+      if (!back.ok || back.value.look.mask !== 'ushanka' || JSON.stringify(back.value) !== JSON.stringify(validateCustom(withMask('ushanka')).value)) bad.push('round trip');
+      old.forEach((id, n) => {   // a code from before the hat: every old index still reads the same hat
+        const copy = balaclava.slice(); copy[differs[0]] = n;
+        const r = recode(copy);
+        if (!r.ok || r.value.look.mask !== id || JSON.stringify(r.value) !== JSON.stringify(validateCustom(withMask(id)).value)) bad.push('old code ' + id);
+        if (!validateCustom(withMask(id)).ok) bad.push('old save ' + id);
+      });
+      for (const value of [10, -1, 1.5]) { const copy = balaclava.slice(); copy[differs[0]] = value; if (recode(copy).ok) bad.push('accepted ' + value); }
+      const keep = { draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender };
+      UI.say = () => {}; UI.rerender = () => {};
+      try {
+        const d = CreatorUI.draft = defaultCustom(0);
+        d.look.mask = 'none'; d.look.headband = 'band';
+        CreatorUI.cycleChoice('mask', -1);   // one step back from None reaches the last hat
+        if (d.look.mask !== 'ushanka' || !CreatorUI.tab_head().includes('Ushanka') || !CreatorUI.tab_head().includes('hidden by hat')) bad.push('creator pick');
+        CreatorUI.cycleChoice('mask', 1);
+        if (d.look.mask !== 'none') bad.push('creator cycle');
+        for (let n = 0; n < options.length - 1; n++) CreatorUI.cycleChoice('mask', 1);
+        if (d.look.mask !== 'ushanka' || !validateCustom(d).ok) bad.push('creator forward');
+      } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Ushanka: the dome and ear bar follow the head and stay clear of the chest, torso and shoulders in the creator poses and in a Giorgi fight', () => {
+      const bad = [], poses = Object.values(previewPoses()).map((pose) => Float32Array.from(pose)), axis = (m, o) => Math.hypot(m[o], m[o + 1], m[o + 2]);
+      const fight = mk({ seed: 9, playerId: 'giorgi', opponentId: 'mara', difficulty: 'hard' }, (it, f, o, mm) => {   // every 5th pose of 700 ticks of punches, kicks, grabs and walking
+        if (mm.tick % 5 === 0) poses.push(Float32Array.from(f.pose));
+        if (mm.tick % 37 === 3) it.punch = true;
+        if (mm.tick % 61 === 20) it.kick = true;
+        if (mm.tick % 150 === 90) it.grab = true;
+        it.fwd = mm.tick % 120 < 60 ? 1 : -0.5;
+      });
+      self.run(fight, 700); fight.dispose();
+      if (new Set(poses.map((pose) => Array.from(pose).map((v) => v.toFixed(2)).join())).size < 40) bad.push('too few different poses ' + poses.length);
+      const key = (m) => Array.from(m).map((v) => v.toFixed(4)).join();
+      const find = (list, mesh, dims, sc) => list.filter((q) => q[2] === mesh && dims.every((v, n) => Math.abs(axis(q[3], n * 4) - v * sc) < 1e-5));
+      const inside = (q, x, y, z, round) => {   // is the world point inside the unit cube or sphere part (axis lengths are its sizes)
+        let sum = 0;
+        for (const o of [0, 4, 8]) {
+          const u = ((x - q[3][12]) * q[3][o] + (y - q[3][13]) * q[3][o + 1] + (z - q[3][14]) * q[3][o + 2]) / axis(q[3], o) ** 2;
+          if (Math.abs(u) >= 0.5) return false;
+          sum += u * u;
+        }
+        return !round || sum < 0.25;
+      };
+      const surface = (q) => {   // 40 to 56 points on the surface of a sphere or cylinder part
+        const out = [], m = q[3];
+        for (let k = 0; k < 8; k++) for (const y of q[2] === CY ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45]) {
+          const r = q[2] === CY ? 0.5 : Math.sqrt(0.25 - y * y), x = r * Math.cos(k * Math.PI / 4), z = r * Math.sin(k * Math.PI / 4);
+          out.push([0, 1, 2].map((c) => m[c] * x + m[c + 4] * y + m[c + 8] * z + m[c + 12]));
+        }
+        return out;
+      };
+      let checked = 0;
+      for (const body of [ROSTER_BY_ID.giorgi, itemBodies[0], itemBodies[1]]) {
+        const f = body === ROSTER_BY_ID.giorgi ? new Fighter(body, 0) : itemFighter(body, { mask: 'ushanka' }), look = f.look, T = f.topRow, b = f.build, sh = f.shape, sc = f.scale, ball = (T[2] || BODY.ball) * b * sh.arm;
+        const solids = [[CB, [BODY.torso[0] * T[0] * b * sh.chest, BODY.torso[1], BODY.torso[2] * T[1] * b], false], [SP, [BODY.chest[0] * T[0] * b * sh.chest, BODY.chest[1], BODY.chest[2] * T[1] * b], true], [SP, [ball, ball, ball], true]];
+        poses.forEach((pose, n) => {
+          f.applyLook(Object.assign({}, look, { mask: 'ushanka' }));
+          const worn = drawnParts(f, pose);
+          f.applyLook(Object.assign({}, look, { mask: 'none' }));
+          const bare = drawnParts(f, pose), seen = new Set(bare.map((q) => key(q[3])));
+          const hat = worn.filter((q) => !seen.has(key(q[3]))), head = find(bare, SP, BODY.head, sc), dome = hat.filter((q) => q[2] === SP && Math.abs(axis(q[3], 0) - 0.31 * sc) < 1e-5);
+          const found = solids.map(([mesh, dims, round]) => find(bare, mesh, dims, sc).map((q) => [q, round]));
+          if (hat.length !== 2 || head.length !== 1 || dome.length !== 1 || found.some((list) => !list.length)) { if (bad.length < 6) bad.push('parts ' + hat.length + '/' + head.length + '/' + dome.length + '/' + found.map((list) => list.length) + ' pose ' + n); return; }
+          const centre = head[0][3], up = [4, 5, 6].map((o) => centre[o] / axis(centre, 4)), at = (q) => [q[3][12] - centre[12], q[3][13] - centre[13], q[3][14] - centre[14]];
+          const away = at(dome[0]), rise = away[0] * up[0] + away[1] * up[1] + away[2] * up[2];
+          if (Math.abs(Math.hypot(...away) - Math.hypot(0.285 - BODY.headY, -0.03) * sc) > 1e-3 * sc || rise <= 0) { if (bad.length < 6) bad.push('dome off the head, pose ' + n); }   // rigid with the head and above its centre
+          for (const q of hat) if (Math.hypot(...at(q)) > 0.25 * sc) { if (bad.length < 6) bad.push('part away from the head, pose ' + n); }
+          for (const q of hat) for (const point of surface(q)) for (const list of found) for (const [solid, round] of list) if (inside(solid, ...point, round)) { if (bad.length < 6) bad.push('hat enters the body, pose ' + n); }
+          checked++;
+        });
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : checked >= 120 ? true : 'only ' + checked + ' poses checked';
+    });
     test('Items: ink is drawn only where no top, sleeve, wrap or glove covers the skin', () => {
       const f = itemFighter({}, {}), bad = [], n = (extra) => { f.applyLook(Object.assign({}, f.look, extra)); return drawnParts(f).length; };
       const cost = (mark, extra) => n(Object.assign({ mark }, extra)) - n(Object.assign({ mark: 'none' }, extra));   // parts the mark adds
@@ -3128,7 +3221,7 @@ const SelfTest = {
         if (list.filter((p) => p.cast === -1 - n && p.layer === LAYER.SOLID).length !== 1 || list.length >= size({ brows }) || list.some((p) => p.em !== 0 || !p.finite)) bad.push(face);
       });
       if (shells({ face: 'f5' }, false) || shells({ face: 'f5' }, !!FaceTex.upload(fakeGl(true)))) bad.push('fallback');
-      for (const [mask, shown] of [['full', 0], ['balaclava', 0], ['half', 1], ['cap', 1], ['headgear', 1]]) if (shells({ face: 'f5', mask }) !== shown || (!shown && size({ face: 'f5', mask }) !== size({ mask }))) bad.push(mask);
+      for (const [mask, shown] of [['full', 0], ['balaclava', 0], ['half', 1], ['cap', 1], ['headgear', 1], ['ushanka', 1]]) if (shells({ face: 'f5', mask }) !== shown || (!shown && size({ face: 'f5', mask }) !== size({ mask }))) bad.push(mask);
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Faces: every face is painted into the atlas and, on a real GL context, into the uploaded texture (not blank)', () => {
@@ -3351,8 +3444,8 @@ const SelfTest = {
         return fnv1a(s) + ':' + s.length;
       };
       const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => { const c = randomCustom(seed); c.name = LEGACY_NAMES[NAME_IDEAS.indexOf(c.name)]; return hashOf(customProfile(validateCustom(c).value, 0)); })).join();
-      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
-      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,2281133330:8990,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
+      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
+      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,4086853331:9315,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
       const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
       const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
       const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
