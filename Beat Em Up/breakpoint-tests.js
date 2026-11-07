@@ -9135,10 +9135,11 @@ const SelfTest = {
       const raisedClub = Arena.colliders.filter((c) => c.obj && /^(stage|balcony|stepW\.\d+|stepE\.\d+)$/.test(c.obj.id));
       if (jets.length !== 2 || raisedClub.length < 10) problems.push('club rows: ' + jets.length + ' jets, ' + raisedClub.length + ' raised parts');
       for (const jet of jets) for (const c of raisedClub) if (zoneOver(club, jet, c)) problems.push('club jet ' + jet.x + ' reaches ' + c.obj.id);
-      self.stand(c1, 1.8, stage.z + stage.hz - 0.5, 1.8, 0); c1.y = c1.prevY = c1.groundY = c1.supportY = stage.top; self.stand(c2, -9, 5, 0, 0);
-      const z0 = c1.z;
-      club.hazardArm(jets[1], c2, 'strike');
+      self.stand(c1, 1.8, stage.z + stage.hz - 0.5, 1.8, 0); c1.y = c1.prevY = c1.groundY = c1.supportY = stage.top; self.stand(c2, jets[1].x, jets[1].z + 1.0, jets[1].x, jets[1].z);   // c2 on the floor in the jet is the control: it must be pushed
+      const z0 = c1.z, control0 = c2.z;
+      club.hazardArm(jets[1], null, 'timer');
       self.run(club, 50);
+      if (!(c2.z - control0 > 0.4)) problems.push('the jet did not push the control fighter ' + (c2.z - control0).toFixed(2));
       if (Math.abs(c1.z - z0) > 0.05) problems.push('a jet pushed a fighter on the stage ' + (c1.z - z0).toFixed(2));
       const gym = brawlOn('dojo', {}), ring = colliderOf('ring'), ropeE = colliderOf('ropeE'), [g1] = gym.fighters;
       for (const h of gym.hazards) if (zoneOver(gym, h, ring)) problems.push('a Gym zone reaches the raised ring: ' + h.type);

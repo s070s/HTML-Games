@@ -5674,7 +5674,7 @@ const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES }); /
 const HAZARDS = {
   panel: { name: 'Electric panel', trig: 'strike', shape: 'circle', r: 1.2, warn: 24, dur: 120, cool: 360, dmg: 14, gap: 0, fx: 'stun', stun: 40, post: [0.35, 0.2, 1.3], metalOnly: 1, arc: 1, snd: 'zap' },
   steam: { name: 'Steam pipe', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 180, cool: 300, dmg: 3, gap: 15, fx: 'push', push: 3.2, post: [0.12, 0.12, 1.2], snd: 'hiss' },
-  hydrant: { name: 'Hydrant', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 150, cool: 420, dmg: 2, gap: 12, fx: 'push', push: 3.2, post: [0.2, 0.2, 0.85], douse: 1, snd: 'hiss' }, // P18-13: a steam pipe that also puts out fire (MatchSim.hazardEffects calls douse), the counter to the fire barrels
+  hydrant: { name: 'Hydrant', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 150, cool: 420, dmg: 2, gap: 12, fx: 'push', push: 3.2, post: [0.2, 0.2, 0.85], douse: 1, snd: 'hiss' }, // P18-13: a steam pipe that also puts out fire (MatchSim.hazardEffects calls douse): it puts out burning fighters and objects in its jet; no level's jet reaches a fire barrel, so it is no counter to the barrels
   drop: { name: 'Open drop', trig: 'edge', shape: 'rect', dmg: 25, fx: 'out', push: 4, snd: 'crash' },
   glass: { name: 'Glass wall', trig: 'break', shape: 'rect', dmg: 10, fx: 'flinch', shard: 2, snd: 'glass' },
   load: { name: 'Falling load', trig: 'strike', shape: 'circle', r: 1.5, warn: 36, dur: 90, cool: 600, dmg: 30, gap: 0, first: 1, fx: 'down', push: 3, post: [0.15, 0.15, 1.9], snd: 'crash' },
@@ -8663,7 +8663,7 @@ class AIController {
     this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
     return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
   }
-  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel; within AI_HAZARD_BAIT_RANGE) and waits there on guard
+  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel or a hydrant, P18-13: with bait the Warehouse CPU stopped using the load; within AI_HAZARD_BAIT_RANGE) and waits there on guard
   hazardBait(f, opp) {
     const match = this.match, chance = AI_HAZARD_BAIT[this.d.id];
     if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null; // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once
