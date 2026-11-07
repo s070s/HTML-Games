@@ -910,7 +910,7 @@ const UNLOCK_COUNTER_LABELS = { wins: 'Arcade wins', clears: 'Arcade clears', be
 function unlockProgressText(id) {
   if (!hasUnlockRule(id) || UNLOCK_RULES[id][0] === 'beat') return '';
   const [counter, need] = UNLOCK_RULES[id];
-  return UNLOCK_COUNTER_LABELS[counter] + ' ' + Math.min(Progress.d[UNLOCK_COUNTERS[counter]], need) + ' / ' + need;
+  return UNLOCK_COUNTER_LABELS[counter] + ' ' + Math.min(Progress.counter(counter), need) + ' / ' + need;
 }
 // Fight grade: a pure function of the numbers of a fight, so nothing here reads or changes the fight
 const GRADE_LETTERS = ['D', 'C', 'B', 'A', 'S']; // worst to best
@@ -1013,7 +1013,7 @@ Coach.hook();
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch']; // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, tips: Object.fromEntries(COACH_TIPS.map((tip) => [tip.key, false])), controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null, tournamentWins: 0, tournamentBest: 0, tournamentRun: null }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, survivalRec: [[0, 0], [0, 0], [0, 0]], seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, tips: Object.fromEntries(COACH_TIPS.map((tip) => [tip.key, false])), controlsRevision: KEYS_REVISION, grades: {}, arcadeRun: null, tournamentWins: 0, tournamentBest: 0, tournamentRun: null }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -1026,6 +1026,8 @@ const Progress = {
     base.losses = num(s.losses, 999999);
     base.survivalKills = num(s.survivalKills, 9999);
     base.survivalSeconds = num(s.survivalSeconds, 999999);
+    const rec = Array.isArray(s.survivalRec) ? s.survivalRec : []; // the records of the three Survival Brawls types [wins, seconds]; a damaged entry reads zeros (P18-21)
+    base.survivalRec = [0, 1, 2].map((k) => (Array.isArray(rec[k]) ? [num(rec[k][0], 9999), num(rec[k][1], 999999)] : [0, 0]));
     // a save from before the current controls (no revision = 1.0.0) shows the controls card once more and a toast; saved at once, so both happen once
     const oldControls = Object.keys(s).length > 0 && num(s.controlsRevision, 999) < KEYS_REVISION;
     // the first-match controls card was shown, once per input type
@@ -1055,7 +1057,7 @@ const Progress = {
     const gained = [];
     for (const id of Object.keys(UNLOCK_RULES)) {
       const [counter, need] = UNLOCK_RULES[id];
-      if (counter === 'beat' || this.d.unlocked.includes(id) || !(this.d[UNLOCK_COUNTERS[counter]] >= need)) continue;
+      if (counter === 'beat' || this.d.unlocked.includes(id) || !(this.counter(counter) >= need)) continue;
       this.d.unlocked.push(id);
       gained.push(ROSTER_BY_ID[id].name);
     }
@@ -1068,6 +1070,8 @@ const Progress = {
     this.save();
     return true;
   },
+  // The value of an unlock counter: the streak is the larger of the Duels and the Brawls (no ally) records
+  counter(name) { return name === 'streak' ? Math.max(this.d.survivalKills, this.d.survivalRec[0][0]) : this.d[UNLOCK_COUNTERS[name]]; },
   // Keeps the best fight grade of a mode and saves it; true when `letter` beats the saved one
   saveGrade(mode, letter) {
     const best = this.d.grades[mode];
@@ -8253,15 +8257,15 @@ const STORY_MOTIVES = [
 ].map((row) => { const [id, name, rival, p4, challenge, beaten, p10, end] = row.split('|'); return { id, name, rival, p4, challenge, beaten, p10, end }; });
 // Tones (8 origins each): id|rival B candidates in order|the fighter's pose in B1|the intro emote a preset or a new fighter gets
 const STORY_TONES = [
-  "rough|roxy,diego,kelsey,giorgi,femke,deacon|crossed_arms|crossed_arms", "ordinary|diego,kelsey,roxy,giorgi,femke,deacon|idle_relaxed|glove_tap", "strict|kelsey,femke,giorgi,roxy,diego,deacon|nod|nod",
-].map((row) => { const [id, rivals, b1, intro] = row.split('|'); return { id, rivals: rivals.split(','), b1, intro }; });
+  "rough|crossed_arms|crossed_arms", "ordinary|idle_relaxed|glove_tap", "strict|nod|nod",
+].map((row) => { const [id, b1, intro] = row.split('|'); return { id, b1, intro }; });
 // Intro emotes (the creator's Intro row; share-code order): id|label
 const STORY_INTROS = [
   'nod|Nod', 'glove_tap|Glove tap', 'shake_out|Shake it out', 'crossed_arms|Arms crossed', 'wave|Wave', 'point|Point', 'fist_bump|Fist bump', 'beckon|Beckon', 'chest_pound|Chest pound', 'neck_crack|Neck crack', 'shrug|Shrug', 'laugh|Laugh',
 ].map((row) => { const [id, name] = row.split('|'); return { id, name }; });
 // The 28 non-combat poses: scenes name poses by these ids
 const STORY_POSE_IDS = Object.keys(STORY_POSES);
-// Beats: id|name|when (before / after / wave = last wave entry / lost)|stage|boxes 'speaker.camera' (N narrator, P fighter, R rival A, R2 rival B, B boss, Z champion)|choice flag
+// Beats: id|name|when (before / after / wave = last wave entry / lost)|stage|boxes 'speaker.camera' (N narrator, P fighter, R rival A, R2 the stage-3 leader goon, B boss, Z champion)|choice flag
 const STORY_BEATS = [
   'B1|Prologue|before|1|N.wide P.close', 'B2|Goal|before|1|P.close', 'B3|Word spreads|after|1|N.wide', 'B4|Challenge|before|2|R.two', 'B5|Beaten|after|2|R.two R.two|choice',
   'B6|Into the city|before|3|P.wide', 'B7|Rival|wave|3|R2.close', 'B8|Setback|before|4|N.wide', 'B9|Boss|before|4|B.two', 'B10|Midpoint|after|4|P.close', 'B11|Invitation|before|5|N.wide',
@@ -8335,6 +8339,31 @@ function randomStory(seed) {
   return { country: pick(STORY_COUNTRIES), origin: pick(STORY_ORIGINS), goal: pick(STORY_GOALS), intro: pick(STORY_INTROS) };
 }
 
+// --- Arcade goons (P18-21): crews built in code in the creator's record format (nothing is saved): a main fighter's colours, style and defense, three variants and a leader
+const GOON_LEADER = 3, GOON_GREY = '#808894', GOON_SKINS = ['#d9a27c', '#c98c68', '#f0cfb4'], GOON_HAIRS = ['#15110f', '#5a3a22', '#2a1a12'];
+const GOON_VARIANTS = [ // name, title (TITLES index), arch, attributes (ATTR_KEYS order, at most 36 points; the leader 38), height, build, hair style, flags: long pants, top and shorts swapped, headband, a street kicker whatever the theme
+  { name: 'BRUISER', title: 12, arch: 'brawler', attrs: [6, 4, 6, 4, 3, 4, 5, 3], scale: 1.06, build: 1.2, hair: 'buzz' },
+  { name: 'SCRAPPER', title: 1, arch: 'striker', attrs: [4, 5, 5, 5, 4, 3, 3, 5], scale: 1, build: 0.95, hair: 'short', pants: true, swap: true },
+  { name: 'RUNNER', title: 0, arch: 'kicker', attrs: [3, 5, 3, 6, 6, 3, 4, 5], scale: 0.96, build: 0.85, hair: 'short', band: true, kicker: true },
+  { name: 'LEADER', title: 15, arch: 'brawler', attrs: [7, 5, 7, 4, 3, 4, 5, 3], scale: 1.06, build: 1.2, hair: 'buzz', band: true },
+];
+const GOON_SCALE = { easy: [0.3, 0.5, 0.8], normal: [0.32, 0.48, 0.8], hard: [0.275, 0.455, 0.8], expert: [0.16, 0.32, 0.8] }; // health, damage (before the level's dmg) and stamina factors by CPU level; the leader has 2x the health and 1.3x the damage of its crew
+function goonRecord(themeId, variant, leaderName) {
+  const theme = ROSTER_BY_ID[themeId] || ROSTER_BY_ID.kai, v = GOON_VARIANTS[variant], paint = (key) => (HEX_COLOR.test(theme.look[key]) ? theme.look[key] : GOON_GREY); // a bare top has no colour: the neutral grey
+  const top = paint('top'), shorts = paint('shorts'), style = v.kicker ? ARCHETYPE_MOVE_STYLE.kicker : moveStyleFor(theme), attrs = {};
+  ATTR_KEYS.forEach((key, k) => { attrs[key] = v.attrs[k]; });
+  const look = { hairStyle: v.hair, eyes: 'normal', brows: 'thin', beard: 'none', headband: v.band ? 'band' : 'none', mask: 'none', topStyle: 'tee', legs: v.pants ? 'pants' : 'shorts', hands: 'gloves', belt: 'none', feet: 'shoes', glow: 'off',
+    skin: GOON_SKINS[variant % 3], hair: GOON_HAIRS[variant % 3], top: v.swap ? shorts : top, shorts: v.swap ? top : shorts, glove: paint('glove'), shoe: paint('shoe'), accent: paint('accent'), scale: v.scale, build: v.build };
+  return Object.assign({ name: variant === GOON_LEADER && leaderName ? leaderName : v.name, title: v.title, arch: v.arch, tier: 'standard', moveStyle: style, defense: v.kicker ? defaultDefense(style) : defenseFor(theme), attrs, look }, storyFields(null));
+}
+// The sim profile of a goon: the id g:0, g:1, g:2 or g:L cannot clash with a roster id or c1..c8
+function goonProfile(themeId, variant, leaderName) {
+  const profile = customProfile(goonRecord(themeId, variant, leaderName), 0);
+  profile.id = 'g:' + (variant === GOON_LEADER ? 'L' : variant);
+  delete profile.custom; delete profile.slot; delete profile.rank;
+  return profile;
+}
+
 const Story = {
   // --- the run
   // The settings of a fighter profile: a custom fighter carries its ids, a preset its names
@@ -8358,13 +8387,13 @@ const Story = {
   start(profile, clears, level, seed) {
     const s = this.settingsOf(profile), country = STORY_COUNTRY_BY_ID[s.country], region = STORY_REGION_LIST[country.region], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
     const tone = STORY_TONE_BY_ID[origin.tone], motive = STORY_MOTIVE_BY_ID[goal.motive], c = Math.max(0, Math.floor(finite(clears, 0))), left = STORY_POOL.filter((id) => id !== region.home);
-    const rivalA = this.rivalA(profile.id, motive.id), rivalB = tone.rivals.find((id) => id !== rivalA && id !== profile.id) || tone.rivals[0];
+    const rivalA = this.rivalA(profile.id, motive.id);
     let boss = STORY_BOSSES[(STORY_REGION_LIST.indexOf(region) + c) % STORY_BOSSES.length];
     for (let i = 1; i < STORY_BOSSES.length && boss === profile.id; i++) boss = STORY_BOSSES[(STORY_REGION_LIST.indexOf(region) + c + i) % STORY_BOSSES.length];
     return {
       fighter: profile.id, name: profile.name, country: s.country, origin: s.origin, goal: s.goal, region: region.tag, tone: tone.id, motive: motive.id, clears: c,
       level: Object.hasOwn(DIFFICULTY, level) ? level : 'easy', seed: finite(seed, 1) >>> 0, home: region.home, stage3: left[c % left.length], stage5: left[(c + 1) % left.length],
-      rivalA, rivalB, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false,
+      rivalA, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false,
     };
   },
   // win: stage 2 won on its first try without losing a round is 'flawless' (never after a skip)
@@ -8381,7 +8410,7 @@ const Story = {
   // --- saving: a run quit at any stage is kept in Progress and continues there
   // The saved part of a run: plain values only. Stage, continues, lost tries, the skip, the flawless state and the B5 answer are the run's state.
   pack(run, scores = []) {
-    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, rivalB: run.rivalB, boss: run.boss, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
+    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, boss: run.boss, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
   },
   // A saved run read back from storage as a fresh object of plain values of the right kind and size, or null when it is not a run that can be continued. Whether its fighters still exist is for Story.restore.
   clean(raw) {
@@ -8390,7 +8419,7 @@ const Story = {
     const word = (value) => (typeof value === 'string' && value.length <= STORY_ID_MAX ? value : '');
     const saved = {
       fighter: word(raw.fighter), stage: whole(raw.stage, STORY_STAGES), clears: whole(raw.clears, 999), level: typeof raw.level === 'string' ? raw.level : '', seed: whole(raw.seed, 0xffffffff),
-      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), rivalB: word(raw.rivalB), boss: word(raw.boss),
+      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), boss: word(raw.boss),
       scores: Array.isArray(raw.scores) && raw.scores.length <= STORY_STAGES ? raw.scores.map((score) => (typeof score === 'number' && score >= 0 && score <= 100 ? score : null)) : [], // a damaged list only loses the grade's history, not the run
     };
     const counts = [saved.stage, saved.clears, saved.seed, saved.continues, saved.lost];
@@ -8402,7 +8431,7 @@ const Story = {
     const clean = this.clean(saved), profile = clean && ROSTER_BY_ID[clean.fighter];
     if (!profile) return null;
     const run = this.start(profile, clean.clears, clean.level, clean.seed);
-    for (const key of ['rivalA', 'rivalB', 'boss']) if (ROSTER_BY_ID[clean[key]]) run[key] = clean[key];
+    for (const key of ['rivalA', 'boss']) if (ROSTER_BY_ID[clean[key]]) run[key] = clean[key]; // an old save's rivalB is ignored: stage 3 is led by a goon now
     return Object.assign(run, { stage: clean.stage, choice: clean.choice, continues: clean.continues, lost: clean.lost, flawless: clean.flawless, skipped: clean.skipped, scores: clean.scores });
   },
   reward(run) { return STORY_GOAL_BY_ID[run.goal].reward; },
@@ -8418,11 +8447,15 @@ const Story = {
     const duel = this.foe(run, n), cfg = { playerId: run.fighter, arenaId: this.arena(run, n), difficulty: run.level, arcadeLevel: run.level, seed: this.seedOf(run, n), keepSeed: true };
     if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
     Object.assign(cfg, { mode: 'brawl', enemies: 1, waves: true, winsNeeded: 1, timer: 0 });
-    if (n === 1) cfg.waveKeep = 3;
-    else if (n === 3) { cfg.rival = run.rivalB; cfg.waveBeat = true; } // waveBeat: the match says so when the last wave is called, for beat B7
-    else if (n === 6) { if (run.choice === 'walk') cfg.rival = run.rivalA; else cfg.waveCut = 1; } // "Walk away": rival A leads the last wave; "Offer a hand": one enemy fewer in the first wave and no rival A
+    // Every boss brings their own goons: stage 1 rival A's, stage 3 the boss's, stages 5 and 6 the champion's (stage 6 after "Walk away": rival A's own, led by rival A himself)
+    if (n === 1) Object.assign(cfg, { waveKeep: 3, goons: run.rivalA });
+    else if (n === 3) Object.assign(cfg, { goons: run.boss, goonLeader: this.leaderName(run, 0), waveBeat: true }); // waveBeat: the match says so when the last wave is called, for beat B7
+    else if (n === 5) Object.assign(cfg, { goons: run.champion, goonLeader: this.leaderName(run, 1) });
+    else if (n === 6) Object.assign(cfg, run.choice === 'walk' ? { goons: run.rivalA, rival: run.rivalA } : { goons: run.champion, goonLeader: this.leaderName(run, 1), allies: [run.rivalA] }); // "Offer a hand": rival A fights beside the player (also with no choice made)
     return cfg;
   },
+  // The name of a crew's leader goon: from the run's seed, so a retry keeps it (crew 0 the boss's, crew 1 the champion's)
+  leaderName(run, crew) { const names = NAME_IDEAS.filter((name) => name !== 'GRANITE'); return names[(run.seed + 5 * crew) % names.length]; },
   // The options of SimRunner.run for a stage config
   simOpts(cfg) {
     const brawl = cfg.mode === 'brawl';
@@ -8438,8 +8471,8 @@ const Story = {
   // A line about stage n for the story screen
   stageInfo(run, n) {
     const duel = this.foe(run, n), arena = ARENAS[this.arena(run, n)], name = (id) => (ROSTER_BY_ID[id] ? ROSTER_BY_ID[id].name : id);
-    const lead = n === 3 ? ' led by ' + name(run.rivalB) : n === 6 && run.choice === 'walk' ? ' led by ' + name(run.rivalA) : '';
-    return { n, duel: !!duel, title: (duel ? 'Duel' : 'Brawl') + ' - ' + arena.name, text: duel ? 'Against ' + name(duel) : (n === 1 ? 'The first three waves' : 'All the waves') + lead + (n === 6 && run.choice !== 'walk' ? ', one enemy fewer at the start' : '') };
+    const lead = n === 3 ? ' led by ' + this.leaderName(run, 0) : n === 5 ? ' led by ' + this.leaderName(run, 1) : n === 6 ? (run.choice === 'walk' ? ' led by ' + name(run.rivalA) : ' led by ' + this.leaderName(run, 1) + ', with ' + name(run.rivalA)) : '';
+    return { n, duel: !!duel, title: (duel ? 'Duel' : 'Brawl') + ' - ' + arena.name, text: duel ? 'Against ' + name(duel) : (n === 1 ? 'The first three waves' : 'All the waves') + lead };
   },
 
   // --- beats
@@ -8454,9 +8487,10 @@ const Story = {
     for (const rule of STORY_RULES_BY_SLOT[slot] || []) if ((!best || rule.rank > best.rank) && this.matches(rule, facts)) best = rule;
     return best;
   },
-  idOf(run, who) { return { P: run.fighter, R: run.rivalA, R2: run.rivalB, B: run.boss, Z: run.champion }[who] || ''; }, // the fighter id of a speaker letter ('' for the narrator)
+  idOf(run, who) { return { P: run.fighter, R: run.rivalA, R2: 'g:L', B: run.boss, Z: run.champion }[who] || ''; }, // the fighter id of a speaker letter ('' for the narrator); R2 is the leader goon of stage 3
+  profileOf(run, who) { return who === 'R2' ? goonProfile(run.boss, GOON_LEADER, this.leaderName(run, 0)) : ROSTER_BY_ID[this.idOf(run, who)]; },
   name(run, who) {
-    const id = this.idOf(run, who), profile = id && ROSTER_BY_ID[id];
+    const profile = this.profileOf(run, who);
     return who === 'N' ? '' : who === 'P' ? run.name : profile ? profile.name : '';
   },
   // The values behind the {tokens} of a text; `override` replaces some
@@ -9844,9 +9878,11 @@ class MatchSim {
     // A crowd fight: cfg.coop is the party, [{ slot, id }] (slot = input seat 0 to 3)
     this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
     this.setup = this.brawl && !this.coop && Array.isArray(this.cfg.slots) && this.cfg.slots.length >= LINEUP_MIN ? this.cfg.slots.slice(0, LINEUP_MAX) : null; // the lineup (MatchLineup.plan) of a Free Fight, Versus or Brawl with teams of its own
+    this.allies = this.brawl && !this.coop && !this.setup && Array.isArray(this.cfg.allies) ? this.cfg.allies.filter((id) => ROSTER_BY_ID[id] && id !== this.cfg.playerId).slice(0, 2).map((id) => ROSTER_BY_ID[id]) : []; // CPU allies (P18-21): fighters of the players' team after the person; they take no orders
     if (this.setup) this.waveRows = null; // a lineup is exactly the fighters picked: no waves bring more
-    const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : this.setup ? [] : [p1];
+    const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : this.setup ? [] : [p1, ...this.allies];
     this.partySize = party.length;
+    this.peopleCount = party.length - this.allies.length; // the people stand first, the allies after them
     const foes = this.setup ? [] : this.waveRows ? this.waveProfiles(0, party.map((profile) => profile.id)) : this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
     if (this.waveRows) { this.wave = 1; this.waveEntered = foes.length; }
     this.fighters = party.map((profile, k) => {
@@ -9861,13 +9897,15 @@ class MatchSim {
     });
     let count = this.fighters.length;
     this.controllers = this.coop ? this.coop.map((seat) => HUMAN_CONTROLLERS[clamp(Math.floor(seat.slot) || 0, 0, COOP_MAX_PLAYERS - 1)]) : [PlayerController];
+    for (const ally of this.allies) this.controllers.push(new AIController(ally, this.cfg.difficulty));
     for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
     if (this.setup) { this.buildLineup(); count = this.fighters.length; }
     if (Array.isArray(this.cfg.seats) && !this.setup) { // a bracket fight: fighter k is steered by the input seat cfg.seats[k] (-1 = the CPU keeps it), so each person reads only their own device
       this.cfg.seats.slice(0, 2).forEach((seat, k) => { if (Number.isInteger(seat) && seat >= 0 && seat < COOP_MAX_PLAYERS && this.controllers[k]) this.controllers[k] = HUMAN_CONTROLLERS[seat]; });
     }
-    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg; // the enemies hit harder or softer by difficulty
-    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.partySize; k++) this.giveStaminaEdge(this.fighters[k]); // the people's side recovers sooner on the easy levels
+    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.peopleCount; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg; // the enemies (and the allies) hit harder or softer by difficulty
+    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = 0; k < this.peopleCount; k++) this.giveStaminaEdge(this.fighters[k]); // the people's side recovers sooner on the easy levels (an ally never gets it)
+    for (let k = this.partySize; k < count; k++) this.crewScale(this.fighters[k]);
     for (const f of this.fighters) this.scaleHp(f);
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false); // scratch for physics(): which fighters were airborne before landing
@@ -9929,6 +9967,16 @@ class MatchSim {
     if (!ids.length) ids = [pool[0].id];
     return ids.slice(0, BRAWL_MAX_ENEMIES).map((id) => ROSTER_BY_ID[id]);
   }
+  // Goons weigh less than main fighters, and the enemies of a Survival brawl less the more there are (P18-21): health, damage and stamina factors
+  crewScale(f) {
+    const goon = this.cfg.goons && f.id.startsWith('g:'), group = this.cfg.survival && f.team === TEAM_ENEMIES;
+    if (!goon && !group) return;
+    let [hp, dmg, stam] = goon ? GOON_SCALE[this.cfg.difficulty] || GOON_SCALE.normal : [SURVIVAL_GROUP[clamp(this.fighters.length - this.partySize, 1, BRAWL_MAX_ENEMIES)], SURVIVAL_GROUP_DAMAGE, 1];
+    if (f.id === 'g:L') { hp *= 2; dmg *= 1.3; } // the leader is the strongest goon of its crew
+    f.stats.maxHp = Math.round(f.stats.maxHp * hp); f.maxHp = f.stats.maxHp; f.hp = f.maxHp;
+    f.stats.maxStam = Math.round(f.stats.maxStam * stam); f.maxStam = f.stats.maxStam; f.stam = f.maxStam;
+    f.stats.damage *= dmg;
+  }
   newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0, landed: {} }; } // landed: the ids of the different moves that hit at least once
 
   // --- lineups
@@ -9950,7 +9998,7 @@ class MatchSim {
       this.fighters.push(fighter);
       this.controllers.push(person ? HUMAN_CONTROLLERS[clamp(Math.floor(slot.human) || 0, 0, LINEUP_HUMANS_MAX - 1)] : new AIController(profile, this.cfg.difficulty));
     });
-    this.partySize = slots.filter((slot) => slot.team === slots[0].team).length; // the lead's team stands first
+    this.partySize = this.peopleCount = slots.filter((slot) => slot.team === slots[0].team).length; // the lead's team stands first
     this.personFighters = this.fighters.filter((f) => f.person); // the people in seat order (the first is fighters[0])
     this.teamCount = new Set(slots.map((slot) => slot.team)).size;
     this.teamNames = Array.isArray(this.cfg.teamNames) ? this.cfg.teamNames : [];
@@ -10021,6 +10069,12 @@ class MatchSim {
   canHurt(att, def) { return att !== def && (att.team !== def.team || (this.friendlyFire && (this.coop ? att.team === TEAM_PLAYERS : att.person))); }
   teamAlive(team) {
     for (const f of this.fighters) if (f.team === team && f.alive) return true;
+    return false;
+  }
+  // The players' side is still up: with allies, only a person counts (a brawl is lost when every person is down)
+  playersAlive() {
+    if (!this.allies.length) return this.teamAlive(TEAM_PLAYERS);
+    for (let k = 0; k < this.peopleCount; k++) if (this.fighters[k].alive) return true;
     return false;
   }
   /* Who fighter f acts against: its clinch or hold partner while locked in one; otherwise the nearest living hostile not in a terminal state (ties to the lower index); otherwise the nearest hostile of any kind (a finished 1v1 round still faces the knocked-out opponent).
@@ -11044,7 +11098,8 @@ class MatchSim {
       return;
     }
     const s = this.def.spawn, party = this.partySize, cx = Arena.ring ? this.def.ring[0] : 0, cz = Arena.ring ? this.def.ring[1] : 0, side = this.startSide(); // a 1v1 in a ring starts around its centre
-    for (let k = 0; k < party; k++) this.fighters[k].reset(cx - side * s, cz + (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, side * Math.PI / 2, hpFrac, 1); // the party stands in a line, centred on the ring (z = 0 with no ring)
+    const people = this.peopleCount, lane = (k) => (k < people ? k - (people - 1) / 2 : (1 + ((k - people) >> 1)) * ((k - people) % 2 ? -1 : 1)); // the people stand in a line centred on the ring; an ally stands beside them
+    for (let k = 0; k < party; k++) this.fighters[k].reset(cx - side * s, cz + lane(k) * BRAWL_SPAWN_SPACING, side * Math.PI / 2, k < people ? hpFrac : 1, 1); // an ally always starts at full health // the party stands in a line, centred on the ring (z = 0 with no ring)
     if (this.brawl) { // the enemies start in a loose line facing the players, centred on z = 0.
       const foes = this.fighters.length - party;
       if (this.waveRows) for (let j = 0; j < foes; j++) this.putWaveFighter(this.fighters[party + j], 0, j, foes);
@@ -11068,16 +11123,17 @@ class MatchSim {
   }
   // Brawl waves. The enemies of wave k: the roster in ladder order from where the last wave stopped, skipping the party.
   waveProfiles(k, partyIds) {
-    const row = this.waveRows[k], count = Math.min(BRAWL_MAX_ENEMIES, row[0] + this.partySize - 1);
+    const row = this.waveRows[k], count = Math.min(BRAWL_MAX_ENEMIES, row[0] + this.partySize - 1); // each fighter on the people's side (an ally too) adds one enemy
     let pool = ROSTER.filter((r) => !partyIds.includes(r.id));
     if (!pool.length) pool = ROSTER;
     const list = [];
-    for (let j = 0; j < count; j++) list.push(pool[this.waveCursor++ % pool.length]);
+    const goons = ROSTER_BY_ID[this.cfg.goons] ? this.cfg.goons : ''; // an Arcade crew: the three variants in turn, whatever the wave sizes
+    for (let j = 0; j < count; j++) list.push(goons ? goonProfile(goons, this.waveCursor++ % 3) : pool[this.waveCursor++ % pool.length]);
     if (row[3] && ROSTER_BY_ID[this.cfg.rival]) list[0] = ROSTER_BY_ID[this.cfg.rival];
+    else if (row[3] && goons && this.cfg.goonLeader) list[0] = goonProfile(goons, GOON_LEADER, this.cfg.goonLeader);
     return list;
   }
-  // Stands enemy f, the j-th of n in wave k, at its entry (alternate enemies take the row's second entry), spread round it, facing the party
-  // The door (0 = the row's entry, 1 = its second entry) of each of the n enemies of wave k
+  // The door (0 = the row's entry, 1 = its second entry) of each of the n enemies of wave k; an enemy stands at its entry, spread round it, facing the party
   doorsOf(k, n) {
     const doors = this.waveDoors[k] || (this.waveDoors[k] = []), entries = this.waveRows[k][4] ? 2 : 1;
     for (let j = doors.length; j < n; j++) doors.push(j % entries);
@@ -11131,6 +11187,7 @@ class MatchSim {
     if (this.fighters.some((other, i) => i < this.partySize && other.id === e.profile.id)) foe.applyLook(alternateLook(e.profile.look)); // a rival who is also a player's fighter wears the alternate colours
     this.waveEntered++;
     if (!this.cfg.evenDamage) foe.stats.damage *= (DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
+    this.crewScale(foe);
     this.scaleHp(foe);
     if (slot === this.fighters.length) { this.fighters.push(foe); this.controllers.push(controller); this.intents.push(makeIntent()); this.stats.push(this.newStats()); }
     else { this.fighters[slot] = foe; this.controllers[slot] = controller; clearIntent(this.intents[slot]); this.crowd.forget(slot); }
@@ -11357,7 +11414,7 @@ class MatchSim {
   // --- round rules
   checkRoundEnd() {
     const [a, b] = this.fighters;
-    const down = this.setup ? this.aliveTeamCount() <= 1 : this.brawl ? !this.teamAlive(TEAM_PLAYERS) || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive; // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
+    const down = this.setup ? this.aliveTeamCount() <= 1 : this.brawl ? !this.playersAlive() || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive; // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
     if (down) {
       if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
       this.locked = true;
@@ -11377,7 +11434,7 @@ class MatchSim {
     const [a, b] = this.fighters;
     let winner = -1;
     if (this.setup) { this.finishLineup(this.lineupWinner(reason), reason); return; }
-    if (this.brawl) winner = reason !== 'time' && this.teamAlive(TEAM_PLAYERS) ? TEAM_PLAYERS : TEAM_ENEMIES; // the players need a survivor, and the clock beats them; a draw counts as lost
+    if (this.brawl) winner = reason !== 'time' && this.playersAlive() ? TEAM_PLAYERS : TEAM_ENEMIES; // the players need a survivor, and the clock beats them; a draw counts as lost
     else if (a.alive && !b.alive) winner = 0;
     else if (b.alive && !a.alive) winner = 1;
     else if (a.alive && b.alive) {
@@ -11667,7 +11724,7 @@ const Cutscene = {
     this.finish();
   },
   fighterOf(who) {
-    if (!this.pool[who]) this.pool[who] = new Fighter(who === 'P' ? this.profile : ROSTER_BY_ID[Story.idOf(this.run, who)] || ROSTER_BY_ID.kai, who === 'P' ? 0 : 1); // the same ones again for each beat of a run
+    if (!this.pool[who]) this.pool[who] = new Fighter(who === 'P' ? this.profile : Story.profileOf(this.run, who) || ROSTER_BY_ID.kai, who === 'P' ? 0 : 1); // the same ones again for each beat of a run
     return this.pool[who];
   },
   // The beat's level and cast: P and everyone else its boxes name (a speaker or someone in the shot), standing as Story.cast puts the duel of the stage
@@ -11987,6 +12044,8 @@ const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
 const LEVEL_FIELD = { arcade: 'arcadeLevel', survival: 'survivalLevel', tournament: 'tournamentLevel' }; // each mode's Difficulty in the selection, saved as setups.<mode>.difficulty (Free Fight's is `difficulty`)
 const SURVIVAL_TIMER = 50, SURVIVAL_TIMER_MIN = 30;
+const SURVIVAL_TYPES = ['Duels', 'Brawls', 'Brawls + 1 ally', 'Brawls + 2 allies']; // the Survival type row
+const SURVIVAL_GROUP = [1, 1, 0.5, 0.4, 0.33, 0.28, 0.24], SURVIVAL_GROUP_DAMAGE = 0.7; // the health factor of each enemy of a Survival brawl by the number of enemies; the damage factor (times the level's dmg)
 const SURVIVAL_HEAL = 0.25, SURVIVAL_HEAL_MIN = 0.1; // share of max health regained after each win
 const SURVIVAL_PEAK = 7; // wins until the CPU reaches Expert; after that heal and timer keep shrinking
 // Fisher-Yates with the given generator; returns a new array
@@ -12005,7 +12064,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {}, // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null, // the bracket being played, or null before the draw and after it is left
@@ -12080,10 +12139,12 @@ const Game = {
   loadLevels() {
     for (const mode in LEVEL_FIELD) { const saved = Setups.d && Setups.d.v === 1 && Setups.d[mode]; if (saved && DIFFICULTY_ORDER.includes(saved.difficulty)) this.selection[LEVEL_FIELD[mode]] = saved.difficulty; }
     this.selection.tournamentRing = !!(Setups.d && Setups.d.v === 1 && Setups.plain(Setups.d.tournament).ringOut === true); // the Tournament's Ring-out row
+    const type = Setups.d && Setups.d.v === 1 ? Setups.plain(Setups.d.survival).type : 0; // the Survival type row: 0 to 3, anything else is Duels
+    this.selection.survivalType = Number.isInteger(type) && type >= 0 && type < SURVIVAL_TYPES.length ? type : 0;
   },
   saveLevel() {
     const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
-    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : {}) });
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : mode === 'survival' ? { type: this.selection.survivalType } : {}) });
     Setups.save();
   },
 
@@ -12188,16 +12249,35 @@ const Game = {
   canSkipStage() { const story = this.run.story; return Story.canSkip(story, true) && story.stage < STORY_STAGES; },
   startSurvival() {
     const sel = this.selection;
-    this.run = { mode: 'survival', player: sel.player, level: sel.survivalLevel, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: Progress.d.survivalKills };
+    this.run = { mode: 'survival', type: sel.survivalType, player: sel.player, level: sel.survivalLevel, kills: 0, seconds: 0, carryHp: 1, pool: this.opponentChoices(sel.player), order: [], rng: makeRng(Date.now() >>> 0), arenaStart: ARENA_ORDER.indexOf(sel.arena), bestBefore: this.survivalRecord(sel.survivalType)[0] };
     this.nextSurvivalMatch();
+  },
+  // [wins, seconds] of a Survival type: Duels keep the old fields, the three Brawls types a set each
+  survivalRecord(type) { return type ? Progress.d.survivalRec[type - 1] : [Progress.d.survivalKills, Progress.d.survivalSeconds]; },
+  // The CPU level of the next Survival fight: the ramp by wins, moved up by the Difficulty row
+  survivalCpu(r) {
+    const rung = r.kills < 2 ? 0 : r.kills < 4 ? 1 : r.kills < SURVIVAL_PEAK ? 2 : 3;
+    return DIFFICULTY_ORDER[Math.min(3, rung + Math.max(0, DIFFICULTY_ORDER.indexOf(r.level)))];
+  },
+  // A Survival brawl (type 1 to 3): main fighters from the shuffled lap, none twice in a fight; the allies are drawn after the enemies
+  nextSurvivalBrawl() {
+    const r = this.run, allies = r.type - 1, diff = this.survivalCpu(r), extra = this.survivalExtra(r.kills);
+    const base = { easy: 2, normal: 3, hard: 3, expert: r.kills >= 9 ? 5 : 4 }[diff], enemies = Math.min(BRAWL_MAX_ENEMIES, base + allies), taken = [];
+    while (taken.length < enemies + allies) {
+      if (!r.order.length) r.order = shuffled(r.pool.filter((profile) => !taken.includes(profile)), r.rng); // the lap ran out in this fight: a new order without the fighters already drawn
+      taken.push(r.order.shift());
+    }
+    const ids = taken.map((profile) => profile.id), timer = Math.max(SURVIVAL_TIMER_MIN, SURVIVAL_TIMER - 2 * extra) + 8 * (enemies - 1);
+    this.beginMatch({ mode: 'brawl', survival: true, playerId: r.player, enemies: ids.slice(0, enemies), allies: ids.slice(enemies), arenaId: ARENA_ORDER[(r.arenaStart + r.kills) % ARENA_ORDER.length], difficulty: diff, winsNeeded: 1, timer, playerHp: r.carryHp });
   },
   // Wins past the point where the CPU tops out at Expert
   survivalExtra(kills) { return Math.max(0, kills - SURVIVAL_PEAK); },
   nextSurvivalMatch() {
     const r = this.run;
+    if (r.type) { this.nextSurvivalBrawl(); return; }
     if (!r.order.length) r.order = shuffled(r.pool, r.rng); // every lap meets the whole roster (customs too) in a new order
     const opp = r.order.shift();
-    const rung = r.kills < 2 ? 0 : r.kills < 4 ? 1 : r.kills < SURVIVAL_PEAK ? 2 : 3, diff = DIFFICULTY_ORDER[Math.min(3, rung + Math.max(0, DIFFICULTY_ORDER.indexOf(r.level)))]; // Difficulty shifts the ramp; Easy is the plain ramp
+    const diff = this.survivalCpu(r); // Difficulty shifts the ramp; Easy is the plain ramp
     const arena = ARENA_ORDER[(r.arenaStart + r.kills) % ARENA_ORDER.length];
     const timer = Math.max(SURVIVAL_TIMER_MIN, SURVIVAL_TIMER - 2 * this.survivalExtra(r.kills));
     this.beginMatch({ mode: 'survival', playerId: r.player, opponentId: opp.id, arenaId: arena, difficulty: diff, winsNeeded: 1, timer, playerHp: r.carryHp });
@@ -12555,8 +12635,11 @@ const Game = {
     const run = this.run;
     if (!run || run.mode !== 'survival') return [];
     const unfinished = this.match && !this.match.matchOver ? Math.round(this.match.matchTicks / 60) : 0;
-    Progress.d.survivalKills = Math.max(Progress.d.survivalKills, run.kills);
-    Progress.d.survivalSeconds = Math.max(Progress.d.survivalSeconds, run.seconds + unfinished);
+    const rec = run.type ? Progress.d.survivalRec[run.type - 1] : null; // each Brawls type keeps a record set of its own
+    if (rec) { rec[0] = Math.max(rec[0], run.kills); rec[1] = Math.max(rec[1], run.seconds + unfinished); } else {
+      Progress.d.survivalKills = Math.max(Progress.d.survivalKills, run.kills);
+      Progress.d.survivalSeconds = Math.max(Progress.d.survivalSeconds, run.seconds + unfinished);
+    }
     Progress.save();
     return Progress.checkUnlocks(); // a new best streak may unlock a fighter: the names
   },
@@ -12621,7 +12704,7 @@ const Game = {
       return;
     }
     data.grade = fightGrade(gradeInputs(data, data.stats[0], data.playerMaxHp));
-    if (gradeMode !== 'arcade') { Progress.saveGrade(gradeMode, data.grade.letter); return; }
+    if (gradeMode !== 'arcade') { if (!(gradeMode === 'survival' && run.type > 1)) Progress.saveGrade(gradeMode, data.grade.letter); return; } // a Survival fight with allies shows its grade but saves none
     run.scores[run.stage] = data.grade.score;
     if (!data.cleared) return;
     const scores = run.scores.filter(Number.isFinite);
@@ -12654,7 +12737,7 @@ const Game = {
       run.seconds += data.seconds;
       if (playerWon) {
         run.kills++;
-        const heal = Math.max(SURVIVAL_HEAL_MIN, SURVIVAL_HEAL - 0.02 * this.survivalExtra(run.kills));
+        const heal = Math.max(SURVIVAL_HEAL_MIN, SURVIVAL_HEAL + 0.04 * (m.fighters.length - m.partySize - 1) - 0.02 * this.survivalExtra(run.kills)); // a bigger group heals more
         run.carryHp = clamp(m.fighters[0].hp / m.fighters[0].maxHp + heal, 0.3, 1);
         data.newBest = run.kills > run.bestBefore;
         data.buttons = ['next', 'menu'];
@@ -12662,7 +12745,7 @@ const Game = {
         data.ended = true;
         data.buttons = ['again', 'menu'];
       }
-      data.kills = run.kills; data.survivalSeconds = run.seconds;
+      data.kills = run.kills; data.survivalSeconds = run.seconds; data.survivalType = run.type;
       const gained = this.saveSurvivalRecord();
       if (gained.length) data.unlocked = joinNames(gained);
     } else if (run && run.mode === 'versus') {
@@ -13571,7 +13654,7 @@ const UI = {
       if (seat) { cell.root.className = 'pc seat' + (seat.slot + 1); cell.name.innerHTML = '<b>P' + (seat.slot + 1) + '</b> ' + esc(match.fighters[k].name); }
       if (member) { cell.root.className = 'pc tc' + member.tint; cell.name.innerHTML = '<b>' + this.tagLabel(match, k) + '</b> ' + esc(member.name); }
     });
-    this.tagEls.forEach((el, i) => { el.className = 'tag ' + (match.setup && match.fighters[i] ? 'tc' + match.fighters[i].tint : match.coop && i < match.partySize ? 'seat' + (match.coop[i].slot + 1) : 'p' + Math.min(i + 1, 2)); });
+    this.tagEls.forEach((el, i) => { el.className = 'tag ' + (match.setup && match.fighters[i] ? 'tc' + match.fighters[i].tint : match.coop && i < match.partySize ? 'seat' + (match.coop[i].slot + 1) : match.allies.length && i < match.partySize ? 'p1' : 'p' + Math.min(i + 1, 2)); });
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
@@ -13749,6 +13832,7 @@ const UI = {
     else if (name === 'timer') { const list = [30, 60, 90, 0]; sel.timer = list[(list.indexOf(sel.timer) + dir + 4) % 4]; }
     else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
     else if (name === 'tring') { sel.tournamentRing = !sel.tournamentRing; Game.saveLevel(); }
+    else if (name === 'stype') { sel.survivalType = (sel.survivalType + (dir || 1) + SURVIVAL_TYPES.length) % SURVIVAL_TYPES.length; Game.saveLevel(); }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     else if (name.startsWith('story')) this.storyChange(name, dir);
@@ -13952,7 +14036,8 @@ const UI = {
     const fewest = p.arcadeFewestContinues >= 0 ? 'fewest continues ' + p.arcadeFewestContinues + ' &middot; ' : ''; // saves from before the record have none
     if (mode === 'arcade' && p.arcadeClears) return 'Cleared ' + p.arcadeClears + '&times; &middot; ' + fewest + 'record ' + p.wins + '-' + p.losses;
     if (mode === 'arcade' && p.arcadeBest) return 'Best: stage ' + p.arcadeBest + ' / ' + STORY_STAGES + ' &middot; record ' + p.wins + '-' + p.losses;
-    if (mode === 'survival' && (p.survivalKills || p.survivalSeconds)) return 'Best: ' + p.survivalKills + ' wins &middot; longest run ' + clockText(p.survivalSeconds);
+    const survival = Game.survivalRecord(Game.selection.survivalType);
+    if (mode === 'survival' && (survival[0] || survival[1])) return 'Best: ' + survival[0] + ' wins &middot; longest run ' + clockText(survival[1]); // the record of the selected Survival type
     if (mode === 'free' && p.grades.free) return 'Best grade ' + p.grades.free;
     if (mode === 'tournament' && (p.tournamentWins || p.tournamentBest)) return 'Titles: ' + p.tournamentWins + ' &middot; best run: ' + p.tournamentBest + (p.tournamentBest === 1 ? ' win' : ' wins') + (p.grades.tournament ? ' &middot; best grade ' + p.grades.tournament : '');
     return '';
@@ -13976,7 +14061,7 @@ const UI = {
     const who = lineup ? (person ? 'Player ' + lineup.slots.slice(0, slotAt + 1).filter((slot) => slot.human).length : 'CPU ' + (slotAt + 1)) : '';
     const title = seat >= 0 ? '<span class="seat' + (seat + 1) + '" style="color:var(--pc)">Player ' + (seat + 1) + '</span>: choose your fighter' : lineup ? 'Choose fighter: ' + who : 'Choose your fighter';
     const sub = MODE_INFO[sel.mode].label + (seat >= 0 && Inputs.seats[seat] ? ' &middot; ' + esc(this.deviceLabel(Inputs.seats[seat])) : '');
-    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
+    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + (sel.mode === 'survival' ? this.optRow('Survival type', SURVIVAL_TYPES[sel.survivalType], 'data-local="stype"', '') : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
     h += '<button class="card create" data-nav data-act="create"><b>+ CREATE</b><em>Design a new fighter</em><span class="stat">Body, outfit, style, points</span></button>';
     for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === picked, person);
     h += '</div>';
@@ -14515,11 +14600,11 @@ const UI = {
     if (d.mode === 'tournament') return this.tournamentResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
-    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight'; // 'brawl' is the debug entry
+    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; ' + (d.survivalType ? 'fights won ' : 'defeated ') + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight'; // 'brawl' is the debug entry
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
     h += '<div class="statgrid">' + (d.enemies > 0 ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
     if (d.grade) h += this.gradeHtml(d);
-    if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
+    if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; ' + (d.survivalType ? 'Fights won' : 'Opponents defeated') + ': <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Game.survivalRecord(d.survivalType)[0] + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
     if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
     if (d.unlocked) h += '<p><b>Unlocked: ' + d.unlocked + '</b></p>';
@@ -14712,11 +14797,12 @@ const UI = {
     this.diagTick();
   },
   // Final round, match point or a fighter close to a knock-out
+  survivalLine(m, run) { return 'SURVIVAL · ' + (run.type ? 'FIGHT ' + (run.kills + 1) + ' · ' + m.def.name.toUpperCase() : 'DEFEATED ' + run.kills) + ' · ' + DIFFICULTY[m.cfg.difficulty].label.toUpperCase(); },
   tenseMoment(m) {
     if (m.training) return false;
     const [a, b] = m.fighters;
     if (m.brawl) { // only the players' health counts against a crowd: any player still up that is low (the lone player always)
-      for (let k = 0; k < m.partySize; k++) { const f = m.fighters[k]; if (f.hp / f.maxHp < TENSE_HP_FRACTION && (f.alive || m.partySize === 1)) return true; }
+      for (let k = 0; k < m.peopleCount; k++) { const f = m.fighters[k]; if (f.hp / f.maxHp < TENSE_HP_FRACTION && (f.alive || m.peopleCount === 1)) return true; } // the people only: a CPU ally running low is no cause for tense music
       return false;
     }
     const matchPoint = m.round > 1 && (m.wins[0] === m.winsNeeded - 1 || m.wins[1] === m.winsNeeded - 1);
@@ -14759,7 +14845,7 @@ const UI = {
     let info = '';
     const run = Game.run;
     if (run && run.mode === 'arcade') info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + STORY_STAGES + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase() + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
-    else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    else if ((cfg.mode === 'survival' || cfg.survival) && run) info = this.survivalLine(m, run); // a Survival brawl runs as a brawl but is still Survival
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (m.setup) info = SETUP_LABEL[cfg.setupMode] + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + ' · ' + m.fighters.length + ' FIGHTERS';
     else if (m.brawl) info = (m.coop ? SETUP_LABEL.free : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
@@ -14796,7 +14882,7 @@ const UI = {
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.blind > 0) status = 'BLIND';
       else if (f.lowStamina) status = 'TIRED';
-      const health = m.brawl && i >= m.partySize ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : ''; // a brawl enemy's tag carries its own health bar
+      const health = m.brawl && i >= m.peopleCount ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : ''; // a brawl enemy's or ally's tag carries its own health bar
       this.setHtml('tag' + i, el, this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health);
       el.style.display = ok ? '' : 'none';
       if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
@@ -14832,6 +14918,7 @@ const UI = {
   // Who a name tag belongs to: the player's seat, DUMMY or CPU.
   tagLabel(m, i) {
     if (m.coop && i < m.partySize) return (m.coop[i].slot + 1) + 'P';
+    if (i > 0 && i < m.partySize && m.allies.length) return 'ALLY';
     if (m.setup) return m.setup[i].human >= 0 ? (m.setup[i].human + 1) + 'P' : 'CPU';
     return i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU';
   },
@@ -15944,7 +16031,7 @@ function testApi() {
     SETTINGS_REVISION, SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE,
     SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES,
     SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS,
-    STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS,
+    STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
     TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
