@@ -30,7 +30,7 @@ const {
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
-  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
+  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
   VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost, attrTotal, canSetAttr,
   canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom, defaultDefense,
   deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url, handScale,
@@ -7611,6 +7611,270 @@ const SelfTest = {
       }
       return bad.length ? bad.join('; ') : true;
     });
+    /* ---------- Touch crouch by the stick (P17-18) ---------- */
+    /* Runs body with the given Movement setting and a camera where screen right = +x and screen down = +z, on a fresh input, and puts it all back. A fighter's yaw is then the foe's angle from screen-down: PI / 2 = a foe to the side. */
+    const stickRig = (movement, body) => {
+      const keep = { movement: Settings.v.movement, right: Camera.dirRight.slice(), fwd: Camera.dirFwd.slice(), device: Input.lastDevice };
+      Settings.v.movement = movement;
+      Camera.dirRight[0] = 1; Camera.dirRight[1] = 0; Camera.dirFwd[0] = 0; Camera.dirFwd[1] = -1;
+      Input.reset(); Input.releaseAll();
+      try { return body(); } finally {
+        Input.releaseAll(); Input.update(); Input.reset(); Settings.v.movement = keep.movement; Input.lastDevice = keep.device;
+        Camera.dirRight[0] = keep.right[0]; Camera.dirRight[1] = keep.right[1]; Camera.dirFwd[0] = keep.fwd[0]; Camera.dirFwd[1] = keep.fwd[1];
+      }
+    };
+    const toRad = (degrees) => degrees * Math.PI / 180;
+    const polar = (pull, degrees) => [pull * Math.sin(toRad(degrees)), pull * Math.cos(toRad(degrees))];   // a stick position: pull of the radius, degrees from straight down (y positive = down)
+    const foeAt = (degrees) => { const f = new Fighter(ROSTER_BY_ID.kai, 0); f.yaw = toRad(degrees); return f; };   // a fighter whose foe is degrees from screen-down (90 = to the side)
+    const stickTick = (it, f, x, y, o) => { Input.touchStickSet(x, y, true); Input.update(); return Input.fillIntent(it, f, o || null); };   // one tick through the real touch path
+    const stickLift = (it, f) => { Input.touchStickSet(0, 0, false); Input.update(); return Input.fillIntent(it, f, null); };
+    /* The first tick (1-based) within `ticks` on which a stick held at (pull, degrees) gives a crouch intent; 0 = never. */
+    const duckTick = (f, pull, degrees, ticks) => {
+      const it = makeIntent(), [x, y] = polar(pull, degrees);
+      Input.reset(); Input.releaseAll();
+      let first = 0;
+      for (let t = 1; t <= ticks; t++) if (stickTick(it, f, x, y).crouch && !first) first = t;
+      Input.releaseAll(); Input.update();
+      return first;
+    };
+    /* Ticks of crouch over a walk whose stick angle is angleAt(t) at the given pull. */
+    const duckTicksOfWalk = (f, pull, angleAt, ticks) => {
+      const it = makeIntent();
+      Input.reset(); Input.releaseAll();
+      let crouched = 0;
+      for (let t = 0; t < ticks; t++) { const [x, y] = polar(pull, angleAt(t)); if (stickTick(it, f, x, y).crouch || Input.touchDuck) crouched++; }
+      Input.releaseAll(); Input.update();
+      return crouched;
+    };
+    /* A duel on the real touch path: fighter 0 is fed by feed(tick, f, o) (set the stick and buttons) and Input.fillIntent; look(tick, it, f, o) sees the intent. Fighter 0 stands at the left and the foe at the right, so the foe is to the screen side. */
+    const touchDuel = (feed, look, foeScript) => {
+      let tick = 0;
+      const m = mk({}, (it, f, o) => { tick++; feed(tick, f, o); Input.update(); Input.fillIntent(it, f, o); if (look) look(tick, it, f, o); }, foeScript);
+      self.stand(m.fighters[0], -0.6, 0, 0.6, 0); self.stand(m.fighters[1], 0.6, 0, -0.6, 0);
+      return m;
+    };
+    test('Touch stick crouch (P17-18): a pull of 0.8 or more within 21.8 degrees of straight down, held 18 ticks, crouches (17 do not); a wider cone, a shorter pull or a short hold never does', () => stickRig('screen', () => {
+      const f = foeAt(90), bad = [];
+      if (TOUCH_DUCK_TICKS !== 18 || TOUCH_DUCK_PULL !== 0.8) bad.push('constants');
+      for (const [pull, degrees] of [[1, 0], [1, 15], [1, -15], [1, 21], [1, -21], [0.86, 0], [0.86, 15], [0.86, -15], [0.81, 0]]) {
+        const got = duckTick(f, pull, degrees, 120);
+        if (got !== 18) bad.push('(' + pull + ', ' + degrees + ') crouched at tick ' + got);
+      }
+      for (const [pull, degrees] of [[1, 23], [1, -23], [1, 30], [1, -30], [1, 45], [1, -45], [1, 90], [1, 180], [0.81, 15], [0.81, -15], [0.79, 0], [0.6, 0]]) {
+        const got = duckTick(f, pull, degrees, 120);
+        if (got) bad.push('(' + pull + ', ' + degrees + ') crouched at tick ' + got);
+      }
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): a diagonal walk (with a wobble) and a stick swept round the rim never crouch', () => stickRig('screen', () => {
+      const f = foeAt(90), bad = [], wobble = (t) => 10 * Math.sin(t * 1.7);
+      for (const pull of [1, 0.6]) for (const side of [1, -1]) {
+        const got = duckTicksOfWalk(f, pull, (t) => side * 45 + wobble(t), 600);
+        if (got) bad.push('diagonal ' + pull + ' side ' + side + ': ' + got);
+      }
+      for (const side of [1, -1]) {
+        const fast = duckTicksOfWalk(f, 1, (t) => side * 360 * t / 120 + wobble(t), 600), slow = duckTicksOfWalk(f, 1, (t) => side * 360 * t / 140, 600);
+        if (fast || slow) bad.push('sweep side ' + side + ': ' + fast + ' / ' + slow);
+      }
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): 17 ticks no, 18 yes; a lift stands up on the next tick and the hold starts again; a flick of 12 ticks, even twice, never crouches and the double flick still sidesteps', () => stickRig('screen', () => {
+      const f = foeAt(90), it = makeIntent(), bad = [];
+      const [x, y] = polar(1, 0);
+      for (let t = 1; t <= 17; t++) if (stickTick(it, f, x, y).crouch) bad.push('crouched at ' + t);
+      if (stickLift(it, f).crouch) bad.push('crouch after a lift at 17');
+      Input.reset();
+      for (let t = 1; t <= 18; t++) stickTick(it, f, x, y);
+      if (!it.crouch) bad.push('no crouch at 18');
+      if (stickLift(it, f).crouch) bad.push('still crouched on the tick after the lift');
+      if (stickTick(it, f, x, y).crouch) bad.push('crouched again at once after a lift');
+      stickLift(it, f); Input.reset();
+      let crouched = 0, sidestepped = 0;
+      for (let flick = 0; flick < 2; flick++) {
+        for (let t = 0; t < 12; t++) { const got = stickTick(it, f, x, y); if (got.crouch) crouched++; if (got.sidestep) sidestepped++; }
+        const got = stickLift(it, f); if (got.crouch) crouched++;
+      }
+      if (crouched) bad.push('a flick crouched ' + crouched + ' ticks');
+      if (!sidestepped) bad.push('the double flick did not sidestep');
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): once crouched, the stick may drift to 35 degrees at half pull and stay down; past that, or under a pull of 0.5, it stands up at once and needs the full 18 ticks again', () => stickRig('screen', () => {
+      const f = foeAt(90), it = makeIntent(), bad = [];
+      const arm = () => { Input.reset(); Input.releaseAll(); for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1); return it.crouch; };
+      if (!arm()) bad.push('did not arm');
+      const [dx, dy] = polar(0.6, 30);
+      for (let t = 0; t < 60; t++) if (!stickTick(it, f, dx, dy).crouch) { bad.push('drifted stick stood up at ' + t); break; }
+      for (const [pull, degrees] of [[1, 40], [1, -40], [0.45, 0]]) {
+        if (!arm()) bad.push('did not arm again');
+        const [x, y] = polar(pull, degrees);
+        if (stickTick(it, f, x, y).crouch) bad.push('(' + pull + ', ' + degrees + ') kept the crouch');
+        let back = 0;
+        for (let t = 1; t <= 30 && !back; t++) if (stickTick(it, f, 0, 1).crouch) back = t;
+        if (back !== 18) bad.push('(' + pull + ', ' + degrees + ') crouched again at ' + back);
+      }
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): with the stick crouch alone (no Duck) Punch and Kick give the crouch string rows, Defend is a low guard (a Block fighter reaches BLOCK_L), Grab gives the low grip and the walk is at crouch speed; Duck held with it is one crouch and outlasts it', () => stickRig('screen', () => {
+      const bad = [], late = [];
+      for (const row of stringRows.filter((r) => r.low)) {
+        Input.reset(); Input.releaseAll();
+        const got = playString(row.keys, (it, f, o, kind) => {
+          if (kind) Input.touchSet(kind, true);
+          Input.touchStickSet(0, 1, true); Input.touchDuck = true;   // the stick crouch is already on
+          Input.update();
+          Input.fillIntent(it, f, o);
+          if (kind) { if (!it[kind] || !it.height) late.push(row.keys); Input.touchSet(kind, false); }
+        }).join();
+        if (got !== row.moves.join()) bad.push('crouch ' + row.keys + ': ' + got);
+      }
+      if (late.length) bad.push('presses not low at once ' + late.slice(0, 3));
+      const states = [];
+      const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) Input.touchSet('defend', true); }, (t, it, f) => { if (t >= 36) states.push(f.state + ':' + it.defend + it.crouch); });
+      m.fighters[0].defense = 'block';
+      self.run(m, 40);
+      if (states.length !== 5 || states.some((s) => s !== S.BLOCK_L + ':truetrue')) bad.push('low guard ' + states);
+      const it = makeIntent(), f = foeAt(90);
+      Input.reset(); Input.releaseAll();
+      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
+      Input.touchSet('grapple', true); Input.update(); Input.fillIntent(it, f, null);
+      if (!it.grapple || !it.crouch) bad.push('grab without the low grip');
+      const speedOf = (duck) => {
+        let speed = 0;
+        Input.reset(); Input.releaseAll();
+        const run = touchDuel(() => { Input.touchStickSet(duck ? 0 : 0.64, duck ? 1 : 0.77, true); }, null);
+        for (let t = 0; t < 50; t++) { run.step(); const g = run.fighters[0]; speed = Math.hypot(g.x - g.prevX, g.z - g.prevZ); }
+        const state = run.fighters[0].state;
+        Input.releaseAll(); Input.update();
+        return { speed, state };
+      };
+      const walk = speedOf(false), sneak = speedOf(true);
+      if (walk.state !== S.WALK || sneak.state !== S.CROUCH || sneak.speed > walk.speed * 0.5 || sneak.speed < walk.speed * 0.4) bad.push('speeds ' + JSON.stringify([walk, sneak]));
+      Input.reset(); Input.releaseAll();
+      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
+      Input.touchSet('crouch', true); Input.update(); Input.fillIntent(it, f, null);
+      const together = it.crouch;
+      stickLift(it, f);
+      if (!together || !it.crouch) bad.push('Duck and stick crouch together, then Duck alone');
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): Jump wins over the stick crouch through the real fighter update (intent jump + unduck, crouch off, state JUMP); Duck + Jump still cancels both; a keyboard or CPU Jump from CROUCH is still refused', () => stickRig('screen', () => {
+      const bad = [], log = [];
+      const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) Input.touchSet('jump', true); }, (t, it, f) => {
+        log[t] = { jump: it.jump, unduck: it.unduck, crouch: it.crouch, state: f.state };
+        if (t === 30) Input.touchSet('jump', false);
+      });
+      self.run(m, 29);
+      const before = log[29], f = m.fighters[0];
+      m.step();
+      if (before.state !== S.CROUCH || !before.crouch) bad.push('not crouched before the press ' + JSON.stringify(before));
+      if (!log[30].jump || !log[30].unduck || log[30].crouch) bad.push('jump tick ' + JSON.stringify(log[30]));
+      if (f.state !== S.JUMP) bad.push('state after the press ' + f.state);
+      self.run(m, 1);
+      if (log[31].crouch || log[31].unduck) bad.push('tick after ' + JSON.stringify(log[31]));
+      Input.reset(); Input.releaseAll();
+      const both = [];
+      const m2 = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === 30) { Input.touchSet('crouch', true); Input.touchSet('jump', true); } }, (t, it, f) => { both[t] = { jump: it.jump, crouch: it.crouch, state: f.state }; if (t === 30) Input.touchSet('jump', false); });
+      self.run(m2, 33);
+      if (both[30].jump || both[30].crouch || both[30].state !== S.CROUCH || both.some((e) => e && e.state === S.JUMP)) bad.push('duck + jump ' + JSON.stringify(both[30]) + ' ' + m2.fighters[0].state);
+      Input.releaseAll(); Input.update();
+      let jumped = 0, unducked = 0;
+      const m3 = mk({}, (it, f, o, mm) => { it.crouch = true; if (mm.tick >= 10 && mm.tick % 5 === 0) it.jump = true; if (it.unduck) unducked++; if (f.state === S.JUMP) jumped++; });
+      self.run(m3, 40);
+      if (jumped || unducked) bad.push('a plain intent jumped out of CROUCH ' + jumped + '/' + unducked);
+      Input.reset(); Input.releaseAll();
+      const edge = makeIntent(), still = foeAt(90);   // a Jump press on tick 18 of the hold, the tick the crouch would arm, is a jump and restarts the hold
+      for (let t = 1; t < 18; t++) stickTick(edge, still, 0, 1);
+      Input.touchSet('jump', true);
+      stickTick(edge, still, 0, 1);
+      Input.touchSet('jump', false);
+      if (!edge.jump || edge.crouch || Input.touchDuck || Input.touchDuckTicks) bad.push('jump on tick 18 ' + JSON.stringify([edge.jump, edge.crouch, Input.touchDuck, Input.touchDuckTicks]));
+      for (let t = 1; t < 18; t++) if (stickTick(edge, still, 0, 1).crouch) { bad.push('the hold did not restart'); break; }
+      if (!stickTick(edge, still, 0, 1).crouch) bad.push('no crouch 18 ticks after the jump');
+      return bad.length ? bad.join('; ') : true;
+    }));
+    test('Touch stick crouch (P17-18): it arms only when the foe is within 60 degrees of sideways on the screen; a push toward the foe runs, a push away or the Opponent setting never ducks, and a Block fighter backing off keeps the high guard', () => {
+      const bad = [], first = (degrees) => stickRig('screen', () => { const f = foeAt(degrees), it = makeIntent(); let crouch = 0, run = false; Input.reset(); Input.releaseAll(); for (let t = 1; t <= 40; t++) { const got = stickTick(it, f, 0, 1); if (got.crouch && !crouch) crouch = t; run = got.run; } return { crouch, run }; });
+      for (const degrees of [65, 90, 115]) { const got = first(degrees); if (got.crouch !== 18 || got.run) bad.push(degrees + ' degrees ' + JSON.stringify(got)); }
+      for (const degrees of [0, 45, 55, 125, 135, 180]) { const got = first(degrees); if (got.crouch || got.run !== (degrees === 0)) bad.push(degrees + ' degrees ' + JSON.stringify(got)); }
+      stickRig('opponent', () => {
+        const it = makeIntent();
+        for (const degrees of [0, 90, 180]) { const f = foeAt(degrees); Input.reset(); Input.releaseAll(); for (let t = 0; t < 60; t++) if (stickTick(it, f, 0, 1).crouch) { bad.push('opponent movement crouched at ' + degrees); break; } }
+      });
+      for (const movement of ['screen', 'opponent']) stickRig(movement, () => {
+        const states = [], blocks = [], hits = [];
+        const offs = [Events.on('block', (e) => blocks.push(e)), Events.on('hit', (e) => hits.push(e))];
+        try {
+          const m = mk({}, (it, f, o) => {
+            Input.touchStickSet(0, 1, true); Input.touchSet('defend', true); Input.update(); Input.fillIntent(it, f, o);
+            states.push(f.state);
+          }, (it, f, o, mm) => { f.x = o.x; f.z = o.z - 1.0; f.prevX = f.x; f.prevZ = f.z; if (mm.tick === 50) it.punch = true; });
+          m.fighters[0].defense = 'block';
+          self.stand(m.fighters[0], 0, 0, 0, -3); self.stand(m.fighters[1], 0, -1, 0, 1);
+          self.run(m, 70);
+          if (states.slice(8).some((s) => s !== S.BLOCK_H) || Input.touchDuck) bad.push(movement + ': the guard left BLOCK_H ' + [...new Set(states)]);
+          if (!blocks.length || hits.length) bad.push(movement + ': the punch was not blocked ' + blocks.length + '/' + hits.length);
+        } finally { offs.forEach((off) => off()); }
+      });
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Touch stick crouch (P17-18): a Sway fighter sways the way the stick points, crouched or not', () => stickRig('screen', () => {
+      const dirs = [];
+      for (const pressAt of [5, 25]) {   // before the stick crouch arms, and after
+        const log = self.capture(['sway']);
+        let ducked = false;
+        const m = touchDuel((t) => { Input.touchStickSet(0, 1, true); if (t === pressAt) Input.touchSet('defend', true); if (t === pressAt + 1) Input.touchSet('defend', false); }, (t) => { if (t === pressAt) ducked = Input.touchDuck; });
+        m.fighters[0].defense = 'sway';
+        self.run(m, pressAt + 10); log.stop();
+        dirs.push({ ducked, dir: log.sway.length ? log.sway[0].dir : null });
+        Input.releaseAll(); Input.update(); Input.reset();
+      }
+      const same = dirs[0].dir !== null && dirs[0].dir !== 0 && dirs[0].dir === dirs[1].dir && !dirs[0].ducked && dirs[1].ducked;
+      return same ? true : JSON.stringify(dirs);
+    }));
+    test('Touch stick crouch (P17-18): Use throws, sets down (held) and picks up, and Lock works, exactly as without the crouch', () => withDevices((devices) => stickRig('screen', () => {
+      const bad = [], device = devices.touch, arm = () => { Input.touchStickSet(0, 1, true); Input.touchDuck = true; };
+      const toss = personDuel(); toss.f.item = held('bat'); arm();
+      const thrown = countEvents(['itemThrow', 'itemDrop'], () => playUse(toss.m, device, 4, 24));
+      if (thrown.itemThrow !== 1 || thrown.itemDrop !== 0 || toss.f.item || !toss.seat.crouched) bad.push('throw ' + JSON.stringify(thrown) + ' crouched ' + toss.seat.crouched);
+      Input.releaseAll(); Input.reset();
+      const hold = personDuel(); hold.f.item = held('bat'); arm();
+      const set = countEvents(['itemThrow', 'itemDrop'], () => playUse(hold.m, device, 0, SETDOWN_TICKS + 40));
+      if (set.itemThrow !== 0 || set.itemDrop !== 1 || hold.f.item || !hold.seat.crouched) bad.push('set down ' + JSON.stringify(set));
+      Input.releaseAll(); Input.reset();
+      const pick = personDuel(); pick.m.placeItem('bat', 0, 0.6, 0); arm();
+      const taken = countEvents(['itemTake', 'itemDrop', 'itemThrow'], () => playUse(pick.m, device, 0, SETDOWN_TICKS + 50));
+      if (taken.itemTake !== 1 || taken.itemDrop + taken.itemThrow !== 0 || !pick.f.item) bad.push('pick up ' + JSON.stringify(taken));
+      Input.releaseAll(); Input.reset();
+      const it = makeIntent(), f = foeAt(90);
+      for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1);
+      Input.touchSet('lock', true); Input.update(); Input.fillIntent(it, f, null);
+      if (!it.lock || !it.crouch) bad.push('lock');
+      return bad.length ? bad.join('; ') : true;
+    })));
+    test('Touch stick crouch (P17-18): a lift, releaseAll and releaseTouch clear it and the count; keyboard and gamepad never get it (and never set unduck); Duck stays on the pad and the label says crouch', () => withDevices((devices) => stickRig('screen', () => {
+      const bad = [], it = makeIntent(), f = foeAt(90);
+      const armed = () => { Input.reset(); Input.releaseAll(); for (let t = 0; t < 18; t++) stickTick(it, f, 0, 1); if (!Input.touchDuck) bad.push('did not arm'); return Input.touchDuck; };
+      armed();
+      stickLift(it, f);
+      if (Input.touchDuck || Input.touchDuckTicks) bad.push('a lift left ' + Input.touchDuck + Input.touchDuckTicks);
+      armed(); Input.releaseAll();
+      if (Input.touchDuck || Input.touchDuckTicks) bad.push('releaseAll left it');
+      armed(); Input.releaseTouch();
+      if (Input.touchDuck || Input.touchDuckTicks) bad.push('releaseTouch left it');
+      for (let t = 0; t < 10; t++) stickTick(it, f, 0, 1);
+      Input.releaseTouch();
+      if (Input.touchDuckTicks) bad.push('a partial count survived releaseTouch');
+      Input.reset(); Input.releaseAll(); Input.lastDevice = 'keyboard';
+      Input.kb.add(Keymap.bindings.down[0]);
+      for (let t = 0; t < 60; t++) { Input.update(); Input.fillIntent(it, f, null); if (it.crouch || it.unduck || Input.touchDuck) { bad.push('keyboard crouched'); break; } }
+      Input.releaseAll(); Input.update(); Input.reset();
+      const pad = navigator.getGamepads()[0];
+      pad.axes[1] = 1; Input.lastDevice = 'gamepad';
+      for (let t = 0; t < 60; t++) { Input.update(); Input.fillIntent(it, f, null); if (it.crouch || it.unduck || Input.touchDuck) { bad.push('gamepad crouched'); break; } }
+      pad.axes[1] = 0;
+      if (!TOUCH_BUTTONS.some((b) => b[0] === 'crouch') || TOUCH_LABELS.crouch !== 'DUCK' || !/crouch/i.test(TOUCH_LABELS.down) || !TOUCH_LAYOUT.landscape.slots.crouch || !TOUCH_LAYOUT.portrait.slots.crouch) bad.push('Duck button or labels ' + TOUCH_LABELS.down);
+      return bad.length ? bad.join('; ') : true;
+    })));
     test('Items: next round an item whose table broke falls onto the rubble or floor instead of starting inside it, and pillar items are mounted on a bracket along the wall', () => {
       const problems = [];
       const m = track(new MatchSim({ arenaId: 'warehouse', countdown: false, seed: 3 }));
