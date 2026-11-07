@@ -1112,8 +1112,6 @@ const PAD_SELECT_BUTTON = 8; // Select / Back: hold = reset in Training (not an 
 // Standard mapping, fight actions -> buttons
 const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [6], grapple: [7, 11], pause: [9] };
 const TOUCH_RUN_TICKS = 27; // touch stick held fully toward the opponent this long = run
-const TOUCH_DUCK_TICKS = 18; // stick held down this long = crouch
-const TOUCH_DUCK_PULL = 0.8; // ...pulled this far of the radius
 const ATTACK_STRING_SECONDS = 0.8; // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT); // counted in simulation ticks, so the headless sim and the AI stay deterministic
 const ASSIST_STRING_WINDOW = 2; // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
@@ -1140,14 +1138,14 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
     jump: false, punch: false, kick: false, grapple: false, use: false, setDown: false, lock: false, // use / setDown / lock: one-tick presses (lock: lock-on; use: pick up or throw; setDown: put the held item down)
-    sidestep: 0, grapDir: 'fwd', noParry: false, unduck: false, assist: false, guardAssist: false, // unduck: touch only; assist, guardAssist: the match's cfg.assist, set for human seats only
+    sidestep: 0, grapDir: 'fwd', noParry: false, assist: false, guardAssist: false, // assist, guardAssist: the match's cfg.assist, set for human seats only
     stickAnalog: false, // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.unduck = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
+  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
   return it;
 }
 
@@ -1188,8 +1186,6 @@ class PlayerInput {
     this.touchStick = { x: 0, y: 0, active: false };
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
-    this.touchDuck = false;
-    this.touchDuckTicks = 0;
     this.useWatch = false; // a Use press that began with an item in hand is still being watched: lifted soon = throw, held SETDOWN_TICKS = put down
     this.useTicks = 0;
     this.lastDevice = 'keyboard';
@@ -1216,7 +1212,6 @@ class PlayerInput {
     this.touchHeld = {};
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
-    this.touchDuck = false; this.touchDuckTicks = 0;
     this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
   }
   releaseAll() {
@@ -1392,15 +1387,6 @@ class PlayerInput {
     }
   }
 
-  // Touch stick crouch: down and held; never arms toward or away from the foe (run, guard)
-  touchStickDuck(it) {
-    const ts = this.touchStick, x = Math.abs(ts.x), y = ts.y;
-    if (this.touchDuck) this.touchDuck = ts.active && y >= 0.5 && x <= 0.7 * y;
-    else if (ts.active && y >= TOUCH_DUCK_PULL && x <= 0.4 * y && Math.abs(it.fwd) <= 0.5) {
-      if (++this.touchDuckTicks >= TOUCH_DUCK_TICKS) { this.touchDuck = true; this.touchDuckTicks = 0; }
-    } else this.touchDuckTicks = 0;
-  }
-
   // Fill an intent for the player-controlled fighter; self/opp only give the right-stick flick direction relative to the opponent
   fillIntent(it, self, opp) {
     clearIntent(it);
@@ -1414,8 +1400,7 @@ class PlayerInput {
     }
     it.defend = !!h.defend || this.take('defend'); // with crouch held it guards low; a tap shorter than a frame still counts once
     it.jump = this.take('jump');
-    if (it.jump) { it.unduck = this.touchDuck; this.touchDuck = false; this.touchDuckTicks = 0; } else this.touchStickDuck(it); // Jump ends the stick crouch and the hold
-    it.crouch = !!h.crouch || this.touchDuck;
+    it.crouch = !!h.crouch; // only a crouch input (DUCK, the bound key, the pad's tap-then-hold) crouches: the touch stick held down just walks (owner 2026-11-07)
     if (it.jump && it.crouch) { it.jump = false; if (!it.defend) it.crouch = false; } // conflicting vertical inputs cancel; a low guard stays low
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
@@ -6148,7 +6133,7 @@ class Fighter {
       if (this.defendPressed && this.swayBuffer > 0 && this.stam < SWAY_COST) Events.emit('lowStamina', { f: this, refused: true });
       if (this.trySubmission(opp, match)) return; // Grapple next to a downed foe holds them instead of grabbing
       if (this.tryBufferedAttack(it)) return;
-      if (it.jump && this.stam >= 1 && (this.state !== S.CROUCH || it.unduck) && !this.airborne) { this.startJump(it); return; }
+      if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
     }
     let target = S.IDLE;
@@ -13354,7 +13339,7 @@ const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'tournament'];
 const BACK_BUTTON = '<button class="mi" data-nav data-act="back">Back</button>';
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
-const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down (hold = crouch)', left: 'Stick left', right: 'Stick right' };
+const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 // Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two context buttons
 const TOUCH_BUTTONS = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm'], ['use', 'USE', 'sm'], ['lock', 'LOCK', 'sm']];
 const TOUCH_CONTEXT_ACTIONS = ['use', 'lock'];
@@ -16063,7 +16048,7 @@ function testApi() {
     STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
-    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_DUCK_PULL, TOUCH_DUCK_TICKS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
+    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
     UNLOCK_RULES, VETERAN_BUDGET, VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost,
     attrTotal, canSetAttr, canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom,
     defaultDefense, deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url,
