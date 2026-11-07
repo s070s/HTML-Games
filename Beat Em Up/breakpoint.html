@@ -4458,8 +4458,8 @@ defAttack('body_kick', { name: 'Body Kick', btn: 'rk', height: true, limb: 'RL',
 defAttack('heavy_body_kick', { name: 'Heavy Body Kick', btn: 'rk', strong: true, height: true, limb: 'RL', anim: 'roundLow', h: 'M', tier: 3, cat: 'heavy', startup: 17, active: 5, recovery: 30, dmg: 16, stam: 13, reach: 1.5, width: 0.95, push: 1.2, hitstun: 26, blockstun: 15, kind: 'stagger', gb: true });
 defAttack('jump_kick', { name: 'Flying Kick', btn: 'rk', limb: 'RL', anim: 'airKick', h: 'M', tier: 2, cat: 'kick', startup: 6, active: 8, recovery: 6, dmg: 8, stam: 6, reach: 1.4, width: 0.5, push: 0.6, hitstun: 18, blockstun: 10, step: 0, ctx: 'air' });
 defAttack('jump_punch', { name: 'Air Strike', btn: 'rp', limb: 'RA', anim: 'airPunch', h: 'H', tier: 2, startup: 5, active: 6, recovery: 6, dmg: 6, stam: 4, reach: 1.25, width: 0.5, push: 0.4, hitstun: 16, blockstun: 9, step: 0, ctx: 'air' });
-defAttack('lunge', { name: 'Running Lunge', btn: 'rp', limb: 'RA', anim: 'straight', h: 'M', tier: 3, cat: 'heavy', startup: 12, active: 4, recovery: 20, dmg: 11, stam: 8, reach: 1.6, width: 0.4, push: 0.8, hitstun: 22, blockstun: 12, kind: 'stagger', step: 1.3, ctx: 'run' });
-defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', anim: 'straight', h: 'M', tier: 2, startup: 4, active: 3, recovery: 8, dmg: 10, stam: 4, reach: 1.5, width: 0.5, push: 0.6, hitstun: 22, blockstun: 10, kind: 'stagger', step: 0.3, ctx: 'counter' });
+defAttack('lunge', { name: 'Running Lunge', btn: 'rp', limb: 'RA', anim: 'straightLow', h: 'M', tier: 3, cat: 'heavy', startup: 12, active: 4, recovery: 20, dmg: 11, stam: 8, reach: 1.6, width: 0.4, push: 0.8, hitstun: 22, blockstun: 12, kind: 'stagger', step: 1.3, ctx: 'run' });
+defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', anim: 'straightLow', h: 'M', tier: 2, startup: 4, active: 3, recovery: 8, dmg: 10, stam: 4, reach: 1.5, width: 0.5, push: 0.6, hitstun: 22, blockstun: 10, kind: 'stagger', step: 0.3, ctx: 'counter' });
 defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: 'front', h: 'M', tier: 2, cat: 'kick', startup: 5, active: 3, recovery: 10, dmg: 11, stam: 6, reach: 1.7, width: 0.5, push: 1.1, hitstun: 22, blockstun: 10, kind: 'knockdown', ctx: 'counter' });
 // Style moves: only tier 1-2, so the 8 strong moves stay the default table's. Each sits inside the damage-per-frame and frame-advantage band of the existing non-strong punches / kicks and appears only in the string rows of its own style. Reach stays at or under MAX_STAND_REACH.
 defAttack('chain_punch', { name: 'Chain Punch', btn: 'lp', limb: 'LA', anim: 'chain', h: 'H', tier: 1, startup: 5, active: 2, recovery: 10, dmg: 5, stam: 2, reach: 1.4, push: 0.2, hitstun: 14, blockstun: 8 });
@@ -4831,16 +4831,16 @@ const GUARD_ORTHO = makePose({ torsoLean: 0.14, torsoTwist: -0.5, headX: 0.12, s
 const ARM_IDX = (s) => (s > 0 ? { x: J.shLx, z: J.shLz, e: J.elL } : { x: J.shRx, z: J.shRz, e: J.elR });
 const LEG_IDX = (s) => (s > 0 ? { h: J.hipLx, a: J.hipLz, k: J.knL } : { h: J.hipRx, a: J.hipRz, k: J.knR });
 const STRIKE_BUILDERS = {
-  straight(p, s) { const a = ARM_IDX(s); p[a.x] = 1.55; p[a.z] = 0.05; p[a.e] = 0.1; p[J.torsoTwist] = -s * 0.65; p[J.torsoLean] = 0.34; p[J.rootFwd] = 0.14; },
-  straightLow(p, s) { const a = ARM_IDX(s); p[a.x] = 1.1; p[a.z] = 0.05; p[a.e] = 0.3; p[J.torsoTwist] = -s * 0.55; p[J.torsoLean] = 0.78; p[J.rootFwd] = 0.14; p[J.knL] += 0.3; p[J.knR] += 0.3; },
-  hook(p, s) { const a = ARM_IDX(s); p[a.x] = 1.35; p[a.z] = 1.1; p[a.e] = 1.6; p[J.torsoTwist] = -s * 1.0; p[J.torsoLean] = 0.2; p[J.rootFwd] = 0.1; },
-  upper(p, s) { const a = ARM_IDX(s); p[a.x] = 0.6; p[a.z] = 0.05; p[a.e] = 2.3; p[J.torsoTwist] = -s * 0.5; p[J.torsoLean] = -0.12; p[J.knL] += 0.45; p[J.knR] += 0.45; p[J.rootFwd] = 0.08; },
-  airPunch(p, s) { const a = ARM_IDX(s); p[a.x] = 1.7; p[a.z] = 0.05; p[a.e] = 0.2; p[J.torsoLean] = 0.35; p[J.torsoTwist] = -s * 0.5; },
-  front(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.5; p[l.k] = 0.12; p[o.h] = -0.05; p[o.k] = 0.3; p[J.torsoLean] = -0.08; p[J.shLx] = 0.8; p[J.shRx] = 0.8; },
+  straight(p, s) { const a = ARM_IDX(s); p[a.x] = 1.97; p[a.z] = 0.05; p[a.e] = 0.1; p[J.torsoTwist] = -0.225 - s * 0.075; p[J.torsoLean] = 0.34; p[J.rootFwd] = 0.1; },
+  straightLow(p, s) { const a = ARM_IDX(s); p[a.x] = 1.4; p[a.z] = 0.05; p[a.e] = 0.3; p[J.torsoTwist] = -0.225 - s * 0.075; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.18; p[J.knL] += 0.1; p[J.knR] += 0.1; },
+  hook(p, s) { const a = ARM_IDX(s); p[a.x] = 0.9; p[a.z] = 0.6; p[a.e] = 1.0; p[J.torsoTwist] = -s * 0.3; p[J.torsoLean] = 0.2; p[J.rootFwd] = 0.1; },
+  upper(p, s) { const a = ARM_IDX(s); p[a.x] = 0.8; p[a.z] = 0.05; p[a.e] = 1.0; p[J.torsoTwist] = -s * 0.25; p[J.torsoLean] = -0.12; p[J.knL] += 0.45; p[J.knR] += 0.45; p[J.rootFwd] = 0.18; },
+  airPunch(p, s) { const a = ARM_IDX(s); p[a.x] = 1.9; p[a.z] = 0.05; p[a.e] = 0.2; p[J.torsoLean] = 0.25; p[J.torsoTwist] = -0.15 - s * 0.15; p[J.hipLx] = 0.4; p[J.knL] = 0.7; p[J.hipRx] = -0.1; p[J.knR] = 0.5; }, // in the air both legs hang the same whatever the stance, so the fist is at the same height for every style
+  front(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.5; p[l.k] = 0.12; p[o.h] *= 0.3; p[o.k] = 0.2; p[J.torsoLean] = -0.08; p[J.shLx] = 0.8; p[J.shRx] = 0.8; }, // the support leg straightens so the body stands tall enough for the foot to reach the hip
   low(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 0.9; p[l.a] = 0.22; p[l.k] = 0.1; p[o.h] = -0.1; p[o.k] = 0.6; p[J.torsoLean] = 0.38; },
-  round(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.05; p[l.a] = 1.3; p[l.k] = 0.2; p[o.k] = 0.35; p[J.torsoRoll] = s * 0.3; p[J.torsoLean] = -0.1; p[J.torsoTwist] = -s * 0.5; },
-  roundLow(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 0.95; p[l.a] = 0.8; p[l.k] = 0.25; p[o.k] = 0.5; p[J.torsoRoll] = s * 0.3; p[J.torsoLean] = 0.3; },
-  airKick(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.35; p[l.k] = 0.1; p[o.h] = 0.8; p[o.k] = 1.3; p[J.torsoLean] = -0.3; p[J.shLx] = 0.4; p[J.shRx] = 0.4; },
+  round(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.75; p[l.a] = 0.95; p[l.k] = 0.2; p[o.h] *= 0.3; p[o.k] = 0.05; p[J.torsoRoll] = s * 0.5; p[J.torsoLean] = -0.1; p[J.torsoTwist] = -s * 0.4; },
+  roundLow(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.5; p[l.a] = 0.9; p[l.k] = 0.25; p[o.h] *= 0.3; p[o.k] = 0.1; p[J.torsoRoll] = s * 0.5; p[J.torsoLean] = 0.1; },
+  airKick(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.55; p[l.k] = 0.1; p[o.h] = 0.8; p[o.k] = 1.3; p[J.torsoLean] = -0.3; p[J.shLx] = 0.4; p[J.shRx] = 0.4; p[J.rootDrop] = -0.25; }, // the body is lifted: a kick in the air is not on the floor
   grab(p) { p[J.shLx] = 1.5; p[J.shRx] = 1.5; p[J.shLz] = -0.15; p[J.shRz] = -0.15; p[J.elL] = 0.3; p[J.elR] = 0.3; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.12; },
   // grabs of an item by its height: crouched to the floor, leaning over a table, stretching to a rack or wall mount (weapon swings reuse straight / hook / overhand / straightLow)
   reachLow(p, s) { const a = ARM_IDX(s); p[J.hipLx] = 1.1; p[J.hipRx] = 1.1; p[J.knL] = 2.0; p[J.knR] = 2.0; p[J.torsoLean] = 0.75; p[J.headX] = 0.2; p[a.x] = 0.45; p[a.z] = 0.05; p[a.e] = 0.3; p[J.shLx] = 0.5; },
@@ -4848,44 +4848,54 @@ const STRIKE_BUILDERS = {
   reachHigh(p, s) { const a = ARM_IDX(s); p[J.torsoLean] = -0.08; p[J.headX] = -0.2; p[a.x] = 2.7; p[a.z] = 0.1; p[a.e] = 0.15; p[J.rootFwd] = 0.06; p[J.shLx] = 1.3; },
   // style strikes. Hands: the other hand rests on the striker's elbow (chain), pins the guard down and across (trap), sweeps out wide (parry), or checks at the chin.
   chain(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = -0.05; p[a.e] = 0.15; p[o.x] = 1.25; p[o.z] = 0; p[o.e] = 1.3; p[J.torsoTwist] = -s * 0.25; p[J.torsoLean] = 0.18; p[J.rootFwd] = 0.1; },
-  trap(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = 0; p[a.e] = 0.1; p[o.x] = 0.9; p[o.z] = -0.55; p[o.e] = 0.9; p[J.torsoTwist] = -s * 0.4; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.12; },
-  parry(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = 0.05; p[a.e] = 0.15; p[o.x] = 1.5; p[o.z] = 0.6; p[o.e] = 0.7; p[J.torsoTwist] = -s * 0.5; p[J.torsoLean] = 0.3; p[J.headX] = 0.25; p[J.rootFwd] = 0.1; },
+  trap(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.6; p[a.z] = 0; p[a.e] = 0.1; p[o.x] = 0.9; p[o.z] = -0.55; p[o.e] = 0.9; p[J.torsoTwist] = -s * 0.64; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.12; },
+  parry(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = 0.05; p[a.e] = 0.15; p[o.x] = 1.5; p[o.z] = 0.6; p[o.e] = 0.7; p[J.torsoTwist] = -0.15 - s * 0.15; p[J.torsoLean] = 0.3; p[J.headX] = 0.25; p[J.rootFwd] = 0.1; },
   elbowH(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = 1.0; p[a.e] = 2.4; p[o.x] = 1.2; p[o.e] = 2.0; p[J.torsoTwist] = -s * 1.0; p[J.torsoLean] = 0.3; p[J.headX] = 0.15; p[J.rootFwd] = 0.08; },
-  angle(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.9; p[a.z] = 0.6; p[a.e] = 0.5; p[o.x] = 1.0; p[o.e] = 1.9; p[J.torsoTwist] = -s * 0.9; p[J.torsoLean] = 0.4; p[J.torsoRoll] = s * 0.2; p[J.rootFwd] = 0.1; },
-  angleBack(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.6; p[a.z] = -0.3; p[a.e] = 0.4; p[o.x] = 1.0; p[o.e] = 1.9; p[J.torsoTwist] = s * 0.8; p[J.torsoLean] = 0.35; p[J.rootFwd] = 0.1; },
-  overhand(p, s) { const a = ARM_IDX(s); p[a.x] = 2.0; p[a.z] = 0.55; p[a.e] = 0.9; p[J.torsoTwist] = -s * 1.1; p[J.torsoLean] = 0.55; p[J.knL] += 0.2; p[J.knR] += 0.2; p[J.rootFwd] = 0.12; },
+  angle(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 2.0; p[a.z] = 0.4; p[a.e] = 0.5; p[o.x] = 1.0; p[o.e] = 1.9; p[J.torsoTwist] = -0.5; p[J.torsoLean] = 0.3; p[J.torsoRoll] = s * 0.2; p[J.rootFwd] = 0.1; },
+  angleBack(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.6; p[a.z] = -0.3; p[a.e] = 0.4; p[o.x] = 1.0; p[o.e] = 1.9; p[J.torsoTwist] = -s * 0.1; p[J.torsoLean] = 0.35; p[J.rootFwd] = 0.1; },
+  overhand(p, s) { const a = ARM_IDX(s); p[a.x] = 2.0; p[a.z] = 0.55; p[a.e] = 0.9; p[J.torsoTwist] = -s * 0.6; p[J.torsoLean] = 0.55; p[J.knL] += 0.2; p[J.knR] += 0.2; p[J.rootFwd] = 0.12; },
   teep(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.3; p[l.k] = 0.05; p[o.h] = -0.2; p[o.k] = 0.3; p[J.torsoLean] = -0.35; p[J.rootFwd] = 0.1; p[J.shLx] = 1.2; p[J.shRx] = 0.5; },
-  spinBack(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = -1.4; p[l.k] = 0.15; p[o.h] = 0.2; p[o.k] = 0.5; p[J.torsoLean] = 0.75; p[J.headX] = -0.2; p[J.shLx] = 0.5; p[J.shRx] = 0.5; },
-  jumpRound(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.15; p[l.a] = 1.3; p[l.k] = 0.2; p[o.h] = 0.7; p[o.k] = 1.5; p[J.torsoRoll] = s * 0.45; p[J.torsoLean] = -0.2; p[J.torsoTwist] = -s * 0.6; p[J.rootDrop] = -0.3; p[J.shLx] = 1.4; p[J.shRx] = 0.5; },
+  spinBack(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = -1.75; p[l.k] = 0.15; p[o.h] = 0; p[o.k] = 0.15; p[J.torsoLean] = 0.75; p[J.headX] = -0.2; p[J.shLx] = 0.5; p[J.shRx] = 0.5; },
+  jumpRound(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.4; p[l.a] = 1.3; p[l.k] = 0.2; p[o.h] = 0.7; p[o.k] = 1.5; p[J.torsoRoll] = s * 0.45; p[J.torsoLean] = -0.2; p[J.torsoTwist] = -s * 0.6; p[J.rootDrop] = -0.3; p[J.shLx] = 1.4; p[J.shRx] = 0.5; },
   // own poses for the round kick: Muay Thai swings the whole body through it (torso turned over, leaning back, leg straight so the shin goes through), Taekwondo snaps it up high from a tall straight support leg
-  roundThai(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.05; p[l.a] = 0.95; p[l.k] = 0.12; p[o.h] = 0.05; p[o.k] = 0.12; p[J.torsoRoll] = s * 0.5; p[J.torsoLean] = -0.35; p[J.torsoTwist] = -s * 0.9; },
-  roundTkd(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.5; p[l.a] = 1.15; p[l.k] = 0.18; p[o.h] = 0.1; p[o.k] = 0.08; p[J.torsoRoll] = s * 0.6; p[J.torsoLean] = -0.45; p[J.torsoTwist] = -s * 0.8; p[J.headX] = -0.15; },
+  roundThai(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.55; p[l.a] = 1.0; p[l.k] = 0.12; p[o.h] = 0.05; p[o.k] = 0.12; p[J.torsoRoll] = s * 0.5; p[J.torsoLean] = -0.35; p[J.torsoTwist] = -s * 0.9; },
+  roundTkd(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.75; p[l.a] = 0.95; p[l.k] = 0.18; p[o.h] = 0.1; p[o.k] = 0.08; p[J.torsoRoll] = s * 0.6; p[J.torsoLean] = -0.45; p[J.torsoTwist] = -s * 0.8; p[J.headX] = -0.15; },
   spinHeel(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 0.2; p[l.a] = 1.25; p[l.k] = 0.05; p[o.h] = 0.7; p[o.k] = 1.1; p[J.torsoLean] = 0.9; p[J.shLx] = 0.6; p[J.shRx] = 0.5; },
 };
 // Extra turn of the whole body at full extension (rad, added to the heel pivot)
 const STRIKE_SPIN = { spinBack: 2.9, spinHeel: 1.57 };
+const STRIKE_STRIDE_MAX = 0.9; // m: the most the body steps into one blow
+const STRIKE_SHORT = 0.09; // m: the step aims this far short of the front of the volume, so a foe that slips back from the blow still has air between it and the limb
+const STRIKE_STEP_FULL = 0.5; // m: a step this long lifts the lead foot the full STRIKE_STEP_CLEAR; shorter ones less
+const STRIKE_STEP_HIP = 0.4; // rad: how far the lead thigh swings forward at mid-step
+const STRIKE_STEP_CLEAR = 0.1; // m: how high the lead foot is above the floor at mid-step
+const STRIKE_TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }; // key point (3 numbers each in pts) of the limb that strikes: wrist or ankle
+const STRIKE_ROOM = 0.6; // m: the nearest the drawn stride may bring the two bodies' centres
+const STRIKE_LANE = 0.7; // m: a fighter this close to the line of the step (to either side) is in its way
+const STRIKE_PROBE = 0.1; // m: the spacing at which the step is checked against props
+const KICK_PIVOT_SHARE = 0.5; // share of a kick's heel-pivot turn that is drawn: the full turn swung the foot 0.4 m past the foe's side
 /* Technique (visual only): each style's own way of throwing a hand or a leg, as offsets on the pose the strike builders give.
    Spec keys (additive; s = +1 left limb, -1 right): arm [x, z, e] = striking arm; off = the guard hand; sw = arm on the kicking side; leg [h, a, k] = kicking leg; base = support leg;
    front / rear [h, a, k] = lead and rear leg of a punch (the stance); lean, twist, roll (shoulder over the chin), head (chin), fwd (step into it), drop (both knees), wind = wind-up multiplier,
    pivot = extra turn on the support foot (rad, kicks). punch applies to every hand strike, kick to every leg strike; a spec named after a builder (hook, round ...) adds for that builder only.
    use = { builder: other builder }: the style's own pose for a key move (roundThai, roundTkd below) instead of offsets. */
 const STYLE_TECH = {
-  boxer: { punch: { off: [0.45, -0.1, 0.4], head: 0.4, roll: 0.4, twist: 0.3, drop: 0.2, lean: 0.05, rear: [-0.15, 0, 0.45], wind: 0.8 }, upper: { drop: 0.25, lean: -0.15 }, hook: { arm: [0, 0.15, 0.3], twist: 0.3 }, kick: { off: [0.6, -0.1, 0.4], head: 0.35, lean: 0.3, base: [0, 0, 0.35], drop: 0.15 }, round: { leg: [-0.25, 0, 0.3] } },
-  kickboxer: { punch: { off: [0.7, 0, 0.5], head: 0.4, twist: 0.2, lean: -0.3, fwd: 0.2, front: [0.35, 0, 0.3], rear: [-0.25, 0, 0.35] }, kick: { off: [0.7, 0, 0.45], sw: [-0.8, 0.4, -0.5], twist: 0.4, roll: 0.2, lean: -0.15, pivot: 0.2 }, low: { twist: 0.6, lean: -0.2, roll: 0.3, pivot: 0.2 }, roundLow: { twist: 0.4, lean: -0.2, roll: 0.3, pivot: 0.15 } },
-  karateka: { punch: { off: [-1.45, 0.05, 0.65], twist: -0.45, lean: -0.1, front: [0.55, 0.05, 0.6], rear: [-0.45, 0.1, -0.15], wind: 0.4 }, kick: { off: [-1.0, 0.05, 0.55], sw: [-0.6, 0.1, 0.3], base: [0, 0, -0.25], lean: -0.2, fwd: 0.08, wind: 0.6, pivot: 0.2 } },
-  wrestler: { punch: { drop: 0.5, lean: 0.7, off: [-0.4, 0.1, -1.2], arm: [0.2, -0.1, 0.2], front: [0.15, 0.3, 0.2], rear: [0, 0.35, 0.2], fwd: 0.12, wind: 0.7 }, kick: { drop: 0.4, lean: 0.45, off: [-0.3, 0.1, -1.0], base: [0, 0.3, 0.2] } },
-  judoka: { punch: { off: [0.6, 0.2, -1.1], lean: -0.3, twist: 0.3, head: -0.15, front: [-0.1, 0, 0.15] }, kick: { off: [0.65, 0.15, -1.1], sw: [0.6, 0.1, -1.1], drop: 0.25, lean: 0.15 }, round: { leg: [-0.3, 0, 0.3] } },
-  brawler: { punch: { off: [-0.9, 0.4, -0.5], arm: [0.15, 0.6, 0.3], twist: 0.4, lean: 0.35, head: -0.3, fwd: 0.18, wind: 2.0 }, kick: { off: [-0.7, 0.4, -0.3], sw: [-0.7, 0.5, 0], lean: 0.3, wind: 1.6 }, round: { leg: [0, 0.35, 0] } },
-  capoeira: { punch: { off: [-0.7, 0.35, -0.2], arm: [-0.1, 0.3, 0], lean: 0.3, drop: 0.25, front: [0, 0.2, 0.1], rear: [0, 0.3, 0.1] }, kick: { off: [-0.5, 0.3, -1.2], sw: [-0.4, 0.3, -1.1], lean: 0.7, drop: 0.35, pivot: 0.2 }, round: { leg: [0, 0.35, 0] } },
-  wingchun: { punch: { off: [0.55, -0.2, -1.0], arm: [-0.1, -0.35, 0], twist: -0.7, lean: -0.25, head: -0.2, front: [0, -0.3, 0.15], rear: [-0.1, -0.3, 0.2], wind: 0.2 }, kick: { off: [0.55, -0.1, -1.0], lean: -0.35, wind: 0.4 }, round: { leg: [-0.2, -0.1, 0.05] } },
-  muaythai: { punch: { off: [0.7, 0, 0.35], lean: -0.35, head: 0.35, drop: -0.05, wind: 0.9 }, kick: { off: [0.5, 0.1, 0.3], sw: [-1.3, 0.4, -0.8], base: [0, 0, -0.2], lean: -0.3, twist: 0.2, pivot: 0.3, wind: 1.3 }, use: { round: 'roundThai' } },
-  taekwondo: { punch: { off: [-0.7, 0.35, 0], arm: [-0.2, 0, 0], lean: -0.3, front: [0.15, 0.3, 0.2], rear: [-0.2, 0.4, 0.15] }, kick: { off: [-0.4, 0.8, -0.4], sw: [-0.1, 0.8, -0.4], base: [0, 0, -0.25], lean: -0.3, pivot: 0.3, wind: 1.0 }, use: { round: 'roundTkd' } },
-  sambo: { punch: { off: [0.4, 0.05, -0.9], drop: 0.45, lean: 0.3, twist: 0.2, front: [0.2, 0.3, 0.3], rear: [0, 0.3, 0.15] }, kick: { off: [0.6, 0.1, -1.0], drop: 0.3, lean: 0.1, base: [0, 0.2, 0.2], roll: 0.2 }, round: { leg: [0.6, 0.5, -0.05], roll: 0.4, lean: 0.2 } },
-  bjj: { punch: { drop: 0.8, lean: 0.35, off: [0.1, 0, -0.6], head: 0.3, front: [0.15, 0.35, 0.25], rear: [0, 0.4, 0.25] }, kick: { drop: 0.4, lean: 0.35, off: [0.1, 0, -0.6], sw: [0, 0, -0.8] }, round: { leg: [-0.2, 0.1, 0.2] } },
-  hapkido: { punch: { arm: [0, 0.6, 0.3], off: [0, 1.0, -0.4], twist: 0.35, roll: 0.2, front: [0, 0.2, 0.1] }, kick: { off: [0, 1.1, -0.5], sw: [0, 1.1, -0.5], lean: 0.35, drop: 0.35, roll: 0.2 }, round: { leg: [-0.65, 0.5, 0.3] } },
-  kali: { punch: { off: [0.7, 0.3, -1.1], roll: 0.5, drop: 0.6, lean: 0.45, front: [0.3, 0.35, 0.4], rear: [-0.1, 0.4, 0.2], wind: 0.8 }, kick: { off: [0.7, 0.3, -1.1], drop: 0.35, roll: 0.5, lean: 0.3 }, round: { leg: [-0.3, 0, 0.2] } },
-  kravmaga: { punch: { lean: 0.35, off: [0.5, 0, 0.25], head: 0.35, fwd: 0.15, drop: 0.15, wind: 0.4 }, kick: { lean: 0.45, off: [0.5, 0, 0.3], fwd: 0.15, drop: 0.25, wind: 0.5 }, round: { leg: [0, 0.2, 0] } },
-  mma: { punch: { drop: 0.3, off: [-0.5, 0.2, 0.2], lean: 0.25, front: [0.1, 0.1, 0.15] }, kick: { drop: 0.3, off: [-0.4, 0.15, 0.2], sw: [-0.9, 0.4, -0.2] }, round: { leg: [0, 0.2, 0] } },
+  boxer: { punch: { off: [0.45, -0.1, 0.1], head: 0.4, roll: 0.2, twist: -0.04, drop: 0.1, lean: 0.05, rear: [-0.15, 0, 0.45], wind: 0.8 }, upper: { drop: 0.25, lean: -0.15 }, hook: { arm: [0, 0.15, 0.3], twist: 0.3 }, kick: { off: [0.6, -0.1, 0.4], head: 0.35, lean: 0.3, base: [0, 0, 0.35], drop: 0.05 }, round: { leg: [0, 0, 0.1] } },
+  kickboxer: { punch: { off: [0.7, 0, 0.5], head: 0.4, twist: 0.2, lean: -0.3, fwd: 0.2, front: [0.35, 0, 0.3], rear: [-0.25, 0, 0.35] }, kick: { off: [0.7, 0, 0.45], sw: [-0.8, 0.4, -0.5], twist: 0.4, roll: 0.2, lean: -0.15, pivot: 0.2 }, low: { twist: 0.6, lean: -0.2, roll: 0.3, pivot: 0.2 }, roundLow: { twist: 0.4, lean: -0.2, roll: 0.2, pivot: 0.15 } },
+  karateka: { punch: { off: [-1.75, 0.05, 0.75], twist: 0, lean: -0.1, front: [0.55, 0.05, 0.6], rear: [-0.45, 0.1, -0.15], wind: 0.4 }, kick: { off: [-1.0, 0.05, 0.55], sw: [-0.6, 0.1, 0.3], base: [0, 0, -0.25], lean: -0.2, fwd: 0.08, wind: 0.6, pivot: 0.2 } },
+  wrestler: { punch: { drop: 0, lean: 0.1, off: [-0.4, 0.1, -1.2], arm: [0, -0.1, 0.2], front: [0.15, 0.3, 0.2], rear: [0, 0.35, 0.2], fwd: 0.12, wind: 0.7 }, kick: { lean: 0.15, off: [-0.3, 0.1, -1.0], base: [0, 0.3, 0] } },
+  judoka: { punch: { off: [0.6, 0.2, -1.1], lean: -0.3, twist: 0.3, head: -0.15, front: [-0.1, 0, 0.15] }, kick: { off: [0.8, 0.25, -1.1], sw: [0.8, 0.2, -1.1], drop: 0.05, lean: 0.15 }, round: { leg: [0, 0, 0.3], roll: 0.4 } },
+  brawler: { punch: { off: [-0.9, 0.4, -0.5], arm: [0, 0.6, 0.3], twist: 0.4, lean: 0.25, head: -0.3, fwd: 0.18, wind: 2.0 }, kick: { off: [-0.7, 0.4, -0.3], sw: [-0.7, 0.5, 0], lean: 0.3, wind: 1.6 }, round: { leg: [0, 0.35, 0] } },
+  capoeira: { punch: { off: [-0.7, 0.35, -0.2], arm: [-0.1, 0.3, 0], lean: 0.15, drop: 0.15, front: [0, 0.2, 0.1], rear: [0, 0.3, 0.1] }, kick: { off: [-0.5, 0.3, -1.2], sw: [-0.4, 0.3, -1.1], lean: 0.4, drop: 0.05 }, round: { leg: [0, 0.1, 0] } },
+  wingchun: { punch: { off: [0.55, -0.2, -1.0], arm: [-0.1, -0.35, 0], twist: -0.2, lean: -0.25, head: -0.2, front: [0, -0.3, 0.15], rear: [-0.1, -0.6, 0.2], wind: 0.2 }, kick: { off: [0.55, -0.1, -1.0], lean: -0.35, wind: 0.4 }, round: { leg: [0, -0.1, 0] } },
+  muaythai: { punch: { fwd: 0.25, off: [0.7, 0, 0.35], lean: -0.35, head: 0.35, drop: -0.05, wind: 0.9 }, kick: { off: [0.5, 0.1, 0.3], sw: [-1.3, 0.4, -0.8], base: [0, 0, -0.2], lean: -0.3, twist: 0.2, pivot: 0.3, wind: 1.3 }, use: { round: 'roundThai' } },
+  taekwondo: { punch: { off: [-1.1, 0.5, 0], arm: [-0.2, 0, 0], lean: -0.3, front: [0.15, 0.3, 0.2], rear: [-0.2, 0.4, 0.15] }, kick: { off: [-0.4, 0.8, -0.4], sw: [-0.1, 0.8, -0.4], base: [0, 0, -0.25], lean: -0.3, pivot: 0.1, wind: 1.0 }, use: { round: 'roundTkd' } },
+  sambo: { punch: { off: [0.3, 0.1, -1.0], drop: 0.1, lean: 0.15, twist: 0.7, front: [0.2, 0.3, 0.3], rear: [-0.2, 0.35, 0.3] }, kick: { off: [0.6, 0.1, -1.0], drop: 0.05, lean: 0.1, base: [0, 0.2, 0.2] }, round: { leg: [0, 0.1, 0], roll: 0.4, lean: 0.35, head: 0.55 } },
+  bjj: { punch: { drop: 0.1, lean: 0, off: [-0.5, 0, -0.6], head: 0.3, front: [0.15, 0.35, 0.25], rear: [0, 0.4, 0.25] }, kick: { lean: 0.1, leg: [-0.1, 0, 0], off: [0.1, 0, -0.6], sw: [0, 0, -0.8] }, round: { leg: [0, 0, 0.1] } },
+  hapkido: { punch: { arm: [0, 0.6, 0.7], off: [0, 1.3, -0.9], twist: 0.35, roll: 0.2, front: [0, 0.2, 0.1], rear: [-0.2, 0.3, 0.3] }, kick: { off: [0, 1.1, -0.5], sw: [0, 1.1, -0.5], lean: 0.2, drop: 0.05, roll: 0.2 }, round: { leg: [0, 0.1, 0.1], twist: 0.5 } },
+  kali: { punch: { off: [0.7, 0.3, -1.1], roll: 0.3, drop: 0, lean: 0.15, head: 0.3, front: [0.3, 0.35, 0.4], rear: [-0.1, 0.4, 0.2], wind: 0.8 }, kick: { off: [0.8, 0.45, -1.1], drop: 0.05, roll: 0.1, lean: 0.2 }, round: { leg: [0, 0, 0.35], roll: 0.2, head: 0.5, lean: 0.35, twist: 0.4 } },
+  kravmaga: { punch: { lean: 0.1, off: [0.5, 0, 0.25], twist: 0.3, head: 0.35, fwd: 0.15, drop: 0.15, rear: [-0.6, 0.3, 0], wind: 0.4 }, kick: { lean: 0.45, off: [0.9, 0.15, 0.5], base: [0.2, 0, 0], fwd: 0.15, drop: 0.05, wind: 0.5 }, round: { leg: [0, 0.25, 0.1] } },
+  mma: { punch: { drop: 0.1, off: [-0.5, 0.2, 0.2], lean: 0.25, twist: 0.25, front: [0.1, 0.1, 0.15] }, kick: { drop: 0.05, off: [-0.4, 0.15, 0.2], sw: [-0.9, 0.4, -0.2] }, round: { leg: [0, 0.2, 0] } },
 };
 // Adds the offsets of one spec to a strike pose
 function applyTech(p, spec, s) {
@@ -4924,10 +4934,15 @@ function strikeExtension(t, startup, active, recovery, windup, snap) {
   const u = (t - startup - active) / Math.max(1, recovery);
   return 1 - smoothstep(Math.min(1, u * 1.15 * (snap || 1))); // snap > 1 = faster guard return (visual only)
 }
+const legHeight = (hip, knee, abduction) => (THIGH * Math.cos(hip) + SHIN * Math.cos(hip - knee)) * Math.cos(abduction); // how far below the hip the ankle is
+// The knee angle that puts the ankle `height` below the hip for this thigh angle. The shin stays on the side of the thigh it is on (back for most stances); it only bends further (`bend`) or only straightens
+function shinKnee(hip, knee, abduction, height, bend) {
+  const shinNow = hip - knee, wanted = Math.acos(clamp((height / Math.cos(abduction) - THIGH * Math.cos(hip)) / SHIN, -1, 1));
+  const size = bend ? Math.max(Math.abs(shinNow), wanted) : Math.min(Math.abs(shinNow), wanted);
+  return hip - (shinNow < 0 ? -size : size);
+}
 function rootHeight(p) {
-  const yl = (THIGH * Math.cos(p[J.hipLx]) + SHIN * Math.cos(p[J.hipLx] - p[J.knL])) * Math.cos(p[J.hipLz]);
-  const yr = (THIGH * Math.cos(p[J.hipRx]) + SHIN * Math.cos(p[J.hipRx] - p[J.knR])) * Math.cos(p[J.hipRz]);
-  return Math.max(yl, yr) + FOOT_H + HIP_DROP;
+  return Math.max(legHeight(p[J.hipLx], p[J.knL], p[J.hipLz]), legHeight(p[J.hipRx], p[J.knR], p[J.hipRz])) + FOOT_H + HIP_DROP;
 }
 // Frame advantage on hit / block. `applied` (optional) holds the timings a real exchange used
 function frameAdvantage(mv, applied) {
@@ -5743,7 +5758,7 @@ class Fighter {
     this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useDrop = false; // useBuffer / useDrop = a Use press waiting to be used and whether it puts the held item down (a hold) instead of throwing it; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
-    this.lastFoe = null; this.target = null; // lastFoe: who dealt the last damage
+    this.lastFoe = null; this.target = null; this.mates = null; // lastFoe: who dealt the last damage
     this.lockOn = null; this.lockCool = 0; this.flickAge = -1; this.flickReady = true; this.flickX = 0; this.flickZ = 0; this.aim = null; this.stickX = 0; this.stickZ = 0; this.stickMag = 0; // lock-on and soft facing: the locked enemy, ticks until the next switch, flick state, the target an attack was aimed at, the stick as a world direction and length; only human fighters use them
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
   }
@@ -6734,12 +6749,51 @@ class Fighter {
     for (let i = 0; i < NP; i++) pose[i] = from[i] + (to[i] - from[i]) * u;
     this.chainBend = bend; this.chainOver = mv.swing === 'over';
   }
+  // Drawing only: how far forward (m) the drawn body may step, at most `wanted`, before it would be STRIKE_ROOM from a fighter (the target, and anyone else in its way), outside the arena or inside a prop.
+  stepRoom(wanted) {
+    const fx = this.fwdX, fz = this.fwdZ, bounds = Arena.def && Arena.def.bounds;
+    let room = wanted;
+    const others = this.mates || (this.target ? [this.target] : []);
+    for (const other of others) {
+      if (other === this || other.alive === false) continue;
+      const dx = other.x - this.x, dz = other.z - this.z;
+      if (other === this.target || (dx * fx + dz * fz > 0 && Math.abs(dx * fz - dz * fx) < STRIKE_LANE)) room = Math.min(room, Math.hypot(dx, dz) - STRIKE_ROOM);
+    }
+    if (bounds) {
+      if (Math.abs(fx) > 1e-6) room = Math.min(room, (fx > 0 ? bounds.x - this.radius - this.x : this.x + bounds.x - this.radius) / Math.abs(fx));
+      if (Math.abs(fz) > 1e-6) room = Math.min(room, (fz > 0 ? bounds.z - this.radius - this.z : this.z + bounds.z - this.radius) / Math.abs(fz));
+      for (let along = STRIKE_PROBE; along <= room; along += STRIKE_PROBE) {
+        if (Arena.insideSolid(this.x + fx * along, this.z + fz * along, this.radius, this.y)) { room = along - STRIKE_PROBE; break; }
+      }
+    }
+    return room;
+  }
+  // How far the drawn body must step so that the striking limb's tip, at full extension, reaches the front of the move's hit volume (the move's reach times the Reach stat), at most STRIKE_STRIDE_MAX; drawing only.
+  // The tip's forward distance without a step is measured once per move on this fighter's own build and style (the pose of the first active tick, stride off) and kept with the style's strike poses.
+  strikeStride(mv) {
+    if (this.striding) return 0;
+    const strikes = this.motion.strikes, key = mv.anim + mv.limb + 'g';
+    if (strikes[key] === undefined) {
+      const kept = { tick: this.moveTick, pts: this.pts.slice() };
+      this.striding = true;
+      this.moveTick = this.mStartup + 1;
+      this.attackPose();
+      this.walkSkeleton(0, 0, 0, 0, false);
+      const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb];
+      strikes[key] = this.pts[tip + 2];
+      this.striding = false;
+      this.moveTick = kept.tick;
+      this.pts.set(kept.pts);
+    }
+    return clamp(mv.reach * this.stats.reach - STRIKE_SHORT - strikes[key], 0, STRIKE_STRIDE_MAX);
+  }
   // Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose.
   attackPose() {
     const mv = this.move, pose = this.pose, m = this.motion;
     const g = m.guard;
     if (!mv) { pose.set(g); return; }
     if (mv.wpn && this.item && mv.swing) { this.weaponAttackPose(mv); return; } // an item's own swing
+    const step = this.strikeStride(mv); // first: measuring it draws the pose
     const strike = styledStrikePose(mv, m);
     const kick = isKickAnim(mv.anim);
     const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
@@ -6756,6 +6810,22 @@ class Fighter {
     } else {
       for (let i = 0; i < NP; i++) pose[i] = g[i] + (strike[i] - g[i]) * ext;
     }
+    const moved = ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
+    pose[J.rootFwd] += Math.max(0, ext) * moved / this.scale; // the skeleton scales the root move
+    if (!kick) { // a hand strike: the lead foot steps with the body, lifting at mid-step and down again at the contact, so the feet do not skate (a kick stands on its support leg)
+      const lift = Math.sin(Math.PI * clamp(ext, 0, 1)) * Math.min(1, moved / STRIKE_STEP_FULL);
+      if (lift > 0) { // the rear leg straightens to carry the body at the height the lead leg had, and the lead ankle goes up to STRIKE_STEP_CLEAR above the floor: thigh forward, knee bent as far as that takes
+        const leadHeight = legHeight(pose[J.hipLx], pose[J.knL], pose[J.hipLz]), rearHeight = legHeight(pose[J.hipRx], pose[J.knR], pose[J.hipRz]);
+        pose[J.knR] = shinKnee(pose[J.hipRx], pose[J.knR], pose[J.hipRz], lerp(rearHeight, Math.max(rearHeight, leadHeight), lift), false);
+        const carried = legHeight(pose[J.hipRx], pose[J.knR], pose[J.hipRz]), hip = pose[J.hipLx] + STRIKE_STEP_HIP * lift;
+        pose[J.knL] = shinKnee(hip, pose[J.knL] + hip - pose[J.hipLx], pose[J.hipLz], lerp(leadHeight, Math.min(leadHeight, carried) - STRIKE_STEP_CLEAR, lift), true);
+        pose[J.hipLx] = hip;
+        const kept = this.pts.slice(); // the toes of the leg that carries the body point down: raise the body by what they would sink into the floor
+        this.walkSkeleton(0, 0, 0, 0, false);
+        pose[J.rootDrop] -= Math.max(0, -Math.min(this.pts[16], this.pts[19]));
+        this.pts.set(kept);
+      }
+    }
     // kinetic chain: the hips and torso turn a little ahead of the limb
     if (t < startup) {
       const lead = strikeExtension(Math.min(t + HIP_LEAD_TICKS, startup), startup, active, recovery, windup, snap);
@@ -6767,7 +6837,7 @@ class Fighter {
     const side = mv.limb[0] === 'L' ? 1 : -1;
     const pivots = m.pivots || (m.pivots = {}); // the style's extra turn on the support foot, worked out once per builder
     if (kick && pivots[mv.anim] === undefined) pivots[mv.anim] = techPivot(m.styleId, mv.anim);
-    pose[J.bodyYaw] = g[J.bodyYaw] - side * (pivot + (kick && !m.noTech ? pivots[mv.anim] : 0)) * Math.max(0, ext);
+    pose[J.bodyYaw] = g[J.bodyYaw] - side * (pivot + (kick && !m.noTech ? pivots[mv.anim] : 0)) * (kick ? KICK_PIVOT_SHARE : 1) * Math.max(0, ext);
     if (STRIKE_SPIN[mv.anim]) { // the turn grows to the contact, then goes on to a full circle while the leg comes back
       const spin = STRIKE_SPIN[mv.anim], turn = t <= startup + active ? Math.max(0, ext) : 1 + (TAU / spin - 1) * (1 - ext);
       pose[J.bodyYaw] -= side * spin * turn;
@@ -10086,7 +10156,7 @@ class MatchSim {
   }
   assignTargets() {
     const fighters = this.fighters;
-    for (let i = 0; i < fighters.length; i++) fighters[i].target = this.targetFor(fighters[i]);
+    for (let i = 0; i < fighters.length; i++) { fighters[i].target = this.targetFor(fighters[i]); fighters[i].mates = fighters; } // mates: drawing only, so a drawn step stops short of anybody in its way
   }
 
   /* --- lock-on and soft facing
@@ -16046,7 +16116,7 @@ function testApi() {
     REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN,
     SETTINGS_REVISION, SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE,
     SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES,
-    SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS,
+    SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS,
     STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
