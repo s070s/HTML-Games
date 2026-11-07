@@ -8292,7 +8292,7 @@ const SelfTest = {
     const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
     const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
     test('Levels: every arena builds from its rows inside the sheet limits, with unique ids and valid links, clear spawns, and no gap that can trap a body', () => {
-      const problems = [], want = { warehouse: [19, 10, 4], dojo: [16, 6, 2], pit: [16, 10, 4], rooftop: [21, 10, 4], subway: [17, 8, 3], garage: [18, 10, 3], construction: [20, 10, 4], club: [20, 9, 3] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
+      const problems = [], want = { warehouse: [20, 10, 5], dojo: [16, 6, 2], pit: [16, 10, 7], rooftop: [21, 10, 5], subway: [18, 8, 3], garage: [19, 10, 4], construction: [21, 10, 5], club: [20, 10, 4] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
       for (const id of ARENA_ORDER) {
         const def = ARENAS[id], built = builtOf(def);
         Arena.build(def);
@@ -8675,10 +8675,10 @@ const SelfTest = {
     });
     test('Hazards: the table has the 8 hazards of the spec, each arena places the planned ones, the Hazards setting is on by default (after Items) and off places nothing, not even posts', () => {
       const problems = [];
-      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch|blaze  0 0 0 0 1 20 ';
+      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|hydrant strike 2 24 150 420 2 12 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch|blaze  0 0 0 0 1 20 ';
       const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
       if (got !== want) problems.push('table ' + got);
-      const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass', rooftop: 'drop,drop,panel,fire', subway: 'train,panel,glass', garage: 'panel,fire,glass', construction: 'drop,load,panel,fire', club: 'panel,glass,steam' }, keys = Object.keys(SETTING_DEFS);
+      const plan = { warehouse: 'panel,steam,load,glass,hydrant', dojo: 'glass,panel', pit: 'fire,fire,steam,glass,steam,steam,panel', rooftop: 'drop,drop,panel,fire,hydrant', subway: 'train,panel,glass', garage: 'panel,fire,glass,hydrant', construction: 'drop,load,panel,fire,hydrant', club: 'panel,glass,steam,steam' }, keys = Object.keys(SETTING_DEFS);
       for (const id of ARENA_ORDER) {
         const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 }));
         if (on.hazards.map((h) => h.type).join() !== plan[id] || !on.hazardsOn) problems.push(id + ' places ' + on.hazards.map((h) => h.type));
@@ -8689,7 +8689,7 @@ const SelfTest = {
       if (SETTING_DEFS.hazards.def !== true || Settings.validate('hazards', 'x') !== true || keys.indexOf('hazards') !== keys.indexOf('items') + 1) problems.push('setting');
       const again = track(new MatchSim({ arenaId: 'pit', countdown: false, seed: 2 }));
       again.startRound();
-      if (Arena.colliders.filter((c) => c.haz).length !== 3) problems.push('a new round doubled the posts');
+      if (Arena.colliders.filter((c) => c.haz).length !== 6) problems.push('a new round doubled the posts');
       return problems.length ? problems.join('; ') : true;
     });
     test('Hazards: a panel, a steam jet, a falling load and a fire barrel each hurt every fighter in their zone, of either team, and two co-op teammates too', () => {
@@ -9145,6 +9145,131 @@ const SelfTest = {
       self.run(k, 30);
       ko.stop();
       if (d.alive || !ko.ko.length || ko.ko[0].att !== c) problems.push('the knock-out of the burning went to ' + (ko.ko[0] && ko.ko[0].att && ko.ko[0].att.index));
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- P18-13: more environment interaction (Appendix C "P18-12 more environment interaction decided"): the hydrant, the vending drink, the rebound, and the rows level by level ----- */
+    const obj13 = (id) => Arena.objects.find((o) => o.id === id);
+    test('P18-13 Hydrant (B1): it does nothing until struck, then the jet pushes a fighter in its cone and puts out a burning fighter and a burning object inside the cone, not outside it; it is placed on four levels and not with Hazards off', () => {
+      const problems = [], m = brawlOn('warehouse', {}), h = hazardOf(m, 'hydrant'), [a, b] = m.fighters, inside = obj13('crateB'), outside = obj13('crateE');
+      self.stand(a, h.tx + h.fx * 1.0, h.tz + h.fz * 1.0, h.tx, h.tz); self.stand(b, h.tx + 0.2, h.tz + 2.6, h.tx, h.tz);
+      a.burn = b.burn = 100000;
+      m.ignite(inside); m.ignite(outside); inside.x = h.tx + h.fx * 1.2; inside.z = h.tz + h.fz * 1.2;
+      const x0 = a.x;
+      self.run(m, 60);
+      if (h.state !== 'idle' || !(a.burn > 0) || !(inside.fire > 0)) problems.push('it acted before a strike: ' + h.state);
+      m.hazardArm(h, b, 'strike');
+      self.run(m, 60);
+      if (a.burn !== 0 || !(b.burn > 0) || inside.fire !== 0 || !(outside.fire > 0)) problems.push('douse ' + [a.burn, b.burn, inside.fire, outside.fire]);
+      if (!(a.x < x0 - 0.2)) problems.push('no push ' + (a.x - x0).toFixed(2));
+      for (const id of ['warehouse', 'rooftop', 'garage', 'construction']) {
+        const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 })), off = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, hazards: false }));
+        if (on.hazards.filter((q) => q.type === 'hydrant').length !== 1 || off.hazards.some((q) => q.type === 'hydrant')) problems.push(id + ' hydrant rows');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Vending drink (B2): breaking a vending machine leaves exactly one bottle that falls; none with Items off or with Breakables off', () => {
+      const problems = [], bottles = (m) => m.items.filter((it) => it.id === 'bottle').length;
+      for (const [arenaId, id] of [['subway', 'vendA'], ['subway', 'vendB'], ['dojo', 'vending']]) {
+        const m = brawlOn(arenaId, { items: true }), before = bottles(m);
+        Arena.breakObject(obj13(id), 0, 0, 0);
+        self.run(m, 5);
+        const fresh = m.items.filter((it) => it.id === 'bottle' && Math.abs(it.x - obj13(id).x) < 0.1 && Math.abs(it.z - obj13(id).z) < 0.1);
+        if (bottles(m) !== before + 1 || fresh.length !== 1 || fresh[0].mode !== 'fall') problems.push(id + ' left ' + (bottles(m) - before) + ' ' + (fresh[0] && fresh[0].mode));
+        m.dispose();
+      }
+      const noItems = brawlOn('subway', { items: false });
+      Arena.breakObject(obj13('vendA'), 0, 0, 0);
+      self.run(noItems, 5);
+      if (noItems.items.length) problems.push('Items off dropped ' + noItems.items.length);
+      const solid = brawlOn('subway', { items: true, breakables: false }), vend = obj13('vendA'), n = bottles(solid);
+      Arena.damageObject(vend, 1e6, 'impact', 800, 1, 0, vend.x, 1, vend.z, 0);
+      self.run(solid, 5);
+      if (vend.destroyed || bottles(solid) !== n) problems.push('Breakables off still broke it');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Rebound (B3): a body thrown at 5.6 m/s into a Gym bag or rope goes back at 0.7 of its speed, takes 1 (not 2 + 0.35 x speed), and the bag is undamaged; an unfixed plastic bin breaks at that speed; the bags are mirrored about the ring centre and stay inside its long edges', () => {
+      const problems = [], m = brawlOn('dojo', {}), [a] = m.fighters, ring = ARENAS.dojo.ring, bagN = obj13('bagN'), bagS = obj13('bagS');
+      for (const o of [bagN, bagS, obj13('ropeN'), obj13('ropeS'), obj13('ropeE')]) {
+        a.hp = a.maxHp; a.state = S.THROWN; a.kx = 0; a.kz = -5.6; a.obstacleHit = o; a.lastImpactTick = -99;
+        const hp = a.hp, hpBefore = o.hp;
+        Combat.impactCheck(a, m);
+        const lost = hp - a.hp;
+        if (Math.abs(a.kz - 3.92) > 1e-6 || !(lost > 0) || lost > 1.2 * a.stats.taken * a.stats.impact + 1e-6 || o.destroyed || o.hp !== hpBefore) problems.push(o.id + ' kz ' + a.kz.toFixed(2) + ' lost ' + lost.toFixed(2));
+      }
+      const bin = obj13('binC');
+      a.state = S.THROWN; a.kx = -5.6; a.kz = 0; a.obstacleHit = bin; a.lastImpactTick = -99;
+      Combat.impactCheck(a, m);
+      if (!bin.destroyed) problems.push('the unfixed bin held at 5.6 m/s');
+      if (Math.abs(bagN.x + bagS.x - 2 * ring[0]) > 1e-9 || Math.abs(bagN.z + bagS.z - 2 * ring[1]) > 1e-9 || bagN.z - bagN.collider.hz < ring[1] - ring[3] || bagS.z + bagS.collider.hz > ring[1] + ring[3] || !bagN.fixed || !bagN.bounce) problems.push('bags: not mirrored or not inside the ring');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Pit and Club jets (P1, Cl1): the mirrored pairs push a fighter standing in either cone by the same distance, and the Pit pair stands inside the ring', () => {
+      const problems = [], moved = (arenaId, nth) => {
+        const m = brawlOn(arenaId, {}), h = m.hazards.filter((q) => q.type === 'steam')[nth], [a, b] = m.fighters;
+        self.stand(a, h.tx + h.fx * 1.0, h.tz + h.fz * 1.0, h.tx, h.tz); self.stand(b, -9.5, 6.0, 0, 0);
+        const x0 = a.x, z0 = a.z;
+        m.hazardArm(h, b, 'strike');
+        self.run(m, 50);
+        return Math.hypot(a.x - x0, a.z - z0);
+      };
+      for (const [arenaId, first] of [['pit', 1], ['club', 0]]) {
+        const d1 = moved(arenaId, first), d2 = moved(arenaId, first + 1);
+        if (!(d1 > 0.4) || Math.abs(d1 - d2) > 0.05) problems.push(arenaId + ' pair pushes ' + d1.toFixed(2) + ' / ' + d2.toFixed(2));
+      }
+      const pit = ARENAS.pit, jets = pit.hazards.filter((q) => q[0] === 'steam').slice(1);
+      if (jets.some((q) => Math.abs(q[1]) > pit.ring[2] || Math.abs(q[1] + jets.find((r) => r !== q)[1]) > 1e-9)) problems.push('pit jets not mirrored inside the ring');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Live metal (P2, R1, C1): the panel shocks a fighter touching the Pit cage rail, the Construction fence or the Rooftop air-conditioning once per activation, not one at the Pit rail the arc does not reach and not before it is struck', () => {
+      const problems = [], shocks = (arenaId, spot, far) => {
+        const m = brawlOn(arenaId, {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+        self.stand(a, spot[0], spot[1], spot[0] + 1, spot[1]); self.stand(b, far[0], far[1], 0, 0);
+        const log = hazardLog(m);
+        self.run(m, 60);
+        const quiet = log.filter((e) => e.name === 'hazardHit').length;
+        m.hazardArm(panel, null, 'timer');
+        self.run(m, 220);
+        log.stop();
+        return [quiet, log.filter((e) => e.name === 'hazardHit' && e.f === 0 && e.dmg > 0).length, log.filter((e) => e.name === 'hazardHit' && e.f === 1).length];
+      };
+      const cases = [['pit', [-6.0, -2.2], [-6.0, 3.0], 'cageL'], ['construction', [2.7, -6.5], [-6, 5], 'fenceB'], ['rooftop', [-9.0, 1.2], [4, 3], 'acB']];
+      for (const [arenaId, spot, far, id] of cases) {
+        const m = brawlOn(arenaId, {}), chain = hazardOf(m, 'panel').chain.map((o) => o.id);
+        if (!chain.includes(id) || chain.length > CHAIN_MAX) problems.push(arenaId + ' chain ' + chain);
+        const [quiet, hit, other] = shocks(arenaId, spot, far);
+        if (quiet !== 0 || hit !== 1 || other !== 0) problems.push(arenaId + ' shocks ' + [quiet, hit, other]);
+      }
+      const pit = brawlOn('pit', {});
+      if (hazardOf(pit, 'panel').chain.some((o) => o.id === 'cageB')) problems.push('the arc reaches the south cage run');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Chains (W1, S2, G2): the Warehouse panel lights the cardboard stack in 10 ticks of its arc and the fire spreads to crateD, the Subway panel lights the paper bundle and the fire reaches the scaffold tier (which loses hit points), the Garage barrel pool lights the tyre stack; nothing burns unstruck', () => {
+      const problems = [], burn = (arenaId, trigger, watch, ticks) => {
+        const m = brawlOn(arenaId, {}), [a, b] = m.fighters;
+        self.stand(a, 0, 0, 1, 0); self.stand(b, 1, 0, 0, 0);
+        const quiet = watch.map((id) => { self.run(m, 40); return obj13(id).fire; });
+        if (quiet.some((v) => v > 0)) problems.push(arenaId + ' burned unstruck');
+        trigger(m, a);
+        const at = {};
+        for (let t = 0; t < ticks; t++) { a.hp = b.hp = a.maxHp = b.maxHp = 1e6; m.step(); for (const id of watch) if (at[id] === undefined && obj13(id).fire > 0) at[id] = t; }
+        return [at, m];
+      };
+      let [at] = burn('warehouse', (m) => m.hazardArm(hazardOf(m, 'panel'), null, 'timer'), ['cardboardC', 'crateD'], 160);
+      if (at.cardboardC === undefined || at.cardboardC > 50 || at.crateD === undefined || at.crateD < at.cardboardC) problems.push('warehouse ' + JSON.stringify(at));
+      let m2;
+      [at, m2] = burn('subway', (m) => m.hazardArm(hazardOf(m, 'panel'), null, 'timer'), ['papers', 'repair.t0.1'], 600);
+      if (at.papers === undefined || at['repair.t0.1'] === undefined || !(obj13('repair.t0.1').hp < obj13('repair.t0.1').maxHp)) problems.push('subway ' + JSON.stringify(at));
+      [at] = burn('garage', (m, a) => { const barrel = hazardOf(m, 'fire'); self.stand(a, barrel.tx - 1.0, barrel.tz, barrel.tx, barrel.tz); m.hazardArm(barrel, a, 'strike'); }, ['tyres'], 200);
+      if (at.tyres === undefined) problems.push('garage tyres ' + JSON.stringify(at));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('P18-13 Club bottle (Cl2): the beer crate holds a bottle that drops when the crate breaks; and nothing is dropped while it is whole', () => {
+      const problems = [], m = brawlOn('club', { items: true });
+      const held = m.items.filter((it) => it.id === 'bottle' && Math.abs(it.x - 10.5) < 0.05 && Math.abs(it.z - 6.5) < 0.05);
+      if (held.length !== 1 || !(held[0].y > 0.5)) problems.push('no bottle on the crate ' + held.length);
+      Arena.breakObject(obj13('beerCrate'), 0, 0, 0);
+      self.run(m, 90);
+      if (m.items.some((it) => it.id === 'bottle' && Math.abs(it.x - 10.5) < 0.2 && it.y > 0.5)) problems.push('the bottle stayed up');
       return problems.length ? problems.join('; ') : true;
     });
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
