@@ -26,7 +26,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -5277,20 +5277,7 @@ const SelfTest = {
       const LIMIT = { short: 0.1, side: 0.45, band: 0.05, past: 0.15 };   // m: short of the volume's front, off the line to the foe (the foe's radius and a fist), outside the height class band
       const BAND = { H: [1.25, 1.75], M: [0.85, 1.5], L: [0, 0.65] };   // m on a scale-1 foe (times the striker's scale): where the tip must be for the height class (the hip of a scale-1 body is at about 1.0 m). A hand strike aims at the head and chest for H, the trunk for M
       const KICK_BAND_H = [1.0, 1.75];   // a High kick at least to the hip
-      /* Moves that still miss the limits above, each held at its measured worst over the 32 bodies (rounded up by 0.01; the numbers can only go down). OPEN WORK of P17-02, listed in Appendix C:
-         the High and Mid kicks cannot be lifted to the hip or above with calm hip angles (the foot stops at 0.7 to 0.8 m), the jab, cross and body punches of the crouching styles are drawn below the chest,
-         the stride still leaves the smallest bodies short and the tallest past the foe's centre, the Heavy Roundhouse swings 0.5 m to the side, the Elbow's hand stays at the shoulder (its elbow point is checked). */
-      const EXCEPTIONS = {
-        counter_kick: { short: 0.2, band: 0.11 }, roundhouse: { band: 0.3, short: 0.11 }, heavy_roundhouse: { band: 0.3, short: 0.27, side: 0.53 },
-        sweep: { short: 0.25 }, jump_kick: { band: 0.32 }, jump_punch: { band: 0.33, short: 0.23 },
-        lunge: { short: 0.33 }, heavy_body_kick: { band: 0.21 }, heavy_front: { short: 0.17 },
-        front_kick: { short: 0.14, band: 0.11 }, low_kick: { short: 0.22 }, body_kick: { band: 0.21 },
-        gut_punch: { past: 0.18 }, hook: { short: 0.18 }, jab: { band: 0.24, short: 0.23 },
-        power_jab: { band: 0.24, short: 0.23 }, counter_strike: { short: 0.27 }, chain_punch: { short: 0.24 },
-        trap_strike: { short: 0.22 }, uppercut: { short: 0.19 }, elbow_strike: { short: 0.17 },
-        cross: { short: 0.24, band: 0.23 }, spin_back_kick: { band: 0.33 }, body_jab: { band: 0.07 },
-        angle_one: { band: 0.46 },
-      };
+      /* No move is pinned: every move of every style passes the limits above. A new move that cannot is fixed in its pose (or its style's technique), never given a looser limit here. */
       const problems = [], seen = new Set();
       let pairs = 0;
       for (const r of ROSTER) {
@@ -5304,14 +5291,61 @@ const SelfTest = {
           f.attackPose(); f.skeleton(0, 0, 0, 0, false);
           const y = f.pts[tip + 1], sc = f.scale;
           const miss = { short: front - f.pts[tip + 2], side: Math.abs(f.pts[tip]), band: Math.max(band[0] * sc - y, y - band[1] * sc, 0), past: f.pts[tip + 2] - (front + FOE_RADIUS) };
-          const allowed = Object.assign({}, LIMIT, EXCEPTIONS[id + ' ' + r.moveStyle] || EXCEPTIONS[id]);
           pairs++; seen.add(r.id + ' ' + id);
-          const bad = Object.keys(allowed).filter((k) => miss[k] > allowed[k]);
+          const bad = Object.keys(LIMIT).filter((k) => miss[k] > LIMIT[k]);
           if (bad.length) problems.push(r.id + ' ' + id + ' ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' '));
         }
       }
       if (pairs < 590 || !seen.has('yuki roundhouse')) return 'only ' + pairs + ' pairs checked';
       return problems.length ? problems.length + ' misses: ' + problems.join('; ') : true;
+    });
+    test('Strike step (P17-02): the drawn body steps forward into a blow (never back before it, at most STRIKE_STRIDE_MAX plus the lean of the pose itself), keeps STRIKE_ROOM from a near foe, and in a hand strike the lead leg steps (thigh forward, knee up) and is the strike pose again at the contact', () => {
+      const problems = [];
+      const frame = (f, tick, foeX) => {
+        f.moveTick = tick; f.target = foeX === undefined ? null : { x: foeX, z: 0 };
+        f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+        return { rootZ: f.pts[2], pose: Float32Array.from(f.pose) };
+      };
+      const OWN_LEAN = 0.5;   // m: the pose's own forward lean and style step (rootFwd of the builder and the technique), outside the cap
+      for (const id of ['yuki', 'hao', 'brutus', 'kai', 'dmitri']) {
+        const f = new Fighter(ROSTER.find((r) => r.id === id), 0);
+        for (const moveId of ['cross', 'jab', 'roundhouse']) {   // two hand strikes and a kick on the right leg (the left leg is the lead and the support)
+          const mv = ATTACKS[moveId], hand = mv.limb[1] === 'A';
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0; f.x = f.z = 0;
+          const at = id + ' ' + moveId, guard = frame(f, 0), rest = guard.rootZ, far = frame(f, mv.startup + 1), near = frame(f, mv.startup + 1, 0.9);
+          if (!(far.rootZ - rest > 0.1 && far.rootZ - rest <= STRIKE_STRIDE_MAX + OWN_LEAN)) problems.push(at + ' step ' + (far.rootZ - rest).toFixed(2));
+          if (!(near.rootZ <= far.rootZ && near.rootZ <= 0.9 - STRIKE_ROOM + OWN_LEAN)) problems.push(at + ' near foe: body at ' + near.rootZ.toFixed(2));
+          let back = 0, kneeUp = 0, thighUp = 0;
+          for (let t = 0; t <= mv.startup + 1; t++) {
+            const g = frame(f, t);
+            back = Math.max(back, rest - g.rootZ);
+            kneeUp = Math.max(kneeUp, g.pose[J.knL] - guard.pose[J.knL]); thighUp = Math.max(thighUp, g.pose[J.hipLx] - guard.pose[J.hipLx]);   // the lead (left) leg
+          }
+          if (back > 0.2) problems.push(at + ' glides back ' + back.toFixed(2));   // the lean of a big wind-up (the Brawler) is the most: 0.16; the old stride glided 0.4
+          if (hand) {
+            const strike = f.motion.strikes[mv.anim + mv.limb];
+            if (!(kneeUp > 0.2 && thighUp > STRIKE_STEP_HIP * 0.2)) problems.push(at + ' lead foot not lifted: knee ' + kneeUp.toFixed(2) + ' thigh ' + thighUp.toFixed(2));
+            if (Math.abs(far.pose[J.hipLx] - strike[J.hipLx]) > 1e-4 || Math.abs(far.pose[J.knL] - strike[J.knL]) > 1e-4) problems.push(at + ' lead leg not down at the contact');
+          }
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Calm poses (P17-02): at the contact tick of every move of every style no joint is turned further than the limits (rad): the arms 2.4 and the elbows 2.8, the hips 2.0, the knees 1.9, the torso lean 1.05, turn 1.5 and roll 1.2', () => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
+      const LIMITS = [[J.shLx, 2.4], [J.shRx, 2.4], [J.elL, 2.8], [J.elR, 2.8], [J.hipLx, 2.0], [J.hipRx, 2.0], [J.knL, 1.9], [J.knR, 1.9], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 1.2]];
+      const problems = [];
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = ATTACKS[id];
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0; f.x = f.z = 0; f.target = null;
+          f.attackPose();
+          for (const [joint, limit] of LIMITS) if (Math.abs(f.pose[joint]) > limit) problems.push(r.id + ' ' + id + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
+        }
+      }
+      return problems.length ? problems.length + ' too far: ' + problems.slice(0, 6).join('; ') : true;
     });
     test('Headless AI vs AI runner: seeded match ends with a winner, duration and damage per move type', () => {
       const opts = { seed: 3, timer: 30, winsNeeded: 1, playerId: 'kai', opponentId: 'brutus' };
