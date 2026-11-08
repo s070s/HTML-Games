@@ -4872,6 +4872,7 @@ const STEP_SNAP = 0.3; // m: a drop this shallow under a fighter who stands on a
 const SUPPORT_EPS = 0.002; // closer than this to the footing counts as standing on it
 const FALL_FROM_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.ATTACK, S.GETUP, S.GRAPPLE, S.CLINCH, S.SUBMIT]; // grounded-only states that give way to FALL
 const AI_EDGE_LOOK = 0.5, AI_EDGE_LOOK_RUN = 0.9, AI_EDGE_LOOK_SIDESTEP = 1.2, AI_EDGE_LOOK_JUMP = 1.4; // metres ahead the CPU checks for footing before a walk / run / sidestep / jump
+const AI_STEP_FREE = 0.3; // m: the step of every older row; a row that steps further (the two lunging punches) is started from that much further away
 const AI_DUCK_LEAD = 4, AI_DUCK_WEIGHT = 1.8; // a move that ducks (the bob, the handstand) is chosen this much more while the foe winds up a High strike with at least this many ticks to go
 const AI_EDGE_PATIENCE = 90; // ticks the CPU holds at an edge before it climbs down on purpose: a CPU left on a crate must not stall the fight
 const AI_NAV_DIFF = 0.5, AI_NAV_NEAR = 2.0, AI_NAV_RAISED = 0.3, AI_NAV_LEDGE = 0.6; // m: the CPU follows the level map when its target stands this much higher or lower, or either stands above AI_NAV_RAISED and they are farther apart than AI_NAV_NEAR; it jumps a ledge this close ahead
@@ -5055,7 +5056,7 @@ function frameAdvantage(mv, applied) {
    signature   [name, uses] pairs shown in the Move list and Training panel: uses = an ATTACKS id, 'knee' / 'elbow', 'throw:<grip>.<dir>' or 'hold'; the unique ones are attacks only that style plays.
    submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway'). */
 const MOVE_STYLE = {
-  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches.',
+  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches. No kicks: the Kick button throws body punches.',
     family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
@@ -5109,7 +5110,7 @@ const MOVE_STYLE = {
     bounce: 0.012, bounceHz: 1.2, sway: 0.03, swayHz: 0.6, headBob: 0.05,
     punchHip: 1.4, punchPivot: 0.24, punchLean: 0.14, punchSnap: 0.8, kickChamber: 0.3, kickPivot: 0.35, kickLean: 0.06, kickSnap: 0.85,
     stride: 0.95, armSwing: 0.12, walkBounce: 0.02, react: 1.15, victory: 'flex' },
-  capoeira: { label: 'Capoeira', desc: 'Constant ginga: rocking side to side, one arm guarding the face; wide whipping kicks with a big pivot.',
+  capoeira: { label: 'Capoeira', desc: 'Constant ginga: rocking side to side, one arm guarding the face; wide whipping kicks with a big pivot, cartwheel kicks and kicks from a handstand.',
     family: 'kicking', grab: 'capoeira', throws: 'low', defense: 'sway', submit: [],
     signature: [['Armada', 'armada'], ['Au Batido', 'cartwheel'], ['Bananeira', 'handstand_kick'], ['Queixada', 'roundhouse'], ['Rasteira', 'low_kick']],
     strings: 'jab front_kick headbutt armada jab roundhouse heavy_front heavy_roundhouse jab headbutt heavy_front cartwheel low_kick handstand_kick headbutt low_kick heavy_front sweep',
@@ -9573,7 +9574,7 @@ class AIController {
     return { kind: 'attack', ticks: this.d.lockout, mv: pick.mv, pick, fired: false };
   }
 
-  inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 && dist >= 0.45; }
+  inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 + Math.max(0, mv.step - AI_STEP_FREE) && dist >= 0.45; }
   pickMove(f, opp, snap, dist, fastOnly, maxStartup = 99) {
     const d = this.d, st = this.profile.style;
     let best = null, bestScore = 0;
