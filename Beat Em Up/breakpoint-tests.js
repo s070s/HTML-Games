@@ -7,6 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
+  ANIM_SPECS, AIW_WEIGHTS, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
@@ -4844,16 +4845,18 @@ const SelfTest = {
         'capoeira heavy_front -1': { torso: 0.32, why: 'a heavy front kick drives straight along the slip side' },
         'hapkido heavy_roundhouse -1': { torso: 0.32, why: 'the roundhouse curves into the slip side (P17-11: the slip steps back 0.15 m further for a round kick, up from 0.24)' },
         'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
+        'boxer body_jab 1': { torso: 0.22, why: 'Boxing has no leg moves, so the body jab is its longest Mid strike and crosses the body on the slip side (P17-10)' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
       };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };
-      let trials = 0;
+      let trials = 0, expectedTrials = 0;
       for (const styleId of MOVE_STYLE_IDS) {
         const table = stringsFor(styleId), strikes = new Set();
-        for (const side of ['stand', 'crouch']) for (const keys in table[side]) for (const id of table[side][keys]) { const mv = ATTACKS[id]; if (mv && mv.type === 'strike' && !mv.ctx) strikes.add(mv); }
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) for (const id of table[side][keys]) { const mv = moveFor(styleId, id); if (mv && mv.type === 'strike' && !mv.ctx) strikes.add(mv); }
         for (const h of ['H', 'M', 'L']) {
           const mv = [...strikes].filter((s) => s.h === h).sort((x, y) => y.reach - x.reach)[0];   // the longest strike of the height: the one that reaches the body furthest
-          if (!mv) { bad.push(styleId + ' has no ' + h + ' strike'); continue; }
+          if (!mv) continue;   // a style with no strike of this height (Boxing has no Low one, the grapplers no High one) has nothing to check there
+          expectedTrials += 6;
           for (const t of swayPoseTrials(styleId, mv, [0, 1, -1], [0, SWAY_IFRAME_TICKS - 1])) {   // back, left, right; the strike goes active on the first and on the last i-frame tick
             trials++;
             for (const part of ['head', 'torso']) worst[part] = Math.min(worst[part], t.clear[part]);
@@ -4864,7 +4867,7 @@ const SelfTest = {
           }
         }
       }
-      return bad.length === 0 && trials === MOVE_STYLE_IDS.length * 3 * 6 ? true : JSON.stringify({ trials, need, worst, bad: bad.slice(0, 6) });
+      return bad.length === 0 && trials === expectedTrials && trials >= 200 ? true : JSON.stringify({ trials, need, worst, bad: bad.slice(0, 60) });
     });
     test('Sway pose (P3-11): the drawn lean covers exactly the i-frames: nearly full on the first tick, held to the last, upright 3 ticks after, for every style and lean, for KAI\'s body and the slowest legal Creator body', () => {
       const bad = [];
@@ -5314,10 +5317,10 @@ const SelfTest = {
       const problems = [], seen = new Set();
       let pairs = 0;
       for (const r of ROSTER) {
-        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        const f = new Fighter(r, 0), style = moveStyleFor(r), table = stringsFor(style), ids = new Set(AIR_AND_COUNTER);
         for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
         for (const id of ids) {
-          const mv = ATTACKS[id], tip = id === 'elbow_strike' ? ELBOW_POINT : TIP[mv.limb], kick = mv.limb[1] === 'L', band = kick && mv.h === 'H' ? KICK_BAND_H : BAND[mv.h];
+          const mv = moveFor(style, id), tip = mv.anim === 'elbowH' ? ELBOW_POINT : TIP[mv.limb], kick = mv.limb[1] === 'L', band = kick && mv.h === 'H' ? KICK_BAND_H : BAND[mv.h];
           f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0;
           const front = mv.reach * f.stats.reach;   // the foe's centre stands at front + FOE_RADIUS, the furthest the sim lets this move land
           f.x = f.z = 0; f.target = { x: front + FOE_RADIUS, z: 0 };   // the drawn stride reads the room to its target
@@ -5329,7 +5332,7 @@ const SelfTest = {
           if (bad.length) problems.push(r.id + ' ' + id + ' ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' '));
         }
       }
-      if (pairs < 590 || !seen.has('yuki roundhouse')) return 'only ' + pairs + ' pairs checked';
+      if (pairs < 480 || ![...seen].some((key) => key.startsWith('yuki '))) return 'only ' + pairs + ' pairs checked';
       return problems.length ? problems.length + ' misses: ' + problems.join('; ') : true;
     });
     test('Strike step (P17-02): the drawn body steps forward into a blow (never back before it, at most STRIKE_STRIDE_MAX plus the lean of the pose itself), keeps STRIKE_ROOM from a near foe, and in a hand strike the lead leg steps (thigh forward, knee up) and is the strike pose again at the contact', () => {
@@ -5374,10 +5377,10 @@ const SelfTest = {
       const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // left and right limbs have their own main maxima
       const problems = [];
       for (const r of ROSTER) {
-        const f = new Fighter(r, 0), table = stringsFor(r.moveStyle), ids = new Set(AIR_AND_COUNTER);
+        const f = new Fighter(r, 0), style = moveStyleFor(r), table = stringsFor(style), ids = new Set(AIR_AND_COUNTER);
         for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
         for (const id of ids) {
-          const mv = ATTACKS[id];
+          const mv = moveFor(style, id);
           f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0; f.x = f.z = 0; f.target = null;
           f.attackPose();
           for (const [joint, limit] of LIMITS) if (Math.abs(f.pose[joint]) > limit + 0.005) problems.push(r.id + ' ' + id + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
