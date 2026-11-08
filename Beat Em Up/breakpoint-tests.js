@@ -4567,8 +4567,8 @@ const SelfTest = {
         if ((styleId === 'boxer' || styleId === 'capoeira') && ducks < 1) problems.push(styleId + ' never ducked a High wind-up');   // measured: Boxing 11 and Capoeira 6 in these 36 matches
         const strong = Object.keys(starts).filter((identity) => ATTACKS[identity.split('@')[0]].tier === 3).reduce((sum, identity) => sum + starts[identity], 0);
         void strong;
-        // the Strings row of the balance run holds the 35 percent of the damage; here no single move starts more often than the figure measured for the style (60 percent, BJJ: its Guard Kick stands at both Kick positions)
-        for (const identity in starts) if (starts[identity] / total > (styleId === 'bjj' ? 0.65 : 0.45)) problems.push(styleId + ' starts ' + identity + ' in ' + Math.round(100 * starts[identity] / total) + ' percent');
+        // the Strings row of the balance run holds the 35 percent of the damage; here no single move starts more often than the figure measured for the style (60 percent, BJJ: its Guard Kick stands at both Kick positions; Brawler 45 percent: the Stomp stands at both Kick positions)
+        for (const identity in starts) if (starts[identity] / total > (styleId === 'bjj' ? 0.65 : styleId === 'brawler' ? 0.5 : 0.45)) problems.push(styleId + ' starts ' + identity + ' in ' + Math.round(100 * starts[identity] / total) + ' percent');
       }
       return problems.length ? problems.length + ': ' + problems.slice(0, 8).join('; ') : true;
     });
