@@ -5694,10 +5694,10 @@ const SelfTest = {
           const html = UI.screen_moves(profile, kind), start = html.indexOf('<b>Start here:</b>');
           const block = start < 0 ? '' : html.slice(start, html.indexOf('</p>', start));
           if (!block || !block.includes('<kbd>' + esc(faces[kind]('punch')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('defend')) + '</kbd>') || !block.includes('<kbd>' + esc(faces[kind]('grapple')) + '</kbd>') || html.indexOf('<table') < start) { bad.push(id + ' ' + kind + ' start block'); continue; }
-          const marked = style.signature.filter(([, uses]) => ATTACKS[uses] && html.includes('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'));
+          const marked = style.signature.filter(([, uses]) => ATTACKS[uses] && html.includes('<tr><td>' + esc(moveFor(id, uses).name) + '</td>'));
           const stars = html.split('<b>*</b>').length - 1;
           if (stars !== marked.length) bad.push(id + ' ' + kind + ' has ' + stars + ' stars, the signature lists ' + marked.length);
-          for (const [, uses] of marked) { const at = html.indexOf('<tr><td>' + esc(ATTACKS[uses].name) + '</td>'); if (!html.slice(at, html.indexOf('</tr>', at)).includes('<b>*</b>')) bad.push(id + ' ' + kind + ' ' + uses + ' is not starred'); }
+          for (const [, uses] of marked) { const at = html.indexOf('<tr><td>' + esc(moveFor(id, uses).name) + '</td>'); if (!html.slice(at, html.indexOf('</tr>', at)).includes('<b>*</b>')) bad.push(id + ' ' + kind + ' ' + uses + ' is not starred'); }
         }
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
@@ -13643,7 +13643,7 @@ const SelfTest = {
       for (const { name, profile } of moveListCases()) {
         const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = stringsFor(styleId), mine = new Set(), htmls = [];
         for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
-        const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(m.name)).concat(Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+        const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
         if (weightClass(profile) >= TACKLE_MIN_GAP) expected.push(esc(TACKLE_MOVE.name));
         for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
         for (const kind of kinds) {
@@ -13670,7 +13670,7 @@ const SelfTest = {
           if (otherId === styleId) continue;
           const other = stringsFor(otherId), html = htmls[0];
           for (const side of ['stand', 'crouch']) for (const keys in other[side]) other[side][keys].forEach((id) => {
-            if (!mine.has(id) && !ATTACKS[id].ctx && html.includes('<td>' + esc(ATTACKS[id].name) + '</td>')) bad.push(name + ' shows ' + id + ' of ' + otherId);
+            if (!mine.has(id) && !ATTACKS[id].ctx && html.includes('<td>' + esc(moveFor(otherId, id).name) + '</td>')) bad.push(name + ' shows ' + id + ' of ' + otherId);
           });
           for (const grip in STYLE_THROWS[otherId] || {}) for (const dir in STYLE_THROWS[otherId][grip]) {
             const throwName = STYLE_THROWS[otherId][grip][dir].name;
@@ -13765,7 +13765,7 @@ const SelfTest = {
           f.item = { id: item };
           const table = f.strings, mine = new Set(), carry = item === 'crate';   // a crate in the arms: a row with a Punch press cannot be played, nor any punch move; no run, so no lunge and no tackle
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (!(carry && keys.includes('P'))) table[side][keys].forEach((id) => mine.add(id));
-          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(m.name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(moveFor(styleId, m.id).name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
           if (weightClass(profile) >= TACKLE_MIN_GAP && !carry) expected.push(esc(TACKLE_MOVE.name));
           for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
           const html = UI.screen_moves(profile, 'keyboard', item), label = name + ' with ' + item;
@@ -14815,7 +14815,7 @@ const SelfTest = {
         const ai = new AIController(ROSTER_BY_ID[who], difficulty); ai.match = m; ai.d = Object.assign({}, ai.d, over); m.controllers[1] = ai;
         m.fighters[1].profile = ROSTER_BY_ID[who]; m.fighters[1].defense = ROSTER_BY_ID[who].defense;
         m.fighters.forEach((fighter) => { fighter.hp = fighter.maxHp = 99999; });   // nobody is knocked out: the attacks go on
-        self.place(m, 1.1); self.run(m, 1400); log.stop();
+        self.place(m, 1.1); self.run(m, 2000); log.stop();   // P17-10: 2000 ticks, the new Kick presses of the style change how many strikes the defender takes in 1400
         return log.block.filter((e) => e.def.index === 1);
       };
       for (const e of cpuRun('kai', 'expert', {}).concat(cpuRun('mara', 'hard', {}))) if ((e.perfect && e.age > PERFECT_BLOCK_TICKS) || (e.sway && !e.perfect && e.age <= PERFECT_BLOCK_TICKS)) problems.push('age ' + e.age + (e.perfect ? ' perfect' : ' plain'));
@@ -15034,7 +15034,7 @@ const SelfTest = {
       const problems = [];
       // every distinct pair of the string tables (16 styles, standing and crouching rows) follows the model at the earliest and the latest cancel
       const pairs = new Set();
-      for (const styleId of Object.keys(STYLE_STRINGS)) {
+      for (const styleId of MOVE_STYLE_IDS) {
         const table = stringsFor(styleId);
         for (const side of ['stand', 'crouch']) for (const keys in table[side]) { const moves = table[side][keys]; for (let i = 0; i + 1 < moves.length; i++) pairs.add(moves[i] + '>' + moves[i + 1]); }
       }
@@ -15050,7 +15050,8 @@ const SelfTest = {
           if (gap !== want) problems.push(text + ' at ' + k + ': gap ' + gap + ', the model says ' + want);
         }
       }
-      if (checked < 40 || skipped.length > 8) problems.push('only ' + checked + ' links checked, skipped ' + skipped.join());
+      const unexplained = skipped.filter((text) => ATTACKS[text.split('>')[0]].tier !== 3 && ATTACKS[text.split('>')[1]].reach >= 1.0);   // a step after a strong one is a continuation of the string, and the Head Butt (reach 0.95) is out of the harness's spacing; any other skip is a hole
+      if (checked < 40 || unexplained.length > 0) problems.push('only ' + checked + ' links checked, skipped ' + skipped.join());
       // the classes the decision names (the ones that hold to the tick): always true, true if pressed promptly, never true
       const classes = [
         [['chain_punch', 'trap_strike'], 'true', 'true'], [['jab', 'parry_strike'], 'true', 'true'],
