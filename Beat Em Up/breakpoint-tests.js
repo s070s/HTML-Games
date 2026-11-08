@@ -49,7 +49,7 @@ const {
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
-  PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
+  PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
 } = api;
 
@@ -5426,13 +5426,13 @@ const SelfTest = {
     /* ----- N fighters in one scene (P4-01) ----- */
     /* The 1v1 path must not change: event log + result of three seeded matches, hashed, recorded from the code before P4-01 (kai-mara hard, zero-mara easy, the kai
        mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
-    /* Re-recorded 2026-10-29 for the P8-02 arenas; the old values live in the engine-neutrality test ("Levels: the engine of P8 changes no 1v1 result"). */
+    /* Re-recorded 2026-10-29 for the P8-02 arenas; the pre-P8 layout values live in "Levels: the engine of P8 changes no 1v1 result" (since P18-01 recorded from this engine). */
     const ONE_V_ONE_FINGERPRINTS = [
-      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '102:1o1588u' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: MARA is a Sway fighter; was 101:e6hj22) and 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
-      { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '103:mtun1h' },
-      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '80:1dpzzwv' },
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '47:14ynhdv' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:1o1588u), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: MARA is a Sway fighter; was 101:e6hj22) and 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
+      { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '61:j0cflz' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 103:mtun1h)
+      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '74:19gw87j' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 80:1dpzzwv)
     ];
-    const ONE_V_ONE_OLD_HASHES = ['102:16yzha8', '64:1563zst', '81:g3xni6'];   // the engine-neutrality test: the three matches on the pre-P8 layouts. Recorded from the code before P8-02 (commit 05e3c78); the first has a Sway fighter and since P18-03 (Sway rule aligned, P18-02) is this engine's own hash (was 108:1ymo6d9, the old code's, with Hard's perfect-block chance 0.25 of P14-01), so only the other two still compare against the old code
+    const ONE_V_ONE_OLD_HASHES = ['47:14ynhdv', '61:j0cflz', '92:1tn23bf'];   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:16yzha8, 64:1563zst, 81:g3xni6). The three matches on the pre-P8 layouts. First recorded from the code before P8-02 (commit 05e3c78); since P18-01 all three are this engine's own hashes (the old code walks slower), so the test now guards the old layouts' replay, not the engine's neutrality against the old code
     const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
     const fingerprint = (opts) => {
       const lines = [];
@@ -8200,6 +8200,7 @@ const SelfTest = {
     /* ----- CPU item throws (P18-34) ----- */
     /* Seeded CPU fights with items on: per team, the tick of each throw. The code before P18-34 threw up to 4 times in one brawl, 26 ticks apart; the rate per team-minute below is the decided one (Appendix C). */
     const TOSS_REST = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 };   // the decided gap between two takes of a throwable or a crate by one team, in ticks (90 / 60 / 45 / 40 s)
+    const TOSS_OPEN = { easy: 1800, normal: 0, hard: 0, expert: 0 };   // the decided wait before a team's first take, in ticks (P18-01: Easy opens gently, 30 s)
     const TOSS_RATE_MAX = { easy: 0.35, normal: 0.8, hard: 1.0, expert: 1.0 };   // the decided cap in throws per team-minute over the seeded set (the old code threw 0.36, 1.69, 1.17 and 1.66 on it, bunched in brawls; the new one 0.2, 0.6, 0.8 and 0.7; the Easy cap went from 0.30 to 0.35 at P18-13: it changed the Rooftop brawl of seed 11, which now holds one more Easy throw, 0.31 in all, still below the old code's 0.36)
     const TOSS_FIGHTS = [[5, 0], [6, 0], [13, 0], [3, 3], [5, 3], [6, 3], [11, 3], [14, 3]];   // [seed, enemies]: three Free Fight 1v1 and five 1v3 brawls, the ones that threw 2 to 4 times each on the old code
     const tossRun = (difficulty, seed, enemies) => {
@@ -8213,6 +8214,7 @@ const SelfTest = {
       for (const id of Object.keys(TOSS_REST)) {
         let thrown = 0, teamTicks = 0;
         if ((AI_TOSS_REST_TICKS || {})[id] !== TOSS_REST[id]) bad.push(id + ' rest ' + (AI_TOSS_REST_TICKS || {})[id]);
+        if ((AI_TOSS_OPEN_TICKS || {})[id] !== TOSS_OPEN[id]) bad.push(id + ' opening wait ' + (AI_TOSS_OPEN_TICKS || {})[id]);
         for (const [seed, enemies] of TOSS_FIGHTS) {
           const run = tossRun(id, seed, enemies);
           run.throws.forEach((ticks, team) => { if (ticks.length > 1 + Math.floor(run.ticks / TOSS_REST[id])) bad.push(id + ' seed ' + seed + ' team ' + team + ': ' + ticks.join(',')); thrown += ticks.length; });
@@ -8223,7 +8225,7 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('CPU item throws (P18-34): a CPU still fetches a floor brick and throws it at 3 to 8 m, the take starts its team\'s rest window, and a throwable or a crate is left alone until the window ends while a bat is not', () => {
+    test('CPU item throws (P18-34): a CPU still fetches a floor brick and throws it at 3 to 8 m, the take starts its team\'s rest window, and a throwable or a crate is left alone until the window ends while a bat is not; an Easy team waits 30 s before its first take', () => {
       const bad = [];
       const m = track(new MatchSim({ mode: 'free', arenaId: 'dojo', countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
       m.items.length = 0;
@@ -8241,6 +8243,14 @@ const SelfTest = {
       if (ai.wantsItem(f, brick) || ai.wantsItem(f, crate) || !ai.wantsItem(f, bat)) bad.push('inside the window');
       m.tick = taken + rest;
       if (!ai.wantsItem(f, brick) || !ai.wantsItem(f, crate)) bad.push('after the window');
+      const other = m.fighters[1], easy = new AIController(other.profile, 'easy'), normal = new AIController(other.profile, 'normal');   // a team that has not taken one yet: Easy waits TOSS_OPEN, Normal does not
+      easy.match = normal.match = m;
+      m.tick = TOSS_OPEN.easy - 1;
+      if (easy.tossReady(other)) bad.push('Easy took before its opening wait');
+      m.tick = TOSS_OPEN.easy;
+      if (!easy.tossReady(other)) bad.push('Easy still waits after its opening wait');
+      m.tick = 0;
+      if (!normal.tossReady(other)) bad.push('Normal waits at the start');
       return bad.length ? bad.join('; ') : true;
     });
     /* ----- Levels (P8-02, P8-04, P8-06): the rebuilt arenas, decks, stairs, falls, collapses, CPU on stairs, the camera at height, the preset budget ----- */
@@ -9353,9 +9363,9 @@ const SelfTest = {
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '110:11gco4b' },   // re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '59:keougj' },   // re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '77:o5ps9z' },   // re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '50:7zjnq6' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '92:1ll868n' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '92:x1fwqh' },   // re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
@@ -9487,7 +9497,7 @@ const SelfTest = {
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Levels: on every real arena a CPU goes up to a target on each deck and ledge, comes down for a target on the floor or on another raised footing, each change of level inside the tick limit', () => {
-      const problems = [], LEG_LIMIT = 700;   // a walk of up to 20 m (18 m of floor is 500 ticks) and a stair; a stop on every step would add 900 ticks
+      const problems = [], LEG_LIMIT = 700;   // a walk of up to 20 m (18 m of floor is 450 ticks) and a stair; a stop on every step would add 900 ticks
       const legs = {
         warehouse: [['mezz', 9.25, -4.75, 2.5], ['dock', -8.5, 3.75, 1.0], ['mezz', 9.25, -4.75, 2.5], ['floor', -2, 2, 0]],
         dojo: [['mezz', 7, -4.8, 2.5], ['ring', -7.8, 0, 1.0], ['mezz', 7, -4.8, 2.5], ['floor', 0, 1, 0]],
@@ -9508,6 +9518,7 @@ const SelfTest = {
           for (let t = 1; t <= LEG_LIMIT && !arrived; t++) {
             m.step();
             b.hp = b.maxHp;
+            if (Math.abs(b.groundY - top) > 0.06) standOn(b, x, z, top); // a blow from below can knock the target off its deck; the leg is about the CPU's way up
             const deck = Arena.objects.find((o) => o.id === name);   // on the deck itself, or within reach of the target for the floor and a counter
             if (Math.abs(a.groundY - top) < 0.06 && (deck && deck.type === 'deck' ? Math.abs(a.x - deck.x) <= deck.hx + 0.3 && Math.abs(a.z - deck.z) <= deck.hz + 0.3 : Math.hypot(a.x - x, a.z - z) < 2.2)) arrived = t;
           }
@@ -9564,7 +9575,7 @@ const SelfTest = {
       for (const id of ARENA_ORDER) {
         const a = run(id, true), b = run(id, true), off = run(id, false);
         if (a.hash !== b.hash) problems.push(id + ' not repeatable');
-        if (off.rows.length || off.m.hazards.length) problems.push(id + ' hazards off still act');
+        if (off.rows.some((row) => row.split(',')[2] !== 'crush') || off.m.hazards.length) problems.push(id + ' hazards off still act'); // a collapsing deck's crush belongs to Breakables, not to this setting (P18-43 tests Breakables off)
         used += a.rows.length;
       }
       for (let seed = 1; !used && seed <= 10; seed++) used += run('warehouse', true, seed).rows.length;   // the levels are big: a brawl on one seed may never come near a post

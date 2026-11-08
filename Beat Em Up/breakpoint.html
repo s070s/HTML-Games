@@ -4785,7 +4785,7 @@ const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 // Strike i-frames outlast the get-up by this many ticks. Without them a strike on the very tick the fighter stands up hit a defender who could not yet guard (the guard starts the tick after), so knockdown, get-up, strike, knockdown ... looped forever.
 const WAKEUP_GRACE_TICKS = 6;
-const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
+const WALK_FORWARD = 2.4, WALK_BACK = 1.75, WALK_SIDE = 2.0, RUN_SPEED = 5.0, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
 // Falling. A drop is the height lost since the fighter last stood on something.
 const FALL_STATE_DROP = 0.4; // a drop deeper than this switches a fighter in a grounded-only state to FALL; shallower drops keep the state and just land
 const FALL_DAMAGE_FREE_DROP = 0.5; // landing from this height or less costs nothing
@@ -8652,6 +8652,7 @@ const AI_PICKUP_STOP = 0.45; // m: it walks onto the item
 const AI_THROW_MIN = 3, AI_THROW_MAX = 8; // m: the target distances at which a CPU throws a throwable or a crate
 const isTossItem = (id) => WEAPONS[id].cls === 'throwable' || WEAPONS[id].cls === 'carry'; // the items a CPU throws
 const AI_TOSS_REST_TICKS = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 }; // by difficulty (90 / 60 / 45 / 40 s): once a CPU takes a throwable or a crate, nobody on its team fetches another until then, so a throw stays a treat
+const AI_TOSS_OPEN_TICKS = { easy: 1800, normal: 0, hard: 0, expert: 0 }; // by difficulty: an Easy team takes its first throwable or crate only after 30 s, so an Easy fight opens with fists (P18-01: at the faster walk the shorter Easy fights threw 0.44 per team-minute, over the 0.35 cap)
 const ATTACK_PLAN_KINDS = ['attack', 'grab', 'submit', 'jumpkick']; // the plans that start an attack on the target: they need a token in a crowd
 
 class AIController {
@@ -8694,7 +8695,7 @@ class AIController {
     return best ? { kind: 'pickup', ticks: 90, item: best } : null;
   }
   wantsItem(f, loose) { return (loose.id !== 'binlid' || f.defense === 'block') && (!isTossItem(loose.id) || this.tossReady(f)); } // the lid turns a Sway fighter's dodge into a block: a CPU that sways leaves it
-  tossReady(f) { const last = this.match.tossAt[f.team]; return last === undefined || this.match.tick - last >= AI_TOSS_REST_TICKS[this.d.id]; }
+  tossReady(f) { const last = this.match.tossAt[f.team]; return last === undefined ? this.match.tick >= AI_TOSS_OPEN_TICKS[this.d.id] : this.match.tick - last >= AI_TOSS_REST_TICKS[this.d.id]; }
   considerThrow(f, opp, dist) {
     const w = f.itemDef;
     if (w.cls !== 'throwable' && w.cls !== 'carry') return null;
@@ -16149,7 +16150,7 @@ function testApi() {
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
-    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
+    PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },

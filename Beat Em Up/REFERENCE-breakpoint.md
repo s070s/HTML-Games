@@ -4387,6 +4387,25 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Decision: a 1v1 keeps every freeze as before. With more than two fighters a freeze stops everyone, so only a hit the one person lands or takes freezes, at most `CROWD_HITSTOP_MAX` (4) ticks; with two or more people, and on every CPU against CPU hit, nothing freezes (flash, shake, sound and rumble still mark the hit). It depends only on the seats, so replays stay the same.
 - Code: `MatchSim.addHitStop(ticks, att, def)` replaces the 15 direct `match.hitStop` writes; test `Hit freeze (P18-53)`. Chrome self-test 625 of 625 with no fingerprint change (the fingerprint fights are 1v1s).
 
+### P18-01 built: movement speed +10 percent
+
+- Owner 2026-11-01 and 2026-11-04: fighters "a little faster", "movement is too slow". Decision: every walk and run speed +10 percent (the start value P18-01 named); +20 percent was tried first and dropped (11 tests broke: CPU spacing, deck legs, item throws, hazard shares).
+
+| What | Before | After | Why |
+|---|---|---|---|
+| `WALK_FORWARD` | 2.2 m/s | 2.4 | owner: movement too slow |
+| `WALK_BACK` | 1.6 | 1.75 | same share, backing off stays slower than closing in |
+| `WALK_SIDE` | 1.8 | 2.0 | same share |
+| `RUN_SPEED` | 4.6 | 5.0 | same share; sidestep (7.0) unchanged |
+| `AI_TOSS_OPEN_TICKS` (new) | none | Easy 1800 (30 s), others 0 | Easy opens with fists: at the faster walk the shorter Easy fights threw 0.44 per team-minute over the P18-34 seeded set, above the 0.35 cap (old code 0.24, 3 throws in 12.4 team-minutes; faster walk alone 5 in 11.4; with the wait 4 in 13.2 = 0.30). The Easy takes came only 5 to 7 ticks sooner, so the cause is fight length and one more throw, not item reach; one throw moves the rate about 0.08 |
+
+- Ranges and AI spacing: the spacing bands work on distance; the edge and ring look-aheads are checked every tick (a run moves 0.083 m a tick, the 0.9 m run look keeps about 11 ticks of margin). Nothing else scales with walk speed.
+- Seat balance (headless `SimRunner.run`, KAI against KAI, ring + hazards + items on, seeds 1 to 600 per level, the level `ARENA_ORDER[seed % 8]`, P1 = seat 0 win rate; P14-01 bands 35 to 65 % at Easy and Normal, 40 to 60 % at Hard and Expert), before > after: Easy 50.0 > 48.0, Normal 47.3 > 44.5, Hard 52.3 > 50.0, Expert 47.9 > 50.2. The seat side is not a P14-01 row; these runs only show the start side stays fair.
+- Time to KO, 1v1 (P14-01 row: median round 20-40 s, time-outs at most 15 %, under 2 % of rounds before 8 s, median match 50-110 s; defined on the style-pair runs). Reduced sample of the defined set, old code (HEAD 77b3cfe) > this change: the 16 move styles on KAI's body with their default defense, all 136 pairs with mirrors, Hard, Warehouse, `evenDamage`, 60 s, 2 wins, seeds 1001 to 1010 per pair, seats swapped on even seeds (1,360 matches each): median round 14.9 > 15.0 s, time-outs 0 > 0, rounds under 8 s 0.39 % (13 of 3,365) > 0.09 % (3 of 3,437), rounds of 8 to 9 s 13 > 12, median match 43.6 > 44.8 s. The short-round share stays inside the band and the medians barely move; the median round and match were below their bands before this change as well (P14-04 re-runs every row). A proxy on preset pairs (`ROSTER[(seed * 3) % 32]` against `ROSTER[(seed * 5 + 1) % 32]`, about 32 lopsided pairs) showed Hard rounds under 8 s 0.6 > 2.7 % (ARMINE against SORA 10 of the 26) and rounds 0.6 s shorter, under 0.1 s of it the walk-in (the start gap of about 4 m closes 0.08 s sooner); unequal presets are not the row's set.
+- Tests: "Hazards: with the setting off" ignores `crush` rows (a collapsing deck is the Breakables setting, tested off in P18-43); the deck-arrival test puts the target back on its deck when a blow knocks it off (on Subway the CPU struck it from the scaffold stair and then followed it to the floor); P18-34 pins `AI_TOSS_OPEN_TICKS` and checks Easy says no at tick 1799 and yes at 1800, Normal yes at 0.
+- Fingerprints (re-recorded 2026-11-08 from the Chrome run, on purpose: the walk is faster): `N fighters` 102:1o1588u / 103:mtun1h / 80:1dpzzwv now 47:14ynhdv / 61:j0cflz / 74:19gw87j (also used by Accessibility P18-27); `Levels: the engine of P8` 102:16yzha8 / 64:1563zst / 81:g3xni6 now 47:14ynhdv / 61:j0cflz / 92:1tn23bf (since this task all three are this engine's own hashes on the pre-P8 layouts); `Balance (P9)` 110:11gco4b / 59:keougj / 77:o5ps9z now 50:7zjnq6 / 92:1ll868n / 92:x1fwqh (also used by Effect settings P13-03).
+- Owner device check for P16-03: walk, back off, sidestep and run in a 1v1 and in a brawl; the faster pace should feel lively, not slippery.
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
