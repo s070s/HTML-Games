@@ -4547,9 +4547,33 @@ const STYLE_THROWS = {
   sambo: { front: { fwd: { name: 'Sambo Hip Throw', anim: 'hipDrop', dmg: 13, startup: 22, escapeUntil: 13, recovery: 26, stam: 8, launch: 5.2, arc: 3.4, down: 1.0, face: 'back' } } },
   bjj: { low: { back: { name: 'Guard Pull', anim: 'guardPull', dmg: 10, startup: 20, escapeUntil: 11, recovery: 28, stam: 6, launch: 3.6, arc: 2.0, down: 1.35, face: 'back' } } },
 };
+/* Throw skins: a style throws its own name and pose in the cells (grip.direction) it favours, THROW_SKINS[style]['front.fwd'] = [name, pose]. Damage, ticks and flight stay those of the grip's cell, and the thrown foe flies the carry path of the cell it replaces (carry). The other cells are the generic throws of the set. */
+const THROW_SKINS = {
+  boxer: { 'front.fwd': ['Clinch Shove-Off', 'shoveOff'] },
+  kickboxer: { 'front.fwd': ['Clinch Sweep', 'clinchSweep'] },
+  karateka: { 'front.fwd': ['Foot-Sweep Throw', 'footSweepThrow'] },
+  wrestler: { 'low.back': ["Fireman's Carry", 'firemansCarry'] },
+  judoka: { 'front.back': ['Ura-Nage', 'uraNage'] },
+  brawler: { 'front.back': ['Bear-Hug Slam', 'bearHug'] },
+  capoeira: { 'low.fwd': ['Rasteira Takedown', 'rasteiraTakedown'] },
+  wingchun: { 'front.fwd': ['Trap Trip', 'trapTrip'] },
+  muaythai: { 'front.fwd': ['Clinch Sweep', 'clinchSweep'], 'front.back': ['Knee-Lift Dump', 'kneeLiftDump'] },
+  taekwondo: { 'front.fwd': ['Hook Trip', 'hookTrip'] },
+  sambo: { 'low.back': ['Leg Hook Throw', 'legHook'] },
+  bjj: { 'low.fwd': ['Single-Leg Takedown', 'singleLeg'] },
+  hapkido: { 'front.back': ['Wrist-Lock Throw', 'wristLockThrow'] },
+  kali: { 'front.fwd': ['Arm-Drag Takedown', 'armDrag'] },
+  kravmaga: { 'front.fwd': ['Wrist Takedown', 'wristTakedown'], 'front.back': ['Collar Takedown', 'collarTakedown'] },
+  mma: { 'low.back': ['Cage Takedown', 'cageTakedown'] },
+};
+const THROW_SKIN_CACHE = Object.create(null);
 function throwFor(grip, dir, styleId) {
   const set = THROW_SETS[grip] || THROW_SETS.front, own = STYLE_THROWS[styleId] && STYLE_THROWS[styleId][grip];
-  return (own && own[dir]) || set[dir] || set.fwd;
+  if (own && own[dir]) return own[dir];
+  const cell = set[dir] || set.fwd, skin = THROW_SKINS[styleId] && THROW_SKINS[styleId][grip + '.' + dir];
+  if (!skin) return cell;
+  const key = styleId + ':' + grip + '.' + dir;
+  return THROW_SKIN_CACHE[key] || (THROW_SKIN_CACHE[key] = Object.assign({}, cell, { name: skin[0], anim: skin[1], carry: cell.carry || cell.anim }));
 }
 
 // Where the thrower carries the defender during the throw, in the thrower's frame
@@ -4625,6 +4649,32 @@ THROW_POSES.guardPull = (p, u) => {
   sink(p, 0.28 * sit); p[J.hipLx] += 0.5 * sit; p[J.hipRx] += 0.5 * sit; p[J.bodyPitch] = -0.7 * fall; p[J.torsoLean] = 0.3 - 0.4 * fall;
   p[J.shLx] = p[J.shRx] = 1.3; p[J.shLz] = p[J.shRz] = -0.15; p[J.elL] = p[J.elR] = 1.0; p[J.headX] = 0.2;
 };
+/* The poses of the throw skins: a base pose plus joint offsets that grow over the throw (the body turns, twists and rolls with the side the throw goes to). */
+const derive = (base, offsets) => (p, u, s) => {
+  THROW_POSES[base](p, u, s);
+  const grow = throwPhase(u, 0.3, 1);
+  for (const joint in offsets) p[J[joint]] += offsets[joint] * grow * (joint === 'bodyYaw' || joint === 'torsoTwist' || joint === 'torsoRoll' ? s : 1);
+};
+const DERIVED_THROWS = {
+  shoveOff: ['hipToss', { torsoLean: -0.4, shLx: 0.5, shRx: 0.5, elL: -0.7, elR: -0.7, bodyYaw: -0.8 }],
+  clinchSweep: ['legTrip', { torsoLean: -0.3, shLx: 0.4, shRx: 0.4 }],
+  footSweepThrow: ['legTrip', { torsoTwist: 0.2, hipRx: -0.2, knR: 0.2 }],
+  firemansCarry: ['doubleLeg', { shRz: 0.3, torsoRoll: -0.3, knL: 0.4 }],
+  uraNage: ['suplex', { bodyPitch: -0.3, torsoLean: -0.3, headX: -0.2 }],
+  bearHug: ['suplex', { shLz: -0.2, shRz: -0.2, elL: 0.5, elR: 0.5, torsoLean: 0.2 }],
+  rasteiraTakedown: ['doubleLeg', { torsoRoll: 0.5, hipLx: -0.4, knL: 0.3, headX: 0.2 }],
+  trapTrip: ['legTrip', { shLx: 0.3, elL: 0.6, torsoTwist: 0.3 }],
+  kneeLiftDump: ['suplex', { hipRx: 0.8, knR: 0.9 }],
+  hookTrip: ['legTrip', { hipRz: 0.3, knR: 0.5, torsoLean: 0.1 }],
+  legHook: ['pullTrip', { hipRz: 0.4, knR: 0.6 }],
+  singleLeg: ['doubleLeg', { torsoLean: 0.2, hipRx: -0.5, shRx: -0.4 }],
+  wristLockThrow: ['hipToss', { shRy: 0.8, elR: 0.6, torsoTwist: -0.3 }],
+  armDrag: ['sideThrow', { shLx: 0.5, elL: -0.5, torsoLean: 0.2 }],
+  wristTakedown: ['sideThrow', { shRx: 0.4, elR: -0.4, shRy: 0.5 }],
+  collarTakedown: ['hipToss', { torsoLean: 0.3, headX: -0.3, shLx: -0.3 }],
+  cageTakedown: ['pullTrip', { torsoLean: 0.3, shLx: -0.3, headX: 0.2 }],
+};
+for (const name in DERIVED_THROWS) THROW_POSES[name] = derive(DERIVED_THROWS[name][0], DERIVED_THROWS[name][1]);
 // Clinch hold poses before the throw starts
 const GRIP_POSES = {
   front(p) { STRIKE_BUILDERS.grab(p); p[J.knL] = 0.6; p[J.knR] = 0.6; p[J.hipLz] = 0.06; p[J.hipRz] = 0.06; },
@@ -4649,16 +4699,30 @@ const CLINCH_STRIKE_POSES = {
     knee(p, u) { p[J.shLx] = p[J.shRx] = 1.1; p[J.elL] = p[J.elR] = 1.6; p[J.hipRx] = 0.85 * u; p[J.knR] = 1.2 * u + 0.3; p[J.torsoLean] = 0.55; p[J.headX] = 0.35; },
     elbow(p, u) { p[J.shLx] = 1.1; p[J.elL] = 1.6; p[J.shRx] = 1.25; p[J.shRz] = 0.95 * u; p[J.elR] = 1.15; p[J.torsoTwist] = 0.6 * u; p[J.torsoLean] = 0.35; },
   },
+  boxing: { // boxer: a short hook to the ribs where the other sets have a knee (Boxing has no leg moves), and an elbow thrown like a tight uppercut
+    knee(p, u) { p[J.shRx] = 0.8 + 0.3 * u; p[J.shRz] = 0.5 * u; p[J.elR] = 1.7; p[J.shLx] = 1.3; p[J.elL] = 1.9; p[J.torsoTwist] = 0.6 * u; p[J.torsoLean] = 0.4; p[J.knL] += 0.3 * u; p[J.knR] += 0.3 * u; },
+    elbow(p, u) { p[J.shRx] = 0.7; p[J.shRz] = 0.1; p[J.elR] = 1.4 + 0.95 * u; p[J.torsoTwist] = 0.5 * u; p[J.torsoLean] = -0.1; p[J.knL] += 0.35 * u; p[J.knR] += 0.35 * u; },
+  },
+  capoeira: { // capoeira: the leg hooks round the foe's leg (a low sweeping knee), and a head-down shove with a forearm
+    knee(p, u) { p[J.hipRx] = 0.9 * u; p[J.hipRz] = 0.9 * u; p[J.knR] = 1.0 * u + 0.3; p[J.torsoRoll] = -0.4 * u; p[J.torsoLean] = 0.5; p[J.headX] = 0.4 * u; },
+    elbow(p, u) { p[J.shRx] = 1.3; p[J.shRz] = 0.5 * u; p[J.elR] = 1.0 + 0.8 * u; p[J.torsoTwist] = -0.7 * u; p[J.torsoRoll] = 0.35 * u; p[J.torsoLean] = 0.55; p[J.headX] = 0.4; },
+  },
+  kali: { // kali: the live hand traps the arm, a low checking knee, and a sideways elbow
+    knee(p, u) { p[J.shLx] = 1.5; p[J.elL] = 1.0; p[J.shLz] = 0.4; p[J.hipRx] = 0.9 * u; p[J.knR] = 1.1 * u + 0.3; p[J.torsoTwist] = 0.4 * u; p[J.torsoLean] = 0.15; },
+    elbow(p, u) { p[J.shLx] = 1.5; p[J.elL] = 1.0; p[J.shLz] = 0.4; p[J.shRx] = 1.0; p[J.shRz] = 1.3 * u; p[J.elR] = 2.2; p[J.torsoTwist] = 0.9 * u; p[J.torsoLean] = 0.2; },
+  },
   brawler: { // brawler: a wild looping knee, and a head-first lunge in place of the elbow
     knee(p, u) { p[J.hipRx] = 1.35 * u; p[J.hipRz] = 0.5 * u; p[J.knR] = 1.9 * u + 0.3; p[J.torsoRoll] = 0.35 * u; p[J.torsoTwist] = -0.3 * u; p[J.torsoLean] = 0.25; },
     elbow(p, u) { p[J.shLx] = p[J.shRx] = 1.2; p[J.elL] = p[J.elR] = 1.0; p[J.headX] = 0.9 * u; p[J.torsoLean] = 0.3 + 0.35 * u; p[J.rootFwd] = 0.15 * u; },
   },
 };
 const CLINCH_STRIKE_ANIM_TICKS = 12; // how long the strike pose lasts (it fades out from u = 1)
+const CLINCH_NAMES = { boxing: { knee: 'Clinch Body Shot' } }; // a set whose strike has a name of its own (the Move list reads the names of the clinch strikes from here)
+const clinchMoveName = (styleId, strikeId) => { const row = MOVE_STYLE[styleId]; return (CLINCH_NAMES[row && row.grab] && CLINCH_NAMES[row.grab][strikeId]) || CLINCH_MOVES[strikeId].name; };
 // The pose set a style plays is the grab field of its MOVE_STYLE row (an unknown style or set falls back to 'default')
 function clinchStrikePose(styleId, strikeId, p, u) { const row = MOVE_STYLE[styleId]; (CLINCH_STRIKE_POSES[row && row.grab] || CLINCH_STRIKE_POSES.default)[strikeId === 'elbow' ? 'elbow' : 'knee'](p, u); }
 /* Attack strings. A Punch (P) or Kick (K) press plays the next step of the string typed so far (at most 3 steps); rows are keyed by the presses, standing rows by default, crouch rows while Crouch was held at every press.
-   Every strong (tier 3) move is the step of exactly one string here; a style's own rows (STYLE_STRINGS) may end two on one strong move, but every signature strike must stay reachable. */
+   These are the default rows; every strong (tier 3) move is the step of exactly one string here. A style plays the rows of its `strings` field (tableFromPositions), where a strong move may stand in several positions. */
 const STRINGS = {
   stand: {
     P: ['jab'], PP: ['jab', 'cross'], PPP: ['jab', 'cross', 'hook'],
@@ -4672,50 +4736,14 @@ const STRINGS = {
   },
 };
 const STRING_MAX_STEPS = 3;
-// Per-style string overrides, same shape as STRINGS: a row replaces the default row of that name, null removes it (that press then starts a new string)
-const STYLE_STRINGS = {
-  boxer: { // punch-heavy: the P K P string ends on the power jab (it moves from K K P)
-    stand: { PKP: ['jab', 'heavy_body_kick', 'power_jab'], KKK: null, KKP: ['front_kick', 'roundhouse', 'jab'] },
-  },
-  karateka: { // kick-heavy: sharp straight punches only, the strong kicks do the work
-    stand: { PPP: null, KPP: null },
-  },
-  capoeira: { // kick-heavy and flowing: no hook, no heavy uppercut, and no power jab
-    stand: { PPP: null, KPP: null, KKP: ['front_kick', 'roundhouse', 'jab'] },
-  },
-  wrestler: { // short strings that leave the foe staggered or down within grab range: at most 2 steps, the strong step second
-    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
-    crouch: { PPP: null, KKK: null },
-  },
-  judoka: { // the same short shape: a stagger, a knockdown and a leg sweep that drops the foe for a hold
-    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
-    crouch: { PPP: null, KKK: null, KK: ['low_kick', 'sweep'] },
-  },
-};
-// Styles with attacks of their own start from a neighbour's rows (rowsFrom) and replace what is theirs
-const rowsFrom = (base, over) => ({ stand: Object.assign({}, base.stand, over.stand), crouch: Object.assign({}, base.crouch, over.crouch) });
-STYLE_STRINGS.wingchun = rowsFrom(STYLE_STRINGS.boxer, { // straight lines: chain punches and traps, no hook, no heavy uppercut
-  stand: { P: ['chain_punch'], PP: ['chain_punch', 'trap_strike'], PPP: ['chain_punch', 'trap_strike', 'power_jab'], PK: ['chain_punch', 'heavy_body_kick'], PKP: ['chain_punch', 'heavy_body_kick', 'trap_strike'],
-    PPK: ['chain_punch', 'trap_strike', 'heavy_front'], KP: ['front_kick', 'chain_punch'], KPP: ['front_kick', 'chain_punch', 'trap_strike'], KKP: ['front_kick', 'roundhouse', 'chain_punch'] },
-});
-STYLE_STRINGS.muaythai = { // the teep leads every kick string, the elbow replaces the hook; K K K ends on the shin kick (the heavy roundhouse, the signature Shin Round Kick); balance: see REFERENCE P14-01
-  stand: { K: ['teep'], KK: ['teep', 'roundhouse'], KKK: ['teep', 'roundhouse', 'heavy_roundhouse'], KP: ['teep', 'jab'], KPP: ['teep', 'jab', 'heavy_uppercut'], KKP: ['teep', 'roundhouse', 'power_jab'], PPP: ['jab', 'cross', 'elbow_strike'] },
-};
-STYLE_STRINGS.taekwondo = rowsFrom(STYLE_STRINGS.karateka, { // spinning back kick finishes the kick string, a jumping kick follows the jab
-  stand: { KKK: ['front_kick', 'roundhouse', 'spin_back_kick'], PK: ['jab', 'jump_round'], PKP: ['jab', 'jump_round', 'cross'] },
-});
-STYLE_STRINGS.hapkido = rowsFrom(STYLE_STRINGS.judoka, { crouch: { KK: ['low_kick', 'spin_heel'] } }); // a low spinning heel kick replaces the sweep (as the standing K K step it was a light move and Hapkido won 30 %)
-STYLE_STRINGS.kali = { stand: { PP: ['jab', 'angle_one'], PPP: ['jab', 'angle_one', 'angle_two'], PPK: ['jab', 'angle_one', 'heavy_front'] } }; // angle strikes in place of the cross and hook
-STYLE_STRINGS.kravmaga = { stand: { PP: ['jab', 'parry_strike'], PPP: ['jab', 'parry_strike', 'hook'], PPK: ['jab', 'parry_strike', 'heavy_front'] } };
-STYLE_STRINGS.mma = { stand: { PPP: ['jab', 'cross', 'overhand'] } };
 const STYLE_STRING_TABLES = {};
-// The tables a fighter of this move style plays: the default rows with the style's overrides applied
+/* The tables a fighter of this move style plays: the rows its `strings` field spells out (an unknown style plays the default STRINGS).
+   kicksDefault: a style without leg moves (legless) plays the default rows for its Kick steps while the arms are full (an item, a crate). */
 function stringsFor(styleId, kicksDefault) {
   const cacheKey = kicksDefault ? styleId + ':kicks' : styleId;
   if (STYLE_STRING_TABLES[cacheKey]) return STYLE_STRING_TABLES[cacheKey];
-  const row = MOVE_STYLE[styleId], over = STYLE_STRINGS[row ? row.moves : styleId] || {};
-  const table = row && row.strings ? tableFromPositions(row.strings) : { stand: Object.assign({}, STRINGS.stand, over.stand), crouch: Object.assign({}, STRINGS.crouch, over.crouch) };
-  for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (table[side][keys] === null) delete table[side][keys];
+  const row = MOVE_STYLE[styleId];
+  const table = row && row.strings ? tableFromPositions(row.strings) : { stand: Object.assign({}, STRINGS.stand), crouch: Object.assign({}, STRINGS.crouch) };
   if (kicksDefault && row && row.legless) for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys] = table[side][keys].map((id, step) => (keys[step] === 'K' && STRINGS[side][keys] ? STRINGS[side][keys][step] : id));
   return (STYLE_STRING_TABLES[cacheKey] = table);
 }
@@ -4798,11 +4826,11 @@ const HOLD_SCENARIO_DOWN = 8; // the scenario foe's down time multiplier
 // One sentence per style on what it does with a foe on the floor
 const GROUND_NOTES = {
   wrestler: 'The hold is a pin: kneel on the foe and clamp a limb.',
-  judoka: 'The hold is a hold-down: pin the foe on their back.',
+  judoka: 'The hold is a hold-down: lie across the foe\'s chest and pin them on their back.',
   sambo: 'The hold is a leg lock: sit back with the foe\'s leg trapped under your arms.',
   bjj: 'The hold is an armbar: lie back with your legs across the foe\'s arm.',
   hapkido: 'The hold is a wrist lock: kneel low and twist one wrist.',
-  mma: 'The hold is an armbar: finish a takedown from the top.',
+  mma: 'The hold is a mount: sit astride the foe after a takedown, one hand holding and a fist ready.',
 };
 const SUBMIT_ESCAPE_LOCK = 20; // ... after the victim escapes
 // Heavy tackle: weight class comes from look.scale x look.build (set from weight and muscle in the creator's fitness picker)
@@ -5022,17 +5050,17 @@ function frameAdvantage(mv, applied) {
    stride      step length; armSwing, walkBounce = arm swing and vertical bob while walking. react = size of hit reactions; victory = victory pose.
    Style row (one per style; the first 7 rows are the old ids and stay first, new rows are appended: share codes store the index):
    stance      the guard* fields; footwork = bounce / sway / headBob / stride / armSwing / walkBounce fields (STYLE_STANCE_KEYS, STYLE_FOOTWORK_KEYS).
-   family      key of STYLE_FAMILY_LABEL.   moves   key of STYLE_STRINGS (the attack strings), or null for the default rows.   grab   key of CLINCH_STRIKE_POSES.
+   family      key of STYLE_FAMILY_LABEL.   strings   the 18 positions of the style's attack strings (STRING_POSITIONS).   aiw   the signature strikes the CPU favours (row@animation:weight).   legless   no leg moves.   grab   key of CLINCH_STRIKE_POSES.
    throws      key of THROW_SETS the style favours (every style can still use all three grips; STYLE_THROWS swaps single throws for its own).
    signature   [name, uses] pairs shown in the Move list and Training panel: uses = an ATTACKS id, 'knee' / 'elbow', 'throw:<grip>.<dir>' or 'hold'; the unique ones are attacks only that style plays.
    submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway'). */
 const MOVE_STYLE = {
   boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches.',
-    family: 'hand', moves: 'boxer', grab: 'boxer', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
+    family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
     aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0',
-    guardHands: 0.22, guardTight: 0.18, guardTwist: -0.08, guardLean: 0.06, guardCrouch: 0.14, guardWidth: -0.02, guardSplit: -0.04, guardTuck: 0.16,
+    guardHands: 0.22, guardTight: 0.18, guardTwist: -0.1, guardLean: 0.06, guardCrouch: 0.15, guardWidth: -0.02, guardSplit: -0.04, guardTuck: 0.16,
     bounce: 0.024, bounceHz: 2.3, sway: 0.012, swayHz: 1.15, headBob: 0.09,
     punchHip: 1.25, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.35, kickChamber: 0.45, kickPivot: 0.3, kickLean: 0.08, kickSnap: 1.0,
     stride: 0.82, armSwing: 0.04, walkBounce: 0.022, react: 0.9, victory: 'fist' },
@@ -5041,34 +5069,34 @@ const MOVE_STYLE = {
     signature: [['Switch Kick', 'switch_kick'], ['Spinning Backfist', 'backfist'], ['Heavy Round Kick', 'heavy_roundhouse'], ['Heavy Push Kick', 'heavy_front'], ['Counter Low Kick', 'counter_kick']],
     strings: 'jab teep cross switch_kick jab roundhouse hook heavy_front backfist heavy_uppercut power_jab heavy_roundhouse body_jab low_kick uppercut body_kick gut_punch heavy_body_kick',
     aiw: 'switch_kick@switchKick:1.3 backfist@backfist:1.3 heavy_roundhouse@round:1.0 heavy_front@front:1.0',
-    guardHands: 0.14, guardTight: 0.06, guardTwist: 0.02, guardLean: -0.02, guardCrouch: 0.02, guardWidth: 0.0, guardSplit: 0.04, guardTuck: 0.06,
+    guardHands: 0.06, guardTight: 0.1, guardTwist: 0.02, guardLean: -0.03, guardCrouch: -0.03, guardWidth: 0.01, guardSplit: 0.11, guardTuck: 0.06,
     bounce: 0.014, bounceHz: 1.5, sway: 0.008, swayHz: 0.75, headBob: 0.03,
     punchHip: 1.1, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.15, kickChamber: 0.7, kickPivot: 0.55, kickLean: 0.22, kickSnap: 1.15,
     stride: 1.0, armSwing: 0.06, walkBounce: 0.014, react: 1.0, victory: 'arms' },
   karateka: { label: 'Karate', desc: 'Long, low front stance, very still between bursts; high chambered kicks and sharp straight punches.',
-    family: 'kicking', moves: 'karateka', grab: 'default', throws: 'front', defense: 'block', submit: [],
+    family: 'kicking', grab: 'default', throws: 'front', defense: 'block', submit: [],
     signature: [['Mae-geri', 'front_kick'], ['Side Thrust Kick', 'side_kick'], ['Kyokushin Round Kick', 'heavy_roundhouse'], ['Lunge Punch', 'power_jab'], ['Foot-Sweep Throw', 'throw:front.fwd']],
     strings: 'jab front_kick cross side_kick cross roundhouse power_jab heavy_front cross lunge_punch power_jab heavy_roundhouse body_jab low_kick body_jab side_kick gut_punch sweep',
     aiw: 'front_kick@mae:1.3 side_kick@sokuto:1.3 lunge_punch@oi:1.3 power_jab@oi:1.3',
-    guardHands: -0.06, guardTight: -0.12, guardTwist: -0.12, guardLean: 0.0, guardCrouch: 0.1, guardWidth: 0.04, guardSplit: 0.14, guardTuck: 0.0,
+    guardHands: -0.16, guardTight: -0.05, guardTwist: -0.12, guardLean: 0.0, guardCrouch: 0.11, guardWidth: 0.04, guardSplit: 0.14, guardTuck: 0.0,
     bounce: 0.006, bounceHz: 1.0, sway: 0.004, swayHz: 0.5, headBob: 0.01,
     punchHip: 1.35, punchPivot: 0.12, punchLean: 0.02, punchSnap: 1.45, kickChamber: 1.0, kickPivot: 0.45, kickLean: 0.12, kickSnap: 1.3,
     stride: 1.1, armSwing: 0.02, walkBounce: 0.006, react: 0.85, victory: 'bow' },
   wrestler: { label: 'Wrestling', desc: 'Low level, wide base, hands forward hunting for ties; short heavy steps, chest over the knees.',
-    family: 'throws', moves: 'wrestler', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'],
+    family: 'throws', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'],
     signature: [['Shoulder Charge', 'heavy_front'], ['Underhook Lift', 'heavy_uppercut'], ['Knee Lift', 'front_kick'], ['Fireman\'s Carry', 'throw:low.back'], ['Pin', 'hold']],
     strings: 'snap_down front_kick hook heavy_front heavy_uppercut heavy_front - - - - - - snap_down low_kick shoulder_bump sweep - -',
     aiw: 'snap_down@snapDown:1.3 hook@underhook:1.0 heavy_front@shoulder:1.0 heavy_uppercut@underhook:1.0 shoulder_bump@shoulder:1.3',
-    guardHands: -0.22, guardTight: -0.55, guardTwist: 0.2, guardLean: 0.24, guardCrouch: 0.32, guardWidth: 0.08, guardSplit: 0.02, guardTuck: -0.08,
+    guardHands: -0.17, guardTight: -0.56, guardTwist: 0.2, guardLean: 0.24, guardCrouch: 0.32, guardWidth: 0.08, guardSplit: 0.05, guardTuck: -0.08,
     bounce: 0.008, bounceHz: 0.9, sway: 0.03, swayHz: 0.8, headBob: 0.02,
     punchHip: 0.85, punchPivot: 0.1, punchLean: 0.1, punchSnap: 0.9, kickChamber: 0.35, kickPivot: 0.2, kickLean: 0.05, kickSnap: 0.85,
     stride: 0.75, armSwing: 0.02, walkBounce: 0.008, react: 0.8, victory: 'hips' },
   judoka: { label: 'Judo', desc: 'Upright and relaxed, hands at chest height reaching for the collar, smooth side-to-side weight shifts.',
-    family: 'throws', moves: 'judoka', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'],
+    family: 'throws', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'], hold: 'kesa',
     signature: [['Lift-Up', 'heavy_uppercut'], ['Push-Out', 'heavy_front'], ['Ura-Nage', 'throw:front.back'], ['Counter Sweep', 'counter_kick'], ['Hold-Down', 'hold']],
     strings: 'collar_snap foot_sweep heavy_front heavy_uppercut heavy_front sweep - - - - - - body_jab foot_sweep heavy_uppercut sweep - -',
     aiw: 'collar_snap@collar:1.3 foot_sweep@footSweep:1.3 heavy_front@pushout:1.0 heavy_uppercut@lift:1.0',
-    guardHands: -0.12, guardTight: -0.4, guardTwist: 0.12, guardLean: -0.04, guardCrouch: 0.0, guardWidth: -0.02, guardSplit: -0.06, guardTuck: -0.04,
+    guardHands: -0.12, guardTight: -0.4, guardTwist: 0.12, guardLean: -0.04, guardCrouch: 0.0, guardWidth: -0.04, guardSplit: -0.06, guardTuck: -0.04,
     bounce: 0.004, bounceHz: 0.8, sway: 0.035, swayHz: 0.9, headBob: 0.02,
     punchHip: 0.95, punchPivot: 0.14, punchLean: 0.04, punchSnap: 1.0, kickChamber: 0.4, kickPivot: 0.3, kickLean: 0.08, kickSnap: 0.95,
     stride: 0.9, armSwing: 0.03, walkBounce: 0.006, react: 0.95, victory: 'bow' },
@@ -5077,49 +5105,49 @@ const MOVE_STYLE = {
     signature: [['Haymaker', 'hook'], ['Head Butt', 'headbutt'], ['Stomp', 'stomp'], ['Shove', 'grab'], ['Bear-Hug Slam', 'throw:front.back']],
     strings: 'jab stomp cross heavy_body_kick jab stomp hook heavy_front headbutt heavy_uppercut headbutt heavy_body_kick headbutt stomp headbutt stomp heavy_uppercut sweep',
     aiw: 'headbutt@headbutt:1.3 stomp@stompK:1.3 hook@haymaker:1.0 sweep@stompK:1.0',
-    guardHands: -0.1, guardTight: -0.08, guardTwist: 0.16, guardLean: 0.08, guardCrouch: 0.06, guardWidth: 0.06, guardSplit: -0.06, guardTuck: 0.04,
+    guardHands: -0.13, guardTight: -0.08, guardTwist: 0.16, guardLean: 0.08, guardCrouch: 0.06, guardWidth: 0.06, guardSplit: -0.06, guardTuck: 0.04,
     bounce: 0.012, bounceHz: 1.2, sway: 0.03, swayHz: 0.6, headBob: 0.05,
     punchHip: 1.4, punchPivot: 0.24, punchLean: 0.14, punchSnap: 0.8, kickChamber: 0.3, kickPivot: 0.35, kickLean: 0.06, kickSnap: 0.85,
     stride: 0.95, armSwing: 0.12, walkBounce: 0.02, react: 1.15, victory: 'flex' },
   capoeira: { label: 'Capoeira', desc: 'Constant ginga: rocking side to side, one arm guarding the face; wide whipping kicks with a big pivot.',
-    family: 'kicking', moves: 'capoeira', grab: 'default', throws: 'low', defense: 'sway', submit: [],
+    family: 'kicking', grab: 'capoeira', throws: 'low', defense: 'sway', submit: [],
     signature: [['Armada', 'armada'], ['Au Batido', 'cartwheel'], ['Bananeira', 'handstand_kick'], ['Queixada', 'roundhouse'], ['Rasteira', 'low_kick']],
     strings: 'jab front_kick headbutt armada jab roundhouse heavy_front heavy_roundhouse jab headbutt heavy_front cartwheel low_kick handstand_kick headbutt low_kick heavy_front sweep',
     aiw: 'armada@armada:1.0 cartwheel@cartwheel:1.0 handstand_kick@handstand:1.0 low_kick@rasteira:1.3 headbutt@cabecada:1.3',
-    guardHands: -0.18, guardTight: -0.3, guardTwist: 0.1, guardLean: 0.2, guardCrouch: 0.22, guardWidth: 0.1, guardSplit: -0.02, guardTuck: 0.0,
+    guardHands: -0.1, guardTight: -0.3, guardTwist: 0, guardLean: 0.22, guardCrouch: 0.23, guardWidth: 0.1, guardSplit: -0.02, guardTuck: 0.0,
     bounce: 0.016, bounceHz: 1.1, sway: 0.075, swayHz: 0.55, headBob: 0.04,
     punchHip: 1.1, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.25, kickPivot: 0.8, kickLean: 0.32, kickSnap: 1.05,
     stride: 1.05, armSwing: 0.16, walkBounce: 0.016, react: 1.05, victory: 'ginga' },
   // the 9 styles added later. Stance and footwork are their own.
   wingchun: { label: 'Wing Chun', desc: 'Narrow, high stance with the elbows in; quick chain punches down the centre line and traps that pin an arm at close range.',
-    family: 'hand', moves: 'wingchun', grab: 'boxer', throws: 'front', defense: 'block', submit: [],
+    family: 'hand', grab: 'boxer', throws: 'front', defense: 'block', submit: [],
     signature: [['Chain Punch', 'chain_punch'], ['Trap Strike', 'trap_strike'], ['Thrust Kick', 'front_kick'], ['Centre Thrust', 'power_jab'], ['Trap and Pin', 'grab']],
     strings: 'chain_punch front_kick trap_strike heavy_front chain_punch low_kick power_jab heavy_front trap_strike gut_punch power_jab heavy_front body_jab low_kick body_jab front_kick gut_punch heavy_front',
     aiw: 'chain_punch@chain:1.3 trap_strike@trap:1.3 front_kick@thrust:1.3 power_jab@chain:1.0',
-    guardHands: 0.08, guardTight: 0.3, guardTwist: 0.18, guardLean: -0.04, guardCrouch: -0.04, guardWidth: -0.06, guardSplit: 0.0, guardTuck: 0.1,
+    guardHands: 0.08, guardTight: 0.31, guardTwist: 0.18, guardLean: -0.04, guardCrouch: -0.04, guardWidth: -0.06, guardSplit: -0.02, guardTuck: 0.1,
     bounce: 0.006, bounceHz: 1.4, sway: 0.006, swayHz: 0.9, headBob: 0.01,
     punchHip: 0.75, punchPivot: 0.06, punchLean: 0.0, punchSnap: 1.6, kickChamber: 0.25, kickPivot: 0.15, kickLean: 0.02, kickSnap: 1.2,
     stride: 0.7, armSwing: 0.02, walkBounce: 0.008, react: 0.9, victory: 'bow' },
   muaythai: { label: 'Muay Thai', desc: 'Eight limbs: fists, elbows, knees and shins. A push kick to hold the range, heavy shin kicks, and a neck clinch with knees.',
-    family: 'clinch', moves: 'muaythai', grab: 'thai', throws: 'front', defense: 'block', submit: [],
+    family: 'clinch', grab: 'thai', throws: 'front', defense: 'block', submit: [],
     signature: [['Elbow', 'elbow_strike'], ['Shin Round Kick', 'roundhouse'], ['Heavy Teep', 'heavy_front'], ['Thai Body Kick', 'heavy_body_kick'], ['Knee-Lift Dump', 'throw:front.back']],
     strings: 'jab teep cross heavy_body_kick jab roundhouse elbow_strike heavy_front elbow_strike heavy_uppercut elbow_strike heavy_roundhouse body_jab low_kick elbow_strike body_kick heavy_uppercut heavy_body_kick',
     aiw: 'elbow_strike@elbowH:1.3 roundhouse@roundThai:1.3 heavy_front@teep:1.0 heavy_roundhouse@roundThai:1.0 heavy_body_kick@thaiBody:1.0',
-    guardHands: 0.3, guardTight: 0.28, guardTwist: 0.02, guardLean: -0.1, guardCrouch: -0.02, guardWidth: 0.04, guardSplit: -0.04, guardTuck: 0.1,
+    guardHands: 0.32, guardTight: 0.28, guardTwist: 0.02, guardLean: -0.1, guardCrouch: -0.02, guardWidth: 0.04, guardSplit: -0.04, guardTuck: 0.1,
     bounce: 0.008, bounceHz: 0.9, sway: 0.014, swayHz: 0.55, headBob: 0.02,
     punchHip: 1.2, punchPivot: 0.18, punchLean: 0.02, punchSnap: 1.0, kickChamber: 0.85, kickPivot: 0.7, kickLean: 0.3, kickSnap: 1.05,
     stride: 0.95, armSwing: 0.05, walkBounce: 0.012, react: 0.95, victory: 'fist' },
   taekwondo: { label: 'Taekwondo', desc: 'Kicks first and hands second: light bouncing steps, fast head-height kicks, flying and spinning kicks from a distance.',
-    family: 'kicking', moves: 'taekwondo', grab: 'default', throws: 'front', defense: 'sway', submit: [],
+    family: 'kicking', grab: 'default', throws: 'front', defense: 'sway', submit: [],
     signature: [['Dollyo Head Kick', 'roundhouse'], ['Spinning Back Kick', 'spin_back_kick'], ['Jump Round Kick', 'jump_round'], ['Axe Kick', 'axe_kick'], ['Tornado Kick', 'jump_kick']],
     strings: 'jab front_kick cross jump_round jab roundhouse power_jab spin_back_kick cross heavy_roundhouse heavy_front axe_kick body_jab low_kick body_jab front_kick gut_punch heavy_front',
     aiw: 'roundhouse@roundTkd:1.3 jump_round@jumpRound:1.0 spin_back_kick@spinBack:1.0 axe_kick@axe:1.0',
-    guardHands: -0.28, guardTight: -0.3, guardTwist: 0.18, guardLean: -0.1, guardCrouch: 0.04, guardWidth: 0.08, guardSplit: 0.0, guardTuck: 0.0,
+    guardHands: -0.29, guardTight: -0.27, guardTwist: 0.18, guardLean: -0.1, guardCrouch: 0.04, guardWidth: 0.12, guardSplit: 0.0, guardTuck: 0.0,
     bounce: 0.02, bounceHz: 2.0, sway: 0.016, swayHz: 1.0, headBob: 0.03,
     punchHip: 0.95, punchPivot: 0.1, punchLean: 0.02, punchSnap: 1.1, kickChamber: 0.95, kickPivot: 0.6, kickLean: 0.26, kickSnap: 1.4,
     stride: 1.08, armSwing: 0.05, walkBounce: 0.018, react: 0.9, victory: 'arms' },
   sambo: { label: 'Sambo', desc: 'Wrestling and judo in a jacket: grips and throws, then control on the ground and leg locks to finish.',
-    family: 'throws', moves: 'wrestler', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'], hold: 'leg',
+    family: 'throws', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'], hold: 'leg',
     signature: [['Sambo Hip Throw', 'throw:front.fwd'], ['Boot Kick', 'front_kick'], ['Leg Pick', 'leg_pick'], ['Leg Lock', 'hold'], ['Leg Hook Throw', 'throw:low.back']],
     strings: 'jab front_kick cross heavy_roundhouse jab foot_sweep hook heavy_front cross gut_punch hook sweep body_jab leg_pick uppercut foot_sweep gut_punch sweep',
     aiw: 'front_kick@boot:1.3 leg_pick@legPick:1.3 heavy_front@boot:1.0',
@@ -5128,47 +5156,47 @@ const MOVE_STYLE = {
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
     stride: 0.82, armSwing: 0.025, walkBounce: 0.008, react: 0.85, victory: 'flex' },
   bjj: { label: 'Brazilian Jiu-Jitsu', desc: 'Ground first: wins from the back with guards and sweeps, then pins, chokes and joint locks. Pulls guard rather than throwing.',
-    family: 'locks', moves: 'judoka', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm',
+    family: 'locks', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm',
     signature: [['Guard Pull', 'throw:low.back'], ['Guard Kick', 'guard_kick'], ['Scissor Sweep', 'sweep'], ['Armbar', 'hold'], ['Single-Leg Takedown', 'throw:low.fwd']],
     strings: 'snap_down guard_kick jab heavy_front snap_down guard_kick hook heavy_front jab heavy_uppercut hook heavy_front snap_down guard_kick snap_down guard_kick heavy_uppercut sweep',
     aiw: 'guard_kick@guardKick:1.3 snap_down@snapDown:1.3 sweep@scissor:1.0',
-    guardHands: -0.2, guardTight: -0.35, guardTwist: 0.1, guardLean: 0.12, guardCrouch: 0.26, guardWidth: 0.12, guardSplit: -0.04, guardTuck: 0.0,
+    guardHands: -0.3, guardTight: -0.39, guardTwist: 0.13, guardLean: 0.1, guardCrouch: 0.33, guardWidth: 0.12, guardSplit: -0.08, guardTuck: 0.0,
     bounce: 0.004, bounceHz: 0.7, sway: 0.04, swayHz: 0.65, headBob: 0.015,
     punchHip: 0.8, punchPivot: 0.08, punchLean: 0.08, punchSnap: 0.85, kickChamber: 0.3, kickPivot: 0.2, kickLean: 0.04, kickSnap: 0.8,
     stride: 0.7, armSwing: 0.02, walkBounce: 0.006, react: 0.8, victory: 'hips' },
   hapkido: { label: 'Hapkido', desc: 'Korean self-defence: wrist and elbow locks, judo-style throws and low spinning heel kicks, circling away from force.',
-    family: 'locks', moves: 'hapkido', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Wrist Lock', 'Elbow Lock'], hold: 'wrist',
+    family: 'locks', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Wrist Lock', 'Elbow Lock'], hold: 'wrist',
     signature: [['Palm Strike', 'palm_strike'], ['Spinning Heel Kick', 'spin_heel'], ['Heel Push Kick', 'heavy_front'], ['Wrist-Lock Throw', 'throw:front.back'], ['Wrist Lock', 'hold']],
     strings: 'palm_strike front_kick cross heavy_front palm_strike foot_sweep hook heavy_front cross hook hook sweep body_jab foot_sweep body_jab spin_heel hook sweep',
     aiw: 'palm_strike@palm:1.3 foot_sweep@footSweep:1.3 spin_heel@spinHeel:1.3 sweep@footSweep:1.0',
-    guardHands: 0.0, guardTight: -0.25, guardTwist: -0.1, guardLean: 0.02, guardCrouch: 0.1, guardWidth: 0.04, guardSplit: 0.08, guardTuck: 0.02,
+    guardHands: 0.01, guardTight: -0.25, guardTwist: -0.09, guardLean: 0.02, guardCrouch: 0.06, guardWidth: 0.08, guardSplit: 0.06, guardTuck: 0.02,
     bounce: 0.01, bounceHz: 1.1, sway: 0.05, swayHz: 0.7, headBob: 0.03,
     punchHip: 1.0, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.0, kickChamber: 0.6, kickPivot: 0.65, kickLean: 0.2, kickSnap: 1.1,
     stride: 0.95, armSwing: 0.08, walkBounce: 0.01, react: 1.0, victory: 'bow' },
   kali: { label: 'Kali / Eskrima', desc: 'Stick fighting without the stick: weaving angles, quick flowing strikes and a live hand that traps and checks.',
-    family: 'weapon', moves: 'kali', grab: 'default', throws: 'front', defense: 'sway', submit: [],
+    family: 'weapon', grab: 'kali', throws: 'front', defense: 'sway', submit: [],
     signature: [['Thrust', 'jab'], ['Angle 1', 'angle_one'], ['Angle 2', 'angle_two'], ['Redonda', 'hook'], ['Live-Hand Trap', 'grab']],
     strings: 'jab front_kick angle_one heavy_front jab low_kick angle_two hook angle_one angle_two power_jab heavy_front body_jab low_kick angle_two low_kick gut_punch heavy_front',
     aiw: 'jab@thrustK:1.3 angle_one@angle:1.3 angle_two@angleBack:1.3 hook@redonda:1.0 power_jab@thrustK:1.3',
-    guardHands: 0.04, guardTight: -0.1, guardTwist: -0.14, guardLean: 0.04, guardCrouch: 0.12, guardWidth: 0.0, guardSplit: 0.08, guardTuck: 0.06,
+    guardHands: 0.1, guardTight: -0.1, guardTwist: -0.2, guardLean: 0.04, guardCrouch: 0.21, guardWidth: -0.02, guardSplit: 0.13, guardTuck: 0.06,
     bounce: 0.014, bounceHz: 1.8, sway: 0.05, swayHz: 1.3, headBob: 0.05,
     punchHip: 1.15, punchPivot: 0.22, punchLean: 0.05, punchSnap: 1.2, kickChamber: 0.4, kickPivot: 0.3, kickLean: 0.1, kickSnap: 1.0,
     stride: 1.0, armSwing: 0.1, walkBounce: 0.016, react: 0.95, victory: 'fist' },
   kravmaga: { label: 'Krav Maga', desc: 'Defend and strike in one move, then keep attacking: punches, knees and elbows up close and kicks to the low line.',
-    family: 'hybrid', moves: 'kravmaga', grab: 'thai', throws: 'front', defense: 'block', submit: [],
+    family: 'hybrid', grab: 'thai', throws: 'front', defense: 'block', submit: [],
     signature: [['Parry Strike', 'parry_strike'], ['Groin Kick', 'groin_kick'], ['Hammer Fist', 'hook'], ['Stomp Kick', 'heavy_front'], ['Defend-and-Strike', 'counter_strike']],
     strings: 'jab groin_kick parry_strike heavy_front jab low_kick hook heavy_front parry_strike hook hook heavy_front body_jab low_kick uppercut groin_kick gut_punch heavy_front',
     aiw: 'groin_kick@groin:1.3 parry_strike@parry:1.3 hook@hammer:1.0 heavy_front@kravStomp:1.0',
-    guardHands: 0.1, guardTight: 0.0, guardTwist: 0.04, guardLean: 0.1, guardCrouch: 0.06, guardWidth: 0.02, guardSplit: 0.0, guardTuck: 0.1,
+    guardHands: 0.2, guardTight: -0.05, guardTwist: 0.04, guardLean: 0.11, guardCrouch: 0.03, guardWidth: 0.02, guardSplit: -0.04, guardTuck: 0.1,
     bounce: 0.01, bounceHz: 1.2, sway: 0.01, swayHz: 0.7, headBob: 0.04,
     punchHip: 1.3, punchPivot: 0.2, punchLean: 0.1, punchSnap: 1.2, kickChamber: 0.35, kickPivot: 0.35, kickLean: 0.1, kickSnap: 1.1,
     stride: 1.0, armSwing: 0.06, walkBounce: 0.014, react: 1.05, victory: 'fist' },
   mma: { label: 'MMA', desc: 'Moves between ranges: punches and kicks, clinch work, takedowns, and holds on the ground.',
-    family: 'hybrid', moves: 'mma', grab: 'thai', throws: 'low', defense: 'block', submit: ['Armbar', 'Choke'], hold: 'arm',
+    family: 'hybrid', grab: 'thai', throws: 'low', defense: 'block', submit: ['Armbar', 'Choke'], hold: 'mount',
     signature: [['Overhand', 'overhand'], ['Superman Punch', 'superman'], ['Oblique Kick', 'heavy_front'], ['Cage Takedown', 'throw:low.back'], ['Mount', 'hold']],
     strings: 'jab teep cross heavy_front jab roundhouse overhand heavy_front cross hook superman heavy_front body_jab low_kick uppercut body_kick gut_punch sweep',
     aiw: 'overhand@overhand:1.3 superman@superman:1.3 heavy_front@oblique:1.0',
-    guardHands: 0.06, guardTight: -0.02, guardTwist: -0.02, guardLean: 0.08, guardCrouch: 0.16, guardWidth: 0.04, guardSplit: 0.06, guardTuck: 0.1,
+    guardHands: 0.03, guardTight: 0.06, guardTwist: 0.04, guardLean: 0.1, guardCrouch: 0.19, guardWidth: 0.08, guardSplit: 0.04, guardTuck: 0.1,
     bounce: 0.016, bounceHz: 1.6, sway: 0.02, swayHz: 0.85, headBob: 0.05,
     punchHip: 1.15, punchPivot: 0.16, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.55, kickPivot: 0.45, kickLean: 0.14, kickSnap: 1.05,
     stride: 0.92, armSwing: 0.05, walkBounce: 0.016, react: 0.95, victory: 'flex' },
@@ -5441,7 +5469,7 @@ function chamberPose(mv, m) {
 }
 
 /* Hold poses of the holder (q = squeeze 0..1), by the hold field of the style row (none = pin: Wrestling, Judo). The foe lies in front in every one of them.
-   leg = Sambo: sitting back with the leg trapped under the arms. arm = Brazilian Jiu-Jitsu, MMA: on the back, legs up across the arm. wrist = Hapkido: low over the foe, one hand twisting. */
+   leg = Sambo: sitting back with the leg trapped under the arms. arm = Brazilian Jiu-Jitsu: on the back, legs up across the arm. wrist = Hapkido: low over the foe, one hand twisting. kesa = Judo: lying across the chest. mount = MMA: astride the foe. */
 const HOLD_POSES = {
   pin(p, q) { // kneeling low over the victim, both hands clamped on a limb
     p[J.torsoLean] = 0.85 + 0.1 * q; p[J.headX] = 0.3; p[J.torsoTwist] = 0;
@@ -5457,6 +5485,16 @@ const HOLD_POSES = {
     p[J.bodyPitch] = -1.5; p[J.lie] = 1; p[J.torsoLean] = 0.35; p[J.headX] = 0.4; p[J.torsoTwist] = 0; // flat on the back, head up to watch the arm; the limbs keep their old directions in the room
     p[J.hipLx] = 0.9; p[J.hipRx] = 0.7; p[J.hipRz] = -0.3; p[J.knL] = 0.5; p[J.knR] = 0.8;
     p[J.shLx] = 0.6 + 0.3 * q; p[J.shRx] = 0.6 + 0.2 * q; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.elL] = 0.6; p[J.elR] = 0.6;
+  },
+  kesa(p, q) { // Judo: lying across the foe's chest, the arm under the neck
+    p[J.torsoLean] = 1.0 + 0.1 * q; p[J.headX] = 0.4; p[J.torsoRoll] = 0.5 * q; p[J.torsoTwist] = 0.3;
+    p[J.hipLx] = 1.1; p[J.hipRx] = 0.4; p[J.hipLz] = 0.35; p[J.hipRz] = 0.35; p[J.knL] = 1.9; p[J.knR] = 0.8;
+    p[J.shLx] = 1.2 + 0.3 * q; p[J.shLz] = -0.3; p[J.elL] = 0.8; p[J.shRx] = 0.6; p[J.shRz] = -0.1; p[J.elR] = 1.0;
+  },
+  mount(p, q) { // MMA: sitting astride the foe, one hand holding, one fist cocked
+    p[J.torsoLean] = 0.55; p[J.headX] = 0.2; p[J.torsoTwist] = 0.3 * q;
+    p[J.hipLx] = 1.5; p[J.hipRx] = 1.5; p[J.hipLz] = 0.45; p[J.hipRz] = 0.45; p[J.knL] = 2.4; p[J.knR] = 2.4;
+    p[J.shLx] = 1.0; p[J.shLz] = -0.1; p[J.elL] = 0.8; p[J.shRx] = 2.4 + 0.3 * q; p[J.shRz] = 0.2; p[J.elR] = 1.9;
   },
   wrist(p, q) {
     p[J.torsoLean] = 0.55; p[J.headX] = 0.25; p[J.torsoTwist] = 0.3 + 0.25 * q;
@@ -6904,7 +6942,7 @@ class Fighter {
       p[J.torsoLean] = 0.32; p[J.headX] = 0.3; p[J.shLx] = 0.9; p[J.shRx] = 0.9; p[J.elL] = 1.3; p[J.elR] = 1.3; p[J.knL] = 0.5; p[J.knR] = 0.5; p[J.torsoTwist] = Math.sin(t * 14) * 0.08;
       return 0.3;
     }
-    const c = sampleCarry(tp.data.anim, clamp(tp.tick / tp.data.startup, 0, 1));
+    const c = sampleCarry(tp.data.carry || tp.data.anim, clamp(tp.tick / tp.data.startup, 0, 1));
     p[J.bodyPitch] = c[4]; p[J.bodyRoll] = c[5] * tp.side;
     p[J.shLx] = 0.7 + Math.sin(t * 13) * 0.4; p[J.shRx] = 0.7 - Math.sin(t * 13) * 0.4; p[J.shLz] = 0.9; p[J.shRz] = 0.9; p[J.elL] = 0.6; p[J.elR] = 0.6;
     p[J.hipLx] = 0.5; p[J.hipRx] = 0.2; p[J.knL] = 0.9; p[J.knR] = 0.5; p[J.headX] = 0.25;
@@ -7638,7 +7676,7 @@ const Combat = {
   },
   // Move the held defender along the throw's carry path (part of the simulation: it decides where they land)
   carryPartner(att, def, tp) {
-    const c = sampleCarry(tp.data.anim, clamp(tp.tick / tp.data.startup, 0, 1));
+    const c = sampleCarry(tp.data.carry || tp.data.anim, clamp(tp.tick / tp.data.startup, 0, 1));
     const side = c[2] * tp.side;
     const fx = att.fwdX, fz = att.fwdZ, rx = -fz, rz = fx;
     def.x = att.x + fx * c[1] + rx * side;
@@ -7698,7 +7736,7 @@ const Combat = {
     def.hitKind = 'mid';
     def.downMult = t.down;
     def.lieSign = t.face === 'front' ? -1 : 1;
-    const release = sampleCarry(t.anim, 1);
+    const release = sampleCarry(t.carry || t.anim, 1);
     def.throwPitch = release[4]; def.throwRoll = release[5] * p.side;
     def.flash = 1;
     att.partner = null; att.clinchTick = 0;
@@ -14720,7 +14758,7 @@ const UI = {
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
       const c = CLINCH_MOVES[id];
-      return '<tr><td>' + esc(c.name) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + c.stam + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
+      return '<tr><td>' + esc(clinchMoveName(styleId, id)) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + c.stam + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
     }).join('');
     const tackleHit = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: 0, hitstun: Math.round(TACKLE_MOVE.hitstun * 1.15) }).onHit, tackleBlock = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock;
     const tackleRow = weightClass(profile) < TACKLE_MIN_GAP || carry ? '' : '<tr><td>' + esc(TACKLE_MOVE.name) + '</td><td>Run into a fighter at least ' + TACKLE_MIN_GAP + ' weight classes lighter</td><td>Mid, 0 / 1 / 0 frames, ' + TACKLE_MOVE.dmg + ' dmg, hit ' + adv(tackleHit) + ' / block ' + adv(tackleBlock) + ' (stagger; Block stops it with no damage, Sway or Sidestep dodges it)</td></tr>';
@@ -16349,7 +16387,7 @@ function testApi() {
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
-    ANIM_SPECS, AIW_WEIGHTS, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, THROW_SKINS, clinchMoveName, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
     Fighter, GAMEPAD_LABELS, GRIP_POSES, GS, GUARD_ORTHO, Game, HAIR_CAP, HAIR_SWATCHES, HOLD_POSES, HUMAN_CONTROLLERS, IMPACT_SRC_BASE,
     ITEMS, Input, Input2, Input3, Input4, Inputs, J, JUGGLE_LIMIT, KEYMAPS, KEYS_REVISION, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM,
     KEY_PROGRESS, KEY_SETTINGS, KO_DELAY_TICKS, Keymap, Keymap2, LAYER, LEGACY_STYLE_MAP, LOCK_FLICK_TICKS, LOCK_RANGE,
@@ -16360,7 +16398,7 @@ function testApi() {
     REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN,
     SETTINGS_REVISION, SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE,
     SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES,
-    SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS,
+    SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, 
     STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,

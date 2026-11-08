@@ -7,7 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
-  ANIM_SPECS, AIW_WEIGHTS, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, THROW_SKINS, clinchMoveName, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
@@ -27,7 +27,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL,  STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -340,7 +340,7 @@ const SelfTest = {
     test('Every move style plays its own string rows (each step after the previous one made contact); a removed row starts a new string', () => {
       const problems = [];
       withJudoka(() => {
-        for (const styleId of Object.keys(STYLE_STRINGS)) {
+        for (const styleId of MOVE_STYLE_IDS) {
           const table = stringsFor(styleId);
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) {
             const low = side === 'crouch';
@@ -355,7 +355,7 @@ const SelfTest = {
     });
     test('Every string table (default and per style) keeps the owner rules: Punch plays a punch and Kick a kick, at most 3 steps, strong moves only after a light first step, every prefix is a row', () => {
       const problems = [];
-      for (const styleId of ['kickboxer'].concat(Object.keys(STYLE_STRINGS))) {
+      for (const styleId of ['kickboxer'].concat(MOVE_STYLE_IDS)) {
         const table = stringsFor(styleId);
         for (const side of ['stand', 'crouch']) {
           for (const keys in table[side]) {
@@ -375,7 +375,7 @@ const SelfTest = {
     });
     test('Every strong string move is punishable on block: its block advantage is at least as negative as the jab startup (a perfect block or a sway then hands the defender a counter)', () => {
       const jabStartup = ATTACKS.jab.startup, problems = [];
-      for (const styleId of ['kickboxer'].concat(Object.keys(STYLE_STRINGS))) {
+      for (const styleId of ['kickboxer'].concat(MOVE_STYLE_IDS)) {
         const table = stringsFor(styleId);
         for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => {
           const mv = ATTACKS[id], onBlock = frameAdvantage(mv).onBlock;
@@ -3770,7 +3770,7 @@ const SelfTest = {
     test('Combos end for every move style\'s own strings (the P3-10 five in full, the P5-02 styles for the rows that differ from the default), standing, guarding and juggled', () => {
       const problems = [];
       withJudoka(() => {
-        for (const styleId of Object.keys(STYLE_STRINGS)) {
+        for (const styleId of MOVE_STYLE_IDS) {
           const table = stringsFor(styleId), rows = [], classic = ['boxer', 'karateka', 'capoeira', 'wrestler', 'judoka'].includes(styleId);
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (classic || !STRINGS[side][keys] || table[side][keys].join() !== STRINGS[side][keys].join()) rows.push({ keys, low: side === 'crouch', moves: table[side][keys] });
           for (const p of comboProblems(STYLE_TESTERS[styleId], false, ['stand', 'crouch', 'guard', 'juggle'], loopRows(rows))) problems.push(styleId + ' ' + p);
@@ -4078,7 +4078,6 @@ const SelfTest = {
         if (s.defense !== want[1] || defaultDefense(id) !== want[1]) problems.push(id + ' defense ' + s.defense);
         for (const key of numeric) if (!Number.isFinite(s[key])) problems.push(id + ' ' + key);
         if (!VICTORY_POSES[s.victory]) problems.push(id + ' victory');
-        if (s.moves !== null && !STYLE_STRINGS[s.moves]) problems.push(id + ' moves');
         if (!CLINCH_STRIKE_POSES[s.grab]) problems.push(id + ' grab');
         if (!THROW_SETS[s.throws]) problems.push(id + ' throws');
         if (!Array.isArray(s.submit) || s.submit.some((name) => typeof name !== 'string' || !name)) problems.push(id + ' submit');
@@ -4437,9 +4436,9 @@ const SelfTest = {
         if (v && typeof v === 'object' && !Array.isArray(v)) return Object.keys(v).sort().reduce((o, k) => { o[k] = v[k]; return o; }, {});
         return v;
       });
-      const style = {}; for (const id of MOVE_STYLE_IDS) { const s = MOVE_STYLE[id]; style[id] = { moves: s.moves, throws: s.throws, defense: s.defense, submit: s.submit }; }
+      const style = {}; for (const id of MOVE_STYLE_IDS) { const s = MOVE_STYLE[id]; style[id] = { throws: s.throws, defense: s.defense, submit: s.submit }; }
       const submit = [SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUBMIT_GAP, SUBMIT_MIN_STAMINA, SUBMIT_ESCAPE_GOAL, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK];
-      const parts = { attacks: ATTACKS, items: WEAPON_MOVES, weapons: WEAPONS, strings: STRINGS, styleStrings: STYLE_STRINGS, throws: THROW_SETS, styleThrows: STYLE_THROWS, style, submit };
+      const parts = { attacks: ATTACKS, items: WEAPON_MOVES, weapons: WEAPONS, strings: STRINGS, styleSkins: SKINS, throws: THROW_SETS, styleThrows: STYLE_THROWS, style, submit };
       return Object.keys(parts).map((k) => k + ':' + fnv1a(canon(parts[k]))).join(' ');
     };
     const weaponFighter = (id) => { const f = styleFighter('kickboxer'); f.item = { id, dur: 99, sprays: 3 }; return f; };
@@ -13643,7 +13642,7 @@ const SelfTest = {
       for (const { name, profile } of moveListCases()) {
         const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = stringsFor(styleId), mine = new Set(), htmls = [];
         for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
-        const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+        const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
         if (weightClass(profile) >= TACKLE_MIN_GAP) expected.push(esc(TACKLE_MOVE.name));
         for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
         for (const kind of kinds) {
@@ -13765,7 +13764,7 @@ const SelfTest = {
           f.item = { id: item };
           const table = f.strings, mine = new Set(), carry = item === 'crate';   // a crate in the arms: a row with a Punch press cannot be played, nor any punch move; no run, so no lunge and no tackle
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (!(carry && keys.includes('P'))) table[side][keys].forEach((id) => mine.add(id));
-          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(moveFor(styleId, m.id).name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.values(CLINCH_MOVES).map((c) => esc(c.name)));
+          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(moveFor(styleId, m.id).name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
           if (weightClass(profile) >= TACKLE_MIN_GAP && !carry) expected.push(esc(TACKLE_MOVE.name));
           for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
           const html = UI.screen_moves(profile, 'keyboard', item), label = name + ' with ' + item;
