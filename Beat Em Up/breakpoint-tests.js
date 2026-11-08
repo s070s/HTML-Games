@@ -308,8 +308,8 @@ const SelfTest = {
       const m = mk({}, once(2, 'punch')); self.place(m, 3.2); self.run(m, 60); log.stop();
       return log.hit.length === 0 && log.block.length === 0 ? true : 'unexpected contact';
     });
-    test('A first Punch / Kick press plays jab / front kick; with Crouch held, body jab / low kick; Crouch alone fires nothing', () => {
-      const want = [['punch', {}, 'jab'], ['kick', {}, 'front_kick'], ['punch', { height: true }, 'body_jab'], ['kick', { height: true }, 'low_kick']];
+    test('A first Punch / Kick press plays the first steps of the default fighter; with Crouch held, its crouch ones; Crouch alone fires nothing', () => {
+      const want = [['punch', {}, kaiStrings.stand.P[0]], ['kick', {}, kaiStrings.stand.K[0]], ['punch', { height: true }, kaiStrings.crouch.P[0]], ['kick', { height: true }, kaiStrings.crouch.K[0]]];   // the default fighter's own openers
       for (const [k, mods, id] of want) {
         const m = mk({}, once(2, k, mods)); self.place(m, 3); self.run(m, 3);
         const got = m.fighters[0].move ? m.fighters[0].move.id : 'none';
@@ -326,7 +326,8 @@ const SelfTest = {
         if (got !== row.moves.join()) problems.push((row.low ? 'crouch ' : '') + row.keys + ': ' + got);
       }
       const known = Object.keys(ATTACKS).filter((id) => ATTACKS[id].tier === 3 && !ATTACKS[id].ctx);
-      const inStrings = known.every((id) => stringRows.filter((r) => r.moves[r.moves.length - 1] === id).length === 1);   // each strong move ends exactly one string row
+      const defaultRows = []; for (const side of ['stand', 'crouch']) for (const keys in STRINGS[side]) defaultRows.push(STRINGS[side][keys]);
+      const inStrings = known.every((id) => defaultRows.filter((moves) => moves[moves.length - 1] === id).length === 1);   // each strong move ends exactly one row of the default table (a style may end several rows on one)
       return stringRows.length === 18 && known.length === 8 && inStrings && !problems.length ? true : 'rows ' + stringRows.length + ' strong ' + known.length + ' once ' + inStrings + ' ' + problems.join('; ');
     });
     /* ----- per-style strings, punishable enders, damage shares (P3-10) ----- */
@@ -340,21 +341,23 @@ const SelfTest = {
     };
     test('Every move style plays its own string rows (each step after the previous one made contact); a removed row starts a new string', () => {
       const problems = [];
-      withJudoka(() => {
+      const testers = {};
+      for (const styleId of MOVE_STYLE_IDS) { testers[styleId] = 'ptest_' + styleId; ROSTER_BY_ID[testers[styleId]] = Object.assign({}, ROSTER_BY_ID.kai, { id: testers[styleId], name: 'PTEST', moveStyle: styleId, defense: defaultDefense(styleId) }); }
+      try {
         for (const styleId of MOVE_STYLE_IDS) {
           const table = stringsFor(styleId);
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) {
             const low = side === 'crouch';
-            const got = playString(keys, (it, f, o, kind) => { if (kind) { it[kind] = true; it.height = low; } }, STYLE_TESTERS[styleId]).join();
+            const got = playString(keys, (it, f, o, kind) => { if (kind) { it[kind] = true; it.height = low; } }, testers[styleId]).join();
             if (got !== table[side][keys].join()) problems.push(styleId + ' ' + (low ? 'crouch ' : '') + keys + ': ' + got);
           }
         }
-        const third = playString('PPP', (it, f, o, kind) => { if (kind) it[kind] = true; }, STYLE_TESTERS.wrestler).join();   // the Wrestler has no P P P row: the string ends on the hook, a third press does not continue it
-        if (third !== 'jab,hook') problems.push('wrestler PPP: ' + third);
-      });
+        const third = playString('PPP', (it, f, o, kind) => { if (kind) it[kind] = true; }, testers.wrestler).join();   // the Wrestler has no P P P row: the string ends on the hook, a third press does not continue it
+        if (third !== 'snap_down,hook') problems.push('wrestler PPP: ' + third);
+      } finally { for (const id of Object.values(testers)) delete ROSTER_BY_ID[id]; }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Every string table (default and per style) keeps the owner rules: Punch plays a punch and Kick a kick, at most 3 steps, strong moves only after a light first step, every prefix is a row', () => {
+    test('Every string table (default and per style) keeps the owner rules: every step a strike (a position is a button, not a limb, and a style without legs has none), at most 3 steps, strong moves only after a light first step, every prefix is a row', () => {
       const problems = [];
       for (const styleId of ['kickboxer'].concat(MOVE_STYLE_IDS)) {
         const table = stringsFor(styleId);
@@ -362,7 +365,8 @@ const SelfTest = {
           for (const keys in table[side]) {
             const moves = table[side][keys], name = styleId + ' ' + side + ' ' + keys;
             if (keys.length > STRING_MAX_STEPS || moves.length !== keys.length) problems.push(name + ' length');
-            moves.forEach((id, i) => { if (!ATTACKS[id] || ATTACKS[id].btn[1] !== keys[i].toLowerCase()) problems.push(name + ' step ' + (i + 1) + ' is not a ' + keys[i]); });
+            moves.forEach((id, i) => { if (!ATTACKS[id] || ATTACKS[id].type !== 'strike') problems.push(name + ' step ' + (i + 1) + ' is not a strike'); });   // since P17-10 a position is a button, not a limb: Boxing's Kick plays body punches, the grapplers play grips and Capoeira's crouch Punch a Low kick
+            if (MOVE_STYLE[styleId] && MOVE_STYLE[styleId].legless && moves.some((id) => moveFor(styleId, id).limb[1] === 'L')) problems.push(name + ' has a leg move');
             if (ATTACKS[moves[0]] && ATTACKS[moves[0]].tier === 3) problems.push(name + ' starts on a strong move');
             if (keys.length > 1 && table[side][keys.slice(0, -1)].join() !== moves.slice(0, -1).join()) problems.push(name + ' prefix differs');
           }
@@ -407,7 +411,7 @@ const SelfTest = {
         });
         self.place(m, 1.1); self.run(m, 200); log.stop(); m.dispose();
         const got = log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
-        if (got !== STRINGS.stand[keys].join()) problems.push(keys + ': ' + got);
+        if (got !== kaiStrings.stand[keys].join()) problems.push(keys + ': ' + got);
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -431,7 +435,7 @@ const SelfTest = {
       });
       self.place(m, 1.2); self.run(m, 90); log.stop();
       const ids = log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
-      return ids === 'front_kick,jab,jab' ? true : 'moves ' + ids;
+      return ids === kaiStrings.stand.K[0] + ',' + kaiStrings.stand.KP[1] + ',jab' ? true : 'moves ' + ids;
     });
     test('A press within the string window continues the string, one tick later it restarts (counted in simulation ticks)', () => {
       const run = (gap) => {   // gap = fighter ticks between the two presses (hit-stop pauses the fighters, so the match tick is not the clock)
@@ -444,7 +448,7 @@ const SelfTest = {
         return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
       };
       const edge = run(ATTACK_STRING_TICKS), late = run(ATTACK_STRING_TICKS + 1);
-      return ATTACK_STRING_TICKS === 48 && edge === 'front_kick,roundhouse' && late === 'front_kick,front_kick' ? true : 'edge ' + edge + ' late ' + late;
+      return ATTACK_STRING_TICKS === 48 && edge === kaiStrings.stand.KK.join() && late === kaiStrings.stand.K[0] + ',' + kaiStrings.stand.K[0] ? true : 'edge ' + edge + ' late ' + late;
     });
     test('Being hit, clinched, thrown or knocked down ends the string; walking and blocking keep it', () => {
       const f = new Fighter(ROSTER_BY_ID.kai, 0);
@@ -641,7 +645,7 @@ const SelfTest = {
       });
       log.stop(); m.dispose();
       const ok = !guarded.fell && guarded.lowest > 2.9 && guarded.edge > 0 && control.fell && control.lowest < 0.5 && crate.fell && crate.fellAt >= AI_EDGE_PATIENCE && hit.w.air > 5 && Math.abs(hit.y) < 1e-6 && log.fallDamage.length === 1;
-      return ok ? true : JSON.stringify({ guarded, control, crate, hit: [hit.w.air, hit.y, log.fallDamage.length] });
+      return ok ? true : JSON.stringify({ guarded, control, crate, hit: [hit.w.air, hit.y, log.fallDamage.length], who: log.fallDamage.map((e) => e.f.index + ':' + Math.round(e.dmg)) });
     });
     test('Falling: a clinch ends cleanly when one fighter drops off the edge, and a hold ends when the footing goes (no illegal transitions)', () => {
       const illegal = Diag.illegalTransitions;
@@ -800,7 +804,7 @@ const SelfTest = {
       return log.clinch.length === 0 ? true : 'clinched an airborne fighter';
     });
     test('Sweep knockdown (Crouch + Kick, Kick, Kick), quick recovery with a Defend press', () => {
-      const m = mk({}, pressString('KKK', { height: true }), (it, f, o) => { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; it.defend = f.state === S.DOWN && f.stateTicks === 17; }); self.place(m, 1.2);   // the defender stays in reach of every step; one press
+      const m = mk({ playerId: 'zero' }, pressString('KKK', { height: true }), (it, f, o) => { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; it.defend = f.state === S.DOWN && f.stateTicks === 17; }); self.place(m, 1.2);   // the defender stays in reach of every step; one press
       let rose = -1;
       for (let i = 0; i < 200; i++) { m.step(); if (rose < 0 && m.fighters[1].state === S.GETUP) rose = i; }
       return rose > 0 && rose < 110 && m.fighters[1].quickRise ? true : 'getup at ' + rose;   // three string steps first; a normal get-up would come at 130 or later
@@ -1160,7 +1164,7 @@ const SelfTest = {
     test('Wake-up invulnerability lasts the whole get-up and ends when standing (then only the strike grace remains)', () => {
       const problems = [];
       for (const id of ['brutus', 'yuki']) {
-        const m = mk({ opponentId: id }, pressString('KKK', { height: true }), (it, f, o) => { if (f.state !== S.DOWN && f.state !== S.GETUP) { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; } });   // in reach for every step, free once knocked down
+        const m = mk({ playerId: 'zero', opponentId: id }, pressString('KKK', { height: true }), (it, f, o) => { if (f.state !== S.DOWN && f.state !== S.GETUP) { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; } });   // in reach for every step, free once knocked down
         self.place(m, 1.2);
         const b = m.fighters[1];
         let exposed = 0, rose = false;
@@ -1354,7 +1358,7 @@ const SelfTest = {
         m.dispose();
       }
       off();
-      return firstPresses === 'body_jab,front_kick,jab,low_kick' && strong >= 1 && asFirstStep === 0 ? true : 'first presses ' + firstPresses + ' strong ' + strong + ' as step 1: ' + asFirstStep;
+      return firstPresses === [kaiStrings.crouch.P[0], kaiStrings.stand.K[0], kaiStrings.stand.P[0], kaiStrings.crouch.K[0]].sort().join() && strong >= 1 && asFirstStep === 0 ? true : 'first presses ' + firstPresses + ' strong ' + strong + ' as step 1: ' + asFirstStep;
     });
     test('AI difficulty changes defensive quality', () => {
       const trial = (diff, seed) => {
@@ -4374,7 +4378,7 @@ const SelfTest = {
         }
         const strong = new Set();
         STRING_POSITIONS.forEach((position, i) => {
-          const token = tokens[i], third = position.replace('c', '').length === 4 || /[PK]{3}3/.test(position);
+          const token = tokens[i];
           if (token === '-') { if (!short || !/3$/.test(position)) problems.push(id + ' has - at ' + position); return; }
           if (short && /3$/.test(position)) problems.push(id + ' has a third step at ' + position);
           const mv = ATTACKS[token];
@@ -4385,7 +4389,6 @@ const SelfTest = {
         if (strong.size < 3 || strong.size > 7) problems.push(id + ' plays ' + strong.size + ' strong rows');
         for (const [name, uses] of row.signature) if (ATTACKS[uses] && !ATTACKS[uses].ctx && !Object.values(table).some((side) => Object.values(side).some((steps) => steps.includes(uses)))) problems.push(id + ' signature ' + name + ' is in no string');
       }
-      const map = playedBy();
       for (const a of MOVE_STYLE_IDS) for (const b of MOVE_STYLE_IDS) {
         if (a >= b) continue;
         const sa = styleMoves(a).strikes, sb = styleMoves(b).strikes, common = [...sa].filter((x) => sb.has(x)).length, overlap = common / Math.min(sa.size, sb.size);
@@ -4456,13 +4459,12 @@ const SelfTest = {
             f.attackPose();
             if (mv.plant) f.plantShift = -f.lowestPart();
             f.skeleton(0, 0, 0, 0, false);
-            const y = f.pts[tip + 1], sc = f.scale, mirror = Math.sign(lateral);
+            const y = f.pts[tip + 1], sc = f.scale;
             const miss = { short: front - f.pts[tip + 2], side: lateral === 0 ? Math.abs(f.pts[tip]) : Math.min(Math.abs(f.pts[tip] - lateral), Math.abs(f.pts[tip] + lateral)), band: Math.max(band[0] * sc - y, y - band[1] * sc, 0), past: f.pts[tip + 2] - (front + FOE_RADIUS) };
             checked++;
             const bad = Object.keys(LIMIT).filter((k) => miss[k] > LIMIT[k] + (lateral !== 0 && k === 'side' ? 0.3 : 0));
             const joints = LIMITS.filter(([joint, limit]) => Math.abs(f.pose[joint]) > limit + 0.005);
             if (bad.length || joints.length) problems.push(r.id + ' ' + rowId + (lateral ? ' at ' + lateral : '') + ' ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' ') + joints.map(([joint]) => ' joint ' + joint).join(''));
-            void mirror;
           }
         }
       }
@@ -4565,8 +4567,6 @@ const SelfTest = {
           if (!starts[identity] && !(NOT_SEEN[styleId] || []).includes(identity)) problems.push(styleId + ' never started ' + identity);
         }
         if ((styleId === 'boxer' || styleId === 'capoeira') && ducks < 1) problems.push(styleId + ' never ducked a High wind-up');   // measured with the first balance: Boxing 11 and Capoeira 6 in the first 36 matches; after the balance passes Capoeira needs more seeds
-        const strong = Object.keys(starts).filter((identity) => ATTACKS[identity.split('@')[0]].tier === 3).reduce((sum, identity) => sum + starts[identity], 0);
-        void strong;
         // the Strings row of the balance run holds the 35 percent of the damage; here no single move starts more often than the figure measured for the style (60 percent, BJJ: its Guard Kick stands at both Kick positions; Brawler 45 percent: the Stomp stands at both Kick positions)
         for (const identity in starts) if (starts[identity] / total > (styleId === 'bjj' ? 0.65 : styleId === 'brawler' ? 0.5 : 0.45)) problems.push(styleId + ' starts ' + identity + ' in ' + Math.round(100 * starts[identity] / total) + ' percent');
       }
@@ -5148,7 +5148,7 @@ const SelfTest = {
         'wrestler hook -1': { torso: 0.31, why: 'the underhook smash curves into the slip side (P17-10, measured 0.32)' },
         'judoka collar_snap 0': { head: 0.21, torso: 0.26, why: 'the collar pull reaches for the head, which the lay-back sway leaves in front of the hand (P17-10, measured 0.25 and 0.27)' },
         'judoka collar_snap 1': { head: 0.21, torso: 0.26, why: 'the collar pull reaches for the head on the slip side too (P17-10, measured 0.28)' },
-        'judoka collar_snap -1': { head: 0.21, torso: 0.26, why: 'the collar pull reaches for the head (P17-10, measured 0.22)' },
+        'judoka collar_snap -1': { head: 0.18, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'judoka body_jab 0': { torso: 0.14, why: 'the low sleeve pull is the longest Mid strike of Judo and reaches for the body (P17-10, measured 0.23)' },
         'judoka body_jab 1': { torso: 0.14, why: 'as on the back slip (P17-10)' },
         'judoka body_jab -1': { torso: 0.14, why: 'as on the back slip (P17-10)' },
@@ -5162,9 +5162,9 @@ const SelfTest = {
         'bjj jab 1': { head: 0.15, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'bjj jab -1': { head: 0.22, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'hapkido cross 1': { head: 0.15, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab 0': { torso: 0.26, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab 1': { torso: 0.24, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab -1': { torso: 0.11, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'kali jab 0': { torso: 0.23, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'kali jab 1': { torso: 0.21, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'kali jab -1': { torso: 0.10, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'kravmaga jab 1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'kravmaga jab -1': { head: 0.27, torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'mma cross 1': { torso: 0.27, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
@@ -5172,6 +5172,9 @@ const SelfTest = {
         'mma sweep 1': { foot: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'kravmaga jab 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'mma cross 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'wrestler snap_down 1': { torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'wrestler snap_down -1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'bjj guard_kick 1': { torso: 0.28, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'boxer body_jab -1': { torso: 0.24, why: 'Boxing has no leg moves, so the body jab is its longest Mid strike and crosses the body on the slip side (P17-10)' },
         'boxer body_jab 1': { torso: 0.22, why: 'Boxing has no leg moves, so the body jab is its longest Mid strike and crosses the body on the slip side (P17-10)' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
