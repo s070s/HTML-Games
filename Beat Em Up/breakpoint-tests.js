@@ -282,7 +282,8 @@ const SelfTest = {
       return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id);
     };
     const stringRows = [];   // every row of both tables: { keys, low, moves }
-    for (const table of ['stand', 'crouch']) for (const keys in STRINGS[table]) stringRows.push({ keys, low: table === 'crouch', moves: STRINGS[table][keys] });
+    const kaiStrings = stringsFor(moveStyleFor(ROSTER_BY_ID.kai));   // the rows of the default fighter (a kickboxer since P17-10)
+    for (const table of ['stand', 'crouch']) for (const keys in kaiStrings[table]) stringRows.push({ keys, low: table === 'crouch', moves: kaiStrings[table][keys] });
 
     test('Deterministic simulation (same seed, same result)', () => {
       const play = () => {
@@ -1347,8 +1348,8 @@ const SelfTest = {
         m.dispose();
       }
       for (const mode of ['attackHigh', 'attackLow', 'attackMix']) {
-        const m = mk({ mode: 'training', dummy: mode });
-        m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, mode);
+        const m = mk({ mode: 'training', dummy: mode, opponentId: 'kai' });   // a fighter whose crouch Kick is a Low strike
+        m.controllers[1] = new DummyController(ROSTER_BY_ID.kai, mode);
         self.place(m, 3.5); self.run(m, 900);
         m.dispose();
       }
@@ -1767,11 +1768,11 @@ const SelfTest = {
             Input.reset(); Input.releaseAll(); Input.lastDevice = path; Settings.v.autoAssist = assist;
             return playWhiffs(letters, spacing, paths[path]).join();
           };
-          const want = { PPP: 'jab,cross,hook', KKK: 'front_kick,roundhouse,heavy_roundhouse' };
+          const want = { PPP: kaiStrings.stand.PPP.join(), KKK: kaiStrings.stand.KKK.join() };
           for (const letters in want) {
             const on = play(letters, 0, true), off = play(letters, 0, false);
             if (on !== want[letters]) problems.push(path + ' ' + letters + ' on: ' + on);
-            const first = STRINGS.stand[letters[0]][0];
+            const first = kaiStrings.stand[letters[0]][0];
             if (off !== [first, first, first].join()) problems.push(path + ' ' + letters + ' off: ' + off);   // a miss starts step 1 again
           }
           const slow = play('PP', near, true), slowOff = play('PP', near, false), tooSlow = play('PP', far, true);
@@ -2265,8 +2266,8 @@ const SelfTest = {
     test('Training: attacking dummies walk in and attack at their height, block-after-hit blocks the follow-up', () => {
       const heights = {};
       for (const mode of ['attackHigh', 'attackLow', 'attackMix']) {
-        const m = mk({ mode: 'training', dummy: mode });
-        m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, mode);
+        const m = mk({ mode: 'training', dummy: mode, opponentId: 'kai' });   // a fighter whose crouch Kick is a Low strike
+        m.controllers[1] = new DummyController(ROSTER_BY_ID.kai, mode);
         self.place(m, 3.5);
         const log = self.capture(['attackStart']);
         self.run(m, 1200);   // about 15 attacks, so a random mix shows both heights
@@ -3398,10 +3399,10 @@ const SelfTest = {
         m.dispose();
         return r;
       };
-      // kickboxer and brawler both play the default attack strings (the other move styles have string overrides, P3-10), so only their motion differs
+      // one move style, so only the looks differ (since P17-10 no two styles play the same strings)
       const small = play({ scale: SCALE_MIN, build: BUILD_MIN, hairStyle: 'afro', topStyle: 'gi', legs: 'pants', hands: 'wraps' }, 'kickboxer');
-      const big = play({ scale: SCALE_MAX, build: BUILD_MAX, hairStyle: 'bald', mask: 'full', feet: 'boots', glow: 'on' }, 'brawler');
-      const aged = play({ scale: SCALE_MAX, build: BUILD_MAX, age: AGE_MAX, gender: 'F', muscle: 1 }, 'brawler');   // fitness, age and gender with the same build
+      const big = play({ scale: SCALE_MAX, build: BUILD_MAX, hairStyle: 'bald', mask: 'full', feet: 'boots', glow: 'on' }, 'kickboxer');
+      const aged = play({ scale: SCALE_MAX, build: BUILD_MAX, age: AGE_MAX, gender: 'F', muscle: 1 }, 'kickboxer');   // fitness, age and gender with the same build
       delete ROSTER_BY_ID.ctest;
       return small === big && big === aged ? true : small + ' != ' + big + ' != ' + aged;
     });
@@ -3599,7 +3600,7 @@ const SelfTest = {
           log.stop();
           const t = log.throw[0];
           const path = seen.join('>');
-          const ok = t && t.grip === grip && t.dir === dir && t.name === THROW_SETS[grip][dir].name && path.endsWith('THROWN>DOWN>GETUP>IDLE') && a.state === S.IDLE && landedDot > 0.4;
+          const ok = t && t.grip === grip && t.dir === dir && t.name === throwFor(grip, dir, moveStyleFor(ROSTER_BY_ID.kai)).name && path.endsWith('THROWN>DOWN>GETUP>IDLE') && a.state === S.IDLE && landedDot > 0.4;
           if (!ok) problems.push(grip + '/' + dir + ': ' + (t ? t.grip + '/' + t.dir : 'no throw') + ' ' + path + ' landed ' + landedDot.toFixed(2));
           m.dispose();
         }
@@ -4981,9 +4982,12 @@ const SelfTest = {
       const problems = [], hits = {};
       ROSTER.slice(6).forEach((r, i) => {
         try {
-          const run = SimRunner.run({ playerId: r.id, opponentId: 'kai', seed: 100 + i, difficulty: 'hard', timer: 10, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
-          if (run.error) problems.push(r.id + ' ' + run.error);
-          else if (!(run.ticks > 60) || run.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(r.id + ' ticks ' + run.ticks + ' hp ' + run.hpLeft.join('/'));
+          for (const seed of [100 + i, 300 + i, 500 + i]) {   // up to three fights: one lost in 9 s before a single hit (the Wrestling CPU, P17-10) is not a preset that cannot hit
+            const run = SimRunner.run({ playerId: r.id, opponentId: 'kai', seed, difficulty: 'hard', timer: 20, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
+            if (run.error) problems.push(r.id + ' ' + run.error);
+            else if (!(run.ticks > 60) || run.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(r.id + ' ticks ' + run.ticks + ' hp ' + run.hpLeft.join('/'));
+            if (hits[r.id] > 0) break;
+          }
         } catch (e) { problems.push(r.id + ' ' + e.message); }
       });
       const silent = ROSTER.slice(6).filter((r) => !(hits[r.id] > 0)).map((r) => r.id);
@@ -7992,7 +7996,7 @@ const SelfTest = {
       Object.keys(WEAPONS).filter((id) => WEAPONS[id].cls !== 'carry').forEach((id) => {
         const want = WEAPON_STEPS[WEAPONS[id].cls], table = weaponTable('kickboxer', id).stand;
         if (len('kickboxer', id) !== want) problems.push(id + ' ' + len('kickboxer', id) + ' steps, wanted ' + want);
-        if (table.K.join() !== STRINGS.stand.K.join() || table.KK.join() !== STRINGS.stand.KK.join()) problems.push(id + ': Kick strings changed');
+        if (table.K.join() !== stringsFor('kickboxer').stand.K.join() || table.KK.join() !== stringsFor('kickboxer').stand.KK.join()) problems.push(id + ': Kick strings changed');
       });
       if (len('kali', 'stick') !== 4 || len('boxer', 'stick') !== 3 || len('kali', 'bat') !== 2) problems.push('Kali stick');
       const kali = new Fighter(ROSTER_BY_ID.marlon, 0), plain = new Fighter(ROSTER_BY_ID.kai, 1);
@@ -14392,7 +14396,7 @@ const SelfTest = {
         }));
         for (const item of ['bat', 'chain', 'bottle']) styles.forEach((style) => run(style + ' with a ' + item, holdSequence(style, itemBodies[4], itemBodies[2], false, item, 100)));   // a one-handed item stays in the hand through the hold and is part of the measure
       } finally { delete ROSTER_BY_ID.gsub_a; delete ROSTER_BY_ID.gsub_v; }
-      if (kinds.size !== 4) bad.push('only ' + [...kinds].join() + ' holds checked');
+      if (kinds.size !== 6) bad.push('only ' + [...kinds].join() + ' holds checked');
       return bad.length ? bad.length + ' problems in ' + runs + ' holds: ' + bad.slice(0, 4).join('; ') + ' (lowest ' + (stats.low * 100).toFixed(1) + ' cm, biggest jump ' + (stats.jump * 100).toFixed(1) + ' cm)' : true;
     });
     test('Ground submissions (P18-38): only the holder and a fighter lying down are measured and moved; the shift starts with the hold and is gone once both are on their feet again', () => {
