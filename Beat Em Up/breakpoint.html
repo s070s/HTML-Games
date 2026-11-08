@@ -5179,7 +5179,7 @@ const MOVE_STYLE_IDS = Object.keys(MOVE_STYLE);
 const SKINS = {
 boxer: { heavy_body_kick: ['Liver Shot', 'liver', 'RA', 1.2], heavy_front: ['Clinch Shove', 'shove', 'LA', 1.1], power_jab: ['Power Cross', 'straight'], counter_strike: ['Slip Counter', 'slipCross'], counter_kick: ['Counter Uppercut', 'upper', 'RA', 1.2, null, 'punch'], jump_kick: ['Leaping Cross', 'airCross', 'RA', 1.25, null, 'punch'] },
   kickboxer: { roundhouse: ['Round Kick', 'round'], heavy_front: ['Heavy Push Kick', 'front'], power_jab: ['Power Cross', 'straight'], heavy_roundhouse: ['Heavy Round Kick', 'round'], counter_strike: ['Counter Cross', 'straight'], counter_kick: ['Counter Low Kick', 'low'], jump_kick: ['Flying Knee', 'airKnee'] },
-  karateka: { front_kick: ['Mae-geri', 'mae'], cross: ['Reverse Punch', 'gyaku'], roundhouse: ['Mawashi Kick', 'mawashi'], power_jab: ['Lunge Punch', 'oi'], heavy_front: ['Kekomi Front Kick', 'mae'], heavy_roundhouse: ['Kyokushin Round Kick', 'mawashi'], body_jab: ['Gedan Punch', 'gedan'], gut_punch: ['Heavy Gedan Punch', 'gedan'], sweep: ['Reaping Foot Sweep', 'footSweep'], counter_strike: ['Kaeshi Reverse Punch', 'gyaku'], counter_kick: ['Mae-geri Counter', 'mae'] },
+  karateka: { front_kick: ['Mae-geri', 'mae'], cross: ['Reverse Punch', 'gyaku'], roundhouse: ['Mawashi Kick', 'mawashi'], heavy_roundhouse: ['Kyokushin Round Kick', 'mawashi'], power_jab: ['Lunge Punch', 'oi'], heavy_front: ['Kekomi Front Kick', 'mae'], body_jab: ['Gedan Punch', 'gedan'], gut_punch: ['Heavy Gedan Punch', 'gedan'], sweep: ['Reaping Foot Sweep', 'footSweep'], counter_strike: ['Kaeshi Reverse Punch', 'gyaku'], counter_kick: ['Mae-geri Counter', 'mae'] },
   wrestler: { front_kick: ['Knee Lift', 'knee', null, 1.05], hook: ['Underhook Smash', 'underhook'], heavy_front: ['Shoulder Charge', 'shoulder', 'RA', 1.15], heavy_uppercut: ['Underhook Lift', 'underhook', 'RA', 1.1], low_kick: ['Leg Trip', 'trip'], sweep: ['Single-Leg Trip', 'trip'], counter_strike: ['Shoulder Counter', 'shoulder'], counter_kick: ['Sprawl and Drive', 'sprawl'] },
   judoka: { heavy_front: ['Push-Out', 'pushout', 'LA', 1.2], heavy_uppercut: ['Lift-Up', 'lift', null, 1.1], sweep: ['Reaping Foot Sweep', 'footSweep'], body_jab: ['Low Sleeve Pull', 'collar'], counter_strike: ['Collar Counter', 'collar'], counter_kick: ['Counter Sweep', 'footSweep'] },
   brawler: { jab: ['Wild Jab', 'swing'], cross: ['Big Right', 'haymaker'], heavy_body_kick: ['Swing Kick', 'swingKick'], hook: ['Haymaker', 'haymaker'], heavy_front: ['Heavy Stomp', 'stompK'], heavy_uppercut: ['Rising Haymaker', 'haymaker'], sweep: ['Low Stomp', 'stompK'], counter_strike: ['Dirty Head Butt', 'headbutt'], counter_kick: ['Stomp Counter', 'stompK'] },
@@ -5314,6 +5314,7 @@ function applyStyleGuard(p, m) {
 
 const KICK_ANIMS = ['front', 'low', 'round', 'roundLow', 'airKick', 'teep', 'spinBack', 'jumpRound', 'spinHeel', 'roundThai', 'roundTkd'];
 const isKickAnim = (anim) => KICK_ANIMS.includes(anim);
+const ROUND_KICKS = ['round', 'roundLow', 'roundThai', 'roundTkd'], STRAIGHT_KICKS = ['front', 'low']; // the kicks that turn the body over the support foot, and those that go straight out (a derived animation counts as its base)
 /* Animations as data: ANIM_SPECS[name] = [base, spec], a strike builder plus the offsets of the spec language of STYLE_TECH (and pitch, brol, yaw, rdrop, pre). A name used on rows of different heights or limbs names one base for each:
    { rowId or H / M / L: builder }, so a Mid body punch never gets the pose of a High one. STRIKE_BUILDERS[name] (or name:key) is built once at load; ANIM_BASE remembers the base so the style's technique of that builder still applies. */
 const ANIM_SPECS = {
@@ -5344,7 +5345,7 @@ const ANIM_SPECS = {
   mae: ['front', { leg: [0, 0, -0.05], lean: -0.1, base: [0, 0, -0.1] }],
   gyaku: ['straight', { twist: 0.3, rear: [-0.2, 0, 0.2], lean: -0.05, arm: [0, 0.35, 0], off: [0, 0, -0.05] }],
   gedan: ['straightLow', { arm: [-0.05, 0, 0.1], drop: 0.2, lean: 0.1, off: [0, 0, -0.05], front: [0.2, -0.15, 0], rear: [-0.1, 0, 0], fwd: 0.5 }],
-  mawashi: ['round', { leg: [0, 0.05, 0.05], lean: -0.1 }],
+  mawashi: ['round', { lean: 0.001 }],
   knee: ['front', { leg: [-0.15, 0, -0.1], lean: 0.2, base: [0.2, -0.1, 0], fwd: 0.1 }],
   underhook: [{ hook: 'hook', heavy_uppercut: 'upper' }, { arm: [0.1, -0.15, 0.2], lean: 0.3, drop: 0.25, head: 0.2, front: [0, 0.2, 0], rear: [0.7, -0.6, -0.7], fwd: 0.2 }],
   pushout: ['straightLow', { arm: [0.1, 0, 0.1], lean: 0.2, off: [0.3, 0, 0], front: [0, 0, -0.35], fwd: 0.3 }],
@@ -5413,7 +5414,7 @@ function styledStrikePose(mv, m) {
   const kick = isKickAnim(mv.anim);
   p[J.torsoTwist] = g[J.torsoTwist] + (p[J.torsoTwist] - g[J.torsoTwist]) * (kick ? 1 : m.punchHip);
   if (!kick) p[J.torsoLean] += m.punchLean;
-  else p[J.torsoLean] -= m.kickLean * (mv.anim === 'front' || mv.anim === 'low' ? 0.6 : 1);
+  else p[J.torsoLean] -= m.kickLean * (STRAIGHT_KICKS.includes(ANIM_BASE[mv.anim] || mv.anim) ? 0.6 : 1);
   if (!m.noTech) for (const spec of techFor(m.styleId, mv.anim)) applyTech(p, spec, s); // the style's own technique
   m.strikes[key] = p;
   return p;
@@ -7063,7 +7064,7 @@ class Fighter {
       pose[J.torsoTwist] = g[J.torsoTwist] + (strike[J.torsoTwist] - g[J.torsoTwist]) * Math.max(ext, lead);
     }
     // heel pivot: rear-hand (right) punches and round kicks turn the body over the support foot
-    const roundKick = mv.anim === 'round' || mv.anim === 'roundLow';
+    const roundKick = ROUND_KICKS.includes(ANIM_BASE[mv.anim] || mv.anim);
     const pivot = kick ? (roundKick ? m.kickPivot : m.kickPivot * 0.3) : (mv.limb[0] === 'R' ? m.punchPivot : 0);
     const side = mv.limb[0] === 'L' ? 1 : -1;
     const pivots = m.pivots || (m.pivots = {}); // the style's extra turn on the support foot, worked out once per builder
