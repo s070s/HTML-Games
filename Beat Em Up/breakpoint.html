@@ -4503,7 +4503,7 @@ variant('front_kick', 'side_kick', 'Side Thrust Kick', 'sokuto', { tier: 2, star
 variant('low_kick', 'foot_sweep', 'Foot Sweep', 'footSweep', { startup: 8, active: 3, recovery: 13, dmg: 6, stam: 4, reach: 1.3, width: 0.4, push: 0.1, hitstun: 15, blockstun: 8 });
 variant('front_kick', 'stomp', 'Stomp', 'stompK', { tier: 2, startup: 10, active: 3, recovery: 16, dmg: 7, stam: 5, reach: 1.3, width: 0.4, push: 0.8, hitstun: 17, blockstun: 9 });
 variant('roundhouse', 'armada', 'Armada', 'armada', { startup: 12, active: 4, recovery: 19, dmg: 11, stam: 7, reach: 1.5, width: 0.9, push: 0.7, hitstun: 21, blockstun: 12 });
-variant('roundhouse', 'cartwheel', 'Au Batido', 'cartwheel', { btn: 'lk', limb: 'LL', startup: 13, active: 4, recovery: 19, dmg: 11, stam: 7, reach: 1.45, width: 1.0, push: 0.5, hitstun: 21, blockstun: 12 });
+variant('roundhouse', 'cartwheel', 'Au Batido', 'cartwheel', { btn: 'lk', limb: 'LL', plant: true, startup: 13, active: 4, recovery: 19, dmg: 11, stam: 7, reach: 1.45, width: 1.0, push: 0.5, hitstun: 21, blockstun: 12 });
 variant('roundhouse', 'handstand_kick', 'Bananeira', 'handstand', { h: 'M', duck: true, plant: true, startup: 14, active: 4, recovery: 20, dmg: 11, stam: 8, reach: 1.4, width: 0.5, push: 0.5, hitstun: 22, blockstun: 12 });
 variant('low_kick', 'leg_pick', 'Leg Pick', 'legPick', { tier: 2, startup: 10, active: 3, recovery: 15, dmg: 7, stam: 5, reach: 1.15, width: 0.4, push: 0.2, hitstun: 16, blockstun: 9 });
 variant('front_kick', 'guard_kick', 'Guard Kick', 'guardKick', { startup: 9, active: 3, recovery: 15, dmg: 6, stam: 5, reach: 1.3, width: 0.35, push: 0.7, hitstun: 15, blockstun: 9 });
@@ -4701,7 +4701,7 @@ const CLINCH_STRIKE_POSES = {
   },
   boxing: { // boxer: a short hook to the ribs where the other sets have a knee (Boxing has no leg moves), and an elbow thrown like a tight uppercut
     knee(p, u) { p[J.shRx] = 0.8 + 0.3 * u; p[J.shRz] = 0.5 * u; p[J.elR] = 1.7; p[J.shLx] = 1.3; p[J.elL] = 1.9; p[J.torsoTwist] = 0.6 * u; p[J.torsoLean] = 0.4; p[J.knL] += 0.3 * u; p[J.knR] += 0.3 * u; },
-    elbow(p, u) { p[J.shRx] = 0.7; p[J.shRz] = 0.1; p[J.elR] = 1.4 + 0.95 * u; p[J.torsoTwist] = 0.5 * u; p[J.torsoLean] = -0.1; p[J.knL] += 0.35 * u; p[J.knR] += 0.35 * u; },
+    elbow(p, u) { p[J.shRx] = 0.9; p[J.shRz] = 0.5 * u; p[J.elR] = 1.0 + 0.6 * u; p[J.shLx] = 1.3; p[J.elL] = 1.9; p[J.torsoTwist] = 0.8 * u; p[J.torsoLean] = 0.2; p[J.knL] += 0.2 * u; p[J.knR] += 0.2 * u; },
   },
   capoeira: { // capoeira: the leg hooks round the foe's leg (a low sweeping knee), and a head-down shove with a forearm
     knee(p, u) { p[J.hipRx] = 0.9 * u; p[J.hipRz] = 0.9 * u; p[J.knR] = 1.0 * u + 0.3; p[J.torsoRoll] = -0.4 * u; p[J.torsoLean] = 0.5; p[J.headX] = 0.4 * u; },
@@ -4965,13 +4965,13 @@ const KICK_PIVOT_SHARE = 0.5; // share of a kick's heel-pivot turn that is drawn
 const STYLE_TECH = {
   boxer: { punch: { off: [0.45, -0.1, 0.1], head: 0.4, roll: 0.2, twist: -0.04, drop: 0.1, lean: 0.05, rear: [-0.15, 0, 0.45], wind: 0.8 }, upper: { drop: 0.25, lean: -0.15 }, hook: { arm: [0, 0.15, 0.3], twist: 0.3 }, kick: { off: [0.6, -0.1, 0.4], head: 0.35, lean: 0.3, base: [0, 0, 0.35], drop: 0.05 }, round: { leg: [0, 0, 0.1] } },
   kickboxer: { punch: { off: [0.7, 0, 0.5], head: 0.4, twist: 0.2, lean: -0.3, fwd: 0.2, front: [0.35, 0, 0.3], rear: [-0.25, 0, 0.35] }, kick: { off: [0.7, 0, 0.45], sw: [-0.8, 0.4, -0.5], twist: 0.4, roll: 0.2, lean: -0.15, pivot: 0.2 }, teep: { leg: [0.15, 0, 0] }, low: { twist: 0.6, lean: -0.2, roll: 0.3, pivot: 0.2 }, roundLow: { twist: 0.4, lean: -0.2, roll: 0.2, pivot: 0.15 } },
-  karateka: { punch: { off: [-1.75, 0.05, 0.75], twist: 0, lean: -0.1, front: [0.55, 0.05, 0.6], rear: [-0.45, 0.1, -0.15], wind: 0.4 }, kick: { off: [-1.0, 0.05, 0.55], sw: [-0.6, 0.1, 0.3], base: [0, 0, -0.25], lean: -0.2, fwd: 0.08, wind: 0.6, pivot: 0.2 } },
+  karateka: { punch: { off: [-1.75, 0.05, 0.65], twist: 0, lean: -0.1, front: [0.55, 0.05, 0.6], rear: [-0.45, 0.1, -0.15], wind: 0.4 }, kick: { off: [-1.0, 0.05, 0.55], sw: [-0.6, 0.1, 0.3], base: [0, 0, -0.25], lean: -0.2, fwd: 0.08, wind: 0.6, pivot: 0.2 } },
   wrestler: { punch: { drop: 0, lean: 0.1, off: [-0.4, 0.1, -1.2], arm: [0, -0.1, 0.2], front: [0.15, 0.3, 0.2], rear: [0, 0.35, 0.2], fwd: 0.12, wind: 0.7 }, kick: { lean: 0.15, off: [-0.3, 0.1, -1.0], base: [0, 0.3, 0] } },
   judoka: { punch: { off: [0.6, 0.2, -1.1], lean: -0.3, twist: 0.3, head: -0.15, front: [-0.1, 0, 0.15] }, kick: { off: [0.8, 0.25, -1.1], sw: [0.8, 0.2, -1.1], drop: 0.05, lean: 0.15 }, round: { leg: [0, 0, 0.3], roll: 0.4 } },
   brawler: { punch: { off: [-0.9, 0.4, -0.5], arm: [0, 0.6, 0.3], twist: 0.4, lean: 0.25, head: -0.3, fwd: 0.18, wind: 2.0 }, kick: { off: [-0.7, 0.4, -0.3], sw: [-0.7, 0.5, 0], lean: 0.3, wind: 1.6 }, round: { leg: [0, 0.35, 0] } },
   capoeira: { punch: { off: [-0.7, 0.35, -0.2], arm: [-0.1, 0.3, 0], lean: 0.15, drop: 0.15, front: [0, 0.2, 0.1], rear: [0, 0.3, 0.1] }, kick: { off: [-0.5, 0.3, -1.2], sw: [-0.4, 0.3, -1.1], lean: 0.4, drop: 0.05 }, round: { leg: [0, 0.1, 0] } },
   wingchun: { punch: { off: [0.55, -0.2, -1.0], arm: [-0.1, -0.35, 0], twist: -0.2, lean: -0.25, head: -0.2, front: [0, -0.3, 0.15], rear: [-0.1, -0.6, 0.2], wind: 0.2 }, kick: { off: [0.55, -0.1, -1.0], lean: -0.35, wind: 0.4 }, round: { leg: [0, -0.1, 0] } },
-  muaythai: { punch: { fwd: 0.25, off: [0.7, 0, 0.35], lean: -0.35, head: 0.35, drop: -0.05, wind: 0.9 }, kick: { off: [0.5, 0.1, 0.3], sw: [-1.3, 0.4, -0.8], base: [0, 0, -0.2], lean: -0.3, twist: 0.2, pivot: 0.3, wind: 1.3 }, use: { round: 'roundThai' } },
+  muaythai: { punch: { fwd: 0.25, off: [0.64, 0, 0.35], lean: -0.35, head: 0.35, drop: -0.05, wind: 0.9 }, kick: { off: [0.5, 0.1, 0.3], sw: [-1.3, 0.4, -0.8], base: [0, 0, -0.2], lean: -0.3, twist: 0.2, pivot: 0.3, wind: 1.3 }, use: { round: 'roundThai' } },
   taekwondo: { punch: { off: [-1.1, 0.5, 0], arm: [-0.2, 0, 0], lean: -0.3, front: [0.15, 0.3, 0.2], rear: [-0.2, 0.4, 0.15] }, kick: { off: [-0.4, 0.8, -0.4], sw: [-0.1, 0.8, -0.4], base: [0, 0, -0.25], lean: -0.3, pivot: 0.1, wind: 1.0 }, use: { round: 'roundTkd' } },
   sambo: { punch: { off: [0.3, 0.1, -1.0], drop: 0.1, lean: 0.05, twist: 0.7, front: [0.2, 0.3, 0.3], rear: [-0.2, 0.35, 0.3] }, kick: { off: [0.6, 0.1, -1.0], drop: 0.05, lean: 0.1, base: [0, 0.2, 0.2] }, round: { leg: [0, 0.1, 0], roll: 0.4, lean: 0.35, head: 0.55 } },
   bjj: { punch: { drop: 0.1, lean: 0, off: [-0.5, 0, -0.6], head: 0.3, front: [0.15, 0.35, 0.25], rear: [0, 0.4, 0.25] }, kick: { lean: 0.1, leg: [-0.1, 0, 0], off: [0.1, 0, -0.6], sw: [0, 0, -0.8] }, round: { leg: [0, 0, 0.1] } },
@@ -5348,61 +5348,61 @@ const ROUND_KICKS = ['round', 'roundLow', 'roundThai', 'roundTkd'], STRAIGHT_KIC
 const ANIM_SPECS = {
   bodyHook: ['hook', { arm: [-0.2, 0, 0.2], drop: 0.15, lean: 0.15, front: [0.2, 0, 0], head: -0.05, fwd: 0.5 }],
   bobHook: ['hook', { drop: 0.3, lean: 0.25, head: -0.05, arm: [-0.1, 0, 0.1], front: [0.25, 0, -0.05], fwd: 0.55 }],
-  oi: ['straight', { front: [0.05, 0, 0.1], fwd: 0.55, lean: 0.05, off: [0, 0, -0.05] }],
+  oi: ['straight', { front: [0.05, 0, 0.1], fwd: 0.55, lean: 0.05, off: [0, 0, -0.1] }],
   backfist: ['straight', { arm: [-0.1, 0.35, 0.35], twist: 0.4, roll: 0.2 }],
   shoulder: [{ shoulder_bump: 'hook', heavy_front: 'straightLow', counter_strike: 'straightLow' }, { arm: [0.1, -0.1, 0.3], lean: 0.3, twist: 0.4, fwd: 0.3, drop: 0.1, front: [0, -0.3, -0.35] }],
   snapDown: ['straightLow', { arm: [0.1, 0, 0.3], lean: 0.2, head: 0.2, front: [0.05, 0, -0.4], fwd: 0.15 }],
   collar: [{ H: 'straight', M: 'straightLow' }, { arm: [-0.1, -0.15, 0.2], lean: 0.2, twist: -0.1, front: [0.05, 0, -0.3], fwd: 0.6, rear: [-0.05, 0, 0] }],
   headbutt: ['straightLow', { arm: [0.15, 0, 1], lean: 0.15, head: 0.5, drop: 0.1, front: [0, -0.05, -0.2], rear: [-0.05, 0, 0], fwd: 0.2, roll: -0.2 }],
   cabecada: ['straightLow', { arm: [0.1, 0, 1], lean: 0.5, head: 0.5, drop: 0.1, front: [0.4, -0.1, 0], rear: [-0.1, 0, 0] }],
-  superman: ['straight', { front: [-0.5, 0, 0.7], rear: [-0.6, 0, 0.9], fwd: 0.4, lean: 0.2, rdrop: -0.2, arm: [0, 0, 0.2], sw: [0, 0, 0.4], base: [0.3, 0, 0] }],
+  superman: ['straight', { front: [-0.5, 0, 0.7], rear: [-0.6, 0, 0.9], fwd: 0.45, lean: 0.2, rdrop: -0.2, arm: [0, 0, 0.2], sw: [0, 0, 0.4], base: [0.65, 0, 0], leg: [0, -0.3, 0] }],
   palm: [{ H: 'straight', M: 'straightLow', hook: 'hook' }, { arm: [-0.1, 0.1, 0.3], twist: 0.1, front: [0.15, 0, 0] }],
   switchKick: ['round', { leg: [-0.1, 0, 0], roll: 0.15, rdrop: -0.1 }],
   sokuto: ['front', { leg: [-0.1, 0.35, 0], yaw: 0.5, lean: -0.2 }],
   footSweep: [{ H: 'low', M: 'front', L: 'low' }, { leg: [0.1, -0.1, 0], lean: 0.1, twist: 0.3, base: [0.4, 0.1, -0.55], fwd: 0.75 }],
-  stompK: [{ M: 'front', L: 'low' }, { leg: [-0.1, 0, 0.05], lean: 0.15, base: [0.2, -0.05, -0.4], fwd: 0.7, yaw: -0.1 }],
+  stompK: [{ M: 'front', L: 'low' }, { leg: [-0.05, -0.75, -0.05], lean: 0.15, base: [-0.2, -0.7, -0.4], fwd: 0.7, drop: 0.25 }],
   armada: ['spinBack', { leg: [0.2, 0.5, 0.1], lean: -0.1, pitch: 0.1 }],
-  cartwheel: ['round', { yaw: 1.4, leg: [-0.45, 0.1, 0.4], front: [-0.4, 0, 0] }],
+  cartwheel: ['round', { yaw: 1.4, leg: [-0.7, 0.1, 0], front: [-0.4, -0.4, 0], base: [-0.4, -0.15, 0.6] }],
   handstand: ['front', { pitch: 3, leg: [-1.75, 0.2, 0.2], rear: [-0.4, 0.4, 0.4], drop: 0.35 }],
   legPick: ['low', { lean: 0.45, drop: 0.3, head: 0.2, sw: [0.5, 0, 0], leg: [-0.35, 0, 0] }],
-  guardKick: ['front', { lean: -0.4, drop: 0.1, base: [0.2, 0, 0], fwd: 0.8 }],
+  guardKick: ['front', { lean: -0.4, drop: 0.1, base: [-0.25, -0.15, 0.1], fwd: 0.8, leg: [0.05, 0, 0] }],
   groin: ['front', { leg: [-0.15, 0.05, 0.05], lean: 0.05, fwd: 0.65 }],
   axe: ['roundTkd', { leg: [0, -0.6, 0] }],
   liver: ['hook', { arm: [-0.2, 0.05, 0.3], drop: 0.3, lean: 0.25, front: [0.25, 0, -0.05], head: -0.05 }],
   shove: ['straightLow', { arm: [0.1, 0, 0.1], lean: 0.2, off: [0.3, 0, 0], front: [0.25, 0, 0], head: -0.05, fwd: 0.1 }],
-  mae: ['front', { leg: [0, 0, -0.05], lean: -0.1, base: [0, 0, -0.1] }],
-  gyaku: ['straight', { twist: 0.3, rear: [-0.2, 0, 0.2], lean: -0.05, arm: [0, 0.35, 0], off: [0, 0, -0.05] }],
-  gedan: ['straightLow', { arm: [-0.05, 0, 0.1], drop: 0.2, lean: 0.1, off: [0, 0, -0.05], front: [0.2, -0.15, 0], rear: [-0.1, 0, 0], fwd: 0.5 }],
+  mae: ['front', { leg: [0, 0, -0.05], lean: -0.1, base: [0.2, 0.15, -0.1], drop: -0.3 }],
+  gyaku: ['straight', { twist: 0.3, rear: [-0.2, 0, 0.2], lean: -0.05, arm: [0, 0.35, 0], off: [0, 0, -0.1] }],
+  gedan: ['straightLow', { arm: [-0.05, 0, 0.1], drop: 0.2, lean: 0.1, off: [0, 0, -0.1], front: [0.2, -0.15, 0], rear: [-0.1, 0, 0], fwd: 0.5 }],
   mawashi: ['round', { lean: 0.001 }],
-  knee: ['front', { leg: [-0.15, 0, -0.1], lean: 0.2, base: [0.2, -0.1, 0], fwd: 0.1 }],
-  underhook: [{ hook: 'hook', heavy_uppercut: 'upper' }, { arm: [0.1, -0.15, 0.2], lean: 0.3, drop: 0.25, head: 0.2, front: [0, 0.2, 0], rear: [0.7, -0.6, -0.7], fwd: 0.2 }],
+  knee: ['front', { leg: [-0.15, -0.5, -0.1], lean: 0.2, base: [0.2, -0.1, 0], fwd: 0.1 }],
+  underhook: [{ hook: 'hook', heavy_uppercut: 'upper' }, { arm: [0.15, -0.15, 0.2], lean: 0.3, drop: -0.15, head: 0.2, front: [-0.05, -0.2, 0], rear: [0.7, -0.6, -0.7], fwd: 0.2 }],
   pushout: ['straightLow', { arm: [0.1, 0, 0.1], lean: 0.2, off: [0.3, 0, 0], front: [0, 0, -0.35], fwd: 0.3 }],
   lift: ['upper', { drop: 1, lean: 0.1, off: [0.4, 0, 0], front: [-0.85, -0.05, -0.4], rear: [-0.45, 0, 0] }],
-  trip: ['low', { lean: 0.3, drop: 0.2, twist: 0.3, leg: [-0.15, -0.1, 0.2], base: [-0.4, 0, 0] }],
+  trip: ['low', { lean: 0.3, drop: 0.2, twist: 0.3, leg: [-0.1, -0.1, 0.2], base: [-0.75, 0, 0] }],
   swing: ['straight', { arm: [-0.1, 0.3, 0.2], twist: 0.3, lean: 0.1, rear: [0.2, -0.15, -0.2], fwd: 0.5 }],
-  haymaker: [{ cross: 'straight', hook: 'hook', heavy_uppercut: 'upper' }, { arm: [0, 0.2, 0.15], twist: -0.2, lean: 0.05, front: [0, -0.05, -0.4], rear: [0, 0.15, 0], roll: -0.05, fwd: 0.4, drop: -0.2 }],
+  haymaker: [{ cross: 'straight', hook: 'hook', heavy_uppercut: 'upper' }, { arm: [0, 0.2, 0.15], twist: -0.2, lean: 0.05, front: [0, -0.05, -0.1], rear: [0, 0.15, 0], roll: -0.05, fwd: 0.4, drop: -0.2 }],
   swingKick: ['roundLow', { leg: [0, 0.2, 0.1], lean: 0.2, roll: 0.2, fwd: 0.55 }],
   tapa: ['straight', { arm: [-0.1, 0.25, 0.4], twist: 0.2, front: [0, 0, -0.25], fwd: 0.65 }],
-  bencao: ['front', { lean: -0.3, base: [0.15, 0, 0] }],
+  bencao: ['front', { lean: -0.3, base: [0.35, -0.25, -0.15], leg: [0, -0.85, 0.2], drop: 0.3 }],
   crescent: ['round', { leg: [0, -0.35, 0.1], lean: 0.2, roll: 0.2, drop: -0.05 }],
-  rasteira: [{ low_kick: 'low', sweep: 'low', counter_kick: 'front' }, { drop: 0.4, lean: 0.5, leg: [-0.05, 0, 0], base: [0.45, 0, 0], front: [0, 0, -0.05], rear: [0, 0, -0.4] }],
+  rasteira: [{ low_kick: 'low', sweep: 'low', counter_kick: 'front' }, { drop: 0.4, lean: 0.4, leg: [-0.05, 0, 0], base: [0.45, 0, 0], front: [0, 0, -0.05], rear: [0, 0, -0.4] }],
   thrust: [{ M: 'front', L: 'low' }, { leg: [-0.1, 0, 0], lean: -0.1, base: [0.15, 0, -0.4] }],
   thaiBody: ['roundLow', { lean: -0.3, twist: 0.6, leg: [0.05, 0.1, -0.1] }],
-  ap: [{ M: 'front', L: 'low' }, { lean: -0.3, base: [0.45, 0, 0.1] }],
-  boot: [{ front_kick: 'front', heavy_roundhouse: 'round', heavy_front: 'front', counter_kick: 'front' }, { leg: [0, 0, 0.1], lean: 0.2, drop: -0.05, roll: -0.05, rdrop: -0.1 }],
-  guard: [{ jab: 'straight', hook: 'hook', heavy_uppercut: 'upper', heavy_front: 'front', counter_strike: 'straightLow' }, { lean: -0.2, drop: 0.25, off: [0.3, 0, 0], front: [-0.1, 0.05, 0], rear: [0.7, -0.65, -0.7], fwd: 0.7 }],
+  ap: [{ M: 'front', L: 'low' }, { lean: -0.3, base: [0.45, 0, 0.1], leg: [0, -0.55, 0.1] }],
+  boot: [{ front_kick: 'front', heavy_roundhouse: 'round', heavy_front: 'front', counter_kick: 'front' }, { leg: [0, -1, 0.35], lean: 0.2, drop: -0.05, roll: -0.05, rdrop: -0.05, base: [0.4, -0.15, 0] }],
+  guard: [{ jab: 'straight', hook: 'hook', heavy_uppercut: 'upper', heavy_front: 'straightLow', counter_strike: 'straightLow' }, { lean: -0.2, drop: 0.25, off: [0.3, 0, 0], front: [-0.1, 0.05, -0.1], rear: [0.75, -0.65, -0.7], fwd: 0.7 }],
   scissor: ['low', { lean: -0.35, drop: 0.5, twist: 0.3, leg: [-0.05, 0, 0], base: [-0.35, 0, 0] }],
-  hap: ['front', { leg: [0, 0.2, 0], lean: 0.1, base: [0.2, 0, 0] }],
-  kaliKick: [{ M: 'front', L: 'low' }, { leg: [-0.1, 0.1, 0.1], lean: 0.15, roll: 0.2, base: [0.2, 0, -0.4] }],
-  thrustK: [{ H: 'straight', M: 'straightLow' }, { arm: [-0.1, 0.2, 0.3], twist: -0.1, lean: 0.1, off: [0.35, 0.3, -0.4], front: [0, -0.2, -0.1], fwd: 0.55 }],
-  redonda: ['hook', { arm: [0.1, 0.2, -0.2], twist: 0.4, lean: 0.1, front: [0, -0.2, 0] }],
+  hap: ['front', { leg: [0, -0.4, 0], lean: 0.1, base: [0.2, 0, 0] }],
+  kaliKick: [{ M: 'front', L: 'low' }, { leg: [-0.1, -0.25, 0.1], lean: 0.15, roll: 0.2, base: [0.25, 0, -0.4], drop: -0.2 }],
+  thrustK: [{ H: 'straight', M: 'straightLow' }, { arm: [-0.05, 0.2, 0.3], twist: -0.1, lean: 0.1, off: [0.25, 0.3, -0.4], front: [0, -0.2, -0.1], fwd: 0.55 }],
+  redonda: ['hook', { arm: [0, 0.2, -0.2], twist: 0.4, lean: 0.1, front: [0, -0.2, 0] }],
   kravStomp: ['front', { leg: [-0.2, 0, -0.05], lean: 0.1 }],
   hammer: ['hook', { arm: [0.25, 0, 0.2], lean: 0.3, front: [0.1, 0, 0], fwd: 0.25, roll: -0.25 }],
-  oblique: ['front', { leg: [-0.1, 0.1, 0.1], lean: -0.2, yaw: 0.3, base: [0.2, 0, 0] }],
+  oblique: ['front', { leg: [-0.1, -0.6, 0.1], lean: -0.2, yaw: 0.3, base: [0.25, 0, 0], drop: 0.1 }],
   // moves of a fighter in the air, in a counter or a Boxing kick slot (the buttons keep their captions)
   slipCross: ['straightLow', { arm: [0.25, 0, 0], lean: 0.1, brol: -0.25, drop: 0.15, head: -0.05, fwd: 0.5 }],
   airCross: ['airPunch', { twist: 0.3, lean: 0.1, front: [0.2, 0, -0.05], head: -0.05 }],
-  sprawl: ['low', { lean: 0.55, drop: 0.5, head: 0.3, leg: [0.3, 0, -0.4], base: [0.1, -0.2, -0.4], rear: [0, 0, -0.4] }],
+  sprawl: ['low', { lean: 0.5, drop: 0.5, head: 0.3, leg: [0.3, -0.15, -0.4], base: [0.1, -0.2, -0.4], rear: [0, 0, -0.4] }],
   airFlip: ['airKick', { pitch: 1.2, leg: [0.1, 0, -0.45], base: [0, 0, -0.2], front: [-0.3, 0, -0.2], rear: [0, 0, -0.4], drop: -0.4 }],
   tornado: ['airKick', { yaw: 1.2, leg: [0.15, 0.45, -0.4], rear: [0, 0.1, -0.4] }],
   airKnee: ['airKick', { leg: [0.05, 0, 0.9], lean: 0.1, drop: -0.35, fwd: 0.5, pitch: -0.05 }],
@@ -6679,7 +6679,7 @@ class Fighter {
     const movePlant = this.state === S.ATTACK && !!this.move && this.move.plant === true; // an upside-down kick: the hands are the floor contact while it runs
     if (movePlant) this.plantFast = true;
     const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP || movePlant; // the holder, and anybody lying on the floor or getting up from it
-    if (planted && !this.plantOn) { this.plantLow = this.lowestPart(); this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew
+    if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : this.lowestPart(); this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance)
     this.computePose(dt);
     if (this.plantOn) this.plantFloor(dt, planted);
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
@@ -14766,7 +14766,7 @@ const UI = {
       const t = throwFor(grip, dir, styleId);
       return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + t.stam + ' stam</td></tr>';
     })).join('');
-    const legend = [['Punch', 'punch'], ['Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
+    const legend = [['Punch', 'punch'], [style.legless ? 'Body punches' : 'Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
       '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
@@ -16387,7 +16387,7 @@ function testApi() {
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
-    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, THROW_SKINS, clinchMoveName, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
     Fighter, GAMEPAD_LABELS, GRIP_POSES, GS, GUARD_ORTHO, Game, HAIR_CAP, HAIR_SWATCHES, HOLD_POSES, HUMAN_CONTROLLERS, IMPACT_SRC_BASE,
     ITEMS, Input, Input2, Input3, Input4, Inputs, J, JUGGLE_LIMIT, KEYMAPS, KEYS_REVISION, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM,
     KEY_PROGRESS, KEY_SETTINGS, KO_DELAY_TICKS, Keymap, Keymap2, LAYER, LEGACY_STYLE_MAP, LOCK_FLICK_TICKS, LOCK_RANGE,
