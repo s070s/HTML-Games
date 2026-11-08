@@ -4507,7 +4507,7 @@ variant('roundhouse', 'cartwheel', 'Au Batido', 'cartwheel', { btn: 'lk', limb: 
 variant('roundhouse', 'handstand_kick', 'Bananeira', 'handstand', { h: 'M', duck: true, plant: true, startup: 14, active: 4, recovery: 20, dmg: 11, stam: 8, reach: 1.4, width: 0.5, push: 0.5, hitstun: 22, blockstun: 12 });
 variant('low_kick', 'leg_pick', 'Leg Pick', 'legPick', { tier: 2, startup: 10, active: 3, recovery: 15, dmg: 7, stam: 5, reach: 1.3, width: 0.4, push: 0.2, hitstun: 16, blockstun: 9 });
 variant('front_kick', 'guard_kick', 'Guard Kick', 'guardKick', { startup: 8, active: 3, recovery: 15, dmg: 6, stam: 5, reach: 1.5, width: 0.35, push: 0.7, hitstun: 15, blockstun: 9 });
-variant('front_kick', 'groin_kick', 'Groin Kick', 'groin', { startup: 8, active: 3, recovery: 14, dmg: 6, stam: 4, reach: 1.4, width: 0.35, push: 0.3, hitstun: 16, blockstun: 9 });
+variant('front_kick', 'groin_kick', 'Groin Kick', 'groin', { startup: 9, active: 3, recovery: 14, dmg: 6, stam: 4, reach: 1.3, width: 0.35, push: 0.3, hitstun: 16, blockstun: 9 });
 variant('roundhouse', 'axe_kick', 'Axe Kick', 'axe', { startup: 12, active: 3, recovery: 19, dmg: 10, stam: 6, reach: 1.5, width: 0.5, push: 0.4, hitstun: 20, blockstun: 11 });
 // Knee = cheap body shot that drains the defender's stamina (escapes cost stamina); elbow = the bigger hit
 const CLINCH_MOVES = {
@@ -5078,7 +5078,7 @@ const MOVE_STYLE = {
     family: 'kicking', grab: 'default', throws: 'front', defense: 'block', submit: [],
     signature: [['Mae-geri', 'front_kick'], ['Side Thrust Kick', 'side_kick'], ['Kyokushin Round Kick', 'heavy_roundhouse'], ['Lunge Punch', 'power_jab'], ['Foot-Sweep Throw', 'throw:front.fwd']],
     strings: 'jab front_kick cross side_kick cross roundhouse power_jab heavy_front cross lunge_punch power_jab heavy_roundhouse body_jab low_kick body_jab side_kick gut_punch sweep',
-    aiw: 'front_kick@mae:1.3 side_kick@sokuto:1.3 lunge_punch@oi:1.3 power_jab@oi:1.3',
+    aiw: 'jab@straight:1.3 cross@gyaku:1.3 front_kick@mae:1.0 side_kick@sokuto:1.0 lunge_punch@oi:1.3 power_jab@oi:1.3',
     guardHands: -0.16, guardTight: -0.05, guardTwist: -0.12, guardLean: 0.0, guardCrouch: 0.11, guardWidth: 0.04, guardSplit: 0.14, guardTuck: 0.0,
     bounce: 0.006, bounceHz: 1.0, sway: 0.004, swayHz: 0.5, headBob: 0.01,
     punchHip: 1.35, punchPivot: 0.12, punchLean: 0.02, punchSnap: 1.45, kickChamber: 1.0, kickPivot: 0.45, kickLean: 0.12, kickSnap: 1.3,
@@ -5105,7 +5105,7 @@ const MOVE_STYLE = {
     family: 'hybrid', moves: null, grab: 'brawler', throws: 'front', defense: 'block', submit: [],
     signature: [['Haymaker', 'hook'], ['Head Butt', 'headbutt'], ['Stomp', 'stomp'], ['Shove', 'grab'], ['Bear-Hug Slam', 'throw:front.back']],
     strings: 'jab stomp cross heavy_body_kick jab stomp hook heavy_front headbutt heavy_uppercut headbutt heavy_body_kick headbutt stomp headbutt stomp heavy_uppercut sweep',
-    aiw: 'headbutt@headbutt:1.3 stomp@stompK:1.3 hook@haymaker:1.0 sweep@stompK:1.0',
+    aiw: 'jab@swing:1.3 cross@haymaker:1.3 hook@haymaker:1.3 headbutt@headbutt:1.0 stomp@stompK:0.7 sweep@stompK:1.0',
     guardHands: -0.13, guardTight: -0.08, guardTwist: 0.16, guardLean: 0.08, guardCrouch: 0.06, guardWidth: 0.06, guardSplit: -0.06, guardTuck: 0.04,
     bounce: 0.012, bounceHz: 1.2, sway: 0.03, swayHz: 0.6, headBob: 0.05,
     punchHip: 1.4, punchPivot: 0.24, punchLean: 0.14, punchSnap: 0.8, kickChamber: 0.3, kickPivot: 0.35, kickLean: 0.06, kickSnap: 0.85,
