@@ -12323,21 +12323,21 @@ function mergePresses(code, carried) {
   return ((code & 0xffff) | (merged << 16)) >>> 0;
 }
 
-// A packet of the input channel: seat, the newest frame, a count, then that many inputs (the newest last), all big-endian
-const NET_PACKET_HEAD = 6;
-function packInputs(seat, last, codes) {
+// A packet of the input channel: seat, the match number, the newest frame, a count, then that many inputs (the newest last), all big-endian. A packet of another match (a late one after a rematch) is dropped on receipt.
+const NET_PACKET_HEAD = 8;
+function packInputs(seat, last, codes, matchId = 0) {
   const bytes = new Uint8Array(NET_PACKET_HEAD + codes.length * 4), view = new DataView(bytes.buffer);
-  bytes[0] = seat; view.setUint32(1, last); bytes[5] = codes.length;
+  bytes[0] = seat; view.setUint16(1, matchId & 0xffff); view.setUint32(3, last); bytes[7] = codes.length;
   codes.forEach((code, i) => view.setUint32(NET_PACKET_HEAD + i * 4, code));
   return bytes;
 }
 function unpackInputs(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < NET_PACKET_HEAD) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[5];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[7];
   if (count < 1 || count > NET_FILL_MAX || bytes.length !== NET_PACKET_HEAD + count * 4) return null;
   const codes = [];
   for (let i = 0; i < count; i++) codes.push(view.getUint32(NET_PACKET_HEAD + i * 4));
-  return { seat: bytes[0], last: view.getUint32(1), codes };
+  return { seat: bytes[0], matchId: view.getUint16(1), last: view.getUint32(3), codes };
 }
 
 // The state every peer must hold equal (positions, velocities, health, stamina, states, timers, items, hazards, breakables and the simRng state) as one FNV-1a 32 number
@@ -12398,7 +12398,8 @@ class NetSeatController {
    controller: keyboard, pad and touch, on the host and on every guest). Callbacks, also assignable later: onWaiting(text or null, seat), onDesync({ text, frame, seat }), onDrop({ seat, name, outcome }) with outcome 'forfeit', 'seatedOut' or 'lost' (the host is gone). */
 class LockstepSession {
   constructor(o) {
-    this.match = o.match; this.seat = o.seat | 0; this.seatCount = o.seatCount | 0; this.host = !!o.host;
+    // matchId: the same number on every peer and new for each match (default: the match seed, which the lobby shares); packets and messages of another match are dropped
+    this.match = o.match; this.matchId = (o.matchId === undefined ? o.match.cfg.seed : o.matchId) & 0xffff; this.seat = o.seat | 0; this.seatCount = o.seatCount | 0; this.host = !!o.host;
     this.fighterOf = o.fighterOf || Array.from({ length: this.seatCount }, (_, seat) => seat);
     this.now = o.now || (() => performance.now());
     this.delay = clamp(Math.round(o.delay || NET_INPUT_DELAY), NET_DELAY_MIN, NET_DELAY_MAX);
@@ -12448,7 +12449,10 @@ class LockstepSession {
   }
   // A jump, punch, kick or grapple press by any seat that still plays: what skips the round-end sequence
   skipPressed(frame) {
-    for (let seat = 0; seat < this.seatCount; seat++) if (!this.dropped.has(seat) && ((this.got[seat].get(frame) >>> 16) & NET_SKIP_BITS)) return true;
+    for (let seat = 0; seat < this.seatCount; seat++) {
+      const from = this.dropped.get(seat); // like every other check: a dropped seat counts up to its drop frame, whenever this peer learned of the drop
+      if ((from === undefined || frame < from) && ((this.got[seat].get(frame) >>> 16) & NET_SKIP_BITS)) return true;
+    }
     return false;
   }
   service(now) {
@@ -12475,7 +12479,7 @@ class LockstepSession {
     const mine = this.got[this.seat], first = Math.max(this.firstFrame, this.sentUpTo - NET_REDUNDANCY + 1), codes = [];
     for (let f = first; f <= this.sentUpTo; f++) codes.push(mine.get(f) || 0);
     if (!codes.length) return;
-    const bytes = packInputs(this.seat, this.sentUpTo, codes);
+    const bytes = packInputs(this.seat, this.sentUpTo, codes, this.matchId);
     for (const [, link] of this.livePeers()) link.send('input', bytes);
     this.lastResend = this.now();
   }
@@ -12568,7 +12572,7 @@ class LockstepSession {
   }
   retune() { return this.setDelay(this.recommendedDelay()); }
   // --- messages
-  sendControl(seat, message) { const link = this.peers.get(seat); if (link) link.send('control', JSON.stringify(message)); }
+  sendControl(seat, message) { const link = this.peers.get(seat); if (link) link.send('control', JSON.stringify(Object.assign({ mid: this.matchId }, message))); }
   livePeers() { return Array.from(this.peers).filter(([seat]) => !this.dropped.has(seat)); } // [seat, link] of the seats not dropped
   broadcast(message, except) { for (const [seat] of this.livePeers()) if (seat !== except) this.sendControl(seat, message); }
   validSeat(seat) { return Number.isInteger(seat) && seat >= 0 && seat < this.seatCount; }
@@ -12585,7 +12589,7 @@ class LockstepSession {
     if (this.ended || (this.host && this.dropped.has(from))) return; // nothing from a dropped seat counts any more (it may still be running on its own)
     if (channel === 'input') {
       const packet = unpackInputs(data);
-      if (!packet || !this.validSeat(packet.seat) || packet.seat === this.seat || (this.host && packet.seat !== from)) return; // a guest sends its own seat only
+      if (!packet || packet.matchId !== this.matchId || !this.validSeat(packet.seat) || packet.seat === this.seat || (this.host && packet.seat !== from)) return; // a guest sends its own seat only
       this.store(packet.seat, packet.last, packet.codes);
       if (this.host) for (const [seat, link] of this.livePeers()) if (seat !== from) link.send('input', data); // the relay: the same bytes to every other guest
       return;
@@ -12595,6 +12599,7 @@ class LockstepSession {
     if (message && typeof message === 'object') this.onControl(from, message, data);
   }
   onControl(from, m, raw) {
+    if (m.mid !== this.matchId) return; // a message of another match (a late sum or desync after a rematch)
     const relay = () => { if (this.host) for (const [seat, link] of this.livePeers()) if (seat !== from) link.send('control', raw); };
     const frameOk = (frame) => Number.isInteger(frame) && frame > this.match.tick - NET_HISTORY && frame <= this.match.tick + NET_AHEAD_MAX;
     switch (m.t) {
@@ -13389,9 +13394,9 @@ const Game = {
   },
 
   // --- pause
-  pause(by) {
-    if (this.net) { // an online match cannot pause (the other seats would wait): the pause key asks whether to leave, the sim goes on
-      if (this.state === GS.FIGHT || this.state === GS.COUNTDOWN || this.state === GS.ROUND_END) { this.netNote.leave = !this.netNote.leave; this.netShow(); }
+  pause(by, automatic = false) {
+    if (this.net) { // an online match cannot pause (the other seats would wait): the pause key and button toggle the question whether to leave, the sim goes on; a window blur or a hidden tab (automatic) only opens it
+      if (this.state === GS.FIGHT || this.state === GS.COUNTDOWN || this.state === GS.ROUND_END) { this.netNote.leave = automatic ? true : !this.netNote.leave; this.netShow(); }
       return false;
     }
     if (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN) return false;
@@ -14746,7 +14751,7 @@ const UI = {
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
     Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
     Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
-    Events.on('glLost', () => { Game.pause(); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
+    Events.on('glLost', () => { Game.pause(null, true); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
     Events.on('glRestored', () => this.toast('Graphics restored'));
     Events.on('glFailed', () => this.toast('Graphics could not be restored: ' + R.error + ' Reload the page.', 'err'));
     Events.on('bindings', () => { if (this.current === 'controls') this.rerender(true); });
@@ -17814,17 +17819,17 @@ function installGlobalHandlers() {
   window.addEventListener('orientationchange', onRotate);
   if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onRotate);
   // Esc in fullscreen only leaves fullscreen (the page never sees the key)
-  const onFullscreenChange = () => { queueResize(); if (!Device.fullscreenElement()) Game.pause(); };
+  const onFullscreenChange = () => { queueResize(); if (!Device.fullscreenElement()) Game.pause(null, true); };
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', queueResize);
   document.addEventListener('focusout', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) queueResize(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { Game.pause(); Sound.suspend(); } else { Sound.resumeIfAllowed(); queueResize(); }
+    if (document.hidden) { Game.pause(null, true); Sound.suspend(); } else { Sound.resumeIfAllowed(); queueResize(); }
   });
   // back from the bfcache or another app (iOS): audio may still be suspended
   window.addEventListener('pageshow', () => { Sound.resumeIfAllowed(); queueResize(); });
-  window.addEventListener('blur', () => { Game.pause(); });
+  window.addEventListener('blur', () => { Game.pause(null, true); });
   Events.on('settings', () => { Sound.applyVolumes(); });
   Events.on('frame', () => Music.update());
 }

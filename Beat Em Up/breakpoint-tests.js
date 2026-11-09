@@ -17244,14 +17244,15 @@ const SelfTest = {
       if (bytes.length !== NET_PACKET_HEAD + 4 * NET_REDUNDANCY || !packet || packet.seat !== 2 || packet.last !== 70000 || packet.codes.join() !== codes.join()) problems.push('packet round trip');
       if (unpackInputs(bytes.slice(0, bytes.length - 1)) || unpackInputs(new Uint8Array(3)) || unpackInputs(packInputs(0, 1, []))) problems.push('a bad packet was accepted');
       const game = makeLockstep(3, { delay: 2, latency: 5, seed: 8 }), [host, second] = game.peers;
-      host.session.receive(1, 'input', packInputs(0, 5, [99])); host.session.receive(1, 'input', packInputs(2, 5, [99])); host.session.receive(1, 'input', packInputs(9, 5, [99]));   // seat 1 sends for the host, for seat 3 and for no seat
-      host.session.receive(1, 'control', '{"t":"sum","seat":2,"f":60,"s":1}'); host.session.receive(1, 'control', 'not json'); host.session.receive(1, 'control', '{"t":"drop","seat":2,"f":1}');
+      const id = host.session.matchId;
+      host.session.receive(1, 'input', packInputs(0, 5, [99], id)); host.session.receive(1, 'input', packInputs(2, 5, [99], id)); host.session.receive(1, 'input', packInputs(9, 5, [99], id));   // seat 1 sends for the host, for seat 3 and for no seat
+      host.session.receive(1, 'control', JSON.stringify({ t: 'sum', seat: 2, f: 60, s: 1, mid: id })); host.session.receive(1, 'control', 'not json'); host.session.receive(1, 'control', JSON.stringify({ t: 'drop', seat: 2, f: 1, mid: id }));
       if (host.session.got[0].size || host.session.got[2].size || host.session.dropped.size || host.session.theirSums.size) problems.push('the host accepted a spoofed message');
-      second.session.receive(0, 'control', '{"t":"drop","seat":2,"f":1}');
+      second.session.receive(0, 'control', JSON.stringify({ t: 'drop', seat: 2, f: 1, mid: id }));
       if (!second.session.dropped.has(2)) problems.push('a guest ignored the host\'s drop');
       for (const odd of ['bp-ping:12', 'bp-pong:12', '5', 'null', '{"t":"zzz"}', '[1,2]', '{}', '']) { try { second.session.receive(0, 'control', odd); } catch (error) { problems.push('control message ' + JSON.stringify(odd) + ' threw'); } }   // P12-01 sends its own strings on the reliable channel too
       if (second.session.ended) problems.push('an unknown control message ended the session (' + second.session.ended + ')');
-      second.session.receive(2, 'control', '{"t":"drop","seat":1,"f":1}');
+      second.session.receive(2, 'control', JSON.stringify({ t: 'drop', seat: 1, f: 1, mid: id }));
       if (second.session.dropped.has(1)) problems.push('a guest took a drop from another guest');
       // a press the sim does not read (hit freeze from tick 3 to 12) is kept for the next sampled frame: read exactly once, after the freeze
       const reads = [];
@@ -18016,6 +18017,63 @@ const SelfTest = {
         Object.assign(OnlineUI, kept);
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): a packet or message of another match (a late one after a rematch) is dropped: the match number is in the input header and in every control message', () => {
+      const problems = [], game = makeLockstep(2, { delay: 2, latency: 5, seed: 8 }), [host] = game.peers, id = host.session.matchId, other = (id + 1) & 0xffff;
+      const bytes = packInputs(1, 5, [7], other);
+      if (unpackInputs(bytes).matchId !== other || unpackInputs(packInputs(1, 5, [7], id)).matchId !== id) problems.push('the match number does not round trip');
+      host.session.receive(1, 'input', bytes);
+      if (host.session.got[1].size) problems.push('an input of another match was stored');
+      host.session.receive(1, 'input', packInputs(1, 5, [7], id));
+      if (host.session.got[1].get(5) !== 7) problems.push('an input of this match was not stored');
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1, mid: other }));
+      host.session.receive(1, 'control', JSON.stringify({ t: 'sum', seat: 1, f: 60, s: 1, mid: other }));
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1 }));   // no number at all
+      if (host.session.ended || host.session.theirSums.size) problems.push('a message of another match was taken: ' + host.session.ended);
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1, mid: id }));
+      if (host.session.ended !== 'desync') problems.push('a message of this match was ignored');
+      // two sessions of the same two peers one after the other (a rematch on the same links): the second ignores the first's late packet
+      const sent = [];
+      const link = { send(channel, data) { sent.push([channel, data]); }, close() {}, onmessage: null, onclose: null };
+      const first = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 40, winsNeeded: 2 })), second = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 41, winsNeeded: 2 }));
+      const a = new LockstepSession({ match: first, seat: 0, seatCount: 2, host: true, links: { 1: link }, localController: randomDevice(0, 1) });
+      a.step(); a.sendControl(1, { t: 'ping', at: 1 });
+      const oldPacket = sent.find((entry) => entry[0] === 'input')[1], oldControl = sent.find((entry) => entry[0] === 'control')[1];
+      a.detach();
+      const b = new LockstepSession({ match: second, seat: 0, seatCount: 2, host: true, links: { 1: link }, localController: randomDevice(0, 1) });
+      if (a.matchId === b.matchId) problems.push('two matches got the same default number');
+      link.onmessage('input', oldPacket); link.onmessage('control', oldControl);
+      if (b.got[0].size || b.got[1].size || b.rtts.size) problems.push('a late packet of the old match was accepted');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): a seat that drops during the round end counts for the round-end skip only up to its drop frame, and three peers stay equal; the online pause key toggles the question while a blur or hidden tab only opens it', () => {
+      const problems = [], game = makeLockstep(3, { delay: 2, latency: 10, seed: 5, cfg: { timer: 2 }, device: (seat) => (seat === 2 ? { n: 0, think(f, opp, match, it) { clearIntent(it); if (++this.n > 140) it.punch = true; return it; }, reset() {} } : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) });
+      const [host, second] = game.peers;
+      // the rule itself, on a session that learned of the drop at once: a press before the drop frame counts, from the drop frame on it does not
+      const probe = second.session;
+      probe.got[2].set(500, 0x40 << 16); probe.got[2].set(501, 0x40 << 16);
+      probe.dropped.set(2, 501);
+      if (!probe.skipPressed(500) || probe.skipPressed(501)) problems.push('skipPressed ignores the drop frame');
+      probe.dropped.delete(2); probe.got[2].delete(500); probe.got[2].delete(501);
+      let muted = false;
+      const done = playLockstep(game, 700, () => { if (!muted && host.match.tick >= 220) { muted = true; game.mute(2); } });
+      if (done !== true) return done;
+      if (host.drops[0] === undefined || second.drops[0] === undefined) problems.push('the seat was not dropped');
+      if (host.sums.join() !== second.sums.join() || host.session.ended || second.session.ended) problems.push('the two peers that played on differ or stopped: ' + host.session.ended + '/' + second.session.ended);
+      if (host.match.tick < 700) problems.push('the host stopped at ' + host.match.tick);
+      // the pause key online: it toggles, a blur or a hidden tab (automatic) only opens
+      const keep = { net: Game.net, netNote: Game.netNote, state: Game.state, status: UI.netStatus }, shown = [];
+      try {
+        UI.netStatus = (text) => shown.push(text);
+        Game.net = host.session; Game.netNote = { waiting: '', final: '', rematch: null, onLeave: null, leave: false }; Game.state = GS.FIGHT;
+        Game.pause(null, true); Game.pause(null, true);
+        if (!Game.netNote.leave || shown[shown.length - 1] !== 'Leave the match?') problems.push('a blur did not open the question or closed it again');
+        Game.pause();
+        if (Game.netNote.leave) problems.push('the pause key did not close the question');
+        Game.pause(); Game.pause(null, true);
+        if (!Game.netNote.leave) problems.push('a blur closed the question the key had opened');
+      } finally { Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state }); UI.netStatus = keep.status; }
+      return problems.length ? problems.join('; ') : true;
     });
     /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
        channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
