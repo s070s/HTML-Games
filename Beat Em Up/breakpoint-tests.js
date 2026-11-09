@@ -3326,7 +3326,7 @@ const SelfTest = {
         if (parts < 20 || parts > 40) bad.push(profile.id + ' parts ' + parts);
         // the outfit shape is the piece rows of every slot that adds or reshapes a part (body size and colours left out)
         const shape = JSON.stringify([f.hairP, f.beardP, f.topRow, f.legRow, f.shoeRow, f.handRow, f.extra, lk.belt, lk.headband, lk.mask]);
-        const colour = [c.skin, c.hair, c.top, c.shorts, c.glove, c.shoe, c.accent].join();
+        const colour = [c.top, c.shorts, c.glove, c.accent].join();   // the outfit colours that show at phone size (skin, hair and shoes left out)
         for (const [seen, key] of [[shapes, shape], [colours, colour]]) { if (seen.has(key)) bad.push(profile.id + ' repeats ' + seen.get(key)); else seen.set(key, profile.id); }
       }
       return ROSTER.length === 32 && !bad.length ? true : bad.slice(0, 5).join('; ') || 'roster size ' + ROSTER.length;
@@ -3573,8 +3573,8 @@ const SelfTest = {
         return fnv1a(s) + ':' + s.length;
       };
       const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => { const c = randomCustom(seed); c.name = LEGACY_NAMES[NAME_IDEAS.indexOf(c.name)]; return hashOf(customProfile(validateCustom(c).value, 0)); })).join();
-      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
-      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,4086853331:9315,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
+      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); P18-10 re-recorded the other 31 presets (fighter models: new hats, hair, tops, legwear, hands, shoes, accessories and marks; read from the Chrome run, the 3 customs and GIORGI keep their values); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
+      const want = '4151139779:9313,3500748211:9307,907377477:8670,3563552188:9312,1203017689:8986,4095831836:8672,1603268779:9633,696690134:9326,278000643:9327,2908241691:9317,931388364:9637,2908515482:9958,1659867381:8686,2523842855:8675,920302074:9310,255905244:9002,2213555648:8354,3705512124:9645,3505822332:9006,4086853331:9315,2122395870:8680,854368176:9315,2309769395:8678,3213729300:9970,2273708715:8684,1392344473:9333,463067842:9637,3031641446:8682,744650411:8685,942284200:9309,960434671:9309,2903809129:9323,778913287:10282,3867339228:9323,2999958420:9315';
       const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
       const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
       const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
