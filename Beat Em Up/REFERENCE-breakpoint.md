@@ -971,6 +971,77 @@ The question asked of every source: does this game have (a) a feature a newcomer
 - Tekken 8 Heat trigger and duration: not on the page read; not used.
 - Searches for "chain reaction" in fighting games returned platformer and brawler pages (a bomb-block page, an itch.io devlog); the devlog was seen in search only and is not used.
 
+## P18-15 Steam price research (2026-11-09)
+
+Question: what would people pay on Steam for Breakpoint as it stands today, judged on its content and quality and not marked down for being unfinished. Is EUR 2.99 right, is EUR 5 right if the game is polished, and what about the informal EUR 5-10 opinion. This is a market estimate, not a plan to sell it now; the price stays the owner's choice (the price is also tied to the mobile choice, see P18-26 "Inputs for P18-15").
+
+How it was done: every number below was read on 2026-11-09 from the public Steam store page of each game (German store, so prices are in EUR) and from Steam's public store data (the price lookup and the tag search listings). "List price" is the price without a running sale; a sale price is named only where one was running. The review figure is the score and count Steam shows on the page, which is calculated from reviews in English (the page says "in your language"), so the real all-language count can be higher. Sales numbers of these games are not public; where a sales figure appears it is an estimate and is marked. Nothing was bought, installed or downloaded, no account was used, the game was not touched. Visual quality was judged from store tags and descriptions only, not from screenshots (images were not opened), so the "Look" column is weak evidence. The reviews' text was not read.
+
+### What Breakpoint is today (from SPEC.md and Appendix C, P18-26)
+- One HTML file, about 1.2 MB, WebGL, procedural low-poly fighters, no licensed assets. 32 preset fighters, 16 martial-arts styles with their own animations, character creator, 8 levels.
+- Modes: Arcade story, Survival, Training, Free Fight, Versus, Tournament (bracket of 8 or 16), up to 4 local players; touch, gamepad and keyboard.
+- Not built yet: online play (planned, WebRTC), the open P18 polish tasks, the owner device checks, any outside player feedback.
+- Steam needs the game packaged as an app (the file would sit in a wrapper); that is not researched here and would be a DECIDE against the "one file, no dependency" rule.
+
+### A. Comparison: 15 small paid fighters and brawlers on Steam
+Chosen as the nearest in size: solo or tiny-team fighters and beat-em-ups, 2D and 3D, low-poly or retro looks, price under about EUR 20. Sorted from cheapest to dearest list price.
+
+| Game (kind) | List price EUR | Reviews on the page | Content and online (from the page) | Look (store tags) | Page |
+|---|---|---|---|---|---|
+| Street Fighting Simulator (3D, meme brawler) | 0.99 | 87% of 41 (Positive) | single-player only | 3D fighter, funny | https://store.steampowered.com/app/2835060 |
+| Drunken Fist (3D physics beat-em-up) | 2.99 | 80% of 56 (Very Positive) | single-player only, one mode described | physics, casual | https://store.steampowered.com/app/1059460 |
+| Beatdown Brawler (3D wave beat-em-up) | 2.99 | 57% of 21 (Mixed) | single-player, 4 modes incl. optional rhythm mode | 3D fighter, martial arts | https://store.steampowered.com/app/1218680 |
+| Revenge of the Boxer (boxing fighter, story) | 4.99 | 90% of 167 (Very Positive) | story mode; multiplayer tag, no online category | tagged 3D fighter, boxing (its text says 2D) | https://store.steampowered.com/app/3061900 |
+| Weekend Warriors MMA (3D, career) | 5.99 | 81% of 69 (Very Positive) | career with 5 promotions, promoter mode, local players; no online | cartoony 3D | https://store.steampowered.com/app/2289130 |
+| Fight of Animals (2D casual fighter) | 8.19 | 92% of 396 (Very Positive) | arcade mode plus online matches, easy combos | cute, 2D | https://store.steampowered.com/app/1160330 |
+| Streets of Fury EX (2D beat-em-up) | 9.75 | 96% of 713 (Overwhelmingly Positive) | up to 4 players local, unlockables, several modes; no online | old school, 2D | https://store.steampowered.com/app/350910 |
+| Wrestling Revolution 3D (3D wrestling) | 9.99 | 87% of 398 (Very Positive) | wrestling sim; no online | 3D, simple | https://store.steampowered.com/app/665330 |
+| Spirit X Strike (3D martial-arts action, Early Access) | 12.79 (10.87 on sale) | 81% of 409 (Very Positive) | combo crafting, one-vs-group fights and duels; single-player only | 3D, martial arts, boxing | https://store.steampowered.com/app/2538880 |
+| Shaolin vs Wutang (2D 1v1, one person) | 11.59 | 92% of 959 (Very Positive) | 1v1 hand-to-hand and weapons; multiplayer listed, no online | 2D, kung-fu film style | https://store.steampowered.com/app/466110 |
+| Taekwondo Grand Prix (3D, motion capture) | 11.79 | 81% of 71 (Very Positive) | online and local versus | sports, martial arts | https://store.steampowered.com/app/462590 |
+| Mad Streets (3D physics party brawler) | 12.49 | 84% of 201 (Very Positive) | local and online, several modes | stylized, physics | https://store.steampowered.com/app/1282760 |
+| Fight of Gods (2D, mythology roster) | 12.99 | 84% of 765 (Very Positive) | roster of mythological figures, online PvP | 2D / 2.5D, memes | https://store.steampowered.com/app/612930 |
+| Fight'N Rage (2D beat-em-up) | 19.50 | 92% of 1,171 (Very Positive) | local co-op, multiple endings, arcade; no online | pixel art, 2D | https://store.steampowered.com/app/674520 |
+| Wrestling Empire (3D low-poly wrestling, retro style) | 19.50 | 94% of 2,644 (Very Positive) | wrestling sim with customization, booking and roaming modes; no online listed | retro 3D | https://store.steampowered.com/app/1620340 |
+
+Also read, left out of the table: Mayhem Brawler (2D beat-em-up, 19.50, 89% of 844, https://store.steampowered.com/app/1306720), The TakeOver (2D beat-em-up, 13.99, 83% of 1,129, https://store.steampowered.com/app/418620), Fighters Forge (3D arena brawler, Early Access, 9.75, 4 reviews, https://store.steampowered.com/app/2853810) and Fighting Heart (3D 1v1, Early Access, 3.39, 2 reviews, https://store.steampowered.com/app/1868600). The last two have too few reviews to say anything about demand. Wrestling Empire's 94% of 2,644 comes from the Steam tag search listing (the page showed a different 30-day tooltip). Verified: yes (prices, scores and counts as shown on the pages on 2026-11-09); partly (content column: store description and categories only; Look column: tags only).
+
+### B. What the table shows
+- **Polished hand-made 2D beat-em-ups sit at EUR 13.99-19.50** with 800-1,200 reviews (Fight'N Rage, Mayhem Brawler, The TakeOver). That is the top of this class and it comes from hand-drawn art and finished design, not from content volume alone.
+- **Small one-person 3D fighters and brawlers list at EUR 0.99-6** (Street Fighting Simulator, Drunken Fist, Beatdown Brawler, Revenge of the Boxer, Weekend Warriors MMA). Their review counts are 21-167, mostly under 70. Of these five, the one with the most reviews and best score (Revenge of the Boxer, 90% of 167) is at EUR 4.99. The two at EUR 2.99 (Drunken Fist, Beatdown Brawler) have 56 and 21 reviews, and one of them is Mixed.
+- **EUR 8-13 is where online play or a big hand-made roster shows up**: Fight of Animals (online, 8.19), Taekwondo Grand Prix (online, 11.79), Mad Streets (online, 12.49), Fight of Gods (online, 12.99). 4 of the 15 have online, and all 4 list at EUR 8.19 or more. The offline ones at that height (Streets of Fury EX 9.75, Shaolin vs Wutang 11.59, Wrestling Revolution 3D 9.99) are older (2015-2018) and have about 400-960 reviews.
+- **Low-poly or retro 3D can sell dear when the content is deep**: Wrestling Empire lists at 19.50 and has 2,644 reviews; Wrestling Revolution 3D at 9.99. This is the closest example that a plain 3D look is not a price ceiling by itself. It is a wrestling simulator with career and booking content that Breakpoint does not match in kind, so it is a ceiling example, not a price Breakpoint should copy.
+- Score does not follow price: Beatdown Brawler (2.99) is Mixed, Streets of Fury EX (9.75) is Overwhelmingly Positive. A review score here tells how well the game meets what its page promised.
+- No game in this set listed under EUR 8 has more than 170 reviews (the highest is Revenge of the Boxer, 167 at 4.99). Small sample, no statistics; it only suggests that low-priced small fighters on Steam stay small in audience. Estimate.
+
+### C. Sales and money, as estimates
+- Sales per review: Simon Carless's "New Boxleiter number" from 237 games with shared figures is about 41 sales per review for games launched in 2020, and it falls each year (people review sooner now); the article warns that the range is wide (some games were reviewed once per 200 sales) and that free games do not fit. Source: https://www.pcgamesn.com/steam/number-of-copies-sold. Estimate: a game like the cheap 3D ones above (20-170 reviews) has sold roughly 800 to 7,000 copies in its lifetime; the real figure can be well off. Unknown for any single game.
+- What a copy brings: Steam keeps a share (the commonly stated 30%; the official fee page read does not state it, third-party pages do: https://www.steampageanalyzer.com/blog/steam-pricing-strategy) and the shelf price includes VAT (assumed 20%, my assumption). My arithmetic for a full-price copy: EUR 2.99 gives about 1.75; EUR 4.99 about 2.90; EUR 7.99 about 4.65; EUR 9.99 about 5.85. Sales, regional prices and refunds lower the real average; that article puts the real average near 48% of list before VAT at 9.99 USD.
+- Cost to list: Steam charges 100 USD per new game, not refundable, paid back out of the first payment after the game earns 1,000 USD. Source (official): https://partner.steamgames.com/doc/gettingstarted/appfee. At EUR 2.99 that is about 50 copies to cover the fee; at EUR 4.99 about 30 (assuming 1 USD is about 0.86 EUR, and counting full-price copies only). The fee is not the hard part; being found is.
+- Pricing advice from the same third-party article (a blog, not research): very low prices read as low quality and get scrolled past; the launch price caps later sale prices, so a game is better launched at the price it will be sold at with a 10-15% launch discount than at a "cheap" one that cannot go lower. It describes USD 4.99 as the tier for 1-3 hour experiences and USD 9.99 as the most common indie price. Same URL as above. Verified: partly (one blog; it fits the table but is not proof).
+
+### D. Likely price range for Breakpoint as it stands today (estimate)
+For: more content than every 3D game in the table under EUR 8 (32 fighters, 16 styles, creator, 8 levels, 7 modes, up to 4 local players, touch, pad and keyboard); a deep style system; no licensed assets; no ads, no extras to buy.
+Against: no online play (4 of 15 comparables have it and all of those list at 8.19 or more); procedural low-poly fighters with no hand-made art, which the table prices at the low and middle band; no outside reviews, no store history, a one-person project; open polish tasks, owner device checks still to do; a touch-first game arriving on a keyboard-and-pad store; the packaging question.
+Estimate: **EUR 3.99 to 6.99 as a launch list price, most likely EUR 4.99.** Reasoning: the size of the content puts it at or above the best small 3D games at EUR 4.99-5.99 and clearly above the EUR 2.99 ones, but nothing in the table sells without online and hand-made art above EUR 8 apart from the proven 2D classics and the wrestling giant. A price of EUR 7.99-9.99 is not supported yet. It becomes reasonable only with online play working, a polish pass done and a first set of outside reviews; Streets of Fury EX (offline, 4 local players, 9.75, 96% of 713) shows that the top of the range exists for the content class, but it has hand-drawn art and has been on sale since 2015.
+
+### E. Answers
+- **EUR 2.99:** too low for what the game holds today. The content is clearly larger than the two EUR 2.99 games in the table, and the net is about 1.75 a copy. A low price is allowed (the owner said a low figure is fine) and it is the safe "cannot disappoint" choice, but it signals a small game, and as the launch price it leaves no room for a sale. Better use for 2.99: the price in a sale (about 40% off a 4.99 list), or the floor for a mobile unlock.
+- **EUR 5 if polished enough:** yes, this is the best-supported answer. 4.99 is the price of the best-reviewed small 3D fighter in the table (Revenge of the Boxer, 90% of 167), it sits just under the EUR 5.99 MMA game, and the one blog read calls it the tier for short experiences; Breakpoint is larger than that tier. "Polished enough" here means: the critical sweep and bug tasks done, no broken menu or fight in a first hour, sound checked, keyboard and gamepad play checked, and the device checks passed.
+- **The informal EUR 5-10 opinion:** right as a span, wrong as one price. The lower half (5-6.99) fits today's game once polished; the upper half (7.99-9.99) needs online play and outside reviews first. The friend's EUR 3-5 for a mobile-feeling game is the low end of the same span (one person; not a market test).
+- **Mobile (P18-26):** the P18-26 notes say a premium phone price above about EUR 5 looks hard for an unknown title and suggest a free phone base with a one-time unlock of about EUR 3-5, and they set the rule to keep Steam at least as high as the phone unlock. A phone unlock of EUR 3-5 with Steam at EUR 4.99 fits that rule; Steam at EUR 2.99 would force the phone unlock down to about the same.
+- **Not decided here:** whether to sell on Steam at all, the wrapper, and any price. The owner picks.
+
+### Sources (all read 2026-11-09)
+- Steam store pages (price, reviews, tags, categories, description) and the price lookup https://store.steampowered.com/api/appdetails?appids=<app id>&cc=de&l=en (app ids as in the page URLs): the 15 URLs in the table, plus https://store.steampowered.com/app/1306720, https://store.steampowered.com/app/418620, https://store.steampowered.com/app/2853810, https://store.steampowered.com/app/1868600.
+- Steam tag search listings (3D Fighter, Beat 'em up, Fighting; used to find candidates and the Wrestling Empire count): https://store.steampowered.com/search/?tags=6506, https://store.steampowered.com/search/?tags=4158, https://store.steampowered.com/search/?tags=1743.
+- Sales per review: https://www.pcgamesn.com/steam/number-of-copies-sold (Carless's New Boxleiter number; blog summary of the method).
+- Steam fee: https://partner.steamgames.com/doc/gettingstarted/appfee (official, 100 USD per app, recouped after 1,000 USD).
+- Price tiers and the low-price warning: https://www.steampageanalyzer.com/blog/steam-pricing-strategy (a third-party blog).
+- Breakpoint's own facts: handoffs\Breakpoint\SPEC.md, and Appendix B P18-26 and Appendix C P18-26 in this file.
+- Not read: SteamDB pages, press articles on these games, review texts, screenshots. Search snippets seen only and not used: a few Steam page titles from the first searches (Brawlygon, Poly Fighter and others).
+- Verified overall: yes for the table numbers (read on the pages); partly for the content and Look columns; no for any sales or money figure (all marked estimates).
+
 ## Appendix C - Decision log
 
 (Filled by DECIDE tasks and measurement tasks. One entry per task ID: decision or numbers, reason, date.)
