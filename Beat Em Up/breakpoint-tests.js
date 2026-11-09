@@ -16729,6 +16729,7 @@ const SelfTest = {
       // the three address kinds (an mDNS name is in the fixtures), and a code a messenger broke into lines
       let plain = SDP_FIXTURES.chromiumOffer.replace(/a=candidate:.*\r\n/g, '');
       plain = withCandidate(withCandidate(withCandidate(plain, 'a=candidate:1 1 udp 2122260223 192.168.1.20 50000 typ host'), 'a=candidate:2 1 UDP 2122194687 2a02:587:1:2:0:0:0:6 50001 typ host'), 'a=candidate:3 1 udp 1 fe80::1 50002 typ host');
+      plain = plain.replace('m=application 9 ', 'm=application 50000 ').replace('c=IN IP4 0.0.0.0', 'c=IN IP4 192.168.1.20');   // with real addresses a browser puts its first candidate's port and address on the media and connection lines
       const code = OnlineCode.packSdp(0, 2, plain);
       const back = OnlineCode.readCode(' ' + code.slice(0, 30) + '\r\n' + code.slice(30, 90) + ' \n' + code.slice(90) + ' ', 0);
       if (back.form !== ONLINE_FORM.PACKED || iceOf(back.sdp, 0) !== iceOf(plain, 0)) bad.push('plain IPv4 and IPv6 addresses');

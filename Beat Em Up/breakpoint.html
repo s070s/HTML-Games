@@ -13449,6 +13449,7 @@ const ONLINE_CANDIDATE_TYPE = { MDNS: 0, IPV4: 1, IPV6: 2 };
 const ONLINE_ADDRESS_BYTES = [16, 4, 16];
 const ONLINE_MDNS = /^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\.local$/i; // Chrome, Firefox and Safari hide a host address behind a UUID
 const ONLINE_SDP_MEDIA = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
+const ONLINE_SDP_MEDIA_PATTERN = /^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/; // with real addresses (no mDNS) a browser puts its first candidate's port here
 const ONLINE_ICE_CHARS = /^[A-Za-z0-9+/]+$/;
 const ONLINE_MESSAGES = {
   empty: 'Paste the code first.',
@@ -13516,7 +13517,7 @@ const OnlineCode = {
     const found = { ufrag: '', pwd: '', fingerprint: null, candidates: [] };
     let media = 0, mid = '', port = '', setup = '', fingerprints = 0;
     for (const line of sdp.split(/\r?\n/)) {
-      if (line.startsWith('m=')) { if (line !== ONLINE_SDP_MEDIA) return null; media++; continue; }
+      if (line.startsWith('m=')) { if (!ONLINE_SDP_MEDIA_PATTERN.test(line)) return null; media++; continue; }
       if (!line.startsWith('a=')) continue;
       const colon = line.indexOf(':');
       const name = colon < 0 ? line.slice(2) : line.slice(2, colon);
