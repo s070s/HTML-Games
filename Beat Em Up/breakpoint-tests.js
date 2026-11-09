@@ -50,6 +50,7 @@ const {
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -14070,6 +14071,85 @@ const SelfTest = {
       } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; the lights are drawn turned about where they hang', () => {
+      const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
+      Effects.init();
+      try {
+        Arena.build(ARENAS.warehouse); Settings.v.shake = SETTING_DEFS.shake.def; Settings.v.reducedMotion = false;
+        const lampsNow = () => { const all = []; for (const p of Arena.props) if (p.lamp && !all.includes(p.lamp)) all.push(p.lamp); return all; };
+        const calm = () => { for (const l of lampsNow()) { l.amp = 0; l.t0 = 0; } for (const o of Arena.objects) o.wob = 0; };
+        const swinging = () => lampsNow().filter((l) => l.amp > 0);
+        const lamps = lampsNow();
+        if (lamps.length !== 5 || lamps.some((l) => Arena.lampAngle(l) !== 0)) bad.push('the Warehouse has ' + lamps.length + ' lights');
+        calm(); Arena.time = 10;
+        Feel.shake(2, -1);
+        const near = swinging().map((l) => l.x).sort((a, b) => a - b).join();
+        if (near !== '0,4') bad.push('lights within 4 m of (2, -1): ' + near);
+        const l = swinging()[0], angle = (age) => { Arena.time = l.t0 + age; return Arena.lampAngle(l); };
+        let peak = 0; for (let age = 0; age < LAMP_SECS; age += 0.01) peak = Math.max(peak, Math.abs(angle(age)));
+        if (!(peak > LAMP_SWAY * 0.6 && peak <= LAMP_SWAY + 1e-9) || LAMP_SWAY !== 0.15) bad.push('swing ' + peak.toFixed(3) + ' rad');
+        if (angle(LAMP_SECS) !== 0 || angle(LAMP_SECS + 5) !== 0 || LAMP_SECS !== 1.5) bad.push('does not come to rest');
+        const early = Math.max(...[0.05, 0.15, 0.25, 0.35].map((age) => Math.abs(angle(age)))), late = Math.max(...[1.1, 1.2, 1.3, 1.4].map((age) => Math.abs(angle(age))));
+        if (!(late < early * 0.5)) bad.push('not damped ' + early.toFixed(3) + ' -> ' + late.toFixed(3));
+        const drawn = [];   // the lamp bodies the arena draws: x, y (a swinging light rises a little) and the turn about z
+        R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { if (Math.abs(sy - 0.16) < 1e-9 && Math.abs(sx - 1.3) < 1e-9) drawn.push({ x, y, rz }); };   // nothing is queued: only the lamp bodies are looked at
+        Arena.time = l.t0 + 0.3; Arena.draw(); R.put = put;
+        const turned = drawn.filter((q) => q.rz !== 0), still = drawn.filter((q) => q.rz === 0);
+        if (turned.length !== 2 || still.length !== 3 || turned.some((q) => !(q.y > 5.4) || Math.abs(q.rz) > LAMP_SWAY)) bad.push('drawn: ' + turned.length + ' turned, ' + still.length + ' still');
+        Arena.build(ARENAS.warehouse);
+        if (lampsNow().some((q) => q.amp > 0)) bad.push('a new fight starts with a light still swinging');
+        Arena.time = 10;
+        calm(); Settings.v.shake = 0.3; Feel.shake(0, -1);
+        if (Math.abs(swinging()[0].amp - LAMP_SWAY * 0.5) > 1e-9) bad.push('half the shake, ' + swinging()[0].amp);
+        calm(); Settings.v.shake = 0; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Camera shake 0 still sways');
+        Settings.v.shake = 0.6; Settings.v.reducedMotion = true; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Reduced motion still sways');
+        Settings.v.reducedMotion = false;
+        for (const [name, event] of [['wallSlam', { x: 0, y: 1, z: -1 }], ['envImpact', { x: 0, y: 1, z: -1 }], ['objBreak', { obj: Arena.objects[0], mat: 'wood', x: 0, y: 1, z: -1, by: -1 }], ['knockdown', { f: Object.assign(new Fighter(ROSTER_BY_ID.kai, 0), { x: 0, z: -1 }) }]]) {
+          calm(); Events.emit(name, event);
+          if (!swinging().length) bad.push(name + ' does not swing a light');
+        }
+        calm();
+        const crate = Arena.objects.find((o) => o.id === 'crateA'), far = Arena.objects.find((o) => o.id === 'dumpster'), wall = Arena.objects.find((o) => o.fixed && !o.bounce);
+        Feel.shake(crate.x + 1, crate.z);
+        if (!(crate.wob >= LAMP_JOLT - 1e-9) || far.wob !== 0 || (wall && Math.hypot(wall.x - crate.x - 1, wall.z - crate.z) <= LAMP_RANGE && wall.wob !== 0)) bad.push('jolt: crate ' + crate.wob + ', far ' + far.wob);
+        calm();
+        const spare = lamps.concat(Array.from({ length: 10 }, (unused, i) => ({ x: i * 0.1, z: 0, top: 7, amp: 0, t0: 0 })));
+        for (const lamp of spare.slice(lamps.length)) Arena.props.push({ lamp, m: 0, x: lamp.x, y: 6, z: 0, sx: 1, sy: 1, sz: 1, c: [1, 1, 1], l: LAYER.SOLID, e: 0, q: 0.5, cast: false, a: 1, ry: 0 });
+        Feel.shake(0, 0);
+        if (spare.filter((q) => q.amp > 0).length !== LAMP_MAX) bad.push('at most ' + LAMP_MAX + ' swing, ' + spare.filter((q) => q.amp > 0).length + ' did');
+      } finally {
+        R.put = put; Object.assign(Settings.v, keep);
+        if (keepArena) Arena.build(keepArena);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Touch vibration (P13-02): a seat played by touch buzzes the phone 20 to 60 ms by strength (20 ms on Reduced), nothing on Off, with Camera shake at 0, on another device or where the browser has no vibrate', () => {
+      const bad = [], keep = { rumble: Settings.v.rumble, shake: Settings.v.shake }, device = Input.lastDevice, had = Object.getOwnPropertyDescriptor(navigator, 'vibrate'), buzzes = [];
+      try {
+        Object.defineProperty(navigator, 'vibrate', { value: (ms) => { buzzes.push(ms); return true; }, configurable: true });
+        Input.lastDevice = 'touch'; Settings.v.rumble = 'full'; Settings.v.shake = 0.6;
+        const buzz = (strength, ms) => { buzzes.length = 0; Input.rumble(strength, ms); return buzzes.join(); };
+        if (buzz(0.9, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.9)) || buzz(0.35, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.35)) || TOUCH_BUZZ_MIN !== 20 || TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE !== 60) bad.push('full ' + buzz(0.9, 100) + ' ' + buzz(0.35, 100));
+        if (buzz(5, 100) !== '60') bad.push('a strength above 1 buzzes ' + buzz(5, 100));
+        Settings.v.rumble = 'reduced';
+        if (buzz(0.9, 100) !== '20') bad.push('Reduced ' + buzz(0.9, 100));
+        Settings.v.rumble = 'off';
+        if (buzz(0.9, 100) !== '') bad.push('Off still buzzes');
+        Settings.v.rumble = 'full'; Settings.v.shake = 0;
+        if (buzz(0.9, 100) !== '') bad.push('Camera shake 0 still buzzes');
+        Settings.v.shake = 0.6; Input.lastDevice = 'keyboard';
+        if (buzz(0.9, 100) !== '') bad.push('a keyboard seat buzzes');
+        Input.lastDevice = 'touch'; delete navigator.vibrate;
+        let threw = false; try { Input.rumble(0.9, 100); } catch (error) { threw = true; }
+        if (threw) bad.push('no vibrate in the browser throws');
+      } finally {
+        if (had) Object.defineProperty(navigator, 'vibrate', had); else delete navigator.vibrate;
+        Input.lastDevice = device; Object.assign(Settings.v, keep);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
       const bad = [], puts = [], put = R.put;
@@ -14553,9 +14633,9 @@ const SelfTest = {
     });
     /* ---------- Ground submissions (P18-38) ---------- */
     /* A hold's two fighters must lie, kneel or sit ON the floor: the lowest drawn part of each is within GROUND_REACH above it and never below it (GROUND_SINK is the rounding of the matrices).
-       The drawn parts are read the way the Items tests read them (wornParts); the fighters stand at height 0 on the flat floor of the free-fight arena. */
+       The drawn parts are read the way the Items tests read them (drawnParts); the fighters stand at height 0 on the flat floor of the free-fight arena. */
     const GROUND_REACH = 0.03, GROUND_SINK = 0.002;
-    const lowestDrawn = (f) => wornParts(f).reduce((low, [, , mesh, m]) => {   // a box, ball or cylinder reaches half its extent along up below its centre
+    const lowestDrawn = (f) => drawnParts(f).reduce((low, [, , mesh, m]) => {   // a box, ball or cylinder reaches half its extent along up below its centre
       const half = mesh === CB ? 0.5 * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])) : mesh === SP ? 0.5 * Math.hypot(m[1], m[5], m[9]) : 0.5 * (Math.hypot(m[1], m[9]) + Math.abs(m[5]));
       return Math.min(low, m[13] - half);
     }, Infinity);

@@ -638,6 +638,7 @@ const FLASH_REDUCED_ALPHA = 0.3; // the brightest an impact flash gets on Reduce
 const FLASH_REDUCED_TINT = 0.3; // share of the white glow on a hit fighter that stays on Reduced
 const RUMBLE_REDUCED_SCALE = 0.5; // share of the strength that stays on Reduced
 const RUMBLE_REDUCED_MS = 20; // the longest a Reduced rumble lasts
+const TOUCH_BUZZ_MIN = 20, TOUCH_BUZZ_RANGE = 40; // ms: a phone's vibration is 20 ms (Reduced) up to 60 ms (a hit of full strength)
 const Settings = {
   v: {},
   validate(key, value) {
@@ -1273,8 +1274,12 @@ class PlayerInput {
     this.lastDevice = 'touch';
   }
 
-  // Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate
+  // Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate. A seat played by touch buzzes the phone instead (P13-02): TOUCH_BUZZ_MIN to TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE ms by strength, TOUCH_BUZZ_MIN on Reduced, nothing on Off or with Camera shake at 0, and nothing where the browser has no vibrate (iOS)
   rumble(strength, ms) {
+    if (this.lastDevice === 'touch') {
+      if (Settings.v.rumble !== 'off' && Settings.v.shake > 0 && typeof navigator.vibrate === 'function') navigator.vibrate(Settings.v.rumble === 'reduced' ? TOUCH_BUZZ_MIN : Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * clamp(strength, 0, 1)));
+      return;
+    }
     if (this.lastDevice !== 'gamepad' || this.padIndex < 0 || Settings.v.rumble === 'off' || !navigator.getGamepads) return;
     const reduced = Settings.v.rumble === 'reduced';
     const magnitude = clamp(strength * Settings.v.shake * (reduced ? RUMBLE_REDUCED_SCALE : 1), 0, 1);
@@ -2929,6 +2934,7 @@ const kindOf = (mat) => MATERIALS[mat].debris || mat;
 const CHAIN_MAX = 6, CONDUCT_GAP = 0.3, CONDUCT_TOUCH = 0.4;
 const FIRE_MAX = 4, FIRE_CHECK_TICKS = 10, FIRE_IGNITE_TICKS = 30, FIRE_SPREAD_TICKS = 60, FIRE_SPREAD_R = 1.0, FIRE_MARGIN = 0.5, FIRE_CHAR = '#2a2420';
 const BURN_TICKS = 40, BURN_GAP = 20, BURN_DMG = 2, FIRE_STAY_TICKS = 20; // a fighter must stay FIRE_STAY_TICKS in a fire zone to catch fire: a brief touch costs only the zone's own hit
+const LAMP_SWAY = 0.15, LAMP_SECS = 1.5, LAMP_HZ = 0.9, LAMP_RANGE = 4, LAMP_MAX = 8, LAMP_JOLT = 0.7; // P13-02: a hanging light swings LAMP_SWAY rad at most, damped to rest over LAMP_SECS at LAMP_HZ, after an impact within LAMP_RANGE m (at most LAMP_MAX swinging at once); loose props nearby jolt as a hit object does (wob LAMP_JOLT)
 const CROWD_RANGE = 3, CROWD_SECS = 2, CROWD_LEAN = 0.3, CROWD_HOP = 0.15, ALARM_SECS = 4, ALARM_RGB = C('#ffb000');
 const MARK_MAX = 32, MARK_STYLE = { scorch: [C('#14100e'), 0.6, MESH.CYL], glass: [C('#d6efff'), 0.3, MESH.CYL], dust: [C('#8d867b'), 0.25, MESH.CUBE] };
 // R8, bystanders (renderer only, no random numbers): the bobbing silhouettes lean away from a break, a knockdown or a hazard within CROWD_RANGE and hop at a knock-out
@@ -3221,6 +3227,7 @@ const ARENAS = {
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 'construction', 'club'];
 
 // --- static decoration builders
+const swayLamp = (x, z, top) => ({ x, z, top, amp: 0, t0: 0 }); // a hanging light that can swing (P13-02): where it hangs, the height it hangs from, and the swing it was given (amp rad from Arena.time t0)
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
@@ -3235,7 +3242,7 @@ function buildProps(id) {
     propBox(p, 1.5, 1.7, -6.62, 5, 3.4, 0.16, '#6b727c');
     for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 5, 0.04, 0.06, '#4b5159');
     propBox(p, -11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
-    for (const x of [-8, -4, 0, 4, 8]) { propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222'); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4 }); }
+    for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 7); propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222', { lamp }); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4, lamp }); }
     propBox(p, -11.57, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c'); // the loading-bay door above the dock
     for (let i = 0; i < 9; i++) propBox(p, -11.525, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
   } else if (id === 'dojo') {
@@ -3244,7 +3251,7 @@ function buildProps(id) {
     for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.085, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips
     propBox(p, -10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
     propBox(p, 0, 3.2, -6.05, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6');
-    for (const x of [-6, -2, 2, 6]) { propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7 }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222'); } // fluorescent strips
+    for (const x of [-6, -2, 2, 6]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7, lamp }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent strips
     for (const z of [-5.6, 4.8]) propBox(p, -10.1, 2.5, z, 0.2, 5, 0.45, '#9aa3ad');
   } else if (id === 'rooftop') {
     for (let i = 0; i < 16; i++) { // the city beyond the roof edge: dark towers with a few lit windows
@@ -3265,13 +3272,13 @@ function buildProps(id) {
     propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507'); // the tunnel mouth in the east wall
     propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 }); // the station name board
-    for (const x of [-8, -4, 0, 4, 8]) { propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8 }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222'); } // fluorescent tubes
+    for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8, lamp }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent tubes
     for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 }); // red warning lamps along the platform edge
     propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
   } else if (id === 'garage') {
     propBox(p, 0, 2.2, -7.35, 30, 4.4, 0.5, '#6e716f'); propBox(p, -11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
     for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.05, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a'); // hazard stripes on the wall foot
-    for (const x of [-7, -2, 3, 8]) { propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7 }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222'); } // green-white tubes
+    for (const x of [-7, -2, 3, 8]) { const lamp = swayLamp(x, -1, 5.4); propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7, lamp }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222', { lamp }); } // green-white tubes
     propBox(p, 4.0, 3.0, -7.05, 1.6, 0.9, 0.06, '#1f7f4f', { e: 0.5 }); propBox(p, 4.0, 3.0, -7.01, 0.8, 0.5, 0.04, '#f4f4f4', { e: 0.7 }); // the level sign
     propBox(p, 9.8, 2.4, -7.05, 1.6, 0.2, 0.08, '#f4f4f4', { e: 0.8 }); // EXIT over the stairwell door
     propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a'); // the ticket booth's counter
@@ -3304,7 +3311,7 @@ function buildProps(id) {
       propCyl(p, x, 5.0, -8.6 - (i % 2) * 0.5, 0.42, 0.9, i % 3 ? '#0f0f12' : '#17141a', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
       propSph(p, x, 5.65, -8.6 - (i % 2) * 0.5, 0.13, '#0d0d10', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
     }
-    for (const x of [-6, 0, 6]) { propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0 }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111'); }
+    for (const x of [-6, 0, 6]) { const lamp = swayLamp(x, -2, 8); propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0, lamp }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111', { lamp }); }
     propBox(p, 10.07, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 }); // the street door above the landing
   }
   return p;
@@ -3421,7 +3428,7 @@ const Arena = {
     this.navVersion++;
     this.colliders = this.objects.map((o) => o.collider);
     this.props = this.propCache[def.id] || (this.propCache[def.id] = buildProps(def.id));
-    for (const p of this.props) p.lean = p.cheer = 0;
+    for (const p of this.props) { p.lean = p.cheer = 0; if (p.lamp) p.lamp.amp = 0; } // the props are cached per level: a new fight starts with the lights at rest
     this.marks.length = 0;
     for (const o of this.objects) o.near = MATERIALS[o.mat].burn && !o.fixed ? this.objects.filter((q) => q !== o && MATERIALS[q.mat].burn && !q.fixed && this.gap(o, q) <= FIRE_SPREAD_R).sort((a, b) => this.gap(o, a) - this.gap(o, b)) : null; // R4: the flammable objects a fire can spread to, nearest first (ties keep list order)
     this.time = 0;
@@ -3886,6 +3893,8 @@ const Arena = {
       if (p.lean > 0) { const k = Math.min(1, p.lean, (CROWD_SECS - p.lean) * 4) * CROWD_LEAN; x += p.lx * k; z += p.lz * k; } // R8: a bystander leans away from the trouble, or hops at a knock-out
       if (p.cheer > 0) y += Math.abs(Math.sin(t * 12 + p.ph)) * CROWD_HOP * Math.min(1, p.cheer);
       if (p.flicker) e = 1.6 + Math.sin(t * 17) * 0.5 + Math.sin(t * 31) * 0.3;
+      let tilt = 0;
+      if (p.lamp && (tilt = this.lampAngle(p.lamp)) !== 0) { const drop = p.lamp.top - y; x += Math.sin(tilt) * drop; y = p.lamp.top - Math.cos(tilt) * drop; } // P13-02: a swinging light turns about the point it hangs from, rod and lamp alike
       let layer = p.l, alpha = p.a;
       if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) { // overhead: it fades as the eye comes near it (the hanging load does the same)
         const eye = Camera.pos, near = Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0));
@@ -3895,7 +3904,7 @@ const Arena = {
           layer = LAYER.ALPHA;
         }
       }
-      R.put(layer, p.m, x, y, z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, alpha, e, p.q, p.cast, 0);
+      R.put(layer, p.m, x, y, z, p.sx, p.sy, p.sz, 0, p.ry, tilt, p.c, alpha, e, p.q, p.cast, 0);
     }
     for (let i = Math.max(0, this.marks.length - Quality.limits.marks); i < this.marks.length; i++) {
       const k = this.marks[i], s = MARK_STYLE[k.kind];
@@ -3905,6 +3914,7 @@ const Arena = {
     for (const o of this.objects) this.drawObject(o);
     this.drawPointLightFlicker();
   },
+  lampAngle(l) { const age = this.time - l.t0; return l.amp > 0 && age >= 0 && age < LAMP_SECS ? l.amp * (1 - age / LAMP_SECS) * Math.sin(age * TAU * LAMP_HZ) : 0; }, // the swing of a hanging light now (rad): damped to rest
   drawPointLightFlicker() {
     if (this.def.id !== 'pit') return;
     const pl = this.def.env.pl;
@@ -5360,7 +5370,7 @@ function probeLow(mesh, cx, cy, cz, sx, sy, sz) {
 /* Wear (P13-02), all drawn only: the simulation never reads it. Bruises mix a zone's skin toward BRUISE_RGB, up to BRUISE_MAX when BRUISE_FULL of the maximum health was taken there; each knockdown puts DUST_STEP of
    the floor colour on the clothes, at most DUST_MAX; after SWEAT_SECONDS of fighting, or with stamina under TIRED_STAMINA (fading over SWEAT_FADE), skin goes from SKIN_ROUGH to SKIN_SHINE; a worn item keeps 1 - WEAR_DARK of its colour at the last point. */
 const BRUISE_RGB = C('#6b3b4a'), BRUISE_MAX = 0.3, BRUISE_FULL = 0.6, BRUISE_HEAD = 1.35, BRUISE_LEGS = 0.7; // BRUISE_HEAD / _LEGS: contact heights (body units) above which a hit is a head hit and below which a leg hit; between them the torso takes 60 % and the arms 40 %
-const DUST_STEP = 0.06, DUST_MAX = 0.3, SWEAT_SECONDS = 40, TIRED_STAMINA = 0.35, SWEAT_FADE = 0.05, SKIN_ROUGH = 0.7, SKIN_SHINE = 0.35, WEAR_DARK = 0.25;
+const DUST_STEP = 0.06, DUST_MAX = 0.3, SWEAT_SECONDS = 40, TIRED_STAMINA = 0.35, SWEAT_FADE = 0.05, SKIN_ROUGH = 0.7, CHEST_ROUGH = 0.8, SKIN_SHINE = 0.35, WEAR_DARK = 0.25;
 const mixRgb = (out, a, b, t) => { out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t; return out; };
 const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const isStunState = (s) => s === S.HIT || s === S.STAGGER || s === S.STUN;
@@ -5767,7 +5777,7 @@ class Fighter {
     this.applyLook(profile.look);
     this.wear = [0, 0, 0, 0, 0]; // drawn only (P13-02): the share of the maximum health taken at the head, torso, arms and legs (the bruises), and the dust on the clothes
     this.ws = [0, 0, 0, 0, 0, 0].map(() => [0, 0, 0]); // one scratch colour for each mix dress() makes, so a frame allocates nothing
-    this.wc = {}; this.dress();
+    this.wc = {}; // the colours worn this frame, filled by dress() whenever a skeleton is drawn
     this.motion = makeMotion(profile, this.scale, this.build); // visual: rhythm, strike shaping
     this.radius = 0.34; // collision size is the same for every body: height and build are cosmetic
     this.pose = new Float32Array(NP);
@@ -6939,6 +6949,7 @@ class Fighter {
   // Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts.
   walkSkeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
+    if (draw) this.dress();
     const p = this.pose, col = this.col, wc = this.wc, sc = this.scale, b = this.build, pts = this.pts, sh = this.shape;
     M4.identity(FBASE);
     M4.translate(FBASE, px, py, pz);
@@ -7082,11 +7093,10 @@ class Fighter {
     z.top = c.top === c.skin ? this.bruised(1, c.skin) : dust > 0 ? mixRgb(this.ws[4], c.top, floor, dust) : c.top; // a bare chest is skin: it bruises; a top gets dusty
     z.shorts = dust > 0 ? mixRgb(this.ws[5], c.shorts, floor, dust) : c.shorts;
     z.rough = SKIN_ROUGH - (SKIN_ROUGH - SKIN_SHINE) * worn;
-    z.chest = c.top === c.skin ? z.rough : 0.8;
+    z.chest = c.top === c.skin ? CHEST_ROUGH - (CHEST_ROUGH - SKIN_SHINE) * worn : CHEST_ROUGH; // a bare chest was always a little rougher than the rest of the skin
   }
   // Render with sub-tick interpolation
   draw(alpha, marker = true) { // marker: the floor disc of the fighter's team
-    this.dress();
     const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
     const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
     this.skeleton(px, py, pz, yaw, true);
@@ -13148,9 +13158,25 @@ const Feel = {
   beat: 0, // seconds to the next heartbeat
   init(on) {
     on('hit', (e) => this.bruise(e));
-    on('knockdown', (e) => { const w = e.f.wear; w[4] = Math.min(DUST_MAX, w[4] + DUST_STEP); }); // a knockdown, a throw's landing and a fall all end in this event
+    on('knockdown', (e) => { const w = e.f.wear; w[4] = Math.min(DUST_MAX, w[4] + DUST_STEP); this.shake(e.f.x, e.f.z); }); // a knockdown, a throw's landing and a fall all end in this event
+    for (const name of ['wallSlam', 'envImpact', 'objBreak']) on(name, (e) => this.shake(e.x, e.z)); // a wall or object impact, a collapse
     on('roundStart', (e) => { for (const f of e.match.fighters) f.wear.fill(0); }); // a 1v1 starts every round clean; a brawl has one start and keeps its marks
     on('frame', (e) => this.update(e.dt));
+  },
+  /* An impact at (x, z): every hanging light within LAMP_RANGE swings (a new impact restarts its swing; at most LAMP_MAX swing at once) and every loose prop there jolts. Camera shake scales both and 0 stops them,
+     as does Reduced motion. Only the lights' own swing state and the scenery's wobble (read by the drawing alone) are written. */
+  shake(x, z) {
+    const scale = Settings.v.reducedMotion ? 0 : Math.min(1, Settings.v.shake / SETTING_DEFS.shake.def);
+    if (!(scale > 0)) return;
+    const lamps = [], swinging = (l) => l.amp > 0 && Arena.time - l.t0 < LAMP_SECS;
+    for (const p of Arena.props) if (p.lamp && !lamps.includes(p.lamp)) lamps.push(p.lamp);
+    let busy = lamps.filter(swinging).length;
+    for (const l of lamps) {
+      if (Math.hypot(l.x - x, l.z - z) > LAMP_RANGE || (!swinging(l) && busy >= LAMP_MAX)) continue;
+      if (!swinging(l)) busy++;
+      l.amp = LAMP_SWAY * scale; l.t0 = Arena.time;
+    }
+    for (const o of Arena.objects) if (!o.destroyed && (!o.fixed || o.bounce) && Math.hypot(o.x - x, o.z - z) <= LAMP_RANGE) o.wob = Math.max(o.wob, LAMP_JOLT * scale);
   },
   // Whether a lone person (a fight with two or more people has none) is in a live fight, not Training, under HEART_HP of their health, and the setting is on
   heartWanted() {
@@ -16322,6 +16348,7 @@ function testApi() {
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+    LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
