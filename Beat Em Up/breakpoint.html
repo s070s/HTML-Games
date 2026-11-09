@@ -16315,7 +16315,7 @@ UI.selfTestUnavailable = function selfTestUnavailable(message) {
   return [{ name: 'Self-test file loads', pass: false, detail: message }];
 };
 
-UI.runSelfTestWith = function runSelfTestWith(tests, only) {
+UI.runSelfTestWith = async function runSelfTestWith(tests, only) {
   const t0 = performance.now();
   const illegalBefore = Diag.illegalTransitions;
   const screen = this.current, stack = this.stack.slice();
@@ -16325,6 +16325,7 @@ UI.runSelfTestWith = function runSelfTestWith(tests, only) {
   Diag.illegalTransitions = illegalBefore;
   this.resetMenuScene();
   if (screen && this.current !== screen) { this.go(screen); this.stack = stack; } // flow tests visit other screens: show the results where the run started
+  if (res.settled) await res.settled; // async tests (the WebRTC check, P12-04) fill in their results after run_all returns
   const failed = res.filter((r) => !r.pass).length, skipped = res.filter((r) => r.skipped).map((r) => r.name); // a skip keeps pass: true for callers that count passes; it is counted and listed here so a hidden pane cannot skip a check unseen
   const counts = (res.length - failed - skipped.length) + ' passed, ' + failed + ' failed, ' + skipped.length + ' skipped';
   const skipList = skipped.length ? '\nSkipped, not run here:\n' + skipped.map((name) => '  ' + name).join('\n') : '';
