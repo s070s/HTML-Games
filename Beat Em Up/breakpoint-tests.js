@@ -50,6 +50,7 @@ const {
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -13992,6 +13993,82 @@ const SelfTest = {
         }
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
+    });
+    /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
+    const withVoices = (body) => {
+      const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
+      const heard = [], source = () => ({ stopped: false, stop() { this.stopped = true; } });
+      Sound.ready = () => true; Sound.allow = () => true; Sound.layerQ = []; Sound.heart = false; Sound.ducked = false;
+      Sound.tone = (type, f0, f1, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'tone', f0, dest, s }); return s; };
+      Sound.noise = (filter, f0, f1, q, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'noise', filter, f0, dest, s }); return s; };
+      Sound.swell = () => { const s = source(); heard.push({ kind: 'swell', s }); return s; };
+      Sound.material = (kind) => heard.push({ kind: 'material', material: kind });
+      Sound.grunt = () => {};
+      try { return body(heard); } finally { Object.assign(Sound, keep); }
+    };
+    test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
+      const bad = [], keepArena = Arena.def;
+      Sound.wire();
+      try {
+        withVoices((heard) => {
+          const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
+          const thud = (weight) => hit({ def: { index: 1, weight, y: 0 } }).filter((v) => v.kind === 'tone')[1].f0;
+          if (!(thud(0) > thud(2) && thud(2) > thud(4))) bad.push('the thud is not lower for heavier bodies: ' + [0, 2, 4].map(thud));
+          const snap = (tier) => { const v = hit({ mv: { tier, cat: 'punch', name: 'x' } }).filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
+          if (new Set([1, 2, 3].map(snap)).size !== 3) bad.push('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
+          if (hit({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }).filter((q) => q.kind === 'material').map((q) => q.material).join() !== WEAPONS.bat.mat) bad.push('no material layer for a bat');
+          if (hit({}).some((q) => q.kind === 'material')) bad.push('a bare hand has a material');
+          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) bad.push('a swell without a crowd');
+          if (hit({}).some((q) => q.dest !== undefined)) bad.push('a layer bypasses the effects bus');
+          Arena.build(ARENAS.club);
+          if (!Arena.props.some((q) => q.ph !== undefined)) bad.push('the Night Club has no crowd to test with');
+          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) bad.push('no crowd swell on a knock-out');
+          if (hit({ ko: false }).some((q) => q.kind === 'swell')) bad.push('a swell without a knock-out');
+          heard.length = 0; Sound.layerQ = [];
+          const layered = [], realLayer = Sound.layer;
+          Sound.layer = function (s) { if (s) layered.push(s); return realLayer.call(this, s); };
+          try { for (let i = 0; i < 20; i++) Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }); } finally { Sound.layer = realLayer; }
+          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length;
+          if (layered.length !== 40 || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped + ' of ' + layered.length + ' stopped, ' + others + ' others stopped');
+          Sound.allow = () => false; heard.length = 0;
+          Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
+          if (heard.length) bad.push('a hit the engine skipped still layers');
+        });
+      } finally { if (keepArena) Arena.build(keepArena); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Low-health heartbeat (P13-02): a lone person under 20 % health in a live fight hears a 70 bpm heartbeat and the music low-passed to 1.2 kHz; the setting, a second person, Training, a pause and a knock-out turn it off', () => {
+      const bad = [], keepGame = { match: Game.match, state: Game.state }, keep = Settings.v.heartbeat;
+      try {
+        withVoices((heard) => {
+          const filter = []; Sound.ctx = { currentTime: 0 }; Sound.lowpass = { frequency: { setTargetAtTime: (hz) => filter.push(hz) } };
+          const m = mk({}, () => {}, () => {}); m.controllers[0].human = true; Game.match = m; Game.state = GS.FIGHT; Settings.v.heartbeat = true;
+          const me = m.fighters[0], foe = m.fighters[1];
+          me.hp = me.maxHp * 0.15;
+          if (!Feel.heartWanted()) bad.push('a lone person at 15 % hears nothing');
+          me.hp = me.maxHp * 0.25; if (Feel.heartWanted()) bad.push('25 % beats');
+          me.hp = me.maxHp * 0.15;
+          m.controllers[1].human = true; if (Feel.heartWanted()) bad.push('two people'); m.controllers[1].human = false;
+          m.training = true; if (Feel.heartWanted()) bad.push('Training'); m.training = false;
+          Game.state = GS.PAUSED; if (Feel.heartWanted()) bad.push('paused'); Game.state = GS.FIGHT;
+          Settings.v.heartbeat = false; if (Feel.heartWanted()) bad.push('the setting Off'); Settings.v.heartbeat = true;
+          me.alive = false; if (Feel.heartWanted()) bad.push('knocked out'); me.alive = true;
+          foe.hp = foe.maxHp * 0.1; if (!Feel.heartWanted()) bad.push('the foe at 10 % mutes it');
+          Feel.beat = 0; heard.length = 0; filter.length = 0;
+          for (let i = 0; i < 180; i++) Feel.update(1 / 60);   // 3 s
+          const thumps = heard.filter((q) => q.kind === 'tone').length, beats = thumps / 2;
+          if (beats < 3 || beats > 4 || thumps % 2) bad.push(beats + ' beats in 3 s (70 bpm is 3.5)');
+          if (filter[filter.length - 1] !== HEART_MUFFLE_HZ || HEART_BPM !== 70 || HEART_MUFFLE_HZ !== 1200) bad.push('the music is not low-passed to 1.2 kHz: ' + filter.join());
+          Sound.duck(true); if (filter[filter.length - 1] !== 700) bad.push('a pause does not duck further');
+          Sound.duck(false); if (filter[filter.length - 1] !== HEART_MUFFLE_HZ) bad.push('the heart muffle is lost after a pause');
+          me.hp = me.maxHp; heard.length = 0;
+          Feel.update(1 / 60);
+          if (filter[filter.length - 1] !== 20000 || heard.length) bad.push('healed: it goes on');
+          Game.match = null; me.hp = me.maxHp * 0.1; Feel.update(1 / 60);
+          if (Sound.heart) bad.push('no match, still beating');
+        });
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {

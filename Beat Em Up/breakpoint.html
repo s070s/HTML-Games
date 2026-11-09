@@ -13145,10 +13145,27 @@ const Effects = {
 
 // === 07c FEEDBACK (P13-02) - what the list of Appendix C adds on the fighters and in the world. Every effect is drawn or played from here or from draw code: nothing reads a viewer setting inside the simulation and nothing writes a simulation field, so seeded fights and online play are unchanged.
 const Feel = {
+  beat: 0, // seconds to the next heartbeat
   init(on) {
     on('hit', (e) => this.bruise(e));
     on('knockdown', (e) => { const w = e.f.wear; w[4] = Math.min(DUST_MAX, w[4] + DUST_STEP); }); // a knockdown, a throw's landing and a fall all end in this event
     on('roundStart', (e) => { for (const f of e.match.fighters) f.wear.fill(0); }); // a 1v1 starts every round clean; a brawl has one start and keeps its marks
+    on('frame', (e) => this.update(e.dt));
+  },
+  // Whether a lone person (a fight with two or more people has none) is in a live fight, not Training, under HEART_HP of their health, and the setting is on
+  heartWanted() {
+    const m = Game.match;
+    if (!Settings.v.heartbeat || !m || m.training || Game.state !== GS.FIGHT) return false;
+    let person = null;
+    for (const f of m.fighters) if (m.isHuman(f)) { if (person) return false; person = f; }
+    return !!person && person.alive && person.hp < person.maxHp * HEART_HP;
+  },
+  // Every frame: the music muffles and the heart beats at HEART_BPM while heartWanted
+  update(dt) {
+    const on = this.heartWanted();
+    Sound.setHeart(on);
+    this.beat = on ? this.beat - dt : 0;
+    if (on && this.beat <= 0) { this.beat = 60 / HEART_BPM; Sound.heartbeat(); }
   },
   // The share of the maximum health a blow took goes to the zone it hit: high = head, low = legs, between = torso (60 %) and arms (40 %)
   bruise(e) {
@@ -13162,12 +13179,13 @@ const Feel = {
 
 // === 08 AUDIO - everything is synthesised with Web Audio
 const MAX_VOICES = 30;
+const HIT_LAYER_VOICES = 12, HEART_BPM = 70, HEART_MUFFLE_HZ = 1200, HEART_HP = 0.2; // P13-02: layered impact sources sounding at once, the heartbeat's rate, the music's low-pass while it beats, and the health share under which a lone person's heart beats
 const MIN_GAP = { punch: 0.035, kick: 0.035, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.2, objHit: 0.05, menu: 0.03, land: 0.08 };
 const SCALES = { minor: [0, 2, 3, 5, 7, 8, 10], pentatonic: [0, 2, 4, 7, 9], phrygian: [0, 1, 3, 5, 7, 8, 10] };
 
 const Sound = {
   ctx: null, master: null, musicBus: null, sfxBus: null, comp: null, reverb: null, wet: null, dry: null, noiseBuf: null,
-  voices: 0, last: {}, unsupported: false, wired: false, lowpass: null,
+  voices: 0, last: {}, unsupported: false, wired: false, lowpass: null, ducked: false, heart: false, layerQ: [], // layerQ: the sources of the layered impacts that still sound, oldest first (P13-02)
 
   // Called on any user gesture; safe to call repeatedly
   unlock() {
@@ -13241,9 +13259,12 @@ const Sound = {
     if (!this.ctx) return;
     this.setReverb(def.audio.reverb, def.audio.wet);
   },
-  duck(on) {
+  duck(on) { this.ducked = on; this.muffle(); },
+  // Low-health heartbeat (P13-02): while it is on the music (the ambience) is low-passed to HEART_MUFFLE_HZ; paused and the results screen still duck it further
+  setHeart(on) { if (this.heart !== on) { this.heart = on; this.muffle(); } },
+  muffle() {
     if (!this.ctx) return;
-    this.lowpass.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, 0.08);
+    this.lowpass.frequency.setTargetAtTime(this.ducked ? 700 : this.heart ? HEART_MUFFLE_HZ : 20000, this.ctx.currentTime, 0.08);
   },
 
   // --- voice helpers
@@ -13277,6 +13298,7 @@ const Sound = {
     this.voices++;
     o.onended = () => { this.voices--; g.disconnect(); };
     o.start(t); o.stop(t + dur + 0.02);
+    return o;
   },
   noise(filter, f0, f1, q, dur, gain, delay, pan, dest) {
     if (this.voices >= MAX_VOICES + 12) return;
@@ -13293,17 +13315,45 @@ const Sound = {
     this.voices++;
     s.onended = () => { this.voices--; g.disconnect(); };
     s.start(t, Math.random()); s.stop(t + dur + 0.02);
+    return s;
   },
   panFor(x) { return Arena.def ? clamp(x / Arena.def.bounds.x, -1, 1) * 0.6 : 0; },
 
   // --- sound library
   hit(power, kick, x) {
-    if (!this.allow(kick ? 'kick' : 'punch')) return;
+    if (!this.allow(kick ? 'kick' : 'punch')) return false;
     const p = this.panFor(x), g = 0.35 + power * 0.5;
     this.tone('sine', kick ? 120 : 160, kick ? 42 : 55, 0.12 + power * 0.14, g, 0, p);
     this.noise('bandpass', kick ? 1100 : 1700, 500, 0.9, 0.07 + power * 0.1, g * 0.8, 0, p);
     if (power > 0.6) { this.noise('lowpass', 700, 200, 0.7, 0.28, g * 0.7, 0, p); this.tone('sine', 70, 28, 0.32, g * 0.8, 0, p); }
+    return true;
   },
+  /* Layered impact (P13-02), on top of hit(): a thud pitched by the body's weight class (heavier is lower), a slap (tier 1), a snap (2) or a crack (3), the material of the item that struck, and a crowd's swell on the knock-out
+     that ends a fight where bystanders stand. At most HIT_LAYER_VOICES of these sources sound at once: the oldest stops. They go through the effects bus, so the volume settings scale them. */
+  layers(e) {
+    const p = this.panFor(e.x), tier = e.mv.tier || 1, g = 0.1 + tier * 0.05, weight = e.def.weight || 0;
+    this.layer(this.tone('sine', 210 - weight * 28, 70, 0.1 + weight * 0.02, g * 1.6, 0, p));
+    this.layer(tier >= 3 ? this.noise('highpass', 3600, 2400, 0.8, 0.09, g, 0, p) : this.noise('bandpass', tier === 2 ? 2600 : 3400, 1800, 1.1, 0.05, g, 0, p));
+    const item = e.mv.wpn && WEAPONS[e.mv.wpn];
+    if (item) this.material(item.mat, false, e.x);
+    if (e.ko && koEndsFight(e.def) && Arena.props.some((q) => q.ph !== undefined)) this.layer(this.swell());
+  },
+  layer(source) {
+    if (!source) return;
+    const queue = this.layerQ;
+    queue.push(source);
+    if (queue.length > HIT_LAYER_VOICES) { try { queue.shift().stop(); } catch (err) { /* it had ended already */ } }
+  },
+  swell() { // filtered noise that rises over 0.4 s and fades by 1.6 s
+    const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noiseBuf; f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.5;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.22, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+    s.connect(f); f.connect(g); g.connect(this.sfxBus);
+    this.voices++; s.onended = () => { this.voices--; g.disconnect(); };
+    s.start(t, Math.random()); s.stop(t + 1.7);
+    return s;
+  },
+  heartbeat() { if (this.allow('heart', 0.5)) { this.tone('sine', 62, 38, 0.14, 0.5); this.tone('sine', 55, 36, 0.12, 0.35, 0.17); } }, // lub-dub
   block(perfect, broke, x, brk, sway) {
     if (!this.allow('block')) return;
     const p = this.panFor(x);
@@ -13403,7 +13453,7 @@ const Sound = {
     const on = (n, fn) => Events.on(n, (e) => { if (this.ready()) fn(e); });
     on('hit', (e) => {
       const power = clamp((e.mv.tier || 1) / 3 + (e.counter ? 0.2 : 0) + (e.ko ? 0.4 : 0), 0.15, 1);
-      this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x);
+      if (this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x)) this.layers(e);
       if (e.mv.tier >= 2 || e.ko) this.grunt(e.def.index, e.ko || e.mv.tier === 3);
       if (e.counter) CUE_NOTES.ting.forEach((hz, i) => this.tone(i ? 'sine' : 'triangle', hz, hz, 0.16 - i * 0.04, 0.14 - i * 0.07, i * 0.03));
     });
@@ -16272,6 +16322,7 @@ function testApi() {
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+    HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
