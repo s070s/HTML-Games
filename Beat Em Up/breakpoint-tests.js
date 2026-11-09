@@ -13978,7 +13978,9 @@ const SelfTest = {
           g.computePose();
           return Array.from(g.pose);
         };
-        if (striking(false).some((v, i) => Math.abs(v - striking(true)[i]) > 1e-6) || !striking(false).some((v) => v !== 0)) bad.push('ATTACK changed');      } finally { Settings.v.reducedMotion = keep; }
+        const fresh = striking(false), worn = striking(true);
+        if (fresh.some((v, i) => Math.abs(v - worn[i]) > 1e-6) || !fresh.some((v) => v !== 0)) bad.push('ATTACK changed');
+      } finally { Settings.v.reducedMotion = keep; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Hurt posture (P13-02): under 25 % health an idle or walking fighter leans on 0.1 rad and the left hand holds the zone hit most; every joint stays inside the Calm poses limits for all 32 bodies, and the contact pose of every move (the P17-02 hit check) is the same', () => {
