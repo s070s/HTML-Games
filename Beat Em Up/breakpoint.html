@@ -4790,6 +4790,10 @@ const MOMENTUM_PERFECT = 20; // a perfect block or sway is skill: it is worth tw
 const BOOST_TICKS = 300; // 5 s: long enough for a couple of strings, short enough not to decide the round alone
 const BOOST_DAMAGE_MULT = 1.15; // small and readable: the boost rewards a good phase, it does not swing the exchange rates the balance runs set
 const BOOST_BREATH_HZ = 2.4; // visual: chest rise during the boost
+const TIRED_POSE_STATES = [S.IDLE, S.WALK]; // P13-02: the calm states that show panting and a hurt body
+const PANT_HZ = 1.4, PANT_SHOULDER = 0.08, PANT_LEAN = 0.12, PANT_CHIN = 0.08; // rad and Hz: the quick breaths of a tired fighter (shoulders up, bent forward, chin down)
+const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // under this share of health the body leans on (rad; more for a hurt leg) and a hand holds the zone hit most
+const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
 const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY]; // calm states that show the boost; strikes, reactions and holds keep their own poses
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
@@ -5354,9 +5358,9 @@ function probeLow(mesh, cx, cy, cz, sx, sy, sz) {
   if (low < PROBE_LOW) PROBE_LOW = low;
 }
 /* Wear (P13-02), all drawn only: the simulation never reads it. Bruises mix a zone's skin toward BRUISE_RGB, up to BRUISE_MAX when BRUISE_FULL of the maximum health was taken there; each knockdown puts DUST_STEP of
-   the floor colour on the clothes, at most DUST_MAX; after SWEAT_SECONDS of fighting, or with stamina under SWEAT_STAMINA (fading over SWEAT_FADE), skin goes from SKIN_ROUGH to SKIN_SHINE; a worn item keeps 1 - WEAR_DARK of its colour at the last point. */
+   the floor colour on the clothes, at most DUST_MAX; after SWEAT_SECONDS of fighting, or with stamina under TIRED_STAMINA (fading over SWEAT_FADE), skin goes from SKIN_ROUGH to SKIN_SHINE; a worn item keeps 1 - WEAR_DARK of its colour at the last point. */
 const BRUISE_RGB = C('#6b3b4a'), BRUISE_MAX = 0.3, BRUISE_FULL = 0.6, BRUISE_HEAD = 1.35, BRUISE_LEGS = 0.7; // BRUISE_HEAD / _LEGS: contact heights (body units) above which a hit is a head hit and below which a leg hit; between them the torso takes 60 % and the arms 40 %
-const DUST_STEP = 0.06, DUST_MAX = 0.3, SWEAT_SECONDS = 40, SWEAT_STAMINA = 0.35, SWEAT_FADE = 0.05, SKIN_ROUGH = 0.7, SKIN_SHINE = 0.35, WEAR_DARK = 0.25;
+const DUST_STEP = 0.06, DUST_MAX = 0.3, SWEAT_SECONDS = 40, TIRED_STAMINA = 0.35, SWEAT_FADE = 0.05, SKIN_ROUGH = 0.7, SKIN_SHINE = 0.35, WEAR_DARK = 0.25;
 const mixRgb = (out, a, b, t) => { out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t; return out; };
 const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const isStunState = (s) => s === S.HIT || s === S.STAGGER || s === S.STUN;
@@ -6635,6 +6639,7 @@ class Fighter {
     }
     if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } } // the arm is at the release point on the tick of the release, so it skips the usual easing
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
+    if (TIRED_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.tiredPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]); // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
     k = this.state === S.SWAY ? SWAY_POSE_BLEND : Math.min(0.9, k * m.blend); // the sway pose has to be there on the first i-frame tick, so it ignores the fighter's speed
@@ -6694,6 +6699,23 @@ class Fighter {
     p[J.shLz] += 0.1; p[J.shRz] += 0.1; p[J.headX] += 0.1;
     p[J.torsoLean] += 0.04 * breath * amount;
     p[J.knL] += 0.03 * (0.5 + 0.5 * breath) * amount; p[J.knR] += 0.03 * (0.5 + 0.5 * breath) * amount;
+  }
+  /* Breathing and hurt posture (P13-02), on the calm idle and walk pose; drawn only. The sim reads the move rows for every hit volume and no pose, and attackPose never comes here, so the hit check of P17-02 and
+     the joint limits of the Calm poses test are untouched. Under 35 % stamina or while exhausted the chest heaves in quick breaths, shoulders up and chin down; under 25 % health the body leans on and the left hand holds the zone hit most. */
+  tiredPose(p, t) {
+    const calm = Settings.v.reducedMotion ? 0.4 : 1, tired = this.exhaust > 0 || this.stam < this.maxStam * TIRED_STAMINA;
+    if (tired) {
+      const breath = Math.sin(t * PANT_HZ * TAU + this.motion.phase) * calm;
+      p[J.shLx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.shRx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.torsoLean] += PANT_LEAN * (1 + 0.4 * breath); p[J.headX] += PANT_CHIN;
+      p[J.knL] += 0.03 * (0.5 + 0.5 * breath); p[J.knR] += 0.03 * (0.5 + 0.5 * breath);
+    }
+    const hurt = clamp((HURT_HP - this.hp / this.maxHp) / HURT_FADE + 1, 0, 1); // 1 below HURT_HP, fading out over HURT_FADE above it
+    if (hurt <= 0 || !this.alive) return;
+    const w = this.wear, zone = w[1] + w[2] >= Math.max(w[0], w[3]) ? 1 : w[0] >= w[3] ? 0 : 2; // the most-hit zone: head, torso (with the arms) or legs
+    p[J.torsoLean] += HURT_LEAN * hurt + (zone === 2 ? HURT_STOOP * hurt : 0);
+    if (this.item) return; // an item in hand keeps its hands
+    const hand = HURT_HAND[zone];
+    p[J.shLx] = lerp(p[J.shLx], hand[0], hurt); p[J.elL] = lerp(p[J.elL], hand[1], hurt); p[J.shLy] = lerp(p[J.shLy], hand[2], hurt); p[J.shLz] = lerp(p[J.shLz], hand[3], hurt);
   }
   // An item in hand: one hand on a one-handed item, both on a two-handed one, a crate held out in front
   heldPose(p) {
@@ -7055,7 +7077,7 @@ class Fighter {
   // The colours and the skin roughness the next frame is drawn in (this.wc), from the bruises, the dust and the sweat; the plain ones when there is nothing to show
   dress() {
     const c = this.col, z = this.wc, dust = Settings.v.wearMarks ? this.wear[4] : 0, floor = (Arena.def ? Arena.def.env : DEFAULT_ENV).ground;
-    const worn = Math.max(clamp(this.age / (60 * SWEAT_SECONDS), 0, 1), clamp((SWEAT_STAMINA - this.stam / this.maxStam) / SWEAT_FADE + 1, 0, 1)); // long fight or low stamina: how sweaty
+    const worn = Math.max(clamp(this.age / (60 * SWEAT_SECONDS), 0, 1), clamp((TIRED_STAMINA - this.stam / this.maxStam) / SWEAT_FADE + 1, 0, 1)); // long fight or low stamina: how sweaty
     z.head = this.bruised(0, c.skin); z.arms = this.bruised(2, c.skin); z.legs = this.bruised(3, c.skin);
     z.top = c.top === c.skin ? this.bruised(1, c.skin) : dust > 0 ? mixRgb(this.ws[4], c.top, floor, dust) : c.top; // a bare chest is skin: it bruises; a top gets dusty
     z.shorts = dust > 0 ? mixRgb(this.ws[5], c.shorts, floor, dust) : c.shorts;
@@ -16250,6 +16272,7 @@ function testApi() {
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+    TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,

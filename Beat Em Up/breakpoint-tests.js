@@ -50,6 +50,7 @@ const {
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
@@ -13920,6 +13921,77 @@ const SelfTest = {
       }
       if (!(WEAPON_BEND === 0.1)) bad.push('bend');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const targetPose = (f, state, t) => { f.state = state; f.animT = t; f.computePose(); return Float32Array.from(f.tp); };   // the pose the joints blend toward at animation time t
+    test('Breathing and panting (P13-02): under 35 % stamina or exhausted an idle or walking fighter heaves in quick breaths (lean and shoulders up, chin down), Reduced motion shrinks the heave, a rested fighter and every other state are unchanged', () => {
+      const bad = [], keep = Settings.v.reducedMotion, f = new Fighter(ROSTER_BY_ID.kai, 0);
+      try {
+        Settings.v.reducedMotion = false;
+        const range = (state, joint) => { const v = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((t) => targetPose(f, state, t)[joint]); return Math.max(...v) - Math.min(...v); };
+        for (const state of TIRED_POSE_STATES) {
+          f.stam = f.maxStam; f.exhaust = 0;
+          const rested = targetPose(f, state, 0.3);
+          f.stam = f.maxStam * 0.2;
+          const tired = targetPose(f, state, 0.3), heave = range(state, J.torsoLean);
+          if (!(tired[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5) || !(tired[J.shLx] - rested[J.shLx] > PANT_SHOULDER * 0.4) || !(tired[J.headX] > rested[J.headX])) bad.push(S[state] + ' not bent forward');
+          if (!(heave > 0.02)) bad.push(S[state] + ' does not breathe (' + heave.toFixed(3) + ')');
+          f.stam = f.maxStam; f.exhaust = 30;
+          if (!(targetPose(f, state, 0.3)[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5)) bad.push(S[state] + ' exhausted does not pant');
+          f.exhaust = 0; f.stam = f.maxStam * 0.2; Settings.v.reducedMotion = true;
+          if (!(range(state, J.torsoLean) < heave * 0.6)) bad.push(S[state] + ' Reduced motion keeps the heave');
+          Settings.v.reducedMotion = false;
+        }
+        f.stam = f.maxStam * 0.2;
+        const base = (state) => { f.stam = f.maxStam; const q = targetPose(f, state, 0.3); f.stam = f.maxStam * 0.2; return q; };
+        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP]) {
+          const rested = base(state), tired = targetPose(f, state, 0.3);
+          if (rested.some((v, i) => Math.abs(v - tired[i]) > 1e-6)) bad.push(S[state] + ' changed');
+        }
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Hurt posture (P13-02): under 25 % health an idle or walking fighter leans on 0.1 rad and the left hand holds the zone hit most; every joint stays inside the Calm poses limits for all 32 bodies, and the contact pose of every move (the P17-02 hit check) is the same', () => {
+      const bad = [], LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // the numbers of the Calm poses test
+      const f = new Fighter(ROSTER_BY_ID.kai, 0);
+      for (const state of TIRED_POSE_STATES) {
+        f.hp = f.maxHp; f.wear.fill(0);
+        const well = targetPose(f, state, 0.3);
+        f.hp = f.maxHp * 0.2;
+        const hurt = targetPose(f, state, 0.3);
+        if (Math.abs(hurt[J.torsoLean] - well[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' lean ' + (hurt[J.torsoLean] - well[J.torsoLean]).toFixed(3));
+        if (![J.shLx, J.elL, J.shLy, J.shLz].every((joint, i) => Math.abs(hurt[joint] - HURT_HAND[1][i]) < 1e-6)) bad.push(S[state] + ' the hand is not on the torso');
+        f.wear[0] = 0.5; const head = targetPose(f, state, 0.3);
+        if (Math.abs(head[J.shLx] - HURT_HAND[0][0]) > 1e-6) bad.push(S[state] + ' head');
+        f.wear.fill(0); f.wear[3] = 0.5; const leg = targetPose(f, state, 0.3);
+        if (Math.abs(leg[J.shLx] - HURT_HAND[2][0]) > 1e-6 || Math.abs(leg[J.torsoLean] - well[J.torsoLean] - HURT_LEAN - HURT_STOOP) > 1e-6) bad.push(S[state] + ' leg');
+        f.hp = f.maxHp * 0.3;
+        if (targetPose(f, state, 0.3).some((v, i) => Math.abs(v - well[i]) > 1e-6)) bad.push(S[state] + ' above 25 % changed');
+        f.hp = f.maxHp * 0.2; f.item = { id: 'bat', dur: 6, sprays: 0 }; f.wear.fill(0);
+        const armed = targetPose(f, state, 0.3);
+        f.item = null; f.hp = f.maxHp;
+        const armedWell = (f.item = { id: 'bat', dur: 6, sprays: 0 }, targetPose(f, state, 0.3));
+        f.item = null;
+        if (Math.abs(armed[J.shLx] - armedWell[J.shLx]) > 1e-6 || Math.abs(armed[J.torsoLean] - armedWell[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' an item in hand lost its hand');
+      }
+      const ids = Object.keys(ATTACKS).filter((id) => ATTACKS[id].type === 'strike').slice(0, 8);
+      for (const r of ROSTER) {
+        const g = new Fighter(r, 0);
+        for (const state of TIRED_POSE_STATES) for (const zone of [0, 1, 3]) {
+          g.hp = g.maxHp * 0.05; g.stam = 0; g.exhaust = 20; g.wear.fill(0); g.wear[zone] = 0.5;
+          const q = targetPose(g, state, 0.7);
+          for (const [joint, limit] of LIMITS) if (Math.abs(q[joint]) > limit + 0.005) bad.push(r.id + ' ' + S[state] + ' joint ' + joint + ' ' + q[joint].toFixed(2));
+        }
+        for (const id of ids) {
+          const mv = ATTACKS[id], contact = (hurtAndTired) => {
+            g.hp = hurtAndTired ? g.maxHp * 0.05 : g.maxHp; g.stam = hurtAndTired ? 0 : g.maxStam; g.exhaust = hurtAndTired ? 20 : 0; g.wear.fill(0); g.wear[0] = hurtAndTired ? 0.5 : 0;
+            g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+            g.attackPose(); g.skeleton(0, 0, 0, 0, false);
+            return Array.from(g.pts).join();
+          };
+          if (contact(false) !== contact(true)) bad.push(r.id + ' ' + id + ' contact pose moved');
+        }
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
