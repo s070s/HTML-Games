@@ -56,8 +56,8 @@ const {
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-  NET_INPUT_CHANNEL, NET_CONTROL_CHANNEL, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
-  encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepSession, NetSeatController,
+  ROUND_END_TICKS, NET_INPUT_CHANNEL, NET_CONTROL_CHANNEL, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+  encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -17018,51 +17018,6 @@ const SelfTest = {
       } finally { Game.beginMatch = begin; Game.run = kept.run; Setups.d = kept.setups; Game.selection.survivalType = kept.type; restoreProgress(saved); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
-    /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
-       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
-    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
-      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
-      const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-      const policy = policyTag ? policyTag.content : '';
-      if (!policy.includes("default-src 'none'") || !policy.includes("connect-src 'none'")) return 'the page policy changed: ' + policy;
-      const connections = [new RTCPeerConnection(), new RTCPeerConnection()];
-      const [offerer, answerer] = connections;
-      const violations = [];
-      const onViolation = (e) => violations.push(e.effectiveDirective + ' ' + e.blockedURI);
-      document.addEventListener('securitypolicyviolation', onViolation);
-      const TIMEOUT_MS = 5000;
-      let timer = 0;
-      let candidates = 0;   // local ICE candidates gathered by both sides; none means the device has no usable network (airplane mode), not a CSP problem
-      const timeout = new Promise((resolve, reject) => {
-        const reason = () => (candidates === 0 ? 'no ICE candidates gathered (no usable network interface?)' : 'ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState);
-        timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms: ' + reason())), TIMEOUT_MS);
-      });
-      const exchange = async () => {
-        // trickle ICE straight across (fast); the manual copy-paste form only changes when the candidates travel, not what the page may do
-        offerer.onicecandidate = (e) => { if (e.candidate) { candidates++; answerer.addIceCandidate(e.candidate).catch(() => {}); } };   // a late candidate after the test closed the connections is harmless
-        answerer.onicecandidate = (e) => { if (e.candidate) { candidates++; offerer.addIceCandidate(e.candidate).catch(() => {}); } };
-        const channel = offerer.createDataChannel('csp-probe');   // reliable on purpose: the one ping must not be lost (the game's input channel will be unordered)
-        const atAnswerer = new Promise((resolve) => { answerer.ondatachannel = (e) => { e.channel.onmessage = (msg) => { e.channel.send('pong'); resolve(msg.data); }; }; });
-        const atOfferer = new Promise((resolve) => { channel.onmessage = (msg) => resolve(msg.data); });
-        channel.onopen = () => channel.send('ping');
-        await offerer.setLocalDescription(await offerer.createOffer());
-        await answerer.setRemoteDescription(offerer.localDescription);
-        await answerer.setLocalDescription(await answerer.createAnswer());
-        await offerer.setRemoteDescription(answerer.localDescription);
-        return (await atAnswerer) + '/' + (await atOfferer);
-      };
-      const exchanged = exchange();
-      exchanged.catch(() => {});   // when the timeout wins, a later failure of the exchange must not reach the page's unhandledrejection handler
-      return Promise.race([exchanged, timeout]).then((got) => {
-        if (violations.length) return 'CSP violation: ' + violations.join('; ');
-        return got === 'ping/pong' ? true : 'wrong messages: ' + got;
-      }).finally(() => {
-        clearTimeout(timer);
-        document.removeEventListener('securitypolicyviolation', onViolation);
-        connections.forEach((connection) => connection.close());
-      });
-    });
     /* ---------- online: delay-based lockstep (P12-02) ---------- */
     /* Several peers in this one page. The sim keeps its state in a few shared globals (the simRng generator, the arena, the move and flight id counters, Match.current), so every peer owns a context that is swapped in
        around each call into its sim; the viewer settings of a peer are swapped in too (the guests run with every viewer setting flipped: they must not matter). The link between peers is in memory with a virtual clock in
@@ -17079,6 +17034,7 @@ const SelfTest = {
         const end = { profile, peer: null, muted: false, closed: false, controlAt: 0, onmessage: null, onclose: null };
         end.send = (channel, data) => {   // muted: this end's packets vanish, the link stays up (a peer that stopped answering)
           if (end.muted || end.closed) return;
+          if (channel === 'input' && end.blockInput) { net.lost++; return; }   // only the input channel of this end stops (the reliable one still works)
           let at = net.t + end.profile.latency + rng() * end.profile.jitter;
           if (channel === 'input') {
             net.packets++; net.bytes += data.length;
@@ -17120,7 +17076,7 @@ const SelfTest = {
     /* seats = 2 (a 1v1, both people) or 3 or 4 (a brawl: that many people against three CPU enemies; the 4-seat form is for measuring, P12-03 tests it). opts: delay, latency, jitter, loss, seed, rtc ([host transport, guest transport] instead of the memory link), device (seat -> controller). */
     const makeLockstep = (seats, opts) => {
       const net = makeMemoryNet(opts.seed || 1), common = { countdown: false, seed: 31, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true };
-      const cfg = Object.assign(common, seats === 2 ? { mode: 'free', winsNeeded: 99, timer: 30 } : { mode: 'brawl', enemies: 3, hpScale: 8, coop: ROSTER.slice(0, seats).map((fighter, slot) => ({ slot, id: fighter.id })) });
+      const cfg = Object.assign(common, seats === 2 ? { mode: 'free', winsNeeded: 99, timer: 30 } : { mode: 'brawl', enemies: 3, hpScale: 8, coop: ROSTER.slice(0, seats).map((fighter, slot) => ({ slot, id: fighter.id })) }, opts.cfg);
       const peers = [], profile = { latency: opts.latency || 0, jitter: opts.jitter || 0, loss: opts.loss || 0 }, links = {}, hostLinks = [];
       for (let seat = 1; seat < seats; seat++) { const [hostEnd, guestEnd] = opts.rtc ? [opts.rtc[0], opts.rtc[1]] : net.pair(profile); links[seat] = hostEnd; hostLinks[seat] = guestEnd; }
       for (let seat = 0; seat < seats; seat++) {
@@ -17134,7 +17090,7 @@ const SelfTest = {
         });
         peers.push(peer);
       }
-      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; } };   // mute: that seat stops answering (its link stays up)
+      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; }, hostEnd: (seat) => links[seat] };   // mute: that seat stops answering (its link stays up)
     };
     const inPeer = (peer, fn) => {
       const keep = Object.assign({}, Settings.v), outer = saveSimContext();   // the page's own loop (the menu scene) keeps running between async steps and must find its own globals
@@ -17292,6 +17248,8 @@ const SelfTest = {
       if (host.session.got[0].size || host.session.got[2].size || host.session.dropped.size || host.session.theirSums.size) problems.push('the host accepted a spoofed message');
       second.session.receive(0, 'control', '{"t":"drop","seat":2,"f":1}');
       if (!second.session.dropped.has(2)) problems.push('a guest ignored the host\'s drop');
+      for (const odd of ['bp-ping:12', 'bp-pong:12', '5', 'null', '{"t":"zzz"}', '[1,2]', '{}', '']) { try { second.session.receive(0, 'control', odd); } catch (error) { problems.push('control message ' + JSON.stringify(odd) + ' threw'); } }   // P12-01 sends its own strings on the reliable channel too
+      if (second.session.ended) problems.push('an unknown control message ended the session (' + second.session.ended + ')');
       second.session.receive(2, 'control', '{"t":"drop","seat":1,"f":1}');
       if (second.session.dropped.has(1)) problems.push('a guest took a drop from another guest');
       // a press the sim does not read (hit freeze from tick 3 to 12) is kept for the next sampled frame: read exactly once, after the freeze
@@ -17302,8 +17260,198 @@ const SelfTest = {
       const seat = solo.controllers[0], original = seat.think.bind(seat);
       seat.think = (f, opp, match, itt) => { const out = original(f, opp, match, itt); if (itt.punch) reads.push(match.tick); return out; };
       for (let i = 0; i < 40; i++) if (!session.step()) problems.push('a one-seat session stalled');
-      if (reads.length !== 1 || reads[0] < 13) problems.push('the press during the freeze was read at ' + JSON.stringify(reads));
+      if (reads.length !== 1 || reads[0] !== 13) problems.push('the press during the freeze was read at ' + JSON.stringify(reads));
       return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): the host changes the input delay while the peers keep stepping, over a lossy link, and the checksums stay equal (each sender tags its own frames: no agreement on a tick is needed)', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 30, jitter: 15, loss: 0.1, seed: 21 }), [host, guest] = game.peers;
+      const plan = [[300, 5], [600, 2], [800, 6], [1000, 3]], seen = [];
+      const done = playLockstep(game, 1300, () => {
+        if (plan.length && host.match.tick >= plan[0][0]) { const [, frames] = plan.shift(); host.session.setDelay(frames); seen.push(frames); }
+      });
+      if (done !== true) return done;
+      problems.push(...lockstepProblems(game.peers, 1300));
+      if (seen.length !== 4 || host.session.delay !== 3 || guest.session.delay !== 3) problems.push('delays ' + seen + ' / ' + host.session.delay + ' / ' + guest.session.delay);
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): frames lost for longer than the 8 in a packet are fetched with a resend request on the reliable channel (the host stops sending inputs to the guest for 400 ms at delay 6), and the match goes on equal', () => {
+      const game = makeLockstep(2, { delay: 6, latency: 20, seed: 22 }), [host, guest] = game.peers;
+      let blocked = 0;
+      const done = playLockstep(game, 600, (net) => {
+        if (!blocked && host.match.tick >= 200) { blocked = net.t; game.hostEnd(1).blockInput = true; }
+        if (blocked && net.t >= blocked + 400) game.hostEnd(1).blockInput = false;
+      });
+      const problems = done === true ? lockstepProblems(game.peers, 600) : [done];
+      if (!guest.session.stats.needs || !guest.session.stats.fills) problems.push('no resend request was needed: ' + JSON.stringify(guest.session.stats));
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    /* Game.frame with an attached session, two peers in one page: the Game singleton's own fields are swapped around each peer's frame as the sim globals are. A round ends by the clock after 2 s; the guest (a P1 device)
+       presses Punch in the round end: the skip must reach both sims on the same tick, with no desync, and the host retunes the delay as the round end is left. */
+    test('Lockstep (P12-02): through Game.frame and attachNet a round-end skip press on one peer skips on both at the same tick, checksums equal, and the host retunes the delay at the round end', () => {
+      const KEYS = ['state', 'match', 'net', 'netNote', 'acc', 'alpha', 'last', 'endTimer', 'config', 'run', 'pausedFrom', 'pausedBy', 'resultsData'];
+      const pick = () => { const kept = {}; for (const key of KEYS) kept[key] = Game[key]; return kept; };
+      const game = makeLockstep(2, { delay: 2, latency: 40, seed: 13, cfg: { timer: 2 }, device: (seat) => (seat === 1 ? PlayerController : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) }), [host, guest] = game.peers;
+      const outer = pick(), render = Game.render, problems = [], starts = [], ends = [];
+      const peerOf = (match) => game.peers.find((peer) => peer.match === match);
+      const offs = [
+        Events.on('roundEnd', (e) => { ends.push(e.match.tick); Game.onRoundEnd(e); }),
+        Events.on('nextRound', () => Game.onNextRound()),
+        Events.on('fightStart', () => { if (Game.state === GS.COUNTDOWN) Game.go(GS.FIGHT); }),
+        Events.on('roundStart', (e) => starts.push([peerOf(e.match).seat, e.round, e.match.tick])),
+      ];
+      const inGame = (peer, fn) => { const before = pick(); Object.assign(Game, peer.g); try { return fn(); } finally { peer.g = pick(); Object.assign(Game, before); } };
+      try {
+        Game.render = () => {};
+        for (const peer of game.peers) { Object.assign(Game, { state: GS.FIGHT, match: peer.match, net: null, netNote: null, acc: 0, alpha: 0, last: 1000, endTimer: 0, config: { mode: 'free' }, run: null }); Game.attachNet(peer.session); peer.g = pick(); }
+        let now = 1000, pressed = 0;
+        for (let i = 0; i < 700 && !(starts.length >= 4 && game.peers.every((peer) => peer.match.tick >= 400)); i++) {
+          now += TICK_MS; game.net.advance(game.net.t + TICK_MS);
+          for (const peer of game.peers) {
+            if (peer === guest && !pressed && peer.match.phase === 'roundEnd' && peer.match.phaseTicks >= 40) { pressed = peer.match.tick; Input.press('punch'); }   // only the guest's device gets the press
+            inPeer(peer, () => inGame(peer, () => Game.frame(now)));
+          }
+          if (host.session.ended || guest.session.ended) break;
+        }
+        if (!pressed) problems.push('the round never reached its end: ticks ' + game.peers.map((peer) => peer.match.tick + ' ' + peer.match.phase + ' ' + peer.g.state + ' acc ' + peer.g.acc.toFixed(3) + ' ' + peer.session.ended).join(' / '));
+        if (host.session.ended || guest.session.ended) problems.push('ended ' + host.session.ended + '/' + guest.session.ended + ' ' + JSON.stringify(host.desync || guest.desync));
+        const second = [0, 1].map((seat) => starts.find((entry) => entry[0] === seat && entry[1] === 2));
+        if (!second[0] || !second[1] || second[0][2] !== second[1][2]) problems.push('round 2 started at ' + JSON.stringify(second));
+        else if (second[0][2] - ends[0] >= ROUND_END_TICKS - 20) problems.push('the skip did not shorten the round end: ' + (second[0][2] - ends[0]) + ' ticks');
+        let compared = 0;
+        for (const [frame, sum] of host.session.ownSums) if (guest.session.ownSums.has(frame)) { compared++; if (guest.session.ownSums.get(frame) !== sum) problems.push('checksum differs at ' + frame); }
+        if (compared < 3) problems.push('only ' + compared + ' checksums compared');
+        if (!host.session.stats.retunes || host.session.delay !== 4 || guest.session.delay !== 4) problems.push('delay ' + host.session.delay + '/' + guest.session.delay + ' retunes ' + host.session.stats.retunes);
+      } finally {
+        offs.forEach((off) => off()); Game.render = render; Object.assign(Game, outer); UI.netStatus('');
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): an online fight has a way out: the pause key asks "Leave the match?" and the sim goes on; "Connection lost" and "Out of sync" offer Menu (Rematch only with a handler); endMatch only detaches, Leave closes the channels', () => {
+      const problems = [], shown = [], keep = { net: Game.net, netNote: Game.netNote, state: Game.state, match: Game.match, quit: Game.quitToMenu, status: UI.netStatus };
+      const last = () => shown[shown.length - 1] || { text: '', buttons: [] };
+      const labels = () => last().buttons.map((button) => button[0]).join();
+      const click = (label) => last().buttons.find((button) => button[0] === label)[1]();
+      const makeSession = (hooks) => {
+        const link = { closed: 0, send() {}, close() { this.closed++; }, onmessage: null, onclose: null };
+        const match = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, winsNeeded: 2 }));
+        const session = new LockstepSession({ match, seat: 0, seatCount: 2, host: true, links: { 1: link }, delay: 2, localController: randomDevice(0, 1) });
+        Game.attachNet(session, hooks);
+        return { link, match, session };
+      };
+      try {
+        UI.netStatus = (text, ...buttons) => shown.push({ text, buttons });
+        let quits = 0;
+        Game.quitToMenu = () => { quits++; };
+        Game.state = GS.FIGHT;
+        let online = makeSession({});
+        if (Game.pause() !== false || last().text !== 'Leave the match?' || labels() !== 'Leave,Stay') problems.push('pause key: ' + JSON.stringify(last().text) + ' ' + labels());
+        click('Stay');
+        if (last().text !== '') problems.push('Stay did not hide the question');
+        Game.pause(); click('Leave');
+        if (quits !== 1 || online.link.closed !== 1) problems.push('Leave: quit ' + quits + ' closed ' + online.link.closed);
+        let left = 0;
+        online = makeSession({ onLeave: () => { left++; } });
+        Game.pause(); click('Leave');
+        if (left !== 1) problems.push('Leave did not call onLeave');
+        online = makeSession({});
+        online.session.stop('lost', { seat: 0 });
+        if (last().text !== 'Connection lost' || labels() !== 'Menu') problems.push('lost: ' + JSON.stringify(last().text) + ' ' + labels());
+        online = makeSession({});
+        online.session.stop('desync', { frame: 60, seat: 1 });
+        if (last().text !== 'Out of sync' || labels() !== 'Menu') problems.push('desync without a handler: ' + labels());
+        let rematches = 0;
+        online = makeSession({ onRematch: () => { rematches++; } });
+        online.session.stop('desync', { frame: 60, seat: 1 });
+        if (labels() !== 'Rematch,Menu') problems.push('desync with a handler: ' + labels());
+        click('Rematch');
+        if (rematches !== 1) problems.push('Rematch did not call the handler');
+        click('Menu');
+        if (quits !== 3 || online.link.closed !== 1) problems.push('Menu: quit ' + quits + ' closed ' + online.link.closed);
+        online = makeSession({});
+        Game.match = online.match;
+        Game.endMatch();
+        if (Game.net !== null || online.link.closed !== 0 || online.link.onmessage !== null || online.session.ended !== 'closed') problems.push('endMatch: net ' + Game.net + ' closed ' + online.link.closed + ' ended ' + online.session.ended);
+      } finally {
+        UI.netStatus = keep.status; Game.quitToMenu = keep.quit; Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state, match: keep.match });
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* P12-01's link (Online.createLink) as a stand-in with its shape: send(data, quick) -> bool, onMessage(fn(data, quick)) -> off, onState(fn(state)) -> off, close(), state. Delivery is immediate; quick data arrives as an ArrayBuffer. */
+    const makeStandInLinks = () => {
+      const make = () => ({ state: 'open', sent: [], closed: 0, listeners: { message: [], state: [] }, peer: null,
+        send(data, quick = false) { if (this.state !== 'open') return false; this.sent.push(quick); this.peer.listeners.message.slice().forEach((fn) => fn(quick ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data, quick)); return true; },
+        onMessage(fn) { this.listeners.message.push(fn); return () => { this.listeners.message = this.listeners.message.filter((item) => item !== fn); }; },
+        onState(fn) { this.listeners.state.push(fn); return () => { this.listeners.state = this.listeners.state.filter((item) => item !== fn); }; },
+        close() { this.closed++; this.state = 'closed'; } });
+      const a = make(), b = make();
+      a.peer = b; b.peer = a;
+      return [a, b];
+    };
+    test('Lockstep (P12-02): LockstepTransport.fromLink wraps a P12-01 link (input on the quick channel as a Uint8Array, control on the reliable one), carries a 1v1 equal for 300 frames, close() only detaches, a closed or failed link reports onclose', () => {
+      const problems = [], [hostLink, guestLink] = makeStandInLinks();
+      const transports = [LockstepTransport.fromLink(hostLink), LockstepTransport.fromLink(guestLink)];
+      const game = makeLockstep(2, { delay: 2, rtc: transports, seed: 14 });
+      for (let i = 0; i < 4000 && game.peers.some((peer) => peer.match.tick < 300); i++) for (const peer of game.peers) while (peer.match.tick < 300 && stepPeer(peer));
+      problems.push(...lockstepProblems(game.peers, 300, false));
+      if (!hostLink.sent.includes(true) || !hostLink.sent.includes(false)) problems.push('both channels were not used: ' + hostLink.sent.length);
+      let closes = 0;
+      transports[0].onclose = () => { closes++; };
+      hostLink.listeners.state.forEach((fn) => fn('failed')); hostLink.listeners.state.forEach((fn) => fn('open')); hostLink.listeners.state.forEach((fn) => fn('closed'));
+      if (closes !== 2) problems.push('onclose ' + closes);
+      transports[0].close();
+      if (hostLink.closed !== 0 || hostLink.listeners.message.length || hostLink.listeners.state.length) problems.push('close() did not only detach');
+      guestLink.state = 'connecting';
+      const before = guestLink.sent.length;
+      transports[1].send('input', new Uint8Array(1));   // a link that is not open takes nothing and does not throw
+      if (guestLink.sent.length !== before) problems.push('a link that is not open was sent to');
+      return problems.length ? problems.join('; ') : true;
+    });
+    // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
+    /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
+    /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const policy = policyTag ? policyTag.content : '';
+      if (!policy.includes("default-src 'none'") || !policy.includes("connect-src 'none'")) return 'the page policy changed: ' + policy;
+      const connections = [new RTCPeerConnection(), new RTCPeerConnection()];
+      const [offerer, answerer] = connections;
+      const violations = [];
+      const onViolation = (e) => violations.push(e.effectiveDirective + ' ' + e.blockedURI);
+      document.addEventListener('securitypolicyviolation', onViolation);
+      const TIMEOUT_MS = 5000;
+      let timer = 0;
+      let candidates = 0;   // local ICE candidates gathered by both sides; none means the device has no usable network (airplane mode), not a CSP problem
+      const timeout = new Promise((resolve, reject) => {
+        const reason = () => (candidates === 0 ? 'no ICE candidates gathered (no usable network interface?)' : 'ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState);
+        timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms: ' + reason())), TIMEOUT_MS);
+      });
+      const exchange = async () => {
+        // trickle ICE straight across (fast); the manual copy-paste form only changes when the candidates travel, not what the page may do
+        offerer.onicecandidate = (e) => { if (e.candidate) { candidates++; answerer.addIceCandidate(e.candidate).catch(() => {}); } };   // a late candidate after the test closed the connections is harmless
+        answerer.onicecandidate = (e) => { if (e.candidate) { candidates++; offerer.addIceCandidate(e.candidate).catch(() => {}); } };
+        const channel = offerer.createDataChannel('csp-probe');   // reliable on purpose: the one ping must not be lost (the game's input channel will be unordered)
+        const atAnswerer = new Promise((resolve) => { answerer.ondatachannel = (e) => { e.channel.onmessage = (msg) => { e.channel.send('pong'); resolve(msg.data); }; }; });
+        const atOfferer = new Promise((resolve) => { channel.onmessage = (msg) => resolve(msg.data); });
+        channel.onopen = () => channel.send('ping');
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription);
+        return (await atAnswerer) + '/' + (await atOfferer);
+      };
+      const exchanged = exchange();
+      exchanged.catch(() => {});   // when the timeout wins, a later failure of the exchange must not reach the page's unhandledrejection handler
+      return Promise.race([exchanged, timeout]).then((got) => {
+        if (violations.length) return 'CSP violation: ' + violations.join('; ');
+        return got === 'ping/pong' ? true : 'wrong messages: ' + got;
+      }).finally(() => {
+        clearTimeout(timer);
+        document.removeEventListener('securitypolicyviolation', onViolation);
+        connections.forEach((connection) => connection.close());
+      });
     });
     /* A real loopback RTCPeerConnection pair in this page (as the CSP test above) carries a 1v1 lockstep over LockstepTransport with the decided channel options. Async: the result fills in after run_all returns. */
     test('Lockstep over WebRTC (P12-02): a loopback RTCPeerConnection pair carries a 1v1 over the adapter (input channel unordered with no resend, control channel reliable), checksums equal; skipped where the browser has no WebRTC', () => {
