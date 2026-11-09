@@ -17109,10 +17109,11 @@ const OnlineUI = {
   async scanFrame(detector, prefix) {
     if (this.scanBusy || !this.video || this.video.readyState < 2) return;
     this.scanBusy = true;
+    const ticket = this.scanTicket; // a frame still being read when the scan stops (Stop, Back) is ignored
     try {
       const found = await detector.detect(this.video);
       const hit = found.map((item) => item.rawValue).find((value) => typeof value === 'string' && value.startsWith(prefix));
-      if (hit) this.scanned(hit);
+      if (hit && ticket === this.scanTicket) this.scanned(hit);
     } catch (error) { /* a frame that cannot be read: the next one is tried */ } finally { this.scanBusy = false; }
   },
   scanned(value) {
