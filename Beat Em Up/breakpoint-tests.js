@@ -13567,7 +13567,7 @@ const SelfTest = {
     /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
-    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator', 'online', 'onlinehost', 'onlinejoin', 'onlineqr'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
     const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
       const customs = keepCustoms();
       try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
@@ -17073,7 +17073,10 @@ const SelfTest = {
         OnlineUI.role = 'guest'; OnlineUI.note = ''; OnlineUI.answerCode = 'BPA-' + 'B'.repeat(100);
         screen = UI.screen_onlinejoin();
         if (!screen.includes('id="onOffer"') || !screen.includes(OnlineUI.answerCode) || !screen.includes('data-act="onanswer"')) bad.push('guest screen');
-        if (OnlineUI.onKey({ code: 'KeyA' }) !== false) bad.push('a key outside a code box');
+        if (OnlineUI.onKey({ code: 'KeyA' }, null) !== false) bad.push('a key outside a code box');
+        if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: false }) !== true) bad.push('Backspace in a box the player writes in must type, not go back');
+        if (OnlineUI.onKey({ code: 'Escape' }, { tagName: 'TEXTAREA', readOnly: true }) !== false || OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: true }) !== false) bad.push('Esc and Backspace in a read-only code box must reach the menu (the focus starts there)');
+        if (!/data-default data-act="back"/.test(UI.screen_onlinehost()) || !/data-default data-act="back"/.test(UI.screen_onlinejoin())) bad.push('the focus must not start in a code box: Back is the last default');
       } finally {
         Object.assign(OnlineUI, kept);
       }

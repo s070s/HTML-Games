@@ -14380,15 +14380,14 @@ const UI = {
   },
 
   // --- screens
-  go(name) { Inputs.capture(null); this.current = name; if (name === 'coop') this.focusMoved = false; Inputs.setLobby(name === 'coop'); this.rerender(false); },
+  go(name) { Inputs.capture(null); if (this.current && this.current !== name) OnlineUI.leave(this.current); this.current = name; if (name === 'coop') this.focusMoved = false; Inputs.setLobby(name === 'coop'); this.rerender(false); },
   push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
-  hideScreen() { Inputs.capture(null); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
+  hideScreen() { Inputs.capture(null); if (this.current) OnlineUI.leave(this.current); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
   back() {
     const cur = this.current;
     if (cur === 'pause') { Game.resume(); return; }
     if (cur === 'results' || cur === 'main' || !cur) return;
     if (cur === 'creator') { CreatorUI.back(); return; }
-    if (cur.startsWith('online')) OnlineUI.leave(cur); // leaving the host or join screen ends its link and its camera
     if (cur === 'scene') { Cutscene.skipBeat(); return; } // Esc / B skip the beat (a pending answer is still asked)
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
@@ -16712,6 +16711,7 @@ const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when th
 const ONLINE_PONG = 'bp-pong:';
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
+const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '',
   scanOk: false, scanning: false, scanBusy: false, stream: null, video: null, scanTimer: 0,
@@ -16728,8 +16728,10 @@ const OnlineUI = {
     this.role = role;
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
     Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') this.makeLink().makeOffer(ONLINE_SEAT_MIN).then((code) => { this.offerCode = code; this.redraw(); }, (error) => this.fail(error));
+    if (role === 'host') { const link = this.makeLink(); this.step(link, link.makeOffer(ONLINE_SEAT_MIN), (code) => { this.offerCode = code; this.redraw(); }); }
   },
+  // Runs a link step; what a link answers after the player has left it (the screen closed it) is ignored
+  step(link, promise, done) { promise.then((value) => { if (link === this.link) done(value); }, (error) => { if (link === this.link) this.fail(error); }); },
   // A fresh link (the first one, or after the last one failed or closed)
   makeLink() {
     const old = this.link;
@@ -16780,7 +16782,7 @@ const OnlineUI = {
   },
   codeButtons(code, qrKind) {
     const fits = !!code && Qr.versionFor(code.length) > 0;
-    return '<div class="row cr-actions"><button class="mi" data-nav data-act="oncopy:' + qrKind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
+    return '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="oncopy:' + qrKind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
       '<button class="mi" data-nav data-act="onqr:' + qrKind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
       (code && !fits ? '<p class="hint">Too long for a QR: use Copy.</p>' : '');
   },
@@ -16811,7 +16813,7 @@ const OnlineUI = {
       '<h3>2. Paste the answer code here</h3>' +
       '<textarea id="onAnswer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the answer code here"' + (this.canType() ? '' : ' readonly') + '>' + esc(this.answerText) + '</textarea>' +
       '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect"' + (code && this.link && this.link.state === 'waiting' ? '' : ' disabled') + '>Connect</button></div>' +
-      this.scanButtons('onscan', 'Scan the answer QR') + this.statusLine() + '<div class="row">' + BACK_BUTTON + '</div></div></section>';
+      this.scanButtons('onscan', 'Scan the answer QR') + this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
   renderJoin() {
     const code = this.answerCode;
@@ -16819,9 +16821,9 @@ const OnlineUI = {
     return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
       '<h3>1. Paste the host\'s code here</h3>' +
       '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR') +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR') +
       (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
-      this.statusLine() + '<div class="row">' + BACK_BUTTON + '</div></div></section>';
+      this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
   renderQr() {
     const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
@@ -16869,14 +16871,14 @@ const OnlineUI = {
     this.saveFields();
     this.note = '';
     if (!this.link) return;
-    this.link.acceptAnswer(this.answerText).then(() => this.redraw(), (error) => this.fail(error));
+    this.step(this.link, this.link.acceptAnswer(this.answerText), () => this.redraw());
   },
   // Guest: the pasted (or scanned) host code; a failed link is replaced by a new one so the player can try again
   answer() {
     this.saveFields();
     this.note = '';
     if (!this.link || this.link.state !== 'idle') this.makeLink();
-    this.link.acceptOffer(this.offerText).then((code) => { this.answerCode = code; this.redraw(); }, (error) => this.fail(error));
+    this.step(this.link, this.link.acceptOffer(this.offerText), (code) => { this.answerCode = code; this.redraw(); });
     this.redraw();
   },
   async startScan() {
@@ -16923,10 +16925,10 @@ const OnlineUI = {
     if (this.video) { this.video.srcObject = null; this.video.remove(); }
     this.stream = null; this.video = null;
   },
-  onKey(e) {
-    const el = document.activeElement;
-    if (!el || el.tagName !== 'TEXTAREA') return false;
-    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems()[0]; if (first) first.focus(); return true; }
+  // true when the key was typed into a box the player can write in; a code box that is only for reading (Copy) leaves Esc, Backspace and the arrows to the menu
+  onKey(e, el = document.activeElement) {
+    if (!el || el.tagName !== 'TEXTAREA' || el.readOnly) return false;
+    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
     if (e.code === 'ArrowUp' || e.code === 'ArrowDown') { e.preventDefault(); UI.moveFocus(e.code === 'ArrowUp' ? -1 : 1); return true; }
     return true; // every other key types, selects or pastes normally (Backspace must not go back)
   },
