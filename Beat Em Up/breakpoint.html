@@ -13966,8 +13966,8 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
       if (!host || state !== 'waiting') throw onlineError('state');
       const answer = await OnlineCode.unpack(text, 1);
       if (answer.seat !== seat) throw onlineError('seat');
+      if (state !== 'waiting') throw onlineError('state'); // a second press while the first was still reading its code
       return guard(async () => {
-        if (state !== 'waiting') throw onlineError('state'); // a second press while the first is still working
         setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
         arm(connectMs, 'timeout');
         await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });

@@ -16991,6 +16991,14 @@ const SelfTest = {
         if (await failsWith(Online.createLink('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
       }
       {
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        const answer = await guest.acceptOffer(offer);
+        const both = await Promise.allSettled([host.acceptAnswer(answer), host.acceptAnswer(answer)]);   // a double press on Connect
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (both.length - refused.length !== 1 || refused.length !== 1 || refused[0].reason.code !== 'state' || host.state !== 'connecting') bad.push('a double press on Connect: ' + host.state);
+        host.close();
+      }
+      {
         // channels that open before setRemoteDescription reports back must leave the host open (the race that failed one run in three between two Chromium windows), and nothing may take it back to connecting
         const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER, openFirst: true });
         const states = listed(host);
