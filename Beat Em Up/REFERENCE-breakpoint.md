@@ -4477,6 +4477,53 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Fingerprints (re-recorded 2026-11-08 from the Chrome run, on purpose: the walk is faster): `N fighters` 102:1o1588u / 103:mtun1h / 80:1dpzzwv now 47:14ynhdv / 61:j0cflz / 74:19gw87j (also used by Accessibility P18-27); `Levels: the engine of P8` 102:16yzha8 / 64:1563zst / 81:g3xni6 now 47:14ynhdv / 61:j0cflz / 92:1tn23bf (since this task all three are this engine's own hashes on the pre-P8 layouts); `Balance (P9)` 110:11gco4b / 59:keougj / 77:o5ps9z now 50:7zjnq6 / 92:1ll868n / 92:x1fwqh (also used by Effect settings P13-03).
 - Owner device check for P16-03: walk, back off, sidestep and run in a 1v1 and in a brawl; the faster pace should feel lively, not slippery.
 
+### P18-10 fighter models
+
+- Owner 2026-11-01: review all 32 presets side by side and give each one or two carefully made details so each is recognisable at phone size. Method: a contact sheet of all 32 (idle pose, front three-quarter view, 844x390 phone landscape, Chrome, the creator's own preview path, each fighter about 190 px tall) before and after, plus a back view and a 2x view for the details. Before, the look rows used almost none of the 92 cosmetic items (no accessory, no mark, one hat), so the sheet showed the same small set of silhouettes: a round head with a hair cap, a tank or tee and plain shorts. The twin groups were: the five gi fighters (HAO, AMARA, SORA, ELISE, NARAN), KAI and ELISE (blue top, dark hair), YUKI and ARMINE (purple top), the dark tops of KASIA, GIORGI, YOAV, VIKRAM and ROXY, and three topknots (SORA, KELSEY, LUCIA).
+- What changed: only the `look` of 31 rows (GIORGI keeps his P18-11 ushanka) using the existing slots (hair style, beard, headwear, headband, top, legs, hands, feet, belt, accessory, mark) and swatch colours; no new cosmetic id, no change to the share code, saves or old indices, no change to move data, heights or builds (so no hitbox changes). Everything is Modern Urban.
+- Rule kept: a part-count cap of 40 per fighter. The old roster test allowed 29 parts (since P6-04); the details take the largest presets from 29 to 31 (LARS and VIKRAM; the limit of "Creator: every hair, face and outfit option renders" for the roster is now 40, the worst case of P1-05 / P6-02). Every preset draws 25 to 31 parts.
+- Details added, per fighter (what is new; the old parts stay):
+
+| Fighter | Added detail | Slots |
+|---|---|---|
+| KAI | white headband, fade cut, blue bomber jacket, high-tops | headband, hair, top, feet |
+| MARA | red compression top (long sleeves), neck tattoo | top, mark |
+| BRUTUS | huge bag gloves, work boots, gold neck chain | hands, feet, acc |
+| YUKI | purple hoodie, long white fight trunks | top, legs |
+| DMITRI | tall wrestling boots, orange towel over the shoulders | feet, acc |
+| ZERO | champion's gold belt, gold chain (the full gold mask stays) | belt, acc |
+| DEACON | black beanie (hides the buzz cut), sleeve tattoo | mask, mark |
+| ROSA | open waistcoat-style vest, jeans | top, legs |
+| HAO | full white beard, wide gi pants | beard, legs |
+| FEMKE | sports jersey, runners | top, feet |
+| PRANEE | red muay thai headband (mongkol), sleeve tattoo | headband, mark |
+| LARS | boxing headgear (the beginner who wears protection), polo shirt | mask, top |
+| AMARA | sunglasses (the deputy) | acc |
+| SORA | blue belt, high-tops | belt, feet |
+| NARAN | blue scarf | acc |
+| DIEGO | yellow cap and delivery backpack | mask, acc |
+| TIAGO | curly hair, green wristband (matches the sash) | hair, acc |
+| KELSEY | sweatpants, wrestling boots | legs, feet |
+| ELISE | side-swept fringe, eyebrow scar | hair, mark |
+| GIORGI | unchanged (ushanka, P18-11) | mask |
+| ARMINE | hoodie in cyan (was purple like YUKI) | top, colour |
+| REID | board shorts, grey-framed glasses (the professor) | legs, acc |
+| CAMILA | twin braids, tights | hair, legs |
+| VIKRAM | leather jacket, cargo pants | top, legs |
+| LUCIA | bob cut, red scarf | hair, acc |
+| MARLON | brown hood up, cargo pants | mask, legs |
+| NIA | locs under a green bandana (the headband went to KAI and PRANEE) | hair, mask |
+| YOAV | balaclava (hides hair and beard) | mask |
+| KASIA | curly hair, cargo pants | hair, legs |
+| CRUZ | chest tattoo, MMA gloves | mark, hands |
+| TESSA | red cap | mask |
+| ROXY | hoodie (the mohawk stays), cheek scar | top, mark |
+
+- Result on the sheet at phone size: every fighter has a head or torso cue no other fighter has in the same colours (hat, hair shape, jacket cut, wide pants or boots, backpack, towel or scarf, bag gloves), checked front and back. Weak spots left on purpose: ROSA's waistcoat and REID's frames are small at phone size (their colours and hair already differ), the ushanka GIORGI and the dark VIKRAM and KASIA differ by head shape and beard.
+- Test: `Fighter models: every preset draws 20 to 40 parts, and no two presets share one outfit shape or one colour set` (the shape is the piece rows of every slot that adds a part, without body size or colours; it fails on the code before this task, KASIA repeating ARMINE). Edited: the roster part limit in "Creator: every hair, face and outfit option renders" 29 to 40. Not re-recorded: the pinned draw hash of "Body: all 32 presets and old customs draw as before" (it changes by design for 31 fighters; GIORGI's value is unchanged); it needs one Chrome run to pin.
+- Performance (P0-04 method, Chrome, 640x360, CPU throttle 4, quality low set through the saved setting and confirmed in the result, KAI against MARA on Rooftop, 10 s plus 1 s warm-up, 7 runs each before and after, interleaved): frame p50 16.7 ms and p95 16.8 ms in all 14 runs (the 60 Hz limit), worst frame 33 to 50 ms in both; work p50 / p95 averages 1.5 / 12.9 ms before and 1.8 / 13.2 ms after (run-to-run spread 1.2 to 1.9 ms and 11.8 to 15.4 ms before, 1.4 to 2.1 ms and 11.5 to 15.2 ms after), so no measurable cost; draw calls 10 to 11, instances 342 to 385 before and 348 to 371 after (instanced meshes, no new draw call). The low setting applies when it is saved before the page loads (`breakpoint.v1.settings` with quality low); setting it afterwards was the earlier miss.
+- Owner device check for P16-03: look at the character select and a fight of two unfamiliar fighters on a phone (390x844 and 844x390): can you tell each fighter from a few metres away.
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)

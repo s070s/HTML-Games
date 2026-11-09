@@ -3032,7 +3032,7 @@ const SelfTest = {
         }
         for (const extreme of [{ scale: SCALE_MIN, build: BUILD_MIN }, { scale: SCALE_MAX, build: BUILD_MAX }]) if (partsFor(extreme) < 20) problem = 'extreme body';
         most = Math.max(most, partsFor({ hairStyle: 'braids', brows: 'thick', beard: 'full', mask: 'half', headband: 'band', topStyle: 'gi', belt: 'sash', age: AGE_MAX }));
-        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 29) problem = r.id + ' drew ' + count; }
+        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 40) problem = r.id + ' drew ' + count; }   // P18-10: the roster may use the 40-part worst case (it was 29 since P6-04)
       } catch (e) { problem = 'exception ' + e.message; }
       R.push = push;
       const zero = resolveLook(ROSTER_BY_ID.zero.look);
@@ -3317,6 +3317,19 @@ const SelfTest = {
         if (d.look.acc !== 'none') bad.push('cycle');
       } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- fighter models (P18-10) ---------- */
+    test('Fighter models: every preset draws 20 to 40 parts, and no two presets share one outfit shape or one colour set', () => {
+      const bad = [], shapes = new Map(), colours = new Map();
+      for (const profile of ROSTER) {
+        const f = new Fighter(profile, 0), lk = f.lk, c = lk.colors, parts = drawnParts(f).length;
+        if (parts < 20 || parts > 40) bad.push(profile.id + ' parts ' + parts);
+        // the outfit shape is the piece rows of every slot that adds or reshapes a part (body size and colours left out)
+        const shape = JSON.stringify([f.hairP, f.beardP, f.topRow, f.legRow, f.shoeRow, f.handRow, f.extra, lk.belt, lk.headband, lk.mask]);
+        const colour = [c.skin, c.hair, c.top, c.shorts, c.glove, c.shoe, c.accent].join();
+        for (const [seen, key] of [[shapes, shape], [colours, colour]]) { if (seen.has(key)) bad.push(profile.id + ' repeats ' + seen.get(key)); else seen.set(key, profile.id); }
+      }
+      return ROSTER.length === 32 && !bad.length ? true : bad.slice(0, 5).join('; ') || 'roster size ' + ROSTER.length;
     });
     /* ---------- pre-drawn faces and the face texture (P6-07, P6-08) ---------- */
     const faceParts = (look, ready) => {   // one skeleton pass with the face texture forced on / off: [emissive, cast slot, layer, matrix finite]
