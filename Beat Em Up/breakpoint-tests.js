@@ -12758,6 +12758,26 @@ const SelfTest = {
             const tag = 'scenario ' + n + ' ' + id + ' side ' + startSide;
             if (Math.sign(c.x - a.x) !== startSide) problems.push(tag + ': the player is not on the chosen side');
             if (Math.sign(Math.sin(a.yaw)) !== Math.sign(c.x - a.x) || Math.sign(Math.sin(c.yaw)) !== Math.sign(a.x - c.x)) problems.push(tag + ': the fighters do not face each other');
+            if (n === 3 && Math.abs(c.x - (startSide === 1 ? Arena.sx1 : Arena.sx0) + startSide * 0.7) > 1e-9) problems.push(tag + ': the dummy is not in the corner of the chosen wall');
+            if (n === 4 && !Arena.objects.some((o) => Math.abs(c.z - o.z) < 1e-9 && Math.abs(c.x - o.x + startSide * (o.hx + 1)) < 1e-9)) problems.push(tag + ': the dummy does not stand against a prop on the far side of the player');
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Start side (P18-16): Training scenarios 1 to 6 start both fighters inside the room and clear of every prop, on all eight levels and both sides', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const id of ARENA_ORDER) for (const startSide of [1, -1]) {
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, seed: 1, keepSeed: true, startSide });
+          const m = Game.match;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            for (const f of m.fighters) {
+              const inRoom = f.x >= Arena.sx0 + f.radius && f.x <= Arena.sx1 - f.radius && f.z >= Arena.sz0 + f.radius && f.z <= Arena.sz1 - f.radius;
+              if (!inRoom || Arena.blockedAt(f.x, f.z, f.radius, 0)) problems.push(id + ' scenario ' + n + ' side ' + startSide + ': fighter ' + f.index + ' at ' + f.x.toFixed(2) + ', ' + f.z.toFixed(2) + (inRoom ? ' is inside a prop' : ' is outside the room'));
+            }
           }
         }
       } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
