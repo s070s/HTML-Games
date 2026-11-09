@@ -12654,6 +12654,16 @@ const SelfTest = {
             }
           }
         }
+        for (const startSide of [1, -1]) for (const id of ['warehouse', 'garage']) {   // the six Training scenarios keep the player on the chosen side, both facing each other
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, items: false, hazards: false, seed: 1, keepSeed: true, startSide });
+          const m = Game.match, [a, c] = m.fighters;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            const tag = 'scenario ' + n + ' ' + id + ' side ' + startSide;
+            if (Math.sign(c.x - a.x) !== startSide) problems.push(tag + ': the player is not on the chosen side');
+            if (Math.sign(Math.sin(a.yaw)) !== Math.sign(c.x - a.x) || Math.sign(Math.sin(c.yaw)) !== Math.sign(a.x - c.x)) problems.push(tag + ': the fighters do not face each other');
+          }
+        }
       } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });

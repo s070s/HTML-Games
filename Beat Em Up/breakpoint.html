@@ -11465,13 +11465,13 @@ class MatchSim {
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
-    const bx = Arena.sx1;
-    if (n === 2) { a.x = -0.55; b.x = 0.55; } else if (n === 3) { b.x = bx - 0.7; a.x = b.x - 1.4; } else if (n === 4) {
+    const side = this.startSide(), wall = side === 1 ? Arena.sx1 : Arena.sx0; // side: the player's start side (P18-16), 1 = left; the scenes are mirrored for Right, and placeFighters has already turned both to face each other
+    if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { b.x = wall - side * 0.7; a.x = b.x - side * 1.4; } else if (n === 4) {
       const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
-      if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
+      if (o) { b.x = o.x - side * (o.hx + 1.0); b.z = o.z; a.x = b.x - side * 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; } // infinite stamina would refill it at once
     else if (n === 6) { // the dummy lies on the floor one metre away, for a long time (a hold lasts up to 4 s)
-      a.x = -0.5; b.x = 0.5;
+      a.x = -side * 0.5; b.x = side * 0.5;
       b.setState(S.HIT); b.setState(S.DOWN);
       b.groundHits = 0; b.lieSign = 1; b.downMult = HOLD_SCENARIO_DOWN; b.keepDown = true; // keepDown: a CPU dummy's Defend press does not get it up quickly
     }
