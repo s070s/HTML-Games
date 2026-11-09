@@ -12758,6 +12758,8 @@ const SelfTest = {
             const tag = 'scenario ' + n + ' ' + id + ' side ' + startSide;
             if (Math.sign(c.x - a.x) !== startSide) problems.push(tag + ': the player is not on the chosen side');
             if (Math.sign(Math.sin(a.yaw)) !== Math.sign(c.x - a.x) || Math.sign(Math.sin(c.yaw)) !== Math.sign(a.x - c.x)) problems.push(tag + ': the fighters do not face each other');
+            if (n === 3 && Math.abs(c.x - (startSide === 1 ? Arena.sx1 : Arena.sx0) + startSide * 0.7) > 1e-9) problems.push(tag + ': the dummy is not in the corner of the chosen wall');
+            if (n === 4 && !Arena.objects.some((o) => Math.abs(c.z - o.z) < 1e-9 && Math.abs(c.x - o.x + startSide * (o.hx + 1)) < 1e-9)) problems.push(tag + ': the dummy does not stand against a prop on the far side of the player');
           }
         }
       } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
