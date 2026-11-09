@@ -51,6 +51,8 @@ const {
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
+  NET_INPUT_CHANNEL, NET_CONTROL_CHANNEL, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+  encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepSession, NetSeatController,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -16605,12 +16607,301 @@ const SelfTest = {
         connections.forEach((connection) => connection.close());
       });
     });
+    /* ---------- online: delay-based lockstep (P12-02) ---------- */
+    /* Several peers in this one page. The sim keeps its state in a few shared globals (the simRng generator, the arena, the move and flight id counters, Match.current), so every peer owns a context that is swapped in
+       around each call into its sim; the viewer settings of a peer are swapped in too (the guests run with every viewer setting flipped: they must not matter). The link between peers is in memory with a virtual clock in
+       ms that the test advances: latency, jitter and loss on the input channel (unordered, so a packet can overtake another), a reliable ordered control channel. */
+    const lcg = (seed) => () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    const saveSimContext = () => ({ rng: api.get.simRng(), attack: Combat.attackCounter, flight: Combat.flightCounter, arena: Object.assign({}, Arena), collapses: Arena.collapses.slice(), marks: Arena.marks.slice(), current: Match.current });
+    const loadSimContext = (c) => {
+      api.set.simRng(c.rng); Combat.attackCounter = c.attack; Combat.flightCounter = c.flight; Object.assign(Arena, c.arena); Match.current = c.current;
+      Arena.collapses.length = 0; Arena.collapses.push(...c.collapses); Arena.marks.length = 0; Arena.marks.push(...c.marks);
+    };
+    const makeMemoryNet = (seed) => {
+      const rng = lcg(seed), net = { t: 0, queue: [], seq: 0, packets: 0, lost: 0, bytes: 0 };
+      const makeEnd = (profile) => {
+        const end = { profile, peer: null, muted: false, closed: false, controlAt: 0, onmessage: null, onclose: null };
+        end.send = (channel, data) => {   // muted: this end's packets vanish, the link stays up (a peer that stopped answering)
+          if (end.muted || end.closed) return;
+          let at = net.t + end.profile.latency + rng() * end.profile.jitter;
+          if (channel === 'input') {
+            net.packets++; net.bytes += data.length;
+            if (rng() < end.profile.loss) { net.lost++; return; }
+          } else { at = Math.max(at, end.controlAt); end.controlAt = at; }   // reliable and ordered
+          net.queue.push({ at, seq: net.seq++, to: end.peer, channel, data: channel === 'input' ? data.slice() : data });
+        };
+        end.close = () => { if (!end.closed) { end.closed = true; net.queue.push({ at: net.t + end.profile.latency, seq: net.seq++, to: end.peer, channel: 'close' }); } };
+        return end;
+      };
+      net.pair = (profile) => { const a = makeEnd(profile), b = makeEnd(profile); a.peer = b; b.peer = a; return [a, b]; };
+      net.advance = (to) => {
+        for (;;) {
+          net.queue.sort((a, b) => a.at - b.at || a.seq - b.seq);
+          if (!net.queue.length || net.queue[0].at > to) { net.t = to; return; }
+          const message = net.queue.shift();
+          net.t = Math.max(net.t, message.at);   // a message is handled at its arrival time (round trips measure true)
+          if (message.channel === 'close') { if (message.to.onclose) message.to.onclose(); } else if (message.to.onmessage) message.to.onmessage(message.channel, message.data);
+        }
+      };
+      return net;
+    };
+    const VIEWER_ODD = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true };
+    const TICK_MS = 1000 / 60;   // a virtual frame
+    /* A seat's device: a seeded random player (walks, strafes, punches, kicks, grabs, jumps, guards) that advances once per sample, so the same seat gives the same inputs in every run whatever the timing. */
+    const randomDevice = (seat, seed) => {
+      const rng = lcg(seed * 977 + seat * 7919 + 1);
+      let samples = 0, heading = 0, strafe = 0;
+      return { think(f, opp, match, it) {
+        clearIntent(it);
+        if (samples++ % 20 === 0) { heading = [1, 1, 0.6, 0, -0.5][Math.floor(rng() * 5)]; strafe = rng() - 0.5; }
+        it.fwd = heading; it.side = strafe;
+        const roll = rng();
+        if (roll < 0.07) it.punch = true; else if (roll < 0.11) it.kick = true; else if (roll < 0.125) it.grapple = true; else if (roll < 0.135) it.jump = true; else if (roll < 0.2) it.defend = true;
+        if (rng() < 0.02) it.sidestep = rng() < 0.5 ? -1 : 1;
+        return it;
+      }, reset() {} };
+    };
+    /* seats = 2 (a 1v1, both people) or 3 or 4 (a brawl: that many people against three CPU enemies; the 4-seat form is for measuring, P12-03 tests it). opts: delay, latency, jitter, loss, seed, rtc ([host transport, guest transport] instead of the memory link), device (seat -> controller). */
+    const makeLockstep = (seats, opts) => {
+      const net = makeMemoryNet(opts.seed || 1), common = { countdown: false, seed: 31, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true };
+      const cfg = Object.assign(common, seats === 2 ? { mode: 'free', winsNeeded: 99, timer: 30 } : { mode: 'brawl', enemies: 3, hpScale: 8, coop: ROSTER.slice(0, seats).map((fighter, slot) => ({ slot, id: fighter.id })) });
+      const peers = [], profile = { latency: opts.latency || 0, jitter: opts.jitter || 0, loss: opts.loss || 0 }, links = {}, hostLinks = [];
+      for (let seat = 1; seat < seats; seat++) { const [hostEnd, guestEnd] = opts.rtc ? [opts.rtc[0], opts.rtc[1]] : net.pair(profile); links[seat] = hostEnd; hostLinks[seat] = guestEnd; }
+      for (let seat = 0; seat < seats; seat++) {
+        const match = track(new MatchSim(cfg));
+        const peer = { seat, match, ctx: saveSimContext(), acc: 0, sums: [], viewer: seat ? VIEWER_ODD : null, waiting: [], desync: null, drops: [] };
+        peer.session = new LockstepSession({
+          match, seat, seatCount: seats, host: seat === 0, delay: opts.delay, now: opts.rtc ? () => performance.now() : () => net.t,
+          links: seat === 0 ? links : undefined, hostLink: seat === 0 ? undefined : hostLinks[seat],
+          localController: opts.device ? opts.device(seat) : randomDevice(seat, opts.seed || 1),
+          onWaiting: (text) => peer.waiting.push([net.t, text]), onDesync: (info) => { peer.desync = info; }, onDrop: (info) => peer.drops.push(Object.assign({ at: net.t }, info)),
+        });
+        peers.push(peer);
+      }
+      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; } };   // mute: that seat stops answering (its link stays up)
+    };
+    const inPeer = (peer, fn) => {
+      const keep = Object.assign({}, Settings.v), outer = saveSimContext();   // the page's own loop (the menu scene) keeps running between async steps and must find its own globals
+      loadSimContext(peer.ctx);
+      if (peer.viewer) Object.assign(Settings.v, peer.viewer);
+      try { return fn(); } finally { peer.ctx = saveSimContext(); Object.assign(Settings.v, keep); loadSimContext(outer); }
+    };
+    const stepPeer = (peer) => inPeer(peer, () => {
+      const stepped = peer.session.step();
+      if (stepped && peer.match.phase === 'waiting' && !peer.match.matchOver) peer.match.startRound();   // what Game.onNextRound does
+      if (stepped && peer.match.tick % NET_CHECK_EVERY === 0) peer.sums.push(peer.session.ownSums.get(peer.match.tick));
+      return stepped;
+    });
+    /* Plays the peers in virtual real time until every peer reached `frames` or ended; hook(net, peers) runs once per virtual frame. Returns true or what went wrong. */
+    const playLockstep = ({ net, peers }, frames, hook) => {
+      for (let guard = 0; guard < frames * 60 + 6000; guard++) {
+        if (peers.every((peer) => peer.match.tick >= frames || peer.session.ended)) return true;
+        net.advance(net.t + TICK_MS);
+        if (hook) hook(net, peers);
+        for (const peer of peers) {
+          peer.acc += TICK_MS;
+          while (peer.acc >= TICK_MS && peer.match.tick < frames) {
+            if (!stepPeer(peer)) { peer.acc = Math.min(peer.acc, TICK_MS * 4); break; }   // the game loop's catch-up cap after a stall
+            peer.acc -= TICK_MS;
+          }
+        }
+      }
+      return 'stuck at ticks ' + peers.map((peer) => peer.match.tick).join('/');
+    };
+    // Every peer reached `frames`, none ended, and every checksum list equals the first peer's
+    const lockstepProblems = (peers, frames, mustFight = true) => {
+      const problems = [];
+      peers.forEach((peer) => {
+        if (peer.match.tick < frames) problems.push('seat ' + peer.seat + ' stopped at tick ' + peer.match.tick + (peer.session.ended ? ' (' + peer.session.ended + ')' : ''));
+        if (peer.sums.length !== Math.floor(peer.match.tick / NET_CHECK_EVERY)) problems.push('seat ' + peer.seat + ' has ' + peer.sums.length + ' checksums');
+        const at = peer.sums.findIndex((sum, i) => sum !== peers[0].sums[i]);
+        if (at >= 0) problems.push('seat ' + peer.seat + ' differs from seat 0 at checkpoint ' + at);
+      });
+      if (mustFight && !peers[0].match.stats.some((stats) => stats.hits > 0)) problems.push('no hit landed: the match plays nothing');
+      return problems;
+    };
+    test('Lockstep (P12-02): two peers over a link with latency, jitter and 10 % input loss stay in lockstep for a long run, their checksums equal at every 60 frames; the guest runs with every viewer setting flipped', () => {
+      const FRAMES = Number(globalThis.BP_LOCKSTEP_FRAMES) || 3600;   // the 36,000-frame run of Appendix C sets BP_LOCKSTEP_FRAMES
+      const game = makeLockstep(2, { delay: 4, latency: 30, jitter: 20, loss: 0.1, seed: 5 });
+      const done = playLockstep(game, FRAMES);
+      const problems = done === true ? lockstepProblems(game.peers, FRAMES) : [done];
+      if (!game.net.lost) problems.push('no packet was lost: the loss was not exercised');
+      if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 2, frames: FRAMES, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost });   // the numbers of Appendix C
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): three peers (a brawl with three people and three CPU fighters) stay in lockstep over a lossy, jittery star, checksums equal, the host relaying', () => {
+      const game = makeLockstep(3, { delay: 4, latency: 25, jitter: 15, loss: 0.1, seed: 9 });
+      const done = playLockstep(game, 1200);
+      const problems = done === true ? lockstepProblems(game.peers, 1200) : [done];
+      if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 3, frames: 1200, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost });
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): with 30 % of the input packets lost the match plays out identically to a lossless run (the last 8 frames ride in every packet)', () => {
+      const FRAMES = 1500;
+      const lossless = makeLockstep(2, { delay: 4, latency: 30, jitter: 10, loss: 0, seed: 7 }), lossy = makeLockstep(2, { delay: 4, latency: 30, jitter: 10, loss: 0.3, seed: 7 });
+      const first = playLockstep(lossless, FRAMES), second = playLockstep(lossy, FRAMES);
+      const problems = [first, second].filter((done) => done !== true);
+      if (!problems.length) problems.push(...lockstepProblems(lossless.peers, FRAMES), ...lockstepProblems(lossy.peers, FRAMES));
+      if (!problems.length && lossless.peers[0].sums.join() !== lossy.peers[0].sums.join()) problems.push('the lossy run differs from the lossless run');
+      if (lossy.net.lost < lossy.net.packets * 0.2) problems.push('only ' + lossy.net.lost + ' of ' + lossy.net.packets + ' packets were lost');
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): a withheld input stalls the sim, "Waiting for P2..." shows after 0.5 s and the peer is dropped after 10 s: a 1v1 is lost by that fighter', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 10, seed: 3 }), host = game.peers[0];
+      let muted = false, stallStart = 0, tickAtStall = 0, movedWhileStalled = false;
+      const done = playLockstep(game, 800, () => {
+        if (!muted && host.match.tick >= 120) { muted = true; game.mute(1); }
+        const stalledSince = host.session.stalledSince;
+        if (muted && stalledSince && !stallStart) { stallStart = stalledSince; tickAtStall = host.match.tick; }   // the first tick of the game waits a moment for the guest's first packet: that is not this stall
+        if (muted && stalledSince && host.match.tick !== tickAtStall) movedWhileStalled = true;
+      });
+      if (done !== true) return done;
+      const shown = host.waiting.find((entry) => entry[1]), drop = host.drops[0];
+      if (!shown || shown[1] !== 'Waiting for P2...') problems.push('waiting text ' + JSON.stringify(host.waiting.slice(0, 2)));
+      else if (shown[0] - stallStart < NET_WAIT_SHOW_MS || shown[0] - stallStart > NET_WAIT_SHOW_MS + 2 * TICK_MS) problems.push('the text came ' + (shown[0] - stallStart) + ' ms into the stall');
+      if (!drop || drop.outcome !== 'forfeit' || drop.seat !== 1) problems.push('drop ' + JSON.stringify(drop));
+      else if (drop.at - stallStart < NET_DROP_MS || drop.at - stallStart > NET_DROP_MS + 2 * TICK_MS) problems.push('dropped ' + (drop.at - stallStart) + ' ms into the stall');
+      if (movedWhileStalled) problems.push('the sim moved while it waited');
+      if (!host.match.matchOver || host.match.matchWinner !== 0 || !host.match.fighters[1].netOut) problems.push('the 1v1 did not end with the host as the winner');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): in a brawl a dropped peer is seated out like a knocked-out co-op player ("Waiting for P3..."), the others play on in lockstep and the seat is not revived', () => {
+      const problems = [];
+      const game = makeLockstep(3, { delay: 2, latency: 10, seed: 4 }), [host, second, third] = game.peers;
+      let muted = false;
+      const done = playLockstep(game, 900, () => { if (!muted && host.match.tick >= 120) { muted = true; game.mute(2); } });
+      if (done !== true) return done;
+      if (!host.waiting.some((entry) => entry[1] === 'Waiting for P3...')) problems.push('waiting text ' + JSON.stringify(host.waiting.slice(0, 3)));
+      for (const peer of [host, second]) {
+        const drop = peer.drops[0], fighter = peer.match.fighters[2];
+        if (!drop || drop.outcome !== 'seatedOut' || drop.seat !== 2) problems.push('seat ' + peer.seat + ' drop ' + JSON.stringify(drop));
+        if (fighter.alive || !fighter.netOut) problems.push('seat ' + peer.seat + ': fighter 3 was not seated out');
+        if (peer.match.tick < 900 || peer.session.ended) problems.push('seat ' + peer.seat + ' stopped at ' + peer.match.tick + ' ' + peer.session.ended);
+      }
+      if (host.sums.join() !== second.sums.join()) problems.push('the two peers that played on differ');
+      if (third.session.ended !== 'lost') problems.push('the dropped peer ended as "' + third.session.ended + '" ' + JSON.stringify(third.desync));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): a corrupted state is caught at the next 60-frame checksum: both peers stop with "Out of sync" and the sim no longer steps', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 10, seed: 6 }), [host, guest] = game.peers;
+      let corrupted = false;
+      const done = playLockstep(game, 600, () => {
+        if (!corrupted && host.match.tick >= 200 && guest.match.tick >= 200) { corrupted = true; if (host.session.ended || guest.session.ended) problems.push('stopped before the corruption'); inPeer(guest, () => { guest.match.fighters[0].hp -= 3; }); }
+      });
+      if (done !== true) return done;
+      for (const peer of game.peers) {
+        const info = peer.desync;
+        if (peer.session.ended !== 'desync' || !info || info.text !== 'Out of sync') problems.push('seat ' + peer.seat + ' ended as "' + peer.session.ended + '" ' + JSON.stringify(info));
+        else if (info.frame !== 240) problems.push('seat ' + peer.seat + ' caught it at frame ' + info.frame);
+        if (peer.match.tick > 250) problems.push('seat ' + peer.seat + ' played on to tick ' + peer.match.tick);
+        const tick = peer.match.tick;
+        if (stepPeer(peer) || peer.match.tick !== tick) problems.push('seat ' + peer.seat + ' still steps after the stop');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): the host sets the input delay to clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6) from 20 ping samples (median), guests follow', () => {
+      const table = [[0, 2], [10, 2], [33, 2], [34, 3], [50, 3], [67, 4], [100, 4], [133, 5], [200, 6], [400, 6]];   // RTT ms -> frames
+      const wrong = table.filter(([rtt, frames]) => netDelayFor([rtt]) !== frames).map(([rtt]) => rtt + ' ms -> ' + netDelayFor([rtt]));
+      if (netDelayFor([]) !== NET_INPUT_DELAY) wrong.push('no samples');
+      if (netDelayFor([20, 40]) !== 3) wrong.push('two guests: ' + netDelayFor([20, 40]));   // guest to host to guest: (20 + 40) / 2 = 30 ms one way
+      const spiky = Array.from({ length: NET_PING_SAMPLES }, (_, i) => (i === 7 ? 900 : 100));
+      if (netMedian(spiky) !== 100 || netDelayFor([netMedian(spiky)]) !== 4) wrong.push('one spike moved the median');
+      const game = makeLockstep(2, { delay: 2, latency: 40, jitter: 0, seed: 2 }), [host, guest] = game.peers;
+      for (let i = 0; i < NET_PING_SAMPLES + 5; i++) { host.session.ping(); game.net.advance(game.net.t + 100); }
+      const rtt = host.session.rtt(1), chosen = host.session.retune();
+      game.net.advance(game.net.t + 100);
+      if (Math.abs(rtt - 80) > 1 || chosen !== 4 || host.session.delay !== 4 || guest.session.delay !== 4) wrong.push('pinged rtt ' + rtt + ' chose ' + chosen + ' guest ' + guest.session.delay);
+      if (host.session.rtts.get(1).length !== NET_PING_SAMPLES) wrong.push('kept ' + host.session.rtts.get(1).length + ' samples');
+      return wrong.length ? wrong.join('; ') : true;
+    });
+    test('Lockstep (P12-02): an input survives encode, packet and decode; a bad packet, a spoofed seat and a late press during a hit freeze are handled', () => {
+      const problems = [];
+      const rng = lcg(12), it = makeIntent();
+      for (let i = 0; i < 300; i++) {
+        clearIntent(it);
+        it.fwd = Math.round((rng() * 2 - 1) * 127) / 127; it.side = Math.round((rng() * 2 - 1) * 127) / 127;
+        for (const key of ['run', 'crouch', 'defend', 'height', 'jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock', 'stickAnalog']) it[key] = rng() < 0.5;
+        it.sidestep = [-1, 0, 1][Math.floor(rng() * 3)]; it.grapDir = ['fwd', 'back', 'left', 'right'][Math.floor(rng() * 4)];
+        const back = decodeInput(encodeInput(it), makeIntent());
+        if (JSON.stringify(back) !== JSON.stringify(Object.assign(makeIntent(), it, { assist: false, guardAssist: false, noParry: false }))) { problems.push('round trip ' + JSON.stringify(it)); break; }
+      }
+      const codes = [1, 0xffffffff, 7, 0, 5, 6, 8, 9], bytes = packInputs(2, 70000, codes), packet = unpackInputs(bytes);
+      if (bytes.length !== NET_PACKET_HEAD + 4 * NET_REDUNDANCY || !packet || packet.seat !== 2 || packet.last !== 70000 || packet.codes.join() !== codes.join()) problems.push('packet round trip');
+      if (unpackInputs(bytes.slice(0, bytes.length - 1)) || unpackInputs(new Uint8Array(3)) || unpackInputs(packInputs(0, 1, []))) problems.push('a bad packet was accepted');
+      const game = makeLockstep(3, { delay: 2, latency: 5, seed: 8 }), [host, second] = game.peers;
+      host.session.receive(1, 'input', packInputs(0, 5, [99])); host.session.receive(1, 'input', packInputs(2, 5, [99])); host.session.receive(1, 'input', packInputs(9, 5, [99]));   // seat 1 sends for the host, for seat 3 and for no seat
+      host.session.receive(1, 'control', '{"t":"sum","seat":2,"f":60,"s":1}'); host.session.receive(1, 'control', 'not json'); host.session.receive(1, 'control', '{"t":"drop","seat":2,"f":1}');
+      if (host.session.got[0].size || host.session.got[2].size || host.session.dropped.size || host.session.theirSums.size) problems.push('the host accepted a spoofed message');
+      second.session.receive(0, 'control', '{"t":"drop","seat":2,"f":1}');
+      if (!second.session.dropped.has(2)) problems.push('a guest ignored the host\'s drop');
+      second.session.receive(2, 'control', '{"t":"drop","seat":1,"f":1}');
+      if (second.session.dropped.has(1)) problems.push('a guest took a drop from another guest');
+      // a press the sim does not read (hit freeze from tick 3 to 12) is kept for the next sampled frame: read exactly once, after the freeze
+      const reads = [];
+      const device = { think(f, opp, match, itt) { clearIntent(itt); this.n = (this.n || 0) + 1; if (this.n === 3) match.hitStop = 10; if (this.n === 5) itt.punch = true; return itt; }, reset() {} };
+      const solo = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, winsNeeded: 2 }));
+      const session = new LockstepSession({ match: solo, seat: 0, seatCount: 1, host: true, links: {}, delay: 2, localController: device });
+      const seat = solo.controllers[0], original = seat.think.bind(seat);
+      seat.think = (f, opp, match, itt) => { const out = original(f, opp, match, itt); if (itt.punch) reads.push(match.tick); return out; };
+      for (let i = 0; i < 40; i++) if (!session.step()) problems.push('a one-seat session stalled');
+      if (reads.length !== 1 || reads[0] < 13) problems.push('the press during the freeze was read at ' + JSON.stringify(reads));
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* A real loopback RTCPeerConnection pair in this page (as the CSP test above) carries a 1v1 lockstep over LockstepTransport with the decided channel options. Async: the result fills in after run_all returns. */
+    test('Lockstep over WebRTC (P12-02): a loopback RTCPeerConnection pair carries a 1v1 over the adapter (input channel unordered with no resend, control channel reliable), checksums equal; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const connections = [new RTCPeerConnection(), new RTCPeerConnection()], [offerer, answerer] = connections;
+      const transports = [LockstepTransport.fromPeerConnection(offerer), LockstepTransport.fromPeerConnection(answerer)];   // before the offer: the channels are in the description
+      const FRAMES = 120, TIMEOUT_MS = 8000;
+      // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute, which made a 1-second wait last 70 s
+      const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
+      const opened = (channel) => (channel.readyState === 'open' ? Promise.resolve() : new Promise((resolve) => channel.addEventListener('open', resolve, { once: true })));
+      let game = null;
+      const t0 = performance.now(), marks = [], mark = (label) => marks.push(label + ' ' + Math.round(performance.now() - t0));
+      const play = async () => {
+        mark('start');
+        const early = [[], []];   // trickle ICE straight across; a candidate that comes before the other side has its description waits (the CSP test above drops those, and a slow page then connects late)
+        const relay = (from, to, queue) => { from.onicecandidate = (e) => { if (e.candidate) { if (to.remoteDescription) to.addIceCandidate(e.candidate).catch(() => {}); else queue.push(e.candidate); } }; };
+        const flush = (to, queue) => queue.splice(0).forEach((candidate) => to.addIceCandidate(candidate).catch(() => {}));
+        relay(offerer, answerer, early[0]); relay(answerer, offerer, early[1]);
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription);
+        flush(answerer, early[0]); mark('offer');
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription);
+        flush(offerer, early[1]); mark('answer');
+        const channels = transports.flatMap((transport) => [transport.channels.input, transport.channels.control]);
+        await Promise.all(channels.map(opened));
+        mark('open');
+        const options = transports.map((transport) => [transport.channels.input.ordered, transport.channels.input.maxRetransmits, transport.channels.control.ordered].join());
+        if (options.some((text) => text !== 'false,0,true')) return 'channel options ' + options.join(' | ');
+        game = makeLockstep(2, { delay: 6, rtc: transports, seed: 11 });   // a long delay: the page may render slowly (software GL), and every round trip then moves the peers on by up to 6 frames
+        while (game.peers.some((peer) => peer.match.tick < FRAMES)) {
+          for (const peer of game.peers) while (peer.match.tick < FRAMES && stepPeer(peer));
+          await yieldNow();
+        }
+        const problems = lockstepProblems(game.peers, FRAMES, false);   // a short run: two checksums, no fight needed
+        return problems.length ? problems.join('; ') : true;
+      };
+      let timer = 0;
+      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + TIMEOUT_MS + ' ms: ' + (game ? 'ticks ' + game.peers.map((peer) => peer.match.tick + (peer.session.ended ? ' ' + peer.session.ended + JSON.stringify(peer.desync) : '')).join(' / ') + ' ' + marks.join(', ') : 'no data channel ' + marks.join(', ')))), TIMEOUT_MS); });
+      const played = play();
+      played.catch(() => {});
+      return Promise.race([played, timeout]).finally(() => {
+        clearTimeout(timer);
+        if (game) game.peers.forEach((peer) => { peer.session.ended = peer.session.ended || 'closed'; peer.match.dispose(); });
+        transports.forEach((transport) => transport.close());
+        connections.forEach((connection) => connection.close());
+      });
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
       if (!hasLayoutEngine()) return true;
       const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the one WebRTC test (P12-04); every engine a player uses has it
-      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && r.name.startsWith('CSP under WebRTC'))).map((r) => r.name);
+      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Lockstep over WebRTC')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];

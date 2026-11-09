@@ -186,6 +186,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #combo small,#combo2 small{display:block;font-size:.55em;font-family:inherit;color:#fff;letter-spacing:.1em}
 #banner{position:absolute;left:0;right:0;top:36%;text-align:center;font:900 italic clamp(2.2em,12vmin,7em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.05em;text-transform:uppercase;text-shadow:0 .05em .1em #000,0 0 .3em #000;opacity:0}
 #banner.on{opacity:1}
+#netwait{position:absolute;left:50%;top:18%;transform:translateX(-50%);padding:.3em .9em;background:rgba(0,0,0,.7);border:2px solid #ffb347;color:#ffb347;letter-spacing:.08em;text-align:center;pointer-events:auto}
+#netwait[hidden]{display:none}
+#netwait button{margin-left:.8em;font:inherit;color:#fff;background:#222;border:2px solid #fff;padding:.1em .7em;cursor:pointer}
 #banner small{display:block;font-size:.3em;letter-spacing:.2em;margin-top:.3em;font-style:normal;font-family:"Segoe UI",system-ui,sans-serif}
 #warn,#warn2{position:absolute;left:1.2em;bottom:1.2em;font-size:1em;letter-spacing:.1em;color:#ffb347;border:2px dashed #ffb347;padding:.2em .7em;background:rgba(0,0,0,.6);opacity:0}
 #warn2{left:auto;right:1.2em;bottom:4.4em}
@@ -346,6 +349,7 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
     <div id="combo"></div>
     <div id="combo2"></div>
     <div id="banner"></div>
+    <div id="netwait" role="status" hidden></div>
     <div id="warn" role="status">LOW STAMINA</div>
     <div id="warn2" role="status">P2 LOW STAMINA</div>
     <div id="grappleHint" hidden></div>
@@ -396,13 +400,15 @@ const hexToRgb = (hex) => {
 // Deterministic generator (mulberry32). Simulation uses seeded RNG, visuals use Math.random.
 function makeRng(seed) {
   let s = seed >>> 0;
-  return function next() {
+  const next = function next() {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  next.state = () => s; // the whole generator state: online peers compare it in their state checksum (P12-02)
+  return next;
 }
 let simRng = makeRng(1);
 
@@ -11281,7 +11287,7 @@ class MatchSim {
     let revived = 0;
     for (let k = 0; k < this.partySize; k++) {
       const member = this.fighters[k];
-      if (member.alive) continue;
+      if (member.alive || member.netOut) continue; // netOut: its online peer left (forfeit), the seat stays out
       const { y, groundY, supportY } = member; // it stands up where it lay, on whatever it lay on
       member.reset(member.x, member.z, member.yaw, hpFraction, 1);
       member.y = member.prevY = y; member.groundY = groundY; member.supportY = supportY;
@@ -11290,6 +11296,20 @@ class MatchSim {
       revived++;
     }
     return revived;
+  }
+  // The online peer that steered fighter `index` left (P12-02; every peer calls this on the same tick). A 1v1 or a bracket fight is lost by that fighter: the match is over at once. A crowd fight or a lineup seats the fighter out like a knocked-out player.
+  forfeit(index) {
+    const f = this.fighters[index];
+    if (!f || f.netOut || this.matchOver || this.phase === 'matchEnd') return 'none';
+    f.netOut = true;
+    if (f.alive) Combat.knockOut(f, null, null, this);
+    if (this.brawl || this.setup) return 'seatedOut';
+    const winner = index ^ 1;
+    this.wins[winner] = Math.max(this.wins[winner], this.winsNeeded);
+    this.roundWinner = winner; this.matchOver = true; this.matchWinner = winner; this.locked = true;
+    if (this.phase === 'waiting') { this.phase = 'matchEnd'; this.phaseTicks = 0; Events.emit('matchEnd', { match: this }); } // between rounds: no next round
+    else if (this.phase !== 'roundEnd') { this.phase = 'roundEnd'; this.phaseTicks = 0; Events.emit('roundEnd', { winner, reason: 'forfeit', round: this.round, wins: this.wins.slice(), matchOver: true, match: this }); } // a round end already running goes on to the match end by itself
+    return 'forfeit';
   }
   startRound() {
     this.round++;
@@ -12155,6 +12175,347 @@ function shuffled(list, rng) {
   return out;
 }
 
+/* --- Online lockstep (P12-02): delay-based lockstep on the fixed 60 Hz simulation, relayed by the host (star). Appendix C, "P12-02 built".
+   Every peer runs the whole MatchSim. A seat's input for frame n + delay is sampled when frame n starts and sent; a peer steps frame n only when it holds the input of every seat for frame n,
+   so all peers feed the same inputs to the same simulation and stay equal. The CPU fighters run on every peer. Only the intent crosses the network (4 bytes a frame: movement and buttons), never a viewer setting.
+   HAND-OFF POINT for P12-01 (connection code), P12-03 (4 peers) and P12-06 (lobby): once the two data channels of a peer link are open, `LockstepTransport.fromPeerConnection(pc)` (or `new LockstepTransport(inputChannel, controlChannel)`
+   for channels made with NET_INPUT_CHANNEL / NET_CONTROL_CHANNEL) gives the transport; `new LockstepSession({ match, seat, seatCount, host, links | hostLink, delay })` runs a match over it; `Game.attachNet(session, hooks)` plays it.
+   A transport is { send(channel, data), close(), onmessage(channel, data), onclose() } with channel 'input' (a Uint8Array) or 'control' (a string). Rollback is out of scope. */
+const NET_INPUT_CHANNEL = { label: 'bp-input', negotiated: true, id: 1, ordered: false, maxRetransmits: 0 }; // inputs: unordered and never resent; the last NET_REDUNDANCY frames ride in every packet
+const NET_CONTROL_CHANNEL = { label: 'bp-control', negotiated: true, id: 2, ordered: true }; // lobby, match config, pings, checksums, resend requests: reliable and ordered
+const NET_INPUT_DELAY = 2, NET_DELAY_MIN = 2, NET_DELAY_MAX = 6; // frames; 2 on a LAN
+const NET_FRAME_MS = 16.7; // one frame in the delay formula
+const NET_REDUNDANCY = 8; // input frames per packet
+const NET_CHECK_EVERY = 60; // frames between state checksums
+const NET_WAIT_SHOW_MS = 500, NET_DROP_MS = 10000, NET_GUEST_GRACE_MS = 5000; // "Waiting for P3..." after 0.5 s; a seat is dropped after 10 s (a guest lets the host decide first)
+const NET_PING_SAMPLES = 20, NET_PING_EVERY_MS = 1000;
+const NET_RESEND_MS = 16; // a stalled peer repeats its newest inputs this often
+const NET_NEED_AFTER_MS = 100, NET_NEED_EVERY_MS = 250, NET_FILL_MAX = 120; // a stalled peer asks for the missing frames on the reliable channel
+const NET_HISTORY = 600, NET_AHEAD_MAX = 64; // frames kept behind the sim (answers to resend requests); frames accepted ahead of it
+const NET_CATCH_UP_TICKS = 4; // the game loop catches up at most this many ticks after a stall
+const NET_FLAGS = ['run', 'crouch', 'defend', 'height', 'jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock', 'stickAnalog']; // bits 0-11 of an input's flag word; bits 12-13 sidestep, 14-15 grapDir
+const NET_PULSES = ['jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock'], NET_SIDESTEP_BITS = 0x3000; // the one-tick presses: kept for the next frame when the sim did not read one (a hit freeze)
+const NET_PULSE_BITS = NET_PULSES.reduce((bits, key) => bits | (1 << NET_FLAGS.indexOf(key)), NET_SIDESTEP_BITS);
+const NET_GRAP_DIRS = ['fwd', 'back', 'left', 'right'], NET_GRAP_DIR_BITS = 0xc000, NET_GRAPPLE_BIT = 1 << NET_FLAGS.indexOf('grapple');
+
+// One seat's intent as a 32-bit number: fwd and side as signed bytes (steps of 1/127), then 16 flag bits. Every peer, the sender too, plays the decoded value.
+function encodeInput(it) {
+  let flags = 0;
+  NET_FLAGS.forEach((key, bit) => { if (it[key]) flags |= 1 << bit; });
+  flags |= (it.sidestep < 0 ? 1 : it.sidestep > 0 ? 2 : 0) << 12;
+  flags |= Math.max(0, NET_GRAP_DIRS.indexOf(it.grapDir)) << 14;
+  const byteOf = (value) => Math.round(clamp(value, -1, 1) * 127) & 255;
+  return (byteOf(it.fwd) | (byteOf(it.side) << 8) | (flags << 16)) >>> 0;
+}
+function decodeInput(code, it) {
+  clearIntent(it);
+  const axis = (byte) => clamp((byte > 127 ? byte - 256 : byte) / 127, -1, 1);
+  it.fwd = axis(code & 255); it.side = axis((code >>> 8) & 255);
+  const flags = code >>> 16;
+  NET_FLAGS.forEach((key, bit) => { it[key] = (flags & (1 << bit)) !== 0; });
+  const step = (flags >> 12) & 3;
+  it.sidestep = step === 1 ? -1 : step === 2 ? 1 : 0;
+  it.grapDir = NET_GRAP_DIRS[(flags >> 14) & 3];
+  return it;
+}
+// Presses the sim did not read (a frame inside a hit freeze) join the next sampled input, so they are not lost; carried = flag bits
+function mergePresses(code, carried) {
+  const flags = code >>> 16;
+  let merged = flags | (carried & NET_PULSE_BITS);
+  if (!(flags & NET_GRAPPLE_BIT) && (carried & NET_GRAPPLE_BIT)) merged = (merged & ~NET_GRAP_DIR_BITS) | (carried & NET_GRAP_DIR_BITS);
+  return ((code & 0xffff) | (merged << 16)) >>> 0;
+}
+
+// A packet of the input channel: seat, the newest frame, a count, then that many inputs (the newest last), all big-endian
+const NET_PACKET_HEAD = 6;
+function packInputs(seat, last, codes) {
+  const bytes = new Uint8Array(NET_PACKET_HEAD + codes.length * 4), view = new DataView(bytes.buffer);
+  bytes[0] = seat; view.setUint32(1, last); bytes[5] = codes.length;
+  codes.forEach((code, i) => view.setUint32(NET_PACKET_HEAD + i * 4, code));
+  return bytes;
+}
+function unpackInputs(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < NET_PACKET_HEAD) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[5];
+  if (count < 1 || count > NET_FILL_MAX || bytes.length !== NET_PACKET_HEAD + count * 4) return null;
+  const codes = [];
+  for (let i = 0; i < count; i++) codes.push(view.getUint32(NET_PACKET_HEAD + i * 4));
+  return { seat: bytes[0], last: view.getUint32(1), codes };
+}
+
+// The state every peer must hold equal (positions, velocities, health, stamina, states, timers, items, hazards, breakables and the simRng state) as one FNV-1a 32 number
+function matchChecksum(match) {
+  const parts = [match.tick, match.phase, match.round, match.roundTicks, match.hitStop, match.wins.join('/'), Combat.attackCounter, Combat.flightCounter, simRng.state()];
+  for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
+  for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
+  for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
+  for (const h of match.hazards) parts.push(h.type, h.state, h.t, h.life, h.x, h.z);
+  return fnv1a(parts.join(','));
+}
+
+function netMedian(samples) {
+  const sorted = samples.slice().sort((a, b) => a - b), mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+// The input delay in frames from the round-trip times (ms) of the guests' links: clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6). With several guests the slowest path is guest to host to guest: the two largest round trips, halved and added.
+function netDelayFor(roundTrips) {
+  const sorted = roundTrips.filter(Number.isFinite).sort((a, b) => b - a);
+  if (!sorted.length) return NET_INPUT_DELAY;
+  const oneWayMs = sorted.length > 1 ? (sorted[0] + sorted[1]) / 2 : sorted[0] / 2;
+  return clamp(Math.ceil(oneWayMs / NET_FRAME_MS) + 1, NET_DELAY_MIN, NET_DELAY_MAX);
+}
+
+// The two RTCDataChannels of one peer link as a lockstep transport (P12-01 hands its channels over here)
+class LockstepTransport {
+  constructor(inputChannel, controlChannel) {
+    this.channels = { input: inputChannel, control: controlChannel };
+    this.onmessage = null; this.onclose = null;
+    for (const name in this.channels) {
+      const channel = this.channels[name];
+      channel.binaryType = 'arraybuffer';
+      channel.onmessage = (e) => { if (this.onmessage) this.onmessage(name, name === 'input' ? new Uint8Array(e.data) : e.data); };
+      channel.onclose = () => { if (this.onclose) this.onclose(); };
+    }
+  }
+  // Both ends make the same two negotiated channels, so neither needs ondatachannel
+  static fromPeerConnection(pc) {
+    const open = (spec) => { const { label, ...options } = spec; return pc.createDataChannel(label, options); };
+    return new LockstepTransport(open(NET_INPUT_CHANNEL), open(NET_CONTROL_CHANNEL));
+  }
+  // A channel that is not open drops the packet: the redundancy of the input packets and the resend request on the control channel make that harmless
+  send(name, data) { const channel = this.channels[name]; if (channel && channel.readyState === 'open') channel.send(data); }
+  close() { for (const name in this.channels) { this.channels[name].onclose = null; this.channels[name].close(); } }
+}
+
+// The controller of a seat in an online match: it plays the input the session holds for the tick
+class NetSeatController {
+  constructor(session, seat, base) {
+    this.session = session; this.seat = seat; this.base = base;
+    this.human = true;
+    this.input = base ? base.input : null; // the local device (reviveTeam clears its latched presses)
+    this.readFrame = 0; // the last tick the sim read this seat's input
+  }
+  think(f, opp, match, it) { this.readFrame = match.tick; return decodeInput(this.session.codeFor(this.seat, match.tick), it); }
+  reset() {}
+}
+
+/* One online match on one peer. Options: match (a MatchSim with human seats), seat (this peer's seat, 0 = the host), seatCount, fighterOf (fighter index per seat; default seat = fighter index), host,
+   links ({ seat: transport } on the host) or hostLink (a guest's one transport), delay, now (ms clock; default performance.now), localController (the device this peer plays with; default the controller
+   already in the seat, else P1's). Callbacks, also assignable later: onWaiting(text or null, seat), onDesync({ text, frame, seat }), onDrop({ seat, name, outcome }) with outcome 'forfeit', 'seatedOut' or 'lost' (the host is gone). */
+class LockstepSession {
+  constructor(o) {
+    this.match = o.match; this.seat = o.seat | 0; this.seatCount = o.seatCount | 0; this.host = !!o.host;
+    this.fighterOf = o.fighterOf || Array.from({ length: this.seatCount }, (_, seat) => seat);
+    this.now = o.now || (() => performance.now());
+    this.delay = clamp(Math.round(o.delay || NET_INPUT_DELAY), NET_DELAY_MIN, NET_DELAY_MAX);
+    this.onWaiting = o.onWaiting || null; this.onDesync = o.onDesync || null; this.onDrop = o.onDrop || null;
+    this.peers = new Map(this.host ? Object.entries(o.links || {}).map(([seat, link]) => [Number(seat), link]) : [[0, o.hostLink]]); // seat -> transport
+    this.firstFrame = this.match.tick + 1;
+    this.sentUpTo = this.match.tick; // the newest frame of this seat's input that was made
+    this.got = Array.from({ length: this.seatCount }, () => new Map()); // seat -> frame -> input code
+    this.carry = 0; this.scratch = makeIntent();
+    this.ownSums = new Map(); this.theirSums = new Map(); // frame -> checksum; frame -> seat -> checksum that came before our own
+    this.dropped = new Map(); this.applied = new Set(); // seat -> the first frame it has no input for; seats whose drop was played
+    this.rtts = new Map(); this.lastPing = -Infinity; // seat -> the last NET_PING_SAMPLES round trips (host)
+    this.stalledSince = 0; this.waitingSeat = -1; this.lastNeed = 0; this.lastResend = 0;
+    this.ended = ''; // '' while it runs, then 'desync', 'lost' or 'closed'
+    this.closing = false;
+    const own = this.match.controllers[this.fighterOf[this.seat]];
+    this.local = new NetSeatController(this, this.seat, o.localController || (own && own.human ? own : PlayerController));
+    for (let seat = 0; seat < this.seatCount; seat++) this.match.controllers[this.fighterOf[seat]] = seat === this.seat ? this.local : new NetSeatController(this, seat, null);
+    for (const [seat, link] of this.peers) { link.onmessage = (channel, data) => this.receive(seat, channel, data); link.onclose = () => this.linkClosed(seat); }
+  }
+  // The input of a seat for a tick (a dropped seat stands still)
+  codeFor(seat, frame) {
+    const from = this.dropped.get(seat);
+    return from !== undefined && frame >= from ? 0 : this.got[seat].get(frame) || 0;
+  }
+  // --- one tick: true when the sim advanced, false while it waits for an input (or after the session ended). The game loop calls it instead of match.step().
+  step() {
+    if (this.ended) return false;
+    const now = this.now(), frame = this.match.tick + 1;
+    this.service(now);
+    this.playDrops(frame);
+    this.sampleLocal(frame);
+    const missing = this.missingSeat(frame);
+    if (missing >= 0) { this.stall(missing, frame, now); return false; }
+    if (this.stalledSince) { this.stalledSince = 0; this.waitingSeat = -1; if (this.onWaiting) this.onWaiting(null, -1); }
+    const fighting = this.match.phase === 'fight';
+    this.match.step();
+    if (fighting && this.local.readFrame !== frame) this.carry |= (this.got[this.seat].get(frame) >>> 16) & (NET_PULSE_BITS | NET_GRAP_DIR_BITS);
+    if (this.match.phase !== 'fight') this.carry = 0;
+    if (frame % NET_CHECK_EVERY === 0) this.checkpoint(frame);
+    for (const frames of this.got) frames.delete(frame - NET_HISTORY);
+    return true;
+  }
+  service(now) {
+    if (this.host && now - this.lastPing >= NET_PING_EVERY_MS) { this.lastPing = now; this.ping(); }
+  }
+  // This seat's input for frame + delay (the frames before it that were never made, at the start or after a longer delay, are empty), sent with the last NET_REDUNDANCY frames
+  sampleLocal(frame) {
+    const target = frame + this.delay;
+    if (target <= this.sentUpTo) return;
+    const mine = this.got[this.seat];
+    for (let f = this.sentUpTo + 1; f < target; f++) mine.set(f, 0);
+    mine.set(target, this.readDevice());
+    this.sentUpTo = target;
+    this.sendWindow();
+  }
+  readDevice() {
+    const f = this.match.fighters[this.fighterOf[this.seat]];
+    this.local.base.think(f, f.target, this.match, this.scratch);
+    let code = encodeInput(this.scratch);
+    if (this.carry) { code = mergePresses(code, this.carry); this.carry = 0; }
+    return code;
+  }
+  sendWindow() {
+    const mine = this.got[this.seat], first = Math.max(this.firstFrame, this.sentUpTo - NET_REDUNDANCY + 1), codes = [];
+    for (let f = first; f <= this.sentUpTo; f++) codes.push(mine.get(f) || 0);
+    if (!codes.length) return;
+    const bytes = packInputs(this.seat, this.sentUpTo, codes);
+    for (const link of this.peers.values()) link.send('input', bytes);
+    this.lastResend = this.now();
+  }
+  missingSeat(frame) {
+    for (let seat = 0; seat < this.seatCount; seat++) {
+      const from = this.dropped.get(seat);
+      if ((from === undefined || frame < from) && !this.got[seat].has(frame)) return seat;
+    }
+    return -1;
+  }
+  // Waiting for a seat's input: repeat our newest inputs, show the text after NET_WAIT_SHOW_MS, ask for the missing frames, drop the seat after NET_DROP_MS (the host decides; a guest gives the host a grace)
+  stall(seat, frame, now) {
+    if (!this.stalledSince) this.stalledSince = now;
+    const waited = now - this.stalledSince;
+    if (now - this.lastResend >= NET_RESEND_MS) this.sendWindow();
+    if (waited >= NET_WAIT_SHOW_MS && seat !== this.waitingSeat) { this.waitingSeat = seat; if (this.onWaiting) this.onWaiting('Waiting for P' + (seat + 1) + '...', seat); }
+    if (waited >= NET_NEED_AFTER_MS && now - this.lastNeed >= NET_NEED_EVERY_MS) { this.lastNeed = now; this.sendControl(this.host ? seat : 0, { t: 'need', seat, from: frame }); }
+    if (this.host) { if (waited >= NET_DROP_MS) this.dropSeat(seat, frame); }
+    else if (waited >= NET_DROP_MS + (seat === 0 ? 0 : NET_GUEST_GRACE_MS)) this.stop('lost', { seat: 0 });
+  }
+  // --- leaving seats: every peer plays the drop on the same frame (the first frame the seat has no input for)
+  dropSeat(seat, frame) {
+    if (this.dropped.has(seat)) return;
+    this.dropped.set(seat, frame);
+    this.broadcast({ t: 'drop', seat, f: frame }, -1); // the dropped peer hears it too, if it still can
+  }
+  playDrops(frame) {
+    for (const [seat, from] of this.dropped) {
+      if (frame < from || this.applied.has(seat)) continue;
+      this.applied.add(seat);
+      const outcome = this.match.forfeit(this.fighterOf[seat]);
+      if (this.onDrop) this.onDrop({ seat, name: 'P' + (seat + 1), outcome });
+    }
+  }
+  linkClosed(seat) {
+    if (this.closing || this.ended) return;
+    if (!this.host) { this.stop('lost', { seat: 0 }); return; }
+    let frame = this.match.tick + 1;
+    while (this.got[seat].has(frame)) frame++; // the first frame the seat never sent
+    this.dropSeat(seat, frame);
+  }
+  stop(reason, info) {
+    if (this.ended) return;
+    this.ended = reason;
+    this.stalledSince = 0; this.waitingSeat = -1;
+    if (this.onWaiting) this.onWaiting(null, -1);
+    if (reason === 'desync' && this.onDesync) this.onDesync(Object.assign({ text: 'Out of sync' }, info));
+    if (reason === 'lost' && this.onDrop) this.onDrop({ seat: info.seat, name: 'P' + (info.seat + 1), outcome: 'lost' });
+  }
+  close() {
+    this.closing = true;
+    if (!this.ended) this.ended = 'closed';
+    for (const link of this.peers.values()) link.close();
+  }
+  // --- checksums: every NET_CHECK_EVERY frames each peer sends its own; the host passes them on; any difference stops everyone
+  checkpoint(frame) {
+    const sum = matchChecksum(this.match);
+    this.ownSums.set(frame, sum); this.ownSums.delete(frame - NET_HISTORY);
+    this.broadcast({ t: 'sum', seat: this.seat, f: frame, s: sum }, -1);
+    const early = this.theirSums.get(frame);
+    this.theirSums.delete(frame);
+    if (early) for (const [seat, other] of early) if (other !== sum) { this.desync(frame, seat); return; }
+  }
+  onSum(seat, frame, sum) {
+    const own = this.ownSums.get(frame);
+    if (own === undefined) { if (!this.theirSums.has(frame)) this.theirSums.set(frame, new Map()); this.theirSums.get(frame).set(seat, sum); return; }
+    if (own !== sum) this.desync(frame, seat);
+  }
+  desync(frame, seat) {
+    this.broadcast({ t: 'desync', f: frame, seat }, -1);
+    this.stop('desync', { frame, seat });
+  }
+  // --- delay and pings (host): the lobby and the time between rounds call retune()
+  ping() { this.broadcast({ t: 'ping', at: this.now() }, -1); }
+  rtt(seat) { const samples = this.rtts.get(seat); return samples && samples.length ? netMedian(samples) : NaN; }
+  recommendedDelay() { return netDelayFor(Array.from(this.peers.keys(), (seat) => this.rtt(seat))); }
+  setDelay(frames) {
+    this.delay = clamp(Math.round(frames), NET_DELAY_MIN, NET_DELAY_MAX);
+    if (this.host) this.broadcast({ t: 'delay', n: this.delay }, -1);
+    return this.delay;
+  }
+  retune() { return this.setDelay(this.recommendedDelay()); }
+  // --- messages
+  sendControl(seat, message) { const link = this.peers.get(seat); if (link) link.send('control', JSON.stringify(message)); }
+  broadcast(message, except) { for (const seat of this.peers.keys()) if (seat !== except) this.sendControl(seat, message); }
+  validSeat(seat) { return Number.isInteger(seat) && seat >= 0 && seat < this.seatCount; }
+  store(seat, last, codes) {
+    const frames = this.got[seat], tick = this.match.tick;
+    codes.forEach((code, i) => {
+      const frame = last - codes.length + 1 + i;
+      if (frame > tick - NET_HISTORY && frame <= tick + NET_AHEAD_MAX && !frames.has(frame)) frames.set(frame, code);
+    });
+  }
+  receive(from, channel, data) {
+    if (this.ended || (this.host && this.dropped.has(from))) return; // nothing from a dropped seat counts any more (it may still be running on its own)
+    if (channel === 'input') {
+      const packet = unpackInputs(data);
+      if (!packet || !this.validSeat(packet.seat) || packet.seat === this.seat || (this.host && packet.seat !== from)) return; // a guest sends its own seat only
+      this.store(packet.seat, packet.last, packet.codes);
+      if (this.host) for (const [seat, link] of this.peers) if (seat !== from) link.send('input', data); // the relay: the same bytes to every other guest
+      return;
+    }
+    let message = null;
+    try { message = JSON.parse(data); } catch (error) { return; }
+    if (message && typeof message === 'object') this.onControl(from, message, data);
+  }
+  onControl(from, m, raw) {
+    const relay = () => { if (this.host) for (const [seat, link] of this.peers) if (seat !== from) link.send('control', raw); };
+    switch (m.t) {
+      case 'ping': this.sendControl(from, { t: 'pong', at: m.at }); break;
+      case 'pong': {
+        const samples = this.rtts.get(from) || [];
+        if (Number.isFinite(m.at)) samples.push(this.now() - m.at);
+        if (samples.length > NET_PING_SAMPLES) samples.shift();
+        this.rtts.set(from, samples);
+        break;
+      }
+      case 'delay': if (!this.host && from === 0 && Number.isFinite(m.n)) this.delay = clamp(Math.round(m.n), NET_DELAY_MIN, NET_DELAY_MAX); break;
+      case 'sum':
+        if (this.validSeat(m.seat) && m.seat !== this.seat && (!this.host || m.seat === from)) { relay(); this.onSum(m.seat, m.f, m.s); }
+        break;
+      case 'desync': relay(); this.stop('desync', { frame: m.f, seat: m.seat }); break;
+      case 'need': {
+        if (!this.validSeat(m.seat)) break;
+        const codes = [];
+        for (let frame = m.from; codes.length < NET_FILL_MAX && this.got[m.seat].has(frame); frame++) codes.push(this.got[m.seat].get(frame));
+        if (codes.length) this.sendControl(from, { t: 'fill', seat: m.seat, from: m.from, codes });
+        break;
+      }
+      case 'fill':
+        if (this.validSeat(m.seat) && m.seat !== this.seat && (!this.host || m.seat === from) && Array.isArray(m.codes) && Number.isInteger(m.from)) {
+          this.store(m.seat, m.from + Math.min(m.codes.length, NET_FILL_MAX) - 1, m.codes.slice(0, NET_FILL_MAX).map((code) => Number(code) >>> 0));
+        }
+        break;
+      case 'drop':
+        if (this.host || from !== 0 || !this.validSeat(m.seat) || !Number.isInteger(m.f)) break;
+        if (m.seat === this.seat) this.stop('lost', { seat: 0 }); // the host dropped this peer
+        else if (!this.dropped.has(m.seat)) this.dropped.set(m.seat, m.f);
+        break;
+    }
+  }
+}
+
 const Game = {
   state: GS.LOADING,
   pausedFrom: null,
@@ -12163,6 +12524,7 @@ const Game = {
   last: 0,
   alpha: 0,
   match: null,
+  net: null, // the LockstepSession of an online match (attachNet), or null
   run: null,
   selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, startSides: Object.assign({}, SIDE_DEFAULT), tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
@@ -12714,7 +13076,15 @@ const Game = {
     else if (this.state !== GS.COUNTDOWN) this.go(GS.COUNTDOWN);
     if (this.match.phase === 'fight' && this.state === GS.COUNTDOWN) this.go(GS.FIGHT);
   },
+  // An online match (P12-02): the session steps the sim and decides when it waits. hooks: onRematch() for the "Out of sync" button, onDesync(info), onDrop(info). The lobby (P12-06) builds the session and calls this.
+  attachNet(session, hooks = {}) {
+    this.net = session;
+    session.onWaiting = (text) => UI.netStatus(text);
+    session.onDesync = (info) => { UI.netStatus(info.text, 'Rematch', hooks.onRematch); if (hooks.onDesync) hooks.onDesync(info); };
+    session.onDrop = (info) => { if (hooks.onDrop) hooks.onDrop(info); };
+  },
   endMatch() {
+    if (this.net) { this.net.close(); this.net = null; UI.netStatus(''); }
     if (this.unsubMatch) { this.unsubMatch.forEach((off) => off()); this.unsubMatch = null; }
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
@@ -12887,7 +13257,7 @@ const Game = {
 
   // --- pause
   pause(by) {
-    if (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN) return false;
+    if (this.net || (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN)) return false; // an online match cannot pause: the other seats would wait
     this.pausedFrom = this.state;
     this.pausedBy = by || null;
     return this.go(GS.PAUSED);
@@ -12936,11 +13306,12 @@ const Game = {
     const st = this.state;
     if (this.match && SIM_STATES.includes(st)) {
       const m = this.match;
-      let scale = m.slowTicks > 0 ? 0.35 : 1;
+      let scale = m.slowTicks > 0 && !this.net ? 0.35 : 1; // an online match is paced by the lockstep schedule only: no slow motion (P12-02; a viewer setting must not make one peer tick slower than the others)
       this.acc += dt * scale;
       let steps = 0;
       while (this.acc >= DT && steps < MAX_STEPS_PER_FRAME && this.match === m) {
-        m.step();
+        if (!this.net) m.step();
+        else if (!this.net.step()) { this.acc = Math.min(this.acc, DT * NET_CATCH_UP_TICKS); break; } // an online match waits for the other seats' inputs (P12-02)
         this.acc -= DT;
         steps++;
         if (this.state === GS.PAUSED) break;
@@ -13515,7 +13886,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'netwait', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -13618,6 +13989,13 @@ const UI = {
     this.say('Player ' + seat + ' is out');
   },
   say(text) { this.dom.announce.textContent = ''; setTimeout(() => { this.dom.announce.textContent = text; }, 30); },
+  // The online status line over a fight (P12-02): "Waiting for P3..." or "Out of sync" with an action button (label, action); empty text hides it
+  netStatus(text, label, action) {
+    const box = this.dom.netwait;
+    box.textContent = text || '';
+    if (text && label && action) { const button = document.createElement('button'); button.textContent = label; button.onclick = action; box.appendChild(button); }
+    box.hidden = !text;
+  },
   banner(text, sub, ms) {
     const b = this.dom.banner, id = ++this.banners;
     b.innerHTML = esc(text) + (sub ? '<small>' + esc(sub) + '</small>' : '');
@@ -16176,8 +16554,10 @@ function testApi() {
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-    get: { controlsChanged: () => controlsChanged },
-    set: { controlsChanged: (value) => { controlsChanged = value; } },
+    NET_INPUT_CHANNEL, NET_CONTROL_CHANNEL, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+    encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepSession, NetSeatController,
+    get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
+    set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
 }
 
