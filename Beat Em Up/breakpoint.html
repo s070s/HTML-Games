@@ -13461,7 +13461,7 @@ const ONLINE_MESSAGES = {
   nonetwork: 'No network address was found. Connect both devices to the same Wi-Fi or router (mobile data and guest Wi-Fi often cannot be used).',
   ice: 'The two devices could not reach each other. Check that both are on the same Wi-Fi or network, and that a VPN, a firewall or guest-network isolation is not in the way.',
   timeout: 'The connection did not open in time. Check that both devices are on the same network, then try again with a new code.',
-  guestWait: 'The host did not enter your answer in time. Ask the host for a new code.',
+  guestWait: 'The host did not enter your answer in time (a browser may wait only a few seconds). Send it again faster, or ask the host for a new code.',
   lost: 'The connection was lost.',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
   unsupported: 'This browser cannot make an online connection (no WebRTC).',
@@ -13857,7 +13857,14 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
   const channels = { reliable: null, quick: null };
   let connection = null, state = 'idle', failure = null, seat = 0, form = -1, timer = 0;
   const emit = (name, ...args) => { for (const fn of listeners[name].slice()) { try { fn(...args); } catch (error) { Diag.log('error', 'Online listener: ' + error.message); } } };
-  const setState = (next) => { if (state === next) return; state = next; emit('state', state, failure); };
+  const FORWARD = ['idle', 'gathering', 'waiting', 'connecting', 'open'];
+  // The states only move forward, except to failed or closed (which end the link): a late event never takes an open link back to connecting
+  const setState = (next) => {
+    if (state === next || state === 'failed' || state === 'closed') return;
+    if (FORWARD.indexOf(next) >= 0 && FORWARD.indexOf(next) < FORWARD.indexOf(state)) return;
+    state = next;
+    emit('state', state, failure);
+  };
   const release = () => {
     clearTimeout(timer);
     for (const name of ['reliable', 'quick']) { const channel = channels[name]; if (channel) { channel.onopen = channel.onclose = channel.onmessage = null; try { channel.close(); } catch (error) { /* already closed */ } } }
@@ -13959,9 +13966,10 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
       const answer = await OnlineCode.unpack(text, 1);
       if (answer.seat !== seat) throw onlineError('seat');
       return guard(async () => {
-        await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
-        setState('connecting');
+        if (state !== 'waiting') throw onlineError('state'); // a second press while the first is still working
+        setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
         arm(connectMs, 'timeout');
+        await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
       });
     },
     // true when sent; false when the link is not open (nothing is queued)
@@ -16702,6 +16710,7 @@ const ONLINE_SCAN_MS = 200; // a camera frame is read this often
 const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when the link opens, the guest answers bp-pong:, the host shows the round trip
 const ONLINE_PONG = 'bp-pong:';
 const ONLINE_QR_MAX_MODULE_PX = 10;
+const ONLINE_CODE_CHARS_PER_ROW = 32;
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '',
   scanOk: false, scanning: false, scanBusy: false, stream: null, video: null, scanTimer: 0,
@@ -16765,7 +16774,8 @@ const OnlineUI = {
   statusIsProblem() { return !!this.note || (!!this.link && !!this.link.error); },
   canType() { return !this.link || ['idle', 'waiting'].includes(this.link.state); },
   codeBox(id, label, code, placeholder) {
-    return '<textarea id="' + id + '" class="crin" data-nav readonly rows="3" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>';
+    const rows = Math.min(8, Math.max(3, Math.ceil(code.length / ONLINE_CODE_CHARS_PER_ROW))); // a phone shows about 32 characters a row; the whole code stays in view
+    return '<textarea id="' + id + '" class="crin" data-nav readonly rows="' + rows + '" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>';
   },
   codeButtons(code, qrKind) {
     const fits = !!code && Qr.versionFor(code.length) > 0;
@@ -16815,7 +16825,7 @@ const OnlineUI = {
   renderQr() {
     const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
     return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'offer' ? 'host' : 'answer') + ' code"></canvas>' +
-      '<div><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
+      '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
   },
   // after every render: the QR canvas, the camera view
   afterRender() {

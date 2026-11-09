@@ -16894,7 +16894,11 @@ const SelfTest = {
         async createOffer() { return { type: 'offer', sdp: script.offer }; }
         async createAnswer() { return { type: 'answer', sdp: script.answer }; }
         async setLocalDescription(description) { this.localDescription = description; this.iceGatheringState = script.stall ? 'gathering' : 'complete'; }
-        async setRemoteDescription(description) { if (script.remoteError) throw new Error(script.remoteError); this.remote = description; }
+        async setRemoteDescription(description) {
+          if (script.remoteError) throw new Error(script.remoteError);
+          this.remote = description;
+          if (script.openFirst && description.type === 'answer') this.open();   // a fast network: the channels open before this call reports back
+        }
         addEventListener() {}
         removeEventListener() {}
         close() { this.closed = true; }
@@ -16923,8 +16927,7 @@ const SelfTest = {
         if (host.send('early') !== false) bad.push('send before open must return false');
         const answer = await guest.acceptOffer(offer);
         if (guest.state !== 'waiting' || guest.seat !== 2 || !answer.startsWith('BPA-')) bad.push('guest after the answer: ' + guest.state);
-        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');
-        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
+        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
         const [reliable, quick] = Fake.made[0].channels;
         if (!reliable.init.negotiated || reliable.init.id !== 0 || reliable.init.ordered === false || !quick.init.negotiated || quick.init.id !== 1 || quick.init.ordered !== false || quick.init.maxRetransmits !== 0) bad.push('channel settings');
         await host.acceptAnswer(answer);
@@ -16985,6 +16988,15 @@ const SelfTest = {
         Fake.made[0].channels[1].onclose();
         if (host.state !== 'closed' || !host.error || host.error.code !== 'lost') bad.push('a lost connection: ' + host.state);
         if (await failsWith(Online.createLink('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
+      }
+      {
+        // channels that open before setRemoteDescription reports back must leave the host open (the race that failed one run in three between two Chromium windows), and nothing may take it back to connecting
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER, openFirst: true });
+        const states = listed(host);
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        await new Promise((resolve) => setTimeout(resolve, 150));   // longer than connectMs: a stray timer would fail it now
+        if (host.state !== 'open' || states.join() !== 'connecting,open') bad.push('channels open first: ' + host.state + ' ' + states.join());
+        if (await failsWith(host.acceptAnswer(await OnlineCode.pack(1, 2, ANSWER)), 'state')) bad.push('a second answer on an open link');
       }
       if (Online.supported() !== (typeof RTCPeerConnection !== 'undefined')) bad.push('supported()');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
