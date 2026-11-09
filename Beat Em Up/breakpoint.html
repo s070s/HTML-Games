@@ -126,7 +126,7 @@ button.mi small.rec{color:var(--a1)}
 .cr-name .crin:focus{outline:none}
 textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-all}
 .qrbox{display:flex;flex-wrap:wrap;gap:.8em;align-items:center;justify-content:center}
-canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%}
+canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:1;height:auto}
 .qrvideo{display:block;width:100%;max-height:40vh;margin:.4em 0;background:#000;border-radius:.4em}
 .cr-name{cursor:text}.cr-name .crin{width:auto;flex:1;max-width:14em;text-transform:uppercase}
 .card.create{border-style:dashed;border-color:var(--a1)}
@@ -13640,7 +13640,7 @@ const ONLINE_MESSAGES = {
   nonetwork: 'No network address was found. Connect both devices to the same Wi-Fi or router (mobile data and guest Wi-Fi often cannot be used).',
   ice: 'The two devices could not reach each other. Check that both are on the same Wi-Fi or network, and that a VPN, a firewall or guest-network isolation is not in the way.',
   timeout: 'The connection did not open in time. Check that both devices are on the same network, then try again with a new code.',
-  guestWait: 'The host did not enter your answer in time (a browser may wait only a few seconds). Send it again faster, or ask the host for a new code.',
+  guestWait: 'The host did not enter your answer in time (a browser may wait only a few seconds). Ask the host for a new code, then send your answer faster.',
   lost: 'The connection was lost.',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
   unsupported: 'This browser cannot make an online connection (no WebRTC).',
@@ -14100,7 +14100,8 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
   };
   const guard = async (work) => {
     try { return await work(); } catch (error) {
-      if (state !== 'failed' && state !== 'closed') fail(error.code || 'sdp', error.code ? error.message : ONLINE_MESSAGES.sdp);
+      const known = typeof error.code === 'string' && !!ONLINE_MESSAGES[error.code]; // a DOMException has a numeric code and the browser's own text: the player gets the plain message
+      if (state !== 'failed' && state !== 'closed') fail(known ? error.code : 'sdp', known ? error.message : ONLINE_MESSAGES.sdp);
       throw failure ? Object.assign(new Error(failure.message), { code: failure.code }) : error;
     }
   };
@@ -14127,6 +14128,7 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     async acceptOffer(text) {
       if (host || state !== 'idle') throw onlineError('state');
       const offer = await OnlineCode.unpack(text, 0);
+      if (state !== 'idle') throw onlineError('state'); // a second press while the first was still reading its code (a deflated offer is inflated asynchronously)
       seat = offer.seat;
       return guard(async () => {
         setState('gathering');
@@ -16892,13 +16894,29 @@ const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '',
-  scanOk: false, scanning: false, scanBusy: false, stream: null, video: null, scanTimer: 0,
+  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
+  // Ends the screen's link and forgets everything about it
   reset() {
     this.stopScan();
     const old = this.link;
-    this.link = null; // before the close, so its state event is ignored
+    this.forget(); // before the close, so the link's state event is ignored
     if (old) old.close();
-    this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = '';
+  },
+  // Lets go of the link without closing it: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
+  forget() {
+    for (const stop of this.unlisten) stop();
+    this.unlisten = [];
+    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false;
+  },
+  /* The hand-off point for the netcode (P12-02) and the lobby (P12-06). Call it when the link has opened and a match or the lobby takes over, BEFORE UI.hideScreen() / UI.go(),
+     which leave the Online screens and close whatever link is still the screen's. Returns the open link, now owned by the caller (the screen no longer listens to it and
+     leave() will not close it), or null when there is no open link (then nothing changes). */
+  release() {
+    const link = this.link;
+    if (!link || link.state !== 'open') return null;
+    this.stopScan();
+    this.forget();
+    return link;
   },
   leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
   open(role) {
@@ -16916,8 +16934,7 @@ const OnlineUI = {
     const link = Online.createLink(this.role);
     this.link = link;
     if (old) old.close();
-    link.onState((state) => this.onState(link, state));
-    link.onMessage((data) => this.onMessage(link, data));
+    this.unlisten = [link.onState((state) => this.onState(link, state)), link.onMessage((data) => this.onMessage(link, data))];
     return link;
   },
   onState(link, state) {
@@ -16995,7 +17012,7 @@ const OnlineUI = {
   },
   renderJoin() {
     const code = this.answerCode;
-    const idle = !this.link || this.link.state === 'idle';
+    const idle = !this.link || ['idle', 'failed', 'closed'].includes(this.link.state); // after a failure the player may try again: answer() then makes a fresh link
     return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
       '<h3>1. Paste the host\'s code here</h3>' +
       '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
@@ -17023,7 +17040,7 @@ const OnlineUI = {
     const available = portrait ? Math.min(window.innerWidth * 0.9, window.innerHeight - 230) : Math.min(window.innerHeight - 80, window.innerWidth - 260);
     const modulePx = Math.max(2, Math.min(ONLINE_QR_MAX_MODULE_PX, Math.floor(available / (matrix.size + 8))));
     const side = Qr.draw(canvas, matrix, modulePx);
-    canvas.style.width = side + 'px'; canvas.style.height = side + 'px';
+    canvas.style.width = side + 'px'; canvas.style.height = 'auto'; // the square comes from aspect-ratio, so a narrow panel shrinks it evenly
   },
   act(name, arg) {
     const handlers = {
@@ -17055,18 +17072,24 @@ const OnlineUI = {
   answer() {
     this.saveFields();
     this.note = '';
-    if (!this.link || this.link.state !== 'idle') this.makeLink();
-    this.step(this.link, this.link.acceptOffer(this.offerText), (code) => { this.answerCode = code; this.redraw(); });
+    if (this.answering) return; // a second press while the first is still reading the code
+    if (!this.link || this.link.state !== 'idle') { this.makeLink(); this.answerCode = ''; }
+    const link = this.link;
+    this.answering = true;
+    this.step(link, link.acceptOffer(this.offerText).finally(() => { this.answering = false; }), (code) => { this.answerCode = code; this.redraw(); });
     this.redraw();
   },
   async startScan() {
+    if (this.scanning) return;
     const prefix = ONLINE_PREFIX[this.role === 'host' ? 1 : 0];
+    const ticket = ++this.scanTicket;
+    const stale = () => ticket !== this.scanTicket; // stopScan ends every scan in flight: what it later gets (a camera, a playing video) is let go
     this.scanning = true; this.note = '';
     this.redraw();
     try {
       const detector = new BarcodeDetector({ formats: ['qr_code'] });
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      if (!this.scanning) { stream.getTracks().forEach((track) => track.stop()); return; } // stopped while the permission prompt was open
+      if (stale()) { stream.getTracks().forEach((track) => track.stop()); return; } // stopped while the permission prompt was open
       this.stream = stream;
       const video = document.createElement('video');
       video.className = 'qrvideo'; video.muted = true; video.playsInline = true; video.setAttribute('aria-label', 'Camera view');
@@ -17074,8 +17097,10 @@ const OnlineUI = {
       this.video = video;
       this.afterRender();
       await video.play();
+      if (stale()) return;
       this.scanTimer = setInterval(() => this.scanFrame(detector, prefix), ONLINE_SCAN_MS);
     } catch (error) {
+      if (stale()) return;
       this.stopScan();
       this.note = error && error.name === 'NotAllowedError' ? 'The camera is not allowed. Allow it in the browser, or paste the code.' : 'The camera could not start. Paste the code instead.';
       this.redraw();
@@ -17097,6 +17122,7 @@ const OnlineUI = {
   },
   // The camera stops on a scan, on Stop, on leaving the screen and on a failure
   stopScan() {
+    this.scanTicket++;
     clearInterval(this.scanTimer);
     this.scanTimer = 0; this.scanning = false;
     if (this.stream) this.stream.getTracks().forEach((track) => track.stop());

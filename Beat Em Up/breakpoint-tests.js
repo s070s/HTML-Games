@@ -17163,8 +17163,6 @@ const SelfTest = {
     const OFFER = SDP_FIXTURES.chromiumOffer, ANSWER = SDP_FIXTURES.chromiumAnswer;
     const iceOf = (sdp, kind) => JSON.stringify(OnlineCode.parseSdp(sdp, kind));   // the values the packed form carries
     const rejectionOf = (text, expectKind) => { try { OnlineCode.readCode(text, expectKind); return 'accepted'; } catch (e) { return e.code; } };
-    const needsLoop = 'skipped: needs the event loop, and the headless runner does not wait for async tests (run it in a browser: BREAKPOINT.selfTest)';   // the stub has no layout engine; every real browser has one, and P17-15 fails a skip there
-    const asyncTest = (name, fn) => test(name, () => (hasLayoutEngine() ? fn() : needsLoop));   // fn is async: an async function always returns a promise, so the skip is decided before it is called
     const hasDeflate = typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
     const withCandidate = (sdp, line) => sdp.replace('a=ice-ufrag', line + '\r\na=ice-ufrag');
     test('Online code (P12-01): real Chromium and Firefox offers and answers pack into one short BPO- / BPA- code of the packed form and come back with the same ICE values; the CRC-16 matches its check value', () => {
@@ -17192,7 +17190,7 @@ const SelfTest = {
       if (!back.sdp.includes(' 192.168.1.20 50000 typ host') || !back.sdp.includes(' 2a02:587:1:2:0:0:0:6 50001 typ host')) bad.push('rebuilt candidate lines');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    asyncTest('Online code (P12-01): an SDP the packed form cannot say travels whole (deflated where the browser can) and comes back exactly; a deflate bomb and broken deflate are refused', async () => {
+    test('Online code (P12-01): an SDP the packed form cannot say travels whole (deflated where the browser can) and comes back exactly; a deflate bomb and broken deflate are refused', async () => {
       const bad = [];
       const manyCandidates = Array.from({ length: 5 }, (_, i) => 'a=candidate:' + (10 + i) + ' 1 udp 2122260223 10.0.0.' + (i + 1) + ' ' + (40000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
       const variants = [
@@ -17322,6 +17320,17 @@ const SelfTest = {
       if (Qr.versionFor(426) !== 0 || Qr.encode('A'.repeat(426)) !== null) bad.push('426 characters must not fit');
       const formats = ['111011111000100', '111001011110011', '111110110101010', '111100010011101', '110011000101111', '110001100011000', '110110001000001', '110100101110110'];
       formats.forEach((bits, mask) => { if (Qr.formatValue(mask).toString(2).padStart(15, '0') !== bits) bad.push('format bits of mask ' + mask); });
+      const versionBits = [0x07c94, 0x085bc, 0x09a99, 0x0a4d3, 0x0bbf6, 0x0c762, 0x0d847];   // the standard's 18-bit version information of versions 7 to 13
+      versionBits.forEach((expected, i) => {
+        const version = i + 7, size = 17 + version * 4, frame = Qr.frame(version);
+        let read = 0;   // bit i sits at (size - 11 + i % 3, floor(i / 3)) and, mirrored, at (floor(i / 3), size - 11 + i % 3)
+        let mirrored = 0;
+        for (let bit = 0; bit < 18; bit++) {
+          read |= frame.dark[Math.floor(bit / 3) * size + size - 11 + (bit % 3)] << bit;
+          mirrored |= frame.dark[(size - 11 + (bit % 3)) * size + Math.floor(bit / 3)] << bit;
+        }
+        if (read !== expected || mirrored !== expected) bad.push('version information of version ' + version + ': ' + read.toString(16) + ' / ' + mirrored.toString(16));
+      });
       const real = [OnlineCode.packSdp(0, 2, SDP_FIXTURES.chromiumOffer), OnlineCode.packSdp(1, 2, SDP_FIXTURES.firefoxAnswer), OnlineCode.packSdp(0, 3, SDP_FIXTURES.firefoxOffer)];
       const lengths = [1, 17, 18, 32, 33, 53, 54, 78, 79, 106, 107, 134, 135, 154, 155, 192, 193, 230, 231, 271, 272, 321, 322, 367, 368, 425];
       const texts = real.concat(lengths.map((n) => Array.from({ length: n }, (_, i) => 'BPO-AaZz09_-'[(i * 7 + n) % 12]).join('')));
@@ -17365,14 +17374,16 @@ const SelfTest = {
       Fake.made = made;
       return Fake;
     };
-    asyncTest('Online link (P12-01): the states idle, gathering, waiting, connecting, open, failed and closed, and a plain error for a bad code, a wrong seat, no network, a browser that refuses the code, ICE failure, a timeout, a host that never answers and a lost connection', async () => {
+    test('Online link (P12-01): the states idle, gathering, waiting, connecting, open, failed and closed, and a plain error for a bad code, a wrong seat, no network, a browser that refuses the code, ICE failure, a timeout, a host that never answers and a lost connection', async () => {
       const bad = [];
+      const links = [];   // every link this test makes is closed at the end, so none keeps a timer or a connection
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
       const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
       const listed = (link) => { const list = []; link.onState((state) => list.push(state)); return list; };
       const failsWith = async (promise, code) => { try { await promise; return 'did not fail'; } catch (e) { return e.code === code && e.message === ONLINE_MESSAGES[code] ? '' : e.code + ' / ' + e.message; } };
       const pair = async (script, seat = 2) => {
         const Fake = fakeConnection(script);
-        const host = Online.createLink('host', { ...fast, connection: Fake }), guest = Online.createLink('guest', { ...fast, connection: Fake });
+        const host = made('host', { ...fast, connection: Fake }), guest = made('guest', { ...fast, connection: Fake });
         const offer = await host.makeOffer(seat);
         return { Fake, host, guest, offer };
       };
@@ -17384,7 +17395,8 @@ const SelfTest = {
         if (host.send('early') !== false) bad.push('send before open must return false');
         const answer = await guest.acceptOffer(offer);
         if (guest.state !== 'waiting' || guest.seat !== 2 || !answer.startsWith('BPA-')) bad.push('guest after the answer: ' + guest.state);
-        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
+        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');
+        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
         const [reliable, quick] = Fake.made[0].channels;
         if (!reliable.init.negotiated || reliable.init.id !== 0 || reliable.init.ordered === false || !quick.init.negotiated || quick.init.id !== 1 || quick.init.ordered !== false || quick.init.maxRetransmits !== 0) bad.push('channel settings');
         await host.acceptAnswer(answer);
@@ -17404,13 +17416,13 @@ const SelfTest = {
       // errors the player can read
       {
         const none = OFFER.replace(/a=candidate:.*\r\n/g, '');
-        const host = Online.createLink('host', { ...fast, connection: fakeConnection({ offer: none, answer: ANSWER }) });
+        const host = made('host', { ...fast, connection: fakeConnection({ offer: none, answer: ANSWER }) });
         const problem = await failsWith(host.makeOffer(2), 'nonetwork');
         if (problem || host.state !== 'failed' || host.error.code !== 'nonetwork') bad.push('no network: ' + problem + ' ' + host.state);
-        const stalled = Online.createLink('host', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, stall: true }) });
+        const stalled = made('host', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, stall: true }) });
         if (!(await stalled.makeOffer(2)).startsWith('BPO-')) bad.push('gathering that never completes must end after gatherMs with the candidates so far');
         stalled.close();
-        const guestOnly = Online.createLink('guest', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, remoteError: 'x' }) });
+        const guestOnly = made('guest', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, remoteError: 'x' }) });
         const code = await OnlineCode.pack(0, 2, OFFER);
         const refused = await failsWith(guestOnly.acceptOffer(code), 'sdp');
         if (refused || guestOnly.state !== 'failed') bad.push('a code the browser refuses: ' + refused);
@@ -17444,7 +17456,7 @@ const SelfTest = {
         Fake.made[0].open();
         Fake.made[0].channels[1].onclose();
         if (host.state !== 'closed' || !host.error || host.error.code !== 'lost') bad.push('a lost connection: ' + host.state);
-        if (await failsWith(Online.createLink('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
+        if (await failsWith(made('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
       }
       {
         const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
@@ -17463,12 +17475,34 @@ const SelfTest = {
         if (host.state !== 'open' || states.join() !== 'connecting,open') bad.push('channels open first: ' + host.state + ' ' + states.join());
         if (await failsWith(host.acceptAnswer(await OnlineCode.pack(1, 2, ANSWER)), 'state')) bad.push('a second answer on an open link');
       }
+      {
+        // a browser that refuses a description throws a DOMException: its numeric code and its text must not reach the player
+        const refusal = Object.assign(new Error('Failed to execute setRemoteDescription: Failed to parse SessionDescription'), { code: 12, name: 'SyntaxError' });
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        class Refusing extends Fake { async setRemoteDescription() { throw refusal; } }
+        const guest = made('guest', { ...fast, connection: Refusing });
+        const problem = await failsWith(guest.acceptOffer(await OnlineCode.pack(0, 2, OFFER)), 'sdp');
+        if (problem || guest.state !== 'failed' || guest.error.code !== 'sdp' || guest.error.message !== ONLINE_MESSAGES.sdp) bad.push('a refusing browser: ' + problem + ' ' + (guest.error && guest.error.code));
+      }
+      if (hasDeflate) {
+        // a deflated offer is inflated asynchronously: a double press must not start two connections
+        const many = Array.from({ length: 7 }, (_, i) => 'a=candidate:' + (20 + i) + ' 1 udp 2122260223 10.1.0.' + (i + 1) + ' ' + (41000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
+        const deflated = await OnlineCode.pack(0, 2, many);
+        if (OnlineCode.readCode(deflated).form !== ONLINE_FORM.DEFLATE) bad.push('the double-press offer must be deflated');
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake });
+        const both = await Promise.allSettled([guest.acceptOffer(deflated), guest.acceptOffer(deflated)]);
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (refused.length !== 1 || refused[0].reason.code !== 'state' || Fake.made.length !== 1 || guest.state !== 'waiting') bad.push('a double press on Make answer code: ' + Fake.made.length + ' connections, ' + guest.state);
+        guest.close();
+      }
       if (Online.supported() !== (typeof RTCPeerConnection !== 'undefined')) bad.push('supported()');
+      links.forEach((link) => link.close());
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
-      const host = Online.createLink('host'), guest = Online.createLink('guest');
+      const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
       const heard = { host: [], guest: [] };
       host.onMessage((data, quick) => heard.host.push({ quick, data }));
       guest.onMessage((data, quick) => heard.guest.push({ quick, data }));
@@ -17532,8 +17566,61 @@ const SelfTest = {
         if (OnlineUI.onKey({ code: 'KeyA' }, null) !== false) bad.push('a key outside a code box');
         if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: false }) !== true) bad.push('Backspace in a box the player writes in must type, not go back');
         if (OnlineUI.onKey({ code: 'Escape' }, { tagName: 'TEXTAREA', readOnly: true }) !== false || OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: true }) !== false) bad.push('Esc and Backspace in a read-only code box must reach the menu (the focus starts there)');
-        if (!/data-default data-act="back"/.test(UI.screen_onlinehost()) || !/data-default data-act="back"/.test(UI.screen_onlinejoin())) bad.push('the focus must not start in a code box: Back is the last default');
+        // the focus starts on the first enabled data-default: never in a code box
+        const firstFocus = (html) => { const tag = (html.match(/<button[^>]*data-default[^>]*>/g) || []).find((item) => !/ disabled/.test(item)); return tag ? /data-act="([^"]*)"/.exec(tag)[1] : 'none'; };
+        const focusCases = [
+          ['host gathering', 'host', '', '', { state: 'gathering', error: null }, 'back'], ['host with a code', 'host', 'BPO-' + 'A'.repeat(100), '', { state: 'waiting', error: null }, 'oncopy:offer'],
+          ['guest before the paste', 'guest', '', '', null, 'onanswer'], ['guest with an answer', 'guest', '', 'BPA-' + 'B'.repeat(100), { state: 'waiting', error: null }, 'oncopy:answer'],
+          ['guest after a failure', 'guest', '', '', { state: 'failed', error: { code: 'sdp', message: ONLINE_MESSAGES.sdp } }, 'onanswer'],
+        ];
+        for (const [name, role, offerCode, answerCode, link, expected] of focusCases) {
+          OnlineUI.role = role; OnlineUI.offerCode = offerCode; OnlineUI.answerCode = answerCode; OnlineUI.link = link;
+          const got = firstFocus(role === 'host' ? UI.screen_onlinehost() : UI.screen_onlinejoin());
+          if (got !== expected) bad.push('the focus of the ' + name + ' screen starts on ' + got + ', not ' + expected);
+        }
+        // a failed or closed link leaves the paste box writable and Make answer code pressable (the retry)
+        OnlineUI.role = 'guest'; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'closed', error: null };
+        screen = UI.screen_onlinejoin();
+        if (/id="onOffer"[^>]* readonly/.test(screen) || /data-act="onanswer" disabled/.test(screen)) bad.push('after a failure the guest must be able to try again');
+        OnlineUI.link = { state: 'waiting', error: null };
+        if (!/id="onOffer"[^>]* readonly/.test(UI.screen_onlinejoin())) bad.push('the paste box is read-only while the answer is out');
       } finally {
+        Object.assign(OnlineUI, kept);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online UI (P12-01): release() hands the open link to the caller without closing it (the hand-off point for P12-02 and P12-06); leave() and reset() afterwards leave it open, and a link that is not open is not handed over', async () => {
+      const bad = [];
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, unlisten: OnlineUI.unlisten };
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const links = [];
+      try {
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER, openFirst: true });
+        OnlineUI.reset();
+        OnlineUI.role = 'host';
+        const host = Online.createLink('host', { ...fast, connection: Fake }), guest = Online.createLink('guest', { ...fast, connection: Fake });
+        links.push(host, guest);
+        OnlineUI.link = host;
+        OnlineUI.unlisten = [host.onState((state) => OnlineUI.onState(host, state)), host.onMessage((data) => OnlineUI.onMessage(host, data))];
+        if (OnlineUI.release() !== null) bad.push('a link that is not open must not be handed over');
+        if (OnlineUI.link !== host) bad.push('a refused release must change nothing');
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        if (host.state !== 'open') bad.push('the stand-in link did not open: ' + host.state);
+        const sentBefore = Fake.made[0].channels[0].sent.length;   // the screen's test flow pinged once when the link opened
+        const heard = [];
+        const stop = host.onMessage((data) => heard.push(data));   // the caller's own listener must keep working
+        const handed = OnlineUI.release();
+        if (handed !== host || OnlineUI.link !== null || OnlineUI.role !== '' || OnlineUI.unlisten.length) bad.push('release() must return the link and clear the screen');
+        OnlineUI.leave('onlinehost');
+        OnlineUI.reset();
+        if (host.state !== 'open') bad.push('leave() or reset() closed the released link: ' + host.state);
+        Fake.made[0].channels[0].onmessage({ data: 'bp-ping:1' });   // the screen's test flow must not answer any more
+        if (Fake.made[0].channels[0].sent.length !== sentBefore) bad.push('the screen still answers the ping test after release()');
+        Fake.made[0].channels[0].onmessage({ data: 'x' });
+        if (heard.join() !== 'bp-ping:1,x') bad.push('the caller hears ' + heard.join());
+        stop();
+      } finally {
+        links.forEach((link) => link.close());
         Object.assign(OnlineUI, kept);
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
