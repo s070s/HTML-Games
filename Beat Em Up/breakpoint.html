@@ -125,6 +125,9 @@ button.mi small.rec{color:var(--a1)}
 .cr-name:focus-within{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
 .cr-name .crin:focus{outline:none}
 textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-all}
+.qrbox{display:flex;flex-wrap:wrap;gap:.8em;align-items:center;justify-content:center}
+canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:1;height:auto}
+.qrvideo{display:block;width:100%;max-height:40vh;margin:.4em 0;background:#000;border-radius:.4em}
 .cr-name{cursor:text}.cr-name .crin{width:auto;flex:1;max-width:14em;text-transform:uppercase}
 .card.create{border-style:dashed;border-color:var(--a1)}
 .card.create b{color:var(--a1)}
@@ -13605,6 +13608,581 @@ const Music = {
   },
 };
 
+// === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
+const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
+const ONLINE_NET_VERSION = 1; // the match message protocol (P12-02 raises it when the messages change); the low nibble of the second byte
+const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
+const ONLINE_FORM = { PACKED: 0, DEFLATE: 1, PLAIN: 2 }; // the packed binary form, or the whole SDP (deflated where the browser can, else as it is)
+const ONLINE_SEAT_MIN = 2; // seat 1 is the host
+const ONLINE_SEAT_MAX = 4;
+const ONLINE_GATHER_MS = 3000; // a code is made when ICE gathering is complete or after this long, with the candidates found by then (no trickle)
+const ONLINE_CONNECT_MS = 20000; // from the answer reaching the host to the channel opening
+const ONLINE_GUEST_WAIT_MS = 180000; // the guest waits this long for the host to enter its answer
+const ONLINE_CODE_MAX_CHARS = 4000; // a longer paste is not a code
+const ONLINE_SDP_MAX_BYTES = 16384; // a deflated SDP may not grow past this (a hostile paste)
+const ONLINE_CANDIDATES_MAX = 6; // more than this and the code takes the whole-SDP form
+const ONLINE_UFRAG_RANGE = [4, 32]; // RFC 8839 ice-ufrag and ice-pwd lengths
+const ONLINE_PWD_RANGE = [22, 32];
+const ONLINE_CANDIDATE_TYPE = { MDNS: 0, IPV4: 1, IPV6: 2 };
+const ONLINE_ADDRESS_BYTES = [16, 4, 16];
+const ONLINE_MDNS = /^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\.local$/i; // Chrome, Firefox and Safari hide a host address behind a UUID
+const ONLINE_SDP_MEDIA = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
+const ONLINE_SDP_MEDIA_PATTERN = /^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/; // with real addresses (no mDNS) a browser puts its first candidate's port here
+const ONLINE_ICE_CHARS = /^[A-Za-z0-9+/]+$/;
+const ONLINE_MESSAGES = {
+  empty: 'Paste the code first.',
+  notcode: 'This is not an online code. It starts with BPO- (the host\'s code) or BPA- (the answer).',
+  needOffer: 'That is an answer code. Paste the host\'s code (BPO-...) here.',
+  needAnswer: 'That is the host\'s own code. Paste the answer code (BPA-...) from your friend here.',
+  damaged: 'Code damaged or incomplete. Copy it again, all of it.',
+  version: 'This code is from another version of the game. Everyone needs the same version.',
+  seat: 'This answer is for another seat. Use the answer to the code you sent for this seat.',
+  nonetwork: 'No network address was found. Connect both devices to the same Wi-Fi or router (mobile data and guest Wi-Fi often cannot be used).',
+  ice: 'The two devices could not reach each other. Check that both are on the same Wi-Fi or network, and that a VPN, a firewall or guest-network isolation is not in the way.',
+  timeout: 'The connection did not open in time. Check that both devices are on the same network, then try again with a new code.',
+  guestWait: 'The host did not enter your answer in time (a browser may wait only a few seconds). Ask the host for a new code, then send your answer faster.',
+  lost: 'The connection was lost.',
+  sdp: 'This browser could not use the code. Ask the host for a new one.',
+  unsupported: 'This browser cannot make an online connection (no WebRTC).',
+  state: 'That step is not possible now. Go back and start again.',
+};
+function onlineError(code, message) { const error = new Error(message || ONLINE_MESSAGES[code] || code); error.code = code; return error; }
+
+const OnlineCode = {
+  // CRC-16/CCITT-FALSE: the last two bytes of every code, so a bad paste says "damaged" instead of failing deep inside the browser
+  crc16(bytes) {
+    let crc = 0xffff;
+    for (const byte of bytes) {
+      crc ^= byte << 8;
+      for (let bit = 0; bit < 8; bit++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+    return crc;
+  },
+  ipv6Bytes(text) {
+    if (!/^[0-9a-f:]+$/i.test(text)) return null;
+    const halves = text.split('::');
+    if (halves.length > 2) return null;
+    const head = halves[0] ? halves[0].split(':') : [];
+    const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+    const missing = 8 - head.length - tail.length;
+    if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+    const groups = head.concat(halves.length === 2 ? new Array(missing).fill('0') : [], tail);
+    if (groups.some((group) => !/^[0-9a-f]{1,4}$/i.test(group))) return null;
+    const bytes = [];
+    for (const group of groups) { const value = parseInt(group, 16); bytes.push(value >> 8, value & 255); }
+    return bytes;
+  },
+  // { type, bytes } of a candidate address, or null for any other host name
+  addressOf(text) {
+    const mdns = ONLINE_MDNS.exec(text);
+    if (mdns) return { type: ONLINE_CANDIDATE_TYPE.MDNS, bytes: this.hexBytes(mdns.slice(1).join('')) };
+    const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
+    if (v4) { const parts = v4.slice(1).map(Number); return parts.every((part) => part < 256) ? { type: ONLINE_CANDIDATE_TYPE.IPV4, bytes: parts } : null; }
+    const v6 = this.ipv6Bytes(text);
+    return v6 ? { type: ONLINE_CANDIDATE_TYPE.IPV6, bytes: v6 } : null;
+  },
+  addressText(type, bytes) {
+    if (type === ONLINE_CANDIDATE_TYPE.IPV4) return bytes.join('.');
+    if (type === ONLINE_CANDIDATE_TYPE.MDNS) { const hex = this.bytesHex(bytes); return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-') + '.local'; }
+    const groups = [];
+    for (let i = 0; i < 16; i += 2) groups.push(((bytes[i] << 8) | bytes[i + 1]).toString(16));
+    return groups.join(':');
+  },
+  hexBytes(hex) { const bytes = []; for (let i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16)); return bytes; },
+  bytesHex(bytes) { return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join(''); },
+  // The few values a data-channel SDP carries for this game, or null when it holds anything the packed form cannot say (the whole SDP is sent then)
+  parseSdp(sdp, kind) {
+    const found = { ufrag: '', pwd: '', fingerprint: null, candidates: [] };
+    let media = 0, mid = '', port = '', setup = '', fingerprints = 0;
+    for (const line of sdp.split(/\r?\n/)) {
+      if (line.startsWith('m=')) { if (!ONLINE_SDP_MEDIA_PATTERN.test(line)) return null; media++; continue; }
+      if (!line.startsWith('a=')) continue;
+      const colon = line.indexOf(':');
+      const name = colon < 0 ? line.slice(2) : line.slice(2, colon);
+      const value = colon < 0 ? '' : line.slice(colon + 1);
+      if (name === 'ice-ufrag') found.ufrag = value;
+      else if (name === 'ice-pwd') found.pwd = value;
+      else if (name === 'setup') setup = value;
+      else if (name === 'mid') mid = value;
+      else if (name === 'sctp-port') port = value;
+      else if (name === 'fingerprint') {
+        fingerprints++;
+        const hash = /^sha-256 ((?:[0-9A-F]{2}:){31}[0-9A-F]{2})$/i.exec(value);
+        if (!hash) return null;
+        found.fingerprint = this.hexBytes(hash[1].replace(/:/g, ''));
+      } else if (name === 'candidate') {
+        const parts = value.split(' ');
+        if (parts.length < 8 || parts[6] !== 'typ') return null;
+        if (parts[2].toLowerCase() === 'tcp') continue; // the game uses UDP only
+        const address = this.addressOf(parts[4]);
+        const candidatePort = Number(parts[5]);
+        const plain = parts[2].toLowerCase() === 'udp' && parts[1] === '1' && parts[7] === 'host';
+        if (!plain || !address || !Number.isInteger(candidatePort) || candidatePort < 1 || candidatePort > 65535) return null;
+        found.candidates.push({ type: address.type, bytes: address.bytes, port: candidatePort });
+      }
+    }
+    const lengthOk = (text, range) => text.length >= range[0] && text.length <= range[1] && ONLINE_ICE_CHARS.test(text);
+    if (media !== 1 || mid !== '0' || port !== '5000' || fingerprints !== 1) return null;
+    if (setup !== (kind ? 'active' : 'actpass')) return null;
+    if (!lengthOk(found.ufrag, ONLINE_UFRAG_RANGE) || !lengthOk(found.pwd, ONLINE_PWD_RANGE)) return null;
+    if (found.candidates.length < 1 || found.candidates.length > ONLINE_CANDIDATES_MAX) return null;
+    return found;
+  },
+  // The minimal data-channel SDP the packed form stands for
+  buildSdp(found, kind) {
+    const lines = ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'a=group:BUNDLE 0', ONLINE_SDP_MEDIA, 'c=IN IP4 0.0.0.0',
+      'a=ice-ufrag:' + found.ufrag, 'a=ice-pwd:' + found.pwd,
+      'a=fingerprint:sha-256 ' + found.fingerprint.map((byte) => byte.toString(16).toUpperCase().padStart(2, '0')).join(':'),
+      'a=setup:' + (kind ? 'active' : 'actpass'), 'a=mid:0', 'a=sctp-port:5000', 'a=max-message-size:262144'];
+    found.candidates.forEach((candidate, index) => {
+      const priority = (126 << 24) + ((65535 - index) << 8) + 255; // host type preference, earlier candidates first, component 1
+      lines.push('a=candidate:' + (index + 1) + ' 1 udp ' + priority + ' ' + this.addressText(candidate.type, candidate.bytes) + ' ' + candidate.port + ' typ host');
+    });
+    lines.push('a=end-of-candidates');
+    return lines.join('\r\n') + '\r\n';
+  },
+  // header byte: version, kind (0 offer, 1 answer), form; then seat and net protocol version
+  header(kind, form, seat) { return [(ONLINE_CODE_VERSION << 4) | (kind << 3) | form, (seat << 4) | ONLINE_NET_VERSION]; },
+  seal(kind, bytes) {
+    const checksum = this.crc16(bytes);
+    const all = bytes.concat([checksum >> 8, checksum & 255]);
+    return ONLINE_PREFIX[kind] + toBase64Url(String.fromCharCode(...all));
+  },
+  async deflate(bytes, mode) {
+    const stream = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(mode === 'in' ? new DecompressionStream('deflate-raw') : new CompressionStream('deflate-raw'));
+    const reader = stream.getReader();
+    const out = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const byte of value) out.push(byte);
+      if (out.length > ONLINE_SDP_MAX_BYTES) { reader.cancel().catch(() => {}); throw onlineError('damaged'); }
+    }
+    return out;
+  },
+  // The code for an SDP in the packed form, or null when the SDP holds anything the packed form cannot say
+  packSdp(kind, seat, sdp) {
+    const found = this.parseSdp(sdp, kind);
+    if (!found) return null;
+    const bytes = this.header(kind, ONLINE_FORM.PACKED, seat);
+    bytes.push(found.ufrag.length, ...Array.from(found.ufrag, (char) => char.charCodeAt(0)), found.pwd.length, ...Array.from(found.pwd, (char) => char.charCodeAt(0)), ...found.fingerprint, found.candidates.length);
+    for (const candidate of found.candidates) bytes.push(candidate.type, ...candidate.bytes, candidate.port >> 8, candidate.port & 255);
+    return this.seal(kind, bytes);
+  },
+  // The code text for an SDP: the packed form, or the whole SDP deflated (where the browser has CompressionStream) or as it is
+  async pack(kind, seat, sdp) {
+    const packed = this.packSdp(kind, seat, sdp);
+    if (packed) return packed;
+    const text = Array.from(new TextEncoder().encode(sdp));
+    let form = ONLINE_FORM.PLAIN, body = text;
+    if (typeof CompressionStream === 'function') {
+      try { body = await this.deflate(text, 'out'); form = ONLINE_FORM.DEFLATE; } catch (error) { body = text; }
+    }
+    return this.seal(kind, this.header(kind, form, seat).concat(body));
+  },
+  // Code text -> { kind, seat, form, sdp } (a deflated SDP comes as { kind, seat, form, deflated: bytes } for unpack to inflate); throws an error with a code (see ONLINE_MESSAGES)
+  // and a plain message. expectKind: 0 offer, 1 answer, or undefined for either.
+  readCode(text, expectKind) {
+    const clean = String(text || '').replace(/\s+/g, '');
+    if (!clean) throw onlineError('empty');
+    const kind = ONLINE_PREFIX.indexOf(clean.slice(0, 4));
+    if (kind < 0) throw onlineError('notcode');
+    if (expectKind !== undefined && kind !== expectKind) throw onlineError(expectKind ? 'needAnswer' : 'needOffer');
+    const body = clean.slice(4);
+    if (clean.length > ONLINE_CODE_MAX_CHARS || !/^[A-Za-z0-9_-]+$/.test(body)) throw onlineError('damaged');
+    let bytes;
+    try { bytes = Array.from(fromBase64Url(body), (char) => char.charCodeAt(0)); } catch (error) { throw onlineError('damaged'); }
+    if (bytes.length < 5) throw onlineError('damaged');
+    const end = bytes.length - 2;
+    if (this.crc16(bytes.slice(0, end)) !== ((bytes[end] << 8) | bytes[end + 1])) throw onlineError('damaged');
+    const version = bytes[0] >> 4, form = bytes[0] & 7, seat = bytes[1] >> 4;
+    if (version !== ONLINE_CODE_VERSION || (bytes[1] & 15) !== ONLINE_NET_VERSION) throw onlineError('version');
+    if (((bytes[0] >> 3) & 1) !== kind || seat < ONLINE_SEAT_MIN || seat > ONLINE_SEAT_MAX) throw onlineError('damaged');
+    if (form === ONLINE_FORM.PACKED) return { kind, seat, form, sdp: this.buildSdp(this.readPacked(bytes, end), kind) };
+    if (form === ONLINE_FORM.DEFLATE) return { kind, seat, form, deflated: bytes.slice(2, end) };
+    if (form !== ONLINE_FORM.PLAIN) throw onlineError('damaged');
+    return { kind, seat, form, sdp: this.checkedSdp(bytes.slice(2, end)) };
+  },
+  checkedSdp(bytes) {
+    const sdp = new TextDecoder().decode(new Uint8Array(bytes));
+    if (!sdp.startsWith('v=0') || sdp.length > ONLINE_SDP_MAX_BYTES) throw onlineError('damaged');
+    return sdp;
+  },
+  // readCode, with a deflated SDP inflated
+  async unpack(text, expectKind) {
+    const code = this.readCode(text, expectKind);
+    if (code.form !== ONLINE_FORM.DEFLATE) return code;
+    if (typeof DecompressionStream !== 'function') throw onlineError('sdp');
+    let bytes;
+    try { bytes = await this.deflate(code.deflated, 'in'); } catch (error) { throw onlineError('damaged'); }
+    return { kind: code.kind, seat: code.seat, form: code.form, sdp: this.checkedSdp(bytes) };
+  },
+  readPacked(bytes, end) {
+    let at = 2;
+    const take = (count) => {
+      if (count < 0 || at + count > end) throw onlineError('damaged');
+      at += count;
+      return bytes.slice(at - count, at);
+    };
+    const ice = (range) => { const length = take(1)[0]; if (length < range[0] || length > range[1]) throw onlineError('damaged'); return String.fromCharCode(...take(length)); };
+    const found = { ufrag: ice(ONLINE_UFRAG_RANGE), pwd: ice(ONLINE_PWD_RANGE), fingerprint: take(32), candidates: [] };
+    if (!ONLINE_ICE_CHARS.test(found.ufrag) || !ONLINE_ICE_CHARS.test(found.pwd)) throw onlineError('damaged');
+    const count = take(1)[0];
+    if (count < 1 || count > ONLINE_CANDIDATES_MAX) throw onlineError('damaged');
+    for (let i = 0; i < count; i++) {
+      const type = take(1)[0];
+      if (type >= ONLINE_ADDRESS_BYTES.length) throw onlineError('damaged');
+      const address = take(ONLINE_ADDRESS_BYTES[type]);
+      const port = take(2);
+      found.candidates.push({ type, bytes: address, port: (port[0] << 8) | port[1] });
+    }
+    if (at !== end) throw onlineError('damaged');
+    return found;
+  },
+};
+
+/* QR code encoder (display only): byte mode, error correction L, versions 1-13 (the code up to 425 bytes), the 8 masks with the standard penalty score. */
+const Qr = {
+  MAX_VERSION: 13,
+  // per version 1..13 at level L: [EC codewords per block, blocks in group 1, data codewords of a group 1 block, blocks in group 2, data codewords of a group 2 block]
+  BLOCKS: [null, [7, 1, 19, 0, 0], [10, 1, 34, 0, 0], [15, 1, 55, 0, 0], [20, 1, 80, 0, 0], [26, 1, 108, 0, 0], [18, 2, 68, 0, 0], [20, 2, 78, 0, 0], [24, 2, 97, 0, 0], [30, 2, 116, 0, 0],
+    [18, 2, 68, 2, 69], [20, 4, 81, 0, 0], [24, 2, 92, 2, 93], [26, 4, 107, 0, 0]],
+  ALIGN: [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50], [6, 30, 54], [6, 32, 58], [6, 34, 62]],
+  FORMAT_L: 1, // the two error-correction bits of level L
+  exp: null,
+  log: null,
+  dataCapacity(version) { const b = this.BLOCKS[version]; return b[1] * b[2] + b[3] * b[4]; },
+  // The largest text in bytes a version holds (the 4-bit mode and the length field come off the data bits)
+  byteCapacity(version) { return Math.floor((this.dataCapacity(version) * 8 - 4 - (version < 10 ? 8 : 16)) / 8); },
+  fieldTables() {
+    if (this.exp) return;
+    this.exp = new Array(512); this.log = new Array(256);
+    let value = 1;
+    for (let i = 0; i < 255; i++) { this.exp[i] = value; this.log[value] = i; value <<= 1; if (value & 256) value ^= 0x11d; }
+    for (let i = 255; i < 512; i++) this.exp[i] = this.exp[i - 255];
+  },
+  multiply(a, b) { return a && b ? this.exp[this.log[a] + this.log[b]] : 0; },
+  // Reed-Solomon remainder of the data codewords for `degree` error-correction codewords
+  remainder(data, degree) {
+    this.fieldTables();
+    let generator = [1];
+    for (let i = 0; i < degree; i++) {
+      const next = new Array(generator.length + 1).fill(0);
+      generator.forEach((coefficient, at) => { next[at] ^= coefficient; next[at + 1] ^= this.multiply(coefficient, this.exp[i]); });
+      generator = next;
+    }
+    const result = new Array(degree).fill(0);
+    for (const byte of data) {
+      const factor = byte ^ result.shift();
+      result.push(0);
+      for (let i = 0; i < degree; i++) result[i] ^= this.multiply(generator[i + 1], factor);
+    }
+    return result;
+  },
+  versionFor(length) {
+    for (let version = 1; version <= this.MAX_VERSION; version++) if (length <= this.byteCapacity(version)) return version;
+    return 0;
+  },
+  // The final codeword sequence (data and error correction interleaved) for the bytes in that version
+  codewords(bytes, version) {
+    const bits = [];
+    const put = (value, count) => { for (let i = count - 1; i >= 0; i--) bits.push((value >> i) & 1); };
+    put(4, 4); put(bytes.length, version < 10 ? 8 : 16);
+    for (const byte of bytes) put(byte, 8);
+    const capacityBits = this.dataCapacity(version) * 8;
+    put(0, Math.min(4, capacityBits - bits.length));
+    while (bits.length % 8) bits.push(0);
+    const data = [];
+    for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+    for (let pad = 0xec; data.length < this.dataCapacity(version); pad ^= 0xec ^ 0x11) data.push(pad);
+    const [ecLength, count1, size1, count2, size2] = this.BLOCKS[version];
+    const blocks = [];
+    let at = 0;
+    for (let i = 0; i < count1 + count2; i++) {
+      const size = i < count1 ? size1 : size2;
+      const part = data.slice(at, at + size);
+      at += size;
+      blocks.push({ data: part, ec: this.remainder(part, ecLength) });
+    }
+    const out = [];
+    for (let i = 0; i < size2 || i < size1; i++) for (const block of blocks) if (i < block.data.length) out.push(block.data[i]);
+    for (let i = 0; i < ecLength; i++) for (const block of blocks) out.push(block.ec[i]);
+    return out;
+  },
+  // A matrix: { version, size, dark: Uint8Array(size * size), fixed: Uint8Array } with the function patterns drawn and the data not yet placed
+  frame(version) {
+    const size = 17 + version * 4;
+    const dark = new Uint8Array(size * size), fixed = new Uint8Array(size * size);
+    const set = (x, y, on) => { if (x >= 0 && y >= 0 && x < size && y < size) { dark[y * size + x] = on ? 1 : 0; fixed[y * size + x] = 1; } };
+    for (let i = 0; i < size; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const ring = Math.max(Math.abs(dx), Math.abs(dy)); set(cx + dx, cy + dy, ring !== 2 && ring !== 4); }
+    }
+    const spots = this.ALIGN[version], last = spots.length - 1;
+    spots.forEach((cy, i) => spots.forEach((cx, j) => {
+      if ((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) return;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }));
+    this.formatBits(this.formatValue(0), size, set); // reserves the format areas; each mask draws its own bits later
+    if (version >= 7) {
+      let rest = version;
+      for (let i = 0; i < 12; i++) rest = (rest << 1) ^ ((rest >>> 11) * 0x1f25);
+      const bits = (version << 12) | rest;
+      for (let i = 0; i < 18; i++) { const on = (bits >>> i) & 1; const a = size - 11 + (i % 3), b = Math.floor(i / 3); set(a, b, on); set(b, a, on); }
+    }
+    return { version, size, dark, fixed };
+  },
+  // The 15 format bits (error-correction level L and the mask) with their BCH check and the fixed XOR mask
+  formatValue(mask) {
+    const data = (this.FORMAT_L << 3) | mask;
+    let rest = data;
+    for (let i = 0; i < 10; i++) rest = (rest << 1) ^ ((rest >>> 9) * 0x537);
+    return ((data << 10) | rest) ^ 0x5412;
+  },
+  formatBits(bits, size, set) {
+    const bit = (i) => (bits >>> i) & 1;
+    for (let i = 0; i <= 5; i++) set(8, i, bit(i));
+    set(8, 7, bit(6)); set(8, 8, bit(7)); set(7, 8, bit(8));
+    for (let i = 9; i < 15; i++) set(14 - i, 8, bit(i));
+    for (let i = 0; i < 8; i++) set(size - 1 - i, 8, bit(i));
+    for (let i = 8; i < 15; i++) set(8, size - 15 + i, bit(i));
+    set(8, size - 8, 1); // the dark module
+  },
+  maskAt(mask, x, y) {
+    switch (mask) {
+      case 0: return (x + y) % 2 === 0;
+      case 1: return y % 2 === 0;
+      case 2: return x % 3 === 0;
+      case 3: return (x + y) % 3 === 0;
+      case 4: return (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0;
+      case 5: return ((x * y) % 2) + ((x * y) % 3) === 0;
+      case 6: return (((x * y) % 2) + ((x * y) % 3)) % 2 === 0;
+      default: return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
+    }
+  },
+  // The penalty score of the standard (runs, 2x2 blocks, finder-like patterns, dark balance)
+  penalty(dark, size) {
+    let score = 0;
+    const at = (x, y) => dark[y * size + x];
+    for (let pass = 0; pass < 2; pass++) {
+      for (let a = 0; a < size; a++) {
+        let run = 1, text = '';
+        for (let b = 0; b < size; b++) {
+          const now = pass ? at(a, b) : at(b, a);
+          text += now;
+          if (b > 0 && now === (pass ? at(a, b - 1) : at(b - 1, a))) { run++; if (run === 5) score += 3; else if (run > 5) score++; } else run = 1;
+        }
+        for (const pattern of ['10111010000', '00001011101']) for (let from = text.indexOf(pattern); from >= 0; from = text.indexOf(pattern, from + 1)) score += 40;
+      }
+    }
+    for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) { const v = at(x, y); if (v === at(x + 1, y) && v === at(x, y + 1) && v === at(x + 1, y + 1)) score += 3; }
+    let count = 0;
+    for (let i = 0; i < dark.length; i++) count += dark[i];
+    score += (Math.ceil(Math.abs(count * 20 - dark.length * 10) / dark.length) - 1) * 10;
+    return score;
+  },
+  // Text of up to 425 ASCII characters -> { version, size, dark } with dark[y * size + x] = 1 for a black module; null when it is too long for version 13
+  encode(text) {
+    const bytes = Array.from(text, (char) => char.charCodeAt(0) & 255);
+    const version = this.versionFor(bytes.length);
+    if (!version) return null;
+    const matrix = this.frame(version);
+    const { size, dark, fixed } = matrix;
+    const words = this.codewords(bytes, version);
+    let bitIndex = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let step = 0; step < size; step++) {
+        for (let side = 0; side < 2; side++) {
+          const x = right - side;
+          const upward = ((right + 1) & 2) === 0;
+          const y = upward ? size - 1 - step : step;
+          if (fixed[y * size + x] || bitIndex >= words.length * 8) continue;
+          dark[y * size + x] = (words[bitIndex >>> 3] >>> (7 - (bitIndex & 7))) & 1;
+          bitIndex++;
+        }
+      }
+    }
+    let best = null;
+    for (let mask = 0; mask < 8; mask++) {
+      const trial = Uint8Array.from(dark);
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!fixed[y * size + x] && this.maskAt(mask, x, y)) trial[y * size + x] ^= 1;
+      this.formatBits(this.formatValue(mask), size, (px, py, on) => { trial[py * size + px] = on ? 1 : 0; });
+      const score = this.penalty(trial, size);
+      if (!best || score < best.score) best = { score, trial, mask };
+    }
+    return { version, size, mask: best.mask, dark: best.trial };
+  },
+  // Draws a matrix on a canvas with a 4-module quiet zone; returns the canvas side in pixels
+  draw(canvas, matrix, modulePx) {
+    const side = (matrix.size + 8) * modulePx;
+    canvas.width = side; canvas.height = side;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, side, side);
+    context.fillStyle = '#000';
+    for (let y = 0; y < matrix.size; y++) for (let x = 0; x < matrix.size; x++) if (matrix.dark[y * matrix.size + x]) context.fillRect((x + 4) * modulePx, (y + 4) * modulePx, modulePx, modulePx);
+    return side;
+  },
+};
+
+/* The peer link: one RTCPeerConnection with two data channels, made and joined by codes (no signaling server, no ICE server).
+   States: idle, gathering (making a code), waiting (the code is out, the other side's code is not in yet), connecting, open, failed, closed.
+   Channels (negotiated, ids fixed, so neither side waits for ondatachannel): reliable = ordered, quick = unordered, no resend (the P12-02 inputs).
+   API for the netcode: state, error, seat, send(data, quick), onMessage(fn), onState(fn), close(); each on* returns a function that removes the listener. */
+function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection): the self-tests set them
+  const host = role === 'host';
+  const gatherMs = options.gatherMs ?? ONLINE_GATHER_MS, connectMs = options.connectMs ?? ONLINE_CONNECT_MS, guestWaitMs = options.guestWaitMs ?? ONLINE_GUEST_WAIT_MS;
+  const listeners = { message: [], state: [] };
+  const channels = { reliable: null, quick: null };
+  let connection = null, state = 'idle', failure = null, seat = 0, form = -1, timer = 0;
+  const emit = (name, ...args) => { for (const fn of listeners[name].slice()) { try { fn(...args); } catch (error) { Diag.log('error', 'Online listener: ' + error.message); } } };
+  const FORWARD = ['idle', 'gathering', 'waiting', 'connecting', 'open'];
+  // The states only move forward, except to failed or closed (which end the link): a late event never takes an open link back to connecting
+  const setState = (next) => {
+    if (state === next || state === 'failed' || state === 'closed') return;
+    if (FORWARD.indexOf(next) >= 0 && FORWARD.indexOf(next) < FORWARD.indexOf(state)) return;
+    state = next;
+    emit('state', state, failure);
+  };
+  const release = () => {
+    clearTimeout(timer);
+    for (const name of ['reliable', 'quick']) { const channel = channels[name]; if (channel) { channel.onopen = channel.onclose = channel.onmessage = null; try { channel.close(); } catch (error) { /* already closed */ } } }
+    if (connection) { connection.oniceconnectionstatechange = connection.onconnectionstatechange = null; try { connection.close(); } catch (error) { /* already closed */ } }
+  };
+  const fail = (code, message) => {
+    if (state === 'failed' || state === 'closed') return;
+    failure = { code, message: message || ONLINE_MESSAGES[code] };
+    release();
+    setState('failed');
+  };
+  const lost = () => {
+    if (state === 'open') { failure = { code: 'lost', message: ONLINE_MESSAGES.lost }; release(); setState('closed'); } else if (state === 'connecting') fail('ice'); else if (state === 'waiting') fail(host ? 'ice' : 'guestWait'); // a guest whose host has not answered yet
+  };
+  const arm = (ms, code) => { clearTimeout(timer); timer = setTimeout(() => fail(code), ms); };
+  const checkOpen = () => {
+    if (state === 'open' || !channels.reliable || !channels.quick) return;
+    if (channels.reliable.readyState === 'open' && channels.quick.readyState === 'open') { clearTimeout(timer); setState('open'); }
+  };
+  const start = () => {
+    const Connection = options.connection || (typeof RTCPeerConnection === 'undefined' ? null : RTCPeerConnection);
+    if (!Connection) throw onlineError('unsupported');
+    connection = new Connection({ iceServers: [] });
+    channels.reliable = connection.createDataChannel('bp-reliable', { negotiated: true, id: 0 });
+    channels.quick = connection.createDataChannel('bp-quick', { negotiated: true, id: 1, ordered: false, maxRetransmits: 0 });
+    for (const name of ['reliable', 'quick']) {
+      const channel = channels[name];
+      channel.binaryType = 'arraybuffer';
+      channel.onopen = checkOpen;
+      channel.onclose = lost;
+      channel.onmessage = (event) => emit('message', event.data, name === 'quick');
+    }
+    const onChange = () => { if (connection && (connection.iceConnectionState === 'failed' || connection.connectionState === 'failed')) lost(); };
+    connection.oniceconnectionstatechange = onChange;
+    connection.onconnectionstatechange = onChange;
+  };
+  const gathered = () => new Promise((resolve) => {
+    let limit = 0;
+    const done = () => { clearTimeout(limit); connection.removeEventListener('icegatheringstatechange', onChange); resolve(); };
+    const onChange = () => { if (connection.iceGatheringState === 'complete') done(); };
+    if (connection.iceGatheringState === 'complete') { resolve(); return; }
+    limit = setTimeout(done, gatherMs);
+    connection.addEventListener('icegatheringstatechange', onChange);
+  });
+  // The local description with every candidate found so far, as a code
+  const localCode = async (kind) => {
+    await gathered();
+    if (state !== 'gathering') throw onlineError('state');
+    const sdp = connection.localDescription ? connection.localDescription.sdp : '';
+    if (!/^a=candidate:/m.test(sdp)) throw onlineError('nonetwork');
+    const code = await OnlineCode.pack(kind, seat, sdp);
+    form = (await OnlineCode.unpack(code)).form;
+    return code;
+  };
+  const guard = async (work) => {
+    try { return await work(); } catch (error) {
+      const known = typeof error.code === 'string' && !!ONLINE_MESSAGES[error.code]; // a DOMException has a numeric code and the browser's own text: the player gets the plain message
+      if (state !== 'failed' && state !== 'closed') fail(known ? error.code : 'sdp', known ? error.message : ONLINE_MESSAGES.sdp);
+      throw failure ? Object.assign(new Error(failure.message), { code: failure.code }) : error;
+    }
+  };
+  return {
+    role,
+    get state() { return state; },
+    get error() { return failure; },
+    get seat() { return seat; },
+    get form() { return form; }, // 0 packed, 1 deflated SDP, 2 plain SDP (the code made here)
+    // Host: the offer code for a seat (2 to 4); state gathering, then waiting
+    makeOffer(seatNumber) {
+      if (!host || state !== 'idle' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+      seat = seatNumber;
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setLocalDescription(await connection.createOffer());
+        const code = await localCode(0);
+        setState('waiting');
+        return code;
+      });
+    },
+    // Guest: the answer code for the host's offer code. A bad code throws and leaves the link idle, so the player can paste again.
+    async acceptOffer(text) {
+      if (host || state !== 'idle') throw onlineError('state');
+      const offer = await OnlineCode.unpack(text, 0);
+      if (state !== 'idle') throw onlineError('state'); // a second press while the first was still reading its code (a deflated offer is inflated asynchronously)
+      seat = offer.seat;
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
+        await connection.setLocalDescription(await connection.createAnswer());
+        const code = await localCode(1);
+        setState('waiting');
+        arm(guestWaitMs, 'guestWait');
+        return code;
+      });
+    },
+    // Host: the guest's answer code; the channels open on their own after this
+    async acceptAnswer(text) {
+      if (!host || state !== 'waiting') throw onlineError('state');
+      const answer = await OnlineCode.unpack(text, 1);
+      if (answer.seat !== seat) throw onlineError('seat');
+      if (state !== 'waiting') throw onlineError('state'); // a second press while the first was still reading its code
+      return guard(async () => {
+        setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
+        arm(connectMs, 'timeout');
+        await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
+      });
+    },
+    // true when sent; false when the link is not open (nothing is queued)
+    send(data, quick = false) {
+      const channel = quick ? channels.quick : channels.reliable;
+      if (state !== 'open' || !channel || channel.readyState !== 'open') return false;
+      try { channel.send(data); } catch (error) { return false; }
+      return true;
+    },
+    onMessage(fn) { listeners.message.push(fn); return () => { listeners.message = listeners.message.filter((item) => item !== fn); }; },
+    onState(fn) { listeners.state.push(fn); return () => { listeners.state = listeners.state.filter((item) => item !== fn); }; },
+    close() {
+      if (state === 'closed' || state === 'failed') return;
+      release();
+      setState('closed');
+      listeners.message = []; listeners.state = [];
+    },
+  };
+}
+const Online = {
+  code: OnlineCode,
+  qr: Qr,
+  createLink: createOnlineLink,
+  supported() { return typeof RTCPeerConnection !== 'undefined'; },
+  // QR scan only where the browser can read a QR code from a camera (in practice Chrome on Android); everywhere else the player pastes
+  async canScan() {
+    if (!window.isSecureContext || typeof BarcodeDetector === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    try { return (await BarcodeDetector.getSupportedFormats()).includes('qr_code'); } catch (error) { return false; }
+  },
+};
+
+
 // === 09a UI - menus (keyboard / gamepad / mouse / touch), HUD, popups, touch controls, diagnostics
 const $ = (id) => document.getElementById(id);
 const clockText = (seconds) => String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
@@ -13688,6 +14266,10 @@ const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: '
 
 const UI = {
   screen_creator() { return CreatorUI.render(); },
+  screen_online() { return OnlineUI.render('online'); },
+  screen_onlinehost() { return OnlineUI.render('onlinehost'); },
+  screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
+  screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
   rebinding: null, scenIdx: 0, pops: [], popIdx: 0, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
@@ -13978,9 +14560,9 @@ const UI = {
   },
 
   // --- screens
-  go(name) { Inputs.capture(null); this.current = name; if (name === 'coop') this.focusMoved = false; Inputs.setLobby(name === 'coop'); this.rerender(false); },
+  go(name) { Inputs.capture(null); if (this.current && this.current !== name) OnlineUI.leave(this.current); this.current = name; if (name === 'coop') this.focusMoved = false; Inputs.setLobby(name === 'coop'); this.rerender(false); },
   push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
-  hideScreen() { Inputs.capture(null); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
+  hideScreen() { Inputs.capture(null); if (this.current) OnlineUI.leave(this.current); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
   back() {
     const cur = this.current;
     if (cur === 'pause') { Game.resume(); return; }
@@ -14018,6 +14600,7 @@ const UI = {
     }
     const fn = this['screen_' + this.current];
     root.innerHTML = fn ? fn.call(this) : '';
+    if (this.current && this.current.startsWith('online')) OnlineUI.afterRender(); // the QR canvas, the camera view
     const items = this.navItems();
     const def = root.querySelector('[data-default]:not([disabled])'); // a disabled default (Choose arena before anyone joined) cannot take focus
     const target = keepFocus ? items[Math.min(idx, items.length - 1)] : (def || items[0]);
@@ -14067,6 +14650,7 @@ const UI = {
     }
     if (!this.current) return;
     if (this.current === 'creator' && CreatorUI.onKey(e)) return;
+    if (this.current.startsWith('online') && OnlineUI.onKey(e)) return;
     const el = document.activeElement;
     const k = e.code;
     if (this.current === 'coop' && k === 'Space') { e.preventDefault(); return; } // Space is a fight key (jump), not a menu key, on the join screen
@@ -14145,6 +14729,7 @@ const UI = {
       case 'controls': this.push('controls'); break;
       case 'settings': this.push('settings'); break;
       case 'credits': this.push('credits'); break;
+      case 'online': this.push('online'); break;
       case 'unlocks': this.guardUntil = performance.now() + SCENE_GUARD_MS; this.push('unlocks'); break; // the second tap of a double tap must not press a card
       case 'unlockinfo': this.unlockInfo(arg); break;
       case 'moves': this.push('moves'); break;
@@ -14196,7 +14781,7 @@ const UI = {
         break;
       case 'create': CreatorUI.open(this.current === 'char' ? 'char' : 'main'); break;
       case 'editcustom': if (CUSTOM_IDS.includes(this.pickedId())) CreatorUI.openSlot('char', CUSTOM_IDS.indexOf(this.pickedId())); break;
-      default: if (name.startsWith('cr')) CreatorUI.act(name, arg); break;
+      default: if (name.startsWith('cr')) CreatorUI.act(name, arg); else if (name.startsWith('on')) OnlineUI.act(name, arg); break;
     }
   },
   // The fighter the cards show as picked: the slot being picked in Free Fight, else the selected fighter
@@ -14311,6 +14896,7 @@ const UI = {
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
       '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Tournament</small></button>' +
+      '<button class="mi" data-nav data-act="online">Online<small>Two devices on the same network, joined by copy and paste</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -16299,6 +16885,260 @@ const CreatorUI = {
   },
 };
 
+// === 09d ONLINE UI - the smallest flow that tests the link (Online > Host a game or Join a game; the lobby of P12-06 replaces it): codes by Copy, Show QR, Scan or paste
+const ONLINE_SCAN_MS = 200; // a camera frame is read this often
+const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when the link opens, the guest answers bp-pong:, the host shows the round trip
+const ONLINE_PONG = 'bp-pong:';
+const ONLINE_QR_MAX_MODULE_PX = 10;
+const ONLINE_CODE_CHARS_PER_ROW = 32;
+const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
+const OnlineUI = {
+  link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '',
+  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
+  // Ends the screen's link and forgets everything about it
+  reset() {
+    this.stopScan();
+    const old = this.link;
+    this.forget(); // before the close, so the link's state event is ignored
+    if (old) old.close();
+  },
+  // Lets go of the link without closing it: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
+  forget() {
+    for (const stop of this.unlisten) stop();
+    this.unlisten = [];
+    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false;
+  },
+  /* The hand-off point for the netcode (P12-02) and the lobby (P12-06). Call it when the link has opened and a match or the lobby takes over, BEFORE UI.hideScreen() / UI.go(),
+     which leave the Online screens and close whatever link is still the screen's. Returns the open link, now owned by the caller (the screen no longer listens to it and
+     leave() will not close it), or null when there is no open link (then nothing changes). */
+  release() {
+    const link = this.link;
+    if (!link || link.state !== 'open') return null;
+    this.stopScan();
+    this.forget();
+    return link;
+  },
+  leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
+  open(role) {
+    this.reset();
+    this.role = role;
+    UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
+    if (role === 'host') { const link = this.makeLink(); this.step(link, link.makeOffer(ONLINE_SEAT_MIN), (code) => { this.offerCode = code; this.redraw(); }); }
+  },
+  // Runs a link step; what a link answers after the player has left it (the screen closed it) is ignored
+  step(link, promise, done) { promise.then((value) => { if (link === this.link) done(value); }, (error) => { if (link === this.link) this.fail(error); }); },
+  // A fresh link (the first one, or after the last one failed or closed)
+  makeLink() {
+    const old = this.link;
+    const link = Online.createLink(this.role);
+    this.link = link;
+    if (old) old.close();
+    this.unlisten = [link.onState((state) => this.onState(link, state)), link.onMessage((data) => this.onMessage(link, data))];
+    return link;
+  },
+  onState(link, state) {
+    if (link !== this.link) return;
+    if (state === 'open') { this.note = ''; if (this.role === 'host') link.send(ONLINE_PING + performance.now()); Sound.ui('ok'); }
+    this.redraw();
+  },
+  onMessage(link, data) {
+    if (link !== this.link || typeof data !== 'string') return;
+    if (data.startsWith(ONLINE_PING)) link.send(ONLINE_PONG + data.slice(ONLINE_PING.length));
+    else if (data.startsWith(ONLINE_PONG)) { this.roundTrip = Math.max(0, Math.round(performance.now() - Number(data.slice(ONLINE_PONG.length)))); this.redraw(); }
+  },
+  fail(error) { this.note = error.message; Sound.ui('bad'); this.redraw(); },
+  saveFields() {
+    const answer = $('onAnswer'), offer = $('onOffer');
+    if (answer) this.answerText = answer.value;
+    if (offer) this.offerText = offer.value;
+  },
+  redraw() {
+    this.saveFields();
+    if (UI.current && UI.current.startsWith('online')) UI.rerender(true);
+  },
+  statusText() {
+    if (this.note) return this.note;
+    const link = this.link;
+    const state = link ? link.state : 'idle';
+    const host = this.role === 'host';
+    if (state === 'gathering') return 'Making your code (checking the network, about 2 seconds)...';
+    if (state === 'waiting') return host ? 'Waiting for your friend\'s answer code.' : 'Send this answer code to the host, then wait here.';
+    if (state === 'connecting') return 'Connecting...';
+    if (state === 'open') return 'Connected' + (this.roundTrip >= 0 ? ' (round trip ' + this.roundTrip + ' ms)' : '') + '.';
+    if (state === 'failed' || state === 'closed') return link.error ? link.error.message : 'Disconnected.';
+    return host ? '' : 'Paste the host\'s code, then press Make answer code.';
+  },
+  statusIsProblem() { return !!this.note || (!!this.link && !!this.link.error); },
+  canType() { return !this.link || ['idle', 'waiting'].includes(this.link.state); },
+  codeBox(id, label, code, placeholder) {
+    const rows = Math.min(8, Math.max(3, Math.ceil(code.length / ONLINE_CODE_CHARS_PER_ROW))); // a phone shows about 32 characters a row; the whole code stays in view
+    return '<textarea id="' + id + '" class="crin" data-nav readonly rows="' + rows + '" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>';
+  },
+  codeButtons(code, qrKind) {
+    const fits = !!code && Qr.versionFor(code.length) > 0;
+    return '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="oncopy:' + qrKind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
+      '<button class="mi" data-nav data-act="onqr:' + qrKind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
+      (code && !fits ? '<p class="hint">Too long for a QR: use Copy.</p>' : '');
+  },
+  scanButtons(act, label) {
+    const state = this.link ? this.link.state : 'idle';
+    if (!this.scanning && state !== (this.role === 'host' ? 'waiting' : 'idle')) return ''; // a code is expected only then
+    if (this.scanning) return '<div id="onVideoHold"></div><div class="row cr-actions"><button class="mi" data-nav data-default data-act="onscanx">Stop scanning</button></div>';
+    return this.scanOk ? '<button class="mi" data-nav data-act="' + act + '">' + label + '</button>' : '';
+  },
+  statusLine() { return '<p id="onStatus" class="hint' + (this.statusIsProblem() ? ' warnline' : '') + '" role="status" aria-live="polite">' + esc(this.statusText()) + '</p>'; },
+  render(name) {
+    if (name === 'online') return this.renderChoice();
+    if (name === 'onlinehost') return this.renderHost();
+    if (name === 'onlinejoin') return this.renderJoin();
+    return this.renderQr();
+  },
+  renderChoice() {
+    const off = Online.supported() ? '' : ' disabled';
+    return '<section class="screen on" aria-label="Play online"><div class="panel"><h2>Play online</h2>' +
+      '<p class="hint" style="margin-top:0">Two devices on the same Wi-Fi or network. No server: the players swap two short codes (copy and paste, or a QR code).' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p><nav>' +
+      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Make a code and send it to your friend</small></button>' +
+      '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Paste the host\'s code and send back the answer</small></button>' + BACK_BUTTON + '</nav></div></section>';
+  },
+  renderHost() {
+    const code = this.offerCode;
+    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' +
+      '<h3>1. Send this code (seat ' + ONLINE_SEAT_MIN + ')</h3>' + this.codeBox('onCode', 'Your code for the guest', code, 'Making your code...') + this.codeButtons(code, 'offer') +
+      '<h3>2. Paste the answer code here</h3>' +
+      '<textarea id="onAnswer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the answer code here"' + (this.canType() ? '' : ' readonly') + '>' + esc(this.answerText) + '</textarea>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect"' + (code && this.link && this.link.state === 'waiting' ? '' : ' disabled') + '>Connect</button></div>' +
+      this.scanButtons('onscan', 'Scan the answer QR') + this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
+  renderJoin() {
+    const code = this.answerCode;
+    const idle = !this.link || ['idle', 'failed', 'closed'].includes(this.link.state); // after a failure the player may try again: answer() then makes a fresh link
+    return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
+      '<h3>1. Paste the host\'s code here</h3>' +
+      '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR') +
+      (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
+      this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
+  renderQr() {
+    const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
+    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'offer' ? 'host' : 'answer') + ' code"></canvas>' +
+      '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
+  },
+  // after every render: the QR canvas, the camera view
+  afterRender() {
+    if (UI.current === 'onlineqr') this.drawQr();
+    const hold = $('onVideoHold');
+    if (hold && this.video) hold.appendChild(this.video);
+  },
+  drawQr() {
+    const canvas = $('onQr');
+    const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
+    const matrix = canvas && code ? Qr.encode(code) : null;
+    if (!matrix) return;
+    const portrait = window.innerHeight > window.innerWidth;
+    const available = portrait ? Math.min(window.innerWidth * 0.9, window.innerHeight - 230) : Math.min(window.innerHeight - 80, window.innerWidth - 260);
+    const modulePx = Math.max(2, Math.min(ONLINE_QR_MAX_MODULE_PX, Math.floor(available / (matrix.size + 8))));
+    const side = Qr.draw(canvas, matrix, modulePx);
+    canvas.style.width = side + 'px'; canvas.style.height = 'auto'; // the square comes from aspect-ratio, so a narrow panel shrinks it evenly
+  },
+  act(name, arg) {
+    const handlers = {
+      onhost: () => this.open('host'),
+      onjoin: () => this.open('guest'),
+      oncopy: () => this.copy(arg === 'offer' ? this.offerCode : this.answerCode),
+      onqr: () => { this.saveFields(); this.stopScan(); this.qrOf = arg; UI.push('onlineqr'); },
+      onscan: () => this.startScan(),
+      onscanx: () => { this.stopScan(); this.redraw(); },
+      onconnect: () => this.connect(),
+      onanswer: () => this.answer(),
+    };
+    const fn = handlers[name];
+    if (fn) fn();
+  },
+  copy(code) {
+    const box = $('onCode');
+    const manual = () => { if (box) { box.focus(); box.select(); } UI.toast('Select the code and copy it (Ctrl+C)', 'warn'); };
+    try { navigator.clipboard.writeText(code).then(() => UI.toast('Code copied to the clipboard'), manual); } catch (error) { manual(); }
+  },
+  // Host: the pasted (or scanned) answer code
+  connect() {
+    this.saveFields();
+    this.note = '';
+    if (!this.link) return;
+    this.step(this.link, this.link.acceptAnswer(this.answerText), () => this.redraw());
+  },
+  // Guest: the pasted (or scanned) host code; a failed link is replaced by a new one so the player can try again
+  answer() {
+    this.saveFields();
+    this.note = '';
+    if (this.answering) return; // a second press while the first is still reading the code
+    if (!this.link || this.link.state !== 'idle') { this.makeLink(); this.answerCode = ''; }
+    const link = this.link;
+    this.answering = true;
+    this.step(link, link.acceptOffer(this.offerText).finally(() => { this.answering = false; }), (code) => { this.answerCode = code; this.redraw(); });
+    this.redraw();
+  },
+  async startScan() {
+    if (this.scanning) return;
+    const prefix = ONLINE_PREFIX[this.role === 'host' ? 1 : 0];
+    const ticket = ++this.scanTicket;
+    const stale = () => ticket !== this.scanTicket; // stopScan ends every scan in flight: what it later gets (a camera, a playing video) is let go
+    this.scanning = true; this.note = '';
+    this.redraw();
+    try {
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      if (stale()) { stream.getTracks().forEach((track) => track.stop()); return; } // stopped while the permission prompt was open
+      this.stream = stream;
+      const video = document.createElement('video');
+      video.className = 'qrvideo'; video.muted = true; video.playsInline = true; video.setAttribute('aria-label', 'Camera view');
+      video.srcObject = stream; // a stream, not a URL: the page policy (media-src data:) does not apply (P12-04)
+      this.video = video;
+      this.afterRender();
+      await video.play();
+      if (stale()) return;
+      this.scanTimer = setInterval(() => this.scanFrame(detector, prefix), ONLINE_SCAN_MS);
+    } catch (error) {
+      if (stale()) return;
+      this.stopScan();
+      this.note = error && error.name === 'NotAllowedError' ? 'The camera is not allowed. Allow it in the browser, or paste the code.' : 'The camera could not start. Paste the code instead.';
+      this.redraw();
+    }
+  },
+  async scanFrame(detector, prefix) {
+    if (this.scanBusy || !this.video || this.video.readyState < 2) return;
+    this.scanBusy = true;
+    const ticket = this.scanTicket; // a frame still being read when the scan stops (Stop, Back) is ignored
+    try {
+      const found = await detector.detect(this.video);
+      const hit = found.map((item) => item.rawValue).find((value) => typeof value === 'string' && value.startsWith(prefix));
+      if (hit && ticket === this.scanTicket) this.scanned(hit);
+    } catch (error) { /* a frame that cannot be read: the next one is tried */ } finally { this.scanBusy = false; }
+  },
+  scanned(value) {
+    this.stopScan();
+    Sound.ui('ok');
+    if (this.role === 'host') { this.answerText = value; this.connect(); } else { this.offerText = value; this.answer(); }
+  },
+  // The camera stops on a scan, on Stop, on leaving the screen and on a failure
+  stopScan() {
+    this.scanTicket++;
+    clearInterval(this.scanTimer);
+    this.scanTimer = 0; this.scanning = false;
+    if (this.stream) this.stream.getTracks().forEach((track) => track.stop());
+    if (this.video) { this.video.srcObject = null; this.video.remove(); }
+    this.stream = null; this.video = null;
+  },
+  // true when the key was typed into a box the player can write in; a code box that is only for reading (Copy) leaves Esc, Backspace and the arrows to the menu
+  onKey(e, el = document.activeElement) {
+    if (!el || el.tagName !== 'TEXTAREA' || el.readOnly) return false;
+    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
+    if (e.code === 'ArrowUp' || e.code === 'ArrowDown') { e.preventDefault(); UI.moveFocus(e.code === 'ArrowUp' ? -1 : 1); return true; }
+    return true; // every other key types, selects or pastes normally (Backspace must not go back)
+  },
+};
+
 // === 09c SELF-TEST LOADER + BOOT - the acceptance checks (Menu > About > Run self-test) are in breakpoint-tests.js and load on demand; startup
 // The self-tests are in breakpoint-tests.js next to this page
 const SELFTEST_FILE = 'breakpoint-tests.js';
@@ -16350,6 +17190,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
+    Online, OnlineCode, Qr, OnlineUI, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
