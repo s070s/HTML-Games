@@ -236,6 +236,7 @@ const SelfTest = {
     const wanted = parts.map((part) => String(part).trim().toLowerCase()).filter(Boolean);
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
+    const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
     const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
     const test = (name, fn) => {
@@ -246,9 +247,13 @@ const SelfTest = {
       results.push(entry);
       try {
         const r = fn();
-        if (r && typeof r.then === 'function') pendingTests.push(r.then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + e.message; }).then(() => { entry.ms = Math.round(performance.now() - started); }));
-        else record(entry, r);
-      } catch (e) { entry.detail = 'exception: ' + e.message; }
+        if (r && typeof r.then === 'function') {
+          let timer = 0;
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
+          const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
+          pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
+        } else record(entry, r);
+      } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); }
       entry.ms = Math.round(performance.now() - started);
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
@@ -16537,12 +16542,16 @@ const SelfTest = {
       document.addEventListener('securitypolicyviolation', onViolation);
       const TIMEOUT_MS = 5000;
       let timer = 0;
-      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms (ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState + ')')), TIMEOUT_MS); });
+      let candidates = 0;   // local ICE candidates gathered by both sides; none means the device has no usable network (airplane mode), not a CSP problem
+      const timeout = new Promise((resolve, reject) => {
+        const reason = () => (candidates === 0 ? 'no ICE candidates gathered (no usable network interface?)' : 'ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState);
+        timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms: ' + reason())), TIMEOUT_MS);
+      });
       const exchange = async () => {
         // trickle ICE straight across (fast); the manual copy-paste form only changes when the candidates travel, not what the page may do
-        offerer.onicecandidate = (e) => { if (e.candidate) answerer.addIceCandidate(e.candidate); };
-        answerer.onicecandidate = (e) => { if (e.candidate) offerer.addIceCandidate(e.candidate); };
-        const channel = offerer.createDataChannel('csp-probe', { ordered: false, maxRetransmits: 0 });
+        offerer.onicecandidate = (e) => { if (e.candidate) { candidates++; answerer.addIceCandidate(e.candidate).catch(() => {}); } };   // a late candidate after the test closed the connections is harmless
+        answerer.onicecandidate = (e) => { if (e.candidate) { candidates++; offerer.addIceCandidate(e.candidate).catch(() => {}); } };
+        const channel = offerer.createDataChannel('csp-probe');   // reliable on purpose: the one ping must not be lost (the game's input channel will be unordered)
         const atAnswerer = new Promise((resolve) => { answerer.ondatachannel = (e) => { e.channel.onmessage = (msg) => { e.channel.send('pong'); resolve(msg.data); }; }; });
         const atOfferer = new Promise((resolve) => { channel.onmessage = (msg) => resolve(msg.data); });
         channel.onopen = () => channel.send('ping');
@@ -16552,7 +16561,9 @@ const SelfTest = {
         await offerer.setRemoteDescription(answerer.localDescription);
         return (await atAnswerer) + '/' + (await atOfferer);
       };
-      return Promise.race([exchange(), timeout]).then((got) => {
+      const exchanged = exchange();
+      exchanged.catch(() => {});   // when the timeout wins, a later failure of the exchange must not reach the page's unhandledrejection handler
+      return Promise.race([exchanged, timeout]).then((got) => {
         if (violations.length) return 'CSP violation: ' + violations.join('; ');
         return got === 'ping/pong' ? true : 'wrong messages: ' + got;
       }).finally(() => {
