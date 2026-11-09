@@ -49,6 +49,8 @@ const {
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+  KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
 } = api;
@@ -309,11 +311,11 @@ const SelfTest = {
       return a === b ? true : a + ' != ' + b;
     });
     /* P12-05 (closes Appendix D row D08): one state checksum per tick over everything a peer would compare, for a person's scripted seat against the CPU and for a four-fighter brawl.
-       The viewer settings (Reduced motion, shake, flashes, rumble, trails, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
+       The viewer settings (Reduced motion, shake, flashes, rumble, trails, slow-motion finisher, camera cuts, wear marks, heartbeat, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
        all together; the clocks and Math.random are replaced; every run must give the checksum of the first, tick by tick. Debris and rubble are broken on purpose in both runs. */
     test('Determinism: viewer settings, clocks and Math.random never change the simulation (same seed and inputs, equal state checksum at every tick, Reduced motion on and off) (P12-05)', () => {
-      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
-      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
+      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, slowFinisher: true, cameraCuts: true, wearMarks: true, heartbeat: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
+      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, slowFinisher: false, cameraCuts: false, wearMarks: false, heartbeat: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
       const tickChecksum = (m) => {
         const parts = [m.tick, m.phase, m.round, m.roundTicks, m.hitStop, m.wins.join('/'), Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
         for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
@@ -371,7 +373,7 @@ const SelfTest = {
       const problems = [];
       for (const name in SCENARIOS) {
         const scenario = SCENARIOS[name], base = play(scenario, {}, false);
-        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
+        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false, cameraCuts: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
         if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);   // movement mode: the scripted seat writes fwd and side itself (PlayerInput.toFighterFrame never runs), so that run only shows the sim never reads the setting; it is an input conversion (audit row 6)
         for (const [label, viewer, swapped] of runs) {
           const run = play(scenario, viewer, swapped), at = firstDifference(base.sums, run.sums);
@@ -13743,6 +13745,182 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    /* ---------- the feedback list of P13-01 (P13-02): drawn or played outside the simulation; each item fires on its trigger, its setting turns it off ---------- */
+    test('Feedback settings (P13-02): Slow-motion finisher, Camera cuts, Wear marks and Low-health heartbeat are On / Off rows, on by default, saved, shown on the settings screen; Reduced motion turns Camera cuts off once', () => {
+      const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);
+      try {
+        const rows = { slowFinisher: 'Slow-motion finisher', cameraCuts: 'Camera cuts', wearMarks: 'Wear marks', heartbeat: 'Low-health heartbeat' };
+        const page = UI.screen_settings();
+        for (const key in rows) {
+          const def = SETTING_DEFS[key];
+          if (!def || def.type !== 'bool' || def.def !== true || def.label !== rows[key] || !def.hint) bad.push(key + ' definition');
+          if (Settings.validate(key, 'maybe') !== true || Settings.validate(key, false) !== false) bad.push(key + ' validation');
+          if (!page.includes(rows[key])) bad.push(key + ' not on the settings screen');
+        }
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, revision: SETTINGS_REVISION }));   // a save from before the four settings
+        Settings.init();
+        if (Object.keys(rows).some((key) => Settings.v[key] !== true)) bad.push('an old save does not read On');
+        for (const key in rows) Settings.set(key, false);
+        const stored = JSON.parse(Store.get(KEY_SETTINGS));
+        Settings.init();
+        if (Object.keys(rows).some((key) => stored[key] !== false || Settings.v[key] !== false)) bad.push('not saved');
+        Settings.set('cameraCuts', true); Settings.v.reducedMotion = false; Settings.set('reducedMotion', true);
+        if (Settings.v.cameraCuts !== false || REDUCED_MOTION_ROWS.cameraCuts !== false) bad.push('Reduced motion keeps Camera cuts');
+        Settings.set('cameraCuts', true);
+        if (Settings.v.cameraCuts !== true) bad.push('Camera cuts cannot be turned on again under Reduced motion');
+      } finally {
+        if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
+        Object.assign(Settings.v, keepV); Settings.apply();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('KO finisher (P13-02): the knock-out that ends the match runs 40 ticks at 0.35 speed on the render clock with a 15 % punch-in from a low angle; an ordinary round end keeps its 30; Slow-motion finisher and Camera cuts turn each off; the ticks do not change', () => {
+      const bad = [], keepV = Object.assign({}, Settings.v), keepCam = { target: Camera.target.slice(), az: Camera.az, dist: Camera.dist, elev: Camera.elev, cut: Camera.cut, cutIn: Camera.cutIn };
+      const knockOut = (opts) => {
+        const m = mk(opts, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1;
+        for (let i = 0; i < 40 && m.fighters[1].alive; i++) m.step();
+        return m;
+      };
+      try {
+        const last = knockOut({ winsNeeded: 1 }), early = knockOut({ winsNeeded: 2 });
+        if (!last.finisher || last.slowTicks < KO_FINISH_TICKS - 1 || last.slowTicks > KO_FINISH_TICKS) bad.push('match point: ' + last.finisher + ' ' + last.slowTicks);
+        if (early.finisher || early.slowTicks < KO_SLOW_TICKS - 1 || early.slowTicks > KO_SLOW_TICKS) bad.push('first round: ' + early.finisher + ' ' + early.slowTicks);
+        if (!self.makeBrawl({}).endsMatch()) bad.push('a brawl knock-out is the match');
+        Settings.v.slowFinisher = true; Settings.v.cameraCuts = true;
+        const scale = (m) => Game.clockScale(m);
+        if (scale(last) !== KO_SLOW_SCALE || scale({ slowTicks: 0 }) !== 1) bad.push('clock scale ' + scale(last));
+        Settings.v.slowFinisher = false;
+        if (scale(last) !== 1) bad.push('Slow-motion finisher Off still slows the clock');
+        if (!Game.cutWanted(last, false) || Game.cutWanted(early, false) || Game.cutWanted(last, true) || Game.cutWanted(null, false)) bad.push('cut wanted');
+        Settings.v.cameraCuts = false;
+        if (Game.cutWanted(last, false)) bad.push('Camera cuts Off still cuts');
+        Settings.v.cameraCuts = true;
+        const view = (cutIn, frames) => {   // where the camera sits after `frames` frames of the same framing
+          Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.cutIn = cutIn;
+          for (let i = 0; i < frames; i++) Camera.finish(1 / 60, 11.5, 6.5);
+          return { d: Math.hypot(Camera.pos[0] - Camera.target[0], Camera.pos[1] - Camera.target[1], Camera.pos[2] - Camera.target[2]), y: Camera.pos[1], cut: Camera.cut };
+        };
+        Camera.cut = 0;
+        const plain = view(false, 1), cut = view(true, 90), back = view(false, 120);
+        if (Math.abs(cut.d - plain.d * (1 - CAMERA_CUT_IN)) > 0.02 || cut.cut < 0.99) bad.push('punch-in ' + cut.d.toFixed(2) + ' of ' + plain.d.toFixed(2));
+        if (!(cut.y < plain.y)) bad.push('not lower ' + cut.y.toFixed(2) + ' vs ' + plain.y.toFixed(2));
+        if (Math.abs(back.d - plain.d) > 0.02 || back.cut > 0.01) bad.push('does not ease back ' + back.d.toFixed(2));
+        if (!(CAMERA_CUT_LOW > 0)) bad.push('low angle');
+        const sums = (o) => { const m = knockOut(o); const f = m.fighters; return f.map((q) => [q.x, q.z, q.hp, q.state, q.stateTicks].join()).join('|') + m.tick; };
+        Settings.v.slowFinisher = true; Settings.v.cameraCuts = true; const on = sums({ winsNeeded: 1 });
+        Settings.v.slowFinisher = false; Settings.v.cameraCuts = false; const off = sums({ winsNeeded: 1 });
+        if (on !== off) bad.push('the settings changed the fight');
+      } finally {
+        Object.assign(Settings.v, keepV);
+        Object.assign(Camera, { az: keepCam.az, dist: keepCam.dist, elev: keepCam.elev, cut: keepCam.cut, cutIn: keepCam.cutIn }); Camera.target.splice(0, 3, ...keepCam.target); Camera.snapNext = true;
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const wornParts = (f) => {   // every part a fighter draws: colour (copied: an item part's colour is a scratch array), roughness and matrix
+      const push = R.push, list = [];
+      R.push = function (layer, mesh, m, col, a, em, rough) { list.push({ col: Array.from(col), rough, m: Float32Array.from(m) }); };
+      try { f.skeleton(0, 0, 0, 0, true); } finally { R.push = push; }
+      return list;
+    };
+    const closeRgb = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+    const floorOf = () => (Arena.def ? Arena.def.env : DEFAULT_ENV).ground;
+    test('Bruise tint (P13-02): a hit takes its damage share into the zone it landed on (head, torso with the arms, legs), that zone\'s skin mixes toward #6b3b4a up to 30 % at 60 % of the maximum health, a 1v1 round starts clean, Wear marks Off draws none, and no part is added', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.kai, 0), skin = f.col.skin, before = wornParts(f).length;
+        Feel.bruise({ def: f, dmg: f.maxHp * 0.3, y: 1.6 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.1, y: 1.0 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.6, y: 0.3 * f.scale });
+        const w = f.wear.map((v) => Math.round(v * 1000) / 1000).join();
+        if (w !== [0.3, 0.06, 0.04, 0.6, 0].join()) bad.push('zones ' + w);
+        f.dress();
+        const mixed = (share) => skin.map((v, i) => v + (BRUISE_RGB[i] - v) * BRUISE_MAX * share);
+        if (!closeRgb(f.wc.head, mixed(0.5)) || !closeRgb(f.wc.legs, mixed(1)) || !closeRgb(f.wc.arms, mixed(0.04 / BRUISE_FULL))) bad.push('colours');
+        f.wear[3] = 1.5; f.dress();
+        if (!closeRgb(f.wc.legs, mixed(1))) bad.push('more than the cap');
+        const bruisedDraw = wornParts(f), skinCol = (list, c) => list.filter((q) => closeRgb(q.col, c)).length;
+        if (bruisedDraw.length !== before) bad.push('parts ' + before + ' -> ' + bruisedDraw.length);
+        if (skinCol(bruisedDraw, mixed(1)) < 2) bad.push('the legs are not drawn bruised');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.head !== skin || f.wc.legs !== skin || skinCol(wornParts(f), mixed(1)) !== 0) bad.push('Wear marks Off still bruises');
+        Settings.v.wearMarks = true;
+        f.reset(0, 0, 0);
+        if (f.wear[0] !== 0.3) bad.push('a revive (reset) cleared the marks a brawl keeps');
+        const m = mk({}, () => {}, () => {}); m.fighters[1].wear[0] = 0.4; m.startRound();
+        if (m.fighters[1].wear[0] !== 0) bad.push('a new round keeps the marks');
+        const duel = mk({}, (it, me, foe, match) => { if (match.tick % 14 === 2) it.punch = true; }); self.place(duel, 1.2);
+        self.run(duel, 240);
+        const taken = duel.fighters[1].maxHp - duel.fighters[1].hp, marked = duel.fighters[1].wear.slice(0, 4).reduce((a, b) => a + b, 0) * duel.fighters[1].maxHp;
+        if (!(taken > 0) || Math.abs(marked - taken) > taken * 0.05 + 0.01) bad.push('a fight: ' + taken.toFixed(1) + ' taken, ' + marked.toFixed(1) + ' marked');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Dust and scuffs (P13-02): each knockdown puts 6 % of the floor colour on the clothes (at most 30 %), a bare chest takes none, Wear marks Off draws none', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.mara, 0), clothed = f.col.top !== f.col.skin;
+        if (!clothed) bad.push('MARA has no top to test');
+        Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_STEP) > 1e-9) bad.push('first knockdown ' + f.wear[4]);
+        for (let i = 0; i < 9; i++) Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_MAX) > 1e-9) bad.push('cap ' + f.wear[4]);
+        f.dress();
+        const floor = floorOf(), want = (base) => base.map((v, i) => v + (floor[i] - v) * DUST_MAX);
+        if (!closeRgb(f.wc.top, want(f.col.top)) || !closeRgb(f.wc.shorts, want(f.col.shorts))) bad.push('clothes colours');
+        if (!wornParts(f).some((q) => closeRgb(q.col, want(f.col.top)))) bad.push('the top is not drawn dusty');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.top !== f.col.top || f.wc.shorts !== f.col.shorts) bad.push('Wear marks Off still dusts');
+        Settings.v.wearMarks = true;
+        const bare = new Fighter(ROSTER.find((r) => resolveLook(r.look).topStyle === 'bare'), 0);
+        bare.wear[4] = DUST_MAX; bare.dress();
+        if (bare.wc.top !== bare.col.skin) bad.push('a bare chest got dust');
+        const m = mk({}, () => {}, () => {}); m.fighters[0].wear[4] = 0.2; m.startRound();
+        if (m.fighters[0].wear[4] !== 0) bad.push('a new round keeps the dust');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sweat sheen (P13-02): skin roughness goes from 0.7 to 0.35 over 40 s of fighting, or at once under 35 % stamina, and nothing else changes', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), shiny = (list) => list.filter((q) => Math.abs(q.rough - SKIN_SHINE) < 1e-6).length;
+      f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('fresh ' + f.wc.rough);
+      const fresh = wornParts(f);
+      f.age = 60 * SWEAT_SECONDS / 2; f.dress();
+      if (Math.abs(f.wc.rough - (SKIN_ROUGH + SKIN_SHINE) / 2) > 1e-9) bad.push('half way ' + f.wc.rough);
+      f.age = 60 * SWEAT_SECONDS; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('40 s ' + f.wc.rough);
+      const sweaty = wornParts(f);
+      if (shiny(sweaty) < shiny(fresh) + 4 || sweaty.length !== fresh.length) bad.push('draw: ' + shiny(fresh) + ' -> ' + shiny(sweaty) + ' shiny parts of ' + sweaty.length);
+      f.age = 0; f.stam = f.maxStam * 0.3; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('low stamina ' + f.wc.rough);
+      f.stam = f.maxStam * 0.5; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('rested ' + f.wc.rough);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Weapon wear (P13-02): an item darkens up to 25 % as its hits run out; on the last hit a bat and a pipe bend 0.1 rad and a bottle, chair and crate show one crack line; nothing else is added', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), bare = wornParts(f).length;   // the item's parts are the last ones a fighter draws
+      const held = (id, dur) => { f.item = { id, dur, sprays: 0 }; const list = wornParts(f); f.item = null; return list; };
+      const firstHeldPart = (list) => list.slice(bare)[0].col, newCol = (w) => Array.from(w.parts[0][7]);
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id], fresh = held(id, w.dur), last = held(id, 1), mid = held(id, Math.max(1, Math.ceil(w.dur / 2)));
+        if (w.parts.length && w.sp !== 'wrap' && !(fresh.length - bare >= w.parts.length)) bad.push(id + ' parts');
+        const cracked = Object.hasOwn(WEAPON_CRACKS, id), extra = (list) => list.length - bare - w.parts.length;
+        if (w.sp !== 'wrap') {
+          if (w.dur > 1 && extra(fresh) !== 0) bad.push(id + ' fresh adds ' + extra(fresh));
+          if (extra(last) !== (cracked ? 1 : 0)) bad.push(id + ' last hit adds ' + extra(last));
+        }
+        if (w.dur > 1) {
+          const dark = 1 - WEAR_DARK, ratio = firstHeldPart(last).map((v, i) => (newCol(w)[i] > 0 ? v / newCol(w)[i] : dark));
+          if (ratio.some((r) => Math.abs(r - dark) > 1e-6)) bad.push(id + ' colour at the last hit ' + ratio.map((r) => r.toFixed(3)));
+          const share = 1 - WEAR_DARK * (w.dur - Math.max(1, Math.ceil(w.dur / 2))) / (w.dur - 1), got = firstHeldPart(mid)[0] / (newCol(w)[0] || 1);
+          if (newCol(w)[0] > 0 && Math.abs(got - share) > 1e-6) bad.push(id + ' colour half way ' + got.toFixed(3));
+          const moved = last.slice(bare).filter((q, i) => fresh[bare + i] && [12, 13, 14].some((k) => Math.abs(q.m[k] - fresh[bare + i].m[k]) > 1e-6)).length;
+          const bends = id === 'bat' || id === 'pipe';
+          if (w.sp !== 'wrap' && bends !== moved > 0) bad.push(id + (bends ? ' does not bend' : ' bends'));
+        }
+      }
+      if (!(WEAPON_BEND === 0.1)) bad.push('bend');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
       const bad = [], puts = [], put = R.put;
@@ -14226,9 +14404,9 @@ const SelfTest = {
     });
     /* ---------- Ground submissions (P18-38) ---------- */
     /* A hold's two fighters must lie, kneel or sit ON the floor: the lowest drawn part of each is within GROUND_REACH above it and never below it (GROUND_SINK is the rounding of the matrices).
-       The drawn parts are read the way the Items tests read them (drawnParts); the fighters stand at height 0 on the flat floor of the free-fight arena. */
+       The drawn parts are read the way the Items tests read them (wornParts); the fighters stand at height 0 on the flat floor of the free-fight arena. */
     const GROUND_REACH = 0.03, GROUND_SINK = 0.002;
-    const lowestDrawn = (f) => drawnParts(f).reduce((low, [, , mesh, m]) => {   // a box, ball or cylinder reaches half its extent along up below its centre
+    const lowestDrawn = (f) => wornParts(f).reduce((low, [, , mesh, m]) => {   // a box, ball or cylinder reaches half its extent along up below its centre
       const half = mesh === CB ? 0.5 * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])) : mesh === SP ? 0.5 * Math.hypot(m[1], m[5], m[9]) : 0.5 * (Math.hypot(m[1], m[9]) + Math.abs(m[5]));
       return Math.min(low, m[13] - half);
     }, Infinity);
