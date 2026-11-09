@@ -11476,8 +11476,15 @@ class MatchSim {
     const [a, b] = this.fighters;
     this.placeFighters(1);
     const side = this.startSide(), wall = side === 1 ? Arena.sx1 : Arena.sx0; // side: the player's start side (P18-16), 1 = left; the scenes are mirrored for Right, and placeFighters has already turned both to face each other
-    if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { b.x = wall - side * 0.7; a.x = b.x - side * 1.4; } else if (n === 4) {
-      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
+    const room = (x, z) => x >= Arena.sx0 + a.radius && x <= Arena.sx1 - a.radius && z >= Arena.sz0 + a.radius && z <= Arena.sz1 - a.radius && !Arena.blockedAt(x, z, a.radius, 0); // inside the room and clear of every prop
+    if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { // the dummy in the corner of the chosen wall: the first row along the wall (from the middle outwards) that is clear for both
+      b.x = wall - side * 0.7; a.x = b.x - side * 1.4;
+      for (let k = 0; k < RING_START_TRIES; k++) {
+        const z = clamp((k & 1 ? -1 : 1) * Math.ceil(k / 2) * RING_START_STEP, Arena.sz0 + a.radius, Arena.sz1 - a.radius);
+        if (room(a.x, z) && room(b.x, z)) { a.z = b.z = z; break; }
+      }
+    } else if (n === 4) { // the dummy stands against the first prop that leaves room for both on the player's side
+      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z) && room(q.x - side * (q.hx + 1.0), q.z) && room(q.x - side * (q.hx + 2.2), q.z));
       if (o) { b.x = o.x - side * (o.hx + 1.0); b.z = o.z; a.x = b.x - side * 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; } // infinite stamina would refill it at once
     else if (n === 6) { // the dummy lies on the floor one metre away, for a long time (a hold lasts up to 4 s)
