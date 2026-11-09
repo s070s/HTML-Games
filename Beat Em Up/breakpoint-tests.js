@@ -49,6 +49,11 @@ const {
   fightGrade, gradeInputs, gradeLetter,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+  KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
+  HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
+  TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+  Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
 } = api;
@@ -309,11 +314,11 @@ const SelfTest = {
       return a === b ? true : a + ' != ' + b;
     });
     /* P12-05 (closes Appendix D row D08): one state checksum per tick over everything a peer would compare, for a person's scripted seat against the CPU and for a four-fighter brawl.
-       The viewer settings (Reduced motion, shake, flashes, rumble, trails, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
+       The viewer settings (Reduced motion, shake, flashes, rumble, trails, slow-motion finisher, camera cuts, wear marks, heartbeat, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
        all together; the clocks and Math.random are replaced; every run must give the checksum of the first, tick by tick. Debris and rubble are broken on purpose in both runs. */
     test('Determinism: viewer settings, clocks and Math.random never change the simulation (same seed and inputs, equal state checksum at every tick, Reduced motion on and off) (P12-05)', () => {
-      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
-      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
+      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, slowFinisher: true, cameraCuts: true, wearMarks: true, heartbeat: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
+      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, slowFinisher: false, cameraCuts: false, wearMarks: false, heartbeat: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
       const tickChecksum = (m) => {
         const parts = [m.tick, m.phase, m.round, m.roundTicks, m.hitStop, m.wins.join('/'), Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
         for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
@@ -371,7 +376,7 @@ const SelfTest = {
       const problems = [];
       for (const name in SCENARIOS) {
         const scenario = SCENARIOS[name], base = play(scenario, {}, false);
-        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
+        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false, cameraCuts: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
         if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);   // movement mode: the scripted seat writes fwd and side itself (PlayerInput.toFighterFrame never runs), so that run only shows the sim never reads the setting; it is an input conversion (audit row 6)
         for (const [label, viewer, swapped] of runs) {
           const run = play(scenario, viewer, swapped), at = firstDifference(base.sums, run.sums);
@@ -13740,6 +13745,457 @@ const SelfTest = {
         Input.lastDevice = device; Input.padIndex = index;
         if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
         Object.assign(Settings.v, keepV); Settings.apply(); FX.clear();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- the feedback list of P13-01 (P13-02): drawn or played outside the simulation; each item fires on its trigger, its setting turns it off ---------- */
+    test('Feedback settings (P13-02): Slow-motion finisher, Camera cuts, Wear marks and Low-health heartbeat are On / Off rows, on by default, saved, shown on the settings screen; Reduced motion turns Camera cuts off once', () => {
+      const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);
+      try {
+        const rows = { slowFinisher: 'Slow-motion finisher', cameraCuts: 'Camera cuts', wearMarks: 'Wear marks', heartbeat: 'Low-health heartbeat' };
+        const page = UI.screen_settings();
+        for (const key in rows) {
+          const def = SETTING_DEFS[key];
+          if (!def || def.type !== 'bool' || def.def !== true || def.label !== rows[key] || !def.hint) bad.push(key + ' definition');
+          if (Settings.validate(key, 'maybe') !== true || Settings.validate(key, false) !== false) bad.push(key + ' validation');
+          if (!page.includes(rows[key])) bad.push(key + ' not on the settings screen');
+        }
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: false, revision: SETTINGS_REVISION }));   // a save from before the four settings (Reduced motion chosen, so the device's own preference does not decide)
+        Settings.init();
+        if (Object.keys(rows).some((key) => Settings.v[key] !== true)) bad.push('an old save does not read On');
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: true, revision: SETTINGS_REVISION }));   // an old save with Reduced motion on: Camera cuts did not exist, so it reads Off
+        Settings.init();
+        if (Settings.v.cameraCuts !== false || Settings.v.slowFinisher !== true || Settings.v.wearMarks !== true || Settings.v.heartbeat !== true) bad.push('an old save with Reduced motion on: Camera cuts ' + Settings.v.cameraCuts);
+        for (const key in rows) Settings.set(key, false);
+        const stored = JSON.parse(Store.get(KEY_SETTINGS));
+        Settings.init();
+        if (Object.keys(rows).some((key) => stored[key] !== false || Settings.v[key] !== false)) bad.push('not saved');
+        Settings.set('cameraCuts', true); Settings.v.reducedMotion = false; Settings.set('reducedMotion', true);
+        if (Settings.v.cameraCuts !== false || REDUCED_MOTION_ROWS.cameraCuts !== false) bad.push('Reduced motion keeps Camera cuts');
+        Settings.set('cameraCuts', true);
+        if (Settings.v.cameraCuts !== true) bad.push('Camera cuts cannot be turned on again under Reduced motion');
+      } finally {
+        if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
+        Object.assign(Settings.v, keepV); Settings.apply();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('KO finisher (P13-02): the knock-out that ends the match runs 40 ticks at 0.35 speed on the render clock with a 15 % punch-in from a low angle; an ordinary round end keeps its 30; Slow-motion finisher and Camera cuts turn each off; the ticks do not change', () => {
+      const bad = [], keepV = Object.assign({}, Settings.v), keepCam = { target: Camera.target.slice(), az: Camera.az, dist: Camera.dist, elev: Camera.elev, cut: Camera.cut, cutIn: Camera.cutIn };
+      const knockOut = (opts) => {
+        const m = mk(opts, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1;
+        for (let i = 0; i < 40 && m.fighters[1].alive; i++) m.step();
+        return m;
+      };
+      try {
+        const last = knockOut({ winsNeeded: 1 }), early = knockOut({ winsNeeded: 2 });
+        if (!last.finisher || last.slowTicks < KO_FINISH_TICKS - 1 || last.slowTicks > KO_FINISH_TICKS) bad.push('match point: ' + last.finisher + ' ' + last.slowTicks);
+        if (early.finisher || early.slowTicks < KO_SLOW_TICKS - 1 || early.slowTicks > KO_SLOW_TICKS) bad.push('first round: ' + early.finisher + ' ' + early.slowTicks);
+        if (!self.makeBrawl({}).endsMatch()) bad.push('a brawl knock-out is the match');
+        Settings.v.slowFinisher = true; Settings.v.cameraCuts = true;
+        const scale = (m) => Game.clockScale(m);
+        if (scale(last) !== KO_SLOW_SCALE || scale({ slowTicks: 0 }) !== 1) bad.push('clock scale ' + scale(last));
+        Settings.v.slowFinisher = false;
+        if (scale(last) !== 1) bad.push('Slow-motion finisher Off still slows the clock');
+        if (!Game.cutWanted(last, false) || Game.cutWanted(early, false) || Game.cutWanted(last, true) || Game.cutWanted(null, false)) bad.push('cut wanted');
+        Settings.v.cameraCuts = false;
+        if (Game.cutWanted(last, false)) bad.push('Camera cuts Off still cuts');
+        Settings.v.cameraCuts = true;
+        const view = (cutIn, frames) => {   // where the camera sits after `frames` frames of the same framing
+          Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.cutIn = cutIn;
+          for (let i = 0; i < frames; i++) Camera.finish(1 / 60, 11.5, 6.5);
+          return { d: Math.hypot(Camera.pos[0] - Camera.target[0], Camera.pos[1] - Camera.target[1], Camera.pos[2] - Camera.target[2]), y: Camera.pos[1], cut: Camera.cut };
+        };
+        Camera.cut = 0;
+        const plain = view(false, 1), cut = view(true, 90), back = view(false, 120);
+        if (Math.abs(cut.d - plain.d * (1 - CAMERA_CUT_IN)) > 0.02 || cut.cut < 0.99) bad.push('punch-in ' + cut.d.toFixed(2) + ' of ' + plain.d.toFixed(2));
+        if (!(cut.y < plain.y)) bad.push('not lower ' + cut.y.toFixed(2) + ' vs ' + plain.y.toFixed(2));
+        if (Math.abs(back.d - plain.d) > 0.02 || back.cut > 0.01) bad.push('does not ease back ' + back.d.toFixed(2));
+        if (!(CAMERA_CUT_LOW > 0)) bad.push('low angle');
+        /* a double knock-out follows the rule of endRound: with both down each side scores; the match ends only if exactly one of them reaches the wins needed */
+        const both = (wins, winsNeeded) => { const m = mk({ winsNeeded }, () => {}, () => {}); m.wins = wins; m.fighters[0].alive = m.fighters[1].alive = false; m.checkRoundEnd(); return m.finisher; };
+        if (!both([1, 0], 2) || !both([0, 1], 2)) bad.push('a double knock-out on match point for one side is the finisher');
+        if (both([0, 0], 1) || both([1, 1], 2) || both([0, 0], 2)) bad.push('a double knock-out that reaches the wins of both (a deciding round) or of neither is an ordinary one');
+        /* the real frame loop, with a fixed time step: the setting changes how many frames the knock-out takes, never what the ticks do */
+        const play = (on) => {
+          Settings.v.slowFinisher = on; Settings.v.cameraCuts = on;
+          const m = knockOutMatch(), sigs = [], keep = { match: Game.match, state: Game.state, acc: Game.acc, last: Game.last }, realStep = m.step, drawing = { begin: R.begin, render: R.render, put: R.put, push: R.push };
+          let frames = 0, cut = false;
+          const off = Events.on('rendered', () => { cut = cut || Camera.cutIn; });
+          m.step = function () { realStep.call(this); sigs.push([this.tick, this.phase].concat(this.fighters.map((q) => [q.x, q.z, q.hp, q.state, q.stateTicks].join())).join('|')); };
+          try {
+            R.begin = R.render = R.put = R.push = () => {};   // the camera and the frame loop run for real; nothing is drawn
+            Game.match = m; Game.state = GS.FIGHT; Game.acc = 0; Game.last = 0;
+            while (sigs.length < 100 && frames < 1500) Game.frame(++frames * 1000 / 60);
+          } finally { off(); delete m.step; Object.assign(Game, keep); Object.assign(R, drawing); }
+          return { sigs, frames, cut };
+        };
+        const knockOutMatch = () => { const m = mk({ winsNeeded: 1 }, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1; return m; };
+        const fast = play(false), slow = play(true);
+        if (fast.sigs.length !== 100 || fast.sigs.join('#') !== slow.sigs.join('#')) bad.push('the settings changed the ticks');
+        if (!(slow.frames > fast.frames + 30)) bad.push('Slow-motion finisher: ' + slow.frames + ' frames against ' + fast.frames + ' for the same 100 ticks');
+        if (!slow.cut || fast.cut) bad.push('Camera cuts in the frame loop: on ' + slow.cut + ', off ' + fast.cut);
+      } finally {
+        Object.assign(Settings.v, keepV);
+        Object.assign(Camera, { az: keepCam.az, dist: keepCam.dist, elev: keepCam.elev, cut: keepCam.cut, cutIn: keepCam.cutIn }); Camera.target.splice(0, 3, ...keepCam.target); Camera.snapNext = true;
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const wornParts = (f) => {   // every part a fighter draws: colour (copied: an item part's colour is a scratch array), roughness and matrix
+      const push = R.push, list = [];
+      R.push = function (layer, mesh, m, col, a, em, rough) { list.push({ col: Array.from(col), rough, m: Float32Array.from(m) }); };
+      try { f.skeleton(0, 0, 0, 0, true); } finally { R.push = push; }
+      return list;
+    };
+    const closeRgb = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+    const floorOf = () => (Arena.def ? Arena.def.env : DEFAULT_ENV).ground;
+    test('Bruise tint (P13-02): a hit takes its damage share into the zone it landed on (head, torso with the arms, legs), that zone\'s skin mixes toward #6b3b4a up to 30 % at 60 % of the maximum health, a 1v1 round starts clean, Wear marks Off draws none, and no part is added', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.kai, 0), skin = f.col.skin, before = wornParts(f).length;
+        Feel.bruise({ def: f, dmg: f.maxHp * 0.3, y: 1.6 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.1, y: 1.0 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.6, y: 0.3 * f.scale });
+        const w = f.wear.map((v) => Math.round(v * 1000) / 1000).join();
+        if (w !== [0.3, 0.06, 0.04, 0.6, 0].join()) bad.push('zones ' + w);
+        f.dress();
+        const mixed = (share) => skin.map((v, i) => v + (BRUISE_RGB[i] - v) * BRUISE_MAX * share);
+        if (!closeRgb(f.wc.head, mixed(0.5)) || !closeRgb(f.wc.legs, mixed(1)) || !closeRgb(f.wc.arms, mixed(0.04 / BRUISE_FULL))) bad.push('colours');
+        f.wear[3] = 1.5; f.dress();
+        if (!closeRgb(f.wc.legs, mixed(1))) bad.push('more than the cap');
+        const bruisedDraw = wornParts(f), skinCol = (list, c) => list.filter((q) => closeRgb(q.col, c)).length;
+        if (bruisedDraw.length !== before) bad.push('parts ' + before + ' -> ' + bruisedDraw.length);
+        if (skinCol(bruisedDraw, mixed(1)) < 2) bad.push('the legs are not drawn bruised');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.head !== skin || f.wc.legs !== skin || skinCol(wornParts(f), mixed(1)) !== 0) bad.push('Wear marks Off still bruises');
+        Settings.v.wearMarks = true;
+        f.reset(0, 0, 0);
+        if (f.wear[0] !== 0.3) bad.push('a revive (reset) cleared the marks a brawl keeps');
+        const m = mk({}, () => {}, () => {}); m.fighters[1].wear[0] = 0.4; m.startRound();
+        if (m.fighters[1].wear[0] !== 0) bad.push('a new round keeps the marks');
+        const duel = mk({}, (it, me, foe, match) => { if (match.tick % 14 === 2) it.punch = true; }); self.place(duel, 1.2);
+        self.run(duel, 240);
+        const taken = duel.fighters[1].maxHp - duel.fighters[1].hp, marked = duel.fighters[1].wear.slice(0, 4).reduce((a, b) => a + b, 0) * duel.fighters[1].maxHp;
+        if (!(taken > 0) || Math.abs(marked - taken) > taken * 0.05 + 0.01) bad.push('a fight: ' + taken.toFixed(1) + ' taken, ' + marked.toFixed(1) + ' marked');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Dust and scuffs (P13-02): each knockdown puts 6 % of the floor colour on the clothes (at most 30 %), a bare chest takes none, Wear marks Off draws none', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.mara, 0), clothed = f.col.top !== f.col.skin;
+        if (!clothed) bad.push('MARA has no top to test');
+        Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_STEP) > 1e-9) bad.push('first knockdown ' + f.wear[4]);
+        for (let i = 0; i < 9; i++) Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_MAX) > 1e-9) bad.push('cap ' + f.wear[4]);
+        f.dress();
+        const floor = floorOf(), want = (base) => base.map((v, i) => v + (floor[i] - v) * DUST_MAX);
+        if (!closeRgb(f.wc.top, want(f.col.top)) || !closeRgb(f.wc.shorts, want(f.col.shorts))) bad.push('clothes colours');
+        if (!wornParts(f).some((q) => closeRgb(q.col, want(f.col.top)))) bad.push('the top is not drawn dusty');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.top !== f.col.top || f.wc.shorts !== f.col.shorts) bad.push('Wear marks Off still dusts');
+        Settings.v.wearMarks = true;
+        const bare = new Fighter(ROSTER.find((r) => resolveLook(r.look).topStyle === 'bare'), 0);
+        bare.wear[4] = DUST_MAX; bare.dress();
+        if (bare.wc.top !== bare.col.skin) bad.push('a bare chest got dust');
+        const m = mk({}, () => {}, () => {}); m.fighters[0].wear[4] = 0.2; m.startRound();
+        if (m.fighters[0].wear[4] !== 0) bad.push('a new round keeps the dust');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sweat sheen (P13-02): skin roughness goes from 0.7 to 0.35 over 40 s of fighting, or at once under 35 % stamina, and nothing else changes', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), shiny = (list) => list.filter((q) => Math.abs(q.rough - SKIN_SHINE) < 1e-6).length;
+      f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('fresh ' + f.wc.rough);
+      const fresh = wornParts(f);
+      f.age = 60 * SWEAT_SECONDS / 2; f.dress();
+      if (Math.abs(f.wc.rough - (SKIN_ROUGH + SKIN_SHINE) / 2) > 1e-9) bad.push('half way ' + f.wc.rough);
+      f.age = 60 * SWEAT_SECONDS; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('40 s ' + f.wc.rough);
+      const sweaty = wornParts(f);
+      if (shiny(sweaty) < shiny(fresh) + 4 || sweaty.length !== fresh.length) bad.push('draw: ' + shiny(fresh) + ' -> ' + shiny(sweaty) + ' shiny parts of ' + sweaty.length);
+      f.age = 0; f.stam = f.maxStam * 0.3; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('low stamina ' + f.wc.rough);
+      f.stam = f.maxStam * 0.5; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('rested ' + f.wc.rough);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Weapon wear (P13-02): an item darkens up to 25 % as its hits run out; on the last hit a bat and a pipe bend 0.1 rad and a bottle, chair and crate show one crack line; nothing else is added', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), bare = wornParts(f).length;   // the item's parts are the last ones a fighter draws
+      const held = (id, dur) => { f.item = { id, dur, sprays: 0 }; const list = wornParts(f); f.item = null; return list; };
+      const firstHeldPart = (list) => list.slice(bare)[0].col, newCol = (w) => Array.from(w.parts[0][7]);
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id], fresh = held(id, w.dur), last = held(id, 1), mid = held(id, Math.max(1, Math.ceil(w.dur / 2)));
+        if (w.parts.length && w.sp !== 'wrap' && !(fresh.length - bare >= w.parts.length)) bad.push(id + ' parts');
+        const cracked = Object.hasOwn(WEAPON_CRACKS, id), extra = (list) => list.length - bare - w.parts.length;
+        if (w.sp !== 'wrap') {
+          if (w.dur > 1 && extra(fresh) !== 0) bad.push(id + ' fresh adds ' + extra(fresh));
+          if (extra(last) !== (cracked ? 1 : 0)) bad.push(id + ' last hit adds ' + extra(last));
+        }
+        if (w.dur > 1) {
+          const dark = 1 - WEAR_DARK, ratio = firstHeldPart(last).map((v, i) => (newCol(w)[i] > 0 ? v / newCol(w)[i] : dark));
+          if (ratio.some((r) => Math.abs(r - dark) > 1e-6)) bad.push(id + ' colour at the last hit ' + ratio.map((r) => r.toFixed(3)));
+          const share = 1 - WEAR_DARK * (w.dur - Math.max(1, Math.ceil(w.dur / 2))) / (w.dur - 1), got = firstHeldPart(mid)[0] / (newCol(w)[0] || 1);
+          if (newCol(w)[0] > 0 && Math.abs(got - share) > 1e-6) bad.push(id + ' colour half way ' + got.toFixed(3));
+          const moved = last.slice(bare).filter((q, i) => fresh[bare + i] && [12, 13, 14].some((k) => Math.abs(q.m[k] - fresh[bare + i].m[k]) > 1e-6)).length;
+          const bends = id === 'bat' || id === 'pipe';
+          if (w.sp !== 'wrap' && bends !== moved > 0) bad.push(id + (bends ? ' does not bend' : ' bends'));
+        }
+      }
+      if (!(WEAPON_BEND === 0.1)) bad.push('bend');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const targetPose = (f, state, t) => { f.state = state; f.animT = t; f.computePose(); return Float32Array.from(f.tp); };   // the pose the joints blend toward at animation time t
+    test('Breathing and panting (P13-02): under 35 % stamina or exhausted an idle or walking fighter heaves in quick breaths (lean and shoulders up, chin down), Reduced motion shrinks the heave, a rested fighter and every other state are unchanged', () => {
+      const bad = [], keep = Settings.v.reducedMotion, f = new Fighter(ROSTER_BY_ID.kai, 0);
+      try {
+        Settings.v.reducedMotion = false;
+        const range = (state, joint) => { const v = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((t) => targetPose(f, state, t)[joint]); return Math.max(...v) - Math.min(...v); };
+        for (const state of TIRED_POSE_STATES) {
+          f.stam = f.maxStam; f.exhaust = 0;
+          const rested = targetPose(f, state, 0.3);
+          f.stam = f.maxStam * 0.2;
+          const tired = targetPose(f, state, 0.3), heave = range(state, J.torsoLean);
+          if (!(tired[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5) || !(tired[J.shLx] - rested[J.shLx] > PANT_SHOULDER * 0.4) || !(tired[J.headX] > rested[J.headX])) bad.push(S[state] + ' not bent forward');
+          if (!(heave > 0.02)) bad.push(S[state] + ' does not breathe (' + heave.toFixed(3) + ')');
+          f.stam = f.maxStam; f.exhaust = 30;
+          if (!(targetPose(f, state, 0.3)[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5)) bad.push(S[state] + ' exhausted does not pant');
+          f.exhaust = 0; f.stam = f.maxStam * 0.2; Settings.v.reducedMotion = true;
+          if (!(range(state, J.torsoLean) < heave * 0.6)) bad.push(S[state] + ' Reduced motion keeps the heave');
+          Settings.v.reducedMotion = false;
+        }
+        f.stam = f.maxStam * 0.2;
+        const base = (state) => { f.stam = f.maxStam; const q = targetPose(f, state, 0.3); f.stam = f.maxStam * 0.2; return q; };
+        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP, S.RUN]) {
+          const rested = base(state), tired = targetPose(f, state, 0.3);
+          if (rested.some((v, i) => Math.abs(v - tired[i]) > 1e-6)) bad.push(S[state] + ' changed');
+        }
+        const striking = (worn) => {   // the pose of a strike at its contact tick, through computePose like every other state
+          const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross;
+          g.stam = worn ? 0 : g.maxStam; g.exhaust = worn ? 20 : 0; g.hp = worn ? g.maxHp * 0.1 : g.maxHp; g.wear[0] = worn ? 0.5 : 0;
+          g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+          g.computePose();
+          return Array.from(g.pose);
+        };
+        const fresh = striking(false), worn = striking(true);
+        if (fresh.some((v, i) => Math.abs(v - worn[i]) > 1e-6) || !fresh.some((v) => v !== 0)) bad.push('ATTACK changed');
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Hurt posture (P13-02): under 25 % health an idle or walking fighter leans on 0.1 rad and the left hand holds the zone hit most; every joint stays inside the Calm poses limits for all 32 bodies, and the contact pose of every move (the P17-02 hit check) is the same', () => {
+      const bad = [], LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // the numbers of the Calm poses test
+      const f = new Fighter(ROSTER_BY_ID.kai, 0);
+      for (const state of TIRED_POSE_STATES) {
+        f.hp = f.maxHp; f.wear.fill(0);
+        const well = targetPose(f, state, 0.3);
+        f.hp = f.maxHp * 0.2;
+        const hurt = targetPose(f, state, 0.3);
+        if (Math.abs(hurt[J.torsoLean] - well[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' lean ' + (hurt[J.torsoLean] - well[J.torsoLean]).toFixed(3));
+        if (![J.shLx, J.elL, J.shLy, J.shLz].every((joint, i) => Math.abs(hurt[joint] - HURT_HAND[1][i]) < 1e-6)) bad.push(S[state] + ' the hand is not on the torso');
+        f.wear[0] = 0.5; const head = targetPose(f, state, 0.3);
+        if (Math.abs(head[J.shLx] - HURT_HAND[0][0]) > 1e-6) bad.push(S[state] + ' head');
+        f.wear.fill(0); f.wear[3] = 0.5; const leg = targetPose(f, state, 0.3);
+        if (Math.abs(leg[J.shLx] - HURT_HAND[2][0]) > 1e-6 || Math.abs(leg[J.torsoLean] - well[J.torsoLean] - HURT_LEAN - HURT_STOOP) > 1e-6) bad.push(S[state] + ' leg');
+        f.hp = f.maxHp * 0.3;
+        if (targetPose(f, state, 0.3).some((v, i) => Math.abs(v - well[i]) > 1e-6)) bad.push(S[state] + ' above 25 % changed');
+        f.hp = f.maxHp * 0.2; f.item = { id: 'bat', dur: 6, sprays: 0 }; f.wear.fill(0);
+        const armed = targetPose(f, state, 0.3);
+        f.item = null; f.hp = f.maxHp;
+        const armedWell = (f.item = { id: 'bat', dur: 6, sprays: 0 }, targetPose(f, state, 0.3));
+        f.item = null;
+        if (Math.abs(armed[J.shLx] - armedWell[J.shLx]) > 1e-6 || Math.abs(armed[J.torsoLean] - armedWell[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' an item in hand lost its hand');
+      }
+      const ids = Object.keys(ATTACKS).filter((id) => ATTACKS[id].type === 'strike').slice(0, 8);
+      for (const r of ROSTER) {
+        const g = new Fighter(r, 0);
+        for (const state of TIRED_POSE_STATES) for (const zone of [0, 1, 3]) {
+          g.hp = g.maxHp * 0.05; g.stam = 0; g.exhaust = 20; g.wear.fill(0); g.wear[zone] = 0.5;
+          for (let step = 0; step < 8; step++) {   // across one whole breath
+            const q = targetPose(g, state, 0.7 + step / (8 * PANT_HZ));
+            for (const [joint, limit] of LIMITS) if (Math.abs(q[joint]) > limit + 0.005) bad.push(r.id + ' ' + S[state] + ' joint ' + joint + ' ' + q[joint].toFixed(2));
+          }
+        }
+        for (const id of ids) {
+          const mv = ATTACKS[id], contact = (hurtAndTired) => {
+            g.hp = hurtAndTired ? g.maxHp * 0.05 : g.maxHp; g.stam = hurtAndTired ? 0 : g.maxStam; g.exhaust = hurtAndTired ? 20 : 0; g.wear.fill(0); g.wear[0] = hurtAndTired ? 0.5 : 0;
+            g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+            g.computePose(); g.skeleton(0, 0, 0, 0, false);   // through computePose, where the tired and hurt pose would be added
+            return Array.from(g.pts).join();
+          };
+          if (contact(false) !== contact(true)) bad.push(r.id + ' ' + id + ' contact pose moved');
+        }
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
+    });
+    /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
+    const withVoices = (body) => {
+      const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
+      const heard = [], source = () => ({ stopped: false, stop() { this.stopped = true; } });
+      Sound.ready = () => true; Sound.allow = () => true; Sound.layerQ = []; Sound.heart = false; Sound.ducked = false;
+      Sound.tone = (type, f0, f1, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'tone', f0, dest, s }); return s; };
+      Sound.noise = (filter, f0, f1, q, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'noise', filter, f0, dest, s }); return s; };
+      Sound.swell = () => { const s = source(); heard.push({ kind: 'swell', s }); return s; };
+      Sound.material = (kind) => heard.push({ kind: 'material', material: kind });
+      Sound.grunt = () => {};
+      try { return body(heard); } finally { Object.assign(Sound, keep); }
+    };
+    test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
+      const bad = [], keepArena = Arena.def;
+      Sound.wire();
+      try {
+        withVoices((heard) => {
+          const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
+          const thud = (weight) => hit({ def: { index: 1, weight, y: 0 } }).filter((v) => v.kind === 'tone')[1].f0;
+          if (!(thud(0) > thud(2) && thud(2) > thud(4))) bad.push('the thud is not lower for heavier bodies: ' + [0, 2, 4].map(thud));
+          const snap = (tier) => { const v = hit({ mv: { tier, cat: 'punch', name: 'x' } }).filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
+          if (new Set([1, 2, 3].map(snap)).size !== 3) bad.push('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
+          if (hit({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }).filter((q) => q.kind === 'material').map((q) => q.material).join() !== WEAPONS.bat.mat) bad.push('no material layer for a bat');
+          if (hit({}).some((q) => q.kind === 'material')) bad.push('a bare hand has a material');
+          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) bad.push('a swell without a crowd');
+          if (hit({}).some((q) => q.dest !== undefined)) bad.push('a layer bypasses the effects bus');
+          Arena.build(ARENAS.club);
+          if (!Arena.props.some((q) => q.ph !== undefined)) bad.push('the Night Club has no crowd to test with');
+          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) bad.push('no crowd swell on a knock-out');
+          if (hit({ ko: false }).some((q) => q.kind === 'swell')) bad.push('a swell without a knock-out');
+          heard.length = 0; Sound.layerQ = [];
+          const layered = [], realLayer = Sound.layer;
+          Sound.layer = function (s) { if (s) layered.push(s); return realLayer.call(this, s); };
+          try { for (let i = 0; i < 20; i++) Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }); } finally { Sound.layer = realLayer; }
+          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length;
+          if (layered.length !== 40 || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped + ' of ' + layered.length + ' stopped, ' + others + ' others stopped');
+          Sound.allow = () => false; heard.length = 0;
+          Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
+          if (heard.length) bad.push('a hit the engine skipped still layers');
+        });
+      } finally { if (keepArena) Arena.build(keepArena); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Low-health heartbeat (P13-02): a lone person under 20 % health in a live fight hears a 70 bpm heartbeat and the music low-passed to 1.2 kHz; the setting, a second person, Training, a pause and a knock-out turn it off', () => {
+      const bad = [], keepGame = { match: Game.match, state: Game.state }, keep = Settings.v.heartbeat;
+      try {
+        withVoices((heard) => {
+          const filter = []; Sound.ctx = { currentTime: 0 }; Sound.lowpass = { frequency: { setTargetAtTime: (hz) => filter.push(hz) } };
+          const m = mk({}, () => {}, () => {}); m.controllers[0].human = true; Game.match = m; Game.state = GS.FIGHT; Settings.v.heartbeat = true;
+          const me = m.fighters[0], foe = m.fighters[1];
+          me.hp = me.maxHp * 0.15;
+          if (!Feel.heartWanted()) bad.push('a lone person at 15 % hears nothing');
+          me.hp = me.maxHp * 0.25; if (Feel.heartWanted()) bad.push('25 % beats');
+          me.hp = me.maxHp * 0.15;
+          m.controllers[1].human = true; if (Feel.heartWanted()) bad.push('two people'); m.controllers[1].human = false;
+          m.training = true; if (Feel.heartWanted()) bad.push('Training'); m.training = false;
+          Game.state = GS.PAUSED; if (Feel.heartWanted()) bad.push('paused'); Game.state = GS.FIGHT;
+          Settings.v.heartbeat = false; if (Feel.heartWanted()) bad.push('the setting Off'); Settings.v.heartbeat = true;
+          me.alive = false; if (Feel.heartWanted()) bad.push('knocked out'); me.alive = true;
+          foe.hp = foe.maxHp * 0.1; if (!Feel.heartWanted()) bad.push('the foe at 10 % mutes it');
+          Feel.beat = 0; heard.length = 0; filter.length = 0;
+          for (let i = 0; i < 180; i++) Feel.update(1 / 60);   // 3 s
+          const thumps = heard.filter((q) => q.kind === 'tone').length, beats = thumps / 2;
+          if (beats < 3 || beats > 4 || thumps % 2) bad.push(beats + ' beats in 3 s (70 bpm is 3.5)');
+          if (filter[filter.length - 1] !== HEART_MUFFLE_HZ || HEART_BPM !== 70 || HEART_MUFFLE_HZ !== 1200) bad.push('the music is not low-passed to 1.2 kHz: ' + filter.join());
+          Sound.duck(true); if (filter[filter.length - 1] !== 700) bad.push('a pause does not duck further');
+          Sound.duck(false); if (filter[filter.length - 1] !== HEART_MUFFLE_HZ) bad.push('the heart muffle is lost after a pause');
+          me.hp = me.maxHp; heard.length = 0;
+          Feel.update(1 / 60);
+          if (filter[filter.length - 1] !== 20000 || heard.length) bad.push('healed: it goes on');
+          Game.match = null; me.hp = me.maxHp * 0.1; Feel.update(1 / 60);
+          if (Sound.heart) bad.push('no match, still beating');
+        });
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
+      const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
+      Effects.init();
+      try {
+        Arena.build(ARENAS.warehouse); Settings.v.shake = SETTING_DEFS.shake.def; Settings.v.reducedMotion = false;
+        const lampsNow = () => Arena.lamps.slice();
+        const calm = () => { for (const l of lampsNow()) { l.amp = 0; l.t0 = 0; } for (const o of Arena.objects) o.wob = 0; };
+        const swinging = () => lampsNow().filter((l) => l.amp > 0);
+        const lamps = lampsNow();
+        if (lamps.length !== 5 || lamps.some((l) => Arena.lampAngle(l) !== 0)) bad.push('the Warehouse has ' + lamps.length + ' lights');
+        calm(); Arena.time = 10;
+        Feel.shake(2, -1);
+        const near = swinging().map((l) => l.x).sort((a, b) => a - b).join();
+        if (near !== '0,4') bad.push('lights within 4 m of (2, -1): ' + near);
+        const l = swinging()[0], angle = (age) => { Arena.time = l.t0 + age; return Arena.lampAngle(l); };
+        let peak = 0; for (let age = 0; age < LAMP_SECS; age += 0.01) peak = Math.max(peak, Math.abs(angle(age)));
+        if (!(peak > LAMP_SWAY * 0.6 && peak <= LAMP_SWAY + 1e-9) || LAMP_SWAY !== 0.15) bad.push('swing ' + peak.toFixed(3) + ' rad');
+        if (angle(LAMP_SECS) !== 0 || angle(LAMP_SECS + 5) !== 0 || LAMP_SECS !== 1.5) bad.push('does not come to rest');
+        const early = Math.max(...[0.05, 0.15, 0.25, 0.35].map((age) => Math.abs(angle(age)))), late = Math.max(...[1.1, 1.2, 1.3, 1.4].map((age) => Math.abs(angle(age))));
+        if (!(late < early * 0.5)) bad.push('not damped ' + early.toFixed(3) + ' -> ' + late.toFixed(3));
+        const drawn = [];   // the lamp bodies the arena draws: x, y (a swinging light rises a little) and the turn about z (none: they stay level)
+        R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { if (Math.abs(sy - 0.16) < 1e-9 && Math.abs(sx - 1.3) < 1e-9) drawn.push({ x, y, rz }); };   // nothing is queued: only the lamp bodies are looked at
+        Arena.time = l.t0 + 0.3; Arena.draw(); R.put = put;
+        const moved = drawn.filter((q) => q.y > 5.4 + 1e-9), still = drawn.filter((q) => q.y <= 5.4 + 1e-9);   // a swinging lamp body is lifted, and stays level (it hangs on rods that turn)
+        if (moved.length !== 2 || still.length !== 3 || drawn.some((q) => q.rz !== 0)) bad.push('drawn: ' + moved.length + ' swinging, ' + still.length + ' still');
+        Arena.build(ARENAS.warehouse);
+        if (lampsNow().some((q) => q.amp > 0)) bad.push('a new fight starts with a light still swinging');
+        Arena.time = 10;
+        calm(); Settings.v.shake = 0.3; Feel.shake(0, -1);
+        if (Math.abs(swinging()[0].amp - LAMP_SWAY * 0.5) > 1e-9) bad.push('half the shake, ' + swinging()[0].amp);
+        calm(); Settings.v.shake = 0; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Camera shake 0 still sways');
+        Settings.v.shake = 0.6; Settings.v.reducedMotion = true; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Reduced motion still sways');
+        Settings.v.reducedMotion = false;
+        for (const [name, event] of [['wallSlam', { x: 0, y: 1, z: -1 }], ['envImpact', { x: 0, y: 1, z: -1 }], ['objBreak', { obj: Arena.objects[0], mat: 'wood', x: 0, y: 1, z: -1, by: -1 }], ['knockdown', { f: Object.assign(new Fighter(ROSTER_BY_ID.kai, 0), { x: 0, z: -1 }) }]]) {
+          calm(); Events.emit(name, event);
+          if (!swinging().length) bad.push(name + ' does not swing a light');
+        }
+        calm();
+        const crate = Arena.objects.find((o) => o.id === 'crateA'), far = Arena.objects.find((o) => o.id === 'dumpster'), wall = Arena.objects.find((o) => o.fixed && !o.bounce);
+        Feel.shake(crate.x + 1, crate.z);
+        if (!(crate.wob >= LAMP_JOLT - 1e-9) || far.wob !== 0 || (wall && Math.hypot(wall.x - crate.x - 1, wall.z - crate.z) <= LAMP_RANGE && wall.wob !== 0)) bad.push('jolt: crate ' + crate.wob + ', far ' + far.wob);
+        calm();
+        const realLamps = Arena.lamps, propCount = Arena.props.length, spare = lamps.concat(Array.from({ length: 10 }, (unused, i) => ({ x: i * 0.1, z: 0, top: 7, amp: 0, t0: 0 })));
+        Arena.lamps = spare;   // more lights than the cap, in the list only: the level's cached props are not touched
+        try { Feel.shake(0, 0); } finally { Arena.lamps = realLamps; }
+        if (spare.filter((q) => q.amp > 0).length !== LAMP_MAX) bad.push('at most ' + LAMP_MAX + ' swing, ' + spare.filter((q) => q.amp > 0).length + ' did');
+        if (Arena.props.length !== propCount || Arena.lamps.length !== 5) bad.push('the test left lights behind');
+        /* a light with two rods (the Dojo's) swings as a parallelogram: at the peak each rod hangs from its own place on the ceiling and its lower end stays on the lamp strip's end, the strip stays level */
+        Arena.build(ARENAS.dojo); calm(); Arena.time = 10; Feel.shake(-2, -1);
+        const strip = Arena.lamps.find((q) => q.x === -2);
+        let peakAt = 0, peakAngle = 0; for (let age = 0; age < LAMP_SECS; age += 0.005) { Arena.time = strip.t0 + age; if (Math.abs(Arena.lampAngle(strip)) > peakAngle) { peakAngle = Math.abs(Arena.lampAngle(strip)); peakAt = age; } }
+        Arena.time = strip.t0 + peakAt;
+        const parts = []; R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { parts.push({ x, y, sx, sy, rz }); };
+        Arena.draw(); R.put = put;
+        const body = parts.find((q) => Math.abs(q.sx - 3.0) < 1e-9 && Math.abs(q.sy - 0.08) < 1e-9 && Math.abs(q.x + 2) < 0.5), rods = parts.filter((q) => Math.abs(q.sx - 0.03) < 1e-9 && Math.abs(q.sy - 1.2) < 1e-9 && Math.abs(q.x + 2) < 1.5);
+        if (!body || rods.length !== 2 || !(peakAngle > LAMP_SWAY * 0.8)) bad.push('the two-rod light: ' + rods.length + ' rods, peak ' + peakAngle.toFixed(3));
+        else {
+          const ceiling = rods.map((q) => Math.hypot(q.x - Math.sin(q.rz) * q.sy / 2 + 2, q.y + Math.cos(q.rz) * q.sy / 2 - 5.9)).sort((a, b) => a - b);   // each rod's upper end, relative to its place on the ceiling above the strip's end
+          if (body.rz !== 0 || Math.abs(ceiling[0] - 1.2) > 1e-6 || Math.abs(ceiling[1] - 1.2) > 1e-6) bad.push('the rods do not hang from the ceiling: ' + ceiling.map((v) => v.toFixed(3)));
+          const gap = rods.map((q) => Math.min(...[-1.2, 1.2].map((end) => Math.hypot(q.x + Math.sin(q.rz) * q.sy / 2 - (body.x + end), q.y - Math.cos(q.rz) * q.sy / 2 - body.y)))); // the rod's lower end against the strip's nearest end
+          if (gap.some((v) => v > 1e-6)) bad.push('a rod end is ' + Math.max(...gap).toFixed(3) + ' m off the strip at the peak');
+        }
+      } finally {
+        R.put = put; Object.assign(Settings.v, keep);
+        if (keepArena) Arena.build(keepArena);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Touch vibration (P13-02): a seat played by touch buzzes the phone 20 to 60 ms by strength (20 ms on Reduced), nothing on Off, with Camera shake at 0, on another device or where the browser has no vibrate', () => {
+      const bad = [], keep = { rumble: Settings.v.rumble, shake: Settings.v.shake }, device = Input.lastDevice, had = Object.getOwnPropertyDescriptor(navigator, 'vibrate'), buzzes = [];
+      try {
+        Object.defineProperty(navigator, 'vibrate', { value: (ms) => { buzzes.push(ms); return true; }, configurable: true });
+        Input.lastDevice = 'touch'; Settings.v.rumble = 'full'; Settings.v.shake = 0.6;
+        const buzz = (strength, ms) => { buzzes.length = 0; Input.rumble(strength, ms); return buzzes.join(); };
+        if (buzz(0.9, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.9)) || buzz(0.35, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.35)) || TOUCH_BUZZ_MIN !== 20 || TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE !== 60) bad.push('full ' + buzz(0.9, 100) + ' ' + buzz(0.35, 100));
+        if (buzz(5, 100) !== '60') bad.push('a strength above 1 buzzes ' + buzz(5, 100));
+        Settings.v.rumble = 'reduced';
+        if (buzz(0.9, 100) !== '20') bad.push('Reduced ' + buzz(0.9, 100));
+        Settings.v.rumble = 'off';
+        if (buzz(0.9, 100) !== '') bad.push('Off still buzzes');
+        Settings.v.rumble = 'full'; Settings.v.shake = 0;
+        if (buzz(0.9, 100) !== '') bad.push('Camera shake 0 still buzzes');
+        Settings.v.shake = 0.6; Input.lastDevice = 'keyboard';
+        if (buzz(0.9, 100) !== '') bad.push('a keyboard seat buzzes');
+        Input.lastDevice = 'touch'; Object.defineProperty(navigator, 'vibrate', { value: undefined, configurable: true });   // a browser without the call (the real one lives on the prototype, so it is hidden, not deleted)
+        let threw = false; try { Input.rumble(0.9, 100); } catch (error) { threw = true; }
+        if (threw) bad.push('no vibrate in the browser throws');
+      } finally {
+        if (had) Object.defineProperty(navigator, 'vibrate', had); else delete navigator.vibrate;
+        Input.lastDevice = device; Object.assign(Settings.v, keep);
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });

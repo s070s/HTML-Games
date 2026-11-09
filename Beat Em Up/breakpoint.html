@@ -611,10 +611,14 @@ const SETTING_DEFS = {
   movement: { type: 'enum', options: ['opponent', 'screen'], def: 'screen', label: 'Movement directions', labels: { opponent: 'Relative to opponent', screen: 'Relative to screen' } },
   shake: { type: 'num', min: 0, max: 1, step: 0.1, def: 0.6, label: 'Camera shake' },
   uiScale: { type: 'num', min: 0.8, max: 1.5, step: 0.1, def: 1, label: 'UI scale' },
-  reducedMotion: { type: 'bool', def: false, label: 'Reduced motion', hint: 'Turning it on also sets Flashes and Rumble to Reduced and Strike trails to Off. Each can be changed again.' },
+  reducedMotion: { type: 'bool', def: false, label: 'Reduced motion', hint: 'Turning it on also sets Flashes and Rumble to Reduced and Strike trails and Camera cuts to Off. Each can be changed again.' },
   flashes: { type: 'enum', options: ['full', 'reduced', 'off'], def: 'full', label: 'Flashes', labels: { full: 'Full', reduced: 'Reduced', off: 'Off' }, hint: 'The bright bursts where a hit lands and the white glow on a fighter who is hit. Reduced keeps them dim, Off shows none.' },
   rumble: { type: 'enum', options: ['full', 'reduced', 'off'], def: 'full', label: 'Controller rumble', labels: { full: 'Full', reduced: 'Reduced', off: 'Off' }, hint: 'Gamepad vibration on hits and knock-outs. Reduced is half as strong and short. Camera shake also scales it.' },
   trails: { type: 'bool', def: true, label: 'Strike trails', hint: 'The faint smear behind heavy strikes.' },
+  slowFinisher: { type: 'bool', def: true, label: 'Slow-motion finisher', hint: 'The knock-out that ends a round plays in slow motion.' },
+  cameraCuts: { type: 'bool', def: true, label: 'Camera cuts', hint: 'On the knock-out that ends a fight the camera moves in and drops low.' },
+  wearMarks: { type: 'bool', def: true, label: 'Wear marks', hint: 'Bruises on a fighter who has taken many hits, and dust on the clothes after falls.' },
+  heartbeat: { type: 'bool', def: true, label: 'Low-health heartbeat', hint: 'A heartbeat and muffled music when your health is nearly gone.' },
   highContrast: { type: 'bool', def: false, label: 'High-contrast HUD' },
   quality: { type: 'enum', options: ['auto', 'low', 'medium', 'high'], def: 'auto', label: 'Render quality' },
   antialias: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Anti-aliasing (applies on reload)' },
@@ -629,11 +633,12 @@ const SETTING_DEFS = {
   storyAuto: { type: 'bool', def: false, label: 'Auto-advance', hint: 'Story scenes move on by themselves after a few seconds, longer for longer lines. You can still tap or press to move on sooner.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
-const REDUCED_MOTION_ROWS = { flashes: 'reduced', rumble: 'reduced', trails: false }; // what the effect settings become when Reduced motion is turned on
+const REDUCED_MOTION_ROWS = { flashes: 'reduced', rumble: 'reduced', trails: false, cameraCuts: false }; // what the effect settings become when Reduced motion is turned on
 const FLASH_REDUCED_ALPHA = 0.3; // the brightest an impact flash gets on Reduced
 const FLASH_REDUCED_TINT = 0.3; // share of the white glow on a hit fighter that stays on Reduced
 const RUMBLE_REDUCED_SCALE = 0.5; // share of the strength that stays on Reduced
 const RUMBLE_REDUCED_MS = 20; // the longest a Reduced rumble lasts
+const TOUCH_BUZZ_MIN = 20, TOUCH_BUZZ_RANGE = 40; // ms: a phone's vibration is 20 ms (Reduced) up to 60 ms (a hit of full strength)
 const Settings = {
   v: {},
   validate(key, value) {
@@ -1269,8 +1274,12 @@ class PlayerInput {
     this.lastDevice = 'touch';
   }
 
-  // Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate
+  // Controller vibration, scaled by the camera-shake setting; skipped quietly where the pad cannot vibrate. A seat played by touch buzzes the phone instead (P13-02): TOUCH_BUZZ_MIN to TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE ms by strength, TOUCH_BUZZ_MIN on Reduced, nothing on Off or with Camera shake at 0, and nothing where the browser has no vibrate (iOS)
   rumble(strength, ms) {
+    if (this.lastDevice === 'touch') {
+      if (Settings.v.rumble !== 'off' && Settings.v.shake > 0 && typeof navigator.vibrate === 'function') navigator.vibrate(Settings.v.rumble === 'reduced' ? TOUCH_BUZZ_MIN : Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * clamp(strength, 0, 1)));
+      return;
+    }
     if (this.lastDevice !== 'gamepad' || this.padIndex < 0 || Settings.v.rumble === 'off' || !navigator.getGamepads) return;
     const reduced = Settings.v.rumble === 'reduced';
     const magnitude = clamp(strength * Settings.v.shake * (reduced ? RUMBLE_REDUCED_SCALE : 1), 0, 1);
@@ -2623,11 +2632,12 @@ const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0; // m: a ceiling prop (i
 const CAMERA_AIM_REACH = 0.95; // share of the half size of the room the camera may aim out to
 const CAMERA_WALL_MARGIN = 0.6; // m: the eye stays this far inside the side and back walls of the room
 const CAMERA_EDGE_PAD = 30; // px: how far inside the screen edge the arrow for an off-screen attacker sits
+const CAMERA_CUT_IN = 0.15, CAMERA_CUT_LOW = 0.25, CAMERA_CUT_RATE = 5; // the KO finisher (P13-02): the share of the distance the camera closes, the pitch it drops (rad) and how fast it eases (1/s)
 const Camera = {
   pos: [0, 4, 9], target: [0, 1, 0], baseFov: 0.8, fov: 0.8, az: 0.2, dist: 8, elev: 0.46,
   shakeAmp: 0, fovPulse: 0, dirRight: [1, 0], dirFwd: [0, -1], aspect: 1.78,
   view: M4.create(), proj: M4.create(),
-  snapNext: true,
+  snapNext: true, cutIn: false, cut: 0, // cutIn: the KO finisher wants the punch-in; cut: how far it has eased in (0 to 1)
   jx: 0, jy: 0, jz: 0, pairDy: 0, // pairDy: the height difference of the two fighters of a 1v1
   // brawl framing state; all of it is scratch or smoothing memory, allocated once
   players: [], playerCount: 0, // the player team's fighters in the frame
@@ -2877,7 +2887,8 @@ const Camera = {
   finish(dt, bx, bz) {
     this.shakeAmp = Math.max(0, this.shakeAmp - dt * 2.4);
     this.fovPulse = Math.max(0, this.fovPulse - dt * 0.9);
-    const pos = this.eyeAt(this.target[0], this.target[1], this.target[2], this.az, this.elev, this.dist, bx, bz, this.pos), px = pos[0], pz = pos[2];
+    this.cut += ((this.cutIn ? 1 : 0) - this.cut) * (1 - Math.exp(-dt * CAMERA_CUT_RATE)); // the KO finisher: 15 % closer and lower, drawn only (the framing state is untouched)
+    const pos = this.eyeAt(this.target[0], this.target[1], this.target[2], this.az, this.elev - CAMERA_CUT_LOW * this.cut, this.dist * (1 - CAMERA_CUT_IN * this.cut), bx, bz, this.pos), px = pos[0], pz = pos[2];
     if (this.shakeAmp > 0.0005) {
       this.jx = (Math.random() - 0.5) * this.shakeAmp; this.jy = (Math.random() - 0.5) * this.shakeAmp; this.jz = (Math.random() - 0.5) * this.shakeAmp;
     } else { this.jx = this.jy = this.jz = 0; }
@@ -2923,6 +2934,7 @@ const kindOf = (mat) => MATERIALS[mat].debris || mat;
 const CHAIN_MAX = 6, CONDUCT_GAP = 0.3, CONDUCT_TOUCH = 0.4;
 const FIRE_MAX = 4, FIRE_CHECK_TICKS = 10, FIRE_IGNITE_TICKS = 30, FIRE_SPREAD_TICKS = 60, FIRE_SPREAD_R = 1.0, FIRE_MARGIN = 0.5, FIRE_CHAR = '#2a2420';
 const BURN_TICKS = 40, BURN_GAP = 20, BURN_DMG = 2, FIRE_STAY_TICKS = 20; // a fighter must stay FIRE_STAY_TICKS in a fire zone to catch fire: a brief touch costs only the zone's own hit
+const LAMP_SWAY = 0.15, LAMP_SECS = 1.5, LAMP_HZ = 0.9, LAMP_RANGE = 4, LAMP_MAX = 8, LAMP_JOLT = 0.7; // P13-02: a hanging light swings LAMP_SWAY rad at most, damped to rest over LAMP_SECS at LAMP_HZ, after an impact within LAMP_RANGE m (at most LAMP_MAX swinging at once); loose props nearby jolt as a hit object does (wob LAMP_JOLT)
 const CROWD_RANGE = 3, CROWD_SECS = 2, CROWD_LEAN = 0.3, CROWD_HOP = 0.15, ALARM_SECS = 4, ALARM_RGB = C('#ffb000');
 const MARK_MAX = 32, MARK_STYLE = { scorch: [C('#14100e'), 0.6, MESH.CYL], glass: [C('#d6efff'), 0.3, MESH.CYL], dust: [C('#8d867b'), 0.25, MESH.CUBE] };
 // R8, bystanders (renderer only, no random numbers): the bobbing silhouettes lean away from a break, a knockdown or a hazard within CROWD_RANGE and hop at a knock-out
@@ -3215,6 +3227,7 @@ const ARENAS = {
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 'construction', 'club'];
 
 // --- static decoration builders
+const swayLamp = (x, z, top) => ({ x, z, top, amp: 0, t0: 0 }); // a hanging light that can swing (P13-02): where it hangs, the height it hangs from, and the swing it was given (amp rad from Arena.time t0)
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
@@ -3229,7 +3242,7 @@ function buildProps(id) {
     propBox(p, 1.5, 1.7, -6.62, 5, 3.4, 0.16, '#6b727c');
     for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 5, 0.04, 0.06, '#4b5159');
     propBox(p, -11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
-    for (const x of [-8, -4, 0, 4, 8]) { propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222'); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4 }); }
+    for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 7); propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222', { lamp }); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4, lamp }); }
     propBox(p, -11.57, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c'); // the loading-bay door above the dock
     for (let i = 0; i < 9; i++) propBox(p, -11.525, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
   } else if (id === 'dojo') {
@@ -3238,7 +3251,7 @@ function buildProps(id) {
     for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.085, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips
     propBox(p, -10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
     propBox(p, 0, 3.2, -6.05, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6');
-    for (const x of [-6, -2, 2, 6]) { propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7 }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222'); } // fluorescent strips
+    for (const x of [-6, -2, 2, 6]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7, lamp }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent strips
     for (const z of [-5.6, 4.8]) propBox(p, -10.1, 2.5, z, 0.2, 5, 0.45, '#9aa3ad');
   } else if (id === 'rooftop') {
     for (let i = 0; i < 16; i++) { // the city beyond the roof edge: dark towers with a few lit windows
@@ -3259,13 +3272,13 @@ function buildProps(id) {
     propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507'); // the tunnel mouth in the east wall
     propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 }); // the station name board
-    for (const x of [-8, -4, 0, 4, 8]) { propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8 }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222'); } // fluorescent tubes
+    for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8, lamp }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent tubes
     for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 }); // red warning lamps along the platform edge
     propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
   } else if (id === 'garage') {
     propBox(p, 0, 2.2, -7.35, 30, 4.4, 0.5, '#6e716f'); propBox(p, -11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
     for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.05, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a'); // hazard stripes on the wall foot
-    for (const x of [-7, -2, 3, 8]) { propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7 }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222'); } // green-white tubes
+    for (const x of [-7, -2, 3, 8]) { const lamp = swayLamp(x, -1, 5.4); propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7, lamp }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222', { lamp }); } // green-white tubes
     propBox(p, 4.0, 3.0, -7.05, 1.6, 0.9, 0.06, '#1f7f4f', { e: 0.5 }); propBox(p, 4.0, 3.0, -7.01, 0.8, 0.5, 0.04, '#f4f4f4', { e: 0.7 }); // the level sign
     propBox(p, 9.8, 2.4, -7.05, 1.6, 0.2, 0.08, '#f4f4f4', { e: 0.8 }); // EXIT over the stairwell door
     propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a'); // the ticket booth's counter
@@ -3298,7 +3311,7 @@ function buildProps(id) {
       propCyl(p, x, 5.0, -8.6 - (i % 2) * 0.5, 0.42, 0.9, i % 3 ? '#0f0f12' : '#17141a', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
       propSph(p, x, 5.65, -8.6 - (i % 2) * 0.5, 0.13, '#0d0d10', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
     }
-    for (const x of [-6, 0, 6]) { propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0 }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111'); }
+    for (const x of [-6, 0, 6]) { const lamp = swayLamp(x, -2, 8); propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0, lamp }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111', { lamp }); }
     propBox(p, 10.07, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 }); // the street door above the landing
   }
   return p;
@@ -3401,7 +3414,7 @@ function builtOf(def) {
 }
 
 const Arena = {
-  def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
+  def: null, objects: [], colliders: [], props: [], lamps: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
   marks: [], ring: null, ringRow: null, ringOut: false, solid: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
   build(def, ring, ringOut, solid) {
     this.def = def;
@@ -3415,7 +3428,8 @@ const Arena = {
     this.navVersion++;
     this.colliders = this.objects.map((o) => o.collider);
     this.props = this.propCache[def.id] || (this.propCache[def.id] = buildProps(def.id));
-    for (const p of this.props) p.lean = p.cheer = 0;
+    for (const p of this.props) { p.lean = p.cheer = 0; if (p.lamp) p.lamp.amp = 0; } // the props are cached per level: a new fight starts with the lights at rest
+    this.lamps = [...new Set(this.props.filter((p) => p.lamp).map((p) => p.lamp))]; // the hanging lights of the level, once (Feel.shake)
     this.marks.length = 0;
     for (const o of this.objects) o.near = MATERIALS[o.mat].burn && !o.fixed ? this.objects.filter((q) => q !== o && MATERIALS[q.mat].burn && !q.fixed && this.gap(o, q) <= FIRE_SPREAD_R).sort((a, b) => this.gap(o, a) - this.gap(o, b)) : null; // R4: the flammable objects a fire can spread to, nearest first (ties keep list order)
     this.time = 0;
@@ -3880,6 +3894,12 @@ const Arena = {
       if (p.lean > 0) { const k = Math.min(1, p.lean, (CROWD_SECS - p.lean) * 4) * CROWD_LEAN; x += p.lx * k; z += p.lz * k; } // R8: a bystander leans away from the trouble, or hops at a knock-out
       if (p.cheer > 0) y += Math.abs(Math.sin(t * 12 + p.ph)) * CROWD_HOP * Math.min(1, p.cheer);
       if (p.flicker) e = 1.6 + Math.sin(t * 17) * 0.5 + Math.sin(t * 31) * 0.3;
+      let tilt = 0;
+      if (p.lamp && (tilt = this.lampAngle(p.lamp)) !== 0) { // P13-02: a swinging light is a parallelogram: every rod turns about its own top and the lamp hanging on them moves with the rod ends, level
+        const rod = p.m === MESH.CYL, drop = p.lamp.top - y;
+        x += Math.sin(tilt) * drop; y = rod ? p.lamp.top - Math.cos(tilt) * drop : y + (1 - Math.cos(tilt)) * drop;
+        if (!rod) tilt = 0;
+      }
       let layer = p.l, alpha = p.a;
       if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) { // overhead: it fades as the eye comes near it (the hanging load does the same)
         const eye = Camera.pos, near = Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0));
@@ -3889,7 +3909,7 @@ const Arena = {
           layer = LAYER.ALPHA;
         }
       }
-      R.put(layer, p.m, x, y, z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, alpha, e, p.q, p.cast, 0);
+      R.put(layer, p.m, x, y, z, p.sx, p.sy, p.sz, 0, p.ry, tilt, p.c, alpha, e, p.q, p.cast, 0);
     }
     for (let i = Math.max(0, this.marks.length - Quality.limits.marks); i < this.marks.length; i++) {
       const k = this.marks[i], s = MARK_STYLE[k.kind];
@@ -3899,6 +3919,7 @@ const Arena = {
     for (const o of this.objects) this.drawObject(o);
     this.drawPointLightFlicker();
   },
+  lampAngle(l) { const age = this.time - l.t0; return l.amp > 0 && age >= 0 && age < LAMP_SECS ? l.amp * (1 - age / LAMP_SECS) * Math.sin(age * TAU * LAMP_HZ) : 0; }, // the swing of a hanging light now (rad): damped to rest
   drawPointLightFlicker() {
     if (this.def.id !== 'pit') return;
     const pl = this.def.env.pl;
@@ -4784,6 +4805,10 @@ const MOMENTUM_PERFECT = 20; // a perfect block or sway is skill: it is worth tw
 const BOOST_TICKS = 300; // 5 s: long enough for a couple of strings, short enough not to decide the round alone
 const BOOST_DAMAGE_MULT = 1.15; // small and readable: the boost rewards a good phase, it does not swing the exchange rates the balance runs set
 const BOOST_BREATH_HZ = 2.4; // visual: chest rise during the boost
+const TIRED_POSE_STATES = [S.IDLE, S.WALK]; // P13-02: the calm states that show panting and a hurt body
+const PANT_HZ = 1.4, PANT_SHOULDER = 0.08, PANT_LEAN = 0.12, PANT_CHIN = 0.08; // rad and Hz: the quick breaths of a tired fighter (shoulders up, bent forward, chin down)
+const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // under this share of health the body leans on (rad; more for a hurt leg) and a hand holds the zone hit most
+const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
 const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY]; // calm states that show the boost; strikes, reactions and holds keep their own poses
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
@@ -5330,11 +5355,14 @@ const FSCRATCH = M4.create();
 const FBASE = M4.create();
 const FMS = new MatStack(14);
 let DRAW_NOW = false;
+let WEAR_DIM = 1; // the share of its colour a part keeps while a worn item is drawn (P13-02); 1 = as new
+const WEAR_RGB = [0, 0, 0];
 function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = true) {
   if (!DRAW_NOW) { if (PROBE_LOW !== null) probeLow(mesh, cx, cy, cz, sx, sy, sz); return; }
   FSCRATCH.set(FMS.m);
   M4.translate(FSCRATCH, cx, cy, cz);
   M4.scale(FSCRATCH, sx, sy, sz);
+  if (WEAR_DIM < 1) { WEAR_RGB[0] = col[0] * WEAR_DIM; WEAR_RGB[1] = col[1] * WEAR_DIM; WEAR_RGB[2] = col[2] * WEAR_DIM; col = WEAR_RGB; }
   R.push(LAYER.SOLID, mesh, FSCRATCH, col, 1, em, rough, flash, cast);
 }
 // The lowest height a part would reach if drawn, exact for those shapes: half the part's extent along world up
@@ -5344,6 +5372,11 @@ function probeLow(mesh, cx, cy, cz, sx, sy, sz) {
   const low = m[1] * cx + m[5] * cy + m[9] * cz + m[13] - half;
   if (low < PROBE_LOW) PROBE_LOW = low;
 }
+/* Wear (P13-02), all drawn only: the simulation never reads it. Bruises mix a zone's skin toward BRUISE_RGB, up to BRUISE_MAX when BRUISE_FULL of the maximum health was taken there; each knockdown puts DUST_STEP of
+   the floor colour on the clothes, at most DUST_MAX; after SWEAT_SECONDS of fighting, or with stamina under TIRED_STAMINA (fading over SWEAT_FADE), skin goes from SKIN_ROUGH to SKIN_SHINE; a worn item keeps 1 - WEAR_DARK of its colour at the last point. */
+const BRUISE_RGB = C('#6b3b4a'), BRUISE_MAX = 0.3, BRUISE_FULL = 0.6, BRUISE_HEAD = 1.35, BRUISE_LEGS = 0.7; // BRUISE_HEAD / _LEGS: contact heights (body units) above which a hit is a head hit and below which a leg hit; between them the torso takes 60 % and the arms 40 %
+const DUST_STEP = 0.06, DUST_MAX = 0.3, SWEAT_SECONDS = 40, TIRED_STAMINA = 0.35, SWEAT_FADE = 0.05, SKIN_ROUGH = 0.7, CHEST_ROUGH = 0.8, SKIN_SHINE = 0.35, WEAR_DARK = 0.25;
+const mixRgb = (out, a, b, t) => { out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t; return out; };
 const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const isStunState = (s) => s === S.HIT || s === S.STAGGER || s === S.STUN;
 const AIM_DEADZONE = 0.35;
@@ -5641,13 +5674,27 @@ function weaponTable(styleId, itemId) {
   }
   return (WEAPON_TABLES[key] = out);
 }
-// The item's parts in the current matrix
-function drawWeapon(w, fl, em = 0) {
-  if (w.sp === 'wrap') { drawChainLinks(w, fl, CHAIN_LOOSE, false, em); return; }
-  for (const p of w.parts) {
-    if (p[9] || p[10]) { FMS.push(); FMS.t(p[1], p[2], p[3]); if (p[10]) FMS.rz(p[10]); if (p[9]) FMS.rx(p[9]); part(p[0], 0, 0, 0, p[4], p[5], p[6], p[7], em, p[8], fl); FMS.pop(); }
-    else part(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], em, p[8], fl);
+/* Weapon wear (P13-02, drawn only): an item darkens as its hits are used up (WEAR_DARK at the end) and on its last hit a bat or a pipe bends WEAPON_BEND rad from WEAPON_BEND_FROM of its length on,
+   and a bottle, a chair and a crate show one dark crack line: [x, y, z, width, height, depth, tilt about z] in the item's frame. */
+const WEAPON_BEND = 0.1, WEAPON_BEND_FROM = 0.4, WEAPON_CRACK_RGB = C('#14161a');
+const WEAPON_CRACKS = { bottle: [0, 0.19, 0.034, 0.012, 0.1, 0.006, 0.5], chair: [0, 0.66, -0.1855, 0.01, 0.17, 0.004, 0.35], crate: [0, 0.22, 0.212, 0.03, 0.4, 0.006, 0.4] };
+const wearDim = (w, dur) => 1 - WEAR_DARK * clamp((w.dur - dur) / Math.max(1, w.dur - 1), 0, 1); // the colour share an item with dur hits left keeps: all of it new, 1 - WEAR_DARK on the last hit
+// The item's parts in the current matrix; dur = the hits it has left
+function drawWeapon(w, fl, em = 0, dur = w.dur) {
+  WEAR_DIM = wearDim(w, dur);
+  if (w.sp === 'wrap') drawChainLinks(w, fl, CHAIN_LOOSE, false, em);
+  else {
+    const last = dur === 1 && DRAW_NOW, bend = last && (w.id === 'bat' || w.id === 'pipe'), pivot = w.len * WEAPON_BEND_FROM, crack = last && WEAPON_CRACKS[w.id];
+    for (const p of w.parts) {
+      const bent = bend && p[2] > pivot;
+      if (bent) { FMS.push(); FMS.t(0, pivot, 0); FMS.rz(WEAPON_BEND); FMS.t(0, -pivot, 0); }
+      if (p[9] || p[10]) { FMS.push(); FMS.t(p[1], p[2], p[3]); if (p[10]) FMS.rz(p[10]); if (p[9]) FMS.rx(p[9]); part(p[0], 0, 0, 0, p[4], p[5], p[6], p[7], em, p[8], fl); FMS.pop(); }
+      else part(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], em, p[8], fl);
+      if (bent) FMS.pop();
+    }
+    if (crack) { FMS.push(); FMS.t(crack[0], crack[1], crack[2]); FMS.rz(crack[6]); part(CB, 0, 0, 0, crack[3], crack[4], crack[5], WEAPON_CRACK_RGB, em, 0.9, fl); FMS.pop(); }
   }
+  WEAR_DIM = 1;
 }
 // The bike chain: a taped grip, then CHAIN_LINKS links that bend a little more each (bend = the total), and a padlock at the end
 function drawChainLinks(w, fl, bend, over, em) {
@@ -5733,6 +5780,9 @@ class Fighter {
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile); // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
+    this.wear = [0, 0, 0, 0, 0]; // drawn only (P13-02): the share of the maximum health taken at the head, torso, arms and legs (the bruises), and the dust on the clothes
+    this.ws = [0, 0, 0, 0, 0, 0].map(() => [0, 0, 0]); // one scratch colour for each mix dress() makes, so a frame allocates nothing
+    this.wc = {}; // the colours worn this frame, filled by dress() whenever a skeleton is drawn
     this.motion = makeMotion(profile, this.scale, this.build); // visual: rhythm, strike shaping
     this.radius = 0.34; // collision size is the same for every body: height and build are cosmetic
     this.pose = new Float32Array(NP);
@@ -6604,6 +6654,7 @@ class Fighter {
     }
     if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } } // the arm is at the release point on the tick of the release, so it skips the usual easing
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
+    if (TIRED_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.tiredPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]); // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
     k = this.state === S.SWAY ? SWAY_POSE_BLEND : Math.min(0.9, k * m.blend); // the sway pose has to be there on the first i-frame tick, so it ignores the fighter's speed
@@ -6663,6 +6714,23 @@ class Fighter {
     p[J.shLz] += 0.1; p[J.shRz] += 0.1; p[J.headX] += 0.1;
     p[J.torsoLean] += 0.04 * breath * amount;
     p[J.knL] += 0.03 * (0.5 + 0.5 * breath) * amount; p[J.knR] += 0.03 * (0.5 + 0.5 * breath) * amount;
+  }
+  /* Breathing and hurt posture (P13-02), on the calm idle and walk pose; drawn only. The sim reads the move rows for every hit volume and no pose, and attackPose never comes here, so the hit check of P17-02 and
+     the joint limits of the Calm poses test are untouched. Under 35 % stamina or while exhausted the chest heaves in quick breaths, shoulders up and chin down; under 25 % health the body leans on and the left hand holds the zone hit most. */
+  tiredPose(p, t) {
+    const calm = Settings.v.reducedMotion ? 0.4 : 1, tired = this.exhaust > 0 || this.stam < this.maxStam * TIRED_STAMINA;
+    if (tired) {
+      const breath = Math.sin(t * PANT_HZ * TAU + this.motion.phase) * calm;
+      p[J.shLx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.shRx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.torsoLean] += PANT_LEAN * (1 + 0.4 * breath); p[J.headX] += PANT_CHIN;
+      p[J.knL] += 0.03 * (0.5 + 0.5 * breath); p[J.knR] += 0.03 * (0.5 + 0.5 * breath);
+    }
+    const hurt = clamp((HURT_HP - this.hp / this.maxHp) / HURT_FADE + 1, 0, 1); // 1 below HURT_HP, fading out over HURT_FADE above it
+    if (hurt <= 0 || !this.alive) return;
+    const w = this.wear, zone = w[1] + w[2] >= Math.max(w[0], w[3]) ? 1 : w[0] >= w[3] ? 0 : 2; // the most-hit zone: head, torso (with the arms) or legs
+    p[J.torsoLean] += HURT_LEAN * hurt + (zone === 2 ? HURT_STOOP * hurt : 0);
+    if (this.item) return; // an item in hand keeps its hands
+    const hand = HURT_HAND[zone];
+    p[J.shLx] = lerp(p[J.shLx], hand[0], hurt); p[J.elL] = lerp(p[J.elL], hand[1], hurt); p[J.shLy] = lerp(p[J.shLy], hand[2], hurt); p[J.shLz] = lerp(p[J.shLz], hand[3], hurt);
   }
   // An item in hand: one hand on a one-handed item, both on a two-handed one, a crate held out in front
   heldPose(p) {
@@ -6886,7 +6954,8 @@ class Fighter {
   // Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts.
   walkSkeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
-    const p = this.pose, col = this.col, sc = this.scale, b = this.build, pts = this.pts, sh = this.shape;
+    if (draw) this.dress();
+    const p = this.pose, col = this.col, wc = this.wc, sc = this.scale, b = this.build, pts = this.pts, sh = this.shape;
     M4.identity(FBASE);
     M4.translate(FBASE, px, py, pz);
     M4.rotY(FBASE, yaw);
@@ -6900,21 +6969,21 @@ class Fighter {
     const m = ms.m;
     pts[0] = m[12]; pts[1] = m[13]; pts[2] = m[14];
     const fl = this.flash * 0.4 * (Settings.v.flashes === 'off' ? 0 : Settings.v.flashes === 'reduced' ? FLASH_REDUCED_TINT : 1); // the white glow of a hit body (drawing only)
-    const skin = col.skin, lk = this.lk;
-    const T = this.topRow, L = this.legRow, F = this.shoeRow, H = this.handRow, pants = !L[2], legCol = pants ? col.shorts : skin; // pants-type legwear covers the whole leg
-    part(MESH.CUBE, 0, 0, 0, 0.34 * b * sh.hip, 0.2, 0.22 * b, col.shorts, 0, 0.8, fl);
+    const lk = this.lk;
+    const T = this.topRow, L = this.legRow, F = this.shoeRow, H = this.handRow, pants = !L[2], legCol = pants ? wc.shorts : wc.legs, skinRough = pants ? 0.7 : wc.rough; // pants-type legwear covers the whole leg; wc: the colours worn this frame (dress)
+    part(MESH.CUBE, 0, 0, 0, 0.34 * b * sh.hip, 0.2, 0.22 * b, wc.shorts, 0, 0.8, fl);
     // legs
     for (let s = 1; s >= -1; s -= 2) {
       const hx = s > 0 ? p[J.hipLx] : p[J.hipRx], hz = s > 0 ? p[J.hipLz] : p[J.hipRz], kn = s > 0 ? p[J.knL] : p[J.knR];
       ms.push();
       ms.t(s * 0.1 * b * sh.hip, -HIP_DROP, 0); ms.rz(s * hz); ms.rx(-hx);
-      part(MESH.CYL, 0, -0.22, 0, L[0] * b * sh.leg, 0.44, L[0] * b * sh.leg, legCol, 0, pants ? 0.85 : 0.7, fl);
-      if (!pants) part(MESH.CYL, 0, L[4], 0, L[2] * b * sh.leg, L[3], L[2] * b * sh.leg, col.shorts, 0, 0.8, fl);
+      part(MESH.CYL, 0, -0.22, 0, L[0] * b * sh.leg, 0.44, L[0] * b * sh.leg, legCol, 0, pants ? 0.85 : wc.rough, fl);
+      if (!pants) part(MESH.CYL, 0, L[4], 0, L[2] * b * sh.leg, L[3], L[2] * b * sh.leg, wc.shorts, 0, 0.8, fl);
       this.pieces(this.extra, 'l', s, fl);
       ms.t(0, -THIGH, 0); ms.rx(kn);
       const kp = s > 0 ? 24 : 27; pts[kp] = ms.m[12]; pts[kp + 1] = ms.m[13]; pts[kp + 2] = ms.m[14]; // knee key points 24-29
-      part(MESH.CYL, 0, -0.22, 0, L[1] * b, 0.44, L[1] * b, legCol, 0, pants ? 0.85 : 0.7, fl);
-      part(MESH.SPHERE, 0, 0, 0, BODY.knee * b, BODY.knee * b, BODY.knee * b, legCol, 0, 0.7, fl);
+      part(MESH.CYL, 0, -0.22, 0, L[1] * b, 0.44, L[1] * b, legCol, 0, pants ? 0.85 : wc.rough, fl);
+      part(MESH.SPHERE, 0, 0, 0, BODY.knee * b, BODY.knee * b, BODY.knee * b, legCol, 0, skinRough, fl);
       ms.t(0, -SHIN, 0);
       part(MESH.CUBE, 0, F[2], F[3], F[0] * b, F[1], F[4], col[F[5]], 0, F[6], fl);
       const q = ms.m, fi = s > 0 ? 15 : 18;
@@ -6924,11 +6993,11 @@ class Fighter {
     // torso
     ms.push();
     ms.t(0, 0.1, 0); ms.rx(p[J.torsoLean] + sh.lean); ms.ry(p[J.torsoTwist]); ms.rz(p[J.torsoRoll]);
-    part(MESH.CUBE, 0, BODY.torsoY, 0, BODY.torso[0] * T[0] * b * sh.chest, BODY.torso[1], BODY.torso[2] * T[1] * b, col.top, 0, 0.8, fl);
-    part(MESH.SPHERE, 0, BODY.chestY, BODY.chestZ, BODY.chest[0] * T[0] * b * sh.chest, BODY.chest[1], BODY.chest[2] * T[1] * b, col.top, 0, 0.8, fl);
-    if (lk.belt === 'none') part(MESH.CUBE, 0, 0.0, 0, 0.36 * b * sh.hip, 0.07, 0.23 * b, col.shorts, 0, 0.6, fl);
+    part(MESH.CUBE, 0, BODY.torsoY, 0, BODY.torso[0] * T[0] * b * sh.chest, BODY.torso[1], BODY.torso[2] * T[1] * b, wc.top, 0, wc.chest, fl);
+    part(MESH.SPHERE, 0, BODY.chestY, BODY.chestZ, BODY.chest[0] * T[0] * b * sh.chest, BODY.chest[1], BODY.chest[2] * T[1] * b, wc.top, 0, wc.chest, fl);
+    if (lk.belt === 'none') part(MESH.CUBE, 0, 0.0, 0, 0.36 * b * sh.hip, 0.07, 0.23 * b, wc.shorts, 0, 0.6, fl);
     else part(MESH.CUBE, 0, 0.0, 0, 0.365 * b * sh.hip, 0.09, 0.235 * b, col.accent, 0, 0.6, fl);
-    if (T[5]) part(MESH.CUBE, 0, T[5][1], 0, T[5][0] * b * sh.hip, T[5][2], T[5][3] * b, col.top, 0, 0.85, fl); // jacket skirt, jersey or bomber hem
+    if (T[5]) part(MESH.CUBE, 0, T[5][1], 0, T[5][0] * b * sh.hip, T[5][2], T[5][3] * b, wc.top, 0, 0.85, fl); // jacket skirt, jersey or bomber hem
     if (lk.belt === 'sash') part(MESH.CUBE, 0.13 * b * sh.hip, -0.15, 0.11 * b, 0.06, 0.22, 0.03, col.accent, 0, 0.7, fl); // hanging sash end
     this.pieces(this.extra, 't', 0, fl);
     pts[3] = ms.m[12] + ms.m[4] * 0.3; pts[4] = ms.m[13] + ms.m[5] * 0.3; pts[5] = ms.m[14] + ms.m[6] * 0.3;
@@ -6946,13 +7015,13 @@ class Fighter {
       const sx = s > 0 ? p[J.shLx] : p[J.shRx], sz = s > 0 ? p[J.shLz] : p[J.shRz], sy = s > 0 ? p[J.shLy] : p[J.shRy], el = s > 0 ? p[J.elL] : p[J.elR];
       ms.push();
       ms.t(s * 0.23 * b * sh.chest, 0.46, 0); ms.rz(s * sz); ms.ry(s * sy); ms.rx(-sx); // sy = inward arm twist (same sign on both sides)
-      part(MESH.SPHERE, 0, 0, 0, ball, ball, ball, T[2] ? col.top : skin, 0, T[2] ? 0.8 : 0.7, fl);
-      part(MESH.CYL, 0, -BODY.upperLen / 2, 0, upper, BODY.upperLen, upper, T[3] ? col.top : skin, 0, 0.7, fl);
+      part(MESH.SPHERE, 0, 0, 0, ball, ball, ball, T[2] ? wc.top : wc.arms, 0, T[2] ? 0.8 : wc.rough, fl);
+      part(MESH.CYL, 0, -BODY.upperLen / 2, 0, upper, BODY.upperLen, upper, T[3] ? wc.top : wc.arms, 0, T[3] ? 0.7 : wc.rough, fl);
       this.pieces(this.extra, 'u', s, fl);
       ms.t(0, -BODY.upperLen, 0);
       const ep = s > 0 ? 30 : 33; pts[ep] = ms.m[12]; pts[ep + 1] = ms.m[13]; pts[ep + 2] = ms.m[14]; // elbow key points 30-35
       ms.rx(-el);
-      part(MESH.CYL, 0, -BODY.foreLen / 2, 0, fore, BODY.foreLen, fore, T[4] ? col.top : H[3] ? col.glove : skin, 0, 0.7, fl);
+      part(MESH.CYL, 0, -BODY.foreLen / 2, 0, fore, BODY.foreLen, fore, T[4] ? wc.top : H[3] ? col.glove : wc.arms, 0, T[4] || H[3] ? 0.7 : wc.rough, fl);
       this.pieces(this.extra, 'w', s, fl);
       ms.t(0, -BODY.foreLen, 0);
       part(MESH.SPHERE, 0, -BODY.handY, 0.01, H[0] * hand, H[1] * hand, H[2] * hand, col[H[4]], 0, H[5], fl);
@@ -6961,7 +7030,7 @@ class Fighter {
       if (s < 0 && this.item) { // the right hand holds the item: its +y runs on out of the fist, leaning forward
         const w = this.itemDef;
         ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(w.hold[3] || 0, w.hold[0], w.hold[1]); if (w.hold[2]) ms.ry(w.hold[2]);
-        if (DRAW_NOW || PROBE_LOW !== null) { if (w.sp === 'wrap') this.drawChain(w, fl); else drawWeapon(w, fl); } // the measuring pass counts the item too
+        if (DRAW_NOW || PROBE_LOW !== null) { if (w.sp === 'wrap') { WEAR_DIM = wearDim(w, this.item.dur); this.drawChain(w, fl); WEAR_DIM = 1; } else drawWeapon(w, fl, 0, this.item.dur); } // the measuring pass counts the item too
         const wm = ms.m; // the far end of the item (key points 21-23), where a swing is meant to land
         pts[21] = wm[12] + wm[4] * w.len; pts[22] = wm[13] + wm[5] * w.len; pts[23] = wm[14] + wm[6] * w.len;
         ms.pop();
@@ -6979,13 +7048,13 @@ class Fighter {
 
   // Head, face, hair and headwear in the head's local frame (origin at the neck base)
   drawHead(fl) {
-    const col = this.col, lk = this.lk, skin = col.skin;
+    const col = this.col, lk = this.lk, skin = this.wc.head, rough = this.wc.rough; // the head's skin as worn this frame (bruised, sweaty)
     const fullMask = lk.mask === 'full', wrap = lk.mask === 'balaclava'; // a balaclava colours the whole head; its skin band (a piece) shows the eyes
-    part(MESH.CYL, 0, BODY.neckY, 0, BODY.neck, BODY.neck, BODY.neck, skin, 0, 0.7, fl);
+    part(MESH.CYL, 0, BODY.neckY, 0, BODY.neck, BODY.neck, BODY.neck, skin, 0, rough, fl);
     if (fullMask) part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, col.mask, 0, 0.3, fl);
-    else part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, wrap ? col.accent : skin, 0, wrap ? 0.9 : 0.7, fl);
+    else part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, wrap ? col.accent : skin, 0, wrap ? 0.9 : rough, fl);
     const cell = fullMask || wrap || !DRAW_NOW ? -1 : FaceTex.cellOf(lk, faceExpression(this)); // a pre-drawn or photo face is one shell that replaces the eyes and brows; a full mask and a balaclava keep their own eyes
-    if (cell >= 0) part(MESH.SPHERE, 0, BODY.headY, 0, ...FACE_SHELL, skin, 0, 0.7, fl, -1 - cell);
+    if (cell >= 0) part(MESH.SPHERE, 0, BODY.headY, 0, ...FACE_SHELL, skin, 0, rough, fl, -1 - cell);
     else {
       const eye = EYE_SIZE[lk.eyes] || EYE_SIZE.normal, eyeCol = fullMask ? EYE_MASK_COL : EYE_COL;
       part(MESH.CUBE, -0.05, 0.22, 0.112, eye[0], eye[1], 0.03, eyeCol, 0, 1, fl);
@@ -7016,6 +7085,21 @@ class Fighter {
   }
   drawHair(fl) { this.pieces(this.hairP, 'h', 0, fl); }
 
+  // A zone's skin as drawn (P13-02): the plain colour, or mixed toward the bruise colour by the share of the maximum health taken there (Wear marks)
+  bruised(zone, base) {
+    const taken = this.wear[zone];
+    return Settings.v.wearMarks && taken > 0 ? mixRgb(this.ws[zone], base, BRUISE_RGB, BRUISE_MAX * Math.min(1, taken / BRUISE_FULL)) : base;
+  }
+  // The colours and the skin roughness the next frame is drawn in (this.wc), from the bruises, the dust and the sweat; the plain ones when there is nothing to show
+  dress() {
+    const c = this.col, z = this.wc, dust = Settings.v.wearMarks ? this.wear[4] : 0, floor = (Arena.def ? Arena.def.env : DEFAULT_ENV).ground;
+    const worn = Math.max(clamp(this.age / (60 * SWEAT_SECONDS), 0, 1), clamp((TIRED_STAMINA - this.stam / this.maxStam) / SWEAT_FADE + 1, 0, 1)); // long fight or low stamina: how sweaty
+    z.head = this.bruised(0, c.skin); z.arms = this.bruised(2, c.skin); z.legs = this.bruised(3, c.skin);
+    z.top = c.top === c.skin ? this.bruised(1, c.skin) : dust > 0 ? mixRgb(this.ws[4], c.top, floor, dust) : c.top; // a bare chest is skin: it bruises; a top gets dusty
+    z.shorts = dust > 0 ? mixRgb(this.ws[5], c.shorts, floor, dust) : c.shorts;
+    z.rough = SKIN_ROUGH - (SKIN_ROUGH - SKIN_SHINE) * worn;
+    z.chest = c.top === c.skin ? CHEST_ROUGH - (CHEST_ROUGH - SKIN_SHINE) * worn : CHEST_ROUGH; // a bare chest was always a little rougher than the rest of the skin
+  }
   // Render with sub-tick interpolation
   draw(alpha, marker = true) { // marker: the floor disc of the fighter's team
     const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
@@ -9613,6 +9697,8 @@ const COUNT_STEP_TICKS = 45; // one countdown number; round 1 counts from 3, lat
 const ROUND_END_TICKS = 110;
 const KO_DELAY_TICKS = 45;
 const KO_SLOW_TICKS = 30; // slow motion starts on the knock-out blow itself
+const KO_FINISH_TICKS = 40; // ... and lasts this long when the blow ends the match (P13-02)
+const KO_SLOW_SCALE = 0.35; // the speed the render clock runs at meanwhile
 const SKIP_ARM_TICKS = 30; // the round-end sequence can be skipped after this long
 const TIMER_LOW_SECONDS = 10; // the round timer turns to the warning colour
 const TIMER_BEEP_SECONDS = 5; // and beeps once a second from here
@@ -10015,7 +10101,7 @@ class MatchSim {
     this.roundWinner = -1;
     this.matchOver = false;
     this.matchWinner = -1;
-    this.slowTicks = 0;
+    this.slowTicks = 0; this.finisher = false; // finisher: the slow-motion knock-out ends the whole match (a draw-only flag, set by checkRoundEnd)
     this.stats = this.fighters.map(() => this.newStats());
     this.lastMove = null;
     this.defRead = ''; this.linkRead = '';
@@ -10659,7 +10745,7 @@ class MatchSim {
       else if (w.lie) { FMS.t(0, w.rest, 0); FMS.rx(-Math.PI / 2); FMS.t(0, -w.len / 2, 0); }
       else if (w.hold[4]) { FMS.t(0, w.len, 0); FMS.rz(Math.PI); } // modelled grip first: turned over to stand on its base
       DRAW_NOW = true;
-      drawWeapon(w, 0, ITEM_VIEW_LIGHT);
+      drawWeapon(w, 0, ITEM_VIEW_LIGHT, it.dur);
       DRAW_NOW = false;
     }
   }
@@ -11504,7 +11590,7 @@ class MatchSim {
     const [a, b] = this.fighters;
     const down = this.setup ? this.aliveTeamCount() <= 1 : this.brawl ? !this.playersAlive() || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive; // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
     if (down) {
-      if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
+      if (!this.locked) { this.finisher = this.endsMatch(); this.slowTicks = this.finisher ? KO_FINISH_TICKS : KO_SLOW_TICKS; }
       this.locked = true;
       this.endTimer++;
       if (this.slowTicks > 0) this.slowTicks--;
@@ -11517,6 +11603,13 @@ class MatchSim {
       const whole = this.roundTicks % 60 === 0, seconds = this.roundTicks / 60;
       if (whole && seconds <= TIMER_BEEP_SECONDS) Events.emit('timeWarn', { seconds });
     }
+  }
+  // Whether the knock-out that has just locked the round also ends the match (a read only, for the slow-motion finisher of P13-02): a brawl or lineup always, a duel by the rule of endRound: the one who scores (both, when both are down) reaches the wins needed, and not both of them (that goes to a deciding round)
+  endsMatch() {
+    if (this.brawl || this.setup) return true;
+    const [a, b] = this.fighters, reached = (side, scores) => scores && this.wins[side] + 1 >= this.winsNeeded;
+    const first = reached(0, !b.alive), second = reached(1, !a.alive); // a fighter scores when the other is down
+    return first !== second;
   }
   endRound(reason) {
     const [a, b] = this.fighters;
@@ -12936,8 +13029,7 @@ const Game = {
     const st = this.state;
     if (this.match && SIM_STATES.includes(st)) {
       const m = this.match;
-      let scale = m.slowTicks > 0 ? 0.35 : 1;
-      this.acc += dt * scale;
+      this.acc += dt * this.clockScale(m);
       let steps = 0;
       while (this.acc >= DT && steps < MAX_STEPS_PER_FRAME && this.match === m) {
         m.step();
@@ -12960,6 +13052,8 @@ const Game = {
     Diag.simMs += (performance.now() - t0 - Diag.simMs) * 0.1;
     this.render(dt);
   },
+  clockScale(m) { return m.slowTicks > 0 && Settings.v.slowFinisher ? KO_SLOW_SCALE : 1; }, // the render clock only: the knock-out plays slowly (Slow-motion finisher); the ticks are the same
+  cutWanted(m, scene) { return !!m && !scene && m.finisher && m.slowTicks > 0 && Settings.v.cameraCuts; }, // the finisher's punch-in and low angle (Camera cuts)
   // Pause works in every live phase; an attack or jump press skips the round-end and victory sequences
   pollMatchInput() {
     const st = this.state;
@@ -12976,6 +13070,7 @@ const Game = {
   render(dt) {
     const m = this.match, scene = Cutscene.active; // a scene may stand over a paused match (B7): then the scene's cast and camera are drawn, not the fight's
     let env;
+    Camera.cutIn = this.cutWanted(m, scene);
     if (m && this.state !== GS.LOADING) {
       env = m.def.env;
       if (!scene && m.brawl) Camera.followGroup(dt, m.fighters, m.def);
@@ -13060,17 +13155,68 @@ const Effects = {
       const hurt = Inputs.forFighter(e.f.index);
       if (hurt) hurt.rumble(0.3, RUMBLE_HIT_MS);
     });
+    Feel.init(on);
+  },
+};
+
+// === 07c FEEDBACK (P13-02) - what the list of Appendix C adds on the fighters and in the world. Every effect is drawn or played from here or from draw code: nothing reads a viewer setting inside the simulation and nothing writes a simulation field, so seeded fights and online play are unchanged.
+const Feel = {
+  beat: 0, // seconds to the next heartbeat
+  init(on) {
+    on('hit', (e) => this.bruise(e));
+    on('knockdown', (e) => { const w = e.f.wear; w[4] = Math.min(DUST_MAX, w[4] + DUST_STEP); this.shake(e.f.x, e.f.z); }); // a knockdown, a throw's landing and a fall all end in this event
+    for (const name of ['wallSlam', 'envImpact', 'objBreak']) on(name, (e) => this.shake(e.x, e.z)); // a wall or object impact, a collapse
+    on('roundStart', (e) => { for (const f of e.match.fighters) f.wear.fill(0); }); // a 1v1 starts every round clean; a brawl has one start and keeps its marks
+    on('frame', (e) => this.update(e.dt));
+  },
+  /* An impact at (x, z): every hanging light within LAMP_RANGE swings (a new impact restarts its swing; at most LAMP_MAX swing at once) and every loose prop there jolts. Camera shake scales both and 0 stops them,
+     as does Reduced motion. Only the lights' own swing state and the scenery's wobble (read by the drawing alone) are written. */
+  shake(x, z) {
+    const scale = Settings.v.reducedMotion ? 0 : Math.min(1, Settings.v.shake / SETTING_DEFS.shake.def);
+    if (!(scale > 0)) return;
+    const lamps = Arena.lamps, swinging = (l) => l.amp > 0 && Arena.time - l.t0 < LAMP_SECS;
+    let busy = lamps.filter(swinging).length;
+    for (const l of lamps) {
+      if (Math.hypot(l.x - x, l.z - z) > LAMP_RANGE || (!swinging(l) && busy >= LAMP_MAX)) continue;
+      if (!swinging(l)) busy++;
+      l.amp = LAMP_SWAY * scale; l.t0 = Arena.time;
+    }
+    for (const o of Arena.objects) if (!o.destroyed && (!o.fixed || o.bounce) && Math.hypot(o.x - x, o.z - z) <= LAMP_RANGE) o.wob = Math.max(o.wob, LAMP_JOLT * scale);
+  },
+  // Whether a lone person (a fight with two or more people has none) is in a live fight, not Training, under HEART_HP of their health, and the setting is on
+  heartWanted() {
+    const m = Game.match;
+    if (!Settings.v.heartbeat || !m || m.training || Game.state !== GS.FIGHT) return false;
+    let person = null;
+    for (const f of m.fighters) if (m.isHuman(f)) { if (person) return false; person = f; }
+    return !!person && person.alive && person.hp < person.maxHp * HEART_HP;
+  },
+  // Every frame: the music muffles and the heart beats at HEART_BPM while heartWanted
+  update(dt) {
+    const on = this.heartWanted();
+    Sound.setHeart(on);
+    this.beat = on ? this.beat - dt : 0;
+    if (on && this.beat <= 0) { this.beat = 60 / HEART_BPM; Sound.heartbeat(); }
+  },
+  // The share of the maximum health a blow took goes to the zone it hit: high = head, low = legs, between = torso (60 %) and arms (40 %)
+  bruise(e) {
+    const d = e.def, w = d.wear, share = e.dmg / d.maxHp, height = (e.y - d.y) / d.scale;
+    if (!(share > 0) || !w) return;
+    if (height >= BRUISE_HEAD) w[0] += share;
+    else if (height >= BRUISE_LEGS) { w[1] += share * 0.6; w[2] += share * 0.4; }
+    else w[3] += share;
   },
 };
 
 // === 08 AUDIO - everything is synthesised with Web Audio
 const MAX_VOICES = 30;
+const HIT_LAYER_VOICES = 12, HEART_BPM = 70, HEART_MUFFLE_HZ = 1200, HEART_HP = 0.2; // P13-02: layered impact sources sounding at once, the heartbeat's rate, the music's low-pass while it beats, and the health share under which a lone person's heart beats
 const MIN_GAP = { punch: 0.035, kick: 0.035, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.2, objHit: 0.05, menu: 0.03, land: 0.08 };
 const SCALES = { minor: [0, 2, 3, 5, 7, 8, 10], pentatonic: [0, 2, 4, 7, 9], phrygian: [0, 1, 3, 5, 7, 8, 10] };
 
 const Sound = {
   ctx: null, master: null, musicBus: null, sfxBus: null, comp: null, reverb: null, wet: null, dry: null, noiseBuf: null,
-  voices: 0, last: {}, unsupported: false, wired: false, lowpass: null,
+  voices: 0, last: {}, unsupported: false, wired: false, lowpass: null, ducked: false, heart: false, layerQ: [], // layerQ: the sources of the layered impacts that still sound, oldest first (P13-02)
 
   // Called on any user gesture; safe to call repeatedly
   unlock() {
@@ -13144,9 +13290,12 @@ const Sound = {
     if (!this.ctx) return;
     this.setReverb(def.audio.reverb, def.audio.wet);
   },
-  duck(on) {
+  duck(on) { this.ducked = on; this.muffle(); },
+  // Low-health heartbeat (P13-02): while it is on the music (the ambience) is low-passed to HEART_MUFFLE_HZ; paused and the results screen still duck it further
+  setHeart(on) { if (this.heart !== on) { this.heart = on; this.muffle(); } },
+  muffle() {
     if (!this.ctx) return;
-    this.lowpass.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, 0.08);
+    this.lowpass.frequency.setTargetAtTime(this.ducked ? 700 : this.heart ? HEART_MUFFLE_HZ : 20000, this.ctx.currentTime, 0.08);
   },
 
   // --- voice helpers
@@ -13180,6 +13329,7 @@ const Sound = {
     this.voices++;
     o.onended = () => { this.voices--; g.disconnect(); };
     o.start(t); o.stop(t + dur + 0.02);
+    return o;
   },
   noise(filter, f0, f1, q, dur, gain, delay, pan, dest) {
     if (this.voices >= MAX_VOICES + 12) return;
@@ -13196,17 +13346,45 @@ const Sound = {
     this.voices++;
     s.onended = () => { this.voices--; g.disconnect(); };
     s.start(t, Math.random()); s.stop(t + dur + 0.02);
+    return s;
   },
   panFor(x) { return Arena.def ? clamp(x / Arena.def.bounds.x, -1, 1) * 0.6 : 0; },
 
   // --- sound library
   hit(power, kick, x) {
-    if (!this.allow(kick ? 'kick' : 'punch')) return;
+    if (!this.allow(kick ? 'kick' : 'punch')) return false;
     const p = this.panFor(x), g = 0.35 + power * 0.5;
     this.tone('sine', kick ? 120 : 160, kick ? 42 : 55, 0.12 + power * 0.14, g, 0, p);
     this.noise('bandpass', kick ? 1100 : 1700, 500, 0.9, 0.07 + power * 0.1, g * 0.8, 0, p);
     if (power > 0.6) { this.noise('lowpass', 700, 200, 0.7, 0.28, g * 0.7, 0, p); this.tone('sine', 70, 28, 0.32, g * 0.8, 0, p); }
+    return true;
   },
+  /* Layered impact (P13-02), on top of hit(): a thud pitched by the body's weight class (heavier is lower), a slap (tier 1), a snap (2) or a crack (3), the material of the item that struck, and a crowd's swell on the knock-out
+     that ends a fight where bystanders stand. At most HIT_LAYER_VOICES of these sources sound at once: the oldest stops. They go through the effects bus, so the volume settings scale them. */
+  layers(e) {
+    const p = this.panFor(e.x), tier = e.mv.tier || 1, g = 0.1 + tier * 0.05, weight = e.def.weight || 0;
+    this.layer(this.tone('sine', 210 - weight * 28, 70, 0.1 + weight * 0.02, g * 1.6, 0, p));
+    this.layer(tier >= 3 ? this.noise('highpass', 3600, 2400, 0.8, 0.09, g, 0, p) : this.noise('bandpass', tier === 2 ? 2600 : 3400, 1800, 1.1, 0.05, g, 0, p));
+    const item = e.mv.wpn && WEAPONS[e.mv.wpn];
+    if (item) this.material(item.mat, false, e.x);
+    if (e.ko && koEndsFight(e.def) && Arena.props.some((q) => q.ph !== undefined)) this.layer(this.swell());
+  },
+  layer(source) {
+    if (!source) return;
+    const queue = this.layerQ;
+    queue.push(source);
+    if (queue.length > HIT_LAYER_VOICES) { try { queue.shift().stop(); } catch (err) { /* it had ended already */ } }
+  },
+  swell() { // filtered noise that rises over 0.4 s and fades by 1.6 s
+    const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noiseBuf; f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.5;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.22, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+    s.connect(f); f.connect(g); g.connect(this.sfxBus);
+    this.voices++; s.onended = () => { this.voices--; g.disconnect(); };
+    s.start(t, Math.random()); s.stop(t + 1.7);
+    return s;
+  },
+  heartbeat() { if (this.allow('heart', 0.5)) { this.tone('sine', 62, 38, 0.14, 0.5); this.tone('sine', 55, 36, 0.12, 0.35, 0.17); } }, // lub-dub
   block(perfect, broke, x, brk, sway) {
     if (!this.allow('block')) return;
     const p = this.panFor(x);
@@ -13306,7 +13484,7 @@ const Sound = {
     const on = (n, fn) => Events.on(n, (e) => { if (this.ready()) fn(e); });
     on('hit', (e) => {
       const power = clamp((e.mv.tier || 1) / 3 + (e.counter ? 0.2 : 0) + (e.ko ? 0.4 : 0), 0.15, 1);
-      this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x);
+      if (this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x)) this.layers(e);
       if (e.mv.tier >= 2 || e.ko) this.grunt(e.def.index, e.ko || e.mv.tier === 3);
       if (e.counter) CUE_NOTES.ting.forEach((hz, i) => this.tone(i ? 'sine' : 'triangle', hz, hz, 0.16 - i * 0.04, 0.14 - i * 0.07, i * 0.03));
     });
@@ -16174,6 +16352,11 @@ function testApi() {
     fightGrade, gradeInputs, gradeLetter,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+    KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+    LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
+    HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
+    TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+    Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     get: { controlsChanged: () => controlsChanged },
