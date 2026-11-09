@@ -302,9 +302,11 @@ const SelfTest = {
       const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
       const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
       const tickChecksum = (m) => {
-        const parts = [m.tick, m.phase, Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
+        const parts = [m.tick, m.phase, m.round, m.roundTicks, m.hitStop, m.wins.join('/'), Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
         for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
         for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
+        for (const item of m.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);   // loose items
+        for (const h of m.hazards) parts.push(h.type, h.state, h.t, h.life, h.x, h.z);   // hazards
         return fnv1a(parts.join(','));
       };
       const person = (it, f, o, mm) => {   // a seat's scripted presses; assist and guardAssist are copied from Settings as PlayerInput.fillIntent does: the match must overwrite them from its own cfg.assist
@@ -357,7 +359,7 @@ const SelfTest = {
       for (const name in SCENARIOS) {
         const scenario = SCENARIOS[name], base = play(scenario, {}, false);
         const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
-        if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);
+        if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);   // movement mode: the scripted seat writes fwd and side itself (PlayerInput.toFighterFrame never runs), so that run only shows the sim never reads the setting; it is an input conversion (audit row 6)
         for (const [label, viewer, swapped] of runs) {
           const run = play(scenario, viewer, swapped), at = firstDifference(base.sums, run.sums);
           if (at >= 0) problems.push(name + ' with ' + label + ': first different tick ' + at);
