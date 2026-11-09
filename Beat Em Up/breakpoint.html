@@ -191,6 +191,9 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 #banner{position:absolute;left:0;right:0;top:36%;text-align:center;font:900 italic clamp(2.2em,12vmin,7em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.05em;text-transform:uppercase;text-shadow:0 .05em .1em #000,0 0 .3em #000;opacity:0}
 #banner.on{opacity:1}
 #banner small{display:block;font-size:.3em;letter-spacing:.2em;margin-top:.3em;font-style:normal;font-family:"Segoe UI",system-ui,sans-serif}
+#netwait{position:absolute;left:50%;top:18%;transform:translateX(-50%);padding:.3em .9em;background:rgba(0,0,0,.7);border:2px solid #ffb347;color:#ffb347;letter-spacing:.08em;text-align:center;pointer-events:auto}
+#netwait[hidden]{display:none}
+#netwait button{margin-left:.8em;font:inherit;color:#fff;background:#222;border:2px solid #fff;padding:.1em .7em;cursor:pointer}
 #warn,#warn2{position:absolute;left:1.2em;bottom:1.2em;font-size:1em;letter-spacing:.1em;color:#ffb347;border:2px dashed #ffb347;padding:.2em .7em;background:rgba(0,0,0,.6);opacity:0}
 #warn2{left:auto;right:1.2em;bottom:4.4em}
 #warn.on,#warn2.on{opacity:1;animation:blink 1s steps(2) infinite}
@@ -353,6 +356,7 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
     <div id="combo"></div>
     <div id="combo2"></div>
     <div id="banner"></div>
+    <div id="netwait" role="status" hidden></div>
     <div id="warn" role="status">LOW STAMINA</div>
     <div id="warn2" role="status">P2 LOW STAMINA</div>
     <div id="grappleHint" hidden></div>
@@ -403,13 +407,15 @@ const hexToRgb = (hex) => {
 // Deterministic generator (mulberry32). Simulation uses seeded RNG, visuals use Math.random.
 function makeRng(seed) {
   let s = seed >>> 0;
-  return function next() {
+  const next = function next() {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  next.state = () => s; // the whole generator state: online peers compare it in their state checksum (P12-02)
+  return next;
 }
 let simRng = makeRng(1);
 
@@ -11447,7 +11453,7 @@ class MatchSim {
     let revived = 0;
     for (let k = 0; k < this.partySize; k++) {
       const member = this.fighters[k];
-      if (member.alive) continue;
+      if (member.alive || member.netOut) continue; // netOut: its online peer left (forfeit), the seat stays out
       const { y, groundY, supportY } = member; // it stands up where it lay, on whatever it lay on
       member.reset(member.x, member.z, member.yaw, hpFraction, 1);
       member.y = member.prevY = y; member.groundY = groundY; member.supportY = supportY;
@@ -11456,6 +11462,20 @@ class MatchSim {
       revived++;
     }
     return revived;
+  }
+  // The online peer that steered fighter `index` left (P12-02; every peer calls this on the same tick). A 1v1 or a bracket fight is lost by that fighter: the match is over at once. A crowd fight or a lineup seats the fighter out like a knocked-out player.
+  forfeit(index) {
+    const f = this.fighters[index];
+    if (!f || f.netOut || this.matchOver || this.phase === 'matchEnd') return 'none';
+    f.netOut = true;
+    if (f.alive) Combat.knockOut(f, null, null, this);
+    if (this.brawl || this.setup) return 'seatedOut';
+    const winner = index ^ 1;
+    this.wins[winner] = Math.max(this.wins[winner], this.winsNeeded);
+    this.roundWinner = winner; this.matchOver = true; this.matchWinner = winner; this.locked = true;
+    if (this.phase === 'waiting') { this.phase = 'matchEnd'; this.phaseTicks = 0; Events.emit('matchEnd', { match: this }); } // between rounds: no next round
+    else if (this.phase !== 'roundEnd') { this.phase = 'roundEnd'; this.phaseTicks = 0; Events.emit('roundEnd', { winner, reason: 'forfeit', round: this.round, wins: this.wins.slice(), matchOver: true, match: this }); } // a round end already running goes on to the match end by itself
+    return 'forfeit';
   }
   startRound() {
     this.round++;
@@ -12339,6 +12359,372 @@ function shuffled(list, rng) {
   return out;
 }
 
+/* --- Online lockstep (P12-02): delay-based lockstep on the fixed 60 Hz simulation, relayed by the host (star). Appendix C, "P12-02 built".
+   Every peer runs the whole MatchSim. A seat's input for frame n + delay is sampled when frame n starts and sent; a peer steps frame n only when it holds the input of every seat for frame n,
+   so all peers feed the same inputs to the same simulation and stay equal. The CPU fighters run on every peer. Only the intent crosses the network (4 bytes a frame: movement and buttons), never a viewer setting.
+   HAND-OFF POINT for P12-03 (4 peers) and P12-06 (lobby): once the link of P12-01 is open, `LockstepTransport.fromLink(link)` (the link made by `Online.createLink`: input = its quick channel, unordered with no resend, control = its reliable one) gives the transport;
+   `new LockstepSession({ match, seat, seatCount, host, links | hostLink, delay })` runs a match over it; `Game.attachNet(session, hooks)` plays it. Each packet of the quick channel carries the last NET_REDUNDANCY frames of a seat; the reliable channel carries pings, checksums, resend requests and drops.
+   The connection belongs to its owner (P12-01 / the lobby): `Game.endMatch` (a rematch, a restart, the next tournament fight) only calls `session.detach()`, which lets go of the transports; make a new session on the same transports for the next match. `session.close()` also only detaches a link transport,
+   and the owner closes the link and its RTCPeerConnection. `Game.leaveOnline()` (the Leave and Menu buttons of the status line) does quitToMenu, `session.close()` and then `hooks.onLeave()`, where the owner closes the link so the others see it at once.
+   A transport is { send(channel, data), close(), onmessage(channel, data), onclose() } with channel 'input' (a Uint8Array) or 'control' (a string). Rollback is out of scope. */
+const NET_INPUT_DELAY = 2, NET_DELAY_MIN = 2, NET_DELAY_MAX = 6; // frames; 2 on a LAN
+const NET_FRAME_MS = 16.7; // one frame in the delay formula
+const NET_REDUNDANCY = 8; // input frames per packet
+const NET_CHECK_EVERY = 60; // frames between state checksums
+const NET_WAIT_SHOW_MS = 500, NET_DROP_MS = 10000, NET_GUEST_GRACE_MS = 5000; // "Waiting for P3..." after 0.5 s; a seat is dropped after 10 s (a guest lets the host decide first)
+const NET_PING_SAMPLES = 20, NET_PING_EVERY_MS = 1000;
+const NET_RESEND_MS = 16; // a stalled peer repeats its newest inputs this often
+const NET_NEED_AFTER_MS = 100, NET_NEED_EVERY_MS = 250, NET_FILL_MAX = 120; // a stalled peer asks for the missing frames on the reliable channel
+const NET_HISTORY = 600, NET_AHEAD_MAX = 64; // frames kept behind the sim (answers to resend requests); frames accepted ahead of it
+const NET_CATCH_UP_TICKS = 4; // the game loop catches up at most this many ticks after a stall
+const NET_FLAGS = ['run', 'crouch', 'defend', 'height', 'jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock', 'stickAnalog']; // bits 0-11 of an input's flag word; bits 12-13 sidestep, 14-15 grapDir
+const NET_PULSES = ['jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock'], NET_SIDESTEP_BITS = 0x3000; // the one-tick presses: kept for the next frame when the sim did not read one (a hit freeze)
+const NET_PULSE_BITS = NET_PULSES.reduce((bits, key) => bits | (1 << NET_FLAGS.indexOf(key)), NET_SIDESTEP_BITS);
+const NET_SKIP_BITS = ['jump', 'punch', 'kick', 'grapple'].reduce((bits, key) => bits | (1 << NET_FLAGS.indexOf(key)), 0); // the same four actions as SKIP_ACTIONS
+const NET_GRAP_DIRS = ['fwd', 'back', 'left', 'right'], NET_GRAP_DIR_BITS = 0xc000, NET_GRAPPLE_BIT = 1 << NET_FLAGS.indexOf('grapple');
+
+// One seat's intent as a 32-bit number: fwd and side as signed bytes (steps of 1/127), then 16 flag bits. Every peer, the sender too, plays the decoded value.
+function encodeInput(it) {
+  let flags = 0;
+  NET_FLAGS.forEach((key, bit) => { if (it[key]) flags |= 1 << bit; });
+  flags |= (it.sidestep < 0 ? 1 : it.sidestep > 0 ? 2 : 0) << 12;
+  flags |= Math.max(0, NET_GRAP_DIRS.indexOf(it.grapDir)) << 14;
+  const byteOf = (value) => Math.round(clamp(value, -1, 1) * 127) & 255;
+  return (byteOf(it.fwd) | (byteOf(it.side) << 8) | (flags << 16)) >>> 0;
+}
+function decodeInput(code, it) {
+  clearIntent(it);
+  const axis = (byte) => clamp((byte > 127 ? byte - 256 : byte) / 127, -1, 1);
+  it.fwd = axis(code & 255); it.side = axis((code >>> 8) & 255);
+  const flags = code >>> 16;
+  NET_FLAGS.forEach((key, bit) => { it[key] = (flags & (1 << bit)) !== 0; });
+  const step = (flags >> 12) & 3;
+  it.sidestep = step === 1 ? -1 : step === 2 ? 1 : 0;
+  it.grapDir = NET_GRAP_DIRS[(flags >> 14) & 3];
+  return it;
+}
+// Presses the sim did not read (a frame inside a hit freeze) join the next sampled input, so they are not lost; carried = flag bits
+function mergePresses(code, carried) {
+  const flags = code >>> 16;
+  let merged = flags | (carried & NET_PULSE_BITS);
+  if (!(flags & NET_GRAPPLE_BIT) && (carried & NET_GRAPPLE_BIT)) merged = (merged & ~NET_GRAP_DIR_BITS) | (carried & NET_GRAP_DIR_BITS);
+  return ((code & 0xffff) | (merged << 16)) >>> 0;
+}
+
+// A packet of the input channel: seat, the match number, the newest frame, a count, then that many inputs (the newest last), all big-endian. A packet of another match (a late one after a rematch) is dropped on receipt.
+const NET_PACKET_HEAD = 8;
+function packInputs(seat, last, codes, matchId = 0) {
+  const bytes = new Uint8Array(NET_PACKET_HEAD + codes.length * 4), view = new DataView(bytes.buffer);
+  bytes[0] = seat; view.setUint16(1, matchId & 0xffff); view.setUint32(3, last); bytes[7] = codes.length;
+  codes.forEach((code, i) => view.setUint32(NET_PACKET_HEAD + i * 4, code));
+  return bytes;
+}
+function unpackInputs(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < NET_PACKET_HEAD) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[7];
+  if (count < 1 || count > NET_FILL_MAX || bytes.length !== NET_PACKET_HEAD + count * 4) return null;
+  const codes = [];
+  for (let i = 0; i < count; i++) codes.push(view.getUint32(NET_PACKET_HEAD + i * 4));
+  return { seat: bytes[0], matchId: view.getUint16(1), last: view.getUint32(3), codes };
+}
+
+// The state every peer must hold equal (positions, velocities, health, stamina, states, timers, items, hazards, breakables and the simRng state) as one FNV-1a 32 number
+function matchChecksum(match) {
+  const parts = [match.tick, match.phase, match.phaseTicks, match.round, match.roundTicks, match.matchTicks, match.hitStop, match.slowTicks, match.endTimer, match.locked, match.wins.join('/'), Combat.attackCounter, Combat.flightCounter, simRng.state()];
+  const index = (other) => (other ? other.index : -1);
+  for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '',
+    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target));
+  for (const controller of match.controllers) if (controller.tickNo !== undefined) parts.push(controller.tickNo); // the CPU's own clock
+  for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
+  for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
+  for (const h of match.hazards) parts.push(h.type, h.state, h.t, h.life, h.x, h.z);
+  return fnv1a(parts.join(','));
+}
+
+function netMedian(samples) {
+  const sorted = samples.slice().sort((a, b) => a - b), mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+// The input delay in frames from the round-trip times (ms) of the guests' links: clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6). With several guests the slowest path is guest to host to guest: the two largest round trips, halved and added.
+function netDelayFor(roundTrips) {
+  const sorted = roundTrips.filter(Number.isFinite).sort((a, b) => b - a);
+  if (!sorted.length) return NET_INPUT_DELAY;
+  const oneWayMs = sorted.length > 1 ? (sorted[0] + sorted[1]) / 2 : sorted[0] / 2;
+  return clamp(Math.ceil(oneWayMs / NET_FRAME_MS) + 1, NET_DELAY_MIN, NET_DELAY_MAX);
+}
+
+/* The transport over a link of P12-01 (`Online.createLink`): { send(data, quick), onMessage(fn(data, quick)), onState(fn(state)), close(), state }; input = the quick channel (ArrayBuffer in, a Uint8Array out), control = the reliable one (strings).
+   close() only lets go of the link's listeners: the link, and its RTCPeerConnection, belong to whoever made it. This is what production uses (LockstepTransport.fromLink). */
+class LockstepLinkTransport {
+  constructor(link) {
+    this.link = link;
+    this.onmessage = null; this.onclose = null;
+    this.offs = [
+      link.onMessage((data, quick) => { if (this.onmessage) this.onmessage(quick ? 'input' : 'control', quick ? new Uint8Array(data) : data); }),
+      link.onState((state) => { if ((state === 'closed' || state === 'failed') && this.onclose) this.onclose(); }),
+    ];
+  }
+  send(channel, data) { this.link.send(data, channel === 'input'); } // false when the link is not open: the redundancy and the resend request cover it
+  close() { this.offs.forEach((off) => off()); this.offs = []; }
+}
+const LockstepTransport = { fromLink: (link) => new LockstepLinkTransport(link) };
+
+// The controller of a seat in an online match: it plays the input the session holds for the tick
+class NetSeatController {
+  constructor(session, seat, base) {
+    this.session = session; this.seat = seat; this.base = base;
+    this.human = true;
+    this.input = base ? base.input : null; // the local device (reviveTeam clears its latched presses)
+    this.readFrame = 0; // the last tick the sim read this seat's input
+  }
+  think(f, opp, match, it) { this.readFrame = match.tick; return decodeInput(this.session.codeFor(this.seat, match.tick), it); }
+  reset() {}
+}
+
+/* One online match on one peer. Options: match (a MatchSim with human seats), seat (this peer's seat, 0 = the host), seatCount, fighterOf (fighter index per seat; default seat = fighter index), host,
+   links ({ seat: transport } on the host) or hostLink (a guest's one transport), delay, now (ms clock; default performance.now), localController (the device this peer plays with; default P1's
+   controller: keyboard, pad and touch, on the host and on every guest). Callbacks, also assignable later: onWaiting(text or null, seat), onDesync({ text, frame, seat }), onDrop({ seat, name, outcome }) with outcome 'forfeit', 'seatedOut' or 'lost' (the host is gone). */
+class LockstepSession {
+  constructor(o) {
+    // matchId: the same number on every peer and new for each match (default: the match seed, which the lobby shares); packets and messages of another match are dropped
+    this.match = o.match; this.matchId = (o.matchId === undefined ? o.match.cfg.seed : o.matchId) & 0xffff; this.seat = o.seat | 0; this.seatCount = o.seatCount | 0; this.host = !!o.host;
+    this.fighterOf = o.fighterOf || Array.from({ length: this.seatCount }, (_, seat) => seat);
+    this.now = o.now || (() => performance.now());
+    this.delay = clamp(Math.round(o.delay || NET_INPUT_DELAY), NET_DELAY_MIN, NET_DELAY_MAX);
+    this.onWaiting = o.onWaiting || null; this.onDesync = o.onDesync || null; this.onDrop = o.onDrop || null;
+    this.peers = new Map(this.host ? Object.entries(o.links || {}).map(([seat, link]) => [Number(seat), link]) : [[0, o.hostLink]]); // seat -> transport
+    this.firstFrame = this.match.tick + 1;
+    this.sentUpTo = this.match.tick; // the newest frame of this seat's input that was made
+    this.got = Array.from({ length: this.seatCount }, () => new Map()); // seat -> frame -> input code
+    this.carry = 0; this.scratch = makeIntent();
+    this.ownSums = new Map(); this.theirSums = new Map(); // frame -> checksum; frame -> seat -> checksum that came before our own
+    this.dropped = new Map(); this.applied = new Set(); // seat -> the first frame it has no input for; seats whose drop was played
+    this.rtts = new Map(); this.lastPing = -Infinity; // seat -> the last NET_PING_SAMPLES round trips (host)
+    this.stalledSince = 0; this.waitingSeat = -1; this.lastNeed = 0; this.lastResend = 0;
+    this.ended = ''; // '' while it runs, then 'desync', 'lost' or 'closed'
+    this.closing = false;
+    this.local = new NetSeatController(this, this.seat, o.localController || PlayerController);
+    this.stats = { needs: 0, fills: 0, retunes: 0 }; // resend requests sent, frames that came from a fill, delay changes by retune()
+    this.lastPhase = this.match.phase;
+    for (let seat = 0; seat < this.seatCount; seat++) this.match.controllers[this.fighterOf[seat]] = seat === this.seat ? this.local : new NetSeatController(this, seat, null);
+    for (const [seat, link] of this.peers) { link.onmessage = (channel, data) => this.receive(seat, channel, data); link.onclose = () => this.linkClosed(seat); }
+  }
+  // The input of a seat for a tick (a dropped seat stands still)
+  codeFor(seat, frame) {
+    const from = this.dropped.get(seat);
+    return from !== undefined && frame >= from ? 0 : this.got[seat].get(frame) || 0;
+  }
+  // --- one tick: true when the sim advanced, false while it waits for an input (or after the session ended). The game loop calls it instead of match.step().
+  step() {
+    if (this.ended) return false;
+    const now = this.now(), frame = this.match.tick + 1;
+    this.service(now);
+    this.playDrops(frame);
+    this.sampleLocal(frame);
+    const missing = this.missingSeat(frame);
+    if (missing >= 0) { this.stall(missing, frame, now); return false; }
+    if (this.stalledSince) { this.stalledSince = 0; this.waitingSeat = -1; if (this.onWaiting) this.onWaiting(null, -1); }
+    if (this.match.phase === 'roundEnd' && this.skipPressed(frame)) this.match.skipRoundEnd(); // the round-end skip is an input of the frame, so every peer skips on the same tick
+    const frozen = this.match.phase === 'fight' && this.match.hitStop > 0; // only a hit freeze keeps presses (not a knock-out, a lock or a countdown)
+    this.match.step();
+    if (frozen) this.carry |= (this.got[this.seat].get(frame) >>> 16) & (NET_PULSE_BITS | NET_GRAP_DIR_BITS);
+    if (this.match.phase !== 'fight') this.carry = 0;
+    if (this.host && this.lastPhase === 'roundEnd' && this.match.phase !== 'roundEnd' && this.hasRtt()) { this.retune(); this.stats.retunes++; } // between rounds the host sets the delay again; each sender tags its own frames, so no peer needs to agree on the tick
+    this.lastPhase = this.match.phase;
+    if (frame % NET_CHECK_EVERY === 0) this.checkpoint(frame);
+    for (const frames of this.got) frames.delete(frame - NET_HISTORY);
+    return true;
+  }
+  // A jump, punch, kick or grapple press by any seat that still plays: what skips the round-end sequence
+  skipPressed(frame) {
+    for (let seat = 0; seat < this.seatCount; seat++) {
+      const from = this.dropped.get(seat); // like every other check: a dropped seat counts up to its drop frame, whenever this peer learned of the drop
+      if ((from === undefined || frame < from) && ((this.got[seat].get(frame) >>> 16) & NET_SKIP_BITS)) return true;
+    }
+    return false;
+  }
+  service(now) {
+    if (this.host && now - this.lastPing >= NET_PING_EVERY_MS) { this.lastPing = now; this.ping(); }
+  }
+  // This seat's input for frame + delay (the frames before it that were never made, at the start or after a longer delay, are empty), sent with the last NET_REDUNDANCY frames
+  sampleLocal(frame) {
+    const target = frame + this.delay;
+    if (target <= this.sentUpTo) return;
+    const mine = this.got[this.seat];
+    for (let f = this.sentUpTo + 1; f < target; f++) mine.set(f, 0);
+    mine.set(target, this.readDevice());
+    this.sentUpTo = target;
+    this.sendWindow();
+  }
+  readDevice() {
+    const f = this.match.fighters[this.fighterOf[this.seat]];
+    this.local.base.think(f, f.target, this.match, this.scratch);
+    let code = encodeInput(this.scratch);
+    if (this.carry) { code = mergePresses(code, this.carry); this.carry = 0; }
+    return code;
+  }
+  sendWindow() {
+    const mine = this.got[this.seat], first = Math.max(this.firstFrame, this.sentUpTo - NET_REDUNDANCY + 1), codes = [];
+    for (let f = first; f <= this.sentUpTo; f++) codes.push(mine.get(f) || 0);
+    if (!codes.length) return;
+    const bytes = packInputs(this.seat, this.sentUpTo, codes, this.matchId);
+    for (const [, link] of this.livePeers()) link.send('input', bytes);
+    this.lastResend = this.now();
+  }
+  missingSeat(frame) {
+    for (let seat = 0; seat < this.seatCount; seat++) {
+      const from = this.dropped.get(seat);
+      if ((from === undefined || frame < from) && !this.got[seat].has(frame)) return seat;
+    }
+    return -1;
+  }
+  // Waiting for a seat's input: repeat our newest inputs, show the text after NET_WAIT_SHOW_MS, ask for the missing frames, drop the seat after NET_DROP_MS (the host decides; a guest gives the host a grace)
+  stall(seat, frame, now) {
+    if (!this.stalledSince) this.stalledSince = now;
+    const waited = now - this.stalledSince;
+    if (now - this.lastResend >= NET_RESEND_MS) this.sendWindow();
+    if (waited >= NET_WAIT_SHOW_MS && seat !== this.waitingSeat) { this.waitingSeat = seat; if (this.onWaiting) this.onWaiting('Waiting for P' + (seat + 1) + '...', seat); }
+    if (waited >= NET_NEED_AFTER_MS && now - this.lastNeed >= NET_NEED_EVERY_MS) { this.lastNeed = now; this.stats.needs++; this.sendControl(this.host ? seat : 0, { t: 'need', seat, from: frame }); }
+    if (this.host) { if (waited >= NET_DROP_MS) this.dropSeat(seat, frame); }
+    else if (waited >= NET_DROP_MS + (seat === 0 ? 0 : NET_GUEST_GRACE_MS)) this.stop('lost', { seat: 0 });
+  }
+  // --- leaving seats: every peer plays the drop on the same frame (the first frame the seat has no input for)
+  dropSeat(seat, frame) {
+    if (this.dropped.has(seat)) return;
+    this.broadcast({ t: 'drop', seat, f: frame }, -1); // the dropped peer hears it too, if it still can; after this nothing is sent to it
+    this.dropped.set(seat, frame);
+  }
+  playDrops(frame) {
+    for (const [seat, from] of this.dropped) {
+      if (frame < from || this.applied.has(seat)) continue;
+      this.applied.add(seat);
+      const outcome = this.match.forfeit(this.fighterOf[seat]);
+      if (this.onDrop) this.onDrop({ seat, name: 'P' + (seat + 1), outcome });
+    }
+  }
+  linkClosed(seat) {
+    if (this.closing || this.ended) return;
+    if (!this.host) { this.stop('lost', { seat: 0 }); return; }
+    let frame = this.match.tick + 1;
+    while (this.got[seat].has(frame)) frame++; // the first frame the seat never sent
+    this.dropSeat(seat, frame);
+  }
+  stop(reason, info) {
+    if (this.ended) return;
+    this.ended = reason;
+    this.stalledSince = 0; this.waitingSeat = -1;
+    if (this.onWaiting) this.onWaiting(null, -1);
+    if (reason === 'desync' && this.onDesync) this.onDesync(Object.assign({ text: 'Out of sync' }, info));
+    if (reason === 'lost' && this.onDrop) this.onDrop({ seat: info.seat, name: 'P' + (info.seat + 1), outcome: 'lost' }); // seat = the one that is gone: the host, or this peer itself when the host dropped it
+  }
+  // Lets go of the links without closing them: the connection belongs to whoever made it (P12-01 / the lobby) and outlives a match, a rematch and the next tournament fight. Game.endMatch does this.
+  detach() {
+    this.closing = true;
+    if (!this.ended) this.ended = 'closed';
+    this.onWaiting = this.onDesync = this.onDrop = null;
+    for (const link of this.peers.values()) { link.onmessage = null; link.onclose = null; }
+  }
+  // detach() and close the transports (a link transport only detaches: the link and its RTCPeerConnection are closed by their owner).
+  close() {
+    this.detach();
+    for (const link of this.peers.values()) link.close();
+  }
+  // --- checksums: every NET_CHECK_EVERY frames each peer sends its own; the host passes them on; any difference stops everyone
+  checkpoint(frame) {
+    const sum = matchChecksum(this.match);
+    this.ownSums.set(frame, sum); this.ownSums.delete(frame - NET_HISTORY);
+    for (const old of this.theirSums.keys()) if (old <= frame - NET_HISTORY) this.theirSums.delete(old);
+    this.broadcast({ t: 'sum', seat: this.seat, f: frame, s: sum }, -1);
+    const early = this.theirSums.get(frame);
+    this.theirSums.delete(frame);
+    if (early) for (const [seat, other] of early) if (other !== sum) { this.desync(frame, seat); return; }
+  }
+  onSum(seat, frame, sum) {
+    const own = this.ownSums.get(frame);
+    if (own === undefined) { if (!this.theirSums.has(frame)) this.theirSums.set(frame, new Map()); this.theirSums.get(frame).set(seat, sum); return; }
+    if (own !== sum) this.desync(frame, seat);
+  }
+  desync(frame, seat) {
+    this.broadcast({ t: 'desync', f: frame, seat }, -1);
+    this.stop('desync', { frame, seat });
+  }
+  // --- delay and pings (host): the lobby and the time between rounds call retune()
+  ping() { this.broadcast({ t: 'ping', at: this.now() }, -1); }
+  rtt(seat) { const samples = this.rtts.get(seat); return samples && samples.length ? netMedian(samples) : NaN; }
+  hasRtt() { return this.livePeers().some(([seat]) => Number.isFinite(this.rtt(seat))); }
+  recommendedDelay() { return netDelayFor(this.livePeers().map(([seat]) => this.rtt(seat))); }
+  setDelay(frames) {
+    this.delay = clamp(Math.round(frames), NET_DELAY_MIN, NET_DELAY_MAX);
+    if (this.host) this.broadcast({ t: 'delay', n: this.delay }, -1);
+    return this.delay;
+  }
+  retune() { return this.setDelay(this.recommendedDelay()); }
+  // --- messages
+  sendControl(seat, message) { const link = this.peers.get(seat); if (link) link.send('control', JSON.stringify(Object.assign({ mid: this.matchId }, message))); }
+  livePeers() { return Array.from(this.peers).filter(([seat]) => !this.dropped.has(seat)); } // [seat, link] of the seats not dropped
+  broadcast(message, except) { for (const [seat] of this.livePeers()) if (seat !== except) this.sendControl(seat, message); }
+  validSeat(seat) { return Number.isInteger(seat) && seat >= 0 && seat < this.seatCount; }
+  store(seat, last, codes) { // returns how many frames were new
+    const frames = this.got[seat], tick = this.match.tick;
+    let added = 0;
+    codes.forEach((code, i) => {
+      const frame = last - codes.length + 1 + i;
+      if (frame > tick - NET_HISTORY && frame <= tick + NET_AHEAD_MAX && !frames.has(frame)) { frames.set(frame, code); added++; }
+    });
+    return added;
+  }
+  receive(from, channel, data) {
+    if (this.ended || (this.host && this.dropped.has(from))) return; // nothing from a dropped seat counts any more (it may still be running on its own)
+    if (channel === 'input') {
+      const packet = unpackInputs(data);
+      if (!packet || packet.matchId !== this.matchId || !this.validSeat(packet.seat) || packet.seat === this.seat || (this.host && packet.seat !== from)) return; // a guest sends its own seat only
+      this.store(packet.seat, packet.last, packet.codes);
+      if (this.host) for (const [seat, link] of this.livePeers()) if (seat !== from) link.send('input', data); // the relay: the same bytes to every other guest
+      return;
+    }
+    let message = null;
+    try { message = JSON.parse(data); } catch (error) { return; } // the reliable channel also carries P12-01's own strings (bp-ping: / bp-pong:) and anything unknown: ignored, never an error or a desync
+    if (message && typeof message === 'object') this.onControl(from, message, data);
+  }
+  onControl(from, m, raw) {
+    if (m.mid !== this.matchId) return; // a message of another match (a late sum or desync after a rematch)
+    const relay = () => { if (this.host) for (const [seat, link] of this.livePeers()) if (seat !== from) link.send('control', raw); };
+    const frameOk = (frame) => Number.isInteger(frame) && frame > this.match.tick - NET_HISTORY && frame <= this.match.tick + NET_AHEAD_MAX;
+    switch (m.t) {
+      case 'ping': this.sendControl(from, { t: 'pong', at: m.at }); break;
+      case 'pong': {
+        const samples = this.rtts.get(from) || [];
+        if (Number.isFinite(m.at)) samples.push(this.now() - m.at);
+        if (samples.length > NET_PING_SAMPLES) samples.shift();
+        this.rtts.set(from, samples);
+        break;
+      }
+      case 'delay': if (!this.host && from === 0 && Number.isFinite(m.n)) this.delay = clamp(Math.round(m.n), NET_DELAY_MIN, NET_DELAY_MAX); break;
+      case 'sum':
+        if (this.validSeat(m.seat) && m.seat !== this.seat && (!this.host || m.seat === from) && frameOk(m.f) && m.f % NET_CHECK_EVERY === 0 && Number.isInteger(m.s) && m.s >= 0 && m.s <= 0xffffffff) { relay(); this.onSum(m.seat, m.f, m.s); }
+        break;
+      case 'desync': if (frameOk(m.f) && this.validSeat(m.seat)) { relay(); this.stop('desync', { frame: m.f, seat: m.seat }); } break;
+      case 'need': {
+        if (!this.validSeat(m.seat)) break;
+        const codes = [];
+        for (let frame = m.from; codes.length < NET_FILL_MAX && this.got[m.seat].has(frame); frame++) codes.push(this.got[m.seat].get(frame));
+        if (codes.length) this.sendControl(from, { t: 'fill', seat: m.seat, from: m.from, codes });
+        break;
+      }
+      case 'fill':
+        if (this.validSeat(m.seat) && m.seat !== this.seat && (!this.host || m.seat === from) && Array.isArray(m.codes) && Number.isInteger(m.from)) {
+          this.stats.fills += this.store(m.seat, m.from + Math.min(m.codes.length, NET_FILL_MAX) - 1, m.codes.slice(0, NET_FILL_MAX).map((code) => Number(code) >>> 0));
+        }
+        break;
+      case 'drop':
+        if (this.host || from !== 0 || !this.validSeat(m.seat) || !Number.isInteger(m.f)) break;
+        if (m.seat === this.seat) this.stop('lost', { seat: this.seat }); // the host dropped this peer
+        else if (!this.dropped.has(m.seat)) this.dropped.set(m.seat, m.f);
+        break;
+    }
+  }
+}
+
 const Game = {
   state: GS.LOADING,
   pausedFrom: null,
@@ -12347,6 +12733,8 @@ const Game = {
   last: 0,
   alpha: 0,
   match: null,
+  net: null, // the LockstepSession of an online match (attachNet), or null
+  netNote: null, // what the online status line shows: { waiting, final, rematch, leave }
   run: null,
   selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, startSides: Object.assign({}, SIDE_DEFAULT), tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
@@ -12898,7 +13286,31 @@ const Game = {
     else if (this.state !== GS.COUNTDOWN) this.go(GS.COUNTDOWN);
     if (this.match.phase === 'fight' && this.state === GS.COUNTDOWN) this.go(GS.FIGHT);
   },
+  // An online match (P12-02): the session steps the sim and decides when it waits. hooks: onRematch() (the "Out of sync" Rematch button; no button without it), onLeave() (after Leave or Menu: close the link), onDesync(info), onDrop(info). The lobby (P12-06) builds the session and calls this.
+  attachNet(session, hooks = {}) {
+    this.net = session;
+    this.netNote = { waiting: '', final: '', rematch: hooks.onRematch || null, onLeave: hooks.onLeave || null, leave: false };
+    session.onWaiting = (text) => { this.netNote.waiting = text || ''; this.netShow(); };
+    session.onDesync = (info) => { this.netNote.final = info.text; this.netShow(); if (hooks.onDesync) hooks.onDesync(info); };
+    session.onDrop = (info) => { if (info.outcome === 'lost') { this.netNote.final = 'Connection lost'; this.netShow(); } if (hooks.onDrop) hooks.onDrop(info); };
+  },
+  // The one status line of an online fight: Connection lost / Out of sync (Menu, and Rematch where there is a handler), the question behind the pause key (Leave / Stay), or the waiting text (Menu)
+  netShow() {
+    const note = this.netNote, menu = ['Menu', () => this.leaveOnline()];
+    if (!note) UI.netStatus('');
+    else if (note.final) UI.netStatus(note.final, ...(note.rematch ? [['Rematch', note.rematch]] : []), menu);
+    else if (note.leave) UI.netStatus('Leave the match?', ['Leave', () => this.leaveOnline()], ['Stay', () => { note.leave = false; this.netShow(); }]);
+    else UI.netStatus(note.waiting, menu);
+  },
+  // Out of an online match for good: back to the menu and both channels closed, so the others see it at once instead of waiting 10 s
+  leaveOnline() {
+    const session = this.net, onLeave = this.netNote && this.netNote.onLeave;
+    this.quitToMenu();
+    if (session) session.close();
+    if (onLeave) onLeave(); // the owner of the connection closes it
+  },
   endMatch() {
+    if (this.net) { this.net.detach(); this.net = null; this.netNote = null; UI.netStatus(''); } // the connection stays open for the next match
     if (this.unsubMatch) { this.unsubMatch.forEach((off) => off()); this.unsubMatch = null; }
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
@@ -13070,7 +13482,11 @@ const Game = {
   },
 
   // --- pause
-  pause(by) {
+  pause(by, automatic = false) {
+    if (this.net) { // an online match cannot pause (the other seats would wait): the pause key and button toggle the question whether to leave, the sim goes on; a window blur or a hidden tab (automatic) only opens it
+      if (this.state === GS.FIGHT || this.state === GS.COUNTDOWN || this.state === GS.ROUND_END) { this.netNote.leave = automatic ? true : !this.netNote.leave; this.netShow(); }
+      return false;
+    }
     if (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN) return false;
     this.pausedFrom = this.state;
     this.pausedBy = by || null;
@@ -13123,7 +13539,8 @@ const Game = {
       this.acc += dt * this.clockScale(m);
       let steps = 0;
       while (this.acc >= DT && steps < MAX_STEPS_PER_FRAME && this.match === m) {
-        m.step();
+        if (!this.net) m.step();
+        else if (!this.net.step()) { this.acc = Math.min(this.acc, DT * NET_CATCH_UP_TICKS); break; } // an online match waits for the other seats' inputs (P12-02)
         this.acc -= DT;
         steps++;
         if (this.state === GS.PAUSED) break;
@@ -13143,17 +13560,18 @@ const Game = {
     Diag.simMs += (performance.now() - t0 - Diag.simMs) * 0.1;
     this.render(dt);
   },
-  clockScale(m) { return m.slowTicks > 0 && Settings.v.slowFinisher ? KO_SLOW_SCALE : 1; }, // the render clock only: the knock-out plays slowly (Slow-motion finisher); the ticks are the same
+  clockScale(m) { return m.slowTicks > 0 && Settings.v.slowFinisher && !this.net ? KO_SLOW_SCALE : 1; }, // the render clock only: the knock-out plays slowly (Slow-motion finisher); the ticks are the same. An online match is paced by the lockstep schedule only (P12-02): a viewer setting must not make one peer tick slower than the others
   cutWanted(m, scene) { return !!m && !scene && m.finisher && m.slowTicks > 0 && Settings.v.cameraCuts; }, // the finisher's punch-in and low angle (Camera cuts)
   // Pause works in every live phase; an attack or jump press skips the round-end and victory sequences
   pollMatchInput() {
     const st = this.state;
     const reset = Inputs.take('reset'); // gamepad: hold Select
     if (!this.match) return;
-    if (reset && st === GS.FIGHT && this.match.training) this.match.resetFighters();
+    if (reset && st === GS.FIGHT && this.match.training && !this.net) this.match.resetFighters();
     const paused = st === GS.FIGHT || st === GS.COUNTDOWN ? Inputs.active().filter((p) => p.take('pause'))[0] : null; // every seat's press is taken; the first is who paused
     if (paused) { this.pause(paused); return; }
     if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
+    if (st === GS.ROUND_END && this.net) return; // online the skip is an input of the frame (LockstepSession.skipPressed): the presses stay with the device until the session reads them
     if (!Inputs.takeAny(SKIP_ACTIONS)) return;
     if (st === GS.ROUND_END) this.match.skipRoundEnd();
     else if (this.endTimer >= SKIP_ARM_SECONDS) this.endTimer = RESULTS_DELAY;
@@ -14363,7 +14781,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'netwait', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -14421,7 +14839,7 @@ const UI = {
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
     Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
     Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
-    Events.on('glLost', () => { Game.pause(); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
+    Events.on('glLost', () => { Game.pause(null, true); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
     Events.on('glRestored', () => this.toast('Graphics restored'));
     Events.on('glFailed', () => this.toast('Graphics could not be restored: ' + R.error + ' Reload the page.', 'err'));
     Events.on('bindings', () => { if (this.current === 'controls') this.rerender(true); });
@@ -14466,6 +14884,14 @@ const UI = {
     this.say('Player ' + seat + ' is out');
   },
   say(text) { this.dom.announce.textContent = ''; setTimeout(() => { this.dom.announce.textContent = text; }, 30); },
+  // The online status line over a fight (P12-02): the text and its buttons, each [label, action]; empty text hides it
+  netStatus(text, ...buttons) {
+    const box = this.dom.netwait;
+    if (!box) return; // the page has no HUD yet (a headless run)
+    box.textContent = text || '';
+    if (text) for (const [label, action] of buttons) { const button = document.createElement('button'); button.textContent = label; button.onclick = action; box.appendChild(button); }
+    box.hidden = !text;
+  },
   banner(text, sub, ms) {
     const b = this.dom.banner, id = ++this.banners;
     b.innerHTML = esc(text) + (sub ? '<small>' + esc(sub) + '</small>' : '');
@@ -17311,8 +17737,10 @@ function testApi() {
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-    get: { controlsChanged: () => controlsChanged },
-    set: { controlsChanged: (value) => { controlsChanged = value; } },
+    ROUND_END_TICKS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+    encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
+    get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
+    set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
 }
 
@@ -17502,17 +17930,17 @@ function installGlobalHandlers() {
   window.addEventListener('orientationchange', onRotate);
   if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onRotate);
   // Esc in fullscreen only leaves fullscreen (the page never sees the key)
-  const onFullscreenChange = () => { queueResize(); if (!Device.fullscreenElement()) Game.pause(); };
+  const onFullscreenChange = () => { queueResize(); if (!Device.fullscreenElement()) Game.pause(null, true); };
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', queueResize);
   document.addEventListener('focusout', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) queueResize(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { Game.pause(); Sound.suspend(); } else { Sound.resumeIfAllowed(); queueResize(); }
+    if (document.hidden) { Game.pause(null, true); Sound.suspend(); } else { Sound.resumeIfAllowed(); queueResize(); }
   });
   // back from the bfcache or another app (iOS): audio may still be suspended
   window.addEventListener('pageshow', () => { Sound.resumeIfAllowed(); queueResize(); });
-  window.addEventListener('blur', () => { Game.pause(); });
+  window.addEventListener('blur', () => { Game.pause(null, true); });
   Events.on('settings', () => { Sound.applyVolumes(); });
   Events.on('frame', () => Music.update());
 }
