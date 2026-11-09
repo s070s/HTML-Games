@@ -12765,6 +12765,24 @@ const SelfTest = {
       } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
+    test('Start side (P18-16): Training scenarios 1 to 6 start both fighters inside the room and clear of every prop, on all eight levels and both sides', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const id of ARENA_ORDER) for (const startSide of [1, -1]) {
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, seed: 1, keepSeed: true, startSide });
+          const m = Game.match;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            for (const f of m.fighters) {
+              const inRoom = f.x >= Arena.sx0 + f.radius && f.x <= Arena.sx1 - f.radius && f.z >= Arena.sz0 + f.radius && f.z <= Arena.sz1 - f.radius;
+              if (!inRoom || Arena.blockedAt(f.x, f.z, f.radius, 0)) problems.push(id + ' scenario ' + n + ' side ' + startSide + ': fighter ' + f.index + ' at ' + f.x.toFixed(2) + ', ' + f.z.toFixed(2) + (inRoom ? ' is inside a prop' : ' is outside the room'));
+            }
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
     test('Start side (P18-16): the Arcade run keeps the chosen side - every duel stage has it and its scene cast stands there, a brawl stage and an Automatic run have none, a save and a restore keep it, a damaged or missing value reads as Automatic, and the stage fight opens on it', () => {
       const bad = [], kai = ROSTER_BY_ID.kai, go = Game.go, kept = { config: Game.config, run: Game.run };
       for (const side of [1, -1, 0]) {
