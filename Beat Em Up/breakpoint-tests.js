@@ -10476,7 +10476,7 @@ const SelfTest = {
         if (UI.current !== 'story' || !screen.includes('Story: TESTER') || !screen.includes('Osaka') || screen.split('class="beat"').length < 17 || !screen.includes('data-act="back"')) bad.push('story screen');
         UI.storyChange('storychoice', 1); UI.storyChange('storyflaw', 1); UI.storyChange('storytries', 1); UI.storyChange('storyclears', 1);
         const changed = UI.screen_story();
-        if (changed === screen || !changed.includes('Walk away') || !changed.includes('Not even one round')) bad.push('story choices');
+        if (changed === screen || !changed.includes('Walk away') || !changed.includes('Not one round. Hang on.')) bad.push('story choices');   // the flawless box B5.2 (P18-54 text)
         if (!screen.includes('After ' + STORY_SKIP_AFTER + ' lost tries of a stage, Skip stage is offered')) bad.push('skip line');
         const clock = Showcase.t;
         Showcase.creator = true; Showcase.update(0.1);
@@ -10490,21 +10490,21 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- the story system (P10-03) ---------- */
-    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), tries: '99' };
+    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), champ: 'Z'.repeat(6), tries: '99' };
     const storyFill = (text) => text.replace(/\{(\w+)\}/g, (all, key) => STORY_TOKENS_LONGEST[key] || all);
     test('Story (P10-03): the data - known poses and speakers, at most 3 boxes of 90 characters (longest tokens) in 2 lines, every condition valid, every row reachable', () => {
       const bad = [], poses = new Set(STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES))), motive = (id) => STORY_MOTIVES.find((m) => m.id === id);
       if (STORY_POSE_IDS.length !== 28 || poses.size !== 34 || STORY_BEATS.length !== 16 || STORY_STAGES !== 7) bad.push('counts');
-      for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten].some((t) => t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
+      for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten, m.hand, m.walk].some((t) => typeof t !== 'string' || !t || t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
       for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro)) bad.push('tone ' + t.id);
       for (const id of STORY_BOSS_IDS) if (ROSTER_BY_ID[id].role !== 'boss') bad.push('boss ' + id);
       for (const def of STORY_BEATS) if (def.shots.length > 3 || def.shots.some((s) => !['N', 'P', 'R', 'R2', 'B', 'Z'].includes(s.who) || !['wide', 'two', 'close'].includes(s.cam))) bad.push('beat ' + def.id);
       const texts = [];   // every text a scene can show, with the longest tokens
-      for (const r of STORY_REGION_LIST) { texts.push(['region ' + r.tag, r.line]); if (!/^#[0-9a-f]{6}$/.test(r.hue) || !ARENAS[r.home].waves) bad.push('region ' + r.tag); }
+      for (const r of STORY_REGION_LIST) { texts.push(['region ' + r.tag, r.line], ['region end ' + r.tag, r.end]); if (!r.end || !/^#[0-9a-f]{6}$/.test(r.hue) || !ARENAS[r.home].waves) bad.push('region ' + r.tag); }
       if (Story.signHue(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1)) !== '#f2a33a') bad.push('sign hue');
       for (const o of STORY_ORIGINS) texts.push(['origin ' + o.id, o.line]);
       for (const g of STORY_GOALS) g.arc.forEach((line, k) => texts.push(['goal ' + g.id + ' ' + k, line]));
-      for (const m of STORY_MOTIVES) texts.push(['motive ' + m.id, m.challenge], ['motive ' + m.id, m.beaten]);
+      for (const m of STORY_MOTIVES) texts.push(['motive ' + m.id, m.challenge], ['motive ' + m.id, m.beaten], ['motive ' + m.id + ' hand', m.hand], ['motive ' + m.id + ' walk', m.walk]);
       for (const rule of STORY_RULES) {
         const slot = /^B(\d+)\.(\d)$/.exec(rule.slot), def = slot && STORY_BEATS.find((b) => b.id === 'B' + slot[1]);
         if (!def || Number(slot[2]) > def.shots.length) { bad.push('slot ' + rule.slot); continue; }
@@ -10571,6 +10571,28 @@ const SelfTest = {
       const names = Story.moment(run, 'before', 4).map((beat) => beat.id).concat(Story.moment(run, 'after', 7).map((beat) => beat.id)).join();
       if (names !== 'B8,B9,B14,B16') bad.push('moment order ' + names);
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Story (P18-54): rival A speaks their own lines (also standing in for the player), B16 comes back to the place of B1, {champ} is the champion, every token is filled and a brawl names its crew', () => {
+      const bad = [], own = (id) => STORY_MOTIVES.find((m) => m.rival === id), name = (id) => ROSTER_BY_ID[id].name;
+      for (const f of ROSTER) {
+        const run = Story.start(f, 0, 'easy', 1), lines = own(run.rivalA), b4 = Story.beat(run, 'B4').boxes[0], b5 = Story.beat(run, 'B5').boxes[0];
+        if (!lines || b4.text !== lines.challenge || b4.pose !== lines.p4 || b5.text !== lines.beaten || b4.speaker !== name(run.rivalA)) { bad.push('B4 / B5 of ' + f.id); continue; }
+        const region = STORY_REGION_LIST.find((r) => r.tag === run.region), city = STORY_COUNTRIES.find((c) => c.id === run.country).city;
+        if (Story.beat(run, 'B1').boxes[0].text !== region.line.replace('{city}', city) || Story.beat(run, 'B16').boxes[0].text !== region.end.replace('{city}', city)) bad.push('B1 / B16 of ' + f.id);
+        for (const choice of ['hand', 'walk']) {
+          Story.choose(run, choice); run.flawless = true; run.continues = 1;
+          if (Story.beat(run, 'B12').boxes[0].text !== lines[choice]) bad.push('B12 ' + choice + ' of ' + f.id);
+          for (const def of STORY_BEATS) for (const box of Story.beat(run, def.id).boxes) if (/[{}$]/.test(box.text)) bad.push(def.id + ' of ' + f.id + ' keeps a token: ' + box.text);
+        }
+      }
+      const deacon = Story.start(ROSTER_BY_ID.deacon, 0, 'easy', 1);   // DEACON's goal names DEACON as rival A, so FEMKE stands in and says her own lines
+      if (deacon.rivalA !== 'femke' || Story.beat(deacon, 'B4').boxes[0].text !== own('femke').challenge || Story.beat(deacon, 'B4').boxes[0].pose !== own('femke').p4) bad.push('stand-in rival');
+      if (Story.tokens(Story.start(ROSTER_BY_ID.zero, 0, 'easy', 1)).champ !== 'MARA' || Story.tokens(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1)).champ !== 'ZERO') bad.push('champ token');
+      const kai = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), crew = (n) => Story.stageInfo(kai, n).text;
+      if (!crew(1).startsWith("DEACON's crew, the first three waves") || !crew(3).startsWith(name(kai.boss) + "'s crew, all the waves led by ") || !crew(5).startsWith("ZERO's crew")) bad.push('stage lines ' + crew(1) + ' / ' + crew(3) + ' / ' + crew(5));
+      Story.choose(kai, 'hand'); const hand = crew(6); Story.choose(kai, 'walk'); const walk = crew(6);
+      if (!hand.startsWith("ZERO's crew") || !hand.endsWith(', with DEACON') || walk !== "DEACON's crew, all the waves led by DEACON" || crew(2) !== 'Against DEACON') bad.push('stage 6 lines ' + hand + ' / ' + walk);
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
     test('Story (P10-03): rivals, boss, champion and levels follow the settings and the clears, for every fighter and country', () => {
       const bad = [], fighters = ROSTER.concat(CustomRoster.profiles()), arenas = new Set(['dojo', 'pit', 'club', 'rooftop']);
@@ -12723,6 +12745,127 @@ const SelfTest = {
       flow.press('play'); flow.press('mode:training'); flow.press('confirm'); flow.press('back');
       flow.expect('char', 'Back from the sparring partner screen'); flow.press('back');
       return flow.expect('modes', 'Back from the fighter screen') ? flow.problems.length ? flow.problems[0] : true : 'Back from the fighter screen: ' + flow.screen();
+    }));
+    /* Start side (P18-16): the choice reaches the sim, the story run and the saved setup, and the rows work on a tap, the arrow keys and a gamepad. */
+    test('Start side (P18-16): a chosen side opens round 1 there and swaps every round (Free Fight, Arcade duels), Training keeps it, and Automatic is the drawn side (Training: the left, as before)', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const mode of ['free', 'arcade', 'training']) for (const id of ['warehouse', 'garage']) for (const startSide of [1, -1, 0, undefined]) {
+          for (let seed = 1; seed <= 4; seed++) {   // the seeds draw both sides
+            Game.beginMatch({ mode, playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'easy', winsNeeded: 3, timer: 0, items: false, hazards: false, seed, keepSeed: true, startSide });
+            const m = Game.match, [a, c] = m.fighters, s = ARENAS[id].spawn, tag = mode + ' ' + id + ' seed ' + seed + ' side ' + startSide;
+            for (let round = 1; round <= 3; round++) {
+              if (round > 1) m.startRound();
+              const drawn = mode === 'training' ? 1 : MatchSim.sideFor(seed, round), chosen = mode === 'training' ? startSide : round & 1 ? startSide : -startSide;
+              const want = startSide ? chosen : drawn;
+              if (Math.abs(a.x + want * s) > 1e-9 || Math.abs(c.x - want * s) > 1e-9) problems.push(tag + ' round ' + round + ': the first fighter stands at ' + a.x.toFixed(2) + ', wanted ' + (-want * s));
+            }
+          }
+        }
+        for (const startSide of [1, -1]) for (const id of ['warehouse', 'garage']) {   // the six Training scenarios keep the player on the chosen side, both facing each other
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, items: false, hazards: false, seed: 1, keepSeed: true, startSide });
+          const m = Game.match, [a, c] = m.fighters;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            const tag = 'scenario ' + n + ' ' + id + ' side ' + startSide;
+            if (Math.sign(c.x - a.x) !== startSide) problems.push(tag + ': the player is not on the chosen side');
+            if (Math.sign(Math.sin(a.yaw)) !== Math.sign(c.x - a.x) || Math.sign(Math.sin(c.yaw)) !== Math.sign(a.x - c.x)) problems.push(tag + ': the fighters do not face each other');
+            if (n === 3 && Math.abs(c.x - (startSide === 1 ? Arena.sx1 : Arena.sx0) + startSide * 0.7) > 1e-9) problems.push(tag + ': the dummy is not in the corner of the chosen wall');
+            if (n === 4 && !Arena.objects.some((o) => Math.abs(c.z - o.z) < 1e-9 && Math.abs(c.x - o.x + startSide * (o.hx + 1)) < 1e-9)) problems.push(tag + ': the dummy does not stand against a prop on the far side of the player');
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Start side (P18-16): Training scenarios 1 to 6 start both fighters inside the room and clear of every prop, on all eight levels and both sides', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const id of ARENA_ORDER) for (const startSide of [1, -1]) {
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, seed: 1, keepSeed: true, startSide });
+          const m = Game.match;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            for (const f of m.fighters) {
+              const inRoom = f.x >= Arena.sx0 + f.radius && f.x <= Arena.sx1 - f.radius && f.z >= Arena.sz0 + f.radius && f.z <= Arena.sz1 - f.radius;
+              if (!inRoom || Arena.blockedAt(f.x, f.z, f.radius, 0)) problems.push(id + ' scenario ' + n + ' side ' + startSide + ': fighter ' + f.index + ' at ' + f.x.toFixed(2) + ', ' + f.z.toFixed(2) + (inRoom ? ' is inside a prop' : ' is outside the room'));
+            }
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Start side (P18-16): the Arcade run keeps the chosen side - every duel stage has it and its scene cast stands there, a brawl stage and an Automatic run have none, a save and a restore keep it, a damaged or missing value reads as Automatic, and the stage fight opens on it', () => {
+      const bad = [], kai = ROSTER_BY_ID.kai, go = Game.go, kept = { config: Game.config, run: Game.run };
+      for (const side of [1, -1, 0]) {
+        const run = Story.start(kai, 0, 'easy', 9, side);
+        for (let n = 1; n <= STORY_STAGES; n++) {
+          const cfg = Story.cfg(run, n), duel = !!Story.foe(run, n), cast = Story.cast(run, n).side;
+          if (duel && side && (cfg.startSide !== side || cast !== side)) bad.push('stage ' + n + ' side ' + side);
+          if (duel && !side && ('startSide' in cfg || cast !== MatchSim.sideFor(Story.seedOf(run, n), 1))) bad.push('stage ' + n + ' automatic');
+          if (!duel && ('startSide' in cfg || cast !== 1)) bad.push('stage ' + n + ' brawl');
+        }
+        if (Story.restore(Story.pack(run)).side !== side) bad.push('restore ' + side);
+      }
+      const packed = Story.pack(Story.start(kai, 0, 'easy', 9, -1));
+      if (Story.clean(Object.assign({}, packed, { side: 7 })).side !== 0 || Story.clean(Object.assign({}, packed, { side: 'left' })).side !== 0) bad.push('a damaged side');
+      delete packed.side;
+      if (Story.clean(packed).side !== 0 || Story.start(kai, 0, 'easy', 9).side !== 0) bad.push('a save from before the row');
+      Game.go = () => true;
+      try {
+        const run = Story.start(kai, 0, 'easy', 9, -1);
+        Game.beginMatch(Story.cfg(run, 2));
+        const m = Game.match;
+        if (m.startSide() !== -1 || m.fighters[0].x <= 0) bad.push('the stage 2 fight did not open on the right');
+        m.startRound();
+        if (m.startSide() !== 1 || m.fighters[0].x >= 0) bad.push('the stage 2 fight did not swap');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Start side (P18-16): the Start side row on the Arcade fighter screen and the Training setup screen - a tap, the arrow keys and a gamepad step it (Arcade: Automatic, Left, Right; Training: Left, Right), it is saved with the setup and read back, a damaged value reads as the default, and the run and the fight it starts have that side', () => withFlow([fakePad('a')], (flow, pads) => {
+      const sel = Game.selection, keptSides = Object.assign({}, sel.startSides), row = () => flow.items.find((el) => el.attrs['data-local'] === 'side'), shown = () => row() ? row().attrs['aria-valuetext'] : 'no row';
+      const bad = [], steps = (labels) => {
+        const seen = [];
+        row().click(); seen.push(shown());   // a tap
+        flow.focusOn((el) => el.attrs['data-local'] === 'side'); UI.guardUntil = 0; UI.onKey(keyEvent('ArrowRight')); seen.push(shown());   // the arrow keys
+        UI.onKey(keyEvent('ArrowLeft')); seen.push(shown());
+        flow.padTap(pads[0], 'right'); seen.push(shown());   // the stick of a gamepad on the focused row
+        flow.padTap(pads[0], 'left'); seen.push(shown());
+        return seen.join() === labels ? '' : 'steps ' + seen.join() + ', wanted ' + labels;
+      };
+      try {
+        Settings.v.storyScenes = 'off';
+        flowEnter(flow, 'arcade');
+        if (!flow.expect('char', 'Arcade') || shown() !== 'Automatic' || sel.startSides.arcade !== 0) return 'the Arcade row starts as ' + shown();
+        let problem = steps('Left,Right,Left,Right,Left');
+        if (problem) bad.push('Arcade ' + problem);
+        row().click();   // Right
+        if (sel.startSides.arcade !== 2 || !Setups.d.arcade || Setups.d.arcade.side !== 2) bad.push('Arcade did not save Right');
+        flow.press('confirm');
+        if (!Game.run || !Game.run.story || Game.run.story.side !== -1 || !Progress.d.arcadeRun || Progress.d.arcadeRun.side !== -1) bad.push('the Arcade run did not take the side');
+        Game.run.story.stage = 2; Game.beginStage();
+        if (!Game.match || Game.match.cfg.startSide !== -1 || Game.match.fighters[0].x <= 0) bad.push('the duel did not open on the right');
+        flow.quit('Arcade');
+        flowEnter(flow, 'training'); flow.press('confirm');
+        if (!flow.expect('setup', 'Training') || shown() !== 'Left' || sel.startSides.training !== 1) return 'the Training row starts as ' + shown();
+        problem = steps('Right,Left,Right,Left,Right');
+        if (problem) bad.push('Training ' + problem);
+        if (sel.startSides.training !== 2 || !Setups.d.training || Setups.d.training.side !== 2) bad.push('Training did not save Right');
+        flow.press('setupNext'); flow.press('start');
+        const m = Game.match;
+        if (!m || !m.training || m.cfg.startSide !== -1 || m.fighters[0].x <= 0 || m.fighters[1].x >= 0) bad.push('Training did not open with the player on the right');
+        Game.endMatch();
+        sel.startSides.arcade = 0; sel.startSides.training = 1; Game.loadLevels();
+        if (sel.startSides.arcade !== 2 || sel.startSides.training !== 2) bad.push('the saved sides were not read back');
+        for (const damaged of [9, -1, 0.5, 'left', null]) {
+          Setups.d.arcade.side = damaged; Setups.d.training.side = damaged; Game.loadLevels();
+          if (sel.startSides.arcade !== 0 || sel.startSides.training !== 1) bad.push('a damaged side ' + damaged);
+        }
+        Setups.d.training.side = 0; Game.loadLevels();
+        if (sel.startSides.training !== 1) bad.push('Automatic is not a Training choice');
+      } finally { Object.assign(sel.startSides, keptSides); }
+      return bad.length ? bad.slice(0, 4).join('; ') : flow.problems.length ? flow.problems[0] : true;
     }));
     /* Free Fight: the first screen, the Level list and More options, a Duel ended by the clock, Rematch, Change fighters and Main menu, then a lineup of three. */
     test('Mode flows (P18-40, P18-19): Free Fight from the mode list through its first screen, the Players and teams cards, More options and the Level list into a Duel ended by the clock, Rematch, Change fighters (the setup is kept) and Main menu, and the same with a lineup of three', () => withFlow([], (flow) => {

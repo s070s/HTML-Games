@@ -702,6 +702,9 @@ const Setups = {
   save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
 };
 
+// --- the start side rows: the labels, the config startSide of each (0 = drawn from the seed, 1 = left, -1 = right) and the row name; Free Fight keeps its row among the rules, Arcade (duels) and Training have their own on the fighter screen
+const SIDE_LABELS = ['Automatic', 'Left', 'Right'], SIDE_VALUE = [0, 1, -1], SIDE_ROW = 'Player 1 starts';
+const SIDE_DEFAULT = { arcade: 0, training: 1 }; // the first and default choice of each: Training has nothing to draw or swap, so Left is its Automatic
 // --- Free Fight rules: [key, value labels, default index, row label]; one table drives rows, clean-up, presets and config
 const FIGHT_RULES = [
   ['area', ['Whole level', 'Square ring'], 0, 'Area'],
@@ -710,7 +713,7 @@ const FIGHT_RULES = [
   ['hazards', ['Off', 'On'], 1, 'Hazards'],
   ['breakables', ['Off', 'On'], 1, 'Breakables'],
   ['health', ['Half', 'Normal', 'One and a half', 'Double'], 1, 'Health'],
-  ['side', ['Automatic', 'Left', 'Right'], 0, 'Player 1 starts'],
+  ['side', SIDE_LABELS, 0, SIDE_ROW],
 ];
 const FIGHT_PRESETS = [ // [name, rows in table order, rounds, seconds]
   ['Standard', [0, 0, 1, 1, 1, 1, 0], 2, 60],
@@ -729,7 +732,7 @@ const FightRules = {
   // Config fields; a rule that does not apply is stored as its default
   cfg(rules, lineup, arena) {
     const ring = rules.area === 1 && !this.why('area', rules, lineup, arena);
-    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : [0, 1, -1][rules.side], rulesSet: true };
+    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : SIDE_VALUE[rules.side], rulesSet: true };
   },
   // The first preset the rows equal (dimmed rows ignored), or -1 for Custom
   match(rules, lineup, arena, sel) {
@@ -8255,73 +8258,74 @@ const CustomRoster = {
 };
 /* === 05e STORY - Country, Origin and Goal and the Arcade story built from them (Appendix C)
    Settings change text, poses, rivals, boss, level order and rewards, never a stat or a fight rule: a story fight is an ordinary MatchSim (Story.cfg) and draws no random number. */
-// Regions: [tag, name, home level (stage 1), sign hue, first box of beat B1, countries 'name,id,city;...' (ISO alpha-2 ids)]
+// Regions: [tag, name, home level (stage 1), sign hue, first box of beat B1, the box of B16 that answers it (the same place at the end), countries 'name,id,city;...' (ISO alpha-2 ids)]
 const STORY_REGION_LIST = [
-  ['nam', 'North America and Caribbean', 'garage', '#f2a33a', '{city}. You work on your jab in a car park, under a streetlight that flickers.', 'Canada,CA,Toronto;USA,US,Detroit;Mexico,MX,Mexico City;Jamaica,JM,Kingston;Cuba,CU,Havana;Dominican Republic,DO,Santo Domingo'],
-  ['sam', 'South America', 'construction', '#3ec46d', '{city}. The gym owner coaches from a plastic chair. Mostly he yells.', 'Brazil,BR,Sao Paulo;Argentina,AR,Buenos Aires;Colombia,CO,Medellin;Chile,CL,Santiago;Peru,PE,Lima;Venezuela,VE,Caracas'],
-  ['weu', 'Western Europe', 'subway', '#4a8fe0', 'In {city} the good fights start after the last train, behind doors with no sign.', 'UK,GB,London;Ireland,IE,Dublin;France,FR,Marseille;Netherlands,NL,Rotterdam;Belgium,BE,Antwerp;Germany,DE,Hamburg'],
-  ['seu', 'Southern Europe', 'warehouse', '#e8573c', '{city} in August. Too hot to sleep, so the whole block watches you spar.', 'Spain,ES,Barcelona;Portugal,PT,Lisbon;Italy,IT,Naples;Greece,GR,Athens;Croatia,HR,Split;Serbia,RS,Belgrade'],
-  ['neu', 'Nordic and Eastern Europe', 'warehouse', '#9fb4c8', '{city} in January. The gym is the only warm room on your street.', 'Sweden,SE,Malmo;Norway,NO,Oslo;Finland,FI,Helsinki;Poland,PL,Gdansk;Ukraine,UA,Odesa;Romania,RO,Bucharest;Czechia,CZ,Prague'],
-  ['cau', 'Caucasus and Central Asia', 'construction', '#c9a24a', '{city}. The old wrestling hall is a sofa shop now. You train in the basement.', 'Georgia,GE,Tbilisi;Armenia,AM,Yerevan;Azerbaijan,AZ,Baku;Kazakhstan,KZ,Almaty;Uzbekistan,UZ,Tashkent;Kyrgyzstan,KG,Bishkek'],
-  ['mea', 'Middle East and North Africa', 'garage', '#e0c35a', '{city}, 2 a.m. The cafes are full. Outside one, an argument turns into a fight.', 'Israel,IL,Tel Aviv;Turkey,TR,Istanbul;Lebanon,LB,Beirut;Egypt,EG,Cairo;Morocco,MA,Casablanca;Tunisia,TN,Tunis'],
-  ['afr', 'Sub-Saharan Africa', 'warehouse', '#f07d2a', 'In {city} you spar on a flat roof while the radio next door plays the football.', 'Nigeria,NG,Lagos;South Africa,ZA,Durban;Ghana,GH,Accra;Kenya,KE,Nairobi;Senegal,SN,Dakar;Ethiopia,ET,Addis Ababa;Cameroon,CM,Douala'],
-  ['sas', 'South and Southeast Asia', 'subway', '#e04a8f', '{city}. Rain on a tin roof, and forty kids in one gym waiting for the ring.', 'India,IN,Mumbai;Pakistan,PK,Karachi;Thailand,TH,Bangkok;Vietnam,VN,Ho Chi Minh City;Philippines,PH,Manila;Indonesia,ID,Jakarta;Malaysia,MY,Kuala Lumpur'],
-  ['eao', 'East Asia and Oceania', 'subway', '#39c6d6', '{city}. Your gym is four strips of tape on a garage floor.', 'Japan,JP,Osaka;China,CN,Shanghai;South Korea,KR,Busan;Mongolia,MN,Ulaanbaatar;Australia,AU,Sydney;New Zealand,NZ,Auckland;Samoa,WS,Apia'],
-].map(([tag, name, home, hue, line, list]) => ({ tag, name, home, hue, line, list }));
+  ['nam', 'North America and Caribbean', 'garage', '#f2a33a', '{city}. Level minus two of a mall car park. The cameras down here are broken.', "Level minus two. They've fixed the cameras. The guard turns them to the wall for you.", 'Canada,CA,Toronto;USA,US,Detroit;Mexico,MX,Mexico City;Jamaica,JM,Kingston;Cuba,CU,Havana;Dominican Republic,DO,Santo Domingo'],
+  ['sam', 'South America', 'construction', '#3ec46d', '{city}. A tower that stopped when the money did. The night guard lets you in.', "The tower's going up again. The night guard still lets you in. He brings his son now.", 'Brazil,BR,Sao Paulo;Argentina,AR,Buenos Aires;Colombia,CO,Medellin;Chile,CL,Santiago;Peru,PE,Lima;Venezuela,VE,Caracas'],
+  ['weu', 'Western Europe', 'subway', '#4a8fe0', "{city}, after the last train. The staff lock up and forget you're inside.", "After the last train the station staff leave one light on. It's over your corner.", 'UK,GB,London;Ireland,IE,Dublin;France,FR,Marseille;Netherlands,NL,Rotterdam;Belgium,BE,Antwerp;Germany,DE,Hamburg'],
+  ['seu', 'Southern Europe', 'warehouse', '#e8573c', "{city} in August. A fish warehouse by the port, door open. It doesn't help.", "August again. There's a fan by your bag in the fish warehouse. Nobody says who bought it.", 'Spain,ES,Barcelona;Portugal,PT,Lisbon;Italy,IT,Naples;Greece,GR,Athens;Croatia,HR,Split;Serbia,RS,Belgrade'],
+  ['neu', 'Nordic and Eastern Europe', 'warehouse', '#9fb4c8', "{city}, minus eleven. The warehouse has one heater. You've moved it by the bag.", 'Minus eleven again. The warehouse has a second heater now, with your name on it in tape.', 'Sweden,SE,Malmo;Norway,NO,Oslo;Finland,FI,Helsinki;Poland,PL,Gdansk;Ukraine,UA,Odesa;Romania,RO,Bucharest;Czechia,CZ,Prague'],
+  ['cau', 'Caucasus and Central Asia', 'construction', '#c9a24a', '{city}. Your old wrestling hall is flats now. You train on the site next door.', 'The site next door is flats now too. A kid from the third floor asks if you teach.', 'Georgia,GE,Tbilisi;Armenia,AM,Yerevan;Azerbaijan,AZ,Baku;Kazakhstan,KZ,Almaty;Uzbekistan,UZ,Tashkent;Kyrgyzstan,KG,Bishkek'],
+  ['mea', 'Middle East and North Africa', 'garage', '#e0c35a', '{city}, 2 a.m. The car park behind a cafe. The owner brings tea and stays.', "Your photo's up by the cafe till. The owner has put the price of tea up.", 'Israel,IL,Tel Aviv;Turkey,TR,Istanbul;Lebanon,LB,Beirut;Egypt,EG,Cairo;Morocco,MA,Casablanca;Tunisia,TN,Tunis'],
+  ['afr', 'Sub-Saharan Africa', 'warehouse', '#f07d2a', '{city}. A warehouse of football shirts nobody bought. You hit the bales.', 'The football shirts finally sold. The warehouse kept one bale back for you to hit.', 'Nigeria,NG,Lagos;South Africa,ZA,Durban;Ghana,GH,Accra;Kenya,KE,Nairobi;Senegal,SN,Dakar;Ethiopia,ET,Addis Ababa;Cameroon,CM,Douala'],
+  ['sas', 'South and Southeast Asia', 'subway', '#e04a8f', '{city}, monsoon week. The underpass floods, so you train on the station stairs.', 'Monsoon again. The station cleaner mops your stretch of stairs first.', 'India,IN,Mumbai;Pakistan,PK,Karachi;Thailand,TH,Bangkok;Vietnam,VN,Ho Chi Minh City;Philippines,PH,Manila;Indonesia,ID,Jakarta;Malaysia,MY,Kuala Lumpur'],
+  ['eao', 'East Asia and Oceania', 'subway', '#39c6d6', '{city}, after midnight. Four strips of tape on a subway floor are your ring.', "Your tape ring's still in the subway. Somebody has gone over it in proper paint.", 'Japan,JP,Osaka;China,CN,Shanghai;South Korea,KR,Busan;Mongolia,MN,Ulaanbaatar;Australia,AU,Sydney;New Zealand,NZ,Auckland;Samoa,WS,Apia'],
+].map(([tag, name, home, hue, line, end, list]) => ({ tag, name, home, hue, line, end, list }));
 const STORY_COUNTRIES = []; // 64 rows: { id, name, city, region (index in STORY_REGION_LIST) }
 STORY_REGION_LIST.forEach((region, index) => { for (const entry of region.list.split(';')) { const [name, id, city] = entry.split(','); STORY_COUNTRIES.push({ id, name, city, region: index }); } });
 // Origins: id|name|the fighter's line in beat B1 (at most 64 characters)|tone (r rough, o ordinary, s strict)
 const STORY_ORIGINS = [
-  "gymkid|Gym kid|I swept a boxing gym for a year before they let me hit the bag.|o", "working|Working class|Mum worked nights, Dad worked days. I mostly raised myself.|o",
-  "wealthy|Wealthy family|My father pays people to fight for him. I do my own.|s", "immigrant|Immigrant family|I translated for my parents at eight. Fighting was easier.|r",
-  "military|Military family|Nine bases, nine schools. The new kid always gets tested.|s", "foster|Foster care|Six homes by sixteen. I still keep my bag packed.|r",
-  "smalltown|Small town|Back home there's one traffic light and everyone knows my mum.|o", "street|Big-city street|Rooftops, stairwells, back alleys. I know every way out.|r",
-  "sports|Sports family|Dad hangs the gold medals on the wall. Silver goes in a drawer.|s", "dropout|College dropout|Two years of law school. Then I found a gym that smelled better.|o",
-  "office|Office worker|Spreadsheets until six. Then I hit things until ten.|o", "police|Police family|Both my parents wore the badge. I know where the rules bend.|s",
-  "martial|Martial arts family|Our family school is a century old. I'm not allowed to lose.|s", "singleparent|Single parent|Mum raised me alone on noodles and spite. I got the spite.|r",
-  "nightshift|Night-shift worker|I stack shelves while the city sleeps. I train when it wakes up.|r", "delivery|Delivery rider|Ten hours a day on a delivery bike. I know every shortcut.|r",
-  "farm|Farm family|Up at five to feed the animals. A three-minute round is nothing.|o", "restaurant|Restaurant family|Raised behind a restaurant grill. Burns don't scare me.|o",
-  "bouncer|Bouncer family|Dad worked doors for years. He taught me when not to fight.|o", "boarding|Boarding school|Bells for meals, bells for bed. I learned to fight in between.|s",
-  "orphanage|Orphanage|Nobody gave me a surname worth keeping. I'll earn my own.|r", "port|Port town|I grew up on the docks. The bars down there were my first gyms.|r",
-  "teacher|Teacher's child|Mum teaches maths. She checks my fight record for mistakes.|s", "famous|Famous parents|Everyone knows my parents. Nobody knows me yet.|s",
+  "gymkid|Gym kid|I mopped a boxing gym for two years before they let me spar.|o", "working|Working class|Mum does nights at the hospital. Dad does days at the depot.|o",
+  "wealthy|Wealthy family|My father thinks I'm at tennis. He pays for it every month.|s", "immigrant|Immigrant family|I was eight when I started doing the talking for my parents.|r",
+  "military|Military family|Nine schools. At every new one, somebody wanted to find out.|s", "foster|Foster care|Six homes by sixteen. My bag's still packed. Habit.|r",
+  "smalltown|Small town|Back home there's one bus a day, and my aunt drives it.|o", "street|Big-city street|Grew up in stairwells. I know which doors open from outside.|r",
+  "sports|Sports family|Dad's medals go all the way up the stairs. Mine stop at three.|s", "dropout|College dropout|Two years of law school. I know what you can't sue me for.|o",
+  "office|Office worker|I do payroll till six. Nobody at work has asked about the eye.|o", "police|Police family|Both my parents are police. I know what a report gets you.|s",
+  "martial|Martial arts family|Grandad's school is ninety years old. I'm the first to leave it.|s", "singleparent|Single parent|Mum raised me on two jobs and toast. I owe her a kitchen.|r",
+  "nightshift|Night-shift worker|I work ten till six, nights. I train after and sleep on the bus.|r", "delivery|Delivery rider|Twelve hours a day on a delivery bike. My legs gave up arguing.|r",
+  "farm|Farm family|Up at five for the animals. A three-minute round is a holiday.|o", "restaurant|Restaurant family|Grew up behind my parents' grill. Hot things don't scare me.|o",
+  "bouncer|Bouncer family|Dad worked doors twenty years. He says the job is not hitting.|o", "boarding|Boarding school|Boarding school. Bells all day, fights after lights out.|s",
+  "orphanage|Orphanage|The orphanage took my surname off a biscuit tin. I kept it.|r", "port|Port town|Grew up on the docks. The sailors taught me to fight. Badly.|r",
+  "teacher|Teacher's child|Mum teaches maths. She marks my fight record in red pen.|s", "famous|Famous parents|My parents are on TV. People still ask me for their autographs.|s",
 ].map((row) => { const [id, name, line, tone] = row.split('|'); return { id, name, line, tone: { r: 'rough', o: 'ordinary', s: 'strict' }[tone] }; });
 // Goals: id|name|creator hint (60 characters)|motive|ending reward|beats B2, B10 and B14 (one box each, at most 90 characters)
 const STORY_GOALS = [
-  "loseweight|Lose weight|Doctor's orders: lose weight. I joined a fight gym.|body|Track jacket|The gym is up four flights of stairs. I had to sit down on the second.|I took the Pit's stairs two at a time tonight. Didn't even notice.|Two holes tighter on my old belt. My doctor weighed me twice to be sure.",
-  "friends|Make friends|New town, no friends. Rivals count, right?|bond|Board shorts|New town. Three numbers in my phone, and one of them is the pizza place.|{rival} nodded at me at the noodle bar tonight. From {rival}, that's a hug.|Group photo on the rooftop. {rival} has a black eye and won't stop grinning.",
-  "revenge|Revenge|Someone hurt my brother. I know their names.|past|Leather gloves|I know the crew that hurt my brother. I wrote their names on the back of his photo.|Every name on that photo leads back to the champion's crew.|I could hit them once more. I put my hands down and walk away.",
-  "title|Win the title|The city belt. Nothing else matters.|title|Leather jacket|Somebody wears the city belt this year. Might as well be me.|The champion knows my name now. Spelled it wrong, but still.|They let me keep the belt overnight. It slept on my pillow.",
-  "worth|Prove worth|Everyone said I wasn't good enough.|body|Chest pound emote|Three gyms told me I wasn't good enough. I saved every message.|One of those gyms called today. They want me after all. I let it ring.|I printed those three messages and pinned them on the wall, under the belt.",
-  "protect|Protect family|Threats at home. I end them in the ring.|family|Boxing headgear|Someone sprayed a warning on our front door. Mum painted over it twice.|Mum is staying at my aunt's until this is over. She still calls every night.|Our door is just a door again. Mum is painting it yellow this time.",
-  "debt|Pay a debt|I owe the wrong people. Prize money pays.|past|Work boots|The lender gave me thirty days. He wrote the date on my hand.|Half paid. The lender counted it twice and smiled. I didn't like the smile.|Paid in full. I made him write PAID across the note and sign it.",
-  "mentor|Honor a mentor|My coach's last wish: win the city title.|bond|Bag gloves|Coach's last words were about my left hand. I'm keeping it up, Coach.|I wore Coach's old wraps tonight. They still smell like the old gym.|I hang the belt on the hook where Coach used to hang the whistle.",
-  "redemption|Redemption|I made mistakes. Time to make them right.|past|Wave emote|Two years ago I hurt someone in a fight that should never have happened.|They were in the Pit crowd tonight. I made myself look at them.|They came to the rooftop. They didn't smile, but they shook my hand.",
-  "fame|Fame|A million followers, one fight at a time.|fame|Chain|Four hundred followers, and most of them are my cousins. Time to fix that.|A clip of my knockout passed a million views. Mum still thinks it's fake.|I left my phone in the locker for the final. Best fight of my life.",
-  "escape|Escape the past|New city, new name, new start.|past|Balaclava|One bag, one bus ticket, and a name I made up on the bus.|Someone at the Pit called me by my old name. I didn't run.|I dropped my old jacket off the roof. Somebody down there can have it.",
-  "thrill|Thrill seeking|I live for the rush of a real fight.|fame|Laugh emote|Skydiving was boring. Shark cage was boring. Let's see about this.|Bigger fights, bigger crowds, and my hands still won't shake. Annoying.|City champion. Great. What's in the next city?",
-  "undefeated|Stay undefeated|Never lost. Not starting now.|title|Sunglasses|Forty-one fights, no losses. I count them on the way to the gym.|The Pit almost had me. Almost doesn't go on the record.|Officially, still no losses. I write the new number on my wrist tape.",
-  "neighborhood|Defend the neighborhood|A gang pushes my street around. Not anymore.|bond|Bomber jacket|The gang tagged the barber's shop again. Third time this month.|I saw the gang's boss at the Pit. Shorter than I expected.|Street party. The barber painted over the tags himself, in bright orange.",
-  "champion|Beat the champion|Only one opponent matters: ZERO.|title|Point emote|ZERO's face is on a poster in every shop window. I want the real thing.|ZERO's crew has started watching my fights. Good. Let them take notes.|ZERO is on the floor. I wait until they're up, then offer a hand.",
-  "kids|Teach the kids|My free class needs money to stay open.|bond|Neck crack emote|The landlord shuts my free kids' class in spring unless I pay him.|The kids watched my fights on one cracked phone. They shouted every punch.|The class stays open. Every kid wants to learn the move from the final.",
-  "lasttitle|One last title|Old knees, one more run.|title|Towel|My knees click on the stairs. They have one more title in them.|Everything hurts. The ice pack and I are on first-name terms.|I hang my gloves on the rooftop rail and take the lift down.",
-  "fit|Get fit|I want a body that can go twelve rounds.|body|High-tops|One round on the bag and I'm lying on the floor. That has to change.|I can hear my breathing now instead of my heartbeat. Progress.|Three rounds on the bag after the final. Then three more, for fun.",
-  "provide|Provide for family|The rent is due. The prize money isn't.|family|Cargo pants|Rent is due Friday and my little sister needs shoes. The prize pays both.|The first prize went straight to the fridge. My sister picked the snacks.|Rent is paid six months ahead. My sister's new shoes light up when she runs.",
-  "proud|Make family proud|Win in front of a family that never watched.|family|Jersey|My family thinks fighting is a phase. It's been a ten-year phase.|Dad called after the Pit. Says he saw it by accident. He watched it twice.|My whole family is in the front row. Dad made a sign. It's huge.",
-  "wrong|Prove them wrong|Show the coach who said you'd never make it.|body|Shrug emote|My first coach said I'd never make it. I wrote it on my bedroom wall.|I sent that coach a photo from the Pit. Seen at 2:14 a.m. No reply.|That coach is in the crowd, clapping. Slowly. But clapping.",
-  "respect|Earn respect|Nobody in this city takes me seriously.|fame|Fist bump emote|They laughed me out of the gym on my first day. I remember every face.|The fighters nod at me in the street now. Even {rival}.|The champion got up and bowed first. I took my time bowing back.",
-  "sibling|Find a lost sibling|My sibling vanished into the fight scene.|family|Beckon emote|My sibling walked into the fight clubs of {city} and never came home.|A guy at the Pit had a photo of them from last month. They're alive.|My sibling is in the rooftop crowd, in my old hoodie. We hug for a long time.",
-  "legacy|Leave a legacy|Build a name people remember after you.|fame|Chest piece|My name has never been on anything bigger than a lunch box.|Kids in the street are copying my stance. Badly. I love it.|The prize money bought an old gym. My name is on the door, a bit crooked.",
+  "loseweight|Lose weight|Doctor said lose weight. The fight gym was cheaper.|body|Track jacket|The gym's up four flights. I stopped on the second to retie a shoe that was fine.|Took the Pit stairs two at a time tonight. I was at the top before I noticed.|Didn't stop once on the roof stairs. The second flight is just a flight now.",
+  "friends|Make friends|New city. A fight gym seemed a good place to meet people.|bond|Board shorts|New city. Three numbers in my phone. One's the pizza place, one's my landlord.|{rival} messaged me after the Pit. Just 'ok'. I've read it about six times.|Everyone's on the roof. {rival} has a black eye and keeps telling people it was worth it.",
+  "revenge|Revenge|Someone hurt my brother. I've found out who.|past|Leather gloves|The crew who put my brother in hospital drink at the Pit. I've got their names.|{boss} knew my brother. Bought me a drink and said the lads who did it work for {champ}.|I could finish this. My brother asked me not to. I don't know why I'm listening.",
+  "title|Win the title|The city belt. I want it.|title|Leather jacket|Somebody wears the city belt this year. I've cleared a space for it on my wall.|Text from a number I don't know: 'ZERO says hello.' I never gave anyone this number.|The belt's on the wall in the space I cleared for it. It hangs a bit crooked.",
+  "worth|Prove worth|Three gyms turned me down. I want them to watch me win.|body|Chest pound emote|Three gyms said no. I kept the emails. One just said 'no thanks' and a smiley.|One of those gyms rang today. They've had a rethink. I let it ring out.|I printed the three emails and taped them under the belt, where I'll see them.",
+  "protect|Protect family|Someone's threatening my family. I want it to stop.|family|Boxing headgear|Someone sprayed our front door again. Mum painted over it before I was even up.|The tag from our door is on the Pit wall too. {boss}'s lads. Mum's at my aunt's for now.|Mum's home. She's painting the front door yellow. She says it's not for anyone.",
+  "debt|Pay a debt|I owe the wrong man money. The prize covers it.|past|Work boots|I owe a man money. He wrote the day it's due on the back of my hand. In pen.|Paid him half after the Pit. He counted it twice and smiled. I didn't like the smile.|Paid. All of it. He wanted to shake on it. I washed the hand he wrote on first.",
+  "mentor|Honor a mentor|My coach died wanting this belt. I want it for him.|bond|Bag gloves|Coach died in March. His last words were about my left hand. I'm keeping it up.|Wore Coach's old wraps tonight. They still smell of his gym and his cigarettes.|The belt's on Coach's old hook, where his whistle used to hang. It fits better.",
+  "redemption|Redemption|I hurt someone in a fight I shouldn't have had.|past|Wave emote|Two years ago a fight went too far. The other guy still walks with a stick.|He was in the Pit crowd tonight, stick and all. I made myself look at him.|He came up to the roof. Took the stairs slowly. Shook my hand. Didn't smile.",
+  "fame|Fame|One clip that goes big. That's all I'm asking.|fame|Chain|Four hundred followers. Three hundred are cousins. The rest are probably bots.|The Pit clip's past a million. Mum says it's fake. She's watched it twelve times.|Forgot to hit record for the final. The only clip is my cousin's. It's mostly his thumb.",
+  "escape|Escape the past|New city, new name. Fighting's the one thing I kept.|past|Balaclava|One bag and a bus ticket. I made the name up somewhere on the motorway.|Someone at the Pit used my old name. I didn't run. I nearly did.|I dropped my old jacket off the roof. Whoever finds it can have the name too.",
+  "thrill|Thrill seeking|I get bored. Getting hit doesn't bore me.|fame|Laugh emote|Skydiving got boring. The shark cage got boring. My hands still shake before a fight.|My hands shook before {boss}. Good. I was scared I'd got used to it.|The belt's mine and my hands are steady again. I'm already looking at other cities.",
+  "undefeated|Stay undefeated|Never lost a fight. Not planning to start.|title|Sunglasses|Forty-one fights, forty-one wins. I count them on the stairs up to the gym.|The Pit nearly had me. I've been sick twice since. The number's still the number.|Still no losses. I write the new number on my tape. My hand shakes doing it.",
+  "neighborhood|Defend the neighborhood|A crew is leaning on my street. I'm leaning back.|bond|Bomber jacket|The crew's tagged the barber's window again. Third time this month. He's stopped cleaning.|Saw the crew's top man at the Pit, buying {boss} drinks. He's shorter than I thought.|Block party. The barber cleaned his window, then painted it orange. Nobody asked.",
+  "champion|Beat the champion|ZERO. The rest are just in the way.|title|Point emote|ZERO's poster is in every shop window on my road. I've stopped looking at them.|ZERO's people were at the Pit tonight. One of them filmed me. Good. Let him watch.|ZERO's on the floor. I wait for him to get up. Then I don't know what to do.",
+  "kids|Teach the kids|My free kids' class needs rent money by spring.|bond|Neck crack emote|The landlord shuts my kids' class in spring unless the rent's paid. He says he's sorry.|The kids watched the Pit on one cracked phone. They tried every punch on each other.|Rent's paid till next year. Every kid wants the move from the roof. I can't remember it.",
+  "lasttitle|One last title|My knees have one more run in them. Probably.|title|Towel|My knees click on the stairs. Two years ago the doctor said one more, tops.|Got home from the Pit and couldn't get my shoes off. Slept in them.|I leave my gloves on the roof rail and take the lift down with everyone else.",
+  "fit|Get fit|I want to get through three rounds without dying.|body|High-tops|One round on the bag and I had to lie on the floor. The bag didn't even move.|I can hear my breathing now instead of my heart. I'm told that's progress.|Three rounds on the bag after the final. Then three more. The bag moved this time.",
+  "provide|Provide for family|Rent's due and the prize money isn't. Yet.|family|Cargo pants|Rent's due Friday. The kid needs school shoes. The prize pays both.|First prize money went on food. The kid did the shopping. It's all crisps.|Rent's paid till summer. The kid's new shoes light up. Stamps all the way down the hall.",
+  "proud|Make family proud|My family's never come to a fight. They'll come to this one.|family|Jersey|My family thinks fighting is a phase. It's been a phase for ten years.|Dad rang after the Pit. Said he saw it by accident. Asked how I did the elbow.|My whole family's on the roof. Dad holds up a sign he made from one of Mum's bedsheets.",
+  "wrong|Prove them wrong|My first coach said I'd never make it.|body|Shrug emote|My first coach said I'd never make it. I wrote it on my wall, word for word.|Sent that coach a photo from the Pit. Read at 2:14 a.m. No reply.|That coach came up to the roof. He clapped once, slowly, then went back down the stairs.",
+  "respect|Earn respect|Nobody in this city takes me seriously.|fame|Fist bump emote|First day at the gym they laughed when I asked which bag was mine.|Fighters nod at me in the street now. Even {rival}. Small nod, but it counts.|ZERO bowed first. I made him wait a second before I bowed back.",
+  "sibling|Find a lost sibling|My sibling went into the fight scene and stopped calling.|family|Beckon emote|Our kid went into the fight clubs of {city} in spring and stopped answering.|A guy at the Pit had a photo of them from last month. Thinner. But alive.|They came up to the roof in my old hoodie. We didn't say anything for ages.",
+  "legacy|Leave a legacy|I want my name on a door before my knees go.|fame|Chest piece|Nothing in {city} has my name on it. Apart from an overdue library card.|Kids on my street are copying my stance. Badly. I'm not correcting them.|The prize bought the old gym on the corner. My name goes on the door next week.",
 ].map((row) => { const [id, name, line, motive, reward, a0, a1, a2] = row.split('|'); return { id, name, line, motive, reward, arc: [a0, a1, a2] }; });
-// Motives (four goals each): id|name|rival A|rival A's pose in B4|B4 challenge|B5 when beaten|the fighter's pose in B10|the fighter's ending pose in B14.
+// Motives (four goals each): id|name|rival A|rival A's pose in B4|B4 challenge|B5 when beaten|the fighter's pose in B10|the fighter's ending pose in B14|B12 after "Offer a hand"|B12 after "Walk away".
+// The B4, B5 and B12 lines are rival A's own: Story.beat takes them from the row whose rival A is the run's, also when the motive's rival is the player and the next one stands in.
 const STORY_MOTIVES = [
-  "title|The title|deacon|point|Twenty years I've waited for this title. You can wait one more, kid.|Hit like that on the rooftop and the belt is yours. Don't waste it.|glove_tap|arms",
-  "body|Body and fitness|femke|crossed_arms|This isn't a fitness class. Go and jog somewhere.|Fine. You've trained. I take back the jogging.|idle_tired|flex",
-  "fame|Fame|diego|phone|Smile, you're live! Three thousand people want to watch you fall.|Stop the stream. STOP the stream!|phone|fist",
-  "past|The past|kelsey|think|I know that look. You're running from something. So was I.|Whatever you're carrying, set it down. You fight lighter.|head_down|shake_out",
-  "family|Family|giorgi|argue|Everyone fights for family. Show me yours needs it more than mine.|Go. They're waiting for you. Mine can wait a little longer.|plead|wave",
-  "bond|Friends and bonds|roxy|laugh|Friends, kids, mentors. Cute. I just came for the fight.|Ha! Finally someone worth the bus fare.|shake_out|fist_bump",
-].map((row) => { const [id, name, rival, p4, challenge, beaten, p10, end] = row.split('|'); return { id, name, rival, p4, challenge, beaten, p10, end }; });
-// Tones (8 origins each): id|rival B candidates in order|the fighter's pose in B1|the intro emote a preset or a new fighter gets
+  "title|The title|deacon|point|Twenty years of night shifts at the bakery for a go at that belt. Get in the queue.|Fair enough. Your left's better than mine ever was. Don't repeat that.|glove_tap|arms|I owe you for the gym. Thought I'd pay you back in here. Mind my left side.|You walked off like I wasn't there. So I've brought the lads from the bakery.",
+  "body|Body and fitness|femke|crossed_arms|I've watched you on the bag. Fourteen wasted steps a round. I counted.|Nine wasted steps that time. You learn fast. I don't like it.|idle_tired|flex|Their crew rests every forty seconds. I've timed it. I'll take the left side.|You didn't shake my hand. I wrote that down. Then I showed my crew.",
+  "fame|Fame|diego|phone|Say hi, we're live! All four hundred of you, watch this one hit the floor.|Stop the stream. No, the red one. The red one! Why is it still going?|phone|fist|I'm streaming from my sock. Don't ask. You go left, I'll go right.|My chat had a vote. Eighty-one percent said bring the boys and run it back.",
+  "past|The past|kelsey|think|You've got the face I had my first night in the Pit. I did three years down there.|You fight like you're late for something. I used to. Ask me about it sometime.|head_down|shake_out|I worked the door here before I quit. I know where they come in. Stay close.|I wanted to tell you something at the gym. You left. My friends will tell you now.",
+  "family|Family|giorgi|argue|Everyone in this gym says family. I have eleven cousins. How many have you got?|Fine. Go home and eat something. My aunt would say you're too thin anyway.|plead|wave|My cousins wanted to come. I said no, this is with my friend. Don't make me look bad.|You walked off. In my family that's an insult. So I brought my family.",
+  "bond|Friends and bonds|roxy|laugh|Everyone's got a reason. I got the bus here because I was bored. Come on then.|Ha! Finally. That's my bus fare well spent. Again? I wasn't ready.|shake_out|fist_bump|Heard you'd get jumped in here. Couldn't let you have all the fun. Shove up.|You left me on the mat. Rude. So I got my mates. This is the fun bit.",
+].map((row) => { const [id, name, rival, p4, challenge, beaten, p10, end, hand, walk] = row.split('|'); return { id, name, rival, p4, challenge, beaten, p10, end, hand, walk }; });
+// Tones (8 origins each): id|the fighter's pose in B1|the intro emote a preset or a new fighter gets
 const STORY_TONES = [
   "rough|crossed_arms|crossed_arms", "ordinary|idle_relaxed|glove_tap", "strict|nod|nod",
 ].map((row) => { const [id, b1, intro] = row.split('|'); return { id, b1, intro }; });
@@ -8341,33 +8345,39 @@ const STORY_BEATS = [
   return { id, name, when, stage: Number(stage), shots: boxes.split(' ').map((shot) => { const [who, cam] = shot.split('.'); return { who, cam }; }), choice: flag === 'choice' };
 });
 /* Story rows: slot|condition|text|pose|also. slot = beat.box (B4.1); condition = terms joined by & (dimension:value, '*' = any, '>=1' = a count; empty = always);
-   text may use $region $origin $arc0..2 $challenge $beaten and {name} {city} {rival} {rival2} {boss} {tries}; pose = $b1 $p4 $p10 $pend or an id; also = 'who:pose' for the others in the shot.
+   text may use $region $home $origin $arc0..2 $challenge $beaten $hand $walk and {name} {city} {rival} {rival2} {boss} {champ} {tries}; pose = $b1 $p4 $p10 $pend or an id; also = 'who:pose' for the others in the shot.
    The most specific matching row of a slot wins (more conditions, then STORY_RANK), the first of equals; no match = no box. */
 const STORY_ROWS = [
-  'B1.1|region:*|$region|', 'B1.2|origin:*|$origin|$b1', 'B2.1|goal:*|$arc0|think',
-  "B3.1|tone:rough|Someone filmed it on a phone. By morning the whole street knows your face.|phone", "B3.1|tone:ordinary|Next morning your aunt calls. She heard about the fight from the baker.|phone",
-  "B3.1|tone:strict|A handwritten letter: the City Fight Gym has a place for you. Bring your own tape.|phone",
-  'B4.1|motive:*|$challenge|$p4|P:crossed_arms', 'B5.1|motive:*|$beaten|kneel', 'B5.2|result:flawless|Not even one round. Who trained you?|kneel',
-  "B6.1|tone:rough|New part of town. Same rule as always: keep moving, keep swinging.|neck_crack", "B6.1|tone:ordinary|Never been this far across {city}. Even the buses are a different colour.|idle_stretch",
-  "B6.1|tone:strict|Breathe. Guard up. Do it the way you've drilled it a thousand times.|nod",
-  "B7.1|tone:rough|These are my streets. You're a tourist with a mouthguard.|beckon", "B7.1|tone:ordinary|Heard you were coming. I bet my cousin you'd never get this far.|laugh",
-  "B7.1|tone:strict|No referee here. Let's see what all that training is worth.|crossed_arms",
-  "B8.1|tone:rough|Bruised, you sleep on a friend's sofa. At dawn, a note: 'The Pit. Tonight.'|sit_floor",
-  "B8.1|tone:ordinary|A night at home: hot soup, frozen peas on your ribs, and a flyer for the Pit.|idle_tired",
-  "B8.1|tone:strict|A text at midnight from an old sparring partner: 'The Pit is not a gym. Chin down.'|phone",
-  "B9.1|boss:hao|Fifty years of training. You have one night. Begin.|bow|P:crossed_arms", "B9.1|boss:marlon|Down here nobody bows. We just finish.|beckon|P:crossed_arms",
-  "B9.1|boss:yoav|No rules, no referee. Just the next ten seconds.|glove_tap|P:crossed_arms",
-  'B10.1|goal:*|$arc1|$p10',
-  "B11.1|tone:rough|A car waits outside the Pit. 'The champion wants a look at you. Beat the crew first.'|shocked",
-  "B11.1|tone:ordinary|A ticket to the champion's club night comes under the door. So does a warning.|phone",
-  "B11.1|tone:strict|A formal letter: the champion accepts. The crew at the club does not.|think",
-  "B12.1|choice:hand|You gave me a hand once. Here's mine: the back door's open. Go.|fist_bump", "B12.1|choice:walk|You walked away from me at the gym. I've waited all night for round two.|angry",
-  "B13.1|tone:rough|Street fighter. I've beaten a hundred like you. You're a hundred and one.|laugh|P:glove_tap", "B13.1|tone:ordinary|You came a long way to lose on a rooftop. Enjoy the view first.|shrug|P:glove_tap",
-  "B13.1|tone:strict|Discipline against discipline. One of us goes home undefeated.|bow|P:glove_tap",
-  'B14.1|motive:*|$arc2|$pend|Z:defeat_slump', 'B14.1|goal:revenge|$arc2|defeat_turn|Z:defeat_slump', 'B14.1|goal:friends|$arc2|$pend|Z:defeat_slump R:fist_bump',
-  "B15.1|tone:rough|Been knocked down my whole life. Getting up is the easy part.|kneel", "B15.1|tone:ordinary|Okay. Ow. Okay. Again.|head_down", "B15.1|tone:strict|Find the mistake. Fix the mistake. Again.|idle_tired",
-  "B16.1|tone:rough|Next day the corner shop won't let you pay. Not bad for a nobody from {city}.|idle_relaxed", "B16.1|tone:ordinary|The whole street throws a party. You fall asleep before the cake.|laugh",
-  "B16.1|tone:strict|A new photo goes up on the gym wall in {city}. This time it's yours.|nod", "B16.2|continues:>=1|It took {tries} tries. Nobody remembers that part.|",
+  "B1.1|region:*|$region|", "B1.2|origin:*|$origin|$b1",
+  "B2.1|goal:*|$arc0|think",
+  "B3.1|tone:rough|Someone filmed it. Those were {rival}'s lads from the City Fight Gym. {rival} has seen it.|phone",
+  "B3.1|tone:ordinary|Your aunt rings at eight. Her hairdresser says you beat up {rival}'s lads. Is it true?|phone",
+  "B3.1|tone:strict|A note under the door in neat capitals: YOU HIT MY CREW. CITY FIGHT GYM, 7 P.M. {rival}|phone",
+  "B4.1|motive:*|$challenge|$p4|P:crossed_arms",
+  "B5.1|motive:*|$beaten|kneel", "B5.2|result:flawless|Not one round. Hang on. I need to sit here a minute.|kneel",
+  "B6.1|tone:rough|{rival} says nobody gets near the belt without the Pit. {boss}'s crew watch the way in.|neck_crack",
+  "B6.1|tone:ordinary|{rival} says the belt goes through the Pit. Two buses. {boss}'s crew are at the stop.|idle_stretch",
+  "B6.1|tone:strict|The belt goes through the Pit, {rival} says. {boss}'s crew are outside. Guard up.|nod",
+  "B7.1|tone:rough|{boss} said let you through if you're any good. You're not. Lads!|beckon", "B7.1|tone:ordinary|I bet {boss} my dinner money you'd be on the floor by now. I'm hungry, mate.|laugh",
+  "B7.1|tone:strict|{boss} wants you tired, not hurt. I'm going to forget the second bit.|crossed_arms",
+  "B8.1|tone:rough|The landlord's changed your lock. You sleep on a mate's sofa, ribs strapped. Pit tonight.|sit_floor",
+  "B8.1|tone:ordinary|Frozen peas on your ribs. Your mum asks what happened. You say the stairs did it.|idle_tired",
+  "B8.1|tone:strict|Midnight text from your old coach: 'Heard about the Pit. Ribs?' Then: 'Go anyway.'|phone",
+  "B9.1|boss:hao|Thursdays are mine. Everyone who's worn that belt learned to fall on this floor. Now you.|bow|P:crossed_arms",
+  "B9.1|boss:marlon|Friday's my night. Half my door goes up to that club. Let's see if you're worth sending.|beckon|P:crossed_arms",
+  "B9.1|boss:yoav|Saturday shift. I'm paid to stop anyone going up to the club. I'm good at my job.|glove_tap|P:crossed_arms",
+  "B10.1|goal:*|$arc1|$p10",
+  "B11.1|tone:rough|A car's outside the Pit. {champ} wants a look at you. The lads in the car want one first.|shocked",
+  "B11.1|tone:ordinary|Two of {champ}'s crew bring a club ticket round to your door. They don't leave after.|phone",
+  "B11.1|tone:strict|A letter on thick paper. {champ} accepts. The club's security, it says, does not.|think",
+  "B12.1|choice:hand|$hand|fist_bump", "B12.1|choice:walk|$walk|angry",
+  "B13.1|tone:rough|Look at your shoes. Did you walk here? Nobody walks to my roof.|laugh|P:glove_tap",
+  "B13.1|tone:ordinary|You took the stairs, all of them. Either that's brave or nobody told you about the lift.|shrug|P:glove_tap",
+  "B13.1|tone:strict|I've watched your fights. You do everything properly. So did everyone I've beaten.|bow|P:glove_tap",
+  "B14.1|motive:*|$arc2|$pend|Z:defeat_slump", "B14.1|goal:revenge|$arc2|defeat_turn|Z:defeat_slump", "B14.1|goal:friends|$arc2|$pend|Z:defeat_slump R:fist_bump",
+  "B15.1|tone:rough|Floor again. Fine. I've slept on worse.|kneel", "B15.1|tone:ordinary|Okay. Ow. Okay. Where's my other shoe? Right. Again.|head_down",
+  "B15.1|tone:strict|Dropped my right hand on the jab. Every single time.|idle_tired",
+  "B16.1|tone:rough|$home|idle_relaxed", "B16.1|tone:ordinary|$home|laugh", "B16.1|tone:strict|$home|nod", "B16.2|continues:>=1|It took {tries} tries. You tell people it took one.|",
 ];
 const STORY_RANK = { result: 5, choice: 5, continues: 5, goal: 4, origin: 4, boss: 4, motive: 3, region: 3, tone: 2 }; // how specific a condition is
 const STORY_RANK_PER_TERM = 10; // above any single condition's rank, so a row with two conditions beats a row with one
@@ -8450,7 +8460,7 @@ const Story = {
     return ranked.length ? ranked[ranked.length - 1].id : 'zero';
   },
   // A new run (plain values only) for a fighter after `clears` Arcade clears at Arcade difficulty `level`
-  start(profile, clears, level, seed) {
+  start(profile, clears, level, seed, side) {
     const s = this.settingsOf(profile), country = STORY_COUNTRY_BY_ID[s.country], region = STORY_REGION_LIST[country.region], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
     const tone = STORY_TONE_BY_ID[origin.tone], motive = STORY_MOTIVE_BY_ID[goal.motive], c = Math.max(0, Math.floor(finite(clears, 0))), left = STORY_POOL.filter((id) => id !== region.home);
     const rivalA = this.rivalA(profile.id, motive.id);
@@ -8459,7 +8469,7 @@ const Story = {
     return {
       fighter: profile.id, name: profile.name, country: s.country, origin: s.origin, goal: s.goal, region: region.tag, tone: tone.id, motive: motive.id, clears: c,
       level: Object.hasOwn(DIFFICULTY, level) ? level : 'easy', seed: finite(seed, 1) >>> 0, home: region.home, stage3: left[c % left.length], stage5: left[(c + 1) % left.length],
-      rivalA, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false,
+      rivalA, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false, side: side === 1 || side === -1 ? side : 0, // side: the duels' round 1 start side (0 = drawn)
     };
   },
   // win: stage 2 won on its first try without losing a round is 'flawless' (never after a skip)
@@ -8476,7 +8486,7 @@ const Story = {
   // --- saving: a run quit at any stage is kept in Progress and continues there
   // The saved part of a run: plain values only. Stage, continues, lost tries, the skip, the flawless state and the B5 answer are the run's state.
   pack(run, scores = []) {
-    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, boss: run.boss, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
+    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, boss: run.boss, side: run.side, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
   },
   // A saved run read back from storage as a fresh object of plain values of the right kind and size, or null when it is not a run that can be continued. Whether its fighters still exist is for Story.restore.
   clean(raw) {
@@ -8485,7 +8495,7 @@ const Story = {
     const word = (value) => (typeof value === 'string' && value.length <= STORY_ID_MAX ? value : '');
     const saved = {
       fighter: word(raw.fighter), stage: whole(raw.stage, STORY_STAGES), clears: whole(raw.clears, 999), level: typeof raw.level === 'string' ? raw.level : '', seed: whole(raw.seed, 0xffffffff),
-      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), boss: word(raw.boss),
+      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), boss: word(raw.boss), side: raw.side === 1 || raw.side === -1 ? raw.side : 0,
       scores: Array.isArray(raw.scores) && raw.scores.length <= STORY_STAGES ? raw.scores.map((score) => (typeof score === 'number' && score >= 0 && score <= 100 ? score : null)) : [], // a damaged list only loses the grade's history, not the run
     };
     const counts = [saved.stage, saved.clears, saved.seed, saved.continues, saved.lost];
@@ -8496,7 +8506,7 @@ const Story = {
   restore(saved) {
     const clean = this.clean(saved), profile = clean && ROSTER_BY_ID[clean.fighter];
     if (!profile) return null;
-    const run = this.start(profile, clean.clears, clean.level, clean.seed);
+    const run = this.start(profile, clean.clears, clean.level, clean.seed, clean.side);
     for (const key of ['rivalA', 'boss']) if (ROSTER_BY_ID[clean[key]]) run[key] = clean[key]; // an old save's rivalB is ignored: stage 3 is led by a goon now
     return Object.assign(run, { stage: clean.stage, choice: clean.choice, continues: clean.continues, lost: clean.lost, flawless: clean.flawless, skipped: clean.skipped, scores: clean.scores });
   },
@@ -8511,7 +8521,7 @@ const Story = {
   // The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty
   cfg(run, n) {
     const duel = this.foe(run, n), cfg = { playerId: run.fighter, arenaId: this.arena(run, n), difficulty: run.level, arcadeLevel: run.level, seed: this.seedOf(run, n), keepSeed: true };
-    if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
+    if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 }, run.side ? { startSide: run.side } : {}); // a chosen side is the round 1 side of every duel
     Object.assign(cfg, { mode: 'brawl', enemies: 1, waves: true, winsNeeded: 1, timer: 0 });
     // Every boss brings their own goons: stage 1 rival A's, stage 3 the boss's, stages 5 and 6 the champion's (stage 6 after "Walk away": rival A's own, led by rival A himself)
     if (n === 1) Object.assign(cfg, { waveKeep: 3, goons: run.rivalA });
@@ -8531,14 +8541,14 @@ const Story = {
   },
   // Where a scene at stage n puts its cast: the fighter on its round 1 start side (MatchSim.sideFor), STORY_CAST_GAP from the middle of the room; a brawl keeps the fighter on the left
   cast(run, n) {
-    const side = this.foe(run, n) ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1;
+    const side = this.foe(run, n) ? run.side || MatchSim.sideFor(this.seedOf(run, n), 1) : 1;
     return { side, playerX: -side * STORY_CAST_GAP, otherX: side * STORY_CAST_GAP, z: 0 };
   },
   // A line about stage n for the story screen
   stageInfo(run, n) {
     const duel = this.foe(run, n), arena = ARENAS[this.arena(run, n)], name = (id) => (ROSTER_BY_ID[id] ? ROSTER_BY_ID[id].name : id);
     const lead = n === 3 ? ' led by ' + this.leaderName(run, 0) : n === 5 ? ' led by ' + this.leaderName(run, 1) : n === 6 ? (run.choice === 'walk' ? ' led by ' + name(run.rivalA) : ' led by ' + this.leaderName(run, 1) + ', with ' + name(run.rivalA)) : '';
-    return { n, duel: !!duel, title: (duel ? 'Duel' : 'Brawl') + ' - ' + arena.name, text: duel ? 'Against ' + name(duel) : (n === 1 ? 'The first three waves' : 'All the waves') + lead };
+    return { n, duel: !!duel, title: (duel ? 'Duel' : 'Brawl') + ' - ' + arena.name, text: duel ? 'Against ' + name(duel) : name(this.cfg(run, n).goons) + "'s crew, " + (n === 1 ? 'the first three waves' : 'all the waves') + lead };
   },
 
   // --- beats
@@ -8562,15 +8572,16 @@ const Story = {
   // The values behind the {tokens} of a text; `override` replaces some
   tokens(run, override) {
     const country = STORY_COUNTRY_BY_ID[run.country];
-    return Object.assign({ name: run.name, city: country.city, rival: this.name(run, 'R'), rival2: this.name(run, 'R2'), boss: this.name(run, 'B'), tries: String(run.continues + 1) }, override); // the tries so far: the continues and the one being played
+    return Object.assign({ name: run.name, city: country.city, rival: this.name(run, 'R'), rival2: this.name(run, 'R2'), boss: this.name(run, 'B'), champ: this.name(run, 'Z'), tries: String(run.continues + 1) }, override); // the tries so far: the continues and the one being played
   },
   // One beat as it is told now: { id, name, when, stage, choice, boxes: [{ who, speaker, cam, text, pose, also }] }.
   beat(run, id, override) {
     const def = STORY_BEAT_BY_ID[id];
     if (!def) return null;
     const facts = this.facts(run), tokens = this.tokens(run, override), country = STORY_COUNTRY_BY_ID[run.country], origin = STORY_ORIGIN_BY_ID[run.origin], goal = STORY_GOAL_BY_ID[run.goal];
-    const motive = STORY_MOTIVE_BY_ID[run.motive], tone = STORY_TONE_BY_ID[run.tone];
-    const refs = { $region: STORY_REGION_LIST[country.region].line, $origin: origin.line, $arc0: goal.arc[0], $arc1: goal.arc[1], $arc2: goal.arc[2], $challenge: motive.challenge, $beaten: motive.beaten, $b1: tone.b1, $p4: motive.p4, $p10: motive.p10, $pend: motive.end };
+    const motive = STORY_MOTIVE_BY_ID[run.motive], tone = STORY_TONE_BY_ID[run.tone], region = STORY_REGION_LIST[country.region];
+    const rival = STORY_MOTIVES.find((row) => row.rival === run.rivalA) || motive; // rival A speaks their own lines, also when they stand in for the player
+    const refs = { $region: region.line, $home: region.end, $origin: origin.line, $arc0: goal.arc[0], $arc1: goal.arc[1], $arc2: goal.arc[2], $challenge: rival.challenge, $beaten: rival.beaten, $hand: rival.hand, $walk: rival.walk, $b1: tone.b1, $p4: rival.p4, $p10: motive.p10, $pend: motive.end };
     const fill = (text) => (refs[text] !== undefined ? refs[text] : text).replace(/\{(\w+)\}/g, (all, key) => (tokens[key] !== undefined ? tokens[key] : all));
     const boxes = [];
     def.shots.forEach((shot, k) => {
@@ -11143,9 +11154,9 @@ class MatchSim {
   }
 
   /* Which start spot the first fighter takes: 1 = the left one (ring centre - spawn), -1 = the right one. Level layouts are not mirror images, so a seat that always started left always got the same side of a barrel, falling load or item pile.
-     A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after (no random number drawn); brawls, Training and a fight with neither ring nor `sides` always start left. */
+     A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after (no random number drawn); brawls, Training and a fight with neither ring nor `sides` always start left. A chosen `cfg.startSide` (P18-16) replaces the draw: it holds in round 1 and swaps every round after; Training keeps it, having no rounds. */
   startSide() {
-    if (this.training) return 1;
+    if (this.training) return this.cfg.startSide || 1; // no rounds to swap: the chosen side holds
     if (this.brawl) return this.setup && this.teamCount <= 2 ? this.cfg.startSide || 1 : 1; // two teams may be mirrored; a crowd or circle ignores it
     const fixed = this.cfg.startSide;
     if (fixed) return this.round & 1 ? fixed : -fixed; // swapped every round
@@ -11464,13 +11475,20 @@ class MatchSim {
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
-    const bx = Arena.sx1;
-    if (n === 2) { a.x = -0.55; b.x = 0.55; } else if (n === 3) { b.x = bx - 0.7; a.x = b.x - 1.4; } else if (n === 4) {
-      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
-      if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
+    const side = this.startSide(), wall = side === 1 ? Arena.sx1 : Arena.sx0; // side: the player's start side (P18-16), 1 = left; the scenes are mirrored for Right, and placeFighters has already turned both to face each other
+    const room = (x, z) => x >= Arena.sx0 + a.radius && x <= Arena.sx1 - a.radius && z >= Arena.sz0 + a.radius && z <= Arena.sz1 - a.radius && !Arena.blockedAt(x, z, a.radius, 0); // inside the room and clear of every prop
+    if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { // the dummy in the corner of the chosen wall: the first row along the wall (from the middle outwards) that is clear for both
+      b.x = wall - side * 0.7; a.x = b.x - side * 1.4;
+      for (let k = 0; k < RING_START_TRIES; k++) {
+        const z = clamp((k & 1 ? -1 : 1) * Math.ceil(k / 2) * RING_START_STEP, Arena.sz0 + a.radius, Arena.sz1 - a.radius);
+        if (room(a.x, z) && room(b.x, z)) { a.z = b.z = z; break; }
+      }
+    } else if (n === 4) { // the dummy stands against the first prop that leaves room for both on the player's side
+      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z) && room(q.x - side * (q.hx + 1.0), q.z) && room(q.x - side * (q.hx + 2.2), q.z));
+      if (o) { b.x = o.x - side * (o.hx + 1.0); b.z = o.z; a.x = b.x - side * 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; } // infinite stamina would refill it at once
     else if (n === 6) { // the dummy lies on the floor one metre away, for a long time (a hold lasts up to 4 s)
-      a.x = -0.5; b.x = 0.5;
+      a.x = -side * 0.5; b.x = side * 0.5;
       b.setState(S.HIT); b.setState(S.DOWN);
       b.groundHits = 0; b.lieSign = 1; b.downMult = HOLD_SCENARIO_DOWN; b.keepDown = true; // keepDown: a CPU dummy's Defend press does not get it up quickly
     }
@@ -12146,7 +12164,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, startSides: Object.assign({}, SIDE_DEFAULT), tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {}, // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null, // the bracket being played, or null before the draw and after it is left
@@ -12223,10 +12241,11 @@ const Game = {
     this.selection.tournamentRing = !!(Setups.d && Setups.d.v === 1 && Setups.plain(Setups.d.tournament).ringOut === true); // the Tournament's Ring-out row
     const type = Setups.d && Setups.d.v === 1 ? Setups.plain(Setups.d.survival).type : 0; // the Survival type row: 0 to 3, anything else is Duels
     this.selection.survivalType = Number.isInteger(type) && type >= 0 && type < SURVIVAL_TYPES.length ? type : 0;
+    for (const mode in SIDE_DEFAULT) { const side = Setups.d && Setups.d.v === 1 ? Setups.plain(Setups.d[mode]).side : 0; this.selection.startSides[mode] = Number.isInteger(side) && side >= SIDE_DEFAULT[mode] && side < SIDE_LABELS.length ? side : SIDE_DEFAULT[mode]; } // the Start side rows of Arcade and Training
   },
   saveLevel() {
     const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
-    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : mode === 'survival' ? { type: this.selection.survivalType } : {}) });
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : mode === 'survival' ? { type: this.selection.survivalType } : mode in SIDE_DEFAULT ? { side: this.selection.startSides[mode] === SIDE_DEFAULT[mode] ? undefined : this.selection.startSides[mode] } : {}) }); // the default side is not stored (undefined is left out of the JSON), so a setup nobody changed reads as before
     Setups.save();
   },
 
@@ -12247,7 +12266,7 @@ const Game = {
   // Arcade is the story run (Story): 7 stages, brawls against groups and 1v1 fights against rivals, the boss and the champion
   startArcade() {
     const sel = this.selection;
-    const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now());
+    const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now(), SIDE_VALUE[sel.startSides.arcade]);
     this.run = { mode: 'arcade', player: sel.player, story, stage: 0, scores: [] };
     this.saveArcadeRun(); // replaces the run saved before
     this.tellStory(this.beatIds('before', 1), () => this.beginStage());
@@ -12368,7 +12387,7 @@ const Game = {
     const sel = this.selection;
     const opp = this.opponentsFor(sel.player)[0];
     this.run = { mode: 'training', player: sel.player };
-    this.beginMatch({ mode: 'training', playerId: sel.player, opponentId: this.selection.opponent && this.selection.opponent !== sel.player ? this.selection.opponent : opp.id, arenaId: sel.arena, difficulty: 'normal', winsNeeded: 99, timer: 0, countdown: false, dummy: 'stand' });
+    this.beginMatch({ mode: 'training', playerId: sel.player, opponentId: this.selection.opponent && this.selection.opponent !== sel.player ? this.selection.opponent : opp.id, arenaId: sel.arena, difficulty: 'normal', winsNeeded: 99, timer: 0, countdown: false, dummy: 'stand', startSide: SIDE_VALUE[sel.startSides.training] });
   },
   // Starts the Free Fight setup; false, with a toast, when it cannot start
   startFree() {
@@ -13932,6 +13951,7 @@ const UI = {
     else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
     else if (name === 'tring') { sel.tournamentRing = !sel.tournamentRing; Game.saveLevel(); }
     else if (name === 'stype') { sel.survivalType = (sel.survivalType + (dir || 1) + SURVIVAL_TYPES.length) % SURVIVAL_TYPES.length; Game.saveLevel(); }
+    else if (name === 'side') { const mode = sel.mode, first = SIDE_DEFAULT[mode], count = SIDE_LABELS.length - first; sel.startSides[mode] = first + (sel.startSides[mode] - first + dir + count) % count; Game.saveLevel(); }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     else if (name.startsWith('story')) this.storyChange(name, dir);
@@ -14106,6 +14126,8 @@ const UI = {
   },
   // The Difficulty row of the current mode, the same on every mode's first screen
   levelRow() { const sel = Game.selection; return this.optRow('Difficulty', DIFFICULTY[sel[LEVEL_FIELD[sel.mode] || 'difficulty']].label, 'data-local="diff"', ''); },
+  // The Start side row of Arcade (the fighter screen) and Training (its setup screen)
+  sideRow() { const sel = Game.selection; return this.optRow(SIDE_ROW, SIDE_LABELS[sel.startSides[sel.mode]], 'data-local="side"', ''); },
   screen_main() {
     const saved = Game.savedArcadeRun(); // the run to continue: it takes the one current item, Play follows it
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
@@ -14160,7 +14182,7 @@ const UI = {
     const who = lineup ? (person ? 'Player ' + lineup.slots.slice(0, slotAt + 1).filter((slot) => slot.human).length : 'CPU ' + (slotAt + 1)) : '';
     const title = seat >= 0 ? '<span class="seat' + (seat + 1) + '" style="color:var(--pc)">Player ' + (seat + 1) + '</span>: choose your fighter' : lineup ? 'Choose fighter: ' + who : 'Choose your fighter';
     const sub = MODE_INFO[sel.mode].label + (seat >= 0 && Inputs.seats[seat] ? ' &middot; ' + esc(this.deviceLabel(Inputs.seats[seat])) : '');
-    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + (sel.mode === 'survival' ? this.optRow('Survival type', SURVIVAL_TYPES[sel.survivalType], 'data-local="stype"', '') : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
+    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + (sel.mode === 'survival' ? this.optRow('Survival type', SURVIVAL_TYPES[sel.survivalType], 'data-local="stype"', '') : '') + (sel.mode === 'arcade' ? this.sideRow() : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
     h += '<button class="card create" data-nav data-act="create"><b>+ CREATE</b><em>Design a new fighter</em><span class="stat">Body, outfit, style, points</span></button>';
     for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === picked, person);
     h += '</div>';
@@ -14396,7 +14418,7 @@ const UI = {
   // Training: the sparring partner
   screen_setup() {
     const sel = Game.selection;
-    let h = this.panelOpen('Match setup', '38em,64vw') + '<h2>Training setup</h2><p class="sub">Choose your sparring partner</p><div class="cards">';
+    let h = this.panelOpen('Match setup', '38em,64vw') + '<h2>Training setup</h2><p class="sub">Choose your sparring partner</p>' + this.sideRow() + '<div class="cards">';
     for (const r of Game.opponentChoices(sel.player, false)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);
     h += '</div><div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
     return h;
