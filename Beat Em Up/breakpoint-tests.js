@@ -295,6 +295,78 @@ const SelfTest = {
       const a = play(), b = play();
       return a === b ? true : a + ' != ' + b;
     });
+    /* P12-05 (closes Appendix D row D08): one state checksum per tick over everything a peer would compare, for a person's scripted seat against the CPU and for a four-fighter brawl.
+       The viewer settings (Reduced motion, shake, flashes, rumble, trails, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
+       all together; the clocks and Math.random are replaced; every run must give the checksum of the first, tick by tick. Debris and rubble are broken on purpose in both runs. */
+    test('Determinism: viewer settings, clocks and Math.random never change the simulation (same seed and inputs, equal state checksum at every tick, Reduced motion on and off) (P12-05)', () => {
+      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
+      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
+      const tickChecksum = (m) => {
+        const parts = [m.tick, m.phase, Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
+        for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
+        for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
+        return fnv1a(parts.join(','));
+      };
+      const person = (it, f, o, mm) => {   // a seat's scripted presses; assist and guardAssist are copied from Settings as PlayerInput.fillIntent does: the match must overwrite them from its own cfg.assist
+        const t = mm.tick;
+        it.fwd = t % 150 < 90 ? 1 : -0.6; it.side = Math.sin(t / 37) * 0.5; it.stickAnalog = t % 3 === 0;
+        if (t % 40 === 3) it.punch = true; if (t % 90 === 20) it.kick = true; if (t % 130 === 60) it.grapple = true; if (t % 170 > 150) it.defend = true; if (t % 250 === 100) it.crouch = true;
+        it.assist = Settings.v.autoAssist === true; it.guardAssist = Settings.v.guardAssist === true;
+      };
+      const SCENARIOS = {
+        duel: { ticks: 1000, breakAt: 120, make: () => {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 23, winsNeeded: 2, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true }));
+          m.controllers[0] = Object.assign(self.scripted(person), { human: true });
+          m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+          return m;
+        } },
+        brawl: { ticks: 1200, breakAt: 200, make: () => {
+          const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 7, arenaId: 'pit', difficulty: 'hard', evenDamage: true, items: true, hazards: true }));
+          m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
+          return m;
+        } },
+      };
+      /* viewer: settings to apply (over the base); swapped: also replace Math.random, Date.now and performance.now. Returns { sums: one checksum per tick, pieces: the most debris alive at once } */
+      const play = (scenario, viewer, swapped) => {
+        const keep = Object.assign({}, Settings.v), keepRandom = Math.random, keepDate = Date.now, keepNow = performance.now;
+        let m = null;
+        try {
+          Object.assign(Settings.v, VIEWER_BASE, viewer); Quality.apply();
+          if (swapped) { Math.random = () => 0.37; Date.now = () => 1234567; performance.now = () => 5; }
+          m = scenario.make();
+          const sums = [];
+          let pieces = 0;
+          Debris.clear();
+          for (let t = 0; t < scenario.ticks; t++) {
+            if (t === scenario.breakAt) for (const o of Arena.objects) if (!o.fixed && !o.destroyed) Arena.breakObject(o, 1, 0, 0);
+            m.step();
+            if (m.phase === 'waiting') m.startRound();
+            pieces = Math.max(pieces, Debris.active);
+            sums.push(tickChecksum(m));
+          }
+          return { sums, pieces };
+        } finally {
+          Math.random = keepRandom; Date.now = keepDate; performance.now = keepNow;
+          Object.assign(Settings.v, keep); Quality.apply();
+          if (m) m.dispose();
+          Debris.clear(); FX.clear();
+        }
+      };
+      const firstDifference = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return a.length === b.length ? -1 : Math.min(a.length, b.length); };
+      const problems = [];
+      for (const name in SCENARIOS) {
+        const scenario = SCENARIOS[name], base = play(scenario, {}, false);
+        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
+        if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);
+        for (const [label, viewer, swapped] of runs) {
+          const run = play(scenario, viewer, swapped), at = firstDifference(base.sums, run.sums);
+          if (at >= 0) problems.push(name + ' with ' + label + ': first different tick ' + at);
+          if (label === 'every viewer setting flipped' && run.pieces >= base.pieces) problems.push(name + ': the low quality preset did not shrink the debris (' + run.pieces + ' of ' + base.pieces + '), so the cap was not exercised');
+        }
+        if (new Set(base.sums).size < scenario.ticks / 4) problems.push(name + ': the checksum hardly moves (' + new Set(base.sums).size + ' values): the scenario plays nothing');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
     test('Jab connects once and deals damage', () => {
       const log = self.capture(['hit']);
       const m = mk({}, once(2, 'punch')); self.place(m, 1.2); self.run(m, 60); log.stop();
