@@ -3537,6 +3537,7 @@ const Arena = {
 
   // A deck, step or tier breaks: its boards, plates or chunks fall over the footprint and leave a low heap of rubble
   breakDeck(o, dirx, dirz) {
+    // simRng is the AI's stream too: every draw below is made before the quality cap skips a piece, so Quality never changes the AI's rolls (test "Determinism: viewer settings"); keep it that way
     const kind = kindOf(o.mat), rng = simRng, cap = Quality.limits.pieces, count = clamp(Math.round(o.hx * o.hz * 4.8), 3, DECK_PIECES_MAX);
     const plank = kind === 'wood', color = o.mat === 'concrete' ? '#8d9096' : o.color;
     for (let i = 0; i < count; i++) {
@@ -9935,6 +9936,7 @@ class MatchSim {
   constructor(cfg) {
     this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true, hazards: true }, cfg);
     simRng = makeRng(this.cfg.seed);
+    Combat.attackCounter = 0; Combat.flightCounter = 0; // the move and flight ids restart with the seed, so a match does not depend on how many fights the page has seen (P12-05)
     this.def = ARENAS[this.cfg.arenaId];
     const ring = (this.cfg.mode !== 'brawl' || this.cfg.slots) && this.cfg.ring && this.def.ring ? this.def.ring : null; // a 1v1 or a lineup fights inside its level's ring (not the crowd); ring-out only where the level has it and the rule is on
     Arena.build(this.def, ring, !!(ring && this.cfg.ringOut && ring[4]), this.cfg.breakables === false);
