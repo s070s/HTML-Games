@@ -47,6 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
+  Online, OnlineCode, Qr, OnlineUI, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -56,7 +57,7 @@ const {
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-  ROUND_END_TICKS, NET_INPUT_CHANNEL, NET_CONTROL_CHANNEL, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+  ROUND_END_TICKS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
   encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
 } = api;
 
@@ -13573,7 +13574,7 @@ const SelfTest = {
     /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
-    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator', 'online', 'onlinehost', 'onlinejoin', 'onlineqr'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
     const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
       const customs = keepCustoms();
       try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
@@ -17453,59 +17454,614 @@ const SelfTest = {
         connections.forEach((connection) => connection.close());
       });
     });
-    /* A real loopback RTCPeerConnection pair in this page (as the CSP test above) carries a 1v1 lockstep over LockstepTransport with the decided channel options. Async: the result fills in after run_all returns. */
-    test('Lockstep over WebRTC (P12-02): a loopback RTCPeerConnection pair carries a 1v1 over the adapter (input channel unordered with no resend, control channel reliable), checksums equal; skipped where the browser has no WebRTC', () => {
+    /* ---------- online: signaling by copy-paste (P12-01) ---------- */
+    /* Real data-channel SDPs from Chromium 156 and Firefox 157 (the engines with WebRTC on the dev PC), taken after ICE gathering with no ICE server: two mDNS host
+       candidates each (Firefox also lists two TCP ones). Their packed codes are 140 to 160 characters. */
+    const sdpLines = (lines) => lines.join('\r\n') + '\r\n';
+    const SDP_FIXTURES = {
+      chromiumOffer: sdpLines([
+        'v=0',
+        'o=- 1187043519217410436 2 IN IP4 127.0.0.1',
+        's=-',
+        't=0 0',
+        'a=group:BUNDLE 0',
+        'a=extmap-allow-mixed',
+        'a=msid-semantic: WMS',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:3866906279 1 udp 2113937151 15bfeff9-b4f0-43ea-ba9e-72529850feff.local 57619 typ host generation 0 network-cost 999',
+        'a=candidate:357656756 1 udp 2113939711 4ce99e8c-bd69-462a-80c3-1b63fae364f2.local 57620 typ host generation 0 network-cost 999',
+        'a=ice-ufrag:VXjD',
+        'a=ice-pwd:xlRKbMj3SA7RuqnbnE02pmmj',
+        'a=ice-options:trickle',
+        'a=fingerprint:sha-256 E3:1D:24:0E:DD:7D:91:95:52:7A:98:35:EB:6D:DE:9D:3E:C7:68:F5:9E:72:9B:8C:E2:C8:C6:65:B2:47:33:B5',
+        'a=setup:actpass',
+        'a=mid:0',
+        'a=sctp-port:5000',
+        'a=max-message-size:262144',
+      ]),
+      chromiumAnswer: sdpLines([
+        'v=0',
+        'o=- 1613232220409715949 2 IN IP4 127.0.0.1',
+        's=-',
+        't=0 0',
+        'a=group:BUNDLE 0',
+        'a=extmap-allow-mixed',
+        'a=msid-semantic: WMS',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:244871657 1 udp 2113937151 15bfeff9-b4f0-43ea-ba9e-72529850feff.local 55714 typ host generation 0 network-cost 999',
+        'a=candidate:2597268219 1 udp 2113939711 4ce99e8c-bd69-462a-80c3-1b63fae364f2.local 55715 typ host generation 0 network-cost 999',
+        'a=ice-ufrag:780s',
+        'a=ice-pwd:xXHQrK4taf4EwjECF88pE/I6',
+        'a=ice-options:trickle',
+        'a=fingerprint:sha-256 99:5A:F9:FA:E7:8F:52:2D:62:4C:69:1B:9E:71:18:92:A6:40:7E:CD:09:1A:D7:CE:04:A3:AC:30:96:2B:9D:5E',
+        'a=setup:active',
+        'a=mid:0',
+        'a=sctp-port:5000',
+        'a=max-message-size:262144',
+      ]),
+      firefoxOffer: sdpLines([
+        'v=0',
+        'o=mozilla...THIS_IS_SDPARTA-99.0 5444691581700837339 0 IN IP4 0.0.0.0',
+        's=-',
+        't=0 0',
+        'a=sendrecv',
+        'a=fingerprint:sha-256 90:0C:D4:87:23:1E:6A:32:AB:C0:69:DD:CA:4B:81:58:31:6C:3D:F2:26:7C:AD:E1:B2:80:06:43:F5:D6:9C:88',
+        'a=group:BUNDLE 0',
+        'a=ice-options:trickle',
+        'a=msid-semantic:WMS *',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:0 1 UDP 2122187007 43511682-23ff-4f6e-a782-92764ed334ff.local 55719 typ host',
+        'a=candidate:1 1 UDP 2122252543 e7626122-8ad6-4068-981b-dd4094311e98.local 55720 typ host',
+        'a=candidate:2 1 TCP 2105458943 43511682-23ff-4f6e-a782-92764ed334ff.local 9 typ host tcptype active',
+        'a=candidate:3 1 TCP 2105524479 e7626122-8ad6-4068-981b-dd4094311e98.local 9 typ host tcptype active',
+        'a=sendrecv',
+        'a=end-of-candidates',
+        'a=ice-pwd:b28115c25ce01edce811a2e14460c889',
+        'a=ice-ufrag:0f2cbfc8',
+        'a=mid:0',
+        'a=setup:actpass',
+        'a=sctp-port:5000',
+        'a=max-message-size:1073741823',
+      ]),
+      firefoxAnswer: sdpLines([
+        'v=0',
+        'o=mozilla...THIS_IS_SDPARTA-99.0 9159564645491737138 0 IN IP4 0.0.0.0',
+        's=-',
+        't=0 0',
+        'a=sendrecv',
+        'a=fingerprint:sha-256 63:C0:57:6A:09:F1:97:87:BD:EC:FD:8D:4D:31:2C:76:2E:A7:52:03:7F:7D:4E:51:34:B6:06:5A:36:BC:7A:4A',
+        'a=group:BUNDLE 0',
+        'a=ice-options:trickle',
+        'a=msid-semantic:WMS *',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:0 1 UDP 2122187007 3649bc5b-b158-4c85-b221-49ee0b35e142.local 55723 typ host',
+        'a=candidate:1 1 UDP 2122252543 93592583-2479-4a21-aa62-ab7ee8ecab7d.local 55724 typ host',
+        'a=candidate:2 1 TCP 2105458943 3649bc5b-b158-4c85-b221-49ee0b35e142.local 9 typ host tcptype active',
+        'a=candidate:3 1 TCP 2105524479 93592583-2479-4a21-aa62-ab7ee8ecab7d.local 9 typ host tcptype active',
+        'a=sendrecv',
+        'a=end-of-candidates',
+        'a=ice-pwd:d21bd5903dcaf7b84010883cea9695e1',
+        'a=ice-ufrag:2308548e',
+        'a=mid:0',
+        'a=setup:active',
+        'a=sctp-port:5000',
+        'a=max-message-size:1073741823',
+      ]),
+    };
+    const OFFER = SDP_FIXTURES.chromiumOffer, ANSWER = SDP_FIXTURES.chromiumAnswer;
+    const iceOf = (sdp, kind) => JSON.stringify(OnlineCode.parseSdp(sdp, kind));   // the values the packed form carries
+    const rejectionOf = (text, expectKind) => { try { OnlineCode.readCode(text, expectKind); return 'accepted'; } catch (e) { return e.code; } };
+    const hasDeflate = typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+    const withCandidate = (sdp, line) => sdp.replace('a=ice-ufrag', line + '\r\na=ice-ufrag');
+    test('Online code (P12-01): real Chromium and Firefox offers and answers pack into one short BPO- / BPA- code of the packed form and come back with the same ICE values; the CRC-16 matches its check value', () => {
+      const bad = [];
+      if (OnlineCode.crc16(Array.from('123456789', (c) => c.charCodeAt(0))) !== 0x29b1) bad.push('CRC-16 check value');
+      for (const name of Object.keys(SDP_FIXTURES)) {
+        const kind = name.endsWith('Answer') ? 1 : 0;
+        const sdp = SDP_FIXTURES[name];
+        const code = OnlineCode.packSdp(kind, 3, sdp);
+        const back = OnlineCode.readCode(code, kind);
+        if (!code.startsWith(ONLINE_PREFIX[kind]) || !/^[A-Za-z0-9_-]+$/.test(code.slice(4))) bad.push(name + ' text ' + code.slice(0, 8));
+        if (code.length > 240) bad.push(name + ' is ' + code.length + ' characters');   // decided: 140 to 240 for 2 to 4 candidates
+        if (back.form !== ONLINE_FORM.PACKED || back.seat !== 3 || back.kind !== kind) bad.push(name + ' header ' + JSON.stringify([back.form, back.seat, back.kind]));
+        if (iceOf(back.sdp, kind) !== iceOf(sdp, kind)) bad.push(name + ' ICE values changed');
+      }
+      const firefox = OnlineCode.readCode(OnlineCode.packSdp(0, 2, SDP_FIXTURES.firefoxOffer), 0);
+      if ((firefox.sdp.match(/a=candidate:/g) || []).length !== 2 || /tcp/i.test(firefox.sdp)) bad.push('the Firefox TCP candidates must be dropped and the two UDP ones kept');
+      // the three address kinds (an mDNS name is in the fixtures), and a code a messenger broke into lines
+      let plain = SDP_FIXTURES.chromiumOffer.replace(/a=candidate:.*\r\n/g, '');
+      plain = withCandidate(withCandidate(withCandidate(plain, 'a=candidate:1 1 udp 2122260223 192.168.1.20 50000 typ host'), 'a=candidate:2 1 UDP 2122194687 2a02:587:1:2:0:0:0:6 50001 typ host'), 'a=candidate:3 1 udp 1 fe80::1 50002 typ host');
+      plain = plain.replace('m=application 9 ', 'm=application 50000 ').replace('c=IN IP4 0.0.0.0', 'c=IN IP4 192.168.1.20');   // with real addresses a browser puts its first candidate's port and address on the media and connection lines
+      const code = OnlineCode.packSdp(0, 2, plain);
+      const back = OnlineCode.readCode(' ' + code.slice(0, 30) + '\r\n' + code.slice(30, 90) + ' \n' + code.slice(90) + ' ', 0);
+      if (back.form !== ONLINE_FORM.PACKED || iceOf(back.sdp, 0) !== iceOf(plain, 0)) bad.push('plain IPv4 and IPv6 addresses');
+      if (!back.sdp.includes(' 192.168.1.20 50000 typ host') || !back.sdp.includes(' 2a02:587:1:2:0:0:0:6 50001 typ host')) bad.push('rebuilt candidate lines');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online code (P12-01): an SDP the packed form cannot say travels whole (deflated where the browser can) and comes back exactly; a deflate bomb and broken deflate are refused', async () => {
+      const bad = [];
+      const manyCandidates = Array.from({ length: 5 }, (_, i) => 'a=candidate:' + (10 + i) + ' 1 udp 2122260223 10.0.0.' + (i + 1) + ' ' + (40000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
+      const variants = [
+        ['seven candidates', 0, manyCandidates],
+        ['a server-reflexive candidate', 0, withCandidate(OFFER, 'a=candidate:9 1 udp 1686052607 203.0.113.5 41000 typ srflx raddr 0.0.0.0 rport 0')],
+        ['a host name that is not an mDNS UUID', 0, withCandidate(OFFER, 'a=candidate:9 1 udp 2122260223 printer.local 41000 typ host')],
+        ['a sha-384 fingerprint', 0, OFFER.replace(/a=fingerprint:.*\r\n/, 'a=fingerprint:sha-384 ' + new Array(48).fill('AB').join(':') + '\r\n')],
+        ['another SCTP port', 0, OFFER.replace('a=sctp-port:5000', 'a=sctp-port:5001')],
+        ['an answer that is passive', 1, ANSWER.replace('a=setup:active', 'a=setup:passive')],
+        ['an offer that is not actpass', 0, OFFER.replace('a=setup:actpass', 'a=setup:active')],
+        ['no candidate at all', 0, OFFER.replace(/a=candidate:.*\r\n/g, '')],
+      ];
+      for (const [name, kind, sdp] of variants) {
+        if (OnlineCode.parseSdp(sdp, kind) !== null) { bad.push(name + ' was packed'); continue; }
+        const code = await OnlineCode.pack(kind, 4, sdp);
+        const back = await OnlineCode.unpack(code, kind);
+        if (back.sdp !== sdp || back.seat !== 4) bad.push(name + ' did not come back as it went');
+        if (back.form !== (hasDeflate ? ONLINE_FORM.DEFLATE : ONLINE_FORM.PLAIN)) bad.push(name + ' form ' + back.form);
+        if (code.length > 1500) bad.push(name + ' is ' + code.length + ' characters');
+      }
+      if (hasDeflate) {
+        const bomb = OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.DEFLATE, 2).concat(await OnlineCode.deflate(new Array(200000).fill(0), 'out')));
+        const broken = OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.DEFLATE, 2).concat([1, 2, 3, 4, 5, 6, 7]));
+        for (const [name, text] of [['a deflate bomb', bomb], ['deflate that is not deflate', broken]]) {
+          try { await OnlineCode.unpack(text, 0); bad.push(name + ' was accepted'); } catch (e) { if (e.code !== 'damaged') bad.push(name + ': ' + e.code); }
+        }
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online code (P12-01): a bad paste is refused with a plain message: empty, not a code, wrong kind, cut off, changed, another version, hostile fields', () => {
+      const bad = [];
+      const offer = OnlineCode.packSdp(0, 2, OFFER), answer = OnlineCode.packSdp(1, 2, ANSWER);
+      const flip = (text, at) => text.slice(0, at) + (text[at] === 'A' ? 'B' : 'A') + text.slice(at + 1);
+      // a code with a good checksum but one field changed by hand
+      const forged = (change) => {
+        const bytes = Array.from(fromBase64Url(offer.slice(4)), (c) => c.charCodeAt(0)).slice(0, -2);
+        change(bytes);
+        const crc = OnlineCode.crc16(bytes);
+        return ONLINE_PREFIX[0] + toBase64Url(String.fromCharCode(...bytes, crc >> 8, crc & 255));
+      };
+      const cases = [
+        ['empty', '', 0, 'empty'], ['blank', ' \n ', 0, 'empty'], ['a fighter code', 'BP1-abcdef', 0, 'notcode'], ['plain words', 'hello there', 0, 'notcode'],
+        ['a lower-case prefix', offer.toLowerCase(), 0, 'notcode'], ['an answer where the offer goes', answer, 0, 'needOffer'], ['an offer where the answer goes', offer, 1, 'needAnswer'],
+        ['cut off', offer.slice(0, offer.length - 9), 0, 'damaged'], ['one character changed', flip(offer, 40), 0, 'damaged'], ['an extra character', offer + 'A', 0, 'damaged'],
+        ['not base64url', ONLINE_PREFIX[0] + '!!!!', 0, 'damaged'], ['too short', ONLINE_PREFIX[0] + 'AAAA', 0, 'damaged'], ['over-long', ONLINE_PREFIX[0] + 'A'.repeat(5000), 0, 'damaged'],
+        ['another code format', forged((b) => { b[0] = ((ONLINE_CODE_VERSION + 1) << 4) | (b[0] & 15); }), 0, 'version'],
+        ['another net protocol', forged((b) => { b[1] = (b[1] & 0xf0) | ((ONLINE_NET_VERSION + 1) & 15); }), 0, 'version'],
+        ['an unknown form', forged((b) => { b[0] = (b[0] & 0xf8) | 5; }), 0, 'damaged'],
+        ['the kind bit against the prefix', forged((b) => { b[0] |= 8; }), 0, 'damaged'],
+        ['seat 1', forged((b) => { b[1] = (1 << 4) | (b[1] & 15); }), 0, 'damaged'], ['seat 9', forged((b) => { b[1] = (9 << 4) | (b[1] & 15); }), 0, 'damaged'],
+        ['a user fragment of 255 characters', forged((b) => { b[2] = 255; }), 0, 'damaged'], ['a trailing byte', forged((b) => { b.push(7); }), 0, 'damaged'],
+        ['a cut candidate list', forged((b) => { b.length -= 5; }), 0, 'damaged'],
+        ['a candidate of an unknown type', forged((b) => { b[b.length - 19] = 9; }), 0, 'damaged'],
+      ];
+      cases.push(['a whole SDP that is not an SDP', OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.PLAIN, 2).concat(Array.from('hello', (c) => c.charCodeAt(0)))), 0, 'damaged']);
+      for (const [name, text, kind, expected] of cases) {
+        const got = rejectionOf(text, kind);
+        if (got !== expected) bad.push(name + ': ' + got + ' (wanted ' + expected + ')');
+      }
+      for (const key of Object.keys(ONLINE_MESSAGES)) if (!/^[\x20-\x7e]{10,200}$/.test(ONLINE_MESSAGES[key])) bad.push('message ' + key + ' is not plain text of 10 to 200 characters');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* An independent reader of a QR matrix (level L): format bits against the standard's table, unmasking, the codewords, Reed-Solomon syndromes, the byte-mode text. */
+    const readQr = (matrix) => {
+      const FORMAT_L = [0b111011111000100, 0b111001011110011, 0b111110110101010, 0b111100010011101, 0b110011000101111, 0b110001100011000, 0b110110001000001, 0b110100101110110];
+      const TOTAL = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532];   // codewords per version 1 to 13
+      const LEVEL_L = [null, [1, 19, 7], [1, 34, 10], [1, 55, 15], [1, 80, 20], [1, 108, 26], [2, 68, 18], [2, 78, 20], [2, 97, 24], [2, 116, 30], [2, 68, 18, 2, 69], [4, 81, 20], [2, 92, 24, 2, 93], [4, 107, 26]];   // blocks, data per block, EC per block (then group 2)
+      const { size, dark } = matrix, version = (size - 17) / 4;
+      const at = (x, y) => dark[y * size + x];
+      const gather = (cells) => cells.reduce((value, [x, y], i) => value | (at(x, y) << i), 0);
+      const first = gather([[8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8], [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8]]);
+      const second = gather(Array.from({ length: 8 }, (_, i) => [size - 1 - i, 8]).concat(Array.from({ length: 7 }, (_, i) => [8, size - 7 + i])));
+      const mask = FORMAT_L.indexOf(first);
+      if (mask < 0 || second !== first) return { error: 'format bits ' + first.toString(2) + ' / ' + second.toString(2) };
+      const count = Math.floor(version / 7) + 2, step = Math.floor((version * 8 + count * 3 + 5) / (count * 4 - 4)) * 2;
+      const centres = version === 1 ? [] : [6].concat(Array.from({ length: count - 1 }, (_, i) => size - 7 - (count - 2 - i) * step));
+      const isFunction = (x, y) => {
+        if (x === 6 || y === 6 || (x < 9 && y < 9) || (x >= size - 8 && y < 9) || (x < 9 && y >= size - 8)) return true;
+        if (version >= 7 && ((x >= size - 11 && y < 6) || (y >= size - 11 && x < 6))) return true;
+        return centres.some((cy, i) => centres.some((cx, j) => !(i === 0 && j === 0) && !(i === 0 && j === count - 1) && !(i === count - 1 && j === 0) && Math.abs(x - cx) <= 2 && Math.abs(y - cy) <= 2));
+      };
+      const masked = (x, y) => [(x + y) % 2 === 0, y % 2 === 0, x % 3 === 0, (x + y) % 3 === 0, (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x * y) % 2 + (x * y) % 3 === 0, ((x * y) % 2 + (x * y) % 3) % 2 === 0, ((x + y) % 2 + (x * y) % 3) % 2 === 0][mask];
+      const bits = [];
+      let upward = true;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let s = 0; s < size; s++) {
+          const y = upward ? size - 1 - s : s;
+          for (const x of [right, right - 1]) if (!isFunction(x, y)) bits.push(at(x, y) ^ (masked(x, y) ? 1 : 0));
+        }
+        upward = !upward;
+      }
+      const remainder = version >= 2 && version <= 6 ? 7 : 0;
+      if (bits.length !== TOTAL[version] * 8 + remainder) return { error: 'data modules ' + bits.length + ' of ' + (TOTAL[version] * 8 + remainder) };
+      const words = [];
+      for (let i = 0; i + 8 <= TOTAL[version] * 8; i += 8) words.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+      const spec = LEVEL_L[version], sizes = [];
+      for (let g = 0; g < spec.length - 2; g += 2) for (let b = 0; b < spec[g === 0 ? 0 : 3]; b++) sizes.push(spec[g === 0 ? 1 : 4]);
+      const ecLength = spec[2];
+      const longest = Math.max(...sizes);
+      const blocks = sizes.map(() => []);
+      let next = 0;
+      for (let i = 0; i < longest; i++) blocks.forEach((block, b) => { if (i < sizes[b]) block.push(words[next++]); });
+      for (let i = 0; i < ecLength; i++) blocks.forEach((block) => block.push(words[next++]));
+      const exp = [], log = [];
+      for (let i = 0, v = 1; i < 255; i++) { exp[i] = v; log[v] = i; v <<= 1; if (v & 256) v ^= 0x11d; }
+      const times = (a, b) => (a && b ? exp[(log[a] + log[b]) % 255] : 0);
+      for (const block of blocks) {
+        for (let i = 0; i < ecLength; i++) {
+          let sum = 0;
+          for (const word of block) sum = times(sum, exp[i]) ^ word;
+          if (sum) return { error: 'Reed-Solomon syndrome ' + i + ' is not zero' };
+        }
+      }
+      const data = [].concat(...blocks.map((block, b) => block.slice(0, sizes[b])));
+      const stream = data.map((word) => word.toString(2).padStart(8, '0')).join('');
+      if (stream.slice(0, 4) !== '0100') return { error: 'mode ' + stream.slice(0, 4) };
+      const lengthBits = version < 10 ? 8 : 16, length = parseInt(stream.slice(4, 4 + lengthBits), 2);
+      let text = '';
+      for (let i = 0; i < length; i++) text += String.fromCharCode(parseInt(stream.slice(4 + lengthBits + i * 8, 12 + lengthBits + i * 8), 2));
+      return { text, version, mask };
+    };
+    test('Online QR encoder (P12-01): byte mode, level L, versions 1 to 13: capacities, the format and version bit tables, and a code of every length reads back through an independent reader (modules, mask, Reed-Solomon, text)', () => {
+      const bad = [];
+      const capacities = [17, 32, 53, 78, 106, 134, 154, 192, 230, 271, 321, 367, 425];   // the standard's byte-mode capacities at level L
+      capacities.forEach((capacity, i) => { if (Qr.byteCapacity(i + 1) !== capacity || Qr.versionFor(capacity) !== i + 1 || (capacity < 425 && Qr.versionFor(capacity + 1) !== i + 2)) bad.push('capacity of version ' + (i + 1)); });
+      if (Qr.versionFor(426) !== 0 || Qr.encode('A'.repeat(426)) !== null) bad.push('426 characters must not fit');
+      const formats = ['111011111000100', '111001011110011', '111110110101010', '111100010011101', '110011000101111', '110001100011000', '110110001000001', '110100101110110'];
+      formats.forEach((bits, mask) => { if (Qr.formatValue(mask).toString(2).padStart(15, '0') !== bits) bad.push('format bits of mask ' + mask); });
+      const versionBits = [0x07c94, 0x085bc, 0x09a99, 0x0a4d3, 0x0bbf6, 0x0c762, 0x0d847];   // the standard's 18-bit version information of versions 7 to 13
+      versionBits.forEach((expected, i) => {
+        const version = i + 7, size = 17 + version * 4, frame = Qr.frame(version);
+        let read = 0;   // bit i sits at (size - 11 + i % 3, floor(i / 3)) and, mirrored, at (floor(i / 3), size - 11 + i % 3)
+        let mirrored = 0;
+        for (let bit = 0; bit < 18; bit++) {
+          read |= frame.dark[Math.floor(bit / 3) * size + size - 11 + (bit % 3)] << bit;
+          mirrored |= frame.dark[(size - 11 + (bit % 3)) * size + Math.floor(bit / 3)] << bit;
+        }
+        if (read !== expected || mirrored !== expected) bad.push('version information of version ' + version + ': ' + read.toString(16) + ' / ' + mirrored.toString(16));
+      });
+      const real = [OnlineCode.packSdp(0, 2, SDP_FIXTURES.chromiumOffer), OnlineCode.packSdp(1, 2, SDP_FIXTURES.firefoxAnswer), OnlineCode.packSdp(0, 3, SDP_FIXTURES.firefoxOffer)];
+      const lengths = [1, 17, 18, 32, 33, 53, 54, 78, 79, 106, 107, 134, 135, 154, 155, 192, 193, 230, 231, 271, 272, 321, 322, 367, 368, 425];
+      const texts = real.concat(lengths.map((n) => Array.from({ length: n }, (_, i) => 'BPO-AaZz09_-'[(i * 7 + n) % 12]).join('')));
+      const versions = new Set();
+      for (const text of texts) {
+        const matrix = Qr.encode(text);
+        if (!matrix) { bad.push('no QR for ' + text.length + ' characters'); continue; }
+        const read = readQr(matrix);
+        if (read.error) { bad.push(text.length + ' characters, version ' + matrix.version + ': ' + read.error); continue; }
+        if (read.text !== text) bad.push(text.length + ' characters read back differently');
+        if (read.version !== Qr.versionFor(text.length) || read.mask !== matrix.mask) bad.push('version or mask of ' + text.length);
+        versions.add(matrix.version);
+      }
+      if (versions.size !== 13) bad.push('only versions ' + Array.from(versions).sort((a, b) => a - b).join(','));
+      if (real.some((code) => Qr.versionFor(code.length) > 10)) bad.push('a real code needs more than version 10');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* A stand-in for RTCPeerConnection: the links get it through options.connection, so these tests run without WebRTC (the headless runner) and never touch the network. */
+    const fakeConnection = (script) => {
+      const made = [];
+      class Fake {
+        constructor(config) {
+          this.config = config; this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; this.connectionState = 'new';
+          this.localDescription = null; this.channels = []; this.closed = false; made.push(this);
+        }
+        createDataChannel(label, init) { const channel = { label, init, readyState: 'connecting', sent: [], send(data) { this.sent.push(data); }, close() { this.readyState = 'closed'; } }; this.channels.push(channel); return channel; }
+        async createOffer() { return { type: 'offer', sdp: script.offer }; }
+        async createAnswer() { return { type: 'answer', sdp: script.answer }; }
+        async setLocalDescription(description) { this.localDescription = description; this.iceGatheringState = script.stall ? 'gathering' : 'complete'; }
+        async setRemoteDescription(description) {
+          if (script.remoteError) throw new Error(script.remoteError);
+          this.remote = description;
+          if (script.openFirst && description.type === 'answer') this.open();   // a fast network: the channels open before this call reports back
+        }
+        addEventListener() {}
+        removeEventListener() {}
+        close() { this.closed = true; }
+        open() { for (const channel of this.channels) { channel.readyState = 'open'; channel.onopen(); } }
+        ice(state) { this.iceConnectionState = state; this.oniceconnectionstatechange(); }
+      }
+      Fake.made = made;
+      return Fake;
+    };
+    test('Online link (P12-01): the states idle, gathering, waiting, connecting, open, failed and closed, and a plain error for a bad code, a wrong seat, no network, a browser that refuses the code, ICE failure, a timeout, a host that never answers and a lost connection', async () => {
+      const bad = [];
+      const links = [];   // every link this test makes is closed at the end, so none keeps a timer or a connection
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const listed = (link) => { const list = []; link.onState((state) => list.push(state)); return list; };
+      const failsWith = async (promise, code) => { try { await promise; return 'did not fail'; } catch (e) { return e.code === code && e.message === ONLINE_MESSAGES[code] ? '' : e.code + ' / ' + e.message; } };
+      const pair = async (script, seat = 2) => {
+        const Fake = fakeConnection(script);
+        const host = made('host', { ...fast, connection: Fake }), guest = made('guest', { ...fast, connection: Fake });
+        const offer = await host.makeOffer(seat);
+        return { Fake, host, guest, offer };
+      };
+      // the happy path, step by step
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        const hostStates = listed(host), guestStates = listed(guest);
+        if (host.state !== 'waiting' || host.seat !== 2 || host.form !== ONLINE_FORM.PACKED || !offer.startsWith('BPO-')) bad.push('host after the offer: ' + host.state);
+        if (host.send('early') !== false) bad.push('send before open must return false');
+        const answer = await guest.acceptOffer(offer);
+        if (guest.state !== 'waiting' || guest.seat !== 2 || !answer.startsWith('BPA-')) bad.push('guest after the answer: ' + guest.state);
+        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');
+        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
+        const [reliable, quick] = Fake.made[0].channels;
+        if (!reliable.init.negotiated || reliable.init.id !== 0 || reliable.init.ordered === false || !quick.init.negotiated || quick.init.id !== 1 || quick.init.ordered !== false || quick.init.maxRetransmits !== 0) bad.push('channel settings');
+        await host.acceptAnswer(answer);
+        if (host.state !== 'connecting') bad.push('host after the answer: ' + host.state);
+        const heard = [];
+        host.onMessage((data, isQuick) => heard.push((isQuick ? 'q:' : 'r:') + data));
+        Fake.made[0].open();
+        Fake.made[1].open();
+        if (host.state !== 'open' || guest.state !== 'open') bad.push('open: ' + host.state + '/' + guest.state);
+        if (!host.send('a') || !host.send('b', true) || reliable.sent.join() !== 'a' || quick.sent.join() !== 'b') bad.push('send on the two channels');
+        reliable.onmessage({ data: 'x' }); quick.onmessage({ data: 'y' });
+        if (heard.join() !== 'r:x,q:y') bad.push('messages heard ' + heard.join());
+        host.close();
+        if (host.state !== 'closed' || host.send('late') !== false || !Fake.made[0].closed) bad.push('close');
+        if (hostStates.join() !== 'connecting,open,closed' || guestStates.join() !== 'gathering,waiting,open') bad.push('state events ' + hostStates.join() + ' | ' + guestStates.join());
+      }
+      // errors the player can read
+      {
+        const none = OFFER.replace(/a=candidate:.*\r\n/g, '');
+        const host = made('host', { ...fast, connection: fakeConnection({ offer: none, answer: ANSWER }) });
+        const problem = await failsWith(host.makeOffer(2), 'nonetwork');
+        if (problem || host.state !== 'failed' || host.error.code !== 'nonetwork') bad.push('no network: ' + problem + ' ' + host.state);
+        const stalled = made('host', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, stall: true }) });
+        if (!(await stalled.makeOffer(2)).startsWith('BPO-')) bad.push('gathering that never completes must end after gatherMs with the candidates so far');
+        stalled.close();
+        const guestOnly = made('guest', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, remoteError: 'x' }) });
+        const code = await OnlineCode.pack(0, 2, OFFER);
+        const refused = await failsWith(guestOnly.acceptOffer(code), 'sdp');
+        if (refused || guestOnly.state !== 'failed') bad.push('a code the browser refuses: ' + refused);
+      }
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        if (await failsWith(guest.acceptOffer('BP1-nothing'), 'notcode') || guest.state !== 'idle') bad.push('a bad code must leave the guest idle');
+        if (await failsWith(guest.acceptOffer(''), 'empty')) bad.push('an empty paste');
+        const answer = await guest.acceptOffer(offer);   // the same link takes the good code afterwards
+        const other = await OnlineCode.pack(1, 3, ANSWER);
+        if (await failsWith(host.acceptAnswer(other), 'seat') || host.state !== 'waiting') bad.push('an answer for another seat');
+        if (await failsWith(host.acceptAnswer(offer), 'needAnswer') || host.state !== 'waiting') bad.push('the offer pasted as the answer');
+        if (await failsWith(host.acceptAnswer(answer.slice(0, 50)), 'damaged') || host.state !== 'waiting') bad.push('half an answer');
+        if (await failsWith(host.makeOffer(2), 'state') || await failsWith(guest.acceptOffer(offer), 'state')) bad.push('a second start');
+        await host.acceptAnswer(answer);
+        Fake.made[0].ice('failed');
+        if (host.state !== 'failed' || host.error.code !== 'ice' || host.error.message !== ONLINE_MESSAGES.ice) bad.push('ICE failure: ' + host.state + ' ' + (host.error && host.error.code));
+        if (Fake.made[0].closed !== true || host.send('x')) bad.push('a failed link must be released');
+      }
+      {
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        if (host.state !== 'failed' || host.error.code !== 'timeout' || host.error.message !== ONLINE_MESSAGES.timeout) bad.push('timeout: ' + host.state + ' ' + (host.error && host.error.code));
+        if (guest.state !== 'failed' || guest.error.code !== 'guestWait') bad.push('a host that never answers: ' + guest.state + ' ' + (guest.error && guest.error.code));
+      }
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER }, 4);
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        if (host.seat !== 4) bad.push('seat 4');
+        Fake.made[0].open();
+        Fake.made[0].channels[1].onclose();
+        if (host.state !== 'closed' || !host.error || host.error.code !== 'lost') bad.push('a lost connection: ' + host.state);
+        if (await failsWith(made('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
+      }
+      {
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        const answer = await guest.acceptOffer(offer);
+        const both = await Promise.allSettled([host.acceptAnswer(answer), host.acceptAnswer(answer)]);   // a double press on Connect
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (both.length - refused.length !== 1 || refused.length !== 1 || refused[0].reason.code !== 'state' || host.state !== 'connecting') bad.push('a double press on Connect: ' + host.state);
+        host.close();
+      }
+      {
+        // channels that open before setRemoteDescription reports back must leave the host open (the race that failed one run in three between two Chromium windows), and nothing may take it back to connecting
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER, openFirst: true });
+        const states = listed(host);
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        await new Promise((resolve) => setTimeout(resolve, 150));   // longer than connectMs: a stray timer would fail it now
+        if (host.state !== 'open' || states.join() !== 'connecting,open') bad.push('channels open first: ' + host.state + ' ' + states.join());
+        if (await failsWith(host.acceptAnswer(await OnlineCode.pack(1, 2, ANSWER)), 'state')) bad.push('a second answer on an open link');
+      }
+      {
+        // a browser that refuses a description throws a DOMException: its numeric code and its text must not reach the player
+        const refusal = Object.assign(new Error('Failed to execute setRemoteDescription: Failed to parse SessionDescription'), { code: 12, name: 'SyntaxError' });
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        class Refusing extends Fake { async setRemoteDescription() { throw refusal; } }
+        const guest = made('guest', { ...fast, connection: Refusing });
+        const problem = await failsWith(guest.acceptOffer(await OnlineCode.pack(0, 2, OFFER)), 'sdp');
+        if (problem || guest.state !== 'failed' || guest.error.code !== 'sdp' || guest.error.message !== ONLINE_MESSAGES.sdp) bad.push('a refusing browser: ' + problem + ' ' + (guest.error && guest.error.code));
+      }
+      if (hasDeflate) {
+        // a deflated offer is inflated asynchronously: a double press must not start two connections
+        const many = Array.from({ length: 7 }, (_, i) => 'a=candidate:' + (20 + i) + ' 1 udp 2122260223 10.1.0.' + (i + 1) + ' ' + (41000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
+        const deflated = await OnlineCode.pack(0, 2, many);
+        if (OnlineCode.readCode(deflated).form !== ONLINE_FORM.DEFLATE) bad.push('the double-press offer must be deflated');
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake });
+        const both = await Promise.allSettled([guest.acceptOffer(deflated), guest.acceptOffer(deflated)]);
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (refused.length !== 1 || refused[0].reason.code !== 'state' || Fake.made.length !== 1 || guest.state !== 'waiting') bad.push('a double press on Make answer code: ' + Fake.made.length + ' connections, ' + guest.state);
+        guest.close();
+      }
+      if (Online.supported() !== (typeof RTCPeerConnection !== 'undefined')) bad.push('supported()');
+      links.forEach((link) => link.close());
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
-      const connections = [new RTCPeerConnection(), new RTCPeerConnection()], [offerer, answerer] = connections;
-      const transports = [LockstepTransport.fromPeerConnection(offerer), LockstepTransport.fromPeerConnection(answerer)];   // before the offer: the channels are in the description
+      const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
+      const heard = { host: [], guest: [] };
+      host.onMessage((data, quick) => heard.host.push({ quick, data }));
+      guest.onMessage((data, quick) => heard.guest.push({ quick, data }));
+      const opened = (link) => new Promise((resolve, reject) => {
+        link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
+      });
+      const until = (check, what) => new Promise((resolve, reject) => {
+        const started = performance.now();
+        const poll = () => { if (check()) resolve(); else if (performance.now() - started > 3000) reject(new Error('no ' + what)); else setTimeout(poll, 25); };
+        poll();
+      });
+      const run = async () => {
+        const offer = await host.makeOffer(2);
+        const answer = await guest.acceptOffer(' ' + offer.slice(0, 20) + '\n' + offer.slice(20) + ' ');   // only text crosses, as a person would paste it
+        const both = Promise.all([opened(host), opened(guest)]);
+        await host.acceptAnswer(answer);
+        await both;
+        const bad = [];
+        if (host.state !== 'open' || guest.state !== 'open' || guest.seat !== 2) bad.push('states ' + host.state + '/' + guest.state);
+        if (!host.send('hello') || !guest.send(new Uint8Array([1, 2, 3]).buffer)) bad.push('reliable send');
+        await until(() => heard.guest.length >= 1 && heard.host.length >= 1, 'reliable messages');
+        const got = heard.guest[0], back = heard.host[0];
+        if (got.quick || got.data !== 'hello' || back.quick || !(back.data instanceof ArrayBuffer) || back.data.byteLength !== 3) bad.push('reliable messages ' + JSON.stringify([got, back.quick]));
+        const ping = setInterval(() => { host.send('q', true); guest.send('r', true); }, 40);   // the quick channel may lose a message: repeat until one arrives each way
+        try { await until(() => heard.guest.some((m) => m.quick) && heard.host.some((m) => m.quick), 'quick messages'); } finally { clearInterval(ping); }
+        return bad.length ? bad.join('; ') : true;
+      };
+      return run().catch((error) => 'link failed: ' + error.message).then((result) => {
+        host.close(); guest.close();
+        if (result === true && (host.state !== 'closed' || guest.state !== 'closed' || host.send('x') || guest.send('x'))) return 'close left a link open';
+        return result;
+      });
+    });
+    test('Online UI (P12-01): the Online screens follow the link state, a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
+      const bad = [];
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip };
+      try {
+        if (!UI.screen_main().includes('data-act="online"')) bad.push('no Online button on the main menu');
+        const choice = UI.screen_online();
+        if (!choice.includes('data-act="onhost"') || !choice.includes('data-act="onjoin"') || !choice.includes('data-act="back"')) bad.push('the first Online screen');
+        OnlineUI.role = 'host'; OnlineUI.offerCode = ''; OnlineUI.answerCode = ''; OnlineUI.note = ''; OnlineUI.roundTrip = -1;
+        OnlineUI.link = { state: 'gathering', error: null };
+        let screen = UI.screen_onlinehost();
+        if (!screen.includes('Making your code') || !/data-act="oncopy:offer" disabled/.test(screen) || !/data-act="onconnect" disabled/.test(screen)) bad.push('host while gathering');
+        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(100); OnlineUI.link = { state: 'waiting', error: null };
+        screen = UI.screen_onlinehost();
+        if (!screen.includes(OnlineUI.offerCode) || /data-act="oncopy:offer" disabled/.test(screen) || /data-act="onqr:offer" disabled/.test(screen) || /data-act="onconnect" disabled/.test(screen) || !screen.includes('Waiting for your friend')) bad.push('host with a code');
+        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(500);
+        screen = UI.screen_onlinehost();
+        if (!/data-act="onqr:offer" disabled/.test(screen) || !screen.includes('Too long for a QR: use Copy.')) bad.push('a code over 425 characters shows text only');
+        OnlineUI.link = { state: 'open', error: null }; OnlineUI.roundTrip = 3;
+        if (!UI.screen_onlinehost().includes('Connected (round trip 3 ms).')) bad.push('connected line');
+        OnlineUI.link = { state: 'failed', error: { code: 'ice', message: ONLINE_MESSAGES.ice } };
+        screen = UI.screen_onlinehost();
+        if (!screen.includes('warnline') || !screen.includes('could not reach each other')) bad.push('failure line');
+        OnlineUI.link = null; OnlineUI.note = '<b>"x"</b>';
+        if (!UI.screen_onlinehost().includes('&lt;b&gt;&quot;x&quot;&lt;/b&gt;')) bad.push('a note must be escaped');
+        OnlineUI.role = 'guest'; OnlineUI.note = ''; OnlineUI.answerCode = 'BPA-' + 'B'.repeat(100);
+        screen = UI.screen_onlinejoin();
+        if (!screen.includes('id="onOffer"') || !screen.includes(OnlineUI.answerCode) || !screen.includes('data-act="onanswer"')) bad.push('guest screen');
+        if (OnlineUI.onKey({ code: 'KeyA' }, null) !== false) bad.push('a key outside a code box');
+        if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: false }) !== true) bad.push('Backspace in a box the player writes in must type, not go back');
+        if (OnlineUI.onKey({ code: 'Escape' }, { tagName: 'TEXTAREA', readOnly: true }) !== false || OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: true }) !== false) bad.push('Esc and Backspace in a read-only code box must reach the menu (the focus starts there)');
+        // the focus starts on the first enabled data-default: never in a code box
+        const firstFocus = (html) => { const tag = (html.match(/<button[^>]*data-default[^>]*>/g) || []).find((item) => !/ disabled/.test(item)); return tag ? /data-act="([^"]*)"/.exec(tag)[1] : 'none'; };
+        const focusCases = [
+          ['host gathering', 'host', '', '', { state: 'gathering', error: null }, 'back'], ['host with a code', 'host', 'BPO-' + 'A'.repeat(100), '', { state: 'waiting', error: null }, 'oncopy:offer'],
+          ['guest before the paste', 'guest', '', '', null, 'onanswer'], ['guest with an answer', 'guest', '', 'BPA-' + 'B'.repeat(100), { state: 'waiting', error: null }, 'oncopy:answer'],
+          ['guest after a failure', 'guest', '', '', { state: 'failed', error: { code: 'sdp', message: ONLINE_MESSAGES.sdp } }, 'onanswer'],
+        ];
+        for (const [name, role, offerCode, answerCode, link, expected] of focusCases) {
+          OnlineUI.role = role; OnlineUI.offerCode = offerCode; OnlineUI.answerCode = answerCode; OnlineUI.link = link;
+          const got = firstFocus(role === 'host' ? UI.screen_onlinehost() : UI.screen_onlinejoin());
+          if (got !== expected) bad.push('the focus of the ' + name + ' screen starts on ' + got + ', not ' + expected);
+        }
+        // a failed or closed link leaves the paste box writable and Make answer code pressable (the retry)
+        OnlineUI.role = 'guest'; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'closed', error: null };
+        screen = UI.screen_onlinejoin();
+        if (/id="onOffer"[^>]* readonly/.test(screen) || /data-act="onanswer" disabled/.test(screen)) bad.push('after a failure the guest must be able to try again');
+        OnlineUI.link = { state: 'waiting', error: null };
+        if (!/id="onOffer"[^>]* readonly/.test(UI.screen_onlinejoin())) bad.push('the paste box is read-only while the answer is out');
+      } finally {
+        Object.assign(OnlineUI, kept);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online UI (P12-01): release() hands the open link to the caller without closing it (the hand-off point for P12-02 and P12-06); leave() and reset() afterwards leave it open, and a link that is not open is not handed over', async () => {
+      const bad = [];
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, unlisten: OnlineUI.unlisten };
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const links = [];
+      try {
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER, openFirst: true });
+        OnlineUI.reset();
+        OnlineUI.role = 'host';
+        const host = Online.createLink('host', { ...fast, connection: Fake }), guest = Online.createLink('guest', { ...fast, connection: Fake });
+        links.push(host, guest);
+        OnlineUI.link = host;
+        OnlineUI.unlisten = [host.onState((state) => OnlineUI.onState(host, state)), host.onMessage((data) => OnlineUI.onMessage(host, data))];
+        if (OnlineUI.release() !== null) bad.push('a link that is not open must not be handed over');
+        if (OnlineUI.link !== host) bad.push('a refused release must change nothing');
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        if (host.state !== 'open') bad.push('the stand-in link did not open: ' + host.state);
+        const sentBefore = Fake.made[0].channels[0].sent.length;   // the screen's test flow pinged once when the link opened
+        const heard = [];
+        const stop = host.onMessage((data) => heard.push(data));   // the caller's own listener must keep working
+        const handed = OnlineUI.release();
+        if (handed !== host || OnlineUI.link !== null || OnlineUI.role !== '' || OnlineUI.unlisten.length) bad.push('release() must return the link and clear the screen');
+        OnlineUI.leave('onlinehost');
+        OnlineUI.reset();
+        if (host.state !== 'open') bad.push('leave() or reset() closed the released link: ' + host.state);
+        Fake.made[0].channels[0].onmessage({ data: 'bp-ping:1' });   // the screen's test flow must not answer any more
+        if (Fake.made[0].channels[0].sent.length !== sentBefore) bad.push('the screen still answers the ping test after release()');
+        Fake.made[0].channels[0].onmessage({ data: 'x' });
+        if (heard.join() !== 'bp-ping:1,x') bad.push('the caller hears ' + heard.join());
+        stop();
+      } finally {
+        links.forEach((link) => link.close());
+        Object.assign(OnlineUI, kept);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
+       channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
+    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });
       const FRAMES = 120, TIMEOUT_MS = 8000;
-      // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute, which made a 1-second wait last 70 s
+      // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
-      const opened = (channel) => (channel.readyState === 'open' ? Promise.resolve() : new Promise((resolve) => channel.addEventListener('open', resolve, { once: true })));
-      let game = null;
-      const t0 = performance.now(), marks = [], mark = (label) => marks.push(label + ' ' + Math.round(performance.now() - t0));
+      const opened = (link) => new Promise((resolve, reject) => {
+        link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
+      });
+      let game = null, timer = 0;
       const play = async () => {
-        mark('start');
-        const early = [[], []];   // trickle ICE straight across; a candidate that comes before the other side has its description waits (the CSP test above drops those, and a slow page then connects late)
-        const relay = (from, to, queue) => { from.onicecandidate = (e) => { if (e.candidate) { if (to.remoteDescription) to.addIceCandidate(e.candidate).catch(() => {}); else queue.push(e.candidate); } }; };
-        const flush = (to, queue) => queue.splice(0).forEach((candidate) => to.addIceCandidate(candidate).catch(() => {}));
-        relay(offerer, answerer, early[0]); relay(answerer, offerer, early[1]);
-        await offerer.setLocalDescription(await offerer.createOffer());
-        await answerer.setRemoteDescription(offerer.localDescription);
-        flush(answerer, early[0]); mark('offer');
-        await answerer.setLocalDescription(await answerer.createAnswer());
-        await offerer.setRemoteDescription(answerer.localDescription);
-        flush(offerer, early[1]); mark('answer');
-        const channels = transports.flatMap((transport) => [transport.channels.input, transport.channels.control]);
-        await Promise.all(channels.map(opened));
-        mark('open');
-        const options = transports.map((transport) => [transport.channels.input.ordered, transport.channels.input.maxRetransmits, transport.channels.control.ordered].join());
-        if (options.some((text) => text !== 'false,0,true')) return 'channel options ' + options.join(' | ');
+        const offer = await host.makeOffer(2);
+        const answer = await guest.acceptOffer(offer);
+        const both = Promise.all([opened(host), opened(guest)]);
+        await host.acceptAnswer(answer);
+        await both;
+        const transports = [LockstepTransport.fromLink(host), LockstepTransport.fromLink(guest)];
         game = makeLockstep(2, { delay: 6, rtc: transports, seed: 11 });   // a long delay: the page may render slowly (software GL), and every round trip then moves the peers on by up to 6 frames
+        let strings = 0;
         while (game.peers.some((peer) => peer.match.tick < FRAMES)) {
           for (const peer of game.peers) while (peer.match.tick < FRAMES && stepPeer(peer));
+          if (strings < 3 && game.peers[0].match.tick > 20 * (strings + 1)) { strings++; host.send('bp-ping:' + strings); guest.send('bp-pong:' + strings); guest.send('bp-ping:x'); }
           await yieldNow();
         }
         const problems = lockstepProblems(game.peers, FRAMES, false);   // a short run: two checksums, no fight needed
+        if (strings < 3) problems.push('the foreign strings were not sent');
         return problems.length ? problems.join('; ') : true;
       };
-      let timer = 0;
-      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + TIMEOUT_MS + ' ms: ' + (game ? 'ticks ' + game.peers.map((peer) => peer.match.tick + (peer.session.ended ? ' ' + peer.session.ended + JSON.stringify(peer.desync) : '')).join(' / ') + ' ' + marks.join(', ') : 'no data channel ' + marks.join(', ')))), TIMEOUT_MS); });
+      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + TIMEOUT_MS + ' ms: ' + (game ? 'ticks ' + game.peers.map((peer) => peer.match.tick + (peer.session.ended ? ' ' + peer.session.ended + JSON.stringify(peer.desync) : '')).join(' / ') : 'no link; states ' + host.state + '/' + guest.state))), TIMEOUT_MS); });
       const played = play();
       played.catch(() => {});
       return Promise.race([played, timeout]).finally(() => {
         clearTimeout(timer);
-        if (game) game.peers.forEach((peer) => { peer.session.ended = peer.session.ended || 'closed'; peer.match.dispose(); });
-        transports.forEach((transport) => transport.close());
-        connections.forEach((connection) => connection.close());
+        if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
+        host.close(); guest.close();
       });
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
       if (!hasLayoutEngine()) return true;
-      const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the one WebRTC test (P12-04); every engine a player uses has it
-      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Lockstep over WebRTC')))).map((r) => r.name);
+      const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the two WebRTC tests (P12-04, P12-01); every engine a player uses has it
+      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Online loopback') || r.name.startsWith('Lockstep over real links')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
