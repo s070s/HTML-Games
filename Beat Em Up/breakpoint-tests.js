@@ -52,7 +52,7 @@ const {
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-  TIRED_POSE_STATES, TIRED_STAMINA, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+  TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
@@ -13760,9 +13760,12 @@ const SelfTest = {
           if (Settings.validate(key, 'maybe') !== true || Settings.validate(key, false) !== false) bad.push(key + ' validation');
           if (!page.includes(rows[key])) bad.push(key + ' not on the settings screen');
         }
-        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, revision: SETTINGS_REVISION }));   // a save from before the four settings
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: false, revision: SETTINGS_REVISION }));   // a save from before the four settings (Reduced motion chosen, so the device's own preference does not decide)
         Settings.init();
         if (Object.keys(rows).some((key) => Settings.v[key] !== true)) bad.push('an old save does not read On');
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: true, revision: SETTINGS_REVISION }));   // an old save with Reduced motion on: Camera cuts did not exist, so it reads Off
+        Settings.init();
+        if (Settings.v.cameraCuts !== false || Settings.v.slowFinisher !== true || Settings.v.wearMarks !== true || Settings.v.heartbeat !== true) bad.push('an old save with Reduced motion on: Camera cuts ' + Settings.v.cameraCuts);
         for (const key in rows) Settings.set(key, false);
         const stored = JSON.parse(Store.get(KEY_SETTINGS));
         Settings.init();
@@ -13809,10 +13812,29 @@ const SelfTest = {
         if (!(cut.y < plain.y)) bad.push('not lower ' + cut.y.toFixed(2) + ' vs ' + plain.y.toFixed(2));
         if (Math.abs(back.d - plain.d) > 0.02 || back.cut > 0.01) bad.push('does not ease back ' + back.d.toFixed(2));
         if (!(CAMERA_CUT_LOW > 0)) bad.push('low angle');
-        const sums = (o) => { const m = knockOut(o); const f = m.fighters; return f.map((q) => [q.x, q.z, q.hp, q.state, q.stateTicks].join()).join('|') + m.tick; };
-        Settings.v.slowFinisher = true; Settings.v.cameraCuts = true; const on = sums({ winsNeeded: 1 });
-        Settings.v.slowFinisher = false; Settings.v.cameraCuts = false; const off = sums({ winsNeeded: 1 });
-        if (on !== off) bad.push('the settings changed the fight');
+        /* a double knock-out follows the rule of endRound: with both down each side scores; the match ends only if exactly one of them reaches the wins needed */
+        const both = (wins, winsNeeded) => { const m = mk({ winsNeeded }, () => {}, () => {}); m.wins = wins; m.fighters[0].alive = m.fighters[1].alive = false; m.checkRoundEnd(); return m.finisher; };
+        if (!both([1, 0], 2) || !both([0, 1], 2)) bad.push('a double knock-out on match point for one side is the finisher');
+        if (both([0, 0], 1) || both([1, 1], 2) || both([0, 0], 2)) bad.push('a double knock-out that reaches the wins of both (a deciding round) or of neither is an ordinary one');
+        /* the real frame loop, with a fixed time step: the setting changes how many frames the knock-out takes, never what the ticks do */
+        const play = (on) => {
+          Settings.v.slowFinisher = on; Settings.v.cameraCuts = on;
+          const m = knockOutMatch(), sigs = [], keep = { match: Game.match, state: Game.state, acc: Game.acc, last: Game.last }, realStep = m.step, drawing = { begin: R.begin, render: R.render, put: R.put, push: R.push };
+          let frames = 0, cut = false;
+          const off = Events.on('rendered', () => { cut = cut || Camera.cutIn; });
+          m.step = function () { realStep.call(this); sigs.push([this.tick, this.phase].concat(this.fighters.map((q) => [q.x, q.z, q.hp, q.state, q.stateTicks].join())).join('|')); };
+          try {
+            R.begin = R.render = R.put = R.push = () => {};   // the camera and the frame loop run for real; nothing is drawn
+            Game.match = m; Game.state = GS.FIGHT; Game.acc = 0; Game.last = 0;
+            while (sigs.length < 100 && frames < 1500) Game.frame(++frames * 1000 / 60);
+          } finally { off(); delete m.step; Object.assign(Game, keep); Object.assign(R, drawing); }
+          return { sigs, frames, cut };
+        };
+        const knockOutMatch = () => { const m = mk({ winsNeeded: 1 }, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1; return m; };
+        const fast = play(false), slow = play(true);
+        if (fast.sigs.length !== 100 || fast.sigs.join('#') !== slow.sigs.join('#')) bad.push('the settings changed the ticks');
+        if (!(slow.frames > fast.frames + 30)) bad.push('Slow-motion finisher: ' + slow.frames + ' frames against ' + fast.frames + ' for the same 100 ticks');
+        if (!slow.cut || fast.cut) bad.push('Camera cuts in the frame loop: on ' + slow.cut + ', off ' + fast.cut);
       } finally {
         Object.assign(Settings.v, keepV);
         Object.assign(Camera, { az: keepCam.az, dist: keepCam.dist, elev: keepCam.elev, cut: keepCam.cut, cutIn: keepCam.cutIn }); Camera.target.splice(0, 3, ...keepCam.target); Camera.snapNext = true;
@@ -13945,11 +13967,18 @@ const SelfTest = {
         }
         f.stam = f.maxStam * 0.2;
         const base = (state) => { f.stam = f.maxStam; const q = targetPose(f, state, 0.3); f.stam = f.maxStam * 0.2; return q; };
-        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP]) {
+        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP, S.RUN]) {
           const rested = base(state), tired = targetPose(f, state, 0.3);
           if (rested.some((v, i) => Math.abs(v - tired[i]) > 1e-6)) bad.push(S[state] + ' changed');
         }
-      } finally { Settings.v.reducedMotion = keep; }
+        const striking = (worn) => {   // the pose of a strike at its contact tick, through computePose like every other state
+          const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross;
+          g.stam = worn ? 0 : g.maxStam; g.exhaust = worn ? 20 : 0; g.hp = worn ? g.maxHp * 0.1 : g.maxHp; g.wear[0] = worn ? 0.5 : 0;
+          g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+          g.computePose();
+          return Array.from(g.pose);
+        };
+        if (striking(false).some((v, i) => Math.abs(v - striking(true)[i]) > 1e-6) || !striking(false).some((v) => v !== 0)) bad.push('ATTACK changed');      } finally { Settings.v.reducedMotion = keep; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Hurt posture (P13-02): under 25 % health an idle or walking fighter leans on 0.1 rad and the left hand holds the zone hit most; every joint stays inside the Calm poses limits for all 32 bodies, and the contact pose of every move (the P17-02 hit check) is the same', () => {
@@ -13980,14 +14009,16 @@ const SelfTest = {
         const g = new Fighter(r, 0);
         for (const state of TIRED_POSE_STATES) for (const zone of [0, 1, 3]) {
           g.hp = g.maxHp * 0.05; g.stam = 0; g.exhaust = 20; g.wear.fill(0); g.wear[zone] = 0.5;
-          const q = targetPose(g, state, 0.7);
-          for (const [joint, limit] of LIMITS) if (Math.abs(q[joint]) > limit + 0.005) bad.push(r.id + ' ' + S[state] + ' joint ' + joint + ' ' + q[joint].toFixed(2));
+          for (let step = 0; step < 8; step++) {   // across one whole breath
+            const q = targetPose(g, state, 0.7 + step / (8 * PANT_HZ));
+            for (const [joint, limit] of LIMITS) if (Math.abs(q[joint]) > limit + 0.005) bad.push(r.id + ' ' + S[state] + ' joint ' + joint + ' ' + q[joint].toFixed(2));
+          }
         }
         for (const id of ids) {
           const mv = ATTACKS[id], contact = (hurtAndTired) => {
             g.hp = hurtAndTired ? g.maxHp * 0.05 : g.maxHp; g.stam = hurtAndTired ? 0 : g.maxStam; g.exhaust = hurtAndTired ? 20 : 0; g.wear.fill(0); g.wear[0] = hurtAndTired ? 0.5 : 0;
             g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
-            g.attackPose(); g.skeleton(0, 0, 0, 0, false);
+            g.computePose(); g.skeleton(0, 0, 0, 0, false);   // through computePose, where the tired and hurt pose would be added
             return Array.from(g.pts).join();
           };
           if (contact(false) !== contact(true)) bad.push(r.id + ' ' + id + ' contact pose moved');
@@ -14071,12 +14102,12 @@ const SelfTest = {
       } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; the lights are drawn turned about where they hang', () => {
+    test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
       const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
       Effects.init();
       try {
         Arena.build(ARENAS.warehouse); Settings.v.shake = SETTING_DEFS.shake.def; Settings.v.reducedMotion = false;
-        const lampsNow = () => { const all = []; for (const p of Arena.props) if (p.lamp && !all.includes(p.lamp)) all.push(p.lamp); return all; };
+        const lampsNow = () => Arena.lamps.slice();
         const calm = () => { for (const l of lampsNow()) { l.amp = 0; l.t0 = 0; } for (const o of Arena.objects) o.wob = 0; };
         const swinging = () => lampsNow().filter((l) => l.amp > 0);
         const lamps = lampsNow();
@@ -14091,11 +14122,11 @@ const SelfTest = {
         if (angle(LAMP_SECS) !== 0 || angle(LAMP_SECS + 5) !== 0 || LAMP_SECS !== 1.5) bad.push('does not come to rest');
         const early = Math.max(...[0.05, 0.15, 0.25, 0.35].map((age) => Math.abs(angle(age)))), late = Math.max(...[1.1, 1.2, 1.3, 1.4].map((age) => Math.abs(angle(age))));
         if (!(late < early * 0.5)) bad.push('not damped ' + early.toFixed(3) + ' -> ' + late.toFixed(3));
-        const drawn = [];   // the lamp bodies the arena draws: x, y (a swinging light rises a little) and the turn about z
+        const drawn = [];   // the lamp bodies the arena draws: x, y (a swinging light rises a little) and the turn about z (none: they stay level)
         R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { if (Math.abs(sy - 0.16) < 1e-9 && Math.abs(sx - 1.3) < 1e-9) drawn.push({ x, y, rz }); };   // nothing is queued: only the lamp bodies are looked at
         Arena.time = l.t0 + 0.3; Arena.draw(); R.put = put;
-        const turned = drawn.filter((q) => q.rz !== 0), still = drawn.filter((q) => q.rz === 0);
-        if (turned.length !== 2 || still.length !== 3 || turned.some((q) => !(q.y > 5.4) || Math.abs(q.rz) > LAMP_SWAY)) bad.push('drawn: ' + turned.length + ' turned, ' + still.length + ' still');
+        const moved = drawn.filter((q) => q.y > 5.4 + 1e-9), still = drawn.filter((q) => q.y <= 5.4 + 1e-9);   // a swinging lamp body is lifted, and stays level (it hangs on rods that turn)
+        if (moved.length !== 2 || still.length !== 3 || drawn.some((q) => q.rz !== 0)) bad.push('drawn: ' + moved.length + ' swinging, ' + still.length + ' still');
         Arena.build(ARENAS.warehouse);
         if (lampsNow().some((q) => q.amp > 0)) bad.push('a new fight starts with a light still swinging');
         Arena.time = 10;
@@ -14115,10 +14146,26 @@ const SelfTest = {
         Feel.shake(crate.x + 1, crate.z);
         if (!(crate.wob >= LAMP_JOLT - 1e-9) || far.wob !== 0 || (wall && Math.hypot(wall.x - crate.x - 1, wall.z - crate.z) <= LAMP_RANGE && wall.wob !== 0)) bad.push('jolt: crate ' + crate.wob + ', far ' + far.wob);
         calm();
-        const spare = lamps.concat(Array.from({ length: 10 }, (unused, i) => ({ x: i * 0.1, z: 0, top: 7, amp: 0, t0: 0 })));
-        for (const lamp of spare.slice(lamps.length)) Arena.props.push({ lamp, m: 0, x: lamp.x, y: 6, z: 0, sx: 1, sy: 1, sz: 1, c: [1, 1, 1], l: LAYER.SOLID, e: 0, q: 0.5, cast: false, a: 1, ry: 0 });
-        Feel.shake(0, 0);
+        const realLamps = Arena.lamps, propCount = Arena.props.length, spare = lamps.concat(Array.from({ length: 10 }, (unused, i) => ({ x: i * 0.1, z: 0, top: 7, amp: 0, t0: 0 })));
+        Arena.lamps = spare;   // more lights than the cap, in the list only: the level's cached props are not touched
+        try { Feel.shake(0, 0); } finally { Arena.lamps = realLamps; }
         if (spare.filter((q) => q.amp > 0).length !== LAMP_MAX) bad.push('at most ' + LAMP_MAX + ' swing, ' + spare.filter((q) => q.amp > 0).length + ' did');
+        if (Arena.props.length !== propCount || Arena.lamps.length !== 5) bad.push('the test left lights behind');
+        /* a light with two rods (the Dojo's) swings as a parallelogram: at the peak each rod hangs from its own place on the ceiling and its lower end stays on the lamp strip's end, the strip stays level */
+        Arena.build(ARENAS.dojo); calm(); Arena.time = 10; Feel.shake(-2, -1);
+        const strip = Arena.lamps.find((q) => q.x === -2);
+        let peakAt = 0, peakAngle = 0; for (let age = 0; age < LAMP_SECS; age += 0.005) { Arena.time = strip.t0 + age; if (Math.abs(Arena.lampAngle(strip)) > peakAngle) { peakAngle = Math.abs(Arena.lampAngle(strip)); peakAt = age; } }
+        Arena.time = strip.t0 + peakAt;
+        const parts = []; R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { parts.push({ x, y, sx, sy, rz }); };
+        Arena.draw(); R.put = put;
+        const body = parts.find((q) => Math.abs(q.sx - 3.0) < 1e-9 && Math.abs(q.sy - 0.08) < 1e-9 && Math.abs(q.x + 2) < 0.5), rods = parts.filter((q) => Math.abs(q.sx - 0.03) < 1e-9 && Math.abs(q.sy - 1.2) < 1e-9 && Math.abs(q.x + 2) < 1.5);
+        if (!body || rods.length !== 2 || !(peakAngle > LAMP_SWAY * 0.8)) bad.push('the two-rod light: ' + rods.length + ' rods, peak ' + peakAngle.toFixed(3));
+        else {
+          const ceiling = rods.map((q) => Math.hypot(q.x - Math.sin(q.rz) * q.sy / 2 + 2, q.y + Math.cos(q.rz) * q.sy / 2 - 5.9)).sort((a, b) => a - b);   // each rod's upper end, relative to its place on the ceiling above the strip's end
+          if (body.rz !== 0 || Math.abs(ceiling[0] - 1.2) > 1e-6 || Math.abs(ceiling[1] - 1.2) > 1e-6) bad.push('the rods do not hang from the ceiling: ' + ceiling.map((v) => v.toFixed(3)));
+          const gap = rods.map((q) => Math.min(...[-1.2, 1.2].map((end) => Math.hypot(q.x + Math.sin(q.rz) * q.sy / 2 - (body.x + end), q.y - Math.cos(q.rz) * q.sy / 2 - body.y)))); // the rod's lower end against the strip's nearest end
+          if (gap.some((v) => v > 1e-6)) bad.push('a rod end is ' + Math.max(...gap).toFixed(3) + ' m off the strip at the peak');
+        }
       } finally {
         R.put = put; Object.assign(Settings.v, keep);
         if (keepArena) Arena.build(keepArena);
@@ -14141,7 +14188,7 @@ const SelfTest = {
         if (buzz(0.9, 100) !== '') bad.push('Camera shake 0 still buzzes');
         Settings.v.shake = 0.6; Input.lastDevice = 'keyboard';
         if (buzz(0.9, 100) !== '') bad.push('a keyboard seat buzzes');
-        Input.lastDevice = 'touch'; delete navigator.vibrate;
+        Input.lastDevice = 'touch'; Object.defineProperty(navigator, 'vibrate', { value: undefined, configurable: true });   // a browser without the call (the real one lives on the prototype, so it is hidden, not deleted)
         let threw = false; try { Input.rumble(0.9, 100); } catch (error) { threw = true; }
         if (threw) bad.push('no vibrate in the browser throws');
       } finally {
