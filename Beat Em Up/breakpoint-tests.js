@@ -5173,11 +5173,12 @@ const SelfTest = {
         'mma sweep 1': { foot: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'kravmaga jab 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'mma cross 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
+        'kravmaga parry_strike 1': { torso: 0.21, why: 'the Stomp Kick (1.35) is shorter than the Parry Strike (1.4), so the Parry Strike is the longest Mid strike of Krav Maga and crosses the body on the slip side (P17-10 pass 2, measured 0.22)' },
         'wrestler snap_down 1': { torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'wrestler snap_down -1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
         'bjj guard_kick 1': { torso: 0.28, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'boxer body_jab -1': { torso: 0.24, why: 'Boxing has no leg moves, so the body jab is its longest Mid strike and crosses the body on the slip side (P17-10)' },
-        'boxer body_jab 1': { torso: 0.22, why: 'Boxing has no leg moves, so the body jab is its longest Mid strike and crosses the body on the slip side (P17-10)' },
+        'boxer body_hook -1': { torso: 0.22, why: 'Boxing has no leg moves, so the Body Hook (reach 1.4 since P17-10 pass 2) is its longest Mid strike and crosses the body on the slip side (measured 0.23)' },
+        'boxer body_hook 1': { torso: 0.24, why: 'Boxing has no leg moves, so the Body Hook is its longest Mid strike and crosses the body on the slip side (measured 0.25)' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
       };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };

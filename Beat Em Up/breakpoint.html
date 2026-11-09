@@ -4488,8 +4488,8 @@ function variant(baseId, id, name, anim, over) {
   delete row.cv; delete row.hitStop; // worked out again from the tier
   return defAttack(id, row);
 }
-variant('jab', 'body_hook', 'Body Hook', 'bodyHook', { h: 'M', startup: 7, active: 3, recovery: 11, dmg: 6, stam: 4, reach: 1.25, width: 0.55, push: 0.3, hitstun: 14, blockstun: 8 });
-variant('cross', 'bob_hook', 'Bob and Weave Hook', 'bobHook', { h: 'M', duck: true, startup: 9, active: 3, recovery: 16, dmg: 8, stam: 6, reach: 1.2, width: 0.7, push: 0.45, hitstun: 18, blockstun: 10 });
+variant('jab', 'body_hook', 'Body Hook', 'bodyHook', { h: 'M', startup: 7, active: 3, recovery: 11, dmg: 6, stam: 4, reach: 1.4, width: 0.55, push: 0.3, hitstun: 14, blockstun: 8 });
+variant('cross', 'bob_hook', 'Bob and Weave Hook', 'bobHook', { h: 'M', duck: true, startup: 8, active: 3, recovery: 17, dmg: 8, stam: 6, reach: 1.35, width: 0.7, push: 0.45, hitstun: 18, blockstun: 10 });
 variant('cross', 'lunge_punch', 'Step-In Punch', 'oi', { startup: 9, active: 3, recovery: 16, dmg: 8, stam: 5, reach: 1.4, width: 0.3, push: 0.5, step: 0.5, hitstun: 17, blockstun: 10 });
 variant('cross', 'backfist', 'Spinning Backfist', 'backfist', { startup: 11, active: 3, recovery: 16, dmg: 8, stam: 5, reach: 1.25, width: 0.8, push: 0.4, hitstun: 17, blockstun: 10 });
 variant('cross', 'shoulder_bump', 'Shoulder Bump', 'shoulder', { tier: 1, h: 'M', startup: 7, active: 3, recovery: 14, dmg: 7, stam: 5, reach: 1.25, width: 0.6, push: 0.8, hitstun: 16, blockstun: 9 });
@@ -4497,7 +4497,7 @@ variant('jab', 'snap_down', 'Snap Down', 'snapDown', { h: 'M', startup: 6, activ
 variant('jab', 'collar_snap', 'Collar Pull', 'collar', { startup: 7, active: 3, recovery: 12, dmg: 6, stam: 4, reach: 1.3, width: 0.5, push: 0.3, hitstun: 16, blockstun: 9 });
 variant('cross', 'headbutt', 'Head Butt', 'headbutt', { h: 'M', startup: 9, active: 3, recovery: 17, dmg: 8, stam: 6, reach: 1.15, width: 0.5, push: 0.6, hitstun: 19, blockstun: 11 });
 variant('cross', 'superman', 'Superman Punch', 'superman', { startup: 11, active: 3, recovery: 17, dmg: 9, stam: 6, reach: 1.5, width: 0.5, push: 0.5, step: 0.8, hitstun: 18, blockstun: 10 });
-variant('jab', 'palm_strike', 'Palm Strike', 'palm', { startup: 7, active: 3, recovery: 12, dmg: 6, stam: 4, reach: 1.2, width: 0.5, push: 0.3, hitstun: 15, blockstun: 9 });
+variant('jab', 'palm_strike', 'Palm Strike', 'palm', { startup: 6, active: 3, recovery: 13, dmg: 6, stam: 4, reach: 1.1, width: 0.5, push: 0.3, hitstun: 15, blockstun: 9 });
 variant('roundhouse', 'switch_kick', 'Switch Kick', 'switchKick', { btn: 'lk', limb: 'LL', startup: 10, active: 4, recovery: 17, dmg: 10, stam: 7, reach: 1.5, width: 0.9, push: 0.6, hitstun: 20, blockstun: 11 });
 variant('front_kick', 'side_kick', 'Side Thrust Kick', 'sokuto', { tier: 2, startup: 9, active: 3, recovery: 16, dmg: 8, stam: 6, reach: 1.6, width: 0.35, push: 0.9, hitstun: 18, blockstun: 10 });
 variant('low_kick', 'foot_sweep', 'Foot Sweep', 'footSweep', { startup: 8, active: 3, recovery: 13, dmg: 6, stam: 4, reach: 1.45, width: 0.4, push: 0.1, hitstun: 15, blockstun: 8 });
@@ -5060,7 +5060,7 @@ const MOVE_STYLE = {
     family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
-    aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0 jab@straight:1.15 cross@straight:1.15',
+    aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0 jab@straight:1.25 cross@straight:1.25',
     guardHands: 0.22, guardTight: 0.18, guardTwist: -0.1, guardLean: 0.06, guardCrouch: 0.15, guardWidth: -0.02, guardSplit: -0.04, guardTuck: 0.16,
     bounce: 0.024, bounceHz: 2.3, sway: 0.012, swayHz: 1.15, headBob: 0.09,
     punchHip: 1.25, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.35, kickChamber: 0.45, kickPivot: 0.3, kickLean: 0.08, kickSnap: 1.0,
@@ -5105,7 +5105,7 @@ const MOVE_STYLE = {
     family: 'hybrid', moves: null, grab: 'brawler', throws: 'front', defense: 'block', submit: [],
     signature: [['Haymaker', 'hook'], ['Head Butt', 'headbutt'], ['Stomp', 'stomp'], ['Shove', 'grab'], ['Bear-Hug Slam', 'throw:front.back']],
     strings: 'jab stomp cross heavy_body_kick jab stomp hook heavy_front headbutt heavy_uppercut headbutt heavy_body_kick headbutt stomp headbutt stomp heavy_uppercut sweep',
-    aiw: 'jab@swing:1.1 cross@haymaker:1.1 hook@haymaker:1.1 headbutt@headbutt:1.0 stomp@stompK:0.7 sweep@stompK:1.0',
+    aiw: 'jab@swing:1.15 cross@haymaker:1.1 hook@haymaker:1.1 headbutt@headbutt:1.0 stomp@stompK:0.7 sweep@stompK:1.0',
     guardHands: -0.13, guardTight: -0.08, guardTwist: 0.16, guardLean: 0.08, guardCrouch: 0.06, guardWidth: 0.06, guardSplit: -0.06, guardTuck: 0.04,
     bounce: 0.012, bounceHz: 1.2, sway: 0.03, swayHz: 0.6, headBob: 0.05,
     punchHip: 1.4, punchPivot: 0.24, punchLean: 0.14, punchSnap: 0.8, kickChamber: 0.3, kickPivot: 0.35, kickLean: 0.06, kickSnap: 0.85,
@@ -5151,7 +5151,7 @@ const MOVE_STYLE = {
     family: 'throws', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'], hold: 'leg',
     signature: [['Sambo Hip Throw', 'throw:front.fwd'], ['Boot Kick', 'front_kick'], ['Leg Pick', 'leg_pick'], ['Leg Lock', 'hold'], ['Leg Hook Throw', 'throw:low.back']],
     strings: 'jab front_kick cross heavy_roundhouse jab foot_sweep hook heavy_front cross gut_punch hook sweep body_jab leg_pick uppercut foot_sweep gut_punch sweep',
-    aiw: 'front_kick@boot:1.3 leg_pick@legPick:1.3 heavy_front@boot:1.0',
+    aiw: 'front_kick@boot:1.0 leg_pick@legPick:1.0 heavy_front@boot:1.0',
     guardHands: 0.05, guardTight: -0.2, guardTwist: 0.3, guardLean: 0.06, guardCrouch: 0.12, guardWidth: 0.02, guardSplit: 0.06, guardTuck: -0.06,
     bounce: 0.006, bounceHz: 0.9, sway: 0.028, swayHz: 0.85, headBob: 0.02,
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
@@ -5186,7 +5186,7 @@ const MOVE_STYLE = {
   kravmaga: { label: 'Krav Maga', desc: 'Defend and strike in one move, then keep attacking: punches, knees and elbows up close and kicks to the low line.',
     family: 'hybrid', grab: 'thai', throws: 'front', defense: 'block', submit: [],
     signature: [['Parry Strike', 'parry_strike'], ['Groin Kick', 'groin_kick'], ['Hammer Fist', 'hook'], ['Stomp Kick', 'heavy_front'], ['Defend-and-Strike', 'counter_strike']],
-    strings: 'jab groin_kick parry_strike heavy_front jab low_kick hook heavy_front parry_strike hook hook heavy_front body_jab low_kick uppercut groin_kick gut_punch heavy_front',
+    strings: 'jab groin_kick parry_strike hook jab low_kick hook heavy_front parry_strike hook hook uppercut body_jab low_kick uppercut groin_kick gut_punch gut_punch',
     aiw: 'groin_kick@groin:0.8 parry_strike@parry:0.7 hook@hammer:1.0 heavy_front@kravStomp:1.0',
     guardHands: 0.2, guardTight: -0.05, guardTwist: 0.04, guardLean: 0.11, guardCrouch: 0.03, guardWidth: 0.02, guardSplit: -0.04, guardTuck: 0.1,
     bounce: 0.01, bounceHz: 1.2, sway: 0.01, swayHz: 0.7, headBob: 0.04,
@@ -5196,7 +5196,7 @@ const MOVE_STYLE = {
     family: 'hybrid', grab: 'thai', throws: 'low', defense: 'block', submit: ['Armbar', 'Choke'], hold: 'mount',
     signature: [['Overhand', 'overhand'], ['Superman Punch', 'superman'], ['Oblique Kick', 'heavy_front'], ['Cage Takedown', 'throw:low.back'], ['Mount', 'hold']],
     strings: 'jab teep cross heavy_front jab roundhouse overhand heavy_front cross hook superman heavy_front body_jab low_kick uppercut body_kick gut_punch sweep',
-    aiw: 'overhand@overhand:1.3 superman@superman:1.3 heavy_front@oblique:1.0',
+    aiw: 'overhand@overhand:1.45 superman@superman:1.45 heavy_front@oblique:1.0',
     guardHands: 0.03, guardTight: 0.06, guardTwist: 0.04, guardLean: 0.1, guardCrouch: 0.19, guardWidth: 0.08, guardSplit: 0.04, guardTuck: 0.1,
     bounce: 0.016, bounceHz: 1.6, sway: 0.02, swayHz: 0.85, headBob: 0.05,
     punchHip: 1.15, punchPivot: 0.16, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.55, kickPivot: 0.45, kickLean: 0.14, kickSnap: 1.05,
@@ -5215,12 +5215,12 @@ boxer: { heavy_body_kick: ['Liver Shot', 'liver', 'RA', 1.2], heavy_front: ['Cli
   capoeira: { jab: ['Tapa', 'tapa', null, 1.35], front_kick: ['Bencao', 'bencao'], headbutt: ['Cabecada', 'cabecada'], roundhouse: ['Queixada', 'crescent'], heavy_front: ['Heavy Bencao', 'bencao'], heavy_roundhouse: ['Martelo', 'crescent'], low_kick: ['Rasteira', 'rasteira'], sweep: ['Rasteira Takedown', 'rasteira'], counter_strike: ['Tapa Counter', 'tapa'], counter_kick: ['Rasteira Counter', 'rasteira'], jump_kick: ['Flip Kick', 'airFlip'] },
   wingchun: { front_kick: ['Thrust Kick', 'thrust'], heavy_front: ['Heavy Thrust Kick', 'thrust'], low_kick: ['Shin Kick', 'thrust'], power_jab: ['Centre Thrust', 'chain'], gut_punch: ['Low Thrust', 'chain'], body_jab: ['Low Chain Punch', 'chain'], counter_strike: ['Pak Da Counter', 'trap'], counter_kick: ['Thrust Counter', 'thrust'] },
   muaythai: { heavy_body_kick: ['Thai Body Kick', 'thaiBody'], roundhouse: ['Shin Round Kick', 'roundThai'], heavy_front: ['Heavy Teep', 'teep'], heavy_roundhouse: ['Heavy Shin Kick', 'roundThai'], counter_strike: ['Elbow Counter', 'elbowH', null, 1.25], counter_kick: ['Teep Counter', 'teep'], jump_kick: ['Flying Knee', 'airKnee'] },
-  taekwondo: { front_kick: ['Ap Chagi', 'ap'], cross: ['Reverse Punch', 'gyaku'], roundhouse: ['Dollyo Head Kick', 'roundTkd'], power_jab: ['Heavy Reverse Punch', 'gyaku'], heavy_roundhouse: ['Heavy Head Kick', 'roundTkd'], heavy_front: ['Chagi Push Kick', 'ap'], body_jab: ['Gedan Punch', 'gedan'], low_kick: ['Low Ap Chagi', 'ap'], gut_punch: ['Heavy Gedan Punch', 'gedan'], counter_strike: ['Counter Punch', 'gyaku'], counter_kick: ['Spinning Counter', 'spinBack', 'RL'], jump_kick: ['Tornado Kick', 'tornado'] },
+  taekwondo: { front_kick: ['Ap Chagi', 'ap', null, 1.55], cross: ['Reverse Punch', 'gyaku'], roundhouse: ['Dollyo Head Kick', 'roundTkd'], power_jab: ['Heavy Reverse Punch', 'gyaku'], heavy_roundhouse: ['Heavy Head Kick', 'roundTkd'], heavy_front: ['Chagi Push Kick', 'ap'], body_jab: ['Gedan Punch', 'gedan'], low_kick: ['Low Ap Chagi', 'ap'], gut_punch: ['Heavy Gedan Punch', 'gedan'], counter_strike: ['Counter Punch', 'gyaku'], counter_kick: ['Spinning Counter', 'spinBack', 'RL'], jump_kick: ['Tornado Kick', 'tornado'] },
   sambo: { front_kick: ['Boot Kick', 'boot'], heavy_roundhouse: ['Heavy Boot Kick', 'boot'], heavy_front: ['Boot Push', 'boot'], sweep: ['Reaping Foot Sweep', 'footSweep'], counter_strike: ['Counter Cross', 'straight'], counter_kick: ['Boot Counter', 'boot'] },
   bjj: { body_jab: ['Low Frame Jab', 'snapDown'], foot_sweep: ['Butterfly Sweep', 'scissor'], jab: ['Frame Jab', 'guard'], heavy_front: ['Guard Push', 'guard', 'LA', 1.35], hook: ['Overhook Smash', 'guard'], heavy_uppercut: ['Frame Shove', 'guard'], sweep: ['Scissor Sweep', 'scissor'], counter_strike: ['Frame Counter', 'guard'], counter_kick: ['Guard Kick Counter', 'guardKick'] },
   hapkido: { front_kick: ['Low Front Kick', 'hap'], cross: ['Palm Cross', 'palm'], heavy_front: ['Heel Push Kick', 'hap'], hook: ['Palm Smash', 'palm'], sweep: ['Reaping Foot Sweep', 'footSweep'], body_jab: ['Low Palm Strike', 'palm'], counter_strike: ['Redirect Strike', 'palm'], counter_kick: ['Redirect Kick', 'hap'] },
   kali: { jab: ['Thrust', 'thrustK'], front_kick: ['Shin Kick (Kali)', 'kaliKick'], heavy_front: ['Heavy Shin Kick (Kali)', 'kaliKick'], low_kick: ['Knee Kick', 'kaliKick'], hook: ['Redonda', 'redonda'], power_jab: ['Long Thrust', 'thrustK'], body_jab: ['Low Thrust (Kali)', 'thrustK'], gut_punch: ['Gut Thrust', 'thrustK'], counter_strike: ['Angle Counter', 'angle'], counter_kick: ['Shin Counter', 'kaliKick'] },
-  kravmaga: { heavy_front: ['Stomp Kick', 'kravStomp'], hook: ['Hammer Fist', 'hammer'], gut_punch: ['Low Hammer Fist', 'hammer'], counter_strike: ['Defend-and-Strike', 'parry'], counter_kick: ['Groin Counter', 'groin'] },
+  kravmaga: { heavy_front: ['Stomp Kick', 'kravStomp', null, 1.35], hook: ['Hammer Fist', 'hammer'], gut_punch: ['Low Hammer Fist', 'hammer'], counter_strike: ['Defend-and-Strike', 'parry'], counter_kick: ['Groin Counter', 'groin'] },
   mma: { heavy_front: ['Oblique Kick', 'oblique'], roundhouse: ['Round Kick', 'round'], sweep: ['Single-Leg Trip', 'trip'], counter_strike: ['Overhand Counter', 'overhand'], counter_kick: ['Sprawl and Drive', 'sprawl'], jump_kick: ['Flying Knee', 'airKnee'] },
 };
 const SKIN_CACHE = Object.create(null);
