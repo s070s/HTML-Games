@@ -702,6 +702,9 @@ const Setups = {
   save() { Store.set(KEY_SETUPS, JSON.stringify(this.d)); },
 };
 
+// --- the start side rows: the labels, the config startSide of each (0 = drawn from the seed, 1 = left, -1 = right) and the row name; Free Fight keeps its row among the rules, Arcade (duels) and Training have their own on the fighter screen
+const SIDE_LABELS = ['Automatic', 'Left', 'Right'], SIDE_VALUE = [0, 1, -1], SIDE_ROW = 'Player 1 starts';
+const SIDE_DEFAULT = { arcade: 0, training: 1 }; // the first and default choice of each: Training has nothing to draw or swap, so Left is its Automatic
 // --- Free Fight rules: [key, value labels, default index, row label]; one table drives rows, clean-up, presets and config
 const FIGHT_RULES = [
   ['area', ['Whole level', 'Square ring'], 0, 'Area'],
@@ -710,7 +713,7 @@ const FIGHT_RULES = [
   ['hazards', ['Off', 'On'], 1, 'Hazards'],
   ['breakables', ['Off', 'On'], 1, 'Breakables'],
   ['health', ['Half', 'Normal', 'One and a half', 'Double'], 1, 'Health'],
-  ['side', ['Automatic', 'Left', 'Right'], 0, 'Player 1 starts'],
+  ['side', SIDE_LABELS, 0, SIDE_ROW],
 ];
 const FIGHT_PRESETS = [ // [name, rows in table order, rounds, seconds]
   ['Standard', [0, 0, 1, 1, 1, 1, 0], 2, 60],
@@ -729,7 +732,7 @@ const FightRules = {
   // Config fields; a rule that does not apply is stored as its default
   cfg(rules, lineup, arena) {
     const ring = rules.area === 1 && !this.why('area', rules, lineup, arena);
-    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : [0, 1, -1][rules.side], rulesSet: true };
+    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : SIDE_VALUE[rules.side], rulesSet: true };
   },
   // The first preset the rows equal (dimmed rows ignored), or -1 for Custom
   match(rules, lineup, arena, sel) {
@@ -8457,7 +8460,7 @@ const Story = {
     return ranked.length ? ranked[ranked.length - 1].id : 'zero';
   },
   // A new run (plain values only) for a fighter after `clears` Arcade clears at Arcade difficulty `level`
-  start(profile, clears, level, seed) {
+  start(profile, clears, level, seed, side) {
     const s = this.settingsOf(profile), country = STORY_COUNTRY_BY_ID[s.country], region = STORY_REGION_LIST[country.region], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
     const tone = STORY_TONE_BY_ID[origin.tone], motive = STORY_MOTIVE_BY_ID[goal.motive], c = Math.max(0, Math.floor(finite(clears, 0))), left = STORY_POOL.filter((id) => id !== region.home);
     const rivalA = this.rivalA(profile.id, motive.id);
@@ -8466,7 +8469,7 @@ const Story = {
     return {
       fighter: profile.id, name: profile.name, country: s.country, origin: s.origin, goal: s.goal, region: region.tag, tone: tone.id, motive: motive.id, clears: c,
       level: Object.hasOwn(DIFFICULTY, level) ? level : 'easy', seed: finite(seed, 1) >>> 0, home: region.home, stage3: left[c % left.length], stage5: left[(c + 1) % left.length],
-      rivalA, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false,
+      rivalA, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0, lost: 0, skipped: false, side: side === 1 || side === -1 ? side : 0, // side: the duels' round 1 start side (0 = drawn)
     };
   },
   // win: stage 2 won on its first try without losing a round is 'flawless' (never after a skip)
@@ -8483,7 +8486,7 @@ const Story = {
   // --- saving: a run quit at any stage is kept in Progress and continues there
   // The saved part of a run: plain values only. Stage, continues, lost tries, the skip, the flawless state and the B5 answer are the run's state.
   pack(run, scores = []) {
-    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, boss: run.boss, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
+    return { fighter: run.fighter, stage: run.stage, clears: run.clears, level: run.level, seed: run.seed, choice: run.choice, continues: run.continues, lost: run.lost, flawless: run.flawless, skipped: run.skipped, rivalA: run.rivalA, boss: run.boss, side: run.side, scores: Array.from(scores, (score) => (Number.isFinite(score) ? score : null)) };
   },
   // A saved run read back from storage as a fresh object of plain values of the right kind and size, or null when it is not a run that can be continued. Whether its fighters still exist is for Story.restore.
   clean(raw) {
@@ -8492,7 +8495,7 @@ const Story = {
     const word = (value) => (typeof value === 'string' && value.length <= STORY_ID_MAX ? value : '');
     const saved = {
       fighter: word(raw.fighter), stage: whole(raw.stage, STORY_STAGES), clears: whole(raw.clears, 999), level: typeof raw.level === 'string' ? raw.level : '', seed: whole(raw.seed, 0xffffffff),
-      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), boss: word(raw.boss),
+      choice: raw.choice, continues: whole(raw.continues, 999), lost: whole(raw.lost, 999), flawless: raw.flawless === true, skipped: raw.skipped === true, rivalA: word(raw.rivalA), boss: word(raw.boss), side: raw.side === 1 || raw.side === -1 ? raw.side : 0,
       scores: Array.isArray(raw.scores) && raw.scores.length <= STORY_STAGES ? raw.scores.map((score) => (typeof score === 'number' && score >= 0 && score <= 100 ? score : null)) : [], // a damaged list only loses the grade's history, not the run
     };
     const counts = [saved.stage, saved.clears, saved.seed, saved.continues, saved.lost];
@@ -8503,7 +8506,7 @@ const Story = {
   restore(saved) {
     const clean = this.clean(saved), profile = clean && ROSTER_BY_ID[clean.fighter];
     if (!profile) return null;
-    const run = this.start(profile, clean.clears, clean.level, clean.seed);
+    const run = this.start(profile, clean.clears, clean.level, clean.seed, clean.side);
     for (const key of ['rivalA', 'boss']) if (ROSTER_BY_ID[clean[key]]) run[key] = clean[key]; // an old save's rivalB is ignored: stage 3 is led by a goon now
     return Object.assign(run, { stage: clean.stage, choice: clean.choice, continues: clean.continues, lost: clean.lost, flawless: clean.flawless, skipped: clean.skipped, scores: clean.scores });
   },
@@ -8518,7 +8521,7 @@ const Story = {
   // The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty
   cfg(run, n) {
     const duel = this.foe(run, n), cfg = { playerId: run.fighter, arenaId: this.arena(run, n), difficulty: run.level, arcadeLevel: run.level, seed: this.seedOf(run, n), keepSeed: true };
-    if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
+    if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 }, run.side ? { startSide: run.side } : {}); // a chosen side is the round 1 side of every duel
     Object.assign(cfg, { mode: 'brawl', enemies: 1, waves: true, winsNeeded: 1, timer: 0 });
     // Every boss brings their own goons: stage 1 rival A's, stage 3 the boss's, stages 5 and 6 the champion's (stage 6 after "Walk away": rival A's own, led by rival A himself)
     if (n === 1) Object.assign(cfg, { waveKeep: 3, goons: run.rivalA });
@@ -8538,7 +8541,7 @@ const Story = {
   },
   // Where a scene at stage n puts its cast: the fighter on its round 1 start side (MatchSim.sideFor), STORY_CAST_GAP from the middle of the room; a brawl keeps the fighter on the left
   cast(run, n) {
-    const side = this.foe(run, n) ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1;
+    const side = this.foe(run, n) ? run.side || MatchSim.sideFor(this.seedOf(run, n), 1) : 1;
     return { side, playerX: -side * STORY_CAST_GAP, otherX: side * STORY_CAST_GAP, z: 0 };
   },
   // A line about stage n for the story screen
@@ -11151,9 +11154,9 @@ class MatchSim {
   }
 
   /* Which start spot the first fighter takes: 1 = the left one (ring centre - spawn), -1 = the right one. Level layouts are not mirror images, so a seat that always started left always got the same side of a barrel, falling load or item pile.
-     A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after (no random number drawn); brawls, Training and a fight with neither ring nor `sides` always start left. */
+     A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after (no random number drawn); brawls, Training and a fight with neither ring nor `sides` always start left. A chosen `cfg.startSide` (P18-16) replaces the draw: it holds in round 1 and swaps every round after; Training keeps it, having no rounds. */
   startSide() {
-    if (this.training) return 1;
+    if (this.training) return this.cfg.startSide || 1; // no rounds to swap: the chosen side holds
     if (this.brawl) return this.setup && this.teamCount <= 2 ? this.cfg.startSide || 1 : 1; // two teams may be mirrored; a crowd or circle ignores it
     const fixed = this.cfg.startSide;
     if (fixed) return this.round & 1 ? fixed : -fixed; // swapped every round
@@ -11472,13 +11475,13 @@ class MatchSim {
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
-    const bx = Arena.sx1;
-    if (n === 2) { a.x = -0.55; b.x = 0.55; } else if (n === 3) { b.x = bx - 0.7; a.x = b.x - 1.4; } else if (n === 4) {
+    const side = this.startSide(), wall = side === 1 ? Arena.sx1 : Arena.sx0; // side: the player's start side (P18-16), 1 = left; the scenes are mirrored for Right, and placeFighters has already turned both to face each other
+    if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { b.x = wall - side * 0.7; a.x = b.x - side * 1.4; } else if (n === 4) {
       const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
-      if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
+      if (o) { b.x = o.x - side * (o.hx + 1.0); b.z = o.z; a.x = b.x - side * 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; } // infinite stamina would refill it at once
     else if (n === 6) { // the dummy lies on the floor one metre away, for a long time (a hold lasts up to 4 s)
-      a.x = -0.5; b.x = 0.5;
+      a.x = -side * 0.5; b.x = side * 0.5;
       b.setState(S.HIT); b.setState(S.DOWN);
       b.groundHits = 0; b.lieSign = 1; b.downMult = HOLD_SCENARIO_DOWN; b.keepDown = true; // keepDown: a CPU dummy's Defend press does not get it up quickly
     }
@@ -12154,7 +12157,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { rules: FightRules.fix(), mode: 'arcade', player: 'kai', opponent: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', survivalLevel: 'easy', survivalType: 0, startSides: Object.assign({}, SIDE_DEFAULT), tournamentLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS), tournamentSize: TOURNAMENT_SIZES[0], tournamentRing: false }, // new players start on the easiest settings; party: the co-op pick per seat
   versus: null, // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   lineups: {}, // { free: the Free Fight lineup }, made on first use; see lineupFor
   tournament: null, // the bracket being played, or null before the draw and after it is left
@@ -12231,10 +12234,11 @@ const Game = {
     this.selection.tournamentRing = !!(Setups.d && Setups.d.v === 1 && Setups.plain(Setups.d.tournament).ringOut === true); // the Tournament's Ring-out row
     const type = Setups.d && Setups.d.v === 1 ? Setups.plain(Setups.d.survival).type : 0; // the Survival type row: 0 to 3, anything else is Duels
     this.selection.survivalType = Number.isInteger(type) && type >= 0 && type < SURVIVAL_TYPES.length ? type : 0;
+    for (const mode in SIDE_DEFAULT) { const side = Setups.d && Setups.d.v === 1 ? Setups.plain(Setups.d[mode]).side : 0; this.selection.startSides[mode] = Number.isInteger(side) && side >= SIDE_DEFAULT[mode] && side < SIDE_LABELS.length ? side : SIDE_DEFAULT[mode]; } // the Start side rows of Arcade and Training
   },
   saveLevel() {
     const mode = this.selection.mode, old = Setups.d && Setups.d.v === 1 ? Setups.d : {};
-    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : mode === 'survival' ? { type: this.selection.survivalType } : {}) });
+    Setups.d = Object.assign({}, old, { v: 1, [mode]: Object.assign({}, Setups.plain(old[mode]), { difficulty: this.selection[LEVEL_FIELD[mode]] }, mode === 'tournament' ? { ringOut: this.selection.tournamentRing } : mode === 'survival' ? { type: this.selection.survivalType } : mode in SIDE_DEFAULT ? { side: this.selection.startSides[mode] === SIDE_DEFAULT[mode] ? undefined : this.selection.startSides[mode] } : {}) }); // the default side is not stored (undefined is left out of the JSON), so a setup nobody changed reads as before
     Setups.save();
   },
 
@@ -12255,7 +12259,7 @@ const Game = {
   // Arcade is the story run (Story): 7 stages, brawls against groups and 1v1 fights against rivals, the boss and the champion
   startArcade() {
     const sel = this.selection;
-    const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now());
+    const story = Story.start(ROSTER_BY_ID[sel.player], Progress.d.arcadeClears, sel.arcadeLevel, Date.now(), SIDE_VALUE[sel.startSides.arcade]);
     this.run = { mode: 'arcade', player: sel.player, story, stage: 0, scores: [] };
     this.saveArcadeRun(); // replaces the run saved before
     this.tellStory(this.beatIds('before', 1), () => this.beginStage());
@@ -12376,7 +12380,7 @@ const Game = {
     const sel = this.selection;
     const opp = this.opponentsFor(sel.player)[0];
     this.run = { mode: 'training', player: sel.player };
-    this.beginMatch({ mode: 'training', playerId: sel.player, opponentId: this.selection.opponent && this.selection.opponent !== sel.player ? this.selection.opponent : opp.id, arenaId: sel.arena, difficulty: 'normal', winsNeeded: 99, timer: 0, countdown: false, dummy: 'stand' });
+    this.beginMatch({ mode: 'training', playerId: sel.player, opponentId: this.selection.opponent && this.selection.opponent !== sel.player ? this.selection.opponent : opp.id, arenaId: sel.arena, difficulty: 'normal', winsNeeded: 99, timer: 0, countdown: false, dummy: 'stand', startSide: SIDE_VALUE[sel.startSides.training] });
   },
   // Starts the Free Fight setup; false, with a toast, when it cannot start
   startFree() {
@@ -13940,6 +13944,7 @@ const UI = {
     else if (name === 'tsize') { sel.tournamentSize = TOURNAMENT_SIZES[(TOURNAMENT_SIZES.indexOf(sel.tournamentSize) + dir + TOURNAMENT_SIZES.length) % TOURNAMENT_SIZES.length]; }
     else if (name === 'tring') { sel.tournamentRing = !sel.tournamentRing; Game.saveLevel(); }
     else if (name === 'stype') { sel.survivalType = (sel.survivalType + (dir || 1) + SURVIVAL_TYPES.length) % SURVIVAL_TYPES.length; Game.saveLevel(); }
+    else if (name === 'side') { const mode = sel.mode, first = SIDE_DEFAULT[mode], count = SIDE_LABELS.length - first; sel.startSides[mode] = first + (sel.startSides[mode] - first + dir + count) % count; Game.saveLevel(); }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
     else if (name.startsWith('story')) this.storyChange(name, dir);
@@ -14114,6 +14119,8 @@ const UI = {
   },
   // The Difficulty row of the current mode, the same on every mode's first screen
   levelRow() { const sel = Game.selection; return this.optRow('Difficulty', DIFFICULTY[sel[LEVEL_FIELD[sel.mode] || 'difficulty']].label, 'data-local="diff"', ''); },
+  // The Start side row of Arcade (the fighter screen) and Training (its setup screen)
+  sideRow() { const sel = Game.selection; return this.optRow(SIDE_ROW, SIDE_LABELS[sel.startSides[sel.mode]], 'data-local="side"', ''); },
   screen_main() {
     const saved = Game.savedArcadeRun(); // the run to continue: it takes the one current item, Play follows it
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
@@ -14168,7 +14175,7 @@ const UI = {
     const who = lineup ? (person ? 'Player ' + lineup.slots.slice(0, slotAt + 1).filter((slot) => slot.human).length : 'CPU ' + (slotAt + 1)) : '';
     const title = seat >= 0 ? '<span class="seat' + (seat + 1) + '" style="color:var(--pc)">Player ' + (seat + 1) + '</span>: choose your fighter' : lineup ? 'Choose fighter: ' + who : 'Choose your fighter';
     const sub = MODE_INFO[sel.mode].label + (seat >= 0 && Inputs.seats[seat] ? ' &middot; ' + esc(this.deviceLabel(Inputs.seats[seat])) : '');
-    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + (sel.mode === 'survival' ? this.optRow('Survival type', SURVIVAL_TYPES[sel.survivalType], 'data-local="stype"', '') : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
+    let h = this.panelOpen('Fighter selection', '36em,60vw') + '<h2>' + title + '</h2><p class="sub">' + sub + '</p>' + (sel.mode === 'arcade' || sel.mode === 'survival' ? this.levelRow() : '') + (sel.mode === 'survival' ? this.optRow('Survival type', SURVIVAL_TYPES[sel.survivalType], 'data-local="stype"', '') : '') + (sel.mode === 'arcade' ? this.sideRow() : '') + '<div class="cards">'; // their first screen: Difficulty before the fighter
     h += '<button class="card create" data-nav data-act="create"><b>+ CREATE</b><em>Design a new fighter</em><span class="stat">Body, outfit, style, points</span></button>';
     for (const r of ROSTER) h += this.fighterCard(r, 'pick', r.id === picked, person);
     h += '</div>';
@@ -14404,7 +14411,7 @@ const UI = {
   // Training: the sparring partner
   screen_setup() {
     const sel = Game.selection;
-    let h = this.panelOpen('Match setup', '38em,64vw') + '<h2>Training setup</h2><p class="sub">Choose your sparring partner</p><div class="cards">';
+    let h = this.panelOpen('Match setup', '38em,64vw') + '<h2>Training setup</h2><p class="sub">Choose your sparring partner</p>' + this.sideRow() + '<div class="cards">';
     for (const r of Game.opponentChoices(sel.player, false)) h += this.fighterCard(r, 'opp', r.id === sel.opponent);
     h += '</div><div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-act="setupNext">Choose arena</button></div></div></section>';
     return h;
