@@ -14031,6 +14031,13 @@ const SelfTest = {
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
     });
+    /* Wires Sound or Effects for one test and takes the listeners back off afterwards: a headless run never wired them, so they would stay (the game wires both once at start-up) */
+    const wireFor = (owner, wire) => {   // returns the undo, for the test's finally
+      const handlers = Events.handlers, wired = owner.wired;
+      Events.handlers = Object.fromEntries(Object.entries(handlers).map(([name, list]) => [name, list.slice()]));
+      wire();
+      return () => { Events.handlers = handlers; owner.wired = wired; };
+    };
     /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
     const withVoices = (body) => {
       const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
@@ -14045,7 +14052,7 @@ const SelfTest = {
     };
     test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
       const bad = [], keepArena = Arena.def;
-      Sound.wire();
+      const unwire = wireFor(Sound, () => Sound.wire());
       try {
         withVoices((heard) => {
           const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
@@ -14071,7 +14078,7 @@ const SelfTest = {
           Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
           if (heard.length) bad.push('a hit the engine skipped still layers');
         });
-      } finally { if (keepArena) Arena.build(keepArena); }
+      } finally { if (keepArena) Arena.build(keepArena); unwire(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Low-health heartbeat (P13-02): a lone person under 20 % health in a live fight hears a 70 bpm heartbeat and the music low-passed to 1.2 kHz; the setting, a second person, Training, a pause and a knock-out turn it off', () => {
@@ -14109,7 +14116,7 @@ const SelfTest = {
     });
     test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
       const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
-      Effects.init();
+      const unwire = wireFor(Effects, () => Effects.init());
       try {
         Arena.build(ARENAS.warehouse); Settings.v.shake = SETTING_DEFS.shake.def; Settings.v.reducedMotion = false;
         const lampsNow = () => Arena.lamps.slice();
@@ -14174,6 +14181,7 @@ const SelfTest = {
       } finally {
         R.put = put; Object.assign(Settings.v, keep);
         if (keepArena) Arena.build(keepArena);
+        unwire();
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -15797,7 +15805,7 @@ const SelfTest = {
       const problems = [];
       const colours = Object.values(CUE_COLOR), sets = Object.values(CUE_NOTES).map((n) => n.join());
       if (new Set(colours).size !== colours.length || new Set(sets).size !== sets.length) problems.push('a ring colour or a note set repeats');
-      Effects.init();
+      const unwire = wireFor(Effects, () => Effects.init());
       const real = { ring: FX.ring, flash: FX.flash, sparks: FX.sparks, dust: FX.dust }, rings = [], flashes = [];
       FX.ring = (x, y, z, hex) => rings.push(hex); FX.flash = (x, y, z, size, hex) => flashes.push(y.toFixed(1) + ':' + size + ':' + hex); FX.sparks = () => {}; FX.dust = () => {};
       const realSound = { allow: Sound.allow, tone: Sound.tone, noise: Sound.noise }, heard = [];
@@ -15825,7 +15833,7 @@ const SelfTest = {
         const run = chainRun({ g: 3, defence: 'block' }), block = run.log.find((ev) => ev.n === 'block'), ring = stamp.find((s) => s.hex === CUE_COLOR.brk);
         if (!block || !ring || ring.t !== block.t) problems.push('the ring came on tick ' + (ring && ring.t) + ', the block on ' + (block && block.t));
       } finally {
-        Object.assign(FX, real); Object.assign(Sound, realSound);
+        Object.assign(FX, real); Object.assign(Sound, realSound); unwire();
       }
       return problems.length ? problems.join('; ') : true;
     });
