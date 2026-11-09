@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, VERT_SRC, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -14211,7 +14211,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
-    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a pop near a live one starts 0.9 em higher; at most 4 words and 4 numbers live, and the 16 elements stay', () => {
+    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a pop near live ones takes the lowest free step of 0.9 em; at most 4 words and 4 numbers live, and the 16 elements stay', () => {
       const bad = [], keep = { pops: UI.pops, idx: UI.popIdx };
       const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
       const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
@@ -14231,6 +14231,11 @@ const SelfTest = {
         if (live().length !== 3 || live().filter((q) => q.text === 'COUNTER 7' && q.n === 1)[0].lift !== POP_LIFT_EM * 2) bad.push('a late twin does not stack: ' + live().map((q) => q.text + ':' + q.lift));
         UI.popAt(0.9, 1, 0, 'COUNTER 7', '#fc0');
         if (live().length !== 4 || live().some((q) => q.x === 0.9 && q.lift !== 0)) bad.push('a pop 0.9 m away is lifted or merged');
+        UI.pops = fresh(); UI.popIdx = 0;   // a lower pop ending frees its step: the next one takes it, not the top of the pile
+        for (const text of ['ONE', 'TWO', 'THREE']) UI.popAt(0, 1, 0, text, '#fff');
+        live().find((q) => q.text === 'ONE').age = 99;
+        UI.popAt(0, 1, 0, 'FOUR', '#fff');
+        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'FOUR:0,THREE:1.8,TWO:0.9') bad.push('the freed step was not reused: ' + live().map((q) => q.text + ':' + q.lift));
         UI.pops = fresh(); UI.popIdx = 0;
         for (let i = 0; i < 6; i++) { tick(); UI.popAt(i * 3, 1, 0, 'WORD ' + i, '#fff'); tick(); UI.popAt(i * 3, 2, 5, String(10 + i), '#fff'); }
         const words = live().filter((q) => !q.number).map((q) => q.text).sort().join(), numbers = live().filter((q) => q.number).map((q) => q.text).sort().join();
@@ -14239,8 +14244,8 @@ const SelfTest = {
       } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (6 / 10 / 14 and 3 + 2 / 4 / 6), none casts a shadow or is a lamp, the 21 swinging lights are the same, and the preset decides how many are drawn', () => {
-      const bad = [], put = R.put, keep = { limits: Quality.limits, def: Arena.def }, lampsOf = { warehouse: 5, dojo: 4, subway: 5, garage: 4, pit: 3 };
+    test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (6 / 10 / 14 and 3 + 2 / 4 / 6), each against a wall face within the wall height and not buried in or flush with another box, none a shadow caster or a lamp, the 21 swinging lights the same, and the preset decides how many are drawn', () => {
+      const bad = [], put = R.put, keep = { limits: Quality.limits, def: Arena.def }, lampsOf = { warehouse: 5, dojo: 4, subway: 5, garage: 4, pit: 3 }, near = (a, b) => Math.abs(a - b) < 0.015;
       let lamps = 0;
       try {
         for (const id of ARENA_ORDER) {
@@ -14250,6 +14255,21 @@ const SelfTest = {
           if (dressing.some((p) => p.cast !== false || p.lamp || p.l !== LAYER.SOLID || p.a !== 1)) bad.push(id + ': a dressing box casts a shadow, is a lamp or is not plain solid');
           if (Arena.lamps.length !== (lampsOf[id] || 0)) bad.push(id + ' has ' + Arena.lamps.length + ' lights');
           lamps += Arena.lamps.length;
+          const slabs = Arena.props.filter((p) => !p.d && p.l === LAYER.SOLID && p.sy >= 1.8 && Math.min(p.sx, p.sz) <= 0.6 && Math.max(p.sx, p.sz) >= 1);   // the walls (and the Rooftop's plant-room wall)
+          for (const b of dressing) {   // a box on a back wall (thin in z) or a side wall (thin in x, long in z) must sit on a wall face and under its top
+            const sideBox = b.sx <= 0.5 && b.sz >= 10, tag = id + ' box at ' + [b.x, b.y, b.z].map((v) => Math.round(v * 100) / 100).join(',');
+            const wall = slabs.find((w) => (sideBox
+              ? w.sx <= 0.6 && w.sz >= 10 && Math.sign(w.x) === Math.sign(b.x) && near(Math.abs(b.x) + b.sx / 2, Math.abs(w.x) - w.sx / 2) && Math.abs(b.z - w.z) + b.sz / 2 <= w.sz / 2 + 0.02
+              : w.sz <= 0.6 && w.sx >= 1 && near(b.z - b.sz / 2, w.z + w.sz / 2) && Math.abs(b.x - w.x) + b.sx / 2 <= w.sx / 2 + 0.02) && b.y + b.sy / 2 <= w.y + w.sy / 2 + 0.02 && b.y - b.sy / 2 >= w.y - w.sy / 2 - 0.02);
+            if (!wall) bad.push(tag + ' touches no wall face');
+          }
+          const span = (p) => [[p.x - p.sx / 2, p.x + p.sx / 2], [p.y - p.sy / 2, p.y + p.sy / 2], [p.z - p.sz / 2, p.z + p.sz / 2]];
+          for (let i = 0; i < dressing.length; i++) for (let j = 0; j < dressing.length; j++) {   // no box inside another, no two faces on one plane over the same area (z-fighting)
+            if (i === j) continue;
+            const a = span(dressing[i]), c = span(dressing[j]);
+            if (i < j && [0, 1, 2].every((k) => a[k][0] >= c[k][0] - 0.005 && a[k][1] <= c[k][1] + 0.005)) bad.push(id + ': a box is inside another at ' + dressing[i].x.toFixed(1) + ',' + dressing[i].y.toFixed(1));
+            if (i < j && [[0, 1, 2], [2, 1, 0]].some(([along, up, out]) => near(a[out][1], c[out][1]) && Math.min(a[along][1], c[along][1]) - Math.max(a[along][0], c[along][0]) > 0.01 && Math.min(a[up][1], c[up][1]) - Math.max(a[up][0], c[up][0]) > 0.01)) bad.push(id + ': two boxes share a front face at ' + dressing[i].x.toFixed(1) + ',' + dressing[i].y.toFixed(1));
+          }
           const drawn = (level) => { let n = 0; R.put = () => { n++; }; Quality.limits = Object.assign({}, keep.limits, { dress: QUALITY_PRESETS[level].dress }); Arena.lodTick = 1; Arena.draw(); return n; };
           const low = drawn('low'), medium = drawn('medium'), high = drawn('high');
           if (medium - low !== 6 || high - medium !== 6) bad.push(id + ' draws ' + [low, medium, high]);
@@ -14258,28 +14278,35 @@ const SelfTest = {
       if (lamps !== 21) bad.push(lamps + ' lights in all');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Shadow height (P30-03): a fighter on the Warehouse dock casts at 1 + its footing (2), on the floor at 1, its blob and team disc sit on the footing; an object on a deck casts at 1 + its base; the vertex shader reads the plane from the cast slot', () => {
+    test('Shadow height (P30-03): the shadow plane is 1 + the footing height only over flat footing (the same at four corners 1 m round): a fighter inside the Warehouse dock casts at 2, one near its edge, one in the air beside it (falling off) and one on the floor at 1; blob and team disc sit on the surface under the fighter; objects on a deck follow the same rule', () => {
       const bad = [], push = R.push, put = R.put, mode = R.shadowMode;
       try {
         const f = new Fighter(ROSTER_BY_ID.kai, 0);
-        const drawAt = (x, z, shadowMode) => {
+        const drawAt = (x, z, shadowMode, air) => {
           Arena.build(ARENAS.warehouse);
-          f.x = f.prevX = x; f.z = f.prevZ = z; f.y = f.prevY = f.groundY = f.supportY = Arena.supportAt(x, z, 99, f.radius);
+          f.x = f.prevX = x; f.z = f.prevZ = z; f.groundY = Arena.supportAt(x, z, 99, f.radius);
+          f.y = f.prevY = f.groundY + (air || 0); f.supportY = air ? 1 : f.groundY;   // a fighter that left the dock keeps its old supportY
           const casts = [], flats = []; R.shadowMode = shadowMode;
           R.push = (layer, mesh, m, col, a, em, rough, flash, cast) => { if (cast > 0) casts.push(cast); };
           R.put = (layer, mesh, px, py, pz, sx, sy) => { if (sy < 0.02) flats.push(Math.round(py * 1000) / 1000); };
           f.draw(1);
-          return { casts: Array.from(new Set(casts)).join(), flats: flats.join(), y: f.y };
+          return { casts: Array.from(new Set(casts)).join(), flats: flats.join() };
         };
-        const dock = drawAt(-8.9, 3.3, 2), floor = drawAt(0, 0, 2), blobs = drawAt(-8.9, 3.3, 1), flat = drawAt(0, 0, 1);
-        if (dock.y !== 1 || dock.casts !== '2' || floor.casts !== '1') bad.push('casts: dock ' + dock.casts + ' (' + dock.y + ' m), floor ' + floor.casts);
-        if (blobs.flats !== '1.02,1.018' || flat.flats !== '0.02,0.018') bad.push('blob and disc: ' + blobs.flats + ' | ' + flat.flats);
-        Arena.build(ARENAS.rooftop);
-        const post = Arena.objects.find((o) => o.id === 'postA'), objectCasts = [];
-        R.put = (layer, mesh, px, py, pz, sx, sy, sz, rx, ry, rz, c, a, e, q, cast) => { if (cast) objectCasts.push(cast); };
-        Arena.drawObject(post);
-        if (post.base !== 2 || !objectCasts.length || objectCasts.some((c) => c !== 3)) bad.push('an object on a deck casts at ' + objectCasts.join());
-        if (!VERT_SRC.includes('aPar.w - 1.0')) bad.push('the shader does not read the plane height');
+        const inside = drawAt(-8.5, 3.75, 2), edge = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2);
+        if (inside.casts !== '2' || edge.casts !== '1' || falling.casts !== '1' || floor.casts !== '1') bad.push('planes: inside the dock ' + inside.casts + ', near the edge ' + edge.casts + ', falling ' + falling.casts + ', floor ' + floor.casts);
+        const dockBlobs = drawAt(-8.5, 3.75, 1), airBlobs = drawAt(-6.5, 3.75, 1, 1), flatBlobs = drawAt(0, 0, 1);
+        if (dockBlobs.flats !== '1.02,1.018' || airBlobs.flats !== '0.02,0.018' || flatBlobs.flats !== '0.02,0.018') bad.push('blob and disc: ' + [dockBlobs.flats, airBlobs.flats, flatBlobs.flats].join(' | '));
+        const castsOf = (id, objectId) => {
+          Arena.build(ARENAS[id]);
+          const o = Arena.objects.find((q) => q.id === objectId), got = [];
+          R.put = (layer, mesh, px, py, pz, sx, sy, sz, rx, ry, rz, c, a, e, q, cast) => { if (cast) got.push(cast); };
+          Arena.drawObject(o);
+          return { base: o.base, casts: Array.from(new Set(got)).join() };
+        };
+        const speaker = castsOf('club', 'speakerA'), post = castsOf('rooftop', 'postA');   // a speaker well inside the stage; the post on the tank deck 0.4 m from its edge
+        if (speaker.base !== 1 || speaker.casts !== '2' || post.base !== 2 || post.casts !== '1') bad.push('objects: speaker ' + speaker.casts + ', post ' + post.casts);
+        Arena.build(ARENAS.warehouse);
+        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-7.3, 3.75, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0) bad.push('flatFooting');
       } finally { R.push = push; R.put = put; R.shadowMode = mode; Arena.build(ARENAS.warehouse); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -14323,11 +14350,21 @@ const SelfTest = {
       } finally { UI.dom = keep.dom; Showcase.menuFocus = keep.focus; Showcase.t = keep.t; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Quality presets (P30-04, P30-05): low keeps 0.6 of the window (the P0-04 run dropped the 0.7), no detail pass and 1 dressing tier; medium has the detail pass and 2 tiers; high also the soft shadow and 3 tiers', () => {
-      const p = QUALITY_PRESETS, bad = [];
-      if (p.low.scale !== 0.6 || p.medium.scale !== 0.85 || p.high.scale !== 1) bad.push('scales ' + [p.low.scale, p.medium.scale, p.high.scale]);
-      if (p.low.detail !== 0 || p.medium.detail !== 1 || p.high.detail !== 2 || [p.low.dress, p.medium.dress, p.high.dress].join() !== '1,2,3') bad.push('detail or dressing tiers');
-      return bad.length ? bad.join('; ') : true;
+    test('Quality presets (P30-04, P30-05): each preset is applied at its own render size (low 0.6 of the window, medium 0.85, high 1, at the preset\'s pixel cap), low has no detail pass and 1 dressing tier, medium the detail pass and 2, high also the soft shadow and 3', () => {
+      const p = QUALITY_PRESETS, bad = [], keep = { quality: Settings.v.quality, shadows: Settings.v.shadows, canvas: R.canvas }, width = {};
+      try {
+        R.canvas = { width: 0, height: 0, getBoundingClientRect: () => ({ width: 1280, height: 720 }) };   // a 1280 x 720 window
+        Settings.v.shadows = SETTING_DEFS.shadows.def;
+        for (const q of ['low', 'medium', 'high']) {
+          Settings.v.quality = q; Quality.apply();
+          const want = Math.max(2, Math.floor(R.cssW * Math.min(R.lastDpr, p[q].dprCap) * p[q].scale));
+          width[q] = R.width;
+          if (R.width !== want || R.detail !== p[q].detail || Quality.limits.dress !== p[q].dress || R.shadowMode !== p[q].shadow) bad.push(q + ' applied ' + [R.width, R.detail, Quality.limits.dress, R.shadowMode] + ', wanted ' + [want, p[q].detail, p[q].dress, p[q].shadow]);
+        }
+        if (!(width.low < width.medium && width.medium < width.high)) bad.push('render widths ' + [width.low, width.medium, width.high]);
+        if (p.low.scale !== 0.6 || p.medium.scale !== 0.85 || p.high.scale !== 1 || [p.low.detail, p.medium.detail, p.high.detail].join() !== '0,1,2' || [p.low.dress, p.medium.dress, p.high.dress].join() !== '1,2,3') bad.push('preset table');
+      } finally { Settings.v.quality = keep.quality; Settings.v.shadows = keep.shadows; R.canvas = keep.canvas; Quality.apply(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
