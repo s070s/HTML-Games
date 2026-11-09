@@ -4867,7 +4867,6 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Runs: headless `node tools/run-tests.js` (every test, 670): 653 passed, the 17 known headless limits, 0 other failures, 574 s. No fingerprint or pinned hash moved: the `Body` draw hash and the fight hashes pass unchanged (the scenery tag is on the matrices of `R.put` only, fighters stay as they were, and `cast` is not in that hash), so none is left failing. The full Chrome self-test was not run in this task.
 - Shots: the same 216 as P18-30 (`shoot.mjs`, same levels, viewports and presets) plus the two Warehouse-dock shots (`deck.mjs`, first-run card hidden); scratch folder of the task, not committed.
 - Owner device checks (a real phone, P16-03): the Low look at 0.7 against 0.6 (edges and frame time), the grain and the lamp pools on Medium, the soft shadow on High, the portrait HUD with a long name, the first-run Controls card in both orientations, the main menu fighter beside the panel, the vibration of nothing (no change).
-||||||| 520d70c
 
 ### P18-28 sound design pass (2026-11-09)
 
