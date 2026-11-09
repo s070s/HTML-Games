@@ -236,12 +236,20 @@ const SelfTest = {
     const wanted = parts.map((part) => String(part).trim().toLowerCase()).filter(Boolean);
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
+    const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
+    const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
     const test = (name, fn) => {
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
-      try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
-      results[results.length - 1].ms = Math.round(performance.now() - started);
+      const entry = { name, pass: false, detail: 'still running' };
+      results.push(entry);
+      try {
+        const r = fn();
+        if (r && typeof r.then === 'function') pendingTests.push(r.then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + e.message; }).then(() => { entry.ms = Math.round(performance.now() - started); }));
+        else record(entry, r);
+      } catch (e) { entry.detail = 'exception: ' + e.message; }
+      entry.ms = Math.round(performance.now() - started);
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
@@ -16514,15 +16522,56 @@ const SelfTest = {
       } finally { Game.beginMatch = begin; Game.run = kept.run; Setups.d = kept.setups; Game.selection.survivalType = kept.type; restoreProgress(saved); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
+    /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const policy = policyTag ? policyTag.content : '';
+      if (!policy.includes("default-src 'none'") || !policy.includes("connect-src 'none'")) return 'the page policy changed: ' + policy;
+      const connections = [new RTCPeerConnection(), new RTCPeerConnection()];
+      const [offerer, answerer] = connections;
+      const violations = [];
+      const onViolation = (e) => violations.push(e.effectiveDirective + ' ' + e.blockedURI);
+      document.addEventListener('securitypolicyviolation', onViolation);
+      const TIMEOUT_MS = 5000;
+      let timer = 0;
+      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms (ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState + ')')), TIMEOUT_MS); });
+      const exchange = async () => {
+        // trickle ICE straight across (fast); the manual copy-paste form only changes when the candidates travel, not what the page may do
+        offerer.onicecandidate = (e) => { if (e.candidate) answerer.addIceCandidate(e.candidate); };
+        answerer.onicecandidate = (e) => { if (e.candidate) offerer.addIceCandidate(e.candidate); };
+        const channel = offerer.createDataChannel('csp-probe', { ordered: false, maxRetransmits: 0 });
+        const atAnswerer = new Promise((resolve) => { answerer.ondatachannel = (e) => { e.channel.onmessage = (msg) => { e.channel.send('pong'); resolve(msg.data); }; }; });
+        const atOfferer = new Promise((resolve) => { channel.onmessage = (msg) => resolve(msg.data); });
+        channel.onopen = () => channel.send('ping');
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription);
+        return (await atAnswerer) + '/' + (await atOfferer);
+      };
+      return Promise.race([exchange(), timeout]).then((got) => {
+        if (violations.length) return 'CSP violation: ' + violations.join('; ');
+        return got === 'ping/pong' ? true : 'wrong messages: ' + got;
+      }).finally(() => {
+        clearTimeout(timer);
+        document.removeEventListener('securitypolicyviolation', onViolation);
+        connections.forEach((connection) => connection.close());
+      });
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
       if (!hasLayoutEngine()) return true;
-      const skippedNames = results.filter((r) => r.skipped).map((r) => r.name);
+      const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the one WebRTC test (P12-04); every engine a player uses has it
+      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && r.name.startsWith('CSP under WebRTC'))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
+    results.settled = Promise.all(pendingTests);   // resolves when the async tests (P12-04) have filled in their results
     return results;
   },
 };
