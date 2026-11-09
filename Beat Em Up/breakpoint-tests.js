@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, VERT_SRC, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -6643,7 +6643,7 @@ const SelfTest = {
         if (before !== '2' || atOnce !== '' || draw() !== '') problems.push('knock-out: ' + before + ' then ' + atOnce + ' then ' + draw());
         // the render-quality presets only hold render budgets; the marker is HUD, so none of them (or any style rule) can hide it
         for (const quality in QUALITY_PRESETS) {
-          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris', 'pieces', 'live', 'heaps', 'marks'].includes(key));
+          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'detail', 'dress', 'particles', 'debris', 'pieces', 'live', 'heaps', 'marks'].includes(key));
           if (odd.length) problems.push('preset ' + quality + ' has the setting ' + odd.join());
         }
         const sheets = Array.from(document.querySelectorAll('style')).map((el) => (typeof el.textContent === 'string' ? el.textContent : ''));
@@ -14198,6 +14198,125 @@ const SelfTest = {
         Input.lastDevice = device; Object.assign(Settings.v, keep);
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
+    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a pop near a live one starts 0.9 em higher; at most 4 words and 4 numbers live, and the 16 elements stay', () => {
+      const bad = [], keep = { pops: UI.pops, idx: UI.popIdx };
+      const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
+      const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
+      const tick = () => { for (const q of live()) q.age += 0.05; };
+      try {
+        UI.pops = fresh(); UI.popIdx = 0;
+        UI.popAt(0, 1, 0, 'COUNTER 7', '#fc0'); find('COUNTER 7').age = 0.3;
+        UI.popAt(0.3, 1, 0, 'COUNTER 7', '#fc0');
+        const first = find('COUNTER 7');
+        if (live().length !== 1 || first.n !== 2 || first.el.textContent !== 'COUNTER 7 x2' || first.age !== 0) bad.push('no merge: ' + live().length + ' ' + first.el.textContent);
+        UI.popAt(0.2, 1, 0, 'COUNTER 7', '#fc0');
+        if (live().length !== 1 || first.el.textContent !== 'COUNTER 7 x3') bad.push('no x3');
+        UI.popAt(0, 1, 0, '10', '#fff');
+        if (live().length !== 2 || find('10').lift !== POP_LIFT_EM || POP_LIFT_EM !== 0.9 || first.lift !== 0) bad.push('a pop next to another is not lifted: ' + find('10').lift);
+        first.age = 0.5; // too late to merge: a new pop above the other two
+        UI.popAt(0, 1, 0, 'COUNTER 7', '#fc0');
+        if (live().length !== 3 || live().filter((q) => q.text === 'COUNTER 7' && q.n === 1)[0].lift !== POP_LIFT_EM * 2) bad.push('a late twin does not stack: ' + live().map((q) => q.text + ':' + q.lift));
+        UI.popAt(0.9, 1, 0, 'COUNTER 7', '#fc0');
+        if (live().length !== 4 || live().some((q) => q.x === 0.9 && q.lift !== 0)) bad.push('a pop 0.9 m away is lifted or merged');
+        UI.pops = fresh(); UI.popIdx = 0;
+        for (let i = 0; i < 6; i++) { tick(); UI.popAt(i * 3, 1, 0, 'WORD ' + i, '#fff'); tick(); UI.popAt(i * 3, 2, 5, String(10 + i), '#fff'); }
+        const words = live().filter((q) => !q.number).map((q) => q.text).sort().join(), numbers = live().filter((q) => q.number).map((q) => q.text).sort().join();
+        if (POP_KIND_MAX !== 4 || words !== 'WORD 2,WORD 3,WORD 4,WORD 5' || numbers !== '12,13,14,15') bad.push('caps: ' + words + ' | ' + numbers);
+        if (UI.pops.length !== 16) bad.push('the 16 elements changed');
+      } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (6 / 10 / 14 and 3 + 2 / 4 / 6), none casts a shadow or is a lamp, the 21 swinging lights are the same, and the preset decides how many are drawn', () => {
+      const bad = [], put = R.put, keep = { limits: Quality.limits, def: Arena.def }, lampsOf = { warehouse: 5, dojo: 4, subway: 5, garage: 4, pit: 3 };
+      let lamps = 0;
+      try {
+        for (const id of ARENA_ORDER) {
+          Arena.build(ARENAS[id]);
+          const dressing = Arena.props.filter((p) => p.d), upTo = (tier) => dressing.filter((p) => p.d <= tier).length;
+          if (dressing.length !== 23 || upTo(1) !== 11 || upTo(2) !== 17 || upTo(3) !== 23) bad.push(id + ' has ' + [upTo(1), upTo(2), upTo(3)]);
+          if (dressing.some((p) => p.cast !== false || p.lamp || p.l !== LAYER.SOLID || p.a !== 1)) bad.push(id + ': a dressing box casts a shadow, is a lamp or is not plain solid');
+          if (Arena.lamps.length !== (lampsOf[id] || 0)) bad.push(id + ' has ' + Arena.lamps.length + ' lights');
+          lamps += Arena.lamps.length;
+          const drawn = (level) => { let n = 0; R.put = () => { n++; }; Quality.limits = Object.assign({}, keep.limits, { dress: QUALITY_PRESETS[level].dress }); Arena.lodTick = 1; Arena.draw(); return n; };
+          const low = drawn('low'), medium = drawn('medium'), high = drawn('high');
+          if (medium - low !== 6 || high - medium !== 6) bad.push(id + ' draws ' + [low, medium, high]);
+        }
+      } finally { R.put = put; Quality.limits = keep.limits; if (keep.def) Arena.build(keep.def); }
+      if (lamps !== 21) bad.push(lamps + ' lights in all');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Shadow height (P30-03): a fighter on the Warehouse dock casts at 1 + its footing (2), on the floor at 1, its blob and team disc sit on the footing; an object on a deck casts at 1 + its base; the vertex shader reads the plane from the cast slot', () => {
+      const bad = [], push = R.push, put = R.put, mode = R.shadowMode;
+      try {
+        const f = new Fighter(ROSTER_BY_ID.kai, 0);
+        const drawAt = (x, z, shadowMode) => {
+          Arena.build(ARENAS.warehouse);
+          f.x = f.prevX = x; f.z = f.prevZ = z; f.y = f.prevY = f.groundY = f.supportY = Arena.supportAt(x, z, 99, f.radius);
+          const casts = [], flats = []; R.shadowMode = shadowMode;
+          R.push = (layer, mesh, m, col, a, em, rough, flash, cast) => { if (cast > 0) casts.push(cast); };
+          R.put = (layer, mesh, px, py, pz, sx, sy) => { if (sy < 0.02) flats.push(Math.round(py * 1000) / 1000); };
+          f.draw(1);
+          return { casts: Array.from(new Set(casts)).join(), flats: flats.join(), y: f.y };
+        };
+        const dock = drawAt(-8.9, 3.3, 2), floor = drawAt(0, 0, 2), blobs = drawAt(-8.9, 3.3, 1), flat = drawAt(0, 0, 1);
+        if (dock.y !== 1 || dock.casts !== '2' || floor.casts !== '1') bad.push('casts: dock ' + dock.casts + ' (' + dock.y + ' m), floor ' + floor.casts);
+        if (blobs.flats !== '1.02,1.018' || flat.flats !== '0.02,0.018') bad.push('blob and disc: ' + blobs.flats + ' | ' + flat.flats);
+        Arena.build(ARENAS.rooftop);
+        const post = Arena.objects.find((o) => o.id === 'postA'), objectCasts = [];
+        R.put = (layer, mesh, px, py, pz, sx, sy, sz, rx, ry, rz, c, a, e, q, cast) => { if (cast) objectCasts.push(cast); };
+        Arena.drawObject(post);
+        if (post.base !== 2 || !objectCasts.length || objectCasts.some((c) => c !== 3)) bad.push('an object on a deck casts at ' + objectCasts.join());
+        if (!VERT_SRC.includes('aPar.w - 1.0')) bad.push('the shader does not read the plane height');
+      } finally { R.push = push; R.put = put; R.shadowMode = mode; Arena.build(ARENAS.warehouse); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Results panel (P30-14): the results screen opens scrolled to the top (the default button sits low and scrolled the title away), another screen or a kept focus is left alone', () => {
+      const bad = [], keep = { dom: UI.dom, current: UI.current, results: UI.screen_results, pause: UI.screen_pause };
+      const boxes = [{ scrollTop: 120 }, { scrollTop: 80 }];
+      const room = { innerHTML: '', querySelector: () => null, querySelectorAll: (selector) => (selector === '[data-nav]' ? [] : boxes) };
+      try {
+        UI.dom = Object.assign({}, keep.dom, { screens: room }); UI.screen_results = () => ''; UI.screen_pause = () => '';
+        UI.current = 'pause'; UI.rerender(false);
+        if (boxes[0].scrollTop !== 120) bad.push('another screen was scrolled');
+        UI.current = 'results'; UI.rerender(true);
+        if (boxes[0].scrollTop !== 120) bad.push('a kept focus was scrolled');
+        UI.rerender(false);
+        if (boxes[0].scrollTop !== 0 || boxes[1].scrollTop !== 0) bad.push('results not at the top: ' + boxes.map((b) => b.scrollTop));
+      } finally { UI.dom = keep.dom; UI.current = keep.current; UI.screen_results = keep.results; UI.screen_pause = keep.pause; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Portrait HUD (P30-13): the CPU side label carries the class a portrait window hides, the other labels stay, a name over 9 letters shrinks; a browser also has the portrait rules', () => {
+      const bad = [];
+      if (UI.sideTag('CPU') !== '<b class="cpu">CPU</b> ' || UI.sideTag('P2') !== '<b>P2</b> ' || UI.sideTag('DUMMY') !== '<b>DUMMY</b> ' || HUD_NAME_LONG !== 9) bad.push('side tags ' + UI.sideTag('CPU') + UI.sideTag('P2'));
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (sheets && sheets.length) {   // a headless run has no stylesheet; a browser run reads the portrait media rules
+        const text = [];
+        for (const sheet of Array.from(sheets)) { try { for (const rule of Array.from(sheet.cssRules)) if (rule.media && /orientation:\s*portrait/.test(rule.media.mediaText)) text.push(Array.from(rule.cssRules).map((r) => r.cssText).join(' ')); } catch (error) { /* a sheet from another origin */ } }
+        if (!/\.hname \.cpu\s*\{\s*display:\s*none/.test(text.join(' ')) || !/\.hname\.long/.test(text.join(' '))) bad.push('the portrait rules are missing');
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Menu showcase (P30-16): the pair is aimed at the free strip beside the menu panel (nothing when the panel is centred or absent) and sits 15 % closer on a phone', () => withCamera(() => {
+      const bad = [], keep = { dom: UI.dom, focus: Showcase.menuFocus, t: Showcase.t }, w = window.innerWidth;
+      const panel = (left, right) => ({ screens: { querySelector: () => ({ getBoundingClientRect: () => ({ left: left * w, right: right * w }) }) } });
+      const focusFor = (dom) => { UI.dom = dom; UI.measureMenuFocus(); return Showcase.menuFocus; };
+      try {
+        const lefty = focusFor(panel(0.02, 0.74)), righty = focusFor(panel(0.26, 0.98)), centred = focusFor(panel(0.1, 0.9)), none = focusFor({ screens: { querySelector: () => null } });
+        if (Math.abs(lefty - 0.74) > 1e-6 || Math.abs(righty + 0.74) > 1e-6 || centred !== 0 || none !== 0) bad.push('focus ' + [lefty, righty, centred, none]);
+        const where = (focus) => { Showcase.menuFocus = focus; Showcase.t = 3; for (let i = 0; i < 400; i++) Showcase.pairCamera(1 / 60); Camera.apply(); const out = [0, 0]; return R.project(-1.5, 1, 0, out) ? out[0] / R.cssW : NaN; };   // where the left fighter's chest is across the window
+        const free = where(0.74), other = where(-0.74), phone = Math.min(R.cssW, R.cssH) < MENU_PHONE_PX, dist = 7 * (phone ? 1 - MENU_PHONE_CLOSER : 1);
+        if (!(free > 0.76 && free < 0.98) || !(other > 0.02 && other < 0.24)) bad.push('the fighter is at ' + free.toFixed(2) + ' (panel on the left) and ' + other.toFixed(2) + ' (panel on the right) of the width');
+        if (Math.abs(Camera.dist - dist) > 0.01) bad.push('distance ' + Camera.dist.toFixed(2) + ', wanted ' + dist);
+      } finally { UI.dom = keep.dom; Showcase.menuFocus = keep.focus; Showcase.t = keep.t; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Quality presets (P30-04, P30-05): low keeps 0.6 of the window (the P0-04 run dropped the 0.7), no detail pass and 1 dressing tier; medium has the detail pass and 2 tiers; high also the soft shadow and 3 tiers', () => {
+      const p = QUALITY_PRESETS, bad = [];
+      if (p.low.scale !== 0.6 || p.medium.scale !== 0.85 || p.high.scale !== 1) bad.push('scales ' + [p.low.scale, p.medium.scale, p.high.scale]);
+      if (p.low.detail !== 0 || p.medium.detail !== 1 || p.high.detail !== 2 || [p.low.dress, p.medium.dress, p.high.dress].join() !== '1,2,3') bad.push('detail or dressing tiers');
+      return bad.length ? bad.join('; ') : true;
     });
     /* ---------- the two P9 review lows ---------- */
     test('Hazards (P9 lows): a bottle\'s glass is drawn on the surface it landed on and cuts only a fighter standing at that height; a broken deck\'s dust lies on the deck\'s own landing surface', () => {
