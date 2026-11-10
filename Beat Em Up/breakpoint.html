@@ -18332,7 +18332,7 @@ const OnlineUI = {
   },
   // Host: every open guest link as { seat, link, roundTrip } (seat = the seat of its code, 2 to 4), owned by the caller from now on; the links that are not open are closed. null when none is open.
   releaseGuests() {
-    const open = this.guests.filter((guest) => guest.link && guest.link.state === 'open'), rest = this.guests.filter((guest) => !open.includes(guest));
+    const open = this.guests.filter((guest) => this.isOpen(guest)), rest = this.guests.filter((guest) => !open.includes(guest));
     if (!open.length) return null;
     this.stopScan();
     this.forget();
@@ -18447,7 +18447,7 @@ const OnlineUI = {
       this.forgetLobby();
     } else if (this.role === 'host' && (state === 'closed' || state === 'failed')) {
       const slot = this.guestOf(link);
-      if (slot && slot.openedAt !== undefined && link.error) UI.toast('Player ' + slot.seat + ' left.', 'warn'); // a connected guest that went away (a guest that was removed or never connected has no error)
+      if (slot && slot.openedAt !== undefined && link.error && !slot.removed) UI.toast('Player ' + slot.seat + ' left.', 'warn'); // a connected guest that went away (a guest that was removed or never connected has no error)
       this.pushLobby();
     }
     this.redraw();
@@ -18524,11 +18524,12 @@ const OnlineUI = {
     const seats = this.hostRows().map(({ seat, fighter, ready, rt }) => ({ seat, fighter, ready, rt })), mode = this.modeNow(open.length + 1), text = mode === 'free' ? OnlinePlay.lineupText() : '';
     for (const guest of open) guest.link.send(JSON.stringify({ t: ONLINE_LOBBY, you: guest.seat - 1, mode, arena: this.arena, text, rev: this.rev, seats }));
   },
-  // The lineup, level and rules as one text: when it changes the guests' Ready is withdrawn (they agreed to something else)
+  // The mode, lineup, level and rules as one text: when it changes the guests' Ready is withdrawn (they agreed to something else)
   lineupSignature() {
-    if (this.modeNow(this.openCount() + 1) !== 'free') return '';
+    const mode = this.modeNow(Math.max(2, this.openCount() + 1)); // (a lobby with nobody yet reads as the first friend's 1 vs 1, so the first friend changes nothing) the mode follows the number of players until it is picked: a friend who joins or leaves changes it like a press on the Mode row
+    if (mode !== 'free') return mode;
     const lineup = Game.lineupFor(), sel = Game.selection;
-    return JSON.stringify([lineup.slots, lineup.crowd, lineup.deal, lineup.handicap, lineup.timer, lineup.friendlyFire, sel.rules, sel.rounds, sel.timer, sel.difficulty, this.arena]);
+    return JSON.stringify([mode, lineup.slots, lineup.crowd, lineup.deal, lineup.handicap, lineup.timer, lineup.friendlyFire, sel.rules, sel.rounds, sel.timer, sel.difficulty, this.arena]);
   },
   syncLineup() {
     const signature = this.lineupSignature();

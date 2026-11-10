@@ -18723,10 +18723,10 @@ const SelfTest = {
         // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
         OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-two')];
         if (!/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Start must wait for a connected friend');
-        OnlineUI.guests = [slot(2, 'open')];
+        OnlineUI.guests = [slot(2, 'open')]; OnlineUI.lineupSig = OnlineUI.lineupSignature();
         screen = UI.screen_onlinehost();
         if (/data-act="onstart" disabled/.test(screen) || !/data-local="olb:mode"[^>]*><span class="k">Mode<\/span><span class="v">1 vs 1</.test(screen) || OnlineUI.startProblem() !== '') bad.push('two players: 1 vs 1 can start');
-        OnlineUI.guests = [slot(2, 'open'), slot(3, 'open')];
+        OnlineUI.guests = [slot(2, 'open'), slot(3, 'open')]; OnlineUI.lineupSig = OnlineUI.lineupSignature();
         if (!/olb:mode"[^>]*><span class="k">Mode<\/span><span class="v">Brawl</.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== '') bad.push('three players: Brawl');
         OnlineUI.mode = 'fight';
         if (OnlineUI.startProblem() !== ONLINE_MESSAGES.fightTwo || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(ONLINE_MESSAGES.fightTwo)) bad.push('a 1 vs 1 with three players must say why it cannot start');
@@ -19433,6 +19433,7 @@ const SelfTest = {
         Object.assign(OnlineUI, { role: 'host', link: null, note: '', mode: '', arena: ONLINE_ARENA_DEFAULT, hostFighter: 'kai', mine: { fighter: '', ready: false }, view: null, first: false, lineupSig: '', unlisten: [],
           guests: pairs.map(([hostSide], k) => Object.assign({ seat: codeSeats[k], link: hostSide, offerCode: 'BPO-x', answerText: '', note: '', roundTrip: -1, openedAt: performance.now() - 5000, engine: onlineEngine(), fighter: undefined, ready: false, samples: [], reverse: false }, fields)) });
         for (const [hostSide] of pairs) OnlineUI.listen(hostSide);
+        OnlineUI.lineupSig = OnlineUI.lineupSignature(); // the settings as they are now: only a change after this withdraws Ready
         return { pairs, heard };
       };
       const restore = () => { OnlineUI.stopLoop(); Object.assign(OnlineUI, snapshot); UI.toast = keep.toast; UI.rerender = keep.rerender; UI.current = keep.current; };
@@ -20184,6 +20185,68 @@ const SelfTest = {
         }
       } finally { lobby.restore(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- the re-review of P12-06 ---------- */
+    test('Online lobby (P12-06 re-review): a guest removed a moment before Start is not handed to the match (its link is closed with the others that are not open) and the match starts with the guest that is left', () => {
+      const kit = reviewKit(), lobby = lobbyKit(), bad = [];
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        Object.assign(a, { fighter: 'mara', ready: true, samples: [20, 20, 20] }); Object.assign(b, { fighter: 'brutus', ready: true, samples: [20, 20, 20] });
+        OnlineUI.act('onkick', '2');
+        if (pairs[0][0].state !== 'open' || OnlineUI.isOpen(a)) bad.push('the removed guest must still have an open link and not count as open');
+        b.ready = true;
+        UI.current = null; OnlineUI.startGame();
+        if (!Game.net || OnlinePlay.links.size !== 1 || !OnlinePlay.links.has(2) || pairs[0][0].state !== 'closed' || pairs[1][0].state !== 'open') bad.push('Start with a guest removed a moment ago: links ' + OnlinePlay.links.size + ', removed ' + pairs[0][0].state + ', kept ' + pairs[1][0].state + ' ' + lobby.toasts.slice(-1));
+        if (kit.starts(heard)[1].length !== 1 || kit.starts(heard)[0].length) bad.push('the start went to the removed guest or not to the other');
+      } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 re-review): the host says "Player N left." for a guest that went away, not for one it removed', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs } = lobby.host([2, 3]);
+        const [a] = OnlineUI.guests;
+        OnlineUI.act('onkick', '2');
+        pairs[0][0].state = 'failed'; pairs[0][0].error = { code: 'lost', message: ONLINE_MESSAGES.lost };
+        OnlineUI.onState(pairs[0][0], 'failed');
+        if (lobby.toasts.length || !a.removed) bad.push('a removed guest\'s link failed and the host said ' + JSON.stringify(lobby.toasts));
+        pairs[1][0].state = 'failed'; pairs[1][0].error = { code: 'lost', message: ONLINE_MESSAGES.lost };
+        OnlineUI.onState(pairs[1][0], 'failed');
+        if (lobby.toasts.join() !== 'Player 3 left.') bad.push('a guest that went away: ' + JSON.stringify(lobby.toasts));
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 re-review): a mode that follows the number of players counts as a change of the settings - a third player turns 1 vs 1 into Brawl, raises the revision and withdraws every Ready, and a mode that was picked does not change with the players', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        lobby.host([2]);
+        const [a] = OnlineUI.guests;
+        OnlineUI.lineupSig = OnlineUI.lineupSignature();
+        const third = () => { const [hostSide] = makeStandInLinks(); hostSide.seat = 3; return { seat: 3, link: hostSide, offerCode: '', answerText: '', note: '', roundTrip: -1, openedAt: performance.now() - 5000, engine: onlineEngine(), fighter: undefined, ready: false, samples: [], reverse: false }; };
+        a.ready = true;
+        const rev0 = OnlineUI.rev;
+        OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev0 || !a.ready || OnlineUI.modeNow(2) !== 'fight') bad.push('nothing changed yet: ' + OnlineUI.rev + ' ' + a.ready);
+        OnlineUI.guests.push(third());
+        UI.screen_onlinehost(); // drawing the screen notices it, as the ping timer does
+        if (OnlineUI.modeNow(3) !== 'brawl' || OnlineUI.rev <= rev0 || a.ready) bad.push('a third player did not count as a change: rev ' + rev0 + ' > ' + OnlineUI.rev + ', Ready ' + a.ready);
+        const rev1 = OnlineUI.rev;
+        UI.screen_onlinehost(); OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev1) bad.push('the same settings raised the revision again');
+        a.ready = true;
+        OnlineUI.guests.pop();
+        OnlineUI.tick();
+        if (OnlineUI.rev <= rev1 || a.ready) bad.push('a player that left did not count: ' + OnlineUI.rev);
+        // a mode that was picked stays: another player changes nothing
+        OnlineUI.mode = 'tournament'; OnlineUI.syncLineup();
+        const rev2 = OnlineUI.rev;
+        a.ready = true;
+        OnlineUI.guests.push(third());
+        OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev2 || !a.ready) bad.push('a picked mode changed with the number of players');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
