@@ -18817,7 +18817,7 @@ const OnlineUI = {
       onnew: () => { const slot = this.slotOf(arg); this.addGuest(Number(arg), !!(slot && slot.reverse)); },
       onmode: () => this.cycleMode(1),
       onarena: () => this.cycleArena(1),
-      onlineup: () => UI.push('lineup'),
+      onlineup: () => { Game.selection.mode = 'free'; UI.push('lineup'); }, // the lobby edits the Free Fight lineup in the menu state (changing the game state would send the screens to Free Fight and drop the lobby); selection.mode: Back from the fighter cards reads it, and a Tournament left in it would go to the join screen
       onstart: () => this.startGame(),
     };
     const fn = handlers[name];

@@ -13578,6 +13578,8 @@ const SelfTest = {
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
     const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator', 'online', 'onlinehost', 'onlinejoin', 'onlineqr'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    /* The one MENU state with Free Fight screens on show (P12-06): the online lobby's Lineup button opens Players and teams and its fighter cards under the lobby, in the menu state (a change to the fighter-select state would send the screens to Free Fight and drop the lobby). Legal only with an Online screen under them on the screen stack. */
+    const lobbyLineupLegal = (state, screen) => state === GS.MENU && (screen === 'lineup' || screen === 'char') && UI.stack.some((name) => String(name).startsWith('online'));
     const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
       const customs = keepCustoms();
       try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
@@ -13613,7 +13615,7 @@ const SelfTest = {
         if (flow.problems.length) return flow.problems[0];
         if (inFight() && (!Game.match || (screen !== null && screen !== 'scene'))) return state + ' with the ' + screen + ' screen and ' + (Game.match ? 'a' : 'no') + ' match';
         if (state === GS.MENU && Game.match) return 'a match in the main menu state';
-        if (FLOW_SCREENS[state] && !FLOW_SCREENS[state].includes(screen)) return state + ' with the ' + screen + ' screen';
+        if (FLOW_SCREENS[state] && !FLOW_SCREENS[state].includes(screen) && !lobbyLineupLegal(state, screen)) return state + ' with the ' + screen + ' screen';
         if (state === GS.PAUSED && !Game.match) return 'paused without a match';
         if (screen === 'coop' && !(Inputs.coop && Inputs.lobby)) return 'the join screen with co-op input ' + Inputs.coop + ' and the lobby ' + Inputs.lobby;
         if (screen !== 'coop' && Inputs.lobby) return 'the lobby is open on the ' + screen + ' screen';
@@ -20248,6 +20250,35 @@ const SelfTest = {
       } finally { lobby.restore(); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    test('Mode flows (P12-06 re-review): the Lineup button of the online lobby opens Players and teams and the fighter cards in the menu state, on top of the lobby (the one MENU state with these screens that the random walks allow), Back from the cards goes to the lineup and Back from the lineup to the lobby with its guests, and nothing in a Tournament left in the selection can send it to the join screen', () => withFlow([], (flow) => {
+      const keep = { supported: Online.supported, create: Online.createLink }, bad = [];
+      const keepMode = Game.selection.mode;
+      Game.selection.mode = 'tournament'; // left there by an earlier visit: the cards' Back must not read it
+      Online.supported = () => true;
+      Online.createLink = () => ({ state: 'idle', error: null, seat: 0, onState: () => () => {}, onMessage: () => () => {}, makeOffer: () => new Promise(() => {}), close() {} }); // a link that never connects: no network in a test
+      const agree = (label) => { if (!FLOW_SCREENS[Game.state] || !(FLOW_SCREENS[Game.state].includes(UI.current) || lobbyLineupLegal(Game.state, UI.current))) bad.push(label + ': ' + Game.state + ' with the ' + UI.current + ' screen'); };
+      try {
+        flow.press('online'); flow.press('onhost');
+        agree('the host screen');
+        UI.changeLocal('olb:mode', 1); UI.changeLocal('olb:mode', 1);
+        if (OnlineUI.modeNow(1) !== 'free' || !flow.acts().includes('onlineup')) return 'the Free Fight mode did not offer the Lineup button: ' + OnlineUI.modeNow(1);
+        flow.press('onlineup');
+        agree('the lineup');
+        if (UI.current !== 'lineup' || Game.state !== GS.MENU) bad.push('the lineup opened as ' + Game.state + '/' + UI.current);
+        UI.changeLocal('lfig:0', 1, true);
+        agree('the fighter cards');
+        if (UI.current !== 'char') bad.push('a fighter cell did not open the cards: ' + UI.current);
+        flow.escape();
+        agree('back from the cards');
+        if (UI.current !== 'lineup') bad.push('Back from the cards went to ' + UI.current);
+        flow.escape();
+        agree('back from the lineup');
+        if (UI.current !== 'onlinehost' || Game.state !== GS.MENU || OnlineUI.role !== 'host' || !OnlineUI.loop) bad.push('Back from the lineup: ' + Game.state + '/' + UI.current + ', the lobby is ' + (OnlineUI.role || 'gone'));
+        flow.backOut();
+        if (Game.state !== GS.MENU) bad.push('after leaving the lobby the game is ' + Game.state);
+      } finally { Online.supported = keep.supported; Online.createLink = keep.create; Game.selection.mode = keepMode; OnlineUI.reset(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }), 10000); // deferred: opening the lobby resets OnlineUI, which closes the link an earlier async test still holds
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
