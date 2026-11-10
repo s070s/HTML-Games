@@ -11,7 +11,7 @@ const {
   DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
-  BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
+  uiScaleFor, softKeyboard, keyboardFullHeight, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
   COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2, DEFAULT_UNLOCKED,
@@ -251,7 +251,7 @@ const SelfTest = {
     const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
     const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn, limitMs) => {   // limitMs (only async tests that render audio offline): defer the test and give it that long
+    const test = (name, fn, limitMs) => {   // limitMs (the async tests that render audio offline, and the layout tests with their many frames): defer the test, run it after every other test, and give it that long
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
@@ -2951,7 +2951,7 @@ const SelfTest = {
         const member = (slot) => ({ slot, name: 'P' + slot, alive: true, hp: 1, maxHp: 100, stats });
         Game.resultsData = { mode: 'coop', playerWon: true, enemies: 2, enemiesDown: 2, seconds: 30, friendlyFire: false, buttons: ['menu'], players: [member(0), member(1)], grades: [grade, fightGrade({ won: true, seconds: 400, par: 20, taken: 100, takenMax: 100, distinct: 0 })] };
         html = UI.screen_results();
-        if (!html.includes('<td>Grade</td><td>S</td><td>D</td>')) problems.push('co-op column ' + html.slice(html.indexOf('Grade') - 10, html.indexOf('Grade') + 40));
+        if (!html.replace(/ data-l="[^"]*"/g, '').includes('<td>Grade</td><td>S</td><td>D</td>')) problems.push('co-op column ' + html.slice(html.indexOf('Grade') - 10, html.indexOf('Grade') + 40));
       } finally { Game.resultsData = keepData; restoreProgress(saved); }
       return problems.length ? problems.slice(0, 4).join('; ') : true;
     });
@@ -18596,6 +18596,340 @@ const SelfTest = {
       for (let i = 0; i < 30; i++) stepPeer(host);
       if (host.session.ended || host.drops.length !== 1 || game.peers[2].drops.length !== before) problems.push('a seat that left after the match end was still handled as a drop');
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ---------- Layout (P18-69 rules, built by P18-70) ---------- */
+    /* One set of layout rules for every menu screen (Appendix C, "P18-69 mobile-first menu layout, decided"), held by frames of the phone and desktop sizes in the P18-19 way: a frame of the given size with the game's
+       styles and the screen's html in #app. Rules held: no sideways scroll except the tournament bracket (it is a picture), every control reachable (scrolled into view, the point at its centre hits it), at least 44 x 44,
+       no two controls on top of each other, no text under 12 px. A headless run has no frames and no layout, and says so. */
+    const LAYOUT_SIZES = [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]];
+    const LAYOUT_TARGET_PX = 44, LAYOUT_TEXT_PX = 12;
+    const LAYOUT_LIMIT_MS = 30000;
+    const layoutTest = (name, fn) => test(name, fn, LAYOUT_LIMIT_MS);   // deferred (like the sound renders): they run last, after the async tests, so their many frames cannot take the time those tests wait on (a synchronous test registered before an async one delays it)
+    const layoutShown = () => (window.__layoutShowAll ? 400 : 5);   // how many problems a result names (a debugging run names them all)
+    const layoutLabel = (el) => ((el.getAttribute('aria-label') || el.getAttribute('data-act') || el.getAttribute('data-set') || el.id || el.textContent || el.tagName).replace(/\s+/g, ' ').trim()).slice(0, 26);
+    const layoutStyles = () => [...document.querySelectorAll('style')].map((st) => st.textContent).join('\n');
+    /* Runs body(doc, win) in a frame of width x height that holds the styles and `html` inside #app (scale = the --ui of Settings). */
+    const inLayoutFrame = (width, height, html, body, scale) => {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:fixed;left:0;top:0;border:0;opacity:0;pointer-events:none;width:' + width + 'px;height:' + height + 'px';
+      document.body.appendChild(frame);
+      try {
+        const doc = frame.contentDocument;
+        doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + layoutStyles() + '</style><div id="app"' + (scale ? ' style="--ui:' + scale + '"' : '') + '><div id="screens">' + html + '</div></div>'); doc.close();
+        return body(doc, frame.contentWindow);
+      } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+    };
+    /* What is wrong with the screen in the frame: an array of short texts. sidewaysOnly = only the sideways scroll (UI scale 1.5, where the list is too short for the rest to mean much). */
+    const layoutProblems = (doc, win, width, height, sidewaysOnly) => {
+      const bad = [], css = (el) => win.getComputedStyle(el);
+      const shown = (el) => {
+        const box = el.getBoundingClientRect();
+        if (box.width < 1 || box.height < 1) return false;
+        for (let up = el; up && up.nodeType === 1; up = up.parentElement) { const style = css(up); if (style.display === 'none' || style.visibility === 'hidden' || up.hasAttribute('hidden')) return false; }
+        return true;
+      };
+      if (doc.documentElement.scrollWidth > width + 1) bad.push('the page scrolls sideways (' + doc.documentElement.scrollWidth + ' in ' + width + ')');
+      for (const el of doc.querySelectorAll('#screens, #screens *')) {
+        if (el.closest('.bracket') || !/(auto|scroll)/.test(css(el).overflowX) || !shown(el)) continue;   // the bracket box is the one sideways scroller: it is a picture, and its sub line says so
+        if (el.scrollWidth > el.clientWidth + 1) bad.push(layoutLabel(el) + ' scrolls sideways (' + el.scrollWidth + ' in ' + el.clientWidth + ')');
+      }
+      if (sidewaysOnly) return bad;
+      const controls = [...doc.querySelectorAll('#screens button, #screens [data-nav], #screens input, #screens textarea')].filter((el) => shown(el) && !el.closest('.dim') && !el.classList.contains('sr-only') && !(el.tagName === 'INPUT' && el.type === 'file'));
+      const small = new Set();
+      for (const el of controls) {
+        const box = el.getBoundingClientRect(), size = Math.round(box.width) + ' x ' + Math.round(box.height);
+        if (box.width < LAYOUT_TARGET_PX - 0.5 || box.height < LAYOUT_TARGET_PX - 0.5) small.add(layoutLabel(el) + ' is ' + size);
+      }
+      if (small.size) bad.push(small.size + ' control' + (small.size > 1 ? 's' : '') + ' under ' + LAYOUT_TARGET_PX + ' px: ' + [...small].slice(0, 3).join(', '));
+      const lost = [];
+      for (const el of controls) {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });   // what focus() does, scroll-padding included
+        const box = el.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+        if (x < 0 || y < 0 || x > width || y > height) { lost.push(layoutLabel(el) + ' (off the screen)'); continue; }
+        const hit = doc.elementFromPoint(x, y);
+        if (!hit || !el.contains(hit)) lost.push(layoutLabel(el) + ' (under ' + (hit ? hit.tagName.toLowerCase() + (hit.className ? '.' + String(hit.className).split(' ')[0] : '') : 'nothing') + ')');
+      }
+      if (lost.length) bad.push(lost.length + ' control' + (lost.length > 1 ? 's' : '') + ' cannot be reached: ' + lost.slice(0, 3).join(', '));
+      for (const el of doc.querySelectorAll('#screens, #screens *')) { el.scrollTop = 0; el.scrollLeft = 0; }
+      const clipped = (el) => {   // the part of the box that no scrolling or clipping parent cuts off
+        const own = el.getBoundingClientRect(), box = { left: own.left, top: own.top, right: own.right, bottom: own.bottom };
+        for (let up = el.parentElement; up && up !== doc.body; up = up.parentElement) {
+          const style = css(up);
+          if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+          const cut = up.getBoundingClientRect();
+          box.left = Math.max(box.left, cut.left); box.top = Math.max(box.top, cut.top); box.right = Math.min(box.right, cut.right); box.bottom = Math.min(box.bottom, cut.bottom);
+        }
+        return box;
+      };
+      const flat = controls.filter((el) => !el.closest('.sticky')).map((el) => [el, clipped(el)]), crossed = [];
+      for (let i = 0; i < flat.length; i++) for (let j = i + 1; j < flat.length; j++) {
+        const [one, a] = flat[i], [two, b] = flat[j];
+        if (one.contains(two) || two.contains(one)) continue;
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) crossed.push(layoutLabel(one) + ' / ' + layoutLabel(two));
+      }
+      if (crossed.length) bad.push(crossed.length + ' overlap' + (crossed.length > 1 ? 's' : '') + ': ' + crossed.slice(0, 3).join(', '));
+      const fonts = new Set();
+      for (const el of doc.querySelectorAll('#screens *')) {
+        if (![...el.childNodes].some((node) => node.nodeType === 3 && node.nodeValue.trim()) || !shown(el) || el.closest('.sr-only')) continue;
+        const size = parseFloat(css(el).fontSize);
+        if (size < LAYOUT_TEXT_PX - 0.05) fonts.add(el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.split(' ')[0] : '') + ' ' + size.toFixed(1));
+      }
+      if (fonts.size) bad.push('text under ' + LAYOUT_TEXT_PX + ' px: ' + [...fonts].slice(0, 4).join(', '));
+      return bad;
+    };
+    /* The screens of the matrix of P18-69 as [name, html] (a screen that cannot be built is named in the problems). `which` picks a group. */
+    const layoutPages = (which) => {
+      const pages = [], add = (name, build) => { try { pages.push([name, build()]); } catch (error) { pages.push([name, null, error.message]); } };
+      const keep = { slot: UI.pickSlot, data: Game.resultsData, match: Game.match, run: Game.run, seats: UI.pickSeats, at: UI.pickAt };
+      try {
+        withFree(() => {
+          Game.selection.player = 'kai';
+          if (which === 'main') {
+            add('main', () => UI.screen_main()); add('modes', () => UI.screen_modes());
+            for (const mode of ['arcade', 'survival', 'training', 'tournament']) add('fighters (' + mode + ')', () => { Game.selection.mode = mode; UI.pickSlot = -1; return UI.screen_char(); });
+            add('fighters (a Free Fight slot)', () => { Game.selection.mode = 'free'; UI.pickSlot = 0; return UI.screen_char(); });
+            add('Training setup', () => { Game.selection.mode = 'training'; return UI.screen_setup(); });
+            for (const mode of ['training', 'free']) add('level (' + mode + ')', () => { Game.selection.mode = mode; return UI.screen_arena(); });
+          } else if (which === 'free') {
+            Game.selection.mode = 'free'; UI.pickSlot = -1;
+            add('Free Fight', () => UI.screen_freefight()); add('Free Fight, More options', () => UI.screen_freemore());
+            for (const type of ['Versus', 'Co-op', 'Brawl']) add('Players and teams (' + type + ')', () => { Game.applyType(type); return UI.screen_lineup(); });
+            withTournament(() => {
+              add('Tournament join', () => UI.screen_coop());
+              for (const size of [8, 16]) add('Tournament bracket (' + size + ')', () => { Game.selection.tournamentSize = size; Game.startTournament(KAI_MARA, 21); return UI.screen_bracket(); });
+            });
+          } else if (which === 'info') {
+            add('Controls', () => UI.screen_controls());
+            add('Move list', () => UI.screen_moves(ROSTER_BY_ID.kai, 'keyboard')); add('Move list (touch)', () => UI.screen_moves(ROSTER_BY_ID.kai, 'touch'));
+            add('Settings', () => UI.screen_settings()); add('Unlocks', () => UI.screen_unlocks()); add('About and Help', () => UI.screen_credits());
+            add('Story', () => { UI.storyView = { profile: ROSTER_BY_ID.kai, choice: 'hand', flawless: false, continues: 0, clears: 0 }; return UI.screen_story(); });
+            add('Replace the saved game', () => { UI.replaceAsk = { text: 'Starting Arcade replaces the saved Arcade run.' }; return UI.screen_replace(); });
+            add('Online', () => UI.screen_online()); add('Online, host', () => UI.screen_onlinehost()); add('Online, join', () => UI.screen_onlinejoin()); add('Online, QR', () => UI.screen_onlineqr());
+          } else if (which === 'pause') {
+            const stats = { damage: 90, taken: 10, hits: 9, blocks: 2, perfect: 1, maxCombo: 3, throws: 1, objects: 2, kos: 1, landed: {} };
+            const member = (slot) => ({ slot, name: 'P' + slot + ' FIGHTER', alive: slot !== 2, hp: 1, maxHp: 100, stats });
+            Game.run = { mode: 'arcade' }; Game.match = null;
+            add('Pause (Arcade)', () => UI.screen_pause());
+            const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' });
+            Game.run = { mode: 'training' }; Game.match = training;
+            add('Pause (Training)', () => UI.screen_pause());
+            Game.match = null; Game.run = null;
+            const duel = { mode: 'free', gradeMode: 'free', playerWon: true, player: 'KAI', opponent: 'MARA', wins: [2, 0], seconds: 50, stats: [stats, stats], buttons: ['again', 'setup', 'menu'], grade: { letter: 'A', time: 80, damage: 90, variety: 70 } };
+            for (const [name, data] of [['Results (Arcade victory)', { mode: 'arcade', stage: 3, stages: 7, continues: 1, playerWon: true, player: 'KAI', opponent: 'MARA', wins: [2, 1], seconds: 61, stats: [stats, stats], buttons: ['next', 'menu'], grade: { letter: 'B', time: 60, damage: 70, variety: 50 }, newBest: true }],
+              ['Results (Arcade defeat)', { mode: 'arcade', stage: 3, stages: 7, continues: 1, playerWon: false, player: 'KAI', opponent: 'MARA', wins: [0, 2], seconds: 41, stats: [stats, stats], buttons: ['retry', 'skip', 'menu'] }],
+              ['Results (a duel)', duel],
+              ['Results (Co-op, four players)', { mode: 'coop', playerWon: true, enemies: 6, enemiesDown: 6, seconds: 70, friendlyFire: false, buttons: ['again', 'setup', 'menu'], players: [0, 1, 2, 3].map(member), grades: [0, 1, 2, 3].map(() => ({ letter: 'C' })) }],
+              ['Results (Versus)', { mode: 'versus', winner: 0, player: 'KAI', opponent: 'MARA', wins: [2, 1], seconds: 90, score: [1, 0], stats: [stats, stats], buttons: ['again', 'setup', 'menu'] }],
+              ['Results (a lineup of six)', { mode: 'lineup', draw: false, winner: 1, winnerName: 'TEAM 2', teamNames: ['TEAM 1', 'TEAM 2', 'TEAM 3'], seconds: 80, buttons: ['again', 'setup', 'menu'], lineup: [0, 1, 2, 3, 4, 5].map((n) => ({ tint: n, seat: n < 2 ? n : -1, name: 'FIGHTER ' + n, team: n % 3, alive: n % 2 === 0, stats })) }]]) add(name, () => { Game.resultsData = data; return UI.screen_results(); });
+          }
+        });
+      } finally { Game.resultsData = keep.data; Game.match = keep.match; Game.run = keep.run; UI.pickSlot = keep.slot; UI.pickSeats = keep.seats; UI.pickAt = keep.at; }
+      return pages;
+    };
+    /* Every page of a group at every size: what is wrong, as 'name at WxH: problem'. */
+    const layoutSweep = (which, sizes, scale, sidewaysOnly) => {
+      const bad = [];
+      for (const [name, html, error] of layoutPages(which)) {
+        if (html === null) { bad.push(name + ' could not be built: ' + error); continue; }
+        if (!html) { bad.push(name + ' is empty'); continue; }
+        for (const [width, height] of sizes) {
+          for (const problem of inLayoutFrame(width, height, html, (doc, win) => layoutProblems(doc, win, width, height, sidewaysOnly), scale)) bad.push(name + ' at ' + width + ' x ' + height + ': ' + problem);
+        }
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    };
+    for (const [which, text] of [['main', 'main menu, modes, the fighter screens of every mode, Training setup, the level screens'], ['free', 'Free Fight and its screens (More options, Players and teams for every type), the Tournament join screen and both brackets'],
+      ['info', 'Controls, Move list, Settings, Unlocks, About and Help, Story, Replace and the four Online screens'], ['pause', 'Pause (Arcade, Training) and every kind of results']]) {
+      layoutTest('Layout (P18-69): ' + text + ' at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640 - no sideways scroll (the bracket box excepted), every control reachable, at least 44 x 44, no two on top of each other, no text under 12 px', () => {
+        if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+        return layoutSweep(which, LAYOUT_SIZES);
+      });
+    }
+    layoutTest('Layout (P18-69): the action buttons of every results screen (Retry, Next stage, Rematch, Change fighters, Main menu) are on the screen without a scroll at 844 x 390 and 667 x 375 - the sticky row of every other screen with buttons', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [];
+      for (const [name, html] of layoutPages('pause').filter(([title]) => /^Results/.test(title))) for (const [width, height] of [[844, 390], [667, 375]]) {
+        inLayoutFrame(width, height, html, (doc) => {
+          const view = doc.querySelector('.panel').getBoundingClientRect();
+          for (const button of doc.querySelectorAll('[data-act^="res:"]')) { const r = button.getBoundingClientRect(); if (r.top < view.top - 1 || r.bottom > Math.min(view.bottom, height) + 1) bad.push(name + ' at ' + width + ' x ' + height + ': ' + layoutLabel(button) + ' is not on the screen without a scroll'); }
+        });
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* The creator: every tab and both questions at every size, then the list of options and the rows of tabs and buttons. */
+    const creatorPages = () => {
+      const keep = { draft: CreatorUI.draft, slot: CreatorUI.slot, tab: CreatorUI.tab, confirm: CreatorUI.confirm, crop: CreatorUI.crop }, pages = [];
+      try {
+        CreatorUI.draft = defaultCustom(0); CreatorUI.slot = 0; CreatorUI.confirm = null; CreatorUI.crop = null;
+        for (const [tab, name] of [['body', 'Body'], ['head', 'Head'], ['outfit', 'Outfit'], ['style', 'Style'], ['identity', 'Identity'], ['library', 'Slots']]) { CreatorUI.tab = tab; pages.push([name, CreatorUI.render()]); }
+        CreatorUI.tab = 'body'; CreatorUI.confirm = { text: 'Leave without saving? Your changes to this fighter will be lost.', buttons: [{ label: 'Keep editing' }, { label: 'Leave' }] };
+        pages.push(['discard question', CreatorUI.render()]);
+        CreatorUI.confirm = null; CreatorUI.crop = { img: null, w: 300, h: 300, x: 0.5, y: 0.5, z: 1 };
+        pages.push(['photo crop', CreatorUI.render()]);
+      } finally { Object.assign(CreatorUI, keep); }
+      return pages;
+    };
+    const CREATOR_SIZES = LAYOUT_SIZES.concat([[844, 340], [640, 360]]);
+    const CREATOR_LIST_PX = { '390x844': 300, '844x390': 190, '360x640': 190, '844x340': 150, '667x375': 150, '640x360': 150, '768x1024': 300, '1280x720': 300 };   // the least the list of options may be
+    layoutTest('Layout (P18-69): the character creator - every tab, the discard question and the photo crop at the six sizes and at 844 x 340 and 640 x 360 (a phone with a browser bar): no sideways scroll, every control reachable, at least 44 x 44, no two on top of each other', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [];
+      for (const [name, html] of creatorPages()) for (const [width, height] of CREATOR_SIZES) {
+        for (const problem of inLayoutFrame(width, height, html, (doc, win) => layoutProblems(doc, win, width, height))) bad.push(name + ' at ' + width + ' x ' + height + ': ' + problem);
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    layoutTest('Layout (P18-69): the character creator keeps a list of options (300 px at 390 x 844 and up, 190 at 844 x 390 and 360 x 640, 150 at 844 x 340, 667 x 375 and 640 x 360), the tab row and the button row never scroll sideways, all six tabs and all six buttons are inside the panel, and the panel is not 60 % of the height of a landscape phone', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], pages = creatorPages(), body = pages[0][1];
+      for (const [width, height] of CREATOR_SIZES) {
+        inLayoutFrame(width, height, body, (doc) => {
+          const where = width + ' x ' + height + ': ', panel = doc.querySelector('.panel.cr'), list = doc.querySelector('.cr-body'), box = panel.getBoundingClientRect(), need = CREATOR_LIST_PX[width + 'x' + height];
+          if (list.getBoundingClientRect().height < need - 0.5) bad.push(where + 'the list of options is ' + Math.round(list.getBoundingClientRect().height) + ' px high, under ' + need);
+          for (const row of ['.tabs', '.cr-foot']) { const bar = doc.querySelector(row); if (bar.scrollWidth > bar.clientWidth + 1) bad.push(where + row + ' scrolls sideways (' + bar.scrollWidth + ' in ' + bar.clientWidth + ')'); }
+          const parts = [...doc.querySelectorAll('.tab, .cr-foot button')];
+          if (parts.length !== 12) bad.push(where + parts.length + ' tabs and buttons, not 12');
+          for (const el of parts) { const r = el.getBoundingClientRect(); if (r.left < box.left - 1 || r.right > box.right + 1 || r.top < box.top - 1 || r.bottom > box.bottom + 1) bad.push(where + layoutLabel(el) + ' is outside the panel'); }
+          if (width > height && width < 900 && Math.abs(box.height / height - 0.6) < 0.02) bad.push(where + 'the panel is 60 % of the height (' + Math.round(box.height) + ' px)');
+          const pad = doc.querySelector('.fitpad');
+          if (pad && pad.getBoundingClientRect().height > Math.min(144, height * 0.3) + 1) bad.push(where + 'the fitness pad is ' + Math.round(pad.getBoundingClientRect().height) + ' px high, more than 30 % of the screen');
+        });
+      }
+      const crop = pages[pages.length - 1][1];
+      for (const [width, height] of [[844, 390], [667, 375], [844, 340], [640, 360]]) {
+        inLayoutFrame(width, height, crop, (doc) => {
+          const view = doc.querySelector('.panel.cr').getBoundingClientRect(), square = doc.querySelector('.cropbox').getBoundingClientRect(), use = doc.querySelector('[data-act="crcrop"]').getBoundingClientRect(), where = width + ' x ' + height + ': the photo crop ';
+          for (const [name, r] of [['square', square], ['Use photo button', use]]) if (r.top < view.top - 1 || r.bottom > view.bottom + 1) bad.push(where + name + ' is not on the screen without a scroll');
+          if (square.width < 120) bad.push(where + 'square is ' + Math.round(square.width) + ' px wide, under 120');
+        });
+      }
+      return bad.length ? bad.slice(0, layoutShown()).join('; ') + (bad.length > layoutShown() ? ' (+' + (bad.length - layoutShown()) + ')' : '') : true;
+    });
+    /* Typing mode: while a creator text field has the focus and the soft keyboard is up (#app.kb, set by the page from the visual viewport) the tabs and the buttons make room, and they come back when the keyboard goes (Back on Android closes it and leaves the field in focus) or the focus leaves. The frame has no keyboard: the class stands for it. */
+    layoutTest('Layout (P18-69): the creator with the soft keyboard (#app.kb: 844 x 390 and 390 x 844 with the page as high as before, 844 x 190 and 390 x 464 where the page shrinks) and the name field in focus - the field is fully on the screen, the list is at least 48 px high, the tabs and buttons are back when the keyboard goes while the field keeps the focus; the keyboard test reads the visible height', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], identity = creatorPages()[4][1];
+      if (!softKeyboard(464, 844, 844) || softKeyboard(840, 844, 844) || !softKeyboard(190, 190, 390) || softKeyboard(390, 390, 390) || !softKeyboard(500, 390, 844)) bad.push('softKeyboard says ' + [softKeyboard(464, 844, 844), softKeyboard(840, 844, 844), softKeyboard(190, 190, 390), softKeyboard(390, 390, 390), softKeyboard(500, 390, 844)]);
+      const turned = keyboardFullHeight(844, 390, 844, 390, true);   // the phone turned from portrait (390 x 844) to landscape (844 x 390) with the name field in focus, no keyboard
+      if (turned !== 390 || softKeyboard(390, 390, turned) || !softKeyboard(390, 390, 844) || keyboardFullHeight(844, 390, 390, 844, true) !== 844 || keyboardFullHeight(844, 390, 390, 464, true) !== 844 || keyboardFullHeight(844, 390, 390, 844, false) !== 844 || keyboardFullHeight(390, 844, 844, 190, false) !== 190) bad.push('keyboardFullHeight after a turn: ' + [turned, keyboardFullHeight(844, 390, 390, 844, true), keyboardFullHeight(844, 390, 390, 464, true), keyboardFullHeight(844, 390, 390, 844, false), keyboardFullHeight(390, 844, 844, 190, false)]);
+      for (const [width, height] of [[844, 390], [390, 844], [844, 190], [390, 464]]) {
+        inLayoutFrame(width, height, identity, (doc, win) => {
+          const where = width + ' x ' + height + ': ', app = doc.getElementById('app'), field = doc.getElementById('crName'), list = doc.querySelector('.cr-body'), tabs = doc.querySelector('.tabs'), foot = doc.querySelector('.cr-foot');
+          if (!field) { bad.push(where + 'no name field'); return; }
+          const rows = () => [tabs.getBoundingClientRect().height, foot.getBoundingClientRect().height];
+          win.focus(); field.focus();
+          if (doc.activeElement !== field) bad.push(where + 'the name field did not take the focus');
+          if (rows().some((h) => h < 40)) bad.push(where + 'the tabs and buttons collapsed with no keyboard (' + rows().map(Math.round) + ')');
+          app.classList.add('kb');
+          field.scrollIntoView({ block: 'center' });
+          const box = field.getBoundingClientRect(), listBox = list.getBoundingClientRect();
+          if (box.top < -1 || box.bottom > height + 1 || box.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the name field is not fully on the screen (' + Math.round(box.top) + ' to ' + Math.round(box.bottom) + ')');
+          if (listBox.height < 48) bad.push(where + 'the list is ' + Math.round(listBox.height) + ' px high with the keyboard open');
+          if (rows().some((h) => h > 1)) bad.push(where + 'the tabs and buttons did not make room (' + rows().map(Math.round) + ' px)');
+          app.classList.remove('kb');
+          if (doc.activeElement !== field || rows().some((h) => h < 40)) bad.push(where + 'the tabs and buttons did not come back when the keyboard went (' + rows().map(Math.round) + ' px)');
+        });
+      }
+      return bad.length ? bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* Focus: a screen opens at the top of its panel; one whose default is a remembered pick (the fighter cards) scrolls to the pick. The real UI.rerender runs, on the screens of a frame. */
+    layoutTest('Layout (P18-69): a screen opens at the top of its panel and the focused item is in view - About and Help, the Move list, the Tournament join screen and the Online screens at 390 x 844 and 844 x 390 - while the fighter cards still scroll to the picked fighter', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], keep = { screens: UI.dom.screens, current: UI.current, focused: document.activeElement, selection: Object.assign({}, Game.selection) };
+      const last = ROSTER[ROSTER.length - 1].id;
+      try {
+        withFree(() => {
+          for (const [width, height] of [[390, 844], [844, 390]]) for (const screen of ['credits', 'moves', 'coop', 'char', 'online', 'onlinehost', 'onlinejoin']) {
+            inLayoutFrame(width, height, '', (doc) => {
+              const root = doc.getElementById('screens'), where = screen + ' at ' + width + ' x ' + height + ': ';
+              UI.dom.screens = root; UI.current = screen;
+              if (screen === 'char') { Game.selection.mode = 'arcade'; Game.selection.player = last; UI.pickSlot = -1; }
+              UI.rerender(false);
+              const panel = root.querySelector('.panel');
+              if (!panel) { bad.push(where + 'no panel'); return; }
+              if (screen !== 'char' && !/^online/.test(screen) && panel.scrollTop > 0) bad.push(where + 'the panel opened scrolled down by ' + Math.round(panel.scrollTop) + ' px');
+              const focus = doc.activeElement, at = focus && focus.getBoundingClientRect(), view = panel.getBoundingClientRect();   // a gamepad or keyboard user must see where the focus is
+              if (!focus || focus === doc.body || at.bottom > view.bottom + 1 || at.top < view.top - 1) bad.push(where + 'the focused item is not in view (' + (focus ? Math.round(at.top) + ' to ' + Math.round(at.bottom) + ' of ' + Math.round(view.bottom) : 'none') + ')');
+              if (screen === 'char') { const pick = root.querySelector('.card.sel'), at = pick && pick.getBoundingClientRect(), view = panel.getBoundingClientRect(); if (!pick || at.bottom > view.bottom + 1 || at.top < view.top - 1) bad.push(where + 'the picked fighter is not in view'); }
+            });
+          }
+        });
+      } finally { UI.dom.screens = keep.screens; UI.current = keep.current; Object.assign(Game.selection, keep.selection); if (keep.focused && keep.focused.focus && keep.focused !== document.body) keep.focused.focus({ preventScroll: true }); }
+      return bad.length ? bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* A change in the creator (a row, the fitness pad) rebuilds the whole panel: the list keeps its place, and the kept focus does not scroll it. The real UI.rerender runs, on the screens of a frame. */
+    layoutTest('Layout (P18-69): a change in the creator rebuilds the panel and the list of options keeps its place (the Outfit tab scrolled down at 844 x 390 and 390 x 844) - the focus that is kept does not scroll it', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], keep = { screens: UI.dom.screens, current: UI.current, draft: CreatorUI.draft, tab: CreatorUI.tab, slot: CreatorUI.slot };
+      try {
+        CreatorUI.draft = defaultCustom(0); CreatorUI.slot = 0; CreatorUI.tab = 'outfit';
+        for (const [width, height] of [[844, 390], [390, 844]]) {
+          inLayoutFrame(width, height, '', (doc) => {
+            const root = doc.getElementById('screens'), where = width + ' x ' + height + ': ';
+            UI.dom.screens = root; UI.current = 'creator';
+            UI.rerender(false);
+            const list = root.querySelector('.cr-body');
+            list.scrollTop = Math.min(300, list.scrollHeight - list.clientHeight);
+            const before = list.scrollTop;
+            UI.rerender(true);
+            const after = root.querySelector('.cr-body').scrollTop;
+            if (before < 100) bad.push(where + 'the list was not long enough to scroll (' + before + ' px)');
+            if (Math.abs(after - before) > 1) bad.push(where + 'the list was at ' + Math.round(before) + ' px and is at ' + Math.round(after) + ' px after the rebuild');
+          });
+        }
+      } finally { UI.dom.screens = keep.screens; UI.current = keep.current; Object.assign(CreatorUI, { draft: keep.draft, tab: keep.tab, slot: keep.slot }); }
+      return bad.length ? bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* UI scale 1.5 on a phone: the scale the page sets is capped by the width and by the height, so nothing scrolls sideways and the creator keeps its list. */
+    layoutTest('Layout (P18-69): UI scale 1.5 on a phone - the scale is capped by the width (1.22 at 390, 1.12 at 360, 0.99 at 320, the full 1.5 from 474 px) and the height (1.15 at 390 high, 1.10 at 375), never under 0.8; Settings, the fighter cards, Players and teams and the creator do not scroll sideways at 390 x 844, the Settings arrows are on the screen, and the creator keeps a list of 190 px at 844 x 390 and 150 px at 667 x 375', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], capped = (width, height) => Math.round(uiScaleFor(1.5, width, height) * 100) / 100;
+      if (capped(390, 844) !== 1.22 || capped(360, 844) !== 1.12 || capped(320, 844) !== 0.99 || capped(474, 844) !== 1.5 || capped(1280, 720) !== 1.5 || capped(844, 390) !== 1.15 || capped(667, 375) !== 1.1 || capped(844, 340) !== 1 || capped(844, 190) !== 1 || capped(200, 844) !== 0.8 || uiScaleFor(0.8, 390, 844) !== 0.8 || uiScaleFor(1, 390, 844) !== 1 || uiScaleFor(1, 844, 190) !== 1) bad.push('the scale cap is ' + [[390, 844], [360, 844], [320, 844], [474, 844], [1280, 720], [844, 390], [667, 375], [844, 340], [844, 190], [200, 844]].map(([w, h]) => capped(w, h)));
+      const scale = uiScaleFor(1.5, 390, 844), result = [];
+      const main = layoutPages('main').filter(([name]) => /fighters \(arcade\)/.test(name)), free = layoutPages('free').filter(([name]) => /Versus/.test(name)), info = layoutPages('info').filter(([name]) => name === 'Settings');
+      for (const [name, html] of [...main, ...free, ...info, ...creatorPages().slice(0, 1)]) {
+        inLayoutFrame(390, 844, html, (doc, win) => {
+          for (const problem of layoutProblems(doc, win, 390, 844, true)) result.push(name + ': ' + problem);
+          for (const arrow of doc.querySelectorAll('[aria-label="increase"], [aria-label="decrease"]')) { const r = arrow.getBoundingClientRect(); if (r.right > 390 + 1 || r.left < -1) result.push('a Settings arrow is off the screen (' + Math.round(r.left) + ' to ' + Math.round(r.right) + ')'); }
+        }, scale);
+      }
+      for (const [width, height, floor] of [[844, 390, 190], [667, 375, 150]]) inLayoutFrame(width, height, creatorPages()[0][1], (doc, win) => {
+        for (const problem of layoutProblems(doc, win, width, height, true)) result.push('creator at ' + width + ' x ' + height + ': ' + problem);
+        const list = doc.querySelector('.cr-body').getBoundingClientRect().height;
+        if (list < floor) result.push('the creator list is ' + Math.round(list) + ' px high at ' + width + ' x ' + height + ' with UI scale 1.5, under ' + floor);
+      }, uiScaleFor(1.5, width, height));
+      return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
+    });
+    /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
+      const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
+      const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
+      const kinds = [['Training', 'tt'], ['Co-op', 'coop']];
+      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
+        const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
+        inLayoutFrame(width, height, '', (doc, win) => {
+          const where = kind + ' HUD at ' + width + ' x ' + height + (scaled ? ' with UI scale 1.5' : '') + ': ';
+          doc.getElementById('screens').innerHTML = '';
+          doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
+          for (const [id, text] of Object.entries(sample)) { const el = doc.getElementById(id); if (el) el.textContent = text; }
+          for (const id of ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '12 HITS<small>COMBO</small>'; el.classList.add('on'); }
+          const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), party = doc.getElementById('party');
+          hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
+          for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
+          if (kind === 'Training') { panel.hidden = false; panel.classList.add('touch'); panel.innerHTML = training; }
+          else party.innerHTML = [1, 2, 3, 4].map((n) => '<div class="pc seat' + n + '"><div class="pn"><b>P' + n + '</b> FIGHTER' + n + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
+          const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
+          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = [...doc.querySelectorAll('#touch .tb')];
+          if (kind === 'Training') for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
+          if (cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
+          const pause = doc.querySelector('#touch .tb[data-a="pause"]');
+          for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
+          if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
+        }, scaled ? uiScaleFor(1.5, width, height) : undefined);
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
     /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
