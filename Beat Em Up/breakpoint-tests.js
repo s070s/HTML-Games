@@ -1668,6 +1668,26 @@ const SelfTest = {
       const r = { jab, front, duckPunch, body, frontKick, low, elbow, knee, high, lowGuard };
       return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
     });
+    test('Touch: a foe in the startup of a duck move (Bob and Weave Hook, Bananeira) counts as crouched for the automatic height, as it does for Combat.evaluate; after the startup it does not', () => {
+      const device = Input.lastDevice, problems = [];
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      try {
+        Input.reset(); Input.releaseAll();
+        const heightOf = (kind) => { Input.touchSet(kind, true); Input.fillIntent(it, f, o); Input.touchSet(kind, false); return it[kind] ? it.height : null; };
+        if (heightOf('punch') !== false) problems.push('the plain jab is not at the standing height against an idle foe');
+        for (const rowId of ['bob_hook', 'handstand_kick']) {
+          const duck = ATTACKS[rowId];
+          o.state = S.ATTACK; o.move = duck; o.mStartup = duck.startup; o.mActive = duck.active; o.mRecovery = duck.recovery;
+          o.moveTick = duck.startup;
+          if (heightOf('punch') !== true) problems.push(rowId + ': the punch does not go low against a foe in the last startup tick');
+          o.moveTick = duck.startup + 1;
+          if (heightOf('punch') !== false) problems.push(rowId + ': the punch goes low after the startup');
+        }
+        o.state = S.ATTACK; o.move = ATTACKS.jab; o.mStartup = ATTACKS.jab.startup; o.moveTick = 2;
+        if (heightOf('punch') !== false) problems.push('a foe winding up a plain jab counts as crouched');
+      } finally { Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device; }
+      return problems.length ? problems.join('; ') : true;
+    });
     test('Keyboard: every string row plays its moves through the key path (Crouch key held = the crouch rows)', () => {
       const device = Input.lastDevice, problems = [];
       try {
@@ -4335,6 +4355,7 @@ const SelfTest = {
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
     /* ----- style animations (P5-02) ----- */
+    const STYLE_MOVE_LOOKS_LIKE = { chain_punch: 'jab', trap_strike: 'cross', teep: 'front_kick', elbow_strike: 'hook', spin_back_kick: 'roundhouse', jump_round: 'roundhouse', spin_heel: 'low_kick', angle_one: 'hook', angle_two: 'cross', parry_strike: 'cross', overhand: 'hook' };   // the standard row each of these eleven moves would otherwise be taken for
     const STYLE_NEIGHBOUR = { wingchun: 'boxer', muaythai: 'kickboxer', taekwondo: 'karateka', sambo: 'wrestler', bjj: 'judoka', hapkido: 'bjj', kali: 'boxer', kravmaga: 'brawler', mma: 'brawler' };   // the P1-04 family neighbour (Kali: the nearest hand style)
     const maxGap = (p, q) => { let gap = 0; for (let i = 0; i < NP; i++) gap = Math.max(gap, Math.abs(p[i] - q[i])); return gap; };
     const styleFighter = (style) => new Fighter(Object.assign({}, ROSTER_BY_ID.kai, { moveStyle: style }), 0);
@@ -4342,6 +4363,11 @@ const SelfTest = {
       const problems = [];
       const idle = (style) => { const f = styleFighter(style); f.state = S.IDLE; f.animT = 0.37; f.computePose(); return Array.from(f.tp); };
       for (const id in STYLE_NEIGHBOUR) { const gap = maxGap(idle(id), idle(STYLE_NEIGHBOUR[id])); if (gap < 0.15) problems.push('idle ' + id + ' = ' + STYLE_NEIGHBOUR[id] + ' (' + gap.toFixed(2) + ')'); }
+      const built = (anim, s) => { const p = new Float32Array(GUARD_ORTHO); STRIKE_BUILDERS[anim](p, s); return p; };   // the strike pose on the same guard and side, so only the builder differs
+      for (const id in STYLE_MOVE_LOOKS_LIKE) {
+        const mv = ATTACKS[id], like = ATTACKS[STYLE_MOVE_LOOKS_LIKE[id]], s = mv.limb[0] === 'L' ? 1 : -1, gap = maxGap(built(mv.anim, s), built(like.anim, s));
+        if (gap < 0.3) problems.push(id + ' looks like ' + like.id + ' (' + gap.toFixed(2) + ')');
+      }
       for (const id of MOVE_STYLE_IDS) for (const rowId in SKINS[id]) {   // the lowest foot key point over every frame of every skinned attack stays within 0.03 m of the floor (the old low kick reaches 0.032); an upside-down move is held to the floor by the plant instead
         const f = styleFighter(id), mv = moveFor(id, rowId);
         if (mv.plant || mv.ctx === 'air') continue;
@@ -4399,6 +4425,7 @@ const SelfTest = {
       for (const name of ['kesa', 'leg', 'arm', 'wrist']) for (const q of [0, 0.5, 1]) { const p = new Float32Array(GUARD_ORTHO); HOLD_POSES[name](p, q); if (lowestFoot(p) < -0.03) problems.push('hold ' + name + ' foot ' + lowestFoot(p).toFixed(3) + ' m'); }
       const holdPose = (style) => { const fighter = styleFighter(style), pose = new Float32Array(NP); fighter.submitPose(pose, 0.5); return pose; };
       const hold = {}; for (const id of HOLD_STYLES) hold[id] = holdPose(id);
+      for (const [x, y] of [['wrestler', 'sambo'], ['wrestler', 'bjj'], ['wrestler', 'hapkido'], ['sambo', 'bjj'], ['sambo', 'hapkido'], ['bjj', 'hapkido']]) if (maxGap(hold[x], hold[y]) < 0.5) problems.push('hold ' + x + ' = ' + y);   // the four old hold styles stay 0.5 rad apart (Judo and MMA have their own poses since P17-10: kesa and mount, 0.3 rad)
       for (const id of HOLD_STYLES) if (!hold[id].every(Number.isFinite)) problems.push('hold ' + id + ' NaN');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
@@ -4598,7 +4625,7 @@ const SelfTest = {
         pairs++;
         const g = gap(guards[a], guards[b]), i = gap(idles[a], idles[b]);
         if (g.distance < 0.38 || g.largest < 0.14) problems.push(a + '/' + b + ' guard ' + g.distance.toFixed(3) + ' / ' + g.largest.toFixed(3));
-        if (i.largest < 0.1) problems.push(a + '/' + b + ' idle ' + i.largest.toFixed(3));
+        if (i.largest < 0.25) problems.push(a + '/' + b + ' idle ' + i.largest.toFixed(3));   // the idle probe with its rhythm: P17-09 test 7 asks 0.25 on the largest joint for all 120 pairs
       }
       if (pairs !== 120) problems.push('pairs ' + pairs);
       return problems.length ? problems.slice(0, 6).join('; ') : true;
@@ -4663,7 +4690,7 @@ const SelfTest = {
     });
     test('Styles (P17-10): the CPU plays its signature moves on every difficulty', () => {
       const problems = [], foes = ['kai', 'brutus', 'yuki'], SEEDS = 12, SINGLE_MOVE_CAP = 0.45;
-      const NOT_SEEN = { brawler: ['sweep@stompK'], bjj: ['sweep@scissor'] };   // measured: the crouch finisher (third step after two Low connects) did not start in the 36 matches of these two styles; every other signature strike did
+      const NOT_SEEN = { brawler: ['sweep@stompK'] };   // measured: the Brawler's crouch finisher (third step after two Low connects) did not start in the 36 matches; every other signature strike did, the BJJ Scissor Sweep too (22 starts at Easy, 81 at Hard)
       for (const difficulty of ['easy', 'normal', 'hard', 'expert']) for (const styleId of MOVE_STYLE_IDS) {
         const profileId = 'sig_' + styleId;
         ROSTER_BY_ID[profileId] = Object.assign({}, ROSTER_BY_ID.kai, { id: profileId, name: styleId, moveStyle: styleId, defense: defaultDefense(styleId) });
@@ -5312,7 +5339,7 @@ const SelfTest = {
     };
     test('Sway pose (P3-11): on every i-frame tick the drawn head and torso (feet too for a low strike) are clear of the drawn strike by 0.1 m, for each height, style and lean (except the named shortSlips of P17-03, each held at its measured floor)', () => {
       const need = { head: SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, torso: SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, foot: SWAY_POSE_RADIUS.foot + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP };
-      /* P17-03: every combination keeps the full 0.1 m except these side slips (style, longest strike of its height, swayDir), which stay short after the diagonal back step.
+      /* P17-03: every combination keeps the full 0.1 m except these (style, longest strike of its height, swayDir): side slips that stay short after the diagonal back step, and (P17-10) one straight-back sway of the Krav Maga Jab.
          Each part's floor is its measured clearance (m) minus 0.01; it can only go up. Appendix C "P17-03 sway pose" has the numbers. */
       const shortSlips = {
         'karateka heavy_front -1': { torso: 0.31, why: 'a heavy front kick drives straight along the slip side' },
@@ -5322,11 +5349,11 @@ const SelfTest = {
         'hapkido heavy_roundhouse -1': { torso: 0.32, why: 'the roundhouse curves into the slip side (P17-11: the slip steps back 0.15 m further for a round kick, up from 0.24)' },
         'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
-        'kali jab 1': { head: 0.28, torso: 0.31, why: 'P17-10: the Thrust is the only High strike of Kali and, with the Krav Maga Jab, the longest straight strike (1.4 m); its pose is fitted to the best clearance the spec language reaches, and a thrust that goes active on the last i-frame tick passes the head 0.03 m short of the 0.32 bar' },
-        'kali jab -1': { head: 0.29, torso: 0.33, why: 'as on the other slip side (P17-10)' },
-        'kravmaga jab 1': { head: 0.28, torso: 0.30, why: 'as the Kali Thrust (P17-10): the Jab is the only High strike of Krav Maga' },
-        'kravmaga jab 0': { torso: 0.34, why: 'P17-10: the Jab is the only High strike of Krav Maga; its pose is fitted to the best clearance the spec language reaches (the torso passes the straight line of the jab 0.005 m short of the 0.35 bar)' },
-        'kravmaga jab -1': { head: 0.27, torso: 0.31, why: 'as on the straight line, on the slip side (P17-10): a jab that goes active on the last i-frame tick passes the head 0.04 m and the torso 0.03 m short' },
+        'kali jab 1': { head: 0.28, torso: 0.31, why: 'P17-10: the Kali Thrust (the Jab row, 5 frames, 1.4 m; Angle 1 and the Long Thrust are High strikes too but not the longest) is fitted as far as the spec language reaches; a jab that goes active on the last i-frame tick still passes the head 0.03 m and the torso 0.04 m short of the bars. Root cause: the shared 5-frame Jab against the P17-03 sway pose (Appendix C, note for BP-P18-58 and BP-P18-59)' },
+        'kali jab -1': { head: 0.29, torso: 0.33, why: 'the same Jab on the other slip side (P17-10)' },
+        'kravmaga jab 1': { head: 0.28, torso: 0.30, why: 'P17-10: the Krav Maga Jab is the Jab row, the only High strike of its table; the same shared-Jab cause as the Kali Thrust' },
+        'kravmaga jab 0': { torso: 0.34, why: 'P17-10: a straight-back sway, not a side slip: the same Jab passes the torso 0.005 m short of the 0.35 bar' },
+        'kravmaga jab -1': { head: 0.27, torso: 0.31, why: 'the same Jab on the other slip side (P17-10)' },
       };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };
       let trials = 0, expectedTrials = 0;
