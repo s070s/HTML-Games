@@ -1872,7 +1872,7 @@ function buildShard() {
   return { v: new Float32Array(v), i: new Uint16Array(idx) };
 }
 
-const FOOTING_REACH = 0.5; // m: half the footprint of a body or an item, round it and round each point of its shadow, that must have the same footing for a raised shadow plane (Arena.flatFooting)
+const FOOTING_REACH = 0.5, FOOTING_SLACK = 0.1; // m: half the footprint of an item (a fighter uses its radius); FOOTING_SLACK: how far a sample may stand off the edge of the deck and still count as on it. Every sample round the footprint and round each point of the shadow must be on the deck for a raised shadow plane (Arena.flatFooting)
 const SHADOW_TINT = 0.35, SHADOW_TINT_ALPHA = 0.38, SHADOW_SOFT_TURN = 0.06, SHADOW_SOFT_ALPHA = 0.26; // shadow: floor colour x 0.35 at 38 % (high: two at 26 %, light turned 0.06 rad each way)
 const FACE_GRID = 8, FACE_CELL = 64; // the face atlas: 8 x 8 cells of 64 px
 // uMode: 0 = lit objects, 1 = planar shadow, 2 = floor
@@ -3891,13 +3891,13 @@ const Arena = {
     const L = (this.def && this.def.env || DEFAULT_ENV).lightTo, up = Math.max(L[1], 0.1);
     return [-L[0] / up, -L[2] / up];
   },
-  // The height a shadow plane may sit at over (x, z): h where the footing is the same under the footprint and under the whole shadow of a body `height` high standing `air` above its footing (the shadow runs along shadowDir to a tip height + air away: 1.5 to 2.8 m for a head), else 0 (the plane would float past a deck edge or over lower stair treads). Checked at the footprint, the middle of the shadow and its tip, four corners FOOTING_REACH out each
-  flatFooting(x, z, h, r, air = 0, height = CAMERA_FIGHTER_HEIGHT) {
+  // The height a shadow plane may sit at over (x, z): h where the footing is the same under the footprint and under the whole shadow of a body `height` high standing `air` above its footing (the shadow runs along shadowDir to a tip height + air away: 1.5 to 2.8 m for a head), else 0 (the plane would float past a deck edge or over lower stair treads). Checked at the footprint, the middle of the shadow and its tip, four corners `reach` (the body radius, half an item) out each, each corner within FOOTING_SLACK of the deck: a body overhanging the edge by more than the slack, on either side, loses the plane
+  flatFooting(x, z, h, reach, air = 0, height = CAMERA_FIGHTER_HEIGHT) {
     if (h < 0.02) return 0;
     const dir = this.shadowDir(), run = Math.max(air, 0) + height;
     for (let k = 0; k < 12; k++) {
       const along = (k >> 2) / 2;
-      if (Math.abs(this.supportAt(x + dir[0] * run * along + (k & 1 ? FOOTING_REACH : -FOOTING_REACH), z + dir[1] * run * along + (k & 2 ? FOOTING_REACH : -FOOTING_REACH), h + 0.3, r) - h) > 0.02) return 0;
+      if (Math.abs(this.supportAt(x + dir[0] * run * along + (k & 1 ? reach : -reach), z + dir[1] * run * along + (k & 2 ? reach : -reach), h + 0.3, FOOTING_SLACK) - h) > 0.02) return 0;
     }
     return h;
   },
@@ -4039,7 +4039,7 @@ const Arena = {
     const wob = o.wob > 0 ? Math.sin(o.wobPhase) * o.wob * (o.creak > 0 ? 0.05 : 0.025) : 0;
     const x = o.x + wob, z = o.z + wob * 0.6;
     this.dy = o.base; // an object standing on a deck is drawn from its height
-    this.castDy = this.flatFooting(o.x, o.z, o.base, 0.3, 0, o.h || 1);
+    this.castDy = this.flatFooting(o.x, o.z, o.base, FOOTING_REACH, 0, o.h || 1);
     if (!o.destroyed) {
       if (o.type === 'box') this.drawBox(o, x, z);
       else if (o.type === 'column') this.drawColumn(o, x, z);

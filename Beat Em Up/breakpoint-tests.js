@@ -14335,6 +14335,8 @@ const SelfTest = {
         const inside = drawAt(-8.5, 3.75, 2), runsOff = drawAt(-8.5, 2.4, 2), backOn = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2), hop = drawAt(-8.5, 4.5, 2, 0.4), jump = drawAt(-8.5, 4.5, 2, 1.5);
         if (inside.casts !== '2' || runsOff.casts !== '1' || backOn.casts !== '2' || falling.casts !== '1' || floor.casts !== '1') bad.push('planes: inside the dock ' + inside.casts + ', shadow running off the edge ' + runsOff.casts + ', at the +x edge ' + backOn.casts + ', falling ' + falling.casts + ', floor ' + floor.casts);
         if (hop.casts !== '2' || jump.casts !== '1') bad.push('a jump over the dock: a hop of 0.4 m casts at ' + hop.casts + ', 1.5 m at ' + jump.casts + ' (the shadow of the head runs past the dock edge)');
+        const overX = drawAt(-7.1, 3.75, 2), limitX = drawAt(-7.25, 3.75, 2), overZ = drawAt(-8.5, 5.3, 2), limitZ = drawAt(-8.5, 5.2, 2);   // the body overhanging the edge on the side away from its shadow: the dock edge is at x -7 and z 5.5, a body of 0.34 may stand 0.24 out
+        if (overX.casts !== '1' || limitX.casts !== '2' || overZ.casts !== '1' || limitZ.casts !== '2') bad.push('overhang: x -7.1 casts at ' + overX.casts + ', x -7.25 at ' + limitX.casts + ', z 5.3 at ' + overZ.casts + ', z 5.2 at ' + limitZ.casts);
         const dockBlobs = drawAt(-8.5, 3.75, 1), airBlobs = drawAt(-6.5, 3.75, 1, 1), flatBlobs = drawAt(0, 0, 1);
         if (dockBlobs.flats !== '1.02,1.018' || airBlobs.flats !== '0.02,0.018' || flatBlobs.flats !== '0.02,0.018') bad.push('blob and disc: ' + [dockBlobs.flats, airBlobs.flats, flatBlobs.flats].join(' | '));
         const castsOf = (id, objectId) => {
@@ -14348,14 +14350,14 @@ const SelfTest = {
         if (speaker.base !== 1 || speaker.casts !== '2' || post.base !== 2 || post.casts !== '1') bad.push('objects: speaker ' + speaker.casts + ', post ' + post.casts);
         Arena.build(ARENAS.warehouse);
         const dir = Arena.shadowDir();
-        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-8.5, 2.4, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0 || Arena.flatFooting(-8.5, 4.5, 1, 0.3, 0.4) !== 1 || Arena.flatFooting(-8.5, 4.5, 1, 0.3, 1.5) !== 0 || Math.abs(dir[0] + 0.412) > 0.01 || Math.abs(dir[1] + 0.588) > 0.01) bad.push('flatFooting ' + dir);
+        if (Arena.flatFooting(-8.5, 3.75, 1, 0.34) !== 1 || Arena.flatFooting(-8.5, 2.4, 1, 0.34) !== 0 || Arena.flatFooting(0, 0, 0, 0.34) !== 0 || Arena.flatFooting(-8.5, 4.5, 1, 0.34, 0.4) !== 1 || Arena.flatFooting(-8.5, 4.5, 1, 0.34, 1.5) !== 0 || Math.abs(dir[0] + 0.412) > 0.01 || Math.abs(dir[1] + 0.588) > 0.01) bad.push('flatFooting ' + dir);
         const dock = Arena.def;   // the Warehouse dock under the Construction Site's light: the same fighter, a longer shadow
         Arena.def = Object.assign({}, dock, { env: Object.assign({}, dock.env, { lightTo: ARENAS.construction.env.lightTo }) });
-        const slant = Math.hypot(...Arena.shadowDir()), steep = Arena.flatFooting(-8.5, 3.75, 1, 0.3);
+        const slant = Math.hypot(...Arena.shadowDir()), steep = Arena.flatFooting(-8.5, 3.75, 1, 0.34);
         Arena.def = dock;
         if (Math.abs(slant - 1.54) > 0.02 || steep !== 0) bad.push('a slant of ' + slant.toFixed(2) + ' leaves plane ' + steep + ' over a fighter in the middle of the dock (its head shadow lands past the edge)');
         Arena.build(ARENAS.construction);   // the scaffold's top deck (top 3, 1.2 m wide): the shadow runs off it from every spot
-        if (Arena.flatFooting(-3, -6, 3, 0.3) !== 0 || Arena.flatFooting(-1, -5.8, 3, 0.3) !== 0) bad.push('a fighter on the scaffold deck keeps a raised plane');
+        if (Arena.flatFooting(-3, -6, 3, 0.34) !== 0 || Arena.flatFooting(-1, -5.8, 3, 0.34) !== 0) bad.push('a fighter on the scaffold deck keeps a raised plane');
       } finally { R.push = push; R.put = put; R.shadowMode = mode; Arena.build(ARENAS.warehouse); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
