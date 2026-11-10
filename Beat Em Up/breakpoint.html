@@ -17360,7 +17360,7 @@ const ONLINE_ARENA_DEFAULT = 'warehouse';
 const ONLINE_START = 'bpstart'; // the type of the host's start message on a link's reliable channel (the lockstep ignores it: it has no match number)
 const ONLINE_FIGHT_ROUNDS = 2, ONLINE_FIGHT_SECONDS = 60, ONLINE_BRACKET_SIZE = 8;
 const OnlinePlay = {
-  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, plan: null, setup: null, delay: NET_INPUT_DELAY, // engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
+  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, played: false, plan: null, setup: null, delay: NET_INPUT_DELAY, // played: a match ran in this session (its retuned delay carries on); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
   // seat -> link, for the host its guests, for a guest the host as seat 0 (set by hostOpen and guestBegin)
   get active() { return this.links.size > 0; },
   // --- host
@@ -17428,7 +17428,8 @@ const OnlinePlay = {
     const cfg = Object.assign({}, plan.cfg, { seed: Date.now() >>> 0, keepSeed: true, online: true }); // Game.beginMatch fills items, hazards and assist from this PC's settings: they go to the guests as they are
     const seatCount = Math.max(...seats) + 1, fighterOf = Array.from({ length: seatCount }, (_, seat) => (seats.includes(seat) ? plan.humans.indexOf(seat) : -1));
     this.matchNo = (this.matchNo + 1) & 0xffff;
-    if (Game.net && Game.net.host) this.delay = Game.net.delay; // a rematch or the next bracket fight starts from the delay the last match was retuned to
+    if (this.played && Game.net && Game.net.host) this.delay = Game.net.delay; // a rematch or the next bracket fight of this session starts from the delay the last match was retuned to; a new session starts from the round trips measured when its links opened
+    this.played = true;
     if (plan.run) Game.run = plan.run;
     if (plan.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] }; // the session score of a Versus run
     this.build(cfg);
@@ -17543,7 +17544,7 @@ const OnlinePlay = {
     for (const transport of this.transports.values()) transport.close();
     for (const link of this.links.values()) link.close();
     this.offs = []; this.links.clear(); this.transports.clear(); this.gone.clear(); this.engines.clear();
-    this.isHost = false; this.plan = null; this.setup = null;
+    this.isHost = false; this.played = false; this.plan = null; this.setup = null;
   },
 };
 
@@ -17952,7 +17953,7 @@ function testApi() {
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-    ROUND_END_TICKS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+    ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
