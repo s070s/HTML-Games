@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -14211,7 +14211,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
-    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step of 0.9 em whose rectangle on screen touches no live pop (older pops counted where they have risen to, words close on screen though apart in the world included); the pile never climbs into the HUD (the oldest pop gives way), at most 4 words and 4 numbers live, and the 16 elements stay', () => {
+    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step of 0.9 em whose rectangle on screen touches no live pop (older pops counted where they have risen to, words close on screen though apart in the world included); the pile never climbs into the HUD (it goes below the hit, then the oldest pop gives way), at most 4 words and 4 numbers live, and the 16 elements stay', () => {
       const bad = [], keep = { pops: UI.pops, idx: UI.popIdx, project: R.project, fontPx: UI.popFontPx, hudBottom: UI.hudBottom };
       const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
       const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
@@ -14245,9 +14245,12 @@ const SelfTest = {
         UI.pops = fresh(); UI.popIdx = 0;   // a burst of words and numbers at slightly different spots and times: none ever covers another
         const burst = [['COUNTER 7', 0, 1.1], ['11', 0.15, 1.1], ['5', 0.3, 1.2], ['COUNTER 6', 0.2, 1.1], ['9', 0.05, 1.3], ['BLOCK', 0.5, 1.1], ['12', 0.1, 1], ['COUNTER 7', 0.45, 1.2], ['7', 0.2, 1.1], ['SWAY', 0.4, 1.1], ['11', 0.3, 1.15]];
         burst.forEach(([text, dx, y], k) => { tick(); tick(); UI.popAt(dx, y, 0, text, '#fff'); if (clash()) bad.push('burst ' + k + ': ' + clash()); });
-        UI.pops = fresh(); UI.popIdx = 0; UI.hudBottom = 300;   // the HUD ends at 300 px and the pops start at 400 and climb 60: room for the steps 0 and 1 only, so the oldest gives way
-        for (const text of ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE']) { UI.popAt(0, 1, 0, text, '#fff'); if (live().some((q) => 500 - (q.y + POP_RISE) * 100 - q.lift * FONT - STEP / 2 < 300)) bad.push('the pile climbs into the HUD at ' + text + ': ' + live().map((q) => q.text + ':' + q.lift)); }
-        if (live().length !== 2 || !find('FIVE') || find('FIVE').lift > POP_LIFT_EM || find('ONE') || find('TWO')) bad.push('the oldest did not give way: ' + live().map((q) => q.text + ':' + q.lift));
+        UI.pops = fresh(); UI.popIdx = 0; UI.hudBottom = 300;   // the HUD ends at 300 px and the pops start at 400 and climb 60: room above for the steps 0 and 1 only; then the pile goes below the hit (3 steps), then the oldest gives way
+        const pile = [['ONE', 0], ['TWO', 1], ['THREE', -1], ['FOUR', -2]], tops = () => live().filter((q) => q.lift > 0 && 500 - (q.y + POP_RISE) * 100 - q.lift * FONT - STEP / 2 < 300);
+        for (const [text] of pile) UI.popAt(0, 1, 0, text, '#fff');
+        if (pile.some(([text, step]) => !find(text) || Math.abs(find(text).lift - step * POP_LIFT_EM) > 1e-9) || tops().length || clash()) bad.push('the pile under the HUD: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
+        for (const text of ['1', '2', '3', '4']) { UI.popAt(0, 1, 0, text, '#fff'); if (tops().length || clash()) bad.push('the pile at ' + text + ': ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash()); }
+        if (live().length > 2 + POP_STEPS_DOWN || !find('4') || find('ONE')) bad.push('the oldest did not give way: ' + live().map((q) => q.text + ':' + q.lift));
         UI.hudBottom = 0;
         UI.pops = fresh(); UI.popIdx = 0;   // without a projection (behind the camera): the world distance and the steps taken, as before
         R.project = () => false;

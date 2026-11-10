@@ -991,7 +991,7 @@ const COACH_TIPS = [
   { key: 'item', text: (k) => k('use') + ' picks it up. Hit with it, or throw it.' },
   { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
 ];
-const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 0.9, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life
+const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 0.9, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6, POP_STEPS_DOWN = 3; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life; POP_STEPS_DOWN: steps below the hit a pop may take when the pile has no room above
 const HUD_NAME_LONG = 9;
 const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
 const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
@@ -16232,7 +16232,7 @@ const UI = {
     if (twin) { twin.n++; twin.age = 0; twin.el.textContent = text + ' x' + twin.n; twin.el.style.color = color; twin.el.style.opacity = '1'; return; }
     const p = kind >= POP_KIND_MAX ? oldest : spare || this.pops[this.popIdx++ % this.pops.length];
     let step = this.popFreeStep(p, x, y, z, text);
-    while (step < 0) { // no room under the HUD: the oldest live pop gives way, until the new one fits (or none is left)
+    while (step === null) { // no room under the HUD or below the hit: the oldest live pop gives way, until the new one fits (or none is left)
       let eldest = null;
       for (const q of this.pops) if (q !== p && q.age <= q.life && (!eldest || q.age > eldest.age)) eldest = q;
       if (!eldest) { step = 0; break; }
@@ -16259,22 +16259,24 @@ const UI = {
     this.hudBottom = bottom > 0 ? bottom : -1;
     return bottom;
   },
-  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. The pile may not climb into the HUD: a step is allowed only while the pop, at the top of its rise, still has its whole rectangle under the HUD's lower edge; a step 0 that is blocked too gives -1. -1 = no free step within that room (the caller drops the oldest pop). Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide, as before, with no HUD limit. */
+  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. The pile may not climb into the HUD: an upward step is allowed only while the pop, at the top of its rise, still has its whole rectangle under the HUD's lower edge; past that the pop tries POP_STEPS_DOWN steps below the hit (negative steps). null = no free step in that room (the caller drops the oldest pop). Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide, as before, with no HUD limit. */
   popFreeStep(p, x, y, z, text) {
     const px = this.popFontPx(), here = [0, 0], there = [0, 0], top = [0, 0], seen = R.project(x, y, z, here), boxes = [], stepPx = POP_LIFT_EM * px;
     let taken = 0;
     for (const q of this.pops) {
       if (q === p || q.age > q.life) continue;
       if (seen && R.project(q.x, q.y + q.age / q.life * POP_RISE, q.z, there)) boxes.push([there[0], there[1] - q.lift * px, q.el.textContent.length * POP_CHAR_EM * px / 2]);
-      else if (Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR) taken |= 1 << Math.round(q.lift / POP_LIFT_EM);
+      else if (Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR && q.lift >= 0) taken |= 1 << Math.round(q.lift / POP_LIFT_EM);
     }
     const halfWidth = text.length * POP_CHAR_EM * px / 2;
     const hudBottom = seen ? this.popHudBottom() : 0, rise = seen && R.project(x, y + POP_RISE, z, top) ? here[1] - top[1] : 0;
     const lastStep = hudBottom > 0 ? Math.max(0, Math.floor((here[1] - rise - hudBottom - stepPx * 0.65) / stepPx)) : this.pops.length - 1; // 0.65: half a rectangle and the 1.25 scale of a new pop
-    const blocked = (step) => (taken >> step & 1) === 1 || boxes.some((b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth && Math.abs(b[1] - (here[1] - step * stepPx)) < stepPx); // two rectangles one step high touch at one step
+    const blocked = (step) => (step >= 0 && (taken >> step & 1) === 1) || boxes.some((b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth && Math.abs(b[1] - (here[1] - step * stepPx)) < stepPx); // two rectangles one step high touch at one step
     let step = 0;
     while (step < lastStep && blocked(step)) step++;
-    return blocked(step) ? -1 : step;
+    if (!blocked(step)) return step;
+    for (let down = 1; seen && down <= POP_STEPS_DOWN; down++) if (!blocked(-down)) return -down;
+    return null;
   },
   frame(m) {
     const d = this.dom;
@@ -16378,7 +16380,7 @@ const UI = {
       p.age += 1 / 60;
       const u = p.age / p.life;
       if (u >= 1) { p.el.style.opacity = '0'; continue; }
-      if (R.project(p.x, p.y + u * POP_RISE, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) translateY(-' + p.lift + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
+      if (R.project(p.x, p.y + u * POP_RISE, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) translateY(' + (-p.lift) + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
@@ -17755,7 +17757,7 @@ function testApi() {
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
