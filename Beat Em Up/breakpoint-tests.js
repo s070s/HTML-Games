@@ -54,6 +54,7 @@ const {
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music,
+  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -14424,7 +14425,8 @@ const SelfTest = {
         ['round-ending knock-out', null, 1, () => Sound.roundKo()], ['combo milestone', -16, 0.4, () => Sound.milestone(3)], ['bell', -8, 2, () => Sound.bell()], ['fanfare, win', -12, 1.6, () => Sound.fanfare(true)], ['fanfare, lose', -12, 1.6, () => Sound.fanfare(false)], ['wave horn', -12, 0.8, () => Sound.horn()],
         ['low stamina', -18, 0.5, () => Sound.lowStamina()], ['late-defend tick', -16, 0.3, () => fire('lateDefend', { f: f({ index: 0 }) })], ['free-hit tick', -24, 0.3, () => fire('freeTick', { f: f({ index: 0, comboFoe: { state: S.ATTACK } }) })], ['heartbeat', -14, 0.6, () => Sound.heartbeat()], ['breath', -28, 0.6, () => Sound.breath(false)],
         ['get up', -16, 0.5, () => fire('quickRise', { f: f() })], ['fall whistle', -16, 0.8, () => Sound.whistle()], ['crowd cheer', -16, 2, () => Sound.swell()], ['crowd lean', -24, 1.2, () => Sound.swellNoise(800, 0.8, 0.35, 0.9, 0.14)],
-        ['music fight bed', -14, 2.4, musicBar(1)], ['music menu theme', -22, 2.4, musicBar(0)], ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
+        ['music fight bed', -14, 2.4, musicBar(1)], ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
+        ['music title song', null, 4, () => { const keep = Object.assign({}, Song); try { Song.start(); Song.pump(4); } finally { Object.assign(Song, keep); } }], // the first four seconds of the title song (P18-60): the drum fill, the first chords
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
@@ -19356,6 +19358,319 @@ const SelfTest = {
         if (!UI.screen_credits().includes('Firefox as the guest')) bad.push('the About screen does not name the Firefox limit');
       } finally { Object.assign(OnlineUI, kept); links.forEach((link) => link.close()); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- the title song and the intro (P18-60, Appendix C "P18-60 built") ---------- */
+    /* A stand-in audio context that records what is scheduled (the song and the intro need no browser), and the state of Sound, Song, Intro and Music put back after a test. */
+    const SONG_NAMES = ['drums', 'rhythm', 'lead', 'high', 'bass'];
+    const songAudio = () => {
+      const made = { oscillators: [], gains: [], sources: [], connected: [] };
+      const param = () => { const calls = []; return { calls, value: 0, setValueAtTime(v) { calls.push(['set', v]); }, linearRampToValueAtTime(v) { calls.push(['ramp', v]); }, exponentialRampToValueAtTime(v) { calls.push(['exp', v]); }, setTargetAtTime(v) { calls.push(['target', v]); }, cancelScheduledValues() { calls.push(['cancel']); } }; };
+      const node = (extra) => Object.assign({ connect(dest) { made.connected.push([this, dest]); return dest; }, disconnect() {} }, extra);
+      const ctx = {
+        currentTime: 0, state: 'running', resume() { return Promise.resolve(); },
+        createOscillator() { const o = node({ frequency: param(), detune: param(), type: '', start(at) { this.from = at; }, stop(at) { this.until = at; } }); made.oscillators.push(o); return o; },
+        createGain() { const g = node({ gain: param() }); made.gains.push(g); return g; },
+        createBiquadFilter() { return node({ frequency: param(), Q: param(), type: '' }); },
+        createWaveShaper() { return node({ curve: null }); },
+        createBufferSource() { const s = node({ loop: false, buffer: null, start(at) { this.from = at; }, stop(at) { this.until = at; } }); made.sources.push(s); return s; },
+      };
+      return { ctx, made, bus: node({}) };
+    };
+    const withSongAudio = (body) => {
+      const keep = { sound: saveSound(), song: Object.assign({}, Song), intro: Object.assign({}, Intro), music: { track: Music.track, intensity: Music.intensity, active: Music.active, step: Music.step, nextTime: Music.nextTime }, volume: Settings.v.music };
+      const audio = songAudio();
+      Object.assign(Sound, { ctx: audio.ctx, musicBus: audio.bus, noiseBuf: { duration: 2 }, unsupported: false, amb: null, ambKey: -1 });
+      Music.active = false;
+      Object.assign(Song, { playing: false, finished: false, stopped: false, t0: 0, cursor: 0, nodes: null, starts: 0, played: 0, dropped: 0 });
+      Object.assign(Intro, { phase: 'off', el: null, handlers: [], padHeld: [], still: '', silent: false, pos: 0, wall: 0 });
+      try { return body(audio); } finally { Object.assign(Sound, keep.sound); Object.assign(Song, keep.song); Object.assign(Intro, keep.intro); Object.assign(Music, keep.music); Settings.v.music = keep.volume; }
+    };
+    const introElement = () => { const classes = new Set(), el = { classes, removed: false, classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) }, remove() { el.removed = true; } }; return el; };
+    const introKey = (extra) => Object.assign({ isTrusted: true, key: 'a', repeat: false, ctrlKey: false, metaKey: false, altKey: false, stopped: false, prevented: false, stopPropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; } }, extra);
+    // The card up as the game puts it (a stand-in element, the picture replaced by a list of the times it was asked for), the frames as the game runs them: Music.update, then Intro.update
+    const introCard = (audio) => {
+      const drawn = [];
+      Object.assign(Intro, { phase: 'card', el: introElement(), draw: (p) => drawn.push(p), padHeld: [], handlers: [], silent: false, pos: 0, wall: 0 });
+      const frames = (seconds, dt = 1 / 60) => { for (let i = 0; i < Math.round(seconds / dt); i++) { audio.ctx.currentTime += dt; Music.update(); Intro.update(dt); } };
+      return { drawn, frames };
+    };
+    test('Intro song data (P18-60): the table decodes to the notes of music/hikari-samurai.mid: 180 bpm, 28.0 s, 279 drum hits and 416 / 103 / 36 / 72 guitar and bass notes on the sixteenth grid, in time order, inside the song, with the file\'s pitches', () => {
+      const bad = [], list = songEvents(), expected = { drums: 279, rhythm: 416, lead: 103, high: 36, bass: 72 };
+      const first = { drums: 8, rhythm: 16, lead: 14, high: 208, bass: 80 };
+      const pitches = { rhythm: [48, 50, 52, 55, 57, 59, 60, 62, 64], lead: [54, 55, 59, 60, 62, 63, 64, 66, 67, 69, 71, 72, 74, 79], high: [62, 64, 66, 67, 69, 71, 72, 76, 81, 83], bass: [36, 40, 43, 45, 47, 48, 50, 51, 52, 54, 55, 57, 59] };
+      if (SONG_DATA.bpm !== 180 || SONG_DATA.steps !== 336) bad.push('bpm ' + SONG_DATA.bpm + ', steps ' + SONG_DATA.steps);
+      if (Math.abs(SONG_SECS - 28) > 1e-9 || Math.abs(SONG_STEP_SECS - 1 / 12) > 1e-9) bad.push('the song lasts ' + SONG_SECS + ' s, a step ' + SONG_STEP_SECS);
+      SONG_NAMES.forEach((name, voice) => {
+        const own = list.filter((e) => e.voice === voice);
+        const count = own.reduce((sum, e) => sum + (voice === 0 ? [1, 2, 4, 8, 16].filter((bit) => e.mask & bit).length : e.chord ? 3 : 1), 0);
+        if (count !== expected[name]) bad.push(name + ' has ' + count + ' notes, the file ' + expected[name]);
+        if (own[0].step !== first[name]) bad.push(name + ' starts at step ' + own[0].step + ', the file at ' + first[name]);
+        if (voice === 0) { if (own.some((e) => !(e.mask > 0 && e.mask < 32))) bad.push('a drum mask outside the five drums'); return; }
+        const sounding = [...new Set(own.flatMap((e) => (e.chord ? [e.pitch, e.pitch + 7, e.pitch + 12] : [e.pitch])))].sort((a, b) => a - b);
+        if (sounding.join() !== pitches[name].join()) bad.push(name + ' pitches ' + sounding.join(' '));
+        if (own.some((e) => !(e.len >= 1 && e.step + e.len <= SONG_DATA.steps))) bad.push(name + ' has a note that leaves the song');
+        if (name === 'rhythm' && own.filter((e) => !e.chord).length !== 8) bad.push('the rhythm guitar plays ' + own.filter((e) => !e.chord).length + ' single notes, the file 8');
+      });
+      if (list.some((e, i) => i && e.step < list[i - 1].step)) bad.push('the events are not in time order');
+      if (Math.max(...list.filter((e) => e.voice).map((e) => e.step + e.len)) !== SONG_DATA.steps) bad.push('the last note does not end with the song');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Intro song (P18-60): the song is handed to the audio clock a little ahead, every step in time and none left out, from its first step to its last; every source stops by the end of the tail (silence after the 28 s); it plays on its own gain node through the music bus, so the Music volume and the pause duck act on it', () => withSongAudio((audio) => {
+      const bad = [], list = songEvents(), fresh = (fromOsc, fromSrc) => [...audio.made.oscillators.slice(fromOsc), ...audio.made.sources.slice(fromSrc)];
+      Settings.v.music = 0;
+      Object.assign(Sound, { master: { gain: { setTargetAtTime() {} } }, sfxBus: { gain: { setTargetAtTime() {} } }, uiBus: { gain: { setTargetAtTime() {} } } });
+      audio.bus.gain = { calls: [], setTargetAtTime(v) { this.calls.push(v); } };
+      Sound.applyVolumes();
+      if (audio.bus.gain.calls.join() !== '0') bad.push('the Music volume 0 sets the music bus to ' + audio.bus.gain.calls.join());
+      if (!Song.start()) return 'the song did not start on a running audio context';
+      const t0 = Song.t0;
+      if (Math.abs(t0 - SONG_LEAD_SECS) > 1e-9) bad.push('the first step is at ' + t0 + ' s, not ' + SONG_LEAD_SECS + ' after the start');
+      if (audio.made.connected.filter(([, to]) => to === audio.bus).length !== 1) bad.push('the song does not connect to the music bus with one gain node of its own');
+      let seenOsc = audio.made.oscillators.length, seenSrc = audio.made.sources.length; // the first oscillator is the vibrato's
+      while (audio.ctx.currentTime < SONG_SECS + 2) {
+        audio.ctx.currentTime += 1 / 60; Song.pump();
+        const now = audio.ctx.currentTime;
+        for (const node of fresh(seenOsc, seenSrc)) if (!(node.from - now <= SONG_AHEAD_SECS + 1e-9 && node.from - now >= SONG_AHEAD_SECS - 2 / 60)) { bad.push('a source is handed over ' + (node.from - now).toFixed(3) + ' s ahead'); break; }
+        seenOsc = audio.made.oscillators.length; seenSrc = audio.made.sources.length;
+      }
+      if (Song.played !== list.length || Song.dropped) bad.push(Song.played + ' of ' + list.length + ' steps played, ' + Song.dropped + ' dropped');
+      if (!Song.finished || Song.playing) bad.push('the song has not ended after its tail');
+      const total = fresh(0, 0).length;
+      for (let i = 0; i < 300; i++) { audio.ctx.currentTime += 1 / 60; Song.pump(); }
+      if (fresh(0, 0).length !== total) bad.push('the song scheduled sounds after its end');
+      const notes = fresh(1, 0), end = Math.max(...notes.map((n) => n.until)), start = Math.min(...notes.map((n) => n.from));
+      if (end > t0 + SONG_SECS + SONG_TAIL_SECS + 0.1) bad.push('a sound runs to ' + end.toFixed(2) + ' s, past the end of the tail at ' + (t0 + SONG_SECS + SONG_TAIL_SECS).toFixed(2));
+      if (start < t0) bad.push('a sound starts before the first step');
+      const fade = audio.made.gains[0].gain.calls.filter((c) => c[0] === 'ramp' && c[1] === 0).length;
+      if (fade !== 1) bad.push('the song has no fade out at its end');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    }));
+    test('Intro song (P18-60): a stalled frame leaves the late steps out instead of playing them in a burst; a stop silences it for good (and nothing is scheduled after it); a new start begins at the first step', () => withSongAudio((audio) => {
+      const bad = [], list = songEvents();
+      Song.start();
+      const t0 = Song.t0, now = 10;
+      audio.ctx.currentTime = now; Song.pump();
+      const late = list.filter((e) => t0 + e.step * SONG_STEP_SECS < now - 0.1).length, due = list.filter((e) => { const at = t0 + e.step * SONG_STEP_SECS; return at >= now - 0.1 && at <= now + SONG_AHEAD_SECS; }).length;
+      if (Song.dropped !== late || Song.played !== due) bad.push('after a stall of 10 s: ' + Song.dropped + ' left out (expected ' + late + '), ' + Song.played + ' played (expected ' + due + ')');
+      Song.stop();
+      const out = audio.made.gains[0].gain.calls;
+      if (!Song.stopped || Song.playing || !out.some((c) => c[0] === 'target' && c[1] === 0)) bad.push('a stop does not fade the song to 0');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      audio.ctx.currentTime = 20; Song.pump();
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('the song scheduled after a stop');
+      audio.ctx.currentTime = 30;
+      if (!Song.start() || Song.cursor !== list.filter((e) => 30 + SONG_LEAD_SECS + e.step * SONG_STEP_SECS <= 30 + SONG_AHEAD_SECS).length || Song.starts !== 2) bad.push('a new start does not begin at the first step');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro song and the menu (P18-60): the menu has no code-made theme (nothing is scheduled at intensity 0), the fight music is unchanged, a fight stops the title song, and entering the menu again does not start the song again', () => withSongAudio((audio) => {
+      const bad = [], track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }, made = () => audio.made.oscillators.length + audio.made.sources.length;
+      Music.start(track, 0);
+      for (let i = 0; i < 300; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
+      if (made()) bad.push('the menu schedules ' + made() + ' sources');
+      Music.start(track, 1);
+      for (let i = 0; i < 120; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
+      if (!made()) bad.push('the fight music schedules nothing');
+      Song.start();
+      if (Song.starts !== 1 || !Song.playing) return 'the song did not start';
+      Music.start(track, 1);
+      if (!Song.stopped || Song.playing) bad.push('a fight does not stop the title song');
+      Music.start(track, 0); Music.update();
+      if (Song.starts !== 1 || Song.playing) bad.push('entering the menu again starts the song again');
+      Intro.phase = 'off';
+      if (Intro.press()) bad.push('a press after the intro brings it back');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro card (P18-60): the card waits for a press for ever (no audio, no song, no timeout); a real key or a tap starts the reveal and the song at the same moment; synthetic events, modifier keys, browser shortcuts and held keys do not; the menu below never sees the key', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      card.frames(30);
+      if (Intro.phase !== 'card' || Song.starts || audio.made.oscillators.length) bad.push('the card moved on by itself');
+      for (const [label, event] of [['a synthetic key', introKey({ isTrusted: false })], ['Shift', introKey({ key: 'Shift' })], ['Ctrl+R', introKey({ key: 'r', ctrlKey: true })], ['F5', introKey({ key: 'F5' })], ['a held key', introKey({ repeat: true })]]) {
+        Intro.onKey(event);
+        if (Intro.phase !== 'card' || Song.starts) bad.push(label + ' started the reveal');
+      }
+      const key = introKey({ key: 'Enter' });
+      Intro.onKey(key);
+      if (Intro.phase !== 'play' || Song.starts !== 1 || Intro.silent) bad.push('a key did not start the reveal and the song together (' + Intro.phase + ', ' + Song.starts + ' starts)');
+      if (!key.stopped || !key.prevented) bad.push('the key went on to the menu');
+      if (!Intro.el.classes.has('go')) bad.push('the card does not leave');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro reveal (P18-60): the reveal lasts 6 s on the audio clock, then the menu opens (the overlay fades out) and the song plays on, not restarted, to its end at 28 s; after that nothing sounds', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio), list = songEvents();
+      Intro.onKey(introKey());
+      card.frames(5.9);
+      if (Intro.phase !== 'play') bad.push('the reveal ended before 6 s (' + Intro.phase + ')');
+      const el = Intro.el;
+      card.frames(0.3);
+      if (Intro.phase !== 'off' || !el.classes.has('out')) bad.push('the menu did not open at 6 s');
+      if (Intro.pos < INTRO_SECS || Intro.pos > INTRO_SECS + 1 / 60 + 1e-6) bad.push('the reveal ended ' + Intro.pos.toFixed(3) + ' s into the song');
+      if (!Song.playing || Song.starts !== 1 || Song.stopped) bad.push('the song did not play on into the menu without a restart');
+      if (!(Math.max(...card.drawn) < INTRO_SECS && Math.max(...card.drawn) > INTRO_SECS - 0.05) || card.drawn.some((p, i) => i && p < card.drawn[i - 1])) bad.push('the picture does not run forward over 6 s');
+      card.frames(SONG_SECS);
+      if (!Song.finished || Song.played !== list.length) bad.push('the song did not play to its end (' + Song.played + ' of ' + list.length + ')');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      card.frames(10);
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('something was scheduled after the end');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro skip (P18-60): a press during the reveal ends the intro at once and stops the song (the menu is silent), a press inside the first 350 ms or a held key does not; a touch skip keeps the overlay in the way until it is gone', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      Intro.onKey(introKey());
+      card.frames(1);
+      Intro.startedAt = performance.now();
+      Intro.onKey(introKey({ key: 'b' }));
+      if (Intro.phase !== 'play') bad.push('a press inside the guard skipped');
+      Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10;
+      Intro.onKey(introKey({ key: 'b', repeat: true }));
+      if (Intro.phase !== 'play') bad.push('a held key skipped');
+      const el = Intro.el;
+      Intro.press();
+      if (Intro.phase !== 'off' || !Song.stopped || Song.playing) bad.push('the press did not end the intro and the song (' + Intro.phase + ')');
+      if (!el.classes.has('out') || !el.classes.has('hold')) bad.push('the overlay does not fade out holding clicks');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      card.frames(3);
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('the song went on after a skip');
+      Intro.skip();
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro without audio (P18-60): with no audio support the card still starts the 6 s reveal, silent, and opens the menu (the song is never started); a press that waits on a suspended context starts silent after the wait, or with the song if the audio starts first', () => withSongAudio((audio) => {
+      const bad = [];
+      introCard(audio);
+      Sound.unsupported = true; Sound.ctx = null;
+      Intro.onKey(introKey());
+      if (Intro.phase !== 'play' || !Intro.silent) bad.push('the press with no audio did not start a silent reveal (' + Intro.phase + ')');
+      for (let i = 0; i < 4 * 60; i++) Intro.update(1 / 60);
+      if (Intro.phase === 'off') bad.push('a silent reveal is shorter than 6 s');
+      for (let i = 0; i < 3 * 60; i++) Intro.update(1 / 60);
+      if (Intro.phase !== 'off' || Song.starts) bad.push('the silent reveal did not end at 6 s without a song (' + Intro.phase + ', ' + Song.starts + ' starts)');
+      Sound.unsupported = false; Sound.ctx = audio.ctx; audio.ctx.state = 'suspended';
+      introCard(audio);
+      Intro.onKey(introKey());
+      for (let i = 0; i < 20; i++) Intro.update(1 / 60);
+      if (Intro.phase !== 'arming') bad.push('a press on a suspended context did not wait');
+      audio.ctx.state = 'running'; Intro.update(1 / 60);
+      if (Intro.phase !== 'play' || Intro.silent || Song.starts !== 1) bad.push('the audio starting during the wait did not give the reveal its song');
+      Intro.skip();
+      audio.ctx.state = 'suspended';
+      introCard(audio);
+      Intro.onKey(introKey());
+      Intro.armedAt = performance.now() - INTRO_ARM_MS - 10; Intro.update(1 / 60);
+      if (Intro.phase !== 'play' || !Intro.silent || Song.starts !== 1) bad.push('the wait for a suspended context did not end in a silent reveal');
+      Intro.skip();
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro pause (P18-60): a frozen audio clock (the tab hidden, a call) freezes the picture with the song, and the intro cannot hang: it ends after 8 s of frames', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      Intro.onKey(introKey());
+      card.frames(2);
+      const at = Intro.pos;
+      for (let i = 0; i < 5 * 60; i++) { Music.update(); Intro.update(1 / 60); }
+      if (Intro.phase !== 'play' || Intro.pos !== at) bad.push('a frozen clock moved the picture from ' + at + ' to ' + Intro.pos);
+      for (let i = 0; i < 4 * 60; i++) { Music.update(); Intro.update(1 / 60); }
+      if (Intro.phase !== 'off') bad.push('the intro hung on a frozen clock');
+      const watchdog = INTRO_WATCHDOG_SECS;
+      if (!(watchdog > INTRO_SECS && watchdog <= INTRO_SECS + 3)) bad.push('the watchdog is ' + watchdog + ' s');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro gamepad (P18-60): a button already down when the card went up does not start it, a new press does, a press during the reveal skips it after the guard, and the menu below does not act on the pad while the intro runs', () => withSongAudio((audio) => {
+      const bad = [], keep = { own: Object.prototype.hasOwnProperty.call(navigator, 'getGamepads'), method: navigator.getGamepads, moveFocus: UI.moveFocus, current: UI.current, down: Inputs.menuDir.down, lastScreen: UI.lastScreen, frameCount: UI.frameCount, padPrev: Object.assign({}, UI.padPrev) };
+      let pressed = true;
+      navigator.getGamepads = () => [{ connected: true, axes: [0, 0], buttons: [{ pressed }, { pressed: false }] }];
+      try {
+        const card = introCard(audio);
+        Intro.padHeld = Intro.padState();
+        card.frames(0.5);
+        if (Intro.phase !== 'card') bad.push('a button held from before started the card');
+        pressed = false; card.frames(0.2); pressed = true; card.frames(0.1);
+        if (Intro.phase !== 'play' || Song.starts !== 1) bad.push('a pad press did not start the reveal (' + Intro.phase + ')');
+        let moved = 0;
+        UI.moveFocus = () => { moved++; }; UI.current = 'main'; Inputs.menuDir.down = true; UI.padPrev.down = false;
+        UI.update();
+        if (moved) bad.push('the menu moved its focus under the intro');
+        pressed = false; card.frames(0.5); Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10; pressed = true; card.frames(0.1);
+        if (Intro.phase !== 'off' || !Song.stopped) bad.push('a pad press did not skip the reveal');
+      } finally {
+        UI.moveFocus = keep.moveFocus; UI.current = keep.current; Inputs.menuDir.down = keep.down; UI.lastScreen = keep.lastScreen; UI.frameCount = keep.frameCount; Object.assign(UI.padPrev, keep.padPrev);
+        if (keep.own) navigator.getGamepads = keep.method; else delete navigator.getGamepads;
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro flags (P18-60): ?nointro (the Chrome gate and the tests use it) and a debug ?brawl show no intro; another name does not', () => withSongAudio(() => {
+      const bad = [];
+      for (const [where, hidden] of [['?nointro', true], ['?x=1&nointro', true], ['#nointro', true], ['?brawl=6', true], ['?brawl', true], ['?nointroduction', false], ['?introduction', false], ['', false]]) {
+        if (INTRO_FLAG.test(where) !== hidden) bad.push(where + (hidden ? ' does not hide' : ' hides') + ' the intro');
+        if (hidden && (Intro.init(where) || Intro.phase !== 'off')) bad.push(where + ' shows the intro');
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    // A recorder for the picture: the calls and property writes in order; text is measured as 0.6 of its font size per letter; a gradient takes colour stops
+    const introRecorder = () => {
+      const calls = [], props = {}, gradient = { addColorStop() {} };
+      const g = new Proxy({}, {
+        get(target, key) {
+          if (key in props) return props[key];
+          if (key === 'measureText') return (text) => ({ width: text.length * 0.6 * Number(/([\d.]+)px/.exec(props.font)[1]) });
+          if (key === 'createLinearGradient' || key === 'createRadialGradient') return (...args) => { calls.push([key, ...args]); return gradient; };
+          return (...args) => { calls.push([key, ...args, props.font]); };
+        },
+        set(target, key, value) { props[key] = value; calls.push(['set ' + key, value]); return true; },
+      });
+      return { g, calls };
+    };
+    test('Intro picture (P18-60): the picture is a function of the time: every number finite at 390x844 and 844x390 for all 6 s, the title inside the screen at both; a landing hits at its chord (scale, flash, dust), Reduced motion and Flashes Off show no slam, no shake, no flash and no dust and still show the title', () => {
+      const bad = [], full = { reduced: false, shake: true, flash: 1 };
+      for (const [w, h] of [[390, 844], [844, 390]]) {
+        for (let p = 0; p <= INTRO_SECS + 1e-9; p += 1 / 30) {
+          const { g, calls } = introRecorder();
+          introFrame(g, w, h, p, full);
+          if (calls.some((call) => call.some((arg) => typeof arg === 'number' && !Number.isFinite(arg)))) { bad.push(w + 'x' + h + ' has a number that is not finite at ' + p.toFixed(2) + ' s'); break; }
+        }
+        const { g, calls } = introRecorder();
+        introFrame(g, w, h, 5, full);
+        const words = calls.filter((call) => call[0] === 'fillText'), places = calls.filter((call) => call[0] === 'translate' && call[1] === w / 2);
+        if (words.length !== INTRO_WORDS.length) bad.push(w + 'x' + h + ' shows ' + words.length + ' words at 5 s');
+        words.forEach((word, i) => {
+          const size = Number(/([\d.]+)px/.exec(word[4])[1]), width = word[1].length * 0.6 * size;
+          if (width > w * 0.9 || !places[i] || places[i][2] - size / 2 < 0 || places[i][2] + size / 2 > h) bad.push(w + 'x' + h + ': ' + word[1] + ' is off the screen');
+        });
+      }
+      const at = INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.005, picture = (look, p) => { const { g, calls } = introRecorder(); introFrame(g, 844, 390, p, look); return calls; };
+      const set = (calls, name, value) => calls.some((call) => call[0] === 'set ' + name && call[1] === value);
+      const hit = picture(full, at);
+      if (!hit.some((call) => call[0] === 'scale' && call[1] > 1.5)) bad.push('the first word does not land big');
+      if (!set(hit, 'fillStyle', '#ffffff') || !set(hit, 'fillStyle', '#b8c4dc')) bad.push('a landing has no flash or no dust');
+      for (const [label, look] of [['Reduced motion', { reduced: true, shake: true, flash: 1 }], ['Flashes Off', { reduced: false, shake: true, flash: 0 }]]) {
+        const calls = picture(look, at);
+        if (set(calls, 'fillStyle', '#ffffff')) bad.push(label + ' still flashes');
+        if (look.reduced && (set(calls, 'fillStyle', '#b8c4dc') || calls.some((call) => call[0] === 'scale' && call[1] !== 1) || calls.some((call) => call[0] === 'translate' && call[1] !== 422))) bad.push(label + ' still has dust, a slam or a shake');
+      }
+      const fade = picture({ reduced: true, shake: true, flash: 1 }, 0.5).filter((call) => call[0] === 'fillText').length, later = picture({ reduced: true, shake: true, flash: 1 }, 3).filter((call) => call[0] === 'fillText').length;
+      if (fade !== 0 || later !== INTRO_WORDS.length) bad.push('Reduced motion does not fade the title in (' + fade + ' words at 0.5 s, ' + later + ' at 3 s)');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Intro timeline (P18-60): the title smashes in on the first two chords of the rhythm guitar and every impact of the picture lands on a step where the song has a drum hit or a chord; the reveal ends on the snare roll, six seconds (18 beats) in; only the biggest impacts flash', () => {
+      const bad = [], steps = new Set(songEvents().map((e) => e.step)), chords = songEvents().filter((e) => e.voice === 1 && e.chord).map((e) => e.step).slice(0, 2);
+      if (INTRO_WORDS.map(([, step]) => step).join() !== chords.join()) bad.push('the words land on steps ' + INTRO_WORDS.map(([, step]) => step) + ', the first chords are at ' + chords);
+      for (const [step] of INTRO_IMPACTS) if (!steps.has(step)) bad.push('an impact at step ' + step + ' has no drum hit or note');
+      for (const [step] of INTRO_CRACKS) if (!steps.has(step)) bad.push('a crack at step ' + step + ' has no drum hit or note');
+      if (Math.abs(INTRO_SECS - 18 * 60 / SONG_DATA.bpm) > 1e-9 || INTRO_SECS * 12 !== 72 || !songEvents().some((e) => e.voice === 0 && e.step === 71 && (e.mask & 2))) bad.push('the reveal does not end on the snare roll');
+      if (introPulse(0.5) !== 0 || !(introPulse(INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.001) > 0.9) || !(introPulse(1.5) < introPulse(INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.001))) bad.push('the impact does not hit and die away');
+      if (!(introPulse(5.5, 0.95) < 0.1)) bad.push('small impacts flash');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro overlay (P18-60): the card is built over the game: a dialog with the picture, the logo and the prompt, above the menu (z-index 35)', () => {
+      if (!hasLayoutEngine()) return 'skipped: no layout engine in the headless stub; a browser self-test builds the card';
+      const keep = { el: Intro.el, canvas: Intro.canvas, g: Intro.g }, bad = [];
+      try {
+        Intro.build();
+        const el = Intro.el, style = getComputedStyle(el);
+        if (el.getAttribute('role') !== 'dialog' || !el.querySelector('canvas') || !el.querySelector('h1.logo') || !/PRESS ANY KEY OR TAP TO START/.test(el.textContent)) bad.push('the card is missing its parts');
+        if (style.position !== 'absolute' || Number(style.zIndex) < 35) bad.push('the card is not over the menu: ' + style.position + ' z-index ' + style.zIndex);
+        const box = el.getBoundingClientRect(), app = document.getElementById('app').getBoundingClientRect();
+        if (Math.abs(box.width - app.width) > 1 || Math.abs(box.height - app.height) > 1) bad.push('the card does not cover the game');
+        el.remove();
+      } finally { if (Intro.el) Intro.el.remove(); Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
