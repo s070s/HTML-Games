@@ -4488,7 +4488,7 @@ function variant(baseId, id, name, anim, over) {
   delete row.cv; delete row.hitStop; // worked out again from the tier
   return defAttack(id, row);
 }
-variant('jab', 'body_hook', 'Body Hook', 'bodyHook', { h: 'M', startup: 7, active: 3, recovery: 11, dmg: 6, stam: 4, reach: 1.4, width: 0.55, push: 0.3, hitstun: 14, blockstun: 8 });
+variant('jab', 'body_hook', 'Body Hook', 'bodyHook', { h: 'M', startup: 6, active: 3, recovery: 13, dmg: 6, stam: 4, reach: 1.4, width: 0.55, push: 0.3, hitstun: 14, blockstun: 8 });
 variant('cross', 'bob_hook', 'Bob and Weave Hook', 'bobHook', { h: 'M', duck: true, startup: 8, active: 3, recovery: 17, dmg: 8, stam: 6, reach: 1.35, width: 0.7, push: 0.45, hitstun: 18, blockstun: 10 });
 variant('cross', 'lunge_punch', 'Step-In Punch', 'oi', { startup: 9, active: 3, recovery: 16, dmg: 8, stam: 5, reach: 1.4, width: 0.3, push: 0.5, step: 0.5, hitstun: 17, blockstun: 10 });
 variant('cross', 'backfist', 'Spinning Backfist', 'backfist', { startup: 11, active: 3, recovery: 16, dmg: 8, stam: 5, reach: 1.25, width: 0.8, push: 0.4, hitstun: 17, blockstun: 10 });
@@ -5060,7 +5060,7 @@ const MOVE_STYLE = {
     family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
-    aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0 jab@straight:1.25 cross@straight:1.25',
+    aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0',
     guardHands: 0.22, guardTight: 0.18, guardTwist: -0.1, guardLean: 0.06, guardCrouch: 0.15, guardWidth: -0.02, guardSplit: -0.04, guardTuck: 0.16,
     bounce: 0.024, bounceHz: 2.3, sway: 0.012, swayHz: 1.15, headBob: 0.09,
     punchHip: 1.25, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.35, kickChamber: 0.45, kickPivot: 0.3, kickLean: 0.08, kickSnap: 1.0,
@@ -5069,7 +5069,7 @@ const MOVE_STYLE = {
     family: 'clinch', moves: null, grab: 'thai', throws: 'front', defense: 'block', submit: [],
     signature: [['Switch Kick', 'switch_kick'], ['Spinning Backfist', 'backfist'], ['Heavy Round Kick', 'heavy_roundhouse'], ['Heavy Push Kick', 'heavy_front'], ['Counter Low Kick', 'counter_kick']],
     strings: 'jab teep cross switch_kick jab roundhouse hook heavy_front backfist heavy_uppercut power_jab heavy_roundhouse body_jab low_kick uppercut body_kick gut_punch heavy_body_kick',
-    aiw: 'switch_kick@switchKick:1.3 backfist@backfist:1.3 heavy_roundhouse@round:1.0 heavy_front@front:1.0',
+    aiw: 'switch_kick@switchKick:1.0 backfist@backfist:1.0 heavy_roundhouse@round:1.3 heavy_front@front:1.3',
     guardHands: 0.06, guardTight: 0.1, guardTwist: 0.02, guardLean: -0.03, guardCrouch: -0.03, guardWidth: 0, guardSplit: 0.11, guardTuck: 0.06,
     bounce: 0.014, bounceHz: 1.5, sway: 0.008, swayHz: 0.75, headBob: 0.03,
     punchHip: 1.1, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.15, kickChamber: 0.7, kickPivot: 0.55, kickLean: 0.22, kickSnap: 1.15,
@@ -5151,7 +5151,7 @@ const MOVE_STYLE = {
     family: 'throws', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'], hold: 'leg',
     signature: [['Sambo Hip Throw', 'throw:front.fwd'], ['Boot Kick', 'front_kick'], ['Leg Pick', 'leg_pick'], ['Leg Lock', 'hold'], ['Leg Hook Throw', 'throw:low.back']],
     strings: 'jab front_kick cross heavy_roundhouse jab foot_sweep hook heavy_front cross gut_punch hook sweep body_jab leg_pick uppercut foot_sweep gut_punch sweep',
-    aiw: 'front_kick@boot:1.0 leg_pick@legPick:1.0 heavy_front@boot:1.0',
+    aiw: 'front_kick@boot:1.15 leg_pick@legPick:1.15 heavy_front@boot:1.0',
     guardHands: 0.05, guardTight: -0.2, guardTwist: 0.3, guardLean: 0.06, guardCrouch: 0.12, guardWidth: 0.02, guardSplit: 0.06, guardTuck: -0.06,
     bounce: 0.006, bounceHz: 0.9, sway: 0.028, swayHz: 0.85, headBob: 0.02,
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
@@ -5196,7 +5196,7 @@ const MOVE_STYLE = {
     family: 'hybrid', grab: 'thai', throws: 'low', defense: 'block', submit: ['Armbar', 'Choke'], hold: 'mount',
     signature: [['Overhand', 'overhand'], ['Superman Punch', 'superman'], ['Oblique Kick', 'heavy_front'], ['Cage Takedown', 'throw:low.back'], ['Mount', 'hold']],
     strings: 'jab teep cross heavy_front jab roundhouse overhand heavy_front cross hook superman heavy_front body_jab low_kick uppercut body_kick gut_punch sweep',
-    aiw: 'overhand@overhand:1.45 superman@superman:1.45 heavy_front@oblique:1.0',
+    aiw: 'overhand@overhand:1.6 superman@superman:1.6 heavy_front@oblique:1.0',
     guardHands: 0.03, guardTight: 0.06, guardTwist: 0.04, guardLean: 0.1, guardCrouch: 0.19, guardWidth: 0.08, guardSplit: 0.04, guardTuck: 0.1,
     bounce: 0.016, bounceHz: 1.6, sway: 0.02, swayHz: 0.85, headBob: 0.05,
     punchHip: 1.15, punchPivot: 0.16, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.55, kickPivot: 0.45, kickLean: 0.14, kickSnap: 1.05,
