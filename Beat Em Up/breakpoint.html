@@ -424,6 +424,90 @@ const hexToRgb = (hex) => {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
 
+// Deterministic math for the simulation (P12-08, Appendix D J01): sin, cos, atan2, exp and hypot from + - * / sqrt and floor / round / abs only, which every engine computes bit for bit the same;
+// the library functions may differ in the last bit between Chromium, Firefox and WebKit, and a one-bit difference in a position or a yaw puts two online peers out of step. The simulation calls only these
+// (the test "Determinism: no transcendental Math call in the simulation" scans it); drawing, poses, the camera, sound and menus keep Math.*. Kernels and constants follow fdlibm (error under 1 ulp).
+const DMath = (() => {
+  const TWO_OVER_PI = 0.6366197723675814, HALF_PI = 1.5707963267948966, PI = 3.141592653589793, PI_LOW = 1.2246467991473532e-16;
+  const PIO2_1 = 1.57079632673412561417e+00, PIO2_2 = 6.07710050630396597660e-11, PIO2_3 = 2.02226624871116645580e-21; // pi / 2 in three pieces: n * piece is exact for n below 2^20
+  const S1 = -1.66666666666666324348e-01, S2 = 8.33333333332248946124e-03, S3 = -1.98412698298579493134e-04, S4 = 2.75573137070700676789e-06, S5 = -2.50507602534068634195e-08, S6 = 1.58969099521155010221e-10;
+  const C1 = 4.16666666666666019037e-02, C2 = -1.38888888888741095749e-03, C3 = 2.48015872894767294178e-05, C4 = -2.75573143513906633035e-07, C5 = 2.08757232129817482790e-09, C6 = -1.13596475577881948265e-11;
+  const ATAN_HI = [4.63647609000806093515e-01, 7.85398163397448278999e-01, 9.82793723247329054082e-01, 1.57079632679489655800e+00];
+  const ATAN_LO = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17];
+  const A0 = 3.33333333333329318027e-01, A1 = -1.99999999998764832476e-01, A2 = 1.42857142725034663711e-01, A3 = -1.11111104054623557880e-01, A4 = 9.09088713343650656196e-02, A5 = -7.69187620504482999495e-02;
+  const A6 = 6.66107313738753120669e-02, A7 = -5.83357013379057348645e-02, A8 = 4.97687799461593236017e-02, A9 = -3.65315727442169155270e-02, A10 = 1.62858201153657823623e-02;
+  const LN2_HI = 6.93147180369123816490e-01, LN2_LO = 1.90821492927058770002e-10, INV_LN2 = 1.44269504088896338700e+00, HALF_LN2 = 0.34657359027997264;
+  const P1 = 1.66666666666666019037e-01, P2 = -2.77777777770155933842e-03, P3 = 6.61375632143793436117e-05, P4 = -1.65339022054652515390e-06, P5 = 4.13813679705723846039e-08;
+  const kernelSin = (r) => { const z = r * r; return r + r * z * (S1 + z * (S2 + z * (S3 + z * (S4 + z * (S5 + z * S6))))); }; // r within -pi/4 .. pi/4
+  const kernelCos = (r) => { const z = r * r, half = 0.5 * z, w = 1 - half; return w + (((1 - w) - half) + z * z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))))); };
+  // The angle as n quarter turns plus a remainder r within -pi/4 .. pi/4; returns n, and leaves r in reduced
+  let reduced = 0;
+  const reduce = (x) => {
+    if (x > 1e6 || x < -1e6) x %= 6.283185307179586; // far outside any angle the game makes: stays exact and the same everywhere
+    const n = Math.round(x * TWO_OVER_PI);
+    reduced = ((x - n * PIO2_1) - n * PIO2_2) - n * PIO2_3;
+    return n;
+  };
+  const atanPositive = (x) => { // x >= 0 (may be Infinity)
+    let id = -1, t = x;
+    if (t >= 0.4375) {
+      if (t < 1.1875) { if (t < 0.6875) { id = 0; t = (2 * t - 1) / (2 + t); } else { id = 1; t = (t - 1) / (t + 1); } }
+      else if (t < 2.4375) { id = 2; t = (t - 1.5) / (1 + 1.5 * t); }
+      else { id = 3; t = -1 / t; }
+    } else if (t < 3.7252902984e-9) return x; // atan(x) = x to the last bit
+    const z = t * t, w = z * z;
+    const s1 = z * (A0 + w * (A2 + w * (A4 + w * (A6 + w * (A8 + w * A10)))));
+    const s2 = w * (A1 + w * (A3 + w * (A5 + w * (A7 + w * A9))));
+    if (id < 0) return t - t * (s1 + s2);
+    return ATAN_HI[id] - ((t * (s1 + s2) - ATAN_LO[id]) - t);
+  };
+  return {
+    // sqrt is exact in IEEE 754, so this is the same in every engine (Math.hypot is not)
+    hypot: (x, z) => Math.sqrt(x * x + z * z),
+    sin(x) {
+      if (x === 0) return x; // keeps the sign of -0, like Math.sin
+      const n = reduce(x), r = reduced, quarter = n & 3;
+      return quarter === 0 ? kernelSin(r) : quarter === 1 ? kernelCos(r) : quarter === 2 ? -kernelSin(r) : -kernelCos(r);
+    },
+    cos(x) {
+      const n = reduce(x), r = reduced, quarter = n & 3;
+      return quarter === 0 ? kernelCos(r) : quarter === 1 ? -kernelSin(r) : quarter === 2 ? -kernelCos(r) : kernelSin(r);
+    },
+    // The angle of the point (x, y) from the x axis, -pi .. pi, with the signs of Math.atan2 (including the signed zeros and infinities)
+    atan2(y, x) {
+      if (x !== x || y !== y) return NaN;
+      const yNeg = y < 0 || (y === 0 && 1 / y < 0), xNeg = x < 0 || (x === 0 && 1 / x < 0);
+      if (y === 0) return xNeg ? (yNeg ? -PI : PI) : y;
+      if (x === 0) return yNeg ? -HALF_PI : HALF_PI;
+      if (x === Infinity || x === -Infinity) {
+        if (y === Infinity || y === -Infinity) return (xNeg ? 3 : 1) * 0.7853981633974483 * (yNeg ? -1 : 1);
+        return xNeg ? (yNeg ? -PI : PI) : (yNeg ? -0 : 0);
+      }
+      if (y === Infinity || y === -Infinity) return yNeg ? -HALF_PI : HALF_PI;
+      const a = atanPositive(Math.abs(y / x));
+      if (!xNeg) return yNeg ? -a : a;
+      return yNeg ? (a - PI_LOW) - PI : PI - (a - PI_LOW);
+    },
+    // e to the x, the fdlibm way: x = k ln 2 + r, a polynomial for e^r, then k doublings
+    exp(x) {
+      if (x !== x) return NaN;
+      if (x > 709.782712893384) return Infinity;
+      if (x < -745.1332191019411) return 0;
+      let k = 0, hi = x, lo = 0;
+      const ax = x < 0 ? -x : x;
+      if (ax > HALF_LN2) {
+        k = Math.round(x * INV_LN2);
+        hi = x - k * LN2_HI; lo = k * LN2_LO;
+      } else if (ax < 3.725290298461914e-9) return 1 + x;
+      const r = hi - lo, t = r * r, c = r - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+      let y = k === 0 ? 1 - ((r * c) / (c - 2) - r) : 1 - ((lo - (r * c) / (2 - c)) - hi);
+      for (let i = k; i > 0; i--) y *= 2;
+      for (let i = k; i < 0; i++) y *= 0.5;
+      return y;
+    },
+  };
+})();
+
 // Deterministic generator (mulberry32). Simulation uses seeded RNG, visuals use Math.random.
 function makeRng(seed) {
   let s = seed >>> 0;
@@ -3706,11 +3790,11 @@ const Arena = {
   // R3, conducts: the conducting objects an arc at (x, z) of radius r energises: those touching its circle, then any within CONDUCT_GAP of one chained (at most CHAIN_MAX)
   linkConductors(x, z, r) {
     const pool = this.objects.filter((o) => MATERIALS[o.mat].cond && o.type !== 'deck'), chain = [];
-    for (const o of pool) if (chain.length < CHAIN_MAX && Math.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= r) chain.push(o);
+    for (const o of pool) if (chain.length < CHAIN_MAX && DMath.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= r) chain.push(o);
     for (let i = 0; i < chain.length; i++) for (const o of pool) if (chain.length < CHAIN_MAX && !chain.includes(o) && this.gap(chain[i], o) <= CONDUCT_GAP) chain.push(o);
     return chain;
   },
-  gap(a, b) { return Math.hypot(Math.max(Math.abs(a.x - b.x) - a.hx - b.hx, 0), Math.max(Math.abs(a.z - b.z) - a.hz - b.hz, 0)); }, // m between two footprints
+  gap(a, b) { return DMath.hypot(Math.max(Math.abs(a.x - b.x) - a.hx - b.hx, 0), Math.max(Math.abs(a.z - b.z) - a.hz - b.hz, 0)); }, // m between two footprints
   // persistent floor marks: at most MARK_MAX per level, the oldest record is reused
   mark(kind, x, z, hx, hz, y) {
     const k = this.marks.length >= MARK_MAX ? this.marks.shift() : {};
@@ -5957,7 +6041,7 @@ for (const id in WEAPONS) {
 }
 const WEAPON_STEPS = { light: 3, heavy: 2, two: 2, throwable: 1, carry: 0 }; // steps of the Punch string by class (the escrima stick gets a 4th for Kali fighters)
 const WEAPON_ARM = 0.8; // m: the fist's own reach, to which an item's reach is added
-const PICKUP_REACH = 1.0, PICKUP_FEET = 0.55, PICKUP_CONE_COS = Math.cos(70 * Math.PI / 180); // an item is in reach within 1.0 m in front, or at the feet (within 0.55 m, any side)
+const PICKUP_REACH = 1.0, PICKUP_FEET = 0.55, PICKUP_CONE_COS = DMath.cos(70 * Math.PI / 180); // an item is in reach within 1.0 m in front, or at the feet (within 0.55 m, any side)
 const PICKUP_TICKS = 14, PICKUP_TAKE_TICK = 9; // the grab lasts 14 ticks and the item is in the hand at tick 9: a hit before that cancels it
 const PICKUP_LOW_BELOW = 0.4, PICKUP_HIGH_FROM = 1.1; // item heights (m): floor grab below 0.4, waist grab to 1.1, high reach above
 const PICKUP_AROUND = 1.4, PICKUP_UP = 2.2, PICKUP_DOWN = 0.6, REACH_OVER = 1.2; // Use takes the nearest item within 1.4 m on any side, from 0.6 m below the feet to 2.2 m above them; a solid more than 1.2 m above both the fighter and the item hides it
@@ -5968,7 +6052,7 @@ const ITEM_FOOTING = 0.03; // m: a loose item rests on a table, crate or deck it
 const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3; // m/s (a crate and a skateboard are slower), release height (m; the same for every body: size is cosmetic)
 const THROW_LOCK_TICKS = 10, THROW_ANIM_TICKS = 14;
 const ITEM_BREAK_AHEAD = 0.3, ITEM_BREAK_HEIGHT = 1.2; // m: an item that wears out in the hand breaks this far in front of the fighter's centre and this high
-const BLIND_TICKS = 30, SPRAY_CHARGES = 3, SPRAY_RANGE = 2.0, SPRAY_CONE_COS = Math.cos(40 * Math.PI / 180), CLOUD_RADIUS = 1.6, CRATE_BURST_RADIUS = 1.1;
+const BLIND_TICKS = 30, SPRAY_CHARGES = 3, SPRAY_RANGE = 2.0, SPRAY_CONE_COS = DMath.cos(40 * Math.PI / 180), CLOUD_RADIUS = 1.6, CRATE_BURST_RADIUS = 1.1;
 const CARRY_WALK = 0.7; // walk speed share with a crate in the arms (no running)
 const HELD_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.SIDESTEP]; // calm states that show how an item is held and the throwing arm
 const SHATTER_STUN = 10; // extra hit-stun ticks of a bottle that shatters on a foe
@@ -6258,8 +6342,8 @@ class Fighter {
   get maxSteps() { return this.item && this.item.id === 'stick' && moveStyleFor(this.profile) === 'kali' ? STRING_MAX_STEPS + 1 : STRING_MAX_STEPS; }
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
   get airborne() { return this.y > this.groundY + 0.05; }
-  get fwdX() { return Math.sin(this.yaw); }
-  get fwdZ() { return Math.cos(this.yaw); }
+  get fwdX() { return DMath.sin(this.yaw); }
+  get fwdZ() { return DMath.cos(this.yaw); }
 
   // --- state machine
   setState(next) {
@@ -6292,7 +6376,7 @@ class Fighter {
   to(next) { if (this.state !== next) this.setState(next); }
   faceOpponent(opp, maxTurn) {
     if (!opp || this.blind > 0) return; // a blinded fighter cannot follow its foe
-    const want = Math.atan2(opp.x - this.x, opp.z - this.z);
+    const want = DMath.atan2(opp.x - this.x, opp.z - this.z);
     this.yaw = wrapAngle(this.yaw + clamp(wrapAngle(want - this.yaw), -maxTurn, maxTurn));
   }
 
@@ -6594,7 +6678,7 @@ class Fighter {
     let target = S.IDLE;
     if (it.defend && this.guardMode === 'block') target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH; // Block: standing = high + mid guard, Crouch + Defend = low guard; a Sway fighter has no hold-guard
     let fwd = it.fwd, side = it.side;
-    const mag = Math.hypot(fwd, side);
+    const mag = DMath.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
     const moving = mag > 0.12;
     if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0 && !this.carrying) ? S.RUN : S.WALK;
@@ -6798,7 +6882,7 @@ class Fighter {
     this.y += this.vy * dt;
     this.x += (this.vx + this.kx) * dt;
     this.z += (this.vz + this.kz) * dt;
-    const k = Math.exp(-(airborne ? AIR_DAMP : GROUND_DAMP) * dt);
+    const k = DMath.exp(-(airborne ? AIR_DAMP : GROUND_DAMP) * dt);
     this.kx *= k; this.kz *= k;
     if (Math.abs(this.kx) < 0.01) this.kx = 0;
     if (Math.abs(this.kz) < 0.01) this.kz = 0;
@@ -6850,8 +6934,8 @@ class Fighter {
   animate(dt) {
     this.animT += dt;
     const carried = this.state === S.CLINCH && this.partner && this.partner.throwPending;
-    if (!carried && this.liftY > 0) this.liftY = this.liftY < 0.002 ? 0 : this.liftY * Math.exp(-LIFT_DECAY * dt);
-    const sp = Math.hypot(this.vx, this.vz);
+    if (!carried && this.liftY > 0) this.liftY = this.liftY < 0.002 ? 0 : this.liftY * DMath.exp(-LIFT_DECAY * dt);
+    const sp = DMath.hypot(this.vx, this.vz);
     if (this.state === S.WALK || this.state === S.RUN || this.guardWalking()) { // the phase follows speed, so slower guard / crouch walks step slower
       const sign = this.vx * this.fwdX + this.vz * this.fwdZ >= -0.2 ? 1 : -1;
       this.walkPhase += sign * sp * dt * (this.state === S.RUN ? 2.4 : 3.4) / this.motion.stride; // longer strides = slower cadence
@@ -6875,7 +6959,7 @@ class Fighter {
   }
   // Crouching or guarding while the stick moves the fighter: the legs step instead of sliding
   guardWalking() {
-    return (this.state === S.CROUCH || this.state === S.BLOCK_H || this.state === S.BLOCK_L) && Math.hypot(this.vx, this.vz) > GUARD_WALK_SPEED;
+    return (this.state === S.CROUCH || this.state === S.BLOCK_H || this.state === S.BLOCK_L) && DMath.hypot(this.vx, this.vz) > GUARD_WALK_SPEED;
   }
   // Standing walk legs from the walk phase, on top of the current pose
   walkLegs(p, g, amp) {
@@ -7227,7 +7311,7 @@ class Fighter {
     for (const other of others) {
       if (other === this || other.alive === false) continue;
       const dx = other.x - this.x, dz = other.z - this.z;
-      if (other === this.target || (dx * fx + dz * fz > 0 && Math.abs(dx * fz - dz * fx) < STRIKE_LANE)) room = Math.min(room, Math.hypot(dx, dz) - STRIKE_ROOM);
+      if (other === this.target || (dx * fx + dz * fz > 0 && Math.abs(dx * fz - dz * fx) < STRIKE_LANE)) room = Math.min(room, DMath.hypot(dx, dz) - STRIKE_ROOM);
     }
     if (bounds) {
       if (Math.abs(fx) > 1e-6) room = Math.min(room, (fx > 0 ? bounds.x - this.radius - this.x : this.x + bounds.x - this.radius) / Math.abs(fx));
@@ -7701,7 +7785,7 @@ const Combat = {
     const w = WEAPONS[it.id], low = it.mode === 'slide';
     if (def.state !== (low ? S.BLOCK_L : S.BLOCK_H) || def.fwdX * -it.vx + def.fwdZ * -it.vz <= 0) return false;
     const perfect = def.blockFresh && def.stateTicks <= PERFECT_BLOCK_TICKS, shield = !!def.item && def.item.id === 'binlid';
-    const dirx = it.vx / (Math.hypot(it.vx, it.vz) || 1), dirz = it.vz / (Math.hypot(it.vx, it.vz) || 1);
+    const dirx = it.vx / (DMath.hypot(it.vx, it.vz) || 1), dirz = it.vz / (DMath.hypot(it.vx, it.vz) || 1);
     if (!perfect && !shield) def.stam = Math.max(0, def.stam - w.thrown * 0.9 * (1 + 0.15 * def.guardPressure) * def.stats.taken * def.stats.guard * WEAPON_BLOCK_COST);
     if (shield && --def.item.dur <= 0) match.breakHeld(def);
     if (perfect) def.counterWindow = COUNTER_WINDOW_PERFECT; else { def.guardPressure++; def.noRegen = Math.round(GUARD_NO_REGEN * def.stats.edge.delay); }
@@ -7713,7 +7797,7 @@ const Combat = {
   },
   // A thrown item meets a fighter (MatchSim.stepItems decides who and when). Thrown damage, no block or sway (the caller skips i-frames).
   itemHit(it, def, match) {
-    const w = WEAPONS[it.id], att = it.owner, speed = Math.hypot(it.vx, it.vz) || 1, dirx = it.vx / speed, dirz = it.vz / speed;
+    const w = WEAPONS[it.id], att = it.owner, speed = DMath.hypot(it.vx, it.vz) || 1, dirx = it.vx / speed, dirz = it.vz / speed;
     const head = w.sp === 'head' && it.y - def.y >= (def.state === S.CROUCH || def.state === S.BLOCK_L ? HEAD_CROUCH : HEAD_STAND);
     const kind = w.sp === 'crate' || w.sp === 'trip' || head ? 'knockdown' : 'hit';
     const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: kind === 'knockdown' ? 3 : 2, cat: w.cls === 'carry' || w.sp === 'head' ? 'heavy' : 'punch', h: w.sp === 'trip' ? 'L' : 'M', kind, hitStop: kind === 'knockdown' ? 9 : 6 };
@@ -7744,7 +7828,7 @@ const Combat = {
 
   // A thrown fighter meets another fighter (MatchSim.stepBodies decides who and when). No block or sway, like a thrown item. Standing: a knockdown from BODY_KNOCKDOWN_POWER up, a stagger below it; lying: the damage only. The damage is the thrower's, so the combo, momentum and a knock-out are credited to the thrower.
   bodyHit(body, def, match) {
-    const att = body.bodyBy, speed = Math.hypot(body.kx, body.kz) || 1, dirx = body.kx / speed, dirz = body.kz / speed;
+    const att = body.bodyBy, speed = DMath.hypot(body.kx, body.kz) || 1, dirx = body.kx / speed, dirz = body.kz / speed;
     const power = speed * (BODY_WEIGHT_BASE + BODY_WEIGHT_STEP * body.weight);
     const lying = def.state === S.DOWN, knock = !lying && power >= BODY_KNOCKDOWN_POWER;
     const mv = { id: 'body_throw', name: 'Thrown body', tier: knock ? 3 : 2, cat: 'heavy', h: 'M', kind: knock ? 'knockdown' : 'stagger', hitStop: knock ? 9 : 6 };
@@ -7886,7 +7970,7 @@ const Combat = {
   },
   // Rear grip when the defender's back is turned, low grip when either fighter is crouched, otherwise front
   gripFor(att, def) {
-    const dx = def.x - att.x, dz = def.z - att.z, dist = Math.hypot(dx, dz) || 1;
+    const dx = def.x - att.x, dz = def.z - att.z, dist = DMath.hypot(dx, dz) || 1;
     const facingAway = (def.fwdX * dx + def.fwdZ * dz) / dist > REAR_GRIP_DOT;
     if (facingAway) return 'rear';
     if (att.grabLow || def.state === S.CROUCH || def.state === S.BLOCK_L) return 'low';
@@ -7967,7 +8051,7 @@ const Combat = {
   escapeClinch(def, att, match) {
     att.throwPending = null;
     def.stam = Math.max(0, def.stam - 6);
-    const dx = def.x - att.x, dz = def.z - att.z, l = Math.hypot(dx, dz) || 1;
+    const dx = def.x - att.x, dz = def.z - att.z, l = DMath.hypot(dx, dz) || 1;
     def.reactDur = 16; att.reactDur = 16; def.hitKind = 'mid'; att.hitKind = 'mid';
     def.partner = null; att.partner = null;
     def.setState(S.HIT); att.setState(S.HIT); def.hitAt = att.hitAt = -99;
@@ -7975,7 +8059,7 @@ const Combat = {
     Events.emit('escape', { def, att, x: (def.x + att.x) / 2, y: def.y + 1.1, z: (def.z + att.z) / 2 });
   },
   releaseClinch(att, def) {
-    const dx = def.x - att.x, dz = def.z - att.z, l = Math.hypot(dx, dz) || 1;
+    const dx = def.x - att.x, dz = def.z - att.z, l = DMath.hypot(dx, dz) || 1;
     att.partner = null; def.partner = null; att.throwPending = null;
     att.setState(S.IDLE); def.setState(S.IDLE);
     att.lock = 12;
@@ -7987,15 +8071,15 @@ const Combat = {
     if (!match.live || !def || att === def || !styleCanSubmit(att.profile)) return false;
     if (!att.alive || att.airborne || att.stam < SUBMIT_MIN_STAMINA || att.pinnedBy || att.partner) return false;
     if (def.state !== S.DOWN || def.pinnedBy || def.submitDone || !def.alive) return false; // a hold is joined by nobody: the victim is taken, once per knockdown
-    return Math.hypot(def.x - att.x, def.z - att.z) <= SUBMIT_RANGE && Math.abs(def.y - att.y) < SUBMIT_LEVEL_GAP;
+    return DMath.hypot(def.x - att.x, def.z - att.z) <= SUBMIT_RANGE && Math.abs(def.y - att.y) < SUBMIT_LEVEL_GAP;
   },
   startSubmission(att, def, match) {
     if (!att.setState(S.SUBMIT)) return false;
     att.partner = def; def.pinnedBy = att; def.submitDone = true;
     att.holdTicks = 0; att.holdContest = 0; att.holdDamage = 0; att.holdHp = att.hp;
-    const dx = att.x - def.x, dz = att.z - def.z, l = Math.hypot(dx, dz) || 1;
+    const dx = att.x - def.x, dz = att.z - def.z, l = DMath.hypot(dx, dz) || 1;
     att.x = def.x + dx / l * SUBMIT_GAP; att.z = def.z + dz / l * SUBMIT_GAP;
-    att.yaw = Math.atan2(-dx, -dz);
+    att.yaw = DMath.atan2(-dx, -dz);
     att.vx = att.vz = att.kx = att.kz = def.vx = def.vz = def.kx = def.kz = 0;
     Events.emit('submission', { att, def, x: def.x, y: def.y + 0.6, z: def.z });
     return true;
@@ -8016,7 +8100,7 @@ const Combat = {
     if (att.state === S.SUBMIT) { att.setState(S.IDLE); att.lock = SUBMIT_AFTER_LOCK; }
   },
   escapeSubmission(def, att) {
-    const dx = att.x - def.x, dz = att.z - def.z, l = Math.hypot(dx, dz) || 1;
+    const dx = att.x - def.x, dz = att.z - def.z, l = DMath.hypot(dx, dz) || 1;
     Events.emit('submissionEscape', { att, def, x: (def.x + att.x) / 2, y: def.y + 0.6, z: (def.z + att.z) / 2 });
     this.dropSubmission(att, 'escape');
     def.quickRise = true;
@@ -8039,7 +8123,7 @@ const Combat = {
   // --- heavy tackle: called for each ordered pair after movement, before the bodies are pushed apart
   tackle(att, def, match) {
     if (att.state !== S.RUN || att.tackleUsed || !match.live || att.weight - def.weight < TACKLE_MIN_GAP || att.y - att.groundY > 0.3 || Math.abs(def.groundY - att.groundY) > GRAB_LEDGE) return;
-    const dx = def.x - att.x, dz = def.z - att.z, dist = Math.hypot(dx, dz);
+    const dx = def.x - att.x, dz = def.z - att.z, dist = DMath.hypot(dx, dz);
     if (dist > att.radius + def.radius + TACKLE_REACH || att.vx * dx + att.vz * dz <= 0) return; // body contact, moving into the target
     att.tackleUsed = true; // the first contact of a run decides it, whatever the answer
     if (TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state) || def.invuln > 0 || def.y - def.groundY > 0.5) return;
@@ -8082,7 +8166,7 @@ const Combat = {
   impactCheck(f, match) {
     const flying = f.state === S.THROWN || f.state === S.KO || f.state === S.HIT || f.state === S.STAGGER;
     if (!flying) return;
-    const speed = Math.hypot(f.kx, f.kz);
+    const speed = DMath.hypot(f.kx, f.kz);
     const need = f.state === S.THROWN || f.state === S.KO ? 3.0 : 5.5;
     if (speed < need || match.tick - f.lastImpactTick < 14) return;
     if (f.hazardTouch) { // knocked into a hazard's post: it goes off
@@ -9181,7 +9265,7 @@ class AIController {
     let best = null, bestDist = AI_PICKUP_RANGE;
     for (const loose of match.items) {
       if (loose.mode !== 'rest' || Math.abs(loose.y - f.groundY) >= PICKUP_LOW_BELOW || !this.wantsItem(f, loose)) continue; // the CPU walks to floor items only: it turns toward its target, not toward a rack
-      const gap = Math.hypot(loose.x - f.x, loose.z - f.z);
+      const gap = DMath.hypot(loose.x - f.x, loose.z - f.z);
       if (gap < bestDist && gap < dist) { bestDist = gap; best = loose; }
     }
     return best ? { kind: 'pickup', ticks: 90, item: best } : null;
@@ -9221,7 +9305,7 @@ class AIController {
     if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null; // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once
     let best = null, spot = null, bestGap = AI_HAZARD_BAIT_RANGE;
     for (const h of match.hazards) { // the nearest idle strike hazard that has a spot to wait at
-      const gap = Math.hypot(h.x - f.x, h.z - f.z);
+      const gap = DMath.hypot(h.x - f.x, h.z - f.z);
       if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || h.def.douse || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
       const at = this.baitSpot(f, opp, h);
       if (at) { bestGap = gap; best = h; spot = at; }
@@ -9236,10 +9320,10 @@ class AIController {
   baitSpot(f, opp, h) {
     const def = h.def, away = (def.r || def.len / 2) + AI_HAZARD_PAD + 0.2, cx = h.x + (def.shape === 'cone' ? h.fx * def.len / 2 : 0), cz = h.z + (def.shape === 'cone' ? h.fz * def.len / 2 : 0);
     let ux = cx - opp.x, uz = cz - opp.z;
-    const len = Math.hypot(ux, uz) || 1;
+    const len = DMath.hypot(ux, uz) || 1;
     ux /= len; uz /= len;
     for (let k = 0; k < 8; k++) {
-      const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
+      const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = DMath.cos(turn), sin = DMath.sin(turn);
       const x = cx + (ux * cos - uz * sin) * away, z = cz + (ux * sin + uz * cos) * away;
       if (Arena.outside(x, z, f.radius) || (Arena.ringOut && !Arena.inRing(x, z)) || Arena.blockedAt(x, z, f.radius, f.groundY) || this.hazardWouldReach(h, x, z)) continue;
       if (!this.match.hazards.some((other) => other.def.dmg > 0 && !other.def.shard && this.match.hazardCoversPad(other, x, z, AI_HAZARD_PAD))) return { x, z }; // and not in the zone of any hazard
@@ -9252,11 +9336,11 @@ class AIController {
     if (!match || !match.hazards.length || (!moving && !pressing) || !(FREE_SET.includes(f.state) || f.state === S.ATTACK)) return;
     const fx = f.fwdX, fz = f.fwdZ, free = moving && FREE_SET.includes(f.state);
     let dx = free ? fx * it.fwd - fz * it.side : fx, dz = free ? fz * it.fwd + fx * it.side : fz;
-    const len = Math.hypot(dx, dz) || 1;
+    const len = DMath.hypot(dx, dz) || 1;
     dx = clamp(f.x + dx / len * AI_HAZARD_AHEAD, Arena.ax0 + f.radius, Arena.ax1 - f.radius); dz = clamp(f.z + dz / len * AI_HAZARD_AHEAD, Arena.az0 + f.radius, Arena.az1 - f.radius); // a step into a wall is a creep along it: look at where the body will really be
     if (pressing) { // no blows beside an electric panel from inside its arc (1.2 m, farther than any blow reaches): a hit on it would shock the CPU itself
       for (const h of match.hazards) {
-        if (h.post && h.type === 'panel' && h.state === 'idle' && match.hazardCovers(h, f.x, f.z) && Math.hypot(h.tx - f.x, h.tz - f.z) < AI_HAZARD_POST_NEAR) { it.punch = it.kick = it.grapple = false; break; }
+        if (h.post && h.type === 'panel' && h.state === 'idle' && match.hazardCovers(h, f.x, f.z) && DMath.hypot(h.tx - f.x, h.tz - f.z) < AI_HAZARD_POST_NEAR) { it.punch = it.kick = it.grapple = false; break; }
       }
     }
     for (const h of match.hazards) {
@@ -9286,11 +9370,11 @@ class AIController {
   hazardExit(f, h) {
     const match = this.match;
     let ax = f.x - h.x, az = f.z - h.z;
-    const len = Math.hypot(ax, az);
+    const len = DMath.hypot(ax, az);
     if (len < 0.05) { ax = h.fx; az = h.fz; } else { ax /= len; az /= len; }
     for (let r = 0.6; r <= 3; r += 0.6) {
       for (let k = 0; k < 8; k++) { // straight away from the centre first, then round the circle
-        const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
+        const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = DMath.cos(turn), sin = DMath.sin(turn);
         const x = f.x + (ax * cos - az * sin) * r, z = f.z + (ax * sin + az * cos) * r;
         if (Arena.outside(x, z, f.radius) || Arena.blockedAt(x, z, f.radius, f.groundY) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
         return { x, z };
@@ -9302,14 +9386,14 @@ class AIController {
   hazardWouldReach(h, x, z) {
     const match = this.match;
     if (h.def.spill) {
-      const dx = h.tx - x, dz = h.tz - z, len = Math.hypot(dx, dz) || 1, cx = h.tx + dx / len * h.def.spill, cz = h.tz + dz / len * h.def.spill;
-      if (Math.hypot(x - cx, z - cz) <= h.def.r + AI_HAZARD_PAD) return true;
+      const dx = h.tx - x, dz = h.tz - z, len = DMath.hypot(dx, dz) || 1, cx = h.tx + dx / len * h.def.spill, cz = h.tz + dz / len * h.def.spill;
+      if (DMath.hypot(x - cx, z - cz) <= h.def.r + AI_HAZARD_PAD) return true;
     } else if (match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) return true;
     return match.hazards.some((other) => (other.state === 'warn' || other.state === 'active') && other.def.dmg > 0 && !other.def.shard && match.hazardCoversPad(other, x, z, AI_HAZARD_PAD));
   }
   // Whether a strike by f from (sx, sz) with move mv, facing the target, has its hit sphere on the post c (the sphere is centred 0.8 of the move's reach in front, Combat.hitObjects; the post's height is checked)
   strikeOnPost(f, sx, sz, opp, mv, c) {
-    const reach = mv.reach * f.stats.reach * 0.8, fx = opp.x - sx, fz = opp.z - sz, fl = Math.hypot(fx, fz) || 1, hx = sx + fx / fl * reach, hz = sz + fz / fl * reach;
+    const reach = mv.reach * f.stats.reach * 0.8, fx = opp.x - sx, fz = opp.z - sz, fl = DMath.hypot(fx, fz) || 1, hx = sx + fx / fl * reach, hz = sz + fz / fl * reach;
     const cy = mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35, dx = hx - clamp(hx, c.x - c.hx, c.x + c.hx), dz = hz - clamp(hz, c.z - c.hz, c.z + c.hz);
     return cy - HAZARD_STRIKE_R <= c.top + 0.1 && dx * dx + dz * dz <= (HAZARD_STRIKE_R - 0.03) * (HAZARD_STRIKE_R - 0.03);
   }
@@ -9318,17 +9402,17 @@ class AIController {
     const c = h.post, picks = this.reachable(f);
     if (h.type === 'standard') picks.sort((p, q) => q.mv.dmg - p.mv.dmg); // R9: a scaffold standard takes several blows: the hardest move that reaches it
     let ux = c.x - opp.x, uz = c.z - opp.z;
-    const len = Math.hypot(ux, uz) || 1;
+    const len = DMath.hypot(ux, uz) || 1;
     ux /= len; uz /= len;
     let detour = null; // the best spot whose straight walk is blocked by scenery (the steering goes round it): used when no clear one exists
     for (const turn of [0, 0.9, -0.9, 1.8, -1.8, 2.7, -2.7, Math.PI]) {
-      const cos = Math.cos(turn), sin = Math.sin(turn);
+      const cos = DMath.cos(turn), sin = DMath.sin(turn);
       for (const pick of picks) {
         const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
         const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
         if (Arena.outside(sx, sz, f.radius) || (Arena.ringOut && !Arena.inRing(sx, sz)) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
         const walkX = sx - f.x, walkZ = sz - f.z, along = clamp(((opp.x - f.x) * walkX + (opp.z - f.z) * walkZ) / (walkX * walkX + walkZ * walkZ || 1), 0, 1);
-        if (Math.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue; // the walk to the spot would run into the target, or the strike would miss
+        if (DMath.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue; // the walk to the spot would run into the target, or the strike would miss
         if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3, f.groundY)) return { x: sx, z: sz, pick };
         if (!detour) detour = { x: sx, z: sz, pick };
       }
@@ -9347,7 +9431,7 @@ class AIController {
     let best = null, bestGap = Infinity;
     for (const h of this.match.hazards) {
       const spot = this.hazardLureSpot(f, opp, h);
-      const gap = spot ? Math.hypot(spot.x - f.x, spot.z - f.z) : Infinity;
+      const gap = spot ? DMath.hypot(spot.x - f.x, spot.z - f.z) : Infinity;
       if (gap < bestGap) { bestGap = gap; best = Object.assign(spot, { h }); }
     }
     return best;
@@ -9357,16 +9441,16 @@ class AIController {
     const c = this.hazardObstacle(h);
     if (!c) return null;
     let wx = clamp(opp.x, c.x - c.hx, c.x + c.hx) - opp.x, wz = clamp(opp.z, c.z - c.hz, c.z + c.hz) - opp.z;
-    const gap = Math.hypot(wx, wz);
+    const gap = DMath.hypot(wx, wz);
     if (gap > AI_HAZARD_RANGE) return null;
     if (gap < 0.05) { wx = c.x - opp.x; wz = c.z - opp.z; }
-    const len = Math.hypot(wx, wz);
+    const len = DMath.hypot(wx, wz);
     if (len < 0.05) return null;
     wx /= len; wz /= len;
     let best = null, bestDist = Infinity;
     for (const dir of THROW_DIRS) {
       const px = dir === 'fwd' ? wx : dir === 'back' ? -wx : dir === 'left' ? -wz : wz, pz = dir === 'fwd' ? wz : dir === 'back' ? -wz : dir === 'left' ? wx : -wx; // f's facing: the throw vector then equals w
-      const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = Math.hypot(sx - f.x, sz - f.z);
+      const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = DMath.hypot(sx - f.x, sz - f.z);
       if (dist >= bestDist || Arena.outside(sx, sz, f.radius) || (Arena.ringOut && !Arena.inRing(sx, sz)) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
       bestDist = dist; best = { x: sx, z: sz, dir };
     }
@@ -9377,11 +9461,11 @@ class AIController {
     let best = null, bestGap = 0.55;
     for (const h of this.match.hazards) {
       const c = this.hazardObstacle(h);
-      if (!c || Math.hypot(Math.max(Math.abs(opp.x - c.x) - c.hx, 0), Math.max(Math.abs(opp.z - c.z) - c.hz, 0)) > AI_HAZARD_RANGE) continue;
+      if (!c || DMath.hypot(Math.max(Math.abs(opp.x - c.x) - c.hx, 0), Math.max(Math.abs(opp.z - c.z) - c.hz, 0)) > AI_HAZARD_RANGE) continue;
       for (const dir of THROW_DIRS) {
         const v = Combat.throwVector(f, dir);
         let gap = Infinity;
-        for (let d = 0.5; d <= 3.01; d += 0.5) gap = Math.min(gap, Math.hypot(Math.max(Math.abs(opp.x + v[0] * d - c.x) - c.hx, 0), Math.max(Math.abs(opp.z + v[1] * d - c.z) - c.hz, 0)));
+        for (let d = 0.5; d <= 3.01; d += 0.5) gap = Math.min(gap, DMath.hypot(Math.max(Math.abs(opp.x + v[0] * d - c.x) - c.hx, 0), Math.max(Math.abs(opp.z + v[1] * d - c.z) - c.hz, 0)));
         if (gap < bestGap) { bestGap = gap; best = { dir, kind: 'hazard' }; }
       }
     }
@@ -9394,7 +9478,7 @@ class AIController {
     if (p.mode === 'bait') { // the CPU waits only while the target is on its way
       if (this.match.hazardAimIn(h, opp)) { // the target followed: strike the post
         p.mode = 'strike'; p.look = 0;
-      } else if (!p.arrived && Math.hypot(opp.x - f.x, opp.z - f.z) < MAX_STAND_REACH * opp.stats.reach + f.radius + AI_BAIT_BLOW_MARGIN) { this.hazardWait = 0; this.plan = null; return; } // the target catches the CPU on its way, within blow range: no bait, fight (strike and lure may start at once; a hit also ends a plan, see chooseIntent)
+      } else if (!p.arrived && DMath.hypot(opp.x - f.x, opp.z - f.z) < MAX_STAND_REACH * opp.stats.reach + f.radius + AI_BAIT_BLOW_MARGIN) { this.hazardWait = 0; this.plan = null; return; } // the target catches the CPU on its way, within blow range: no bait, fight (strike and lure may start at once; a hit also ends a plan, see chooseIntent)
     }
     if (p.stage === 'go') {
       if (p.gap > 0) { p.gap--; return; }
@@ -9405,10 +9489,10 @@ class AIController {
         p.x = next.x; p.z = next.z; p.pick = next.pick || null; p.dir = next.dir || '';
       }
       const dx = p.x - f.x, dz = p.z - f.z;
-      if (Math.hypot(dx, dz) > AI_HAZARD_SPOT / (1 + (p.miss || 0))) { this.moveToward(f, it, dx, dz, false); return; } // each blow that missed the post narrows the arrival radius, so the CPU steps up to the exact spot
+      if (DMath.hypot(dx, dz) > AI_HAZARD_SPOT / (1 + (p.miss || 0))) { this.moveToward(f, it, dx, dz, false); return; } // each blow that missed the post narrows the arrival radius, so the CPU steps up to the exact spot
       if (p.mode === 'bait') { // waits at the bait spot for the target to come through the zone, on guard while it is near
         p.arrived = true;
-        const near = Math.hypot(opp.x - f.x, opp.z - f.z) < AI_BAIT_GUARD;
+        const near = DMath.hypot(opp.x - f.x, opp.z - f.z) < AI_BAIT_GUARD;
         if (near && f.defense === 'sway') { this.hazardWait = 0; this.plan = null; } // no hold-guard for a sway fighter: it fights from here (strike and lure may start at once)
         else it.defend = near;
         return;
@@ -9416,7 +9500,7 @@ class AIController {
       p.stage = 'press';
     }
     if (p.mode === 'lure') {
-      if (!this.inRange(f, ATTACKS.grab, Math.hypot(opp.x - f.x, opp.z - f.z))) { this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); return; }
+      if (!this.inRange(f, ATTACKS.grab, DMath.hypot(opp.x - f.x, opp.z - f.z))) { this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); return; }
       it.grapple = true; this.lureDir = p.dir; this.lureUntil = this.tickNo + AI_HAZARD_LURE_TICKS;
     } else {
       if (!this.strikeOnPost(f, f.x, f.z, opp, p.pick.mv, h.post) || this.hazardWouldReach(h, f.x, f.z)) { p.stage = 'go'; p.look = 0; p.miss = (p.miss || 0) + 1; return; } // not there yet: look again
@@ -9427,7 +9511,7 @@ class AIController {
   }
   // True while the target is coming for this fighter: it attacks, or closes in on it faster than RING_CHASE_SPEED.
   pressedBy(f, opp) {
-    const dx = f.x - opp.x, dz = f.z - opp.z, away = Math.hypot(dx, dz) || 1;
+    const dx = f.x - opp.x, dz = f.z - opp.z, away = DMath.hypot(dx, dz) || 1;
     return opp.state === S.ATTACK || (opp.vx * dx + opp.vz * dz) / away > RING_CHASE_SPEED;
   }
   // A waiting fighter's decision: walk to its ring spot (the outer edge when retreating), or wait there, shuffle, feint a step in, or guard. It never attacks.
@@ -9436,7 +9520,7 @@ class AIController {
     const pickup = this.considerPickup(f, opp, dist);
     if (pickup) return pickup;
     if (!c.retreat[i] && dist <= c.reachDistance(opp) && this.pressedBy(f, opp)) return { kind: 'stand', ticks: d.interval }; // the target came to it: stand its ground (it still blocks what it sees coming, but it neither attacks nor keeps its guard up) instead of backing off
-    if (Math.hypot(c.slotX[i] - f.x, c.slotZ[i] - f.z) > RING_DEADBAND) return { kind: 'ring', ticks: d.interval };
+    if (DMath.hypot(c.slotX[i] - f.x, c.slotZ[i] - f.z) > RING_DEADBAND) return { kind: 'ring', ticks: d.interval };
     if (c.retreat[i]) return { kind: 'ring', ticks: d.interval }; // resting at the outer edge
     const roll = simRng();
     if (roll < RING_FEINT_CHANCE * d.aggression) return { kind: 'feint', ticks: RING_FEINT_TICKS, t: 0 };
@@ -9448,30 +9532,30 @@ class AIController {
   ringStep(f, it, opp) {
     const c = this.crowd, i = f.index, fighters = c.match.fighters;
     let spotX = c.slotX[i], spotZ = c.slotZ[i];
-    const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    const dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
     if (!c.retreat[i] && dist < c.ringRadius(opp) - RING_DEADBAND && this.pressedBy(f, opp)) {
       const own = dist; // keep the distance it has: never pushed back out to the reach line
-      spotX = opp.x + Math.cos(c.slotAngle[i]) * own; spotZ = opp.z + Math.sin(c.slotAngle[i]) * own;
+      spotX = opp.x + DMath.cos(c.slotAngle[i]) * own; spotZ = opp.z + DMath.sin(c.slotAngle[i]) * own;
     }
     let dx = spotX - f.x, dz = spotZ - f.z;
-    const gap = Math.hypot(dx, dz);
+    const gap = DMath.hypot(dx, dz);
     let px = 0, pz = 0;
     for (let j = 0; j < fighters.length; j++) {
       const other = fighters[j];
       if (j === i || !other.alive || other.team !== f.team) continue;
-      const ox = f.x - other.x, oz = f.z - other.z, away = Math.hypot(ox, oz);
+      const ox = f.x - other.x, oz = f.z - other.z, away = DMath.hypot(ox, oz);
       if (away >= RING_SPACING || away < 1e-4) continue;
       const w = (RING_SPACING - away) / RING_SPACING;
       px += ox / away * w; pz += oz / away * w;
     }
-    if (gap <= RING_DEADBAND && Math.hypot(px, pz) < 0.05) return;
+    if (gap <= RING_DEADBAND && DMath.hypot(px, pz) < 0.05) return;
     if (gap > RING_DEADBAND) { dx /= gap; dz /= gap; } else { dx = 0; dz = 0; } // inside the deadband only the push from a neighbour moves it
     this.moveToward(f, it, dx + px * RING_PUSH, dz + pz * RING_PUSH, false);
   }
   observe(f, opp) {
     const s = this.hist[this.head];
     const mv = opp.move;
-    s.dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    s.dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
     s.state = opp.state; s.moveId = opp.moveId; s.y = opp.y - f.groundY; // the foe's feet above the CPU's own footing
     s.mvType = mv ? mv.type : ''; s.mvH = mv ? mv.h : ''; s.mvReach = mv ? mv.reach * opp.stats.reach : 0; s.mvWidth = mv ? mv.width : 0;
     s.moveTick = opp.moveTick; s.startup = opp.mStartup; s.active = opp.mActive; s.total = opp.mStartup + opp.mActive + opp.mRecovery + opp.whiffExtra;
@@ -9501,13 +9585,13 @@ class AIController {
   }
   // Steer around solid obstacles and hazard zones that are on: rotate the desired heading until the short path ahead is clear
   steer(f, dx, dz) {
-    const len = Math.hypot(dx, dz) || 1;
+    const len = DMath.hypot(dx, dz) || 1;
     dx /= len; dz /= len;
     const r = 0.3, look = 1.7, blocked = (x, z) => Arena.pathBlocked(f.x, f.z, x, z, r, f.groundY) || this.zoneOnTheWay(f, x, z);
     if (!blocked(f.x + dx * look, f.z + dz * look)) return [dx, dz];
     for (const a of [0.7, 1.4, 2.1]) {
       for (const sgn of [this.steerSide, -this.steerSide]) {
-        const c = Math.cos(a * sgn), s = Math.sin(a * sgn);
+        const c = DMath.cos(a * sgn), s = DMath.sin(a * sgn);
         const nx = dx * c - dz * s, nz = dx * s + dz * c;
         if (!blocked(f.x + nx * look, f.z + nz * look)) { this.steerSide = sgn; return [nx, nz]; }
       }
@@ -9524,7 +9608,7 @@ class AIController {
 
   // True when a move of `look` metres along (dx, dz) from f would leave it with a drop deeper than FALL_STATE_DROP under its feet
   dropAhead(f, dx, dz, look) { // the deepest drop past FALL_STATE_DROP along the probe, or 0
-    const len = Math.hypot(dx, dz);
+    const len = DMath.hypot(dx, dz);
     if (len < 1e-6) return 0;
     let deepest = 0;
     for (let i = 1; i <= 3; i++) {
@@ -9556,7 +9640,7 @@ class AIController {
   holdAtRing(f, it) {
     if (!Arena.ringOut || !f.alive || f.airborne || !FREE_SET.includes(f.state)) return;
     const fx = f.fwdX, fz = f.fwdZ, rx = -fz, rz = fx;
-    const leaves = (ax, az, look) => { const len = Math.hypot(ax, az); return len > 1e-6 && !Arena.inRing(f.x + ax / len * look, f.z + az / len * look); };
+    const leaves = (ax, az, look) => { const len = DMath.hypot(ax, az); return len > 1e-6 && !Arena.inRing(f.x + ax / len * look, f.z + az / len * look); };
     const dx = fx * it.fwd + rx * it.side, dz = fz * it.fwd + rz * it.side;
     if ((it.fwd !== 0 || it.side !== 0) && leaves(dx, dz, it.run ? AI_RING_LOOK_RUN : AI_RING_LOOK)) { it.fwd = 0; it.side = 0; it.run = false; }
     if (it.sidestep && leaves(rx * it.sidestep, rz * it.sidestep, AI_RING_LOOK_SIDESTEP)) it.sidestep = 0;
@@ -9567,11 +9651,11 @@ class AIController {
   // Levels: a CPU whose footing or whose target's is raised (deck, stair, ledge) follows the cheapest walk of the level's map (Arena.navMap) to its target instead of the straight line, and jumps up a ledge of up to NAV_JUMP.
   navigate(f, opp, it) {
     if (!opp || !opp.alive || f.airborne || !FREE_SET.includes(f.state) || it.punch || it.kick || it.grapple || it.defend || it.use || it.jump) { this.navPlan = null; return false; }
-    const dy = opp.groundY - f.groundY, dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    const dy = opp.groundY - f.groundY, dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
     if ((f.groundY <= AI_NAV_RAISED && opp.groundY <= AI_NAV_RAISED && !f.onStair) || (!f.onStair && Math.abs(dy) < AI_NAV_DIFF && dist < AI_NAV_NEAR)) { this.navPlan = null; return false; }
     const nav = Arena.navMap();
     let plan = this.navPlan;
-    if (!plan || plan.version !== Arena.navVersion || this.tickNo - plan.tick >= AI_NAV_REPLAN + (f.index % AI_NAV_STAGGER_MOD) * AI_NAV_STAGGER || Math.hypot(opp.x - plan.tx, opp.z - plan.tz) > AI_NAV_MOVED) {
+    if (!plan || plan.version !== Arena.navVersion || this.tickNo - plan.tick >= AI_NAV_REPLAN + (f.index % AI_NAV_STAGGER_MOD) * AI_NAV_STAGGER || DMath.hypot(opp.x - plan.tx, opp.z - plan.tz) > AI_NAV_MOVED) {
       const start = Arena.navNear(nav, f.x, f.z, f.groundY), goal = Arena.navNear(nav, opp.x, opp.z, opp.groundY);
       plan = this.navPlan = { path: start >= 0 && goal >= 0 ? Arena.navPath(nav, start, goal) : null, idx: 0, tick: this.tickNo, tx: opp.x, tz: opp.z, version: Arena.navVersion };
     }
@@ -9579,16 +9663,16 @@ class AIController {
     if (!path || path.length < 3) return false;
     let nearest = plan.idx, nearestD = Infinity;
     for (let i = plan.idx; i < path.length && i < plan.idx + 6; i++) {
-      const d = Math.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z);
+      const d = DMath.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z);
       if (d < nearestD) { nearestD = d; nearest = i; }
     }
     plan.idx = nearest;
     if (path.length - nearest <= 3 && Math.abs(dy) < AI_NAV_DIFF) return false; // there: the normal logic fights
     const at = path[Math.min(nearest + 2, path.length - 1)], wx = -nav.bx + ((at % nav.nx) + 0.5) * nav.cw, wz = -nav.bz + (Math.floor(at / nav.nx) + 0.5) * nav.ch;
-    const dx = wx - f.x, dz = wz - f.z, len = Math.hypot(dx, dz) || 1;
+    const dx = wx - f.x, dz = wz - f.z, len = DMath.hypot(dx, dz) || 1;
     it.fwd = (dx * f.fwdX + dz * f.fwdZ) / len; it.side = (dx * -f.fwdZ + dz * f.fwdX) / len; it.run = false;
     for (let i = nearest; i < Math.min(nearest + 3, path.length - 1); i++) { // a ledge on the walk: jump it when close
-      if (nav.foot[path[i + 1]] - nav.foot[path[i]] > NAV_STEP && Math.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z) < AI_NAV_LEDGE && f.stam > JUMP_COST) { it.jump = true; break; }
+      if (nav.foot[path[i + 1]] - nav.foot[path[i]] > NAV_STEP && DMath.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z) < AI_NAV_LEDGE && f.stam > JUMP_COST) { it.jump = true; break; }
     }
     this.navTick = this.tickNo;
     return true;
@@ -9601,7 +9685,7 @@ class AIController {
     let bx = 0, bz = 0, bestGap = Infinity;
     for (let a = 0; a < 8; a++) {
       for (const reach of [1.2, 2.4, 3.6]) {
-        const x = f.x + Math.cos(a * Math.PI / 4) * reach, z = f.z + Math.sin(a * Math.PI / 4) * reach;
+        const x = f.x + DMath.cos(a * Math.PI / 4) * reach, z = f.z + DMath.sin(a * Math.PI / 4) * reach;
         if (Arena.outside(x, z, f.radius) || (Math.abs(x - deck.x) < deck.hx + f.radius && Math.abs(z - deck.z) < deck.hz + f.radius)) continue;
         const gap = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
         if (gap > AI_CREAK_DROP || gap < -0.3 || Arena.blockedAt(x, z, f.radius, f.groundY)) continue;
@@ -9609,7 +9693,7 @@ class AIController {
       }
     }
     if (bestGap === Infinity) return false;
-    const dx = bx - f.x, dz = bz - f.z, len = Math.hypot(dx, dz) || 1;
+    const dx = bx - f.x, dz = bz - f.z, len = DMath.hypot(dx, dz) || 1;
     it.fwd = (dx * f.fwdX + dz * f.fwdZ) / len; it.side = (dx * -f.fwdZ + dz * f.fwdX) / len; it.run = true; it.punch = it.kick = it.grapple = false;
     this.edgeWait = AI_EDGE_PATIENCE; // the edge rule would hold it back for a while
     return true;
@@ -9623,7 +9707,7 @@ class AIController {
     this.holdAtEdge(f, it);
     this.holdAtRing(f, it);
     this.holdAtHazard(f, it);
-    if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false; // no charge at the target without a token
+    if (it.run && this.waitsOnRing(f) && DMath.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false; // no charge at the target without a token
     return it;
   }
   chooseIntent(f, opp, match, it) {
@@ -9644,7 +9728,7 @@ class AIController {
     if (f.state === S.SWAY) { this.plan = null; return it; } // a sway runs by itself; the next decision comes after it
     if (this.leaveHazard(f, it)) return it; // out of a hazard's zone before anything else
     // facing: nothing to do, fighter auto-faces
-    const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    const dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
 
     // 0. punish a blocked attack that leaves the attacker recovering
     if (this.punishBlocked(f, opp, snap, dist, it)) return it;
@@ -9770,7 +9854,7 @@ class AIController {
     if (!mv || !f.moveConnected || f.chainCount >= this.chainLimit(f) || !this.mayAttack(f)) return;
     if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + 4) return;
     if (simRng() > 0.18 + d.aggression * 0.22) return;
-    const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    const dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
     // the next step of an attack string may follow a strong step (P K P)
     const pool = this.reachable(f).filter((c) => (c.cont || Combat.canChain(mv, c.mv, f)) && dist <= c.mv.reach * f.stats.reach + 0.2 && f.stam > c.mv.stam);
     if (!pool.length) return;
@@ -9889,7 +9973,7 @@ class AIController {
       const v = Combat.throwVector(f, dir), dx = v[0], dz = v[1];
       const tx = opp.x + dx * 3.0, tz = opp.z + dz * 3.0;
       const obj = Arena.nearestObject(tx, tz, 1.4, true);
-      if (obj) { const dd = Math.hypot(obj.x - tx, obj.z - tz); if (dd < bd) { bd = dd; best = { dir, kind: 'object' }; } }
+      if (obj) { const dd = DMath.hypot(obj.x - tx, obj.z - tz); if (dd < bd) { bd = dd; best = { dir, kind: 'object' }; } }
     }
     if (best) return best;
     for (const dir of THROW_DIRS) {
@@ -9943,7 +10027,7 @@ class AIController {
     p.ticks--;
     switch (p.kind) {
       case 'walk': { let dx = opp.x - f.x, dz = opp.z - f.z; if (p.away) { dx = -dx; dz = -dz; } this.moveToward(f, it, dx, dz, p.run); break; }
-      case 'circle': it.side = p.side; it.fwd = p.hold ? clamp((this.profile.range - Math.hypot(opp.x - f.x, opp.z - f.z)) * -1.5, -0.6, 0.6) : 0; break;
+      case 'circle': it.side = p.side; it.fwd = p.hold ? clamp((this.profile.range - DMath.hypot(opp.x - f.x, opp.z - f.z)) * -1.5, -0.6, 0.6) : 0; break;
       case 'guard':
         if (f.defense === 'sway') this.moveToward(f, it, f.x - opp.x, f.z - opp.z, false); // no hold-guard: a sway fighter backs off instead
         else { it.defend = true; it.crouch = !!p.low; } // Crouch + Defend = low guard
@@ -9954,7 +10038,7 @@ class AIController {
       case 'grab': {
         if (p.fired) break;
         const dx = opp.x - f.x, dz = opp.z - f.z;
-        if (!this.inRange(f, ATTACKS.grab, Math.hypot(dx, dz))) { this.moveToward(f, it, dx, dz, false); break; }
+        if (!this.inRange(f, ATTACKS.grab, DMath.hypot(dx, dz))) { this.moveToward(f, it, dx, dz, false); break; }
         p.fired = true; it.grapple = true; it.grapDir = p.dir;
         if (p.low) it.crouch = true;
         break;
@@ -9963,7 +10047,7 @@ class AIController {
         if (p.fired) break;
         if (opp.state !== S.DOWN) { this.plan = null; break; }
         const dx = opp.x - f.x, dz = opp.z - f.z;
-        if (Math.hypot(dx, dz) > SUBMIT_RANGE - 0.15) { this.moveToward(f, it, dx, dz, false); break; }
+        if (DMath.hypot(dx, dz) > SUBMIT_RANGE - 0.15) { this.moveToward(f, it, dx, dz, false); break; }
         p.fired = true; it.grapple = true;
         break;
       }
@@ -9973,7 +10057,7 @@ class AIController {
         const loose = p.item;
         if (f.item || loose.mode !== 'rest' || !this.match.items.includes(loose) || !this.wantsItem(f, loose)) { this.plan = null; break; } // a team-mate took the team's treat on the way: drop the plan
         const dx = loose.x - f.x, dz = loose.z - f.z;
-        if (Math.hypot(dx, dz) > AI_PICKUP_STOP && this.match.itemInReach(f) !== loose) { this.moveToward(f, it, dx, dz, false); break; }
+        if (DMath.hypot(dx, dz) > AI_PICKUP_STOP && this.match.itemInReach(f) !== loose) { this.moveToward(f, it, dx, dz, false); break; }
         it.use = true; this.plan = null;
         break;
       }
@@ -10063,7 +10147,7 @@ class DummyController {
       case 'blockLow': this.guard(f, opp, it, true); break;
       case 'crouch': it.crouch = true; break;
       case 'jump': if (this.t % 90 === 1) it.jump = true; break;
-      case 'walk': it.side = Math.sin(this.t / 50) > 0 ? 1 : -1; break;
+      case 'walk': it.side = DMath.sin(this.t / 50) > 0 ? 1 : -1; break;
       case 'attackHigh': case 'attackLow': case 'attackMix': this.attack(f, opp, it); break;
       case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; this.guard(f, opp, it, false); } break;
       default: break;
@@ -10082,7 +10166,7 @@ class DummyController {
   }
   // Walk in, then a jab (high) or a low kick on a steady beat
   attack(f, opp, it) {
-    if (Math.hypot(opp.x - f.x, opp.z - f.z) > DUMMY_ATTACK_RANGE) { it.fwd = 1; return; }
+    if (DMath.hypot(opp.x - f.x, opp.z - f.z) > DUMMY_ATTACK_RANGE) { it.fwd = 1; return; }
     if (this.t % DUMMY_ATTACK_EVERY !== 0) return;
     const low = this.mode === 'attackLow' || (this.mode === 'attackMix' && simRng() < 0.5);
     if (low) { it.kick = true; it.height = true; } else it.punch = true; // the beat is longer than the string window, so these are always step 1
@@ -10240,9 +10324,9 @@ function koEndsFight(def) {
 // Lock-on and soft facing: how a human fighter's target is chosen when the choice is the player's
 const LOCK_RANGE = 8; // m: an enemy is picked only this close
 const LOCK_RELEASE_RANGE = 9; // m: a locked enemy is let go beyond this
-const LOCK_VIEW_COS = Math.cos(100 * Math.PI / 180); // the automatic choice sees 100 degrees to each side of where the fighter faces
+const LOCK_VIEW_COS = DMath.cos(100 * Math.PI / 180); // the automatic choice sees 100 degrees to each side of where the fighter faces
 const LOCK_STICK_MIN = 0.5; // stick length that counts as pushed in a direction
-const LOCK_STICK_COS = Math.cos(60 * Math.PI / 180); // an enemy within 60 degrees of the stick direction is "in" that direction (anywhere around the fighter, view or not)
+const LOCK_STICK_COS = DMath.cos(60 * Math.PI / 180); // an enemy within 60 degrees of the stick direction is "in" that direction (anywhere around the fighter, view or not)
 const LOCK_ANGLE_WEIGHT = 6; // score in the stick cone = distance + (1 - cosine of the angle off the stick) x this
 const LOCK_SIGHT_HEIGHT = 1.2; // m above the higher fighter's feet: scenery taller than this hides an enemy
 const LOCK_FLICK_MAG = 0.75; // a flick (analog stick only) goes out past this ...
@@ -10394,11 +10478,11 @@ class CrowdDirector {
     signature |= (teamsHere << 8) | (rank << 12); // a team that starts or stops waiting deals the ring again at once
     if (signature === this.ringSig[g] && tick - this.ringTick[g] < RING_REFRESH_TICKS) return;
     this.ringSig[g] = signature; this.ringTick[g] = tick;
-    const base = Math.atan2(target.fwdZ, target.fwdX); // angles are measured from straight ahead of the target
+    const base = DMath.atan2(target.fwdZ, target.fwdX); // angles are measured from straight ahead of the target
     let filled = 0;
     for (let i = 0; i < fighters.length; i++) {
       if (!this.engaged[i] || fighters[i].target !== target || fighters[i].team !== team) continue;
-      let a = wrapAngle(Math.atan2(fighters[i].z - target.z, fighters[i].x - target.x) - base);
+      let a = wrapAngle(DMath.atan2(fighters[i].z - target.z, fighters[i].x - target.x) - base);
       if (a < 0) a += TAU;
       let k = filled++;
       while (k > 0 && ang[k - 1] > a) { ang[k] = ang[k - 1]; ord[k] = ord[k - 1]; k--; } // insertion sort by angle (stable: ties keep the lower index first)
@@ -10418,8 +10502,8 @@ class CrowdDirector {
   placeSlot(i) {
     const f = this.match.fighters[i], target = f.target;
     const radius = this.ringRadius(target) + (this.retreat[i] ? RETREAT_EXTRA : 0);
-    this.slotX[i] = clamp(target.x + Math.cos(this.slotAngle[i]) * radius, Arena.sx0 + RING_WALL_MARGIN, Arena.sx1 - RING_WALL_MARGIN); // the ring, not the apron
-    this.slotZ[i] = clamp(target.z + Math.sin(this.slotAngle[i]) * radius, Arena.sz0 + RING_WALL_MARGIN, Arena.sz1 - RING_WALL_MARGIN);
+    this.slotX[i] = clamp(target.x + DMath.cos(this.slotAngle[i]) * radius, Arena.sx0 + RING_WALL_MARGIN, Arena.sx1 - RING_WALL_MARGIN); // the ring, not the apron
+    this.slotZ[i] = clamp(target.z + DMath.sin(this.slotAngle[i]) * radius, Arena.sz0 + RING_WALL_MARGIN, Arena.sz1 - RING_WALL_MARGIN);
   }
 }
 
@@ -10612,8 +10696,8 @@ class MatchSim {
     } else {
       const radius = ring ? Math.min(Math.max(s, count * 0.5), row[2] - 0.7, (row[3] - 0.7) / 0.8) : Math.max(s, count * 0.5);
       fighters.forEach((f, j) => {
-        const angle = TAU * j / count, x = Math.cos(angle) * radius, z = Math.sin(angle) * radius * 0.8;
-        put(f, cx + x, cz + z, Math.atan2(-x, -z), f === fighters[0] ? hpFrac : 1);
+        const angle = TAU * j / count, x = DMath.cos(angle) * radius, z = DMath.sin(angle) * radius * 0.8;
+        put(f, cx + x, cz + z, DMath.atan2(-x, -z), f === fighters[0] ? hpFrac : 1);
       });
     }
     for (const f of fighters) { const top = Arena.supportAt(f.x, f.z, 0, f.radius); f.y = f.prevY = top; f.groundY = f.supportY = top; } // on the floor, or on a low step under the spot
@@ -10626,7 +10710,7 @@ class MatchSim {
     const atPost = (pz) => posts.some(([type, hx, hz, o]) => Math.abs(px - (o?.tx ?? hx)) < HAZARDS[type].post[0] + r && Math.abs(pz - (o?.tz ?? hz)) < HAZARDS[type].post[1] + r);
     for (let k = 0; k < RING_START_TRIES; k++) {
       const pz = clamp(z + (k & 1 ? -1 : 1) * Math.ceil(k / 2) * RING_START_STEP, lo, hi);
-      if (!Arena.blockedAt(px, pz, r, 0) && !atPost(pz) && placed.every((o) => Math.hypot(o.x - px, o.z - pz) >= 2 * r)) return [px, pz];
+      if (!Arena.blockedAt(px, pz, r, 0) && !atPost(pz) && placed.every((o) => DMath.hypot(o.x - px, o.z - pz) >= 2 * r)) return [px, pz];
     }
     return [px, clamp(z, lo, hi)];
   }
@@ -10721,10 +10805,10 @@ class MatchSim {
   }
   // The stick as a world direction: the intent's forward / side are in the fighter's frame
   readStick(f, it) {
-    const mag = Math.min(1, Math.hypot(it.fwd, it.side));
+    const mag = Math.min(1, DMath.hypot(it.fwd, it.side));
     f.stickMag = mag;
     if (mag < 1e-6) return;
-    const fx = f.fwdX, fz = f.fwdZ, wx = it.fwd * fx - it.side * fz, wz = it.fwd * fz + it.side * fx, len = Math.hypot(wx, wz);
+    const fx = f.fwdX, fz = f.fwdZ, wx = it.fwd * fx - it.side * fz, wz = it.fwd * fz + it.side * fx, len = DMath.hypot(wx, wz);
     f.stickX = wx / len; f.stickZ = wz / len;
   }
   // A flick of an analog stick (gamepad or touch stick, never keys or the d-pad): the stick goes out past LOCK_FLICK_MAG and is back under LOCK_FLICK_REST within LOCK_FLICK_TICKS.
@@ -10768,7 +10852,7 @@ class MatchSim {
     if (!this.isHuman(f) || this.hostileCount(f) < 2 || f.blind > 0) { f.aim = null; return; }
     if (f.lockOn && this.lockHolds(f, f.lockOn)) f.aim = f.lockOn;
     else if (!f.aim || !this.lockValid(f, f.aim)) f.aim = this.pickTarget(f, false, null);
-    if (f.aim) f.yaw = Math.atan2(f.aim.x - f.x, f.aim.z - f.z);
+    if (f.aim) f.yaw = DMath.atan2(f.aim.x - f.x, f.aim.z - f.z);
   }
   // True when a human player has `other` locked on (and the lock holds): the HUD draws the lock marker on that fighter's tag only, and only where the player has two or more hostiles
   lockMarked(other) {
@@ -10911,7 +10995,7 @@ class MatchSim {
     let best = null, bestCos = -2, raised = null, raisedGap = Infinity;
     for (const loose of this.items) {
       if (loose.mode !== 'rest' || loose.y - f.y > 2 || loose.y - f.y < -PICKUP_LOW_BELOW) continue; // heights are measured from the fighter's footing: nothing from far below or above
-      const dx = loose.x - f.x, dz = loose.z - f.z, dist = Math.hypot(dx, dz);
+      const dx = loose.x - f.x, dz = loose.z - f.z, dist = DMath.hypot(dx, dz);
       const cos = dist < 1e-3 ? 1 : (dx * f.fwdX + dz * f.fwdZ) / dist;
       if (loose.y - f.y >= PICKUP_LOW_BELOW && dist <= PICKUP_REACH + f.radius && dist < raisedGap) { raisedGap = dist; raised = loose; }
       if (dist > PICKUP_REACH || (dist > PICKUP_FEET && cos < PICKUP_CONE_COS)) continue;
@@ -10925,7 +11009,7 @@ class MatchSim {
     if (!f.alive || f.item || f.airborne) return null;
     let front = null, frontCos = -2, around = null, aroundGap = Infinity;
     for (const loose of this.items) {
-      const rise = loose.y - f.y, dx = loose.x - f.x, dz = loose.z - f.z, gap = Math.hypot(dx, dz);
+      const rise = loose.y - f.y, dx = loose.x - f.x, dz = loose.z - f.z, gap = DMath.hypot(dx, dz);
       if (loose.mode !== 'rest' || rise > PICKUP_UP || rise < -PICKUP_DOWN || gap > PICKUP_AROUND || this.reachBlocked(f, loose)) continue;
       const cos = gap < 1e-3 ? 1 : (dx * f.fwdX + dz * f.fwdZ) / gap;
       if (gap <= PICKUP_REACH && cos >= PICKUP_CONE_COS && cos > frontCos) { frontCos = cos; front = loose; }
@@ -10975,13 +11059,13 @@ class MatchSim {
     if (target) { tx = target.x; tz = target.z; ty = target.y + (w.sp === 'head' ? HEAD_AIM : CHEST_AIM); }
     const loose = this.newItem(held.id, f.x + f.fwdX * 0.45, f.y + (w.cls === 'carry' ? 1.0 : THROW_HAND), f.z + f.fwdZ * 0.45, f.yaw);
     loose.dur = held.dur; loose.sprays = held.sprays; loose.owner = f;
-    const dx = tx - loose.x, dz = tz - loose.z, dist = Math.max(0.5, Math.hypot(dx, dz));
+    const dx = tx - loose.x, dz = tz - loose.z, dist = Math.max(0.5, DMath.hypot(dx, dz));
     const slide = w.sp === 'trip', speed = slide || w.cls === 'carry' ? THROW_SPEED_SLOW : THROW_SPEED, flight = dist / speed;
     loose.vx = dx / dist * speed; loose.vz = dz / dist * speed;
     if (slide) { loose.mode = 'slide'; loose.y = Arena.supportAt(loose.x, loose.z, loose.y, ITEM_RADIUS); }
     else { loose.mode = 'fly'; loose.vy = clamp((ty - loose.y + 0.5 * GRAVITY * flight * flight) / flight, -4, 8); }
     f.item = null; f.throwAnim = THROW_ANIM_TICKS; f.throwCls = w.cls;
-    if (Math.hypot(dx, dz) > 0.05) f.yaw = Math.atan2(dx, dz);
+    if (DMath.hypot(dx, dz) > 0.05) f.yaw = DMath.atan2(dx, dz);
     Events.emit('itemThrow', { f, id: held.id, x: loose.x, y: loose.y, z: loose.z });
     return this.addItem(loose);
   }
@@ -11004,7 +11088,7 @@ class MatchSim {
   // A cloud of foam at (x, y, z): every enemy of `owner` within CLOUD_RADIUS is blinded
   cloud(x, y, z, owner) {
     for (const other of this.fighters) {
-      if (other.alive && owner && this.canHurt(owner, other) && Math.hypot(other.x - x, other.z - z) <= CLOUD_RADIUS && Math.abs(other.y - y) < 2) other.blind = BLIND_TICKS;
+      if (other.alive && owner && this.canHurt(owner, other) && DMath.hypot(other.x - x, other.z - z) <= CLOUD_RADIUS && Math.abs(other.y - y) < 2) other.blind = BLIND_TICKS;
     }
     FX.dust(x, Math.max(0.4, y), z, 12, CLOUD_RADIUS * 0.6, '#f2f6ff');
     this.douse(x, z, 0, 0, CLOUD_RADIUS, -1);
@@ -11016,7 +11100,7 @@ class MatchSim {
     held.sprays--;
     for (const other of this.fighters) {
       if (!other.alive || !this.canHurt(f, other)) continue;
-      const dx = other.x - f.x, dz = other.z - f.z, dist = Math.hypot(dx, dz);
+      const dx = other.x - f.x, dz = other.z - f.z, dist = DMath.hypot(dx, dz);
       if (dist <= SPRAY_RANGE && (dist < 0.05 || (dx * f.fwdX + dz * f.fwdZ) / dist >= SPRAY_CONE_COS)) other.blind = BLIND_TICKS;
     }
     this.douse(f.x, f.z, f.fwdX, f.fwdZ, SPRAY_RANGE, SPRAY_CONE_COS);
@@ -11028,7 +11112,7 @@ class MatchSim {
     const w = WEAPONS[it.id];
     if (w.sp === 'crate' && !blocked) {
       for (const other of this.fighters) {
-        if (other === hitDef || !other.alive || !this.canHurt(it.owner, other) || Math.hypot(other.x - it.x, other.z - it.z) > CRATE_BURST_RADIUS || Math.abs(other.y - it.y) > 1.8) continue;
+        if (other === hitDef || !other.alive || !this.canHurt(it.owner, other) || DMath.hypot(other.x - it.x, other.z - it.z) > CRATE_BURST_RADIUS || Math.abs(other.y - it.y) > 1.8) continue;
         if (other.state !== S.DOWN && Combat.strikable(it.owner, other)) Combat.itemHit(it, other, this);
       }
     }
@@ -11042,7 +11126,7 @@ class MatchSim {
     for (const def of this.fighters) {
       if (!def.alive || !this.canHurt(it.owner, def) || def.state === S.DOWN || !Combat.strikable(it.owner, def)) continue; // the same fighters a strike can touch
       if (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) continue; // dodged
-      if (Math.hypot(def.x - it.x, def.z - it.z) > def.radius + ITEM_RADIUS) continue;
+      if (DMath.hypot(def.x - it.x, def.z - it.z) > def.radius + ITEM_RADIUS) continue;
       const top = def.y + (def.state === S.CROUCH || def.state === S.BLOCK_L ? 1.25 : 1.85); // the standard body: size is cosmetic
       if (sliding ? Math.abs(def.y - it.y) > 0.35 : it.y < def.y - 0.05 || it.y > top) continue; // a board takes the feet of a fighter on its own level (not one far above or below it)
       const stopped = Combat.itemBlock(it, def, this);
@@ -11080,7 +11164,7 @@ class MatchSim {
     const floor = Arena.supportAt(it.x, it.z, above, ITEM_RADIUS, it.mode !== 'slide'); // a sliding board stays on the floor: it never rides a table top at a fighter's height
     if (it.mode === 'slide') {
       it.y = floor;
-      if (Math.hypot(it.vx, it.vz) < ITEM_SLIDE_STOP) this.settleItem(it, floor);
+      if (DMath.hypot(it.vx, it.vz) < ITEM_SLIDE_STOP) this.settleItem(it, floor);
     } else if (it.y <= floor && it.vy <= 0) {
       if (thrown && w.burst) return this.burstItem(it, null);
       if (it.vy < -ITEM_BOUNCE_MIN) { it.y = floor; it.vy *= -0.3; it.vx *= 0.6; it.vz *= 0.6; it.mode = 'fall'; it.owner = null; }
@@ -11099,7 +11183,7 @@ class MatchSim {
       for (let j = 0; j < count; j++) {
         const def = fighters[j];
         if (def === body || def.state === S.THROWN || !this.canHurt(thrower, def) || body.bodyHits.includes(def) || Math.abs(def.y - body.y) > BODY_HIT_BAND) continue;
-        if (Math.hypot(def.x - body.x, def.z - body.z) > body.radius + def.radius || !Combat.strikable(thrower, def)) continue;
+        if (DMath.hypot(def.x - body.x, def.z - body.z) > body.radius + def.radius || !Combat.strikable(thrower, def)) continue;
         body.bodyHits.push(def);
         Combat.bodyHit(body, def, this);
       }
@@ -11157,7 +11241,7 @@ class MatchSim {
      hit[i] = tick fighter i was last hurt in this activation; cut[i] = fighter i was cut by shards while lying down; out[i] = the flight fighter i was last put back from the drop in; life > 0 = a patch that goes away after that many ticks (a shattered bottle). No random numbers are drawn. --- */
   newHazard(type, x, z, o) {
     const def = HAZARDS[type], at = (v, d) => (v === undefined ? d : v), yaw = at(o.yaw, 0);
-    const h = { type, def, seq: ++this.hazardSeq, x, z, tx: at(o.tx, x), tz: at(o.tz, z), yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), hx: at(o.hx, 0), hz: at(o.hz, 0), state: 'idle', t: 0, by: null, hit: [], post: null, obj: null, cut: [], out: [], life: at(o.life, 0), dirx: 0, dirz: 1, dead: false };
+    const h = { type, def, seq: ++this.hazardSeq, x, z, tx: at(o.tx, x), tz: at(o.tz, z), yaw, fx: DMath.sin(yaw), fz: DMath.cos(yaw), hx: at(o.hx, 0), hz: at(o.hz, 0), state: 'idle', t: 0, by: null, hit: [], post: null, obj: null, cut: [], out: [], life: at(o.life, 0), dirx: 0, dirz: 1, dead: false };
     if (def.post) {
       h.post = { x: h.tx, z: h.tz, hx: def.post[0], hz: def.post[1], top: def.post[2], standable: false, active: true, obj: null, haz: h, temp: false, timer: 0, thin: false };
       Arena.colliders.push(h.post);
@@ -11204,10 +11288,10 @@ class MatchSim {
   }
   // Whether the point (x, z) is inside the hazard's zone
   hazardCovers(h, x, z) {
-    if (h.chain) for (const o of h.chain) if (!o.destroyed && Math.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= CONDUCT_TOUCH) return true; // R3: touching a conductor of the arc
+    if (h.chain) for (const o of h.chain) if (!o.destroyed && DMath.hypot(Math.max(Math.abs(x - o.x) - o.hx, 0), Math.max(Math.abs(z - o.z) - o.hz, 0)) <= CONDUCT_TOUCH) return true; // R3: touching a conductor of the arc
     const def = h.def, dx = x - h.x, dz = z - h.z;
     if (def.shape === 'circle') return dx * dx + dz * dz <= def.r * def.r;
-    if (def.shape === 'cone') { const d = Math.hypot(dx, dz); return d <= def.len && (d < 0.35 || (dx * h.fx + dz * h.fz) / d >= def.cos); }
+    if (def.shape === 'cone') { const d = DMath.hypot(dx, dz); return d <= def.len && (d < 0.35 || (dx * h.fx + dz * h.fz) / d >= def.cos); }
     const across = dx * h.fz - dz * h.fx, along = dx * h.fx + dz * h.fz;
     return Math.abs(across) <= h.hx && Math.abs(along) <= h.hz;
   }
@@ -11218,12 +11302,12 @@ class MatchSim {
   // Whether fighter f is in the zone and not clear of the floor (a jump)
   hazardReaches(h, f) { return f.y - f.groundY <= HAZARD_HEIGHT && f.groundY <= HAZARD_FLOOR_TOP && this.hazardCovers(h, f.x, f.z); }
   // Whether f is within the reach of a hazard a strike sets off: its zone, or for a barrel, where its pool can lie
-  hazardAimIn(h, f) { return h.def.spill ? Math.hypot(f.x - h.tx, f.z - h.tz) <= h.def.spill + h.def.r : this.hazardCovers(h, f.x, f.z); }
+  hazardAimIn(h, f) { return h.def.spill ? DMath.hypot(f.x - h.tx, f.z - h.tz) <= h.def.spill + h.def.r : this.hazardCovers(h, f.x, f.z); }
   // Sets an idle hazard off; by = the fighter credited (null = nobody), via = how ('strike', 'item', 'knock', 'timer')
   hazardArm(h, by, via) {
     if (h.state !== 'idle' || !this.hazardsOn) return false;
     h.by = by || null; h.t = 0;
-    const dx = by ? h.tx - by.x : h.fx, dz = by ? h.tz - by.z : h.fz, len = Math.hypot(dx, dz) || 1;
+    const dx = by ? h.tx - by.x : h.fx, dz = by ? h.tz - by.z : h.fz, len = DMath.hypot(dx, dz) || 1;
     h.dirx = dx / len; h.dirz = dz / len; // away from whoever struck it: the way a barrel tips
     if (h.def.spill) { h.x = h.tx + h.dirx * h.def.spill; h.z = h.tz + h.dirz * h.def.spill; } // and where its fire pool lies
     if (h.post && h.def.spent) { h.post.active = false; Arena.navVersion++; } // a tipped barrel is no obstacle
@@ -11274,7 +11358,7 @@ class MatchSim {
       const c = obj.collider;
       for (const f of this.fighters) {
         if (!f.alive || f.state === S.ATTACK || TERMINAL_STATES.includes(f.state)) continue;
-        const gap = Math.hypot(Math.max(Math.abs(f.x - c.x) - c.hx, 0), Math.max(Math.abs(f.z - c.z) - c.hz, 0));
+        const gap = DMath.hypot(Math.max(Math.abs(f.x - c.x) - c.hx, 0), Math.max(Math.abs(f.z - c.z) - c.hz, 0));
         if (gap <= f.radius + HAZARD_CUT_REACH) this.hazardHit(h, f);
       }
     }
@@ -11399,7 +11483,7 @@ class MatchSim {
   }
   // R4: an extinguisher's cone (cos of its half angle, -1 = a cloud) puts out the fighters, objects and spilled barrel in it
   douse(x, z, fx, fz, range, cos) {
-    const inside = (px, pz) => { const dx = px - x, dz = pz - z, d = Math.hypot(dx, dz); return d <= range && (d < 0.05 || (dx * fx + dz * fz) / d >= cos); };
+    const inside = (px, pz) => { const dx = px - x, dz = pz - z, d = DMath.hypot(dx, dz); return d <= range && (d < 0.05 || (dx * fx + dz * fz) / d >= cos); };
     for (const f of this.fighters) if (f.burn > 0 && inside(f.x, f.z)) f.burn = f.stay = 0;
     for (const o of Arena.objects) if (o.fire > 0 && inside(o.x, o.z)) { o.fire = 0; o.heat = 0; o.blaze.life = 1; }
     for (const h of this.hazards) if (h.type === 'fire' && h.state === 'active' && inside(h.x, h.z)) this.hazardEnd(h);
@@ -11445,7 +11529,7 @@ class MatchSim {
       let across = dx * h.fz - dz * h.fx, along = dx * h.fx + dz * h.fz;
       if (h.hz - Math.abs(along) <= h.hx - Math.abs(across)) along = (along < 0 ? -1 : 1) * (h.hz + room); else across = (across < 0 ? -1 : 1) * (h.hx + room);
       const b = Arena.def.bounds, ox = clamp(h.x + along * h.fx + across * h.fz, -(b.x - f.radius), b.x - f.radius), oz = clamp(h.z + along * h.fz - across * h.fx, -(b.z - f.radius), b.z - f.radius);
-      const out = Math.hypot(ox - f.x, oz - f.z) || 1, ux = (ox - f.x) / out || h.fx, uz = (oz - f.z) / out || h.fz;
+      const out = DMath.hypot(ox - f.x, oz - f.z) || 1, ux = (ox - f.x) / out || h.fx, uz = (oz - f.z) / out || h.fz;
       f.x = f.prevX = ox; f.z = f.prevZ = oz;
       f.vx = f.vz = f.kx = f.kz = 0;
       h.by = f.lastFoe && this.canHurt(f.lastFoe, f) ? f.lastFoe : null;
@@ -11476,7 +11560,7 @@ class MatchSim {
     const def = h.def;
     if (ux === undefined) {
       if (fx === 'push' || fx === 'throw') { ux = h.fx; uz = h.fz; } else { ux = f.x - h.x; uz = f.z - h.z; }
-      const len = Math.hypot(ux, uz);
+      const len = DMath.hypot(ux, uz);
       if (len < 0.05) { ux = h.fx; uz = h.fz; } else { ux /= len; uz /= len; }
     }
     if (HAZARD_NO_REACT.includes(f.state) || f.pinnedBy) return;
@@ -11713,12 +11797,12 @@ class MatchSim {
     let size = 0, before = 0; // the enemies of the wave at the same door share the ring round it, so no two stand on one spot
     for (let q = 0; q < n; q++) if (doors[q] === door) { size++; if (q < j) before++; }
     const angle = size > 1 ? TAU * before / size : 0, spread = size > 1 ? WAVE_SPREAD : 0;
-    const x = clamp(ex + Math.cos(angle) * spread, Arena.ax0 + radius, Arena.ax1 - radius), z = clamp(ez + Math.sin(angle) * spread, Arena.az0 + radius, Arena.az1 - radius);
+    const x = clamp(ex + DMath.cos(angle) * spread, Arena.ax0 + radius, Arena.ax1 - radius), z = clamp(ez + DMath.sin(angle) * spread, Arena.az0 + radius, Arena.az1 - radius);
     return { x, z, top: Arena.supportAt(x, z, 99, radius) };
   }
   putWaveFighter(f, k, j, n) {
     const { x, z, top } = this.waveSpot(k, j, n, f.radius);
-    f.reset(x, z, Math.atan2(this.fighters[0].x - x, this.fighters[0].z - z), 1, 1);
+    f.reset(x, z, DMath.atan2(this.fighters[0].x - x, this.fighters[0].z - z), 1, 1);
     f.y = f.prevY = top; f.groundY = f.supportY = top;
   }
   // Whether the entry of called enemy e lies in a hazard that is warning or going off: it waits at the door until the zone is clear
@@ -11949,7 +12033,7 @@ class MatchSim {
     if (Math.abs(a.y - b.y) > 1.25) return;
     if (this.brawl && (!a.alive || !b.alive)) return;
     let dx = b.x - a.x, dz = b.z - a.z;
-    let d = Math.hypot(dx, dz);
+    let d = DMath.hypot(dx, dz);
     const min = a.radius + b.radius;
     if (d >= min) return;
     if (d < 1e-5) { dx = 1; dz = 0; d = 1; }
@@ -15017,8 +15101,6 @@ const ONLINE_MESSAGES = {
   nobody: 'Connect at least one friend first: send the code, paste the answer, press Connect.',
   fightTwo: 'A 1 vs 1 needs exactly 2 players. Pick Brawl or Tournament for 3 or 4.',
   someoneLeft: 'A player left, so this fight cannot start again.',
-  joining: 'A player is still joining. Start is on in a moment.',
-  sameBrowser: 'Start is off: the devices use different kinds of browser (Chrome or Edge, Firefox, Safari), which can fall out of step. Use the same browser on every device.',
   start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
   state: 'That step is not possible now. Go back and start again.',
   removed: 'The host removed you from the game. Ask the host for a new code to join again.',
@@ -18452,7 +18534,6 @@ const OnlinePlay = {
     const seats = this.present();
     const problem = this.modeProblem(setup.mode, seats.length);
     if (problem) return problem;
-    if (this.mixedKinds(seats)) return ONLINE_MESSAGES.sameBrowser; // the browsers round some maths differently (J01): until the sim is made exact, one kind of browser only
     this.setup = setup;
     if (setup.mode === 'tournament') return this.startBracket(seats);
     if (setup.mode === 'free') return this.startFree(seats);
@@ -18485,8 +18566,6 @@ const OnlinePlay = {
     const humans = plan.slots.map((slot) => (slot.human >= 0 ? seatOfPerson[slot.human] : -1)); // the seat of each fighter
     return this.launch({ mode: 'free', people: seatOfPerson, humans, run: { mode: 'lineup', player: plan.slots[0].id }, cfg: { mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'free', playerId: plan.slots[0].id, arenaId, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer, friendlyFire: lineup.friendlyFire, ...fight } });
   },
-  // True when a connected guest's kind of browser is not the host's own (a guest that has not said yet does not count)
-  mixedKinds(seats = this.present()) { return seats.some((seat) => this.engines.has(seat) && this.engines.get(seat) !== onlineEngine()); },
   // A bracket of 8 with the people on their seats; its fights with a person in them come back through startBracketFight (Game.beginTournamentMatch)
   startBracket(seats) {
     const picks = seats.map((seat) => ({ seat, id: this.pickOf(seat) }));
@@ -18533,7 +18612,7 @@ const OnlinePlay = {
   rematch() {
     if (!this.isHost || !this.plan) return;
     const problem = this.plan.mode === 'tournament' ? this.launch(this.plan) : this.start(this.setup);
-    if (problem) UI.toast(this.gone.size && problem !== ONLINE_MESSAGES.sameBrowser ? ONLINE_MESSAGES.someoneLeft : problem, 'warn'); // somebody left since the match: say so, not "connect a friend first"
+    if (problem) UI.toast(this.gone.size ? ONLINE_MESSAGES.someoneLeft : problem, 'warn'); // somebody left since the match: say so, not "connect a friend first"
   },
   // A seat left or was dropped (the session's drop): its link is closed and the seat is gone for the rest of the game
   dropped(info) {
@@ -18661,10 +18740,9 @@ const OnlinePlay = {
 
 // === 09d ONLINE UI - the smallest flow that starts a game (Online > Host a game or Join a game; since P12-06 these screens are also the lobby: players, fighter picks, Ready, latency, mode and the Free Fight lineup): codes by Copy, Show QR, Scan or paste. The host has one code box per guest (seats 2 to 4) and a plain Start
 const ONLINE_SCAN_MS = 200; // a camera frame is read this often
-const ONLINE_HELLO_WAIT_MS = 2000; // a connected guest whose browser kind has not arrived yet counts as still joining for this long: Start stays off
 const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when a link opens, the guest answers bp-pong:, the host shows the round trip
 const ONLINE_PONG = 'bp-pong:';
-const ONLINE_HELLO = 'bp-hello:'; // a guest tells the host its kind of browser when the link opens: the browsers round some maths differently (J01), so the host screen can refuse a Start with mixed kinds (OnlinePlay.mixedKinds)
+const ONLINE_HELLO = 'bp-hello:'; // a guest tells the host its kind of browser when the link opens: the host screen shows it on the guest's line (any mix of kinds plays together since P12-08: the simulation uses only DMath)
 const ONLINE_ENGINES = { blink: 'Chrome or Edge', gecko: 'Firefox', webkit: 'Safari' };
 // The engine family of a browser: every browser on an iPhone or iPad uses Safari's engine
 function onlineEngine(userAgent = typeof navigator === 'undefined' ? '' : String(navigator.userAgent)) {
@@ -18725,7 +18803,7 @@ function onlineReadLobby(data) {
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
-const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or router, or on one phone\'s hotspot. Networks that block direct connections (guest Wi-Fi, office or school networks, VPNs, mobile data) do not work. No server is used: the devices talk to each other. Use the same kind of browser on every device (Chrome or Edge with Chrome or Edge, Firefox with Firefox, Safari with Safari): different kinds can fall out of step.'; // P12-07; the browsers round some maths differently (Appendix D row J01)
+const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or router, or on one phone\'s hotspot. Networks that block direct connections (guest Wi-Fi, office or school networks, VPNs, mobile data) do not work. No server is used: the devices talk to each other.'; // P12-07; no browser rule since P12-08: a phone and a PC play together (Appendix D row J01)
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '', // the guest's single link and its fields; note also holds the host's start problem
   guests: [], mode: '', arena: ONLINE_ARENA_DEFAULT, // the host's one slot per guest: { seat, link, offerCode, answerText, note, roundTrip }; the picked mode ('' = by the number of players) and level
@@ -18783,7 +18861,7 @@ const OnlineUI = {
     if (role === 'host') {
       this.mode = ONLINE_MODES.includes(info.mode) ? info.mode : '';
       this.arena = Object.hasOwn(ARENAS, info.arena) ? info.arena : ONLINE_ARENA_DEFAULT;
-      this.guests = entries.map((entry) => ({ seat: entry.seat, link: entry.link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, engine: entry.engine, openedAt: performance.now() - ONLINE_HELLO_WAIT_MS, fighter: entry.fighter, ready: false, samples: [], reverse: false })).sort((a, b) => a.seat - b.seat);
+      this.guests = entries.map((entry) => ({ seat: entry.seat, link: entry.link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, engine: entry.engine, openedAt: performance.now(), fighter: entry.fighter, ready: false, samples: [], reverse: false })).sort((a, b) => a.seat - b.seat);
       for (const guest of this.guests) this.listen(guest.link);
       this.lineupSig = this.lineupSignature();
     } else { this.link = entries[0].link; this.listen(this.link); }
@@ -18862,7 +18940,7 @@ const OnlineUI = {
       this.note = '';
       if (this.role === 'host') {
         const slot = this.guestOf(link);
-        if (slot) { slot.openedAt = performance.now(); setTimeout(() => this.redraw(), ONLINE_HELLO_WAIT_MS + 50); } // Start comes on when the hello is late, too
+        if (slot) { slot.openedAt = performance.now(); }
         link.send(ONLINE_PING + performance.now());
         this.pushLobby();
       } else { link.send(ONLINE_HELLO + onlineEngine()); this.sendMe(); }
@@ -19100,16 +19178,10 @@ const OnlineUI = {
   playerList(rows, youSeat) { return '<ul class="onlist" role="list" aria-label="Players">' + rows.map((row) => this.playerRow(row, youSeat)).join('') + '</ul>'; },
   modeNow(people) { return this.mode || (people === 2 ? 'fight' : 'brawl'); },
   openCount() { return this.guests.filter((guest) => this.isOpen(guest)).length; },
-  // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
-  mixedKinds() { return this.guests.some((guest) => this.isOpen(guest) && guest.engine && guest.engine !== onlineEngine()); },
-  // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
-  joining() { return this.guests.some((guest) => this.isOpen(guest) && !guest.engine && guest.openedAt !== undefined && performance.now() - guest.openedAt < ONLINE_HELLO_WAIT_MS); },
-  // Why Start cannot be pressed, or '': nobody connected, a guest still joining, mixed browsers, a mode that does not fit the number of players (or the lineup), a guest whose connection is not measured yet, a guest that is not Ready
+  // Why Start cannot be pressed, or '': nobody connected, a mode that does not fit the number of players (or the lineup), a guest whose connection is not measured yet, a guest that is not Ready
   startProblem() {
     const open = this.guests.filter((guest) => this.isOpen(guest)), people = open.length + 1;
     if (!open.length) return ONLINE_MESSAGES.nobody;
-    if (this.joining()) return ONLINE_MESSAGES.joining;
-    if (this.mixedKinds()) return ONLINE_MESSAGES.sameBrowser;
     const mute = open.find((guest) => this.silent(guest));
     if (mute) return 'Player ' + mute.seat + ' does not answer. Wait a moment, or remove them.';
     const modeProblem = OnlinePlay.modeProblem(this.modeNow(people), people);
@@ -19355,7 +19427,7 @@ let selfTestRun = null; // the run in progress
 // Every internal binding the tests use, found by listing the closure's declarations
 function testApi() {
   return {
-    ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
+    DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
     ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
@@ -19396,7 +19468,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
