@@ -14212,7 +14212,7 @@ const SelfTest = {
     });
     /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
     test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step of 0.9 em whose rectangle on screen touches no live pop (older pops counted where they have risen to, words close on screen though apart in the world included); the pile never climbs into the HUD (it goes below the hit, then the oldest pop gives way), at most 4 words and 4 numbers live, and the 16 elements stay', () => {
-      const bad = [], keep = { pops: UI.pops, idx: UI.popIdx, project: R.project, fontPx: UI.popFontPx, hudBottom: UI.hudBottom };
+      const bad = [], keep = { pops: UI.pops, idx: UI.popIdx, project: R.project, fontPx: UI.popFontPx, hudBottom: UI.hudBottom, boxPx: UI.popBoxPx };
       const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
       const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
       const tick = () => { for (const q of live()) q.age += 0.05; };
@@ -14251,6 +14251,8 @@ const SelfTest = {
         if (pile.some(([text, step]) => !find(text) || Math.abs(find(text).lift - step * POP_LIFT_EM) > 1e-9) || tops().length || clash()) bad.push('the pile under the HUD: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
         for (const text of ['1', '2', '3', '4']) { UI.popAt(0, 1, 0, text, '#fff'); if (tops().length || clash()) bad.push('the pile at ' + text + ': ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash()); }
         if (live().length > 2 + POP_STEPS_DOWN || !find('4') || find('ONE')) bad.push('the oldest did not give way: ' + live().map((q) => q.text + ':' + q.lift));
+        UI.popBoxPx = FONT;   // a pop the camera has since carried into the HUD is moved back under it, one that is clear stays
+        if (Math.abs(UI.popDrop(250, 0) - (300 + STEP * 0.65 - 250)) > 1e-9 || UI.popDrop(400, 0) !== 0 || UI.popDrop(320, POP_LIFT_EM) <= 0) bad.push('popDrop ' + [UI.popDrop(250, 0), UI.popDrop(400, 0), UI.popDrop(320, POP_LIFT_EM)]);
         UI.hudBottom = 0;
         UI.pops = fresh(); UI.popIdx = 0;   // without a projection (behind the camera): the world distance and the steps taken, as before
         R.project = () => false;
@@ -14267,7 +14269,7 @@ const SelfTest = {
         const words = live().filter((q) => !q.number).map((q) => q.text).sort().join(), numbers = live().filter((q) => q.number).map((q) => q.text).sort().join();
         if (POP_KIND_MAX !== 4 || words !== 'WORD 2,WORD 3,WORD 4,WORD 5' || numbers !== '12,13,14,15') bad.push('caps: ' + words + ' | ' + numbers);
         if (UI.pops.length !== 16) bad.push('the 16 elements changed');
-      } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; R.project = keep.project; UI.popFontPx = keep.fontPx; UI.hudBottom = keep.hudBottom; }
+      } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; R.project = keep.project; UI.popFontPx = keep.fontPx; UI.hudBottom = keep.hudBottom; UI.popBoxPx = keep.boxPx; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (9, 15 and 21 on the two levels without a side wall), each against a wall face within the wall height and no two overlapping on their wall as seen from the room, none a shadow caster or a lamp, the 21 swinging lights the same, and the preset decides how many are drawn', () => {

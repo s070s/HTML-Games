@@ -14799,7 +14799,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -16257,7 +16257,13 @@ const UI = {
     let bottom = 0;
     for (const el of hud.querySelectorAll('.hud-top, #party, #modeinfo')) { const r = el.getBoundingClientRect(); if (r.height > 0) bottom = Math.max(bottom, r.bottom); }
     this.hudBottom = bottom > 0 ? bottom : -1;
+    this.popBoxPx = this.popFontPx();
     return bottom;
+  },
+  // How far (CSS px) a pop at screen y with this lift must be moved down to stay under the HUD: the camera may move after the pop was placed (a hit punches it in). Reads the cached measure only.
+  popDrop(y, lift) {
+    if (!(this.hudBottom > 0)) return 0;
+    return Math.max(0, this.hudBottom + this.popBoxPx * POP_LIFT_EM * 0.65 - (y - lift * this.popBoxPx));
   },
   /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. The pile may not climb into the HUD: an upward step is allowed only while the pop, at the top of its rise, still has its whole rectangle under the HUD's lower edge; past that the pop tries POP_STEPS_DOWN steps below the hit (negative steps). null = no free step in that room (the caller drops the oldest pop). Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide, as before, with no HUD limit. */
   popFreeStep(p, x, y, z, text) {
@@ -16380,7 +16386,7 @@ const UI = {
       p.age += 1 / 60;
       const u = p.age / p.life;
       if (u >= 1) { p.el.style.opacity = '0'; continue; }
-      if (R.project(p.x, p.y + u * POP_RISE, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) translateY(' + (-p.lift) + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
+      if (R.project(p.x, p.y + u * POP_RISE, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1] + this.popDrop(out[1], p.lift)) + 'px) translate(-50%,-50%) translateY(' + (-p.lift) + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
