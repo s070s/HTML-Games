@@ -127,6 +127,7 @@ button.mi small.rec{color:var(--a1)}
 .cr-name .crin:focus{outline:none}
 textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-all}
 .qrbox{display:flex;flex-wrap:wrap;gap:.8em;align-items:center;justify-content:center}
+.onseat{margin-top:.6em;padding-top:.2em;border-top:2px solid #2a3b66}
 canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:1;height:auto}
 .qrvideo{display:block;width:100%;max-height:40vh;margin:.4em 0;background:#000;border-radius:.4em}
 .cr-name{cursor:text}.cr-name .crin{width:auto;flex:1;max-width:14em;text-transform:uppercase}
@@ -12528,9 +12529,11 @@ class LockstepSession {
     this.local = new NetSeatController(this, this.seat, o.localController || PlayerController);
     this.stats = { needs: 0, fills: 0, retunes: 0 }; // resend requests sent, frames that came from a fill, delay changes by retune()
     this.lastPhase = this.match.phase;
-    for (let seat = 0; seat < this.seatCount; seat++) this.match.controllers[this.fighterOf[seat]] = seat === this.seat ? this.local : new NetSeatController(this, seat, null);
+    for (let seat = 0; seat < this.seatCount; seat++) if (this.plays(seat)) this.match.controllers[this.fighterOf[seat]] = seat === this.seat ? this.local : new NetSeatController(this, seat, null);
     for (const [seat, link] of this.peers) { link.onmessage = (channel, data) => this.receive(seat, channel, data); link.onclose = () => this.linkClosed(seat); }
   }
+  // A seat with fighter index -1 in fighterOf only watches (a tournament fight between two other people, a seat nobody sits on): it sends no input and nobody waits for it
+  plays(seat) { return this.fighterOf[seat] >= 0; }
   // The input of a seat for a tick (a dropped seat stands still)
   codeFor(seat, frame) {
     const from = this.dropped.get(seat);
@@ -12539,6 +12542,7 @@ class LockstepSession {
   // --- one tick: true when the sim advanced, false while it waits for an input (or after the session ended). The game loop calls it instead of match.step().
   step() {
     if (this.ended) return false;
+    if (this.match.phase === 'matchEnd') { this.finish(); this.match.step(); return true; } // the match is over: its results idle without any input (stepIdle), so a peer that already left cannot stall them, and no checksum is due
     const now = this.now(), frame = this.match.tick + 1;
     this.service(now);
     this.playDrops(frame);
@@ -12557,6 +12561,11 @@ class LockstepSession {
     for (const frames of this.got) frames.delete(frame - NET_HISTORY);
     return true;
   }
+  finish() {
+    if (!this.stalledSince && this.waitingSeat < 0) return;
+    this.stalledSince = 0; this.waitingSeat = -1;
+    if (this.onWaiting) this.onWaiting(null, -1);
+  }
   // A jump, punch, kick or grapple press by any seat that still plays: what skips the round-end sequence
   skipPressed(frame) {
     for (let seat = 0; seat < this.seatCount; seat++) {
@@ -12571,7 +12580,7 @@ class LockstepSession {
   // This seat's input for frame + delay (the frames before it that were never made, at the start or after a longer delay, are empty), sent with the last NET_REDUNDANCY frames
   sampleLocal(frame) {
     const target = frame + this.delay;
-    if (target <= this.sentUpTo) return;
+    if (!this.plays(this.seat) || target <= this.sentUpTo) return;
     const mine = this.got[this.seat];
     for (let f = this.sentUpTo + 1; f < target; f++) mine.set(f, 0);
     mine.set(target, this.readDevice());
@@ -12586,6 +12595,7 @@ class LockstepSession {
     return code;
   }
   sendWindow() {
+    if (!this.plays(this.seat)) return;
     const mine = this.got[this.seat], first = Math.max(this.firstFrame, this.sentUpTo - NET_REDUNDANCY + 1), codes = [];
     for (let f = first; f <= this.sentUpTo; f++) codes.push(mine.get(f) || 0);
     if (!codes.length) return;
@@ -12596,7 +12606,7 @@ class LockstepSession {
   missingSeat(frame) {
     for (let seat = 0; seat < this.seatCount; seat++) {
       const from = this.dropped.get(seat);
-      if ((from === undefined || frame < from) && !this.got[seat].has(frame)) return seat;
+      if (this.plays(seat) && (from === undefined || frame < from) && !this.got[seat].has(frame)) return seat;
     }
     return -1;
   }
@@ -12625,7 +12635,7 @@ class LockstepSession {
     }
   }
   linkClosed(seat) {
-    if (this.closing || this.ended) return;
+    if (this.closing || this.ended || this.match.phase === 'matchEnd') return; // after the match nobody needs anybody
     if (!this.host) { this.stop('lost', { seat: 0 }); return; }
     let frame = this.match.tick + 1;
     while (this.got[seat].has(frame)) frame++; // the first frame the seat never sent
@@ -12801,6 +12811,7 @@ const Game = {
   },
   // Who reads which device: 'solo', 'versus' (P1 and P2 share the keyboard and the pads) or 'coop' (one device per seat)
   inputPlan() {
+    if (this.net || OnlinePlay.starting) return 'solo'; // an online match (its session, or its start): everyone plays with their own device as P1, the other seats come over the network. Not this.config.online: that stays set after the match and would take the coop seating from an offline Tournament or Versus
     const people = this.lineupPeople();
     if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
     if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo'; // the join screen seats the devices and a bracket that was drawn there keeps them
@@ -13052,6 +13063,7 @@ const Game = {
   },
   // The saved bracket is written after the draw and after every match
   saveTournament() {
+    if (OnlinePlay.isHost) return; // an online bracket is not saved: it has people who are not here when it is opened again
     const t = this.tournament;
     Progress.d.tournamentRun = t && Tournament.champion(t) < 0 ? Tournament.pack(t) : null;
     Progress.save();
@@ -13075,6 +13087,7 @@ const Game = {
   },
   // Back from the bracket: the bracket stays saved unless it is over
   leaveTournament() {
+    OnlinePlay.leave(); // an online bracket ends with the way out of it
     this.stopTournamentWork();
     this.tournament = null;
     this.tournamentMatch = null;
@@ -13087,6 +13100,7 @@ const Game = {
   tournamentContinue() {
     const t = this.tournament;
     if (!t || this.tournamentWork) return;
+    if (OnlinePlay.isHost) OnlinePlay.demoteGone(t); // a person whose link is gone plays as the CPU from here
     if (Tournament.champion(t) >= 0) { this.leaveTournament(); UI.go('modes'); return; }
     const next = Tournament.next(t);
     if (!t.open && Tournament.people(t, next).length) { this.beginTournamentMatch(next); return; }
@@ -13146,8 +13160,10 @@ const Game = {
     this.run = { mode: 'tournament', player: entrants[order[0]].id };
     t.open = { round: ref.round, index: ref.index };
     this.saveTournament();
-    this.beginMatch({ mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, items: false, hazards: false, ring: t.ringOut, ringOut: t.ringOut,
-      seats: this.tournamentSeats ? order.map((i) => entrants[i].human) : undefined });
+    const cfg = { mode: this.tournamentTwoPlayers ? 'versus' : 'free', playerId: entrants[order[0]].id, opponentId: entrants[order[1]].id, arenaId: rules.arenaId, difficulty: t.difficulty, winsNeeded: rules.winsNeeded, timer: rules.timer, items: false, hazards: false, ring: t.ringOut, ringOut: t.ringOut,
+      seats: this.tournamentSeats ? order.map((i) => entrants[i].human) : undefined };
+    if (OnlinePlay.isHost) OnlinePlay.startBracketFight(cfg, order.map((i) => entrants[i].human)); // the people of the bracket sit on the links (P12-03): the same fight on every peer
+    else this.beginMatch(cfg);
   },
   // A bracket fight left before its end: see Tournament.forfeitWinner
   forfeitTournamentMatch() {
@@ -13160,7 +13176,7 @@ const Game = {
     const sides = Tournament.sides(t, at.round, at.index), result = { winner: at.order[winnerSide], champion: false, runGrade: '' };
     Tournament.record(t, at.round, at.index, result.winner, sides.map((i) => wins[at.order.indexOf(i)]));
     const people = entrants.filter((e) => e.human >= 0), you = people.length === 1 ? entrants.indexOf(people[0]) : -1;
-    if (you >= 0 && at.order.includes(you)) {
+    if (you >= 0 && at.order.includes(you) && !OnlinePlay.isHost) {
       Progress.d.tournamentBest = Math.max(Progress.d.tournamentBest, Tournament.winsOf(t, you));
       if (Tournament.champion(t) === you) {
         result.champion = true;
@@ -13179,9 +13195,10 @@ const Game = {
     const people = at.order.filter((i) => t.entrants[i].human >= 0), single = t.entrants.filter((e) => e.human >= 0).length === 1;
     const beatenId = t.entrants[at.order[1]].id;
     data.round = Tournament.roundName(t, at.round);
-    data.twoPeople = people.length > 1;
-    data.out = people.length === 1 && winnerSide === 1;
-    if (single && winnerSide === 0) {
+    const watching = !!this.net && this.seatFighter(m) < 0; // the host's own device is not in this fight: a neutral result
+    data.twoPeople = people.length > 1 || watching;
+    data.out = !watching && people.length === 1 && winnerSide === 1;
+    if (single && winnerSide === 0 && !this.net) {
       data.gradeMode = 'tournament';
       data.grade = fightGrade(gradeInputs(data, data.stats[0], data.playerMaxHp));
       t.scores.push(data.grade.score);
@@ -13332,7 +13349,7 @@ const Game = {
     if (onLeave) onLeave(); // the owner of the connection closes it
   },
   endMatch() {
-    if (this.net) { this.net.detach(); this.net = null; this.netNote = null; UI.netStatus(''); } // the connection stays open for the next match
+    if (this.net) { if (this.net === OnlinePlay.lastNet) OnlinePlay.delay = this.net.delay; this.net.detach(); this.net = null; this.netNote = null; UI.netStatus(''); } // the connection stays open for the next match
     if (this.unsubMatch) { this.unsubMatch.forEach((off) => off()); this.unsubMatch = null; }
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
@@ -13363,6 +13380,7 @@ const Game = {
     return Progress.checkUnlocks(); // a new best streak may unlock a fighter: the names
   },
   quitToMenu() {
+    OnlinePlay.leave(); // the way to the menu (also the fatal error's) ends the online game: no link or host flag outlives it
     this.saveSurvivalRecord();
     if (this.match && !this.match.matchOver) this.saveArcadeRun(true); // an Arcade fight left before its end counts as a lost try, so Continue is no free retry
     const leftBracketFight = !!this.match && !this.match.matchOver && !!this.tournamentMatch;
@@ -13413,7 +13431,7 @@ const Game = {
   // the grade of a won fight, from its stats only (it needs no input and changes nothing in the fight)
   gradeResults(data, run) {
     const gradeMode = data.mode === 'lineup' || data.mode === 'coop' ? 'free' : data.mode;
-    if (!GRADE_MODES.includes(gradeMode) || gradeMode === 'tournament' || !data.playerWon) return; // a bracket fight is graded in finishTournamentMatch: the run grade is saved with the title
+    if (this.net || !GRADE_MODES.includes(gradeMode) || gradeMode === 'tournament' || !data.playerWon) return; // an online fight is graded nowhere (this.net is still set while its results show); a bracket fight is graded in finishTournamentMatch: the run grade is saved with the title
     if (data.mode === 'lineup' && data.lineup.every((fighter) => fighter.seat >= 0)) return; // people only: no grade
     data.gradeMode = gradeMode;
     if (data.mode === 'coop') {
@@ -13433,9 +13451,11 @@ const Game = {
   onMatchEnd() {
     const m = this.match;
     if (!m) return;
-    const playerWon = m.matchWinner === 0;
+    const mine = this.seatFighter(m); // the fighter this device plays: 0 offline, a duel online is the seat's own fighter, -1 when it only watches
+    const playerWon = mine >= 0 && m.matchWinner === (this.net && !m.brawl && !m.setup ? mine : 0);
     const run = this.run;
     const data = m.results();
+    if (mine !== 0 && !(run && run.mode === 'versus')) this.seatView(data, m, mine); // the Versus results are P1 against P2 for everyone
     data.mode = run ? run.mode : 'free';
     data.playerWon = playerWon;
     data.buttons = [];
@@ -13474,13 +13494,24 @@ const Game = {
     } else if (run && run.mode === 'tournament' && this.tournamentMatch) this.finishTournamentMatch(m, data);
     else data.buttons = ['again', 'setup', 'menu'];
     this.gradeResults(data, run);
+    if (this.net) data.buttons = OnlinePlay.resultButtons(data.buttons);
     if (run && run.mode === 'arcade') this.saveArcadeRun(!playerWon); // after the grade, which adds this stage's score; a win saves the next stage (or no run after the clear), a loss a retry spent
     this.resultsData = data;
     this.endTimer = 0;
-    this.go(playerWon || personWon || data.mode === 'versus' || data.twoPeople ? GS.VICTORY : GS.DEFEAT); // Versus (and a bracket fight of two people) always has a winner to celebrate
+    this.go(playerWon || personWon || data.mode === 'versus' || data.twoPeople || data.watching ? GS.VICTORY : GS.DEFEAT); // Versus (and a bracket fight of two people) always has a winner to celebrate
+  },
+  // The fighter of a duel that this device plays: 0 offline (and in a brawl, where the party is team 0), online the seat's own fighter, -1 when the seat only watches
+  seatFighter(m) { return this.net && !m.brawl && !m.setup ? this.net.fighterOf[this.net.seat] : 0; },
+  // The results of a duel from the local seat's side: the second fighter's own numbers first (stats, names, round wins, health); a watching seat gets a neutral "X wins"
+  seatView(data, m, mine) {
+    if (mine < 0) { data.watching = true; data.winnerName = m.matchWinner >= 0 ? m.fighters[m.matchWinner].name : ''; return; }
+    data.stats = [data.stats[1], data.stats[0]]; data.wins = [data.wins[1], data.wins[0]];
+    [data.player, data.opponent] = [data.opponent, data.player]; [data.playerHp, data.opponentHp] = [data.opponentHp, data.playerHp];
+    data.playerMaxHp = m.fighters[mine].maxHp;
   },
   resultsAction(kind) {
     const run = this.run;
+    if (this.net && (kind === 'menu' || kind === 'again')) { if (kind === 'menu') this.leaveOnline(); else OnlinePlay.rematch(); return; } // online: Menu leaves for good and closes the links, Rematch (the host's button) starts the same fight again
     if (kind === 'menu') { this.quitToMenu(); return; }
     if (kind === 'setup') { this.endMatch(); this.go(GS.CHARSEL); if (this.selection.mode === 'free') UI.changeFighters(); return; } // slot 1's cards (Versus: then slot 2)
     if (kind === 'bracket') { this.showBracket(); return; }
@@ -14138,7 +14169,7 @@ const Music = {
 
 // === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
-const ONLINE_NET_VERSION = 1; // the match message protocol (P12-02 raises it when the messages change); the low nibble of the second byte
+const ONLINE_NET_VERSION = 2; // the match message protocol (raised when the messages change: 2 since P12-03, which adds the host's start message and the seats that only watch); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
 const ONLINE_FORM = { PACKED: 0, DEFLATE: 1, PLAIN: 2 }; // the packed binary form, or the whole SDP (deflated where the browser can, else as it is)
 const ONLINE_SEAT_MIN = 2; // seat 1 is the host
@@ -14165,13 +14196,19 @@ const ONLINE_MESSAGES = {
   damaged: 'Code damaged or incomplete. Copy it again, all of it.',
   version: 'This code is from another version of the game. Everyone needs the same version.',
   seat: 'This answer is for another seat. Use the answer to the code you sent for this seat.',
-  nonetwork: 'No network address was found. Connect both devices to the same Wi-Fi or router (mobile data and guest Wi-Fi often cannot be used).',
-  ice: 'The two devices could not reach each other. Check that both are on the same Wi-Fi or network, and that a VPN, a firewall or guest-network isolation is not in the way.',
-  timeout: 'The connection did not open in time. Check that both devices are on the same network, then try again with a new code.',
-  guestWait: 'The host did not enter your answer in time (a browser may wait only a few seconds). Ask the host for a new code, then send your answer faster.',
-  lost: 'The connection was lost.',
+  nonetwork: 'No network address was found. Connect to Wi-Fi or a router first (mobile data and some VPNs hide the address), then try again.',
+  ice: 'The devices could not connect. Some networks block direct connections: guest Wi-Fi, office or school networks, VPNs, some mobile data. Use the same home Wi-Fi, or a phone hotspot.',
+  timeout: 'The connection did not open in time. Make new codes and try again on the same Wi-Fi or a phone hotspot (some networks block direct connections).',
+  guestWait: 'The host did not answer in time (some browsers, like Firefox, wait only a few seconds). Ask for a new code and answer faster, or try Firefox as the host.',
+  lost: 'The connection was lost. Check the Wi-Fi, then join again.',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
-  unsupported: 'This browser cannot make an online connection (no WebRTC).',
+  unsupported: 'This browser cannot make an online connection (no WebRTC). Try the latest Chrome, Edge, Firefox or Safari.',
+  nobody: 'Connect at least one friend first: send the code, paste the answer, press Connect.',
+  fightTwo: 'A 1 vs 1 needs exactly 2 players. Pick Brawl or Tournament for 3 or 4.',
+  someoneLeft: 'A player left, so this fight cannot start again.',
+  joining: 'A player is still joining. Start is on in a moment.',
+  sameBrowser: 'Start is off: the devices use different kinds of browser (Chrome or Edge, Firefox, Safari), which can fall out of step. Use the same browser on every device.',
+  start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
   state: 'That step is not possible now. Go back and start again.',
 };
 function onlineError(code, message) { const error = new Error(message || ONLINE_MESSAGES[code] || code); error.code = code; return error; }
@@ -15060,7 +15097,7 @@ const UI = {
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
-    if (match.versus && !match.cfg.seats && this.cardSession !== Game.versus) this.showVersusCard(); // a bracket fight on seats says nothing of the Versus keys
+    if (match.versus && !match.cfg.seats && !match.cfg.online && this.cardSession !== Game.versus) this.showVersusCard(); // a bracket fight on seats says nothing of the Versus keys
     else if (!(match.coop && match.partySize > 1) && this.controlsCardDue(match)) this.showOnboarding(); // a crowd of several people was told its devices on Players and teams
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
@@ -15998,7 +16035,7 @@ const UI = {
       '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / ' + STORY_STAGES + '</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
       '<h3>Tips</h3><p>Arenas are destructible: crates splinter, concrete pillars crack and shed chunks, steel railings bend and collapse, glass and paper screens shatter. Throws and knockbacks into scenery cause extra damage and change where you can walk.</p>' +
       this.holdHelpHtml() +
-      '<h3>Compatibility &amp; limits</h3><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
+      '<h3>Compatibility &amp; limits</h3><p>Online play (up to 4 devices): ' + esc(ONLINE_LIMITS) + ' Firefox as the guest must answer within a few seconds: let it host, or scan the code.</p><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
       '<div class="row">' + BACK_BUTTON + '<button class="mi" data-nav data-act="selftest">Run self-test</button></div><pre id="selftestOut" style="white-space:pre-wrap;font-size:.8em;max-height:14em;overflow:auto"></pre></div></section>';
   },
   screen_pause() {
@@ -16026,7 +16063,7 @@ const UI = {
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; ' + (d.survivalType ? 'fights won ' : 'defeated ') + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight'; // 'brawl' is the debug entry
-    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
+    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.watching ? esc(d.winnerName) + ' wins' : d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
     h += '<div class="statgrid">' + (d.enemies > 0 ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
     if (d.grade) h += this.gradeHtml(d);
     if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; ' + (d.survivalType ? 'Fights won' : 'Opponents defeated') + ': <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Game.survivalRecord(d.survivalType)[0] + '</b></p>';
@@ -17493,32 +17530,246 @@ const CreatorUI = {
   },
 };
 
-// === 09d ONLINE UI - the smallest flow that tests the link (Online > Host a game or Join a game; the lobby of P12-06 replaces it): codes by Copy, Show QR, Scan or paste
+// === 09e ONLINE PLAY (P12-03) - up to 4 people over the links of P12-01. The host picks a mode, builds one match config (seed, rules, the items and hazards and assist settings it holds) and sends it on every link; each peer builds the same match
+// and runs the lockstep of P12-02 over its link(s). A seat is the seat of the link's code minus 1 (the host is seat 0), so a seat nobody fills (a guest that never connected) simply watches. The lobby of P12-06 replaces the picks here.
+const ONLINE_MODES = ['fight', 'brawl', 'tournament'];
+const ONLINE_MODE_LABEL = { fight: '1 vs 1', brawl: 'Brawl', tournament: 'Tournament' };
+const ONLINE_MODE_HINT = {
+  fight: 'You and one friend: the first to win 2 rounds. Needs exactly 2 players.',
+  brawl: 'Everyone on one team against the level\'s CPU gang. 2 to 4 players.',
+  tournament: 'A bracket of 8: each person plays their own fights, the CPU plays the rest. 2 to 4 players.',
+};
+const ONLINE_ARENA_DEFAULT = 'warehouse';
+const ONLINE_START = 'bpstart'; // the type of the host's start message on a link's reliable channel (the lockstep ignores it: it has no match number)
+const ONLINE_FIGHT_ROUNDS = 2, ONLINE_FIGHT_SECONDS = 60, ONLINE_BRACKET_SIZE = 8;
+const OnlinePlay = {
+  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
+  // seat -> link, for the host its guests, for a guest the host as seat 0 (set by hostOpen and guestBegin)
+  get active() { return this.links.size > 0; },
+  // --- host
+  // Why this mode cannot start with this many people (the host counts), or ''
+  modeProblem(mode, people) {
+    if (people < 2) return ONLINE_MESSAGES.nobody;
+    return mode === 'fight' && people !== 2 ? ONLINE_MESSAGES.fightTwo : '';
+  },
+  // Takes the open guest links { seat (of the code, 2 to 4), link, roundTrip, engine }; the first match's input delay comes from the round trips measured when they opened
+  hostOpen(entries) {
+    this.leave();
+    this.isHost = true; this.seat = 0;
+    for (const entry of entries) { this.adopt(entry.seat - 1, entry.link); if (entry.engine) this.engines.set(entry.seat - 1, entry.engine); }
+    this.delay = netDelayFor(entries.map((entry) => entry.roundTrip).filter((ms) => ms >= 0));
+  },
+  adopt(seat, link) {
+    this.links.set(seat, link);
+    this.transports.set(seat, LockstepTransport.fromLink(link));
+    this.offs.push(link.onState((state) => this.linkState(seat, link, state)));
+    if (!this.isHost) this.offs.push(link.onMessage((data) => this.onHostMessage(data)));
+  },
+  // The seats that can play now: the host and every guest whose link is open
+  present() { return [0].concat(Array.from(this.links).filter(([, link]) => link.state === 'open').map(([seat]) => seat)).sort((a, b) => a - b); },
+  // Starts the picked mode { mode, arena } with the people that are connected; returns '' or the plain reason it cannot
+  start(setup) {
+    const seats = this.present();
+    const problem = this.modeProblem(setup.mode, seats.length);
+    if (problem) return problem;
+    if (this.mixedKinds(seats)) return ONLINE_MESSAGES.sameBrowser; // the browsers round some maths differently (J01): until the sim is made exact, one kind of browser only
+    this.setup = setup;
+    if (setup.mode === 'tournament') return this.startBracket(seats);
+    const fighters = seats.map((seat) => DEFAULT_UNLOCKED[seat]), arenaId = ARENAS[setup.arena] ? setup.arena : ONLINE_ARENA_DEFAULT, difficulty = Game.selection.difficulty;
+    const run = { mode: setup.mode === 'fight' ? 'versus' : 'coop', player: fighters[0] };
+    if (setup.mode === 'fight') return this.launch({ mode: 'fight', people: seats, humans: seats, run, cfg: { mode: 'versus', playerId: fighters[0], opponentId: fighters[1], arenaId, winsNeeded: ONLINE_FIGHT_ROUNDS, timer: ONLINE_FIGHT_SECONDS } });
+    const party = seats.map((seat, k) => ({ slot: seat, id: fighters[k] }));
+    const crew = ROSTER.find((r) => !fighters.includes(r.id)).id; // the level's gang is built from a fighter that is not in the party
+    return this.launch({ mode: 'brawl', people: seats, humans: seats, run, cfg: { mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId, difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[arenaId].waves, goons: crew } });
+  },
+  // True when a connected guest's kind of browser is not the host's own (a guest that has not said yet does not count)
+  mixedKinds(seats = this.present()) { return seats.some((seat) => this.engines.has(seat) && this.engines.get(seat) !== onlineEngine()); },
+  // A bracket of 8 with the people on their seats; its fights with a person in them come back through startBracketFight (Game.beginTournamentMatch)
+  startBracket(seats) {
+    const picks = seats.map((seat) => ({ seat, id: DEFAULT_UNLOCKED[seat] }));
+    this.prepare();
+    Game.playTournament(Tournament.draw({ humans: picks, size: ONLINE_BRACKET_SIZE, seed: Date.now() >>> 0, difficulty: Game.selection.tournamentLevel, ringOut: false }));
+    Game.tournamentSeats = false; // the devices of this PC take no part: everyone plays on their own link
+    return '';
+  },
+  // Game.beginTournamentMatch on the host of an online bracket: humans = the seat of each fighter (-1 = the CPU)
+  startBracketFight(cfg, humans) {
+    delete cfg.seats;
+    const problem = this.launch({ mode: 'tournament', people: humans.filter((seat) => seat >= 0), humans, run: null, cfg });
+    if (problem) { Game.tournamentMatch = null; if (Game.tournament) Game.tournament.open = null; UI.toast(problem, 'warn'); }
+  },
+  // A person whose link is gone plays as the CPU from the next fight of the bracket on
+  demoteGone(tournament) {
+    const seats = this.present();
+    for (const entrant of tournament.entrants) if (entrant.human >= 0 && !seats.includes(entrant.human)) entrant.human = -1;
+  },
+  // Builds the match on this PC, tells the guests, and starts the lockstep. plan: { mode, people (the seats that must be here), humans (the seat of each fighter, -1 for the CPU), run, cfg }; returns '' or the plain reason
+  launch(plan) {
+    const seats = this.present();
+    if (plan.people.some((seat) => !seats.includes(seat))) return ONLINE_MESSAGES.someoneLeft;
+    this.plan = plan;
+    const cfg = Object.assign({}, plan.cfg, { seed: Date.now() >>> 0, keepSeed: true, online: true }); // Game.beginMatch fills items, hazards and assist from this PC's settings: they go to the guests as they are
+    const seatCount = Math.max(...seats) + 1, fighterOf = Array.from({ length: seatCount }, (_, seat) => (seats.includes(seat) ? plan.humans.indexOf(seat) : -1));
+    this.matchNo = (this.matchNo + 1) & 0xffff;
+    if (Game.net && Game.net === this.lastNet) this.delay = Game.net.delay; // a rematch starts from the delay the last match was retuned to (the next bracket fight finds it saved here by Game.endMatch); a new session starts from the round trips measured when its links opened, and never from the leftover match of an older session
+    if (plan.run) Game.run = plan.run;
+    if (plan.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] }; // the session score of a Versus run
+    this.build(cfg);
+    const links = {};
+    for (const seat of seats) {
+      if (!seat) continue;
+      links[seat] = this.transports.get(seat);
+      this.links.get(seat).send(JSON.stringify({ t: ONLINE_START, id: this.matchNo, mode: plan.mode, seat, seatCount, fighterOf, delay: this.delay, cfg: Game.config }));
+    }
+    const session = new LockstepSession({ match: Game.match, seat: 0, seatCount, host: true, links, delay: this.delay, fighterOf, matchId: this.matchNo });
+    Game.attachNet(session, { onRematch: () => this.rematch(), onLeave: () => this.leave(), onDrop: (info) => this.dropped(info) });
+    this.lastNet = session;
+    return '';
+  },
+  // The same fight again with a new seed (the host's Rematch button and the "Out of sync" one); a brawl or 1v1 is rebuilt from whoever is still connected
+  rematch() {
+    if (!this.isHost || !this.plan) return;
+    const problem = this.plan.mode === 'tournament' ? this.launch(this.plan) : this.start(this.setup);
+    if (problem) UI.toast(this.gone.size && problem !== ONLINE_MESSAGES.sameBrowser ? ONLINE_MESSAGES.someoneLeft : problem, 'warn'); // somebody left since the match: say so, not "connect a friend first"
+  },
+  // A seat left or was dropped (the session's drop): its link is closed and the seat is gone for the rest of the game
+  dropped(info) {
+    if (!this.isHost || info.outcome === 'lost') return;
+    const link = this.links.get(info.seat);
+    this.links.delete(info.seat); this.gone.add(info.seat);
+    if (link) link.close();
+  },
+  // The buttons of the results screen online: the host goes on (the next bracket fight, or the same fight again), a guest waits for the host
+  resultButtons(buttons) { return this.isHost ? (buttons.includes('bracket') ? ['bracket', 'menu'] : ['again', 'menu']) : ['menu']; },
+  // Brings the game to a menu screen and builds the match; Game.inputPlan sees `starting` while the states change
+  build(cfg) {
+    this.starting = true;
+    try { this.prepare(); Game.beginMatch(cfg); } finally { this.starting = false; }
+  },
+  // --- guest
+  // The host's start message, or null for any other text on the link
+  readStart(data) {
+    if (typeof data !== 'string' || data.charAt(0) !== '{') return null;
+    try { const message = JSON.parse(data); return message && message.t === ONLINE_START ? message : null; } catch (error) { return null; }
+  },
+  // The link of a guest that the host's first start message arrived on (released from the Join screen)
+  guestBegin(link, message) {
+    this.leave();
+    this.isHost = false; this.seat = link.seat - 1;
+    this.adopt(0, link);
+    this.onHostMessage(JSON.stringify(message));
+  },
+  onHostMessage(data) {
+    const message = this.readStart(data);
+    if (message) this.play(message);
+  },
+  // Why a start message cannot be played, or '' (a friend's game of another version may send anything: every name is looked up as an own key, every list and number is checked)
+  problemWith(message) {
+    const bad = ONLINE_MESSAGES.start, cfg = message && message.cfg, count = message && message.seatCount, fighterOf = message && message.fighterOf;
+    const known = (table, id) => typeof id === 'string' && Object.hasOwn(table, id);
+    if (!cfg || typeof cfg !== 'object' || !['versus', 'free', 'brawl'].includes(cfg.mode) || !known(ARENAS, cfg.arenaId) || !known(ROSTER_BY_ID, cfg.playerId) || !Number.isFinite(cfg.seed)) return bad;
+    if (!['fight', 'brawl', 'tournament'].includes(message.mode) || !Number.isInteger(count) || count < 2 || count > COOP_MAX_PLAYERS || message.seat !== this.seat || !Number.isInteger(message.id) || !Number.isFinite(message.delay)) return bad;
+    let fighters = 2; // the people stand first: a duel has 2 fighters, a brawl one per member of the party
+    if (cfg.mode === 'brawl') {
+      if (!Array.isArray(cfg.coop) || !cfg.coop.length || cfg.coop.length > COOP_MAX_PLAYERS || cfg.coop.some((member) => !member || typeof member !== 'object' || !known(ROSTER_BY_ID, member.id) || !Number.isInteger(member.slot) || member.slot < 0 || member.slot >= COOP_MAX_PLAYERS)) return bad;
+      if (!Number.isInteger(cfg.enemies) || cfg.enemies < 1 || cfg.enemies > BRAWL_MAX_ENEMIES) return bad;
+      fighters = cfg.coop.length;
+    } else if (!known(ROSTER_BY_ID, cfg.opponentId)) return bad;
+    if (cfg.difficulty !== undefined && !known(DIFFICULTY, cfg.difficulty)) return bad;
+    for (const key of ['goons', 'rival']) if (cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== '' && !known(ROSTER_BY_ID, cfg[key])) return bad; // waveProfiles reads both mid-match: a fighter of the roster or nothing
+    if (cfg.slots !== undefined && cfg.slots !== null && (!Array.isArray(cfg.slots) || cfg.slots.length > LINEUP_MAX || cfg.slots.some((entry) => !entry || typeof entry !== 'object' || !known(ROSTER_BY_ID, entry.id)))) return bad; // a lineup: fighters of the roster
+    const seated = Array.isArray(fighterOf) ? fighterOf.filter((index) => index >= 0) : [];
+    if (!Array.isArray(fighterOf) || fighterOf.length !== count || fighterOf.some((index) => !Number.isInteger(index) || index < -1 || index >= fighters) || new Set(seated).size !== seated.length) return bad;
+    return '';
+  },
+  play(message) {
+    const problem = this.problemWith(message);
+    if (problem) { UI.toast(problem, 'warn'); this.exit(); return; }
+    try {
+      const cfg = message.cfg;
+      cfg.online = true; cfg.keepSeed = true;
+      Game.run = { mode: message.mode === 'fight' ? 'versus' : message.mode === 'brawl' ? 'coop' : 'online', player: cfg.playerId };
+      if (message.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] };
+      this.build(cfg);
+      const session = new LockstepSession({ match: Game.match, seat: this.seat, seatCount: message.seatCount, host: false, hostLink: this.transports.get(0), delay: message.delay, fighterOf: message.fighterOf, matchId: message.id });
+      Game.attachNet(session, { onLeave: () => this.leave() });
+      UI.toast('You are P' + (this.seat + 1), '', 2500);
+    } catch (error) { // whatever the message still got past the checks: the player gets the plain text, not a broken game
+      Diag.log('warn', 'Online start: ' + (error && error.message ? error.message : error));
+      UI.toast(ONLINE_MESSAGES.start, 'warn');
+      this.exit();
+    }
+  },
+  // --- both
+  // A match starts from a menu screen: whatever the game is showing is brought to one first
+  prepare() {
+    Game.endMatch();
+    const state = Game.state;
+    if (state === GS.VICTORY || state === GS.DEFEAT) Game.go(GS.RESULTS);
+    else if (![GS.MENU, GS.CHARSEL, GS.ARENASEL, GS.RESULTS].includes(state)) Game.go(GS.MENU);
+    if (Game.state === GS.MENU) Game.go(GS.CHARSEL);
+    if (UI.current && UI.current.startsWith('online')) UI.hideScreen();
+  },
+  linkState(seat, link, state) {
+    if ((state !== 'closed' && state !== 'failed') || this.links.get(seat) !== link) return;
+    this.links.delete(seat); this.gone.add(seat);
+    const over = !!Game.net && !!Game.match && Game.match.phase === 'matchEnd'; // the results: the session no longer watches the links
+    if (Game.net && !over) return; // a match is on: its session handles the drop
+    UI.toast(this.isHost ? 'Player ' + (seat + 1) + ' left.' : 'The host left the game.', 'warn');
+    if (!Game.net && (!this.isHost || !this.links.size)) this.exit(); // on the results the player leaves with the Main menu button
+  },
+  // Out of the online game for good: the links are closed and the game goes to the main menu
+  exit() {
+    this.leave();
+    if (Game.state !== GS.MENU && Game.state !== GS.LOADING) Game.quitToMenu();
+  },
+  // Lets go of everything: the links are closed (the others see it at once)
+  leave() {
+    for (const off of this.offs) off();
+    for (const transport of this.transports.values()) transport.close();
+    for (const link of this.links.values()) link.close();
+    this.offs = []; this.links.clear(); this.transports.clear(); this.gone.clear(); this.engines.clear();
+    this.isHost = false; this.lastNet = null; this.plan = null; this.setup = null;
+  },
+};
+
+// === 09d ONLINE UI - the smallest flow that starts a game (Online > Host a game or Join a game; the lobby of P12-06 replaces it): codes by Copy, Show QR, Scan or paste. The host has one code box per guest (seats 2 to 4) and a plain Start
 const ONLINE_SCAN_MS = 200; // a camera frame is read this often
-const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when the link opens, the guest answers bp-pong:, the host shows the round trip
+const ONLINE_HELLO_WAIT_MS = 2000; // a connected guest whose browser kind has not arrived yet counts as still joining for this long: Start stays off
+const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when a link opens, the guest answers bp-pong:, the host shows the round trip
 const ONLINE_PONG = 'bp-pong:';
+const ONLINE_HELLO = 'bp-hello:'; // a guest tells the host its kind of browser when the link opens: the browsers round some maths differently (J01), so the host screen can refuse a Start with mixed kinds (OnlinePlay.mixedKinds)
+const ONLINE_ENGINES = { blink: 'Chrome or Edge', gecko: 'Firefox', webkit: 'Safari' };
+// The engine family of a browser: every browser on an iPhone or iPad uses Safari's engine
+function onlineEngine(userAgent = typeof navigator === 'undefined' ? '' : String(navigator.userAgent)) {
+  if (/FxiOS|CriOS|EdgiOS|iPhone|iPad|iPod/.test(userAgent)) return 'webkit';
+  if (userAgent.includes('Firefox/')) return 'gecko';
+  return userAgent.includes('Chrome/') || userAgent.includes('Chromium/') ? 'blink' : 'webkit';
+}
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
+const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or router, or on one phone\'s hotspot. Networks that block direct connections (guest Wi-Fi, office or school networks, VPNs, mobile data) do not work. No server is used: the devices talk to each other. Use the same kind of browser on every device (Chrome or Edge with Chrome or Edge, Firefox with Firefox, Safari with Safari): different kinds can fall out of step.'; // P12-07; the browsers round some maths differently (Appendix D row J01)
 const OnlineUI = {
-  link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '',
-  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
-  // Ends the screen's link and forgets everything about it
+  link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '', // the guest's single link and its fields; note also holds the host's start problem
+  guests: [], mode: '', arena: ONLINE_ARENA_DEFAULT, // the host's one slot per guest: { seat, link, offerCode, answerText, note, roundTrip }; the picked mode ('' = by the number of players) and level
+  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, scanSeat: 0, answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
+  // Ends every link of the screen and forgets everything about it
   reset() {
     this.stopScan();
-    const old = this.link;
-    this.forget(); // before the close, so the link's state event is ignored
-    if (old) old.close();
+    const old = [this.link].concat(this.guests.map((guest) => guest.link));
+    this.forget(); // before the close, so the links' state events are ignored
+    for (const link of old) if (link) link.close();
   },
-  // Lets go of the link without closing it: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
+  // Lets go of the links without closing them: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
   forget() {
     for (const stop of this.unlisten) stop();
     this.unlisten = [];
-    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false;
+    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false; this.guests = []; this.mode = '';
   },
-  /* The hand-off point for the netcode (P12-02) and the lobby (P12-06). Call it when the link has opened and a match or the lobby takes over, BEFORE UI.hideScreen() / UI.go(),
+  /* The hand-off point of the guest for the netcode (P12-02) and the lobby (P12-06). Call it when the link has opened and a match or the lobby takes over, BEFORE UI.hideScreen() / UI.go(),
      which leave the Online screens and close whatever link is still the screen's. Returns the open link, now owned by the caller (the screen no longer listens to it and
-     leave() will not close it), or null when there is no open link (then nothing changes). */
+     leave() will not close it), or null when there is no open link (then nothing changes). The host hands over all its open links with releaseGuests(). */
   release() {
     const link = this.link;
     if (!link || link.state !== 'open') return null;
@@ -17526,76 +17777,124 @@ const OnlineUI = {
     this.forget();
     return link;
   },
+  // Host: every open guest link as { seat, link, roundTrip } (seat = the seat of its code, 2 to 4), owned by the caller from now on; the links that are not open are closed. null when none is open.
+  releaseGuests() {
+    const open = this.guests.filter((guest) => guest.link && guest.link.state === 'open'), rest = this.guests.filter((guest) => !open.includes(guest));
+    if (!open.length) return null;
+    this.stopScan();
+    this.forget();
+    for (const guest of rest) if (guest.link) guest.link.close();
+    return open.map((guest) => ({ seat: guest.seat, link: guest.link, roundTrip: guest.roundTrip, engine: guest.engine }));
+  },
   leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
   open(role) {
     this.reset();
     this.role = role;
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
     Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') { const link = this.makeLink(); this.step(link, link.makeOffer(ONLINE_SEAT_MIN), (code) => { this.offerCode = code; this.redraw(); }); }
+    if (role === 'host') this.addGuest();
   },
+  guestOf(link) { return this.guests.find((guest) => guest.link === link); },
+  slotOf(seat) { return this.guests.find((guest) => guest.seat === Number(seat)); },
+  owns(link) { return link === this.link || !!this.guestOf(link); },
   // Runs a link step; what a link answers after the player has left it (the screen closed it) is ignored
-  step(link, promise, done) { promise.then((value) => { if (link === this.link) done(value); }, (error) => { if (link === this.link) this.fail(error); }); },
-  // A fresh link (the first one, or after the last one failed or closed)
+  step(link, promise, done, onFail = (error) => this.fail(error)) { promise.then((value) => { if (this.owns(link)) done(value); }, (error) => { if (this.owns(link)) onFail(error); }); },
+  // The guest's link (the first one, or after the last one failed or closed)
   makeLink() {
     const old = this.link;
     const link = Online.createLink(this.role);
     this.link = link;
     if (old) old.close();
-    this.unlisten = [link.onState((state) => this.onState(link, state)), link.onMessage((data) => this.onMessage(link, data))];
+    this.listen(link);
     return link;
   },
+  listen(link) { this.unlisten.push(link.onState((state) => this.onState(link, state)), link.onMessage((data) => this.onMessage(link, data))); },
+  // Host: the next seat's code (a new slot), or a new code for the seat of a link that failed
+  addGuest(seat = ONLINE_SEAT_MIN + this.guests.length) {
+    if (seat > ONLINE_SEAT_MAX) return;
+    const link = Online.createLink('host'), old = this.slotOf(seat), slot = old || { seat, link: null, offerCode: '', answerText: '', note: '', roundTrip: -1 };
+    if (old && old.link) old.link.close();
+    Object.assign(slot, { link, offerCode: '', answerText: '', note: '', roundTrip: -1, engine: undefined, openedAt: undefined }); // a new guest says its own browser kind
+    if (!old) this.guests.push(slot);
+    this.listen(link);
+    this.step(link, link.makeOffer(seat), (code) => { slot.offerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));
+    this.redraw();
+  },
   onState(link, state) {
-    if (link !== this.link) return;
-    if (state === 'open') { this.note = ''; if (this.role === 'host') link.send(ONLINE_PING + performance.now()); Sound.ui('ok'); }
+    if (!this.owns(link)) return;
+    if (state === 'open') {
+      this.note = '';
+      if (this.role === 'host') {
+        const slot = this.guestOf(link);
+        if (slot) { slot.openedAt = performance.now(); setTimeout(() => this.redraw(), ONLINE_HELLO_WAIT_MS + 50); } // Start comes on when the hello is late, too
+        link.send(ONLINE_PING + performance.now());
+      } else link.send(ONLINE_HELLO + onlineEngine());
+      Sound.ui('ok');
+    }
     this.redraw();
   },
   onMessage(link, data) {
-    if (link !== this.link || typeof data !== 'string') return;
-    if (data.startsWith(ONLINE_PING)) link.send(ONLINE_PONG + data.slice(ONLINE_PING.length));
-    else if (data.startsWith(ONLINE_PONG)) { this.roundTrip = Math.max(0, Math.round(performance.now() - Number(data.slice(ONLINE_PONG.length)))); this.redraw(); }
+    if (!this.owns(link) || typeof data !== 'string') return;
+    if (data.startsWith(ONLINE_PING)) { link.send(ONLINE_PONG + data.slice(ONLINE_PING.length)); return; }
+    if (data.startsWith(ONLINE_PONG)) {
+      const ms = Math.max(0, Math.round(performance.now() - Number(data.slice(ONLINE_PONG.length)))), slot = this.guestOf(link);
+      if (slot) slot.roundTrip = ms; else this.roundTrip = ms;
+      this.redraw();
+      return;
+    }
+    if (data.startsWith(ONLINE_HELLO)) {
+      const slot = this.guestOf(link), kind = data.slice(ONLINE_HELLO.length);
+      if (slot && Object.hasOwn(ONLINE_ENGINES, kind)) { slot.engine = kind; this.redraw(); }
+      return;
+    }
+    const start = this.role === 'guest' ? OnlinePlay.readStart(data) : null; // the host started the game: this link goes to the game
+    const handed = start ? this.release() : null;
+    if (handed) OnlinePlay.guestBegin(handed, start);
   },
   fail(error) { this.note = error.message; Sound.ui('bad'); this.redraw(); },
+  failSlot(slot, error) { slot.note = error.message; Sound.ui('bad'); this.redraw(); },
   saveFields() {
     const answer = $('onAnswer'), offer = $('onOffer');
     if (answer) this.answerText = answer.value;
     if (offer) this.offerText = offer.value;
+    for (const guest of this.guests) { const box = $('onAnswer' + guest.seat); if (box) guest.answerText = box.value; }
   },
   redraw() {
     this.saveFields();
     if (UI.current && UI.current.startsWith('online')) UI.rerender(true);
   },
-  statusText() {
-    if (this.note) return this.note;
-    const link = this.link;
+  // What a link's line says: the player's note, else its state in plain words
+  statusOf(link, note, roundTrip, host, engine = '') {
+    if (note) return note;
     const state = link ? link.state : 'idle';
-    const host = this.role === 'host';
     if (state === 'gathering') return 'Making your code (checking the network, about 2 seconds)...';
     if (state === 'waiting') return host ? 'Waiting for your friend\'s answer code.' : 'Send this answer code to the host, then wait here.';
     if (state === 'connecting') return 'Connecting...';
-    if (state === 'open') return 'Connected' + (this.roundTrip >= 0 ? ' (round trip ' + this.roundTrip + ' ms)' : '') + '.';
+    if (state === 'open') return host ? 'Connected' + (roundTrip >= 0 ? ' (round trip ' + roundTrip + ' ms)' : '') + '.' + (engine ? ' Browser: ' + ONLINE_ENGINES[engine] + '.' : '') : 'Connected. You are player ' + link.seat + '. Wait here: the host starts the game.';
     if (state === 'failed' || state === 'closed') return link.error ? link.error.message : 'Disconnected.';
     return host ? '' : 'Paste the host\'s code, then press Make answer code.';
   },
+  statusText() { return this.statusOf(this.link, this.note, this.roundTrip, this.role === 'host'); },
   statusIsProblem() { return !!this.note || (!!this.link && !!this.link.error); },
   canType() { return !this.link || ['idle', 'waiting'].includes(this.link.state); },
   codeBox(id, label, code, placeholder) {
     const rows = Math.min(8, Math.max(3, Math.ceil(code.length / ONLINE_CODE_CHARS_PER_ROW))); // a phone shows about 32 characters a row; the whole code stays in view
     return '<textarea id="' + id + '" class="crin" data-nav readonly rows="' + rows + '" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>';
   },
-  codeButtons(code, qrKind) {
+  // kind: 'answer' (the guest's code) or the seat of a host slot
+  codeButtons(code, kind) {
     const fits = !!code && Qr.versionFor(code.length) > 0;
-    return '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="oncopy:' + qrKind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
-      '<button class="mi" data-nav data-act="onqr:' + qrKind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
+    return '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="oncopy:' + kind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
+      '<button class="mi" data-nav data-act="onqr:' + kind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
       (code && !fits ? '<p class="hint">Too long for a QR: use Copy.</p>' : '');
   },
-  scanButtons(act, label) {
-    const state = this.link ? this.link.state : 'idle';
-    if (!this.scanning && state !== (this.role === 'host' ? 'waiting' : 'idle')) return ''; // a code is expected only then
-    if (this.scanning) return '<div id="onVideoHold"></div><div class="row cr-actions"><button class="mi" data-nav data-default data-act="onscanx">Stop scanning</button></div>';
+  scanButtons(act, label, link, seat) {
+    const state = link ? link.state : 'idle', mine = this.scanning && this.scanSeat === seat;
+    if (!mine && (this.scanning || state !== (this.role === 'host' ? 'waiting' : 'idle'))) return ''; // a code is expected only then
+    if (mine) return '<div id="onVideoHold"></div><div class="row cr-actions"><button class="mi" data-nav data-default data-act="onscanx">Stop scanning</button></div>';
     return this.scanOk ? '<button class="mi" data-nav data-act="' + act + '">' + label + '</button>' : '';
   },
-  statusLine() { return '<p id="onStatus" class="hint' + (this.statusIsProblem() ? ' warnline' : '') + '" role="status" aria-live="polite">' + esc(this.statusText()) + '</p>'; },
+  statusLine(text, problem, id = 'onStatus') { return '<p id="' + id + '" class="hint' + (problem ? ' warnline' : '') + '" role="status" aria-live="polite">' + esc(text) + '</p>'; },
   render(name) {
     if (name === 'online') return this.renderChoice();
     if (name === 'onlinehost') return this.renderHost();
@@ -17605,18 +17904,41 @@ const OnlineUI = {
   renderChoice() {
     const off = Online.supported() ? '' : ' disabled';
     return '<section class="screen on" aria-label="Play online"><div class="panel"><h2>Play online</h2>' +
-      '<p class="hint" style="margin-top:0">Two devices on the same Wi-Fi or network. No server: the players swap two short codes (copy and paste, or a QR code).' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Make a code and send it to your friend</small></button>' +
+      '<p class="hint" style="margin-top:0">Up to 4 devices on the same Wi-Fi or network. The host sends each friend a short code, the friend sends one back (copy and paste, or a QR code).' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p>' +
+      '<p class="hint">' + ONLINE_LIMITS + '</p><nav>' +
+      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Make a code for each friend and start the game</small></button>' +
       '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Paste the host\'s code and send back the answer</small></button>' + BACK_BUTTON + '</nav></div></section>';
   },
+  // One guest of the host screen: its code to send, the box for its answer, Connect, and its own status
+  renderGuest(guest) {
+    const { seat, link, offerCode } = guest, state = link ? link.state : 'idle', ended = state === 'failed' || state === 'closed', problem = !!guest.note || !!(link && link.error);
+    return '<div class="onseat"><h3>Player ' + seat + ': send this code</h3>' + this.codeBox('onCode' + seat, 'Your code for player ' + seat, offerCode, 'Making your code...') + this.codeButtons(offerCode, String(seat)) +
+      '<h3>Paste player ' + seat + '\'s answer code here</h3>' +
+      '<textarea id="onAnswer' + seat + '" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the answer code of player ' + seat + ' here"' + (!link || ['idle', 'waiting'].includes(state) ? '' : ' readonly') + '>' + esc(guest.answerText) + '</textarea>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect:' + seat + '"' + (offerCode && state === 'waiting' ? '' : ' disabled') + '>Connect</button>' + (ended ? '<button class="mi" data-nav data-act="onnew:' + seat + '">New code</button>' : '') + '</div>' +
+      this.scanButtons('onscan:' + seat, 'Scan the answer QR', link, seat) + this.statusLine(this.statusOf(link, guest.note, guest.roundTrip, true, guest.engine), problem, 'onStatus' + seat) + '</div>';
+  },
+  modeNow(people) { return this.mode || (people === 2 ? 'fight' : 'brawl'); },
+  openCount() { return this.guests.filter((guest) => guest.link && guest.link.state === 'open').length; },
+  // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
+  mixedKinds() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && guest.engine && guest.engine !== onlineEngine()); },
+  // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
+  joining() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && !guest.engine && guest.openedAt !== undefined && performance.now() - guest.openedAt < ONLINE_HELLO_WAIT_MS); },
+  // Why Start cannot be pressed, or ''
+  startProblem() {
+    const people = this.openCount() + 1;
+    if (!this.openCount()) return ONLINE_MESSAGES.nobody;
+    if (this.joining()) return ONLINE_MESSAGES.joining;
+    return this.mixedKinds() ? ONLINE_MESSAGES.sameBrowser : OnlinePlay.modeProblem(this.modeNow(people), people);
+  },
   renderHost() {
-    const code = this.offerCode;
-    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' +
-      '<h3>1. Send this code (seat ' + ONLINE_SEAT_MIN + ')</h3>' + this.codeBox('onCode', 'Your code for the guest', code, 'Making your code...') + this.codeButtons(code, 'offer') +
-      '<h3>2. Paste the answer code here</h3>' +
-      '<textarea id="onAnswer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the answer code here"' + (this.canType() ? '' : ' readonly') + '>' + esc(this.answerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect"' + (code && this.link && this.link.state === 'waiting' ? '' : ' disabled') + '>Connect</button></div>' +
-      this.scanButtons('onscan', 'Scan the answer QR') + this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+    const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startProblem();
+    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' + this.guests.map((guest) => this.renderGuest(guest)).join('') +
+      '<h3>Start the game (' + people + ' of ' + (ONLINE_SEAT_MAX) + ' players ready)</h3>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onmode">Mode: ' + ONLINE_MODE_LABEL[mode] + '</button>' + (mode === 'tournament' ? '' : '<button class="mi" data-nav data-act="onarena">Level: ' + esc(ARENAS[this.arena].name) + '</button>') + '</div>' +
+      '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + 
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button>' + (this.guests.length < ONLINE_SEAT_MAX - 1 ? '<button class="mi" data-nav data-act="onadd">Add another player</button>' : '') + '</div>' +
+      (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
   renderJoin() {
     const code = this.answerCode;
@@ -17624,13 +17946,17 @@ const OnlineUI = {
     return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
       '<h3>1. Paste the host\'s code here</h3>' +
       '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR') +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR', this.link, 0) +
       (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
-      this.statusLine() + '<div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+      this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
+  qrCode() {
+    if (this.qrOf === 'answer') return this.answerCode;
+    const guest = this.slotOf(this.qrOf);
+    return guest ? guest.offerCode : '';
   },
   renderQr() {
-    const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
-    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'offer' ? 'host' : 'answer') + ' code"></canvas>' +
+    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'answer' ? 'answer' : 'host') + ' code"></canvas>' +
       '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
   },
   // after every render: the QR canvas, the camera view
@@ -17641,7 +17967,7 @@ const OnlineUI = {
   },
   drawQr() {
     const canvas = $('onQr');
-    const code = this.qrOf === 'offer' ? this.offerCode : this.answerCode;
+    const code = this.qrCode();
     const matrix = canvas && code ? Qr.encode(code) : null;
     if (!matrix) return;
     const portrait = window.innerHeight > window.innerWidth;
@@ -17654,27 +17980,42 @@ const OnlineUI = {
     const handlers = {
       onhost: () => this.open('host'),
       onjoin: () => this.open('guest'),
-      oncopy: () => this.copy(arg === 'offer' ? this.offerCode : this.answerCode),
+      oncopy: () => (arg === 'answer' ? this.copy(this.answerCode, 'onCode') : this.copy(this.qrCodeOf(arg), 'onCode' + arg)),
       onqr: () => { this.saveFields(); this.stopScan(); this.qrOf = arg; UI.push('onlineqr'); },
-      onscan: () => this.startScan(),
+      onscan: () => this.startScan(Number(arg) || 0),
       onscanx: () => { this.stopScan(); this.redraw(); },
-      onconnect: () => this.connect(),
+      onconnect: () => this.connect(this.slotOf(arg)),
       onanswer: () => this.answer(),
+      onadd: () => this.addGuest(),
+      onnew: () => this.addGuest(Number(arg)),
+      onmode: () => { this.mode = ONLINE_MODES[(ONLINE_MODES.indexOf(this.modeNow(this.openCount() + 1)) + 1) % ONLINE_MODES.length]; this.redraw(); },
+      onarena: () => { this.arena = ARENA_ORDER[(ARENA_ORDER.indexOf(this.arena) + 1) % ARENA_ORDER.length]; this.redraw(); },
+      onstart: () => this.startGame(),
     };
     const fn = handlers[name];
     if (fn) fn();
   },
-  copy(code) {
-    const box = $('onCode');
+  qrCodeOf(seat) { const guest = this.slotOf(seat); return guest ? guest.offerCode : ''; },
+  copy(code, boxId) {
+    const box = $(boxId);
     const manual = () => { if (box) { box.focus(); box.select(); } UI.toast('Select the code and copy it (Ctrl+C)', 'warn'); };
     try { navigator.clipboard.writeText(code).then(() => UI.toast('Code copied to the clipboard'), manual); } catch (error) { manual(); }
   },
-  // Host: the pasted (or scanned) answer code
-  connect() {
+  // Host: the pasted (or scanned) answer code of one guest
+  connect(guest) {
+    if (!guest || !guest.link) return;
     this.saveFields();
-    this.note = '';
-    if (!this.link) return;
-    this.step(this.link, this.link.acceptAnswer(this.answerText), () => this.redraw());
+    guest.note = '';
+    this.step(guest.link, guest.link.acceptAnswer(guest.answerText), () => this.redraw(), (error) => this.failSlot(guest, error));
+  },
+  // Host: Start with the players that are connected; their links go to the game and the screen lets go of them
+  startGame() {
+    const problem = this.startProblem();
+    if (problem) { this.note = problem; Sound.ui('bad'); this.redraw(); return; }
+    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, entries = this.releaseGuests();
+    OnlinePlay.hostOpen(entries);
+    const failure = OnlinePlay.start({ mode, arena });
+    if (failure) { OnlinePlay.leave(); UI.toast(failure, 'warn'); UI.hideScreen(); }
   },
   // Guest: the pasted (or scanned) host code; a failed link is replaced by a new one so the player can try again
   answer() {
@@ -17687,12 +18028,12 @@ const OnlineUI = {
     this.step(link, link.acceptOffer(this.offerText).finally(() => { this.answering = false; }), (code) => { this.answerCode = code; this.redraw(); });
     this.redraw();
   },
-  async startScan() {
+  async startScan(seat = 0) {
     if (this.scanning) return;
     const prefix = ONLINE_PREFIX[this.role === 'host' ? 1 : 0];
     const ticket = ++this.scanTicket;
     const stale = () => ticket !== this.scanTicket; // stopScan ends every scan in flight: what it later gets (a camera, a playing video) is let go
-    this.scanning = true; this.note = '';
+    this.scanning = true; this.scanSeat = seat; this.note = '';
     this.redraw();
     try {
       const detector = new BarcodeDetector({ formats: ['qr_code'] });
@@ -17725,9 +18066,10 @@ const OnlineUI = {
     } catch (error) { /* a frame that cannot be read: the next one is tried */ } finally { this.scanBusy = false; }
   },
   scanned(value) {
+    const seat = this.scanSeat;
     this.stopScan();
     Sound.ui('ok');
-    if (this.role === 'host') { this.answerText = value; this.connect(); } else { this.offerText = value; this.answer(); }
+    if (this.role === 'host') { const guest = this.slotOf(seat); if (guest) { guest.answerText = value; this.connect(guest); } } else { this.offerText = value; this.answer(); }
   },
   // The camera stops on a scan, on Stop, on leaving the screen and on a failure
   stopScan() {
@@ -17798,7 +18140,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -17808,7 +18150,7 @@ function testApi() {
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
-    ROUND_END_TICKS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+    ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
