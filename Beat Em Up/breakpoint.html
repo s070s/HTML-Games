@@ -3424,7 +3424,7 @@ const ARENAS = {
     items: [['bottle', -10.6, 2.6, 1.05, 'bar'], ['bottle', -7.0, 5.0, 0.75, 'tableA'], ['bottle', -3.8, 5.6, 0.75, 'tableB'], ['chair', -2.0, -1.6, 0], ['bat', -10.13, 1.7, 1.3, 'bar'],
       ['chain', 9.0, 3.9, 0], ['binlid', 9.3, 5.6, 0], ['extinguisher', 10.78, 4.55, 1.3, 'fireDoor'], ['crate', 9.4, 6.2, 0], ['bottle', 10.5, 6.5, 0.9, 'beerCrate']],
     hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }], ['steam', 1.8, -2.6, { yaw: 0 }]],
-    waves: [[3, 0.0, 1.5, 0], [4, -10.0, 4.8, 0], [5, 9.2, 4.6, 0], [6, 9.4, -2.2, 0], [6, 2.3, -5.8, 1, [-10.0, 4.8]]],
+    waves: [[3, 0.0, 1.5, 0], [4, -10.1, 5.0, 0], [5, 9.2, 4.6, 0], [6, 9.4, -2.2, 0], [6, 2.3, -5.8, 1, [-10.1, 5.0]]],
   },
 };
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 'construction', 'club'];
@@ -3584,7 +3584,7 @@ function makeObject(def, rng) {
   const deck = def.type === 'deck';
   o.collider = {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
-    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
+    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? (def.look === 'ramp' ? RAMP_RISE + STAIR_UP - STAIR_RISE : STAIR_UP) : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
     shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''), // an item thrown onto it lies on its top
     lay: def.type === 'box' && /^(sofa|car|rack)$/.test(def.look || ''), // an item lies on the highest drawn part under it
   };
@@ -3602,7 +3602,10 @@ const STAIR_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 const SUPPORT_BASE_SLACK = 1.2; // m: an object whose base is higher than this above a fighter's feet does not collide with it
 const NAV_CELL = STAIR_RUN, NAV_BODY = 0.34, NAV_STEP = 0.3, NAV_JUMP = 1.05, NAV_JUMP_COST = 40; // CPU walking map: a cell is one stair step wide
 const NAV_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const STAIR_UP = 0.5; // m: a step may be stood on from this far below its top (one step of slack, so a fast climb never snags on the step after next)
+const STAIR_UP = 0.3; // m: a step may be stood on from this far below its top (a tread of STAIR_RISE and a little slack: one tread a tick at most); a ramp tread takes its own rise and the same slack
+const PASS_UNDER = 0.05; // m: a prop that cannot be stood on is passed only by a body whose feet are at least this close to its top (a jump over it); a deck or a step takes its own slack (STAIR_UP, 0.25)
+const PUSH_OUT_MAX = 0.6, PUSH_OUT_SLIDE = 0.15; // m: the farthest a body is moved out of an obstacle in one go (three passes a tick); from farther inside it slides out this much a pass
+const SUPPORT_REACH = 0.15; // m: a fighter stands on a deck, a crate or a step while its centre is this close to its footprint (walls and props keep the whole 0.34 m cylinder)
 const STAIR_APPROACH = 0.45; // m: the CPU's first waypoint lies this far before the foot
 const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far beyond the ring
 /* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
@@ -3853,12 +3856,12 @@ const Arena = {
 
   // --- queries
   // Sphere (attack hitbox) against every live object; damages each object at most once per source id
-  hitSphere(x, y, z, r, srcId, raw, cat, dirx, dirz, by) {
+  hitSphere(x, y, z, r, srcId, raw, cat, dirx, dirz, by, up = r + 0.1) { // up: how far above and below y the sphere reaches an object
     let hits = 0;
     for (const o of this.objects) {
       if (o.destroyed) continue;
       const c = o.collider;
-      if (y - r > c.top + 0.1 || y + r < c.base - 0.1 || (c.deck && y > c.top - 0.05)) continue; // a deck is hit from its side or below, never by a strike thrown from on top of it
+      if (y - up > c.top || y + up < c.base || (c.deck && y > c.top - 0.05)) continue; // a deck is hit from its side or below, never by a strike thrown from on top of it
       const nx = clamp(x, c.x - c.hx, c.x + c.hx), nz = clamp(z, c.z - c.hz, c.z + c.hz);
       const dx = x - nx, dz = z - nz;
       if (dx * dx + dz * dz > r * r) continue;
@@ -3897,7 +3900,7 @@ const Arena = {
       for (let i = 0; i < nx; i++) {
         const x = -b.x + (i + 0.5) * nav.cw, z = -b.z + (j + 0.5) * nav.ch;
         let h = 0;
-        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + 0.1 && Math.abs(z - c.z) <= c.hz + 0.1 && c.top > h) h = c.top;
+        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + SUPPORT_REACH && Math.abs(z - c.z) <= c.hz + SUPPORT_REACH && c.top > h) h = c.top;
         let fits = x >= this.ax0 + r && x <= this.ax1 - r && z >= this.az0 + r && z <= this.az1 - r;
         for (let k = 0; fits && k < this.colliders.length; k++) {
           const c = this.colliders[k];
@@ -3988,7 +3991,7 @@ const Arena = {
   // Whether a body of radius r at (x, z) with its feet at height y stands inside something solid it cannot step onto: resolveFighter's obstacle test without moving anything (the drawn sway, Fighter.swayRoom)
   insideSolid(x, z, r, y) {
     for (const c of this.colliders) {
-      if (!c.active || c.base > y + SUPPORT_BASE_SLACK || c.top <= STEP_HEIGHT || y >= c.top - (c.up || 0.25)) continue;
+      if (!c.active || c.base > y + SUPPORT_BASE_SLACK || c.top <= STEP_HEIGHT || y >= c.top - (c.standable ? c.up || 0.25 : PASS_UNDER)) continue;
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz < r * r - 1e-6) return true;
     }
@@ -4019,6 +4022,16 @@ const Arena = {
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
       if (!c.active || c.haz || c.deck || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue; // decks do not hide a fighter from a lock-on (it only looks across the height) // a hazard's post is a small thing in front of a wall or a corner: it hides nobody
+      if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
+    }
+    return false;
+  },
+  // True when scenery stops a blow that travels from (x1,z1) to (x2,z2) at height y: an active obstacle taller than y that starts below it, glass included, whose footprint the line crosses; a deck, a stair step and a hazard's post do not stop it. Allocation-free.
+  blowBlocked(x1, z1, x2, z2, y) {
+    const dx = x2 - x1, dz = z2 - z1;
+    for (let i = 0; i < this.colliders.length; i++) {
+      const c = this.colliders[i];
+      if (!c.active || c.haz || c.deck || c.top <= y || c.base >= y) continue;
       if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
     }
     return false;
@@ -4058,7 +4071,7 @@ const Arena = {
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
       if (item && c.lay) { top = Math.max(top, this.lookTop(c, x, z, y)); continue; }
-      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
+      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable && (item || r <= SUPPORT_REACH || dx * dx + dz * dz < SUPPORT_REACH * SUPPORT_REACH)) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
   },
@@ -4090,8 +4103,8 @@ const Arena = {
         let dx = f.x - nx, dz = f.z - nz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY) { groundY = c.top; stair = c.up > 0.25; } continue; }
-        if (f.y >= c.top - (c.up || 0.25)) continue;
+        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || d2 < SUPPORT_REACH * SUPPORT_REACH)) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a footing is the footprint under the centre (SUPPORT_REACH): the body is on the deck, not the cylinder
+        if (f.y >= c.top - PASS_UNDER) { if (c.top > groundY && d2 < SUPPORT_REACH * SUPPORT_REACH) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top (a jump over it) passes it, and it comes down on it
         this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
@@ -4114,7 +4127,7 @@ const Arena = {
       if (ex * ex + ez * ez < r * r - 1e-6) return false;
       for (let i = 0; i < this.colliders.length; i++) { // and not into the next obstacle
         const q = this.colliders[i];
-        if (q === c || !q.active || q.top <= STEP_HEIGHT || f.y >= q.top - (q.up || 0.25) || q.base > f.y + SUPPORT_BASE_SLACK) continue;
+        if (q === c || !q.active || q.top <= STEP_HEIGHT || f.y >= q.top - (q.standable ? q.up || 0.25 : PASS_UNDER) || q.base > f.y + SUPPORT_BASE_SLACK) continue;
         const qx = wx - clamp(wx, q.x - q.hx, q.x + q.hx), qz = wz - clamp(wz, q.z - q.hz, q.z + q.hz);
         if (qx * qx + qz * qz < r * r - 1e-6) return false;
       }
@@ -4135,7 +4148,8 @@ const Arena = {
       const fits = i < 2 ? exit[0] >= x0 && exit[0] <= x1 : exit[1] >= z0 && exit[1] <= z1; // only the moved coordinate must have room
       if (fits && cost < bestCost && clears(exit[0], exit[1])) { bestCost = cost; best = exit; }
     }
-    const to = best || nearest;
+    const to = best || nearest, gapX = to[0] - f.x, gapZ = to[1] - f.z, gap = DMath.hypot(gapX, gapZ);
+    if (gap > PUSH_OUT_MAX) { f.x += gapX / gap * PUSH_OUT_SLIDE; f.z += gapZ / gap * PUSH_OUT_SLIDE; return; } // deep inside a big block: it slides out instead of jumping across it
     f.x = to[0]; f.z = to[1];
   },
 
@@ -4351,6 +4365,7 @@ const Arena = {
     const lip = C('#d6b32a');
     if (look === 'grate') {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.04, z, hx * 2, 0.08, hz * 2, 0, 0, 0, col, 1, 0, 0.5, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.08) * 0.5, z, hx * 2 - 0.04, h - 0.08, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate: the collider is a block from the floor, and nothing can go under it
       if (!o.far) {
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), h * 0.5, z + sz * (hz - 0.08), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0);
         this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
@@ -4361,6 +4376,7 @@ const Arena = {
       }
     } else if (look === 'boards') {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.05, z, hx * 2, 0.1, hz * 2, 0, 0, 0, col, 1, 0, 0.85, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.1) * 0.5, z, hx * 2 - 0.04, h - 0.1, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate (see the grate)
       if (!o.far) {
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), h * 0.5, z + sz * (hz - 0.06), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
@@ -5192,6 +5208,10 @@ const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.
 const PLANT_SPEED = 1.5; // m/s: how fast the lowest part may move to the floor or back (2.5 cm a tick)
 const PLANT_SPEED_MOVE = 6; // m/s while an upside-down kick runs (10 cm a tick): the standard speed moves the body 35 cm in the 14 startup ticks of the handstand kick, which is not enough for an inversion
 const PLANT_MIN = 0.002; // m: a shift smaller than this is dropped once the pose is free again
+const LIE_POINTS = [0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33]; // the key points of pts the lying box is measured from: root, chest, head, wrists, ankles, knees, elbows
+const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part of a body in a blow is drawn; how fast the lift of the body goes when the blow is over (a tick)
+const NUDGE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.HIT, S.STAGGER, S.STUN, S.ATTACK]; // the states a standing body is slid clear of the walls and the scenery in (steerLie)
+const LIE_THICK = 0.15, LIE_FREE = 0.03, LIE_MOVE = 0.1, LIE_TURN = 0.3, LIE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // a lying body (drawing only): the thickness of a limb added to the key points, the move that still counts as no room needed (m), the most the drawn body slides (m) and turns (rad) in a tick, the four directions tried (the facing first)
 const PLANT_RELEASE_TICKS = 20; // ticks the lowest part stays at the depth of the guard stance after the hold or the lying pose ends
 let PROBE_LOW = null; // while a number: part() records the lowest drawn height instead of drawing
 
@@ -5243,6 +5263,8 @@ const STRIKE_STEP_HIP = 0.4; // rad: how far the lead thigh swings forward at mi
 const STRIKE_STEP_CLEAR = 0.1; // m: how high the lead foot is above the floor at mid-step
 const STRIKE_TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }; // key point (3 numbers each in pts) of the limb that strikes: wrist or ankle
 const STRIKE_ROOM = 0.6; // m: the nearest the drawn stride may bring the two bodies' centres
+const STRIKE_FIT = 0.02; // m: the tip may end this much beyond the wanted place before the limb is fitted again
+const STRIKE_PAST = 0.2, STRIKE_REACH_MIN = 0.05; // m: how far past the foe's centre the drawn limb tip may end; the least share of its extension a limb is given
 const STRIKE_LANE = 0.7; // m: a fighter this close to the line of the step (to either side) is in its way
 const STRIKE_PROBE = 0.1; // m: the spacing at which the step is checked against props
 const KICK_PIVOT_SHARE = 0.5; // share of a kick's heel-pivot turn that is drawn: the full turn swung the foot 0.4 m past the foe's side
@@ -5870,6 +5892,7 @@ const FMS = new MatStack(14);
 let DRAW_NOW = false;
 let WEAR_DIM = 1; // the share of its colour a part keeps while a worn item is drawn (P13-02); 1 = as new
 let CAST_SLOT = 1; // 1 + the footing height of the fighter being drawn
+let BODY_FADE = 1; // the opacity of the body being drawn (a knocked-out body in a brawl fades out)
 const WEAR_RGB = [0, 0, 0];
 function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = CAST_SLOT) {
   if (!DRAW_NOW) { if (PROBE_LOW !== null) probeLow(mesh, cx, cy, cz, sx, sy, sz); return; }
@@ -5877,7 +5900,7 @@ function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = CAST_S
   M4.translate(FSCRATCH, cx, cy, cz);
   M4.scale(FSCRATCH, sx, sy, sz);
   if (WEAR_DIM < 1) { WEAR_RGB[0] = col[0] * WEAR_DIM; WEAR_RGB[1] = col[1] * WEAR_DIM; WEAR_RGB[2] = col[2] * WEAR_DIM; col = WEAR_RGB; }
-  R.push(LAYER.SOLID, mesh, FSCRATCH, col, 1, em, rough, flash, cast);
+  R.push(BODY_FADE < 1 ? LAYER.ALPHA : LAYER.SOLID, mesh, FSCRATCH, col, BODY_FADE, em, rough, flash, cast);
 }
 // The lowest height a part would reach if drawn, exact for those shapes: half the part's extent along world up
 function probeLow(mesh, cx, cy, cz, sx, sy, sz) {
@@ -6310,6 +6333,9 @@ class Fighter {
     this.wc = {}; // the colours worn this frame, filled by dress() whenever a skeleton is drawn
     this.motion = makeMotion(profile, this.scale, this.build); // visual: rhythm, strike shaping
     this.radius = 0.34; // collision size is the same for every body: height and build are cosmetic
+    this.bodyFades = false; // set by a brawl: the knocked-out body fades out (koFade)
+    this.sinkLift = 0; this.fitShare = 1; this.fitMoved = 0; // the share of its extension the striking limb is drawn with and the metres the body stepped (attackPose)
+    this.lieYaw = 0; this.lieGoal = 0; this.lieDx = 0; this.lieDz = 0; this.lieMove = [0, 0]; // the direction a lying body is drawn in, the one it turns to, how far it is drawn off its place, and where it would go (steerLie)
     this.pose = new Float32Array(NP);
     this.tp = new Float32Array(NP);
     this.pts = new Float32Array(36);
@@ -6320,7 +6346,7 @@ class Fighter {
   reset(x, z, yaw, hpFrac, stamFrac) {
     this.x = x; this.y = 0; this.z = z; this.prevX = x; this.prevY = 0; this.prevZ = z; this.prevYaw = yaw;
     this.vx = 0; this.vy = 0; this.vz = 0; this.kx = 0; this.kz = 0; this.yaw = yaw;
-    this.groundY = 0; this.supportY = 0; this.onStair = false; this.leftOnStair = false; this.wallHit = false; this.obstacleHit = null; // supportY: the height of the footing this fighter last stood on
+    this.groundY = 0; this.supportY = 0; this.onStair = false; this.leftOnStair = false; this.wallHit = false; this.obstacleHit = null; this.lieYaw = this.lieGoal = yaw; this.lieDx = this.lieDz = 0; // supportY: the height of the footing this fighter last stood on
     this.hazardTouch = null; // the hazard post this fighter was pushed out of this tick
     this.maxHp = this.stats.maxHp; this.maxStam = this.stats.maxStam;
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
@@ -6987,6 +7013,55 @@ class Fighter {
   }
 
   // --- animation
+  // The room a body lying along `yaw` needs (drawing only): its box, measured from the key points of its pose as [u0, u1] along the facing and [v0, v1] across it (the body lies a little off its centre), moved the least that takes it inside the walls and out of the scenery; the move goes to lieMove and its length is returned
+  lieRoom(yaw, u0, u1, v0, v1) {
+    const sn = DMath.sin(yaw), cs = DMath.cos(yaw);
+    let lo = Infinity, hi = -Infinity, back = Infinity, front = -Infinity; // the box's x range and z range round the centre
+    for (let k = 0; k < 4; k++) {
+      const u = k & 1 ? u1 : u0, v = k & 2 ? v1 : v0, wx = u * sn + v * cs, wz = u * cs - v * sn;
+      lo = Math.min(lo, wx); hi = Math.max(hi, wx); back = Math.min(back, wz); front = Math.max(front, wz);
+    }
+    let x = this.x, z = this.z;
+    for (let pass = 0; pass < 3; pass++) {
+      for (const q of Arena.colliders) {
+        if (!q.active || q.base > this.y + SUPPORT_BASE_SLACK || q.top <= STEP_HEIGHT || this.y >= q.top - (q.up || 0.25)) continue; // what it lies over or beside, not what it can lie on
+        const ox = Math.min(x + hi, q.x + q.hx) - Math.max(x + lo, q.x - q.hx), oz = Math.min(z + front, q.z + q.hz) - Math.max(z + back, q.z - q.hz);
+        if (ox <= 0 || oz <= 0) continue;
+        const left = q.x - q.hx - (x + hi), right = q.x + q.hx - (x + lo), near = q.z - q.hz - (z + front), far = q.z + q.hz - (z + back); // the moves that take the box right past it
+        const mx = -left < right ? left : right, mz = -near < far ? near : far;
+        if (Math.abs(mx) < Math.abs(mz)) x += mx; else z += mz;
+      }
+      x = Math.min(Math.max(x, Arena.ax0 - lo), Arena.ax1 - hi); z = Math.min(Math.max(z, Arena.az0 - back), Arena.az1 - front); // the wall is the last word
+    }
+    this.lieMove[0] = x - this.x; this.lieMove[1] = z - this.z;
+    return DMath.hypot(this.lieMove[0], this.lieMove[1]);
+  }
+  // Drawing only (the body's place and size are the simulation's): the body is drawn clear of the walls and the scenery it stands or lies beside, slid off them by the room its drawn box needs, LIE_MOVE a tick (the 0.34 m cylinder it collides with is narrower than a wide body). A body lying on the floor is also drawn along the first of four directions (the facing, a quarter turn each way, the back) that needs no room, else the one that needs the least, turning to it LIE_TURN a tick, and keeps it while that needs none. Held, thrown, falling or airborne bodies are drawn where they are
+  steerLie() {
+    const lying = (this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP) && !this.pinnedBy;
+    const upright = !lying && NUDGE_STATES.includes(this.state) && !this.partner && !this.pinnedBy && this.y <= this.groundY + SUPPORT_EPS && !(this.state === S.ATTACK && (!this.move || this.move.type === 'grab'));
+    if (!lying) this.lieYaw = this.lieGoal = this.yaw;
+    if (lying || upright) {
+      const fx = this.fwdX, fz = this.fwdZ, pts = this.pts;
+      let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+      for (const i of LIE_POINTS) { const dx = pts[i] - this.x, dz = pts[i + 2] - this.z, u = dx * fx + dz * fz, v = dx * fz - dz * fx; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+      u0 -= LIE_THICK; u1 += LIE_THICK; v0 -= LIE_THICK; v1 += LIE_THICK;
+      if (upright) this.lieRoom(this.yaw, u0, u1, v0, v1);
+      else if (this.lieRoom(this.lieGoal, u0, u1, v0, v1) > LIE_FREE) {
+        let least = Infinity;
+        for (const turn of LIE_TURNS) {
+          const room = this.lieRoom(this.yaw + turn, u0, u1, v0, v1);
+          if (room < least - LIE_FREE) { least = room; this.lieGoal = this.yaw + turn; }
+          if (room <= LIE_FREE) break;
+        }
+        this.lieRoom(this.lieGoal, u0, u1, v0, v1);
+      }
+    } else this.lieMove[0] = this.lieMove[1] = 0;
+    if (lying) this.lieYaw = wrapAngle(this.lieYaw + clamp(wrapAngle(this.lieGoal - this.lieYaw), -LIE_TURN, LIE_TURN));
+    this.lieDx += clamp(this.lieMove[0] - this.lieDx, -LIE_MOVE, LIE_MOVE); this.lieDz += clamp(this.lieMove[1] - this.lieDz, -LIE_MOVE, LIE_MOVE);
+  }
+  // The yaw to draw the body with: the facing, turned toward the lying direction as far as the pose lies down
+  bodyYaw(yaw) { return yaw + wrapAngle(this.lieYaw - yaw) * this.pose[J.lie]; }
   animate(dt) {
     this.animT += dt;
     const carried = this.state === S.CLINCH && this.partner && this.partner.throwPending;
@@ -7004,7 +7079,9 @@ class Fighter {
     if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : this.lowestPart(); this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance)
     this.computePose(dt);
     if (this.plantOn) this.plantFloor(dt, planted);
+    if (this.state === S.ATTACK && !movePlant) { const low = this.lowestPart(); this.sinkLift = low < -SINK_MAX ? -SINK_MAX - low : 0; } else if (this.sinkLift > 0) this.sinkLift = Math.max(0, this.sinkLift - SINK_FALL); // a blow draws no part deeper under the floor than SINK_MAX: the body is lifted by what is left
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
+    this.steerLie(); // after the key points were measured on the simulation's own place and yaw (a drawn frame writes them for its own place)
     if (this.state === S.ATTACK && this.move && this.move.type === 'strike' && (this.move.tier >= 2) && Settings.v.effects !== 'low') {
       const t = this.moveTick;
       if (t > this.mStartup * 0.55 && t <= this.mStartup + this.mActive + 3 && (t & 1) === 0) {
@@ -7390,17 +7467,44 @@ class Fighter {
       this.attackPose();
       this.walkSkeleton(0, 0, 0, 0, false);
       const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb];
-      strikes[key] = this.pts[tip + 2];
+      strikes[key] = this.pts[tip + 2]; strikes[key + 'y'] = this.pts[tip + 1];
       this.striding = false;
       this.moveTick = kept.tick;
       this.pts.set(kept.pts);
     }
     return clamp(mv.reach * this.stats.reach - STRIKE_SHORT - strikes[key], 0, STRIKE_STRIDE_MAX);
   }
+  // The height of the striking limb's tip above the feet on the first active tick (to 0.05 m), from the measurement strikeStride keeps (the pose with the stride off, so no viewer setting is read); 0 for an item's swing, which has no drawn limb pose. The hit on scenery follows it (Combat.hitObjects)
+  tipHeight(mv) {
+    if (mv.wpn && this.item && mv.swing) return 0;
+    const strikes = this.motion.strikes, key = mv.anim + mv.limb + 'gy';
+    if (strikes[key] === undefined) this.strikeStride(mv);
+    return Math.round(strikes[key] * 20) / 20;
+  }
+  // Drawing only: the share (STRIKE_REACH_MIN to 1) of its full extension the striking limb is given, so that its tip stops about STRIKE_PAST beyond the target's centre when the body has stepped `moved` m: the target's distance and STRIKE_PAST less the step, over the limb's forward reach (kept by strikeStride). 1 with no target, or when the limb does not reach that far
+  strikeReach(mv, moved) {
+    const target = this.target, full = this.motion.strikes[mv.anim + mv.limb + 'g'];
+    if (!target || target === this || target.alive === false || !(full > STRIKE_REACH_MIN)) return 1;
+    return clamp((DMath.hypot(target.x - this.x, target.z - this.z) + STRIKE_PAST - moved) / full, STRIKE_REACH_MIN, 1);
+  }
   // Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose.
   attackPose() {
+    this.strikePose(0);
+    const mv = this.move, target = this.target;
+    if (!mv || this.fitShare >= 1 || !target) return;
+    const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb], want = DMath.hypot(target.x - this.x, target.z - this.z) + STRIKE_PAST;
+    for (let pass = 0; pass < 5; pass++) { // the limb does not extend in a straight line with the share: measure where the tip is and fit it
+      this.walkSkeleton(0, 0, 0, 0, false);
+      const got = this.pts[tip + 2];
+      if (got <= want + STRIKE_FIT || got <= this.fitMoved) break;
+      this.strikePose(clamp(this.fitShare * (want - this.fitMoved) / (got - this.fitMoved), STRIKE_REACH_MIN, 1));
+    }
+  }
+  // The strike pose with the limb given `share` of its extension (0: the share strikeReach asks for)
+  strikePose(share) {
     const mv = this.move, pose = this.pose, m = this.motion;
     const g = m.guard;
+    this.fitShare = 1;
     if (!mv) { pose.set(g); return; }
     if (mv.wpn && this.item && mv.swing) { this.weaponAttackPose(mv); return; } // an item's own swing
     const step = this.strikeStride(mv); // first: measuring it draws the pose
@@ -7410,6 +7514,9 @@ class Fighter {
     const spec = !m.noTech && STYLE_TECH[m.styleId] && (kick ? STYLE_TECH[m.styleId].kick : STYLE_TECH[m.styleId].punch);
     const windup = (mv.tier === 3 ? 0.45 : 0.28) * ((spec && spec.wind) || 1), snap = kick ? m.kickSnap : m.punchSnap;
     const ext = strikeExtension(t, startup, active, recovery, windup, snap);
+    const moved = ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
+    const reach = ext > 0 ? share || this.strikeReach(mv, moved) : 1; // the share of its full extension the limb is given, so it does not go on through a near foe
+    this.fitShare = reach; this.fitMoved = moved;
     if (kick && ext > 0) {
       // guard -> chamber -> extension on the way out, and back through the chamber on the way in
       const chamber = chamberPose(mv, m);
@@ -7420,7 +7527,7 @@ class Fighter {
     } else {
       for (let i = 0; i < NP; i++) pose[i] = g[i] + (strike[i] - g[i]) * ext;
     }
-    const moved = ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
+    if (reach < 1) for (let i = 0; i <= J.bodyRoll; i++) pose[i] = g[i] + (pose[i] - g[i]) * reach; // a near foe: the joints, the lean of the body and its pitch and roll go back toward the guard by the share (the stride below and the turn of the body are not scaled)
     pose[J.rootFwd] += Math.max(0, ext) * moved / this.scale; // the skeleton scales the root move
     if (!kick) { // a hand strike: the lead foot steps with the body, lifting at mid-step and down again at the contact, so the feet do not skate (a kick stands on its support leg)
       const lift = Math.sin(Math.PI * clamp(ext, 0, 1)) * Math.min(1, moved / STRIKE_STEP_FULL);
@@ -7484,7 +7591,7 @@ class Fighter {
     return low;
   }
   // The skeleton, standing on the floor under (px, py, pz), lifted or lowered by plantShift
-  skeleton(px, py, pz, yaw, draw) { this.walkSkeleton(px, py + this.plantShift, pz, yaw, draw); }
+  skeleton(px, py, pz, yaw, draw) { this.walkSkeleton(px, py + this.plantShift + this.sinkLift, pz, yaw, draw); }
   // Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts.
   walkSkeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
@@ -7635,15 +7742,22 @@ class Fighter {
     z.chest = c.top === c.skin ? CHEST_ROUGH - (CHEST_ROUGH - SKIN_SHINE) * worn : CHEST_ROUGH; // a bare chest was always a little rougher than the rest of the skin
   }
   // Render with sub-tick interpolation
+  // The opacity of a knocked-out body in a brawl: 1 while it lies solid (KO_BODY_TICKS), then it fades out over KO_FADE_TICKS; drawing only
+  koFade() { return this.bodyFades && this.state === S.KO ? clamp(1 - (this.stateTicks - KO_BODY_TICKS) / KO_FADE_TICKS, 0, 1) : 1; }
   draw(alpha, marker = true) { // marker: the floor disc of the fighter's team
-    const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
-    const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
+    const fade = this.koFade();
+    if (fade <= 0) return;
+    let px = lerp(this.prevX, this.x, alpha), pz = lerp(this.prevZ, this.z, alpha);
+    const py = lerp(this.prevY, this.y, alpha) + this.liftY;
+    const yaw = this.bodyYaw(this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha);
+    px += this.lieDx; pz += this.lieDz; // a body against a wall or scenery is drawn clear of it
     const footing = Math.min(this.groundY, py); // the surface under the fighter, also in the air
     CAST_SLOT = 1 + Arena.flatFooting(px, pz, footing, this.radius, py - footing);
-    try { this.skeleton(px, py, pz, yaw, true); } finally { CAST_SLOT = 1; }
-    if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, (py - footing) * 0.3)), 0, 1, false, 0);
+    BODY_FADE = fade;
+    try { this.skeleton(px, py, pz, yaw, true); } finally { CAST_SLOT = 1; BODY_FADE = 1; }
+    if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * fade * (1 - Math.min(0.7, (py - footing) * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team
-    if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
+    if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22 * fade, 0.6, 1, false, 0);
   }
 }
 // <<SIM END>>
@@ -7658,6 +7772,8 @@ const KNOCK_DAMP = GROUND_DAMP;
 const THROW_VEC = [0, 0]; // scratch for Combat.throwVector (no per-frame allocation)
 // Raised ground: every height a hit needs is measured from the attacker's own footing (groundY), never from the floor, so a fight on a deck, stair, scaffold tier or ring plays as on the floor. g = the foe's footing minus the attacker's (m)
 const LOW_REACH_UP = 0.35, MID_REACH_UP = 0.9; // a Low strike (and a stomp) reaches a foe whose feet are at most this far above the attacker's footing, a Mid strike this far
+const blowHeight = (mv) => (mv.type === 'grab' ? 0.9 : mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35); // m above the footing where a blow travels: a prop taller than this stands in its way (Arena.blowBlocked)
+const HIT_SPHERE_UP = 0.3; // m: how far above and below the limb's tip a blow reaches scenery
 const STRIKE_LEDGE = 1.05, GRAB_LEDGE = 0.55; // a strike reaches a foe whose footing is within STRIKE_LEDGE above or below (a ring or stage apron, not a mezzanine); a grab, a throw and a tackle need |g| within GRAB_LEDGE (two stair steps)
 const Combat = {
   attackCounter: 0,
@@ -7717,6 +7833,7 @@ const Combat = {
     const reach = mv.reach * att.stats.reach + def.radius;
     if (fwd < -0.05 || fwd > reach) return null;
     if (lat > mv.width + def.radius * 0.6) return null;
+    if (Arena.blowBlocked(att.x, att.z, def.x, def.z, Math.max(att.y, def.y) + blowHeight(mv))) return null; // scenery between the two stops the blow, a grab too
     const st = def.state;
     const g = def.groundY - att.groundY, rise = def.y - att.groundY; // rise: the foe's feet above the attacker's footing
     if (mv.type === 'grab') {
@@ -8000,9 +8117,9 @@ const Combat = {
   hitObjects(att, match) {
     const mv = att.move;
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
-    const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
+    const tip = att.tipHeight(mv), cy = (tip || blowHeight(mv)) + att.y; // the drawn limb's height (body height is cosmetic, so only the limb's own measurement counts), else the height class
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult(); // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
-    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index); // R1: a bottle cuts
+    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index, tip ? HIT_SPHERE_UP : undefined); // R1: a bottle cuts
     if (n > 0) match.addHitStop(3, att, null);
     if (match.hazards && match.hazards.length) match.hazardStrike(att, cx, cy, cz); // a hazard's post
     return n;
@@ -10241,6 +10358,7 @@ const DT = FIXED_DT;
 const ROUND_BANNER_TICKS = 48; // "ROUND n" stays readable this long before the count starts
 const COUNT_STEP_TICKS = 45; // one countdown number; round 1 counts from 3, later rounds from 2
 const ROUND_END_TICKS = 110;
+const KO_BODY_TICKS = 150, KO_FADE_TICKS = 60; // ticks a knocked-out body in a brawl stays solid, then fades out over
 const KO_DELAY_TICKS = 45;
 const KO_SLOW_TICKS = 30; // slow motion starts on the knock-out blow itself
 const KO_FINISH_TICKS = 40; // ... and lasts this long when the blow ends the match (P13-02)
@@ -10613,6 +10731,7 @@ class MatchSim {
     for (const ally of this.allies) this.controllers.push(new AIController(ally, this.cfg.difficulty));
     for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
     if (this.setup) { this.buildLineup(); count = this.fighters.length; }
+    if (this.brawl) for (const f of this.fighters) f.bodyFades = true;
     if (Array.isArray(this.cfg.seats) && !this.setup) { // a bracket fight: fighter k is steered by the input seat cfg.seats[k] (-1 = the CPU keeps it), so each person reads only their own device
       this.cfg.seats.slice(0, 2).forEach((seat, k) => { if (Number.isInteger(seat) && seat >= 0 && seat < COOP_MAX_PLAYERS && this.controllers[k]) this.controllers[k] = HUMAN_CONTROLLERS[seat]; });
     }
@@ -11212,8 +11331,12 @@ class MatchSim {
       if (!c.active || it.y >= c.top - 0.05 || Math.abs(it.x - c.x) > c.hx + 0.1 || Math.abs(it.z - c.z) > c.hz + 0.1) continue;
       if (c.lay ? Arena.lookTop(c, clamp(it.x, c.x - c.hx, c.x + c.hx), clamp(it.z, c.z - c.hz, c.z + c.hz), above) : above >= c.top - 0.05 && (c.shelf || c.standable) && Math.abs(it.x - c.x) <= c.hx + ITEM_FOOTING && Math.abs(it.z - c.z) <= c.hz + ITEM_FOOTING) continue; // it fell onto the top between two ticks: it lands, only an item over the top (not beside it) skips the push-out
       if (!thrown) { // a dropped item that came down inside a footprint is moved out to the nearest side
-        const left = it.x - (c.x - c.hx), right = c.x + c.hx - it.x, near = it.z - (c.z - c.hz), far = c.z + c.hz - it.z, least = Math.min(left, right, near, far);
-        if (least === left) it.x = c.x - c.hx - 0.15; else if (least === right) it.x = c.x + c.hx + 0.15; else if (least === near) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
+        const left = it.x - (c.x - c.hx), right = c.x + c.hx - it.x, near = it.z - (c.z - c.hz), far = c.z + c.hz - it.z; // how far inside each side; a side whose exit is past the wall is no way out
+        const open = [c.x - c.hx - 0.15 >= Arena.ax0 + 0.1, c.x + c.hx + 0.15 <= Arena.ax1 - 0.1, c.z - c.hz - 0.15 >= Arena.az0 + 0.1, c.z + c.hz + 0.15 <= Arena.az1 - 0.1], depth = [left, right, near, far];
+        let way = -1;
+        for (let k = 0; k < 4; k++) if (open[k] && (way < 0 || depth[k] < depth[way])) way = k;
+        if (way < 0) way = depth.indexOf(Math.min(left, right, near, far));
+        if (way === 0) it.x = c.x - c.hx - 0.15; else if (way === 1) it.x = c.x + c.hx + 0.15; else if (way === 2) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
         continue;
       }
       if (c.haz) this.hazardItem(c.haz, it); // a thrown item on a hazard's post
@@ -11900,6 +12023,7 @@ class MatchSim {
     if (slot - this.partySize >= BRAWL_MAX_ENEMIES) slot = this.fighters.findIndex((f, i) => i >= this.partySize && !f.alive);
     const foe = new Fighter(e.profile, slot, TEAM_ENEMIES), controller = new AIController(e.profile, this.cfg.difficulty);
     if (this.fighters.some((other, i) => i < this.partySize && other.id === e.profile.id)) foe.applyLook(alternateLook(e.profile.look)); // a rival who is also a player's fighter wears the alternate colours
+    foe.bodyFades = true;
     this.waveEntered++;
     if (!this.cfg.evenDamage) foe.stats.damage *= (DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
     this.crewScale(foe);
@@ -12093,14 +12217,16 @@ class MatchSim {
     const flyingA = a.state === S.THROWN && !(a.y <= a.groundY && a.vy <= 0), flyingB = b.state === S.THROWN && !(b.y <= b.groundY && b.vy <= 0); // a thrown body flies over the others; on the tick it lands (afterCollision will set it down) it is a body again
     if (flyingA || flyingB) return;
     if (Math.abs(a.y - b.y) > 1.25) return;
-    if (this.brawl && (!a.alive || !b.alive)) return;
+    const lyingA = this.brawl && !a.alive, lyingB = this.brawl && !b.alive; // a knocked-out body in a brawl lies solid for KO_BODY_TICKS (nobody walks through it, it is pushed out of like a pinned body), then it is out of the push and drawn fading
+    if ((lyingA && (lyingB || a.stateTicks > KO_BODY_TICKS)) || (lyingB && b.stateTicks > KO_BODY_TICKS)) return;
     let dx = b.x - a.x, dz = b.z - a.z;
     let d = DMath.hypot(dx, dz);
     const min = a.radius + b.radius;
     if (d >= min) return;
     if (d < 1e-5) { dx = 1; dz = 0; d = 1; }
     const push = (min - d) / 2;
-    const pushA = pinnedA ? 0 : pinnedB ? min - d : push, pushB = pinnedB ? 0 : pinnedA ? min - d : push; // a pinned body does not move; the other takes the whole overlap
+    const fixedA = pinnedA || lyingA, fixedB = pinnedB || lyingB;
+    const pushA = fixedA ? 0 : fixedB ? min - d : push, pushB = fixedB ? 0 : fixedA ? min - d : push; // a pinned or lying body does not move; the other takes the whole overlap
     a.x -= (dx / d) * pushA; a.z -= (dz / d) * pushA;
     b.x += (dx / d) * pushB; b.z += (dz / d) * pushB;
   }
