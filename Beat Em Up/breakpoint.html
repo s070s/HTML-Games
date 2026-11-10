@@ -14059,7 +14059,7 @@ const Music = {
 
 // === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
-const ONLINE_NET_VERSION = 2; // the match message protocol (raised when the messages change: 2 since P12-03, which adds the host's start message and the seats that only watch); the low nibble of the second byte
+const ONLINE_NET_VERSION = 3; // the match message protocol (raised when the messages change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
 const ONLINE_FORM = { PACKED: 0, DEFLATE: 1, PLAIN: 2 }; // the packed binary form, or the whole SDP (deflated where the browser can, else as it is)
 const ONLINE_SEAT_MIN = 2; // seat 1 is the host
@@ -14089,7 +14089,8 @@ const ONLINE_MESSAGES = {
   nonetwork: 'No network address was found. Connect to Wi-Fi or a router first (mobile data and some VPNs hide the address), then try again.',
   ice: 'The devices could not connect. Some networks block direct connections: guest Wi-Fi, office or school networks, VPNs, some mobile data. Use the same home Wi-Fi, or a phone hotspot.',
   timeout: 'The connection did not open in time. Make new codes and try again on the same Wi-Fi or a phone hotspot (some networks block direct connections).',
-  guestWait: 'The host did not answer in time (some browsers, like Firefox, wait only a few seconds). Ask for a new code and answer faster, or try Firefox as the host.',
+  guestWait: 'The host did not answer in time (some browsers, like Firefox, wait only a few seconds). Ask for a new code and answer faster, try Firefox as the host, or send the first code yourself.',
+  answerWait: 'Your friend did not enter your answer in time (some browsers, like Firefox, wait only a few seconds). Make a new code, and let the friend with Firefox send the first code.',
   lost: 'The connection was lost. Check the Wi-Fi, then join again.',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
   unsupported: 'This browser cannot make an online connection (no WebRTC). Try the latest Chrome, Edge, Firefox or Safari.',
@@ -14484,8 +14485,9 @@ const Qr = {
    States: idle, gathering (making a code), waiting (the code is out, the other side's code is not in yet), connecting, open, failed, closed.
    Channels (negotiated, ids fixed, so neither side waits for ondatachannel): reliable = ordered, quick = unordered, no resend (the P12-02 inputs).
    API for the netcode: state, error, seat, send(data, quick), onMessage(fn), onState(fn), close(); each on* returns a function that removes the listener. */
-function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection): the self-tests set them
+function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection), offerer: the self-tests set them
   const host = role === 'host';
+  const offerer = options.offerer === undefined ? host : options.offerer === true; // who makes the first code: the host by default; a Firefox guest does (its ICE agent waits only about 5 s after it has an offer, the one that makes the first code waits for ever), P12-06
   const gatherMs = options.gatherMs ?? ONLINE_GATHER_MS, connectMs = options.connectMs ?? ONLINE_CONNECT_MS, guestWaitMs = options.guestWaitMs ?? ONLINE_GUEST_WAIT_MS;
   const listeners = { message: [], state: [] };
   const channels = { reliable: null, quick: null };
@@ -14511,7 +14513,7 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     setState('failed');
   };
   const lost = () => {
-    if (state === 'open') { failure = { code: 'lost', message: ONLINE_MESSAGES.lost }; release(); setState('closed'); } else if (state === 'connecting') fail('ice'); else if (state === 'waiting') fail(host ? 'ice' : 'guestWait'); // a guest whose host has not answered yet
+    if (state === 'open') { failure = { code: 'lost', message: ONLINE_MESSAGES.lost }; release(); setState('closed'); } else if (state === 'connecting') fail('ice'); else if (state === 'waiting') fail(offerer ? 'ice' : host ? 'answerWait' : 'guestWait'); // the side that answered, and waits for the other to enter its answer
   };
   const arm = (ms, code) => { clearTimeout(timer); timer = setTimeout(() => fail(code), ms); };
   const checkOpen = () => {
@@ -14566,9 +14568,9 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     get error() { return failure; },
     get seat() { return seat; },
     get form() { return form; }, // 0 packed, 1 deflated SDP, 2 plain SDP (the code made here)
-    // Host: the offer code for a seat (2 to 4); state gathering, then waiting
-    makeOffer(seatNumber) {
-      if (!host || state !== 'idle' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+    // The offer code for a seat (2 to 4); state gathering, then waiting. The host makes it by default; a guest that makes the first code names no seat (the host's answer gives it one)
+    makeOffer(seatNumber = ONLINE_SEAT_MIN) {
+      if (!offerer || state !== 'idle' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
       seat = seatNumber;
       return guard(async () => {
         setState('gathering');
@@ -14579,12 +14581,13 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
         return code;
       });
     },
-    // Guest: the answer code for the host's offer code. A bad code throws and leaves the link idle, so the player can paste again.
-    async acceptOffer(text) {
-      if (host || state !== 'idle') throw onlineError('state');
+    // The answer code for an offer code (a guest answers the host's; the host answers a guest's first code and gives it its seat, 2 to 4). A bad code throws and leaves the link idle, so the player can paste again.
+    async acceptOffer(text, seatNumber) {
+      if (offerer || state !== 'idle') throw onlineError('state');
+      if (host && !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) throw onlineError('state');
       const offer = await OnlineCode.unpack(text, 0);
       if (state !== 'idle') throw onlineError('state'); // a second press while the first was still reading its code (a deflated offer is inflated asynchronously)
-      seat = offer.seat;
+      seat = host ? seatNumber : offer.seat;
       return guard(async () => {
         setState('gathering');
         start();
@@ -14592,17 +14595,18 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
         await connection.setLocalDescription(await connection.createAnswer());
         const code = await localCode(1);
         setState('waiting');
-        arm(guestWaitMs, 'guestWait');
+        arm(guestWaitMs, host ? 'answerWait' : 'guestWait');
         return code;
       });
     },
-    // Host: the guest's answer code; the channels open on their own after this
+    // The other side's answer code; the channels open on their own after this. A guest that sent the first code learns its seat from the answer
     async acceptAnswer(text) {
-      if (!host || state !== 'waiting') throw onlineError('state');
+      if (!offerer || state !== 'waiting') throw onlineError('state');
       const answer = await OnlineCode.unpack(text, 1);
-      if (answer.seat !== seat) throw onlineError('seat');
+      if (host && answer.seat !== seat) throw onlineError('seat');
       if (state !== 'waiting') throw onlineError('state'); // a second press while the first was still reading its code
       return guard(async () => {
+        if (!host) seat = answer.seat;
         setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
         arm(connectMs, 'timeout');
         await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });

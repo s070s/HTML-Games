@@ -18744,6 +18744,67 @@ const SelfTest = {
       } finally { Object.assign(OnlineUI, kept); links.forEach((link) => link.close()); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- online lobby (P12-06) ---------- */
+    test('Online link (P12-06): either side may make the first code: a guest offers with no seat of its own, the host answers and gives it a seat (the guest learns it from the answer), the old direction still works, a wrong call is refused, and the side that answered says so when the other never replies', async () => {
+      const bad = [], links = [];
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
+      const failsWith = async (promise, code) => { try { await promise; return 'did not fail'; } catch (e) { return e.code === code ? '' : e.code + ' / ' + e.message; } };
+      {
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true }), host = made('host', { ...fast, connection: Fake, offerer: false });
+        const states = []; guest.onState((state) => states.push(state));
+        const offer = await guest.makeOffer();
+        if (!offer.startsWith('BPO-') || guest.state !== 'waiting' || guest.seat !== ONLINE_SEAT_MIN) bad.push('the guest offer: ' + guest.state + ' ' + guest.seat);
+        if (await failsWith(host.acceptOffer(offer), 'state') || host.state !== 'idle') bad.push('the host must name the seat it gives');
+        if (await failsWith(host.acceptOffer(offer, 5), 'state') || await failsWith(host.acceptOffer(offer, 1), 'state')) bad.push('a seat outside 2 to 4');
+        if (await failsWith(host.makeOffer(2), 'state')) bad.push('the answering host cannot also offer');
+        if (await failsWith(guest.acceptOffer(offer), 'state')) bad.push('the offering guest cannot also answer');
+        const answer = await host.acceptOffer(offer, 3);
+        if (!answer.startsWith('BPA-') || host.seat !== 3 || host.state !== 'waiting' || OnlineCode.readCode(answer).seat !== 3) bad.push('the host answer: ' + host.state + ' ' + host.seat);
+        if (await failsWith(guest.acceptAnswer(offer), 'needAnswer') || guest.state !== 'waiting') bad.push('an offer pasted as the answer');
+        if (await failsWith(host.acceptAnswer(answer), 'state')) bad.push('the answering host cannot accept an answer');
+        await guest.acceptAnswer(answer);
+        if (guest.seat !== 3 || guest.state !== 'connecting') bad.push('the guest learns its seat from the answer: ' + guest.seat + ' ' + guest.state);
+        Fake.made[0].open(); Fake.made[1].open();
+        if (guest.state !== 'open' || host.state !== 'open' || states.join() !== 'gathering,waiting,connecting,open') bad.push('open: ' + guest.state + '/' + host.state + ' ' + states.join());
+        const heard = []; host.onMessage((data, quick) => heard.push(data + quick));
+        Fake.made[1].channels[0].onmessage({ data: 'hi' });
+        if (heard.join() !== 'hifalse') bad.push('a message after the reverse handshake');
+      }
+      {
+        // the old direction is untouched: the host offers, the guest answers, the guest seat comes from the offer
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const host = made('host', { ...fast, connection: Fake }), guest = made('guest', { ...fast, connection: Fake });
+        const answer = await guest.acceptOffer(await host.makeOffer(4));
+        await host.acceptAnswer(answer);
+        if (guest.seat !== 4 || host.seat !== 4 || host.state !== 'connecting') bad.push('the default direction');
+      }
+      {
+        // the offering guest checks the seat only for a host: a guest accepts the seat in the answer
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true });
+        await guest.makeOffer();
+        await guest.acceptAnswer(await OnlineCode.pack(1, 4, ANSWER));
+        if (guest.seat !== 4) bad.push('the answer seat is not taken: ' + guest.seat);
+      }
+      {
+        // nobody replies: the side that answered fails with its own text (a host: answerWait, a guest: guestWait), the side that offered with ice; the host side names the way out
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true }), host = made('host', { ...fast, connection: Fake, offerer: false });
+        await host.acceptOffer(await guest.makeOffer(), 2);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        if (host.state !== 'failed' || host.error.code !== 'answerWait' || host.error.message !== ONLINE_MESSAGES.answerWait) bad.push('an answering host that is never replied to: ' + host.state + ' ' + (host.error && host.error.code));
+        if (guest.state !== 'waiting') bad.push('an offering guest has no time limit of its own (the browser\'s ICE agent waits): ' + guest.state);
+        Fake.made[0].ice('failed');
+        if (guest.state !== 'failed' || guest.error.code !== 'ice') bad.push('the offering guest after an ICE failure: ' + guest.state);
+        const text = ONLINE_MESSAGES.answerWait;
+        if (text.length > 200 || !/Firefox/.test(text) || !/first code/.test(text) || !/ONLINE_MESSAGES/.test('ONLINE_MESSAGES')) bad.push('the answerWait text');
+        if (!/send the first code yourself/.test(ONLINE_MESSAGES.guestWait) || ONLINE_MESSAGES.guestWait.length > 200) bad.push('the guestWait text names no way round');
+      }
+      links.forEach((link) => link.close());
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
