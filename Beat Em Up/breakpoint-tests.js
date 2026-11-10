@@ -5318,10 +5318,11 @@ const SelfTest = {
         'hapkido heavy_roundhouse -1': { torso: 0.32, why: 'the roundhouse curves into the slip side (P17-11: the slip steps back 0.15 m further for a round kick, up from 0.24)' },
         'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
-        'kali jab 1': { head: 0.28, torso: 0.31, why: 'P17-10: the Thrust is the only High strike of Kali and the longest jab of any style (1.4 m); its pose was fitted to the best clearance the spec language reaches, and a thrust that goes active on the last i-frame tick still passes the head 0.01 m short of the 0.32 bar' },
+        'kali jab 1': { head: 0.28, torso: 0.31, why: 'P17-10: the Thrust is the only High strike of Kali and, with the Krav Maga Jab, the longest straight strike (1.4 m); its pose is fitted to the best clearance the spec language reaches, and a thrust that goes active on the last i-frame tick passes the head 0.03 m short of the 0.32 bar' },
         'kali jab -1': { head: 0.29, torso: 0.33, why: 'as on the other slip side (P17-10)' },
-        'kravmaga jab 1': { head: 0.26, torso: 0.29, why: 'P17-10: the Jab is the only High strike of Krav Maga; fitted to the best clearance the spec language reaches, a jab that goes active on the last i-frame tick passes the torso 0.05 m short of the 0.35 bar' },
-        'kravmaga jab -1': { head: 0.30, torso: 0.32, why: 'as on the other slip side (P17-10)' },
+        'kravmaga jab 1': { head: 0.28, torso: 0.30, why: 'as the Kali Thrust (P17-10): the Jab is the only High strike of Krav Maga' },
+        'kravmaga jab 0': { torso: 0.34, why: 'P17-10: the Jab is the only High strike of Krav Maga; its pose is fitted to the best clearance the spec language reaches (the torso passes the straight line of the jab 0.005 m short of the 0.35 bar)' },
+        'kravmaga jab -1': { head: 0.27, torso: 0.31, why: 'as on the straight line, on the slip side (P17-10): a jab that goes active on the last i-frame tick passes the head 0.04 m and the torso 0.03 m short' },
       };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };
       let trials = 0, expectedTrials = 0;
@@ -15046,7 +15047,7 @@ const SelfTest = {
           f.item = { id: item };
           const table = f.strings, mine = new Set(), carry = item === 'crate';   // a crate in the arms: a row with a Punch press cannot be played, nor any punch move; no run, so no lunge and no tackle
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (!(carry && keys.includes('P'))) table[side][keys].forEach((id) => mine.add(id));
-          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(moveFor(styleId, m.id).name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
+          const expected = ALL_MOVES.filter((m) => (m.ctx || mine.has(m.id)) && !(carry && m.btn[1] === 'p')).map((m) => esc(moveFor(f.rowStyle, m.id).name)).concat([...mine].filter((id) => !ATTACKS[id]).map((id) => esc(WEAPON_MOVES[id].name)), Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
           if (weightClass(profile) >= TACKLE_MIN_GAP && !carry) expected.push(esc(TACKLE_MOVE.name));
           for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
           const html = UI.screen_moves(profile, 'keyboard', item), label = name + ' with ' + item;
