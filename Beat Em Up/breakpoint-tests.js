@@ -47,7 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MIXED, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -18071,9 +18071,14 @@ const SelfTest = {
         const own = onlineEngine(), other = Object.keys(ONLINE_ENGINES).find((kind) => kind !== own);
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own })];
         screen = UI.screen_onlinehost();
-        if (!screen.includes('Browser: ' + ONLINE_ENGINES[own] + '.') || screen.includes(esc(ONLINE_MIXED))) bad.push("a guest with the host's own kind of browser");
+        if (!screen.includes('Browser: ' + ONLINE_ENGINES[own] + '.') || screen.includes(esc(ONLINE_MESSAGES.sameBrowser)) || /data-act="onstart" disabled/.test(screen)) bad.push("a guest with the host's own kind of browser");
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other })];
-        if (!UI.screen_onlinehost().includes(esc(ONLINE_MIXED))) bad.push('a guest with another kind of browser must be warned about');
+        screen = UI.screen_onlinehost();
+        if (!screen.includes(esc(ONLINE_MESSAGES.sameBrowser)) || !/data-act="onstart" disabled/.test(screen) || OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('a guest with another kind of browser must switch Start off and say why');
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other }), slot(3, 'waiting', null, 'BPO-x', { engine: other })];
+        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('a guest that is still waiting counts');
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { engine: other })];
+        if (OnlineUI.startProblem() !== '') bad.push('a failed guest of another kind must not block Start');
         // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
         OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-two')];
         if (!/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Start must wait for a connected friend');
@@ -18127,6 +18132,166 @@ const SelfTest = {
         Object.assign(OnlineUI, kept);
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- online: the review of P12-03 and P12-07 ---------- */
+    // a host over stand-in links: pairs [host side, guest side] with their code seats, what each guest side heard, and the game fields to give back
+    const reviewKit = () => {
+      const keep = { go: Game.go, config: Game.config, run: Game.run, match: Game.match, state: Game.state, versus: Game.versus, net: Game.net, netNote: Game.netNote, status: UI.netStatus, toast: UI.toast, quit: Game.quitToMenu, save: Progress.save, saved: Progress.d.tournamentRun, tournament: Game.tournament, tournamentMatch: Game.tournamentMatch, selection: Game.selection.mode, resultsData: Game.resultsData, coop: Inputs.coop, versusInput: Inputs.versus };
+      const toasts = [];
+      Game.go = () => true; UI.toast = (text) => toasts.push(text); UI.netStatus = () => {}; Progress.save = () => {}; Game.state = GS.MENU; Game.versus = null; Game.net = null;
+      const open = (codeSeats, engines = {}) => {
+        OnlinePlay.leave();
+        const pairs = codeSeats.map((codeSeat) => { const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = codeSeat; return [hostSide, guestSide]; }), heard = pairs.map(() => []);
+        pairs.forEach(([, guestSide], k) => guestSide.onMessage((data) => heard[k].push(data)));
+        OnlinePlay.hostOpen(pairs.map(([hostSide], k) => ({ seat: codeSeats[k], link: hostSide, roundTrip: 20, engine: engines[codeSeats[k]] })));
+        return { pairs, heard };
+      };
+      const starts = (heard) => heard.map((list) => list.map((text) => OnlinePlay.readStart(text)).filter(Boolean));
+      const restore = () => {
+        OnlinePlay.leave(); Game.endMatch(); Inputs.setCoop(false); Inputs.setVersus(false);
+        Game.go = keep.go; Game.config = keep.config; Game.run = keep.run; Game.match = keep.match; Game.state = keep.state; Game.versus = keep.versus; Game.net = keep.net; Game.netNote = keep.netNote; UI.netStatus = keep.status; UI.toast = keep.toast; Game.quitToMenu = keep.quit;
+        Progress.save = keep.save; Progress.d.tournamentRun = keep.saved; Game.tournament = keep.tournament; Game.tournamentMatch = keep.tournamentMatch; Game.selection.mode = keep.selection; Game.resultsData = keep.resultsData;
+      };
+      return { toasts, open, starts, restore };
+    };
+    test('Online play (P12-03 review): the single-seat input plan holds only while an online match is live: after leaving, an offline Tournament gets its co-op seating again, and quitToMenu (the fatal error\'s way out too) ends the online game and writes an offline bracket', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        const { pairs } = kit.open([2, 3]);
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' })) problems.push('the brawl did not start');
+        if (!Game.config.online || Game.inputPlan() !== 'solo') problems.push('an online match must play as one seat per device: ' + Game.inputPlan());
+        Game.quitToMenu();   // the way out of an error screen is this one: nothing of the online game may outlive it
+        if (Game.net || OnlinePlay.active || OnlinePlay.isHost || pairs.some(([hostSide]) => hostSide.state === 'open')) problems.push('quitToMenu left the online game up: net ' + !!Game.net + ' host ' + OnlinePlay.isHost + ' links ' + pairs.map(([hostSide]) => hostSide.state).join('/'));
+        if (!Game.config || Game.config.online !== true) problems.push('the test lost its stale online config: it must still be there');
+        Game.selection.mode = 'tournament'; Game.state = GS.CHARSEL; Game.tournament = null;
+        Game.syncVersusInput();
+        if (Game.inputPlan() !== 'coop' || !Inputs.coop) problems.push('an offline Tournament after an online match plays as ' + Game.inputPlan() + ' with Inputs.coop ' + Inputs.coop);
+        const t = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }], size: 8, seed: 3, difficulty: 'easy', ringOut: false });
+        Game.tournament = t; Game.saveTournament();
+        if (!Progress.d.tournamentRun) problems.push('an offline bracket was not saved after the online game');
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03 review): a duel online is won or lost from the local seat\'s fighter: the second fighter that wins sees Victory with its own numbers, the loser Defeat, a watcher a neutral "X wins", and a host that watches a guest against the CPU reads "goes through", not "You are out"', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        const duel = (winner) => {
+          const m = track(new MatchSim({ mode: 'free', playerId: 'kai', opponentId: 'mara', countdown: false, timer: 30, seed: 5, winsNeeded: 1, arenaId: 'dojo' }));
+          m.matchOver = true; m.matchWinner = winner; m.wins = winner === 0 ? [1, 0] : [0, 1]; m.stats[0].damage = 11; m.stats[1].damage = 22;
+          return m;
+        };
+        const played = (seat, fighterOf, winner) => {
+          Game.net = { fighterOf, seat, host: false, detach() {} }; Game.run = { mode: 'online', player: 'kai' };
+          Game.match = duel(winner); Game.onMatchEnd();
+          return { data: Game.resultsData, html: UI.screen_results() };
+        };
+        let r = played(1, [0, 1, -1], 1);
+        if (!r.data.playerWon || r.data.stats[0].damage !== 22 || r.data.player !== ROSTER_BY_ID.mara.name || r.data.wins.join() !== '1,0' || !r.html.includes('Victory') || r.html.includes('Defeat')) problems.push('fighter 2 won and saw ' + (r.html.includes('Victory') ? 'Victory' : 'Defeat') + ' with ' + r.data.player + ' and damage ' + r.data.stats[0].damage);
+        r = played(1, [0, 1, -1], 0);
+        if (r.data.playerWon || r.data.stats[0].damage !== 22 || !r.html.includes('Defeat')) problems.push('fighter 2 lost and saw ' + (r.html.includes('Victory') ? 'Victory' : 'Defeat'));
+        r = played(0, [0, 1, -1], 0);
+        if (!r.data.playerWon || r.data.stats[0].damage !== 11 || r.data.player !== ROSTER_BY_ID.kai.name) problems.push('fighter 1 won: ' + r.data.player + ' ' + r.data.stats[0].damage);
+        r = played(2, [0, 1, -1], 1);
+        if (!r.data.watching || r.data.playerWon || !r.html.includes(ROSTER_BY_ID.mara.name + ' wins') || r.html.includes('Defeat') || r.html.includes('Victory')) problems.push('a watcher did not get a neutral result: ' + r.html.replace(/<[^>]+>/g, ' ').slice(0, 80));
+        // the host's bracket fight of a guest against the CPU: the host only watches
+        const t = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }], size: 8, seed: 5, difficulty: 'easy', ringOut: false });
+        const ref = { round: 0, index: 2 }, order = Tournament.sides(t, 0, 2);
+        if (Tournament.people(t, ref).length !== 1 || t.entrants[order[0]].human !== 1) return 'the bracket of the test is not what it expects';
+        const fight = new MatchSim({ mode: 'free', playerId: t.entrants[order[0]].id, opponentId: t.entrants[order[1]].id, countdown: false, timer: 30, seed: 6, winsNeeded: 1, arenaId: 'dojo' });
+        track(fight); fight.matchOver = true; fight.matchWinner = 1; fight.wins = [0, 1];
+        OnlinePlay.isHost = true;
+        Game.tournament = t; Game.tournamentMatch = { round: 0, index: 2, order }; Game.run = { mode: 'tournament', player: t.entrants[order[0]].id };
+        Game.net = { fighterOf: [-1, 0], seat: 0, host: true, detach() {} }; Game.match = fight; Game.onMatchEnd();
+        const html = UI.screen_results();
+        if (html.includes('You are out') || html.includes('You go through') || !html.includes('goes through') || !Game.resultsData.twoPeople) problems.push('the host that only watches read: ' + html.replace(/<[^>]+>/g, ' ').slice(0, 160));
+        if (t.matches[0][2].winner !== order[1]) problems.push('the fight was not written into the bracket');
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { OnlinePlay.isHost = false; kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03 review): a peer that leaves while the results show is reported ("Player N left." / "The host left the game.") without taking the player off the results screen; during a match the session reports it instead; Rematch says a player left', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        let quits = 0;
+        Game.quitToMenu = () => { quits++; };
+        const { pairs, heard } = kit.open([2, 3]);
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' })) problems.push('the brawl did not start');
+        const close = (side) => { side.state = 'closed'; side.listeners.state.slice().forEach((fn) => fn('closed')); };
+        close(pairs[0][0]);   // during the match: the session handles it
+        if (kit.toasts.length) problems.push('a toast during the match: ' + kit.toasts.join('|'));
+        Game.match.phase = 'matchEnd';
+        close(pairs[1][0]);
+        if (!kit.toasts.includes('Player 3 left.') || quits) problems.push('the host was not told on the results (' + kit.toasts.join('|') + ') or was sent to the menu (' + quits + ')');
+        OnlinePlay.rematch();
+        if (kit.toasts[kit.toasts.length - 1] !== ONLINE_MESSAGES.someoneLeft) problems.push('Rematch said ' + JSON.stringify(kit.toasts[kit.toasts.length - 1]));
+        // a guest on its results screen when the host goes
+        OnlinePlay.leave(); kit.toasts.length = 0;
+        const second = kit.open([2]);
+        OnlinePlay.start({ mode: 'fight', arena: 'dojo' });
+        const message = kit.starts(second.heard)[0][0];
+        OnlinePlay.guestBegin(second.pairs[0][1], message);
+        Game.match.phase = 'matchEnd';
+        close(second.pairs[0][1]);
+        if (!kit.toasts.includes('The host left the game.') || quits || !Game.net) problems.push('the guest on the results: ' + kit.toasts.join('|') + ' quits ' + quits + ' net ' + !!Game.net);
+        void heard;
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03 review): a hostile start message (a level or fighter named like an Object property, a party with a null in it, a seat for a fighter that is not there, two seats for one fighter, a thousand enemies) is refused with the plain text, and a message that still breaks the build ends in the same text and the menu, never a throw', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        const { pairs, heard } = kit.open([2, 3]);
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' })) problems.push('the brawl did not start');
+        const good = kit.starts(heard)[0][0], guestSide = pairs[0][1];
+        const variant = (change) => { const message = JSON.parse(JSON.stringify(good)); change(message); return message; };
+        OnlinePlay.leave(); Game.endMatch();   // the host's own match is over: nothing is up while the guest side is tried
+        OnlinePlay.seat = good.seat;
+        if (OnlinePlay.problemWith(good) !== '') problems.push('the good message was refused: ' + OnlinePlay.problemWith(good));
+        const hostile = {
+          'a level called constructor': (m) => { m.cfg.arenaId = 'constructor'; }, 'a fighter called __proto__': (m) => { m.cfg.playerId = '__proto__'; }, 'a party with a null': (m) => { m.cfg.coop = [null, m.cfg.coop[1]]; },
+          'a party member called toString': (m) => { m.cfg.coop[0].id = 'toString'; }, 'a party seat 9': (m) => { m.cfg.coop[1].slot = 9; }, 'no party': (m) => { delete m.cfg.coop; },
+          'a fighter index past the party': (m) => { m.fighterOf = [5, 0]; m.seatCount = 2; }, 'two seats for one fighter': (m) => { m.fighterOf = [0, 0, -1]; m.seatCount = 3; },
+          'a thousand enemies': (m) => { m.cfg.enemies = 1000; }, 'a difficulty called hasOwnProperty': (m) => { m.cfg.difficulty = 'hasOwnProperty'; }, 'a mode of nothing': (m) => { m.mode = 'x'; }, 'no cfg': (m) => { m.cfg = null; },
+        };
+        for (const [name, change] of Object.entries(hostile)) {
+          const message = variant(change);
+          let got = '';
+          try { got = OnlinePlay.problemWith(message); } catch (error) { got = 'threw ' + error.message; }
+          if (got !== ONLINE_MESSAGES.start) problems.push(name + ': ' + JSON.stringify(got));
+          kit.toasts.length = 0;
+          try { OnlinePlay.guestBegin(guestSide, message); } catch (error) { problems.push(name + ' threw out of guestBegin: ' + error.message); }
+          if (kit.toasts[0] !== ONLINE_MESSAGES.start || Game.net) problems.push(name + ' was not turned down: ' + JSON.stringify(kit.toasts));
+        }
+        // a message that passes the checks and still breaks the build: caught, the plain text, out of the game
+        const begin = Game.beginMatch; let quits = 0;
+        try {
+          Game.beginMatch = () => { throw new Error('broken build'); }; Game.quitToMenu = () => { quits++; };
+          kit.toasts.length = 0;
+          try { OnlinePlay.guestBegin(guestSide, variant(() => {})); } catch (error) { problems.push('a failing build threw out of guestBegin: ' + error.message); }
+          if (kit.toasts[0] !== ONLINE_MESSAGES.start || OnlinePlay.active || OnlinePlay.starting) problems.push('a failing build: ' + JSON.stringify(kit.toasts) + ' active ' + OnlinePlay.active + ' starting ' + OnlinePlay.starting);
+        } finally { Game.beginMatch = begin; }
+        void quits;
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03 review): Start is refused while a connected guest uses another kind of browser (the reason is the plain text), allowed for the same kind or a guest that has not said yet, and a rematch starts from the delay the last match was retuned to', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        const other = Object.keys(ONLINE_ENGINES).find((kind) => kind !== onlineEngine());
+        kit.open([2, 3], { 2: onlineEngine(), 3: other });
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' }) !== ONLINE_MESSAGES.sameBrowser || Game.net) problems.push('a mixed set started or gave another reason');
+        let { pairs, heard } = kit.open([2, 3], { 2: onlineEngine() });
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' }) !== '' || !Game.net) problems.push('a guest that has not said its kind blocked Start');
+        ({ pairs, heard } = kit.open([2], { 2: onlineEngine() }));
+        if (OnlinePlay.start({ mode: 'fight', arena: 'dojo' }) !== '') problems.push('the same kind did not start');
+        let messages = kit.starts(heard)[0];
+        if (messages[0].delay !== 2 || Game.net.delay !== 2) problems.push('the first delay at a 20 ms round trip is ' + messages[0].delay);
+        Game.net.setDelay(5);   // the host's retune at a round end
+        OnlinePlay.rematch();
+        messages = kit.starts(heard)[0];
+        if (messages.length !== 2 || messages[1].delay !== 5 || Game.net.delay !== 5) problems.push('the rematch started at delay ' + (messages[1] && messages[1].delay) + ' / ' + (Game.net && Game.net.delay) + ', not the retuned 5');
+        void pairs;
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
     // (the P12-03 test of Start's hand-off is here, before the async release() test: both use OnlineUI, and a pending async test resumes only after every synchronous test has run)
     test('Online UI (P12-03): Start hands every open guest link over (the ones that are not open are closed), the host screen forgets them, and a guest hands its one link over when the host\'s start message arrives', () => {
@@ -18245,13 +18410,23 @@ const SelfTest = {
       probe.dropped.set(2, 501);
       if (!probe.skipPressed(500) || probe.skipPressed(501)) problems.push('skipPressed ignores the drop frame');
       probe.dropped.delete(2); probe.got[2].delete(500); probe.got[2].delete(501);
-      let muted = false;
-      const done = playLockstep(game, 700, () => { if (!muted && host.match.tick >= 125) { muted = true; game.mute(2); } });   // the round ends at about tick 120 and the skip arms 30 ticks later: the seat stops answering inside the round end, before any skip. After the match end nobody waits for anybody any more (the results need no input), so a drop must come earlier
+      let muted = false, roundEndAt = 0, matchEndAt = 0;
+      const done = playLockstep(game, 700, () => {
+        if (!roundEndAt && host.match.phase === 'roundEnd') roundEndAt = host.match.tick;
+        if (!matchEndAt && host.match.phase === 'matchEnd') matchEndAt = host.match.tick;
+        if (!muted && host.match.tick >= 125) { muted = true; game.mute(2); }
+      });   // the round ends at about tick 120 and the skip arms 30 ticks later: the seat stops answering inside the round end, before any skip. After the match end nobody waits for anybody any more (the results need no input), so a drop must come earlier
       if (done !== true) return done;
       if (host.drops[0] === undefined || second.drops[0] === undefined) problems.push('the seat was not dropped');
       if (host.match.phase !== 'matchEnd' || second.match.phase !== 'matchEnd') problems.push('the round end did not run on to the match end: ' + host.match.phase + '/' + second.match.phase);
       if (host.sums.join() !== second.sums.join() || host.session.ended || second.session.ended) problems.push('the two peers that played on differ or stopped: ' + host.session.ended + '/' + second.session.ended);
       if (host.match.tick < 700) problems.push('the host stopped at ' + host.match.tick);
+      // the seat's presses before its drop frame were played, inside the round end but before the skip arms: they are in every peer's inputs, and they did not skip the round end (it ran its full length), and the peers still agree
+      const from = host.session.dropped.get(2), played = [];
+      for (let frame = roundEndAt; frame < from; frame++) if ((host.session.got[2].get(frame) >>> 16) & NET_SKIP_BITS) played.push(frame);
+      if (!roundEndAt || !(from - roundEndAt < SKIP_ARM_TICKS) || played.length < 3) problems.push('no press of the seat was played inside the round end before its drop frame (' + played.length + ' frames, round end at ' + roundEndAt + ', drop frame ' + from + ')');
+      else if (second.session.dropped.get(2) !== from || !played.every((frame) => (second.session.got[2].get(frame) >>> 16) & NET_SKIP_BITS)) problems.push('the two peers did not hold the same presses and drop frame');
+      if (matchEndAt - roundEndAt < ROUND_END_TICKS - 2) problems.push('the dropped seat\'s press skipped the round end after ' + (matchEndAt - roundEndAt) + ' ticks');
       // the pause key online: it toggles, a blur or a hidden tab (automatic) only opens
       const keep = { net: Game.net, netNote: Game.netNote, state: Game.state, status: UI.netStatus }, shown = [];
       try {
@@ -18317,9 +18492,9 @@ const SelfTest = {
         messages = startMessages(heard);
         if (messages[0].length !== 2 || messages[0][1].id === idBefore || Game.net.matchId !== messages[0][1].id) problems.push('Rematch did not start a new match: ' + messages[0].length + ' messages');
         // a guest that left: no rematch of a fight that needs it
-        pairs[0][0].state = 'closed';
+        pairs[0][0].state = 'closed'; pairs[0][0].listeners.state.slice().forEach((fn) => fn('closed'));
         OnlinePlay.rematch();
-        if (!toasts.includes(ONLINE_MESSAGES.nobody)) problems.push('a rematch with the guest gone said ' + JSON.stringify(toasts.slice(-2)));
+        if (!toasts.includes(ONLINE_MESSAGES.someoneLeft)) problems.push('a rematch with the guest gone said ' + JSON.stringify(toasts.slice(-2)));
         // the results screen: the host goes on, a guest waits
         if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'again,menu' || OnlinePlay.resultButtons(['bracket', 'menu']).join() !== 'bracket,menu') problems.push('host buttons');
         OnlinePlay.leave();
@@ -18453,14 +18628,16 @@ const SelfTest = {
       // what each text must say: the reason, then what to try
       const ADVICE = {
         nonetwork: [/No network address/, /Wi-Fi/], ice: [/block direct connections/, /guest Wi-Fi/, /VPN/, /same home Wi-Fi/, /hotspot/], timeout: [/did not open in time/, /new codes/, /hotspot/, /block direct connections/],
-        guestWait: [/did not answer in time/, /Firefox/, /host/], lost: [/connection was lost/, /Wi-Fi/], sdp: [/could not use the code/, /new one/], unsupported: [/no WebRTC/, /Chrome/],
+        guestWait: [/did not answer in time/, /some browsers, like Firefox, wait only a few seconds/, /try Firefox as the host/], sameBrowser: [/different kinds of browser/, /same browser on every device/], lost: [/connection was lost/, /Wi-Fi/], sdp: [/could not use the code/, /new one/], unsupported: [/no WebRTC/, /Chrome/],
       };
       for (const [code, words] of Object.entries(ADVICE)) {
         const text = ONLINE_MESSAGES[code];
         if (!text || text.length > 200 || /DOMException|Error|undefined|\[object/.test(text)) bad.push(code + ': not a short plain text');
         for (const word of words) if (!word.test(text)) bad.push(code + ' lacks ' + word);
       }
-      for (const word of [/same Wi-Fi/, /block direct connections/, /hotspot/, /No server is used/, /same kind of browser/, /Out of sync/]) if (!word.test(ONLINE_LIMITS)) bad.push('the limits note lacks ' + word);
+      for (const word of [/same Wi-Fi or router/, /one phone's hotspot/, /block direct connections/, /No server is used/, /same kind of browser/]) if (!word.test(ONLINE_LIMITS)) bad.push('the limits note lacks ' + word);
+      if (/most home networks/.test(ONLINE_LIMITS)) bad.push('the limits note promises more than the same Wi-Fi: with no STUN or TURN server only one network works');
+      if (!UI.screen_online().includes('same Wi-Fi or network')) bad.push('the first Online screen does not say same network');
       // each failure path through a link: the error carries the reason text, the link ends in failed (or closed after it was open)
       const reasonOf = async (name, run, code) => {
         try { const link = await run(); if (!link.error || link.error.code !== code || link.error.message !== ONLINE_MESSAGES[code]) bad.push(name + ': ' + (link.error ? link.error.code + ' / ' + link.error.message : 'no error') + ' (wanted ' + code + ')'); } catch (error) { bad.push(name + ' threw ' + error.message); }
