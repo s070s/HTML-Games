@@ -48,12 +48,14 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
+  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music,
+  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -246,14 +248,16 @@ const SelfTest = {
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
+    const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
     const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn) => {
+    const test = (name, fn, limitMs) => {   // limitMs (only async tests that render audio offline): defer the test and give it that long
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
       const entry = { name, pass: false, detail: 'still running' };
       results.push(entry);
+      if (limitMs) { deferredTests.push({ entry, fn, limitMs }); return; }
       try {
         const r = fn();
         if (r && typeof r.then === 'function') {
@@ -13947,6 +13951,8 @@ const SelfTest = {
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
     const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator', 'online', 'onlinehost', 'onlinejoin', 'onlineqr'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    /* The one MENU state with Free Fight screens on show (P12-06): the online lobby's Lineup button opens Players and teams and its fighter cards under the lobby, in the menu state (a change to the fighter-select state would send the screens to Free Fight and drop the lobby). Legal only with an Online screen under them on the screen stack. */
+    const lobbyLineupLegal = (state, screen) => state === GS.MENU && (screen === 'lineup' || screen === 'char') && UI.stack.some((name) => String(name).startsWith('online'));
     const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
       const customs = keepCustoms();
       try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
@@ -13982,7 +13988,7 @@ const SelfTest = {
         if (flow.problems.length) return flow.problems[0];
         if (inFight() && (!Game.match || (screen !== null && screen !== 'scene'))) return state + ' with the ' + screen + ' screen and ' + (Game.match ? 'a' : 'no') + ' match';
         if (state === GS.MENU && Game.match) return 'a match in the main menu state';
-        if (FLOW_SCREENS[state] && !FLOW_SCREENS[state].includes(screen)) return state + ' with the ' + screen + ' screen';
+        if (FLOW_SCREENS[state] && !FLOW_SCREENS[state].includes(screen) && !lobbyLineupLegal(state, screen)) return state + ' with the ' + screen + ' screen';
         if (state === GS.PAUSED && !Game.match) return 'paused without a match';
         if (screen === 'coop' && !(Inputs.coop && Inputs.lobby)) return 'the join screen with co-op input ' + Inputs.coop + ' and the lobby ' + Inputs.lobby;
         if (screen !== 'coop' && Inputs.lobby) return 'the lobby is open on the ' + screen + ' screen';
@@ -14411,8 +14417,8 @@ const SelfTest = {
       return () => { Events.handlers = handlers; owner.wired = wired; };
     };
     /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
-    const withVoices = (body) => {
-      const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
+    const withVoices = (body, bank = null) => {   // bank: the stand-in bank a baked hit plays (null: the synthesis)
+      const keep = { bank: Sound.bank, playBuffer: Sound.playBuffer, ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
       const heard = [], source = () => ({ stopped: false, stop() { this.stopped = true; } });
       Sound.ready = () => true; Sound.allow = () => true; Sound.layerQ = []; Sound.heart = false; Sound.ducked = false;
       Sound.tone = (type, f0, f1, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'tone', f0, dest, s }); return s; };
@@ -14420,36 +14426,45 @@ const SelfTest = {
       Sound.swell = () => { const s = source(); heard.push({ kind: 'swell', s }); return s; };
       Sound.material = (kind) => heard.push({ kind: 'material', material: kind });
       Sound.grunt = () => {};
+      Sound.bank = bank; Sound.playBuffer = (buffer, db, rate) => { const s = source(); heard.push({ kind: 'buffer', buffer, db, rate, s }); return s; };
       try { return body(heard); } finally { Object.assign(Sound, keep); }
     };
-    test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
+    const bakedStandIn = () => {   // a bank of tagged stand-in buffers: bank.hit[tier - 1][band][variant] and bank.mat[kind][variant]
+      const three = (make) => [0, 1, 2].map(make);
+      return { hit: three((t) => three((b) => three((v) => ({ id: 'hit', tier: t + 1, band: b, variant: v })))), mat: { wood: three((v) => ({ id: 'mat', mat: 'wood', variant: v })), metal: three((v) => ({ id: 'mat', mat: 'metal', variant: v })), glass: three((v) => ({ id: 'mat', mat: 'glass', variant: v })) } };
+    };
+    test('Layered impact sound (P13-02): in both paths (the baked bank, and the synthesis with no bank) every hit is heavier for a heavier body, one sound per tier, a material layer for an item, a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the synthesis rides the effects bus', () => {
       const bad = [], keepArena = Arena.def;
       const unwire = wireFor(Sound, () => Sound.wire());
       try {
-        withVoices((heard) => {
+        for (const baked of [false, true]) withVoices((heard) => {
+          const label = baked ? 'baked: ' : 'synthesis: ', fail = (text) => bad.push(label + text);
           const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
-          const thud = (weight) => hit({ def: { index: 1, weight, y: 0 } }).filter((v) => v.kind === 'tone')[1].f0;
-          if (!(thud(0) > thud(2) && thud(2) > thud(4))) bad.push('the thud is not lower for heavier bodies: ' + [0, 2, 4].map(thud));
-          const snap = (tier) => { const v = hit({ mv: { tier, cat: 'punch', name: 'x' } }).filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
-          if (new Set([1, 2, 3].map(snap)).size !== 3) bad.push('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
-          if (hit({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }).filter((q) => q.kind === 'material').map((q) => q.material).join() !== WEAPONS.bat.mat) bad.push('no material layer for a bat');
-          if (hit({}).some((q) => q.kind === 'material')) bad.push('a bare hand has a material');
-          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) bad.push('a swell without a crowd');
-          if (hit({}).some((q) => q.dest !== undefined)) bad.push('a layer bypasses the effects bus');
+          const buffers = (list) => list.filter((q) => q.kind === 'buffer');
+          const thud = (weight) => { const list = hit({ def: { index: 1, weight, y: 0 } }); return baked ? buffers(list)[0].buffer.band : -list.filter((v) => v.kind === 'tone')[1].f0; };   // the synthesis gets lower, the bank goes up a weight band
+          if (!(thud(0) < thud(2) && thud(2) < thud(4))) fail('the thud is not heavier for heavier bodies: ' + [0, 2, 4].map(thud));
+          const snap = (tier) => { const list = hit({ mv: { tier, cat: 'punch', name: 'x' } }); if (baked) return buffers(list)[0].buffer.tier; const v = list.filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
+          if (new Set([1, 2, 3].map(snap)).size !== 3) fail('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
+          const materials = (extra) => { const list = hit(extra); return (baked ? buffers(list).filter((q) => q.buffer.mat).map((q) => q.buffer.mat) : list.filter((q) => q.kind === 'material').map((q) => q.material)).join(); };
+          if (materials({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }) !== WEAPONS.bat.mat) fail('no material layer for a bat');
+          if (materials({})) fail('a bare hand has a material');
+          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) fail('a swell without a crowd');
+          if (!baked && hit({}).some((q) => q.dest !== undefined)) fail('a layer bypasses the effects bus');
+          if (baked && buffers(hit({})).length !== 1) fail('a baked hit is not one source');
           Arena.build(ARENAS.club);
-          if (!Arena.props.some((q) => q.ph !== undefined)) bad.push('the Night Club has no crowd to test with');
-          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) bad.push('no crowd swell on a knock-out');
-          if (hit({ ko: false }).some((q) => q.kind === 'swell')) bad.push('a swell without a knock-out');
+          if (!Arena.props.some((q) => q.ph !== undefined)) fail('the Night Club has no crowd to test with');
+          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) fail('no crowd swell on a knock-out');
+          if (hit({ ko: false }).some((q) => q.kind === 'swell')) fail('a swell without a knock-out');
           heard.length = 0; Sound.layerQ = [];
           const layered = [], realLayer = Sound.layer;
           Sound.layer = function (s) { if (s) layered.push(s); return realLayer.call(this, s); };
           try { for (let i = 0; i < 20; i++) Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }); } finally { Sound.layer = realLayer; }
-          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length;
-          if (layered.length !== 40 || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped + ' of ' + layered.length + ' stopped, ' + others + ' others stopped');
+          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length, expected = baked ? 20 : 40;
+          if (layered.length !== expected || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) fail('the cap: ' + layered.length + ' layered (' + expected + ' expected), ' + Sound.layerQ.length + ' queued, ' + stopped + ' stopped, ' + others + ' others stopped');
           Sound.allow = () => false; heard.length = 0;
           Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
-          if (heard.length) bad.push('a hit the engine skipped still layers');
-        });
+          if (heard.length) fail('a hit the engine skipped still layers');
+        }, baked ? bakedStandIn() : null);
       } finally { if (keepArena) Arena.build(keepArena); unwire(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -14486,6 +14501,374 @@ const SelfTest = {
       } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
+    const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
+    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const isolatedSound = () => Object.assign({}, Sound, { ctx: null, bank: null, bakeState: 'idle', bakeError: '', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeFrom: 0, unsupported: false, voices: 0, last: {}, layerQ: [], spot: null, wired: false, fires: [], amb: null, ambKey: -1, lastVariant: {} });   // a shallow copy of the engine for a test that must not touch the page's own
+    const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
+    const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
+      const keep = saveSound(), heard = [];
+      Sound.ready = () => true; Sound.allow = () => true; Sound.spot = null; Sound.bank = null;   // the recorder hears the synthesis, with a bank or without
+      Sound.tone = (type, f0, f1, dur, gain) => { heard.push(['tone', f0, f1, dur, gain]); return { stop() {} }; };
+      Sound.noise = (filter, f0, f1, q, dur, gain) => { heard.push(['noise', f0, f1, q, dur, gain]); return { stop() {} }; };
+      try { return body(heard); } finally { Object.assign(Sound, keep); }
+    };
+    const mockNode = () => new Proxy(function () {}, { get: (t, k) => (k in t ? t[k] : k === 'then' ? undefined : (t[k] = mockNode())), set: (t, k, v) => { t[k] = v; return true; }, apply: () => mockNode() });   // any node, any param, any call
+    const mockBuffer = (length, rate) => ({ length, sampleRate: rate, duration: length / rate, data: new Float32Array(length), getChannelData() { return this.data; } });
+    class MockAudioContext {   // enough of an AudioContext for Sound.unlock and Sound.build; the bake's offline contexts are MockOfflineContext
+      constructor() { this.state = 'suspended'; this.currentTime = 0; this.sampleRate = 44100; this.destination = mockNode(); return new Proxy(this, { get: (t, k) => (k in t ? t[k] : typeof k === 'string' && k.startsWith('create') ? () => mockNode() : undefined) }); }
+      createBuffer(channels, length, rate) { return mockBuffer(length, rate); }
+      resume() { this.state = 'running'; return Promise.resolve(); }
+    }
+    class MockOfflineContext {
+      constructor(channels, length, rate) { this.length = length; this.destination = mockNode(); MockOfflineContext.made.push(this); return new Proxy(this, { get: (t, k) => (k in t ? t[k] : typeof k === 'string' && k.startsWith('create') ? () => mockNode() : undefined) }); }
+      startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; return Promise.resolve({ getChannelData: () => data }); }
+    }
+    class MockOfflineCallbackContext extends MockOfflineContext {   // old Safari: startRendering returns nothing, oncomplete fires with the rendered buffer, and the prefixed constructor refuses a rate under 44.1 kHz
+      constructor(channels, length, rate) { if (rate < 44100) throw new RangeError('the sample rate ' + rate + ' is not supported'); super(channels, length, rate); }
+      startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; setTimeout(() => this.oncomplete({ renderedBuffer: { getChannelData: () => data } }), 0); }
+    }
+    MockOfflineContext.made = [];
+    const waitFor = (test, ms) => new Promise((resolve) => { const t0 = Date.now(), poll = () => (test() || Date.now() - t0 > ms ? resolve(test()) : setTimeout(poll, 10)); poll(); });
+    const HIT_EVENT = (extra) => Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra);
+    test('Sound variation (P18-29): two plays of a hit, block, step and whoosh differ in at least two parameters, a P18-04 cue, the countdown and the stingers never differ, and the variation draws from Math.random', () => {
+      const bad = [], flat = (heard) => heard.flatMap((row) => row.slice(1));
+      recordSound((heard) => {
+        const varied = { hit: () => Sound.hit(0.5, false, 1), block: () => Sound.block(false, false, 0, false, false), step: () => Sound.step(false, 1, 0), whoosh: () => Sound.whoosh(2, 'cloth', 0, 1), land: () => Sound.land(0.5, { index: 1, weight: 2 }) };
+        for (const [name, play] of Object.entries(varied)) {
+          heard.length = 0; play(); const first = flat(heard); heard.length = 0; play(); const second = flat(heard);
+          const differing = first.filter((value, i) => value !== second[i]).length;
+          if (!first.length || first.length !== second.length || differing < 2) bad.push(name + ' differs in ' + differing + ' parameters');
+        }
+        const fixed = { 'perfect notes': () => Sound.block(true, false, 0, false, true), 'break-through notes': () => Sound.block(true, false, 0, true, true), 'countdown': () => Sound.beep(3), 'FIGHT': () => Sound.beep(0), 'milestone': () => Sound.milestone(5), 'time up': () => Sound.timeUp(), 'round start': () => Sound.roundStart(2, false), 'menu confirm': () => Sound.ui('ok') };
+        for (const [name, play] of Object.entries(fixed)) {
+          heard.length = 0; play(); const first = flat(heard); heard.length = 0; play(); const second = flat(heard);
+          if (!first.length || first.join() !== second.join()) bad.push(name + ' changes between plays');
+        }
+        heard.length = 0; Sound.ui('move'); const move = flat(heard)[0]; heard.length = 0; Sound.ui('move');
+        if (Math.abs(flat(heard)[0] / move - 1) > 0.07) bad.push('the menu move moves more than 3 percent');
+      });
+      const keep = Math.random;
+      try { Math.random = () => 0.75; if (Sound.vary(100, 0.1) !== 105) bad.push('vary does not read Math.random: ' + Sound.vary(100, 0.1)); Math.random = () => 0; if (Sound.vary(100, 0.1) !== 90) bad.push('vary is not +-spread'); } finally { Math.random = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound surfaces (P18-29): every level has a footstep recipe, the 6 recipes differ in filter centre or length, and a step uses the floor of the level', () => {
+      const bad = [], keepArena = Arena.def;
+      if (STEP_SURFACES.length !== 6) bad.push(STEP_SURFACES.length + ' recipes, not 6');
+      const keys = new Set(STEP_SURFACES.map((s) => s.hz + '/' + s.dur));
+      if (keys.size !== STEP_SURFACES.length) bad.push('two recipes share filter centre and length');
+      const used = new Set();
+      for (const id of ARENA_ORDER) {
+        const floor = ARENAS[id].env.floor, index = FLOOR_SURFACE[floor];
+        if (!(floor >= 1) || !STEP_SURFACES[index]) bad.push(id + ' has no recipe (floor ' + floor + ')'); else used.add(index);
+      }
+      if (used.size !== STEP_SURFACES.length) bad.push('a recipe no level uses');
+      try { Arena.build(ARENAS.dojo); if (Sound.surface().name !== STEP_SURFACES[FLOOR_SURFACE[ARENAS.dojo.env.floor]].name) bad.push('the Dojo steps on ' + Sound.surface().name); } finally { if (keepArena) Arena.build(keepArena); }
+      for (const s of STEP_SURFACES) if (!(s.gain > 0 && s.dur > 0 && s.hz > 0)) bad.push(s.name + ' has a bad number');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound voices (P18-29): at 28 live sources a step is refused and a hit plays, a baked impact is one voice, the gap is per fighter, and 20 baked hits keep at most 12 impact sources (the oldest stops)', () => {
+      const bad = [], keep = saveSound(), stopped = [];
+      const baked = () => ({ hit: [1, 2, 3].map((tier) => [0, 1, 2].map((band) => [0, 1, 2].map((variant) => ({ tier, band, variant })))), mat: { wood: [{ mat: 'wood' }, { mat: 'wood' }, { mat: 'wood' }], metal: [{}, {}, {}], glass: [{}, {}, {}] } });
+      const sources = [];
+      const fakeCtx = { state: 'running', currentTime: 10, createBufferSource() { const s = { buffer: null, playbackRate: { value: 1 }, connect() {}, start() {}, stopped: false, stop() { this.stopped = true; stopped.push(this); } }; sources.push(s); return s; }, createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; } };
+      try {
+        Sound.ctx = fakeCtx; Sound.last = {}; Sound.voices = 28; Sound.layerQ = []; Sound.spot = null; Sound.bank = null; Sound.ready = keep.ready; Sound.allow = keep.allow;
+        const heard = [];
+        Sound.tone = (type, f0) => { heard.push(f0); return { stop() {} }; }; Sound.noise = () => { heard.push('n'); return { stop() {} }; };
+        Sound.step(false, 1, 0); if (heard.length) bad.push('a step is not refused at 28 live sources');
+        Sound.whoosh(1, 'cloth', 0, 1); if (heard.length) bad.push('a whoosh is not refused at 28 live sources');
+        Sound.hit(0.5, false, 1); if (!heard.length) bad.push('a hit is refused at 28 live sources');
+        Sound.voices = 0; Sound.last = {}; heard.length = 0;
+        Sound.step(false, 1, 0); const one = heard.length; Sound.step(false, 1, 0); if (heard.length !== one) bad.push('a second step of the same fighter inside the gap plays');
+        Sound.step(false, 2, 0); if (heard.length === one) bad.push('another fighter\'s step is refused by the first one\'s gap (the gap is per fighter)');
+        heard.length = 0; Sound.hit(0.5, false, 1); const hitOne = heard.length; Sound.hit(0.5, false, 2); if (heard.length === hitOne) bad.push('a hit on a second defender is refused by the first one\'s gap');
+        Sound.tone = keep.tone; Sound.noise = keep.noise;
+        // the baked path: one source and one gain per impact, the weight band and the tier pick the buffer, never the same variant twice running
+        Sound.bank = baked(); Sound.voices = 0; Sound.last = {}; Sound.layerQ = []; Sound.allow = () => true; Sound.ready = () => true;
+        const played = (extra) => { sources.length = 0; Sound.impact(HIT_EVENT(extra), false); return sources.slice(); };
+        const one1 = played({ mv: { tier: 1, cat: 'punch', name: 'x' } });
+        if (one1.length !== 1 || Sound.voices !== 1) bad.push('a baked impact is ' + one1.length + ' sources, ' + Sound.voices + ' voices');
+        const tierOf = (extra) => played(extra)[0].buffer;
+        if (tierOf({ mv: { tier: 1, cat: 'punch', name: 'x' } }).tier !== 1 || tierOf({ mv: { tier: 2, cat: 'punch', name: 'x' } }).tier !== 2 || tierOf({ mv: { tier: 3, cat: 'punch', name: 'x' } }).tier !== 3) bad.push('the tier does not pick the buffer');
+        if (tierOf({ def: { index: 1, weight: 0, y: 0 } }).band !== 0 || tierOf({ def: { index: 1, weight: 2, y: 0 } }).band !== 1 || tierOf({ def: { index: 1, weight: 4, y: 0 } }).band !== 2) bad.push('the weight class does not pick the band');
+        let repeat = false, last = -1; for (let i = 0; i < 30; i++) { const v = tierOf({}).variant; if (v === last) repeat = true; last = v; }
+        if (repeat) bad.push('a variant plays twice in a row');
+        const bat = played({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) });
+        if (bat.length !== 2 || bat[1].buffer.mat !== 'wood') bad.push('a bat adds ' + (bat.length - 1) + ' layers, not the baked wood');
+        Sound.layerQ = []; sources.length = 0; stopped.length = 0;
+        for (let i = 0; i < 20; i++) Sound.impact(HIT_EVENT({}), false);
+        if (Sound.layerQ.length !== HIT_LAYER_VOICES || stopped.length !== 20 - HIT_LAYER_VOICES || !sources[0].stopped || sources[19].stopped) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped.length + ' stopped');
+        for (let i = 0; i < 3; i++) if (PRIORITY_CAP[i] !== [30, 24, 16][i]) bad.push('the priority caps are ' + PRIORITY_CAP.join());
+      } finally { Object.assign(Sound, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 60 buffers (27 impacts, 9 materials, 24 footsteps) of about 1.6 MB', async () => {
+      const Sound = isolatedSound(), bad = [];   // a copy of the engine: the page's own Sound (its context, its bank, its bake in flight) is never touched, so nothing here can be heard or restored late
+      try {
+        MockOfflineContext.made.length = 0;
+        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the other async tests run side by side with this one
+        withMocks(() => Sound.unlock());
+        if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
+        await waitFor(() => Sound.bakeState !== 'running', 4000);
+        const bank = Sound.bank, count = bank ? bank.hit.flat(2).length + Object.values(bank.mat).flat().length + bank.step.flat(2).length : 0;
+        if (bank && bank.hit[0][0][0].sampleRate !== BAKE_RATE) bad.push('the standard context bakes at ' + bank.hit[0][0][0].sampleRate + ' Hz, not ' + BAKE_RATE);
+        if (Sound.bakeState !== 'done' || count !== 60) bad.push('after unlock: ' + Sound.bakeState + ', ' + count + ' buffers (' + Sound.bakeError + ')');
+        if (MockOfflineContext.made.length !== 5) bad.push(MockOfflineContext.made.length + ' offline contexts, not 5 idle steps');
+        if (Sound.bakeBytes !== Math.round(4 * BAKE_RATE * (9 * (0.2 + 0.28 + 0.4) + 9 * 0.3 + 24 * 0.12))) bad.push('the bank is ' + Sound.bakeBytes + ' bytes');
+        if (bank && bank.hit.flat(2).some((buffer) => Math.max(...buffer.data.map(Math.abs)) > 1.0001 || Math.max(...buffer.data.map(Math.abs)) < 0.99)) bad.push('a baked buffer is not normalised to full scale');
+        // a bank plays one baked source and no synthesis; no bank plays the synthesis
+        const unwire = wireFor(Sound, () => Sound.wire());
+        try {
+          Sound.ready = () => true; Sound.allow = () => true; Sound.grunt = () => {}; Sound.swell = () => ({ stop() {} });
+          const calls = { buffers: 0, synth: 0 };
+          Sound.playBuffer = () => { calls.buffers++; return { stop() {} }; }; Sound.tone = () => { calls.synth++; return { stop() {} }; }; Sound.noise = () => { calls.synth++; return { stop() {} }; };
+          Events.emit('hit', HIT_EVENT({ mv: ATTACKS.jab }));
+          if (calls.buffers !== 1 || calls.synth !== 0) bad.push('with a bank a hit plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+          calls.buffers = 0; calls.synth = 0; Events.emit('step', { f: { x: 0, z: 0, index: 1, stepIndex: 0 }, run: false });
+          if (calls.buffers !== 1 || calls.synth !== 0) bad.push('with a bank a step plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+          Sound.bank = null; calls.buffers = 0; calls.synth = 0; Events.emit('step', { f: { x: 0, z: 0, index: 1, stepIndex: 0 }, run: false });
+          if (calls.buffers !== 0 || calls.synth < 1) bad.push('without a bank a step plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+          calls.buffers = 0; calls.synth = 0;
+          Events.emit('hit', HIT_EVENT({ mv: ATTACKS.jab }));
+          if (calls.buffers !== 0 || calls.synth < 2) bad.push('without a bank a hit plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+        } finally { unwire(); }
+        // a bake that throws leaves no bank
+        Sound.bank = null; Sound.bakeState = 'idle'; Sound.bakeError = '';
+        withMocks(() => { window.OfflineAudioContext = class { constructor() { throw new Error('no offline audio here'); } }; Sound.bake(); });
+        await waitFor(() => Sound.bakeState !== 'running', 2000);
+        if (Sound.bakeState !== 'failed' || Sound.bank || !Sound.bakeError) bad.push('a failing bake leaves ' + Sound.bakeState + ' and ' + (Sound.bank ? 'a bank' : 'no bank'));
+        // no OfflineAudioContext at all: nothing to bake, the synthesis stays
+        Sound.bank = null; Sound.bakeState = 'idle';
+        withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = undefined; Sound.bake(); });
+        if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
+        Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
+        if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) and refuses a rate under 44.1 kHz does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); else if (Sound.bank.hit[0][0][0].sampleRate !== 44100 || Sound.bank.step[0][0][0].length !== Math.round(0.12 * 44100)) bad.push('the prefixed context bakes at ' + Sound.bank.hit[0][0][0].sampleRate + ' Hz, not 44100'); }
+      } finally { Sound.ready = () => false; }   // the copy is thrown away
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, SOUND_RENDER_LIMIT_MS);
+    test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
+      const bad = [], keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keep = saveSound();
+      try {
+        Camera.target[0] = 2; Camera.target[2] = -3; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
+        const near = Sound.place(2, -3), far = Sound.place(2 + 14, -3), farther = Sound.place(2 + 40, -3);
+        if (near.gain !== 1 || near.pan !== 0) bad.push('at the camera: ' + JSON.stringify(near));
+        if (Math.abs(20 * Math.log10(far.gain) + 6.02) > 0.1) bad.push('14 m away is ' + (20 * Math.log10(far.gain)).toFixed(2) + ' dB');
+        if (farther.gain < 0.5 - 1e-9) bad.push('beyond 14 m the gain keeps falling below half');
+        if (!(far.pan > 0 && Sound.place(2 - 14, -3).pan < 0) || Math.abs(far.pan) > 0.6 + 1e-9) bad.push('the pan does not follow the right vector: ' + far.pan);
+        Camera.dirRight[0] = -1;   // the camera turned round: the same place is on the other side
+        if (!(Sound.place(2 + 7, -3).pan < 0)) bad.push('the pan does not follow a turned camera');
+        Camera.dirRight[0] = 0; Camera.dirRight[1] = 1;
+        if (!(Sound.place(2, -3 + 7).pan > 0)) bad.push('the pan does not use the camera\'s z axis');
+        Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
+        // one panner per event, and the sources are scaled by the distance
+        let panners = 0; const gains = [], connected = [];
+        Sound.ctx = { currentTime: 0, state: 'running', createStereoPanner() { panners++; return { pan: { value: 0 }, connect() {} }; }, createOscillator() { return { frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, start() {}, stop() {} }; }, createGain() { return { gain: { setValueAtTime() {}, linearRampToValueAtTime(v) { gains.push(v); }, exponentialRampToValueAtTime() {} }, connect(node) { connected.push(node); } }; } };
+        Sound.voices = 0; Sound.sfxBus = { sfx: true };
+        Sound.at(2 + 10, -3); for (let i = 0; i < 3; i++) Sound.tone('sine', 100, 50, 0.1, 0.4);
+        if (panners !== 1 || new Set(connected.filter((node) => node && node.pan)).size !== 1) bad.push(panners + ' panners for one event');
+        const g0 = gains[0]; Sound.at(2, -3); gains.length = 0; Sound.tone('sine', 100, 50, 0.1, 0.4);
+        if (!(g0 < gains[0])) bad.push('a farther sound is not quieter: ' + g0 + ' against ' + gains[0]);
+        Sound.spot = null; panners = 0; Sound.tone('sine', 100, 50, 0.1, 0.4); if (panners) bad.push('a sound with no place makes a panner');
+        Sound.tone('sine', 100, 50, 0.1, 0.4, 0, 0, { ui: true }); if (gains.length < 3) bad.push('a bus sound is not made');
+      } finally { Camera.target[0] = keepCamera.target[0]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Object.assign(Sound, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const soundHandlers = () => {   // the handlers Sound.wire adds, on their own (the other listeners of the game stay out of the test)
+      const kept = Events.handlers, wasWired = Sound.wired; Events.handlers = {}; Sound.wired = false; Sound.wire();
+      const handlers = Events.handlers; Events.handlers = kept; Sound.wired = wasWired;
+      return (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
+    };
+    test('Music sweep (P18-29): the tense layer\'s rising sweep lasts its whole bar: its noise source loops, so it never runs out of buffer (it did, 1 s in, with a click every 4 bars)', () => {
+      const bad = [], keep = { ctx: Sound.ctx, noiseBuf: Sound.noiseBuf, musicBus: Sound.musicBus, track: Music.track, intensity: Music.intensity }, keepRandom = Math.random, sources = [];
+      const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+      const node = (extra) => Object.assign({ connect() {}, disconnect() {}, start() {}, stop() {} }, extra);
+      Sound.ctx = { currentTime: 0, createOscillator: () => node({ frequency: param() }), createGain: () => node({ gain: param() }), createBiquadFilter: () => node({ frequency: param(), Q: param() }), createBufferSource() { const s = node({ loop: false, start(at, offset) { this.from = at; this.offset = offset; }, stop(at) { this.until = at; } }); sources.push(s); return s; } };
+      Sound.noiseBuf = { duration: 2 }; Sound.musicBus = {};
+      try {
+        Math.random = () => 0.99;   // the worst start: almost 1 s into the 2 s buffer
+        Music.track = { bpm: 118, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = 2;
+        Music.schedule(0, 0, 60 / 118 / 4 * 0.96);   // bar 1, step 0: the sweep
+        const sweeps = sources.filter((s) => s.until - s.from > 1);
+        if (sweeps.length !== 1) bad.push(sweeps.length + ' sources last over a second, not the one sweep');
+        for (const s of sources) if (!s.loop && s.until - s.from > Sound.noiseBuf.duration - s.offset) bad.push('a noise source of ' + (s.until - s.from).toFixed(2) + ' s runs out of buffer from ' + s.offset + ' s in');
+      } finally { Math.random = keepRandom; Object.assign(Sound, { ctx: keep.ctx, noiseBuf: keep.noiseBuf, musicBus: keep.musicBus }); Music.track = keep.track; Music.intensity = keep.intensity; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Round start (P18-29): the low double stab plays when the next round decides the match (after a drawn round, or at 1-1 in a best of 3, 2-2 in a best of 5), the pips in any other later round, nothing in round 1, and no stab in a brawl or a lineup', () => {
+      const bad = [], fire = soundHandlers();
+      const match = (extra) => Object.assign({ decider: false, brawl: false, setup: null, round: 2, wins: [1, 0], winsNeeded: 2 }, extra);
+      const cases = [['1-0 of a best of 3', 2, match({}), 'pips'], ['1-1 of a best of 3', 3, match({ round: 3, wins: [1, 1] }), 'stab'], ['2-2 of a best of 5', 5, match({ round: 5, wins: [2, 2], winsNeeded: 3 }), 'stab'], ['after a drawn round', 3, match({ round: 3, decider: true, wins: [2, 2], winsNeeded: 3 }), 'stab'],
+        ['0-0, round 1', 1, match({ round: 1, wins: [0, 0] }), 'nothing'], ['a brawl wave', 2, match({ brawl: true, wins: [1, 1] }), 'pips'], ['a lineup round', 2, match({ setup: [{}], wins: [1, 1] }), 'pips']];
+      recordSound((heard) => {
+        for (const [label, round, m, expected] of cases) {
+          heard.length = 0; fire('roundStart', { round, match: m });
+          const got = !heard.length ? 'nothing' : heard.every((row) => row[1] === 110) ? 'stab' : heard.every((row) => row[1] === 880) ? 'pips' : 'mixed';
+          if (got !== expected) bad.push(label + ' plays ' + got + ', not ' + expected);
+        }
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound footfalls (P18-29): the footfall under a jump, a landing or a fall is the lowest priority: at 16 live sources it is refused with its whoosh; a new match or the end of one clears the fires, so a quick Retry has no old crackle', () => {
+      const bad = [], keep = saveSound(), keepFanfare = Sound.fanfare, fire = soundHandlers(), heard = [];
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.ready = () => true; Sound.allow = keep.allow; Sound.last = {}; Sound.layerQ = []; Sound.spot = null; Sound.bank = null;
+        Sound.tone = () => { heard.push('t'); return { stop() {} }; }; Sound.noise = () => { heard.push('n'); return { stop() {} }; };
+        const jumper = { x: 0, z: 0, index: 1 };
+        for (const [voices, label] of [[5, 'with room'], [18, 'at 18 live sources'], [26, 'at 26 live sources']]) {
+          Sound.voices = voices; Sound.last = {}; heard.length = 0; fire('jump', { f: jumper });
+          if (voices === 5 && heard.length < 2) bad.push('a jump makes no sound ' + label);
+          if (voices === 18 && heard.length !== 1) bad.push('a jump at 18 live sources plays ' + heard.length + ' sources, not just its whoosh (the footfall is priority 2, refused from 16)');
+          if (voices === 26 && heard.length) bad.push('a jump still sounds ' + label + ' (' + heard.length + ' sources)');
+        }
+        Sound.voices = 18; Sound.last = {}; heard.length = 0; Sound.footfall(STEP_SURFACES[0], 0.1, 1, 1); if (heard.length) bad.push('a bare footfall is not gated');
+        Sound.fires = [{ until: 99, x: 0, z: 0 }]; fire('roundStart', { round: 1, match: { decider: false, brawl: false, setup: null, round: 1, wins: [0, 0], winsNeeded: 2 } }); if (Sound.fires.length) bad.push('the old fires burn on in the next match');
+        Sound.fires = [{ until: 99, x: 0, z: 0 }]; Sound.fanfare = () => {}; fire('matchEnd', { match: { setup: null, matchWinner: 0, versus: false } }); if (Sound.fires.length) bad.push('the fires outlive the match');
+      } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound fires (P18-29): a burning object crackles as long as its material burns (cardboard 3 s, wood 8 s), and the crackle clock runs only in a live fight: a pause does not shorten it, slow motion slows it', () => {
+      const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { hazard: Sound.hazard, clock: Sound.clock, fires: Sound.fires, allow: Sound.allow, breathAt: Sound.breathAt, crackleAt: Sound.crackleAt }, fire = soundHandlers();
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.hazard = () => {}; Sound.allow = () => false; Sound.clock = 100; Sound.fires = []; Sound.breathAt = 1e9;   // no breath in this test
+        fire('objIgnite', { obj: { mat: 'paper' }, x: 0, z: 0 }); fire('objIgnite', { obj: { mat: 'wood' }, x: 1, z: 0 });
+        const [paper, wood] = Sound.fires, seconds = (burning) => burning.until - Sound.clock;
+        if (Math.abs(seconds(paper) - MATERIALS.paper.burn * FIXED_DT) > 0.001 || Math.abs(seconds(wood) - MATERIALS.wood.burn * FIXED_DT) > 0.001 || seconds(paper) >= seconds(wood)) bad.push('the crackle lasts ' + seconds(paper).toFixed(2) + ' s for cardboard and ' + seconds(wood).toFixed(2) + ' s for wood, not the burn of the material');
+        Game.match = { slowTicks: 0, fighters: [] }; Game.state = GS.PAUSED;
+        fire('frame', { dt: 30 });
+        if (Sound.clock !== 100 || Sound.fires.length !== 2) bad.push('a pause moved the crackle clock to ' + Sound.clock + ' and left ' + Sound.fires.length + ' fires');
+        Game.state = GS.FIGHT; fire('frame', { dt: 2 });
+        if (Math.abs(Sound.clock - 102) > 1e-9 || Sound.fires.length !== 2) bad.push('a live frame of 2 s moves the clock to ' + Sound.clock);
+        Game.match = { slowTicks: 5, fighters: [] }; fire('frame', { dt: 2 });
+        if (Math.abs(Sound.clock - (102 + 2 * KO_SLOW_SCALE)) > 1e-9) bad.push('slow motion runs the clock to ' + Sound.clock);
+        Game.match = { slowTicks: 0, fighters: [] }; fire('frame', { dt: 1.5 });
+        if (Sound.fires.length !== 1 || Sound.fires[0].x !== 1) bad.push('after the cardboard burnt out ' + Sound.fires.length + ' fires are left');
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Object.assign(Sound, keep, keepOwn); Sound.fires = []; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound knock-out (P18-29): the bell rings when the rule of the match says the knock-out ends the match, a double knock-out included; otherwise the round-ending sweep plays', () => {
+      const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { bell: Sound.bell, roundKo: Sound.roundKo, fall: Sound.fall }, fire = soundHandlers(), played = [];
+      const duel = (wins, down) => ({ brawl: false, setup: null, wins, winsNeeded: 2, fighters: [{ alive: !down[0] }, { alive: !down[1] }], endsMatch: MatchSim.prototype.endsMatch });
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.bell = () => played.push('bell'); Sound.roundKo = () => played.push('sweep'); Sound.fall = () => {};
+        const sound = (match, def) => { played.length = 0; Game.match = match; fire('ko', { def: { index: def }, x: 0, z: 0 }); return played.join(); };
+        const cases = [
+          ['the last round of the match', duel([1, 0], [false, true]), 1, 'bell'], ['a round that does not end the match', duel([0, 0], [false, true]), 1, 'sweep'],
+          ['a double knock-out when both reach the wins needed (a draw round: the match goes on)', duel([1, 1], [true, true]), 1, 'sweep'], ['a double knock-out when only one reaches them', duel([1, 0], [true, true]), 1, 'bell'],
+          ['a match with no scores (training)', {}, 0, 'bell'],
+        ];
+        for (const [label, match, def, want] of cases) { const heard = sound(match, def); if (heard !== want) bad.push(label + ' plays ' + (heard || 'nothing') + ', not ' + want); }
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Object.assign(Sound, keep, keepOwn); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* An offline render of the sound table (Chrome: OfflineAudioContext; the headless run skips these two tests). Every sound plays through the real Sound code and the real handlers into the real bus chain (default volumes) in its own slot of one context;
+       Math.random is seeded for the render, so the numbers are the same every run. Returns the peaks in dBFS per slot. */
+    const SOUND_FIGHTER = (extra) => Object.assign({ x: 0, z: 0, index: 1, weight: 2, stepIndex: 0, look: {}, team: 1, state: 0 }, extra);
+    const soundTable = (fire) => {   // [name, target dBFS heard at the default volumes (null: only under -1), seconds, play]
+      const musicBar = (intensity) => () => { Music.track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = intensity; const stepDur = 60 / 100 / 4; for (let k = 0; k < 16; k++) Music.schedule(Sound.ctx.currentTime + k * stepDur, k, stepDur); };
+      const f = SOUND_FIGHTER, hit = (extra) => () => fire('hit', HIT_EVENT(extra)), atk = (mv) => () => fire('attackActive', { f: f(), mv });
+      const floor = (n, run) => () => { const keep = Arena.def; Arena.def = { env: { floor: n } }; try { fire('step', { f: f(), run }); } finally { Arena.def = keep; } };
+      return [
+        ['hit tier 1', -10, 1.2, hit({ mv: { tier: 1, cat: 'punch', name: 'jab' } })], ['hit tier 2', -5, 1.2, hit({ mv: { tier: 2, cat: 'punch', name: 'cross' } })], ['hit tier 3', -3, 1.5, hit({ mv: { tier: 3, cat: 'heavy', name: 'haymaker' } })],
+        ['kick tier 1', -9, 1.2, hit({ mv: { tier: 1, cat: 'kick', name: 'low kick' } })], ['kick tier 3', -2, 1.5, hit({ mv: { tier: 3, cat: 'heavy', name: 'roundhouse kick' } })],
+        ['counter', -4, 1.2, hit({ counter: true, mv: { tier: 2, cat: 'punch', name: 'cross' } })], ['knock-out', -3, 1.5, hit({ ko: true, mv: { tier: 3, cat: 'heavy', name: 'haymaker' } })],
+        ['hit on a heavy body', -5, 1.2, hit({ def: { index: 1, weight: 4, y: 0 }, mv: { tier: 2, cat: 'punch', name: 'cross' } })], ['hit on a light body', -5, 1.2, hit({ def: { index: 1, weight: 0, y: 0 }, mv: { tier: 2, cat: 'punch', name: 'cross' } })],
+        ['bat hit', -5, 1.5, hit({ mv: { tier: 3, cat: 'heavy', name: 'swing', wpn: 'bat' } })], ['pipe hit', -5, 1.5, hit({ mv: { tier: 3, cat: 'heavy', name: 'swing', wpn: 'pipe' } })], ['bottle hit', -5, 1.5, hit({ mv: { tier: 2, cat: 'light', name: 'smash', wpn: 'bottle' } })],
+        ['voice hurt', -14, 0.6, () => Sound.grunt(f({ index: 7 }), 'hurt')], ['voice hurt, big body', -14, 0.8, () => Sound.grunt(f({ index: 7, weight: 4 }), 'hurtBig')], ['voice knock-out', -14, 0.8, () => Sound.grunt(f({ index: 7, look: { gender: 'F' } }), 'ko')], ['voice effort', -14, 0.6, () => Sound.grunt(f({ index: 7 }), 'effort')],
+        ['block', -10, 0.8, () => fire('block', { perfect: false, broke: false, x: 0, z: 0, mv: { tier: 2 }, def: f() })], ['perfect block', -8, 1.2, () => fire('block', { perfect: true, broke: false, x: 0, z: 0 })],
+        ['perfect block, break-through', -8, 1.2, () => fire('block', { perfect: true, broke: false, brk: true, x: 0, z: 0 })], ['guard break', -6, 1.2, () => fire('block', { perfect: false, broke: true, x: 0, z: 0 })], ['perfect sway', -12, 1.2, () => fire('block', { perfect: true, sway: true, x: 0, z: 0 })],
+        ['whoosh tier 1', -24, 0.6, atk({ tier: 1, cat: 'punch', name: 'jab' })], ['whoosh tier 2', -20, 0.6, atk({ tier: 2, cat: 'punch', name: 'cross' })], ['whoosh tier 3', -16, 0.6, atk({ tier: 3, cat: 'heavy', name: 'haymaker' })], ['whoosh kick', -20, 0.6, atk({ tier: 2, cat: 'kick', name: 'kick' })],
+        ['whoosh weapon', -16, 0.6, atk({ tier: 3, cat: 'heavy', name: 'swing', wpn: 'bat' })], ['whoosh jump', -24, 0.6, () => Sound.whoosh(1, 'jump', 0, 1)],
+        ...[1, 2, 4, 5, 7, 8].flatMap((n) => [['step walk, floor ' + n, -34, 0.4, floor(n, false)], ['step run, floor ' + n, -30, 0.4, floor(n, true)]]),
+        ['landing', -16, 0.6, () => fire('land', { impact: 4, f: f() })], ['hard landing', -12, 0.6, () => fire('land', { impact: 10, f: f() })], ['fall, light body', -10, 1, () => fire('knockdown', { f: f({ weight: 0 }) })], ['fall, heavy body', -5, 1, () => fire('knockdown', { f: f({ weight: 4 }) })],
+        ['wall slam', -3, 1, () => fire('wallSlam', { x: 0, z: 0, f: f() })], ['tackle hit', -3, 1, () => fire('tackle', { result: 'hit', x: 0, z: 0 })], ['grip', -12, 0.5, () => fire('clinch', { x: 0, z: 0 })], ['boost wind-up', -12, 0.5, () => fire('boostStart', { f: f() })], ['submission lock', -12, 0.6, () => fire('submission', { x: 0, z: 0 })],
+        ['throw cry', -14, 1, () => fire('throw', { x: 0, z: 0, def: f(), att: f({ index: 2 }) })], ['escape', null, 0.5, () => fire('escape', { x: 0, z: 0 })], ['failed escape', null, 0.5, () => fire('escapeFail', {})],
+        ['wood hit', -12, 0.6, () => Sound.material('wood', false, 0)], ['wood break', -5, 1, () => Sound.material('wood', true, 0)], ['plastic hit', -12, 0.6, () => Sound.material('plastic', false, 0)], ['concrete hit', -12, 0.8, () => Sound.material('concrete', false, 0)], ['concrete break', -5, 1, () => Sound.material('concrete', true, 0)],
+        ['metal hit', -12, 1, () => Sound.material('metal', false, 0)], ['metal break', -5, 1.2, () => Sound.material('metal', true, 0)], ['glass hit', -12, 0.5, () => Sound.material('glass', false, 0)], ['glass break', -6, 1, () => Sound.material('glass', true, 0)], ['tile break', -6, 1, () => Sound.material('tile', true, 0)],
+        ['cardboard hit', -12, 0.6, () => Sound.material('paper', false, 0)], ['cardboard break', -5, 0.8, () => Sound.material('paper', true, 0)],
+        ['debris glass', -20, 0.3, () => Sound.debris('glass', 0.5, 0)], ['debris metal', -20, 0.4, () => Sound.debris('metal', 0.5, 0)], ['debris wood', -20, 0.3, () => Sound.debris('wood', 0.5, 0)], ['debris concrete', -20, 0.3, () => Sound.debris('concrete', 0.5, 0)],
+        ['item pick-up', -16, 0.4, () => fire('itemTake', { x: 0, z: 0, id: 'bat' })], ['spray', -14, 0.6, () => fire('itemSpray', { x: 0, z: 0 })], ['deck creak', null, 1, () => fire('deckCreak', { x: 0, z: 0 })],
+        ['panel warning', -14, 0.4, () => Sound.hazard('zap', 'warn', 0, 'panel')], ['panel goes off', -6, 0.8, () => Sound.hazard('zap', 'start', 0, 'panel')], ['panel hurts', -16, 0.3, () => Sound.hazardHurt('zap', 0)],
+        ['steam warning', -14, 0.6, () => Sound.hazard('hiss', 'warn', 0, 'steam')], ['steam starts', -6, 1.6, () => Sound.hazard('hiss', 'start', 0, 'steam')], ['hydrant starts', -6, 1.6, () => Sound.hazard('hiss', 'start', 0, 'hydrant')], ['steam hurts', -16, 0.4, () => Sound.hazardHurt('hiss', 0)],
+        ['load warning', -14, 0.5, () => Sound.hazard('crash', 'warn', 0, 'load')], ['load lands', -6, 1.2, () => Sound.hazard('crash', 'start', 0, 'load')], ['open drop', null, 1.2, () => Sound.hazard('crash', 'start', 0, 'drop')], ['load hurts', -16, 1, () => Sound.hazardHurt('crash', 0)],
+        ['fire warning', -14, 0.5, () => Sound.hazard('fire', 'warn', 0, 'fire')], ['fire starts', -8, 0.6, () => Sound.hazard('fire', 'start', 0, 'fire')], ['fire hurts', -16, 0.4, () => Sound.hazardHurt('fire', 0)],
+        ['train warning', -14, 0.7, () => Sound.hazard('train', 'warn', 0, 'train')], ['train passes', -6, 2.2, () => Sound.hazard('train', 'start', 0, 'train')], ['train hurts', -16, 1, () => Sound.hazardHurt('train', 0)],
+        ['menu move', -20, 0.2, () => Sound.ui('move')], ['menu confirm', -16, 0.4, () => Sound.ui('ok')], ['menu back', -18, 0.3, () => Sound.ui('back')], ['menu refused', -16, 0.4, () => Sound.ui('bad')], ['menu start', -12, 0.6, () => Sound.ui('start')], ['slider tick', -24, 0.2, () => Sound.ui('tick', 0.5)],
+        ['toggle on', null, 0.3, () => Sound.ui('on')], ['pause', null, 0.4, () => Sound.ui('pause')], ['seat joins', null, 0.4, () => Sound.ui('join')],
+        ['countdown', -14, 0.4, () => Sound.beep(3)], ['FIGHT', -8, 0.8, () => Sound.beep(0)], ['round 2 pips', null, 0.5, () => Sound.roundStart(2, false)], ['deciding round stab', null, 0.6, () => Sound.roundStart(3, true)], ['time warning', -14, 0.3, () => fire('timeWarn', { seconds: 3 })], ['time up', null, 0.9, () => Sound.timeUp()],
+        ['round-ending knock-out', null, 1, () => Sound.roundKo()], ['combo milestone', -16, 0.4, () => Sound.milestone(3)], ['bell', -8, 2, () => Sound.bell()], ['fanfare, win', -12, 1.6, () => Sound.fanfare(true)], ['fanfare, lose', -12, 1.6, () => Sound.fanfare(false)], ['wave horn', -12, 0.8, () => Sound.horn()],
+        ['low stamina', -18, 0.5, () => Sound.lowStamina()], ['late-defend tick', -16, 0.3, () => fire('lateDefend', { f: f({ index: 0 }) })], ['free-hit tick', -24, 0.3, () => fire('freeTick', { f: f({ index: 0, comboFoe: { state: S.ATTACK } }) })], ['heartbeat', -14, 0.6, () => Sound.heartbeat()], ['breath', -28, 0.6, () => Sound.breath(false)],
+        ['get up', -16, 0.5, () => fire('quickRise', { f: f() })], ['fall whistle', -16, 0.8, () => Sound.whistle()], ['crowd cheer', -16, 2, () => Sound.swell()], ['crowd lean', -24, 1.2, () => Sound.swellNoise(800, 0.8, 0.35, 0.9, 0.14)],
+        ['music fight bed', -14, 2.4, musicBar(1)], ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
+        ['music title song', null, 4, () => { const keep = Object.assign({}, Song); Object.assign(Song, { playing: false, nodes: null }); try { Song.start(); Song.pump(4); } finally { Object.assign(Song, keep); } }], // the first four seconds of the title song (P18-60): the drum fill, the first chords
+      ];
+    };
+    // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
+    const renderSounds = async (volumes, gap, only, ctl) => {   // ctl: the deferred test's token, { cancelled }
+      const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
+      const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+      // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
+      const inOffline = (offline, work, seed) => {   // seed: every play draws its random numbers from its own seed, so a row's level does not depend on how many numbers the rows before it took
+        const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
+        Object.assign(Sound, offline); Object.assign(Settings.v, v);   // the engine reads the saved volumes itself (the music pump after a heavy hit), so they are the render's too
+        Math.random = randomFrom(seed); Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
+        try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; Object.assign(Settings.v, keepVolumes); }
+      };
+      const keepHandlers = Events.handlers, keepWired = Sound.wired, realAllow = Sound.allow, liveVoices = Sound.voices;   // the offline sources' onended handlers count the live Sound's voices down: it is put back at the end
+      Events.handlers = {}; Sound.wired = false; Sound.wire(); const handlers = Events.handlers; Events.handlers = keepHandlers; Sound.wired = keepWired;
+      const fire = (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
+      let table = soundTable(fire);
+      if (only) table = table.filter((row) => only(row[0]));
+      const slots = []; let at = START;
+      for (const row of table) { slots.push({ name: row[0], from: at, play: row[3] }); at += row[2] + gap; }
+      const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
+      const offline = { ctx: null };
+      inOffline(offline, () => {
+        Sound.ctx = oc; Sound.build(); Sound.setReverb(1.7, 0.3);
+        const setGain = (node, value) => { node.gain.cancelScheduledValues(0); node.gain.value = value; };
+        setGain(Sound.master, v.master); setGain(Sound.sfxBus, v.sfx); setGain(Sound.uiBus, v.sfx); setGain(Sound.musicBus, v.music * 0.55);
+        Sound.ready = () => true; Sound.allow = realAllow; Sound.voices = 0; Sound.last = {}; Sound.layerQ = []; Sound.spot = null; Sound.amb = null; Sound.ambKey = -1; Sound.bank = null;
+      }, 1);
+      const bakeRandom = randomFrom(4711), seedBake = (build) => { const keepRandom = Math.random; Math.random = bakeRandom; try { return build(); } finally { Math.random = keepRandom; } };   // the same bank every run, so the levels are the same every run; the random is seeded inside the synchronous build of each step only
+      offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf, seedBake)).bank;
+      if (ctl && ctl.cancelled) throw new Error('cancelled');
+      const failures = [];
+      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slots.indexOf(slot)); oc.resume(); });
+      const rendered = await oc.startRendering();
+      if (ctl && ctl.cancelled) throw new Error('cancelled');
+      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
+      await new Promise((resolve) => setTimeout(resolve, 60)); Sound.voices = liveVoices;   // (the ended events of the offline sources come in after the render)
+      slots.forEach((slot, i) => {
+        const end = Math.floor((i + 1 < slots.length ? slots[i + 1].from : total) * SR); let peak = 0;
+        for (let k = Math.floor(slot.from * SR); k < end; k++) peak = Math.max(peak, Math.abs(left[k] + right[k]) / 2);
+        peaks[slot.name] = 20 * Math.log10(Math.max(peak, 1e-9));
+      });
+      return { peaks, table, failures };
+    };
+    test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async (ctl) => {
+      if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
+      const { peaks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      for (const [name, target] of table) {
+        const peak = peaks[name];
+        if (!(peak <= -1)) bad.push(name + ' peaks at ' + peak.toFixed(1) + ' dBFS (over -1)');
+        else if (target !== null && Math.abs(peak - target) > 2) bad.push(name + ' ' + peak.toFixed(1) + ' dBFS, target ' + target);
+        if (peak < -70) bad.push(name + ' is silent');
+      }
+      return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
+    }, SOUND_RENDER_LIMIT_MS);
+    test('Sound buses (P18-29): every source connects to the effects, UI or music bus; with master, effects or music at 0 the matching sounds render silent (an offline render; Chrome only)', async (ctl) => {
+      if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
+      const bad = [], quiet = -70, music = (name) => /^(music|ambience)/.test(name), sounds = (name) => !music(name);
+      const loudest = (peaks) => Math.max(...Object.values(peaks)), loud = (peaks) => Object.entries(peaks).filter(([, p]) => p > quiet).map(([n]) => n);
+      const master = await renderSounds({ master: 0 }, 0, undefined, ctl), effects = await renderSounds({ sfx: 0 }, 0, sounds, ctl), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3', ctl), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed)$/.test(name), ctl);
+      for (const run of [master, effects, noMusic, full]) bad.push(...run.failures);
+      if (loudest(master.peaks) > quiet) bad.push('master at 0 still sounds: ' + loud(master.peaks).slice(0, 3).join(', '));
+      if (loudest(effects.peaks) > quiet) bad.push('effects at 0 still sounds: ' + loud(effects.peaks).slice(0, 3).join(', '));
+      const heardMusic = Object.entries(noMusic.peaks).filter(([name, p]) => music(name) && p > quiet).map(([name, p]) => name + ' ' + p.toFixed(1));
+      if (heardMusic.length || !(noMusic.peaks['hit tier 3'] > -20)) bad.push('music at 0 still sounds: ' + heardMusic.join(', ') + ' (hit ' + noMusic.peaks['hit tier 3'].toFixed(1) + ')');
+      if (!(full.peaks['hit tier 3'] > -20 && full.peaks['menu confirm'] > -40 && full.peaks['music fight bed'] > -40)) bad.push('the control renders silent: ' + JSON.stringify(full.peaks));
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, SOUND_RENDER_LIMIT_MS);
     test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
       const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
       const unwire = wireFor(Effects, () => Effects.init());
@@ -16410,6 +16793,8 @@ const SelfTest = {
       const problems = [];
       const colours = Object.values(CUE_COLOR), sets = Object.values(CUE_NOTES).map((n) => n.join());
       if (new Set(colours).size !== colours.length || new Set(sets).size !== sets.length) problems.push('a ring colour or a note set repeats');
+      const oldNotes = [].concat(CUE_NOTES.perfect, CUE_NOTES.brk, CUE_NOTES.ting, CUE_NOTES.late, CUE_NOTES.free), newNotes = [].concat(CUE_NOTES.count, CUE_NOTES.hits3, CUE_NOTES.hits5, CUE_NOTES.hits8);   // P18-29: the countdown and the combo milestones keep off the notes of the defence cues; the stinger chord is one set among the others
+      if (newNotes.some((hz) => oldNotes.includes(hz)) || ['count', 'fight', 'hits3', 'hits5', 'hits8'].some((name) => !CUE_NOTES[name] || !CUE_NOTES[name].length)) problems.push('a new cue shares a note with a P18-04 cue, or a set is missing');
       const unwire = wireFor(Effects, () => Effects.init());
       const real = { ring: FX.ring, flash: FX.flash, sparks: FX.sparks, dust: FX.dust }, rings = [], flashes = [];
       FX.ring = (x, y, z, hex) => rings.push(hex); FX.flash = (x, y, z, size, hex) => flashes.push(y.toFixed(1) + ':' + size + ':' + hex); FX.sparks = () => {}; FX.dust = () => {};
@@ -18640,7 +19025,7 @@ const SelfTest = {
     test('Online UI (P12-01, P12-03): the Online screens follow the link state (the host has one block per guest), a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
       const bad = [];
       const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip, guests: OnlineUI.guests, mode: OnlineUI.mode, arena: OnlineUI.arena };
-      const slot = (seat, state, error, offerCode = '', extra = {}) => Object.assign({ seat, link: { state, error: error || null, seat }, offerCode, answerText: '', note: '', roundTrip: -1 }, extra);
+      const slot = (seat, state, error, offerCode = '', extra = {}) => Object.assign({ seat, link: { state, error: error || null, seat, send() { return true; } }, offerCode, answerText: '', note: '', roundTrip: -1, ready: true, samples: [5, 5, 5], fighter: 'kai' }, extra); // P12-06: a connected guest is on the player list and needs its Ready and its measured round trips for Start
       try {
         if (!UI.screen_main().includes('data-act="online"')) bad.push('no Online button on the main menu');
         const choice = UI.screen_online();
@@ -18657,7 +19042,8 @@ const SelfTest = {
         screen = UI.screen_onlinehost();
         if (!/data-act="onqr:2" disabled/.test(screen) || !screen.includes('Too long for a QR: use Copy.')) bad.push('a code over 425 characters shows text only');
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-x', { roundTrip: 3 })];
-        if (!UI.screen_onlinehost().includes('Connected (round trip 3 ms).')) bad.push('connected line');
+        screen = UI.screen_onlinehost();
+        if (!screen.includes('id="onLat1"') || !screen.includes('5 ms, good') || !screen.includes('Ready') || screen.includes('id="onCode2"')) bad.push('a connected guest is a line of the player list (P12-06), no longer a block with codes');
         OnlineUI.guests = [slot(2, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice })];
         screen = UI.screen_onlinehost();
         if (!screen.includes('warnline') || !screen.includes('could not connect') || !screen.includes('data-act="onnew:2"')) bad.push('failure line and the New code button');
@@ -18666,10 +19052,10 @@ const SelfTest = {
         // one block per guest, each with its own code, answer box, Connect and status; Add another player until seat 4
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { roundTrip: 5 }), slot(3, 'waiting', null, 'BPO-three'), slot(4, 'failed', { code: 'timeout', message: ONLINE_MESSAGES.timeout }, 'BPO-four')];
         screen = UI.screen_onlinehost();
-        for (const seat of [2, 3, 4]) for (const part of ['id="onCode' + seat + '"', 'id="onAnswer' + seat + '"', 'data-act="oncopy:' + seat + '"', 'data-act="onqr:' + seat + '"', 'data-act="onconnect:' + seat + '"', 'id="onStatus' + seat + '"']) if (!screen.includes(part)) bad.push('seat ' + seat + ' lacks ' + part);
+        for (const seat of [3, 4]) for (const part of ['id="onCode' + seat + '"', 'id="onAnswer' + seat + '"', 'data-act="oncopy:' + seat + '"', 'data-act="onqr:' + seat + '"', 'data-act="onconnect:' + seat + '"', 'id="onStatus' + seat + '"']) if (!screen.includes(part)) bad.push('seat ' + seat + ' lacks ' + part);
         if (screen.includes('data-act="onadd"')) bad.push('a fourth guest block was offered');
-        if (!/data-act="onconnect:3"(?! disabled)/.test(screen) || !/data-act="onconnect:2" disabled/.test(screen) || !screen.includes('data-act="onnew:4"') || screen.includes('data-act="onnew:2"')) bad.push('Connect and New code follow each guest\'s own state');
-        if (!screen.includes('Connected (round trip 5 ms).') || !screen.includes(ONLINE_MESSAGES.timeout)) bad.push('each guest has its own status line');
+        if (!/data-act="onconnect:3"(?! disabled)/.test(screen) || screen.includes('data-act="onconnect:2"') || !screen.includes('data-act="onnew:4"') || screen.includes('data-act="onnew:2"')) bad.push('Connect and New code follow each guest\'s own state (a connected guest has none)');
+        if (!screen.includes('5 ms, good') || !screen.includes(ONLINE_MESSAGES.timeout) || !screen.includes('Waiting for your friend')) bad.push('each guest has its own line');
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two')];
         if (!UI.screen_onlinehost().includes('data-act="onadd"')) bad.push('no Add another player with one guest');
         // the guest's kind of browser: shown on its line, and a warning when it is not the host's own kind
@@ -18714,19 +19100,19 @@ const SelfTest = {
         // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
         OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-two')];
         if (!/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Start must wait for a connected friend');
-        OnlineUI.guests = [slot(2, 'open')];
+        OnlineUI.guests = [slot(2, 'open')]; OnlineUI.lineupSig = OnlineUI.lineupSignature();
         screen = UI.screen_onlinehost();
-        if (/data-act="onstart" disabled/.test(screen) || !screen.includes('Mode: 1 vs 1') || OnlineUI.startProblem() !== '') bad.push('two players: 1 vs 1 can start');
-        OnlineUI.guests = [slot(2, 'open'), slot(3, 'open')];
-        if (!UI.screen_onlinehost().includes('Mode: Brawl') || OnlineUI.startProblem() !== '') bad.push('three players: Brawl');
+        if (/data-act="onstart" disabled/.test(screen) || !/data-local="olb:mode"[^>]*><span class="k">Mode<\/span><span class="v">1 vs 1</.test(screen) || OnlineUI.startProblem() !== '') bad.push('two players: 1 vs 1 can start');
+        OnlineUI.guests = [slot(2, 'open'), slot(3, 'open')]; OnlineUI.lineupSig = OnlineUI.lineupSignature();
+        if (!/olb:mode"[^>]*><span class="k">Mode<\/span><span class="v">Brawl</.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== '') bad.push('three players: Brawl');
         OnlineUI.mode = 'fight';
         if (OnlineUI.startProblem() !== ONLINE_MESSAGES.fightTwo || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(ONLINE_MESSAGES.fightTwo)) bad.push('a 1 vs 1 with three players must say why it cannot start');
         OnlineUI.mode = '';
         OnlineUI.act('onmode');
         if (OnlineUI.mode !== 'tournament') bad.push('the Mode button cycles brawl > tournament: ' + OnlineUI.mode);
-        if (UI.screen_onlinehost().includes('data-act="onarena"')) bad.push('a tournament picks its own levels');
-        OnlineUI.act('onmode'); OnlineUI.act('onmode');
-        if (OnlineUI.mode !== 'brawl') bad.push('the Mode button cycles on');
+        if (UI.screen_onlinehost().includes('olb:arena')) bad.push('a tournament picks its own levels');
+        OnlineUI.act('onmode'); OnlineUI.act('onmode'); OnlineUI.act('onmode');
+        if (OnlineUI.mode !== 'brawl') bad.push('the Mode row cycles on through Free Fight (P12-06) and back to the first: ' + OnlineUI.mode);
         const arenaBefore = OnlineUI.arena;
         OnlineUI.act('onarena');
         if (OnlineUI.arena === arenaBefore || !ARENAS[OnlineUI.arena]) bad.push('the Level button');
@@ -18978,7 +19364,7 @@ const SelfTest = {
         OnlineUI.role = 'guest'; OnlineUI.link = hello; OnlineUI.unlisten = [];
         hello.peer.listeners.message.push((data) => told.push(data));
         OnlineUI.onState(hello, 'open');
-        if (told.length !== 1 || told[0] !== ONLINE_HELLO + onlineEngine()) problems.push('the guest did not say its browser: ' + JSON.stringify(told));
+        if (told.length !== 2 || told[0] !== ONLINE_HELLO + onlineEngine() || !onlineReadMe(told[1])) problems.push('the guest did not say its browser and its pick (P12-06): ' + JSON.stringify(told));
         OnlineUI.reset();
         OnlineUI.role = 'host'; OnlineUI.guests = [{ seat: 3, link: hostSide, offerCode: '', answerText: '', note: '', roundTrip: -1 }];
         OnlineUI.onMessage(hostSide, ONLINE_HELLO + 'gecko'); OnlineUI.onMessage(hostSide, ONLINE_HELLO + '__proto__'); OnlineUI.onMessage(hostSide, ONLINE_HELLO + 'toString');
@@ -19157,9 +19543,9 @@ const SelfTest = {
         OnlinePlay.rematch();
         if (!toasts.includes(ONLINE_MESSAGES.someoneLeft)) problems.push('a rematch with the guest gone said ' + JSON.stringify(toasts.slice(-2)));
         // the results screen: the host goes on, a guest waits
-        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'again,menu' || OnlinePlay.resultButtons(['bracket', 'menu']).join() !== 'bracket,menu') problems.push('host buttons');
+        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'again,lobby,menu' || OnlinePlay.resultButtons(['bracket', 'menu']).join() !== 'bracket,lobby,menu') problems.push('host buttons (P12-06: the online lobby is one of them)');
         OnlinePlay.leave();
-        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'menu') problems.push('a guest may only leave');
+        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'lobby,menu') problems.push('a guest may go back to the lobby or leave (P12-06)');
       } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally {
         OnlinePlay.leave();
         Game.endMatch(); Game.go = keep.go; Game.config = keep.config; Game.run = keep.run; Game.match = keep.match; Game.state = keep.state; Game.versus = keep.versus; Game.net = keep.net; Game.netNote = keep.netNote; UI.netStatus = keep.status; UI.toast = keep.toast;
@@ -19349,6 +19735,1322 @@ const SelfTest = {
       } finally { Object.assign(OnlineUI, kept); links.forEach((link) => link.close()); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- online lobby (P12-06) ---------- */
+    test('Online link (P12-06): either side may make the first code: a guest offers with no seat of its own, the host answers and gives it a seat (the guest learns it from the answer), the old direction still works, a wrong call is refused, and the side that answered says so when the other never replies', async () => {
+      const bad = [], links = [];
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
+      const failsWith = async (promise, code) => { try { await promise; return 'did not fail'; } catch (e) { return e.code === code ? '' : e.code + ' / ' + e.message; } };
+      {
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true }), host = made('host', { ...fast, connection: Fake, offerer: false });
+        const states = []; guest.onState((state) => states.push(state));
+        const offer = await guest.makeOffer();
+        if (!offer.startsWith('BPO-') || guest.state !== 'waiting' || guest.seat !== ONLINE_SEAT_MIN) bad.push('the guest offer: ' + guest.state + ' ' + guest.seat);
+        if (await failsWith(host.acceptOffer(offer), 'state') || host.state !== 'idle') bad.push('the host must name the seat it gives');
+        if (await failsWith(host.acceptOffer(offer, 5), 'state') || await failsWith(host.acceptOffer(offer, 1), 'state')) bad.push('a seat outside 2 to 4');
+        if (await failsWith(host.makeOffer(2), 'state')) bad.push('the answering host cannot also offer');
+        if (await failsWith(guest.acceptOffer(offer), 'state')) bad.push('the offering guest cannot also answer');
+        const answer = await host.acceptOffer(offer, 3);
+        if (!answer.startsWith('BPA-') || host.seat !== 3 || host.state !== 'waiting' || OnlineCode.readCode(answer).seat !== 3) bad.push('the host answer: ' + host.state + ' ' + host.seat);
+        if (await failsWith(guest.acceptAnswer(offer), 'needAnswer') || guest.state !== 'waiting') bad.push('an offer pasted as the answer');
+        if (await failsWith(host.acceptAnswer(answer), 'state')) bad.push('the answering host cannot accept an answer');
+        await guest.acceptAnswer(answer);
+        if (guest.seat !== 3 || guest.state !== 'connecting') bad.push('the guest learns its seat from the answer: ' + guest.seat + ' ' + guest.state);
+        Fake.made[0].open(); Fake.made[1].open();
+        if (guest.state !== 'open' || host.state !== 'open' || states.join() !== 'gathering,waiting,connecting,open') bad.push('open: ' + guest.state + '/' + host.state + ' ' + states.join());
+        const heard = []; host.onMessage((data, quick) => heard.push(data + quick));
+        Fake.made[1].channels[0].onmessage({ data: 'hi' });
+        if (heard.join() !== 'hifalse') bad.push('a message after the reverse handshake');
+      }
+      {
+        // the old direction is untouched: the host offers, the guest answers, the guest seat comes from the offer
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const host = made('host', { ...fast, connection: Fake }), guest = made('guest', { ...fast, connection: Fake });
+        const answer = await guest.acceptOffer(await host.makeOffer(4));
+        await host.acceptAnswer(answer);
+        if (guest.seat !== 4 || host.seat !== 4 || host.state !== 'connecting') bad.push('the default direction');
+      }
+      {
+        // the offering guest checks the seat only for a host: a guest accepts the seat in the answer
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true });
+        await guest.makeOffer();
+        await guest.acceptAnswer(await OnlineCode.pack(1, 4, ANSWER));
+        if (guest.seat !== 4) bad.push('the answer seat is not taken: ' + guest.seat);
+      }
+      {
+        // nobody replies: the side that answered fails with its own text (a host: answerWait, a guest: guestWait), the side that offered with ice; the host side names the way out
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake, offerer: true }), host = made('host', { ...fast, connection: Fake, offerer: false });
+        await host.acceptOffer(await guest.makeOffer(), 2);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        if (host.state !== 'failed' || host.error.code !== 'answerWait' || host.error.message !== ONLINE_MESSAGES.answerWait) bad.push('an answering host that is never replied to: ' + host.state + ' ' + (host.error && host.error.code));
+        if (guest.state !== 'waiting') bad.push('an offering guest has no time limit of its own (the browser\'s ICE agent waits): ' + guest.state);
+        Fake.made[0].ice('failed');
+        if (guest.state !== 'failed' || guest.error.code !== 'ice') bad.push('the offering guest after an ICE failure: ' + guest.state);
+        const text = ONLINE_MESSAGES.answerWait;
+        if (text.length > 200 || !/Firefox/.test(text) || !/first code/.test(text)) bad.push('the answerWait text');
+        if (!/send the first code yourself/.test(ONLINE_MESSAGES.guestWait) || ONLINE_MESSAGES.guestWait.length > 200) bad.push('the guestWait text names no way round');
+      }
+      links.forEach((link) => link.close());
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* The lobby tests drive the one OnlineUI object over stand-in links (the guests' side of each link records what it hears): its fields are saved first and put back at the end, and the host's ping timer is stopped. */
+    const lobbyKit = () => {
+      const snapshot = {};
+      for (const key of Object.keys(OnlineUI)) if (typeof OnlineUI[key] !== 'function') snapshot[key] = OnlineUI[key];
+      const keep = { toast: UI.toast, rerender: UI.rerender, current: UI.current }, toasts = [];
+      let redraws = 0;
+      UI.toast = (text) => toasts.push(text); UI.rerender = () => { redraws++; }; UI.current = 'onlinehost';
+      OnlineUI.stopLoop();
+      const host = (codeSeats = [2], fields = {}) => {
+        const pairs = codeSeats.map((seat) => { const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = seat; return [hostSide, guestSide]; }), heard = pairs.map(() => []);
+        pairs.forEach(([, guestSide], k) => guestSide.onMessage((data) => heard[k].push(data)));
+        Object.assign(OnlineUI, { role: 'host', link: null, note: '', mode: '', arena: ONLINE_ARENA_DEFAULT, hostFighter: 'kai', mine: { fighter: '', ready: false }, view: null, first: false, lineupSig: '', unlisten: [],
+          guests: pairs.map(([hostSide], k) => Object.assign({ seat: codeSeats[k], link: hostSide, offerCode: 'BPO-x', answerText: '', note: '', roundTrip: -1, openedAt: performance.now() - 5000, engine: onlineEngine(), fighter: undefined, ready: false, samples: [], reverse: false }, fields)) });
+        for (const [hostSide] of pairs) OnlineUI.listen(hostSide);
+        OnlineUI.lineupSig = OnlineUI.lineupSignature(); // the settings as they are now: only a change after this withdraws Ready
+        return { pairs, heard };
+      };
+      const restore = () => { OnlineUI.stopLoop(); Object.assign(OnlineUI, snapshot); UI.toast = keep.toast; UI.rerender = keep.rerender; UI.current = keep.current; };
+      return { toasts, redraws: () => redraws, host, restore };
+    };
+    const lastList = (heardList) => { const lists = heardList.map((text) => onlineReadLobby(text)).filter(Boolean); return lists[lists.length - 1] || null; };
+    test('Online lobby (P12-06): the messages: a guest\'s pick and Ready and the host\'s list read back, anything else (a game of another version may send anything) is refused; the first input delay comes from several round trips and one frame more for a wide spread; latency words', () => {
+      const bad = [];
+      const list = { t: ONLINE_LOBBY, you: 2, mode: 'brawl', arena: 'dojo', text: 'x', seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 1, fighter: 'mara', ready: false, rt: 31.6 }, { seat: 2, fighter: '', ready: false, rt: -1 }] };
+      const read = onlineReadLobby(JSON.stringify(list));
+      if (!read || read.you !== 2 || read.mode !== 'brawl' || read.arena !== 'dojo' || read.seats.length !== 3 || read.seats[1].rt !== 32 || read.seats[2].fighter !== '') bad.push('a valid list: ' + JSON.stringify(read));
+      const mutate = (change) => JSON.stringify(Object.assign(JSON.parse(JSON.stringify(list)), change));
+      const refused = {
+        'not JSON': '{x', 'a number': '5', 'another type': mutate({ t: 'bpstart' }), 'unknown mode': mutate({ mode: 'toString' }), 'you is the host': mutate({ you: 0 }), 'you out of range': mutate({ you: 4 }), 'you not an integer': mutate({ you: 1.5 }),
+        'no seats': mutate({ seats: [] }), 'five seats': mutate({ seats: [0, 1, 2, 3, 3].map((seat) => ({ seat, fighter: 'kai', ready: true, rt: 1 })) }), 'a seat twice': mutate({ seats: [{ seat: 1, fighter: 'kai', ready: true, rt: 1 }, { seat: 1, fighter: 'kai', ready: true, rt: 1 }] }),
+        'a seat of 7': mutate({ seats: [{ seat: 7, fighter: 'kai', ready: true, rt: 1 }] }), 'a fighter named like a property': mutate({ seats: [{ seat: 0, fighter: 'toString', ready: true, rt: 1 }] }), 'a custom fighter': mutate({ seats: [{ seat: 0, fighter: 'c0', ready: true, rt: 1 }] }),
+        'ready as text': mutate({ seats: [{ seat: 0, fighter: 'kai', ready: 'yes', rt: 1 }] }), 'rt as text': mutate({ seats: [{ seat: 0, fighter: 'kai', ready: true, rt: '5' }] }), 'a row that is null': mutate({ seats: [null] }),
+        'over 2,000 characters': mutate({ text: 'y'.repeat(2100) }),
+      };
+      for (const [name, text] of Object.entries(refused)) if (onlineReadLobby(text) !== null) bad.push('the list was taken: ' + name);
+      if (onlineReadLobby(mutate({ arena: 'toString' })).arena !== '' || onlineReadLobby(mutate({ text: 'z'.repeat(500) })).text.length !== 120 || onlineReadLobby(mutate({ text: 5 })).text !== '') bad.push('an unknown level is dropped and a long text is cut to 120 characters');
+      if (onlineReadLobby(null) !== null || onlineReadLobby(new ArrayBuffer(4)) !== null) bad.push('a non-string');
+      const me = onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true, rev: 3 }));
+      if (!me || me.fighter !== 'mara' || me.ready !== true || me.rev !== 3 || onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true })).rev !== -1 || onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true, rev: 'x' })).rev !== -1) bad.push('a valid pick and its revision');
+      if (onlineReadLobby(mutate({ rev: 4 })).rev !== 4 || onlineReadLobby(mutate({ rev: -1 })) !== null || onlineReadLobby(mutate({ rev: 1.5 })) !== null || onlineReadLobby(mutate({ rev: '1' })) !== null) bad.push('the revision of a list');
+      const tidy = { t: ONLINE_LOBBY, you: 1, mode: 'brawl', arena: 'dojo', text: '', rev: 2, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: 5 }] };
+      if (onlineReadLobby(JSON.stringify(Object.assign({}, tidy, { seats: [{ seat: 0, fighter: 'kai', ready: true, rt: NaN }] }))) !== null) bad.push('a list with a round trip that is not a number must be refused whole, so the host never sends one');
+      if (onlineLatencyText(ONLINE_NO_REPLY) !== 'no reply') bad.push('no reply words: ' + onlineLatencyText(ONLINE_NO_REPLY));
+      for (const text of ['{', JSON.stringify({ t: ONLINE_ME, fighter: 'toString', ready: true }), JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: 1 }), JSON.stringify({ t: 'x', fighter: 'mara', ready: true }), JSON.stringify({ t: ONLINE_ME, fighter: 'c0', ready: true }), 'x'.repeat(500), null]) if (onlineReadMe(text) !== null) bad.push('a pick was taken: ' + String(text).slice(0, 40));
+      if (!onlineFighter('kai') || onlineFighter('toString') || onlineFighter('c0') || onlineFighter(5) || onlineFighterOr('nope', 2) !== DEFAULT_UNLOCKED[2] || onlineFighterOr('mara', 2) !== 'mara') bad.push('onlineFighter');
+      // the first delay: the median of each guest's samples through netDelayFor, one more frame when a guest's samples spread over ONLINE_JITTER_MS, never above the limit
+      const cases = [[[[20, 20, 20]], 2], [[[100, 100, 100]], netDelayFor([100])], [[[60, 120, 60, 200]], Math.min(NET_DELAY_MAX, netDelayFor([90]) + 1)], [[[100, 100, 100], [100, 100, 100]], NET_DELAY_MAX], [[[40, 40, 40], [40, 40 + ONLINE_JITTER_MS, 40]], netDelayFor([40, 40]) ],
+        [[[40, 40 + ONLINE_JITTER_MS + 1, 40]], netDelayFor([40]) + 1], [[], NET_INPUT_DELAY], [[[]], NET_INPUT_DELAY], [[[-1, NaN]], NET_INPUT_DELAY], [[[20]], 2], [[[300, 10, 300]], NET_DELAY_MAX]];
+      for (const [samples, want] of cases) { const got = onlineDelayFor(samples); if (got !== want) bad.push('delay for ' + JSON.stringify(samples) + ' is ' + got + ', not ' + want); }
+      if (netDelayFor([40]) + 1 === NET_DELAY_MAX + 1) bad.push('the test cases assume a delay below the limit');
+      if (onlineMedianOf([]) !== -1 || onlineMedianOf([10, 90, 20]) !== 20 || onlineMedianOf([5, 5, 5, 5, 5, 300, 300, 300]) !== 300 || onlineMedianOf([1, 2, 3, 4, 5, 6, 7, 8]) !== 6) bad.push('the median of the last five: ' + onlineMedianOf([1, 2, 3, 4, 5, 6, 7, 8]));
+      if (onlineLatencyText(-1) !== 'measuring...' || onlineLatencyText(5) !== '5 ms, good' || onlineLatencyText(ONLINE_LATENCY_GOOD_MS) !== ONLINE_LATENCY_GOOD_MS + ' ms, fair' || onlineLatencyText(ONLINE_LATENCY_FAIR_MS) !== ONLINE_LATENCY_FAIR_MS + ' ms, poor') bad.push('latency words');
+      // the first delay of a match opened over links with samples: hostOpen reads them (and the old roundTrip of a link without samples)
+      const keep = { toast: UI.toast };
+      try {
+        const [one] = makeStandInLinks(), [two] = makeStandInLinks();
+        OnlinePlay.hostOpen([{ seat: 2, link: one, roundTrip: 50, samples: [60, 120, 60, 200] }, { seat: 3, link: two, roundTrip: 20 }], 'mara');
+        const want = onlineDelayFor([[60, 120, 60, 200], [20]]);
+        if (OnlinePlay.delay !== want || OnlinePlay.pickOf(0) !== 'mara' || OnlinePlay.pickOf(1) !== DEFAULT_UNLOCKED[1] || OnlinePlay.pickOf(2) !== DEFAULT_UNLOCKED[2]) bad.push('hostOpen: delay ' + OnlinePlay.delay + ' (' + want + '), picks ' + [0, 1, 2].map((seat) => OnlinePlay.pickOf(seat)));
+        OnlinePlay.hostOpen([{ seat: 2, link: one, roundTrip: -1, samples: [] }], 'toString');
+        if (OnlinePlay.delay !== NET_INPUT_DELAY || OnlinePlay.pickOf(0) !== DEFAULT_UNLOCKED[0]) bad.push('no round trip, an unknown pick');
+      } finally { OnlinePlay.leave(); UI.toast = keep.toast; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): the host sees every player with fighter, Ready and round trip; a hostile pick is ignored; Start waits for the measuring, for a mode that fits and for Ready; a changed mode or level withdraws every Ready; each guest gets its own list; Remove closes a seat', () => {
+      const bad = [], kit = lobbyKit();
+      try {
+        const { pairs, heard } = kit.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        const say = (guest, message) => OnlineUI.onMessage(guest.link, typeof message === 'string' ? message : JSON.stringify(message));
+        const rows = OnlineUI.hostRows();
+        if (rows.map((row) => row.seat).join() !== '0,1,2' || !rows[0].ready || rows[0].fighter !== 'kai' || rows[1].ready || rows[1].rt !== -1) bad.push('the first rows ' + JSON.stringify(rows));
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: false, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
+        if (a.fighter !== 'mara' || a.ready !== false || b.fighter !== 'brutus' || b.ready !== true) bad.push('their picks');
+        for (const hostile of [{ t: ONLINE_ME, fighter: 'toString', ready: true }, { t: ONLINE_ME, fighter: 'c0', ready: true }, { t: ONLINE_ME, fighter: 'mara', ready: 'yes' }, { t: 'bpstart' }, '{not json', 'bp-nothing', JSON.stringify([1, 2])]) say(a, hostile);
+        if (a.fighter !== 'mara' || a.ready !== false) bad.push('a hostile message changed a guest: ' + a.fighter + ' ' + a.ready);
+        // Start: the connection is measured first (three round trips), then Ready
+        if (OnlineUI.startProblem() !== 'Measuring the connection to player 2. Start is on in a moment.') bad.push('measuring: ' + OnlineUI.startProblem());
+        for (let k = 0; k < ONLINE_SAMPLES_MIN; k++) for (const guest of [a, b]) say(guest, ONLINE_PONG + (performance.now() - 40));
+        if (!OnlineUI.measured(a) || a.samples.length !== ONLINE_SAMPLES_MIN || a.roundTrip < 30 || a.roundTrip > 400) bad.push('the pongs: ' + a.samples.join());
+        if (OnlineUI.startProblem() !== 'Waiting for player 2 to press Ready.') bad.push('ready: ' + OnlineUI.startProblem());
+        let screen = UI.screen_onlinehost();
+        if (!screen.includes('Waiting for player 2 to press Ready.') || !/data-act="onstart" disabled/.test(screen) || !screen.includes('<span class="onst">&#9675; Not ready</span>') || !screen.includes('<span class="onst">&#10003; Ready</span>') || !screen.includes(ROSTER_BY_ID.mara.name) || !screen.includes(ROSTER_BY_ID.brutus.name) || !/id="onLat1">\d+ ms, (good|fair|poor)</.test(screen)) bad.push('the list on screen');
+        for (let k = 0; k < 40; k++) say(a, ONLINE_PONG + (performance.now() - 40));
+        if (a.samples.length !== ONLINE_SAMPLES) bad.push('the samples are not capped: ' + a.samples.length);
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev });
+        if (OnlineUI.startProblem() !== '' || /data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !/data-default data-act="onstart"/.test(UI.screen_onlinehost())) bad.push('everyone ready: "' + OnlineUI.startProblem() + '"');
+        // every guest gets the list, each its own seat
+        for (const list of heard) list.length = 0;
+        OnlineUI.pushLobby();
+        const toA = lastList(heard[0]), toB = lastList(heard[1]);
+        if (!toA || toA.you !== 1 || toB.you !== 2 || toA.mode !== 'brawl' || toA.seats.length !== 3 || toA.seats.map((row) => row.ready).join() !== 'true,true,true' || toA.seats[1].fighter !== 'mara' || toA.seats[2].fighter !== 'brutus' || toA.seats[1].rt < 0) bad.push('the list a guest gets: ' + JSON.stringify(toA));
+        // a changed mode, level or lineup withdraws every Ready and tells the guests
+        OnlineUI.act('onmode');
+        if (OnlineUI.mode !== 'tournament' || a.ready || b.ready || lastList(heard[0]).seats.some((row) => row.seat > 0 && row.ready) || lastList(heard[0]).mode !== 'tournament') bad.push('a new mode kept a Ready');
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
+        OnlineUI.act('onarena');
+        if (a.ready || b.ready || lastList(heard[1]).arena !== OnlineUI.arena) bad.push('a new level kept a Ready');
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
+        UI.changeLocal('olb:mode', -1);
+        if (OnlineUI.mode !== 'brawl' || a.ready) bad.push('the arrow back through the modes: ' + OnlineUI.mode);
+        // the host's own pick goes into the list
+        const pool = onlinePool(), before = OnlineUI.hostFighter;
+        UI.changeLocal('olb:fighter', 1);
+        if (pool.length < 2 || OnlineUI.hostFighter !== pool[(pool.indexOf(before) + 1) % pool.length] || lastList(heard[0]).seats[0].fighter !== OnlineUI.hostFighter) bad.push('the host\'s pick ' + before + ' > ' + OnlineUI.hostFighter);
+        UI.changeLocal('olb:fighter', -1);
+        if (OnlineUI.hostFighter !== before) bad.push('the pick back');
+        // the ping timer: a ping and the list to every connected guest
+        for (const list of heard) list.length = 0;
+        OnlineUI.tick();
+        if (!heard.every((list) => list.some((text) => text.startsWith(ONLINE_PING)) && !!lastList(list))) bad.push('tick() sent no ping and list');
+        // a player that is not connected any more drops out of the list
+        const ping = heard[0].find((text) => text.startsWith(ONLINE_PING));
+        if (!ping) bad.push('no ping to answer');
+        pairs[1][0].close();
+        OnlineUI.onState(pairs[1][0], 'closed');
+        screen = UI.screen_onlinehost();
+        if (OnlineUI.hostRows().length !== 2 || !screen.includes('data-act="onnew:3"') || !lastList(heard[0]) || lastList(heard[0]).seats.length !== 2) bad.push('a guest that left stays on the list: ' + OnlineUI.hostRows().length);
+        // Remove closes the seat of a connected player and the seat offers a new code
+        heard[0].length = 0;
+        OnlineUI.act('onkick', '2');
+        if (!heard[0].includes(ONLINE_REMOVED) || OnlineUI.isOpen(OnlineUI.slotOf(2)) || OnlineUI.hostRows().length !== 1 || !UI.screen_onlinehost().includes('data-act="onnew:2"') || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Remove: ' + heard[0].join('|') + ' ' + pairs[0][0].state);
+        // the list names who can be removed and the rows are on the touch route
+        if (!screen.includes('role="list"') || !/<li class="onrow tc0">/.test(screen)) bad.push('the list markup');
+      } finally { kit.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): a guest sees the players and the host\'s settings, picks a fighter, says Ready (a new pick withdraws it), takes the host\'s word for its own Ready, ignores a list that is not valid, and a change of the round trips alone patches the screen instead of rebuilding it', () => {
+      const bad = [], kit = lobbyKit();
+      try {
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        const toHost = []; hostSide.onMessage((data) => toHost.push(data));
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, answerCode: '', note: '', view: null, first: false, mine: { fighter: 'kai', ready: false }, unlisten: [] });
+        OnlineUI.listen(guestSide);
+        OnlineUI.onState(guestSide, 'open');
+        if (!toHost.some((text) => text.startsWith(ONLINE_HELLO)) || !toHost.some((text) => onlineReadMe(text) && onlineReadMe(text).fighter === 'kai' && onlineReadMe(text).ready === false)) bad.push('on open the guest says its browser and its pick: ' + toHost.join(' | ').slice(0, 120));
+        let screen = UI.screen_onlinejoin();
+        if (!screen.includes('Waiting for the host') || !screen.includes('data-act="onready"') || !screen.includes('Player 3 (you)') || !screen.includes('You are player 3')) bad.push('the lobby before the first list');
+        const list = { t: ONLINE_LOBBY, you: 2, mode: 'brawl', arena: 'dojo', text: '', seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 1, fighter: 'mara', ready: false, rt: 30 }, { seat: 2, fighter: 'kai', ready: false, rt: 44 }] };
+        const send = (change, seats) => hostSide.send(JSON.stringify(Object.assign({}, list, change, seats ? { seats } : {})));
+        send({});
+        screen = UI.screen_onlinejoin();
+        if (!screen.includes('Online lobby') || !screen.includes('<b>Brawl</b>') || !screen.includes(esc(ARENAS.dojo.name)) || !screen.includes('P1') || !screen.includes('P2') || !screen.includes('Player 2') || !screen.includes('44 ms, good') || !screen.includes('data-local="olb:fighter"') || !/data-default data-act="onready" aria-pressed="false">Ready</.test(screen)) bad.push('the lobby with the list');
+        const redrawsBefore = kit.redraws();
+        send({}, list.seats.map((row) => Object.assign({}, row, { rt: row.rt + 5 })));
+        if (kit.redraws() !== redrawsBefore || OnlineUI.view.seats[2].rt !== 49) bad.push('a new round trip must patch, not redraw: ' + (kit.redraws() - redrawsBefore) + ' redraws');
+        send({}, list.seats.map((row) => (row.seat === 1 ? Object.assign({}, row, { ready: true }) : row)));
+        if (kit.redraws() !== redrawsBefore + 1) bad.push('a Ready that changed must redraw');
+        // Ready and a pick
+        toHost.length = 0;
+        OnlineUI.act('onready');
+        const ready = onlineReadMe(toHost[toHost.length - 1]);
+        if (!ready || ready.ready !== true || OnlineUI.mine.ready !== true || !/aria-pressed="true">Ready \(tap to wait\)</.test(UI.screen_onlinejoin())) bad.push('Ready: ' + toHost[toHost.length - 1]);
+        const pool = onlinePool();
+        UI.changeLocal('olb:fighter', 1);
+        const picked = onlineReadMe(toHost[toHost.length - 1]);
+        if (!picked || picked.ready !== false || picked.fighter !== pool[(pool.indexOf('kai') + 1) % pool.length] || OnlineUI.mine.fighter !== picked.fighter) bad.push('a new pick must withdraw Ready: ' + toHost[toHost.length - 1]);
+        UI.changeLocal('olb:fighter', -1);
+        if (OnlineUI.mine.fighter !== 'kai') bad.push('the pick back');
+        // the host's word wins: a list that says Not ready withdraws it
+        OnlineUI.act('onready');
+        send({}, list.seats.map((row) => (row.seat === 2 ? Object.assign({}, row, { ready: false }) : row)));
+        if (OnlineUI.mine.ready !== false) bad.push('the host\'s list did not withdraw Ready');
+        // a list that is not valid changes nothing
+        const view = OnlineUI.view;
+        for (const text of ['{x', JSON.stringify(Object.assign({}, list, { mode: 'toString' })), JSON.stringify(Object.assign({}, list, { you: 9 })), JSON.stringify(Object.assign({}, list, { seats: [{ seat: 0, fighter: 'toString', ready: true, rt: 1 }] })), JSON.stringify({ t: ONLINE_ME, fighter: 'kai', ready: true }), 'bp-hello:blink']) hostSide.send(text);
+        if (OnlineUI.view !== view) bad.push('an invalid list replaced the view');
+        // the guest's own seat is its Ready, its own pick shows at once, and Back from the lobby is the way out
+        if (!screen.includes('data-act="back"') || /data-act="onanswer"/.test(screen)) bad.push('the lobby has the pairing screen\'s buttons or no Back');
+        // a closed link: the status line says so, the lobby stays readable
+        guestSide.state = 'closed'; guestSide.error = { code: 'lost', message: ONLINE_MESSAGES.lost };
+        if (!UI.screen_onlinejoin().includes(esc(ONLINE_MESSAGES.lost)) && !UI.screen_onlinejoin().includes('id="onOffer"')) bad.push('a lost connection shows nothing');
+      } finally { kit.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): Start from the lobby hands the links, the picks and the measured round trips to the match: everyone plays the fighter they picked, the first input delay comes from the samples (the median, one more frame for jitter), the lobby lets go of the links and stops its timer; a bracket draws the picks too', () => {
+      const kit = reviewKit(), lobby = lobbyKit(), bad = [];
+      try {
+        let { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        Object.assign(a, { fighter: 'mara', ready: true, samples: [60, 120, 60, 200] }); Object.assign(b, { fighter: 'brutus', ready: true, samples: [20, 20, 20] });
+        OnlineUI.hostFighter = 'yuki';
+        OnlineUI.startLoop();
+        if (OnlineUI.startProblem() !== '' || !OnlineUI.loop) bad.push('the lobby is not ready to start: ' + OnlineUI.startProblem());
+        const want = onlineDelayFor([[60, 120, 60, 200], [20, 20, 20]]);
+        UI.current = null; OnlineUI.startGame();
+        let messages = kit.starts(heard);
+        if (messages.some((list) => list.length !== 1) || messages[0][0].mode !== 'brawl' || messages[0][0].cfg.coop.map((member) => member.id).join() !== 'yuki,mara,brutus') bad.push('the brawl was not played with the picks: ' + (messages[0][0] ? messages[0][0].cfg.coop.map((member) => member.id) : 'no message'));
+        if (OnlinePlay.delay !== want || !Game.net || Game.net.delay !== want || messages[0][0].delay !== want || want < 3) bad.push('the first delay ' + OnlinePlay.delay + ' / ' + (Game.net && Game.net.delay) + ' / ' + (messages[0][0] && messages[0][0].delay) + ', wanted ' + want);
+        if (OnlineUI.guests.length || OnlineUI.loop || OnlineUI.link) bad.push('the lobby kept the links or its timer');
+        if (pairs.some(([hostSide]) => hostSide.state !== 'open') || OnlinePlay.links.size !== 2) bad.push('the links did not reach the match');
+        // a 1 vs 1 takes the host's pick and the one guest's
+        ({ pairs, heard } = lobby.host([3]));
+        Object.assign(OnlineUI.guests[0], { fighter: 'elise', ready: true, samples: [10, 10, 10] }); OnlineUI.hostFighter = 'rosa';
+        UI.current = null; OnlineUI.startGame();
+        messages = kit.starts(heard);
+        if (!messages[0][0] || messages[0][0].mode !== 'fight' || messages[0][0].cfg.playerId !== 'rosa' || messages[0][0].cfg.opponentId !== 'elise' || messages[0][0].fighterOf.join() !== '0,-1,1') bad.push('the 1 vs 1 was not played with the picks: ' + JSON.stringify(messages[0][0] && messages[0][0].cfg).slice(0, 140));
+        // a tournament draws the people with their picks (the bracket is only drawn here: the drawing screen is not needed)
+        ({ pairs, heard } = lobby.host([2, 4]));
+        Object.assign(OnlineUI.guests[0], { fighter: 'brutus', ready: true, samples: [10, 10, 10] }); Object.assign(OnlineUI.guests[1], { fighter: 'mara', ready: true, samples: [10, 10, 10] });
+        OnlineUI.hostFighter = 'yuki'; OnlineUI.mode = 'tournament';
+        const keepPlay = Game.playTournament; let drawn = null;
+        Game.playTournament = (bracket) => { drawn = bracket; };
+        UI.current = null;
+        try { OnlineUI.startGame(); } finally { Game.playTournament = keepPlay; }
+        const people = drawn ? drawn.entrants.filter((entrant) => entrant.human >= 0).sort((x, y) => x.human - y.human).map((entrant) => entrant.human + ':' + entrant.id).join() : 'no bracket';
+        if (people !== '0:yuki,1:brutus,3:mara') bad.push('the bracket\'s people: ' + people);
+      } finally { lobby.restore(); kit.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): Online friends in the Free Fight lineup: the control cell gains an Online value only where it is on (the two states of every other lineup stay), a friend\'s slot takes no local device, the screens say so, Start fight opens the online lobby, and a saved setup never keeps a friend', () => {
+      const bad = [], keep = { lineups: Game.lineups, d: Setups.d, save: Setups.save, rules: Game.selection.rules, open: OnlineUI.open, begin: Game.beginMatch, toast: UI.toast, versus: Game.versus, run: Game.run };
+      try {
+        self.freshFree(); Setups.save = () => {}; UI.toast = () => {};
+        let lineup = Game.lineupFor();
+        UI.lineupLocal('lctl:1', 1);
+        if (!lineup.slots[1].human || lineup.slots[1].online !== undefined) bad.push('the first press of the control cell');
+        UI.lineupLocal('lctl:1', 1);
+        if (lineup.slots[1].human || 'online' in lineup.slots[1] || lineup.net) bad.push('without Online friends the cell toggles CPU and Player as before');
+        UI.lineupLocal('lctl:1', -1); UI.lineupLocal('lctl:1', -1);
+        if (lineup.slots[1].human) bad.push('the other direction without Online friends');
+        let screen = UI.screen_lineup();
+        if (!screen.includes('data-local="lnet"') || !screen.includes('Online friends') || screen.includes('Friend picks')) bad.push('the Online friends row is not on the lineup screen');
+        UI.lineupLocal('lnet', 1);
+        lineup = Game.lineupFor();
+        if (lineup.net !== true) bad.push('Online friends did not turn on');
+        Game.applyType('Brawl');
+        lineup = Game.lineupFor();
+        if (lineup.slots.length !== 4 || lineup.deal !== 'players') bad.push('the Brawl type for the test: ' + lineup.slots.length);
+        const states = (slot) => (slot.online ? 'online' : slot.human ? 'player' : 'cpu');
+        const seen = [states(lineup.slots[1])];
+        for (let k = 0; k < 3; k++) { UI.lineupLocal('lctl:1', 1); seen.push(states(lineup.slots[1])); }
+        if (seen.join() !== 'cpu,player,online,cpu' || lineup.slots[1].online !== undefined) bad.push('the control cell cycles ' + seen.join());
+        const reverse = []; for (let k = 0; k < 3; k++) { UI.lineupLocal('lctl:2', -1); reverse.push(states(lineup.slots[2])); }
+        if (reverse.join() !== 'online,player,cpu') bad.push('the control cell cycles back ' + reverse.join());
+        UI.lineupLocal('lctl:1', 1); UI.lineupLocal('lctl:1', 1);   // slot 2: Online
+        UI.lineupLocal('lctl:2', -1);                              // slot 3: Online
+        lineup = Game.lineupFor();
+        if (MatchLineup.people(lineup) !== 3 || lineup.slots.filter((slot) => slot.online).length !== 2 || lineup.slots[0].online) bad.push('two friends: ' + lineup.slots.map(states));
+        // fix: a friend only after the first slot, only a person, only where Online friends is on, never in a crowd
+        const fixed = MatchLineup.fix({ net: true, slots: [{ id: 'kai', human: true, online: true }, { id: 'mara', human: true, online: true }, { id: 'yuki', human: false, online: true }] });
+        if (fixed.slots[0].online || !fixed.slots[1].online || 'online' in fixed.slots[2]) bad.push('fix keeps a friend wrongly: ' + JSON.stringify(fixed.slots));
+        const plain = MatchLineup.fix({ slots: [{ id: 'kai', human: true }, { id: 'mara', human: true, online: true }] });
+        if ('online' in plain.slots[1] || 'net' in plain) bad.push('fix kept a friend without Online friends: ' + JSON.stringify(plain));
+        const crowd = MatchLineup.fix({ net: true, crowd: true, slots: [{ id: 'kai', human: true }, { id: 'mara', human: true, online: true }] });
+        if ('online' in crowd.slots[1] || 'net' in crowd) bad.push('a crowd has no friends');
+        const capped = MatchLineup.fix({ net: true, slots: [0, 1, 2, 3, 4, 5].map((k) => ({ id: 'kai', human: true, online: k > 0 })) });
+        if (capped.slots.filter((slot) => slot.human).length !== LINEUP_HUMANS_MAX || capped.slots.some((slot) => slot.online && !slot.human)) bad.push('more than ' + LINEUP_HUMANS_MAX + ' people');
+        // the screens
+        lineup = Game.lineupFor();
+        screen = UI.screen_lineup();
+        if (!screen.includes('<span class="v">Online</span>') || !screen.includes('Friend picks') || screen.includes('data-local="lfig:1"') || !screen.includes('data-local="lfig:0"') || !screen.includes('opens the online lobby') || !/aria-valuetext="On"/.test(screen)) bad.push('the lineup screen with friends');
+        const free = UI.screen_freefight();
+        if (!free.includes('Open the online lobby') || free.includes('>Start fight<')) bad.push('the first Free Fight screen says Start fight for a lineup with friends');
+        // a friend needs none of this PC's devices (3 people: the host and two friends)
+        if (Game.lineupProblem() !== '') bad.push('a lineup with two friends asks for gamepads: ' + Game.lineupProblem());
+        // a saved setup keeps no friend
+        Game.saveSetup();
+        const saved = Setups.d.freeFight;
+        if (saved.slots.some((slot, i) => i > 0 && slot.online) || saved.slots[1].human !== false || saved.slots[2].human !== false || 'net' in saved) bad.push('the saved setup: ' + JSON.stringify(saved.slots));
+        // Start fight opens the lobby with the Free Fight mode and begins nothing
+        const opened = []; let began = 0;
+        OnlineUI.open = (role, mode) => opened.push(role + ':' + mode); Game.beginMatch = () => { began++; };
+        const result = Game.startFree();
+        if (result !== false || opened.join() !== 'host:free' || began) bad.push('Start fight with friends: ' + result + ' ' + opened + ' ' + began);
+        // Online friends off: every friend is a CPU again
+        UI.lineupLocal('lnet', 1);
+        lineup = Game.lineupFor();
+        if (lineup.net || lineup.slots.some((slot) => slot.online) || lineup.slots.filter((slot) => slot.human).length !== 1 || UI.screen_lineup().includes('Friend picks')) bad.push('Online friends off left a friend: ' + lineup.slots.map(states));
+        opened.length = 0; began = 0;
+        Game.startFree();
+        if (opened.length || !began) bad.push('without friends Start fight must start the fight as before');
+      } finally {
+        Game.endMatch(); Game.lineups = keep.lineups; Setups.d = keep.d; Setups.save = keep.save; Game.selection.rules = keep.rules; OnlineUI.open = keep.open; Game.beginMatch = keep.begin; UI.toast = keep.toast; Game.versus = keep.versus; Game.run = keep.run;
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-06): a Free Fight lineup starts from the lobby: slot 1 is the host, each Online slot takes the next friend with the fighter that friend picked, CPU slots stay, the guests rebuild the same match; two people on their own are the 1 vs 1 with the lineup\'s rounds and clock; a lineup that does not fit the friends says why; a hostile lineup is refused', () => {
+      const kit = reviewKit(), bad = [], keep = { lineups: Game.lineups, d: Setups.d, save: Setups.save, rules: Game.selection.rules, rounds: Game.selection.rounds, timer: Game.selection.timer };
+      try {
+        self.freshFree(); Setups.save = () => {};
+        Game.lineupFor();
+        const slots = (list) => list.map(([id, human, online, team]) => ({ id, human, team, ...(online ? { online: true } : {}) }));
+        Game.lineups.free = MatchLineup.fix({ net: true, deal: 'players', slots: slots([['kai', true, false, 1], ['mara', true, true, 1], ['brutus', true, true, 1], ['yuki', false, false, 2]]) });
+        let { pairs, heard } = kit.open([3, 4]);   // code seats 3 and 4: session seats 2 and 3, seat 1 empty
+        OnlinePlay.picks.set(2, 'rosa'); OnlinePlay.picks.set(3, 'elise');
+        let failure = OnlinePlay.start({ mode: 'free', arena: 'warehouse' });
+        let messages = kit.starts(heard);
+        const first = messages[0][0] || {}, cfg = first.cfg || {};
+        if (failure || messages.some((list) => list.length !== 1) || first.mode !== 'free' || cfg.mode !== 'brawl' || !Array.isArray(cfg.slots) || cfg.slots.length !== 4) bad.push('the lineup did not start: ' + failure + ' ' + JSON.stringify(first).slice(0, 120));
+        if (cfg.slots && (cfg.slots.map((slot) => slot.id).join() !== 'kai,rosa,elise,yuki' || cfg.slots.map((slot) => slot.human).join() !== '0,1,2,-1' || cfg.humans !== 3)) bad.push('the lineup\'s people and picks: ' + (cfg.slots && cfg.slots.map((slot) => slot.id + ':' + slot.human)));
+        if (!Game.net || Game.net.fighterOf.join() !== '0,-1,1,2' || first.fighterOf.join() !== '0,-1,1,2' || messages[1][0].fighterOf.join() !== first.fighterOf.join() || first.seat !== 2 || messages[1][0].seat !== 3) bad.push('who plays what: ' + (Game.net && Game.net.fighterOf.join()) + ' / ' + first.fighterOf);
+        if (Game.run.mode !== 'lineup' || Game.config.mode !== 'brawl' || Game.match.setup.length !== 4 || Game.match.fighters[1].name !== ROSTER_BY_ID.rosa.name) bad.push('the host\'s match: ' + JSON.stringify(Game.run));
+        if (Game.config.rulesSet === undefined && Game.config.items === undefined) bad.push('the lineup\'s rules did not travel');
+        // a guest rebuilds the same match from its message
+        const hostConfig = JSON.stringify(Game.config), hostSum = matchChecksum(Game.match), toasts = kit.toasts;
+        OnlinePlay.seat = 2;
+        if (OnlinePlay.problemWith(first) !== '') bad.push('a good lineup message is refused: ' + OnlinePlay.problemWith(first));
+        OnlinePlay.leave();
+        OnlinePlay.guestBegin(pairs[0][1], first);
+        if (!Game.net || Game.net.host || Game.net.seat !== 2 || JSON.stringify(Game.config) !== hostConfig || matchChecksum(Game.match) !== hostSum || Game.run.mode !== 'lineup') bad.push('the guest did not rebuild the lineup: ' + toasts.slice(-1));
+        if (Inputs.forFighter(1) !== Input || Inputs.forFighter(0) !== null || Inputs.forFighter(2) !== null) bad.push('a guest reads its own device for its own fighter (rumble, cues): ' + [0, 1, 2].map((k) => Inputs.forFighter(k) === Input));
+        // hostile lineups are refused, with the one plain text
+        OnlinePlay.seat = 2;
+        const clone = () => JSON.parse(JSON.stringify(first));
+        const refuse = {
+          'a slot with 9 as its person': (m) => { m.cfg.slots[0].human = 9; }, 'a slot that is not an object': (m) => { m.cfg.slots[1] = null; }, 'an unknown fighter': (m) => { m.cfg.slots[2].id = 'toString'; }, 'health as text': (m) => { m.cfg.slots[3].hp = 'x'; },
+          'a team of 99': (m) => { m.cfg.slots[3].team = 99; }, 'one slot': (m) => { m.cfg.slots.length = 1; }, 'nine slots': (m) => { m.cfg.slots = Array.from({ length: 9 }, () => m.cfg.slots[0]); }, 'no people counted': (m) => { m.cfg.humans = 0; },
+          'the lineup said as a brawl': (m) => { m.mode = 'brawl'; }, 'a brawl said as a lineup': (m) => { delete m.cfg.slots; }, 'a seat that steers a CPU fighter': (m) => { m.fighterOf = [0, -1, 1, 3]; }, 'a tint that is text': (m) => { m.cfg.slots[0].tint = 'red'; }, 'team names with a null': (m) => { m.cfg.teamNames = [null]; }, 'team names with a number': (m) => { m.cfg.teamNames = [5, 'TEAM B']; }, 'team names that are not a list': (m) => { m.cfg.teamNames = 'TEAM A'; }, 'no team names': (m) => { delete m.cfg.teamNames; }, 'a team name of 99 letters': (m) => { m.cfg.teamNames = ['x'.repeat(99)]; }, 'nine team names': (m) => { m.cfg.teamNames = Array.from({ length: 9 }, () => 'TEAM A'); },
+        };
+        for (const [name, change] of Object.entries(refuse)) { const message = clone(); change(message); const got = OnlinePlay.problemWith(message); if (got !== ONLINE_MESSAGES.start) bad.push('accepted: ' + name + ' (' + got + ')'); }
+        OnlinePlay.leave();
+        // two people on their own: a duel with the lineup's rounds and clock
+        Game.selection.rounds = 3; Game.selection.timer = 90;
+        Game.lineups.free = MatchLineup.fix({ net: true, slots: slots([['kai', true, false, 0], ['mara', true, true, 0]]) });
+        ({ pairs, heard } = kit.open([2]));
+        OnlinePlay.picks.set(1, 'sora');
+        failure = OnlinePlay.start({ mode: 'free', arena: 'dojo' });
+        messages = kit.starts(heard);
+        const duel = messages[0][0] || {};
+        if (failure || duel.mode !== 'fight' || !duel.cfg || duel.cfg.mode !== 'versus' || duel.cfg.playerId !== 'kai' || duel.cfg.opponentId !== 'sora' || duel.cfg.winsNeeded !== 3 || duel.cfg.timer !== 90 || duel.fighterOf.join() !== '0,1' || Game.run.mode !== 'versus') bad.push('the duel: ' + failure + ' ' + JSON.stringify(duel).slice(0, 160));
+        // a lineup that does not fit the friends says why
+        OnlinePlay.leave();
+        const reasons = {};
+        Game.lineups.free = MatchLineup.fix({ net: true, slots: slots([['kai', true, false, 0], ['mara', true, true, 0], ['brutus', true, true, 0]]) });
+        reasons.few = OnlinePlay.lineupProblem(1); reasons.many = OnlinePlay.lineupProblem(3); reasons.fit = OnlinePlay.lineupProblem(2);
+        Game.lineups.free = MatchLineup.fix({ slots: slots([['kai', true, false, 0], ['mara', true, false, 0]]) });
+        reasons.noNet = OnlinePlay.lineupProblem(1);
+        Game.lineups.free = MatchLineup.fix({ net: true, slots: slots([['kai', true, false, 0], ['mara', true, false, 0], ['brutus', true, true, 0]]) });
+        reasons.local = OnlinePlay.lineupProblem(1);
+        Game.lineups.free = MatchLineup.fix({ crowd: true, slots: slots([['kai', true, false, 0], ['mara', true, false, 0]]) });
+        reasons.crowd = OnlinePlay.lineupProblem(1);
+        Game.lineups.free = MatchLineup.fix({ net: true, slots: slots([['kai', true, false, 1], ['mara', true, true, 1]]) });
+        reasons.oneTeam = OnlinePlay.lineupProblem(1);
+        if (!/2 Online slots but 1 friend is connected/.test(reasons.few) || !/2 Online slots but 3 friends are connected/.test(reasons.many) || reasons.fit !== '') bad.push('the count: ' + JSON.stringify(reasons));
+        if (reasons.noNet !== ONLINE_MESSAGES.lineupNoNet || reasons.local !== ONLINE_MESSAGES.lineupLocal || reasons.crowd !== ONLINE_MESSAGES.lineupCrowd || !/one team/.test(reasons.oneTeam)) bad.push('the reasons: ' + JSON.stringify(reasons));
+        for (const text of Object.values(reasons).filter(Boolean)) if (text.length > 200 || /undefined|\[object/.test(text)) bad.push('not a plain text: ' + text);
+        // the lobby's Start follows: the Free Fight mode needs the lineup to fit
+        const lobby = lobbyKit();
+        try {
+          Game.lineups.free = MatchLineup.fix({ net: true, slots: slots([['kai', true, false, 0], ['mara', true, true, 0], ['brutus', true, true, 0]]) });
+          lobby.host([2]); OnlineUI.mode = 'free';
+          Object.assign(OnlineUI.guests[0], { fighter: 'mara', ready: true, samples: [5, 5, 5] });
+          if (!/2 Online slots but 1 friend/.test(OnlineUI.startProblem()) || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes('data-act="onlineup"') || !UI.screen_onlinehost().includes('Free Fight')) bad.push('the lobby with a lineup that does not fit: ' + OnlineUI.startProblem());
+          // a changed lineup withdraws Ready
+          lobby.host([2, 3]); OnlineUI.mode = 'free'; OnlineUI.lineupSig = OnlineUI.lineupSignature();
+          for (const guest of OnlineUI.guests) Object.assign(guest, { fighter: 'mara', ready: true, samples: [5, 5, 5] });
+          if (OnlineUI.startProblem() !== '') bad.push('a lineup that fits: ' + OnlineUI.startProblem());
+          Game.lineups.free.slots[2].team = 3;
+          OnlineUI.syncLineup();
+          if (OnlineUI.guests.some((guest) => guest.ready) || OnlineUI.startProblem() !== 'Waiting for player 2 to press Ready.') bad.push('a changed lineup kept a Ready');
+          if (!/Free Fight|Custom|Brawl|Duel|Versus/.test(OnlinePlay.lineupText()) || !/3 fighters, 2 online slots/.test(OnlinePlay.lineupText())) bad.push('the lineup in one line: ' + OnlinePlay.lineupText());
+          OnlineUI.pushLobby();
+        } finally { lobby.restore(); }
+      } finally { kit.restore(); Game.lineups = keep.lineups; Setups.d = keep.d; Setups.save = keep.save; Game.selection.rules = keep.rules; Game.selection.rounds = keep.rounds; Game.selection.timer = keep.timer; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): keyboard, gamepad and touch reach every control of the lobby: each button and row is on the menu route (data-nav), the rows change by arrow, pad and tap through UI.adjust (a row is a spinbutton with its keys named), and the focus starts on Start or Ready, never in a code box', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const firstFocus = (html) => { const tag = (html.match(/<(?:button|textarea)[^>]*data-default[^>]*>/g) || []).find((item) => !/ disabled/.test(item)); return tag ? (/data-act="([^"]*)"/.exec(tag) || [0, 'a box'])[1] : 'none'; };
+        const checkRoute = (name, html) => {
+          for (const tag of html.match(/<button[^>]*>/g) || []) if (!/ data-nav/.test(tag) && !/ disabled/.test(tag)) bad.push(name + ': a button outside the menu route ' + tag.slice(0, 50));
+          for (const tag of html.match(/<div class="opt[^>]*>/g) || []) if (!/data-nav/.test(tag) || !/role="spinbutton"/.test(tag) || !/aria-keyshortcuts="ArrowLeft ArrowRight"/.test(tag) || !/tabindex="0"/.test(tag)) if (!/aria-disabled="true"/.test(tag)) bad.push(name + ': a row that is not a spinbutton on the route ' + tag.slice(0, 60));
+          for (const tag of html.match(/<textarea[^>]*>/g) || []) if (!/data-nav/.test(tag)) bad.push(name + ': a box outside the menu route');
+        };
+        lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        Object.assign(a, { fighter: 'mara', ready: true, samples: [5, 5, 5] }); Object.assign(b, { fighter: 'brutus', ready: false, samples: [5, 5, 5] });
+        let html = UI.screen_onlinehost();
+        checkRoute('the host lobby', html);
+        if (firstFocus(html) !== 'back') bad.push('with a guest not Ready the focus starts on ' + firstFocus(html));
+        b.ready = true;
+        html = UI.screen_onlinehost();
+        if (firstFocus(html) !== 'onstart') bad.push('with everyone Ready the focus starts on ' + firstFocus(html));
+        for (const row of ['olb:fighter', 'olb:mode', 'olb:arena']) if (!html.includes('data-local="' + row + '"')) bad.push('no row ' + row);
+        if ((html.match(/data-act="onkick:/g) || []).length !== 2) bad.push('Remove for each friend');
+        // a row changes with arrow keys and a pad (adjust(el, dir)) and with a tap, Enter or the pad's OK (adjust(el, 1, true)): the same route
+        const row = (local) => ({ getAttribute: (key) => (key === 'data-local' ? local : null) });
+        const modes = [OnlineUI.modeNow(3)];
+        UI.adjust(row('olb:mode'), 1, true); modes.push(OnlineUI.mode); UI.adjust(row('olb:mode'), -1); modes.push(OnlineUI.mode); UI.adjust(row('olb:mode'), -1); modes.push(OnlineUI.mode);
+        if (modes.join() !== 'brawl,tournament,brawl,fight') bad.push('the Mode row by tap and arrows: ' + modes);
+        const arenas = []; for (const dir of [1, 1, -1, -1, -1]) { UI.adjust(row('olb:arena'), dir); arenas.push(ARENA_ORDER.indexOf(OnlineUI.arena)); }
+        const n = ARENA_ORDER.length, start = ARENA_ORDER.indexOf(ONLINE_ARENA_DEFAULT);
+        if (arenas.join() !== [1, 2, 1, 0, -1].map((d) => ((start + d) % n + n) % n).join()) bad.push('the Level row wraps: ' + arenas);
+        const pool = onlinePool(), here = OnlineUI.hostFighter, forward = [], back = [];
+        for (let k = 0; k < pool.length; k++) { UI.adjust(row('olb:fighter'), 1); forward.push(OnlineUI.hostFighter); }
+        if (OnlineUI.hostFighter !== here || new Set(forward).size !== pool.length) bad.push('a full turn of the fighter row must visit every unlocked fighter once and come home: ' + forward.length + ' of ' + pool.length);
+        UI.adjust(row('olb:fighter'), -1);
+        if (OnlineUI.hostFighter !== pool[(pool.indexOf(here) - 1 + pool.length) % pool.length]) bad.push('the fighter row backwards');
+        OnlineUI.hostFighter = here;
+        // only unlocked presets are offered: a custom fighter or a locked one is never a pick
+        if (pool.some((id) => !onlineFighter(id) || !Progress.isUnlocked(id)) || pool.length < DEFAULT_UNLOCKED.filter((id) => Progress.isUnlocked(id)).length) bad.push('the pool offers a fighter it should not');
+        // the guest's lobby
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 2;
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, view: null, mine: { fighter: 'kai', ready: false }, unlisten: [] });
+        html = UI.screen_onlinejoin();
+        checkRoute('the guest lobby', html);
+        if (firstFocus(html) !== 'onready') bad.push('the guest\'s focus starts on ' + firstFocus(html));
+        // keys typed into a code box stay there; the lobby has no box, so every key reaches the menu
+        if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'BUTTON', readOnly: false }) !== false || OnlineUI.onKey({ code: 'ArrowLeft' }, { tagName: 'DIV' }) !== false) bad.push('a key in the lobby must reach the menu (Esc and Backspace go back)');
+        // the Back button leaves: UI.back from the lobby screens is the ordinary one (Esc, B and Backspace call it)
+        if (!/data-act="back"/.test(html) || !/data-act="back"/.test((OnlineUI.role = 'host', UI.screen_onlinehost()))) bad.push('no Back button');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-06): online, this device plays its own seat\'s fighter as P1 (rumble, cues and the touch buttons follow it), a seat that only watches has none, and offline nothing changed', () => {
+      const bad = [], keep = { net: Game.net, show: UI.showTouchButton };
+      try {
+        Game.net = null;
+        const offline = [Inputs.forFighter(0), Inputs.forFighter(1)], offlineLocal = Game.localFighter();
+        Game.net = { fighterOf: [0, 1, -1], seat: 1 };
+        if (Inputs.forFighter(1) !== Input || Inputs.forFighter(0) !== null || Inputs.forFighter(2) !== null || Game.localFighter() !== 1) bad.push('a guest on seat 1');
+        Game.net = { fighterOf: [0, -1, 1, 2], seat: 3 };
+        if (Inputs.forFighter(2) !== Input || Inputs.forFighter(1) !== null || Inputs.forFighter(0) !== null || Game.localFighter() !== 2) bad.push('a guest on seat 3 with a gap before it');
+        Game.net = { fighterOf: [-1, 0, 1], seat: 0 };
+        if ([0, 1, 2].some((k) => Inputs.forFighter(k) !== null) || Game.localFighter() !== 0) bad.push('a watching host steers nothing');
+        Game.net = { fighterOf: [0, 1], seat: 0 };
+        if (Inputs.forFighter(0) !== Input || Inputs.forFighter(1) !== null) bad.push('the host');
+        Game.net = null;
+        if (Inputs.forFighter(0) !== offline[0] || Inputs.forFighter(1) !== offline[1] || Game.localFighter() !== offlineLocal || offlineLocal !== 0) bad.push('offline changed');
+        // the touch buttons: USE follows the fighter of this device's seat
+        const shown = [];
+        UI.showTouchButton = (action, visible) => shown.push(action + ':' + visible);
+        const match = { fighters: [{ item: null, alive: true }, { item: { id: 'x', dur: 1 }, alive: true }, { item: null, alive: true }], itemToUse: null };
+        Game.net = { fighterOf: [0, 1, -1], seat: 1 };
+        UI.touchContextUpdate(match);
+        if (!shown.includes('use:true')) bad.push('USE did not follow the guest\'s fighter: ' + shown);
+        shown.length = 0; Game.net = null;
+        UI.touchContextUpdate(match);
+        if (!shown.includes('use:false')) bad.push('offline USE follows the first fighter: ' + shown);
+      } finally { Game.net = keep.net; UI.showTouchButton = keep.show; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06): a Firefox guest sends the first code: its screen makes the code (Copy, Show QR, a box for the host\'s answer), the host\'s block answers it with the seat of that block and shows the answer to send back, the guest\'s Connect opens the link; the host can switch a seat between the two directions, and a scanned code takes the same route as a pasted one', async () => {
+      const bad = [], lobby = lobbyKit(), originalCreate = Online.createLink, links = [];
+      const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+      Online.createLink = (role, options = {}) => { const link = originalCreate(role, { gatherMs: 20, connectMs: 5000, guestWaitMs: 5000, connection: Fake, ...options }); links.push(link); return link; };
+      const wait = () => new Promise((resolve) => setTimeout(resolve, 40));
+      try {
+        // the guest asks to send the first code
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: null, answerCode: '', offerText: '', note: '', view: null, first: false, firstCode: '', replyText: '', mine: { fighter: 'kai', ready: false }, unlisten: [] });
+        let screen = UI.screen_onlinejoin();
+        if (!screen.includes('data-act="onfirst"') || !screen.includes('data-act="onanswer"') || !screen.includes('id="onOffer"')) bad.push('the join screen offers no first code');
+        OnlineUI.act('onfirst'); await wait();
+        const guestLink = OnlineUI.link;
+        if (!OnlineUI.first || !OnlineUI.firstCode.startsWith('BPO-') || !guestLink || guestLink.state !== 'waiting' || guestLink.role !== 'guest') bad.push('the guest\'s first code: ' + (guestLink && guestLink.state));
+        screen = UI.screen_onlinejoin();
+        for (const part of ['id="onFirst"', 'data-act="oncopy:first"', 'data-act="onqr:first"', 'id="onReply"', 'data-act="onfirstx"', 'Send your code to the host']) if (!screen.includes(part)) bad.push('the first-code screen lacks ' + part);
+        if (/data-act="onreply" disabled/.test(screen) || screen.includes('id="onOffer"')) bad.push('Connect must be on while the code is out, and the host\'s-code box gone');
+        if (OnlineUI.codeOf('first') !== OnlineUI.firstCode || OnlineUI.boxOf('first') !== 'onFirst' || OnlineUI.codeOf('answer') !== OnlineUI.answerCode) bad.push('codeOf and boxOf');
+        const firstCode = OnlineUI.firstCode, guestState = { link: guestLink, unlisten: OnlineUI.unlisten };
+        // the host's block for a friend that sends the first code
+        Object.assign(OnlineUI, { role: 'host', link: null, first: false, firstCode: '', guests: [], unlisten: [] });
+        OnlineUI.addGuest(2, true);
+        const slot = OnlineUI.slotOf(2);
+        if (!slot.reverse || slot.link.state !== 'idle' || slot.offerCode !== '' || slot.link.role !== 'host') bad.push('the reverse block');
+        screen = UI.screen_onlinehost();
+        for (const part of ['id="onTheirs2"', 'data-act="onhostreply:2"', 'I send the first code', 'Paste your friend']) if (!screen.includes(part)) bad.push('the reverse block lacks ' + part);
+        if (screen.includes('id="onCode2"') || screen.includes('data-act="onconnect:2"')) bad.push('the reverse block shows the default direction\'s boxes');
+        const typeInto = (id, text) => { const element = document.getElementById(id); if (element) element.value = text; }; // the headless stub makes a box for any id and saveFields reads it; a real page has none here
+        slot.theirs = firstCode; typeInto('onTheirs2', firstCode);
+        OnlineUI.act('onhostreply', '2'); await wait();
+        const answerCode = slot.answerCode;
+        if (!answerCode.startsWith('BPA-') || slot.link.state !== 'waiting' || slot.link.seat !== 2 || OnlineCode.readCode(answerCode).seat !== 2) bad.push('the host\'s answer: ' + slot.link.state + ' ' + slot.link.seat);
+        screen = UI.screen_onlinehost();
+        for (const part of ['id="onMine2"', 'data-act="oncopy:r2"', 'data-act="onqr:r2"', 'Send this answer code to your friend']) if (!screen.includes(part)) bad.push('the answer lacks ' + part);
+        if (OnlineUI.codeOf('r2') !== answerCode || OnlineUI.boxOf('r2') !== 'onMine2' || OnlineUI.qrOf !== '') bad.push('codeOf for the answer');
+        OnlineUI.qrOf = 'r2';
+        if (OnlineUI.qrCode() !== answerCode || !UI.screen_onlineqr().includes('QR code of your answer code')) bad.push('Show QR of the answer');
+        OnlineUI.qrOf = '';
+        // a code pressed twice makes one connection: the second press is refused (the link goes on)
+        OnlineUI.act('onhostreply', '2'); typeInto('onTheirs2', '');
+        // the seat can be switched to the default direction and back
+        OnlineUI.act('onreverse', '2'); await wait();
+        let again = OnlineUI.slotOf(2);
+        if (again.reverse || !again.offerCode.startsWith('BPO-') || again.answerCode !== '' || screen === UI.screen_onlinehost()) bad.push('the seat did not switch to the host sending the first code');
+        OnlineUI.act('onreverse', '2');
+        again = OnlineUI.slotOf(2);
+        if (!again.reverse || again.link.state !== 'idle' || again.theirs !== '') bad.push('the seat did not switch back');
+        // a scanned code takes the route of a pasted one
+        OnlineUI.scanSeat = 2; OnlineUI.scanKind = 'hostFirst'; typeInto('onTheirs2', firstCode);
+        OnlineUI.scanned(firstCode); await wait(); typeInto('onTheirs2', '');
+        if (again.theirs !== firstCode || !again.answerCode.startsWith('BPA-') || again.link.state !== 'waiting') bad.push('a scanned first code: ' + again.link.state);
+        // the guest takes the host's answer
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestState.link, first: true, firstCode, unlisten: guestState.unlisten, replyText: '' });
+        OnlineUI.scanSeat = 0; OnlineUI.scanKind = 'guestReply'; typeInto('onReply', answerCode);
+        OnlineUI.scanned(answerCode); await wait(); typeInto('onReply', '');
+        if (OnlineUI.replyText !== answerCode || guestLink.state !== 'connecting' || guestLink.seat !== 2) bad.push('the guest\'s Connect: ' + guestLink.state + ' seat ' + guestLink.seat);
+        const guestConnection = Fake.made[0];
+        guestConnection.open();
+        if (guestLink.state !== 'open') bad.push('the link did not open: ' + guestLink.state);
+        screen = UI.screen_onlinejoin();
+        if (!screen.includes('Online lobby') || !screen.includes('You are player 2')) bad.push('a guest that sent the first code ends in the lobby');
+        // going back to the default direction closes the first-code link
+        Object.assign(OnlineUI, { role: 'guest', link: null, first: false });
+        OnlineUI.act('onfirst'); await wait();
+        const second = OnlineUI.link;
+        OnlineUI.act('onfirstx');
+        if (OnlineUI.first || OnlineUI.link !== null || second.state !== 'closed' || OnlineUI.firstCode !== '') bad.push('"The host sends the first code" must close the first-code link');
+      } finally {
+        Online.createLink = originalCreate;
+        for (const link of links) link.close();
+        lobby.restore();
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    }, 10000); // deferred: it runs after every other test (they share OnlineUI and Online.createLink with the async tests above) and its time limit starts then
+    test('Online lobby (P12-06): after a match the host can go back to the lobby with the same links (the Lobby button of the results): nobody is Ready, a friend that left is a free seat, a new friend can join; a guest goes back when the host does (only once its own match is over) or by itself; Rematch after "Out of sync" is a new match with a new number', () => {
+      const kit = reviewKit(), lobby = lobbyKit(), bad = [], keepNow = Game.quitToMenu, keepHide = UI.hideScreen;
+      UI.hideScreen = () => { UI.current = null; }; // the headless stub has no screen container; a match that starts from a lobby screen leaves it
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        Object.assign(a, { fighter: 'mara', ready: true, samples: [20, 20, 20] }); Object.assign(b, { fighter: 'brutus', ready: true, samples: [20, 20, 20] });
+        OnlineUI.hostFighter = 'yuki'; OnlineUI.mode = 'brawl'; OnlineUI.arena = 'dojo';
+        UI.current = null; OnlineUI.startGame();
+        const firstId = kit.starts(heard)[0][0].id;
+        if (!Game.net || OnlinePlay.links.size !== 2 || Game.resultsData === undefined) bad.push('the match did not start');
+        // Rematch after "Out of sync": the host's button starts a new match (a new match number), the guests get a second start
+        Game.net.onDesync({ text: 'Out of sync' });
+        if (!Game.netNote || typeof Game.netNote.rematch !== 'function') bad.push('no Rematch after Out of sync');
+        else {
+          Game.netNote.rematch();
+          const ids = kit.starts(heard)[0].map((message) => message.id);
+          if (ids.length !== 2 || ids[0] !== firstId || ids[1] === firstId || Game.net.matchId !== ids[1]) bad.push('Rematch after Out of sync: ' + ids);
+        }
+        // the Lobby button: the links come back to the lobby screens, the match is over
+        Game.resultsAction('lobby');
+        const label = OnlineUI.guests.map((guest) => guest.seat + ':' + (OnlineUI.isOpen(guest) ? 'open' : 'block') + ':' + (guest.ready ? 'ready' : 'wait')).join();
+        if (OnlineUI.role !== 'host' || label !== '2:open:wait,3:open:wait,4:block:wait' || OnlinePlay.active || Game.net || !OnlineUI.loop || pairs.some(([hostSide]) => hostSide.state !== 'open')) bad.push('the host back in the lobby: ' + label + ' links ' + pairs.map(([hostSide]) => hostSide.state));
+        if (OnlineUI.hostFighter !== 'yuki' || OnlineUI.guests[0].fighter !== 'mara' || OnlineUI.guests[1].fighter !== 'brutus' || OnlineUI.mode !== 'brawl' || OnlineUI.arena !== 'dojo') bad.push('the lobby forgot the picks or the settings');
+        if (OnlineUI.startProblem() !== 'Measuring the connection to player 2. Start is on in a moment.') bad.push('after the lobby the connection is measured again: ' + OnlineUI.startProblem());
+        // the second match from the lobby: a new number again
+        for (const guest of OnlineUI.guests) if (OnlineUI.isOpen(guest)) Object.assign(guest, { ready: true, samples: [20, 20, 20] });
+        UI.current = null; OnlineUI.startGame();
+        const ids = kit.starts(heard)[0].map((message) => message.id);
+        if (ids.length !== 3 || new Set(ids).size !== 3) bad.push('three starts, three numbers: ' + ids);
+        // a friend that left before the Lobby button is a free seat
+        pairs[1][0].state = 'closed';
+        Game.resultsAction('lobby');
+        if (OnlineUI.guests.map((guest) => guest.seat + ':' + (OnlineUI.isOpen(guest) ? 'open' : 'block')).join() !== '2:open,3:block') bad.push('a friend that left: ' + OnlineUI.guests.map((guest) => guest.seat + ':' + OnlineUI.isOpen(guest)));
+        // a guest: the host's list comes while the match is live (ignored), then when it is over (the guest goes back), and by itself with the Lobby button
+        OnlineUI.reset(); OnlinePlay.leave(); Game.endMatch();
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        const toHost = []; hostSide.onMessage((data) => toHost.push(data));
+        OnlineUI.lastFighter = 'sora';
+        const list = JSON.stringify({ t: ONLINE_LOBBY, you: 2, mode: 'brawl', arena: 'dojo', text: '', seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'sora', ready: false, rt: 30 }] });
+        const start = { t: ONLINE_START, id: 7, mode: 'brawl', seat: 2, seatCount: 3, fighterOf: [0, -1, 1], delay: 3, cfg: { mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 2, id: 'sora' }], playerId: 'kai', enemies: 3, arenaId: 'warehouse', difficulty: 'normal', winsNeeded: 1, timer: 0, waves: false, goons: 'mara', seed: 1234, keepSeed: true, online: true } };
+        UI.current = null; OnlinePlay.guestBegin(guestSide, start);
+        if (!Game.net || Game.net.host) bad.push('the guest\'s match did not start: ' + lobby.toasts.slice(-1));
+        hostSide.send(list);
+        if (OnlineUI.role === 'guest' || !Game.net) bad.push('a list during a live match took the guest out of it');
+        Game.match.phase = 'matchEnd';
+        hostSide.send(list);
+        if (OnlineUI.role !== 'guest' || OnlineUI.link !== guestSide || !OnlineUI.view || OnlineUI.view.seats.length !== 2 || OnlinePlay.active || Game.net || guestSide.state !== 'open') bad.push('the guest did not go back to the lobby: ' + OnlineUI.role + ' ' + guestSide.state);
+        const mine = toHost.map((text) => onlineReadMe(text)).filter(Boolean);
+        if (!mine.length || mine[mine.length - 1].fighter !== 'sora' || mine[mine.length - 1].ready !== false) bad.push('the guest tells the host its pick on coming back: ' + JSON.stringify(mine));
+        if (!UI.screen_onlinejoin().includes('Online lobby') || !UI.screen_onlinejoin().includes('data-act="onready"')) bad.push('the guest lobby after a match');
+        // the guest's own button: back to the lobby, the host's next start still reaches it
+        OnlineUI.reset(); OnlinePlay.leave();
+        const [hostSide2, guestSide2] = makeStandInLinks(); hostSide2.seat = guestSide2.seat = 3;
+        UI.current = null; OnlinePlay.guestBegin(guestSide2, start);
+        Game.resultsAction('lobby');
+        if (OnlineUI.role !== 'guest' || OnlineUI.link !== guestSide2 || guestSide2.state !== 'open' || Game.net) bad.push('the guest\'s Lobby button: ' + OnlineUI.role);
+        hostSide2.send(JSON.stringify(Object.assign({}, start, { id: 8 })));
+        if (!Game.net || Game.net.matchId !== 8 || OnlineUI.role === 'guest') bad.push('a start that comes to a guest in the lobby must hand the link to the match: ' + (Game.net && Game.net.matchId));
+        // a guest whose link is gone has nothing to go back to
+        OnlineUI.reset(); OnlinePlay.leave();
+        const [hostSide3, guestSide3] = makeStandInLinks(); hostSide3.seat = guestSide3.seat = 3;
+        UI.current = null; OnlinePlay.guestBegin(guestSide3, start);
+        guestSide3.state = 'closed';
+        lobby.toasts.length = 0;
+        OnlinePlay.toLobby();
+        if (OnlineUI.role === 'guest' || !lobby.toasts.includes('The host left the game.')) bad.push('a guest without a link went to the lobby');
+      } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); Game.quitToMenu = keepNow; UI.hideScreen = keepHide; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- the review of P12-06 ---------- */
+    test('Online lobby (P12-06 review): a guest\'s Ready and the host\'s list belong to one connection - when its link closes or fails, and when it makes a new link, Ready is off and the old list is gone, so the next lobby does not show the last one', () => {
+      const bad = [], lobby = lobbyKit(), keepCreate = Online.createLink;
+      const list = { mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 4, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'mara', ready: true, rt: 20 }] };
+      const guestOn = (link) => Object.assign(OnlineUI, { role: 'guest', guests: [], link, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: true }, view: JSON.parse(JSON.stringify(list)) });
+      try {
+        for (const end of ['closed', 'failed']) {
+          const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+          guestOn(guestSide); OnlineUI.listen(guestSide);
+          guestSide.state = end; OnlineUI.onState(guestSide, end);
+          if (OnlineUI.mine.ready || OnlineUI.view !== null) bad.push('a link that ' + end + ' kept Ready or the list');
+        }
+        const [, second] = makeStandInLinks(); second.seat = 3;
+        guestOn(second);
+        Online.createLink = () => { const [fresh] = makeStandInLinks(); fresh.seat = 3; return fresh; };
+        OnlineUI.makeLink();
+        if (OnlineUI.mine.ready || OnlineUI.view !== null || OnlineUI.link === second) bad.push('a new link kept Ready or the list');
+        if (!UI.screen_onlinejoin().includes('aria-pressed="false"')) bad.push('the new connection shows Ready pressed');
+        const [, third] = makeStandInLinks(); third.seat = 3;
+        guestOn(third); OnlineUI.first = true;
+        OnlineUI.stopFirst();
+        if (OnlineUI.mine.ready || OnlineUI.view !== null) bad.push('going back to the host\'s code first kept Ready or the list');
+      } finally { Online.createLink = keepCreate; lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): a Ready counts only for the settings it saw - the host numbers its settings (mode, level, lineup), the list and every guest message carry the number, and a Ready with an old number is not a Ready', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        const say = (guest, message) => OnlineUI.onMessage(guest.link, JSON.stringify(message));
+        const rev0 = OnlineUI.rev;
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev0 });
+        if (!a.ready) bad.push('a Ready for the current settings');
+        OnlineUI.pushLobby();
+        if (lastList(heard[0]).rev !== rev0) bad.push('the list carries the revision');
+        OnlineUI.act('onarena');
+        if (OnlineUI.rev <= rev0 || a.ready || lastList(heard[1]).rev !== OnlineUI.rev) bad.push('a new level raises the revision and withdraws Ready: ' + rev0 + ' > ' + OnlineUI.rev);
+        const rev1 = OnlineUI.rev;
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev0 });
+        if (a.ready || lastList(heard[0]).seats[1].ready) bad.push('a Ready made for the old level was taken');
+        say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true });
+        if (b.ready) bad.push('a Ready with no revision was taken');
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev1 });
+        if (!a.ready) bad.push('a Ready for the new level');
+        OnlineUI.act('onmode');
+        if (OnlineUI.rev === rev1 || a.ready) bad.push('a new mode raises the revision too');
+        // the guest's side: its Ready names the revision of the list it saw (0 before any list), and a list that withdraws Ready turns its button off
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        const toHost = []; hostSide.onMessage((data) => toHost.push(data));
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: false }, view: null });
+        OnlineUI.act('onready');
+        let sent = onlineReadMe(toHost[toHost.length - 1]);
+        if (!sent || sent.ready !== true || sent.rev !== 0) bad.push('a Ready before any list names revision 0: ' + toHost[toHost.length - 1]);
+        const seats = [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'kai', ready: false, rt: 30 }];
+        OnlineUI.heardLobby({ mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 7, seats });
+        if (OnlineUI.mine.ready) bad.push('a list that says not ready left the button on');
+        OnlineUI.act('onready');
+        sent = onlineReadMe(toHost[toHost.length - 1]);
+        if (!sent || sent.ready !== true || sent.rev !== 7) bad.push('a Ready names the revision of the list: ' + toHost[toHost.length - 1]);
+        OnlineUI.heardLobby({ mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 8, seats });
+        if (OnlineUI.mine.ready) bad.push('a new revision from the host takes Ready off');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): a round trip that is not a number is dropped (the list would carry null and every guest would refuse it), and a guest that misses three pings shows "no reply", holds Start and comes back with its next answer', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        const pong = (guest, text) => OnlineUI.onMessage(guest.link, ONLINE_PONG + text);
+        for (const text of ['abc', '', 'NaN', 'Infinity', '-Infinity', '1e999']) pong(a, text);
+        if (a.samples.length || a.roundTrip !== -1) bad.push('a pong that is not a time was kept: ' + a.samples.join());
+        for (let k = 0; k < ONLINE_SAMPLES_MIN; k++) for (const guest of [a, b]) { pong(guest, String(performance.now() - 20)); guest.ready = true; }
+        pong(a, 'abc');
+        OnlineUI.pushLobby();
+        const list = lastList(heard[1]);
+        if (!list || list.seats.some((row) => !Number.isFinite(row.rt))) bad.push('the list a guest gets must stay readable: ' + JSON.stringify(list));
+        if (OnlineUI.startProblem() !== '') bad.push('both guests answer: ' + OnlineUI.startProblem());
+        // two pings pass, a third: guest 2 stays quiet, guest 3 answers each time
+        for (let k = 0; k < ONLINE_MISSED_PINGS; k++) {
+          if (k === ONLINE_MISSED_PINGS - 1 && OnlineUI.silent(a)) bad.push('silent after ' + k + ' pings');
+          OnlineUI.tick(); pong(b, String(performance.now() - 20));
+        }
+        if (!OnlineUI.silent(a) || OnlineUI.silent(b)) bad.push('the quiet guest is not told apart: ' + a.missed + ' ' + b.missed);
+        const rows = OnlineUI.hostRows();
+        if (rows[1].rt !== ONLINE_NO_REPLY || rows[2].rt < 0) bad.push('rows ' + JSON.stringify(rows.map((row) => row.rt)));
+        if (!UI.screen_onlinehost().includes('no reply')) bad.push('the host screen does not say no reply');
+        if (OnlineUI.startProblem() !== 'Player 2 does not answer. Wait a moment, or remove them.') bad.push('Start with a quiet guest: ' + OnlineUI.startProblem());
+        const toB = lastList(heard[1]);
+        if (!toB || toB.seats[1].rt !== ONLINE_NO_REPLY) bad.push('the guests are told: ' + JSON.stringify(toB && toB.seats));
+        pong(a, String(performance.now() - 20));
+        if (OnlineUI.silent(a) || OnlineUI.hostRows()[1].rt < 0 || OnlineUI.startProblem() !== '') bad.push('an answer brings the guest back: ' + OnlineUI.startProblem());
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): Remove tells the guest it was removed (the guest\'s screen says so, not "check the Wi-Fi"), the seat is free at once, and the link closes a moment later', async () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        heard[0].length = 0;
+        OnlineUI.act('onkick', '2');
+        if (!heard[0].includes(ONLINE_REMOVED) || OnlineUI.isOpen(OnlineUI.slotOf(2)) || OnlineUI.hostRows().length !== 2) bad.push('Remove: ' + heard[0].join('|'));
+        if (pairs[0][0].state !== 'open') bad.push('the link closed before the message could leave');
+        await new Promise((resolve) => setTimeout(resolve, ONLINE_REMOVE_CLOSE_MS + 120));
+        if (pairs[0][0].state !== 'closed') bad.push('the link of a removed guest did not close');
+        if (pairs[1][0].state !== 'open') bad.push('another guest was closed');
+        // the guest's side
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: true }, view: { mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 1, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }] } });
+        OnlineUI.listen(guestSide);
+        hostSide.send(ONLINE_REMOVED);
+        const screen = UI.screen_onlinejoin();
+        if (guestSide.state !== 'closed' || OnlineUI.mine.ready || OnlineUI.view !== null || !screen.includes(esc(ONLINE_MESSAGES.removed)) || screen.includes('Check the Wi-Fi')) bad.push('the guest after Remove: ' + guestSide.state + ' ' + screen.includes(esc(ONLINE_MESSAGES.removed)));
+        // only the link this screen holds may remove it
+        const [, otherGuest] = makeStandInLinks();
+        Object.assign(OnlineUI, { role: 'guest', link: guestSide, note: '' });
+        OnlineUI.onMessage(otherGuest, ONLINE_REMOVED);
+        if (OnlineUI.note !== '') bad.push('a link this screen does not hold removed the guest');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    }, 10000); // deferred: it runs after every other test, so the shared OnlineUI is its own, and its time limit starts then
+    /* Layout (P18-19 way): the lobby screens in a frame of a phone, portrait and landscape. Every control and every part of a lobby row must be inside the screen, not clipped and not on top of another control. */
+    test('Online lobby (P12-06 review): the lobby screens fit a phone - layout at 390 x 844 and 844 x 390: the host lobby with three guests (Remove, the browser text, no reply), the host lobby with a seat still waiting, the guest lobby and Players and teams with Online friends: no sideways scroll, every control and every part of a row inside the screen, nothing clipped, no two controls on top of each other', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the phone sizes were not measured';
+      const bad = [], styles = [...document.querySelectorAll('style')].map((st) => st.textContent).join('\n'), lobby = lobbyKit();
+      const longest = ROSTER.reduce((best, r) => (r.name.length > best.name.length ? r : best)).id, pages = [];
+      try {
+        lobby.host([2, 3, 4], { fighter: longest, ready: true, samples: [20, 20, 20], engine: 'gecko', missed: 0 });
+        OnlineUI.hostFighter = longest; OnlineUI.guests[1].ready = false; OnlineUI.guests[2].missed = ONLINE_MISSED_PINGS;
+        pages.push(['host lobby with three guests', UI.screen_onlinehost()]);
+        OnlineUI.mode = 'free';
+        pages.push(['host lobby, Free Fight', UI.screen_onlinehost()]);
+        lobby.host([2], { fighter: longest, ready: true, samples: [20, 20, 20] });
+        OnlineUI.guests.push({ seat: 3, link: { state: 'waiting', error: null, seat: 3 }, offerCode: 'BPO-' + 'A'.repeat(300), answerText: '', note: '', roundTrip: -1, samples: [], ready: false });
+        OnlineUI.guests.push({ seat: 4, link: { state: 'failed', error: { code: 'timeout', message: ONLINE_MESSAGES.timeout }, seat: 4 }, offerCode: 'BPO-x', answerText: '', note: '', roundTrip: -1, samples: [], ready: false });
+        pages.push(['host lobby with a waiting seat and a failed one', UI.screen_onlinehost()]);
+        const [, guestSide] = makeStandInLinks(); guestSide.seat = 4;
+        const seats = [0, 1, 2, 3].map((seat) => ({ seat, fighter: longest, ready: seat !== 2, rt: seat === 0 ? -1 : seat === 3 ? ONLINE_NO_REPLY : 150 }));
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: longest, ready: false }, view: { mode: 'free', arena: 'dojo', text: 'Brawl, 4 fighters, 3 online slots', you: 3, rev: 1, seats } });
+        pages.push(['guest lobby', UI.screen_onlinejoin()]);
+        Object.assign(OnlineUI, { link: { state: 'closed', error: null, seat: 4 }, view: null, note: ONLINE_MESSAGES.removed });
+        pages.push(['guest after Remove', UI.screen_onlinejoin()]);
+        const keepSave = Setups.save; Setups.save = () => {};
+        withFree(() => {
+          UI.lineupLocal('lopp', 1); UI.lineupLocal('lopp', 1); UI.lineupLocal('lnet', 1);
+          for (let slot = 1; slot < 4; slot++) UI.lineupLocal('lctl:' + slot, 1), UI.lineupLocal('lctl:' + slot, 1);
+          pages.push(['Players and teams with Online friends', UI.screen_lineup()], ['Free Fight first screen with Online friends', UI.screen_freefight()]);
+        });
+        Setups.save = keepSave;
+        for (const [width, height] of [[390, 844], [844, 390]]) {
+          for (const [name, html] of pages) {
+            const frame = document.createElement('iframe');
+            frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+            document.body.appendChild(frame);
+            try {
+              const doc = frame.contentDocument, win = frame.contentWindow, where = name + ' at ' + width + ' x ' + height + ': ';
+              doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+              const screen = doc.querySelector('.screen'), panel = doc.querySelector('.panel');
+              if (!screen || !panel) { bad.push(where + 'no screen'); continue; }
+              const sideways = Math.max(screen.scrollWidth - screen.clientWidth, panel.scrollWidth - panel.clientWidth, doc.documentElement.scrollWidth - width);
+              if (sideways > 1) bad.push(where + 'sideways ' + sideways);
+              const label = (el) => (el.getAttribute('aria-label') || el.id || el.textContent || el.tagName).trim().slice(0, 28);
+              const controls = [...doc.querySelectorAll('button, [data-nav], textarea')].map((el) => [el, el.getBoundingClientRect()]);
+              for (const [el, r] of controls) {
+                if (r.width < 8 || r.height < 8) bad.push(where + label(el) + ' is not visible');
+                else if (r.left < -1 || r.right > width + 1) bad.push(where + label(el) + ' leaves the screen sideways (' + Math.round(r.left) + ' to ' + Math.round(r.right) + ')');
+              }
+              const mine = (el) => !!el.closest('.onrow') || (!!el.closest('.slot') && /^(Online|Friend picks)$/.test(el.textContent.trim())); // a fighter name in a lineup cell is cut with an ellipsis by design (P18-19): only this task's own texts must fit
+              for (const el of [...doc.querySelectorAll('.onrow *, .slot .v, .onseat button.mi, .row button.mi')].filter(mine)) {
+                const overflow = win.getComputedStyle(el).overflowX;
+                if (el.clientWidth > 0 && (overflow === 'hidden' || overflow === 'clip') && el.scrollWidth > el.clientWidth + 1) bad.push(where + label(el) + ' is clipped (' + el.scrollWidth + ' in ' + el.clientWidth + ')');
+              }
+              for (const row of doc.querySelectorAll('.onrow')) {
+                const box = row.getBoundingClientRect();
+                for (const part of row.children) { const r = part.getBoundingClientRect(); if (r.width > 0 && (r.left < box.left - 1 || r.right > box.right + 1)) bad.push(where + label(part) + ' sticks out of its row'); }
+              }
+              const flat = controls.filter(([el]) => !el.closest('.sticky'));
+              for (let i = 0; i < flat.length; i++) for (let j = i + 1; j < flat.length; j++) {
+                const [one, a] = flat[i], [two, b] = flat[j];
+                if (one.contains(two) || two.contains(one)) continue;
+                const across = Math.min(a.right, b.right) - Math.max(a.left, b.left), down = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                if (across > 2 && down > 2) bad.push(where + label(one) + ' and ' + label(two) + ' overlap');
+              }
+            } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+          }
+        }
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- the re-review of P12-06 ---------- */
+    test('Online lobby (P12-06 re-review): a guest removed a moment before Start is not handed to the match (its link is closed with the others that are not open) and the match starts with the guest that is left', () => {
+      const kit = reviewKit(), lobby = lobbyKit(), bad = [];
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        Object.assign(a, { fighter: 'mara', ready: true, samples: [20, 20, 20] }); Object.assign(b, { fighter: 'brutus', ready: true, samples: [20, 20, 20] });
+        OnlineUI.act('onkick', '2');
+        if (pairs[0][0].state !== 'open' || OnlineUI.isOpen(a)) bad.push('the removed guest must still have an open link and not count as open');
+        b.ready = true;
+        UI.current = null; OnlineUI.startGame();
+        if (!Game.net || OnlinePlay.links.size !== 1 || !OnlinePlay.links.has(2) || pairs[0][0].state !== 'closed' || pairs[1][0].state !== 'open') bad.push('Start with a guest removed a moment ago: links ' + OnlinePlay.links.size + ', removed ' + pairs[0][0].state + ', kept ' + pairs[1][0].state + ' ' + lobby.toasts.slice(-1));
+        if (kit.starts(heard)[1].length !== 1 || kit.starts(heard)[0].length) bad.push('the start went to the removed guest or not to the other');
+      } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 re-review): the host says "Player N left." for a guest that went away, not for one it removed', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs } = lobby.host([2, 3]);
+        const [a] = OnlineUI.guests;
+        OnlineUI.act('onkick', '2');
+        pairs[0][0].state = 'failed'; pairs[0][0].error = { code: 'lost', message: ONLINE_MESSAGES.lost };
+        OnlineUI.onState(pairs[0][0], 'failed');
+        if (lobby.toasts.length || !a.removed) bad.push('a removed guest\'s link failed and the host said ' + JSON.stringify(lobby.toasts));
+        pairs[1][0].state = 'failed'; pairs[1][0].error = { code: 'lost', message: ONLINE_MESSAGES.lost };
+        OnlineUI.onState(pairs[1][0], 'failed');
+        if (lobby.toasts.join() !== 'Player 3 left.') bad.push('a guest that went away: ' + JSON.stringify(lobby.toasts));
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 re-review): a mode that follows the number of players counts as a change of the settings - a third player turns 1 vs 1 into Brawl, raises the revision and withdraws every Ready, and a mode that was picked does not change with the players', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        lobby.host([2]);
+        const [a] = OnlineUI.guests;
+        OnlineUI.lineupSig = OnlineUI.lineupSignature();
+        const third = () => { const [hostSide] = makeStandInLinks(); hostSide.seat = 3; return { seat: 3, link: hostSide, offerCode: '', answerText: '', note: '', roundTrip: -1, openedAt: performance.now() - 5000, engine: onlineEngine(), fighter: undefined, ready: false, samples: [], reverse: false }; };
+        a.ready = true;
+        const rev0 = OnlineUI.rev;
+        OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev0 || !a.ready || OnlineUI.modeNow(2) !== 'fight') bad.push('nothing changed yet: ' + OnlineUI.rev + ' ' + a.ready);
+        OnlineUI.guests.push(third());
+        UI.screen_onlinehost(); // drawing the screen notices it, as the ping timer does
+        if (OnlineUI.modeNow(3) !== 'brawl' || OnlineUI.rev <= rev0 || a.ready) bad.push('a third player did not count as a change: rev ' + rev0 + ' > ' + OnlineUI.rev + ', Ready ' + a.ready);
+        const rev1 = OnlineUI.rev;
+        UI.screen_onlinehost(); OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev1) bad.push('the same settings raised the revision again');
+        a.ready = true;
+        OnlineUI.guests.pop();
+        OnlineUI.tick();
+        if (OnlineUI.rev <= rev1 || a.ready) bad.push('a player that left did not count: ' + OnlineUI.rev);
+        // a mode that was picked stays: another player changes nothing
+        OnlineUI.mode = 'tournament'; OnlineUI.syncLineup();
+        const rev2 = OnlineUI.rev;
+        a.ready = true;
+        OnlineUI.guests.push(third());
+        OnlineUI.syncLineup();
+        if (OnlineUI.rev !== rev2 || !a.ready) bad.push('a picked mode changed with the number of players');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Mode flows (P12-06 re-review): the Lineup button of the online lobby opens Players and teams and the fighter cards in the menu state, on top of the lobby (the one MENU state with these screens that the random walks allow), Back from the cards goes to the lineup and Back from the lineup to the lobby with its guests, and nothing in a Tournament left in the selection can send it to the join screen', () => withFlow([], (flow) => {
+      const keep = { supported: Online.supported, create: Online.createLink }, bad = [];
+      const keepMode = Game.selection.mode;
+      Game.selection.mode = 'tournament'; // left there by an earlier visit: the cards' Back must not read it
+      Online.supported = () => true;
+      Online.createLink = () => ({ state: 'idle', error: null, seat: 0, onState: () => () => {}, onMessage: () => () => {}, makeOffer: () => new Promise(() => {}), close() {} }); // a link that never connects: no network in a test
+      const agree = (label) => { if (!FLOW_SCREENS[Game.state] || !(FLOW_SCREENS[Game.state].includes(UI.current) || lobbyLineupLegal(Game.state, UI.current))) bad.push(label + ': ' + Game.state + ' with the ' + UI.current + ' screen'); };
+      try {
+        flow.press('online'); flow.press('onhost');
+        agree('the host screen');
+        UI.changeLocal('olb:mode', 1); UI.changeLocal('olb:mode', 1);
+        if (OnlineUI.modeNow(1) !== 'free' || !flow.acts().includes('onlineup')) return 'the Free Fight mode did not offer the Lineup button: ' + OnlineUI.modeNow(1);
+        flow.press('onlineup');
+        agree('the lineup');
+        if (UI.current !== 'lineup' || Game.state !== GS.MENU) bad.push('the lineup opened as ' + Game.state + '/' + UI.current);
+        UI.changeLocal('lfig:0', 1, true);
+        agree('the fighter cards');
+        if (UI.current !== 'char') bad.push('a fighter cell did not open the cards: ' + UI.current);
+        flow.escape();
+        agree('back from the cards');
+        if (UI.current !== 'lineup') bad.push('Back from the cards went to ' + UI.current);
+        flow.escape();
+        agree('back from the lineup');
+        if (UI.current !== 'onlinehost' || Game.state !== GS.MENU || OnlineUI.role !== 'host' || !OnlineUI.loop) bad.push('Back from the lineup: ' + Game.state + '/' + UI.current + ', the lobby is ' + (OnlineUI.role || 'gone'));
+        flow.backOut();
+        if (Game.state !== GS.MENU) bad.push('after leaving the lobby the game is ' + Game.state);
+      } finally { Online.supported = keep.supported; Online.createLink = keep.create; Game.selection.mode = keepMode; OnlineUI.reset(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }), 10000); // deferred: opening the lobby resets OnlineUI, which closes the link an earlier async test still holds
+    /* ---------- the title song and the intro (P18-60, Appendix C "P18-60 built") ---------- */
+    /* A stand-in audio context that records what is scheduled (the song and the intro need no browser), and the state of Sound, Song, Intro and Music put back after a test. */
+    const SONG_NAMES = ['drums', 'rhythm', 'lead', 'high', 'bass'];
+    const songAudio = () => {
+      const made = { oscillators: [], gains: [], sources: [], connected: [] };
+      const param = () => { const calls = []; return { calls, value: 0, setValueAtTime(v) { calls.push(['set', v]); }, linearRampToValueAtTime(v) { calls.push(['ramp', v]); }, exponentialRampToValueAtTime(v) { calls.push(['exp', v]); }, setTargetAtTime(v) { calls.push(['target', v]); }, cancelScheduledValues() { calls.push(['cancel']); } }; };
+      const node = (extra) => Object.assign({ connect(dest) { made.connected.push([this, dest]); return dest; }, disconnect() {} }, extra);
+      const ctx = {
+        currentTime: 0, state: 'running', resume() { return Promise.resolve(); },
+        createOscillator() { const o = node({ frequency: param(), detune: param(), type: '', start(at) { this.from = at; }, stop(at) { this.stops.push(at); if (at !== undefined) this.until = at; }, stops: [] }); made.oscillators.push(o); return o; },
+        createGain() { const g = node({ gain: param() }); made.gains.push(g); return g; },
+        createBiquadFilter() { return node({ frequency: param(), Q: param(), type: '' }); },
+        createWaveShaper() { return node({ curve: null }); },
+        createBufferSource() { const s = node({ loop: false, buffer: null, start(at) { this.from = at; }, stop(at) { this.until = at; } }); made.sources.push(s); return s; },
+      };
+      return { ctx, made, bus: node({}) };
+    };
+    const withSongAudio = (body) => {
+      const keep = { sound: saveSound(), song: Object.assign({}, Song), intro: Object.assign({}, Intro), music: { track: Music.track, intensity: Music.intensity, active: Music.active, step: Music.step, nextTime: Music.nextTime }, volume: Settings.v.music };
+      const audio = songAudio();
+      Object.assign(Sound, { ctx: audio.ctx, musicBus: audio.bus, noiseBuf: { duration: 2 }, unsupported: false, amb: null, ambKey: -1 });
+      Music.active = false;
+      Object.assign(Song, { playing: false, finished: false, stopped: false, t0: 0, cursor: 0, nodes: null, starts: 0, played: 0, dropped: 0 });
+      Object.assign(Intro, { phase: 'off', el: null, handlers: [], padHeld: [], still: '', silent: false, pos: 0, wall: 0 });
+      try { return body(audio); } finally { Object.assign(Sound, keep.sound); Object.assign(Song, keep.song); Object.assign(Intro, keep.intro); Object.assign(Music, keep.music); Settings.v.music = keep.volume; if (Intro.phase !== 'off') Intro.lock(true); }
+    };
+    const introElement = () => { const classes = new Set(), el = { classes, removed: false, classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) }, remove() { el.removed = true; } }; return el; };
+    const introKey = (extra) => Object.assign({ isTrusted: true, key: 'a', repeat: false, ctrlKey: false, metaKey: false, altKey: false, stopped: false, prevented: false, stopPropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; } }, extra);
+    // The card up as the game puts it (a stand-in element, the picture replaced by a list of the times it was asked for), the frames as the game runs them: Music.update, then Intro.update
+    const introCard = (audio) => {
+      const drawn = [];
+      Object.assign(Intro, { phase: 'card', el: introElement(), draw: (p) => drawn.push(p), padHeld: [], handlers: [], silent: false, pos: 0, wall: 0 });
+      const frames = (seconds, dt = 1 / 60) => { for (let i = 0; i < Math.round(seconds / dt); i++) { audio.ctx.currentTime += dt; Music.update(); Intro.update(dt); } };
+      return { drawn, frames };
+    };
+    test('Intro song data (P18-60): the table decodes to the notes of music/hikari-samurai.mid: 180 bpm, 28.0 s, 279 drum hits and 416 / 103 / 36 / 72 guitar and bass notes on the sixteenth grid, in time order, inside the song, with the file\'s pitches', () => {
+      const bad = [], list = songEvents(), expected = { drums: 279, rhythm: 416, lead: 103, high: 36, bass: 72 };
+      const first = { drums: 8, rhythm: 16, lead: 14, high: 208, bass: 80 };
+      const pitches = { rhythm: [48, 50, 52, 55, 57, 59, 60, 62, 64], lead: [54, 55, 59, 60, 62, 63, 64, 66, 67, 69, 71, 72, 74, 79], high: [62, 64, 66, 67, 69, 71, 72, 76, 81, 83], bass: [36, 40, 43, 45, 47, 48, 50, 51, 52, 54, 55, 57, 59] };
+      if (SONG_DATA.bpm !== 180 || SONG_DATA.steps !== 336) bad.push('bpm ' + SONG_DATA.bpm + ', steps ' + SONG_DATA.steps);
+      if (Math.abs(SONG_SECS - 28) > 1e-9 || Math.abs(SONG_STEP_SECS - 1 / 12) > 1e-9) bad.push('the song lasts ' + SONG_SECS + ' s, a step ' + SONG_STEP_SECS);
+      SONG_NAMES.forEach((name, voice) => {
+        const own = list.filter((e) => e.voice === voice);
+        const count = own.reduce((sum, e) => sum + (voice === 0 ? [1, 2, 4, 8, 16].filter((bit) => e.mask & bit).length : e.chord ? 3 : 1), 0);
+        if (count !== expected[name]) bad.push(name + ' has ' + count + ' notes, the file ' + expected[name]);
+        if (own[0].step !== first[name]) bad.push(name + ' starts at step ' + own[0].step + ', the file at ' + first[name]);
+        if (voice === 0) { if (own.some((e) => !(e.mask > 0 && e.mask < 32))) bad.push('a drum mask outside the five drums'); return; }
+        const sounding = [...new Set(own.flatMap((e) => (e.chord ? [e.pitch, e.pitch + 7, e.pitch + 12] : [e.pitch])))].sort((a, b) => a - b);
+        if (sounding.join() !== pitches[name].join()) bad.push(name + ' pitches ' + sounding.join(' '));
+        if (own.some((e) => !(e.len >= 1 && e.step + e.len <= SONG_DATA.steps))) bad.push(name + ' has a note that leaves the song');
+        if (name === 'rhythm' && own.filter((e) => !e.chord).length !== 8) bad.push('the rhythm guitar plays ' + own.filter((e) => !e.chord).length + ' single notes, the file 8');
+      });
+      if (list.some((e, i) => i && e.step < list[i - 1].step)) bad.push('the events are not in time order');
+      if (Math.max(...list.filter((e) => e.voice).map((e) => e.step + e.len)) !== SONG_DATA.steps) bad.push('the last note does not end with the song');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Intro song (P18-60): the song is handed to the audio clock a little ahead, every step in time and none left out, from its first step to its last; every source stops by the end of the tail (silence after the 28 s); it plays on its own gain node through the music bus, so the Music volume and the pause duck act on it', () => withSongAudio((audio) => {
+      const bad = [], list = songEvents(), fresh = (fromOsc, fromSrc) => [...audio.made.oscillators.slice(fromOsc), ...audio.made.sources.slice(fromSrc)];
+      Settings.v.music = 0;
+      Object.assign(Sound, { master: { gain: { setTargetAtTime() {} } }, sfxBus: { gain: { setTargetAtTime() {} } }, uiBus: { gain: { setTargetAtTime() {} } } });
+      audio.bus.gain = { calls: [], setTargetAtTime(v) { this.calls.push(v); } };
+      Sound.applyVolumes();
+      if (audio.bus.gain.calls.join() !== '0') bad.push('the Music volume 0 sets the music bus to ' + audio.bus.gain.calls.join());
+      if (!Song.start()) return 'the song did not start on a running audio context';
+      const t0 = Song.t0;
+      if (Math.abs(t0 - SONG_LEAD_SECS) > 1e-9) bad.push('the first step is at ' + t0 + ' s, not ' + SONG_LEAD_SECS + ' after the start');
+      if (audio.made.connected.filter(([, to]) => to === audio.bus).length !== 1) bad.push('the song does not connect to the music bus with one gain node of its own');
+      let seenOsc = audio.made.oscillators.length, seenSrc = audio.made.sources.length; // the first oscillator is the vibrato's
+      while (audio.ctx.currentTime < SONG_SECS + 2) {
+        audio.ctx.currentTime += 1 / 60; Song.pump();
+        const now = audio.ctx.currentTime;
+        for (const node of fresh(seenOsc, seenSrc)) if (!(node.from - now <= SONG_AHEAD_SECS + 1e-9 && node.from - now >= SONG_AHEAD_SECS - 2 / 60)) { bad.push('a source is handed over ' + (node.from - now).toFixed(3) + ' s ahead'); break; }
+        seenOsc = audio.made.oscillators.length; seenSrc = audio.made.sources.length;
+      }
+      if (Song.played !== list.length || Song.dropped) bad.push(Song.played + ' of ' + list.length + ' steps played, ' + Song.dropped + ' dropped');
+      if (!Song.finished || Song.playing) bad.push('the song has not ended after its tail');
+      const total = fresh(0, 0).length;
+      for (let i = 0; i < 300; i++) { audio.ctx.currentTime += 1 / 60; Song.pump(); }
+      if (fresh(0, 0).length !== total) bad.push('the song scheduled sounds after its end');
+      const notes = fresh(1, 0), end = Math.max(...notes.map((n) => n.until)), start = Math.min(...notes.map((n) => n.from));
+      if (end > t0 + SONG_SECS + SONG_TAIL_SECS + 0.1) bad.push('a sound runs to ' + end.toFixed(2) + ' s, past the end of the tail at ' + (t0 + SONG_SECS + SONG_TAIL_SECS).toFixed(2));
+      if (start < t0) bad.push('a sound starts before the first step');
+      const fade = audio.made.gains[0].gain.calls.filter((c) => c[0] === 'ramp' && c[1] === 0).length;
+      if (fade !== 1) bad.push('the song has no fade out at its end');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    }));
+    test('Intro song (P18-60): a stalled frame leaves the late steps out instead of playing them in a burst; a stop silences it for good (and nothing is scheduled after it); a new start begins at the first step', () => withSongAudio((audio) => {
+      const bad = [], list = songEvents();
+      Song.start();
+      const t0 = Song.t0, now = 10;
+      audio.ctx.currentTime = now; Song.pump();
+      const late = list.filter((e) => t0 + e.step * SONG_STEP_SECS < now - 0.1).length, due = list.filter((e) => { const at = t0 + e.step * SONG_STEP_SECS; return at >= now - 0.1 && at <= now + SONG_AHEAD_SECS; }).length;
+      if (Song.dropped !== late || Song.played !== due) bad.push('after a stall of 10 s: ' + Song.dropped + ' left out (expected ' + late + '), ' + Song.played + ' played (expected ' + due + ')');
+      Song.stop();
+      const out = audio.made.gains[0].gain.calls;
+      if (!Song.stopped || Song.playing || !out.some((c) => c[0] === 'target' && c[1] === 0)) bad.push('a stop does not fade the song to 0');
+      if (audio.made.oscillators[0].stops.length !== 2) bad.push('a stop leaves the vibrato running to the planned end of the song');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      audio.ctx.currentTime = 20; Song.pump();
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('the song scheduled after a stop');
+      audio.ctx.currentTime = 30;
+      if (!Song.start() || Song.cursor !== list.filter((e) => 30 + SONG_LEAD_SECS + e.step * SONG_STEP_SECS <= 30 + SONG_AHEAD_SECS).length || Song.starts !== 2) bad.push('a new start does not begin at the first step');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro song and the menu (P18-60): the menu has no code-made theme (nothing is scheduled at intensity 0), the fight music is unchanged, a fight stops the title song, and entering the menu again does not start the song again', () => withSongAudio((audio) => {
+      const bad = [], track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }, made = () => audio.made.oscillators.length + audio.made.sources.length;
+      Music.start(track, 0);
+      for (let i = 0; i < 300; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
+      if (made()) bad.push('the menu schedules ' + made() + ' sources');
+      Music.start(track, 1);
+      for (let i = 0; i < 120; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
+      if (!made()) bad.push('the fight music schedules nothing');
+      Song.start();
+      if (Song.starts !== 1 || !Song.playing) return 'the song did not start';
+      Music.start(track, 1);
+      if (!Song.stopped || Song.playing) bad.push('a fight does not stop the title song');
+      Music.start(track, 0); Music.update();
+      if (Song.starts !== 1 || Song.playing) bad.push('entering the menu again starts the song again');
+      Intro.phase = 'off';
+      if (Intro.press()) bad.push('a press after the intro brings it back');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro card (P18-60): the card waits for a press for ever (no audio, no song, no timeout); a real key or a tap starts the reveal and the song at the same moment; synthetic events, modifier keys, browser shortcuts and held keys do not; the menu below never sees the key', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      card.frames(30);
+      if (Intro.phase !== 'card' || Song.starts || audio.made.oscillators.length) bad.push('the card moved on by itself');
+      for (const [label, event] of [['a synthetic key', introKey({ isTrusted: false })], ['Shift', introKey({ key: 'Shift' })], ['Ctrl+R', introKey({ key: 'r', ctrlKey: true })], ['F5', introKey({ key: 'F5' })], ['a held key', introKey({ repeat: true })], ['Escape', introKey({ key: 'Escape' })]]) {
+        Intro.onKey(event);
+        if (Intro.phase !== 'card' || Song.starts) bad.push(label + ' started the reveal');
+      }
+      const key = introKey({ key: 'Enter' });
+      Intro.onKey(key);
+      if (Intro.phase !== 'play' || Song.starts !== 1 || Intro.silent) bad.push('a key did not start the reveal and the song together (' + Intro.phase + ', ' + Song.starts + ' starts)');
+      if (!key.stopped || !key.prevented) bad.push('the key went on to the menu');
+      if (!Intro.el.classes.has('go')) bad.push('the card does not leave');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro reveal (P18-60): the reveal lasts 6 s on the audio clock, then the menu opens (the overlay fades out) and the song plays on, not restarted, to its end at 28 s; after that nothing sounds', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio), list = songEvents();
+      Intro.onKey(introKey());
+      card.frames(5.9);
+      if (Intro.phase !== 'play') bad.push('the reveal ended before 6 s (' + Intro.phase + ')');
+      const el = Intro.el;
+      card.frames(0.3);
+      if (Intro.phase !== 'off' || !el.classes.has('out')) bad.push('the menu did not open at 6 s');
+      if (Intro.pos < INTRO_SECS || Intro.pos > INTRO_SECS + 1 / 60 + 1e-6) bad.push('the reveal ended ' + Intro.pos.toFixed(3) + ' s into the song');
+      if (!Song.playing || Song.starts !== 1 || Song.stopped) bad.push('the song did not play on into the menu without a restart');
+      if (!(Math.max(...card.drawn) < INTRO_SECS && Math.max(...card.drawn) > INTRO_SECS - 0.05) || card.drawn.some((p, i) => i && p < card.drawn[i - 1])) bad.push('the picture does not run forward over 6 s');
+      card.frames(SONG_SECS);
+      if (!Song.finished || Song.played !== list.length) bad.push('the song did not play to its end (' + Song.played + ' of ' + list.length + ')');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      card.frames(10);
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('something was scheduled after the end');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro skip (P18-60): a press during the reveal ends the intro at once and stops the song (the menu is silent), a press inside the first 350 ms or a held key does not; a touch skip keeps the overlay in the way until it is gone', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      Intro.onKey(introKey());
+      card.frames(1);
+      Intro.startedAt = performance.now();
+      Intro.onKey(introKey({ key: 'b' }));
+      if (Intro.phase !== 'play') bad.push('a press inside the guard skipped');
+      Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10;
+      Intro.onKey(introKey({ key: 'b', repeat: true }));
+      if (Intro.phase !== 'play') bad.push('a held key skipped');
+      const el = Intro.el;
+      Intro.press();
+      if (Intro.phase !== 'off' || !Song.stopped || Song.playing) bad.push('the press did not end the intro and the song (' + Intro.phase + ')');
+      if (!el.classes.has('out') || !el.classes.has('hold')) bad.push('the overlay does not fade out holding clicks');
+      const count = audio.made.oscillators.length + audio.made.sources.length;
+      card.frames(3);
+      if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('the song went on after a skip');
+      Intro.skip();
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro without audio (P18-60): with no audio support the card still starts the 6 s reveal, silent, and opens the menu (the song is never started); a press that waits on a suspended context starts silent after the wait, or with the song if the audio starts first', () => withSongAudio((audio) => {
+      const bad = [];
+      introCard(audio);
+      Sound.unsupported = true; Sound.ctx = null;
+      Intro.onKey(introKey());
+      if (Intro.phase !== 'play' || !Intro.silent) bad.push('the press with no audio did not start a silent reveal (' + Intro.phase + ')');
+      for (let i = 0; i < 4 * 60; i++) Intro.update(1 / 60);
+      if (Intro.phase === 'off') bad.push('a silent reveal is shorter than 6 s');
+      for (let i = 0; i < 3 * 60; i++) Intro.update(1 / 60);
+      if (Intro.phase !== 'off' || Song.starts) bad.push('the silent reveal did not end at 6 s without a song (' + Intro.phase + ', ' + Song.starts + ' starts)');
+      Sound.unsupported = false; Sound.ctx = audio.ctx;   // the audio comes later (a tap on the menu): the song is not started late
+      for (let i = 0; i < 60; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); Intro.update(1 / 60); }
+      if (Song.starts || audio.made.oscillators.length) bad.push('the song started late, after a silent reveal');
+      audio.ctx.state = 'suspended';
+      introCard(audio);
+      Intro.onKey(introKey());
+      for (let i = 0; i < 20; i++) Intro.update(1 / 60);
+      if (Intro.phase !== 'arming') bad.push('a press on a suspended context did not wait');
+      audio.ctx.state = 'running'; Intro.update(1 / 60);
+      if (Intro.phase !== 'play' || Intro.silent || Song.starts !== 1) bad.push('the audio starting during the wait did not give the reveal its song');
+      Intro.skip();
+      audio.ctx.state = 'suspended';
+      introCard(audio);
+      Intro.onKey(introKey());
+      Intro.armedAt = performance.now() - INTRO_ARM_MS - 10; Intro.update(1 / 60);
+      if (Intro.phase !== 'play' || !Intro.silent || Song.starts !== 1) bad.push('the wait for a suspended context did not end in a silent reveal');
+      Intro.skip();
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro pause (P18-60): a frozen audio clock (the tab hidden, a call) freezes the picture with the song, and the intro cannot hang: it ends after 8 s of frames', () => withSongAudio((audio) => {
+      const bad = [], card = introCard(audio);
+      Intro.onKey(introKey());
+      card.frames(2);
+      const at = Intro.pos;
+      for (let i = 0; i < 5 * 60; i++) { Music.update(); Intro.update(1 / 60); }
+      if (Intro.phase !== 'play' || Intro.pos !== at) bad.push('a frozen clock moved the picture from ' + at + ' to ' + Intro.pos);
+      for (let i = 0; i < 4 * 60; i++) { Music.update(); Intro.update(1 / 60); }
+      if (Intro.phase !== 'off') bad.push('the intro hung on a frozen clock');
+      const watchdog = INTRO_WATCHDOG_SECS;
+      if (!(watchdog > INTRO_SECS && watchdog <= INTRO_SECS + 3)) bad.push('the watchdog is ' + watchdog + ' s');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro gamepad (P18-60): a button already down when the card went up does not start it, a new press does, a press during the reveal skips it after the guard, and the menu below does not act on the pad while the intro runs', () => withSongAudio((audio) => {
+      const bad = [], keep = { own: Object.prototype.hasOwnProperty.call(navigator, 'getGamepads'), method: navigator.getGamepads, moveFocus: UI.moveFocus, current: UI.current, down: Inputs.menuDir.down, lastScreen: UI.lastScreen, frameCount: UI.frameCount, padPrev: Object.assign({}, UI.padPrev) };
+      let pressed = true;
+      navigator.getGamepads = () => [{ connected: true, axes: [0, 0], buttons: [{ pressed }, { pressed: false }] }];
+      try {
+        const card = introCard(audio);
+        Intro.padHeld = Intro.padState();
+        card.frames(0.5);
+        if (Intro.phase !== 'card') bad.push('a button held from before started the card');
+        pressed = false; card.frames(0.2); pressed = true; card.frames(0.1);
+        if (Intro.phase !== 'play' || Song.starts !== 1) bad.push('a pad press did not start the reveal (' + Intro.phase + ')');
+        let moved = 0;
+        UI.moveFocus = () => { moved++; }; UI.current = 'main'; Inputs.menuDir.down = true; UI.padPrev.down = false;
+        UI.update();
+        if (moved) bad.push('the menu moved its focus under the intro');
+        pressed = false; card.frames(0.5); Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10; pressed = true; card.frames(0.1);
+        if (Intro.phase !== 'off' || !Song.stopped) bad.push('a pad press did not skip the reveal');
+      } finally {
+        UI.moveFocus = keep.moveFocus; UI.current = keep.current; Inputs.menuDir.down = keep.down; UI.lastScreen = keep.lastScreen; UI.frameCount = keep.frameCount; Object.assign(UI.padPrev, keep.padPrev);
+        if (keep.own) navigator.getGamepads = keep.method; else delete navigator.getGamepads;
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro flags (P18-60): ?nointro (the Chrome gate and the tests use it) and a debug ?brawl show no intro; another name does not', () => withSongAudio(() => {
+      const bad = [];
+      for (const [where, hidden] of [['?nointro', true], ['?x=1&nointro', true], ['#nointro', true], ['?brawl=6', true], ['?brawl', true], ['?nointroduction', false], ['?introduction', false], ['', false]]) {
+        if (INTRO_FLAG.test(where) !== hidden) bad.push(where + (hidden ? ' does not hide' : ' hides') + ' the intro');
+        if (hidden && (Intro.init(where) || Intro.phase !== 'off')) bad.push(where + ' shows the intro');
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    // A recorder for the picture: the calls and property writes in order; text is measured as 0.6 of its font size per letter; a gradient takes colour stops
+    const introRecorder = () => {
+      const calls = [], props = {}, gradient = { addColorStop() {} };
+      const g = new Proxy({}, {
+        get(target, key) {
+          if (key in props) return props[key];
+          if (key === 'measureText') return (text) => ({ width: text.length * 0.6 * Number(/([\d.]+)px/.exec(props.font)[1]) });
+          if (key === 'createLinearGradient' || key === 'createRadialGradient') return (...args) => { calls.push([key, ...args]); return gradient; };
+          return (...args) => { calls.push([key, ...args, props.font]); };
+        },
+        set(target, key, value) { props[key] = value; calls.push(['set ' + key, value]); return true; },
+      });
+      return { g, calls };
+    };
+    test('Intro picture (P18-60): the picture is a function of the time: every number finite at 390x844 and 844x390 for all 6 s, the title inside the screen at both; a landing hits at its chord (scale, flash, dust), Reduced motion and Flashes Off show no slam, no shake, no flash and no dust and still show the title', () => {
+      const bad = [], full = { reduced: false, shake: 1, flash: 1 };
+      for (const [w, h] of [[390, 844], [844, 390]]) {
+        for (let p = 0; p <= INTRO_SECS + 1e-9; p += 1 / 30) {
+          const { g, calls } = introRecorder();
+          introFrame(g, w, h, p, full);
+          if (calls.some((call) => call.some((arg) => typeof arg === 'number' && !Number.isFinite(arg)))) { bad.push(w + 'x' + h + ' has a number that is not finite at ' + p.toFixed(2) + ' s'); break; }
+        }
+        const { g, calls } = introRecorder();
+        introFrame(g, w, h, 5, full);
+        const words = calls.filter((call) => call[0] === 'fillText'), places = calls.filter((call) => call[0] === 'translate' && call[1] === w / 2);
+        if (words.length !== INTRO_WORDS.length) bad.push(w + 'x' + h + ' shows ' + words.length + ' words at 5 s');
+        words.forEach((word, i) => {
+          const size = Number(/([\d.]+)px/.exec(word[4])[1]), width = word[1].length * 0.6 * size;
+          if (width > w * 0.9 || !places[i] || places[i][2] - size / 2 < 0 || places[i][2] + size / 2 > h) bad.push(w + 'x' + h + ': ' + word[1] + ' is off the screen');
+        });
+      }
+      const at = INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.005, picture = (look, p) => { const { g, calls } = introRecorder(); introFrame(g, 844, 390, p, look); return calls; };
+      const set = (calls, name, value) => calls.some((call) => call[0] === 'set ' + name && call[1] === value);
+      const hit = picture(full, at);
+      if (!hit.some((call) => call[0] === 'scale' && call[1] > 1.5)) bad.push('the first word does not land big');
+      if (!set(hit, 'fillStyle', '#ffffff') || !set(hit, 'fillStyle', '#b8c4dc')) bad.push('a landing has no flash or no dust');
+      for (const [label, look] of [['Reduced motion', { reduced: true, shake: 1, flash: 1 }], ['Flashes Off', { reduced: false, shake: 1, flash: 0 }]]) {
+        const calls = picture(look, at);
+        if (set(calls, 'fillStyle', '#ffffff')) bad.push(label + ' still flashes');
+        if (look.reduced && (set(calls, 'fillStyle', '#b8c4dc') || calls.some((call) => call[0] === 'scale' && call[1] !== 1) || calls.some((call) => call[0] === 'translate' && call[1] !== 422))) bad.push(label + ' still has dust, a slam or a shake');
+      }
+      const fade = picture({ reduced: true, shake: 1, flash: 1 }, 0.5).filter((call) => call[0] === 'fillText').length, later = picture({ reduced: true, shake: 1, flash: 1 }, 3).filter((call) => call[0] === 'fillText').length;
+      if (fade !== 0 || later !== INTRO_WORDS.length) bad.push('Reduced motion does not fade the title in (' + fade + ' words at 0.5 s, ' + later + ' at 3 s)');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Intro timeline (P18-60): the title smashes in on the first two chords of the rhythm guitar and every impact of the picture lands on a step where the song has a drum hit or a chord; the reveal ends on the snare roll, six seconds (18 beats) in; only the biggest impacts flash', () => {
+      const bad = [], steps = new Set(songEvents().map((e) => e.step)), chords = songEvents().filter((e) => e.voice === 1 && e.chord).map((e) => e.step).slice(0, 2);
+      if (INTRO_WORDS.map(([, step]) => step).join() !== chords.join()) bad.push('the words land on steps ' + INTRO_WORDS.map(([, step]) => step) + ', the first chords are at ' + chords);
+      for (const [step] of INTRO_IMPACTS) if (!steps.has(step)) bad.push('an impact at step ' + step + ' has no drum hit or note');
+      for (const [step] of INTRO_CRACKS) if (!steps.has(step)) bad.push('a crack at step ' + step + ' has no drum hit or note');
+      if (Math.abs(INTRO_SECS - 18 * 60 / SONG_DATA.bpm) > 1e-9 || INTRO_SECS * 12 !== 72 || !songEvents().some((e) => e.voice === 0 && e.step === 71 && (e.mask & 2))) bad.push('the reveal does not end on the snare roll');
+      if (introPulse(0.5) !== 0 || !(introPulse(INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.001) > 0.9) || !(introPulse(1.5) < introPulse(INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.001))) bad.push('the impact does not hit and die away');
+      if (!(introPulse(5.5, 0.95) < 0.1)) bad.push('small impacts flash');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro overlay (P18-60): the card is built over the game: a dialog with the picture, the logo and the prompt, above the menu (z-index 35)', () => {
+      if (!hasLayoutEngine()) return 'skipped: no layout engine in the headless stub; a browser self-test builds the card';
+      const keep = { el: Intro.el, canvas: Intro.canvas, g: Intro.g }, bad = [];
+      try {
+        Intro.build();
+        const el = Intro.el, style = getComputedStyle(el);
+        if (el.getAttribute('role') !== 'dialog' || !el.querySelector('canvas') || !el.querySelector('h1.logo') || !/PRESS ANY KEY OR TAP TO START/.test(el.textContent)) bad.push('the card is missing its parts');
+        if (style.position !== 'absolute' || Number(style.zIndex) < 35) bad.push('the card is not over the menu: ' + style.position + ' z-index ' + style.zIndex);
+        const box = el.getBoundingClientRect(), app = document.getElementById('app').getBoundingClientRect();
+        if (Math.abs(box.width - app.width) > 1 || Math.abs(box.height - app.height) > 1) bad.push('the card does not cover the game');
+        el.remove();
+      } finally { if (Intro.el) Intro.el.remove(); Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro touch (P18-60): the card starts on the release of a tap, not on the touch down; a skip is the touch down, not the release; taps that are not real (isTrusted false) do nothing; every listener is taken off when the intro ends', () => withSongAudio((audio) => {
+      const bad = [], listeners = [];
+      const target = () => ({ addEventListener(type, fn) { listeners.push([this, type, fn]); }, removeEventListener(type, fn) { const i = listeners.findIndex((l) => l[0] === this && l[1] === type && l[2] === fn); if (i >= 0) listeners.splice(i, 1); } });
+      const win = target(), el = Object.assign(introElement(), target());
+      const fire = (who, type, extra) => listeners.filter((l) => l[0] === who && l[1] === type).forEach((l) => l[2](Object.assign({ isTrusted: true }, extra)));
+      introCard(audio);
+      Intro.el = el; Intro.listen(win);
+      if (listeners.length !== 3) bad.push(listeners.length + ' listeners, 3 expected (a key on the window, the touch down and release on the card)');
+      fire(el, 'pointerdown');
+      if (Intro.phase !== 'card') bad.push('the touch down started the card');
+      fire(el, 'pointerup', { isTrusted: false });
+      if (Intro.phase !== 'card') bad.push('a tap that is not real started the card');
+      fire(el, 'pointerup');
+      if (Intro.phase !== 'play' || Song.starts !== 1) bad.push('the release did not start the reveal and the song (' + Intro.phase + ')');
+      Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10;
+      fire(el, 'pointerup');
+      if (Intro.phase !== 'play') bad.push('the release of a tap skipped');
+      fire(el, 'pointerdown', { isTrusted: false });
+      if (Intro.phase !== 'play') bad.push('a touch that is not real skipped');
+      fire(el, 'pointerdown');
+      if (Intro.phase !== 'off' || !Song.stopped || !el.classes.has('hold')) bad.push('the touch down did not skip');
+      if (listeners.length) bad.push(listeners.length + ' listeners left after the intro');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro and the self-test (P18-60): starting the self-test from the page takes a card or a running reveal down (the gate loads ?nointro; this keeps a card from holding back the pad and the menu tests)', () => withSongAudio((audio) => {
+      const bad = [], allowed = UI.selfTestAllowed;
+      introCard(audio);
+      UI.selfTestAllowed = () => false;
+      try {
+        UI.runSelfTest();
+        if (Intro.phase !== 'off') bad.push('the card is still up');
+        introCard(audio); Intro.onKey(introKey());
+        UI.runSelfTest();
+        if (Intro.phase !== 'off' || !Song.stopped) bad.push('the running reveal and its song are still up');
+      } finally { UI.selfTestAllowed = allowed; }
+      return bad.length ? bad.slice(0, 3).join('; ') : true;
+    }));
+    test('Intro boot (P18-60): the card goes up the way boot puts it up (Intro.init): a focused dialog over the menu with the menu under it inert; a second call and the flags put up nothing; ending the intro makes the menu live again', () => {
+      if (!hasLayoutEngine()) return 'skipped: no layout engine in the headless stub; a browser self-test puts the card up';
+      return withSongAudio(() => {
+        const bad = [], screens = document.getElementById('screens'), inert = screens.hasAttribute('inert');
+        try {
+          if (!Intro.init('') || Intro.phase !== 'card') bad.push('init did not put the card up');
+          const el = Intro.el;
+          if (!el || el.parentNode !== document.getElementById('app') || document.activeElement !== el) bad.push('the card is not in the game with the focus');
+          if (!screens.hasAttribute('inert')) bad.push('the menu is not inert under the card');
+          if (Intro.init('') !== false || Intro.init('?nointro') !== false) bad.push('a second card went up');
+          Intro.skip();
+          if (Intro.phase !== 'off' || screens.hasAttribute('inert')) bad.push('the menu is not live again after the intro');
+        } finally {
+          if (Intro.phase !== 'off') Intro.skip();
+          if (inert) screens.setAttribute('inert', '');
+        }
+        return bad.length ? bad.slice(0, 3).join('; ') : true;
+      });
+    });
+    test('Intro settings (P18-60): the real Intro.draw reads Reduced motion, Flashes and Camera shake: Reduced motion and Flashes Off show no flash, Reduced keeps it under the fights\' cap, the shake scales with the setting over its default and is none at 0', () => withSongAudio(() => {
+      const bad = [], keep = { reducedMotion: Settings.v.reducedMotion, flashes: Settings.v.flashes, shake: Settings.v.shake }, at = INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.005;
+      const view = (setting) => {
+        Object.assign(Settings.v, { reducedMotion: false, flashes: 'full', shake: SETTING_DEFS.shake.def }, setting);
+        const { g, calls } = introRecorder();
+        Object.assign(Intro, { phase: 'play', el: { clientWidth: 844, clientHeight: 390 }, canvas: { width: 0, height: 0 }, g, still: '' });
+        Intro.draw(at);
+        return calls;
+      };
+      const flash = (calls) => { const i = calls.findIndex((c) => c[0] === 'set fillStyle' && c[1] === '#ffffff'); if (i < 0) return 0; for (let k = i; k >= 0; k--) if (calls[k][0] === 'set globalAlpha') return calls[k][1]; return -1; };
+      const shake = (calls) => { const c = calls.find((call) => call[0] === 'translate' && Math.abs(call[1]) < 100); return c ? Math.hypot(c[1], c[2]) : 0; };
+      try {
+        const full = flash(view({})), reduced = flash(view({ flashes: 'reduced' }));
+        if (!(full > 0.1)) bad.push('the full flash is ' + full);
+        if (!(reduced > 0 && reduced < full * FLASH_REDUCED_ALPHA + 1e-9)) bad.push('the Reduced flash is ' + reduced + ' against ' + full);
+        if (flash(view({ flashes: 'off' })) !== 0) bad.push('Flashes Off still flashes');
+        if (flash(view({ reducedMotion: true })) !== 0) bad.push('Reduced motion still flashes');
+        const whole = shake(view({})), half = shake(view({ shake: SETTING_DEFS.shake.def / 2 }));
+        if (!(whole > 0) || Math.abs(half * 2 - whole) > 1e-6) bad.push('the shake at half the default is ' + half + ' against ' + whole);
+        if (shake(view({ shake: 0 })) !== 0 || shake(view({ reducedMotion: true })) !== 0) bad.push('the shake shows with the setting at 0 or on Reduced motion');
+        if (Math.abs(shake(view({ shake: 1 })) - whole) > 1e-6) bad.push('the shake above the default is not capped at its full size');
+      } finally { Object.assign(Settings.v, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
@@ -19359,7 +21061,24 @@ const SelfTest = {
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
-    results.settled = Promise.all(pendingTests);   // resolves when the async tests (P12-04) have filled in their results
+    const runDeferred = async () => {
+      for (const { entry, fn, limitMs } of deferredTests) {
+        const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
+        try {
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+          work = Promise.resolve(fn(ctl));
+          record(entry, await Promise.race([work, tooSlow]));
+        } catch (e) {
+          entry.detail = 'exception: ' + String(e && e.message || e);
+          ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
+          if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+        } finally { clearTimeout(timer); }
+        entry.ms = Math.round(performance.now() - started);
+        self.made.splice(0).forEach((made) => made.dispose());
+        if (Match.current) Match.current.dispose();
+      }
+    };
+    results.settled = Promise.all(pendingTests).then(runDeferred);   // resolves when the async tests (P12-04) have filled in their results
     return results;
   },
 };
