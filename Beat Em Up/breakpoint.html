@@ -240,9 +240,9 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:10em;width:15em;max-height:calc(100% - 11.3em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{left:.9em;right:auto;width:min(21em,50%);max-height:min(10em,calc(100% - 10em - max(30vmin,130px) - 7vmin))} /* with touch controls the panel sits at the left under the health bars, 6 lines at most and above the stick; the buttons are on the right */
-@media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:10em}}
+@media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
 #hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
-@media (orientation:portrait){#hud.tt #combo{left:calc(.9*16px*var(--ui) + 12*16px*var(--ui) + .5em)}}
+@media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */
 #training b{color:var(--a1)}
 #modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
 #roundlbl,#modeinfo{text-shadow:-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 0 4px #000} /* a ring of shadows round the glyphs: an outline without -webkit-text-stroke, which eats the glyphs where paint-order is not honoured on HTML text (Chromium before 123, older Safari) */
@@ -707,6 +707,8 @@ const TOUCH_BUZZ_MIN = 20, TOUCH_BUZZ_RANGE = 40; // ms: a phone's vibration is 
 const uiScaleFor = (setting, width, height) => (width > 0 ? Math.max(0.8, Math.min(setting, (width - 24) / 300, height > 0 ? Math.max(1, height / 340) : Infinity)) : setting);
 // the soft keyboard is up when the visible height is well under the height the page had with no text field in focus (the visual viewport shrinks on iOS and on current Android Chrome, the page itself on older ones)
 const softKeyboard = (visible, inner, full) => visible < Math.max(inner, full) - 80;
+// the height the page has with no keyboard: the current one, until a field has the focus; a turn of the phone (the width changes) with the field in focus starts it again
+const keyboardFullHeight = (full, lastWidth, width, inner, typing) => (!typing || width !== lastWidth ? inner : full);
 const Settings = {
   v: {},
   validate(key, value) {
@@ -19402,7 +19404,7 @@ function testApi() {
     ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
     ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
-    uiScaleFor, softKeyboard, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
+    uiScaleFor, softKeyboard, keyboardFullHeight, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
     CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
@@ -19866,10 +19868,10 @@ function installGlobalHandlers() {
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', queueResize);
   document.addEventListener('focusout', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) queueResize(); });
-  let fullHeight = window.innerHeight;
+  let fullHeight = window.innerHeight, lastWidth = window.innerWidth;
   const syncKeyboard = () => { // typing mode of the creator: a text field in focus and the keyboard up (closing the keyboard with Back leaves the field in focus, and the rows come back)
     const field = document.activeElement, typing = !!field && !!field.classList && field.classList.contains('crin'), shown = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    if (!typing) fullHeight = window.innerHeight;
+    fullHeight = keyboardFullHeight(fullHeight, lastWidth, window.innerWidth, window.innerHeight, typing); lastWidth = window.innerWidth;
     $('app').classList.toggle('kb', typing && softKeyboard(shown, window.innerHeight, fullHeight));
   };
   document.addEventListener('focusin', syncKeyboard);

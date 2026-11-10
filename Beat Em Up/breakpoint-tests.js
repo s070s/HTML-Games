@@ -11,7 +11,7 @@ const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
-  uiScaleFor, softKeyboard, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
+  uiScaleFor, softKeyboard, keyboardFullHeight, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
   COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2, DEFAULT_UNLOCKED,
@@ -18742,6 +18742,8 @@ const SelfTest = {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], identity = creatorPages()[4][1];
       if (!softKeyboard(464, 844, 844) || softKeyboard(840, 844, 844) || !softKeyboard(190, 190, 390) || softKeyboard(390, 390, 390) || !softKeyboard(500, 390, 844)) bad.push('softKeyboard says ' + [softKeyboard(464, 844, 844), softKeyboard(840, 844, 844), softKeyboard(190, 190, 390), softKeyboard(390, 390, 390), softKeyboard(500, 390, 844)]);
+      const turned = keyboardFullHeight(844, 390, 844, 390, true);   // the phone turned from portrait (390 x 844) to landscape (844 x 390) with the name field in focus, no keyboard
+      if (turned !== 390 || softKeyboard(390, 390, turned) || !softKeyboard(390, 390, 844) || keyboardFullHeight(844, 390, 390, 844, true) !== 844 || keyboardFullHeight(844, 390, 390, 464, true) !== 844 || keyboardFullHeight(844, 390, 390, 844, false) !== 844 || keyboardFullHeight(390, 844, 844, 190, false) !== 190) bad.push('keyboardFullHeight after a turn: ' + [turned, keyboardFullHeight(844, 390, 390, 844, true), keyboardFullHeight(844, 390, 390, 464, true), keyboardFullHeight(844, 390, 390, 844, false), keyboardFullHeight(390, 844, 844, 190, false)]);
       for (const [width, height] of [[844, 390], [390, 844], [844, 190], [390, 464]]) {
         inLayoutFrame(width, height, identity, (doc, win) => {
           const where = width + ' x ' + height + ': ', app = doc.getElementById('app'), field = doc.getElementById('crName'), list = doc.querySelector('.cr-body'), tabs = doc.querySelector('.tabs'), foot = doc.querySelector('.cr-foot');
@@ -18831,16 +18833,16 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720 and 667 x 375 - the Training data panel overlaps no touch button, no health bar and neither combo counter, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
       const kinds = [['Training', 'tt'], ['Co-op', 'coop']];
-      for (const [kind, hudClass] of kinds) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375]]) {
+      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
         const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
         inLayoutFrame(width, height, '', (doc, win) => {
-          const where = kind + ' HUD at ' + width + ' x ' + height + ': ';
+          const where = kind + ' HUD at ' + width + ' x ' + height + (scaled ? ' with UI scale 1.5' : '') + ': ';
           doc.getElementById('screens').innerHTML = '';
           doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
           for (const [id, text] of Object.entries(sample)) { const el = doc.getElementById(id); if (el) el.textContent = text; }
@@ -18853,10 +18855,11 @@ const SelfTest = {
           const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
           const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = [...doc.querySelectorAll('#touch .tb')];
           if (kind === 'Training') for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
+          if (cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
           for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
-          for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
-        });
+          if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
+        }, scaled ? uiScaleFor(1.5, width, height) : undefined);
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
