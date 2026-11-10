@@ -19072,7 +19072,7 @@ const SelfTest = {
         'over 2,000 characters': mutate({ text: 'y'.repeat(2100) }),
       };
       for (const [name, text] of Object.entries(refused)) if (onlineReadLobby(text) !== null) bad.push('the list was taken: ' + name);
-      if (onlineReadLobby(mutate({ arena: 'toString' })).arena !== '' || onlineReadLobby(mutate({ text: 'z'.repeat(500) })) !== null || onlineReadLobby(mutate({ text: 5 })).text !== '') bad.push('an unknown level or a long text must not travel');
+      if (onlineReadLobby(mutate({ arena: 'toString' })).arena !== '' || onlineReadLobby(mutate({ text: 'z'.repeat(500) })).text.length !== 120 || onlineReadLobby(mutate({ text: 5 })).text !== '') bad.push('an unknown level is dropped and a long text is cut to 120 characters');
       if (onlineReadLobby(null) !== null || onlineReadLobby(new ArrayBuffer(4)) !== null) bad.push('a non-string');
       const me = onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true }));
       if (!me || me.fighter !== 'mara' || me.ready !== true) bad.push('a valid pick');
@@ -19152,7 +19152,7 @@ const SelfTest = {
         screen = UI.screen_onlinehost();
         if (OnlineUI.hostRows().length !== 2 || !screen.includes('data-act="onnew:3"') || !lastList(heard[0]) || lastList(heard[0]).seats.length !== 2) bad.push('a guest that left stays on the list: ' + OnlineUI.hostRows().length);
         // Remove closes the seat of a connected player and the seat offers a new code
-        OnlineUI.act('onkick:2');
+        OnlineUI.act('onkick', '2');
         if (pairs[0][0].state !== 'closed' || OnlineUI.hostRows().length !== 1 || !UI.screen_onlinehost().includes('data-act="onnew:2"') || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Remove: ' + pairs[0][0].state);
         // the list names who can be removed and the rows are on the touch route
         if (!screen.includes('role="list"') || !/<li class="onrow tc0">/.test(screen)) bad.push('the list markup');
@@ -19467,6 +19467,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Online lobby (P12-06): a Firefox guest sends the first code: its screen makes the code (Copy, Show QR, a box for the host\'s answer), the host\'s block answers it with the seat of that block and shows the answer to send back, the guest\'s Connect opens the link; the host can switch a seat between the two directions, and a scanned code takes the same route as a pasted one', async () => {
+      await Promise.allSettled(pendingTests.slice()); // an async test starts its first step while the sync tests after it run, and they share OnlineUI and Online.createLink: this one waits until every earlier async test is done before it changes either
       const bad = [], lobby = lobbyKit(), originalCreate = Online.createLink, links = [];
       const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
       Online.createLink = (role, options = {}) => { const link = originalCreate(role, { gatherMs: 20, connectMs: 5000, guestWaitMs: 5000, connection: Fake, ...options }); links.push(link); return link; };
@@ -19492,8 +19493,9 @@ const SelfTest = {
         screen = UI.screen_onlinehost();
         for (const part of ['id="onTheirs2"', 'data-act="onhostreply:2"', 'I send the first code', 'Paste your friend']) if (!screen.includes(part)) bad.push('the reverse block lacks ' + part);
         if (screen.includes('id="onCode2"') || screen.includes('data-act="onconnect:2"')) bad.push('the reverse block shows the default direction\'s boxes');
-        slot.theirs = firstCode;
-        OnlineUI.act('onhostreply:2'); await wait();
+        const typeInto = (id, text) => { const element = document.getElementById(id); if (element) element.value = text; }; // the headless stub makes a box for any id and saveFields reads it; a real page has none here
+        slot.theirs = firstCode; typeInto('onTheirs2', firstCode);
+        OnlineUI.act('onhostreply', '2'); await wait();
         const answerCode = slot.answerCode;
         if (!answerCode.startsWith('BPA-') || slot.link.state !== 'waiting' || slot.link.seat !== 2 || OnlineCode.readCode(answerCode).seat !== 2) bad.push('the host\'s answer: ' + slot.link.state + ' ' + slot.link.seat);
         screen = UI.screen_onlinehost();
@@ -19503,22 +19505,22 @@ const SelfTest = {
         if (OnlineUI.qrCode() !== answerCode || !UI.screen_onlineqr().includes('QR code of your answer code')) bad.push('Show QR of the answer');
         OnlineUI.qrOf = '';
         // a code pressed twice makes one connection: the second press is refused (the link goes on)
-        OnlineUI.act('onhostreply:2');
+        OnlineUI.act('onhostreply', '2'); typeInto('onTheirs2', '');
         // the seat can be switched to the default direction and back
-        OnlineUI.act('onreverse:2'); await wait();
+        OnlineUI.act('onreverse', '2'); await wait();
         let again = OnlineUI.slotOf(2);
         if (again.reverse || !again.offerCode.startsWith('BPO-') || again.answerCode !== '' || screen === UI.screen_onlinehost()) bad.push('the seat did not switch to the host sending the first code');
-        OnlineUI.act('onreverse:2');
+        OnlineUI.act('onreverse', '2');
         again = OnlineUI.slotOf(2);
         if (!again.reverse || again.link.state !== 'idle' || again.theirs !== '') bad.push('the seat did not switch back');
         // a scanned code takes the route of a pasted one
-        OnlineUI.scanSeat = 2; OnlineUI.scanKind = 'hostFirst';
-        OnlineUI.scanned(firstCode); await wait();
+        OnlineUI.scanSeat = 2; OnlineUI.scanKind = 'hostFirst'; typeInto('onTheirs2', firstCode);
+        OnlineUI.scanned(firstCode); await wait(); typeInto('onTheirs2', '');
         if (again.theirs !== firstCode || !again.answerCode.startsWith('BPA-') || again.link.state !== 'waiting') bad.push('a scanned first code: ' + again.link.state);
         // the guest takes the host's answer
         Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestState.link, first: true, firstCode, unlisten: guestState.unlisten, replyText: '' });
-        OnlineUI.scanSeat = 0; OnlineUI.scanKind = 'guestReply';
-        OnlineUI.scanned(answerCode); await wait();
+        OnlineUI.scanSeat = 0; OnlineUI.scanKind = 'guestReply'; typeInto('onReply', answerCode);
+        OnlineUI.scanned(answerCode); await wait(); typeInto('onReply', '');
         if (OnlineUI.replyText !== answerCode || guestLink.state !== 'connecting' || guestLink.seat !== 2) bad.push('the guest\'s Connect: ' + guestLink.state + ' seat ' + guestLink.seat);
         const guestConnection = Fake.made[0];
         guestConnection.open();
@@ -19539,7 +19541,8 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Online lobby (P12-06): after a match the host can go back to the lobby with the same links (the Lobby button of the results): nobody is Ready, a friend that left is a free seat, a new friend can join; a guest goes back when the host does (only once its own match is over) or by itself; Rematch after "Out of sync" is a new match with a new number', () => {
-      const kit = reviewKit(), lobby = lobbyKit(), bad = [], keepNow = Game.quitToMenu;
+      const kit = reviewKit(), lobby = lobbyKit(), bad = [], keepNow = Game.quitToMenu, keepHide = UI.hideScreen;
+      UI.hideScreen = () => { UI.current = null; }; // the headless stub has no screen container; a match that starts from a lobby screen leaves it
       try {
         const { pairs, heard } = lobby.host([2, 3]);
         const [a, b] = OnlineUI.guests;
@@ -19578,8 +19581,8 @@ const SelfTest = {
         OnlineUI.lastFighter = 'sora';
         const list = JSON.stringify({ t: ONLINE_LOBBY, you: 2, mode: 'brawl', arena: 'dojo', text: '', seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'sora', ready: false, rt: 30 }] });
         const start = { t: ONLINE_START, id: 7, mode: 'brawl', seat: 2, seatCount: 3, fighterOf: [0, -1, 1], delay: 3, cfg: { mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 2, id: 'sora' }], playerId: 'kai', enemies: 3, arenaId: 'warehouse', difficulty: 'normal', winsNeeded: 1, timer: 0, waves: false, goons: 'mara', seed: 1234, keepSeed: true, online: true } };
-        OnlinePlay.guestBegin(guestSide, start);
-        if (!Game.net || Game.net.host) bad.push('the guest\'s match did not start: ' + kit.toasts.slice(-1));
+        UI.current = null; OnlinePlay.guestBegin(guestSide, start);
+        if (!Game.net || Game.net.host) bad.push('the guest\'s match did not start: ' + lobby.toasts.slice(-1));
         hostSide.send(list);
         if (OnlineUI.role === 'guest' || !Game.net) bad.push('a list during a live match took the guest out of it');
         Game.match.phase = 'matchEnd';
@@ -19591,7 +19594,7 @@ const SelfTest = {
         // the guest's own button: back to the lobby, the host's next start still reaches it
         OnlineUI.reset(); OnlinePlay.leave();
         const [hostSide2, guestSide2] = makeStandInLinks(); hostSide2.seat = guestSide2.seat = 3;
-        OnlinePlay.guestBegin(guestSide2, start);
+        UI.current = null; OnlinePlay.guestBegin(guestSide2, start);
         Game.resultsAction('lobby');
         if (OnlineUI.role !== 'guest' || OnlineUI.link !== guestSide2 || guestSide2.state !== 'open' || Game.net) bad.push('the guest\'s Lobby button: ' + OnlineUI.role);
         hostSide2.send(JSON.stringify(Object.assign({}, start, { id: 8 })));
@@ -19599,12 +19602,12 @@ const SelfTest = {
         // a guest whose link is gone has nothing to go back to
         OnlineUI.reset(); OnlinePlay.leave();
         const [hostSide3, guestSide3] = makeStandInLinks(); hostSide3.seat = guestSide3.seat = 3;
-        OnlinePlay.guestBegin(guestSide3, start);
+        UI.current = null; OnlinePlay.guestBegin(guestSide3, start);
         guestSide3.state = 'closed';
-        kit.toasts.length = 0;
+        lobby.toasts.length = 0;
         OnlinePlay.toLobby();
-        if (OnlineUI.role === 'guest' || !kit.toasts.includes('The host left the game.')) bad.push('a guest without a link went to the lobby');
-      } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); Game.quitToMenu = keepNow; }
+        if (OnlineUI.role === 'guest' || !lobby.toasts.includes('The host left the game.')) bad.push('a guest without a link went to the lobby');
+      } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); Game.quitToMenu = keepNow; UI.hideScreen = keepHide; }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */

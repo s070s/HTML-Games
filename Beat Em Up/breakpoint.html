@@ -18102,8 +18102,12 @@ const OnlineUI = {
     const handed = start ? this.release() : null;
     if (handed) OnlinePlay.guestBegin(handed, start);
   },
-  // The guest's pick and Ready to the host
-  sendMe() { if (this.link && this.link.state === 'open') this.link.send(JSON.stringify({ t: ONLINE_ME, fighter: this.mine.fighter, ready: this.mine.ready })); },
+  // The guest's pick and Ready to the host (a guest that has no pick yet offers the one a lobby starts with, so the host never gets a message it must refuse)
+  sendMe() {
+    if (!this.link || this.link.state !== 'open') return;
+    if (!this.mine.fighter) this.mine.fighter = this.pickToStart();
+    this.link.send(JSON.stringify({ t: ONLINE_ME, fighter: this.mine.fighter, ready: this.mine.ready }));
+  },
   // The players as the host knows them: seat 0 is the host, a guest's seat is its code seat minus 1
   hostRows() {
     const rows = [{ seat: 0, fighter: this.hostFighter, ready: true, rt: -1 }];
@@ -18348,9 +18352,6 @@ const OnlineUI = {
     this.note = '';
     if (this.link) this.step(this.link, this.link.acceptAnswer(this.replyText), () => this.redraw());
   },
-  // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
-  // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
-  // Why Start cannot be pressed, or ''
   qrCode() { return this.codeOf(String(this.qrOf)); },
   // The code behind a Copy / Show QR button: 'answer' (the guest's answer), 'first' (the guest's first code), 'r2' (the answer the host made to the first code of seat 2), or a seat (the host's code for it)
   codeOf(kind) {
