@@ -14149,7 +14149,8 @@ const SelfTest = {
       constructor(channels, length, rate) { this.length = length; this.destination = mockNode(); MockOfflineContext.made.push(this); return new Proxy(this, { get: (t, k) => (k in t ? t[k] : typeof k === 'string' && k.startsWith('create') ? () => mockNode() : undefined) }); }
       startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; return Promise.resolve({ getChannelData: () => data }); }
     }
-    class MockOfflineCallbackContext extends MockOfflineContext {   // old Safari: startRendering returns nothing, oncomplete fires with the rendered buffer
+    class MockOfflineCallbackContext extends MockOfflineContext {   // old Safari: startRendering returns nothing, oncomplete fires with the rendered buffer, and the prefixed constructor refuses a rate under 44.1 kHz
+      constructor(channels, length, rate) { if (rate < 44100) throw new RangeError('the sample rate ' + rate + ' is not supported'); super(channels, length, rate); }
       startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; setTimeout(() => this.oncomplete({ renderedBuffer: { getChannelData: () => data } }), 0); }
     }
     MockOfflineContext.made = [];
@@ -14236,6 +14237,7 @@ const SelfTest = {
         if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
         await waitFor(() => Sound.bakeState !== 'running', 4000);
         const bank = Sound.bank, count = bank ? bank.hit.flat(2).length + Object.values(bank.mat).flat().length + bank.step.flat(2).length : 0;
+        if (bank && bank.hit[0][0][0].sampleRate !== BAKE_RATE) bad.push('the standard context bakes at ' + bank.hit[0][0][0].sampleRate + ' Hz, not ' + BAKE_RATE);
         if (Sound.bakeState !== 'done' || count !== 60) bad.push('after unlock: ' + Sound.bakeState + ', ' + count + ' buffers (' + Sound.bakeError + ')');
         if (MockOfflineContext.made.length !== 5) bad.push(MockOfflineContext.made.length + ' offline contexts, not 5 idle steps');
         if (Sound.bakeBytes !== Math.round(4 * BAKE_RATE * (9 * (0.2 + 0.28 + 0.4) + 9 * 0.3 + 24 * 0.12))) bad.push('the bank is ' + Sound.bakeBytes + ' bytes');
@@ -14266,7 +14268,7 @@ const SelfTest = {
         withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = undefined; Sound.bake(); });
         if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
         Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
-        if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); }
+        if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) and refuses a rate under 44.1 kHz does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); else if (Sound.bank.hit[0][0][0].sampleRate !== 44100 || Sound.bank.step[0][0][0].length !== Math.round(0.12 * 44100)) bad.push('the prefixed context bakes at ' + Sound.bank.hit[0][0][0].sampleRate + ' Hz, not 44100'); }
       } finally { Sound.ready = () => false; }   // the copy is thrown away
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
@@ -14348,6 +14350,40 @@ const SelfTest = {
         Sound.fires = [{ until: 99, x: 0, z: 0 }]; fire('roundStart', { round: 1, match: { decider: false, brawl: false, setup: null, round: 1, wins: [0, 0], winsNeeded: 2 } }); if (Sound.fires.length) bad.push('the old fires burn on in the next match');
         Sound.fires = [{ until: 99, x: 0, z: 0 }]; Sound.fanfare = () => {}; fire('matchEnd', { match: { setup: null, matchWinner: 0, versus: false } }); if (Sound.fires.length) bad.push('the fires outlive the match');
       } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound fires (P18-29): a burning object crackles as long as its material burns (cardboard 3 s, wood 8 s), and the crackle clock runs only in a live fight: a pause does not shorten it, slow motion slows it', () => {
+      const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { hazard: Sound.hazard, clock: Sound.clock, fires: Sound.fires, allow: Sound.allow, breathAt: Sound.breathAt, crackleAt: Sound.crackleAt }, fire = soundHandlers();
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.hazard = () => {}; Sound.allow = () => false; Sound.clock = 100; Sound.fires = []; Sound.breathAt = 1e9;   // no breath in this test
+        fire('objIgnite', { obj: { mat: 'paper' }, x: 0, z: 0 }); fire('objIgnite', { obj: { mat: 'wood' }, x: 1, z: 0 });
+        const [paper, wood] = Sound.fires, seconds = (burning) => burning.until - Sound.clock;
+        if (Math.abs(seconds(paper) - MATERIALS.paper.burn * FIXED_DT) > 0.001 || Math.abs(seconds(wood) - MATERIALS.wood.burn * FIXED_DT) > 0.001 || seconds(paper) >= seconds(wood)) bad.push('the crackle lasts ' + seconds(paper).toFixed(2) + ' s for cardboard and ' + seconds(wood).toFixed(2) + ' s for wood, not the burn of the material');
+        Game.match = { slowTicks: 0, fighters: [] }; Game.state = GS.PAUSED;
+        fire('frame', { dt: 30 });
+        if (Sound.clock !== 100 || Sound.fires.length !== 2) bad.push('a pause moved the crackle clock to ' + Sound.clock + ' and left ' + Sound.fires.length + ' fires');
+        Game.state = GS.FIGHT; fire('frame', { dt: 2 });
+        if (Math.abs(Sound.clock - 102) > 1e-9 || Sound.fires.length !== 2) bad.push('a live frame of 2 s moves the clock to ' + Sound.clock);
+        Game.match = { slowTicks: 5, fighters: [] }; fire('frame', { dt: 2 });
+        if (Math.abs(Sound.clock - (102 + 2 * KO_SLOW_SCALE)) > 1e-9) bad.push('slow motion runs the clock to ' + Sound.clock);
+        Game.match = { slowTicks: 0, fighters: [] }; fire('frame', { dt: 1.5 });
+        if (Sound.fires.length !== 1 || Sound.fires[0].x !== 1) bad.push('after the cardboard burnt out ' + Sound.fires.length + ' fires are left');
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Object.assign(Sound, keep, keepOwn); Sound.fires = []; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound knock-out (P18-29): the bell rings when the rule of the match says the knock-out ends the match, a double knock-out included; otherwise the round-ending sweep plays', () => {
+      const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { bell: Sound.bell, roundKo: Sound.roundKo, fall: Sound.fall }, fire = soundHandlers(), played = [];
+      const duel = (wins, down) => ({ brawl: false, setup: null, wins, winsNeeded: 2, fighters: [{ alive: !down[0] }, { alive: !down[1] }], endsMatch: MatchSim.prototype.endsMatch });
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.bell = () => played.push('bell'); Sound.roundKo = () => played.push('sweep'); Sound.fall = () => {};
+        const sound = (match, def) => { played.length = 0; Game.match = match; fire('ko', { def: { index: def }, x: 0, z: 0 }); return played.join(); };
+        const cases = [
+          ['the last round of the match', duel([1, 0], [false, true]), 1, 'bell'], ['a round that does not end the match', duel([0, 0], [false, true]), 1, 'sweep'],
+          ['a double knock-out when both reach the wins needed (a draw round: the match goes on)', duel([1, 1], [true, true]), 1, 'sweep'], ['a double knock-out when only one reaches them', duel([1, 0], [true, true]), 1, 'bell'],
+          ['a match with no scores (training)', {}, 0, 'bell'],
+        ];
+        for (const [label, match, def, want] of cases) { const heard = sound(match, def); if (heard !== want) bad.push(label + ' plays ' + (heard || 'nothing') + ', not ' + want); }
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Object.assign(Sound, keep, keepOwn); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* An offline render of the sound table (Chrome: OfflineAudioContext; the headless run skips these two tests). Every sound plays through the real Sound code and the real handlers into the real bus chain (default volumes) in its own slot of one context;

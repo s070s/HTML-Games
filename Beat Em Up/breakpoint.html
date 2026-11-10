@@ -13783,7 +13783,7 @@ const HEARD_TRIM_DB = 2.9; // master 0.8 x effects 0.9: the level plan below is 
 const IMPACT_DB = [-10, -6, -4]; // E1: heard peak of a baked impact by tier; a weight band moves it by IMPACT_BAND_DB, a counter by +2, a kick by +1 (never over -2), an item hit by -2
 const IMPACT_BAND_DB = [-1, 0, 1];
 const IMPACT_TRIM_DB = [1, 2, 2.5]; // what the master compressor takes off the body of a baked impact by tier (measured offline): added so the peaks heard are the plan above
-const BAKE_RATE = 32000, BAKE_PER_STEP = 12, BAKE_SLOT = 0.45, BAKE_VARIANTS = 3, BAKE_TIMEOUT_MS = 500; // E1: 36 buffers in 3 idle steps, mono, one 12-sound offline context per step
+const BAKE_RATE = 32000, BAKE_RATE_PREFIXED = 44100, BAKE_PER_STEP = 12, BAKE_SLOT = 0.45, BAKE_VARIANTS = 3, BAKE_TIMEOUT_MS = 500; // E1: 60 buffers (27 impacts, 9 materials, 24 footsteps) in 5 idle steps, mono, one 12-sound offline context per step; 32 kHz, but 44.1 kHz where only the prefixed webkitOfflineAudioContext exists (old Safari takes no rate under 44.1 kHz)
 const IMPACT_SECS = [0.2, 0.28, 0.4], MATERIAL_SECS = 0.3, MATERIAL_BAKE = ['wood', 'metal', 'glass'];
 const COMBO_LADDER_MAX = 6;
 const PLACE_FULL_M = 14, PLACE_PAN_M = 7, PLACE_PAN_MAX = 0.6; // E5: a sound 14 m from the camera is 6 dB down; the pan follows the camera's right vector
@@ -13878,10 +13878,10 @@ const bakeJobs = () => {
 };
 const playPart = (c, buffer, dest, part, t) => (part[0] ? noiseNode(c, buffer, dest, part[1], part[2], part[3], part[4], t + part[7], part[5], part[6]) : toneNode(c, dest, part[1], part[2], part[3], t + part[6], part[4], part[5]));
 // Normalise a rendered buffer to full scale (the level plan sets the loudness at playback), fade its last 8 ms and file it in the bank
-const storeBaked = (done, job, data, makeBuffer) => {
+const storeBaked = (done, job, data, makeBuffer, rate) => {
   let peak = 0;
   for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
-  const buffer = makeBuffer(data.length), out = buffer.getChannelData(0), scale = peak > 0 ? 1 / peak : 1, fade = Math.round(BAKE_RATE * 0.008);
+  const buffer = makeBuffer(data.length), out = buffer.getChannelData(0), scale = peak > 0 ? 1 / peak : 1, fade = Math.round(rate * 0.008);
   for (let i = 0; i < data.length; i++) out[i] = data[i] * scale * Math.min(1, (data.length - i) / fade);
   done.bytes += data.length * 4;
   if (job.kind === 'hit') done.bank.hit[job.tier - 1][job.band][job.variant] = buffer;
@@ -13991,16 +13991,17 @@ const Sound = {
   // --- E1 the bake: the impact family is rendered once with an OfflineAudioContext, in idle steps of 12 buffers, so no frame carries it. Without OfflineAudioContext, or if a step fails, the synthesis plays.
   bake() {
     if (this.bakeState !== 'idle') return;
-    const OAC = typeof window !== 'undefined' && (window.OfflineAudioContext || window.webkitOfflineAudioContext);
+    const standard = typeof window !== 'undefined' && window.OfflineAudioContext, OAC = standard || (typeof window !== 'undefined' && window.webkitOfflineAudioContext);
     if (!OAC) { this.bakeState = 'none'; return; }
+    const rate = standard ? BAKE_RATE : BAKE_RATE_PREFIXED; // the prefixed context of old Safari most likely refuses a rate under 44.1 kHz
     this.bakeState = 'running'; this.bakeFrom = performance.now();
     const ctx = this.ctx;
-    this.bakeRender(OAC, (length) => ctx.createBuffer(1, length, BAKE_RATE), this.noiseBuf).then((done) => {
+    this.bakeRender(OAC, (length) => ctx.createBuffer(1, length, rate), this.noiseBuf, undefined, rate).then((done) => {
       this.bank = done.bank; this.bakeMs = done.ms; this.bakeBytes = done.bytes; this.bakeState = 'done'; this.bakeWall = performance.now() - this.bakeFrom;
     }).catch((e) => this.bakeFail(e));
   },
-  // Resolves { bank, ms, bytes } (ms = main-thread time of the steps): bank.hit[tier - 1][band][variant] and bank.mat[kind][variant]; makeBuffer(length) gives an empty mono buffer at BAKE_RATE
-  bakeRender(OAC, makeBuffer, noise, around = (build) => build()) { // around(build): where the random numbers of the recipes are drawn (a test seeds them there and nowhere else)
+  // Resolves { bank, ms, bytes } (ms = main-thread time of the steps): bank.hit[tier - 1][band][variant], bank.mat[kind][variant] and bank.step[surface][run][foot]; makeBuffer(length) gives an empty mono buffer at `rate`
+  bakeRender(OAC, makeBuffer, noise, around = (build) => build(), rate = BAKE_RATE) { // around(build): where the random numbers of the recipes are drawn (a test seeds them there and nowhere else)
     const jobs = bakeJobs(), steps = Math.ceil(jobs.length / BAKE_PER_STEP), done = { bank: { hit: [0, 1, 2].map(() => [[], [], []]), mat: {}, step: STEP_SURFACES.map(() => [[], []]) }, ms: 0, bytes: 0 };
     return new Promise((resolve, reject) => {
       const step = (n) => {
@@ -14008,7 +14009,7 @@ const Sound = {
           try {
             const list = jobs.slice(n * BAKE_PER_STEP, (n + 1) * BAKE_PER_STEP), started = performance.now();
             const oc = around(() => {
-              const context = new OAC(1, Math.ceil(BAKE_RATE * BAKE_SLOT * list.length), BAKE_RATE);
+              const context = new OAC(1, Math.ceil(rate * BAKE_SLOT * list.length), rate);
               list.forEach((job, i) => { for (const part of jobParts(job)) playPart(context, noise, context.destination, part, i * BAKE_SLOT); });
               return context;
             });
@@ -14016,8 +14017,8 @@ const Sound = {
             const promise = oc.startRendering(), rendering = promise && typeof promise.then === 'function' ? promise : viaEvent;
             done.ms += performance.now() - started;
             rendering.then((rendered) => {
-              const after = performance.now(), data = rendered.getChannelData(0), slot = Math.round(BAKE_SLOT * BAKE_RATE);
-              list.forEach((job, i) => storeBaked(done, job, data.subarray(i * slot, i * slot + Math.round(job.secs * BAKE_RATE)), makeBuffer));
+              const after = performance.now(), data = rendered.getChannelData(0), slot = Math.round(BAKE_SLOT * rate);
+              list.forEach((job, i) => storeBaked(done, job, data.subarray(i * slot, i * slot + Math.round(job.secs * rate)), makeBuffer, rate));
               done.ms += performance.now() - after;
               if (n + 1 < steps) step(n + 1); else resolve(done);
             }).catch(reject);
@@ -14390,7 +14391,7 @@ const Sound = {
     on('ko', (e) => {
       this.at(e.x, e.z); this.fall(e.def, 1);
       if (!koEndsFight(e.def)) return;
-      if (matchEndsOnKo(e.def)) this.bell(); else this.roundKo();
+      if (matchEndsOnKo()) this.bell(); else this.roundKo();
     });
     on('roundEnd', (e) => { if (e.reason === 'time') this.timeUp(); });
     on('roundStart', (e) => { const last = this.decides(e.match); this.fires = []; if (e.round > 1 || last) this.roundStart(e.round, last); });   // a new match starts without the old one's fires
@@ -14402,7 +14403,7 @@ const Sound = {
       this.material(mat, false, e.x, clamp(Math.sqrt((o.hx || 0.5) * (o.hz || 0.5)) * 1.4, 0.6, 1.4));
       if (o.look === 'car') this.alarm();
     });
-    on('objIgnite', (e) => { this.at(e.x, e.z); this.hazard('fire', 'start', e.x); this.fires.push({ until: this.clock + 8, x: e.x, z: e.z }); });
+    on('objIgnite', (e) => { this.at(e.x, e.z); this.hazard('fire', 'start', e.x); this.fires.push({ until: this.clock + (MATERIALS[e.obj && e.obj.mat] || MATERIALS.wood).burn * DT, x: e.x, z: e.z }); }); // it crackles as long as the material burns (burn is in ticks)
     on('objStage', (e) => { this.at(e.x, e.z); this.material(MATERIALS[e.obj.mat] ? e.obj.mat : 'wood', false, e.x); });
     on('objBreak', (e) => { this.at(e.x, e.z); const o = e.obj; this.material(MATERIALS[e.mat] ? e.mat : 'wood', true, e.x, o ? clamp(Math.sqrt((o.hx || 0.5) * (o.hz || 0.5)) * 1.4, 0.6, 1.4) : 1); this.crowdLean('crowd'); });
     on('itemTake', (e) => { if (this.allow('itemTake', 0.1, 1)) { this.at(e.x, e.z); const w = WEAPONS[e.id], hi = w && w.cls === 'light' ? 1.25 : 1; this.noise('bandpass', 500 * hi, 1100 * hi, 0.9, 0.09, 0.53); this.tone('triangle', 300 * hi, 420 * hi, 0.06, 0.27, 0.02); } }); // a rustle and a light grip
@@ -14434,9 +14435,9 @@ const Sound = {
   },
   // Every frame: the clock, a tired person's breath (M11) and the crackle of what burns (M7 ambient)
   frame(dt) {
-    this.clock += dt;
     const m = Game.match;
-    if (!m || Game.state !== GS.FIGHT) return;
+    if (!m || Game.state !== GS.FIGHT) return; // the clock stands still in a pause, a menu or a cutscene: a fire burns in match time
+    this.clock += dt * Game.clockScale(m); // and slow motion slows it as it slows the fire
     if (this.fires.length) {
       this.fires = this.fires.filter((fire) => fire.until > this.clock);
       if (this.fires.length && this.clock >= this.crackleAt && this.allow('crackle', 0.1, 2)) {
@@ -14454,11 +14455,10 @@ const Sound = {
     }
   },
 };
-// A knock-out ends the match when the fighter's opponent is on the last round it needs (a brawl or a lineup: always); read only
-function matchEndsOnKo(def) {
+// Whether the knock-out that has just happened ends the match: the match's own rule (endsMatch, which also reads a double knock-out); read only. 'ko' fires after the fighter is marked down, so the rule sees it. No scores (training): true
+function matchEndsOnKo() {
   const m = Game.match;
-  if (!m || !m.wins || m.brawl || m.setup) return true;
-  return m.wins[def.index === 0 ? 1 : 0] + 1 >= m.winsNeeded;
+  return !m || !m.wins || m.endsMatch();
 }
 
 // --- procedural music: bass + drums + arpeggio, tempo, scale and (E8) the drum and bass patterns come from the arena
