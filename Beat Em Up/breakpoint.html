@@ -3650,6 +3650,7 @@ function builtOf(def) {
   return (BUILT[def.id] = { objects, stairs });
 }
 
+// <<SIM BEGIN: Arena>>
 const Arena = {
   def: null, objects: [], colliders: [], props: [], lamps: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
   marks: [], ring: null, ringRow: null, ringOut: false, solid: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
@@ -4432,6 +4433,7 @@ const Arena = {
   },
   put(layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag) { R.put(layer, mesh, x, y + this.dy, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast === true ? 1 + this.castDy : cast, flag); },
 };
+// <<SIM END>>
 
 // --- debris pool
 const DEBRIS_MAX = 220;
@@ -5893,6 +5895,7 @@ const AIM_DEADZONE = 0.35;
 const LIFT_DECAY = 9; // how fast a released fighter's visual carry height blends away (1/s)
 const SHADOW_RGB = [0, 0, 0];
 const MARKER_RGB = [[0.2, 0.85, 1.0], [1.0, 0.3, 0.55], [0.55, 1.0, 0.48], [1.0, 0.7, 0.28], [0.77, 0.61, 1.0], [1.0, 0.9, 0.3], [0.9, 0.95, 1.0], [0.95, 0.25, 0.2]]; // by tint: the first two are the players' and the enemies' discs
+// <<SIM BEGIN: aimFromIntent, escapeStartFor>>
 // Throw aim from movement axes (already in the fighter's frame), or null when the stick is neutral
 function aimFromIntent(it) {
   const ff = it.fwd, rr = it.side;
@@ -5901,6 +5904,7 @@ function aimFromIntent(it) {
   return rr > 0 ? 'right' : 'left';
 }
 const escapeStartFor = (f) => (f.grip === 'rear' ? CLINCH_ESCAPE_FROM_REAR : CLINCH_ESCAPE_FROM);
+// <<SIM END>>
 const EYE_COL = C('#15110f'), EYE_MASK_COL = C('#101014');
 const EYE_SIZE = { normal: [0.045, 0.028], narrow: [0.05, 0.016], wide: [0.05, 0.04] };
 const BROW_HEIGHT = { thin: 0.012, thick: 0.024 };
@@ -6141,6 +6145,7 @@ const WEAPON_WIND_SPLIT = 0.6; // share of the start-up spent drawing the item b
 const WEAPON_FOLLOW_FROM = 0.4; // share of the active ticks held at contact before the follow-through starts
 const CHAIN_REST = 0.5, CHAIN_COIL = 1.3, CHAIN_CURL = -0.6, CHAIN_LINKS = 6; // total bend of the chain (rad): hanging slack, drawn back, and curling on past the target
 const CHAIN_LOOSE = 0.9, CHAIN_RAIL = 0.02; // a chain lying about is bent this much (rad); the rails of a link are this thick (m)
+// <<SIM BEGIN: weapon moves (weaponSwing, makeWeaponMove, weaponTable)>>
 // Which swing a step of the Punch string of an item uses: a stick pokes, cuts both ways and chops
 function weaponSwing(w, n) {
   if (w.sp === 'sweep') return n === 2 ? 'sweep' : 'thrustTwo';
@@ -6184,6 +6189,7 @@ function weaponTable(styleId, itemId) {
   }
   return (WEAPON_TABLES[key] = out);
 }
+// <<SIM END>>
 /* Weapon wear (P13-02, drawn only): an item darkens as its hits are used up (WEAR_DARK at the end) and on its last hit a bat or a pipe bends WEAPON_BEND rad from WEAPON_BEND_FROM of its length on,
    and a bottle, a chair and a crate show one dark crack line: [x, y, z, width, height, depth, tilt about z] in the item's frame. */
 const WEAPON_BEND = 0.1, WEAPON_BEND_FROM = 0.4, WEAPON_CRACK_RGB = C('#14161a');
@@ -6278,6 +6284,7 @@ const AI_DROP_WAIT = 30, AI_DROP_BLOWS = 12, AI_DROP_GAP = 24, AI_DROP_PLAN = 72
 const DROP_DEF = { name: 'Scaffold standard', trig: 'strike', shape: 'rect', dmg: 0, fx: '' };
 const HAZARD_LOAD_HANG = 4.4, HAZARD_LOAD_REST = 0.45, HAZARD_LOAD_BEAM = 5.6, HAZARD_LOAD_FADE = 1.1; // m: the height of the hanging load's centre, of the landed one's, of the crane beam
 
+// <<SIM BEGIN: Fighter>>
 class Fighter {
   constructor(profile, index, team) {
     this.profile = profile;
@@ -7631,7 +7638,9 @@ class Fighter {
     if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
   }
 }
+// <<SIM END>>
 
+// <<SIM BEGIN: Combat>>
 // === 05c COMBAT - hit evaluation, blocking, damage, combos, clinch / throws, environmental impacts
 const COMBO_SCALE = [1, 1, 0.9, 0.8, 0.7, 0.6, 0.5];
 // Scenery damage ids (Arena.damageObject srcId) say "this source already hit this object": attacks use their positive moveId, impacts use this negative range, so a long session's move counter can never run into an impact id
@@ -8282,6 +8291,7 @@ const Combat = {
     }
   },
 };
+// <<SIM END>>
 
 /* === 05d CHARACTER CREATOR - custom fighter data, point-buy rules, validation, save slots, share codes
    Only attrs, the archetype, the move style and the defense field reach the simulation; every look field is cosmetic. */
@@ -9267,6 +9277,7 @@ const RETREAT_COOLDOWN_TICKS = 600; // before the same fighter may back off agai
 const AI_PICKUP_RANGE = 2.5; // m: a CPU fetches a floor item this close
 const AI_PICKUP_STOP = 0.45; // m: it walks onto the item
 const AI_THROW_MIN = 3, AI_THROW_MAX = 8; // m: the target distances at which a CPU throws a throwable or a crate
+// <<SIM BEGIN: CPU and training dummy>>
 const isTossItem = (id) => WEAPONS[id].cls === 'throwable' || WEAPONS[id].cls === 'carry'; // the items a CPU throws
 const AI_TOSS_REST_TICKS = { easy: 5400, normal: 3600, hard: 2700, expert: 2400 }; // by difficulty (90 / 60 / 45 / 40 s): once a CPU takes a throwable or a crate, nobody on its team fetches another until then, so a throw stays a treat
 const AI_TOSS_OPEN_TICKS = { easy: 1800, normal: 0, hard: 0, expert: 0 }; // by difficulty: an Easy team takes its first throwable or crate only after 30 s, so an Easy fight opens with fists (P18-01: at the faster walk the shorter Easy fights threw 0.44 per team-minute, over the 0.35 cap)
@@ -10213,7 +10224,9 @@ class DummyController {
     if (low) { it.kick = true; it.height = true; } else it.punch = true; // the beat is longer than the string window, so these are always step 1
   }
 }
+// <<SIM END>>
 
+// <<SIM BEGIN: Match (MatchLineup, controllers, CrowdDirector, MatchSim, SimRunner)>>
 // === 07 MATCH - authoritative simulation (fixed 60 Hz), round rules, game-state manager, game loop
 const Match = { current: null };
 const DT = FIXED_DT;
@@ -12324,6 +12337,7 @@ const SimRunner = {
     }
   },
 };
+// <<SIM END>>
 
 // --- showcase scene used behind menus
 const PREVIEW_FIGHTER_SPAN = 2.7; // metres of fighter (plus margin) the creator preview keeps in view
@@ -12793,6 +12807,7 @@ const SURVIVAL_TYPES = ['Duels', 'Brawls', 'Brawls + 1 ally', 'Brawls + 2 allies
 const SURVIVAL_GROUP = [1, 1, 0.5, 0.4, 0.33, 0.28, 0.24], SURVIVAL_GROUP_DAMAGE = 0.7; // the health factor of each enemy of a Survival brawl by the number of enemies; the damage factor (times the level's dmg)
 const SURVIVAL_HEAL = 0.25, SURVIVAL_HEAL_MIN = 0.1; // share of max health regained after each win
 const SURVIVAL_PEAK = 7; // wins until the CPU reaches Expert; after that heal and timer keep shrinking
+// <<SIM BEGIN: Online lockstep (inputs, checksum, sessions)>>
 // Fisher-Yates with the given generator; returns a new array
 function shuffled(list, rng) {
   const out = list.slice();
@@ -13174,6 +13189,7 @@ class LockstepSession {
     }
   }
 }
+// <<SIM END>>
 
 const Game = {
   state: GS.LOADING,
@@ -15104,7 +15120,7 @@ const Song = {
 
 // === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
-const ONLINE_NET_VERSION = 3; // the match message protocol (raised when the messages change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start); the low nibble of the second byte
+const ONLINE_NET_VERSION = 4; // the match message protocol (raised when the messages or the simulation's bits change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start; 4 since P12-08, whose exact simulation maths gives other bits than the old build's); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
 const ONLINE_FORM = { PACKED: 0, DEFLATE: 1, PLAIN: 2 }; // the packed binary form, or the whole SDP (deflated where the browser can, else as it is)
 const ONLINE_SEAT_MIN = 2; // seat 1 is the host

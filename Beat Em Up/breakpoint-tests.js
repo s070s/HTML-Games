@@ -409,7 +409,7 @@ const SelfTest = {
         { const want = Math.atan2(y, x); note('atan2', DMath.atan2(y, x), want, Math.max(1, Math.abs(want))); }   /* an engine's own atan2 may be 1 ulp (4.4e-16 near pi) away */ note('hypot', DMath.hypot(x, y), Math.hypot(x, y), r);
       }
       for (let i = 0; i <= 30000; i++) { const x = -30 + i * 0.0012; note('exp', DMath.exp(x), Math.exp(x), Math.exp(x)); }
-      const limits = { sin: 2.3e-16, cos: 2.3e-16, atan2: 2.3e-16, exp: 4.5e-16, hypot: 5e-16 };   // an absolute error of about one ulp of 1 (relative for exp and hypot; sqrt of a sum is within 2 ulp)
+      const limits = { sin: 3.4e-16, cos: 3.4e-16, atan2: 2.3e-16, exp: 4.5e-16, hypot: 5e-16 };   // about 1.5 ulp of 1 for sin and cos (an engine whose own sin is only good to 1 ulp must still pass; the hash below is the cross-engine proof), relative for exp and hypot (sqrt of a sum is within 2 ulp)
       for (const name in limits) if (!(worst[name] <= limits[name])) problems.push(name + ' off by ' + worst[name]);
       const same = (a, b) => Object.is(a, b) || (Number.isNaN(a) && Number.isNaN(b));
       const special = [[DMath.atan2(0, 1), 0], [DMath.atan2(-0, 1), -0], [DMath.atan2(0, -1), Math.PI], [DMath.atan2(-0, -1), -Math.PI], [DMath.atan2(0, 0), 0], [DMath.atan2(1, 0), Math.PI / 2], [DMath.atan2(-1, 0), -Math.PI / 2],
@@ -426,38 +426,55 @@ const SelfTest = {
       if (hash !== DMATH_SAMPLE_HASH) problems.push('the bits changed: the hash of the sample is ' + hash + ', not ' + DMATH_SAMPLE_HASH + ' (an engine that differs here would put online peers out of step)');
       return problems.length ? problems.join('; ') : true;
     });
-    /* The rule behind it, so it holds for later code: the sources of the simulation's objects (fighters, combat, the CPU, the match, the level's hazard links) hold no sin, cos, tan, atan, atan2, asin, acos, exp, log, pow, hypot, cbrt
-       or the like on Math (and no ** with a fraction); they call DMath. Pose, drawing, camera, sound and menu code keep Math.*; the list of those methods is below, so a new method in a scanned object is checked unless it is named here.
-       The sources come from Function.prototype.toString, so it works in every engine and in the headless runner. The four load-time cone constants are checked by value. */
-    test('Determinism: no transcendental Math call in the simulation (P12-08, J01): fighters, combat, the CPU, the match and the hazard links call DMath; only pose and drawing methods keep Math.sin and the like', () => {
-      const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)/, DESTRUCTURED = /=\s*Math\s*[;,)]/;
-      const VISUAL = {   // method names that only pose, draw or play sound: they never write a field the checksum holds
-        Fighter: ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose'],
-        MatchSim: ['itemDebris', 'hazardParticles', 'drawFlames', 'loadHidesFighter', 'drawHazards'],
-        Arena: [/^draw/, 'lampAngle'],   // the draw methods of the level and the swing of a hanging light (drawn only)
-      };
-      const regions = { Fighter, Combat, AIController, DummyController, CrowdDirector, MatchSim, Arena };
-      const strip = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    /* The rule behind it, so it holds for later code: the simulation section of the page holds no sin, cos, tan, atan, atan2, asin, acos, exp, log, pow, hypot, cbrt or the like on Math (and no ** at all: its exponent could have a fraction),
+       it calls DMath. The simulation code sits between "// <<SIM BEGIN: name>>" and "// <<SIM END>>" comments in breakpoint.html (fighters, combat, the CPU, the match with its controllers, the level's hazard links, the online lockstep
+       and the helpers the tick calls); new simulation code goes between such markers, and this test scans everything between them as text, constructors, static methods, setters and nested objects included.
+       Cut out of the scan are only the methods named in VISUAL: pose, drawing, particles and the swing of a light, which never write a field the checksum holds and keep Math.*. The text comes from document.scripts (the page's inline
+       script), so it works in Chrome, Firefox, Safari and in the headless runner. The four load-time cone constants are checked by value. */
+    test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
+      const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
+      const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'drawFlames', 'loadHidesFighter', 'lampAngle', /^draw/];   // pose, drawing, particles
+      const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
+        'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors('];
       const problems = [];
-      let scanned = 0, dmathCalls = 0;
-      for (const name in regions) {
-        const target = regions[name], holder = typeof target === 'function' ? target.prototype : target, exempt = VISUAL[name] || [];
-        const exemptHit = exempt.map(() => false);
-        for (const key of Object.getOwnPropertyNames(holder)) {
-          if (key === 'constructor') continue;
-          const desc = Object.getOwnPropertyDescriptor(holder, key), fn = desc.get || desc.value;
-          if (typeof fn !== 'function') continue;
-          const skip = exempt.findIndex((rule) => (rule instanceof RegExp ? rule.test(key) : rule === key));
-          if (skip >= 0) { exemptHit[skip] = true; continue; }
-          const source = strip(Function.prototype.toString.call(fn));
-          scanned++;
-          dmathCalls += (source.match(/\bDMath\./g) || []).length;
-          const bad = BAD.exec(source) || DESTRUCTURED.exec(source);
-          if (bad) problems.push(name + '.' + key + ' uses ' + bad[0].trim());
-        }
-        exempt.forEach((rule, k) => { if (!exemptHit[k]) problems.push('the list of pose and drawing methods names ' + name + '.' + rule + ', which does not exist any more'); });
+      const scripts = typeof document !== 'undefined' && document.scripts ? Array.from(document.scripts) : [];
+      const page = scripts.map((el) => el.textContent || '').find((text) => text.includes(BEGIN));
+      if (!page) return 'the page script is not available to the test (document.scripts)';
+      // the chunks between the markers, one string each
+      const chunks = [];
+      for (let from = page.indexOf(BEGIN); from >= 0; from = page.indexOf(BEGIN, from + 1)) {
+        const to = page.indexOf(END, from);
+        if (to < 0) { problems.push('a SIM BEGIN has no SIM END: ' + page.slice(from, from + 60)); break; }
+        const nested = page.indexOf(BEGIN, from + 1);
+        if (nested >= 0 && nested < to) { problems.push('SIM markers inside each other near ' + page.slice(from, from + 60)); break; }
+        chunks.push({ name: page.slice(from + BEGIN.length, page.indexOf('>>', from)), text: page.slice(from, to) });
       }
-      if (scanned < 200 || dmathCalls < 100) problems.push('the scan read too little: ' + scanned + ' functions, ' + dmathCalls + ' DMath calls');
+      const used = VISUAL.map(() => 0);
+      let scannedChars = 0, dmathCalls = 0;
+      for (const chunk of chunks) {
+        const kept = [], rows = chunk.text.split(/\r?\n/);
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i], match = /^  (?:static |get |set |async )?([A-Za-z_$][\w$]*)\s*\(/.exec(row);
+          const rule = match ? VISUAL.findIndex((v) => (v instanceof RegExp ? v.test(match[1]) : v === match[1])) : -1;
+          if (rule < 0) { kept.push(row); continue; }
+          used[rule]++;
+          const balance = (text) => (text.match(/\{/g) || []).length - (text.match(/\}/g) || []).length;
+          if (balance(row) > 0) {   // a method body: cut up to and with its closing line
+            while (i + 1 < rows.length && !/^  \}[,;]?\s*$/.test(rows[i + 1])) i++;
+            i++;
+          }
+        }
+        const source = kept.join('\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        scannedChars += source.length;
+        dmathCalls += (source.match(/\bDMath\./g) || []).length;
+        const sourceRows = source.split('\n');
+        sourceRows.forEach((row, k) => { const bad = BAD.exec(row); if (bad) problems.push(chunk.name + ': ' + bad[0].trim() + ' in "' + row.trim().slice(0, 70) + '"'); void k; });
+      }
+      VISUAL.forEach((rule, k) => { if (!used[k]) problems.push('the list of pose and drawing methods names ' + rule + ', which is not in a SIM section any more'); });
+      const all = chunks.map((chunk) => chunk.text).join('\n');
+      for (const needle of MUST_HOLD) if (!all.includes(needle)) problems.push('outside the SIM markers: ' + needle.trim());
+      if (chunks.length < 8 || scannedChars < 250000 || dmathCalls < 100) problems.push('the scan read too little: ' + chunks.length + ' sections, ' + scannedChars + ' characters, ' + dmathCalls + ' DMath calls');
       for (const [name, degrees] of [['PICKUP_CONE_COS', 70], ['SPRAY_CONE_COS', 40], ['LOCK_VIEW_COS', 100], ['LOCK_STICK_COS', 60]]) {
         const value = { PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS }[name];
         if (value !== DMath.cos(degrees * Math.PI / 180)) problems.push(name + ' is not DMath.cos of ' + degrees + ' degrees');
