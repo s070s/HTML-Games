@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -14211,17 +14211,20 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
-    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step of 0.9 em whose rectangle on screen touches no live pop (older pops counted where they have risen to, words close on screen though apart in the world included); the pile never climbs into the HUD (it goes below the hit, then the oldest pop gives way), at most 4 words and 4 numbers live, and the 16 elements stay', () => {
+    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step (1.15 em) whose rectangle on screen, at its start scale, touches no live pop (older pops counted where they have risen to, at their own scale; words close on screen though apart in the world included); a pile under or near the HUD moves down as a whole after a punch-in and keeps its gaps; when there is no room the oldest pop in its way ends; at most 4 words and 4 numbers live, and the 16 elements stay', () => {
       const bad = [], keep = { pops: UI.pops, idx: UI.popIdx, project: R.project, fontPx: UI.popFontPx, hudBottom: UI.hudBottom, boxPx: UI.popBoxPx };
-      const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
+      const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0, sx: 0, sy: 0, drop: 0, scale: 1 }));
       const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
       const tick = () => { for (const q of live()) q.age += 0.05; };
-      const FONT = 20, STEP = POP_LIFT_EM * FONT;   // a stand-in for the camera: 100 px to the metre, the text 20 px high
-      const centre = (q) => [640 + q.x * 100, 500 - (q.y + q.age / q.life * POP_RISE) * 100 - q.lift * FONT], halfWidth = (q) => q.el.textContent.length * POP_CHAR_EM * FONT / 2;
-      const clash = () => { const all = live(); for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) { const a = centre(all[i]), c = centre(all[j]); if (Math.abs(a[0] - c[0]) < halfWidth(all[i]) + halfWidth(all[j]) && Math.abs(a[1] - c[1]) < STEP) return all[i].text + ' and ' + all[j].text; } return ''; };
+      const FONT = 20, BOX = POP_BOX_EM * FONT;   // a stand-in for the camera: 100 px to the metre, the text 20 px high; a punch-in carries everything up by `punch` px
+      let punch = 0;
+      const lay = () => { UI.popLayout(); return live().map((q) => ({ q, x: q.sx, y: q.sy + q.drop - q.lift * FONT, w: q.el.textContent.length * POP_CHAR_EM * FONT * q.scale / 2, h: BOX * q.scale / 2 })); };
+      const clash = () => { const all = lay(); for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (Math.abs(all[i].x - all[j].x) < all[i].w + all[j].w - 1e-6 && Math.abs(all[i].y - all[j].y) < all[i].h + all[j].h - 1e-6) return all[i].q.text + ' and ' + all[j].q.text; return ''; };
+      const aboveHud = (edge) => lay().filter((b) => b.y - b.h < edge - 1e-6).map((b) => b.q.text).join();
+      const reset = (edge) => { UI.pops = fresh(); UI.popIdx = 0; UI.hudBottom = edge; };   // edge 0: no HUD limit
       try {
-        R.project = (x, y, z, out) => { out[0] = 640 + x * 100; out[1] = 500 - y * 100; return true; }; UI.popFontPx = () => FONT; UI.hudBottom = 0;   // 0: no HUD limit until the case below
-        UI.pops = fresh(); UI.popIdx = 0;
+        R.project = (x, y, z, out) => { out[0] = 640 + x * 100; out[1] = 500 - y * 100 - punch; return true; }; UI.popFontPx = () => FONT; UI.popBoxPx = 0;
+        reset(0);
         UI.popAt(0, 1, 0, 'COUNTER 7', '#fc0'); find('COUNTER 7').age = 0.3;
         UI.popAt(0.3, 1, 0, 'COUNTER 7', '#fc0');
         const first = find('COUNTER 7');
@@ -14229,42 +14232,50 @@ const SelfTest = {
         UI.popAt(0.2, 1, 0, 'COUNTER 7', '#fc0');
         if (live().length !== 1 || first.el.textContent !== 'COUNTER 7 x3') bad.push('no x3');
         UI.popAt(0, 1, 0, '10', '#fff');
-        if (live().length !== 2 || find('10').lift !== POP_LIFT_EM || POP_LIFT_EM !== 0.9 || POP_CHAR_EM !== 0.6 || first.lift !== 0) bad.push('a pop next to another is not lifted: ' + find('10').lift);
-        UI.popAt(0.9, 1, 0, 'COUNTER 6', '#fc0');   // 0.9 m away but 90 px: the two words are 126 px half-widths apart, so it must go up
+        if (live().length !== 2 || find('10').lift !== POP_LIFT_EM || POP_LIFT_EM !== 1.15 || POP_BOX_EM !== 0.9 || POP_GROW !== 0.25 || POP_CHAR_EM !== 0.6 || first.lift !== 0 || clash()) bad.push('a pop next to another is not lifted: ' + find('10').lift + ' ' + clash());
+        UI.popAt(0.9, 1, 0, 'COUNTER 6', '#fc0');   // 0.9 m away but 90 px: the two words are wider than that, so it must go up
         if (live().length !== 3 || find('COUNTER 6').lift === 0 || clash()) bad.push('a word close on screen is not lifted: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
         UI.popAt(3, 1, 0, 'COUNTER 5', '#fc0');   // 3 m away: 300 px, clear
         if (find('COUNTER 5').lift !== 0) bad.push('a pop far away is lifted');
-        UI.pops = fresh(); UI.popIdx = 0;   // an older pop has risen: a new one at its start spot sits below it, not on top of the pile
-        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.5;   // 0.316 m up, 32 px: more than the 18 px step
+        reset(0);   // an older pop has risen: a new one at its start spot sits below it, not on top of the pile
+        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.5;   // 0.316 m up, 32 px: clear of a new pop at the start scale
         UI.popAt(0, 1, 0, 'OTHER', '#fff');
         if (find('OTHER').lift !== 0 || clash()) bad.push('a pop beside a risen one: ' + live().map((q) => q.text + ':' + q.lift));
-        UI.pops = fresh(); UI.popIdx = 0;
-        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.1;   // risen only 6 px: the new one must clear it
+        reset(0);
+        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.1;   // risen only 6 px: the new one must clear it, scale included
         UI.popAt(0, 1, 0, 'OTHER', '#fff');
-        if (find('OTHER').lift === 0 || clash()) bad.push('a pop over a young one: ' + live().map((q) => q.text + ':' + q.lift));
-        UI.pops = fresh(); UI.popIdx = 0;   // a burst of words and numbers at slightly different spots and times: none ever covers another
+        if (find('OTHER').lift === 0 || clash()) bad.push('a pop over a young one: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
+        reset(0);   // two pops of one moment at the start scale (1.25): one step (23 px) is more than their 22.5 px of box
+        UI.popAt(0, 1, 0, 'ONE', '#fff'); UI.popAt(0, 1, 0, 'TWO', '#fff');
+        if (find('TWO').lift !== POP_LIFT_EM || clash()) bad.push('two new pops touch: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
+        reset(0);   // a burst of words and numbers at slightly different spots and times: none ever covers another
         const burst = [['COUNTER 7', 0, 1.1], ['11', 0.15, 1.1], ['5', 0.3, 1.2], ['COUNTER 6', 0.2, 1.1], ['9', 0.05, 1.3], ['BLOCK', 0.5, 1.1], ['12', 0.1, 1], ['COUNTER 7', 0.45, 1.2], ['7', 0.2, 1.1], ['SWAY', 0.4, 1.1], ['11', 0.3, 1.15]];
         burst.forEach(([text, dx, y], k) => { tick(); tick(); UI.popAt(dx, y, 0, text, '#fff'); if (clash()) bad.push('burst ' + k + ': ' + clash()); });
-        UI.pops = fresh(); UI.popIdx = 0; UI.hudBottom = 300;   // the HUD ends at 300 px and the pops start at 400 and climb 60: room above for the steps 0 and 1 only; then the pile goes below the hit (3 steps), then the oldest gives way
-        const pile = [['ONE', 0], ['TWO', 1], ['THREE', -1], ['FOUR', -2]], tops = () => live().filter((q) => q.lift > 0 && 500 - (q.y + POP_RISE) * 100 - q.lift * FONT - STEP / 2 < 300);
-        for (const [text] of pile) UI.popAt(0, 1, 0, text, '#fff');
-        if (pile.some(([text, step]) => !find(text) || Math.abs(find(text).lift - step * POP_LIFT_EM) > 1e-9) || tops().length || clash()) bad.push('the pile under the HUD: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
-        for (const text of ['1', '2', '3', '4']) { UI.popAt(0, 1, 0, text, '#fff'); if (tops().length || clash()) bad.push('the pile at ' + text + ': ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash()); }
-        if (live().length > 2 + POP_STEPS_DOWN || !find('4') || find('ONE')) bad.push('the oldest did not give way: ' + live().map((q) => q.text + ':' + q.lift));
-        UI.popBoxPx = FONT;   // a pop the camera has since carried into the HUD is moved back under it, one that is clear stays
-        if (Math.abs(UI.popDrop(250, 0) - (300 + STEP * 0.65 - 250)) > 1e-9 || UI.popDrop(400, 0) !== 0 || UI.popDrop(320, POP_LIFT_EM) <= 0) bad.push('popDrop ' + [UI.popDrop(250, 0), UI.popDrop(400, 0), UI.popDrop(320, POP_LIFT_EM)]);
-        UI.hudBottom = 0;
-        UI.pops = fresh(); UI.popIdx = 0;   // without a projection (behind the camera): the world distance and the steps taken, as before
+        for (const [edge, label] of [[330, 'a pile under the HUD'], [380, 'a pile close under the HUD (landscape phone)']]) {   // the HUD ends at `edge`; the pile is placed at its 400 px, then a punch-in carries the hit point up by 0, 30 and 60 px
+          reset(edge); punch = 0;
+          for (const text of ['ONE', 'TWO', 'THREE', 'FOUR']) UI.popAt(0, 1, 0, text, '#fff');
+          for (const shift of [0, 30, 60, 0]) {
+            punch = shift;
+            if (clash() || aboveHud(edge)) bad.push(label + ', punched in by ' + shift + ' px: ' + live().map((q) => q.text + ':' + q.lift + '/' + q.drop.toFixed(1)) + ' overlap ' + clash() + ' in the HUD ' + aboveHud(edge));
+          }
+          punch = 0;
+        }
+        reset(330);   // no room for the fifth: the oldest pop IN ITS COLUMN ends, not an older pop elsewhere
+        UI.popAt(5, 1, 0, '77', '#fff'); find('77').age = 0.5;
+        for (const text of ['AAA', 'BBB', 'CCC', 'DDD']) UI.popAt(0, 1, 0, text, '#fff');
+        UI.popAt(0, 1, 0, '1', '#fff');
+        if (!find('77') || find('AAA') || !find('1') || clash()) bad.push('the pop in the way did not end first: ' + live().map((q) => q.text + ':' + q.lift));
+        reset(0);   // without a projection (behind the camera): the world distance and the steps taken, as before
         R.project = () => false;
         for (const text of ['ONE', 'TWO', 'THREE']) UI.popAt(0, 1, 0, text, '#fff');
-        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'ONE:0,THREE:1.8,TWO:0.9') bad.push('no projection: ' + live().map((q) => q.text + ':' + q.lift));
+        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'ONE:0,THREE:' + 2 * POP_LIFT_EM + ',TWO:' + POP_LIFT_EM) bad.push('no projection: ' + live().map((q) => q.text + ':' + q.lift));
         R.project = (x, y, z, out) => { out[0] = 640 + x * 100; out[1] = 500 - y * 100; return true; };
-        UI.pops = fresh(); UI.popIdx = 0;   // a lower pop ending frees its step: the next one takes it, not the top of the pile
+        reset(0);   // a lower pop ending frees its step: the next one takes it, not the top of the pile
         for (const text of ['ONE', 'TWO', 'THREE']) UI.popAt(0, 1, 0, text, '#fff');
         live().find((q) => q.text === 'ONE').age = 99;
         UI.popAt(0, 1, 0, 'FOUR', '#fff');
-        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'FOUR:0,THREE:1.8,TWO:0.9') bad.push('the freed step was not reused: ' + live().map((q) => q.text + ':' + q.lift));
-        UI.pops = fresh(); UI.popIdx = 0;
+        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'FOUR:0,THREE:' + 2 * POP_LIFT_EM + ',TWO:' + POP_LIFT_EM) bad.push('the freed step was not reused: ' + live().map((q) => q.text + ':' + q.lift));
+        reset(0);
         for (let i = 0; i < 6; i++) { tick(); UI.popAt(i * 3, 1, 0, 'WORD ' + i, '#fff'); tick(); UI.popAt(i * 3, 2, 5, String(10 + i), '#fff'); }
         const words = live().filter((q) => !q.number).map((q) => q.text).sort().join(), numbers = live().filter((q) => q.number).map((q) => q.text).sort().join();
         if (POP_KIND_MAX !== 4 || words !== 'WORD 2,WORD 3,WORD 4,WORD 5' || numbers !== '12,13,14,15') bad.push('caps: ' + words + ' | ' + numbers);
@@ -14307,7 +14318,7 @@ const SelfTest = {
       if (lamps !== 21) bad.push(lamps + ' lights in all');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Shadow height (P30-03): the shadow plane is 1 + the footing height only over flat footing (the same at four corners 1 m round, more the higher the fighter is in the air: the shadow is thrown sideways): a fighter inside the Warehouse dock casts at 2, one jumping a little there still at 2, one jumping high (the shadow reaches past the edge) at 1, one near its edge, one in the air beside it (falling off) and one on the floor at 1; blob and team disc sit on the surface under the fighter; objects on a deck follow the same rule', () => {
+    test('Shadow height (P30-03): the shadow plane is 1 + the footing height only over flat footing under the whole shadow (the footprint, the middle of the shadow and its tip, which runs away from the light by the height of the body plus the jump): a fighter inside the Warehouse dock casts at 2, one whose shadow runs off the dock edge at 1, one hopping there still at 2, one jumping high at 1, one at the edge where the shadow runs back onto the dock at 2, one in the air beside it (falling off) and one on the floor at 1; the same dock under the light of the Construction Site (slant 1.54: the shadow of the head lands 2.8 m out) at 1, and the scaffold deck of that level at 1; blob and team disc sit on the surface under the fighter; objects on a deck follow the same rule', () => {
       const bad = [], push = R.push, put = R.put, mode = R.shadowMode;
       try {
         const f = new Fighter(ROSTER_BY_ID.kai, 0);
@@ -14321,9 +14332,9 @@ const SelfTest = {
           f.draw(1);
           return { casts: Array.from(new Set(casts)).join(), flats: flats.join() };
         };
-        const inside = drawAt(-8.5, 3.75, 2), edge = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2), hop = drawAt(-8.5, 3.75, 2, 0.4), jump = drawAt(-8.5, 3.75, 2, 1.5);
-        if (inside.casts !== '2' || edge.casts !== '1' || falling.casts !== '1' || floor.casts !== '1') bad.push('planes: inside the dock ' + inside.casts + ', near the edge ' + edge.casts + ', falling ' + falling.casts + ', floor ' + floor.casts);
-        if (hop.casts !== '2' || jump.casts !== '1') bad.push('a jump over the dock: a hop of 0.4 m casts at ' + hop.casts + ', 1.5 m at ' + jump.casts + ' (the shadow of the head lands 1 m past the edge)');
+        const inside = drawAt(-8.5, 3.75, 2), runsOff = drawAt(-8.5, 2.4, 2), backOn = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2), hop = drawAt(-8.5, 4.5, 2, 0.4), jump = drawAt(-8.5, 4.5, 2, 1.5);
+        if (inside.casts !== '2' || runsOff.casts !== '1' || backOn.casts !== '2' || falling.casts !== '1' || floor.casts !== '1') bad.push('planes: inside the dock ' + inside.casts + ', shadow running off the edge ' + runsOff.casts + ', at the +x edge ' + backOn.casts + ', falling ' + falling.casts + ', floor ' + floor.casts);
+        if (hop.casts !== '2' || jump.casts !== '1') bad.push('a jump over the dock: a hop of 0.4 m casts at ' + hop.casts + ', 1.5 m at ' + jump.casts + ' (the shadow of the head runs past the dock edge)');
         const dockBlobs = drawAt(-8.5, 3.75, 1), airBlobs = drawAt(-6.5, 3.75, 1, 1), flatBlobs = drawAt(0, 0, 1);
         if (dockBlobs.flats !== '1.02,1.018' || airBlobs.flats !== '0.02,0.018' || flatBlobs.flats !== '0.02,0.018') bad.push('blob and disc: ' + [dockBlobs.flats, airBlobs.flats, flatBlobs.flats].join(' | '));
         const castsOf = (id, objectId) => {
@@ -14336,7 +14347,15 @@ const SelfTest = {
         const speaker = castsOf('club', 'speakerA'), post = castsOf('rooftop', 'postA');   // a speaker well inside the stage; the post on the tank deck 0.4 m from its edge
         if (speaker.base !== 1 || speaker.casts !== '2' || post.base !== 2 || post.casts !== '1') bad.push('objects: speaker ' + speaker.casts + ', post ' + post.casts);
         Arena.build(ARENAS.warehouse);
-        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-7.3, 3.75, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0 || Arena.flatFooting(-8.5, 3.75, 1, 0.3, 0.4) !== 1 || Arena.flatFooting(-8.5, 3.75, 1, 0.3, 1.5) !== 0 || Arena.shadowThrow() < 0.5 || Arena.shadowThrow() > 0.8) bad.push('flatFooting');
+        const dir = Arena.shadowDir();
+        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-8.5, 2.4, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0 || Arena.flatFooting(-8.5, 4.5, 1, 0.3, 0.4) !== 1 || Arena.flatFooting(-8.5, 4.5, 1, 0.3, 1.5) !== 0 || Math.abs(dir[0] + 0.412) > 0.01 || Math.abs(dir[1] + 0.588) > 0.01) bad.push('flatFooting ' + dir);
+        const dock = Arena.def;   // the Warehouse dock under the Construction Site's light: the same fighter, a longer shadow
+        Arena.def = Object.assign({}, dock, { env: Object.assign({}, dock.env, { lightTo: ARENAS.construction.env.lightTo }) });
+        const slant = Math.hypot(...Arena.shadowDir()), steep = Arena.flatFooting(-8.5, 3.75, 1, 0.3);
+        Arena.def = dock;
+        if (Math.abs(slant - 1.54) > 0.02 || steep !== 0) bad.push('a slant of ' + slant.toFixed(2) + ' leaves plane ' + steep + ' over a fighter in the middle of the dock (its head shadow lands past the edge)');
+        Arena.build(ARENAS.construction);   // the scaffold's top deck (top 3, 1.2 m wide): the shadow runs off it from every spot
+        if (Arena.flatFooting(-3, -6, 3, 0.3) !== 0 || Arena.flatFooting(-1, -5.8, 3, 0.3) !== 0) bad.push('a fighter on the scaffold deck keeps a raised plane');
       } finally { R.push = push; R.put = put; R.shadowMode = mode; Arena.build(ARENAS.warehouse); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -14363,6 +14382,31 @@ const SelfTest = {
         const text = [];
         for (const sheet of Array.from(sheets)) { try { for (const rule of Array.from(sheet.cssRules)) if (rule.media && /orientation:\s*portrait/.test(rule.media.mediaText)) text.push(Array.from(rule.cssRules).map((r) => r.cssText).join(' ')); } catch (error) { /* a sheet from another origin */ } }
         if (!/\.hname \.cpu\s*\{\s*display:\s*none/.test(text.join(' ')) || !/\.hname\.long/.test(text.join(' '))) bad.push('the portrait rules are missing');
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Controls card (P30-17) and level line outline (P30-12): every controls card (keyboard, gamepad, touch) and the Versus card is a title, three groups and a close line, so the landscape columns never split a line; a browser also has the rules that keep the groups whole and the text-shadow ring, and no @supports (paint-order) stroke', () => {
+      const bad = [], keep = UI.dom, groups = (html) => (html.match(/<div>/g) || []).length;
+      try {
+        for (const kind of CONTROL_CARD_KINDS) {
+          const html = UI.controlsCardHtml(kind);
+          if (groups(html) !== 3 || !html.startsWith('<h3>CONTROLS</h3><div>') || !/<\/div><small>[^<]+<\/small>$/.test(html) || /<br><br>/.test(html)) bad.push(kind + ' card: ' + html.slice(0, 120));
+        }
+        UI.dom = Object.assign({}, keep, { onboard: { hidden: true, innerHTML: '' } });
+        UI.showVersusCard();
+        const versus = UI.dom.onboard.innerHTML;
+        UI.hideOnboarding();
+        if (groups(versus) !== 3 || !versus.startsWith('<h3>VERSUS CONTROLS</h3><div>') || !/<\/div><small>[^<]+<\/small>$/.test(versus) || !versus.includes('P1') || !versus.includes('P2') || !versus.includes('Pause:')) bad.push('Versus card: ' + versus.slice(0, 120));
+      } finally { UI.dom = keep; }
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (sheets && sheets.length) {   // a headless run has no stylesheet; a browser run reads the rules
+        const text = [];
+        const read = (rules) => { for (const rule of Array.from(rules)) { text.push((rule.constructor.name === 'CSSSupportsRule' ? '@supports ' : '') + rule.cssText); if (rule.cssRules) read(rule.cssRules); } };
+        for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules); } catch (error) { /* a sheet from another origin */ } }
+        const css = text.join(' ');
+        if (!/#onboard div\s*\{[^}]*break-inside:\s*avoid/.test(css)) bad.push('the card groups can be split');
+        if (!/#roundlbl,\s*#modeinfo\s*\{[^}]*text-shadow:[^}]*(1\.5px[^}]*){4}/.test(css)) bad.push('the level line has no text-shadow ring');
+        if (/paint-order/.test(css) || /@supports[^{]*paint-order/.test(css)) bad.push('a paint-order outline is back');
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
