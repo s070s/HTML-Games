@@ -47,7 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MIXED, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -17038,15 +17038,15 @@ const SelfTest = {
       Arena.collapses.length = 0; Arena.collapses.push(...c.collapses); Arena.marks.length = 0; Arena.marks.push(...c.marks);
     };
     const makeMemoryNet = (seed) => {
-      const rng = lcg(seed), net = { t: 0, queue: [], seq: 0, packets: 0, lost: 0, bytes: 0 };
+      const rng = lcg(seed), net = { t: 0, queue: [], seq: 0, packets: 0, lost: 0, bytes: 0, stalls: 0, peerFrames: 0 };   // stalls / peerFrames: the virtual frames in which a peer could not step at all
       const makeEnd = (profile) => {
-        const end = { profile, peer: null, muted: false, closed: false, controlAt: 0, onmessage: null, onclose: null };
+        const end = { profile, peer: null, muted: false, closed: false, controlAt: 0, onmessage: null, onclose: null, bytes: 0, packets: 0 };   // bytes, packets: what this end sent on the input channel (before loss)
         end.send = (channel, data) => {   // muted: this end's packets vanish, the link stays up (a peer that stopped answering)
           if (end.muted || end.closed) return;
           if (channel === 'input' && end.blockInput) { net.lost++; return; }   // only the input channel of this end stops (the reliable one still works)
           let at = net.t + end.profile.latency + rng() * end.profile.jitter;
           if (channel === 'input') {
-            net.packets++; net.bytes += data.length;
+            net.packets++; net.bytes += data.length; end.packets++; end.bytes += data.length;
             if (rng() < end.profile.loss) { net.lost++; return; }
           } else { at = Math.max(at, end.controlAt); end.controlAt = at; }   // reliable and ordered
           net.queue.push({ at, seq: net.seq++, to: end.peer, channel, data: channel === 'input' ? data.slice() : data });
@@ -17082,24 +17082,25 @@ const SelfTest = {
         return it;
       }, reset() {} };
     };
-    /* seats = 2 (a 1v1, both people) or 3 or 4 (a brawl: that many people against three CPU enemies; the 4-seat form is for measuring, P12-03 tests it). opts: delay, latency, jitter, loss, seed, rtc ([host transport, guest transport] instead of the memory link), device (seat -> controller). */
+    /* seats = 2 (a 1v1, both people) or 3 or 4 (a brawl: that many people against three CPU enemies). opts: delay, latency, jitter, loss, seed, rtc ([host transport, guest transport] instead of the memory link; rtcSeats { seat: [host transport, guest transport] } one pair per guest),
+       device (seat -> controller), cfg (overrides), present (the seats that have a peer, default all: a seat nobody fills only watches), fighterOf (fighter index per seat, -1 = watches; default the seat). */
     const makeLockstep = (seats, opts) => {
       const net = makeMemoryNet(opts.seed || 1), common = { countdown: false, seed: 31, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true };
       const cfg = Object.assign(common, seats === 2 ? { mode: 'free', winsNeeded: 99, timer: 30 } : { mode: 'brawl', enemies: 3, hpScale: 8, coop: ROSTER.slice(0, seats).map((fighter, slot) => ({ slot, id: fighter.id })) }, opts.cfg);
-      const peers = [], profile = { latency: opts.latency || 0, jitter: opts.jitter || 0, loss: opts.loss || 0 }, links = {}, hostLinks = [];
-      for (let seat = 1; seat < seats; seat++) { const [hostEnd, guestEnd] = opts.rtc ? [opts.rtc[0], opts.rtc[1]] : net.pair(profile); links[seat] = hostEnd; hostLinks[seat] = guestEnd; }
-      for (let seat = 0; seat < seats; seat++) {
+      const peers = [], profile = { latency: opts.latency || 0, jitter: opts.jitter || 0, loss: opts.loss || 0 }, links = {}, hostLinks = [], present = opts.present || Array.from({ length: seats }, (_, seat) => seat);
+      for (const seat of present) { if (!seat) continue; const [hostEnd, guestEnd] = opts.rtcSeats ? opts.rtcSeats[seat] : opts.rtc ? [opts.rtc[0], opts.rtc[1]] : net.pair(profile); links[seat] = hostEnd; hostLinks[seat] = guestEnd; }
+      for (const seat of present) {
         const match = track(new MatchSim(cfg));
         const peer = { seat, match, ctx: saveSimContext(), acc: 0, sums: [], viewer: seat ? VIEWER_ODD : null, waiting: [], desync: null, drops: [] };
         peer.session = new LockstepSession({
-          match, seat, seatCount: seats, host: seat === 0, delay: opts.delay, now: opts.rtc ? () => performance.now() : () => net.t,
+          match, seat, seatCount: seats, host: seat === 0, delay: opts.delay, fighterOf: opts.fighterOf, now: opts.rtc || opts.rtcSeats ? () => performance.now() : () => net.t,
           links: seat === 0 ? links : undefined, hostLink: seat === 0 ? undefined : hostLinks[seat],
           localController: opts.device ? opts.device(seat) : randomDevice(seat, opts.seed || 1),
           onWaiting: (text) => peer.waiting.push([net.t, text]), onDesync: (info) => { peer.desync = info; }, onDrop: (info) => peer.drops.push(Object.assign({ at: net.t }, info)),
         });
         peers.push(peer);
       }
-      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; }, hostEnd: (seat) => links[seat] };   // mute: that seat stops answering (its link stays up)
+      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; }, hostEnd: (seat) => links[seat], guestEnd: (seat) => hostLinks[seat] };   // mute: that seat stops answering (its link stays up); hostEnd / guestEnd: the two ends of a seat's link
     };
     const inPeer = (peer, fn) => {
       const keep = Object.assign({}, Settings.v), outer = saveSimContext();   // the page's own loop (the menu scene) keeps running between async steps and must find its own globals
@@ -17121,8 +17122,11 @@ const SelfTest = {
         if (hook) hook(net, peers);
         for (const peer of peers) {
           peer.acc += TICK_MS;
+          net.peerFrames++;
+          let stepped = 0;
           while (peer.acc >= TICK_MS && peer.match.tick < frames) {
-            if (!stepPeer(peer)) { peer.acc = Math.min(peer.acc, TICK_MS * 4); break; }   // the game loop's catch-up cap after a stall
+            if (!stepPeer(peer)) { if (!stepped) net.stalls++; peer.acc = Math.min(peer.acc, TICK_MS * 4); break; }   // the game loop's catch-up cap after a stall
+            stepped++;
             peer.acc -= TICK_MS;
           }
         }
@@ -17415,6 +17419,97 @@ const SelfTest = {
       const before = guestLink.sent.length;
       transports[1].send('input', new Uint8Array(1));   // a link that is not open takes nothing and does not throw
       if (guestLink.sent.length !== before) problems.push('a link that is not open was sent to');
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ---------- online: up to 4 peers (P12-03) ---------- */
+    const peerFrameRate = (net) => (net.peerFrames ? net.stalls / net.peerFrames : 0);
+    test('Lockstep (P12-03): four peers (a brawl with four people and three CPU fighters) stay in lockstep over a lossy, jittery star for 1,800 frames, every checksum equal; the host relays every guest to the others (9 input packets a frame)', () => {
+      const FRAMES = 1800;
+      const game = makeLockstep(4, { delay: 4, latency: 25, jitter: 15, loss: 0.1, seed: 31 });
+      const done = playLockstep(game, FRAMES);
+      const problems = done === true ? lockstepProblems(game.peers, FRAMES) : [done];
+      if (!game.net.lost) problems.push('no packet was lost: the loss was not exercised');
+      const hostEnds = [1, 2, 3].map((seat) => game.hostEnd(seat)), hostPackets = hostEnds.reduce((sum, end) => sum + end.packets, 0), hostBytes = hostEnds.reduce((sum, end) => sum + end.bytes, 0);
+      const perFrame = hostPackets / game.peers[0].match.tick;
+      if (perFrame < 8 || perFrame > 12) problems.push('the host sent ' + perFrame.toFixed(2) + ' packets a frame (9 expected: 3 own + 6 relayed; the repeats of a stalled peer, relayed too, add some)');
+      if (Math.abs(hostBytes / hostPackets - (NET_PACKET_HEAD + 4 * NET_REDUNDANCY)) > 0.5) problems.push('a packet was ' + (hostBytes / hostPackets).toFixed(2) + ' bytes on average, not ' + (NET_PACKET_HEAD + 4 * NET_REDUNDANCY) + ' (the first 8 frames of a match have fewer inputs in a packet)');
+      if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 4, frames: FRAMES, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost, hostPackets, hostBytes, ticks: game.peers[0].match.tick, stallRate: peerFrameRate(game.net), needs: game.peers.map((peer) => peer.session.stats.needs), fills: game.peers.map((peer) => peer.session.stats.fills) });
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-03): the stall rate of four peers under jitter at delay 4 and 6, measured (virtual frames in which a peer could not step), and the checksums stay equal', () => {
+      const problems = [], rates = {};
+      for (const [delay, jitter] of [[4, 10], [4, 40], [6, 40]]) {
+        const game = makeLockstep(4, { delay, latency: 20, jitter, loss: 0.05, seed: 40 + delay + jitter });
+        const done = playLockstep(game, 900);
+        const found = done === true ? lockstepProblems(game.peers, 900) : [done];
+        problems.push(...found.map((text) => 'delay ' + delay + ' jitter ' + jitter + ': ' + text));
+        rates[delay + '/' + jitter] = peerFrameRate(game.net);
+        if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 4, delay, latency: 20, jitter, loss: 0.05, frames: 900, stallRate: rates[delay + '/' + jitter], stalls: game.net.stalls, peerFrames: game.net.peerFrames });
+      }
+      if (rates['4/10'] > 0.15) problems.push('a 20 ms link with 10 ms jitter stalled ' + (rates['4/10'] * 100).toFixed(1) + ' % of the frames at delay 4');
+      if (rates['6/40'] > rates['4/40']) problems.push('a longer delay stalled more (' + rates['6/40'] + ' against ' + rates['4/40'] + ')');
+      // the delay the host's formula picks from the measured pings, 5 s into a match that started at the shortest delay: the stalls after it against the stalls before it
+      {
+        const game = makeLockstep(4, { delay: 2, latency: 25, jitter: 15, loss: 0.05, seed: 77 });
+        let mark = null, chosen = 0;
+        const done = playLockstep(game, 1500, (net, peers) => { if (!mark && peers[0].match.tick >= 300) { chosen = peers[0].session.retune(); mark = { stalls: net.stalls, frames: net.peerFrames }; } });
+        const found = done === true ? lockstepProblems(game.peers, 1500) : [done];
+        problems.push(...found.map((text) => 'retuned run: ' + text));
+        const before = mark ? mark.stalls / mark.frames : 1, after = mark ? (game.net.stalls - mark.stalls) / (game.net.peerFrames - mark.frames) : 1;
+        if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 4, retune: true, startDelay: 2, chosen, latency: 25, jitter: 15, loss: 0.05, stallBefore: before, stallAfter: after, rtts: [1, 2, 3].map((seat) => game.peers[0].session.rtt(seat)) });
+        if (chosen < 4 || after >= before) problems.push('the formula chose delay ' + chosen + ' and the stalls went from ' + before.toFixed(3) + ' to ' + after.toFixed(3));
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-03): in a four-person brawl one guest drops (stops answering): P3 is seated out on every peer on the same frame, the host keeps relaying the other two guests and the three that play on stay equal', () => {
+      const problems = [], game = makeLockstep(4, { delay: 2, latency: 10, jitter: 5, seed: 33 }), [host, second, third, fourth] = game.peers;
+      let muted = false;
+      const done = playLockstep(game, 1000, () => { if (!muted && host.match.tick >= 150) { muted = true; game.mute(2); } });
+      if (done !== true) return done;
+      if (!host.waiting.some((entry) => entry[1] === 'Waiting for P3...') || !fourth.waiting.some((entry) => entry[1] === 'Waiting for P3...')) problems.push('the waiting text ' + JSON.stringify(host.waiting.slice(0, 2)));
+      for (const peer of [host, second, fourth]) {
+        const drop = peer.drops[0];
+        if (!drop || drop.outcome !== 'seatedOut' || drop.seat !== 2) problems.push('seat ' + peer.seat + ' drop ' + JSON.stringify(drop));
+        if (peer.match.fighters[2].alive || !peer.match.fighters[2].netOut) problems.push('seat ' + peer.seat + ': fighter 3 was not seated out');
+        if (peer.match.tick < 1000 || peer.session.ended) problems.push('seat ' + peer.seat + ' stopped at ' + peer.match.tick + ' ' + peer.session.ended);
+      }
+      if (host.sums.join() !== second.sums.join() || host.sums.join() !== fourth.sums.join()) problems.push('the three peers that played on differ');
+      if (third.session.ended !== 'lost') problems.push('the dropped peer ended as "' + third.session.ended + '"');
+      const dropFrames = new Set([host, second, fourth].map((peer) => peer.session.dropped.get(2)));
+      if (dropFrames.size !== 1) problems.push('the peers dropped the seat on different frames: ' + Array.from(dropFrames).join('/'));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-03): seats that only watch: a 1v1 between guests 2 and 3 with the host and a fourth seat nobody fills watching, equal over a lossy star; the watchers send no input and nobody waits for them', () => {
+      const FRAMES = 900;
+      const game = makeLockstep(4, { delay: 4, latency: 20, jitter: 10, loss: 0.1, seed: 35, present: [0, 1, 2], fighterOf: [-1, 0, 1, -1], cfg: { mode: 'free', winsNeeded: 99, timer: 30, enemies: undefined, coop: undefined, hpScale: undefined } });
+      const done = playLockstep(game, FRAMES);
+      const problems = done === true ? lockstepProblems(game.peers, FRAMES) : [done];
+      const host = game.peers[0];
+      if (host.session.got[0].size || host.session.sentUpTo !== 0) problems.push('the watching host made input');
+      if (host.match.controllers[0].seat !== 1 || host.match.controllers[1].seat !== 2) problems.push('the fighters are not steered by seats 2 and 3');
+      if (host.match.fighters.length !== 2) problems.push('the match is not a 1v1: ' + host.match.fighters.length + ' fighters');
+      if (!game.peers.every((peer) => peer.waiting.every((entry) => !entry[1]))) problems.push('somebody waited: ' + JSON.stringify(game.peers.map((peer) => peer.waiting.slice(0, 2))));
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-03): in a 1v1 of two guests, one of them drops: the fight is lost by that fighter on every peer, the host and the other watcher included, and a match that has ended needs no more input from anyone', () => {
+      const problems = [], game = makeLockstep(4, { delay: 2, latency: 10, seed: 36, present: [0, 1, 2, 3], fighterOf: [-1, 0, 1, -1], cfg: { mode: 'free', winsNeeded: 99, timer: 30, enemies: undefined, coop: undefined, hpScale: undefined } });
+      let muted = false;
+      const done = playLockstep(game, 800, () => { if (!muted && game.peers[0].match.tick >= 120) { muted = true; game.mute(1); } });
+      if (done !== true) return done;
+      for (const peer of [game.peers[0], game.peers[2], game.peers[3]]) {
+        const drop = peer.drops[0];
+        if (!drop || drop.outcome !== 'forfeit' || drop.seat !== 1) problems.push('seat ' + peer.seat + ' drop ' + JSON.stringify(drop));
+        if (!peer.match.matchOver || peer.match.matchWinner !== 1 || !peer.match.fighters[0].netOut) problems.push('seat ' + peer.seat + ' did not end the fight with fighter 2 as the winner');
+        if (peer.match.tick < 800) problems.push('seat ' + peer.seat + ' stopped at ' + peer.match.tick + ' ' + peer.session.ended);
+      }
+      // the match is over: a peer that leaves now stalls nobody, and no peer reports a lost connection for it
+      const host = game.peers[0];
+      if (host.match.phase !== 'matchEnd') problems.push('the host is in phase ' + host.match.phase);
+      const before = game.peers[2].drops.length;
+      game.guestEnd(3).close();
+      game.net.advance(game.net.t + 200);
+      for (let i = 0; i < 30; i++) stepPeer(host);
+      if (host.session.ended || host.drops.length !== 1 || game.peers[2].drops.length !== before) problems.push('a seat that left after the match end was still handled as a drop');
       return problems.length ? problems.join('; ') : true;
     });
     // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
@@ -17937,50 +18032,93 @@ const SelfTest = {
         return result;
       });
     });
-    test('Online UI (P12-01): the Online screens follow the link state, a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
+    test('Online UI (P12-01, P12-03): the Online screens follow the link state (the host has one block per guest), a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
       const bad = [];
-      const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip };
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip, guests: OnlineUI.guests, mode: OnlineUI.mode, arena: OnlineUI.arena };
+      const slot = (seat, state, error, offerCode = '', extra = {}) => Object.assign({ seat, link: { state, error: error || null, seat }, offerCode, answerText: '', note: '', roundTrip: -1 }, extra);
       try {
         if (!UI.screen_main().includes('data-act="online"')) bad.push('no Online button on the main menu');
         const choice = UI.screen_online();
         if (!choice.includes('data-act="onhost"') || !choice.includes('data-act="onjoin"') || !choice.includes('data-act="back"')) bad.push('the first Online screen');
-        OnlineUI.role = 'host'; OnlineUI.offerCode = ''; OnlineUI.answerCode = ''; OnlineUI.note = ''; OnlineUI.roundTrip = -1;
-        OnlineUI.link = { state: 'gathering', error: null };
+        if (!choice.includes('block direct connections') || !choice.includes('No server is used')) bad.push('the limits note is not on the first Online screen');
+        OnlineUI.role = 'host'; OnlineUI.note = ''; OnlineUI.mode = ''; OnlineUI.arena = ONLINE_ARENA_DEFAULT;
+        OnlineUI.guests = [slot(2, 'gathering')];
         let screen = UI.screen_onlinehost();
-        if (!screen.includes('Making your code') || !/data-act="oncopy:offer" disabled/.test(screen) || !/data-act="onconnect" disabled/.test(screen)) bad.push('host while gathering');
-        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(100); OnlineUI.link = { state: 'waiting', error: null };
+        if (!screen.includes('Making your code') || !/data-act="oncopy:2" disabled/.test(screen) || !/data-act="onconnect:2" disabled/.test(screen)) bad.push('host while gathering');
+        OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-' + 'A'.repeat(100))];
         screen = UI.screen_onlinehost();
-        if (!screen.includes(OnlineUI.offerCode) || /data-act="oncopy:offer" disabled/.test(screen) || /data-act="onqr:offer" disabled/.test(screen) || /data-act="onconnect" disabled/.test(screen) || !screen.includes('Waiting for your friend')) bad.push('host with a code');
-        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(500);
+        if (!screen.includes('BPO-' + 'A'.repeat(100)) || /data-act="oncopy:2" disabled/.test(screen) || /data-act="onqr:2" disabled/.test(screen) || /data-act="onconnect:2" disabled/.test(screen) || !screen.includes('Waiting for your friend')) bad.push('host with a code');
+        OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-' + 'A'.repeat(500))];
         screen = UI.screen_onlinehost();
-        if (!/data-act="onqr:offer" disabled/.test(screen) || !screen.includes('Too long for a QR: use Copy.')) bad.push('a code over 425 characters shows text only');
-        OnlineUI.link = { state: 'open', error: null }; OnlineUI.roundTrip = 3;
+        if (!/data-act="onqr:2" disabled/.test(screen) || !screen.includes('Too long for a QR: use Copy.')) bad.push('a code over 425 characters shows text only');
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-x', { roundTrip: 3 })];
         if (!UI.screen_onlinehost().includes('Connected (round trip 3 ms).')) bad.push('connected line');
-        OnlineUI.link = { state: 'failed', error: { code: 'ice', message: ONLINE_MESSAGES.ice } };
+        OnlineUI.guests = [slot(2, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice })];
         screen = UI.screen_onlinehost();
-        if (!screen.includes('warnline') || !screen.includes('could not reach each other')) bad.push('failure line');
-        OnlineUI.link = null; OnlineUI.note = '<b>"x"</b>';
+        if (!screen.includes('warnline') || !screen.includes('could not connect') || !screen.includes('data-act="onnew:2"')) bad.push('failure line and the New code button');
+        OnlineUI.guests = [slot(2, 'idle', null, '', { note: '<b>"x"</b>' })];
         if (!UI.screen_onlinehost().includes('&lt;b&gt;&quot;x&quot;&lt;/b&gt;')) bad.push('a note must be escaped');
+        // one block per guest, each with its own code, answer box, Connect and status; Add another player until seat 4
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { roundTrip: 5 }), slot(3, 'waiting', null, 'BPO-three'), slot(4, 'failed', { code: 'timeout', message: ONLINE_MESSAGES.timeout }, 'BPO-four')];
+        screen = UI.screen_onlinehost();
+        for (const seat of [2, 3, 4]) for (const part of ['id="onCode' + seat + '"', 'id="onAnswer' + seat + '"', 'data-act="oncopy:' + seat + '"', 'data-act="onqr:' + seat + '"', 'data-act="onconnect:' + seat + '"', 'id="onStatus' + seat + '"']) if (!screen.includes(part)) bad.push('seat ' + seat + ' lacks ' + part);
+        if (screen.includes('data-act="onadd"')) bad.push('a fourth guest block was offered');
+        if (!/data-act="onconnect:3"(?! disabled)/.test(screen) || !/data-act="onconnect:2" disabled/.test(screen) || !screen.includes('data-act="onnew:4"') || screen.includes('data-act="onnew:2"')) bad.push('Connect and New code follow each guest\'s own state');
+        if (!screen.includes('Connected (round trip 5 ms).') || !screen.includes(ONLINE_MESSAGES.timeout)) bad.push('each guest has its own status line');
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two')];
+        if (!UI.screen_onlinehost().includes('data-act="onadd"')) bad.push('no Add another player with one guest');
+        // the guest's kind of browser: shown on its line, and a warning when it is not the host's own kind
+        const own = onlineEngine(), other = Object.keys(ONLINE_ENGINES).find((kind) => kind !== own);
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own })];
+        screen = UI.screen_onlinehost();
+        if (!screen.includes('Browser: ' + ONLINE_ENGINES[own] + '.') || screen.includes(esc(ONLINE_MIXED))) bad.push("a guest with the host's own kind of browser");
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other })];
+        if (!UI.screen_onlinehost().includes(esc(ONLINE_MIXED))) bad.push('a guest with another kind of browser must be warned about');
+        // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
+        OnlineUI.guests = [slot(2, 'waiting', null, 'BPO-two')];
+        if (!/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Start must wait for a connected friend');
+        OnlineUI.guests = [slot(2, 'open')];
+        screen = UI.screen_onlinehost();
+        if (/data-act="onstart" disabled/.test(screen) || !screen.includes('Mode: 1 vs 1') || OnlineUI.startProblem() !== '') bad.push('two players: 1 vs 1 can start');
+        OnlineUI.guests = [slot(2, 'open'), slot(3, 'open')];
+        if (!UI.screen_onlinehost().includes('Mode: Brawl') || OnlineUI.startProblem() !== '') bad.push('three players: Brawl');
+        OnlineUI.mode = 'fight';
+        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.fightTwo || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(ONLINE_MESSAGES.fightTwo)) bad.push('a 1 vs 1 with three players must say why it cannot start');
+        OnlineUI.mode = '';
+        OnlineUI.act('onmode');
+        if (OnlineUI.mode !== 'tournament') bad.push('the Mode button cycles brawl > tournament: ' + OnlineUI.mode);
+        if (UI.screen_onlinehost().includes('data-act="onarena"')) bad.push('a tournament picks its own levels');
+        OnlineUI.act('onmode'); OnlineUI.act('onmode');
+        if (OnlineUI.mode !== 'brawl') bad.push('the Mode button cycles on');
+        const arenaBefore = OnlineUI.arena;
+        OnlineUI.act('onarena');
+        if (OnlineUI.arena === arenaBefore || !ARENAS[OnlineUI.arena]) bad.push('the Level button');
+        OnlineUI.mode = ''; OnlineUI.arena = ONLINE_ARENA_DEFAULT;
+        // the guest
+        OnlineUI.guests = []; OnlineUI.link = null;
         OnlineUI.role = 'guest'; OnlineUI.note = ''; OnlineUI.answerCode = 'BPA-' + 'B'.repeat(100);
         screen = UI.screen_onlinejoin();
-        if (!screen.includes('id="onOffer"') || !screen.includes(OnlineUI.answerCode) || !screen.includes('data-act="onanswer"')) bad.push('guest screen');
+        if (!screen.includes('id="onOffer"') || !screen.includes(OnlineUI.answerCode) || !screen.includes('data-act="onanswer"') || !screen.includes('block direct connections')) bad.push('guest screen');
+        OnlineUI.link = { state: 'open', error: null, seat: 3 };
+        if (!UI.screen_onlinejoin().includes('You are player 3') || !UI.screen_onlinejoin().includes('host starts the game')) bad.push('the guest must see its seat and that the host starts');
+        OnlineUI.link = null;
         if (OnlineUI.onKey({ code: 'KeyA' }, null) !== false) bad.push('a key outside a code box');
         if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: false }) !== true) bad.push('Backspace in a box the player writes in must type, not go back');
         if (OnlineUI.onKey({ code: 'Escape' }, { tagName: 'TEXTAREA', readOnly: true }) !== false || OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: true }) !== false) bad.push('Esc and Backspace in a read-only code box must reach the menu (the focus starts there)');
         // the focus starts on the first enabled data-default: never in a code box
         const firstFocus = (html) => { const tag = (html.match(/<button[^>]*data-default[^>]*>/g) || []).find((item) => !/ disabled/.test(item)); return tag ? /data-act="([^"]*)"/.exec(tag)[1] : 'none'; };
         const focusCases = [
-          ['host gathering', 'host', '', '', { state: 'gathering', error: null }, 'back'], ['host with a code', 'host', 'BPO-' + 'A'.repeat(100), '', { state: 'waiting', error: null }, 'oncopy:offer'],
-          ['guest before the paste', 'guest', '', '', null, 'onanswer'], ['guest with an answer', 'guest', '', 'BPA-' + 'B'.repeat(100), { state: 'waiting', error: null }, 'oncopy:answer'],
-          ['guest after a failure', 'guest', '', '', { state: 'failed', error: { code: 'sdp', message: ONLINE_MESSAGES.sdp } }, 'onanswer'],
+          ['host gathering', 'host', [slot(2, 'gathering')], null, 'back'], ['host with a code', 'host', [slot(2, 'waiting', null, 'BPO-' + 'A'.repeat(100))], null, 'oncopy:2'],
+          ['guest before the paste', 'guest', [], null, 'onanswer'], ['guest with an answer', 'guest', [], { state: 'waiting', error: null }, 'oncopy:answer'],
+          ['guest after a failure', 'guest', [], { state: 'failed', error: { code: 'sdp', message: ONLINE_MESSAGES.sdp } }, 'onanswer'],
         ];
-        for (const [name, role, offerCode, answerCode, link, expected] of focusCases) {
-          OnlineUI.role = role; OnlineUI.offerCode = offerCode; OnlineUI.answerCode = answerCode; OnlineUI.link = link;
+        for (const [name, role, guests, link, expected] of focusCases) {
+          OnlineUI.role = role; OnlineUI.guests = guests; OnlineUI.link = link; OnlineUI.answerCode = name === 'guest with an answer' ? 'BPA-' + 'B'.repeat(100) : '';
           const got = firstFocus(role === 'host' ? UI.screen_onlinehost() : UI.screen_onlinejoin());
           if (got !== expected) bad.push('the focus of the ' + name + ' screen starts on ' + got + ', not ' + expected);
         }
         // a failed or closed link leaves the paste box writable and Make answer code pressable (the retry)
-        OnlineUI.role = 'guest'; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'closed', error: null };
+        OnlineUI.role = 'guest'; OnlineUI.guests = []; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'closed', error: null };
         screen = UI.screen_onlinejoin();
         if (/id="onOffer"[^>]* readonly/.test(screen) || /data-act="onanswer" disabled/.test(screen)) bad.push('after a failure the guest must be able to try again');
         OnlineUI.link = { state: 'waiting', error: null };
@@ -17989,6 +18127,50 @@ const SelfTest = {
         Object.assign(OnlineUI, kept);
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    // (the P12-03 test of Start's hand-off is here, before the async release() test: both use OnlineUI, and a pending async test resumes only after every synchronous test has run)
+    test('Online UI (P12-03): Start hands every open guest link over (the ones that are not open are closed), the host screen forgets them, and a guest hands its one link over when the host\'s start message arrives', () => {
+      const problems = [], kept = { link: OnlineUI.link, role: OnlineUI.role, guests: OnlineUI.guests, unlisten: OnlineUI.unlisten, play: OnlinePlay.guestBegin };
+      const stand = (state, seat) => { const [hostSide] = makeStandInLinks(); hostSide.state = state; hostSide.seat = seat; return hostSide; };
+      try {
+        OnlineUI.reset();
+        OnlineUI.role = 'host';
+        const links = [stand('open', 2), stand('waiting', 3), stand('open', 4)];
+        OnlineUI.guests = links.map((link, k) => ({ seat: k + 2, link, offerCode: 'BPO-x', answerText: '', note: '', roundTrip: 10 + k }));
+        const handed = OnlineUI.releaseGuests();
+        if (!handed || handed.map((entry) => entry.seat).join() !== '2,4' || handed[0].link !== links[0] || handed[1].roundTrip !== 12) problems.push('releaseGuests gave ' + JSON.stringify(handed && handed.map((entry) => entry.seat)));
+        if (links[0].closed || links[2].closed || links[1].closed !== 1 || OnlineUI.guests.length || OnlineUI.role !== '') problems.push('the open links must stay open, the others close, and the screen forgets them');
+        OnlineUI.guests = [{ seat: 2, link: stand('waiting', 2), offerCode: '', answerText: '', note: '', roundTrip: -1 }];
+        if (OnlineUI.releaseGuests() !== null || OnlineUI.guests.length !== 1) problems.push('no open link: nothing is handed over');
+        OnlineUI.reset();
+        // the kinds of browser: iPhone browsers are Safari's, Edge is Chrome's, Firefox is its own; a guest says its kind when its link opens and the host keeps it
+        const kinds = [['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0', 'blink'], ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:157.0) Gecko/20100101 Firefox/157.0', 'gecko'],
+          ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', 'webkit'], ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/156.0 Mobile/15E148 Safari/604.1', 'webkit'],
+          ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15', 'webkit'], ['Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36', 'blink']];
+        for (const [agent, kind] of kinds) if (onlineEngine(agent) !== kind) problems.push('the browser kind of ' + agent.slice(0, 50) + ' is ' + onlineEngine(agent));
+        const hello = stand('open', 3), told = [], hostSide = stand('open', 3);
+        OnlineUI.role = 'guest'; OnlineUI.link = hello; OnlineUI.unlisten = [];
+        hello.peer.listeners.message.push((data) => told.push(data));
+        OnlineUI.onState(hello, 'open');
+        if (told.length !== 1 || told[0] !== ONLINE_HELLO + onlineEngine()) problems.push('the guest did not say its browser: ' + JSON.stringify(told));
+        OnlineUI.reset();
+        OnlineUI.role = 'host'; OnlineUI.guests = [{ seat: 3, link: hostSide, offerCode: '', answerText: '', note: '', roundTrip: -1 }];
+        OnlineUI.onMessage(hostSide, ONLINE_HELLO + 'gecko'); OnlineUI.onMessage(hostSide, ONLINE_HELLO + '__proto__'); OnlineUI.onMessage(hostSide, ONLINE_HELLO + 'toString');
+        if (OnlineUI.guests[0].engine !== 'gecko') problems.push("the host did not keep the guest's browser kind: " + OnlineUI.guests[0].engine);
+        OnlineUI.reset();
+        // a guest: the start message releases the link and goes to OnlinePlay; other text does not
+        const guestLink = stand('open', 3), received = [];
+        OnlinePlay.guestBegin = (link, message) => received.push([link, message]);
+        OnlineUI.role = 'guest'; OnlineUI.link = guestLink; OnlineUI.unlisten = [];
+        OnlineUI.onMessage(guestLink, 'bp-pong:3'); OnlineUI.onMessage(guestLink, '{"t":"other"}'); OnlineUI.onMessage(guestLink, 'not json');
+        if (received.length || OnlineUI.link !== guestLink) problems.push('a message that is not a start moved the guest on');
+        OnlineUI.onMessage(guestLink, JSON.stringify({ t: ONLINE_START, id: 1 }));
+        if (received.length !== 1 || received[0][0] !== guestLink || OnlineUI.link !== null || guestLink.closed) problems.push('the start message did not hand the guest\'s link over');
+      } finally {
+        OnlinePlay.guestBegin = kept.play;
+        Object.assign(OnlineUI, { link: kept.link, role: kept.role, guests: kept.guests, unlisten: kept.unlisten });
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
     test('Online UI (P12-01): release() hands the open link to the caller without closing it (the hand-off point for P12-02 and P12-06); leave() and reset() afterwards leave it open, and a link that is not open is not handed over', async () => {
       const bad = [];
@@ -18055,7 +18237,7 @@ const SelfTest = {
       return problems.length ? problems.join('; ') : true;
     });
     test('Lockstep (P12-02): a seat that drops during the round end counts for the round-end skip only up to its drop frame, and three peers stay equal; the online pause key toggles the question while a blur or hidden tab only opens it', () => {
-      const problems = [], game = makeLockstep(3, { delay: 2, latency: 10, seed: 5, cfg: { timer: 2 }, device: (seat) => (seat === 2 ? { n: 0, think(f, opp, match, it) { clearIntent(it); if (++this.n > 140) it.punch = true; return it; }, reset() {} } : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) });
+      const problems = [], game = makeLockstep(3, { delay: 2, latency: 10, seed: 5, cfg: { timer: 2 }, device: (seat) => (seat === 2 ? { n: 0, think(f, opp, match, it) { clearIntent(it); if (++this.n > 100) it.punch = true; return it; }, reset() {} } : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) });
       const [host, second] = game.peers;
       // the rule itself, on a session that learned of the drop at once: a press before the drop frame counts, from the drop frame on it does not
       const probe = second.session;
@@ -18064,9 +18246,10 @@ const SelfTest = {
       if (!probe.skipPressed(500) || probe.skipPressed(501)) problems.push('skipPressed ignores the drop frame');
       probe.dropped.delete(2); probe.got[2].delete(500); probe.got[2].delete(501);
       let muted = false;
-      const done = playLockstep(game, 700, () => { if (!muted && host.match.tick >= 220) { muted = true; game.mute(2); } });
+      const done = playLockstep(game, 700, () => { if (!muted && host.match.tick >= 125) { muted = true; game.mute(2); } });   // the round ends at about tick 120 and the skip arms 30 ticks later: the seat stops answering inside the round end, before any skip. After the match end nobody waits for anybody any more (the results need no input), so a drop must come earlier
       if (done !== true) return done;
       if (host.drops[0] === undefined || second.drops[0] === undefined) problems.push('the seat was not dropped');
+      if (host.match.phase !== 'matchEnd' || second.match.phase !== 'matchEnd') problems.push('the round end did not run on to the match end: ' + host.match.phase + '/' + second.match.phase);
       if (host.sums.join() !== second.sums.join() || host.session.ended || second.session.ended) problems.push('the two peers that played on differ or stopped: ' + host.session.ended + '/' + second.session.ended);
       if (host.match.tick < 700) problems.push('the host stopped at ' + host.match.tick);
       // the pause key online: it toggles, a blur or a hidden tab (automatic) only opens
@@ -18082,6 +18265,106 @@ const SelfTest = {
         if (!Game.netNote.leave) problems.push('a blur closed the question the key had opened');
       } finally { Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state }); UI.netStatus = keep.status; }
       return problems.length ? problems.join('; ') : true;
+    });
+    /* OnlinePlay with stand-in links (immediate delivery): the host's start builds one config, sends it on every link with the seat and the fighters, and the guest side rebuilds the same match from the message. One Game lives in the page, so the host's match is
+       disposed before the guest's is made; what the two must agree on is the config and the checksum of the first tick. */
+    test('Online play (P12-03): the host starts a brawl or a 1 vs 1 from the connected links, sends one config with each seat on every link, and a guest builds the same match from it (equal config and start checksum); a game another version sends is refused; Rematch starts again', () => {
+      const problems = [], toasts = [], keep = { go: Game.go, config: Game.config, run: Game.run, match: Game.match, state: Game.state, versus: Game.versus, net: Game.net, netNote: Game.netNote, status: UI.netStatus, toast: UI.toast, quit: Game.quitToMenu };
+      const pair = (codeSeat) => { const [hostSide, guestSide] = makeStandInLinks(); guestSide.seat = codeSeat; hostSide.seat = codeSeat; return [hostSide, guestSide]; };
+      const startOver = (codeSeats, setup) => {   // a fresh host over stand-in links; returns what each guest side heard
+        OnlinePlay.leave();
+        const pairs = codeSeats.map((codeSeat) => pair(codeSeat)), heard = codeSeats.map(() => []);
+        pairs.forEach(([, guestSide], k) => guestSide.onMessage((data) => heard[k].push(data)));
+        OnlinePlay.hostOpen(pairs.map(([hostSide], k) => ({ seat: codeSeats[k], link: hostSide, roundTrip: 20 })));
+        const failure = OnlinePlay.start(setup);
+        return { pairs, heard, failure };
+      };
+      const startMessages = (heard) => heard.map((list) => list.map((text) => OnlinePlay.readStart(text)).filter(Boolean));
+      try {
+        Game.go = () => true; UI.toast = (text) => toasts.push(text); UI.netStatus = () => {};
+        Game.state = GS.MENU; Game.versus = null;
+        // a brawl of four people
+        let { pairs, heard, failure } = startOver([2, 3, 4], { mode: 'brawl', arena: 'warehouse' });
+        if (failure) problems.push('the brawl did not start: ' + failure);
+        let messages = startMessages(heard);
+        if (messages.some((list) => list.length !== 1)) problems.push('every guest must hear one start message: ' + messages.map((list) => list.length).join('/'));
+        const first = messages[0][0] || {};
+        const hostConfig = JSON.stringify(Game.config), hostSum = Game.match ? matchChecksum(Game.match) : -1;
+        if (!Game.net || !Game.net.host || Game.net.seatCount !== 4 || Game.net.fighterOf.join() !== '0,1,2,3' || Game.net.matchId !== first.id) problems.push('the host session: ' + (Game.net ? Game.net.seatCount + ' seats, fighters ' + Game.net.fighterOf.join() : 'none'));
+        if (!Game.config || Game.config.mode !== 'brawl' || Game.config.online !== true || Game.config.keepSeed !== true || Game.config.coop.length !== 4 || Game.config.coop.some((member, k) => member.slot !== k)) problems.push('the brawl config ' + JSON.stringify(Game.config).slice(0, 160));
+        if (Game.config && (Game.config.items === undefined || Game.config.hazards === undefined || Game.config.assist === undefined)) problems.push('the host must send items, hazards and assist as it holds them');
+        messages.forEach((list, k) => { const message = list[0]; if (!message || message.seat !== k + 1 || message.seatCount !== 4 || message.mode !== 'brawl' || message.fighterOf.join() !== '0,1,2,3' || JSON.stringify(message.cfg) !== hostConfig) problems.push('message to the guest of seat ' + (k + 2) + ': ' + JSON.stringify(message).slice(0, 140)); });
+        if (Game.run.mode !== 'coop') problems.push('run ' + JSON.stringify(Game.run));
+        // the guest of seat 3 (code seat 4) rebuilds the match from its message
+        const guestSide = pairs[2][1];
+        OnlinePlay.leave();
+        OnlinePlay.guestBegin(guestSide, messages[2][0]);
+        if (!Game.net || Game.net.host || Game.net.seat !== 3 || JSON.stringify(Game.config) !== hostConfig || matchChecksum(Game.match) !== hostSum) problems.push('the guest did not rebuild the host\'s match (config equal ' + (JSON.stringify(Game.config) === hostConfig) + ', checksum ' + (Game.match ? matchChecksum(Game.match) : 'none') + ' against ' + hostSum + ')');
+        if (OnlinePlay.isHost || OnlinePlay.seat !== 3 || !toasts.includes('You are P4')) problems.push('the guest\'s seat ' + OnlinePlay.seat + ' ' + toasts.join('|'));
+        // a start another version cannot play
+        const bad = [Object.assign({}, messages[2][0], { cfg: Object.assign({}, messages[2][0].cfg, { mode: 'training' }) }), Object.assign({}, messages[2][0], { seat: 1 }), Object.assign({}, messages[2][0], { fighterOf: [0, 1] }), Object.assign({}, messages[2][0], { cfg: null })];
+        for (const message of bad) { toasts.length = 0; Game.net = null; OnlinePlay.guestBegin(guestSide, message); if (toasts[0] !== ONLINE_MESSAGES.start) problems.push('a start that cannot be played gave ' + JSON.stringify(toasts)); }
+        // a 1 vs 1 with two links of the guests 2 and 4 present out of three (seat 3 empty): needs exactly two players
+        ({ pairs, heard, failure } = startOver([2, 3], { mode: 'fight', arena: 'dojo' }));
+        if (failure !== ONLINE_MESSAGES.fightTwo) problems.push('a 1 vs 1 with three players started or said ' + failure);
+        ({ pairs, heard, failure } = startOver([3], { mode: 'fight', arena: 'dojo' }));
+        messages = startMessages(heard);
+        if (failure || !messages[0].length || messages[0][0].seat !== 2 || messages[0][0].seatCount !== 3 || messages[0][0].fighterOf.join() !== '0,-1,1' || messages[0][0].cfg.mode !== 'versus' || messages[0][0].cfg.opponentId !== DEFAULT_UNLOCKED[2]) problems.push('a 1 vs 1 with a guest on code seat 3: ' + (failure || JSON.stringify(messages[0][0]).slice(0, 200)));
+        if (Game.run.mode !== 'versus' || !Game.versus) problems.push('a 1 vs 1 is a Versus run with a session score');
+        // Rematch: the same fight again with a new match number, over the same links
+        const idBefore = messages[0][0].id;
+        OnlinePlay.rematch();
+        messages = startMessages(heard);
+        if (messages[0].length !== 2 || messages[0][1].id === idBefore || Game.net.matchId !== messages[0][1].id) problems.push('Rematch did not start a new match: ' + messages[0].length + ' messages');
+        // a guest that left: no rematch of a fight that needs it
+        pairs[0][0].state = 'closed';
+        OnlinePlay.rematch();
+        if (!toasts.includes(ONLINE_MESSAGES.nobody)) problems.push('a rematch with the guest gone said ' + JSON.stringify(toasts.slice(-2)));
+        // the results screen: the host goes on, a guest waits
+        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'again,menu' || OnlinePlay.resultButtons(['bracket', 'menu']).join() !== 'bracket,menu') problems.push('host buttons');
+        OnlinePlay.leave();
+        if (OnlinePlay.resultButtons(['again', 'setup', 'menu']).join() !== 'menu') problems.push('a guest may only leave');
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally {
+        OnlinePlay.leave();
+        Game.endMatch(); Game.go = keep.go; Game.config = keep.config; Game.run = keep.run; Game.match = keep.match; Game.state = keep.state; Game.versus = keep.versus; Game.net = keep.net; Game.netNote = keep.netNote; UI.netStatus = keep.status; UI.toast = keep.toast;
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03): a bracket fight between two guests starts with the host and the fourth seat watching; a person whose link is gone plays as the CPU from the next fight; the saved bracket is not touched; leaving the online game closes every link', () => {
+      const problems = [], toasts = [], keep = { go: Game.go, config: Game.config, run: Game.run, match: Game.match, state: Game.state, versus: Game.versus, net: Game.net, netNote: Game.netNote, status: UI.netStatus, toast: UI.toast, saved: Progress.d.tournamentRun, save: Progress.save };
+      try {
+        Game.go = () => true; UI.toast = (text) => toasts.push(text); UI.netStatus = () => {}; Progress.save = () => {};
+        Game.state = GS.MENU;
+        const pairs = [2, 3, 4].map((codeSeat) => { const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = codeSeat; return [hostSide, guestSide]; }), heard = pairs.map(() => []);
+        pairs.forEach(([, guestSide], k) => guestSide.onMessage((data) => heard[k].push(data)));
+        OnlinePlay.hostOpen(pairs.map(([hostSide], k) => ({ seat: k + 2, link: hostSide, roundTrip: 30 })));
+        const cfg = { mode: 'versus', playerId: 'kai', opponentId: 'mara', arenaId: 'dojo', difficulty: 'normal', winsNeeded: 1, timer: 60, items: false, hazards: false, ring: false, ringOut: false, seats: [0, 1] };
+        OnlinePlay.startBracketFight(cfg, [3, 1]);   // fighter 1 is seat 3, fighter 2 is seat 1: the host (seat 0) and seat 2 watch
+        const message = OnlinePlay.readStart(heard[0][0]);
+        if (!message || message.fighterOf.join() !== '-1,1,-1,0' || message.mode !== 'tournament' || 'seats' in message.cfg || message.cfg.online !== true) problems.push('the bracket fight message ' + JSON.stringify(message).slice(0, 200));
+        if (!Game.net || Game.net.plays(0) || !Game.net.plays(1) || !Game.net.plays(3) || Game.net.plays(2)) problems.push('who plays: ' + (Game.net ? Game.net.fighterOf.join() : 'no session'));
+        if (Game.match.controllers[0] === PlayerController || Game.match.controllers[1] === Player2Controller) problems.push('a fighter still reads this PC\'s keyboard');
+        // a person that is not here cannot be in a fight that is started
+        const gone = pairs[1][0]; gone.state = 'closed';
+        toasts.length = 0;
+        OnlinePlay.startBracketFight(Object.assign({}, cfg), [2, 1]);   // seat 2 (code seat 3) left
+        if (toasts[0] !== ONLINE_MESSAGES.someoneLeft) problems.push('a fight with a gone person said ' + JSON.stringify(toasts));
+        const t = Tournament.draw({ humans: [{ seat: 0, id: 'kai' }, { seat: 1, id: 'mara' }, { seat: 2, id: 'brutus' }, { seat: 3, id: 'yuki' }], size: 8, seed: 5, difficulty: 'easy', ringOut: false });
+        OnlinePlay.demoteGone(t);
+        if (t.entrants.filter((entrant) => entrant.human >= 0).map((entrant) => entrant.human).sort().join() !== '0,1,3') problems.push('demoteGone left ' + JSON.stringify(t.entrants.map((entrant) => entrant.human)));
+        // the saved bracket is the owner's: an online bracket is not written over it
+        const before = JSON.stringify(Progress.d.tournamentRun);
+        Game.tournament = t; Game.saveTournament(); Game.tournament = null;
+        if (JSON.stringify(Progress.d.tournamentRun) !== before) problems.push('an online bracket was saved over the owner\'s');
+        // leaving closes every link
+        const open = pairs.filter(([hostSide]) => hostSide.state === 'open').length;
+        OnlinePlay.leave();
+        if (OnlinePlay.active || pairs.some(([hostSide]) => hostSide.state === 'open') || open < 2) problems.push('leave() left a link open');
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally {
+        OnlinePlay.leave();
+        Game.endMatch(); Game.go = keep.go; Game.config = keep.config; Game.run = keep.run; Game.match = keep.match; Game.state = keep.state; Game.versus = keep.versus; Game.net = keep.net; Game.netNote = keep.netNote; UI.netStatus = keep.status; UI.toast = keep.toast; Progress.save = keep.save; Progress.d.tournamentRun = keep.saved;
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
     /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
        channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
@@ -18121,6 +18404,112 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         host.close(); guest.close();
       });
+    });
+    /* Four real links (host and three guests, three copy-paste handshakes in this page, no server) wrapped by LockstepTransport.fromLink carry a short brawl of four people. Async: the result fills in after run_all returns. */
+    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const hosts = [2, 3, 4].map(() => Online.createLink('host', { gatherMs: 1000 })), guests = hosts.map(() => Online.createLink('guest', { gatherMs: 1000 }));
+      const FRAMES = 180, TIMEOUT_MS = 9000;
+      const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });   // no setTimeout: see the two-link test
+      const opened = (link) => new Promise((resolve, reject) => {
+        link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
+      });
+      let game = null, timer = 0;
+      const connect = async (k) => {   // one guest: the host's code to the guest, the guest's answer back
+        const offer = await hosts[k].makeOffer(k + 2);
+        const answer = await guests[k].acceptOffer(offer);
+        const both = Promise.all([opened(hosts[k]), opened(guests[k])]);
+        await hosts[k].acceptAnswer(answer);
+        await both;
+      };
+      const play = async () => {
+        await Promise.all([0, 1, 2].map(connect));
+        const rtcSeats = {};
+        [1, 2, 3].forEach((seat) => { rtcSeats[seat] = [LockstepTransport.fromLink(hosts[seat - 1]), LockstepTransport.fromLink(guests[seat - 1])]; });
+        game = makeLockstep(4, { delay: 6, rtcSeats, seed: 12 });   // a long delay: the page may render slowly and every round trip then moves the peers on by up to 6 frames
+        while (game.peers.some((peer) => peer.match.tick < FRAMES)) {
+          for (const peer of game.peers) while (peer.match.tick < FRAMES && stepPeer(peer));
+          await yieldNow();
+        }
+        const problems = lockstepProblems(game.peers, FRAMES, false);   // a short run: three checksums, no fight needed
+        if (guests.some((link, k) => link.seat !== k + 2)) problems.push('the guests do not know their seats');
+        return problems.length ? problems.join('; ') : true;
+      };
+      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + TIMEOUT_MS + ' ms: ' + (game ? 'ticks ' + game.peers.map((peer) => peer.match.tick + (peer.session.ended ? ' ' + peer.session.ended + JSON.stringify(peer.desync) : '')).join(' / ') : 'no link; states ' + hosts.map((link) => link.state).join('/') + ' ' + guests.map((link) => link.state).join('/')))), TIMEOUT_MS); });
+      const played = play();
+      played.catch(() => {});
+      return Promise.race([played, timeout]).finally(() => {
+        clearTimeout(timer);
+        if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
+        hosts.concat(guests).forEach((link) => link.close());
+      });
+    });
+    /* ---------- online: the limits and every failure with its reason (P12-07) ---------- */
+    test('Online failures (P12-07): every way a link can fail ends with a short plain reason and what to try: no network address, a code the browser refuses, ICE failure (a network that blocks direct connections), a timeout, the Firefox guest that is not answered in time, a lost connection; the screens show it', async () => {
+      const bad = [], links = [];
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
+      const Fake = (script) => fakeConnection(script);
+      // what each text must say: the reason, then what to try
+      const ADVICE = {
+        nonetwork: [/No network address/, /Wi-Fi/], ice: [/block direct connections/, /guest Wi-Fi/, /VPN/, /same home Wi-Fi/, /hotspot/], timeout: [/did not open in time/, /new codes/, /hotspot/, /block direct connections/],
+        guestWait: [/did not answer in time/, /Firefox/, /host/], lost: [/connection was lost/, /Wi-Fi/], sdp: [/could not use the code/, /new one/], unsupported: [/no WebRTC/, /Chrome/],
+      };
+      for (const [code, words] of Object.entries(ADVICE)) {
+        const text = ONLINE_MESSAGES[code];
+        if (!text || text.length > 200 || /DOMException|Error|undefined|\[object/.test(text)) bad.push(code + ': not a short plain text');
+        for (const word of words) if (!word.test(text)) bad.push(code + ' lacks ' + word);
+      }
+      for (const word of [/same Wi-Fi/, /block direct connections/, /hotspot/, /No server is used/, /same kind of browser/, /Out of sync/]) if (!word.test(ONLINE_LIMITS)) bad.push('the limits note lacks ' + word);
+      // each failure path through a link: the error carries the reason text, the link ends in failed (or closed after it was open)
+      const reasonOf = async (name, run, code) => {
+        try { const link = await run(); if (!link.error || link.error.code !== code || link.error.message !== ONLINE_MESSAGES[code]) bad.push(name + ': ' + (link.error ? link.error.code + ' / ' + link.error.message : 'no error') + ' (wanted ' + code + ')'); } catch (error) { bad.push(name + ' threw ' + error.message); }
+      };
+      const offerWith = (sdp, options = {}) => ({ offer: sdp, answer: ANSWER, ...options });
+      await reasonOf('no network address', async () => { const host = made('host', { ...fast, connection: Fake(offerWith(OFFER.replace(/a=candidate:.*\r\n/g, ''))) }); await host.makeOffer(2).catch(() => {}); return host; }, 'nonetwork');
+      await reasonOf('a browser that refuses the code', async () => { const guest = made('guest', { ...fast, connection: Fake(offerWith(OFFER, { remoteError: 'x' })) }); await guest.acceptOffer(await OnlineCode.pack(0, 2, OFFER)).catch(() => {}); return guest; }, 'sdp');
+      await reasonOf('ICE failure', async () => {
+        const F = Fake(offerWith(OFFER)), host = made('host', { ...fast, connection: F }), guest = made('guest', { ...fast, connection: F });
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        F.made[0].ice('failed');
+        return host;
+      }, 'ice');
+      await reasonOf('a timeout after the answer', async () => {
+        const F = Fake(offerWith(OFFER)), host = made('host', { ...fast, connection: F }), guest = made('guest', { ...fast, connection: F });
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return host;
+      }, 'timeout');
+      await reasonOf('a guest the host never answers', async () => {
+        const F = Fake(offerWith(OFFER)), host = made('host', { ...fast, connection: F }), guest = made('guest', { ...fast, connection: F });
+        await guest.acceptOffer(await host.makeOffer(2));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return guest;
+      }, 'guestWait');
+      await reasonOf('a lost connection', async () => {
+        const F = Fake(offerWith(OFFER)), host = made('host', { ...fast, connection: F }), guest = made('guest', { ...fast, connection: F });
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        F.made[0].open();
+        F.made[0].channels[1].onclose();
+        return host;
+      }, 'lost');
+      // the screens show the text of a failed link: a host's guest block and the guest's screen
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, guests: OnlineUI.guests, answerCode: OnlineUI.answerCode };
+      try {
+        for (const code of ['nonetwork', 'ice', 'timeout', 'guestWait', 'lost', 'sdp']) {
+          const error = { code, message: ONLINE_MESSAGES[code] };
+          OnlineUI.role = 'host'; OnlineUI.link = null; OnlineUI.guests = [{ seat: 2, link: { state: 'failed', error, seat: 2 }, offerCode: '', answerText: '', note: '', roundTrip: -1 }];
+          if (!UI.screen_onlinehost().includes(esc(error.message)) || !UI.screen_onlinehost().includes('warnline')) bad.push('the host screen does not show the ' + code + ' text');
+          OnlineUI.role = 'guest'; OnlineUI.guests = []; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'failed', error, seat: 2 };
+          if (!UI.screen_onlinejoin().includes(esc(error.message))) bad.push('the guest screen does not show the ' + code + ' text');
+        }
+        const supported = Online.supported;
+        try { Online.supported = () => false; const choice = UI.screen_online(); if (!choice.includes('no WebRTC') || !/data-act="onhost" disabled/.test(choice)) bad.push('a browser without WebRTC: ' + choice.slice(0, 80)); } finally { Online.supported = supported; }
+        OnlineUI.role = 'guest'; OnlineUI.link = null; OnlineUI.note = '';
+        for (const [name, html] of [['the first Online screen', UI.screen_online()], ['the join screen', UI.screen_onlinejoin()], ['the About screen', UI.screen_credits()]]) if (!html.includes('block direct connections')) bad.push(name + ' has no limits note');
+        if (!UI.screen_credits().includes('Firefox as the guest')) bad.push('the About screen does not name the Firefox limit');
+      } finally { Object.assign(OnlineUI, kept); links.forEach((link) => link.close()); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
