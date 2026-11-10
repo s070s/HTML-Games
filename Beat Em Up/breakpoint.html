@@ -442,6 +442,7 @@ const VERSION = '1.0.0';
 const FIXED_DT = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
 const MAX_FRAME_DELTA = 0.25;
+// <<SIM BEGIN: core maths and random (TAU, clamp, wrapAngle, DMath, makeRng)>>
 const TAU = Math.PI * 2;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -553,6 +554,7 @@ function makeRng(seed) {
   return next;
 }
 let simRng = makeRng(1);
+// <<SIM END>>
 
 // --- diagnostics
 const Diag = {
@@ -5917,6 +5919,7 @@ const BODY = { head: [0.23, 0.25, 0.24], headY: 0.2, neck: 0.1, neckY: 0.04, nec
 const FACE_SHELL = BODY.head.map((v) => v * 1.006); // the face shell sits just outside the head sphere
 const [CB, SP, CY] = [MESH.CUBE, MESH.SPHERE, MESH.CYL];
 const HAIR_CAP = ['h', SP, 0, 0.265, -0.015, 0.25, 0.17, 0.25, 'hair', 0.9];
+// <<SIM BEGIN: ITEMS table>>
 const ITEMS = {
   hairStyle: {
     short: [HAIR_CAP],
@@ -6007,6 +6010,7 @@ const ITEMS = {
     bag: [0.21, 0.21, 0.21, 0, 'glove', 0.45], tape: [0.115, 0.12, 0.12, 0, 'glove', 0.85], leather: [0.13, 0.13, 0.14, 0, 'glove', 0.35], bare: [0.12, 0.12, 0.12, 0, 'skin', 0.7],
   },
 };
+// <<SIM END>>
 const BAND_OVER = ['undercut', 'fade']; // hair wider than the plain headband
 const headbandSize = (style) => (BAND_OVER.includes(style) ? 0.29 : (ITEMS.hairStyle[style] || [])[0] === HAIR_CAP ? 0.262 : 0.236); // diameter: over the hair cap when there is one
 // x and z scale of a piece's frame: the body part it sits on
@@ -6030,6 +6034,7 @@ function handScale(b, sh, T, H) {
    1 = modelled grip first and stood on its base turned over]); hex = debris colour (default: the first row).
    parts = [mesh, x, y, z, width, height, depth, colour, roughness, tilt about x, tilt about z] in the item's frame (metres), the grip at the origin (hand at y 0.02), +y out of the fist, +z forward,
    z up when it lies. The chain is drawn by drawChainLinks: parts = [grip, link A, padlock, link B, shackle]. */
+// <<SIM BEGIN: WEAPONS table>>
 const WEAPONS = {
   bottle: { name: 'Bottle', cls: 'throwable', dur: 1, dmg: 9, reach: 0.35, startup: 5, thrown: 10, mat: 'glass', sp: 'shatter', burst: 1, len: 0.3, rest: 0.035, lie: 1, hex: '#2a6b3f',
     parts: [[CY, 0, 0.0, 0, 0.034, 0.012, 0.034, '#c9a227', 0.4], [CY, 0, 0.012, 0, 0.032, 0.014, 0.032, '#2a6b3f', 0.2], [CY, 0, 0.044, 0, 0.024, 0.05, 0.024, '#2a6b3f', 0.2],
@@ -6079,6 +6084,7 @@ const WEAPONS = {
       [CY, 0, 0.1, 0, 0.075, 0.03, 0.075, '#c52a22', 0.35], [CY, 0, 0.1725, 0, 0.1, 0.115, 0.1, '#c52a22', 0.35], [CY, 0, 0.275, 0, 0.1, 0.09, 0.1, '#efe9d8', 0.85], [CY, 0, 0.41, 0, 0.1, 0.18, 0.1, '#c52a22', 0.35],
       [CB, 0.045, 0.07, 0.02, 0.05, 0.016, 0.016, '#1d1f23', 0.9], [CY, 0.066, 0.18, 0.02, 0.016, 0.21, 0.016, '#1d1f23', 0.9], [CY, 0.066, 0.3, 0.02, 0.028, 0.04, 0.028, '#33363c', 0.5]] },
 };
+// <<SIM END>>
 for (const id in WEAPONS) {
   const w = WEAPONS[id];
   w.id = id; w.hex = w.hex || w.parts[0][7]; w.hold = w.hold || [0, 0]; if (w.tilt === undefined) w.tilt = 0.45;
@@ -6232,6 +6238,7 @@ function drawChainLinks(w, fl, bend, over, em) {
   part(shackle[0], shackle[1], shackle[2], shackle[3], shackle[4], shackle[5], shackle[6], shackle[7], em, shackle[8], fl);
   FMS.pop();
 }
+// <<SIM BEGIN: newHeld and HAZARDS>>
 const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES }); // what a fighter holds
 
 /* 05b3 HAZARDS. The 8 stage dangers of Appendix C: one type row each and one handler (MatchSim.stepHazards), placed per arena in ARENAS[id].hazards.
@@ -6253,6 +6260,7 @@ const HAZARDS = {
   fire: { name: 'Fire barrel', trig: 'strike', shape: 'circle', r: 1.2, spill: 0.9, warn: 15, dur: 240, spent: 1, dmg: 4, gap: 20, fx: 'flinch', fire: 1, post: [0.3, 0.3, 1.0], snd: 'fire' },
   blaze: { name: 'Burning object', trig: '', shape: 'rect', dmg: 1, gap: 20, fx: '', fire: 1, snd: 'fire' },
 };
+// <<SIM END>>
 const hash01 = (n) => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); }; // a fixed pseudo-random 0..1 for looks (flames, shards, arcs): the same tick always draws the same; the match's random numbers are never touched
 // One piece of a hazard in the world: layer, mesh, centre, size, turn about y, colour, alpha, glow, roughness; rx / rz tip it about x / z
 function hput(layer, mesh, x, y, z, sx, sy, sz, ry, hex, a, em, rough, rx, rz) { R.put(layer, mesh, x, y, z, sx, sy, sz, rx || 0, ry, rz || 0, C(hex), a, em, rough, false, 0); }

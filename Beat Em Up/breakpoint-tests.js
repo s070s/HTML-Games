@@ -434,9 +434,11 @@ const SelfTest = {
     test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
       const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
       const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
-      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'drawFlames', 'loadHidesFighter', 'lampAngle', /^draw/];   // pose, drawing, particles
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
+        'draw', 'drawPointLightFlicker', 'drawObject', 'drawCracks', 'drawBox', 'drawColumn', 'drawRail', 'drawPanel', 'drawLook', 'drawDeck', 'drawScaffold', 'drawFireDoor', 'drawRubble', 'drawChain', 'drawHead', 'drawLowerFace', 'drawHair', 'drawItems', 'drawFlames', 'drawHazards'];   // pose, drawing, particles: each name on its own, so a new simulation method called draw... is scanned
       const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
-        'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors('];
+        'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors(',
+        'const DMath = ', 'const wrapAngle = ', 'const clamp = ', 'function makeRng(', 'const ITEMS = ', 'const WEAPONS = ', 'const HAZARDS = ', 'const newHeld = ', 'const moveById = ', 'const pickupMoveFor = '];
       const problems = [];
       const scripts = typeof document !== 'undefined' && document.scripts ? Array.from(document.scripts) : [];
       const page = scripts.map((el) => el.textContent || '').find((text) => text.includes(BEGIN));
@@ -474,7 +476,7 @@ const SelfTest = {
       VISUAL.forEach((rule, k) => { if (!used[k]) problems.push('the list of pose and drawing methods names ' + rule + ', which is not in a SIM section any more'); });
       const all = chunks.map((chunk) => chunk.text).join('\n');
       for (const needle of MUST_HOLD) if (!all.includes(needle)) problems.push('outside the SIM markers: ' + needle.trim());
-      if (chunks.length < 8 || scannedChars < 250000 || dmathCalls < 100) problems.push('the scan read too little: ' + chunks.length + ' sections, ' + scannedChars + ' characters, ' + dmathCalls + ' DMath calls');
+      if (chunks.length < 12 || scannedChars < 250000 || dmathCalls < 100) problems.push('the scan read too little: ' + chunks.length + ' sections, ' + scannedChars + ' characters, ' + dmathCalls + ' DMath calls');
       for (const [name, degrees] of [['PICKUP_CONE_COS', 70], ['SPRAY_CONE_COS', 40], ['LOCK_VIEW_COS', 100], ['LOCK_STICK_COS', 60]]) {
         const value = { PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS }[name];
         if (value !== DMath.cos(degrees * Math.PI / 180)) problems.push(name + ' is not DMath.cos of ' + degrees + ' degrees');
