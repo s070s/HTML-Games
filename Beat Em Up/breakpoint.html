@@ -13670,7 +13670,7 @@ const Game = {
 const COUNTER_COLOR = '#ffd24a';
 // ring colours and notes (Hz) per defence outcome
 const CUE_COLOR = { perfect: '#bfeaff', brk: '#ffc933', late: '#9a9a9a', free: '#ffffff' };
-const CUE_NOTES = { perfect: [1320, 1980], brk: [880, 1320, 1760], ting: [2093, 2637], late: [220], free: [1000] };
+const CUE_NOTES = { perfect: [1320, 1980], brk: [880, 1320, 1760], ting: [2093, 2637], late: [220], free: [1000], count: [330, 392, 440], fight: [660, 990, 1320], hits3: [740, 932], hits5: [932, 1245], hits8: [1245, 1661] }; // the last five (P18-29): the countdown, the FIGHT chord and the combo milestones at 3, 5 and 8 hits
 const freeTickCue = (f) => f.comboFoe && f.comboFoe.state === S.ATTACK && (Inputs.forFighter(f.index) || (Game.match && Game.match.training));
 const RUMBLE_HIT_MS = 110;
 const RUMBLE_KO = 0.9, RUMBLE_KO_MS = 400;
@@ -13787,15 +13787,128 @@ const Feel = {
   },
 };
 
-// === 08 AUDIO - everything is synthesised with Web Audio
+// === 08 AUDIO - everything is synthesised with Web Audio (P18-29: the sound design pass of Appendix C, "P18-28 sound design pass" and "P18-29 built")
 const MAX_VOICES = 30;
+const PRIORITY_CAP = [MAX_VOICES, 24, 16]; // E3: the live sources from which a priority 0 (impacts, cues), 1 (whoosh, voices, blocks, items) or 2 (steps, debris, ambience) sound is refused
 const HIT_LAYER_VOICES = 12, HEART_BPM = 70, HEART_MUFFLE_HZ = 1200, HEART_HP = 0.2; // P13-02: layered impact sources sounding at once, the heartbeat's rate, the music's low-pass while it beats, and the health share under which a lone person's heart beats
-const MIN_GAP = { punch: 0.035, kick: 0.035, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.2, objHit: 0.05, menu: 0.03, land: 0.08 };
+const MIN_GAP = { hit: 0.02, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.25, objHit: 0.05, menu: 0.03, land: 0.08 }; // seconds; hit, whoosh, step and grunt count per fighter
 const SCALES = { minor: [0, 2, 3, 5, 7, 8, 10], pentatonic: [0, 2, 4, 7, 9], phrygian: [0, 1, 3, 5, 7, 8, 10] };
+const HEARD_TRIM_DB = 2.9; // master 0.8 x effects 0.9: the level plan below is what is heard at the default volumes
+const IMPACT_DB = [-10, -6, -4]; // E1: heard peak of a baked impact by tier; a weight band moves it by IMPACT_BAND_DB, a counter by +2, a kick by +1 (never over -2), an item hit by -2
+const IMPACT_BAND_DB = [-1, 0, 1];
+const IMPACT_TRIM_DB = [1, 2, 2.5]; // what the master compressor takes off the body of a baked impact by tier (measured offline): added so the peaks heard are the plan above
+const BAKE_RATE = 32000, BAKE_RATE_PREFIXED = 44100, BAKE_PER_STEP = 12, BAKE_SLOT = 0.45, BAKE_VARIANTS = 3, BAKE_TIMEOUT_MS = 500; // E1: 60 buffers (27 impacts, 9 materials, 24 footsteps) in 5 idle steps, mono, one 12-sound offline context per step; 32 kHz, but 44.1 kHz where only the prefixed webkitOfflineAudioContext exists (old Safari takes no rate under 44.1 kHz)
+const IMPACT_SECS = [0.2, 0.28, 0.4], MATERIAL_SECS = 0.3, MATERIAL_BAKE = ['wood', 'metal', 'glass'];
+const COMBO_LADDER_MAX = 6;
+const PLACE_FULL_M = 14, PLACE_PAN_M = 7, PLACE_PAN_MAX = 0.6; // E5: a sound 14 m from the camera is 6 dB down; the pan follows the camera's right vector
+const STEP_SURFACES = [ // M1: six footstep recipes
+  { name: 'concrete', filter: 'lowpass', hz: 1200, q: 1, dur: 0.04, gain: 0.033, tick: [180, 120] },
+  { name: 'wood', filter: 'bandpass', hz: 500, q: 2, dur: 0.06, gain: 0.04, tick: [160, 110], tickType: 'triangle' },
+  { name: 'gravel', filter: 'lowpass', hz: 900, q: 1, dur: 0.07, gain: 0.046, crunch: 3000 },
+  { name: 'tile', filter: 'bandpass', hz: 2200, q: 3, dur: 0.03, gain: 0.052, click: 1100 },
+  { name: 'dirt', filter: 'lowpass', hz: 300, q: 0.7, dur: 0.09, gain: 0.16, run: 2.8 },
+  { name: 'club', filter: 'lowpass', hz: 250, q: 0.7, dur: 0.06, gain: 0.034, tick: [90, 90], run: 2 },
+];
+const FLOOR_SURFACE = [0, 0, 1, 0, 2, 3, 0, 4, 5]; // by the `env.floor` of a level (1 Warehouse to 8 Club; 0 = no level): the index in STEP_SURFACES
+const AMBIENCE_HZ = [0, 400, 500, 250, 700, 350, 300, 600, 200]; // E7: the low-pass of the noise bed by `env.floor`: boiler, wind, tunnel and so on
+const DRUM_KITS = [{ kick: [0, 4, 8, 10, 12], snare: [4, 12], hat: 2 }, { kick: [0, 3, 8, 11], snare: [4, 12], hat: 2 }, { kick: [0, 6, 8, 14], snare: [4, 10, 12], hat: 1 }]; // E8: three drum patterns (steps of 16) and three bass lines by level
+const BASS_LINES = [[0, 0, 3, 0, 5, 0, 3, 2], [0, 3, 0, 5, 0, 2, 4, 2], [0, 0, 5, 3, 0, 0, 7, 5]];
+const VOICE_KINDS = { hurt: { dur: 0.2, from: 1.25, to: 0.7, gain: 1 }, hurtBig: { dur: 0.34, from: 1.2, to: 0.6, gain: 1.1 }, effort: { dur: 0.16, from: 0.9, to: 1.15, gain: 1.15 }, ko: { dur: 0.5, from: 1.2, to: 0.5, gain: 1.1 }, exhale: { dur: 0.25, from: 1, to: 0.8, gain: 0.7 } }; // M12
+const MATERIAL_DEBRIS = { wood: 'wood', plastic: 'wood', paper: 'wood', concrete: 'concrete', brick: 'concrete', metal: 'metal', sheet: 'metal', glass: 'glass', tile: 'glass' };
+const vary = (value, spread) => value * (1 + (Math.random() * 2 - 1) * spread); // E2: uniform +-spread from Math.random, never the simulation's random numbers
+const dbGain = (db) => Math.pow(10, db / 20);
+const weightBand = (weight) => (weight || 0) <= 1 ? 0 : weight === 2 ? 1 : 2; // light, medium, heavy
+// One oscillator with its envelope, one filtered noise source with its envelope: the live engine and the bake use these, so there is one recipe for each
+const toneNode = (c, dest, type, f0, f1, t, dur, gain) => {
+  const o = c.createOscillator(), g = c.createGain();
+  if (typeof type === 'string') o.type = type; else o.setPeriodicWave(type);
+  o.frequency.setValueAtTime(Math.max(20, f0), t);
+  if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(gain, t + Math.min(0.008, dur * 0.2));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(dest);
+  o.start(t); o.stop(t + dur + 0.02);
+  return { o, g };
+};
+const noiseNode = (c, buffer, dest, filter, f0, f1, q, t, dur, gain) => {
+  const s = c.createBufferSource(), flt = c.createBiquadFilter(), g = c.createGain();
+  s.buffer = buffer; flt.type = filter; flt.Q.value = q;
+  flt.frequency.setValueAtTime(f0, t);
+  if (f1 && f1 !== f0) flt.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(gain, t + Math.min(0.01, dur * 0.2));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(flt); flt.connect(g); g.connect(dest);
+  s.start(t, Math.random() * Math.max(0, buffer.duration - dur - 0.05)); s.stop(t + dur + 0.02);
+  return { s, g };
+};
+const TONE = (type, f0, f1, dur, gain, delay) => [0, type, f0, f1, dur, gain, delay || 0]; // a part of a recipe: an oscillator ...
+const NOISE = (filter, f0, f1, q, dur, gain, delay) => [1, filter, f0, f1, q, dur, gain, delay || 0]; // ... or a filtered noise burst
+// The baked impact (E1): a sub thud, a pitched knock, a mid body and a crack (tier 3 keeps the long tail), lower and longer for heavier bodies. Normalised to full scale after the render.
+const impactParts = (tier, band, variant) => {
+  const warp = 1 + (variant - 1) * 0.08, tail = IMPACT_SECS[tier - 1] - 0.03; // the mix is tuned to about 40 % under 600 Hz, 40 % to 2.5 kHz and 20 % above (offline, Appendix C)
+  const parts = [
+    TONE('sine', (110 - 12 * band) * warp, (60 - 6 * band) * warp, Math.min(tail, 0.04 + tier * 0.03 + band * 0.02), 0.75),
+    TONE('triangle', (520 - 110 * band) * warp, (260 - 50 * band) * warp, 0.05 + 0.01 * tier, 0.5),
+    NOISE('bandpass', 1400 * warp, 800, 0.7, 0.05 + 0.02 * tier, 4),
+    NOISE('bandpass', 3000 + 650 * variant, 4800, 1.1, 0.008 + 0.003 * tier + 0.002 * variant, [0.66, 0.96, 1.32][tier - 1]),
+  ];
+  if (tier === 3) parts.push(NOISE('lowpass', 700, 200, 0.7, 0.28, 0.5), TONE('sine', 70, 28, Math.min(tail, 0.32), 0.56));
+  return parts;
+};
+// The material of an object or item (M6): small = a hit, big = a break (ONE burst; the debris ticks of a break are played by Sound.material); size scales the level
+const materialParts = (kind, big, size) => {
+  const g = (big ? 0.8 : 0.4) * size * (!big && (kind === 'wood' || kind === 'paper') ? 0.73 : 1), p = [];   // a small wood or cardboard knock is 2.7 dB under the rest
+  if (kind === 'wood') { p.push(NOISE('bandpass', vary(big ? 600 : 900, 0.2), big ? 3000 : 300, 1.2, big ? 0.25 : 0.12, g), TONE('triangle', 230, 130, 0.12, g * 0.7)); }
+  else if (kind === 'plastic') { p.push(TONE('triangle', vary(180, 0.06), 140, 0.14, g * 0.7), NOISE('bandpass', 900, 500, 1.2, 0.06, g * 0.25)); }
+  else if (kind === 'concrete' || kind === 'brick') { p.push(TONE('sine', 110, 45, big ? 0.25 : 0.2, g * 0.55), NOISE('bandpass', vary(2500, 0.2), 1500, 1, 0.04, g * 0.5), NOISE('lowpass', 900, 200, 0.8, 0.2, g * 0.5)); if (kind === 'brick') p.push(NOISE('highpass', 2000, 1500, 0.7, 0.12, g * 0.4, 0.03)); }
+  else if (kind === 'metal' || kind === 'sheet') { const lift = vary(kind === 'sheet' ? 1.15 : 1, 0.05) * (1.3 - 0.3 * Math.min(1.4, size)); for (const f of [410, 655, 1120]) p.push(TONE('square', f * lift * vary(1, 0.05), f * lift * 0.97, big ? 0.5 : 0.25, g * 0.18)); p.push(NOISE('highpass', 2500, 2500, 0.8, 0.05, g * 0.3)); }
+  else if (kind === 'glass' || kind === 'tile') {
+    const low = kind === 'tile' ? 0.6 : 1, pings = big ? 3 : 1;
+    p.push(NOISE('bandpass', big ? 5000 : 4200, big ? 7500 : 3000, 0.6, big ? 0.4 : 0.12, g * (big ? 0.45 : 0.7)));
+    for (let k = 0; k < pings; k++) p.push(TONE('sine', (2400 + Math.random() * 2600) * low, 2000 * low, 0.12, g * (big ? 0.13 : 0.14), k * 0.04));
+    if (big) p.push(TONE('sine', 400, 250, 0.12, g * 0.4));
+    if (kind === 'tile') p.push(NOISE('bandpass', 1200, 1200, 1.5, 0.04, g * 0.6));
+  } else p.push(NOISE('lowpass', 400, 200, 0.7, 0.12, g * 3.6), NOISE('bandpass', 1500, 1500, 1.2, 0.15, g * 1.75, 0.02)); // paper: a soft thump and a rustle
+  return p;
+};
+const STEP_DB = [-34, -30], STEP_TRIM_DB = [0, 0, 2.2, 0, 0, 0]; // M1: the heard peak of a baked walk and run step (every surface the same: the buffers are normalised); the trim by surface is what the offline render measured off the plan (the gravel is thin)
+const STEP_SECS = 0.12, STEP_PITCH = [1, 0.93]; // M1: a baked footstep is 0.12 s; its two variants are the left and the right foot
+const footParts = (s, pitch, len) => { // M1: the footfall of a surface, one recipe for the bake and the synthesis (the gains are relative: a baked buffer is normalised, the synthesis scales them)
+  const parts = [NOISE(s.filter, s.hz * pitch, s.hz * pitch * 0.5, s.q, s.dur * len, 1)];
+  if (s.tick) parts.push(TONE(s.tickType || 'sine', s.tick[0] * pitch, s.tick[1] * pitch, 0.05 * len, 0.8));
+  if (s.crunch) parts.push(NOISE('highpass', s.crunch, s.crunch, 0.7, 0.03, 0.5));
+  if (s.click) parts.push(TONE('sine', s.click, s.click * 0.8, 0.015, 0.6));
+  return parts;
+};
+const jobParts = (job) => (job.kind === 'hit' ? impactParts(job.tier, job.band, job.variant) : job.kind === 'step' ? footParts(STEP_SURFACES[job.surface], STEP_PITCH[job.variant], job.run ? 0.8 : 1) : materialParts(job.mat, false, 1));
+const bakeJobs = () => {
+  const jobs = [];
+  for (let tier = 1; tier <= 3; tier++) for (let band = 0; band < 3; band++) for (let variant = 0; variant < BAKE_VARIANTS; variant++) jobs.push({ kind: 'hit', tier, band, variant, secs: IMPACT_SECS[tier - 1] });
+  for (const kind of MATERIAL_BAKE) for (let variant = 0; variant < BAKE_VARIANTS; variant++) jobs.push({ kind: 'mat', mat: kind, variant, secs: MATERIAL_SECS });
+  for (let surface = 0; surface < STEP_SURFACES.length; surface++) for (const run of [0, 1]) for (let variant = 0; variant < 2; variant++) jobs.push({ kind: 'step', surface, run, variant, secs: STEP_SECS });
+  return jobs;
+};
+const playPart = (c, buffer, dest, part, t) => (part[0] ? noiseNode(c, buffer, dest, part[1], part[2], part[3], part[4], t + part[7], part[5], part[6]) : toneNode(c, dest, part[1], part[2], part[3], t + part[6], part[4], part[5]));
+// Normalise a rendered buffer to full scale (the level plan sets the loudness at playback), fade its last 8 ms and file it in the bank
+const storeBaked = (done, job, data, makeBuffer, rate) => {
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+  const buffer = makeBuffer(data.length), out = buffer.getChannelData(0), scale = peak > 0 ? 1 / peak : 1, fade = Math.round(rate * 0.008);
+  for (let i = 0; i < data.length; i++) out[i] = data[i] * scale * Math.min(1, (data.length - i) / fade);
+  done.bytes += data.length * 4;
+  if (job.kind === 'hit') done.bank.hit[job.tier - 1][job.band][job.variant] = buffer;
+  else if (job.kind === 'step') done.bank.step[job.surface][job.run][job.variant] = buffer;
+  else (done.bank.mat[job.mat] = done.bank.mat[job.mat] || [])[job.variant] = buffer;
+};
 
 const Sound = {
-  ctx: null, master: null, musicBus: null, sfxBus: null, comp: null, reverb: null, wet: null, dry: null, noiseBuf: null,
+  ctx: null, master: null, musicBus: null, sfxBus: null, uiBus: null, comp: null, limiter: null, reverb: null, wet: null, dry: null, noiseBuf: null, thump: null,
   voices: 0, last: {}, unsupported: false, wired: false, lowpass: null, ducked: false, heart: false, layerQ: [], // layerQ: the sources of the layered impacts that still sound, oldest first (P13-02)
+  spot: null, // E5: where the event being played sounds: { gain, pan, node }
+  bank: null, bakeState: 'idle', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeError: '', bakeFrom: 0, lastVariant: {}, // E1: the baked buffers once the bake has finished, and what it cost
+  amb: null, ambKey: -1, clock: 0, breathAt: 0, fires: [], crackleAt: 0, // E7 ambience, the clock of the frame events, the next breath, the burning things and the next crackle
 
   // Called on any user gesture; safe to call repeatedly
   unlock() {
@@ -13818,6 +13931,7 @@ const Sound = {
           if (state !== 'running' && state !== 'closed' && !document.hidden) this.resumeIfAllowed();
         };
       } catch (e) { this.unsupported = true; Diag.log('warn', 'Audio init failed: ' + e.message); return; }
+      this.bake();
     }
     if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
   },
@@ -13829,21 +13943,25 @@ const Sound = {
     this.master = c.createGain();
     this.comp = c.createDynamicsCompressor();
     this.comp.threshold.value = -14; this.comp.ratio.value = 5; this.comp.attack.value = 0.004; this.comp.release.value = 0.18;
+    this.limiter = c.createDynamicsCompressor(); // E9: nothing leaves above about -1 dBFS
+    this.limiter.threshold.value = -3; this.limiter.knee.value = 0; this.limiter.ratio.value = 20; this.limiter.attack.value = 0.001; this.limiter.release.value = 0.1;
     this.musicBus = c.createGain();
     this.sfxBus = c.createGain();
+    this.uiBus = c.createGain(); // E4: menu sounds and stingers: the Effects volume, no room
     this.lowpass = c.createBiquadFilter(); this.lowpass.type = 'lowpass'; this.lowpass.frequency.value = 20000;
     this.dry = c.createGain();
     this.wet = c.createGain();
     this.reverb = c.createConvolver();
     this.sfxBus.connect(this.dry); this.sfxBus.connect(this.reverb);
     this.reverb.connect(this.wet);
-    this.dry.connect(this.master); this.wet.connect(this.master);
+    this.dry.connect(this.master); this.wet.connect(this.master); this.uiBus.connect(this.master);
     this.musicBus.connect(this.lowpass); this.lowpass.connect(this.master);
-    this.master.connect(this.comp); this.comp.connect(c.destination);
+    this.master.connect(this.comp); this.comp.connect(this.limiter); this.limiter.connect(c.destination);
     const len = c.sampleRate * 2;
     this.noiseBuf = c.createBuffer(1, len, c.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    if (typeof c.createPeriodicWave === 'function') this.thump = c.createPeriodicWave(new Float32Array([0, 0, 0, 0]), new Float32Array([0, 1, 0.5, 0.3])); // a sine with its octave and fifth above: a heartbeat a small speaker can hear
     this.setReverb(0.8, 0.2);
     this.applyVolumes();
   },
@@ -13863,6 +13981,7 @@ const Sound = {
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(Settings.v.master, t, 0.03);
     this.sfxBus.gain.setTargetAtTime(Settings.v.sfx, t, 0.03);
+    this.uiBus.gain.setTargetAtTime(Settings.v.sfx, t, 0.03);
     this.musicBus.gain.setTargetAtTime(Settings.v.music * 0.55, t, 0.05);
   },
   setArena(def) {
@@ -13876,74 +13995,169 @@ const Sound = {
     if (!this.ctx) return;
     this.lowpass.frequency.setTargetAtTime(this.ducked ? 700 : this.heart ? HEART_MUFFLE_HZ : 20000, this.ctx.currentTime, 0.08);
   },
+  // E8: the music gives way for 120 ms to a hardest hit (a gain ramp, no node)
+  pump() {
+    if (!this.musicBus || !this.ctx) return;
+    const g = this.musicBus.gain, t = this.ctx.currentTime, base = Settings.v.music * 0.55;
+    g.cancelScheduledValues(t); g.setTargetAtTime(base * 0.708, t, 0.01); g.setTargetAtTime(base, t + 0.12, 0.06);
+  },
+
+  // --- E1 the bake: the impact family is rendered once with an OfflineAudioContext, in idle steps of 12 buffers, so no frame carries it. Without OfflineAudioContext, or if a step fails, the synthesis plays.
+  bake() {
+    if (this.bakeState !== 'idle') return;
+    const standard = typeof window !== 'undefined' && window.OfflineAudioContext, OAC = standard || (typeof window !== 'undefined' && window.webkitOfflineAudioContext);
+    if (!OAC) { this.bakeState = 'none'; return; }
+    const rate = standard ? BAKE_RATE : BAKE_RATE_PREFIXED; // the prefixed context of old Safari most likely refuses a rate under 44.1 kHz
+    this.bakeState = 'running'; this.bakeFrom = performance.now();
+    const ctx = this.ctx;
+    this.bakeRender(OAC, (length) => ctx.createBuffer(1, length, rate), this.noiseBuf, undefined, rate).then((done) => {
+      this.bank = done.bank; this.bakeMs = done.ms; this.bakeBytes = done.bytes; this.bakeState = 'done'; this.bakeWall = performance.now() - this.bakeFrom;
+    }).catch((e) => this.bakeFail(e));
+  },
+  // Resolves { bank, ms, bytes } (ms = main-thread time of the steps): bank.hit[tier - 1][band][variant], bank.mat[kind][variant] and bank.step[surface][run][foot]; makeBuffer(length) gives an empty mono buffer at `rate`
+  bakeRender(OAC, makeBuffer, noise, around = (build) => build(), rate = BAKE_RATE) { // around(build): where the random numbers of the recipes are drawn (a test seeds them there and nowhere else)
+    const jobs = bakeJobs(), steps = Math.ceil(jobs.length / BAKE_PER_STEP), done = { bank: { hit: [0, 1, 2].map(() => [[], [], []]), mat: {}, step: STEP_SURFACES.map(() => [[], []]) }, ms: 0, bytes: 0 };
+    return new Promise((resolve, reject) => {
+      const step = (n) => {
+        const run = () => {
+          try {
+            const list = jobs.slice(n * BAKE_PER_STEP, (n + 1) * BAKE_PER_STEP), started = performance.now();
+            const oc = around(() => {
+              const context = new OAC(1, Math.ceil(rate * BAKE_SLOT * list.length), rate);
+              list.forEach((job, i) => { for (const part of jobParts(job)) playPart(context, noise, context.destination, part, i * BAKE_SLOT); });
+              return context;
+            });
+            const viaEvent = new Promise((resolve) => { oc.oncomplete = (event) => resolve(event.renderedBuffer); }); // old Safari: the prefixed context has no promise, it fires oncomplete
+            const promise = oc.startRendering(), rendering = promise && typeof promise.then === 'function' ? promise : viaEvent;
+            done.ms += performance.now() - started;
+            rendering.then((rendered) => {
+              const after = performance.now(), data = rendered.getChannelData(0), slot = Math.round(BAKE_SLOT * rate);
+              list.forEach((job, i) => storeBaked(done, job, data.subarray(i * slot, i * slot + Math.round(job.secs * rate)), makeBuffer, rate));
+              done.ms += performance.now() - after;
+              if (n + 1 < steps) step(n + 1); else resolve(done);
+            }).catch(reject);
+          } catch (e) { reject(e); }
+        };
+        if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: BAKE_TIMEOUT_MS }); else setTimeout(run, 30);
+      };
+      step(0);
+    });
+  },
+  bakeFail(e) { this.bank = null; this.bakeState = 'failed'; this.bakeError = e && e.message || String(e); Diag.log('warn', 'Sound bake failed, the synthesis plays: ' + this.bakeError); },
 
   // --- voice helpers
   ready() { return this.ctx && this.ctx.state === 'running'; },
-  allow(name, gap) {
-    if (!this.ready() || this.voices >= MAX_VOICES) return false;
+  // E3: a sound plays when the live sources are under the cap of its priority and its gap (per name; the caller adds the fighter) has passed
+  allow(name, gap, priority) {
+    if (!this.ready() || this.voices >= PRIORITY_CAP[priority || 0]) return false;
     const now = this.ctx.currentTime, g = gap !== undefined ? gap : (MIN_GAP[name] || 0.02);
     if (this.last[name] && now - this.last[name] < g) return false;
     this.last[name] = now;
     return true;
   },
+  vary,
+  // E5: the gain and the pan of a sound at (x, z) for the camera; one panner serves every source of an event
+  place(x, z) {
+    const target = Camera.target, right = Camera.dirRight, dx = x - target[0], dz = (typeof z === 'number' ? z : target[2]) - target[2];
+    return { gain: Math.max(0.5, 1 - 0.5 * Math.hypot(dx, dz) / PLACE_FULL_M), pan: clamp((dx * right[0] + dz * right[1]) / PLACE_PAN_M, -1, 1) * PLACE_PAN_MAX, node: null };
+  },
+  at(x, z) { this.spot = typeof x === 'number' ? this.place(x, z) : null; },
   out(pan) {
-    if (!pan || typeof this.ctx.createStereoPanner !== 'function') return this.sfxBus;
+    const spot = this.spot;
+    if (spot) { if (!spot.node) spot.node = this.panner(spot.pan, true); return spot.node; }   // a placed sound always gets its panner: dead centre is not 3 dB louder than a hair off it
+    return this.panner(pan);
+  },
+  panner(pan, placed) {
+    if ((!pan && !placed) || typeof this.ctx.createStereoPanner !== 'function') return this.sfxBus;
     const p = this.ctx.createStereoPanner();
     p.pan.value = clamp(pan, -1, 1);
     p.connect(this.sfxBus);
     return p;
   },
+  spotGain(dest) { return !dest && this.spot ? this.spot.gain : 1; },
   tone(type, f0, f1, dur, gain, delay, pan, dest) {
     if (this.voices >= MAX_VOICES + 12) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(Math.max(20, f0), t);
-    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(gain, t + Math.min(0.008, dur * 0.2));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g);
-    g.connect(dest || this.out(pan));
+    const node = toneNode(c, dest || this.out(pan), type, f0, f1, t, dur, gain * this.spotGain(dest));
     this.voices++;
-    o.onended = () => { this.voices--; g.disconnect(); };
-    o.start(t); o.stop(t + dur + 0.02);
-    return o;
+    node.o.onended = () => { this.voices--; node.g.disconnect(); };
+    return node.o;
   },
   noise(filter, f0, f1, q, dur, gain, delay, pan, dest) {
     if (this.voices >= MAX_VOICES + 12) return;
     const c = this.ctx, t = c.currentTime + (delay || 0);
-    const s = c.createBufferSource(), flt = c.createBiquadFilter(), g = c.createGain();
-    s.buffer = this.noiseBuf;
-    flt.type = filter; flt.Q.value = q;
-    flt.frequency.setValueAtTime(f0, t);
-    if (f1 && f1 !== f0) flt.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(gain, t + Math.min(0.01, dur * 0.2));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(flt); flt.connect(g); g.connect(dest || this.out(pan));
+    const node = noiseNode(c, this.noiseBuf, dest || this.out(pan), filter, f0, f1, q, t, dur, gain * this.spotGain(dest));
+    this.voices++;
+    node.s.onended = () => { this.voices--; node.g.disconnect(); };
+    return node.s;
+  },
+  play(part, dest, scale) { // a part of a recipe through the live engine
+    const k = scale || 1;
+    return part[0] ? this.noise(part[1], part[2], part[3], part[4], part[5], part[6] * k, part[7], undefined, dest) : this.tone(part[1], part[2], part[3], part[4], part[5] * k, part[6], undefined, dest);
+  },
+  // A buffer through its own gain: the baked impacts (one source each; the oldest of HIT_LAYER_VOICES stops)
+  playBuffer(buffer, db, rate) {
+    const c = this.ctx, s = c.createBufferSource(), g = c.createGain();
+    s.buffer = buffer; s.playbackRate.value = rate; g.gain.value = dbGain(db + HEARD_TRIM_DB) * this.spotGain();
+    s.connect(g); g.connect(this.out());
     this.voices++;
     s.onended = () => { this.voices--; g.disconnect(); };
-    s.start(t, Math.random()); s.stop(t + dur + 0.02);
+    s.start();
     return s;
   },
-  panFor(x) { return Arena.def ? clamp(x / Arena.def.bounds.x, -1, 1) * 0.6 : 0; },
+  // Slow sources: a noise that rises and falls (a breath, a crowd), through its own bandpass
+  swellNoise(hz, q, rise, total, gain, dest) {
+    const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noiseBuf; f.type = 'bandpass'; f.frequency.value = hz; f.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * this.spotGain(dest), t + rise); g.gain.exponentialRampToValueAtTime(0.0001, t + total);
+    s.connect(f); f.connect(g); g.connect(dest || this.out());
+    this.voices++; s.onended = () => { this.voices--; g.disconnect(); };
+    s.start(t, Math.random() * (this.noiseBuf.duration - total - 0.1)); s.stop(t + total + 0.05);
+    return s;
+  },
+  // One oscillator through a filter (voices, horns); bend = frequency ratio at the end
+  voiced(type, f0, f1, dur, gain, filter, hz, q, dest, delay) {
+    if (this.voices >= MAX_VOICES + 12) return;
+    const c = this.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    f.type = filter; f.frequency.value = hz; f.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * this.spotGain(dest), t + Math.min(0.03, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(dest || this.out());
+    this.voices++; o.onended = () => { this.voices--; g.disconnect(); };
+    o.start(t); o.stop(t + dur + 0.02);
+    return o;
+  },
 
   // --- sound library
-  hit(power, kick, x) {
-    if (!this.allow(kick ? 'kick' : 'punch')) return false;
-    const p = this.panFor(x), g = 0.35 + power * 0.5;
-    this.tone('sine', kick ? 120 : 160, kick ? 42 : 55, 0.12 + power * 0.14, g, 0, p);
-    this.noise('bandpass', kick ? 1100 : 1700, 500, 0.9, 0.07 + power * 0.1, g * 0.8, 0, p);
-    if (power > 0.6) { this.noise('lowpass', 700, 200, 0.7, 0.28, g * 0.7, 0, p); this.tone('sine', 70, 28, 0.32, g * 0.8, 0, p); }
+  surfaceIndex() { return FLOOR_SURFACE[Arena.def && Arena.def.env ? Arena.def.env.floor || 0 : 0] || 0; },
+  surface() { return STEP_SURFACES[this.surfaceIndex()]; },
+  // A footfall on the surface of the level (M1); also the thud under a landing (M2)
+  footfall(s, gain, pitch, len) {
+    if (!this.allow('foot', 0, 2)) return; // a footfall under a landing, a fall or a jump is the lowest priority: it goes first when the engine is full
+    for (const part of footParts(s, pitch, len)) this.play(part, undefined, gain);
+  },
+  step(run, index, foot) { // a baked step (one source, one gain) once the bank has them, else the synthesis
+    if (!this.allow('step' + index, MIN_GAP.step, 2)) return;
+    const steps = this.bank && this.bank.step;
+    if (steps) { this.playBuffer(steps[this.surfaceIndex()][run ? 1 : 0][foot ? 1 : 0], STEP_DB[run ? 1 : 0] + STEP_TRIM_DB[this.surfaceIndex()] + 20 * Math.log10(vary(1, 0.12)), vary(1, 0.1)); return; }
+    const s = this.surface();
+    this.footfall(s, s.gain * (run ? s.run || 1.6 : 1) * vary(1, 0.12), vary(1, 0.1) * (foot ? 0.93 : 1), run ? 0.8 : 1);
+  },
+  // The synthesised impact: the fallback while the bake is not ready (or cannot run). Same recipe as P13-02 with the level plan and E2 variation.
+  hit(power, kick, key, level = 1) {
+    if (!this.allow('hit' + key, MIN_GAP.hit)) return false;
+    const g = (0.35 + power * 0.5) * 0.55 * level * vary(1, 0.12), pitch = vary(1, 0.06);
+    this.tone('sine', (kick ? 120 : 160) * pitch, (kick ? 42 : 55) * pitch, vary(0.12 + power * 0.14, 0.08), g);
+    this.noise('bandpass', (kick ? 1100 : 1700) * pitch, 500, 0.9, vary(0.07 + power * 0.1, 0.08), g * 0.8);
+    if (power > 0.6) { this.noise('lowpass', 700, 200, 0.7, 0.28, g * 0.7); this.tone('sine', 70 * pitch, 28, 0.32, g * 0.8); }
     return true;
   },
-  /* Layered impact (P13-02), on top of hit(): a thud pitched by the body's weight class (heavier is lower), a slap (tier 1), a snap (2) or a crack (3), the material of the item that struck, and a crowd's swell on the knock-out
+  /* Layered impact (P13-02), on top of the synthesised hit(): a thud pitched by the body's weight class (heavier is lower), a slap (tier 1), a snap (2) or a crack (3), the material of the item that struck, and a crowd's swell on the knock-out
      that ends a fight where bystanders stand. At most HIT_LAYER_VOICES of these sources sound at once: the oldest stops. They go through the effects bus, so the volume settings scale them. */
   layers(e) {
-    const p = this.panFor(e.x), tier = e.mv.tier || 1, g = 0.1 + tier * 0.05, weight = e.def.weight || 0;
-    this.layer(this.tone('sine', 210 - weight * 28, 70, 0.1 + weight * 0.02, g * 1.6, 0, p));
-    this.layer(tier >= 3 ? this.noise('highpass', 3600, 2400, 0.8, 0.09, g, 0, p) : this.noise('bandpass', tier === 2 ? 2600 : 3400, 1800, 1.1, 0.05, g, 0, p));
+    const tier = e.mv.tier || 1, g = (0.1 + tier * 0.05) * 0.55, weight = e.def.weight || 0;
+    this.layer(this.tone('sine', vary(210 - weight * 28, 0.05), 70, 0.1 + weight * 0.02, g * 1.6));
+    this.layer(tier >= 3 ? this.noise('highpass', vary(3600, 0.05), 2400, 0.8, 0.09, g) : this.noise('bandpass', vary(tier === 2 ? 2600 : 3400, 0.05), 1800, 1.1, 0.05, g));
     const item = e.mv.wpn && WEAPONS[e.mv.wpn];
     if (item) this.material(item.mat, false, e.x);
     if (e.ko && koEndsFight(e.def) && Arena.props.some((q) => q.ph !== undefined)) this.layer(this.swell());
@@ -13954,180 +14168,332 @@ const Sound = {
     queue.push(source);
     if (queue.length > HIT_LAYER_VOICES) { try { queue.shift().stop(); } catch (err) { /* it had ended already */ } }
   },
-  swell() { // filtered noise that rises over 0.4 s and fades by 1.6 s
-    const c = this.ctx, t = c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
-    s.buffer = this.noiseBuf; f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.5;
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.22, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
-    s.connect(f); f.connect(g); g.connect(this.sfxBus);
-    this.voices++; s.onended = () => { this.voices--; g.disconnect(); };
-    s.start(t, Math.random()); s.stop(t + 1.7);
-    return s;
+  // The baked impact of a hit event (E1): the next variant of its tier and weight band (never one twice in a row), pitched by the kick, the combo ladder and a little luck, levelled by the plan; the item's material layer
+  impact(e, kick) {
+    if (!this.allow('hit' + e.def.index, MIN_GAP.hit)) return false;
+    const tier = e.ko ? 3 : clamp(e.mv.tier || 1, 1, 3), band = weightBand(e.def.weight), item = e.mv.wpn && WEAPONS[e.mv.wpn];
+    let db = IMPACT_DB[tier - 1] + IMPACT_BAND_DB[band] + (e.counter ? 2 : 0) + (item && tier === 3 ? -3.5 : 0);
+    if (kick) db = Math.min(db + 1, tier === 3 ? -2 : 0);
+    const ladder = clamp((e.combo || 1) - 1, 0, COMBO_LADDER_MAX), rate = (kick ? 0.82 : 1) * Math.pow(2, ladder / 12) * vary(1, 0.05);
+    this.layer(this.playBuffer(this.bank.hit[tier - 1][band][this.pickVariant('h' + tier + band)], db + IMPACT_TRIM_DB[tier - 1] + 20 * Math.log10(vary(1, 0.12)), rate)); // +-1 dB
+    if (item) this.materialLayer(item.mat, e.x);
+    if (e.ko && koEndsFight(e.def) && Arena.props.some((q) => q.ph !== undefined)) this.layer(this.swell());
+    return true;
   },
-  heartbeat() { if (this.allow('heart', 0.5)) { this.tone('sine', 62, 38, 0.14, 0.5); this.tone('sine', 55, 36, 0.12, 0.35, 0.17); } }, // lub-dub
-  block(perfect, broke, x, brk, sway) {
-    if (!this.allow('block')) return;
-    const p = this.panFor(x);
-    if (broke) { this.noise('bandpass', 1400, 400, 1.1, 0.45, 0.6, 0, p); this.tone('sawtooth', 260, 70, 0.45, 0.28, 0, p); this.tone('sine', 1800, 900, 0.3, 0.2, 0, p); return; }
+  pickVariant(key) { const next = ((this.lastVariant[key] || 0) + 1 + (Math.random() < 0.5 ? 0 : 1)) % BAKE_VARIANTS; this.lastVariant[key] = next; return next; },
+  materialLayer(mat, x) { // a weapon's own material on a hit: the baked wood, metal or glass, else the synthesis
+    const kind = MATERIAL_BAKE.includes(mat) ? mat : null, list = kind && this.bank.mat[kind];
+    if (list && list.length === BAKE_VARIANTS) this.layer(this.playBuffer(list[this.pickVariant('m' + kind)], -13, vary(1, 0.05)));
+    else this.material(mat, false, x);
+  },
+  // A heavy blow without an event of its own (a wall slam, a tackle, a hazard that hurts): the baked tier 3 impact at db, else the synthesis
+  heavy(db, key) {
+    if (this.bank && this.allow('heavy' + key, 0.05)) this.layer(this.playBuffer(this.bank.hit[2][2][this.pickVariant('hv')], db + IMPACT_TRIM_DB[2], vary(1, 0.05)));
+    else if (!this.bank) this.hit(0.7, false, 'h' + key, dbGain(db + 8));   // the fallback keeps the level the call asks for
+  },
+  // A crowd (Night Club, Pit): a swell on a knock-out that ends the fight (the cheer), a lean on trouble (an "ooh")
+  swell() {
+    const first = this.swellNoise(900, 0.5, 0.4, 1.6, 0.3);
+    this.swellNoise(1600, 0.8, 0.5, 1.2, 0.12);
+    return first;
+  },
+  crowdLean(allowName) {
+    if (Arena.props.some((q) => q.ph !== undefined) && this.allow(allowName || 'crowd', 1.5, 2)) this.swellNoise(800, 0.8, 0.35, 0.9, 0.14);
+  },
+  heartbeat() { if (this.allow('heart', 0.5)) { const wave = this.thump || 'sine'; this.tone(wave, 62, 38, 0.14, 0.32); this.tone(wave, 55, 36, 0.12, 0.22, 0.17); this.noise('bandpass', 400, 300, 2, 0.03, 0.1); } }, // lub-dub: the low note with its octave and fifth, and a tick
+  block(perfect, broke, x, brk, sway, e) {
+    if (!this.allow('block', MIN_GAP.block, 1)) return;
+    const tier = clamp((e && e.mv && e.mv.tier) || 2, 1, 3), k = [0.7, 1, 1.3][tier - 1], low = !!(e && e.def && (e.def.state === S.CROUCH || e.def.state === S.BLOCK_L)), item = e && e.mv && e.mv.wpn && WEAPONS[e.mv.wpn];
+    if (broke) { this.noise('bandpass', vary(1400, 0.05), 400, 1.1, 0.45, 0.5); this.tone('sawtooth', vary(260, 0.05), 70, 0.45, 0.23); this.tone('sine', vary(1800, 0.05), 900, 0.3, 0.17); this.heavy(-10, 'b'); return; }
     if (!sway) {
-      this.tone('triangle', 520, 360, 0.09, 0.35, 0, p);
-      this.noise('highpass', 3200, 3200, 0.8, 0.06, 0.3, 0, p);
+      if (low) { this.tone('sine', vary(95, 0.06), 70, vary(0.1, 0.08), 0.5 * k); this.noise('highpass', vary(3200, 0.06), 3200, 0.8, 0.05, 0.2 * k); }
+      else { this.tone('triangle', vary(520, 0.06), 360, vary(0.09, 0.08), 0.3 * k); this.noise('highpass', vary(3200, 0.06), 3200, 0.8, vary(0.06, 0.08), 0.28 * k); }
+      if (item) this.material(item.mat, false, x);
     }
-    if (brk) CUE_NOTES.brk.forEach((hz, i) => this.tone('sine', hz, hz, 0.25, 0.2, i * 0.06, p));
-    else if (perfect) CUE_NOTES.perfect.forEach((hz, i) => this.tone('sine', hz, hz, 0.45 - i * 0.05, 0.22 - i * 0.07, i * 0.02, p));
+    if (brk) CUE_NOTES.brk.forEach((hz, i) => this.tone('sine', hz, hz, 0.25, 0.2 * (sway ? 1.35 : 0.6), i * 0.06));
+    else if (perfect) CUE_NOTES.perfect.forEach((hz, i) => this.tone('sine', hz, hz, 0.45 - i * 0.05, (0.22 - i * 0.07) * (sway ? 1.35 : 0.6), i * 0.02));
   },
-  whoosh(power, x) {
-    if (!this.allow('whoosh')) return;
-    this.noise('bandpass', 400, 1800 + power * 800, 0.7, 0.12 + power * 0.08, 0.1 + power * 0.1, 0, this.panFor(x));
+  // M3: cloth (a fist), kick, weapon whistle (the centre follows the item's length) and a jump's flap; tier 1 to 3 sets the level
+  whoosh(tier, kind, len, index) {
+    if (!this.allow('whoosh' + index, MIN_GAP.whoosh, 1)) return;
+    const g = [0.22, 0.5, 0.62][tier - 1] * vary(1, 0.12), p = vary(1, 0.06);
+    if (kind === 'weapon') { const hz = clamp(1100 - 600 * len, 400, 1000); this.noise('bandpass', hz * p, hz * 0.4, 3, vary(0.18, 0.08), g * 2.35); }
+    else if (kind === 'kick') this.noise('bandpass', 300 * p, 1500 * p, 0.7, vary(0.14, 0.08), g * 1.2);
+    else this.noise('bandpass', 600 * p, 2400 * p, 0.7, vary(kind === 'jump' ? 0.11 : 0.09, 0.08), g * (kind === 'jump' ? 0.79 : 1.1));
   },
-  step(run, x) { if (!this.allow('step')) return; this.noise('lowpass', 420, 200, 0.6, 0.05, run ? 0.16 : 0.1, 0, this.panFor(x)); },
-  land(power, x) { if (!this.allow('land')) return; const p = this.panFor(x); this.tone('sine', 95, 40, 0.14, 0.3 * Math.min(1, power), 0, p); this.noise('lowpass', 500, 200, 0.6, 0.12, 0.2 * Math.min(1, power), 0, p); },
-  grunt(index, big) {
-    if (!this.allow('grunt' + index, 0.25)) return;
-    const base = (index === 0 ? 135 : 105) * (big ? 0.85 : 1), dur = big ? 0.42 : 0.2;
-    const c = this.ctx, t = c.currentTime;
-    const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
-    o.type = 'sawtooth'; o.frequency.setValueAtTime(base * 1.25, t); o.frequency.exponentialRampToValueAtTime(base * 0.7, t + dur);
-    f.type = 'bandpass'; f.frequency.value = 750; f.Q.value = 3.5;
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.28, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(f); f.connect(g); g.connect(this.sfxBus);
-    this.voices++; o.onended = () => { this.voices--; };
-    o.start(t); o.stop(t + dur + 0.02);
+  land(power, f) {
+    if (!this.allow('land' + (f.index || 0), MIN_GAP.land, 1)) return;
+    const p = Math.pow(Math.min(0.83, power), 1.5), band = weightBand(f.weight), s = this.surface(), pitch = vary(1, 0.06);   // a soft landing falls off faster than a hard one
+    this.tone('sine', 95 * pitch, 40, [0.12, 0.14, 0.18][band], 0.3 * p); // the body
+    this.tone('triangle', 190 * pitch, 80, 0.08, 0.15 * p); // E6: the octave a small speaker can play
+    this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.12 * p); // cloth
+    this.footfall(s, s.gain * 1.5 * p, pitch, 1.4);
   },
-  slam(x) { const p = this.panFor(x); this.tone('sine', 85, 28, 0.4, 0.7, 0, p); this.noise('lowpass', 800, 150, 0.7, 0.3, 0.6, 0, p); },
-  material(kind, big, x) {
-    if (!this.allow('objHit' + (big ? 'B' : ''), big ? 0.12 : 0.05)) return;
-    const p = this.panFor(x), n = big ? 3 : 1, g = big ? 0.7 : 0.4;
-    for (let i = 0; i < n; i++) {
-      const d = i * 0.045;
-      if (kind === 'wood') { this.noise('bandpass', 700 + Math.random() * 400, 300, 1.2, 0.12, g, d, p); this.tone('triangle', 230, 130, 0.12, g * 0.7, d, p); }
-      else if (kind === 'concrete') { this.noise('lowpass', 900, 200, 0.8, 0.22, g, d, p); this.tone('sine', 110, 45, 0.25, g, d, p); }
-      else if (kind === 'metal') { for (const f of [410, 655, 1120]) this.tone('square', f * (0.95 + Math.random() * 0.1), f * 0.97, big ? 0.5 : 0.25, g * 0.18, d, p); this.noise('highpass', 2500, 2500, 0.8, 0.05, g * 0.3, d, p); }
-      else if (kind === 'glass') { this.noise('highpass', 4200, 3000, 0.8, big ? 0.5 : 0.12, g, d, p); for (let k = 0; k < (big ? 6 : 1); k++) this.tone('sine', 2400 + Math.random() * 2600, 2000, 0.12, g * 0.2, d + k * 0.035, p); }
-      else { this.noise('highpass', 2000, 1500, 0.6, 0.2, g * 0.6, d, p); }
-    }
+  // M2: a body hits the floor (a fall, a knock-out, a throw's landing): by weight band, with the floor under it
+  fall(f, extraDb) {
+    if (!this.allow('fall' + (f.index || 0), 0.1, 0)) return;
+    const band = weightBand(f.weight), k = [0.5, 0.7, 0.88][band] * dbGain(extraDb || 0), dur = [0.3, 0.38, 0.46][band], s = this.surface();
+    this.tone('sine', vary(85, 0.05), 28, dur, 0.7 * k);
+    this.tone('triangle', 170, 56, dur * 0.6, 0.35 * k); // E6
+    this.noise('lowpass', 800, 150, 0.7, 0.3, 0.6 * k);
+    this.footfall(s, s.gain * 3 * k, vary(1, 0.06), 1.4);
+  },
+  whistle() { this.tone('sine', vary(900, 0.05), 200, 0.6, 0.2); }, // a fall off a ledge or a ring-out
+  grunt(f, kind) { // M12: one voice per body: the pitch from the weight class, higher for a female look, the formant from the build
+    if (!this.allow('grunt' + f.index, MIN_GAP.grunt, 1)) return;
+    const v = VOICE_KINDS[kind] || VOICE_KINDS.hurt, look = f.look || {}, weight = f.weight || 0;
+    const base = (170 - weight * 20) * (look.gender === 'F' ? 1.35 : 1) * vary(1, 0.08), formant = clamp(1000 - 130 * ((look.build || 1) - 0.5) * 2, 600, 1000);
+    this.voiced('sawtooth', base * v.from, base * v.to, v.dur, 0.6 * v.gain, 'bandpass', formant, 3.5);
+  },
+  breath(exhausted) { this.swellNoise(exhausted ? 900 : 1200, 0.6, 0.18, exhausted ? 0.55 : 0.35, exhausted ? 0.085 : 0.075); }, // M11
+  material(kind, big, x, size) {
+    if (!this.allow('objHit' + (big ? 'B' : ''), big ? 0.12 : MIN_GAP.objHit, big ? 0 : 1)) return;
+    for (const part of materialParts(kind, big, size || 1)) this.play(part);
+    if (big) for (let i = 0; i < 3; i++) this.tick(MATERIAL_DEBRIS[kind] || 'wood', 0.5, 0.06 + i * 0.07 + Math.random() * 0.05); // the debris of a break: ticks, not a triple of the break
+  },
+  tick(kind, power, delay) { // one piece landing
+    const g = (0.1 + power * 0.18) * 1.6;
+    if (kind === 'glass') { this.noise('bandpass', vary(7000, 0.2), 6000, 1.2, 0.025, g * 0.4, delay); this.noise('bandpass', vary(5500, 0.2), 5000, 1.2, 0.02, g * 0.25, (delay || 0) + 0.03); }
+    else if (kind === 'metal') this.tone('square', vary(750, 0.2), 500, 0.15, g * 0.35, delay);
+    else if (kind === 'concrete') this.tone('sine', vary(250, 0.15), 180, 0.06, g * 0.35, delay);
+    else this.noise('bandpass', 800, 300, 1.2, 0.07, g * 1.3, delay);
   },
   debris(kind, power, x) {
-    if (!this.allow('debris')) return;
-    const p = this.panFor(x), g = 0.1 + power * 0.18;
-    if (kind === 'glass') this.tone('sine', 3000 + Math.random() * 2000, 2500, 0.07, g * 0.6, 0, p);
-    else if (kind === 'metal') this.tone('square', 600 + Math.random() * 300, 400, 0.15, g * 0.4, 0, p);
-    else this.noise('bandpass', kind === 'wood' ? 800 : 400, 300, 1.2, 0.07, g, 0, p);
+    if (!this.allow('debris', MIN_GAP.debris, 2)) return;
+    this.tick(kind, power, 0);
   },
   // Hazards: the sound of each type at its warning, when it goes off, and when it hurts someone
-  hazard(kind, phase, x) {
-    const p = this.panFor(x), start = phase === 'start';
+  hazard(kind, phase, x, type) {
+    const start = phase === 'start';
     if (kind === 'zap') {
-      if (!this.allow('hazZap', 0.2)) return;
-      if (!start) { this.tone('square', 1800, 1800, 0.03, 0.12, 0, p); this.tone('square', 1800, 1800, 0.03, 0.12, 0.09, p); return; } // two clicks, then the buzz
-      this.noise('highpass', 3500, 2500, 0.8, 0.5, 0.35, 0, p); this.tone('sawtooth', 110, 90, 0.5, 0.2, 0, p); this.tone('square', 2200, 800, 0.12, 0.15, 0, p);
+      if (!this.allow('hazZap', 0.2, 1)) return;
+      if (!start) { this.tone('square', vary(1800, 0.03), 1800, 0.03, 0.21); this.tone('square', vary(1800, 0.03), 1800, 0.03, 0.21, 0.09); return; } // two clicks, then the buzz
+      this.noise('highpass', 3500, 2500, 0.8, 0.5, 0.3); this.tone('sawtooth', vary(100, 0.05), 90, 0.5, 0.25); this.tone('sawtooth', vary(200, 0.05), 180, 0.4, 0.1); this.tone('square', vary(2200, 0.05), 800, 0.12, 0.12);
     } else if (kind === 'hiss') {
-      if (!this.allow('hazHiss', 0.4)) return;
-      this.noise('highpass', 3000, 2000, 0.7, start ? 1.2 : 0.3, start ? 0.3 : 0.15, 0, p);
+      if (!this.allow('hazHiss', 0.4, 1)) return;
+      const water = type === 'hydrant', hz = water ? 1500 : 4000;
+      const w = water ? 1.4 : 1; this.noise('bandpass', vary(hz, 0.05), hz * 0.7, 0.5, start ? 1.2 : 0.3, (start ? 0.55 : 0.2) * w); this.noise('lowpass', water ? 200 : 600, water ? 200 : 500, 0.7, start ? 1.2 : 0.3, (start ? 0.4 : 0.14) * w);
     } else if (kind === 'crash') {
-      if (!start) { this.tone('triangle', 180, 140, 0.3, 0.14, 0, p); return; } // the chain creaks, then the load lands
-      this.slam(x); this.material('metal', true, x);
+      if (!start) { this.tone('triangle', vary(180, 0.05), 140, 0.3, 0.26); return; } // the chain creaks, then the load lands
+      if (type === 'drop') { this.tone('sine', 900, 200, 0.6, 0.15); this.tone('sine', 70, 35, 0.3, 0.3, 0.55); return; } // a long fall and a far thud
+      this.heavy(-12, 'c'); this.material('metal', true, x, 0.4);
     } else if (kind === 'fire') {
-      if (!this.allow('hazFire', 0.3)) return;
-      if (!start) { this.noise('lowpass', 400, 1200, 0.6, 0.25, 0.25, 0, p); return; } // a whoomph, then the crackle
-      for (let k = 0; k < 4; k++) this.noise('bandpass', 2500, 1500, 1.2, 0.05, 0.2, k * 0.07, p);
+      if (!this.allow('hazFire', 0.3, 1)) return;
+      if (!start) { this.noise('lowpass', 400, 1200, 0.6, 0.3, 0.45); this.tone('sine', 120, 60, 0.2, 0.2); return; } // a whoomph with a thump, then the crackle
+      for (let k = 0; k < 4; k++) this.noise('bandpass', vary(2500, 0.1), 1500, 1.2, 0.05, 0.85, k * 0.07);
     } else if (kind === 'train') {
-      if (!start) { this.tone('sine', 1000, 1000, 0.15, 0.2, 0, p); this.tone('sine', 1000, 1000, 0.15, 0.2, 0.3, p); return; } // crossing bells, then the horn and the rumble
-      this.tone('sawtooth', 220, 200, 1.0, 0.22, 0, p); this.noise('lowpass', 300, 120, 0.6, 1.2, 0.35, 0, p);
+      if (!start) { this.tone('sine', 1000, 1000, 0.15, 0.24); this.tone('sine', 1000, 1000, 0.15, 0.24, 0.3); return; } // crossing bells, then the horn and the rumble
+      this.tone('sawtooth', 220 * 1.06, 220 * 0.94, 1.5, 0.28); this.tone('sawtooth', 277 * 1.06, 277 * 0.94, 1.5, 0.22); this.noise('lowpass', 300, 120, 0.6, 2, 0.8);
     }
   },
   hazardHurt(kind, x) {
-    if (kind === 'zap') this.tone('square', 600, 200, 0.1, 0.25, 0, this.panFor(x));
-    else if (kind === 'hiss' || kind === 'fire') { if (this.allow('hazHurt', 0.12)) this.noise('bandpass', 1800, 900, 0.8, 0.12, 0.22, 0, this.panFor(x)); }
-    else this.hit(0.4, false, x);
+    if (kind === 'zap') this.tone('square', vary(600, 0.05), 200, 0.1, 0.2);
+    else if (kind === 'hiss' || kind === 'fire') { if (this.allow('hazHurt', 0.12, 1)) this.noise('bandpass', 1800, 900, 0.8, 0.12, 0.22 * (kind === 'hiss' ? 1.04 : 1.3)); }
+    else this.heavy(-20, 'h');
   },
-  ui(kind) {
-    if (!this.allow('menu')) return;
-    if (kind === 'move') this.tone('square', 660, 700, 0.04, 0.09);
-    else if (kind === 'ok') { this.tone('square', 660, 660, 0.07, 0.12); this.tone('square', 990, 990, 0.1, 0.12, 0.07); }
-    else if (kind === 'back') { this.tone('square', 520, 380, 0.09, 0.1); }
-    else if (kind === 'bad') { this.tone('sawtooth', 160, 120, 0.18, 0.12); }
+  // The menu and the stingers go through the UI bus (E4): the Effects volume, no room, no distance
+  ui(kind, value) {
+    if (!this.allow('menu', MIN_GAP.menu, 0)) return;
+    const bus = this.uiBus, t = (type, f0, f1, dur, gain, delay) => this.tone(type, f0, f1, dur, gain, delay, 0, bus);
+    if (kind === 'move') t('square', vary(660, 0.03), vary(700, 0.03), 0.04, 0.11);
+    else if (kind === 'ok') { t('square', 660, 660, 0.07, 0.17); t('square', 990, 990, 0.1, 0.17, 0.07); }
+    else if (kind === 'back') t('square', 520, 380, 0.09, 0.14);
+    else if (kind === 'bad') t('sawtooth', 160, 120, 0.18, 0.19);
+    else if (kind === 'start') { [523, 659, 784].forEach((hz, i) => t('square', hz, hz, 0.1, 0.22, i * 0.07)); this.noise('highpass', 3000, 6000, 0.7, 0.3, 0.08, 0.1, 0, bus); }
+    else if (kind === 'on') { t('square', 520, 520, 0.05, 0.14); t('square', 780, 780, 0.07, 0.14, 0.05); }
+    else if (kind === 'off') { t('square', 780, 780, 0.05, 0.14); t('square', 520, 520, 0.07, 0.14, 0.05); }
+    else if (kind === 'pause') t('triangle', 700, 300, 0.15, 0.3);
+    else if (kind === 'resume') t('triangle', 300, 700, 0.15, 0.3);
+    else if (kind === 'tick') t('square', 500 + 500 * clamp(value || 0, 0, 1), 520 + 500 * clamp(value || 0, 0, 1), 0.03, 0.07);
+    else if (kind === 'join') { t('triangle', 523, 523, 0.07, 0.25); t('triangle', 784, 784, 0.1, 0.25, 0.07); }
+    else if (kind === 'leave') { t('triangle', 784, 784, 0.07, 0.25); t('triangle', 523, 523, 0.1, 0.25, 0.07); }
   },
-  beep(n) { if (!this.ready()) return; if (n > 0) this.tone('square', 440, 440, 0.14, 0.18); else { this.tone('square', 880, 880, 0.3, 0.22); this.tone('sine', 1320, 1320, 0.4, 0.14); } },
-  bell() { if (!this.ready()) return; this.tone('sine', 880, 880, 1.3, 0.3); this.tone('sine', 1320, 1320, 1.0, 0.18); this.tone('sine', 2200, 2200, 0.7, 0.08); },
+  beep(n) { // the countdown (3, 2, 1) and FIGHT (0)
+    if (!this.ready()) return;
+    const bus = this.uiBus, t = (type, f0, f1, dur, gain, delay) => this.tone(type, f0, f1, dur, gain, delay, 0, bus);
+    if (n > 0) { const hz = CUE_NOTES.count[3 - clamp(n, 1, 3)]; t('square', hz, hz, 0.14, 0.26); return; }
+    CUE_NOTES.fight.forEach((hz) => t('square', hz, hz, 0.4, 0.07));
+    t('sine', 120, 40, 0.5, 0.25); this.noise('highpass', 2500, 1500, 0.7, 0.4, 0.1, 0, 0, bus);
+  },
+  decides(m) { return !!m && (!!m.decider || (!m.brawl && !m.setup && m.round > 1 && m.wins[0] === m.winsNeeded - 1 && m.wins[1] === m.winsNeeded - 1)); }, // the next round decides the match: a drawn round, or both sides one win short
+  roundStart(round, decider) { // M10: a later round counts itself in pips; the deciding round gets a low double stab
+    if (!this.ready()) return;
+    const bus = this.uiBus;
+    if (decider) { this.tone('sawtooth', 110, 90, 0.18, 0.35, 0, 0, bus); this.tone('sawtooth', 110, 90, 0.25, 0.35, 0.2, 0, bus); return; }
+    for (let i = 0; i < Math.min(round, 4); i++) this.tone('square', 880, 880, 0.06, 0.2, i * 0.1, 0, bus);
+  },
+  timeUp() { if (this.ready()) { this.tone('sawtooth', 330, 110, 0.7, 0.28, 0, 0, this.uiBus); this.tone('square', 220, 80, 0.7, 0.14, 0, 0, this.uiBus); } },
+  roundKo() { if (this.ready()) { this.tone('sine', 800, 150, 0.35, 0.4, 0, 0, this.uiBus); this.swellNoise(800, 0.8, 0.2, 0.9, 0.25, this.uiBus); } }, // a round ends by a knock-out: a down-sweep and an "ooh"
+  milestone(hits) { const notes = hits >= 8 ? CUE_NOTES.hits8 : hits >= 5 ? CUE_NOTES.hits5 : CUE_NOTES.hits3; notes.forEach((hz, i) => this.tone('triangle', hz, hz, 0.14, 0.18, i * 0.07, 0, this.uiBus)); },
+  bell() { if (!this.ready()) return; this.tone('sine', 880, 880, 1.3, 0.3, 0, 0, this.uiBus); this.tone('sine', 1320, 1320, 1.0, 0.18, 0, 0, this.uiBus); this.tone('sine', 2200, 2200, 0.7, 0.08, 0, 0, this.uiBus); },
   fanfare(win) {
     if (!this.ready()) return;
     const notes = win ? [523, 659, 784, 1047] : [440, 392, 349, 262];
-    notes.forEach((f, i) => this.tone(win ? 'triangle' : 'sawtooth', f, f, 0.32, win ? 0.22 : 0.16, i * 0.15));
+    notes.forEach((f, i) => this.tone(win ? 'triangle' : 'sawtooth', f, f, 0.32, win ? 0.33 : 0.3, i * 0.15, 0, this.uiBus));
   },
-  lowStamina() { if (!this.allow('low', 0.5)) return; this.tone('sine', 300, 300, 0.1, 0.12); this.tone('sine', 300, 300, 0.1, 0.12, 0.16); },
+  horn() { if (this.ready()) for (const hz of [110, 165]) this.voiced('sawtooth', hz, hz, 0.5, 0.2, 'lowpass', 900, 0.7, this.uiBus); }, // M14: a wave arrives
+  lowStamina() { if (!this.allow('low', 0.5, 1)) return; this.tone('sine', 300, 300, 0.1, 0.17); this.tone('sine', 300, 300, 0.1, 0.17, 0.16); },
+  alarm() { // a car alarm: one oscillator that switches 880 / 660 Hz four times a second for ALARM_SECS
+    if (!this.allow('alarm', ALARM_SECS, 2)) return;
+    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = 'square'; g.gain.setValueAtTime(0.0001, t);
+    for (let i = 0; i < ALARM_SECS * 4; i++) { o.frequency.setValueAtTime(i % 2 ? 660 : 880, t + i * 0.25); g.gain.setValueAtTime(0.1 * this.spotGain(), t + i * 0.25); g.gain.setValueAtTime(0.0001, t + i * 0.25 + 0.15); }
+    o.connect(g); g.connect(this.out());
+    this.voices++; o.onended = () => { this.voices--; g.disconnect(); };
+    o.start(t); o.stop(t + ALARM_SECS);
+  },
+  // E7: the ambience bed of a level (hum and its second harmonic from `audio.hum`, a looped noise through a low-pass by level, a murmur where a crowd stands), on the music bus; track = null stops it
+  syncAmbience(track) {
+    const key = track ? track.floor * 100 + track.hum : -1; // a number: this is compared every frame
+    if (key === this.ambKey) return;
+    if (track && !this.ready()) return;
+    this.ambKey = key;
+    const crowd = !!track && Arena.props.some((q) => q.ph !== undefined);
+    const old = this.amb; this.amb = null;
+    if (old) { const t = this.ctx.currentTime; old.g.gain.setTargetAtTime(0, t, 0.1); for (const s of old.sources) { try { s.stop(t + 0.6); } catch (err) { /* it had stopped */ } } }
+    if (!track || !this.ctx) return;
+    const c = this.ctx, g = c.createGain(), sources = [];
+    g.gain.value = 0; g.gain.setTargetAtTime(1, c.currentTime, 0.5); g.connect(this.musicBus);
+    const hum = (hz, gain) => { const o = c.createOscillator(), og = c.createGain(); o.frequency.value = hz; og.gain.value = gain; o.connect(og); og.connect(g); o.start(); sources.push(o); };
+    const bed = (type, hz, gain) => { const s = c.createBufferSource(), f = c.createBiquadFilter(), og = c.createGain(); s.buffer = this.noiseBuf; s.loop = true; f.type = type; f.frequency.value = hz; og.gain.value = gain; s.connect(f); f.connect(og); og.connect(g); s.start(0, Math.random()); sources.push(s); };
+    if (track.hum > 0) { hum(track.hum, 0.03); hum(track.hum * 2, 0.0075); }
+    bed('lowpass', AMBIENCE_HZ[track.floor] || 300, 0.06);
+    if (crowd) bed('lowpass', 500, 0.05);
+    this.amb = { g, sources };
+  },
 
   // --- wire to game events
   wire() {
     if (this.wired) return;
     this.wired = true;
-    const on = (n, fn) => Events.on(n, (e) => { if (this.ready()) fn(e); });
+    const on = (n, fn) => Events.on(n, (e) => { if (this.ready()) { try { fn(e); } finally { this.spot = null; } } });
+    const person = (f) => !!f && Inputs.forFighter(f.index);
     on('hit', (e) => {
-      const power = clamp((e.mv.tier || 1) / 3 + (e.counter ? 0.2 : 0) + (e.ko ? 0.4 : 0), 0.15, 1);
-      if (this.hit(power, e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name)), e.x)) this.layers(e);
-      if (e.mv.tier >= 2 || e.ko) this.grunt(e.def.index, e.ko || e.mv.tier === 3);
-      if (e.counter) CUE_NOTES.ting.forEach((hz, i) => this.tone(i ? 'sine' : 'triangle', hz, hz, 0.16 - i * 0.04, 0.14 - i * 0.07, i * 0.03));
+      this.at(e.x, e.z);
+      const tier = e.mv.tier || 1, power = clamp(tier / 3 + (e.counter ? 0.2 : 0) + (e.ko ? 0.4 : 0), 0.15, 1);
+      const kick = e.mv.cat === 'kick' || (e.mv.cat === 'heavy' && /kick|sweep/i.test(e.mv.name));
+      if (this.bank) this.impact(e, kick);
+      else if (this.hit(power, kick, e.def.index)) this.layers(e);
+      if (tier >= 3 || e.ko) this.pump();
+      if (tier >= 2 || e.ko) this.grunt(e.def, e.ko ? 'ko' : tier === 3 ? 'hurtBig' : 'hurt');
+      if (e.counter) CUE_NOTES.ting.forEach((hz, i) => this.tone(i ? 'sine' : 'triangle', hz, hz, 0.16 - i * 0.04, 0.12 - i * 0.06, i * 0.03));
+      if ((e.combo === 3 || e.combo === 5 || e.combo === 8) && person(e.att)) this.milestone(e.combo);
     });
-    on('block', (e) => { if (!e.sway || e.perfect) this.block(e.perfect, e.broke, e.x, e.brk, e.sway); }); // a plain sway makes no block sound
-    on('lateDefend', (e) => { if (Inputs.forFighter(e.f.index) && this.allow('late', 0.1)) this.tone('square', CUE_NOTES.late[0], CUE_NOTES.late[0], 0.03, 0.1); });
-    on('freeTick', (e) => { if (freeTickCue(e.f) && this.allow('free', 0.1)) this.tone('sine', CUE_NOTES.free[0], CUE_NOTES.free[0], 0.04, 0.07); });
-    on('attackActive', (e) => this.whoosh((e.mv.tier || 1) / 3, e.f.x));
-    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team !== TEAM_PLAYERS) this.grunt(1, false); });
-    on('step', (e) => this.step(e.run, e.f.x));
-    on('land', (e) => this.land(e.impact / 6, e.f.x));
-    on('jump', (e) => this.whoosh(0.2, e.f.x));
-    on('sidestep', (e) => this.whoosh(0.5, e.f.x));
-    on('clinch', (e) => { this.tone('sine', 120, 70, 0.12, 0.35); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.25); });
-    on('throwStart', (e) => this.whoosh(1, e.f.x));
-    on('throw', (e) => { this.slam(e.x); this.grunt(e.def.index, true); });
-    on('escape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); });
-    on('boostStart', (e) => { this.tone('sine', 120, 70, 0.12, 0.35, 0, this.panFor(e.f.x)); }); // the clinch thud: a low heartbeat as the fighter winds up
-    on('submission', () => { this.tone('sine', 120, 70, 0.12, 0.35); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.25); }); // the clinch sound
-    on('submissionEscape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); }); // the escape sound
-    on('tackle', (e) => { if (e.result === 'blocked') this.block(false, false, e.x); else if (e.result === 'hit') this.slam(e.x); else this.whoosh(0.8, e.x); });
-    on('escapeFail', () => this.ui('bad'));
-    on('knockdown', (e) => this.slam(e.f.x));
-    on('ko', (e) => { this.slam(e.x); if (koEndsFight(e.def)) this.bell(); });
-    on('wallSlam', (e) => this.slam(e.x));
-    on('envImpact', (e) => this.slam(e.x));
-    on('objHit', (e) => { this.material(MATERIALS[e.obj.mat] ? kindOf(e.obj.mat) : 'wood', false, e.x); if (e.obj.look === 'car' && this.allow('alarm', 0.4)) this.tone('square', 880, 660, 0.12, 0.08, 0, this.panFor(e.x)); });
-    on('objIgnite', (e) => this.hazard('fire', 'start', e.x));
-    on('objStage', (e) => this.material(kindOf(e.obj.mat), false, e.x));
-    on('objBreak', (e) => this.material(kindOf(e.mat), true, e.x));
-    on('itemTake', (e) => { if (this.allow('itemTake', 0.1)) { const p = this.panFor(e.x); this.noise('bandpass', 500, 1100, 0.9, 0.09, 0.22, 0, p); this.tone('triangle', 300, 420, 0.06, 0.14, 0.02, p); } }); // a rustle and a light grip
-    on('itemDrop', (e) => this.material(WEAPONS[e.id].mat, false, e.x));
-    on('itemThrow', (e) => this.whoosh(0.8, e.x));
-    on('itemBreak', (e) => this.material(WEAPONS[e.id].mat, true, e.x)); // the debris sound of the item's material
-    on('itemSpray', (e) => { if (this.allow('itemSpray', 0.15)) this.noise('highpass', 3000, 1800, 0.7, 0.35, 0.3, 0, this.panFor(e.x)); }); // a hiss
-    on('hazardWarn', (e) => this.hazard(e.h.def.snd, 'warn', e.h.tx));
-    on('deckCreak', (e) => { if (this.allow('creak', 0.5)) { this.tone('sawtooth', 85, 55, 0.5, 0.14, 0, this.panFor(e.x)); this.noise('bandpass', 400, 200, 1.0, 0.45, 0.2, 0, this.panFor(e.x)); } }); // the groan of a deck about to give way
-    on('hazardStart', (e) => { if (e.h.def.snd !== 'glass') this.hazard(e.h.def.snd, 'start', e.h.x); }); // the wall's own break sound is the object's
-    on('hazardHit', (e) => { if (e.dmg > 0) this.hazardHurt(e.h.def.snd, e.x); });
-    on('debrisImpact', (e) => this.debris(e.kind, e.power, e.x));
+    on('block', (e) => { if (!e.sway || e.perfect) { this.at(e.x, e.z); this.block(e.perfect, e.broke, e.x, e.brk, e.sway, e); if (!e.sway && e.mv && e.mv.tier === 3 && e.def) this.grunt(e.def, 'exhale'); } }); // a plain sway makes no block sound; a heavy blow on a guard knocks the breath out
+    on('lateDefend', (e) => { if (Inputs.forFighter(e.f.index) && this.allow('late', 0.1, 1)) this.tone('square', CUE_NOTES.late[0], CUE_NOTES.late[0], 0.03, 0.24); });
+    on('freeTick', (e) => { if (freeTickCue(e.f) && this.allow('free', 0.1, 1)) this.tone('sine', CUE_NOTES.free[0], CUE_NOTES.free[0], 0.04, 0.08); });
+    on('attackActive', (e) => {
+      this.at(e.f.x, e.f.z);
+      const mv = e.mv, item = mv.wpn && WEAPONS[mv.wpn], kick = mv.cat === 'kick' || (mv.cat === 'heavy' && /kick|sweep/i.test(mv.name));
+      this.whoosh(clamp(mv.tier || 1, 1, 3), item ? 'weapon' : kick ? 'kick' : 'cloth', item ? item.len : 0, e.f.index);
+    });
+    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team !== TEAM_PLAYERS) { this.at(e.f.x, e.f.z); this.grunt(e.f, 'effort'); } });
+    on('step', (e) => { this.at(e.f.x, e.f.z); this.step(e.run, e.f.index, e.f.stepIndex & 1); });
+    on('land', (e) => { this.at(e.f.x, e.f.z); this.land(e.impact / 6, e.f); });
+    on('jump', (e) => { this.at(e.f.x, e.f.z); this.whoosh(1, 'jump', 0, e.f.index); this.footfall(this.surface(), this.surface().gain * 1.5, vary(1, 0.08), 1); });
+    on('sidestep', (e) => { this.at(e.f.x, e.f.z); this.whoosh(2, 'cloth', 0, e.f.index); });
+    on('clinch', (e) => { this.at(e.x, e.z); this.noise('highpass', 3000, 3000, 0.8, 0.04, 0.14); this.tone('sine', vary(120, 0.05), 70, 0.12, 0.21); this.tone('triangle', 240, 140, 0.07, 0.1); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.14); });
+    on('throwStart', (e) => { this.at(e.f.x, e.f.z); this.whoosh(3, 'cloth', 0, e.f.index); });
+    on('throw', (e) => { this.at(e.x, e.z); this.grunt(e.att, 'effort'); }); // the release is a cry; the landing is the fall
+    on('escape', (e) => { this.at(e.x, e.z); this.tone('triangle', 600, 600, 0.06, 0.2); this.tone('triangle', 900, 900, 0.08, 0.2, 0.07); this.noise('highpass', 3500, 2500, 0.8, 0.1, 0.12); });
+    on('boostStart', (e) => { this.at(e.f.x, e.f.z); this.tone('sine', 90, 240, 0.25, 0.3); this.tone('triangle', 180, 480, 0.2, 0.12); this.swellNoise(600, 0.8, 0.22, 0.3, 0.15); }); // power builds
+    on('submission', (e) => { this.at(e.x, e.z); this.tone('sine', 90, 70, 0.14, 0.3); this.tone('sawtooth', 85, 60, 0.3, 0.07); this.noise('bandpass', 400, 200, 1, 0.3, 0.1); }); // the lock and a creak
+    on('submissionEscape', (e) => { this.at(e.x, e.z); this.tone('triangle', 600, 600, 0.06, 0.2); this.tone('triangle', 900, 900, 0.08, 0.2, 0.07); });
+    on('tackle', (e) => { this.at(e.x, e.z); if (e.result === 'blocked') this.block(false, false, e.x); else if (e.result === 'hit') this.heavy(-4, 't'); else this.whoosh(3, 'cloth', 0, e.att ? e.att.index : 0); });
+    on('escapeFail', () => { this.tone('sine', 110, 60, 0.15, 0.35); this.tone('sawtooth', 200, 140, 0.08, 0.1); });
+    on('knockdown', (e) => { this.at(e.f.x, e.f.z); this.fall(e.f); this.crowdLean('crowd'); });
+    on('ko', (e) => {
+      this.at(e.x, e.z); this.fall(e.def, 1);
+      if (!koEndsFight(e.def)) return;
+      if (matchEndsOnKo()) this.bell(); else this.roundKo();
+    });
+    on('roundEnd', (e) => { if (e.reason === 'time') this.timeUp(); });
+    on('roundStart', (e) => { const last = this.decides(e.match); this.fires = []; if (e.round > 1 || last) this.roundStart(e.round, last); });   // a new match starts without the old one's fires
+    on('wallSlam', (e) => { this.at(e.x, e.z); this.heavy(-4, 'w'); this.noise('bandpass', 1500, 1500, 1, 0.15, 0.3); });
+    on('envImpact', (e) => { this.at(e.x, e.z); if (e.obj && MATERIALS[e.obj.mat]) this.material(e.obj.mat, !!e.broke, e.x, 1.2); else this.heavy(-5, 'e'); });
+    on('objHit', (e) => {
+      this.at(e.x, e.z);
+      const o = e.obj, mat = MATERIALS[o.mat] ? o.mat : 'wood';
+      this.material(mat, false, e.x, clamp(Math.sqrt((o.hx || 0.5) * (o.hz || 0.5)) * 1.4, 0.6, 1.4));
+      if (o.look === 'car') this.alarm();
+    });
+    on('objIgnite', (e) => { this.at(e.x, e.z); this.hazard('fire', 'start', e.x); this.fires.push({ until: this.clock + (MATERIALS[e.obj && e.obj.mat] || MATERIALS.wood).burn * DT, x: e.x, z: e.z }); }); // it crackles as long as the material burns (burn is in ticks)
+    on('objStage', (e) => { this.at(e.x, e.z); this.material(MATERIALS[e.obj.mat] ? e.obj.mat : 'wood', false, e.x); });
+    on('objBreak', (e) => { this.at(e.x, e.z); const o = e.obj; this.material(MATERIALS[e.mat] ? e.mat : 'wood', true, e.x, o ? clamp(Math.sqrt((o.hx || 0.5) * (o.hz || 0.5)) * 1.4, 0.6, 1.4) : 1); this.crowdLean('crowd'); });
+    on('itemTake', (e) => { if (this.allow('itemTake', 0.1, 1)) { this.at(e.x, e.z); const w = WEAPONS[e.id], hi = w && w.cls === 'light' ? 1.25 : 1; this.noise('bandpass', 500 * hi, 1100 * hi, 0.9, 0.09, 0.53); this.tone('triangle', 300 * hi, 420 * hi, 0.06, 0.27, 0.02); } }); // a rustle and a light grip
+    on('itemDrop', (e) => { this.at(e.x, e.z); this.material(WEAPONS[e.id].mat, false, e.x); });
+    on('itemThrow', (e) => { this.at(e.x, e.z); this.whoosh(3, 'cloth', 0, e.f ? e.f.index : 0); });
+    on('itemBreak', (e) => { this.at(e.x, e.z); this.material(WEAPONS[e.id].mat, true, e.x, 0.8); }); // the debris sound of the item's material
+    on('itemSpray', (e) => { if (this.allow('itemSpray', 0.15, 1)) { this.at(e.x, e.z); this.noise('bandpass', 4000, 3000, 0.5, 0.35, 0.35); this.noise('lowpass', 700, 500, 0.7, 0.35, 0.21); } }); // a hiss with a body
+    on('hazardWarn', (e) => { this.at(e.h.tx, e.h.tz); this.hazard(e.h.def.snd, 'warn', e.h.tx, e.h.type); });
+    on('deckCreak', (e) => { if (this.allow('creak', 0.5, 2)) { this.at(e.x, e.z); this.tone('sawtooth', vary(85, 0.05), 55, 0.5, 0.14); this.tone('triangle', 170, 110, 0.5, 0.08); this.noise('bandpass', 400, 200, 1.0, 0.45, 0.2); } }); // the groan of a deck about to give way
+    on('hazardStart', (e) => {
+      this.at(e.h.x, e.h.z);
+      if (e.h.def.snd !== 'glass') this.hazard(e.h.def.snd, 'start', e.h.x, e.h.type); // the wall's own break sound is the object's
+      if (e.h.def.snd === 'fire') this.fires.push({ until: this.clock + 4, x: e.h.x, z: e.h.z });
+      this.crowdLean('crowd');
+    });
+    on('hazardHit', (e) => { if (e.dmg > 0) { this.at(e.x, e.z); this.hazardHurt(e.h.def.snd, e.x); } });
+    on('debrisImpact', (e) => { this.at(e.x, e.z); this.debris(e.kind, e.power, e.x); });
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
-    on('timeWarn', () => this.tone('sine', 990, 990, 0.09, 0.16));
-    on('matchEnd', (e) => this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus));
+    on('timeWarn', (e) => { const hz = e.seconds <= 1 ? 1320 : 990; this.tone('sine', hz, hz, 0.09, 0.25, 0, 0, this.uiBus); });
+    on('matchEnd', (e) => { this.fires = []; this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus); });
     on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
-    on('uiSound', (e) => this.ui(e.kind));
+    on('quickRise', (e) => { this.at(e.f.x, e.f.z); this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.15); this.grunt(e.f, 'effort'); });
+    on('fall', (e) => { this.at(e.x, e.z); this.whistle(); });
+    on('ringOut', (e) => { this.at(e.x, e.z); this.whistle(); });
+    on('waveStart', () => this.horn());
+    on('waveBeat', () => this.horn());
+    on('frame', (e) => this.frame(e.dt));
+  },
+  // Every frame: the clock, a tired person's breath (M11) and the crackle of what burns (M7 ambient)
+  frame(dt) {
+    const m = Game.match;
+    if (!m || Game.state !== GS.FIGHT) return; // the clock stands still in a pause, a menu or a cutscene: a fire burns in match time
+    this.clock += dt * Game.clockScale(m); // and slow motion slows it as it slows the fire
+    if (this.fires.length) {
+      this.fires = this.fires.filter((fire) => fire.until > this.clock);
+      if (this.fires.length && this.clock >= this.crackleAt && this.allow('crackle', 0.1, 2)) {
+        const fire = this.fires[0 | Math.random() * this.fires.length];
+        this.crackleAt = this.clock + 0.15 + Math.random() * 0.25; this.at(fire.x, fire.z);
+        this.noise('bandpass', vary(2500, 0.3), 1500, 1.2, 0.04, 0.12 * 3); this.spot = null;
+      }
+    }
+    if (this.clock < this.breathAt) return;
+    this.breathAt = this.clock + 1 / PANT_HZ;
+    for (const f of m.fighters) {
+      if (!f.alive || !TIRED_POSE_STATES.includes(f.state) || !Inputs.forFighter(f.index)) continue;
+      const exhausted = f.exhaust > 0;
+      if (exhausted || f.stam < f.maxStam * TIRED_STAMINA) { if (this.allow('breath', 0.5, 2)) this.breath(exhausted); break; }
+    }
   },
 };
+// Whether the knock-out that has just happened ends the match: the match's own rule (endsMatch, which also reads a double knock-out); read only. 'ko' fires after the fighter is marked down, so the rule sees it. No scores (training): true
+function matchEndsOnKo() {
+  const m = Game.match;
+  return !m || !m.wins || m.endsMatch();
+}
 
-// --- procedural music: bass + drums + arpeggio, tempo and scale come from the arena
+// --- procedural music: bass + drums + arpeggio, tempo, scale and (E8) the drum and bass patterns come from the arena
 const MUSIC_FIGHT = 1; // music intensity tiers: 0 menu, 1 fight, 2 tense fight
 const MUSIC_TENSE = 2;
 const TENSE_HP_FRACTION = 0.25; // a fighter below this share of health makes the music tense
+const FIGHT_GAIN = 1.15, TENSE_LIFT = 1.26; // the fight bed level; the tense layer is +2 dB over it
+const TENSE_TEMPO = 0.96; // the tense layer's step is 4 % shorter
 const Music = {
   active: false, track: null, nextTime: 0, step: 0, intensity: 0,
   start(track, intensity) {
     this.track = track; this.intensity = intensity; this.active = true; this.step = 0; this.nextTime = 0;
   },
-  stop() { this.active = false; },
+  stop() { this.active = false; Sound.syncAmbience(null); },
   setIntensity(v) { this.intensity = v; },
   update() {
     if (!this.active || !Sound.ready()) return;
+    Sound.syncAmbience(this.intensity > 0 ? this.track : null);
     const c = Sound.ctx;
     if (this.nextTime < c.currentTime) this.nextTime = c.currentTime + 0.05;
-    const tr = this.track, stepDur = 60 / tr.bpm / 4;
+    const tr = this.track, stepDur = 60 / tr.bpm / 4 * (this.intensity >= MUSIC_TENSE ? TENSE_TEMPO : 1);
     while (this.nextTime < c.currentTime + 0.25) {
       this.schedule(this.nextTime, this.step, stepDur);
       this.nextTime += stepDur;
@@ -14144,11 +14510,11 @@ const Music = {
     const tr = this.track, c = Sound.ctx;
     const s = step % 16, bar = Math.floor(step / 16) % 4;
     const scale = SCALES[tr.mode] || SCALES.minor;
-    const dest = Sound.musicBus;
+    const dest = Sound.musicBus, lift = this.intensity === 0 ? 1 : (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN; // the fight bed has its own level (the menu theme none), the tense layer is louder as a whole (E8: about +2 dB over the bed)
     const voice = (type, f, dur, gain, filt) => {
       const o = c.createOscillator(), g = c.createGain();
       o.type = type; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       let node = o;
       if (filt) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = filt; o.connect(fl); node = fl; }
       node.connect(g); g.connect(dest);
@@ -14157,29 +14523,33 @@ const Music = {
     };
     const hit = (kind, gain, dur) => {
       const sBuf = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
-      sBuf.buffer = Sound.noiseBuf; fl.type = kind === 'hat' ? 'highpass' : 'bandpass'; fl.frequency.value = kind === 'hat' ? 7000 : 1800; fl.Q.value = 0.8;
-      g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      sBuf.buffer = Sound.noiseBuf; sBuf.loop = true; fl.type = kind === 'hat' || kind === 'sweep' ? 'highpass' : 'bandpass'; fl.frequency.value = kind === 'hat' ? 7000 : kind === 'sweep' ? 2000 : 1800; fl.Q.value = 0.8;
+      if (kind === 'sweep') { fl.frequency.setValueAtTime(800, t); fl.frequency.exponentialRampToValueAtTime(6000, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + dur * 0.9); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
+      else { g.gain.setValueAtTime(gain * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
       sBuf.connect(fl); fl.connect(g); g.connect(dest); sBuf.onended = () => g.disconnect(); sBuf.start(t, Math.random()); sBuf.stop(t + dur + 0.02);
     };
-    const bassDeg = [0, 0, 3, 0, 5, 0, 3, 2];
+    const lowK = clamp(Math.pow(tr.root / 55, 2), 0.7, 1.4), // a low root gets less bass and kick and a high one more, so every level has about the same share under 150 Hz
+      floor = tr.floor || 0, kit = DRUM_KITS[floor % 3], line = BASS_LINES[Math.floor(floor / 3) % 3];
     if (this.intensity === 0) {
-      // calm menu theme: slow pad + sparse arpeggio
-      if (s === 0) { voice('sawtooth', this.note(tr.root, scale, bassDeg[bar * 2 % 8], 2), stepDur * 16, 0.07, 500); voice('sawtooth', this.note(tr.root, scale, bassDeg[bar * 2 % 8] + 2, 2) * 1.004, stepDur * 16, 0.05, 600); }
-      if (s % 4 === 2) voice('triangle', this.note(tr.root * 4, scale, [0, 2, 4, 3][(s / 4 | 0) % 4] + bar, 1), stepDur * 3, 0.06);
+      // calm menu theme: slow pad + sparse arpeggio on two voices an octave apart (P18-29: +12 dB, so it is heard at the default volumes)
+      if (s === 0) { voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8], 2), stepDur * 16, 0.24, 500); voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2) * 1.004, stepDur * 16, 0.17, 600); }
+      if (s % 4 === 2) { const f = this.note(tr.root * 4, scale, [0, 2, 4, 3][(s / 4 | 0) % 4] + bar, 1); voice('triangle', f, stepDur * 3, 0.18); voice('triangle', f * 2, stepDur * 3, 0.1); }
       return;
     }
     // drums
-    if (s % 4 === 0 || s === 10) { voice('sine', 120, 0.18, 0.5, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
-    if (s === 4 || s === 12) hit('snare', 0.25, 0.14);
-    if (s % 2 === 0) hit('hat', 0.07, 0.04);
-    // bass
-    if (s % 2 === 0) { const deg = bassDeg[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.2, 380); }
-    // arpeggio lead
-    if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.045, 1800);
-    // tense layer: off-beat hats and a driving octave bass
+    if (kit.kick.includes(s)) { voice('sine', 120, 0.18, 0.34 * lowK, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.34 * lowK * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
+    if (kit.snare.includes(s)) hit('snare', 0.32, 0.14);
+    if (s % kit.hat === 0) hit('hat', 0.085, 0.04);
+    // bass, with its octave above (a square through a 900 Hz low-pass at half the level) so a small speaker has a body to hear
+    if (s % 2 === 0) { const deg = line[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.13 * lowK, 380); voice('square', this.note(tr.root, scale, deg, 1), stepDur * 1.8, 0.17, 1100); }
+    if (s === 0) voice('triangle', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2), stepDur * 16, 0.09, 1400); // a pad on the third, in the mids
+    // arpeggio lead (+8 dB)
+    if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.14, 1800);
+    // tense layer: off-beat hats, a driving octave bass and a rising sweep every 4 bars
     if (this.intensity >= MUSIC_TENSE) {
       if (s % 2 === 1) hit('hat', 0.05, 0.03);
-      if (s % 4 === 3) voice('square', this.note(tr.root, scale, bassDeg[((s >> 1) + bar * 2) % 8], 1), stepDur * 0.9, 0.06, 900);
+      if (s % 4 === 3) voice('square', this.note(tr.root, scale, line[((s >> 1) + bar * 2) % 8], 1), stepDur * 0.9, 0.12, 900);
+      if (s === 0 && bar === 0) hit('sweep', 0.06, stepDur * 16);
     }
   },
 };
@@ -15070,8 +15440,9 @@ const UI = {
       case GS.COUNTDOWN: case GS.FIGHT:
         this.hideScreen();
         if (![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(e.from)) this.startMatchMusic();
+        if (e.from === GS.PAUSED) Sound.ui('resume');
         break;
-      case GS.PAUSED: this.showPause(); break;
+      case GS.PAUSED: this.showPause(); Sound.ui('pause'); break;
       case GS.ROUND_END: break;
       case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
       case GS.DEFEAT: this.banner(Game.resultsData && Game.resultsData.draw ? 'DRAW' : 'DEFEAT', Game.resultsData && Game.resultsData.winnerName ? Game.resultsData.winnerName + ' wins' : '', 3000); Music.stop(); break;
@@ -15090,7 +15461,7 @@ const UI = {
     else if (d && (d.mode === 'lineup' || d.mode === 'tournament')) this.banner('VICTORY', d.winnerName + ' wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
-  musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
+  musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode, hum: a.hum || 0, floor: def ? def.env.floor : 0 }; },
   startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), MUSIC_FIGHT); },
   showcaseOpponent() { const custom = CustomRoster.profiles()[0]; return custom ? custom.id : 'mara'; },
   menuScene(arenaId, left, right, solo, altSolo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo, altSolo); Camera.snapNext = true; },
@@ -15299,7 +15670,7 @@ const UI = {
     if (['master', 'sfx', 'music'].includes(key)) Sound.applyVolumes();
     if (['quality', 'shadows', 'effects'].includes(key)) Quality.apply();
     if (key === 'uiScale') setTimeout(() => R.resize(), 0);
-    if (key === 'sfx') Sound.ui('ok');
+    if (def.type === 'bool') Sound.ui(next ? 'on' : 'off'); else if (def.type === 'num') Sound.ui('tick', (next - def.min) / (def.max - def.min));
     if (key === 'antialias') this.toast('Anti-aliasing changes apply after reloading the page');
     this.rerender(true);
   },
@@ -15325,7 +15696,7 @@ const UI = {
   act(a) {
     Sound.unlock();
     const [name, arg] = a.split(':');
-    Sound.ui(name === 'back' ? 'back' : 'ok');
+    Sound.ui(name === 'back' ? 'back' : name === 'start' ? 'start' : 'ok');
     switch (name) {
       case 'play': this.go('modes'); break;
       case 'continueArcade': Game.continueArcade(); break;
@@ -15617,7 +15988,7 @@ const UI = {
       return;
     }
     if (e.kind === 'press') { if (this.focusMoved && row === 'opt') this.adjust(document.activeElement, 1, true); return; }
-    Sound.ui(e.kind === 'join' ? 'ok' : 'back');
+    Sound.ui(e.kind === 'join' ? 'join' : 'leave');
     this.say('Player ' + (e.seat + 1) + (e.kind === 'join' ? ' joined' : ' left'));
     this.showCoopScene(e.kind === 'join' ? e.seat : undefined);
     this.rerender(true);
@@ -18566,6 +18937,7 @@ function testApi() {
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
     LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
+    STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music,
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
