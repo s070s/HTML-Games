@@ -7,7 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
-  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
@@ -27,7 +27,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL,  STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -429,7 +429,7 @@ const SelfTest = {
     const STRING_SHARE_LIMIT = 0.35;          // no string above this share of a fighter's damage (owner decision 2026-10-28: the limit stays); measured worst case 0.24 (0.33 before P3-10)
     const PUNCH_SHARE_BAND = [0.35, 0.65];    // punches and kicks each carry this share of strike damage; measured 0.39 Normal and 0.40 Hard (0.27 and 0.22 before P3-10)
     const STRING_SHARE_SEEDS = 3;             // seeds x 15 preset pairs per difficulty
-    const STYLE_TESTERS = { boxer: 'yuki', karateka: 'zero', capoeira: 'mara', wrestler: 'dmitri', judoka: 'ptest', wingchun: 'rosa', muaythai: 'pranee', taekwondo: 'sora', hapkido: 'vikram', kali: 'nia', kravmaga: 'yoav', mma: 'cruz' };   // a preset of each move style that has string rows (the Judoka has none in the base roster: a KAI copy)
+    const STYLE_TESTERS = { boxer: 'yuki', karateka: 'zero', capoeira: 'mara', wrestler: 'dmitri', judoka: 'ptest', wingchun: 'rosa', muaythai: 'pranee', taekwondo: 'sora', hapkido: 'vikram', kali: 'nia', kravmaga: 'yoav', mma: 'cruz', kickboxer: 'femke', sambo: 'giorgi', bjj: 'reid', brawler: 'roxy' };   // a preset of every move style (P17-10 review: all 16; the Judoka has none in the base roster: a KAI copy)
     const withJudoka = (fn) => {
       ROSTER_BY_ID.ptest = Object.assign({}, ROSTER_BY_ID.kai, { id: 'ptest', name: 'PTEST', moveStyle: 'judoka' });
       try { return fn(); } finally { delete ROSTER_BY_ID.ptest; }
@@ -3885,6 +3885,7 @@ const SelfTest = {
       withJudoka(() => {
         for (const styleId of MOVE_STYLE_IDS) {
           const table = stringsFor(styleId), rows = [], classic = ['boxer', 'karateka', 'capoeira', 'wrestler', 'judoka'].includes(styleId);
+          if (!ROSTER_BY_ID[STYLE_TESTERS[styleId]] || moveStyleFor(ROSTER_BY_ID[STYLE_TESTERS[styleId]]) !== styleId) { problems.push(styleId + ' has no test fighter of its own style (' + STYLE_TESTERS[styleId] + ')'); continue; }
           for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (classic || !STRINGS[side][keys] || table[side][keys].join() !== STRINGS[side][keys].join()) rows.push({ keys, low: side === 'crouch', moves: table[side][keys] });
           for (const p of comboProblems(STYLE_TESTERS[styleId], false, ['stand', 'crouch', 'guard', 'juggle'], loopRows(rows))) problems.push(styleId + ' ' + p);
         }
@@ -4168,7 +4169,7 @@ const SelfTest = {
     /* ----- Style data model (P5-01, P5-03): 16 styles in 7 families (Appendix C, P1-04) ----- */
     const STYLE_WANT = {   // id -> [family, default defense]
       boxer: ['hand', 'sway'], wingchun: ['hand', 'block'], kickboxer: ['clinch', 'block'], muaythai: ['clinch', 'block'], karateka: ['kicking', 'block'], taekwondo: ['kicking', 'sway'],
-      capoeira: ['kicking', 'sway'], wrestler: ['throws', 'sway'], judoka: ['throws', 'sway'], sambo: ['throws', 'block'], bjj: ['locks', 'sway'], hapkido: ['locks', 'sway'],
+      capoeira: ['kicking', 'sway'], wrestler: ['throws', 'block'], judoka: ['throws', 'sway'], sambo: ['throws', 'block'], bjj: ['locks', 'sway'], hapkido: ['locks', 'sway'],
       kali: ['weapon', 'sway'], kravmaga: ['hybrid', 'block'], mma: ['hybrid', 'block'], brawler: ['hybrid', 'block'],
     };
     const OLD_STYLE_IDS = ['boxer', 'kickboxer', 'karateka', 'wrestler', 'judoka', 'brawler', 'capoeira'];   // MOVE_STYLE order before P5-01: share codes store the index
@@ -4203,7 +4204,7 @@ const SelfTest = {
       }
       const families = new Set(MOVE_STYLE_IDS.map((id) => MOVE_STYLE[id].family));
       if (families.size !== 7 || Object.keys(STYLE_FAMILY_LABEL).length !== 7) problems.push('families ' + families.size);
-      if (MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].defense === 'sway').length !== 8) problems.push('Sway styles must be 8');   // P17-10: Wrestling moved to Sway
+      if (MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].defense === 'sway').length !== 7) problems.push('Sway styles must be 7');
       if (SUBMISSION_STYLES.size !== HOLD_STYLES.length) problems.push('hold set ' + [...SUBMISSION_STYLES].join());
       if (new Set(MOVE_STYLE_IDS.map((id) => MOVE_STYLE[id].label)).size !== 16) problems.push('labels are not unique');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
@@ -4254,7 +4255,6 @@ const SelfTest = {
       for (const seed in before) {   // P9-04 replaced name ideas by position and no longer rolls the accent glow (seed 42 rolled it on): written back, every seed is the fighter it was
         const c = randomCustom(Number(seed));
         c.name = legacy[NAME_IDEAS.indexOf(c.name)]; c.look.glow = Number(seed) === 42 ? 'on' : 'off';
-        if (c.moveStyle === 'wrestler') c.defense = 'block';   // P17-10: the style's default defense moved to Sway (the drawn fighters are the same, only that field follows the style)
         if (fnv1a(JSON.stringify(c)) !== before[seed]) problems.push('seed ' + seed + ' changed');
       }
       const rest = (c) => JSON.stringify(Object.assign({}, c, { moveStyle: 0, defense: 0 }));
@@ -4476,7 +4476,7 @@ const SelfTest = {
       const strongRows = Object.keys(ATTACKS).filter((id) => ATTACKS[id].tier === 3 && !ATTACKS[id].ctx);
       if (strongRows.length !== 8) problems.push('strong rows: ' + strongRows.length);
       for (const id of MOVE_STYLE_IDS) {
-        const row = MOVE_STYLE[id], tokens = row.strings.split(' '), table = stringsFor(id), short = id === 'wrestler' || id === 'judoka' || id === 'bjj';
+        const row = MOVE_STYLE[id], tokens = row.strings.split(' '), table = stringsFor(id), short = id === 'wrestler' || id === 'judoka';
         if (tokens.length !== STRING_POSITIONS.length) problems.push(id + ' has ' + tokens.length + ' tokens');
         const key = JSON.stringify(table);
         if (seen.has(key)) problems.push(id + ' has the table of ' + seen.get(key));
@@ -4657,27 +4657,27 @@ const SelfTest = {
       if (clinchMoveName('boxer', 'knee') !== 'Clinch Body Shot' || clinchMoveName('kickboxer', 'knee') !== CLINCH_MOVES.knee.name) problems.push('clinch strike names');
       return problems.length ? problems.length + ': ' + problems.slice(0, 8).join('; ') : true;
     });
-    test('Styles (P17-10): the CPU plays its signature moves', () => {
-      const problems = [], foes = ['kai', 'brutus', 'yuki'], SEEDS = 12;
+    test('Styles (P17-10): the CPU plays its signature moves on every difficulty', () => {
+      const problems = [], foes = ['kai', 'brutus', 'yuki'], SEEDS = 12, SINGLE_MOVE_CAP = 0.45;
       const NOT_SEEN = { brawler: ['sweep@stompK'], bjj: ['sweep@scissor'] };   // measured: the crouch finisher (third step after two Low connects) did not start in the 36 matches of these two styles; every other signature strike did
-      for (const styleId of MOVE_STYLE_IDS) {
+      for (const difficulty of ['easy', 'normal', 'hard', 'expert']) for (const styleId of MOVE_STYLE_IDS) {
         const profileId = 'sig_' + styleId;
         ROSTER_BY_ID[profileId] = Object.assign({}, ROSTER_BY_ID.kai, { id: profileId, name: styleId, moveStyle: styleId, defense: defaultDefense(styleId) });
         const starts = {};
         let total = 0, ducks = 0;   // ducks: duck rows started against a High wind-up with 4 or more ticks to go
         try {
           for (let seed = 1; seed <= SEEDS || ((styleId === 'boxer' || styleId === 'capoeira') && !ducks && seed <= 3 * SEEDS); seed++) for (const foe of foes) {   // the duck styles go on (up to 36 seeds) until a duck row has met a High wind-up
-            const r = SimRunner.run({ playerId: profileId, opponentId: foe, seed, difficulty: 'hard', timer: 20, winsNeeded: 1, listeners: { attackStart: (e) => { if (e.f.id === profileId && e.mv.type === 'strike' && !e.mv.ctx) { const identity = moveIdentity(e.mv), foe = e.f.target; starts[identity] = (starts[identity] || 0) + 1; total++; if (e.mv.duck && foe && foe.state === S.ATTACK && foe.move && foe.move.h === 'H' && foe.mStartup - foe.moveTick >= 4) ducks++; } } } });
-            if (r.error) return styleId + ' ' + r.error;
+            const r = SimRunner.run({ playerId: profileId, opponentId: foe, seed, difficulty, timer: 20, winsNeeded: 1, listeners: { attackStart: (e) => { if (e.f.id === profileId && e.mv.type === 'strike' && !e.mv.ctx) { const identity = moveIdentity(e.mv), foe = e.f.target; starts[identity] = (starts[identity] || 0) + 1; total++; if (e.mv.duck && foe && foe.state === S.ATTACK && foe.move && foe.move.h === 'H' && foe.mStartup - foe.moveTick >= 4) ducks++; } } } });
+            if (r.error) return styleId + ' ' + difficulty + ' ' + r.error;
           }
         } finally { delete ROSTER_BY_ID[profileId]; }
         for (const entry of MOVE_STYLE[styleId].aiw.split(' ')) {
           const [identity] = entry.split(':');
-          if (!starts[identity] && !(NOT_SEEN[styleId] || []).includes(identity)) problems.push(styleId + ' never started ' + identity);
+          if (!starts[identity] && !(NOT_SEEN[styleId] || []).includes(identity)) problems.push(styleId + ' ' + difficulty + ' never started ' + identity);
         }
-        if ((styleId === 'boxer' || styleId === 'capoeira') && ducks < 1) problems.push(styleId + ' never ducked a High wind-up');   // measured with the first balance: Boxing 11 and Capoeira 6 in the first 36 matches; after the balance passes Capoeira needs more seeds
-        // the Strings row of the balance run holds the 35 percent of the damage; here no single move starts more often than the figure measured for the style (60 percent, BJJ: its Guard Kick stands at both Kick positions; Brawler 45 percent: the Stomp stands at both Kick positions)
-        for (const identity in starts) if (starts[identity] / total > (styleId === 'bjj' ? 0.65 : styleId === 'brawler' ? 0.5 : 0.45)) problems.push(styleId + ' starts ' + identity + ' in ' + Math.round(100 * starts[identity] / total) + ' percent');
+        if ((styleId === 'boxer' || styleId === 'capoeira') && ducks < 1) problems.push(styleId + ' ' + difficulty + ' never ducked a High wind-up');
+        // the Strings row of the balance run holds the 35 percent of the damage; here no single move starts more often than SINGLE_MOVE_CAP of the style's strikes (the AI weights of the style keep it under)
+        for (const identity in starts) if (starts[identity] / total > SINGLE_MOVE_CAP) problems.push(styleId + ' ' + difficulty + ' starts ' + identity + ' in ' + Math.round(100 * starts[identity] / total) + ' percent');
       }
       return problems.length ? problems.length + ': ' + problems.slice(0, 8).join('; ') : true;
     });
@@ -4691,6 +4691,28 @@ const SelfTest = {
       if (!UI.screen_moves(styleProfile('boxer'), 'keyboard').includes('Body punches')) problems.push('Boxing Move list does not name the Kick slot');
       if (UI.screen_moves(styleProfile('kickboxer'), 'keyboard').includes('Body punches')) problems.push('Kickboxing Move list names Body punches');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Styles (P17-10): the string steps of the Move list and of the Training frame note carry the style\'s own move names, the ones of its move table', () => {
+      const problems = [];
+      withJudoka(() => {
+        for (const styleId of MOVE_STYLE_IDS) {
+          const table = stringsFor(styleId), tester = STYLE_TESTERS[styleId], html = UI.screen_moves(ROSTER_BY_ID[tester] || styleProfile(styleId), 'keyboard');
+          const rowText = (steps) => steps.map((id) => moveFor(styleId, id).name).join(' \u2192 ');
+          let skinned = 0;
+          for (const side of ['stand', 'crouch']) for (const keys in table[side]) {
+            if (!html.includes('<td>' + esc(rowText(table[side][keys])) + '</td>')) problems.push(styleId + ' Move list row ' + keys + ' is not ' + rowText(table[side][keys]));
+            if (table[side][keys].some((id) => moveFor(styleId, id).name !== ATTACKS[id].name)) skinned++;
+          }
+          if (!skinned && styleId !== 'karateka') problems.push(styleId + ' has no string row with an own name, the test would prove nothing');
+          const keys = Object.keys(table.stand).find((k) => k.length === 2 && table.stand[k].some((id) => moveFor(styleId, id).name !== ATTACKS[id].name));
+          if (!keys) continue;
+          const m = mk({ playerId: tester }, pressString(keys)); self.place(m, 1.1); self.run(m, 90);
+          const note = UI.frameDataHtml(m.lastMove), want = 'String step 2: ' + esc(table.stand[keys].map((id) => moveFor(styleId, id).name).join(' > '));
+          if (!note.includes(want)) problems.push(styleId + ' Training note for ' + keys + ' lacks ' + want + ' in ' + note.replace(/<br>/g, ' | '));
+          m.dispose();
+        }
+      });
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
     test('Styles (P17-10): armed and carrying', () => {
       const problems = [];
@@ -4706,6 +4728,28 @@ const SelfTest = {
       const bat = weaponTable('boxer', 'bat'), batKarate = weaponTable('karateka', 'bat');
       for (const keys in bat.stand) if (keys.includes('K')) bat.stand[keys].forEach((id, i) => { if (keys[i] === 'K' && id !== STRINGS.stand[keys][i]) problems.push('boxer with a bat: ' + keys); });
       for (const keys in batKarate.stand) if (keys.includes('K')) batKarate.stand[keys].forEach((id, i) => { if (keys[i] === 'K' && id !== karate.stand[keys][i]) problems.push('karate with a bat: ' + keys); });
+      /* The moves that are played, not only the row ids (P17-10 review): a Boxing fighter with its arms full plays the shared leg rows (a leg limb, the row's own name) for every Kick step, in the air and in a counter; the arm versions of the style (Liver Shot, Clinch Shove, Counter Uppercut, Leaping Cross) never play. */
+      for (const item of ['crate', 'bat']) {
+        const armedBoxer = new Fighter(styleProfile('boxer'), 0), played = [];
+        armedBoxer.item = { id: item, dur: 1 };
+        for (const low of [false, true]) {
+          const table = armedBoxer.strings[low ? 'crouch' : 'stand'];
+          for (const keys in table) {
+            if (!keys.endsWith('K')) continue;
+            armedBoxer.stringKeys = keys.slice(0, -1); armedBoxer.stringLow = low; armedBoxer.moveConnected = true; armedBoxer.stringTick = 0;
+            played.push([item + ' ' + (low ? 'c' : '') + keys, armedBoxer.pickString({ btn: 'kick', height: low, tick: 1 }).mv]);
+          }
+        }
+        armedBoxer.stringKeys = ''; armedBoxer.y = armedBoxer.groundY + 1;
+        played.push([item + ' air', armedBoxer.resolveMove({ btn: 'kick', height: false, tick: 1 }).mv]);
+        armedBoxer.y = armedBoxer.groundY; armedBoxer.counterWindow = 10;
+        played.push([item + ' counter', armedBoxer.resolveMove({ btn: 'kick', height: false, tick: 1 }).mv]);
+        if (played.length < 6) problems.push(item + ': only ' + played.length + ' kick moves checked');
+        for (const [label, mv] of played) if (mv.limb[1] !== 'L' || mv.name !== ATTACKS[mv.id].name || mv.look) problems.push('boxer with a ' + label + ' plays ' + mv.name + ' (' + mv.limb + ')');
+      }
+      const crateBoxer = new Fighter(styleProfile('boxer'), 0);
+      crateBoxer.item = { id: 'crate', dur: 1 };
+      if (crateBoxer.resolveMove({ btn: 'punch', height: false, tick: 1 }) !== null) problems.push('a Punch press with a crate in the arms plays a move');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Styles (P17-10): determinism', () => {
@@ -4713,6 +4757,28 @@ const SelfTest = {
       const problems = [];
       if (run(3) !== run(3)) problems.push('two runs of one seed differ');
       for (const id of MOVE_STYLE_IDS) for (const row in SKINS[id]) if (moveFor(id, row) !== moveFor(id, row)) problems.push('skin cache ' + id + ' ' + row);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Styles (P17-10): a knockdown after an upside-down kick settles at the standard plant speed, not the kick\'s', () => {
+      const problems = [];
+      for (const rowId of ['handstand_kick', 'cartwheel']) {
+        const m = mk({ playerId: 'mara', opponentId: 'kai', timer: 0 }); self.place(m, 3);
+        const f = m.fighters[0], mv = moveFor('capoeira', rowId);
+        f.startAttack(mv);
+        let guard = 0;
+        while (!(f.state === S.ATTACK && f.moveTick === mv.startup + mv.active + 2) && guard++ < 200) m.step();   // late in the kick: the hands are still the floor contact
+        if (!f.plantFast) problems.push(rowId + ': the fast plant is off during the kick');
+        f.setState(S.HIT); f.setState(S.DOWN);
+        let lastLow = f.plantLow, worst = 0;
+        for (let tick = 0; tick < 90; tick++) {
+          m.step();
+          worst = Math.max(worst, Math.abs(f.plantLow - lastLow));
+          lastLow = f.plantLow;
+        }
+        if (f.plantFast) problems.push(rowId + ': the fast plant is still on after the kick');
+        if (worst > PLANT_SPEED * FIXED_DT + 1e-6) problems.push(rowId + ': after the knockdown the floor contact moves ' + (worst * 100).toFixed(1) + ' cm a tick');
+        m.dispose();
+      }
       return problems.length ? problems.join('; ') : true;
     });
     test('Styles (P17-10): inverted and rolling poses', () => {
@@ -5091,12 +5157,9 @@ const SelfTest = {
       const problems = [], hits = {};
       ROSTER.slice(6).forEach((r, i) => {
         try {
-          for (const seed of [100 + i, 300 + i, 500 + i]) {   // up to three fights: one lost in 9 s before a single hit (the Wrestling CPU, P17-10) is not a preset that cannot hit
-            const run = SimRunner.run({ playerId: r.id, opponentId: 'kai', seed, difficulty: 'hard', timer: 20, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
-            if (run.error) problems.push(r.id + ' ' + run.error);
-            else if (!(run.ticks > 60) || run.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(r.id + ' ticks ' + run.ticks + ' hp ' + run.hpLeft.join('/'));
-            if (hits[r.id] > 0) break;
-          }
+          const run = SimRunner.run({ playerId: r.id, opponentId: 'kai', seed: 100 + i, difficulty: 'hard', timer: 10, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
+          if (run.error) problems.push(r.id + ' ' + run.error);
+          else if (!(run.ticks > 60) || run.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(r.id + ' ticks ' + run.ticks + ' hp ' + run.hpLeft.join('/'));
         } catch (e) { problems.push(r.id + ' ' + e.message); }
       });
       const silent = ROSTER.slice(6).filter((r) => !(hits[r.id] > 0)).map((r) => r.id);
@@ -5110,10 +5173,10 @@ const SelfTest = {
       return (it, f, o) => { if (!done && o.state === S.ATTACK && o.move && o.mStartup + 1 - o.moveTick === lead + 1) { it.defend = true; done = true; } };
     };
     test('Sway: defense types come from the style table, creator and roster agree', () => {
-      const wantByStyle = { boxer: 'sway', wingchun: 'block', kickboxer: 'block', muaythai: 'block', karateka: 'block', taekwondo: 'sway', capoeira: 'sway', wrestler: 'sway', judoka: 'sway', sambo: 'block',
-        bjj: 'sway', hapkido: 'sway', kali: 'sway', kravmaga: 'block', mma: 'block', brawler: 'block' };   // P1-04: 7 Sway, 9 Block (P17-10: Wrestling moved to Sway, 8 and 8)
+      const wantByStyle = { boxer: 'sway', wingchun: 'block', kickboxer: 'block', muaythai: 'block', karateka: 'block', taekwondo: 'sway', capoeira: 'sway', wrestler: 'block', judoka: 'sway', sambo: 'block',
+        bjj: 'sway', hapkido: 'sway', kali: 'sway', kravmaga: 'block', mma: 'block', brawler: 'block' };   // P1-04: 7 Sway, 9 Block
       const styles = MOVE_STYLE_IDS.every((id) => defaultDefense(id) === wantByStyle[id]) && MOVE_STYLE_IDS.length === Object.keys(wantByStyle).length;
-      const overrides = ['deacon', 'femke', 'amara', 'naran', 'tessa', 'roxy', 'dmitri', 'kelsey'];   // P1-06: the six presets whose defense differs from their style's default (P17-10: and the two Wrestling presets, who keep Block)
+      const overrides = ['deacon', 'femke', 'amara', 'naran', 'tessa', 'roxy'];   // P1-06: the six presets whose defense differs from their style's default
       const roster = ROSTER.every((r) => DEFENSE_TYPES.includes(r.defense) && (r.defense === defaultDefense(r.moveStyle)) === !overrides.includes(r.id)) && ROSTER.some((r) => r.defense === 'block') && ROSTER.some((r) => r.defense === 'sway');
       const fighters = new Fighter(ROSTER_BY_ID.kai, 0).defense === 'block' && new Fighter(ROSTER_BY_ID.mara, 1).defense === 'sway';
       const noField = new Fighter(Object.assign({}, ROSTER_BY_ID.kai, { defense: undefined, moveStyle: 'boxer' }), 0).defense === 'sway';   // no field: the style decides
@@ -5253,40 +5316,6 @@ const SelfTest = {
         'capoeira heavy_front -1': { torso: 0.32, why: 'a heavy front kick drives straight along the slip side' },
         'hapkido heavy_roundhouse -1': { torso: 0.32, why: 'the roundhouse curves into the slip side (P17-11: the slip steps back 0.15 m further for a round kick, up from 0.24)' },
         'wingchun trap_strike -1': { torso: 0.28, why: 'the trap strike curves into the slip side' },
-        'karateka heavy_roundhouse 1': { torso: 0.24, why: 'the Kyokushin round kick curves into the slip side (P17-10, measured 0.25)' },
-        'wrestler hook -1': { torso: 0.31, why: 'the underhook smash curves into the slip side (P17-10, measured 0.32)' },
-        'judoka collar_snap 0': { head: 0.21, torso: 0.26, why: 'the collar pull reaches for the head, which the lay-back sway leaves in front of the hand (P17-10, measured 0.25 and 0.27)' },
-        'judoka collar_snap 1': { head: 0.21, torso: 0.26, why: 'the collar pull reaches for the head on the slip side too (P17-10, measured 0.28)' },
-        'judoka collar_snap -1': { head: 0.18, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'judoka body_jab 0': { torso: 0.14, why: 'the low sleeve pull is the longest Mid strike of Judo and reaches for the body (P17-10, measured 0.23)' },
-        'judoka body_jab 1': { torso: 0.14, why: 'as on the back slip (P17-10)' },
-        'judoka body_jab -1': { torso: 0.14, why: 'as on the back slip (P17-10)' },
-        'brawler cross 0': { torso: 0.2, why: 'the haymaker swings wide across the body (P17-10, measured 0.22)' },
-        'brawler cross 1': { torso: 0.2, why: 'the haymaker swings wide across the body (P17-10, measured 0.22)' },
-        'brawler cross -1': { torso: 0.2, why: 'the haymaker swings wide across the body (P17-10, measured 0.22)' },
-        'capoeira heavy_roundhouse 1': { torso: 0.19, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'muaythai heavy_roundhouse 1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'sambo heavy_roundhouse 1': { torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'bjj jab 0': { head: 0.27, torso: 0.27, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'bjj jab 1': { head: 0.15, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'bjj jab -1': { head: 0.22, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'hapkido cross 1': { head: 0.15, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab 0': { torso: 0.23, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab 1': { torso: 0.21, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kali jab -1': { torso: 0.10, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kravmaga jab 1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kravmaga jab -1': { head: 0.27, torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'mma cross 1': { torso: 0.27, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'mma cross -1': { torso: 0.28, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'mma sweep 1': { foot: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kravmaga jab 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'mma cross 0': { torso: 0.34, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'kravmaga parry_strike 1': { torso: 0.21, why: 'the Stomp Kick (1.35) is shorter than the Parry Strike (1.4), so the Parry Strike is the longest Mid strike of Krav Maga and crosses the body on the slip side (P17-10 pass 2, measured 0.22)' },
-        'wrestler snap_down 1': { torso: 0.25, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'wrestler snap_down -1': { torso: 0.31, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'bjj guard_kick 1': { torso: 0.28, why: 'measured in P17-10: a kick or punch of a new style row passes close to the slip side' },
-        'boxer body_hook -1': { torso: 0.22, why: 'Boxing has no leg moves, so the Body Hook (reach 1.4 since P17-10 pass 2) is its longest Mid strike and crosses the body on the slip side (measured 0.23)' },
-        'boxer body_hook 1': { torso: 0.24, why: 'Boxing has no leg moves, so the Body Hook is its longest Mid strike and crosses the body on the slip side (measured 0.25)' },
         'capoeira sweep 1': { foot: 0.29, why: 'the sweep runs along the floor on the slip side, where the shifted feet are' },
       };
       const bad = [], worst = { head: 9, torso: 9, foot: 9 };
@@ -15903,6 +15932,7 @@ const SelfTest = {
         if (t === o.start) f.startAttack(o.second);
       }, (it, f) => {
         const t = m.matchTicks;
+        if (o.first.tier === 3 && t >= o.start - 1 && t <= o.start + 20) self.place(m, TIMING_GAP);   // a strong first move pushes the foe out of the harness spacing: it is held at the spacing while the second step starts (the timing of a link does not depend on where the foe stands)
         if (o.hits && t === TIMING_START - 1) { f.gotHits = o.hits - 1; f.comboFoe = m.fighters[0]; }
         if (o.defence === 'block' && t > o.contact) it.defend = true;
         if (o.defence === 'sway' && t === o.tf - (o.early || 0)) it.defend = true;
@@ -16065,8 +16095,7 @@ const SelfTest = {
           if (gap !== want) problems.push(text + ' at ' + k + ': gap ' + gap + ', the model says ' + want);
         }
       }
-      const unexplained = skipped.filter((text) => ATTACKS[text.split('>')[0]].tier !== 3 && ATTACKS[text.split('>')[1]].reach >= 1.0);   // a step after a strong one is a continuation of the string, and the Head Butt (reach 0.95) is out of the harness's spacing; any other skip is a hole
-      if (checked < 40 || unexplained.length > 0) problems.push('only ' + checked + ' links checked, skipped ' + skipped.join());
+      if (checked < 40 || skipped.length > 8) problems.push('only ' + checked + ' links checked, skipped ' + skipped.join());
       // the classes the decision names (the ones that hold to the tick): always true, true if pressed promptly, never true
       const classes = [
         [['chain_punch', 'trap_strike'], 'true', 'true'], [['jab', 'parry_strike'], 'true', 'true'],
