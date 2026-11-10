@@ -13648,14 +13648,14 @@ const STEP_SURFACES = [ // M1: six footstep recipes
   { name: 'wood', filter: 'bandpass', hz: 500, q: 2, dur: 0.06, gain: 0.04, tick: [160, 110], tickType: 'triangle' },
   { name: 'gravel', filter: 'lowpass', hz: 900, q: 1, dur: 0.07, gain: 0.046, crunch: 3000 },
   { name: 'tile', filter: 'bandpass', hz: 2200, q: 3, dur: 0.03, gain: 0.052, click: 1100 },
-  { name: 'dirt', filter: 'lowpass', hz: 300, q: 0.7, dur: 0.09, gain: 0.28 },
-  { name: 'club', filter: 'lowpass', hz: 250, q: 0.7, dur: 0.06, gain: 0.05, tick: [90, 90] },
+  { name: 'dirt', filter: 'lowpass', hz: 300, q: 0.7, dur: 0.09, gain: 0.16, run: 2.8 },
+  { name: 'club', filter: 'lowpass', hz: 250, q: 0.7, dur: 0.06, gain: 0.034, tick: [90, 90], run: 2 },
 ];
 const FLOOR_SURFACE = [0, 0, 1, 0, 2, 3, 0, 4, 5]; // by the `env.floor` of a level (1 Warehouse to 8 Club; 0 = no level): the index in STEP_SURFACES
 const AMBIENCE_HZ = [0, 400, 500, 250, 700, 350, 300, 600, 200]; // E7: the low-pass of the noise bed by `env.floor`: boiler, wind, tunnel and so on
 const DRUM_KITS = [{ kick: [0, 4, 8, 10, 12], snare: [4, 12], hat: 2 }, { kick: [0, 3, 8, 11], snare: [4, 12], hat: 2 }, { kick: [0, 6, 8, 14], snare: [4, 10, 12], hat: 1 }]; // E8: three drum patterns (steps of 16) and three bass lines by level
 const BASS_LINES = [[0, 0, 3, 0, 5, 0, 3, 2], [0, 3, 0, 5, 0, 2, 4, 2], [0, 0, 5, 3, 0, 0, 7, 5]];
-const VOICE_KINDS = { hurt: { dur: 0.2, from: 1.25, to: 0.7, gain: 1 }, hurtBig: { dur: 0.34, from: 1.2, to: 0.6, gain: 1.1 }, effort: { dur: 0.16, from: 0.9, to: 1.15, gain: 1.3 }, ko: { dur: 0.5, from: 1.2, to: 0.5, gain: 1.1 }, exhale: { dur: 0.25, from: 1, to: 0.8, gain: 0.7 } }; // M12
+const VOICE_KINDS = { hurt: { dur: 0.2, from: 1.25, to: 0.7, gain: 1 }, hurtBig: { dur: 0.34, from: 1.2, to: 0.6, gain: 1.1 }, effort: { dur: 0.16, from: 0.9, to: 1.15, gain: 1.15 }, ko: { dur: 0.5, from: 1.2, to: 0.5, gain: 1.1 }, exhale: { dur: 0.25, from: 1, to: 0.8, gain: 0.7 } }; // M12
 const MATERIAL_DEBRIS = { wood: 'wood', plastic: 'wood', paper: 'wood', concrete: 'concrete', brick: 'concrete', metal: 'metal', sheet: 'metal', glass: 'glass', tile: 'glass' };
 const vary = (value, spread) => value * (1 + (Math.random() * 2 - 1) * spread); // E2: uniform +-spread from Math.random, never the simulation's random numbers
 const dbGain = (db) => Math.pow(10, db / 20);
@@ -13889,11 +13889,11 @@ const Sound = {
   at(x, z) { this.spot = typeof x === 'number' ? this.place(x, z) : null; },
   out(pan) {
     const spot = this.spot;
-    if (spot) { if (!spot.node) spot.node = this.panner(spot.pan); return spot.node; }
+    if (spot) { if (!spot.node) spot.node = this.panner(spot.pan, true); return spot.node; }   // a placed sound always gets its panner: dead centre is not 3 dB louder than a hair off it
     return this.panner(pan);
   },
-  panner(pan) {
-    if (!pan || typeof this.ctx.createStereoPanner !== 'function') return this.sfxBus;
+  panner(pan, placed) {
+    if ((!pan && !placed) || typeof this.ctx.createStereoPanner !== 'function') return this.sfxBus;
     const p = this.ctx.createStereoPanner();
     p.pan.value = clamp(pan, -1, 1);
     p.connect(this.sfxBus);
@@ -13965,7 +13965,7 @@ const Sound = {
   step(run, index, foot) {
     if (!this.allow('step' + index, MIN_GAP.step, 2)) return;
     const s = this.surface();
-    this.footfall(s, s.gain * (run ? 1.6 : 1) * vary(1, 0.12), vary(1, 0.1) * (foot ? 0.93 : 1), run ? 0.8 : 1);
+    this.footfall(s, s.gain * (run ? s.run || 1.6 : 1) * vary(1, 0.12), vary(1, 0.1) * (foot ? 0.93 : 1), run ? 0.8 : 1);
   },
   // The synthesised impact: the fallback while the bake is not ready (or cannot run). Same recipe as P13-02 with the level plan and E2 variation.
   hit(power, kick, key) {
@@ -13996,7 +13996,7 @@ const Sound = {
   impact(e, kick) {
     if (!this.allow('hit' + e.def.index, MIN_GAP.hit)) return false;
     const tier = e.ko ? 3 : clamp(e.mv.tier || 1, 1, 3), band = weightBand(e.def.weight), item = e.mv.wpn && WEAPONS[e.mv.wpn];
-    let db = IMPACT_DB[tier - 1] + IMPACT_BAND_DB[band] + (e.counter ? 2 : 0) + (item && tier === 3 ? -2 : 0);
+    let db = IMPACT_DB[tier - 1] + IMPACT_BAND_DB[band] + (e.counter ? 2 : 0) + (item && tier === 3 ? -3.5 : 0);
     if (kick) db = Math.min(db + 1, tier === 3 ? -2 : 0);
     const ladder = clamp((e.combo || 1) - 1, 0, COMBO_LADDER_MAX), rate = (kick ? 0.82 : 1) * Math.pow(2, ladder / 12) * vary(1, 0.05);
     this.layer(this.playBuffer(this.bank.hit[tier - 1][band][this.pickVariant('h' + tier + band)], db + IMPACT_TRIM_DB[tier - 1] + 20 * Math.log10(vary(1, 0.12)), rate)); // +-1 dB
@@ -14028,7 +14028,7 @@ const Sound = {
   block(perfect, broke, x, brk, sway, e) {
     if (!this.allow('block', MIN_GAP.block, 1)) return;
     const tier = clamp((e && e.mv && e.mv.tier) || 2, 1, 3), k = [0.7, 1, 1.3][tier - 1], low = !!(e && e.def && (e.def.state === S.CROUCH || e.def.state === S.BLOCK_L)), item = e && e.mv && e.mv.wpn && WEAPONS[e.mv.wpn];
-    if (broke) { this.noise('bandpass', vary(1400, 0.05), 400, 1.1, 0.45, 0.5); this.tone('sawtooth', vary(260, 0.05), 70, 0.45, 0.23); this.tone('sine', vary(1800, 0.05), 900, 0.3, 0.17); this.heavy(-8, 'b'); return; }
+    if (broke) { this.noise('bandpass', vary(1400, 0.05), 400, 1.1, 0.45, 0.5); this.tone('sawtooth', vary(260, 0.05), 70, 0.45, 0.23); this.tone('sine', vary(1800, 0.05), 900, 0.3, 0.17); this.heavy(-10, 'b'); return; }
     if (!sway) {
       if (low) { this.tone('sine', vary(95, 0.06), 70, vary(0.1, 0.08), 0.5 * k); this.noise('highpass', vary(3200, 0.06), 3200, 0.8, 0.05, 0.2 * k); }
       else { this.tone('triangle', vary(520, 0.06), 360, vary(0.09, 0.08), 0.3 * k); this.noise('highpass', vary(3200, 0.06), 3200, 0.8, vary(0.06, 0.08), 0.28 * k); }
@@ -14040,14 +14040,14 @@ const Sound = {
   // M3: cloth (a fist), kick, weapon whistle (the centre follows the item's length) and a jump's flap; tier 1 to 3 sets the level
   whoosh(tier, kind, len, index) {
     if (!this.allow('whoosh' + index, MIN_GAP.whoosh, 1)) return;
-    const g = [0.28, 0.5, 0.62][tier - 1] * vary(1, 0.12), p = vary(1, 0.06);
-    if (kind === 'weapon') { const hz = clamp(1100 - 600 * len, 400, 1000); this.noise('bandpass', hz * p, hz * 0.4, 3, vary(0.18, 0.08), g * 3.5); }
+    const g = [0.22, 0.5, 0.62][tier - 1] * vary(1, 0.12), p = vary(1, 0.06);
+    if (kind === 'weapon') { const hz = clamp(1100 - 600 * len, 400, 1000); this.noise('bandpass', hz * p, hz * 0.4, 3, vary(0.18, 0.08), g * 2.35); }
     else if (kind === 'kick') this.noise('bandpass', 300 * p, 1500 * p, 0.7, vary(0.14, 0.08), g * 1.2);
-    else this.noise('bandpass', 600 * p, 2400 * p, 0.7, vary(kind === 'jump' ? 0.11 : 0.09, 0.08), g * (kind === 'jump' ? 0.62 : 1.1));
+    else this.noise('bandpass', 600 * p, 2400 * p, 0.7, vary(kind === 'jump' ? 0.11 : 0.09, 0.08), g * (kind === 'jump' ? 0.79 : 1.1));
   },
   land(power, f) {
     if (!this.allow('land' + (f.index || 0), MIN_GAP.land, 1)) return;
-    const p = Math.min(1, power), band = weightBand(f.weight), s = this.surface(), pitch = vary(1, 0.06);
+    const p = Math.pow(Math.min(1, power), 1.5), band = weightBand(f.weight), s = this.surface(), pitch = vary(1, 0.06);   // a soft landing falls off faster than a hard one
     this.tone('sine', 95 * pitch, 40, [0.12, 0.14, 0.18][band], 0.3 * p); // the body
     this.tone('triangle', 190 * pitch, 80, 0.08, 0.15 * p); // E6: the octave a small speaker can play
     this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.12 * p); // cloth
@@ -14069,7 +14069,7 @@ const Sound = {
     const base = (170 - weight * 20) * (look.gender === 'F' ? 1.35 : 1) * vary(1, 0.08), formant = clamp(1000 - 130 * ((look.build || 1) - 0.5) * 2, 600, 1000);
     this.voiced('sawtooth', base * v.from, base * v.to, v.dur, 0.6 * v.gain, 'bandpass', formant, 3.5);
   },
-  breath(exhausted) { this.swellNoise(exhausted ? 900 : 1200, 0.6, 0.18, exhausted ? 0.55 : 0.35, exhausted ? 0.07 : 0.06); }, // M11
+  breath(exhausted) { this.swellNoise(exhausted ? 900 : 1200, 0.6, 0.18, exhausted ? 0.55 : 0.35, exhausted ? 0.085 : 0.075); }, // M11
   material(kind, big, x, size) {
     if (!this.allow('objHit' + (big ? 'B' : ''), big ? 0.12 : MIN_GAP.objHit, big ? 0 : 1)) return;
     for (const part of materialParts(kind, big, size || 1)) this.play(part);
@@ -14077,10 +14077,10 @@ const Sound = {
   },
   tick(kind, power, delay) { // one piece landing
     const g = (0.1 + power * 0.18) * 1.6;
-    if (kind === 'glass') { this.noise('bandpass', vary(7000, 0.2), 6000, 1.2, 0.025, g * 0.55, delay); this.noise('bandpass', vary(5500, 0.2), 5000, 1.2, 0.02, g * 0.35, (delay || 0) + 0.03); }
+    if (kind === 'glass') { this.noise('bandpass', vary(7000, 0.2), 6000, 1.2, 0.025, g * 0.4, delay); this.noise('bandpass', vary(5500, 0.2), 5000, 1.2, 0.02, g * 0.25, (delay || 0) + 0.03); }
     else if (kind === 'metal') this.tone('square', vary(750, 0.2), 500, 0.15, g * 0.35, delay);
     else if (kind === 'concrete') this.tone('sine', vary(250, 0.15), 180, 0.06, g * 0.35, delay);
-    else this.noise('bandpass', 800, 300, 1.2, 0.07, g * 1.6, delay);
+    else this.noise('bandpass', 800, 300, 1.2, 0.07, g * 1.3, delay);
   },
   debris(kind, power, x) {
     if (!this.allow('debris', MIN_GAP.debris, 2)) return;
@@ -14096,7 +14096,7 @@ const Sound = {
     } else if (kind === 'hiss') {
       if (!this.allow('hazHiss', 0.4, 1)) return;
       const water = type === 'hydrant', hz = water ? 1500 : 4000;
-      const w = water ? 1.4 : 1; this.noise('bandpass', vary(hz, 0.05), hz * 0.7, 0.5, start ? 1.2 : 0.3, (start ? 0.55 : 0.28) * w); this.noise('lowpass', water ? 200 : 600, water ? 200 : 500, 0.7, start ? 1.2 : 0.3, (start ? 0.4 : 0.2) * w);
+      const w = water ? 1.4 : 1; this.noise('bandpass', vary(hz, 0.05), hz * 0.7, 0.5, start ? 1.2 : 0.3, (start ? 0.55 : 0.2) * w); this.noise('lowpass', water ? 200 : 600, water ? 200 : 500, 0.7, start ? 1.2 : 0.3, (start ? 0.4 : 0.14) * w);
     } else if (kind === 'crash') {
       if (!start) { this.tone('triangle', vary(180, 0.05), 140, 0.3, 0.26); return; } // the chain creaks, then the load lands
       if (type === 'drop') { this.tone('sine', 900, 200, 0.6, 0.15); this.tone('sine', 70, 35, 0.3, 0.3, 0.55); return; } // a long fall and a far thud
@@ -14131,7 +14131,6 @@ const Sound = {
     else if (kind === 'tick') t('square', 500 + 500 * clamp(value || 0, 0, 1), 520 + 500 * clamp(value || 0, 0, 1), 0.03, 0.07);
     else if (kind === 'join') { t('triangle', 523, 523, 0.07, 0.25); t('triangle', 784, 784, 0.1, 0.25, 0.07); }
     else if (kind === 'leave') { t('triangle', 784, 784, 0.07, 0.25); t('triangle', 523, 523, 0.1, 0.25, 0.07); }
-    else if (kind === 'tab') t('square', 880, 880, 0.03, 0.15);
   },
   beep(n) { // the countdown (3, 2, 1) and FIGHT (0)
     if (!this.ready()) return;
@@ -14148,7 +14147,7 @@ const Sound = {
   },
   timeUp() { if (this.ready()) { this.tone('sawtooth', 330, 110, 0.7, 0.28, 0, 0, this.uiBus); this.tone('square', 220, 80, 0.7, 0.14, 0, 0, this.uiBus); } },
   roundKo() { if (this.ready()) { this.tone('sine', 800, 150, 0.35, 0.4, 0, 0, this.uiBus); this.swellNoise(800, 0.8, 0.2, 0.9, 0.25, this.uiBus); } }, // a round ends by a knock-out: a down-sweep and an "ooh"
-  milestone(hits) { const notes = hits >= 8 ? CUE_NOTES.hits8 : hits >= 5 ? CUE_NOTES.hits5 : CUE_NOTES.hits3; notes.forEach((hz, i) => this.tone('triangle', hz, hz, 0.14, 0.22, i * 0.07, 0, this.uiBus)); },
+  milestone(hits) { const notes = hits >= 8 ? CUE_NOTES.hits8 : hits >= 5 ? CUE_NOTES.hits5 : CUE_NOTES.hits3; notes.forEach((hz, i) => this.tone('triangle', hz, hz, 0.14, 0.18, i * 0.07, 0, this.uiBus)); },
   bell() { if (!this.ready()) return; this.tone('sine', 880, 880, 1.3, 0.3, 0, 0, this.uiBus); this.tone('sine', 1320, 1320, 1.0, 0.18, 0, 0, this.uiBus); this.tone('sine', 2200, 2200, 0.7, 0.08, 0, 0, this.uiBus); },
   fanfare(win) {
     if (!this.ready()) return;

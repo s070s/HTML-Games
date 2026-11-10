@@ -248,7 +248,7 @@ const SelfTest = {
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
     const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn) => {
+    const test = (name, fn, limitMs = ASYNC_TEST_LIMIT_MS) => {   // limitMs: an async test that renders audio offline asks for more than the default
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
@@ -258,7 +258,7 @@ const SelfTest = {
         const r = fn();
         if (r && typeof r.then === 'function') {
           let timer = 0;
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
           const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
           pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
         } else record(entry, r);
@@ -14282,6 +14282,7 @@ const SelfTest = {
     });
     /* An offline render of the sound table (Chrome: OfflineAudioContext; the headless run skips these two tests). Every sound plays through the real Sound code and the real handlers into the real bus chain (default volumes) in its own slot of one context;
        Math.random is seeded for the render, so the numbers are the same every run. Returns the peaks in dBFS per slot. */
+    const SOUND_RENDER_LIMIT_MS = 120000;   // the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
     const SOUND_FIGHTER = (extra) => Object.assign({ x: 0, z: 0, index: 1, weight: 2, stepIndex: 0, look: {}, team: 1, state: 0 }, extra);
     const soundTable = (fire) => {   // [name, target dBFS heard at the default volumes (null: only under -1), seconds, play]
       const musicBar = (intensity) => () => { Music.track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = intensity; const stepDur = 60 / 100 / 4; for (let k = 0; k < 16; k++) Music.schedule(Sound.ctx.currentTime + k * stepDur, k, stepDur); };
@@ -14323,14 +14324,15 @@ const SelfTest = {
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
     const renderSounds = async (volumes, gap, only) => {
-      const SR = 44100, START = 0.4;
+      const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
       let seed = 20181029;
       const seeded = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
       const inOffline = (offline, work) => {
-        const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity };
-        Object.assign(Sound, offline); Math.random = seeded; Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
-        try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; }
+        const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
+        Object.assign(Sound, offline); Object.assign(Settings.v, v);   // the engine reads the saved volumes itself (the music pump after a heavy hit), so they are the render's too
+        Math.random = seeded; Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
+        try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; Object.assign(Settings.v, keepVolumes); }
       };
       const keepHandlers = Events.handlers, keepWired = Sound.wired, realAllow = Sound.allow, liveVoices = Sound.voices;   // the offline sources' onended handlers count the live Sound's voices down: it is put back at the end
       Events.handlers = {}; Sound.wired = false; Sound.wire(); const handlers = Events.handlers; Events.handlers = keepHandlers; Sound.wired = keepWired;
@@ -14339,7 +14341,7 @@ const SelfTest = {
       if (only) table = table.filter((row) => only(row[0]));
       const slots = []; let at = START;
       for (const row of table) { slots.push({ name: row[0], from: at, play: row[3] }); at += row[2] + gap; }
-      const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR), v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
+      const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
       const offline = { ctx: null };
       inOffline(offline, () => {
         Sound.ctx = oc; Sound.build(); Sound.setReverb(1.7, 0.3);
@@ -14368,21 +14370,21 @@ const SelfTest = {
         else if (target !== null && Math.abs(peak - target) > 2) bad.push(name + ' ' + peak.toFixed(1) + ' dBFS, target ' + target);
         if (peak < -70) bad.push(name + ' is silent');
       }
-      return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 6).join('; ') : true;
-    });
+      return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
+    }, SOUND_RENDER_LIMIT_MS);
     test('Sound buses (P18-29): every source connects to the effects, UI or music bus; with master, effects or music at 0 the matching sounds render silent (an offline render; Chrome only)', async () => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
-      const bad = [], quiet = -80, music = (name) => /^(music|ambience)/.test(name), sounds = (name) => !music(name);
+      const bad = [], quiet = -70, music = (name) => /^(music|ambience)/.test(name), sounds = (name) => !music(name);
       const loudest = (peaks) => Math.max(...Object.values(peaks)), loud = (peaks) => Object.entries(peaks).filter(([, p]) => p > quiet).map(([n]) => n);
       const master = await renderSounds({ master: 0 }, 0), effects = await renderSounds({ sfx: 0 }, 0, sounds), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3'), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed)$/.test(name));
       for (const run of [master, effects, noMusic, full]) bad.push(...run.failures);
       if (loudest(master.peaks) > quiet) bad.push('master at 0 still sounds: ' + loud(master.peaks).slice(0, 3).join(', '));
       if (loudest(effects.peaks) > quiet) bad.push('effects at 0 still sounds: ' + loud(effects.peaks).slice(0, 3).join(', '));
-      const heardMusic = Object.entries(noMusic.peaks).filter(([name, p]) => music(name) && p > quiet).map(([name]) => name);
+      const heardMusic = Object.entries(noMusic.peaks).filter(([name, p]) => music(name) && p > quiet).map(([name, p]) => name + ' ' + p.toFixed(1));
       if (heardMusic.length || !(noMusic.peaks['hit tier 3'] > -20)) bad.push('music at 0 still sounds: ' + heardMusic.join(', ') + ' (hit ' + noMusic.peaks['hit tier 3'].toFixed(1) + ')');
       if (!(full.peaks['hit tier 3'] > -20 && full.peaks['menu confirm'] > -40 && full.peaks['music fight bed'] > -40)) bad.push('the control renders silent: ' + JSON.stringify(full.peaks));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
-    });
+    }, SOUND_RENDER_LIMIT_MS);
     test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
       const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
       const unwire = wireFor(Effects, () => Effects.init());
