@@ -14215,6 +14215,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 36 buffers of about 1.4 MB', async () => {
+      await waitFor(() => Sound.bakeState !== 'running', 8000);   // the page's own bake (after a click) may still be running: it would put its real buffers into the bank under this test
       const bad = [], keep = saveSound(), keepBake = { from: Sound.bakeFrom };
       try {
         Sound.ctx = null; Sound.bank = null; Sound.bakeState = 'idle'; Sound.unsupported = false; Sound.voices = 0; Sound.last = {};
@@ -14327,8 +14328,8 @@ const SelfTest = {
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
     const renderSounds = async (volumes, gap, only) => {
       const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
-      let seed = 20181029;
-      const seeded = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+      const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+      const seeded = randomFrom(20181029);
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
       const inOffline = (offline, work) => {
         const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
@@ -14351,7 +14352,8 @@ const SelfTest = {
         setGain(Sound.master, v.master); setGain(Sound.sfxBus, v.sfx); setGain(Sound.uiBus, v.sfx); setGain(Sound.musicBus, v.music * 0.55);
         Sound.ready = () => true; Sound.allow = realAllow; Sound.voices = 0; Sound.last = {}; Sound.layerQ = []; Sound.spot = null; Sound.amb = null; Sound.ambKey = -1; Sound.bank = null;
       });
-      offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf)).bank;
+      const keepRandom = Math.random; Math.random = randomFrom(4711);   // the same bank every run, so the levels are the same every run
+      try { offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf)).bank; } finally { Math.random = keepRandom; }
       const failures = [];
       for (const slot of slots) oc.suspend(slot.from).then(() => { inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }); oc.resume(); });
       const rendered = await oc.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
