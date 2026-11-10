@@ -14947,10 +14947,9 @@ const UI = {
     const p1 = Game.match && Game.match.fighters[0]; // the card opens with the fight, so it can name this fighter's defense
     const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
     // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
-    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '</div>' +
-      '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
-      '<div>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
-      'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
+    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
+      '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)</div>' +
+      '<div>Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
   },
   // True when this fight starts with an input type that has not seen its card yet
   controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
