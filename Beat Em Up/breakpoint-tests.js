@@ -246,19 +246,21 @@ const SelfTest = {
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
+    const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
     const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn, limitMs = ASYNC_TEST_LIMIT_MS) => {   // limitMs: an async test that renders audio offline asks for more than the default
+    const test = (name, fn, limitMs) => {   // limitMs (only async tests that render audio offline): defer the test and give it that long
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
       const entry = { name, pass: false, detail: 'still running' };
       results.push(entry);
+      if (limitMs) { deferredTests.push({ entry, fn, limitMs }); return; }
       try {
         const r = fn();
         if (r && typeof r.then === 'function') {
           let timer = 0;
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
           const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
           pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
         } else record(entry, r);
@@ -14117,6 +14119,7 @@ const SelfTest = {
     });
     /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
     const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
+    const SOUND_RENDER_LIMIT_MS = 120000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
     const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
     const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
       const keep = saveSound(), heard = [];
@@ -14252,7 +14255,7 @@ const SelfTest = {
         Object.assign(Sound, keep, { bakeFrom: keepBake.from });
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
-    });
+    }, SOUND_RENDER_LIMIT_MS);
     test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
       const bad = [], keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keep = saveSound();
       try {
@@ -14282,7 +14285,6 @@ const SelfTest = {
     });
     /* An offline render of the sound table (Chrome: OfflineAudioContext; the headless run skips these two tests). Every sound plays through the real Sound code and the real handlers into the real bus chain (default volumes) in its own slot of one context;
        Math.random is seeded for the render, so the numbers are the same every run. Returns the peaks in dBFS per slot. */
-    const SOUND_RENDER_LIMIT_MS = 120000;   // the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
     const SOUND_FIGHTER = (extra) => Object.assign({ x: 0, z: 0, index: 1, weight: 2, stepIndex: 0, look: {}, team: 1, state: 0 }, extra);
     const soundTable = (fire) => {   // [name, target dBFS heard at the default volumes (null: only under -1), seconds, play]
       const musicBar = (intensity) => () => { Music.track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = intensity; const stepDur = 60 / 100 / 4; for (let k = 0; k < 16; k++) Music.schedule(Sound.ctx.currentTime + k * stepDur, k, stepDur); };
@@ -18405,7 +18407,19 @@ const SelfTest = {
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
-    results.settled = Promise.all(pendingTests);   // resolves when the async tests (P12-04) have filled in their results
+    const runDeferred = async () => {
+      for (const { entry, fn, limitMs } of deferredTests) {
+        const started = performance.now(); let timer = 0;
+        try {
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+          record(entry, await Promise.race([fn(), tooSlow]));
+        } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); } finally { clearTimeout(timer); }
+        entry.ms = Math.round(performance.now() - started);
+        self.made.splice(0).forEach((made) => made.dispose());
+        if (Match.current) Match.current.dispose();
+      }
+    };
+    results.settled = Promise.all(pendingTests).then(runDeferred);   // resolves when the async tests (P12-04) have filled in their results
     return results;
   },
 };

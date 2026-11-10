@@ -13838,7 +13838,8 @@ const Sound = {
     const OAC = typeof window !== 'undefined' && (window.OfflineAudioContext || window.webkitOfflineAudioContext);
     if (!OAC) { this.bakeState = 'none'; return; }
     this.bakeState = 'running'; this.bakeFrom = performance.now();
-    this.bakeRender(OAC, (length) => this.ctx.createBuffer(1, length, BAKE_RATE), this.noiseBuf).then((done) => {
+    const ctx = this.ctx;
+    this.bakeRender(OAC, (length) => ctx.createBuffer(1, length, BAKE_RATE), this.noiseBuf).then((done) => {
       this.bank = done.bank; this.bakeMs = done.ms; this.bakeBytes = done.bytes; this.bakeState = 'done'; this.bakeWall = performance.now() - this.bakeFrom;
     }).catch((e) => this.bakeFail(e));
   },
@@ -13860,7 +13861,7 @@ const Sound = {
               list.forEach((job, i) => storeBaked(done, job, data.subarray(i * slot, i * slot + Math.round(job.secs * BAKE_RATE)), makeBuffer));
               done.ms += performance.now() - after;
               if (n + 1 < steps) step(n + 1); else resolve(done);
-            }, reject);
+            }).catch(reject);
           } catch (e) { reject(e); }
         };
         if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: BAKE_TIMEOUT_MS }); else setTimeout(run, 30);
@@ -13968,9 +13969,9 @@ const Sound = {
     this.footfall(s, s.gain * (run ? s.run || 1.6 : 1) * vary(1, 0.12), vary(1, 0.1) * (foot ? 0.93 : 1), run ? 0.8 : 1);
   },
   // The synthesised impact: the fallback while the bake is not ready (or cannot run). Same recipe as P13-02 with the level plan and E2 variation.
-  hit(power, kick, key) {
+  hit(power, kick, key, level = 1) {
     if (!this.allow('hit' + key, MIN_GAP.hit)) return false;
-    const g = (0.35 + power * 0.5) * 0.55 * vary(1, 0.12), pitch = vary(1, 0.06);
+    const g = (0.35 + power * 0.5) * 0.55 * level * vary(1, 0.12), pitch = vary(1, 0.06);
     this.tone('sine', (kick ? 120 : 160) * pitch, (kick ? 42 : 55) * pitch, vary(0.12 + power * 0.14, 0.08), g);
     this.noise('bandpass', (kick ? 1100 : 1700) * pitch, 500, 0.9, vary(0.07 + power * 0.1, 0.08), g * 0.8);
     if (power > 0.6) { this.noise('lowpass', 700, 200, 0.7, 0.28, g * 0.7); this.tone('sine', 70 * pitch, 28, 0.32, g * 0.8); }
@@ -14013,7 +14014,7 @@ const Sound = {
   // A heavy blow without an event of its own (a wall slam, a tackle, a hazard that hurts): the baked tier 3 impact at db, else the synthesis
   heavy(db, key) {
     if (this.bank && this.allow('heavy' + key, 0.05)) this.layer(this.playBuffer(this.bank.hit[2][2][this.pickVariant('hv')], db + IMPACT_TRIM_DB[2], vary(1, 0.05)));
-    else if (!this.bank) this.hit(0.7, false, 'h' + key);
+    else if (!this.bank) this.hit(0.7, false, 'h' + key, dbGain(db + 8));   // the fallback keeps the level the call asks for
   },
   // A crowd (Night Club, Pit): a swell on a knock-out that ends the fight (the cheer), a lean on trouble (an "ooh")
   swell() {
