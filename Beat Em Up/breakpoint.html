@@ -14616,7 +14616,7 @@ const Song = {
     out.gain.setValueAtTime(1, last); out.gain.linearRampToValueAtTime(0, last + SONG_TAIL_SECS);
     out.connect(Sound.musicBus); // the Music volume and the pause duck act on the bus
     lfo.start(t0); lfo.stop(last + SONG_TAIL_SECS + 0.1);
-    this.nodes = { out, guitar, bass, vibrato }; this.t0 = t0; this.cursor = 0; this.playing = true; this.finished = false; this.stopped = false; this.starts++;
+    this.nodes = { out, guitar, bass, vibrato, lfo }; this.t0 = t0; this.cursor = 0; this.playing = true; this.finished = false; this.stopped = false; this.starts++;
     this.pump();
     return true;
   },
@@ -14646,6 +14646,7 @@ const Song = {
   release(afterSecs) { // the nodes stay until the notes already handed over have faded
     const nodes = this.nodes;
     this.playing = false; this.nodes = null;
+    if (nodes) try { nodes.lfo.stop(); } catch (err) { /* it had stopped */ } // the vibrato does not run on to the planned end of a song that was cut short
     if (nodes) setTimeout(() => { try { nodes.out.disconnect(); } catch (err) { /* already gone */ } }, afterSecs * 1000);
   },
   play(e, at) {
@@ -18825,6 +18826,7 @@ UI.runBrawl = function runBrawl(enemies, opts) {
 
 // Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet; only (optional) picks tests by name (see run_all)
 UI.runSelfTest = function runSelfTest(only) {
+  Intro.skip(); // a card still standing over the menu would hold back the pad and the menu tests (the Chrome gate loads the page with ?nointro; P18-60)
   if (selfTestRun) return selfTestRun;
   if (!this.selfTestAllowed()) return Promise.resolve();
   this.showSelfTest('Loading ' + SELFTEST_FILE + '...');
@@ -18895,13 +18897,13 @@ const introPulse = (p, from = 0) => {
   for (const [step, strength] of INTRO_IMPACTS) { const age = p - step * SONG_STEP_SECS; if (age >= 0 && strength >= from) sum += strength * Math.exp(-age * INTRO_PULSE_RATE); }
   return sum;
 };
-// The picture of the reveal at time p, a pure function of p (so a skip, a stall or a test can ask for any moment): g is a 2D context of w x h pixels, look = { reduced, shake, flash (0..1) }.
+// The picture of the reveal at time p, a pure function of p (so a skip, a stall or a test can ask for any moment): g is a 2D context of w x h pixels, look = { reduced, shake (0..1, the Camera shake setting over its default), flash (0..1) }.
 // Reduced motion: no shake, no flash, no dust, no slam; the title fades in and the cracks fade in
 function introFrame(g, w, h, p, look) {
   const reduced = look.reduced, pulse = reduced ? 0 : introPulse(p), unit = Math.min(w, h), horizon = h * 0.56, margin = unit * 0.05, ramp = clamp((p - 0.4) / 1.6, 0, 1);
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   g.save();
-  if (look.shake && pulse > 0.02) { const rnd = makeRng(Math.floor(p * 60) + 7), amount = unit * 0.03 * Math.min(pulse, 1.5); g.translate((rnd() - 0.5) * amount, (rnd() - 0.5) * amount); }
+  if (look.shake > 0 && pulse > 0.02) { const rnd = makeRng(Math.floor(p * 60) + 7), amount = unit * 0.03 * Math.min(pulse, 1.5) * look.shake; g.translate((rnd() - 0.5) * amount, (rnd() - 0.5) * amount); }
   // the dark arena: back wall, floor, a row of heads along the horizon, the grid of the floor
   const wall = g.createLinearGradient(0, 0, 0, horizon), floor = g.createLinearGradient(0, horizon, 0, h);
   wall.addColorStop(0, '#02040a'); wall.addColorStop(1, '#0c1634'); floor.addColorStop(0, '#111a38'); floor.addColorStop(1, '#03050a');
@@ -18988,23 +18990,33 @@ const Intro = {
     if (this.phase !== 'off' || INTRO_FLAG.test(where)) return false;
     this.build();
     this.phase = 'card'; this.silent = false; this.pos = 0; this.wall = 0; this.still = ''; this.padHeld = this.padState();
-    const add = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.handlers.push([target, type, fn, options]); };
-    add(window, 'keydown', (e) => this.onKey(e), true); // before the menu's own key handling
-    add(this.el, 'pointerdown', (e) => { if (e.isTrusted && this.phase === 'play') this.press(); }); // a skip is the touch itself
-    add(this.el, 'pointerup', (e) => { if (e.isTrusted && this.phase === 'card') this.press(); }); // the card starts on the release: that is the touch a browser accepts as a gesture for the audio
+    this.listen(window);
+    this.lock(true);
+    if (this.el.focus) this.el.focus({ preventScroll: true });
     this.draw(0);
     return true;
   },
+  listen(win) {
+    const add = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.handlers.push([target, type, fn, options]); };
+    add(win, 'keydown', (e) => this.onKey(e), true); // before the menu's own key handling
+    add(this.el, 'pointerdown', (e) => { if (e.isTrusted && this.phase === 'play') this.press(); }); // a skip is the touch itself
+    add(this.el, 'pointerup', (e) => { if (e.isTrusted && this.phase === 'card') this.press(); }); // the card starts on the release: that is the touch a browser accepts as a gesture for the audio
+  },
+  lock(on) { // the menu under the card takes no focus, tap or reader until the intro is over
+    const screens = $('screens');
+    if (!screens || !screens.setAttribute) return;
+    if (on) screens.setAttribute('inert', ''); else screens.removeAttribute('inert');
+  },
   build() {
     const el = document.createElement('div');
-    el.id = 'intro'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'BREAKPOINT. Press any key or tap to start.');
+    el.id = 'intro'; el.setAttribute('tabindex', '-1'); el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'BREAKPOINT. Press any key or tap to start.');
     el.innerHTML = '<canvas aria-hidden="true"></canvas><div class="card"><h1 class="logo">BREAKPOINT</h1><p class="press">PRESS ANY KEY OR TAP TO START</p></div><p class="skip">Press any key or tap to skip</p>';
     $('app').appendChild(el);
     this.el = el; this.canvas = el.querySelector('canvas'); this.g = this.canvas.getContext('2d');
   },
   onKey(e) {
     if (this.phase === 'off' || !e.isTrusted) return; // a synthetic key (a test) is not a press
-    if (e.ctrlKey || e.metaKey || e.altKey || /^(Shift|Control|Alt|AltGraph|Meta|CapsLock|NumLock|F\d{1,2})$/.test(e.key)) return; // a shortcut of the browser is not a press
+    if (e.ctrlKey || e.metaKey || e.altKey || /^(Shift|Control|Alt|AltGraph|Meta|CapsLock|NumLock|Escape|F\d{1,2})$/.test(e.key)) return; // a shortcut of the browser, and Escape (the browser does not take it as a gesture for the audio), are not a press
     e.stopPropagation(); e.preventDefault(); // the menu below never sees it
     if (!e.repeat) this.press();
   },
@@ -19049,6 +19061,9 @@ const Intro = {
     this.phase = 'off';
     for (const [target, type, fn, options] of this.handlers) target.removeEventListener(type, fn, options);
     this.handlers = [];
+    this.lock(false);
+    const menu = UI.dom.screens, first = menu && menu.querySelector && (menu.querySelector('[data-default]:not([disabled])') || UI.navItems()[0]);
+    if (first && first.focus) first.focus({ preventScroll: true }); // the menu takes the focus the card had
     const el = this.el;
     this.el = null;
     if (!el) return;
@@ -19070,7 +19085,7 @@ const Intro = {
     this.still = this.phase === 'play' ? '' : key;
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     const v = Settings.v;
-    introFrame(this.g, w, h, p, { reduced: !!v.reducedMotion, shake: v.shake > 0, flash: v.flashes === 'off' ? 0 : v.flashes === 'reduced' ? FLASH_REDUCED_ALPHA : 1 });
+    introFrame(this.g, w, h, p, { reduced: !!v.reducedMotion, shake: Math.min(1, v.shake / SETTING_DEFS.shake.def), flash: v.flashes === 'off' ? 0 : v.flashes === 'reduced' ? FLASH_REDUCED_ALPHA : 1 });
   },
 };
 

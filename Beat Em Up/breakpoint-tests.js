@@ -14426,7 +14426,7 @@ const SelfTest = {
         ['low stamina', -18, 0.5, () => Sound.lowStamina()], ['late-defend tick', -16, 0.3, () => fire('lateDefend', { f: f({ index: 0 }) })], ['free-hit tick', -24, 0.3, () => fire('freeTick', { f: f({ index: 0, comboFoe: { state: S.ATTACK } }) })], ['heartbeat', -14, 0.6, () => Sound.heartbeat()], ['breath', -28, 0.6, () => Sound.breath(false)],
         ['get up', -16, 0.5, () => fire('quickRise', { f: f() })], ['fall whistle', -16, 0.8, () => Sound.whistle()], ['crowd cheer', -16, 2, () => Sound.swell()], ['crowd lean', -24, 1.2, () => Sound.swellNoise(800, 0.8, 0.35, 0.9, 0.14)],
         ['music fight bed', -14, 2.4, musicBar(1)], ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
-        ['music title song', null, 4, () => { const keep = Object.assign({}, Song); try { Song.start(); Song.pump(4); } finally { Object.assign(Song, keep); } }], // the first four seconds of the title song (P18-60): the drum fill, the first chords
+        ['music title song', null, 4, () => { const keep = Object.assign({}, Song); Object.assign(Song, { playing: false, nodes: null }); try { Song.start(); Song.pump(4); } finally { Object.assign(Song, keep); } }], // the first four seconds of the title song (P18-60): the drum fill, the first chords
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
@@ -19368,7 +19368,7 @@ const SelfTest = {
       const node = (extra) => Object.assign({ connect(dest) { made.connected.push([this, dest]); return dest; }, disconnect() {} }, extra);
       const ctx = {
         currentTime: 0, state: 'running', resume() { return Promise.resolve(); },
-        createOscillator() { const o = node({ frequency: param(), detune: param(), type: '', start(at) { this.from = at; }, stop(at) { this.until = at; } }); made.oscillators.push(o); return o; },
+        createOscillator() { const o = node({ frequency: param(), detune: param(), type: '', start(at) { this.from = at; }, stop(at) { this.stops.push(at); if (at !== undefined) this.until = at; }, stops: [] }); made.oscillators.push(o); return o; },
         createGain() { const g = node({ gain: param() }); made.gains.push(g); return g; },
         createBiquadFilter() { return node({ frequency: param(), Q: param(), type: '' }); },
         createWaveShaper() { return node({ curve: null }); },
@@ -19383,7 +19383,7 @@ const SelfTest = {
       Music.active = false;
       Object.assign(Song, { playing: false, finished: false, stopped: false, t0: 0, cursor: 0, nodes: null, starts: 0, played: 0, dropped: 0 });
       Object.assign(Intro, { phase: 'off', el: null, handlers: [], padHeld: [], still: '', silent: false, pos: 0, wall: 0 });
-      try { return body(audio); } finally { Object.assign(Sound, keep.sound); Object.assign(Song, keep.song); Object.assign(Intro, keep.intro); Object.assign(Music, keep.music); Settings.v.music = keep.volume; }
+      try { return body(audio); } finally { Object.assign(Sound, keep.sound); Object.assign(Song, keep.song); Object.assign(Intro, keep.intro); Object.assign(Music, keep.music); Settings.v.music = keep.volume; if (Intro.phase !== 'off') Intro.lock(true); }
     };
     const introElement = () => { const classes = new Set(), el = { classes, removed: false, classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) }, remove() { el.removed = true; } }; return el; };
     const introKey = (extra) => Object.assign({ isTrusted: true, key: 'a', repeat: false, ctrlKey: false, metaKey: false, altKey: false, stopped: false, prevented: false, stopPropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; } }, extra);
@@ -19455,6 +19455,7 @@ const SelfTest = {
       Song.stop();
       const out = audio.made.gains[0].gain.calls;
       if (!Song.stopped || Song.playing || !out.some((c) => c[0] === 'target' && c[1] === 0)) bad.push('a stop does not fade the song to 0');
+      if (audio.made.oscillators[0].stops.length !== 2) bad.push('a stop leaves the vibrato running to the planned end of the song');
       const count = audio.made.oscillators.length + audio.made.sources.length;
       audio.ctx.currentTime = 20; Song.pump();
       if (audio.made.oscillators.length + audio.made.sources.length !== count) bad.push('the song scheduled after a stop');
@@ -19484,7 +19485,7 @@ const SelfTest = {
       const bad = [], card = introCard(audio);
       card.frames(30);
       if (Intro.phase !== 'card' || Song.starts || audio.made.oscillators.length) bad.push('the card moved on by itself');
-      for (const [label, event] of [['a synthetic key', introKey({ isTrusted: false })], ['Shift', introKey({ key: 'Shift' })], ['Ctrl+R', introKey({ key: 'r', ctrlKey: true })], ['F5', introKey({ key: 'F5' })], ['a held key', introKey({ repeat: true })]]) {
+      for (const [label, event] of [['a synthetic key', introKey({ isTrusted: false })], ['Shift', introKey({ key: 'Shift' })], ['Ctrl+R', introKey({ key: 'r', ctrlKey: true })], ['F5', introKey({ key: 'F5' })], ['a held key', introKey({ repeat: true })], ['Escape', introKey({ key: 'Escape' })]]) {
         Intro.onKey(event);
         if (Intro.phase !== 'card' || Song.starts) bad.push(label + ' started the reveal');
       }
@@ -19543,7 +19544,10 @@ const SelfTest = {
       if (Intro.phase === 'off') bad.push('a silent reveal is shorter than 6 s');
       for (let i = 0; i < 3 * 60; i++) Intro.update(1 / 60);
       if (Intro.phase !== 'off' || Song.starts) bad.push('the silent reveal did not end at 6 s without a song (' + Intro.phase + ', ' + Song.starts + ' starts)');
-      Sound.unsupported = false; Sound.ctx = audio.ctx; audio.ctx.state = 'suspended';
+      Sound.unsupported = false; Sound.ctx = audio.ctx;   // the audio comes later (a tap on the menu): the song is not started late
+      for (let i = 0; i < 60; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); Intro.update(1 / 60); }
+      if (Song.starts || audio.made.oscillators.length) bad.push('the song started late, after a silent reveal');
+      audio.ctx.state = 'suspended';
       introCard(audio);
       Intro.onKey(introKey());
       for (let i = 0; i < 20; i++) Intro.update(1 / 60);
@@ -19618,7 +19622,7 @@ const SelfTest = {
       return { g, calls };
     };
     test('Intro picture (P18-60): the picture is a function of the time: every number finite at 390x844 and 844x390 for all 6 s, the title inside the screen at both; a landing hits at its chord (scale, flash, dust), Reduced motion and Flashes Off show no slam, no shake, no flash and no dust and still show the title', () => {
-      const bad = [], full = { reduced: false, shake: true, flash: 1 };
+      const bad = [], full = { reduced: false, shake: 1, flash: 1 };
       for (const [w, h] of [[390, 844], [844, 390]]) {
         for (let p = 0; p <= INTRO_SECS + 1e-9; p += 1 / 30) {
           const { g, calls } = introRecorder();
@@ -19639,12 +19643,12 @@ const SelfTest = {
       const hit = picture(full, at);
       if (!hit.some((call) => call[0] === 'scale' && call[1] > 1.5)) bad.push('the first word does not land big');
       if (!set(hit, 'fillStyle', '#ffffff') || !set(hit, 'fillStyle', '#b8c4dc')) bad.push('a landing has no flash or no dust');
-      for (const [label, look] of [['Reduced motion', { reduced: true, shake: true, flash: 1 }], ['Flashes Off', { reduced: false, shake: true, flash: 0 }]]) {
+      for (const [label, look] of [['Reduced motion', { reduced: true, shake: 1, flash: 1 }], ['Flashes Off', { reduced: false, shake: 1, flash: 0 }]]) {
         const calls = picture(look, at);
         if (set(calls, 'fillStyle', '#ffffff')) bad.push(label + ' still flashes');
         if (look.reduced && (set(calls, 'fillStyle', '#b8c4dc') || calls.some((call) => call[0] === 'scale' && call[1] !== 1) || calls.some((call) => call[0] === 'translate' && call[1] !== 422))) bad.push(label + ' still has dust, a slam or a shake');
       }
-      const fade = picture({ reduced: true, shake: true, flash: 1 }, 0.5).filter((call) => call[0] === 'fillText').length, later = picture({ reduced: true, shake: true, flash: 1 }, 3).filter((call) => call[0] === 'fillText').length;
+      const fade = picture({ reduced: true, shake: 1, flash: 1 }, 0.5).filter((call) => call[0] === 'fillText').length, later = picture({ reduced: true, shake: 1, flash: 1 }, 3).filter((call) => call[0] === 'fillText').length;
       if (fade !== 0 || later !== INTRO_WORDS.length) bad.push('Reduced motion does not fade the title in (' + fade + ' words at 0.5 s, ' + later + ' at 3 s)');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
@@ -19672,6 +19676,86 @@ const SelfTest = {
       } finally { if (Intro.el) Intro.el.remove(); Object.assign(Intro, keep); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Intro touch (P18-60): the card starts on the release of a tap, not on the touch down; a skip is the touch down, not the release; taps that are not real (isTrusted false) do nothing; every listener is taken off when the intro ends', () => withSongAudio((audio) => {
+      const bad = [], listeners = [];
+      const target = () => ({ addEventListener(type, fn) { listeners.push([this, type, fn]); }, removeEventListener(type, fn) { const i = listeners.findIndex((l) => l[0] === this && l[1] === type && l[2] === fn); if (i >= 0) listeners.splice(i, 1); } });
+      const win = target(), el = Object.assign(introElement(), target());
+      const fire = (who, type, extra) => listeners.filter((l) => l[0] === who && l[1] === type).forEach((l) => l[2](Object.assign({ isTrusted: true }, extra)));
+      introCard(audio);
+      Intro.el = el; Intro.listen(win);
+      if (listeners.length !== 3) bad.push(listeners.length + ' listeners, 3 expected (a key on the window, the touch down and release on the card)');
+      fire(el, 'pointerdown');
+      if (Intro.phase !== 'card') bad.push('the touch down started the card');
+      fire(el, 'pointerup', { isTrusted: false });
+      if (Intro.phase !== 'card') bad.push('a tap that is not real started the card');
+      fire(el, 'pointerup');
+      if (Intro.phase !== 'play' || Song.starts !== 1) bad.push('the release did not start the reveal and the song (' + Intro.phase + ')');
+      Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10;
+      fire(el, 'pointerup');
+      if (Intro.phase !== 'play') bad.push('the release of a tap skipped');
+      fire(el, 'pointerdown', { isTrusted: false });
+      if (Intro.phase !== 'play') bad.push('a touch that is not real skipped');
+      fire(el, 'pointerdown');
+      if (Intro.phase !== 'off' || !Song.stopped || !el.classes.has('hold')) bad.push('the touch down did not skip');
+      if (listeners.length) bad.push(listeners.length + ' listeners left after the intro');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro and the self-test (P18-60): starting the self-test from the page takes a card or a running reveal down (the gate loads ?nointro; this keeps a card from holding back the pad and the menu tests)', () => withSongAudio((audio) => {
+      const bad = [], allowed = UI.selfTestAllowed;
+      introCard(audio);
+      UI.selfTestAllowed = () => false;
+      try {
+        UI.runSelfTest();
+        if (Intro.phase !== 'off') bad.push('the card is still up');
+        introCard(audio); Intro.onKey(introKey());
+        UI.runSelfTest();
+        if (Intro.phase !== 'off' || !Song.stopped) bad.push('the running reveal and its song are still up');
+      } finally { UI.selfTestAllowed = allowed; }
+      return bad.length ? bad.slice(0, 3).join('; ') : true;
+    }));
+    test('Intro boot (P18-60): the card goes up the way boot puts it up (Intro.init): a focused dialog over the menu with the menu under it inert; a second call and the flags put up nothing; ending the intro makes the menu live again', () => {
+      if (!hasLayoutEngine()) return 'skipped: no layout engine in the headless stub; a browser self-test puts the card up';
+      return withSongAudio(() => {
+        const bad = [], screens = document.getElementById('screens'), inert = screens.hasAttribute('inert');
+        try {
+          if (!Intro.init('') || Intro.phase !== 'card') bad.push('init did not put the card up');
+          const el = Intro.el;
+          if (!el || el.parentNode !== document.getElementById('app') || document.activeElement !== el) bad.push('the card is not in the game with the focus');
+          if (!screens.hasAttribute('inert')) bad.push('the menu is not inert under the card');
+          if (Intro.init('') !== false || Intro.init('?nointro') !== false) bad.push('a second card went up');
+          Intro.skip();
+          if (Intro.phase !== 'off' || screens.hasAttribute('inert')) bad.push('the menu is not live again after the intro');
+        } finally {
+          if (Intro.phase !== 'off') Intro.skip();
+          if (inert) screens.setAttribute('inert', '');
+        }
+        return bad.length ? bad.slice(0, 3).join('; ') : true;
+      });
+    });
+    test('Intro settings (P18-60): the real Intro.draw reads Reduced motion, Flashes and Camera shake: Reduced motion and Flashes Off show no flash, Reduced keeps it under the fights\' cap, the shake scales with the setting over its default and is none at 0', () => withSongAudio(() => {
+      const bad = [], keep = { reducedMotion: Settings.v.reducedMotion, flashes: Settings.v.flashes, shake: Settings.v.shake }, at = INTRO_WORDS[0][1] * SONG_STEP_SECS + 0.005;
+      const view = (setting) => {
+        Object.assign(Settings.v, { reducedMotion: false, flashes: 'full', shake: SETTING_DEFS.shake.def }, setting);
+        const { g, calls } = introRecorder();
+        Object.assign(Intro, { phase: 'play', el: { clientWidth: 844, clientHeight: 390 }, canvas: { width: 0, height: 0 }, g, still: '' });
+        Intro.draw(at);
+        return calls;
+      };
+      const flash = (calls) => { const i = calls.findIndex((c) => c[0] === 'set fillStyle' && c[1] === '#ffffff'); if (i < 0) return 0; for (let k = i; k >= 0; k--) if (calls[k][0] === 'set globalAlpha') return calls[k][1]; return -1; };
+      const shake = (calls) => { const c = calls.find((call) => call[0] === 'translate' && Math.abs(call[1]) < 100); return c ? Math.hypot(c[1], c[2]) : 0; };
+      try {
+        const full = flash(view({})), reduced = flash(view({ flashes: 'reduced' }));
+        if (!(full > 0.1)) bad.push('the full flash is ' + full);
+        if (!(reduced > 0 && reduced < full * FLASH_REDUCED_ALPHA + 1e-9)) bad.push('the Reduced flash is ' + reduced + ' against ' + full);
+        if (flash(view({ flashes: 'off' })) !== 0) bad.push('Flashes Off still flashes');
+        if (flash(view({ reducedMotion: true })) !== 0) bad.push('Reduced motion still flashes');
+        const whole = shake(view({})), half = shake(view({ shake: SETTING_DEFS.shake.def / 2 }));
+        if (!(whole > 0) || Math.abs(half * 2 - whole) > 1e-6) bad.push('the shake at half the default is ' + half + ' against ' + whole);
+        if (shake(view({ shake: 0 })) !== 0 || shake(view({ reducedMotion: true })) !== 0) bad.push('the shake shows with the setting at 0 or on Reduced motion');
+        if (Math.abs(shake(view({ shake: 1 })) - whole) > 1e-6) bad.push('the shake above the default is not capped at its full size');
+      } finally { Object.assign(Settings.v, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
