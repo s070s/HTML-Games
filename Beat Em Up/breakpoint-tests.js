@@ -434,7 +434,7 @@ const SelfTest = {
     test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
       const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
       const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
-      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'strikePose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
         'draw', 'drawPointLightFlicker', 'drawObject', 'drawCracks', 'drawBox', 'drawColumn', 'drawRail', 'drawPanel', 'drawLook', 'drawDeck', 'drawScaffold', 'drawFireDoor', 'drawRubble', 'drawChain', 'drawHead', 'drawLowerFace', 'drawHair', 'drawItems', 'drawFlames', 'drawHazards'];   // pose, drawing, particles: each name on its own, so a new simulation method called draw... is scanned
       const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
         'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors(',
@@ -16224,6 +16224,7 @@ const SelfTest = {
        The rule between two footings (g = the foe's footing minus the attacker's): a strike reaches while the two are within RAISED_STRIKE_LEDGE; a Low strike (and a stomp on a downed foe) only a foe at most RAISED_LOW_UP above,
        a Mid strike at most RAISED_MID_UP above; a grab, a throw and a tackle need the two within RAISED_GRAB_LEDGE; a hold within RAISED_HOLD_LEDGE (the old SUBMIT_LEVEL_GAP). Every raised surface is read from the built level. */
     const RAISED_LOW_UP = 0.35, RAISED_MID_UP = 0.9, RAISED_STRIKE_LEDGE = 1.05, RAISED_GRAB_LEDGE = 0.55, RAISED_HOLD_LEDGE = 0.6;   // m
+    const RAISED_SHOVE = 1.0;   // m: the deck behind a foe that a six tick run of the attacker shoves (0.85 m) and that still stands on it (0.15 m)
     const RAISED_GAP = 0.9, RAISED_LEDGE_GAP = 1.1, RAISED_INSET = 0.6, RAISED_BODY = 0.34, RAISED_STEP_PAIR = 0.7;   // m: the two fighters of a pair stand this far apart (a pair across a ledge: farther, the one above stands this far in from the edge); a body's radius; the least distance between the two steps of a stair pair
     const raisedStrikeLands = (height, g) => Math.abs(g) <= RAISED_STRIKE_LEDGE && (height === 'L' ? g <= RAISED_LOW_UP : height === 'M' ? g <= RAISED_MID_UP : true);
     const raisedSpread = (half) => { const out = [0]; for (let d = 0.25; d <= half; d += 0.25) out.push(d, -d); return out; };   // 0, +0.25, -0.25, +0.5 ... the spots tried, the middle first
@@ -16244,7 +16245,7 @@ const SelfTest = {
             for (const [ax, az] of [[1, 0], [0, 1]]) {
               if (found) break;
               const lo = { x: d.x + ox - ax * RAISED_GAP / 2, z: d.z + oz - az * RAISED_GAP / 2, y: d.top }, hi = { x: d.x + ox + ax * RAISED_GAP / 2, z: d.z + oz + az * RAISED_GAP / 2, y: d.top };
-              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi }); found = 1; }
+              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi, room: ax ? d.x + d.hx - hi.x : d.z + d.hz - hi.z }); found = 1; }   // room: the deck behind the foe
             }
           }
         }
@@ -16335,6 +16336,7 @@ const SelfTest = {
       for (const run of raisedRuns()) {
         for (const [name, script] of raisedStrikes) {
           if (name === 'running lunge' && run.c.how === 'ledge') continue;   // a run toward a ledge is a run off it or into it, not a lunge
+          if (name === 'running lunge' && run.c.how === 'same' && run.c.room < RAISED_SHOVE) continue;   // a run shoves the foe back up to 0.85 m, and a body falls 0.15 m past the edge (P18-65, K04; it was 0.35): on a small deck the foe is shoved off before the lunge lands
           const r = raisedStrike(run, script);
           if (!r.height) problems.push(raisedBad(run, name + ' started no move'));
           else if (r.landed !== raisedStrikeLands(r.height, r.g)) problems.push(raisedBad(run, name + ' (' + r.move + ', ' + r.height + ') ' + (r.landed ? 'landed' : 'missed') + ' at g ' + r.g.toFixed(2)));
@@ -21526,7 +21528,7 @@ const SelfTest = {
     const colAlone = (x, z, skip, room) => !Arena.colliders.some((c) => c.active && c.top > 0.3 && c.base <= 1 && !(c.obj && c.obj.id === skip) && colOutside(c, x, z) < room);   // nothing else (than the one prop it is against) within `room` m of the spot
     const colEmptyArena = () => { ARENAS.probeEmpty = Object.assign({}, ARENAS.warehouse, { id: 'probeEmpty', objects: [], builds: [], items: [], hazards: [], waves: null, bounds: { x: 16, z: 10 } }); return ARENAS.probeEmpty; };
 
-    test('Collisions (P18-65, K01): a strike, a kick and a grab do not land through scenery taller than the blow (columns, machines, rails, panels, boxes) on any of the 8 levels; a deck does not stop them; the same pairs land with the scenery out of the way', () => keepArena(() => quietEvents(() => {
+    test('Collisions (P18-65, K01): a strike, a kick and a grab do not land through scenery taller than the blow (columns, machines, rails, panels, boxes) on any of the 8 levels; a deck, a ring rope and a scaffold pole do not stop them; the same pairs land with the scenery out of the way', () => keepArena(() => quietEvents(() => {
       const HEIGHT = { H: 1.4, M: 1.0, L: 0.35 }, GRAB_HEIGHT = 0.9;
       const moves = [moveFor('boxer', 'jab'), moveFor('kickboxer', 'low_kick'), moveFor('kickboxer', 'front_kick'), ATTACKS.grab];
       const through = [], stopped = [];
@@ -21552,7 +21554,7 @@ const SelfTest = {
                 return !!Combat.evaluate(A, B);   // what the move would do on its first active tick: the bodies stay where they stand, so the one thing that changes with the scenery is whether it is in the way
               };
               if (trial(false) !== true) continue;   // out of reach even with nothing between: no pair
-              const lands = trial(true), blow = mv.type === 'grab' ? GRAB_HEIGHT : HEIGHT[mv.h], blocks = !c.deck && c.top > blow;
+              const lands = trial(true), blow = mv.type === 'grab' ? GRAB_HEIGHT : HEIGHT[mv.h], blocks = !c.deck && c.top > blow && o.type !== 'scaffold' && !(o.type === 'rail' && o.bounce);
               pairs++;
               if (blocks) shouldStop++;
               if (blocks && lands && through.length < 6) through.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + ') ' + mv.id);
@@ -21632,26 +21634,36 @@ const SelfTest = {
       return worst.wall > LIMIT || worst.prop > LIMIT ? 'wall ' + worst.wall.toFixed(2) + ' m (' + worst.wallAt + '), scenery ' + worst.prop.toFixed(2) + ' m deep (' + worst.propAt + '); ' + rows.join('; ') : true;
     })));
 
-    test('Collisions (P18-65, K04): a body walked off a crate or a mezzanine starts to fall when its centre is 0.15 m past the edge (a tick of walking more at most), after at most 5 ticks past the edge at the deck height', () => keepArena(() => quietEvents(() => {
+    test('Collisions (P18-65, K04): a body walked off any standable top of the 8 levels (crates, benches, kiosks, decks, mezzanines) starts to fall when its centre is 0.15 m past the edge (a tick of walking more, 0.2 m, at most; 0.32 m where the top step of a stair touches the deck and also holds the body), not 0.35 to 0.5 m as before', () => keepArena(() => quietEvents(() => {
       const bad = [];
-      for (const [arenaId, id, hx, hz] of [['warehouse', 'crateA', 1, 0], ['warehouse', 'crateA', 0, 1], ['subway', 'mezz', 1, 0]]) {   // the walk starts 0.8 m from the edge it walks to
-        const m = mk({ arenaId, items: false, hazards: false }, colWalk(hx, hz));
-        const A = m.fighters[0], B = m.fighters[1], o = Arena.objects.find((q) => q.id === id), c = o.collider;
-        A.reset(c.x + hx * Math.max(0, c.hx - 0.8), c.z + hz * Math.max(0, c.hz - 0.8), Math.atan2(hx, hz), 1, 1); A.y = A.prevY = A.groundY = A.supportY = c.top; B.reset(-9, -5, 0, 1, 1);
-        let leftAt = null, hover = 0;
-        for (let t = 0; t < 160 && leftAt === null; t++) {
-          m.step();
-          const past = colOutside(c, A.x, A.z);
-          if (A.groundY < c.top - 0.01) { leftAt = past; break; }   // the deck is no longer under the centre
-          if (past > 0) hover++;
-        }
-        if (leftAt === null) bad.push(arenaId + ' ' + id + ': never left the deck');
-        else {
-          if (leftAt > 0.2) bad.push(arenaId + ' ' + id + ': started to fall ' + leftAt.toFixed(2) + ' m past the edge');
-          if (hover > 5) bad.push(arenaId + ' ' + id + ': ' + hover + ' ticks past the edge at the deck height');
+      let walks = 0, fell = 0, close = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1];
+        for (const o of Arena.objects.filter((q) => q.collider.standable && q.collider.top >= 0.5 && !q.step)) {
+          const c = o.collider;
+          for (const [hx, hz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // the walk starts 0.8 m from the edge it walks to
+            const x = c.x + hx * Math.max(0, c.hx - 0.8), z = c.z + hz * Math.max(0, c.hz - 0.8);
+            if (Arena.insideSolid(x, z, 0.34, c.top)) continue;
+            Arena.reset(); m.startRound();
+            m.controllers[0] = ScriptedController.make(colWalk(hx, hz));
+            A.reset(x, z, Math.atan2(hx, hz), 1, 1); A.y = A.prevY = A.groundY = A.supportY = c.top; B.reset(x < 0 ? 9 : -9, z < 0 ? 5 : -5, 0, 1, 1);
+            let leftAt = null, level = c.top;
+            for (let t = 0; t < 160 && leftAt === null; t++) {
+              m.step();
+              const same = Arena.colliders.filter((q) => q.active && Math.abs(q.top - level) < 0.02), past = Math.min(...same.map((q) => colOutside(q, A.x, A.z)));   // how far the centre is outside everything at the level it stood on
+              if (A.groundY < level - 0.05) { leftAt = past; break; }   // that footing is gone from under the centre
+              level = Math.max(level, A.groundY);
+            }
+            walks++;
+            if (leftAt === null) continue;   // it met a wall or a prop, or the edge joins another deck
+            fell++; if (leftAt <= 0.2) close++;
+            if (leftAt > 0.32 && bad.length < 5) bad.push(arenaId + ' ' + o.id + ': started to fall ' + leftAt.toFixed(2) + ' m past the edge');
+          }
         }
         colDispose(m);
       }
+      if (walks < 100 || fell < 60) return 'only ' + walks + ' walks, ' + fell + ' ended in a fall';
+      if (close < fell * 0.9) bad.push('only ' + close + ' of ' + fell + ' falls started within 0.2 m of the edge');
       return bad.length ? bad.join('; ') : true;
     })));
 

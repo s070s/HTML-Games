@@ -3584,7 +3584,7 @@ function makeObject(def, rng) {
   const deck = def.type === 'deck';
   o.collider = {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
-    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? (def.look === 'ramp' ? RAMP_RISE + STAIR_UP - STAIR_RISE : STAIR_UP) : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
+    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, foot: def.step ? STAIR_FOOT : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
     shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''), // an item thrown onto it lies on its top
     lay: def.type === 'box' && /^(sofa|car|rack)$/.test(def.look || ''), // an item lies on the highest drawn part under it
   };
@@ -3602,10 +3602,11 @@ const STAIR_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 const SUPPORT_BASE_SLACK = 1.2; // m: an object whose base is higher than this above a fighter's feet does not collide with it
 const NAV_CELL = STAIR_RUN, NAV_BODY = 0.34, NAV_STEP = 0.3, NAV_JUMP = 1.05, NAV_JUMP_COST = 40; // CPU walking map: a cell is one stair step wide
 const NAV_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const STAIR_UP = 0.3; // m: a step may be stood on from this far below its top (a tread of STAIR_RISE and a little slack: one tread a tick at most); a ramp tread takes its own rise and the same slack
+const STAIR_UP = 0.5; // m: a step may be stood on from this far below its top (one step of slack, so a fast climb never snags on the step after next)
+const STAIR_FOOT = 0.3; // m: but a step gives footing only from this far below its top (a tread and a little slack), so a body at the side of a flight is never lifted two treads in one tick; it passes the steps within STAIR_UP without standing on them
 const PASS_UNDER = 0.05; // m: a prop that cannot be stood on is passed only by a body whose feet are at least this close to its top (a jump over it); a deck or a step takes its own slack (STAIR_UP, 0.25)
-const PUSH_OUT_MAX = 0.6, PUSH_OUT_SLIDE = 0.15; // m: the farthest a body is moved out of an obstacle in one go (three passes a tick); from farther inside it slides out this much a pass
-const SUPPORT_REACH = 0.15; // m: a fighter stands on a deck, a crate or a step while its centre is this close to its footprint (walls and props keep the whole 0.34 m cylinder)
+const PUSH_OUT_MAX = 0.6; // m: a body is not moved farther than this to leave an obstacle through a clear side when the nearest side is within it (a body deep inside a big block still leaves by the nearest clear side, however far)
+const SUPPORT_REACH = 0.15, SUPPORT_REST = 0.03; // m: a fighter walking off a deck, a crate or a step loses the footing when its centre is this far past the footprint; one that is not moving away from it (stepping or jumping up onto it, landing on it, shoved) keeps it over the whole 0.34 m cylinder as before, and the CPU's probes (supportAt) read a body whose feet are within SUPPORT_REST of the top as resting on it (walls and props keep the whole cylinder)
 const STAIR_APPROACH = 0.45; // m: the CPU's first waypoint lies this far before the foot
 const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far beyond the ring
 /* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
@@ -3900,7 +3901,7 @@ const Arena = {
       for (let i = 0; i < nx; i++) {
         const x = -b.x + (i + 0.5) * nav.cw, z = -b.z + (j + 0.5) * nav.ch;
         let h = 0;
-        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + SUPPORT_REACH && Math.abs(z - c.z) <= c.hz + SUPPORT_REACH && c.top > h) h = c.top;
+        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + 0.1 && Math.abs(z - c.z) <= c.hz + 0.1 && c.top > h) h = c.top;
         let fits = x >= this.ax0 + r && x <= this.ax1 - r && z >= this.az0 + r && z <= this.az1 - r;
         for (let k = 0; fits && k < this.colliders.length; k++) {
           const c = this.colliders[k];
@@ -4026,12 +4027,12 @@ const Arena = {
     }
     return false;
   },
-  // True when scenery stops a blow that travels from (x1,z1) to (x2,z2) at height y: an active obstacle taller than y that starts below it, glass included, whose footprint the line crosses; a deck, a stair step and a hazard's post do not stop it. Allocation-free.
+  // True when scenery stops a blow that travels from (x1,z1) to (x2,z2) at height y: an active obstacle taller than y that starts below it, glass included, whose footprint the line crosses; a deck, a stair step, a ring rope, a scaffold pole and a hazard's post do not stop it. Allocation-free.
   blowBlocked(x1, z1, x2, z2, y) {
     const dx = x2 - x1, dz = z2 - z1;
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
-      if (!c.active || c.haz || c.deck || c.top <= y || c.base >= y) continue;
+      if (!c.active || c.haz || c.deck || c.top <= y || c.base >= y || (c.obj && (c.obj.type === 'scaffold' || (c.obj.bounce && c.obj.type === 'rail')))) continue; // a rope is strands a blow goes between, and a scaffold pole is a hand wide beside the tiers it holds
       if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
     }
     return false;
@@ -4071,7 +4072,7 @@ const Arena = {
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
       if (item && c.lay) { top = Math.max(top, this.lookTop(c, x, z, y)); continue; }
-      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable && (item || r <= SUPPORT_REACH || dx * dx + dz * dz < SUPPORT_REACH * SUPPORT_REACH)) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
+      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.foot || 0.25) && c.standable && (item || r <= SUPPORT_REACH || Math.abs(y - c.top) > SUPPORT_REST || dx * dx + dz * dz < SUPPORT_REACH * SUPPORT_REACH)) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
   },
@@ -4103,8 +4104,9 @@ const Arena = {
         let dx = f.x - nx, dz = f.z - nz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || d2 < SUPPORT_REACH * SUPPORT_REACH)) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a footing is the footprint under the centre (SUPPORT_REACH): the body is on the deck, not the cylinder
-        if (f.y >= c.top - PASS_UNDER) { if (c.top > groundY && d2 < SUPPORT_REACH * SUPPORT_REACH) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top (a jump over it) passes it, and it comes down on it
+        const held = d2 < SUPPORT_REACH * SUPPORT_REACH || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz <= 0.01 * Math.sqrt(d2); // under the centre, or between SUPPORT_REACH and the cylinder and not moving away from the footprint (stepping or jumping up onto it, landing on it): a body walking off the edge loses the footing at SUPPORT_REACH
+        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || (held && f.y >= c.top - (c.foot || 0.25)))) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a footing is the footprint under the centre (SUPPORT_REACH): the body is on the deck, not the cylinder
+        if (f.y >= c.top - PASS_UNDER) { if (c.top <= NAV_JUMP && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a low one (a bench, a table, a rail: NAV_JUMP) comes down on it; a body falling past a window or a column goes on falling
         this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
@@ -4140,16 +4142,17 @@ const Arena = {
     }
     // centre inside the box, or the way out leads into a wall: leave through the nearest side that has room
     const exits = [[c.x - c.hx - r, f.z], [c.x + c.hx + r, f.z], [f.x, c.z - c.hz - r], [f.x, c.z + c.hz + r]];
-    let best = null, bestCost = Infinity, nearest = null, nearestCost = Infinity;
+    let best = null, bestCost = Infinity, nearest = null, nearestCost = Infinity, close = null, closeCost = Infinity;
     for (let i = 0; i < exits.length; i++) {
       const exit = exits[i];
       const cost = Math.abs(exit[0] - f.x) + Math.abs(exit[1] - f.z);
       if (cost < nearestCost) { nearestCost = cost; nearest = exit; }
       const fits = i < 2 ? exit[0] >= x0 && exit[0] <= x1 : exit[1] >= z0 && exit[1] <= z1; // only the moved coordinate must have room
+      if (fits && cost < closeCost) { closeCost = cost; close = exit; }
       if (fits && cost < bestCost && clears(exit[0], exit[1])) { bestCost = cost; best = exit; }
     }
-    const to = best || nearest, gapX = to[0] - f.x, gapZ = to[1] - f.z, gap = DMath.hypot(gapX, gapZ);
-    if (gap > PUSH_OUT_MAX) { f.x += gapX / gap * PUSH_OUT_SLIDE; f.z += gapZ / gap * PUSH_OUT_SLIDE; return; } // deep inside a big block: it slides out instead of jumping across it
+    let to = best || nearest;
+    if (best && close && DMath.hypot(best[0] - f.x, best[1] - f.z) > PUSH_OUT_MAX && DMath.hypot(close[0] - f.x, close[1] - f.z) <= PUSH_OUT_MAX) to = close; // the only clear way out is across a big block: the near side inside the arena is no jump, and what is in its way (a neighbour) is cleared by the passes that follow
     f.x = to[0]; f.z = to[1];
   },
 
@@ -7038,8 +7041,9 @@ class Fighter {
   }
   // Drawing only (the body's place and size are the simulation's): the body is drawn clear of the walls and the scenery it stands or lies beside, slid off them by the room its drawn box needs, LIE_MOVE a tick (the 0.34 m cylinder it collides with is narrower than a wide body). A body lying on the floor is also drawn along the first of four directions (the facing, a quarter turn each way, the back) that needs no room, else the one that needs the least, turning to it LIE_TURN a tick, and keeps it while that needs none. Held, thrown, falling or airborne bodies are drawn where they are
   steerLie() {
-    const lying = (this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP) && !this.pinnedBy;
-    const upright = !lying && NUDGE_STATES.includes(this.state) && !this.partner && !this.pinnedBy && this.y <= this.groundY + SUPPORT_EPS && !(this.state === S.ATTACK && (!this.move || this.move.type === 'grab'));
+    const live = !!this.mates; // in a match (the menu, the creator and the cutscenes draw their fighters where they are put)
+    const lying = live && (this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP) && !this.pinnedBy;
+    const upright = live && !lying && NUDGE_STATES.includes(this.state) && !this.partner && !this.pinnedBy && this.y <= this.groundY + SUPPORT_EPS && !(this.state === S.ATTACK && (!this.move || this.move.type === 'grab'));
     if (!lying) this.lieYaw = this.lieGoal = this.yaw;
     if (lying || upright) {
       const fx = this.fwdX, fz = this.fwdZ, pts = this.pts;
@@ -9789,7 +9793,7 @@ class AIController {
     if (len < 1e-6) return 0;
     let deepest = 0;
     for (let i = 1; i <= 3; i++) {
-      const d = look * i / 3, x = clamp(f.x + dx / len * d, Arena.ax0 + f.radius, Arena.ax1 - f.radius), z = clamp(f.z + dz / len * d, Arena.az0 + f.radius, Arena.az1 - f.radius);
+      const d = Math.max(0, look * i / 3 - (f.radius - SUPPORT_REACH)), x = clamp(f.x + dx / len * d, Arena.ax0 + f.radius, Arena.ax1 - f.radius), z = clamp(f.z + dz / len * d, Arena.az0 + f.radius, Arena.az1 - f.radius); // the probe looks f.radius - SUPPORT_REACH less far: a body stands on a deck by its centre now (it used to be by the whole cylinder), and the CPU stops where it always stopped
       const drop = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
       if (drop > FALL_STATE_DROP) deepest = Math.max(deepest, drop);
     }
