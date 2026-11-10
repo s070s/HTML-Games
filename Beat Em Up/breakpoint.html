@@ -14,7 +14,7 @@
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
-:root{--ui:1;--panel:rgba(8,12,22,.9);--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;
+:root{--ui:1;--panel:rgba(8,12,22,.9);--panel-solid:#080c16;--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;
  /* notch, Dynamic Island and home bar (iPhone with viewport-fit=cover); 0 elsewhere */
  --sat:env(safe-area-inset-top,0px);--sar:env(safe-area-inset-right,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px)}
 *{box-sizing:border-box}
@@ -72,7 +72,8 @@ table.ctl{border-collapse:collapse;width:100%;font-size:.9em}
 table.ctl td,table.ctl th{border-bottom:1px solid #2a3b66;padding:.3em .5em;text-align:left;vertical-align:top}
 table.ctl th{color:var(--a1);letter-spacing:.08em;text-transform:uppercase;font-size:.8em}
 kbd{display:inline-block;padding:.05em .45em;border:1px solid #6d82b8;border-bottom-width:3px;border-radius:.3em;background:#0b1224;font:700 .85em/1.4 Consolas,monospace}
-.row.sticky{position:sticky;bottom:-1.1em;background:var(--panel);padding:.5em 0;margin-top:.3em;z-index:2}
+.row.sticky{position:sticky;bottom:-1.1em;background:var(--panel-solid);padding:.5em 0;margin-top:.3em;z-index:2}
+.row.sticky::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:12px;background:linear-gradient(transparent,var(--panel-solid));pointer-events:none}
 .hint{color:var(--mut);font-size:.85em;margin-top:.6em}
 .bigtxt{font:900 italic clamp(2em,10vmin,6em)/1 Impact,"Arial Black",sans-serif;letter-spacing:.05em;text-transform:uppercase}
 .statgrid{display:grid;grid-template-columns:1fr auto;gap:.2em 1.5em;margin:.6em 0;font-size:1.05em}
@@ -183,7 +184,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hc-center{width:7em;text-align:center;flex:none}
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
 #timer.low{color:var(--warn);border-color:var(--warn)}
-#roundlbl{font-size:.8em;letter-spacing:.12em;margin-top:.2em;text-transform:uppercase}
+#roundlbl{font-size:.8em;letter-spacing:.12em;margin-top:.2em;text-transform:uppercase;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
 #combo,#combo2{position:absolute;left:1.2em;top:7.5em;font:900 italic 1.6em/1.1 Impact,"Arial Black",sans-serif;color:#ffe066;opacity:0;transition:opacity .15s}
 #combo2{left:auto;right:1.2em;text-align:right}
 #combo.on,#combo2.on{opacity:1}
@@ -204,8 +205,10 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 @media (orientation:portrait){#grappleHint{bottom:auto;top:34%}}
 .vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
 #grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
-#onboard{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.82);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
-#onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em}
+#onboard{position:absolute;left:50%;top:7.4em;transform:translateX(-50%);width:max-content;max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.75);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
+#onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em;column-span:all}#onboard div{break-inside:avoid}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em;column-span:all}
+@media (orientation:portrait){#onboard{top:calc(10.2*16px*var(--ui));font-size:min(.72em,3vw);line-height:1.35;padding:.5em .8em}}
+@media (max-height:520px) and (orientation:landscape){#onboard{columns:3;column-gap:1.2em;max-width:80vw;font-size:.75em;line-height:1.3;padding:.3em .8em}}
 #grappleHint.go,#grappleHint2.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
 .hold-prompt,.hold-meter{position:absolute;left:0;top:0;pointer-events:none;background:rgba(0,0,0,.78);border:2px solid #fff;letter-spacing:.06em;white-space:nowrap;will-change:transform}
 .hold-prompt{padding:.3em .7em;font-size:.95em}
@@ -221,7 +224,9 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 #training{position:absolute;right:.9em;top:6.2em;width:15em;max-height:calc(100% - 7.5em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{right:calc(2vmin + var(--tbs)*.8 + .9em)} /* with touch controls the II button sits top right (TOUCH_LAYOUT pause slot); the panel moves left of it */
 #training b{color:var(--a1)}
-#modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--mut)}
+#modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
+#roundlbl,#modeinfo{text-shadow:-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 0 4px #000} /* a ring of shadows round the glyphs: an outline without -webkit-text-stroke, which eats the glyphs where paint-order is not honoured on HTML text (Chromium before 123, older Safari) */
+@media (orientation:portrait){#modeinfo{top:9.4em;max-height:2.7em;overflow:hidden;line-height:1.3;padding:0 4.5em}.hname .cpu{display:none}.hname.long{font-size:.9em}} /* upright phone: the level line under the item row, the right name without CPU (the pink bar says it) */
 #pauseBtn{position:absolute;right:.9em;bottom:1em;pointer-events:auto;font:inherit;font-weight:800;padding:.35em .9em;min-width:44px;min-height:44px;background:rgba(0,0,0,.6);color:#fff;border:2px solid #fff;border-radius:.4em;cursor:pointer;letter-spacing:.1em}
 /* name tags and damage pops use canvas coordinates: undo the HUD's safe-area inset */
 #tags{position:absolute;top:calc(-1*var(--sat));right:calc(-1*var(--sar));bottom:calc(-1*var(--sab));left:calc(-1*var(--sal));overflow:hidden}
@@ -362,9 +367,9 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
     <div id="holdPrompt2" class="hold-prompt" hidden></div>
     <div id="holdMeter" class="hold-meter" hidden></div>
     <div id="holdMeter2" class="hold-meter" hidden></div>
-    <div id="onboard" role="dialog" aria-label="Controls" hidden></div>
     <div id="training" hidden></div>
     <div id="tags"></div>
+    <div id="onboard" role="dialog" aria-label="Controls" hidden></div>
     <button id="pauseBtn" aria-label="Pause">&#10074;&#10074; PAUSE</button>
   </div>
   <div id="touch" hidden></div>
@@ -987,6 +992,8 @@ const COACH_TIPS = [
   { key: 'item', text: (k) => k('use') + ' picks it up. Hit with it, or throw it.' },
   { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
 ];
+const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 1.15, POP_BOX_EM = 0.9, POP_GROW = 0.25, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6, POP_STEPS_DOWN = 3; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life; POP_STEPS_DOWN: steps below the hit a pop may take when the pile has no room above; POP_LIFT_EM: one step (more than a text box of POP_BOX_EM em at the start scale 1 + POP_GROW)
+const HUD_NAME_LONG = 9;
 const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
 const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
 const COACH_PAD = { grapple: 'R2', crouch: 'L2' }; // short gamepad names where the label is a sentence
@@ -1865,6 +1872,8 @@ function buildShard() {
   return { v: new Float32Array(v), i: new Uint16Array(idx) };
 }
 
+const FOOTING_REACH = 0.5, FOOTING_SLACK = 0.1; // m: half the footprint of an item (a fighter uses its radius); FOOTING_SLACK: how far a sample may stand off the edge of the deck and still count as on it. Every sample round the footprint and round each point of the shadow must be on the deck for a raised shadow plane (Arena.flatFooting)
+const SHADOW_TINT = 0.35, SHADOW_TINT_ALPHA = 0.38, SHADOW_SOFT_TURN = 0.06, SHADOW_SOFT_ALPHA = 0.26; // shadow: floor colour x 0.35 at 38 % (high: two at 26 %, light turned 0.06 rad each way)
 const FACE_GRID = 8, FACE_CELL = 64; // the face atlas: 8 x 8 cells of 64 px
 // uMode: 0 = lit objects, 1 = planar shadow, 2 = floor
 const VERT_SRC = `#version 300 es
@@ -1882,23 +1891,24 @@ uniform vec3 uLightFrom;
 uniform float uMode;
 uniform vec4 uPL0, uPL1;
 uniform vec3 uPC0, uPC1;
-out vec3 vN; out vec3 vW; out vec4 vCol; out vec4 vPar; out vec3 vPL; out vec3 vFN;
+out vec3 vN; out vec3 vW; out vec4 vCol; out vec4 vPar; out vec3 vPL; out vec3 vFN; out float vScn;
 vec3 plight(vec4 pl, vec3 pc, vec3 P, vec3 N){
   vec3 L = pl.xyz - P; float d = length(L);
   float a = clamp(1.0 - d/pl.w, 0.0, 1.0); a *= a;
   return pc*a*(max(dot(N, L/max(d,1e-3)),0.0) + 0.25);
 }
 void main(){
-  mat4 M = mat4(aM0,aM1,aM2,aM3);
+  mat4 M = mat4(vec4(aM0.xyz,0.0),aM1,aM2,aM3);  // aM0.w: 1 = scenery (R.put)
   vec4 wp = M*vec4(aPos,1.0);
   vec3 s = max(vec3(length(M[0].xyz),length(M[1].xyz),length(M[2].xyz)),vec3(1e-4));
   vN = mat3(M)*(aNor/(s*s));
-  vCol = aCol; vPar = aPar; vPL = vec3(0.0); vFN = aNor;
+  vCol = aCol; vPar = aPar; vPL = vec3(0.0); vFN = aNor; vScn = aM0.w;
   if(uMode>0.5 && uMode<1.5){
     if(aPar.w<0.5){ gl_Position=vec4(2.0,2.0,2.0,1.0); vW=wp.xyz; return; }
-    float t = (0.012-wp.y)/uLightFrom.y;
+    float plane = aPar.w - 1.0 + 0.012;  // cast slot = 1 + the footing height
+    float t = (plane-wp.y)/uLightFrom.y;
     vec3 p = wp.xyz + uLightFrom*max(t,0.0);
-    p.y = 0.012;
+    p.y = plane;
     vW = p; gl_Position = uVP*vec4(p,1.0); return;
   }
   vW = wp.xyz;
@@ -1907,7 +1917,7 @@ void main(){
 }`;
 const FRAG_SRC = `#version 300 es
 precision mediump float;
-in vec3 vN; in highp vec3 vW; in vec4 vCol; in vec4 vPar; in vec3 vPL; in vec3 vFN;
+in vec3 vN; in highp vec3 vW; in vec4 vCol; in vec4 vPar; in vec3 vPL; in vec3 vFN; in float vScn;
 uniform mediump sampler2D uFace;
 uniform highp vec3 uCam;
 uniform vec3 uLightTo, uLightCol, uSky, uGround, uFogCol, uRim;
@@ -1917,6 +1927,8 @@ uniform highp float uMode;
 uniform highp vec4 uPL0, uPL1;
 uniform highp vec3 uPC0, uPC1;
 uniform vec4 uShadowCol;
+uniform float uFx, uDetail; // uFx: 0 opaque, 1 alpha, 2 additive layer; uDetail: medium and high
+uniform highp vec2 uHalf; // floor half extents
 out vec4 outCol;
 /* anti-aliased shape masks in floor space (metres); w = screen-space footprint */
 float edgeMask(highp float d, highp float w){ return 1.0 - smoothstep(-w, w, d); }
@@ -1993,6 +2005,12 @@ vec3 floorPattern(highp vec2 p){
   c = mix(c, srgb(85.0,86.0,92.0), rectMask(p, vec2(0.05, 5.0), w));
   return mix(c, srgb(53.0,54.0,60.0), discMask(p, vec2(0.0), 1.5, w));
 }
+highp float hash3(highp vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+vec3 lampLight(vec4 pl, vec3 pc, vec3 N){ // plight per pixel
+  highp vec3 L = pl.xyz - vW; highp float d = length(L);
+  float a = clamp(1.0 - d/pl.w, 0.0, 1.0); a *= a;
+  return pc*a*(max(dot(N, L/max(d,1e-3)),0.0) + 0.25);
+}
 vec3 floorLight(vec4 pl, vec3 pc){
   highp vec3 L = pl.xyz - vW; highp float d = length(L);
   float a = clamp(1.0 - d/pl.w, 0.0, 1.0); a *= a;
@@ -2003,6 +2021,7 @@ vec3 finish(vec3 col){
   float fogF = clamp(1.0-exp(-uFog*uFog*dot(dv,dv)), 0.0, 0.85);
   col = mix(col, uFogCol, fogF);
   col = col/(1.0+col*0.16);
+  col = col/(1.0+max(col-0.7,0.0)*1.1); // soft knee: light skin keeps its colour
   return sqrt(col);
 }
 void main(){
@@ -2012,6 +2031,7 @@ void main(){
     vec3 alb = base*base;
     float diff = clamp((uLightTo.y+0.25)/1.25, 0.0, 1.0);
     vec3 lit = uSky + uLightCol*diff + floorLight(uPL0,uPC0) + floorLight(uPL1,uPC1);
+    if(uDetail>0.5) lit *= mix(0.72, 1.0, smoothstep(0.0, 1.0, min(uHalf.x - abs(vW.x), vW.z + uHalf.y))); // 1 m of shade by the walls
     float f = 1.0 - normalize(uCam - vW).y; // rim term with N = up (gives the arenas their tinted floor sheen)
     outCol = vec4(finish(alb*lit + uRim*(f*f*f)*0.45), 1.0);
     return;
@@ -2027,10 +2047,15 @@ void main(){
   }
   vec3 alb = bc*bc;
   float rough = vPar.y;
+  bool scenery = vScn>0.5 && uFx<0.5;
+  bool coarse = scenery && rough>0.6 && uDetail>0.5; // not skin, not metal
+  if(coarse) alb *= (1.0 + (hash3(floor(vW*8.0 - N*0.25)) - 0.5)*0.10*rough) * mix(0.85, 1.0, smoothstep(0.0, 0.4, vW.y));
   float ndl = dot(N, uLightTo);
   float diff = clamp((ndl+0.25)/1.25, 0.0, 1.0);
   vec3 hemi = mix(uGround, uSky, N.y*0.5+0.5);
-  vec3 lit = hemi + uLightCol*diff + vPL;
+  vec3 pool = (coarse && abs(N.y)<0.5) ? lampLight(uPL0,uPC0,N) + lampLight(uPL1,uPC1,N) : vPL;
+  vec3 lit = hemi + uLightCol*diff + pool;
+  if(scenery) lit *= mix(0.72, 1.0, smoothstep(0.0, 0.7, vW.y));
   float spec = 0.0;
   if(rough < 0.8){
     vec3 H = normalize(uLightTo+V);
@@ -2038,7 +2063,9 @@ void main(){
   }
   float f = 1.0-max(dot(N,V),0.0);
   vec3 col = alb*lit + uLightCol*spec + uRim*(f*f*f)*0.45 + alb*vPar.x*1.4 + vec3(vPar.z);
-  outCol = vec4(finish(col), vCol.a);
+  float a = vCol.a;
+  if(uFx>1.5) a *= pow(max(dot(N,V),0.0), 1.4);
+  outCol = vec4(finish(col), a);
 }`;
 
 const DEFAULT_ENV = {
@@ -2108,7 +2135,7 @@ const R = {
   vp: M4.create(), proj: M4.create(), view: M4.create(),
   camPos: [0, 3, 8], projScale: 1,
   env: DEFAULT_ENV, lightFrom: [-0.4, -0.8, -0.45],
-  scale: 1, dprCap: 2, shadowMode: 2, antialias: false, width: 2, height: 2, cssW: 2, cssH: 2, lastDpr: 1,
+  scale: 1, dprCap: 2, shadowMode: 2, detail: 1, antialias: false, width: 2, height: 2, cssW: 2, cssH: 2, lastDpr: 1,
   stats: { draws: 0, instances: 0, culled: 0 },
   scratch: M4.create(),
   listeners: [],
@@ -2164,7 +2191,7 @@ const R = {
     gl.deleteShader(vs); gl.deleteShader(fs);
     this.prog = prog;
     this.u = {};
-    for (const n of ['uVP', 'uLightFrom', 'uMode', 'uFloor', 'uCam', 'uLightTo', 'uLightCol', 'uSky', 'uGround', 'uFogCol', 'uRim', 'uFog', 'uPL0', 'uPL1', 'uPC0', 'uPC1', 'uShadowCol', 'uFace']) this.u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uLightFrom', 'uMode', 'uFloor', 'uCam', 'uLightTo', 'uLightCol', 'uSky', 'uGround', 'uFogCol', 'uRim', 'uFog', 'uPL0', 'uPL1', 'uPC0', 'uPC1', 'uShadowCol', 'uFace', 'uFx', 'uDetail', 'uHalf']) this.u[n] = gl.getUniformLocation(prog, n);
     this.faceTex = FaceTex.upload(gl); this.faceOk = !!this.faceTex; // no texture (no 2D canvas, a failed upload): fighters keep their procedural faces
     // static meshes
     const defs = [buildCube(), buildSphere(10, 14), buildCylinder(16), buildShard()];
@@ -2217,8 +2244,8 @@ const R = {
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
     this.width = w; this.height = h;
   },
-  setQuality(scale, dprCap, shadowMode) {
-    this.scale = scale; this.dprCap = dprCap; this.shadowMode = shadowMode;
+  setQuality(scale, dprCap, shadowMode, detail) {
+    this.scale = scale; this.dprCap = dprCap; this.shadowMode = shadowMode; this.detail = detail || 0;
     this.resize();
   },
 
@@ -2275,6 +2302,7 @@ const R = {
     if (rx) M4.rotX(m, rx);
     if (rz) M4.rotZ(m, rz);
     M4.scale(m, sx, sy, sz);
+    m[3] = 1; // scenery tag (spare w of column 0; the shader drops it)
     this.push(layer, mesh, m, col, a, em, rough, flash || 0, cast);
   },
   box(layer, x, y, z, sx, sy, sz, ry, col, em, rough, cast) {
@@ -2331,7 +2359,12 @@ const R = {
     gl.uniform3fv(u.uPC0, p0 ? p0.col : [0, 0, 0]);
     gl.uniform4f(u.uPL1, p1 ? p1.pos[0] : 0, p1 ? p1.pos[1] : 0, p1 ? p1.pos[2] : 0, p1 ? p1.r : 0.001);
     gl.uniform3fv(u.uPC1, p1 ? p1.col : [0, 0, 0]);
-    gl.uniform4f(u.uShadowCol, 0, 0, 0, 0.4);
+    if (this.detail) gl.uniform4f(u.uShadowCol, e.ground[0] * SHADOW_TINT, e.ground[1] * SHADOW_TINT, e.ground[2] * SHADOW_TINT, SHADOW_TINT_ALPHA);
+    else gl.uniform4f(u.uShadowCol, 0, 0, 0, 0.4);
+    const bounds = Arena.def ? Arena.def.bounds : null, sided = Arena.def && WALL_DRESS[Arena.def.id] && WALL_DRESS[Arena.def.id][1];
+    gl.uniform2f(u.uHalf, bounds && sided ? bounds.x : 1e3, bounds ? bounds.z : 1e3); // side walls only on levels that have them
+    gl.uniform1f(u.uDetail, this.detail ? 1 : 0);
+    gl.uniform1f(u.uFx, 0);
     gl.uniform1f(u.uFloor, e.floor || 0);
     gl.uniform1f(u.uMode, 0);
     gl.enable(gl.CULL_FACE);
@@ -2352,14 +2385,23 @@ const R = {
     this.uploadAndDraw(LAYER.GROUND, true);
     if (this.shadowMode === 2) {
       gl.enable(gl.STENCIL_TEST);
-      gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
       gl.depthMask(false);
       gl.disable(gl.CULL_FACE);
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(-2, -2);
       gl.uniform1f(u.uMode, 1);
-      this.uploadAndDraw(LAYER.SOLID, true);
+      const soft = this.detail > 1, lf = this.lightFrom, g = e.ground;
+      for (let pass = 0; pass < (soft ? 2 : 1); pass++) { // high: two shadows, light turned each way, one stencil bit each: a soft edge
+        gl.stencilFunc(gl.NOTEQUAL, 1 << pass, 1 << pass); gl.stencilMask(1 << pass);
+        if (soft) {
+          const turn = pass ? -SHADOW_SOFT_TURN : SHADOW_SOFT_TURN, c = Math.cos(turn), s = Math.sin(turn);
+          gl.uniform3f(u.uLightFrom, lf[0] * c - lf[2] * s, lf[1], lf[0] * s + lf[2] * c);
+          gl.uniform4f(u.uShadowCol, g[0] * SHADOW_TINT, g[1] * SHADOW_TINT, g[2] * SHADOW_TINT, SHADOW_SOFT_ALPHA);
+        }
+        this.uploadAndDraw(LAYER.SOLID, true);
+      }
+      gl.stencilMask(0xff);
       gl.disable(gl.POLYGON_OFFSET_FILL);
       gl.disable(gl.STENCIL_TEST);
       gl.enable(gl.CULL_FACE);
@@ -2367,9 +2409,12 @@ const R = {
     }
     gl.uniform1f(u.uMode, 0);
     gl.depthMask(false);
+    gl.uniform1f(u.uFx, 1);
     this.uploadAndDraw(LAYER.ALPHA, true);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.uniform1f(u.uFx, 2);
     this.uploadAndDraw(LAYER.ADD, true);
+    gl.uniform1f(u.uFx, 0);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(true);
   },
@@ -2556,9 +2601,9 @@ function faceExpression(f) {
 /* debris = loose pieces alive at once; pieces = most one collapsing deck or fallen support may throw; live = intact destructibles drawn in full detail (nearest the camera, so the simulation is the same on every preset);
    heaps = rubble piles drawn (oldest left out). Read from Quality.limits; Quality.apply cuts them again. */
 const QUALITY_PRESETS = {
-  low: { scale: 0.6, dprCap: 1, shadow: 1, particles: 140, debris: 60, pieces: 6, live: 14, heaps: 8, marks: 10 },
-  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, particles: 300, debris: 110, pieces: 10, live: 28, heaps: 16, marks: 20 },
-  high: { scale: 1, dprCap: 2, shadow: 2, particles: 520, debris: 170, pieces: 16, live: 64, heaps: 40, marks: 32 },
+  low: { scale: 0.6, dprCap: 1, shadow: 1, detail: 0, dress: 1, particles: 140, debris: 60, pieces: 6, live: 14, heaps: 8, marks: 10 },
+  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, detail: 1, dress: 2, particles: 300, debris: 110, pieces: 10, live: 28, heaps: 16, marks: 20 },
+  high: { scale: 1, dprCap: 2, shadow: 2, detail: 2, dress: 3, particles: 520, debris: 170, pieces: 16, live: 64, heaps: 40, marks: 32 },
 };
 // Auto quality starts from a pixel budget for the detected GPU class, then adapts in small steps
 // Measured on an Intel HD 4000: about 4.2 ms at 0.9 MP and 6.1 ms at 2.1 MP.
@@ -2574,7 +2619,7 @@ const Quality = {
   slowTime: 0,
   fastTime: 0,
   blockUpUntil: 0,
-  limits: QUALITY_PRESETS.high,
+  limits: QUALITY_PRESETS.high, // {dress, particles, debris, pieces, live, heaps, marks}
   apply() {
     const auto = Settings.v.quality === 'auto';
     const q = auto ? (GPU.tier === 'low' ? 'medium' : 'high') : Settings.v.quality;
@@ -2592,8 +2637,8 @@ const Quality = {
     if (pick === 'off') shadow = 0; else if (pick === 'blob') shadow = 1; else if (pick === 'full' && p.shadow === 1) shadow = 1;
     const fx = Settings.v.effects;
     const fxMul = fx === 'low' ? 0.4 : fx === 'medium' ? 0.7 : 1;
-    this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris, pieces: p.pieces, live: p.live, heaps: p.heaps, marks: p.marks };
-    R.setQuality(scale * (auto ? this.autoScale : 1), p.dprCap, shadow);
+    this.limits = { dress: p.dress, particles: Math.floor(p.particles * fxMul), debris: p.debris, pieces: p.pieces, live: p.live, heaps: p.heaps, marks: p.marks };
+    R.setQuality(scale * (auto ? this.autoScale : 1), p.dprCap, shadow, p.detail);
   },
   // Called once per frame with the smoothed frame interval (ms) and this frame's dt (s)
   adapt(frameMs, dt) {
@@ -3006,7 +3051,7 @@ const ARENAS = {
   dojo: {
     id: 'dojo', name: 'City Fight Gym', blurb: 'A martial-arts gym: a taped competition mat, a raised sparring ring, lockers, a mirror wall, glass-block windows and a glass-railed mezzanine. Dry, close sound.',
     bounds: { x: 10, z: 6 }, spawn: 2.4, ring: [1, 0.5, 4, 3.5, 1], camera: { minDist: 6.2, maxDist: 13, elev: 0.46 },
-    env: { clear: [0.06, 0.07, 0.1], sky: [0.6, 0.66, 0.76], ground: [0.3, 0.32, 0.36], lightTo: [0.25, 0.9, 0.4], lightCol: [0.94, 0.97, 1.0], fogCol: [0.16, 0.18, 0.22], fog: 0.018, rim: [0.35, 0.45, 0.6], floor: 2,
+    env: { clear: [0.06, 0.07, 0.1], sky: [0.51, 0.56, 0.65], ground: [0.3, 0.32, 0.36], lightTo: [0.25, 0.9, 0.4], lightCol: [0.8, 0.82, 0.85], fogCol: [0.16, 0.18, 0.22], fog: 0.018, rim: [0.35, 0.45, 0.6], floor: 2,
       pl: [{ pos: [-5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }, { pos: [5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }] },
     audio: { reverb: 0.5, wet: 0.12, bpm: 96, root: 73.4, mode: 'pentatonic', hum: 0 },
     objects: [
@@ -3072,7 +3117,7 @@ const ARENAS = {
   rooftop: {
     id: 'rooftop', name: 'City Rooftop', blurb: 'A night roof above the city: a painted helipad, a brick parapet with two broken gaps, a water-tank deck up a stair, a billboard catwalk that will not hold a crowd, a lounge corner. Wind.',
     bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [1, 0, 4, 4, 1], camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
-    env: { clear: [0.02, 0.03, 0.07], sky: [0.3, 0.38, 0.6], ground: [0.16, 0.17, 0.22], lightTo: [0.3, 0.9, 0.45], lightCol: [0.78, 0.84, 1.0], fogCol: [0.06, 0.09, 0.18], fog: 0.016, rim: [0.2, 0.45, 0.9], floor: 4,
+    env: { clear: [0.02, 0.03, 0.07], sky: [0.3, 0.38, 0.6], ground: [0.16, 0.17, 0.22], lightTo: [0.3, 0.9, 0.45], lightCol: [0.95, 0.86, 0.82], fogCol: [0.06, 0.09, 0.18], fog: 0.016, rim: [0.12, 0.27, 0.54], floor: 4,
       pl: [{ pos: [-6, 4.5, -5], r: 13, col: [1.0, 0.8, 0.45] }, { pos: [8, 2.4, 4], r: 11, col: [1.0, 0.7, 0.4] }] },
     audio: { reverb: 0.4, wet: 0.1, bpm: 110, root: 61.7, mode: 'minor', hum: 0 },
     objects: [
@@ -3108,7 +3153,7 @@ const ARENAS = {
   subway: {
     id: 'subway', name: 'Subway Station', blurb: 'A long tiled platform above the track: a ticket-hall mezzanine up a stopped escalator, a repair scaffold at the tunnel mouth, a train every 25 seconds. Echoing, low rumble.',
     bounds: { x: 12, z: 6.5 }, spawn: 2.6, ring: [0, -1.3, 6, 4.6, 0], camera: { minDist: 6.6, maxDist: 15.5, elev: 0.48 },
-    env: { clear: [0.04, 0.05, 0.07], sky: [0.62, 0.68, 0.74], ground: [0.35, 0.36, 0.38], lightTo: [0.2, 0.95, 0.3], lightCol: [0.92, 0.97, 1.0], fogCol: [0.14, 0.16, 0.19], fog: 0.02, rim: [0.5, 0.6, 0.7], floor: 5,
+    env: { clear: [0.04, 0.05, 0.07], sky: [0.53, 0.58, 0.63], ground: [0.35, 0.36, 0.38], lightTo: [0.2, 0.95, 0.3], lightCol: [0.78, 0.82, 0.85], fogCol: [0.14, 0.16, 0.19], fog: 0.02, rim: [0.5, 0.6, 0.7], floor: 5,
       pl: [{ pos: [-6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }, { pos: [6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }] },
     audio: { reverb: 2.1, wet: 0.34, bpm: 98, root: 49, mode: 'minor', hum: 55 },
     objects: [
@@ -3200,7 +3245,7 @@ const ARENAS = {
   club: {
     id: 'club', name: 'Night Club', blurb: 'A dark club with a lit dance floor: a wooden DJ stage that gives way, a VIP balcony up a stair behind glass rails, a bar, a CO2 jet. Bass, short echo.',
     bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [0, 1.2, 4.5, 3.5, 1], camera: { minDist: 6.2, maxDist: 14, elev: 0.5 },
-    env: { clear: [0.02, 0.01, 0.04], sky: [0.2, 0.12, 0.3], ground: [0.1, 0.08, 0.14], lightTo: [0.2, 0.9, 0.3], lightCol: [0.7, 0.55, 0.9], fogCol: [0.05, 0.03, 0.09], fog: 0.026, rim: [0.8, 0.2, 0.8], floor: 8,
+    env: { clear: [0.02, 0.01, 0.04], sky: [0.22, 0.16, 0.26], ground: [0.1, 0.08, 0.14], lightTo: [0.2, 0.9, 0.3], lightCol: [1.0, 0.78, 0.76], fogCol: [0.05, 0.03, 0.09], fog: 0.026, rim: [0.48, 0.12, 0.48], floor: 8,
       pl: [{ pos: [-4, 4.6, 0], r: 14, col: [1.0, 0.2, 0.7] }, { pos: [4, 4.6, 2], r: 14, col: [0.2, 0.5, 1.0] }] },
     audio: { reverb: 0.8, wet: 0.2, bpm: 124, root: 55, mode: 'minor', hum: 0 },
     objects: [
@@ -3241,6 +3286,41 @@ const swayLamp = (x, z, top) => ({ x, z, top, amp: 0, t0: 0 }); // a hanging lig
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
+
+/* Wall dressing (P30-07/08): `d` = the lowest preset that draws a box (11, 17 and 23 boxes, 9, 15 and 21 where the level has no side wall); no `lamp`, no shadow. Seen from the room no two boxes of one wall overlap (the Wall dressing test checks it): skirting and doors meet at 0.28 m, the pipe stops at the pilasters, doors, windows, notice board, vent signs and pilasters stand in their own columns, the posters in a row under the windows (0.45 to 1.45 m). Skirting, signs and doors stand 0.04 to 0.12 m out of the wall (under 2.2 m high that is as far as the walking room allows), the ducts and pipes 0.44 m, above head height.
+   Level: [back wall z, side wall x (0 = none), wall height, light, dark, sign colour, extras: recess [x0, x1, dz] (a part of the back wall set back by dz), duct (its height), doors [left x, right x], windows [x of two on tier 1, then two on tier 2], vents [left x, right x]] */
+const WALL_DRESS = {
+  warehouse: [-6.6, 11.6, 7, '#8a919c', '#2c3036', '#ffb347'], dojo: [-6.1, 10.1, 6, '#f4f4f0', '#2b3a4a', '#d6303f', { doors: [2.6, 8.2], windows: [-3.2, 5.5, -5.7, -8.1], vents: [-1.4, 4.2] }], pit: [-6.6, 10.1, 4, '#6d727a', '#16171a', '#f08a30'], rooftop: [-7.3, 0, 3.6, '#6a707a', '#22252c', '#ff8a3a'],
+  subway: [-6.6, 12.1, 6.4, '#f4f6f8', '#1f5f8f', '#ffd24a'], garage: [-7.1, 11.6, 4.4, '#9a9d9a', '#2a2a2a', '#f0c030'], construction: [-7.1, 0, 7, '#9a9a94', '#3a3a38', '#e0a000'],
+  club: [-7.1, 11.1, 6, '#2a2438', '#1b0f3a', '#ff3fae', { recess: [-10.9, -6.5, -0.6], duct: 5.72 }],
+};
+const DRESS_SKIRT = 0.28, DRESS_DOOR_TOP = 2.2, DRESS_POSTER_Y = 0.95; // m: skirting height, door height, centre of the poster row
+function dressWalls(p, id) {
+  if (!WALL_DRESS[id]) return; // a test level
+  const [z, xs, top, light, dark, sign, more = {}] = WALL_DRESS[id], wide = xs || 11, high = more.duct || top - (top < 5 ? 0.4 : 0.8), mid = top * 0.55, rc = more.recess;
+  const [doorL, doorR] = more.doors || [-7, 8.2], [winA, winB, winC, winD] = more.windows || [-2, 2, -4.9, 4.9], [ventL, ventR] = more.vents || [-3.3, 3.3];
+  const tall = top - DRESS_SKIRT, tallY = (top + DRESS_SKIRT) / 2; // pilasters and posts stand on the skirting
+  const back = (d, x, y, depth, w, h, color, e) => { // on the back wall; over the recess a box goes onto the set-back face (or is cut to the part outside it)
+    let lo = x - w / 2, hi = x + w / 2, dz = 0;
+    if (rc && hi > rc[0] && lo < rc[1]) {
+      if (Math.min(hi, rc[1]) - Math.max(lo, rc[0]) >= w / 2) { lo = Math.max(lo, rc[0]); hi = Math.min(hi, rc[1]); dz = rc[2]; } else if (hi > rc[1]) lo = rc[1]; else hi = rc[0];
+    }
+    propBox(p, (lo + hi) / 2, y, z + dz + depth / 2, hi - lo, h, depth, color, { d, e: e || 0 });
+  };
+  const side = (d, s, y, depth, len, h, color) => propBox(p, s * (xs - depth / 2), y, -0.4, depth, h, len, color, { d });
+  if (id === 'rooftop') propBox(p, 0, top / 2, z - 0.2, 30, top, 0.4, '#2e333c'); // the open roof has no wall: a plant-room wall behind the parapet carries the dressing
+  back(1, 0, high, 0.44, 18, 0.44, dark); back(1, 0, DRESS_SKIRT / 2, 0.1, 2 * wide - 0.4, DRESS_SKIRT, dark);
+  for (const x of [doorL, doorR]) back(1, x, (DRESS_SKIRT + DRESS_DOOR_TOP) / 2, 0.08, 1.4, DRESS_DOOR_TOP - DRESS_SKIRT, dark);
+  back(1, doorL, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2); back(2, doorR, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2);
+  [[1, winA], [1, winB], [2, winC], [2, winD]].forEach(([d, x]) => back(d, x, mid, 0.06, 2, 0.9, '#9db4c8', 0.3));
+  back(1, 0, 2, 0.05, 1.6, 1, light); // the notice board
+  [[1, -3.5], [2, 5.5], [3, -8.4], [3, 0.5]].forEach(([d, x]) => back(d, x, DRESS_POSTER_Y, 0.04, 1, 1, sign, 0.6));
+  back(3, ventL, 1.7, 0.1, 0.3, 0.3, sign, 1.6); back(3, ventR, 1.7, 0.1, 0.3, 0.3, sign, 1.6);
+  for (const s of [-1, 1]) {
+    back(3, s * 9.4, tallY, 0.12, 0.5, tall, light);
+    if (xs) { side(2, s, high, 0.44, 12, 0.44, dark); side(1, s, 0.14, 0.1, 14, DRESS_SKIRT, dark); } else back(2, s * (wide - 1), tallY, 0.12, 0.2, tall, dark);
+  }
+}
 
 function buildProps(id) {
   const p = [];
@@ -3324,6 +3404,7 @@ function buildProps(id) {
     for (const x of [-6, 0, 6]) { const lamp = swayLamp(x, -2, 8); propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0, lamp }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111', { lamp }); }
     propBox(p, 10.07, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 }); // the street door above the landing
   }
+  dressWalls(p, id);
   return p;
 }
 
@@ -3805,6 +3886,21 @@ const Arena = {
   },
 
   // Height of the footing under a fighter's cylinder at (x, z) standing at height y: resolveFighter's groundY rule without moving anything (AI edge checks)
+  // Where the level's light runs a shadow sideways per metre of height above its plane (the slant of lightTo, away from the light): [x, z]
+  shadowDir() {
+    const L = (this.def && this.def.env || DEFAULT_ENV).lightTo, up = Math.max(L[1], 0.1);
+    return [-L[0] / up, -L[2] / up];
+  },
+  // The height a shadow plane may sit at over (x, z): h where the footing is the same under the footprint and under the whole shadow of a body `height` high standing `air` above its footing (the shadow runs along shadowDir to a tip height + air away: 1.5 to 2.8 m for a head), else 0 (the plane would float past a deck edge or over lower stair treads). Checked at the footprint, the middle of the shadow and its tip, four corners `reach` (the body radius, half an item) out each, each corner within FOOTING_SLACK of the deck: a body overhanging the edge by more than the slack, on either side, loses the plane
+  flatFooting(x, z, h, reach, air = 0, height = CAMERA_FIGHTER_HEIGHT) {
+    if (h < 0.02) return 0;
+    const dir = this.shadowDir(), run = Math.max(air, 0) + height;
+    for (let k = 0; k < 12; k++) {
+      const along = (k >> 2) / 2;
+      if (Math.abs(this.supportAt(x + dir[0] * run * along + (k & 1 ? reach : -reach), z + dir[1] * run * along + (k & 2 ? reach : -reach), h + 0.3, FOOTING_SLACK) - h) > 0.02) return 0;
+    }
+    return h;
+  },
   supportAt(x, z, y, r, item) {
     let top = 0;
     if (item) r = ITEM_FOOTING;
@@ -3897,8 +3993,10 @@ const Arena = {
   // --- drawing
   draw() {
     const t = this.time;
+    const dress = Quality.limits.dress;
     for (let i = 0; i < this.props.length; i++) {
       const p = this.props[i];
+      if (p.d > dress) continue;
       let x = p.x, y = p.y, z = p.z, e = p.e;
       if (p.bob) y += Math.sin(t * 2.2 + p.ph) * p.bob;
       if (p.lean > 0) { const k = Math.min(1, p.lean, (CROWD_SECS - p.lean) * 4) * CROWD_LEAN; x += p.lx * k; z += p.lz * k; } // R8: a bystander leans away from the trouble, or hops at a knock-out
@@ -3941,6 +4039,7 @@ const Arena = {
     const wob = o.wob > 0 ? Math.sin(o.wobPhase) * o.wob * (o.creak > 0 ? 0.05 : 0.025) : 0;
     const x = o.x + wob, z = o.z + wob * 0.6;
     this.dy = o.base; // an object standing on a deck is drawn from its height
+    this.castDy = this.flatFooting(o.x, o.z, o.base, FOOTING_REACH, 0, o.h || 1);
     if (!o.destroyed) {
       if (o.type === 'box') this.drawBox(o, x, z);
       else if (o.type === 'column') this.drawColumn(o, x, z);
@@ -3952,10 +4051,10 @@ const Arena = {
       if (!o.hide) this.drawRubble(o);
       else R.put(LAYER.SOLID, MESH.CUBE, o.rubble.x, o.rubble.top * 0.5, o.rubble.z, o.rubble.hx * 2, o.rubble.top, o.rubble.hz * 2, 0, 0, 0, C('#74777d'), 1, 0, 0.9, false, 0); // over the preset's heap budget: the same footprint, one block, so nobody floats on an invisible pile
     }
-    this.dy = 0;
+    this.dy = this.castDy = 0;
     if (o.alarm > 0 && !o.destroyed && ((this.time * 6) & 1)) for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.ADD, MESH.CUBE, x + sx * o.hx, o.h * 0.45, z + sz * o.hz, 0.12, 0.12, 0.12, 0, 0, 0, ALARM_RGB, 1, 2, 0.5, false, 0); // R8: a hit car flashes its lamps
-    if (R.shadowMode === 1 && !o.destroyed && !o.base && o.type !== 'panel' && o.type !== 'deck') {
-      R.put(LAYER.ALPHA, MESH.CYL, o.x, 0.02, o.z, o.hx * 2.6, 0.01, o.hz * 2.6, 0, 0, 0, [0, 0, 0], 0.35, 0, 1, false, 0);
+    if (R.shadowMode === 1 && !o.destroyed && o.type !== 'panel' && o.type !== 'deck') {
+      R.put(LAYER.ALPHA, MESH.CYL, o.x, o.base + 0.02, o.z, o.hx * 2.6, 0.01, o.hz * 2.6, 0, 0, 0, [0, 0, 0], 0.35, 0, 1, false, 0);
     }
   },
   tone(o) {
@@ -4185,7 +4284,7 @@ const Arena = {
     gone.sort((p, q) => q.brokeAt - p.brokeAt);
     for (let i = 0; i < gone.length; i++) gone[i].hide = i >= limits.heaps;
   },
-  put(layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag) { R.put(layer, mesh, x, y + this.dy, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag); },
+  put(layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag) { R.put(layer, mesh, x, y + this.dy, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast === true ? 1 + this.castDy : cast, flag); },
 };
 
 // --- debris pool
@@ -5620,8 +5719,9 @@ const FBASE = M4.create();
 const FMS = new MatStack(14);
 let DRAW_NOW = false;
 let WEAR_DIM = 1; // the share of its colour a part keeps while a worn item is drawn (P13-02); 1 = as new
+let CAST_SLOT = 1; // 1 + the footing height of the fighter being drawn
 const WEAR_RGB = [0, 0, 0];
-function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = true) {
+function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = CAST_SLOT) {
   if (!DRAW_NOW) { if (PROBE_LOW !== null) probeLow(mesh, cx, cy, cz, sx, sy, sz); return; }
   FSCRATCH.set(FMS.m);
   M4.translate(FSCRATCH, cx, cy, cz);
@@ -7377,10 +7477,12 @@ class Fighter {
   draw(alpha, marker = true) { // marker: the floor disc of the fighter's team
     const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
     const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
-    this.skeleton(px, py, pz, yaw, true);
-    if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, py * 0.3)), 0, 1, false, 0);
+    const footing = Math.min(this.groundY, py); // the surface under the fighter, also in the air
+    CAST_SLOT = 1 + Arena.flatFooting(px, pz, footing, this.radius, py - footing);
+    try { this.skeleton(px, py, pz, yaw, true); } finally { CAST_SLOT = 1; }
+    if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, (py - footing) * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team
-    if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
+    if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
   }
 }
 
@@ -12078,10 +12180,12 @@ const SimRunner = {
 // --- showcase scene used behind menus
 const PREVIEW_FIGHTER_SPAN = 2.7; // metres of fighter (plus margin) the creator preview keeps in view
 const PREVIEW_CENTER_Y = 0.95;
+const MENU_PHONE_PX = 600, MENU_PHONE_CLOSER = 0.15, MENU_FREE_MIN = 0.12, MENU_PAIR_SPAN = 4.4;
 const Showcase = {
   arenaId: null, fighters: [], t: 0, solo: false,
   creator: false, previewFighter: null, previewPose: 'guard', poseClock: 0, userYaw: 0.5, spinHoldUntil: 0,
   previewFocus: [-0.4, 0], previewFreeHeight: 1, // screen spot (NDC) and free height fraction left by the creator panel
+  menuFocus: 0, // NDC x of the free strip beside the menu panel (UI.measureMenuFocus)
   // altSolo: the lone fighter wears the alternate colours (P2 picking P1's fighter)
   set(arenaId, leftId, rightId, solo, altSolo) {
     if (this.arenaId !== arenaId || !Arena.def || Arena.def.id !== arenaId) { Arena.build(ARENAS[arenaId]); this.arenaId = arenaId; }
@@ -12157,7 +12261,16 @@ const Showcase = {
     }
     if (this.creator) this.previewCamera(dt);
     else if (this.solo) Camera.showcase(dt, 0, 1.0, 0, 4.2, 0.35, 0.18);
-    else Camera.showcase(dt, -1.9, 1.0, 0, 7.0, 0.2 + Math.sin(this.t * 0.25) * 0.3, 0.3);
+    else this.pairCamera(dt);
+  },
+  // The menu pair aimed into the strip the panel leaves free (as the creator preview is); closer on a phone
+  pairCamera(dt) {
+    const az = 0.2 + Math.sin(this.t * 0.25) * 0.3, phone = Math.min(R.cssW, R.cssH) < MENU_PHONE_PX;
+    const dist = 7.0 * (phone ? 1 - MENU_PHONE_CLOSER : 1);
+    const halfW = dist * Math.tan(Camera.baseFov / 2) * R.cssW / Math.max(1, R.cssH);
+    const shift = -this.menuFocus * halfW, room = (1 - Math.abs(this.menuFocus)) * 2 * halfW; // room: metres across the free strip
+    const lead = this.menuFocus === 0 ? -1.9 : room >= MENU_PAIR_SPAN ? 0 : -1.5; // the pair centred in the strip, or the left fighter alone where the pair does not fit
+    Camera.showcase(dt, lead + Math.cos(az) * shift, 1.0, -Math.sin(az) * shift, dist, az, 0.3);
   },
   draw() {
     const n = this.solo ? 1 : 2;
@@ -14993,7 +15106,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -15023,7 +15136,7 @@ const UI = {
       this.dom.party.appendChild(root);
       this.partyEls.push({ root, name: root.children[0], hp: root.children[1].firstChild, st: root.children[2].firstChild });
     }
-    for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0 }); }
+    for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0, sx: 0, sy: 0, drop: 0, scale: 1 }); }
     for (let i = 0; i < BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'edge'; el.style.display = 'none'; this.dom.tags.appendChild(el); this.edgeEls.push(el); } // an arrow per possible enemy, for attackers off screen
     Events.on('toast', (e) => this.toast(e.msg, e.kind));
     Events.on('padsChanged', () => { if (this.current === 'lineup' || this.current === 'freefight') this.rerender(true); });
@@ -15140,12 +15253,10 @@ const UI = {
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
     const p1 = Game.match && Game.match.fighters[0]; // the card opens with the fight, so it can name this fighter's defense
     const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
-    return '<h3>CONTROLS</h3>' + move + '<br>' +
-      named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' +
-      named('Defend', 'defend') + ' ' + defendHow + '<br>' +
-      named('Grab / escape', 'grapple') + '<br>' +
-      named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
-      'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings<small>' + close + '</small>';
+    // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
+    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
+      '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)</div>' +
+      '<div>Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
   },
   // True when this fight starts with an input type that has not seen its card yet
   controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
@@ -15163,7 +15274,8 @@ const UI = {
   showVersusCard() {
     this.cardSession = Game.versus;
     const pause = 'Esc / ' + keyLabel(Keymap.bindings.pause[1]) + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
-    this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3>' + this.devicesText() + '<br>Pause: <kbd>' + esc(pause) + '</kbd><small>Click or press any key to close</small>';
+    const [one, two, rest] = this.devicesGroups();
+    this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3><div>' + one + '</div><div>' + two + '</div><div>' + rest + '<br>Pause: <kbd>' + esc(pause) + '</kbd></div><small>Click or press any key to close</small>'; // groups: a landscape phone sets them in three columns
     this.dom.onboard.hidden = false;
     clearTimeout(this.onboardTimer);
     this.onboardTimer = setTimeout(() => this.hideOnboarding(), VERSUS_CARD_MS);
@@ -15235,7 +15347,9 @@ const UI = {
     if (!this.rotateShown && window.innerHeight > window.innerWidth && this.touchWanted()) { this.rotateShown = true; this.toast('Rotate your device to landscape for the best view', 'warn'); }
     this.cache = {};
     this.dom.hn1.innerHTML = match.setup ? this.lineupHeading(match, true) : match.coop ? '<b>PARTY</b> ' + match.partySize + (match.partySize === 1 ? ' PLAYER' : ' PLAYERS') : '<b>P1</b> ' + esc(match.fighters[0].name); // a co-op: the left bar is the party together
-    this.dom.hn2.innerHTML = match.setup ? this.lineupHeading(match, false) : match.brawl ? '<b>CPU</b> ENEMIES' : '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name); // a brawl: the right bar is the enemies together
+    this.dom.hn2.innerHTML = match.setup ? this.lineupHeading(match, false) : match.brawl ? '<b>CPU</b> ENEMIES' : this.sideTag(this.sideLabel(match, 1)) + esc(match.fighters[1].name); // a brawl: the right bar is the enemies together
+    this.dom.hn1.classList.toggle('long', !match.setup && !match.coop && match.fighters[0].name.length > HUD_NAME_LONG);
+    this.dom.hn2.classList.toggle('long', !match.setup && !match.brawl && match.fighters[1].name.length > HUD_NAME_LONG);
     this.dom.hud.classList.toggle('vs', match.versus);
     this.dom.hud.classList.toggle('brawl', match.brawl);
     this.dom.hud.classList.toggle('coop', !!match.coop);
@@ -15250,6 +15364,7 @@ const UI = {
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
+    this.popReset();
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
@@ -15260,6 +15375,8 @@ const UI = {
   },
   // "P1", "P2", "CPU" or "DUMMY": who controls a fighter
   sideLabel(m, i) { return i === 0 ? 'P1' : m.versus ? 'P2' : m.training ? 'DUMMY' : 'CPU'; },
+  // HUD side label; CPU gets a class a portrait window hides
+  sideTag(label) { return '<b' + (label === 'CPU' ? ' class="cpu"' : '') + '>' + label + '</b> '; },
   // A fighter's name, with the side when the two could be confused
   fighterName(m, i) {
     const name = m.fighters[i].name;
@@ -15335,6 +15452,7 @@ const UI = {
     const def = root.querySelector('[data-default]:not([disabled])'); // a disabled default (Choose arena before anyone joined) cannot take focus
     const target = keepFocus ? items[Math.min(idx, items.length - 1)] : (def || items[0]);
     if (target) target.focus({ preventScroll: false });
+    if (!keepFocus && this.current === 'results') root.querySelectorAll('.screen, .panel').forEach((box) => { box.scrollTop = 0; }); // focusing Rematch (low) scrolled the title away
   },
   navItems() { return Array.from(this.dom.screens.querySelectorAll('[data-nav]')).filter((el) => !el.disabled); }, // a disabled button cannot take focus: the arrows would stick on the one before it
   fatalShown() { return !this.dom.fatal.hidden; },
@@ -15918,9 +16036,10 @@ const UI = {
     return h;
   },
   // Versus device split: keyboard halves, then gamepads (a lone pad always plays P2)
-  devicesText() {
-    return '<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads. <b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad. ' +
-      'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.';
+  devicesText() { return this.devicesGroups().join(' '); },
+  devicesGroups() { // P1, P2 and the rest: the Versus card sets them in three groups
+    return ['<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads.', '<b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad.',
+      'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.'];
   },
   // "W A S D move, J K punch / kick, ..." for one player's keyboard layout
   layoutText(keymap) {
@@ -16329,12 +16448,23 @@ const UI = {
     if (b) { b.addEventListener('click', () => this.act('errmenu')); b.focus(); }
   },
 
+  // The wider strip beside the menu panel (NDC x), 0 if none
+  measureMenuFocus() {
+    const panel = this.dom.screens.querySelector('.panel');
+    if (!panel) { Showcase.menuFocus = 0; return; }
+    const r = panel.getBoundingClientRect(), w = Math.max(1, window.innerWidth);
+    const freeLeft = r.left / w, freeRight = 1 - r.right / w;
+    if (Math.max(freeLeft, freeRight) < MENU_FREE_MIN) { Showcase.menuFocus = 0; return; }
+    Showcase.menuFocus = clamp(freeRight >= freeLeft ? r.right / w : -(1 - r.left / w), -0.9, 0.9);
+  },
+
   // --- gamepad menu navigation
   update() {
     this.frameCount++;
     const pauseShown = this.lastScreen === 'pause'; // a press that led back to the pause screen must not also close it
     this.lastScreen = this.current;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
+    else if (this.current && this.frameCount % 15 === 1) this.measureMenuFocus();
     if (this.padOverlay()) return;
     if (!this.current) return;
     if (Inputs.captureCallback) { this.padCancelCapture(); return; }
@@ -16399,12 +16529,99 @@ const UI = {
     const t = e.broke ? 'GUARD BREAK!' : e.brk ? 'COMBO BREAK!' : e.sway ? (e.perfect ? 'PERFECT SWAY!' : 'SWAY') : e.perfect ? 'PERFECT BLOCK!' : 'BLOCK';
     this.popAt(e.x, e.y + 0.1, e.z, t, e.broke ? '#ffb347' : e.brk ? CUE_COLOR.brk : '#9cf4ff');
   },
+  /* Same text again within POP_MERGE_SECONDS and POP_NEAR restarts the earlier pop ("x2"); else the pop takes the lowest step of POP_LIFT_EM whose rectangle on screen touches no live pop (where the others are now, risen and lifted, at their own scale, not where they started); at most POP_KIND_MAX words and numbers each */
   popAt(x, y, z, text, color) {
-    const p = this.pops[this.popIdx++ % this.pops.length];
-    p.age = 0; p.life = 0.95; p.x = x; p.y = y; p.z = z;
+    const number = /^\d/.test(text), near = (q) => Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR;
+    let twin = null, kind = 0, oldest = null, spare = null;
+    for (const q of this.pops) {
+      if (q.age > q.life) { if (!spare) spare = q; continue; }
+      if (!twin && near(q) && q.text === text && q.age <= POP_MERGE_SECONDS) twin = q;
+      if (q.number === number) { kind++; if (!oldest || q.age > oldest.age) oldest = q; }
+    }
+    if (twin) { twin.n++; twin.age = 0; twin.el.textContent = text + ' x' + twin.n; twin.el.style.color = color; twin.el.style.opacity = '1'; return; }
+    const p = kind >= POP_KIND_MAX ? oldest : spare || this.pops[this.popIdx++ % this.pops.length];
+    let step = this.popFreeStep(p, x, y, z, text);
+    while (typeof step === 'object') { // no room: the oldest pop that is in the way gives way, until the new one fits
+      step.age = step.life + 1; step.el.style.opacity = '0';
+      step = this.popFreeStep(p, x, y, z, text);
+    }
+    p.lift = step * POP_LIFT_EM;
+    p.age = 0; p.life = 0.95; p.x = x; p.y = y; p.z = z; p.text = text; p.n = 1; p.number = number;
     p.el.textContent = text;
     p.el.style.color = color;
     p.el.style.opacity = '1';
+  },
+  popFontPx() { // the size of one pop's text in CSS px
+    const size = typeof getComputedStyle === 'function' && this.pops[0] && this.pops[0].el.nodeType ? parseFloat(getComputedStyle(this.pops[0].el).fontSize) : 0;
+    return size > 0 ? size : 16 * 1.3;
+  },
+  popPx() { // the same, measured once and kept until popReset
+    if (!(this.popBoxPx > 0)) this.popBoxPx = this.popFontPx();
+    return this.popBoxPx;
+  },
+  popReset() { this.hudBottom = -1; this.popBoxPx = 0; }, // after a resize or at a match start: measure the HUD and the text again
+  popHalfWidth(text, scale, px) { return text.length * POP_CHAR_EM * px * scale / 2; }, // an estimate from the letter count: no layout read per hit
+  // The lower edge of the HUD (top bars, party row, level line) in CSS px, measured once and kept until popReset; 0 where there is no layout
+  popHudBottom() {
+    if (this.hudBottom >= 0) return this.hudBottom;
+    const hud = this.dom.hud;
+    if (!hud || hud.hidden || !hud.querySelectorAll) return 0;
+    let bottom = 0;
+    for (const el of hud.querySelectorAll('.hud-top, #party, #modeinfo')) { const r = el.getBoundingClientRect(); if (r.height > 0) bottom = Math.max(bottom, r.bottom); }
+    this.hudBottom = bottom > 0 ? bottom : -1;
+    return bottom;
+  },
+  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width at the start scale, POP_BOX_EM high) overlaps no live pop's rectangle on screen (each at its own scale). The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds; a pile the HUD pushes down moves as a whole (popLayout), so the gaps hold there too. The pile may not climb into the HUD: an upward step is allowed only while the pop, at the top of its rise, still has its whole rectangle under the HUD's lower edge; past that the pop tries POP_STEPS_DOWN steps below the hit (negative steps). Where nothing is free the result is the oldest pop that is in the way (one of the same column, or a world-near one without a projection): the caller ends it and asks again. Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide, with no HUD limit. */
+  popFreeStep(p, x, y, z, text) {
+    const px = this.popPx(), here = [0, 0], there = [0, 0], top = [0, 0], seen = R.project(x, y, z, here), stepPx = POP_LIFT_EM * px, boxPx = POP_BOX_EM * px, grown = 1 + POP_GROW;
+    const boxes = [], near = []; // boxes: [x, y, half width, scale, pop] of the live pops now; near: live pops close in the world that have no projection
+    let taken = 0;
+    for (const q of this.pops) {
+      if (q === p || q.age > q.life) continue;
+      const scale = 1 + (1 - q.age / q.life) * POP_GROW;
+      if (seen && R.project(q.x, q.y + q.age / q.life * POP_RISE, q.z, there)) boxes.push([there[0], there[1] - q.lift * px, this.popHalfWidth(q.el.textContent, scale, px), scale, q]);
+      else if (Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR && q.lift >= 0) { taken |= 1 << Math.round(q.lift / POP_LIFT_EM); near.push(q); }
+    }
+    const halfWidth = this.popHalfWidth(text, grown, px);
+    const hudBottom = seen ? this.popHudBottom() : 0, rise = seen && R.project(x, y + POP_RISE, z, top) ? here[1] - top[1] : 0;
+    const lastStep = hudBottom > 0 ? Math.max(0, Math.floor((here[1] - rise - hudBottom - boxPx * grown / 2) / stepPx)) : this.pops.length - 1;
+    const sameColumn = (b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth;
+    const blocked = (step) => (step >= 0 && (taken >> step & 1) === 1) || boxes.some((b) => sameColumn(b) && Math.abs(b[1] - (here[1] - step * stepPx)) < boxPx * (b[3] + grown) / 2);
+    let step = 0;
+    while (step < lastStep && blocked(step)) step++;
+    if (!blocked(step)) return step;
+    for (let down = 1; seen && down <= POP_STEPS_DOWN; down++) if (!blocked(-down)) return -down;
+    let eldest = null;
+    for (const q of near.concat(boxes.filter(sameColumn).map((b) => b[4]))) if (!eldest || q.age > eldest.age) eldest = q;
+    return eldest || 0;
+  },
+  /* Puts the live pops on screen (every frame, after they have aged): the point of each pop (sx, sy) from its world spot after its rise, its lift and scale. A pop whose top is in the HUD (the camera moved after it was placed) gets a drop; pops in one column (their rectangles overlap sideways) are one pile and all take the largest drop, so the gaps between them stay and no two ever meet. Reads the cached HUD edge; with no pop in the HUD it is one projection per pop. */
+  popLayout() {
+    const px = this.popPx(), out = this.popOut, live = this.popLive;
+    let hud = -1, crowded = false;
+    live.length = 0;
+    for (const p of this.pops) {
+      if (p.age >= p.life || !R.project(p.x, p.y + p.age / p.life * POP_RISE, p.z, out)) continue;
+      if (hud < 0) hud = this.popHudBottom();
+      p.sx = out[0]; p.sy = out[1]; p.scale = 1 + (1 - p.age / p.life) * POP_GROW;
+      p.drop = hud > 0 ? Math.max(0, hud + POP_BOX_EM * px * p.scale / 2 - (p.sy - p.lift * px)) : 0;
+      if (p.drop > 0) crowded = true;
+      live.push(p);
+    }
+    if (crowded) this.popSpread(live, px);
+    for (const p of live) p.el.style.transform = 'translate(' + Math.round(p.sx) + 'px,' + Math.round(p.sy + p.drop) + 'px) translate(-50%,-50%) translateY(' + (-p.lift) + 'em) scale(' + p.scale.toFixed(2) + ')';
+  },
+  popSpread(live, px) { // pops of one column share the largest drop (repeated until no pair differs: a chain of overlaps is one pile)
+    for (let pass = 0; pass < live.length; pass++) {
+      let changed = false;
+      for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+        const a = live[i], b = live[j];
+        if (a.drop === b.drop || Math.abs(a.sx - b.sx) >= this.popHalfWidth(a.el.textContent, a.scale, px) + this.popHalfWidth(b.el.textContent, b.scale, px)) continue;
+        a.drop = b.drop = Math.max(a.drop, b.drop);
+        changed = true;
+      }
+      if (!changed) break;
+    }
   },
   frame(m) {
     const d = this.dom;
@@ -16508,9 +16725,9 @@ const UI = {
       p.age += 1 / 60;
       const u = p.age / p.life;
       if (u >= 1) { p.el.style.opacity = '0'; continue; }
-      if (R.project(p.x, p.y + u * 0.6, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
+    this.popLayout();
     if (m.training) this.trainingPanel(m);
   },
   // Lock-on marker: the locked fighter's own name tag gets the `lk` class
@@ -18190,7 +18407,7 @@ function testApi() {
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
@@ -18421,6 +18638,7 @@ function installGlobalHandlers() {
       const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if (!typing && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
       Quality.apply();
+      UI.popReset(); // the HUD and the text size may have changed: measured again at the next hit word
     });
   };
   window.addEventListener('resize', queueResize);
