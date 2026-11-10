@@ -17632,7 +17632,7 @@ const OnlineUI = {
     if (seat > ONLINE_SEAT_MAX) return;
     const link = Online.createLink('host'), old = this.slotOf(seat), slot = old || { seat, link: null, offerCode: '', answerText: '', note: '', roundTrip: -1 };
     if (old && old.link) old.link.close();
-    Object.assign(slot, { link, offerCode: '', answerText: '', note: '', roundTrip: -1 });
+    Object.assign(slot, { link, offerCode: '', answerText: '', note: '', roundTrip: -1, engine: undefined, openedAt: undefined }); // a new guest says its own browser kind
     if (!old) this.guests.push(slot);
     this.listen(link);
     this.step(link, link.makeOffer(seat), (code) => { slot.offerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));

@@ -18082,6 +18082,22 @@ const SelfTest = {
         // a connected guest whose kind has not arrived yet is still joining: Start stays off until the hello comes or 2 s have passed
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() })];
         if (OnlineUI.startProblem() !== ONLINE_MESSAGES.joining || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(esc(ONLINE_MESSAGES.joining))) bad.push('a guest that opened just now and has not said its kind must switch Start off and say why: ' + OnlineUI.startProblem());
+        // the real wiring: a host guest link that opens marks its slot as joining
+        const opening = slot(2, 'open', null, 'BPO-two');
+        opening.link.send = () => true;
+        OnlineUI.guests = [opening];
+        OnlineUI.onState(opening.link, 'open');
+        if (!(opening.openedAt > 0) || OnlineUI.startProblem() !== ONLINE_MESSAGES.joining) bad.push('a guest link that opens must hold Start until its hello: ' + OnlineUI.startProblem());
+        // a new code for a failed seat forgets the old guest's kind
+        const failedSeat = slot(2, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { engine: other, openedAt: 1 });
+        failedSeat.link.close = () => {};
+        OnlineUI.guests = [failedSeat];
+        const listenersBefore = OnlineUI.unlisten.length;
+        OnlineUI.addGuest(2);
+        const recoded = OnlineUI.slotOf(2);
+        if (recoded.engine !== undefined || recoded.openedAt !== undefined) bad.push('a re-coded seat kept the old guest\'s browser kind');
+        OnlineUI.unlisten.splice(listenersBefore).forEach((off) => off());
+        if (recoded.link && recoded.link.close) recoded.link.close();
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() - ONLINE_HELLO_WAIT_MS - 100 })];
         if (OnlineUI.startProblem() !== '') bad.push('a guest whose hello is more than ' + ONLINE_HELLO_WAIT_MS + ' ms late must not hold Start: ' + OnlineUI.startProblem());
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now(), engine: own })];
