@@ -5267,7 +5267,7 @@ const STRIKE_STEP_HIP = 0.4; // rad: how far the lead thigh swings forward at mi
 const STRIKE_STEP_CLEAR = 0.1; // m: how high the lead foot is above the floor at mid-step
 const STRIKE_TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }; // key point (3 numbers each in pts) of the limb that strikes: wrist or ankle
 const STRIKE_ROOM = 0.6; // m: the nearest the drawn stride may bring the two bodies' centres
-const STRIKE_FIT = 0.02; // m: the tip may end this much beyond the wanted place before the limb is fitted again
+const STRIKE_FIT = 0.02, STRIKE_FIT_SIDE = 0.25; // m: the tip may end this much beyond the wanted place before the limb is fitted again; a foe farther than this to the side of the blow's line gets the full extension
 const STRIKE_PAST = 0.2, STRIKE_REACH_MIN = 0.05; // m: how far past the foe's centre the drawn limb tip may end; the least share of its extension a limb is given
 const STRIKE_LANE = 0.7; // m: a fighter this close to the line of the step (to either side) is in its way
 const STRIKE_PROBE = 0.1; // m: the spacing at which the step is checked against props
@@ -7503,6 +7503,7 @@ class Fighter {
   strikeReach(mv, moved) {
     const target = this.target, full = this.motion.strikes[mv.anim + mv.limb + 'g'];
     if (!target || target === this || target.alive === false || !(full > STRIKE_REACH_MIN)) return 1;
+    if (target.state === S.SWAY || Math.abs((target.x - this.x) * this.fwdZ - (target.z - this.z) * this.fwdX) > STRIKE_FIT_SIDE) return 1; // a foe that sways, or stands beside the line of the blow, is missed, not struck through
     return clamp((DMath.hypot(target.x - this.x, target.z - this.z) + STRIKE_PAST - moved) / full, STRIKE_REACH_MIN, 1);
   }
   // Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose.
