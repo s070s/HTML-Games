@@ -272,6 +272,7 @@ async function main() {
   const started = Date.now();
   const listenersBefore = ev('Events.count()');
   const results = ev('selfTests').run_all(filter || undefined);
+  if (results.settled) await results.settled;   // the async tests (WebRTC, P12-04 and P12-01) fill in their results after run_all returns
   console.log('listeners before/after: ' + listenersBefore + ' / ' + ev('Events.count()'));   // a test that leaks event listeners shows here
   if (filter && !results.length) { console.log('No test matched: ' + filter.join(' | ')); process.exit(1); }
   const otherFailures = report(results, Date.now() - started);

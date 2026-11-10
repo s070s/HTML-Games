@@ -48,10 +48,18 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
+  Online, OnlineCode, Qr, OnlineUI, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
+  KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
+  LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
+  HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
+  TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+  Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
+  ROUND_END_TICKS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+  encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -237,12 +245,25 @@ const SelfTest = {
     const wanted = parts.map((part) => String(part).trim().toLowerCase()).filter(Boolean);
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
+    const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
+    const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
+    const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
     const test = (name, fn) => {
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
-      try { const r = fn(), skipped = typeof r === 'string' && r.startsWith('skipped: '); results.push({ name, pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
-      results[results.length - 1].ms = Math.round(performance.now() - started);
+      const entry = { name, pass: false, detail: 'still running' };
+      results.push(entry);
+      try {
+        const r = fn();
+        if (r && typeof r.then === 'function') {
+          let timer = 0;
+          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
+          const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
+          pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
+        } else record(entry, r);
+      } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); }
+      entry.ms = Math.round(performance.now() - started);
       self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
@@ -296,6 +317,80 @@ const SelfTest = {
       };
       const a = play(), b = play();
       return a === b ? true : a + ' != ' + b;
+    });
+    /* P12-05 (closes Appendix D row D08): one state checksum per tick over everything a peer would compare, for a person's scripted seat against the CPU and for a four-fighter brawl.
+       The viewer settings (Reduced motion, shake, flashes, rumble, trails, slow-motion finisher, camera cuts, wear marks, heartbeat, contrast, quality, anti-aliasing, shadows, effects, movement mode, both assists) are flipped one by one and
+       all together; the clocks and Math.random are replaced; every run must give the checksum of the first, tick by tick. Debris and rubble are broken on purpose in both runs. */
+    test('Determinism: viewer settings, clocks and Math.random never change the simulation (same seed and inputs, equal state checksum at every tick, Reduced motion on and off) (P12-05)', () => {
+      const VIEWER_BASE = { reducedMotion: false, shake: 0.6, flashes: 'full', rumble: 'full', trails: true, slowFinisher: true, cameraCuts: true, wearMarks: true, heartbeat: true, highContrast: false, quality: 'high', antialias: 'auto', shadows: 'full', effects: 'high', movement: 'screen', autoAssist: false, guardAssist: false, uiScale: 1 };
+      const VIEWER_FLIPPED = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, slowFinisher: false, cameraCuts: false, wearMarks: false, heartbeat: false, highContrast: true, quality: 'low', antialias: 'off', shadows: 'off', effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true, uiScale: 1.5 };
+      const tickChecksum = (m) => {
+        const parts = [m.tick, m.phase, m.round, m.roundTicks, m.hitStop, m.wins.join('/'), Combat.attackCounter, Combat.flightCounter];   // the two id counters restart with every match (a page that has played before must not differ)
+        for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '');
+        for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
+        for (const item of m.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);   // loose items
+        for (const h of m.hazards) parts.push(h.type, h.state, h.t, h.life, h.x, h.z);   // hazards
+        return fnv1a(parts.join(','));
+      };
+      const person = (it, f, o, mm) => {   // a seat's scripted presses; assist and guardAssist are copied from Settings as PlayerInput.fillIntent does: the match must overwrite them from its own cfg.assist
+        const t = mm.tick;
+        it.fwd = t % 150 < 90 ? 1 : -0.6; it.side = Math.sin(t / 37) * 0.5; it.stickAnalog = t % 3 === 0;
+        if (t % 40 === 3) it.punch = true; if (t % 90 === 20) it.kick = true; if (t % 130 === 60) it.grapple = true; if (t % 170 > 150) it.defend = true; if (t % 250 === 100) it.crouch = true;
+        it.assist = Settings.v.autoAssist === true; it.guardAssist = Settings.v.guardAssist === true;
+      };
+      const SCENARIOS = {
+        duel: { ticks: 1000, breakAt: 120, make: () => {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 23, winsNeeded: 2, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true }));
+          m.controllers[0] = Object.assign(self.scripted(person), { human: true });
+          m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+          return m;
+        } },
+        brawl: { ticks: 1200, breakAt: 200, make: () => {
+          const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 7, arenaId: 'pit', difficulty: 'hard', evenDamage: true, items: true, hazards: true }));
+          m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
+          return m;
+        } },
+      };
+      /* viewer: settings to apply (over the base); swapped: also replace Math.random, Date.now and performance.now. Returns { sums: one checksum per tick, pieces: the most debris alive at once } */
+      const play = (scenario, viewer, swapped) => {
+        const keep = Object.assign({}, Settings.v), keepRandom = Math.random, keepDate = Date.now, keepNow = performance.now;
+        let m = null;
+        try {
+          Object.assign(Settings.v, VIEWER_BASE, viewer); Quality.apply();
+          if (swapped) { Math.random = () => 0.37; Date.now = () => 1234567; performance.now = () => 5; }
+          m = scenario.make();
+          const sums = [];
+          let pieces = 0;
+          Debris.clear();
+          for (let t = 0; t < scenario.ticks; t++) {
+            if (t === scenario.breakAt) for (const o of Arena.objects) if (!o.fixed && !o.destroyed) Arena.breakObject(o, 1, 0, 0);
+            m.step();
+            if (m.phase === 'waiting') m.startRound();
+            pieces = Math.max(pieces, Debris.active);
+            sums.push(tickChecksum(m));
+          }
+          return { sums, pieces };
+        } finally {
+          Math.random = keepRandom; Date.now = keepDate; performance.now = keepNow;
+          Object.assign(Settings.v, keep); Quality.apply();
+          if (m) m.dispose();
+          Debris.clear(); FX.clear();
+        }
+      };
+      const firstDifference = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return a.length === b.length ? -1 : Math.min(a.length, b.length); };
+      const problems = [];
+      for (const name in SCENARIOS) {
+        const scenario = SCENARIOS[name], base = play(scenario, {}, false);
+        const runs = [['again', {}, false], ['clocks and Math.random replaced', {}, true], ['Reduced motion on', { reducedMotion: true }, false], ['Reduced motion on, effect rows to match', { reducedMotion: true, flashes: 'reduced', rumble: 'reduced', trails: false, cameraCuts: false }, false], ['every viewer setting flipped', VIEWER_FLIPPED, true]];
+        if (name === 'duel') for (const key in VIEWER_FLIPPED) runs.push([key + ' flipped', { [key]: VIEWER_FLIPPED[key] }, false]);   // movement mode: the scripted seat writes fwd and side itself (PlayerInput.toFighterFrame never runs), so that run only shows the sim never reads the setting; it is an input conversion (audit row 6)
+        for (const [label, viewer, swapped] of runs) {
+          const run = play(scenario, viewer, swapped), at = firstDifference(base.sums, run.sums);
+          if (at >= 0) problems.push(name + ' with ' + label + ': first different tick ' + at);
+          if (label === 'every viewer setting flipped' && run.pieces >= base.pieces) problems.push(name + ': the low quality preset did not shrink the debris (' + run.pieces + ' of ' + base.pieces + '), so the cap was not exercised');
+        }
+        if (new Set(base.sums).size < scenario.ticks / 4) problems.push(name + ': the checksum hardly moves (' + new Set(base.sums).size + ' values): the scenario plays nothing');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Jab connects once and deals damage', () => {
       const log = self.capture(['hit']);
@@ -2964,7 +3059,7 @@ const SelfTest = {
         }
         for (const extreme of [{ scale: SCALE_MIN, build: BUILD_MIN }, { scale: SCALE_MAX, build: BUILD_MAX }]) if (partsFor(extreme) < 20) problem = 'extreme body';
         most = Math.max(most, partsFor({ hairStyle: 'braids', brows: 'thick', beard: 'full', mask: 'half', headband: 'band', topStyle: 'gi', belt: 'sash', age: AGE_MAX }));
-        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 29) problem = r.id + ' drew ' + count; }
+        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 40) problem = r.id + ' drew ' + count; }   // P18-10: the roster may use the 40-part worst case (it was 29 since P6-04)
       } catch (e) { problem = 'exception ' + e.message; }
       R.push = push;
       const zero = resolveLook(ROSTER_BY_ID.zero.look);
@@ -3250,6 +3345,19 @@ const SelfTest = {
       } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- fighter models (P18-10) ---------- */
+    test('Fighter models: every preset draws 20 to 40 parts, and no two presets share one outfit shape or one colour set', () => {
+      const bad = [], shapes = new Map(), colours = new Map();
+      for (const profile of ROSTER) {
+        const f = new Fighter(profile, 0), lk = f.lk, c = lk.colors, parts = drawnParts(f).length;
+        if (parts < 20 || parts > 40) bad.push(profile.id + ' parts ' + parts);
+        // the outfit shape is the piece rows of every slot that adds or reshapes a part (body size and colours left out)
+        const shape = JSON.stringify([f.hairP, f.beardP, f.topRow, f.legRow, f.shoeRow, f.handRow, f.extra, lk.belt, lk.headband, lk.mask]);
+        const colour = [c.top, c.shorts, c.glove, c.accent].join();   // the outfit colours that show at phone size (skin, hair and shoes left out)
+        for (const [seen, key] of [[shapes, shape], [colours, colour]]) { if (seen.has(key)) bad.push(profile.id + ' repeats ' + seen.get(key)); else seen.set(key, profile.id); }
+      }
+      return ROSTER.length === 32 && !bad.length ? true : bad.slice(0, 5).join('; ') || 'roster size ' + ROSTER.length;
+    });
     /* ---------- pre-drawn faces and the face texture (P6-07, P6-08) ---------- */
     const faceParts = (look, ready) => {   // one skeleton pass with the face texture forced on / off: [emissive, cast slot, layer, matrix finite]
       const push = R.push, ok = R.faceOk, list = [];
@@ -3492,8 +3600,8 @@ const SelfTest = {
         return fnv1a(s) + ':' + s.length;
       };
       const got = ROSTER.map(hashOf).concat([4321, 12345, 777].map((seed) => { const c = randomCustom(seed); c.name = LEGACY_NAMES[NAME_IDEAS.indexOf(c.name)]; return hashOf(customProfile(validateCustom(c).value, 0)); })).join();
-      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
-      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,1640409425:8349,3444275937:8994,1720269438:9005,1404112419:9325,2132749416:8990,3268807863:8996,248662001:8992,576154008:8362,2432004798:8675,1980585122:8667,396875851:8998,3667191336:8988,3733438813:9003,210503239:8683,4086853331:9315,2461573224:8357,110823760:8993,1830273435:8990,1922686389:9001,10529125:8360,1886017806:8996,2671237955:8996,3352423429:8359,1505929842:8358,2793142063:8988,1043793435:8987,3550358532:8679,778913287:10282,3867339228:9323,2999958420:9315';
+      /* P9-04 re-recorded one value: ZERO (matte mask, a normal skin tone); P18-11 re-recorded GIORGI (ushanka, accent #808894); P18-10 re-recorded the other 31 presets (fighter models: new hats, hair, tops, legwear, hands, shoes, accessories and marks; read from the Chrome run, the 3 customs and GIORGI keep their values); the random customs are hashed with the name idea they had before (a motion is seeded by the name). */
+      const want = '4151139779:9313,3500748211:9307,907377477:8670,3563552188:9312,1203017689:8986,4095831836:8672,1603268779:9633,696690134:9326,278000643:9327,2908241691:9317,931388364:9637,2908515482:9958,1659867381:8686,2523842855:8675,920302074:9310,255905244:9002,2213555648:8354,3705512124:9645,3505822332:9006,4086853331:9315,2122395870:8680,854368176:9315,2309769395:8678,3213729300:9970,2273708715:8684,1392344473:9333,463067842:9637,3031641446:8682,744650411:8685,942284200:9309,960434671:9309,2903809129:9323,778913287:10282,3867339228:9323,2999958420:9315';
       const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
       const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
       const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
@@ -10726,7 +10834,7 @@ const SelfTest = {
         if (UI.current !== 'story' || !screen.includes('Story: TESTER') || !screen.includes('Osaka') || screen.split('class="beat"').length < 17 || !screen.includes('data-act="back"')) bad.push('story screen');
         UI.storyChange('storychoice', 1); UI.storyChange('storyflaw', 1); UI.storyChange('storytries', 1); UI.storyChange('storyclears', 1);
         const changed = UI.screen_story();
-        if (changed === screen || !changed.includes('Walk away') || !changed.includes('Not even one round')) bad.push('story choices');
+        if (changed === screen || !changed.includes('Walk away') || !changed.includes('Not one round. Hang on.')) bad.push('story choices');   // the flawless box B5.2 (P18-54 text)
         if (!screen.includes('After ' + STORY_SKIP_AFTER + ' lost tries of a stage, Skip stage is offered')) bad.push('skip line');
         const clock = Showcase.t;
         Showcase.creator = true; Showcase.update(0.1);
@@ -10740,21 +10848,21 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     /* ---------- the story system (P10-03) ---------- */
-    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), tries: '99' };
+    const STORY_BOSS_IDS = ['hao', 'marlon', 'yoav'], STORY_TOKENS_LONGEST = { city: 'C'.repeat(16), name: 'N'.repeat(10), rival: 'R'.repeat(6), rival2: 'R'.repeat(6), boss: 'B'.repeat(6), champ: 'Z'.repeat(6), tries: '99' };
     const storyFill = (text) => text.replace(/\{(\w+)\}/g, (all, key) => STORY_TOKENS_LONGEST[key] || all);
     test('Story (P10-03): the data - known poses and speakers, at most 3 boxes of 90 characters (longest tokens) in 2 lines, every condition valid, every row reachable', () => {
       const bad = [], poses = new Set(STORY_POSE_IDS.concat(Object.keys(VICTORY_POSES))), motive = (id) => STORY_MOTIVES.find((m) => m.id === id);
       if (STORY_POSE_IDS.length !== 28 || poses.size !== 34 || STORY_BEATS.length !== 16 || STORY_STAGES !== 7) bad.push('counts');
-      for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten].some((t) => t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
+      for (const m of STORY_MOTIVES) if (ROSTER_BY_ID[m.rival].role !== 'rival' || ![m.p4, m.p10, m.end].every((p) => poses.has(p)) || [m.challenge, m.beaten, m.hand, m.walk].some((t) => typeof t !== 'string' || !t || t.length > STORY_TEXT_MAX)) bad.push('motive ' + m.id);
       for (const t of STORY_TONES) if (!poses.has(t.b1) || !poses.has(t.intro)) bad.push('tone ' + t.id);
       for (const id of STORY_BOSS_IDS) if (ROSTER_BY_ID[id].role !== 'boss') bad.push('boss ' + id);
       for (const def of STORY_BEATS) if (def.shots.length > 3 || def.shots.some((s) => !['N', 'P', 'R', 'R2', 'B', 'Z'].includes(s.who) || !['wide', 'two', 'close'].includes(s.cam))) bad.push('beat ' + def.id);
       const texts = [];   // every text a scene can show, with the longest tokens
-      for (const r of STORY_REGION_LIST) { texts.push(['region ' + r.tag, r.line]); if (!/^#[0-9a-f]{6}$/.test(r.hue) || !ARENAS[r.home].waves) bad.push('region ' + r.tag); }
+      for (const r of STORY_REGION_LIST) { texts.push(['region ' + r.tag, r.line], ['region end ' + r.tag, r.end]); if (!r.end || !/^#[0-9a-f]{6}$/.test(r.hue) || !ARENAS[r.home].waves) bad.push('region ' + r.tag); }
       if (Story.signHue(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1)) !== '#f2a33a') bad.push('sign hue');
       for (const o of STORY_ORIGINS) texts.push(['origin ' + o.id, o.line]);
       for (const g of STORY_GOALS) g.arc.forEach((line, k) => texts.push(['goal ' + g.id + ' ' + k, line]));
-      for (const m of STORY_MOTIVES) texts.push(['motive ' + m.id, m.challenge], ['motive ' + m.id, m.beaten]);
+      for (const m of STORY_MOTIVES) texts.push(['motive ' + m.id, m.challenge], ['motive ' + m.id, m.beaten], ['motive ' + m.id + ' hand', m.hand], ['motive ' + m.id + ' walk', m.walk]);
       for (const rule of STORY_RULES) {
         const slot = /^B(\d+)\.(\d)$/.exec(rule.slot), def = slot && STORY_BEATS.find((b) => b.id === 'B' + slot[1]);
         if (!def || Number(slot[2]) > def.shots.length) { bad.push('slot ' + rule.slot); continue; }
@@ -10821,6 +10929,28 @@ const SelfTest = {
       const names = Story.moment(run, 'before', 4).map((beat) => beat.id).concat(Story.moment(run, 'after', 7).map((beat) => beat.id)).join();
       if (names !== 'B8,B9,B14,B16') bad.push('moment order ' + names);
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Story (P18-54): rival A speaks their own lines (also standing in for the player), B16 comes back to the place of B1, {champ} is the champion, every token is filled and a brawl names its crew', () => {
+      const bad = [], own = (id) => STORY_MOTIVES.find((m) => m.rival === id), name = (id) => ROSTER_BY_ID[id].name;
+      for (const f of ROSTER) {
+        const run = Story.start(f, 0, 'easy', 1), lines = own(run.rivalA), b4 = Story.beat(run, 'B4').boxes[0], b5 = Story.beat(run, 'B5').boxes[0];
+        if (!lines || b4.text !== lines.challenge || b4.pose !== lines.p4 || b5.text !== lines.beaten || b4.speaker !== name(run.rivalA)) { bad.push('B4 / B5 of ' + f.id); continue; }
+        const region = STORY_REGION_LIST.find((r) => r.tag === run.region), city = STORY_COUNTRIES.find((c) => c.id === run.country).city;
+        if (Story.beat(run, 'B1').boxes[0].text !== region.line.replace('{city}', city) || Story.beat(run, 'B16').boxes[0].text !== region.end.replace('{city}', city)) bad.push('B1 / B16 of ' + f.id);
+        for (const choice of ['hand', 'walk']) {
+          Story.choose(run, choice); run.flawless = true; run.continues = 1;
+          if (Story.beat(run, 'B12').boxes[0].text !== lines[choice]) bad.push('B12 ' + choice + ' of ' + f.id);
+          for (const def of STORY_BEATS) for (const box of Story.beat(run, def.id).boxes) if (/[{}$]/.test(box.text)) bad.push(def.id + ' of ' + f.id + ' keeps a token: ' + box.text);
+        }
+      }
+      const deacon = Story.start(ROSTER_BY_ID.deacon, 0, 'easy', 1);   // DEACON's goal names DEACON as rival A, so FEMKE stands in and says her own lines
+      if (deacon.rivalA !== 'femke' || Story.beat(deacon, 'B4').boxes[0].text !== own('femke').challenge || Story.beat(deacon, 'B4').boxes[0].pose !== own('femke').p4) bad.push('stand-in rival');
+      if (Story.tokens(Story.start(ROSTER_BY_ID.zero, 0, 'easy', 1)).champ !== 'MARA' || Story.tokens(Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1)).champ !== 'ZERO') bad.push('champ token');
+      const kai = Story.start(ROSTER_BY_ID.kai, 0, 'easy', 1), crew = (n) => Story.stageInfo(kai, n).text;
+      if (!crew(1).startsWith("DEACON's crew, the first three waves") || !crew(3).startsWith(name(kai.boss) + "'s crew, all the waves led by ") || !crew(5).startsWith("ZERO's crew")) bad.push('stage lines ' + crew(1) + ' / ' + crew(3) + ' / ' + crew(5));
+      Story.choose(kai, 'hand'); const hand = crew(6); Story.choose(kai, 'walk'); const walk = crew(6);
+      if (!hand.startsWith("ZERO's crew") || !hand.endsWith(', with DEACON') || walk !== "DEACON's crew, all the waves led by DEACON" || crew(2) !== 'Against DEACON') bad.push('stage 6 lines ' + hand + ' / ' + walk);
+      return bad.length ? Array.from(new Set(bad)).slice(0, 5).join('; ') : true;
     });
     test('Story (P10-03): rivals, boss, champion and levels follow the settings and the clears, for every fighter and country', () => {
       const bad = [], fighters = ROSTER.concat(CustomRoster.profiles()), arenas = new Set(['dojo', 'pit', 'club', 'rooftop']);
@@ -12974,6 +13104,127 @@ const SelfTest = {
       flow.expect('char', 'Back from the sparring partner screen'); flow.press('back');
       return flow.expect('modes', 'Back from the fighter screen') ? flow.problems.length ? flow.problems[0] : true : 'Back from the fighter screen: ' + flow.screen();
     }));
+    /* Start side (P18-16): the choice reaches the sim, the story run and the saved setup, and the rows work on a tap, the arrow keys and a gamepad. */
+    test('Start side (P18-16): a chosen side opens round 1 there and swaps every round (Free Fight, Arcade duels), Training keeps it, and Automatic is the drawn side (Training: the left, as before)', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const mode of ['free', 'arcade', 'training']) for (const id of ['warehouse', 'garage']) for (const startSide of [1, -1, 0, undefined]) {
+          for (let seed = 1; seed <= 4; seed++) {   // the seeds draw both sides
+            Game.beginMatch({ mode, playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'easy', winsNeeded: 3, timer: 0, items: false, hazards: false, seed, keepSeed: true, startSide });
+            const m = Game.match, [a, c] = m.fighters, s = ARENAS[id].spawn, tag = mode + ' ' + id + ' seed ' + seed + ' side ' + startSide;
+            for (let round = 1; round <= 3; round++) {
+              if (round > 1) m.startRound();
+              const drawn = mode === 'training' ? 1 : MatchSim.sideFor(seed, round), chosen = mode === 'training' ? startSide : round & 1 ? startSide : -startSide;
+              const want = startSide ? chosen : drawn;
+              if (Math.abs(a.x + want * s) > 1e-9 || Math.abs(c.x - want * s) > 1e-9) problems.push(tag + ' round ' + round + ': the first fighter stands at ' + a.x.toFixed(2) + ', wanted ' + (-want * s));
+            }
+          }
+        }
+        for (const startSide of [1, -1]) for (const id of ['warehouse', 'garage']) {   // the six Training scenarios keep the player on the chosen side, both facing each other
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, items: false, hazards: false, seed: 1, keepSeed: true, startSide });
+          const m = Game.match, [a, c] = m.fighters;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            const tag = 'scenario ' + n + ' ' + id + ' side ' + startSide;
+            if (Math.sign(c.x - a.x) !== startSide) problems.push(tag + ': the player is not on the chosen side');
+            if (Math.sign(Math.sin(a.yaw)) !== Math.sign(c.x - a.x) || Math.sign(Math.sin(c.yaw)) !== Math.sign(a.x - c.x)) problems.push(tag + ': the fighters do not face each other');
+            if (n === 3 && Math.abs(c.x - (startSide === 1 ? Arena.sx1 : Arena.sx0) + startSide * 0.7) > 1e-9) problems.push(tag + ': the dummy is not in the corner of the chosen wall');
+            if (n === 4 && !Arena.objects.some((o) => Math.abs(c.z - o.z) < 1e-9 && Math.abs(c.x - o.x + startSide * (o.hx + 1)) < 1e-9)) problems.push(tag + ': the dummy does not stand against a prop on the far side of the player');
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Start side (P18-16): Training scenarios 1 to 6 start both fighters inside the room and clear of every prop, on all eight levels and both sides', () => {
+      const problems = [], go = Game.go, kept = { config: Game.config, run: Game.run };
+      Game.go = () => true; Game.run = null;
+      try {
+        for (const id of ARENA_ORDER) for (const startSide of [1, -1]) {
+          Game.beginMatch({ mode: 'training', playerId: 'kai', opponentId: 'mara', arenaId: id, difficulty: 'normal', winsNeeded: 99, timer: 0, seed: 1, keepSeed: true, startSide });
+          const m = Game.match;
+          for (let n = 1; n <= 6; n++) {
+            m.scenario(n);
+            for (const f of m.fighters) {
+              const inRoom = f.x >= Arena.sx0 + f.radius && f.x <= Arena.sx1 - f.radius && f.z >= Arena.sz0 + f.radius && f.z <= Arena.sz1 - f.radius;
+              if (!inRoom || Arena.blockedAt(f.x, f.z, f.radius, 0)) problems.push(id + ' scenario ' + n + ' side ' + startSide + ': fighter ' + f.index + ' at ' + f.x.toFixed(2) + ', ' + f.z.toFixed(2) + (inRoom ? ' is inside a prop' : ' is outside the room'));
+            }
+          }
+        }
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Start side (P18-16): the Arcade run keeps the chosen side - every duel stage has it and its scene cast stands there, a brawl stage and an Automatic run have none, a save and a restore keep it, a damaged or missing value reads as Automatic, and the stage fight opens on it', () => {
+      const bad = [], kai = ROSTER_BY_ID.kai, go = Game.go, kept = { config: Game.config, run: Game.run };
+      for (const side of [1, -1, 0]) {
+        const run = Story.start(kai, 0, 'easy', 9, side);
+        for (let n = 1; n <= STORY_STAGES; n++) {
+          const cfg = Story.cfg(run, n), duel = !!Story.foe(run, n), cast = Story.cast(run, n).side;
+          if (duel && side && (cfg.startSide !== side || cast !== side)) bad.push('stage ' + n + ' side ' + side);
+          if (duel && !side && ('startSide' in cfg || cast !== MatchSim.sideFor(Story.seedOf(run, n), 1))) bad.push('stage ' + n + ' automatic');
+          if (!duel && ('startSide' in cfg || cast !== 1)) bad.push('stage ' + n + ' brawl');
+        }
+        if (Story.restore(Story.pack(run)).side !== side) bad.push('restore ' + side);
+      }
+      const packed = Story.pack(Story.start(kai, 0, 'easy', 9, -1));
+      if (Story.clean(Object.assign({}, packed, { side: 7 })).side !== 0 || Story.clean(Object.assign({}, packed, { side: 'left' })).side !== 0) bad.push('a damaged side');
+      delete packed.side;
+      if (Story.clean(packed).side !== 0 || Story.start(kai, 0, 'easy', 9).side !== 0) bad.push('a save from before the row');
+      Game.go = () => true;
+      try {
+        const run = Story.start(kai, 0, 'easy', 9, -1);
+        Game.beginMatch(Story.cfg(run, 2));
+        const m = Game.match;
+        if (m.startSide() !== -1 || m.fighters[0].x <= 0) bad.push('the stage 2 fight did not open on the right');
+        m.startRound();
+        if (m.startSide() !== 1 || m.fighters[0].x >= 0) bad.push('the stage 2 fight did not swap');
+      } finally { Game.go = go; Game.endMatch(); Game.config = kept.config; Game.run = kept.run; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Start side (P18-16): the Start side row on the Arcade fighter screen and the Training setup screen - a tap, the arrow keys and a gamepad step it (Arcade: Automatic, Left, Right; Training: Left, Right), it is saved with the setup and read back, a damaged value reads as the default, and the run and the fight it starts have that side', () => withFlow([fakePad('a')], (flow, pads) => {
+      const sel = Game.selection, keptSides = Object.assign({}, sel.startSides), row = () => flow.items.find((el) => el.attrs['data-local'] === 'side'), shown = () => row() ? row().attrs['aria-valuetext'] : 'no row';
+      const bad = [], steps = (labels) => {
+        const seen = [];
+        row().click(); seen.push(shown());   // a tap
+        flow.focusOn((el) => el.attrs['data-local'] === 'side'); UI.guardUntil = 0; UI.onKey(keyEvent('ArrowRight')); seen.push(shown());   // the arrow keys
+        UI.onKey(keyEvent('ArrowLeft')); seen.push(shown());
+        flow.padTap(pads[0], 'right'); seen.push(shown());   // the stick of a gamepad on the focused row
+        flow.padTap(pads[0], 'left'); seen.push(shown());
+        return seen.join() === labels ? '' : 'steps ' + seen.join() + ', wanted ' + labels;
+      };
+      try {
+        Settings.v.storyScenes = 'off';
+        flowEnter(flow, 'arcade');
+        if (!flow.expect('char', 'Arcade') || shown() !== 'Automatic' || sel.startSides.arcade !== 0) return 'the Arcade row starts as ' + shown();
+        let problem = steps('Left,Right,Left,Right,Left');
+        if (problem) bad.push('Arcade ' + problem);
+        row().click();   // Right
+        if (sel.startSides.arcade !== 2 || !Setups.d.arcade || Setups.d.arcade.side !== 2) bad.push('Arcade did not save Right');
+        flow.press('confirm');
+        if (!Game.run || !Game.run.story || Game.run.story.side !== -1 || !Progress.d.arcadeRun || Progress.d.arcadeRun.side !== -1) bad.push('the Arcade run did not take the side');
+        Game.run.story.stage = 2; Game.beginStage();
+        if (!Game.match || Game.match.cfg.startSide !== -1 || Game.match.fighters[0].x <= 0) bad.push('the duel did not open on the right');
+        flow.quit('Arcade');
+        flowEnter(flow, 'training'); flow.press('confirm');
+        if (!flow.expect('setup', 'Training') || shown() !== 'Left' || sel.startSides.training !== 1) return 'the Training row starts as ' + shown();
+        problem = steps('Right,Left,Right,Left,Right');
+        if (problem) bad.push('Training ' + problem);
+        if (sel.startSides.training !== 2 || !Setups.d.training || Setups.d.training.side !== 2) bad.push('Training did not save Right');
+        flow.press('setupNext'); flow.press('start');
+        const m = Game.match;
+        if (!m || !m.training || m.cfg.startSide !== -1 || m.fighters[0].x <= 0 || m.fighters[1].x >= 0) bad.push('Training did not open with the player on the right');
+        Game.endMatch();
+        sel.startSides.arcade = 0; sel.startSides.training = 1; Game.loadLevels();
+        if (sel.startSides.arcade !== 2 || sel.startSides.training !== 2) bad.push('the saved sides were not read back');
+        for (const damaged of [9, -1, 0.5, 'left', null]) {
+          Setups.d.arcade.side = damaged; Setups.d.training.side = damaged; Game.loadLevels();
+          if (sel.startSides.arcade !== 0 || sel.startSides.training !== 1) bad.push('a damaged side ' + damaged);
+        }
+        Setups.d.training.side = 0; Game.loadLevels();
+        if (sel.startSides.training !== 1) bad.push('Automatic is not a Training choice');
+      } finally { Object.assign(sel.startSides, keptSides); }
+      return bad.length ? bad.slice(0, 4).join('; ') : flow.problems.length ? flow.problems[0] : true;
+    }));
     /* Free Fight: the first screen, the Level list and More options, a Duel ended by the clock, Rematch, Change fighters and Main menu, then a lineup of three. */
     test('Mode flows (P18-40, P18-19): Free Fight from the mode list through its first screen, the Players and teams cards, More options and the Level list into a Duel ended by the clock, Rematch, Change fighters (the setup is kept) and Main menu, and the same with a lineup of three', () => withFlow([], (flow) => {
       Game.selection.player = 'elise'; Game.selection.opponent = 'kai';
@@ -13660,7 +13911,7 @@ const SelfTest = {
     /* A player who tries everything: seeded random presses of whatever the screen offers, Esc, pad and keyboard joins, option rows, pauses and fights played on, checking after every press that the game state and the screen on show agree,
        that nothing was refused or counted as an error, and (now and then, and at the end) that Back / Quit / Main menu alone still lead to the main menu. */
     const FLOW_SKIP_ACTS = /^(selftest|fullscreen|errmenu|inc:|dec:|resetSettings|rebind|resetKeys|cr(?!back$|fight$))/;   // not the self-test, the browser fullscreen, the error screen, the settings and key rows (they act on the page itself) or the creator's editing buttons (the creator has its own tests)
-    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
+    const FLOW_SCREENS = { MENU: ['main', 'modes', 'controls', 'moves', 'settings', 'credits', 'unlocks', 'story', 'scene', 'creator', 'online', 'onlinehost', 'onlinejoin', 'onlineqr'], CHARSEL: ['char', 'coop', 'setup', 'freefight', 'freemore', 'lineup', 'bracket', 'scene', 'creator', 'replace'], ARENASEL: ['arena'], RESULTS: ['results', 'scene'], PAUSED: ['pause', 'moves', 'controls', 'settings', 'scene'] };
     const flowWalk = (seed, steps, pads) => withFlow(pads, (flow) => {
       const customs = keepCustoms();
       try { return flowWalkOn(seed, steps, pads, flow); } finally { restoreCustoms(customs); }
@@ -13834,6 +14085,465 @@ const SelfTest = {
         Input.lastDevice = device; Input.padIndex = index;
         if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
         Object.assign(Settings.v, keepV); Settings.apply(); FX.clear();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    /* ---------- the feedback list of P13-01 (P13-02): drawn or played outside the simulation; each item fires on its trigger, its setting turns it off ---------- */
+    test('Feedback settings (P13-02): Slow-motion finisher, Camera cuts, Wear marks and Low-health heartbeat are On / Off rows, on by default, saved, shown on the settings screen; Reduced motion turns Camera cuts off once', () => {
+      const bad = [], keepStore = Store.get(KEY_SETTINGS), keepV = Object.assign({}, Settings.v);
+      try {
+        const rows = { slowFinisher: 'Slow-motion finisher', cameraCuts: 'Camera cuts', wearMarks: 'Wear marks', heartbeat: 'Low-health heartbeat' };
+        const page = UI.screen_settings();
+        for (const key in rows) {
+          const def = SETTING_DEFS[key];
+          if (!def || def.type !== 'bool' || def.def !== true || def.label !== rows[key] || !def.hint) bad.push(key + ' definition');
+          if (Settings.validate(key, 'maybe') !== true || Settings.validate(key, false) !== false) bad.push(key + ' validation');
+          if (!page.includes(rows[key])) bad.push(key + ' not on the settings screen');
+        }
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: false, revision: SETTINGS_REVISION }));   // a save from before the four settings (Reduced motion chosen, so the device's own preference does not decide)
+        Settings.init();
+        if (Object.keys(rows).some((key) => Settings.v[key] !== true)) bad.push('an old save does not read On');
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, reducedMotion: true, revision: SETTINGS_REVISION }));   // an old save with Reduced motion on: Camera cuts did not exist, so it reads Off
+        Settings.init();
+        if (Settings.v.cameraCuts !== false || Settings.v.slowFinisher !== true || Settings.v.wearMarks !== true || Settings.v.heartbeat !== true) bad.push('an old save with Reduced motion on: Camera cuts ' + Settings.v.cameraCuts);
+        for (const key in rows) Settings.set(key, false);
+        const stored = JSON.parse(Store.get(KEY_SETTINGS));
+        Settings.init();
+        if (Object.keys(rows).some((key) => stored[key] !== false || Settings.v[key] !== false)) bad.push('not saved');
+        Settings.set('cameraCuts', true); Settings.v.reducedMotion = false; Settings.set('reducedMotion', true);
+        if (Settings.v.cameraCuts !== false || REDUCED_MOTION_ROWS.cameraCuts !== false) bad.push('Reduced motion keeps Camera cuts');
+        Settings.set('cameraCuts', true);
+        if (Settings.v.cameraCuts !== true) bad.push('Camera cuts cannot be turned on again under Reduced motion');
+      } finally {
+        if (keepStore === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepStore);
+        Object.assign(Settings.v, keepV); Settings.apply();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('KO finisher (P13-02): the knock-out that ends the match runs 40 ticks at 0.35 speed on the render clock with a 15 % punch-in from a low angle; an ordinary round end keeps its 30; Slow-motion finisher and Camera cuts turn each off; the ticks do not change', () => {
+      const bad = [], keepV = Object.assign({}, Settings.v), keepCam = { target: Camera.target.slice(), az: Camera.az, dist: Camera.dist, elev: Camera.elev, cut: Camera.cut, cutIn: Camera.cutIn };
+      const knockOut = (opts) => {
+        const m = mk(opts, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1;
+        for (let i = 0; i < 40 && m.fighters[1].alive; i++) m.step();
+        return m;
+      };
+      try {
+        const last = knockOut({ winsNeeded: 1 }), early = knockOut({ winsNeeded: 2 });
+        if (!last.finisher || last.slowTicks < KO_FINISH_TICKS - 1 || last.slowTicks > KO_FINISH_TICKS) bad.push('match point: ' + last.finisher + ' ' + last.slowTicks);
+        if (early.finisher || early.slowTicks < KO_SLOW_TICKS - 1 || early.slowTicks > KO_SLOW_TICKS) bad.push('first round: ' + early.finisher + ' ' + early.slowTicks);
+        if (!self.makeBrawl({}).endsMatch()) bad.push('a brawl knock-out is the match');
+        Settings.v.slowFinisher = true; Settings.v.cameraCuts = true;
+        const scale = (m) => Game.clockScale(m);
+        if (scale(last) !== KO_SLOW_SCALE || scale({ slowTicks: 0 }) !== 1) bad.push('clock scale ' + scale(last));
+        Settings.v.slowFinisher = false;
+        if (scale(last) !== 1) bad.push('Slow-motion finisher Off still slows the clock');
+        if (!Game.cutWanted(last, false) || Game.cutWanted(early, false) || Game.cutWanted(last, true) || Game.cutWanted(null, false)) bad.push('cut wanted');
+        Settings.v.cameraCuts = false;
+        if (Game.cutWanted(last, false)) bad.push('Camera cuts Off still cuts');
+        Settings.v.cameraCuts = true;
+        const view = (cutIn, frames) => {   // where the camera sits after `frames` frames of the same framing
+          Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.cutIn = cutIn;
+          for (let i = 0; i < frames; i++) Camera.finish(1 / 60, 11.5, 6.5);
+          return { d: Math.hypot(Camera.pos[0] - Camera.target[0], Camera.pos[1] - Camera.target[1], Camera.pos[2] - Camera.target[2]), y: Camera.pos[1], cut: Camera.cut };
+        };
+        Camera.cut = 0;
+        const plain = view(false, 1), cut = view(true, 90), back = view(false, 120);
+        if (Math.abs(cut.d - plain.d * (1 - CAMERA_CUT_IN)) > 0.02 || cut.cut < 0.99) bad.push('punch-in ' + cut.d.toFixed(2) + ' of ' + plain.d.toFixed(2));
+        if (!(cut.y < plain.y)) bad.push('not lower ' + cut.y.toFixed(2) + ' vs ' + plain.y.toFixed(2));
+        if (Math.abs(back.d - plain.d) > 0.02 || back.cut > 0.01) bad.push('does not ease back ' + back.d.toFixed(2));
+        if (!(CAMERA_CUT_LOW > 0)) bad.push('low angle');
+        /* a double knock-out follows the rule of endRound: with both down each side scores; the match ends only if exactly one of them reaches the wins needed */
+        const both = (wins, winsNeeded) => { const m = mk({ winsNeeded }, () => {}, () => {}); m.wins = wins; m.fighters[0].alive = m.fighters[1].alive = false; m.checkRoundEnd(); return m.finisher; };
+        if (!both([1, 0], 2) || !both([0, 1], 2)) bad.push('a double knock-out on match point for one side is the finisher');
+        if (both([0, 0], 1) || both([1, 1], 2) || both([0, 0], 2)) bad.push('a double knock-out that reaches the wins of both (a deciding round) or of neither is an ordinary one');
+        /* the real frame loop, with a fixed time step: the setting changes how many frames the knock-out takes, never what the ticks do */
+        const play = (on) => {
+          Settings.v.slowFinisher = on; Settings.v.cameraCuts = on;
+          const m = knockOutMatch(), sigs = [], keep = { match: Game.match, state: Game.state, acc: Game.acc, last: Game.last }, realStep = m.step, drawing = { begin: R.begin, render: R.render, put: R.put, push: R.push };
+          let frames = 0, cut = false;
+          const off = Events.on('rendered', () => { cut = cut || Camera.cutIn; });
+          m.step = function () { realStep.call(this); sigs.push([this.tick, this.phase].concat(this.fighters.map((q) => [q.x, q.z, q.hp, q.state, q.stateTicks].join())).join('|')); };
+          try {
+            R.begin = R.render = R.put = R.push = () => {};   // the camera and the frame loop run for real; nothing is drawn
+            Game.match = m; Game.state = GS.FIGHT; Game.acc = 0; Game.last = 0;
+            while (sigs.length < 100 && frames < 1500) Game.frame(++frames * 1000 / 60);
+          } finally { off(); delete m.step; Object.assign(Game, keep); Object.assign(R, drawing); }
+          return { sigs, frames, cut };
+        };
+        const knockOutMatch = () => { const m = mk({ winsNeeded: 1 }, once(2, 'punch')); self.place(m, 1.2); m.fighters[1].hp = 1; return m; };
+        const fast = play(false), slow = play(true);
+        if (fast.sigs.length !== 100 || fast.sigs.join('#') !== slow.sigs.join('#')) bad.push('the settings changed the ticks');
+        if (!(slow.frames > fast.frames + 30)) bad.push('Slow-motion finisher: ' + slow.frames + ' frames against ' + fast.frames + ' for the same 100 ticks');
+        if (!slow.cut || fast.cut) bad.push('Camera cuts in the frame loop: on ' + slow.cut + ', off ' + fast.cut);
+      } finally {
+        Object.assign(Settings.v, keepV);
+        Object.assign(Camera, { az: keepCam.az, dist: keepCam.dist, elev: keepCam.elev, cut: keepCam.cut, cutIn: keepCam.cutIn }); Camera.target.splice(0, 3, ...keepCam.target); Camera.snapNext = true;
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const wornParts = (f) => {   // every part a fighter draws: colour (copied: an item part's colour is a scratch array), roughness and matrix
+      const push = R.push, list = [];
+      R.push = function (layer, mesh, m, col, a, em, rough) { list.push({ col: Array.from(col), rough, m: Float32Array.from(m) }); };
+      try { f.skeleton(0, 0, 0, 0, true); } finally { R.push = push; }
+      return list;
+    };
+    const closeRgb = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
+    const floorOf = () => (Arena.def ? Arena.def.env : DEFAULT_ENV).ground;
+    test('Bruise tint (P13-02): a hit takes its damage share into the zone it landed on (head, torso with the arms, legs), that zone\'s skin mixes toward #6b3b4a up to 30 % at 60 % of the maximum health, a 1v1 round starts clean, Wear marks Off draws none, and no part is added', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.kai, 0), skin = f.col.skin, before = wornParts(f).length;
+        Feel.bruise({ def: f, dmg: f.maxHp * 0.3, y: 1.6 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.1, y: 1.0 * f.scale }); Feel.bruise({ def: f, dmg: f.maxHp * 0.6, y: 0.3 * f.scale });
+        const w = f.wear.map((v) => Math.round(v * 1000) / 1000).join();
+        if (w !== [0.3, 0.06, 0.04, 0.6, 0].join()) bad.push('zones ' + w);
+        f.dress();
+        const mixed = (share) => skin.map((v, i) => v + (BRUISE_RGB[i] - v) * BRUISE_MAX * share);
+        if (!closeRgb(f.wc.head, mixed(0.5)) || !closeRgb(f.wc.legs, mixed(1)) || !closeRgb(f.wc.arms, mixed(0.04 / BRUISE_FULL))) bad.push('colours');
+        f.wear[3] = 1.5; f.dress();
+        if (!closeRgb(f.wc.legs, mixed(1))) bad.push('more than the cap');
+        const bruisedDraw = wornParts(f), skinCol = (list, c) => list.filter((q) => closeRgb(q.col, c)).length;
+        if (bruisedDraw.length !== before) bad.push('parts ' + before + ' -> ' + bruisedDraw.length);
+        if (skinCol(bruisedDraw, mixed(1)) < 2) bad.push('the legs are not drawn bruised');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.head !== skin || f.wc.legs !== skin || skinCol(wornParts(f), mixed(1)) !== 0) bad.push('Wear marks Off still bruises');
+        Settings.v.wearMarks = true;
+        f.reset(0, 0, 0);
+        if (f.wear[0] !== 0.3) bad.push('a revive (reset) cleared the marks a brawl keeps');
+        const m = mk({}, () => {}, () => {}); m.fighters[1].wear[0] = 0.4; m.startRound();
+        if (m.fighters[1].wear[0] !== 0) bad.push('a new round keeps the marks');
+        const duel = mk({}, (it, me, foe, match) => { if (match.tick % 14 === 2) it.punch = true; }); self.place(duel, 1.2);
+        self.run(duel, 240);
+        const taken = duel.fighters[1].maxHp - duel.fighters[1].hp, marked = duel.fighters[1].wear.slice(0, 4).reduce((a, b) => a + b, 0) * duel.fighters[1].maxHp;
+        if (!(taken > 0) || Math.abs(marked - taken) > taken * 0.05 + 0.01) bad.push('a fight: ' + taken.toFixed(1) + ' taken, ' + marked.toFixed(1) + ' marked');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Dust and scuffs (P13-02): each knockdown puts 6 % of the floor colour on the clothes (at most 30 %), a bare chest takes none, Wear marks Off draws none', () => {
+      const bad = [], keep = Settings.v.wearMarks;
+      try {
+        Settings.v.wearMarks = true;
+        const f = new Fighter(ROSTER_BY_ID.mara, 0), clothed = f.col.top !== f.col.skin;
+        if (!clothed) bad.push('MARA has no top to test');
+        Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_STEP) > 1e-9) bad.push('first knockdown ' + f.wear[4]);
+        for (let i = 0; i < 9; i++) Events.emit('knockdown', { f });
+        if (Math.abs(f.wear[4] - DUST_MAX) > 1e-9) bad.push('cap ' + f.wear[4]);
+        f.dress();
+        const floor = floorOf(), want = (base) => base.map((v, i) => v + (floor[i] - v) * DUST_MAX);
+        if (!closeRgb(f.wc.top, want(f.col.top)) || !closeRgb(f.wc.shorts, want(f.col.shorts))) bad.push('clothes colours');
+        if (!wornParts(f).some((q) => closeRgb(q.col, want(f.col.top)))) bad.push('the top is not drawn dusty');
+        Settings.v.wearMarks = false; f.dress();
+        if (f.wc.top !== f.col.top || f.wc.shorts !== f.col.shorts) bad.push('Wear marks Off still dusts');
+        Settings.v.wearMarks = true;
+        const bare = new Fighter(ROSTER.find((r) => resolveLook(r.look).topStyle === 'bare'), 0);
+        bare.wear[4] = DUST_MAX; bare.dress();
+        if (bare.wc.top !== bare.col.skin) bad.push('a bare chest got dust');
+        const m = mk({}, () => {}, () => {}); m.fighters[0].wear[4] = 0.2; m.startRound();
+        if (m.fighters[0].wear[4] !== 0) bad.push('a new round keeps the dust');
+      } finally { Settings.v.wearMarks = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sweat sheen (P13-02): skin roughness goes from 0.7 to 0.35 over 40 s of fighting, or at once under 35 % stamina, and nothing else changes', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), shiny = (list) => list.filter((q) => Math.abs(q.rough - SKIN_SHINE) < 1e-6).length;
+      f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('fresh ' + f.wc.rough);
+      const fresh = wornParts(f);
+      f.age = 60 * SWEAT_SECONDS / 2; f.dress();
+      if (Math.abs(f.wc.rough - (SKIN_ROUGH + SKIN_SHINE) / 2) > 1e-9) bad.push('half way ' + f.wc.rough);
+      f.age = 60 * SWEAT_SECONDS; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('40 s ' + f.wc.rough);
+      const sweaty = wornParts(f);
+      if (shiny(sweaty) < shiny(fresh) + 4 || sweaty.length !== fresh.length) bad.push('draw: ' + shiny(fresh) + ' -> ' + shiny(sweaty) + ' shiny parts of ' + sweaty.length);
+      f.age = 0; f.stam = f.maxStam * 0.3; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_SHINE) > 1e-9) bad.push('low stamina ' + f.wc.rough);
+      f.stam = f.maxStam * 0.5; f.dress();
+      if (Math.abs(f.wc.rough - SKIN_ROUGH) > 1e-9) bad.push('rested ' + f.wc.rough);
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Weapon wear (P13-02): an item darkens up to 25 % as its hits run out; on the last hit a bat and a pipe bend 0.1 rad and a bottle, chair and crate show one crack line; nothing else is added', () => {
+      const bad = [], f = new Fighter(ROSTER_BY_ID.kai, 0), bare = wornParts(f).length;   // the item's parts are the last ones a fighter draws
+      const held = (id, dur) => { f.item = { id, dur, sprays: 0 }; const list = wornParts(f); f.item = null; return list; };
+      const firstHeldPart = (list) => list.slice(bare)[0].col, newCol = (w) => Array.from(w.parts[0][7]);
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id], fresh = held(id, w.dur), last = held(id, 1), mid = held(id, Math.max(1, Math.ceil(w.dur / 2)));
+        if (w.parts.length && w.sp !== 'wrap' && !(fresh.length - bare >= w.parts.length)) bad.push(id + ' parts');
+        const cracked = Object.hasOwn(WEAPON_CRACKS, id), extra = (list) => list.length - bare - w.parts.length;
+        if (w.sp !== 'wrap') {
+          if (w.dur > 1 && extra(fresh) !== 0) bad.push(id + ' fresh adds ' + extra(fresh));
+          if (extra(last) !== (cracked ? 1 : 0)) bad.push(id + ' last hit adds ' + extra(last));
+        }
+        if (w.dur > 1) {
+          const dark = 1 - WEAR_DARK, ratio = firstHeldPart(last).map((v, i) => (newCol(w)[i] > 0 ? v / newCol(w)[i] : dark));
+          if (ratio.some((r) => Math.abs(r - dark) > 1e-6)) bad.push(id + ' colour at the last hit ' + ratio.map((r) => r.toFixed(3)));
+          const share = 1 - WEAR_DARK * (w.dur - Math.max(1, Math.ceil(w.dur / 2))) / (w.dur - 1), got = firstHeldPart(mid)[0] / (newCol(w)[0] || 1);
+          if (newCol(w)[0] > 0 && Math.abs(got - share) > 1e-6) bad.push(id + ' colour half way ' + got.toFixed(3));
+          const moved = last.slice(bare).filter((q, i) => fresh[bare + i] && [12, 13, 14].some((k) => Math.abs(q.m[k] - fresh[bare + i].m[k]) > 1e-6)).length;
+          const bends = id === 'bat' || id === 'pipe';
+          if (w.sp !== 'wrap' && bends !== moved > 0) bad.push(id + (bends ? ' does not bend' : ' bends'));
+        }
+      }
+      if (!(WEAPON_BEND === 0.1)) bad.push('bend');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const targetPose = (f, state, t) => { f.state = state; f.animT = t; f.computePose(); return Float32Array.from(f.tp); };   // the pose the joints blend toward at animation time t
+    test('Breathing and panting (P13-02): under 35 % stamina or exhausted an idle or walking fighter heaves in quick breaths (lean and shoulders up, chin down), Reduced motion shrinks the heave, a rested fighter and every other state are unchanged', () => {
+      const bad = [], keep = Settings.v.reducedMotion, f = new Fighter(ROSTER_BY_ID.kai, 0);
+      try {
+        Settings.v.reducedMotion = false;
+        const range = (state, joint) => { const v = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((t) => targetPose(f, state, t)[joint]); return Math.max(...v) - Math.min(...v); };
+        for (const state of TIRED_POSE_STATES) {
+          f.stam = f.maxStam; f.exhaust = 0;
+          const rested = targetPose(f, state, 0.3);
+          f.stam = f.maxStam * 0.2;
+          const tired = targetPose(f, state, 0.3), heave = range(state, J.torsoLean);
+          if (!(tired[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5) || !(tired[J.shLx] - rested[J.shLx] > PANT_SHOULDER * 0.4) || !(tired[J.headX] > rested[J.headX])) bad.push(S[state] + ' not bent forward');
+          if (!(heave > 0.02)) bad.push(S[state] + ' does not breathe (' + heave.toFixed(3) + ')');
+          f.stam = f.maxStam; f.exhaust = 30;
+          if (!(targetPose(f, state, 0.3)[J.torsoLean] - rested[J.torsoLean] > PANT_LEAN * 0.5)) bad.push(S[state] + ' exhausted does not pant');
+          f.exhaust = 0; f.stam = f.maxStam * 0.2; Settings.v.reducedMotion = true;
+          if (!(range(state, J.torsoLean) < heave * 0.6)) bad.push(S[state] + ' Reduced motion keeps the heave');
+          Settings.v.reducedMotion = false;
+        }
+        f.stam = f.maxStam * 0.2;
+        const base = (state) => { f.stam = f.maxStam; const q = targetPose(f, state, 0.3); f.stam = f.maxStam * 0.2; return q; };
+        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP, S.RUN]) {
+          const rested = base(state), tired = targetPose(f, state, 0.3);
+          if (rested.some((v, i) => Math.abs(v - tired[i]) > 1e-6)) bad.push(S[state] + ' changed');
+        }
+        const striking = (worn) => {   // the pose of a strike at its contact tick, through computePose like every other state
+          const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross;
+          g.stam = worn ? 0 : g.maxStam; g.exhaust = worn ? 20 : 0; g.hp = worn ? g.maxHp * 0.1 : g.maxHp; g.wear[0] = worn ? 0.5 : 0;
+          g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+          g.computePose();
+          return Array.from(g.pose);
+        };
+        const fresh = striking(false), worn = striking(true);
+        if (fresh.some((v, i) => Math.abs(v - worn[i]) > 1e-6) || !fresh.some((v) => v !== 0)) bad.push('ATTACK changed');
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Hurt posture (P13-02): under 25 % health an idle or walking fighter leans on 0.1 rad and the left hand holds the zone hit most; every joint stays inside the Calm poses limits for all 32 bodies, and the contact pose of every move (the P17-02 hit check) is the same', () => {
+      const bad = [], LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // the numbers of the Calm poses test
+      const f = new Fighter(ROSTER_BY_ID.kai, 0);
+      for (const state of TIRED_POSE_STATES) {
+        f.hp = f.maxHp; f.wear.fill(0);
+        const well = targetPose(f, state, 0.3);
+        f.hp = f.maxHp * 0.2;
+        const hurt = targetPose(f, state, 0.3);
+        if (Math.abs(hurt[J.torsoLean] - well[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' lean ' + (hurt[J.torsoLean] - well[J.torsoLean]).toFixed(3));
+        if (![J.shLx, J.elL, J.shLy, J.shLz].every((joint, i) => Math.abs(hurt[joint] - HURT_HAND[1][i]) < 1e-6)) bad.push(S[state] + ' the hand is not on the torso');
+        f.wear[0] = 0.5; const head = targetPose(f, state, 0.3);
+        if (Math.abs(head[J.shLx] - HURT_HAND[0][0]) > 1e-6) bad.push(S[state] + ' head');
+        f.wear.fill(0); f.wear[3] = 0.5; const leg = targetPose(f, state, 0.3);
+        if (Math.abs(leg[J.shLx] - HURT_HAND[2][0]) > 1e-6 || Math.abs(leg[J.torsoLean] - well[J.torsoLean] - HURT_LEAN - HURT_STOOP) > 1e-6) bad.push(S[state] + ' leg');
+        f.hp = f.maxHp * 0.3;
+        if (targetPose(f, state, 0.3).some((v, i) => Math.abs(v - well[i]) > 1e-6)) bad.push(S[state] + ' above 25 % changed');
+        f.hp = f.maxHp * 0.2; f.item = { id: 'bat', dur: 6, sprays: 0 }; f.wear.fill(0);
+        const armed = targetPose(f, state, 0.3);
+        f.item = null; f.hp = f.maxHp;
+        const armedWell = (f.item = { id: 'bat', dur: 6, sprays: 0 }, targetPose(f, state, 0.3));
+        f.item = null;
+        if (Math.abs(armed[J.shLx] - armedWell[J.shLx]) > 1e-6 || Math.abs(armed[J.torsoLean] - armedWell[J.torsoLean] - HURT_LEAN) > 1e-6) bad.push(S[state] + ' an item in hand lost its hand');
+      }
+      const ids = Object.keys(ATTACKS).filter((id) => ATTACKS[id].type === 'strike').slice(0, 8);
+      for (const r of ROSTER) {
+        const g = new Fighter(r, 0);
+        for (const state of TIRED_POSE_STATES) for (const zone of [0, 1, 3]) {
+          g.hp = g.maxHp * 0.05; g.stam = 0; g.exhaust = 20; g.wear.fill(0); g.wear[zone] = 0.5;
+          for (let step = 0; step < 8; step++) {   // across one whole breath
+            const q = targetPose(g, state, 0.7 + step / (8 * PANT_HZ));
+            for (const [joint, limit] of LIMITS) if (Math.abs(q[joint]) > limit + 0.005) bad.push(r.id + ' ' + S[state] + ' joint ' + joint + ' ' + q[joint].toFixed(2));
+          }
+        }
+        for (const id of ids) {
+          const mv = ATTACKS[id], contact = (hurtAndTired) => {
+            g.hp = hurtAndTired ? g.maxHp * 0.05 : g.maxHp; g.stam = hurtAndTired ? 0 : g.maxStam; g.exhaust = hurtAndTired ? 20 : 0; g.wear.fill(0); g.wear[0] = hurtAndTired ? 0.5 : 0;
+            g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null;
+            g.computePose(); g.skeleton(0, 0, 0, 0, false);   // through computePose, where the tired and hurt pose would be added
+            return Array.from(g.pts).join();
+          };
+          if (contact(false) !== contact(true)) bad.push(r.id + ' ' + id + ' contact pose moved');
+        }
+      }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, 4).join('; ') : true;
+    });
+    /* Wires Sound or Effects for one test and takes the listeners back off afterwards: a headless run never wired them, so they would stay (the game wires both once at start-up) */
+    const wireFor = (owner, wire) => {   // returns the undo, for the test's finally
+      const handlers = Events.handlers, wired = owner.wired;
+      Events.handlers = Object.fromEntries(Object.entries(handlers).map(([name, list]) => [name, list.slice()]));
+      wire();
+      return () => { Events.handlers = handlers; owner.wired = wired; };
+    };
+    /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
+    const withVoices = (body) => {
+      const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
+      const heard = [], source = () => ({ stopped: false, stop() { this.stopped = true; } });
+      Sound.ready = () => true; Sound.allow = () => true; Sound.layerQ = []; Sound.heart = false; Sound.ducked = false;
+      Sound.tone = (type, f0, f1, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'tone', f0, dest, s }); return s; };
+      Sound.noise = (filter, f0, f1, q, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'noise', filter, f0, dest, s }); return s; };
+      Sound.swell = () => { const s = source(); heard.push({ kind: 'swell', s }); return s; };
+      Sound.material = (kind) => heard.push({ kind: 'material', material: kind });
+      Sound.grunt = () => {};
+      try { return body(heard); } finally { Object.assign(Sound, keep); }
+    };
+    test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
+      const bad = [], keepArena = Arena.def;
+      const unwire = wireFor(Sound, () => Sound.wire());
+      try {
+        withVoices((heard) => {
+          const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
+          const thud = (weight) => hit({ def: { index: 1, weight, y: 0 } }).filter((v) => v.kind === 'tone')[1].f0;
+          if (!(thud(0) > thud(2) && thud(2) > thud(4))) bad.push('the thud is not lower for heavier bodies: ' + [0, 2, 4].map(thud));
+          const snap = (tier) => { const v = hit({ mv: { tier, cat: 'punch', name: 'x' } }).filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
+          if (new Set([1, 2, 3].map(snap)).size !== 3) bad.push('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
+          if (hit({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }).filter((q) => q.kind === 'material').map((q) => q.material).join() !== WEAPONS.bat.mat) bad.push('no material layer for a bat');
+          if (hit({}).some((q) => q.kind === 'material')) bad.push('a bare hand has a material');
+          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) bad.push('a swell without a crowd');
+          if (hit({}).some((q) => q.dest !== undefined)) bad.push('a layer bypasses the effects bus');
+          Arena.build(ARENAS.club);
+          if (!Arena.props.some((q) => q.ph !== undefined)) bad.push('the Night Club has no crowd to test with');
+          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) bad.push('no crowd swell on a knock-out');
+          if (hit({ ko: false }).some((q) => q.kind === 'swell')) bad.push('a swell without a knock-out');
+          heard.length = 0; Sound.layerQ = [];
+          const layered = [], realLayer = Sound.layer;
+          Sound.layer = function (s) { if (s) layered.push(s); return realLayer.call(this, s); };
+          try { for (let i = 0; i < 20; i++) Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }); } finally { Sound.layer = realLayer; }
+          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length;
+          if (layered.length !== 40 || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped + ' of ' + layered.length + ' stopped, ' + others + ' others stopped');
+          Sound.allow = () => false; heard.length = 0;
+          Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
+          if (heard.length) bad.push('a hit the engine skipped still layers');
+        });
+      } finally { if (keepArena) Arena.build(keepArena); unwire(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Low-health heartbeat (P13-02): a lone person under 20 % health in a live fight hears a 70 bpm heartbeat and the music low-passed to 1.2 kHz; the setting, a second person, Training, a pause and a knock-out turn it off', () => {
+      const bad = [], keepGame = { match: Game.match, state: Game.state }, keep = Settings.v.heartbeat;
+      try {
+        withVoices((heard) => {
+          const filter = []; Sound.ctx = { currentTime: 0 }; Sound.lowpass = { frequency: { setTargetAtTime: (hz) => filter.push(hz) } };
+          const m = mk({}, () => {}, () => {}); m.controllers[0].human = true; Game.match = m; Game.state = GS.FIGHT; Settings.v.heartbeat = true;
+          const me = m.fighters[0], foe = m.fighters[1];
+          me.hp = me.maxHp * 0.15;
+          if (!Feel.heartWanted()) bad.push('a lone person at 15 % hears nothing');
+          me.hp = me.maxHp * 0.25; if (Feel.heartWanted()) bad.push('25 % beats');
+          me.hp = me.maxHp * 0.15;
+          m.controllers[1].human = true; if (Feel.heartWanted()) bad.push('two people'); m.controllers[1].human = false;
+          m.training = true; if (Feel.heartWanted()) bad.push('Training'); m.training = false;
+          Game.state = GS.PAUSED; if (Feel.heartWanted()) bad.push('paused'); Game.state = GS.FIGHT;
+          Settings.v.heartbeat = false; if (Feel.heartWanted()) bad.push('the setting Off'); Settings.v.heartbeat = true;
+          me.alive = false; if (Feel.heartWanted()) bad.push('knocked out'); me.alive = true;
+          foe.hp = foe.maxHp * 0.1; if (!Feel.heartWanted()) bad.push('the foe at 10 % mutes it');
+          Feel.beat = 0; heard.length = 0; filter.length = 0;
+          for (let i = 0; i < 180; i++) Feel.update(1 / 60);   // 3 s
+          const thumps = heard.filter((q) => q.kind === 'tone').length, beats = thumps / 2;
+          if (beats < 3 || beats > 4 || thumps % 2) bad.push(beats + ' beats in 3 s (70 bpm is 3.5)');
+          if (filter[filter.length - 1] !== HEART_MUFFLE_HZ || HEART_BPM !== 70 || HEART_MUFFLE_HZ !== 1200) bad.push('the music is not low-passed to 1.2 kHz: ' + filter.join());
+          Sound.duck(true); if (filter[filter.length - 1] !== 700) bad.push('a pause does not duck further');
+          Sound.duck(false); if (filter[filter.length - 1] !== HEART_MUFFLE_HZ) bad.push('the heart muffle is lost after a pause');
+          me.hp = me.maxHp; heard.length = 0;
+          Feel.update(1 / 60);
+          if (filter[filter.length - 1] !== 20000 || heard.length) bad.push('healed: it goes on');
+          Game.match = null; me.hp = me.maxHp * 0.1; Feel.update(1 / 60);
+          if (Sound.heart) bad.push('no match, still beating');
+        });
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Settings.v.heartbeat = keep; Feel.beat = 0; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
+      const bad = [], keep = { shake: Settings.v.shake, reducedMotion: Settings.v.reducedMotion }, keepArena = Arena.def, put = R.put;
+      const unwire = wireFor(Effects, () => Effects.init());
+      try {
+        Arena.build(ARENAS.warehouse); Settings.v.shake = SETTING_DEFS.shake.def; Settings.v.reducedMotion = false;
+        const lampsNow = () => Arena.lamps.slice();
+        const calm = () => { for (const l of lampsNow()) { l.amp = 0; l.t0 = 0; } for (const o of Arena.objects) o.wob = 0; };
+        const swinging = () => lampsNow().filter((l) => l.amp > 0);
+        const lamps = lampsNow();
+        if (lamps.length !== 5 || lamps.some((l) => Arena.lampAngle(l) !== 0)) bad.push('the Warehouse has ' + lamps.length + ' lights');
+        calm(); Arena.time = 10;
+        Feel.shake(2, -1);
+        const near = swinging().map((l) => l.x).sort((a, b) => a - b).join();
+        if (near !== '0,4') bad.push('lights within 4 m of (2, -1): ' + near);
+        const l = swinging()[0], angle = (age) => { Arena.time = l.t0 + age; return Arena.lampAngle(l); };
+        let peak = 0; for (let age = 0; age < LAMP_SECS; age += 0.01) peak = Math.max(peak, Math.abs(angle(age)));
+        if (!(peak > LAMP_SWAY * 0.6 && peak <= LAMP_SWAY + 1e-9) || LAMP_SWAY !== 0.15) bad.push('swing ' + peak.toFixed(3) + ' rad');
+        if (angle(LAMP_SECS) !== 0 || angle(LAMP_SECS + 5) !== 0 || LAMP_SECS !== 1.5) bad.push('does not come to rest');
+        const early = Math.max(...[0.05, 0.15, 0.25, 0.35].map((age) => Math.abs(angle(age)))), late = Math.max(...[1.1, 1.2, 1.3, 1.4].map((age) => Math.abs(angle(age))));
+        if (!(late < early * 0.5)) bad.push('not damped ' + early.toFixed(3) + ' -> ' + late.toFixed(3));
+        const drawn = [];   // the lamp bodies the arena draws: x, y (a swinging light rises a little) and the turn about z (none: they stay level)
+        R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { if (Math.abs(sy - 0.16) < 1e-9 && Math.abs(sx - 1.3) < 1e-9) drawn.push({ x, y, rz }); };   // nothing is queued: only the lamp bodies are looked at
+        Arena.time = l.t0 + 0.3; Arena.draw(); R.put = put;
+        const moved = drawn.filter((q) => q.y > 5.4 + 1e-9), still = drawn.filter((q) => q.y <= 5.4 + 1e-9);   // a swinging lamp body is lifted, and stays level (it hangs on rods that turn)
+        if (moved.length !== 2 || still.length !== 3 || drawn.some((q) => q.rz !== 0)) bad.push('drawn: ' + moved.length + ' swinging, ' + still.length + ' still');
+        Arena.build(ARENAS.warehouse);
+        if (lampsNow().some((q) => q.amp > 0)) bad.push('a new fight starts with a light still swinging');
+        Arena.time = 10;
+        calm(); Settings.v.shake = 0.3; Feel.shake(0, -1);
+        if (Math.abs(swinging()[0].amp - LAMP_SWAY * 0.5) > 1e-9) bad.push('half the shake, ' + swinging()[0].amp);
+        calm(); Settings.v.shake = 0; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Camera shake 0 still sways');
+        Settings.v.shake = 0.6; Settings.v.reducedMotion = true; Feel.shake(0, -1);
+        if (swinging().length || Arena.objects.some((o) => o.wob > 0)) bad.push('Reduced motion still sways');
+        Settings.v.reducedMotion = false;
+        for (const [name, event] of [['wallSlam', { x: 0, y: 1, z: -1 }], ['envImpact', { x: 0, y: 1, z: -1 }], ['objBreak', { obj: Arena.objects[0], mat: 'wood', x: 0, y: 1, z: -1, by: -1 }], ['knockdown', { f: Object.assign(new Fighter(ROSTER_BY_ID.kai, 0), { x: 0, z: -1 }) }]]) {
+          calm(); Events.emit(name, event);
+          if (!swinging().length) bad.push(name + ' does not swing a light');
+        }
+        calm();
+        const crate = Arena.objects.find((o) => o.id === 'crateA'), far = Arena.objects.find((o) => o.id === 'dumpster'), wall = Arena.objects.find((o) => o.fixed && !o.bounce);
+        Feel.shake(crate.x + 1, crate.z);
+        if (!(crate.wob >= LAMP_JOLT - 1e-9) || far.wob !== 0 || (wall && Math.hypot(wall.x - crate.x - 1, wall.z - crate.z) <= LAMP_RANGE && wall.wob !== 0)) bad.push('jolt: crate ' + crate.wob + ', far ' + far.wob);
+        calm();
+        const realLamps = Arena.lamps, propCount = Arena.props.length, spare = lamps.concat(Array.from({ length: 10 }, (unused, i) => ({ x: i * 0.1, z: 0, top: 7, amp: 0, t0: 0 })));
+        Arena.lamps = spare;   // more lights than the cap, in the list only: the level's cached props are not touched
+        try { Feel.shake(0, 0); } finally { Arena.lamps = realLamps; }
+        if (spare.filter((q) => q.amp > 0).length !== LAMP_MAX) bad.push('at most ' + LAMP_MAX + ' swing, ' + spare.filter((q) => q.amp > 0).length + ' did');
+        if (Arena.props.length !== propCount || Arena.lamps.length !== 5) bad.push('the test left lights behind');
+        /* a light with two rods (the Dojo's) swings as a parallelogram: at the peak each rod hangs from its own place on the ceiling and its lower end stays on the lamp strip's end, the strip stays level */
+        Arena.build(ARENAS.dojo); calm(); Arena.time = 10; Feel.shake(-2, -1);
+        const strip = Arena.lamps.find((q) => q.x === -2);
+        let peakAt = 0, peakAngle = 0; for (let age = 0; age < LAMP_SECS; age += 0.005) { Arena.time = strip.t0 + age; if (Math.abs(Arena.lampAngle(strip)) > peakAngle) { peakAngle = Math.abs(Arena.lampAngle(strip)); peakAt = age; } }
+        Arena.time = strip.t0 + peakAt;
+        const parts = []; R.put = function (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz) { parts.push({ x, y, sx, sy, rz }); };
+        Arena.draw(); R.put = put;
+        const body = parts.find((q) => Math.abs(q.sx - 3.0) < 1e-9 && Math.abs(q.sy - 0.08) < 1e-9 && Math.abs(q.x + 2) < 0.5), rods = parts.filter((q) => Math.abs(q.sx - 0.03) < 1e-9 && Math.abs(q.sy - 1.2) < 1e-9 && Math.abs(q.x + 2) < 1.5);
+        if (!body || rods.length !== 2 || !(peakAngle > LAMP_SWAY * 0.8)) bad.push('the two-rod light: ' + rods.length + ' rods, peak ' + peakAngle.toFixed(3));
+        else {
+          const ceiling = rods.map((q) => Math.hypot(q.x - Math.sin(q.rz) * q.sy / 2 + 2, q.y + Math.cos(q.rz) * q.sy / 2 - 5.9)).sort((a, b) => a - b);   // each rod's upper end, relative to its place on the ceiling above the strip's end
+          if (body.rz !== 0 || Math.abs(ceiling[0] - 1.2) > 1e-6 || Math.abs(ceiling[1] - 1.2) > 1e-6) bad.push('the rods do not hang from the ceiling: ' + ceiling.map((v) => v.toFixed(3)));
+          const gap = rods.map((q) => Math.min(...[-1.2, 1.2].map((end) => Math.hypot(q.x + Math.sin(q.rz) * q.sy / 2 - (body.x + end), q.y - Math.cos(q.rz) * q.sy / 2 - body.y)))); // the rod's lower end against the strip's nearest end
+          if (gap.some((v) => v > 1e-6)) bad.push('a rod end is ' + Math.max(...gap).toFixed(3) + ' m off the strip at the peak');
+        }
+      } finally {
+        R.put = put; Object.assign(Settings.v, keep);
+        if (keepArena) Arena.build(keepArena);
+        unwire();
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Touch vibration (P13-02): a seat played by touch buzzes the phone 20 to 60 ms by strength (20 ms on Reduced), nothing on Off, with Camera shake at 0, on another device or where the browser has no vibrate', () => {
+      const bad = [], keep = { rumble: Settings.v.rumble, shake: Settings.v.shake }, device = Input.lastDevice, had = Object.getOwnPropertyDescriptor(navigator, 'vibrate'), buzzes = [];
+      try {
+        Object.defineProperty(navigator, 'vibrate', { value: (ms) => { buzzes.push(ms); return true; }, configurable: true });
+        Input.lastDevice = 'touch'; Settings.v.rumble = 'full'; Settings.v.shake = 0.6;
+        const buzz = (strength, ms) => { buzzes.length = 0; Input.rumble(strength, ms); return buzzes.join(); };
+        if (buzz(0.9, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.9)) || buzz(0.35, 100) !== String(Math.round(TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE * 0.35)) || TOUCH_BUZZ_MIN !== 20 || TOUCH_BUZZ_MIN + TOUCH_BUZZ_RANGE !== 60) bad.push('full ' + buzz(0.9, 100) + ' ' + buzz(0.35, 100));
+        if (buzz(5, 100) !== '60') bad.push('a strength above 1 buzzes ' + buzz(5, 100));
+        Settings.v.rumble = 'reduced';
+        if (buzz(0.9, 100) !== '20') bad.push('Reduced ' + buzz(0.9, 100));
+        Settings.v.rumble = 'off';
+        if (buzz(0.9, 100) !== '') bad.push('Off still buzzes');
+        Settings.v.rumble = 'full'; Settings.v.shake = 0;
+        if (buzz(0.9, 100) !== '') bad.push('Camera shake 0 still buzzes');
+        Settings.v.shake = 0.6; Input.lastDevice = 'keyboard';
+        if (buzz(0.9, 100) !== '') bad.push('a keyboard seat buzzes');
+        Input.lastDevice = 'touch'; Object.defineProperty(navigator, 'vibrate', { value: undefined, configurable: true });   // a browser without the call (the real one lives on the prototype, so it is hidden, not deleted)
+        let threw = false; try { Input.rumble(0.9, 100); } catch (error) { threw = true; }
+        if (threw) bad.push('no vibrate in the browser throws');
+      } finally {
+        if (had) Object.defineProperty(navigator, 'vibrate', had); else delete navigator.vibrate;
+        Input.lastDevice = device; Object.assign(Settings.v, keep);
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -15433,7 +16143,7 @@ const SelfTest = {
       const problems = [];
       const colours = Object.values(CUE_COLOR), sets = Object.values(CUE_NOTES).map((n) => n.join());
       if (new Set(colours).size !== colours.length || new Set(sets).size !== sets.length) problems.push('a ring colour or a note set repeats');
-      Effects.init();
+      const unwire = wireFor(Effects, () => Effects.init());
       const real = { ring: FX.ring, flash: FX.flash, sparks: FX.sparks, dust: FX.dust }, rings = [], flashes = [];
       FX.ring = (x, y, z, hex) => rings.push(hex); FX.flash = (x, y, z, size, hex) => flashes.push(y.toFixed(1) + ':' + size + ':' + hex); FX.sparks = () => {}; FX.dust = () => {};
       const realSound = { allow: Sound.allow, tone: Sound.tone, noise: Sound.noise }, heard = [];
@@ -15461,7 +16171,7 @@ const SelfTest = {
         const run = chainRun({ g: 3, defence: 'block' }), block = run.log.find((ev) => ev.n === 'block'), ring = stamp.find((s) => s.hex === CUE_COLOR.brk);
         if (!block || !ring || ring.t !== block.t) problems.push('the ring came on tick ' + (ring && ring.t) + ', the block on ' + (block && block.t));
       } finally {
-        Object.assign(FX, real); Object.assign(Sound, realSound);
+        Object.assign(FX, real); Object.assign(Sound, realSound); unwire();
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -16655,15 +17365,1112 @@ const SelfTest = {
       } finally { Game.beginMatch = begin; Game.run = kept.run; Setups.d = kept.setups; Game.selection.survivalType = kept.type; restoreProgress(saved); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
+    /* ---------- online: delay-based lockstep (P12-02) ---------- */
+    /* Several peers in this one page. The sim keeps its state in a few shared globals (the simRng generator, the arena, the move and flight id counters, Match.current), so every peer owns a context that is swapped in
+       around each call into its sim; the viewer settings of a peer are swapped in too (the guests run with every viewer setting flipped: they must not matter). The link between peers is in memory with a virtual clock in
+       ms that the test advances: latency, jitter and loss on the input channel (unordered, so a packet can overtake another), a reliable ordered control channel. */
+    const lcg = (seed) => () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    const saveSimContext = () => ({ rng: api.get.simRng(), attack: Combat.attackCounter, flight: Combat.flightCounter, arena: Object.assign({}, Arena), collapses: Arena.collapses.slice(), marks: Arena.marks.slice(), current: Match.current });
+    const loadSimContext = (c) => {
+      api.set.simRng(c.rng); Combat.attackCounter = c.attack; Combat.flightCounter = c.flight; Object.assign(Arena, c.arena); Match.current = c.current;
+      Arena.collapses.length = 0; Arena.collapses.push(...c.collapses); Arena.marks.length = 0; Arena.marks.push(...c.marks);
+    };
+    const makeMemoryNet = (seed) => {
+      const rng = lcg(seed), net = { t: 0, queue: [], seq: 0, packets: 0, lost: 0, bytes: 0 };
+      const makeEnd = (profile) => {
+        const end = { profile, peer: null, muted: false, closed: false, controlAt: 0, onmessage: null, onclose: null };
+        end.send = (channel, data) => {   // muted: this end's packets vanish, the link stays up (a peer that stopped answering)
+          if (end.muted || end.closed) return;
+          if (channel === 'input' && end.blockInput) { net.lost++; return; }   // only the input channel of this end stops (the reliable one still works)
+          let at = net.t + end.profile.latency + rng() * end.profile.jitter;
+          if (channel === 'input') {
+            net.packets++; net.bytes += data.length;
+            if (rng() < end.profile.loss) { net.lost++; return; }
+          } else { at = Math.max(at, end.controlAt); end.controlAt = at; }   // reliable and ordered
+          net.queue.push({ at, seq: net.seq++, to: end.peer, channel, data: channel === 'input' ? data.slice() : data });
+        };
+        end.close = () => { if (!end.closed) { end.closed = true; net.queue.push({ at: net.t + end.profile.latency, seq: net.seq++, to: end.peer, channel: 'close' }); } };
+        return end;
+      };
+      net.pair = (profile) => { const a = makeEnd(profile), b = makeEnd(profile); a.peer = b; b.peer = a; return [a, b]; };
+      net.advance = (to) => {
+        for (;;) {
+          net.queue.sort((a, b) => a.at - b.at || a.seq - b.seq);
+          if (!net.queue.length || net.queue[0].at > to) { net.t = to; return; }
+          const message = net.queue.shift();
+          net.t = Math.max(net.t, message.at);   // a message is handled at its arrival time (round trips measure true)
+          if (message.channel === 'close') { if (message.to.onclose) message.to.onclose(); } else if (message.to.onmessage) message.to.onmessage(message.channel, message.data);
+        }
+      };
+      return net;
+    };
+    const VIEWER_ODD = { reducedMotion: true, shake: 0, flashes: 'off', rumble: 'off', trails: false, highContrast: true, effects: 'low', movement: 'opponent', autoAssist: true, guardAssist: true };
+    const TICK_MS = 1000 / 60;   // a virtual frame
+    /* A seat's device: a seeded random player (walks, strafes, punches, kicks, grabs, jumps, guards) that advances once per sample, so the same seat gives the same inputs in every run whatever the timing. */
+    const randomDevice = (seat, seed) => {
+      const rng = lcg(seed * 977 + seat * 7919 + 1);
+      let samples = 0, heading = 0, strafe = 0;
+      return { think(f, opp, match, it) {
+        clearIntent(it);
+        if (samples++ % 20 === 0) { heading = [1, 1, 0.6, 0, -0.5][Math.floor(rng() * 5)]; strafe = rng() - 0.5; }
+        it.fwd = heading; it.side = strafe;
+        const roll = rng();
+        if (roll < 0.07) it.punch = true; else if (roll < 0.11) it.kick = true; else if (roll < 0.125) it.grapple = true; else if (roll < 0.135) it.jump = true; else if (roll < 0.2) it.defend = true;
+        if (rng() < 0.02) it.sidestep = rng() < 0.5 ? -1 : 1;
+        return it;
+      }, reset() {} };
+    };
+    /* seats = 2 (a 1v1, both people) or 3 or 4 (a brawl: that many people against three CPU enemies; the 4-seat form is for measuring, P12-03 tests it). opts: delay, latency, jitter, loss, seed, rtc ([host transport, guest transport] instead of the memory link), device (seat -> controller). */
+    const makeLockstep = (seats, opts) => {
+      const net = makeMemoryNet(opts.seed || 1), common = { countdown: false, seed: 31, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: true, hazards: true };
+      const cfg = Object.assign(common, seats === 2 ? { mode: 'free', winsNeeded: 99, timer: 30 } : { mode: 'brawl', enemies: 3, hpScale: 8, coop: ROSTER.slice(0, seats).map((fighter, slot) => ({ slot, id: fighter.id })) }, opts.cfg);
+      const peers = [], profile = { latency: opts.latency || 0, jitter: opts.jitter || 0, loss: opts.loss || 0 }, links = {}, hostLinks = [];
+      for (let seat = 1; seat < seats; seat++) { const [hostEnd, guestEnd] = opts.rtc ? [opts.rtc[0], opts.rtc[1]] : net.pair(profile); links[seat] = hostEnd; hostLinks[seat] = guestEnd; }
+      for (let seat = 0; seat < seats; seat++) {
+        const match = track(new MatchSim(cfg));
+        const peer = { seat, match, ctx: saveSimContext(), acc: 0, sums: [], viewer: seat ? VIEWER_ODD : null, waiting: [], desync: null, drops: [] };
+        peer.session = new LockstepSession({
+          match, seat, seatCount: seats, host: seat === 0, delay: opts.delay, now: opts.rtc ? () => performance.now() : () => net.t,
+          links: seat === 0 ? links : undefined, hostLink: seat === 0 ? undefined : hostLinks[seat],
+          localController: opts.device ? opts.device(seat) : randomDevice(seat, opts.seed || 1),
+          onWaiting: (text) => peer.waiting.push([net.t, text]), onDesync: (info) => { peer.desync = info; }, onDrop: (info) => peer.drops.push(Object.assign({ at: net.t }, info)),
+        });
+        peers.push(peer);
+      }
+      return { net, peers, mute: (seat) => { hostLinks[seat].muted = true; }, hostEnd: (seat) => links[seat] };   // mute: that seat stops answering (its link stays up)
+    };
+    const inPeer = (peer, fn) => {
+      const keep = Object.assign({}, Settings.v), outer = saveSimContext();   // the page's own loop (the menu scene) keeps running between async steps and must find its own globals
+      loadSimContext(peer.ctx);
+      if (peer.viewer) Object.assign(Settings.v, peer.viewer);
+      try { return fn(); } finally { peer.ctx = saveSimContext(); Object.assign(Settings.v, keep); loadSimContext(outer); }
+    };
+    const stepPeer = (peer) => inPeer(peer, () => {
+      const stepped = peer.session.step();
+      if (stepped && peer.match.phase === 'waiting' && !peer.match.matchOver) peer.match.startRound();   // what Game.onNextRound does
+      if (stepped && peer.match.tick % NET_CHECK_EVERY === 0) peer.sums.push(peer.session.ownSums.get(peer.match.tick));
+      return stepped;
+    });
+    /* Plays the peers in virtual real time until every peer reached `frames` or ended; hook(net, peers) runs once per virtual frame. Returns true or what went wrong. */
+    const playLockstep = ({ net, peers }, frames, hook) => {
+      for (let guard = 0; guard < frames * 60 + 6000; guard++) {
+        if (peers.every((peer) => peer.match.tick >= frames || peer.session.ended)) return true;
+        net.advance(net.t + TICK_MS);
+        if (hook) hook(net, peers);
+        for (const peer of peers) {
+          peer.acc += TICK_MS;
+          while (peer.acc >= TICK_MS && peer.match.tick < frames) {
+            if (!stepPeer(peer)) { peer.acc = Math.min(peer.acc, TICK_MS * 4); break; }   // the game loop's catch-up cap after a stall
+            peer.acc -= TICK_MS;
+          }
+        }
+      }
+      return 'stuck at ticks ' + peers.map((peer) => peer.match.tick).join('/');
+    };
+    // Every peer reached `frames`, none ended, and every checksum list equals the first peer's
+    const lockstepProblems = (peers, frames, mustFight = true) => {
+      const problems = [];
+      peers.forEach((peer) => {
+        if (peer.match.tick < frames) problems.push('seat ' + peer.seat + ' stopped at tick ' + peer.match.tick + (peer.session.ended ? ' (' + peer.session.ended + ')' : ''));
+        if (peer.sums.length !== Math.floor(peer.match.tick / NET_CHECK_EVERY)) problems.push('seat ' + peer.seat + ' has ' + peer.sums.length + ' checksums');
+        const at = peer.sums.findIndex((sum, i) => sum !== peers[0].sums[i]);
+        if (at >= 0) problems.push('seat ' + peer.seat + ' differs from seat 0 at checkpoint ' + at);
+      });
+      if (mustFight && !peers[0].match.stats.some((stats) => stats.hits > 0)) problems.push('no hit landed: the match plays nothing');
+      return problems;
+    };
+    test('Lockstep (P12-02): two peers over a link with latency, jitter and 10 % input loss stay in lockstep for a long run, their checksums equal at every 60 frames; the guest runs with every viewer setting flipped', () => {
+      const FRAMES = Number(globalThis.BP_LOCKSTEP_FRAMES) || 3600;   // the 36,000-frame run of Appendix C sets BP_LOCKSTEP_FRAMES
+      const game = makeLockstep(2, { delay: 4, latency: 30, jitter: 20, loss: 0.1, seed: 5 });
+      const done = playLockstep(game, FRAMES);
+      const problems = done === true ? lockstepProblems(game.peers, FRAMES) : [done];
+      if (!game.net.lost) problems.push('no packet was lost: the loss was not exercised');
+      if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 2, frames: FRAMES, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost });   // the numbers of Appendix C
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): three peers (a brawl with three people and three CPU fighters) stay in lockstep over a lossy, jittery star, checksums equal, the host relaying', () => {
+      const game = makeLockstep(3, { delay: 4, latency: 25, jitter: 15, loss: 0.1, seed: 9 });
+      const done = playLockstep(game, 1200);
+      const problems = done === true ? lockstepProblems(game.peers, 1200) : [done];
+      if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 3, frames: 1200, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost });
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): with 30 % of the input packets lost the match plays out identically to a lossless run (the last 8 frames ride in every packet)', () => {
+      const FRAMES = 1500;
+      const lossless = makeLockstep(2, { delay: 4, latency: 30, jitter: 10, loss: 0, seed: 7 }), lossy = makeLockstep(2, { delay: 4, latency: 30, jitter: 10, loss: 0.3, seed: 7 });
+      const first = playLockstep(lossless, FRAMES), second = playLockstep(lossy, FRAMES);
+      const problems = [first, second].filter((done) => done !== true);
+      if (!problems.length) problems.push(...lockstepProblems(lossless.peers, FRAMES), ...lockstepProblems(lossy.peers, FRAMES));
+      if (!problems.length && lossless.peers[0].sums.join() !== lossy.peers[0].sums.join()) problems.push('the lossy run differs from the lossless run');
+      if (lossy.net.lost < lossy.net.packets * 0.2) problems.push('only ' + lossy.net.lost + ' of ' + lossy.net.packets + ' packets were lost');
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): a withheld input stalls the sim, "Waiting for P2..." shows after 0.5 s and the peer is dropped after 10 s: a 1v1 is lost by that fighter', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 10, seed: 3 }), host = game.peers[0];
+      let muted = false, stallStart = 0, tickAtStall = 0, movedWhileStalled = false;
+      const done = playLockstep(game, 800, () => {
+        if (!muted && host.match.tick >= 120) { muted = true; game.mute(1); }
+        const stalledSince = host.session.stalledSince;
+        if (muted && stalledSince && !stallStart) { stallStart = stalledSince; tickAtStall = host.match.tick; }   // the first tick of the game waits a moment for the guest's first packet: that is not this stall
+        if (muted && stalledSince && host.match.tick !== tickAtStall) movedWhileStalled = true;
+      });
+      if (done !== true) return done;
+      const shown = host.waiting.find((entry) => entry[1]), drop = host.drops[0];
+      if (!shown || shown[1] !== 'Waiting for P2...') problems.push('waiting text ' + JSON.stringify(host.waiting.slice(0, 2)));
+      else if (shown[0] - stallStart < NET_WAIT_SHOW_MS || shown[0] - stallStart > NET_WAIT_SHOW_MS + 2 * TICK_MS) problems.push('the text came ' + (shown[0] - stallStart) + ' ms into the stall');
+      if (!drop || drop.outcome !== 'forfeit' || drop.seat !== 1) problems.push('drop ' + JSON.stringify(drop));
+      else if (drop.at - stallStart < NET_DROP_MS || drop.at - stallStart > NET_DROP_MS + 2 * TICK_MS) problems.push('dropped ' + (drop.at - stallStart) + ' ms into the stall');
+      if (movedWhileStalled) problems.push('the sim moved while it waited');
+      if (!host.match.matchOver || host.match.matchWinner !== 0 || !host.match.fighters[1].netOut) problems.push('the 1v1 did not end with the host as the winner');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): in a brawl a dropped peer is seated out like a knocked-out co-op player ("Waiting for P3..."), the others play on in lockstep and the seat is not revived', () => {
+      const problems = [];
+      const game = makeLockstep(3, { delay: 2, latency: 10, seed: 4 }), [host, second, third] = game.peers;
+      let muted = false;
+      const done = playLockstep(game, 900, () => { if (!muted && host.match.tick >= 120) { muted = true; game.mute(2); } });
+      if (done !== true) return done;
+      if (!host.waiting.some((entry) => entry[1] === 'Waiting for P3...')) problems.push('waiting text ' + JSON.stringify(host.waiting.slice(0, 3)));
+      for (const peer of [host, second]) {
+        const drop = peer.drops[0], fighter = peer.match.fighters[2];
+        if (!drop || drop.outcome !== 'seatedOut' || drop.seat !== 2) problems.push('seat ' + peer.seat + ' drop ' + JSON.stringify(drop));
+        if (fighter.alive || !fighter.netOut) problems.push('seat ' + peer.seat + ': fighter 3 was not seated out');
+        if (peer.match.tick < 900 || peer.session.ended) problems.push('seat ' + peer.seat + ' stopped at ' + peer.match.tick + ' ' + peer.session.ended);
+      }
+      if (host.sums.join() !== second.sums.join()) problems.push('the two peers that played on differ');
+      if (third.session.ended !== 'lost') problems.push('the dropped peer ended as "' + third.session.ended + '" ' + JSON.stringify(third.desync));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): a corrupted state is caught at the next 60-frame checksum: both peers stop with "Out of sync" and the sim no longer steps', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 10, seed: 6 }), [host, guest] = game.peers;
+      let corrupted = false;
+      const done = playLockstep(game, 600, () => {
+        if (!corrupted && host.match.tick >= 200 && guest.match.tick >= 200) { corrupted = true; if (host.session.ended || guest.session.ended) problems.push('stopped before the corruption'); inPeer(guest, () => { guest.match.fighters[0].hp -= 3; }); }
+      });
+      if (done !== true) return done;
+      for (const peer of game.peers) {
+        const info = peer.desync;
+        if (peer.session.ended !== 'desync' || !info || info.text !== 'Out of sync') problems.push('seat ' + peer.seat + ' ended as "' + peer.session.ended + '" ' + JSON.stringify(info));
+        else if (info.frame !== 240) problems.push('seat ' + peer.seat + ' caught it at frame ' + info.frame);
+        if (peer.match.tick > 250) problems.push('seat ' + peer.seat + ' played on to tick ' + peer.match.tick);
+        const tick = peer.match.tick;
+        if (stepPeer(peer) || peer.match.tick !== tick) problems.push('seat ' + peer.seat + ' still steps after the stop');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): the host sets the input delay to clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6) from 20 ping samples (median), guests follow', () => {
+      const table = [[0, 2], [10, 2], [33, 2], [34, 3], [50, 3], [67, 4], [100, 4], [133, 5], [200, 6], [400, 6]];   // RTT ms -> frames
+      const wrong = table.filter(([rtt, frames]) => netDelayFor([rtt]) !== frames).map(([rtt]) => rtt + ' ms -> ' + netDelayFor([rtt]));
+      if (netDelayFor([]) !== NET_INPUT_DELAY) wrong.push('no samples');
+      if (netDelayFor([20, 40]) !== 3) wrong.push('two guests: ' + netDelayFor([20, 40]));   // guest to host to guest: (20 + 40) / 2 = 30 ms one way
+      const spiky = Array.from({ length: NET_PING_SAMPLES }, (_, i) => (i === 7 ? 900 : 100));
+      if (netMedian(spiky) !== 100 || netDelayFor([netMedian(spiky)]) !== 4) wrong.push('one spike moved the median');
+      const game = makeLockstep(2, { delay: 2, latency: 40, jitter: 0, seed: 2 }), [host, guest] = game.peers;
+      for (let i = 0; i < NET_PING_SAMPLES + 5; i++) { host.session.ping(); game.net.advance(game.net.t + 100); }
+      const rtt = host.session.rtt(1), chosen = host.session.retune();
+      game.net.advance(game.net.t + 100);
+      if (Math.abs(rtt - 80) > 1 || chosen !== 4 || host.session.delay !== 4 || guest.session.delay !== 4) wrong.push('pinged rtt ' + rtt + ' chose ' + chosen + ' guest ' + guest.session.delay);
+      if (host.session.rtts.get(1).length !== NET_PING_SAMPLES) wrong.push('kept ' + host.session.rtts.get(1).length + ' samples');
+      return wrong.length ? wrong.join('; ') : true;
+    });
+    test('Lockstep (P12-02): an input survives encode, packet and decode; a bad packet, a spoofed seat and a late press during a hit freeze are handled', () => {
+      const problems = [];
+      const rng = lcg(12), it = makeIntent();
+      for (let i = 0; i < 300; i++) {
+        clearIntent(it);
+        it.fwd = Math.round((rng() * 2 - 1) * 127) / 127; it.side = Math.round((rng() * 2 - 1) * 127) / 127;
+        for (const key of ['run', 'crouch', 'defend', 'height', 'jump', 'punch', 'kick', 'grapple', 'use', 'setDown', 'lock', 'stickAnalog']) it[key] = rng() < 0.5;
+        it.sidestep = [-1, 0, 1][Math.floor(rng() * 3)]; it.grapDir = ['fwd', 'back', 'left', 'right'][Math.floor(rng() * 4)];
+        const back = decodeInput(encodeInput(it), makeIntent());
+        if (JSON.stringify(back) !== JSON.stringify(Object.assign(makeIntent(), it, { assist: false, guardAssist: false, noParry: false }))) { problems.push('round trip ' + JSON.stringify(it)); break; }
+      }
+      const codes = [1, 0xffffffff, 7, 0, 5, 6, 8, 9], bytes = packInputs(2, 70000, codes), packet = unpackInputs(bytes);
+      if (bytes.length !== NET_PACKET_HEAD + 4 * NET_REDUNDANCY || !packet || packet.seat !== 2 || packet.last !== 70000 || packet.codes.join() !== codes.join()) problems.push('packet round trip');
+      if (unpackInputs(bytes.slice(0, bytes.length - 1)) || unpackInputs(new Uint8Array(3)) || unpackInputs(packInputs(0, 1, []))) problems.push('a bad packet was accepted');
+      const game = makeLockstep(3, { delay: 2, latency: 5, seed: 8 }), [host, second] = game.peers;
+      const id = host.session.matchId;
+      host.session.receive(1, 'input', packInputs(0, 5, [99], id)); host.session.receive(1, 'input', packInputs(2, 5, [99], id)); host.session.receive(1, 'input', packInputs(9, 5, [99], id));   // seat 1 sends for the host, for seat 3 and for no seat
+      host.session.receive(1, 'control', JSON.stringify({ t: 'sum', seat: 2, f: 60, s: 1, mid: id })); host.session.receive(1, 'control', 'not json'); host.session.receive(1, 'control', JSON.stringify({ t: 'drop', seat: 2, f: 1, mid: id }));
+      if (host.session.got[0].size || host.session.got[2].size || host.session.dropped.size || host.session.theirSums.size) problems.push('the host accepted a spoofed message');
+      second.session.receive(0, 'control', JSON.stringify({ t: 'drop', seat: 2, f: 1, mid: id }));
+      if (!second.session.dropped.has(2)) problems.push('a guest ignored the host\'s drop');
+      for (const odd of ['bp-ping:12', 'bp-pong:12', '5', 'null', '{"t":"zzz"}', '[1,2]', '{}', '']) { try { second.session.receive(0, 'control', odd); } catch (error) { problems.push('control message ' + JSON.stringify(odd) + ' threw'); } }   // P12-01 sends its own strings on the reliable channel too
+      if (second.session.ended) problems.push('an unknown control message ended the session (' + second.session.ended + ')');
+      second.session.receive(2, 'control', JSON.stringify({ t: 'drop', seat: 1, f: 1, mid: id }));
+      if (second.session.dropped.has(1)) problems.push('a guest took a drop from another guest');
+      // a press the sim does not read (hit freeze from tick 3 to 12) is kept for the next sampled frame: read exactly once, after the freeze
+      const reads = [];
+      const device = { think(f, opp, match, itt) { clearIntent(itt); this.n = (this.n || 0) + 1; if (this.n === 3) match.hitStop = 10; if (this.n === 5) itt.punch = true; return itt; }, reset() {} };
+      const solo = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, winsNeeded: 2 }));
+      const session = new LockstepSession({ match: solo, seat: 0, seatCount: 1, host: true, links: {}, delay: 2, localController: device });
+      const seat = solo.controllers[0], original = seat.think.bind(seat);
+      seat.think = (f, opp, match, itt) => { const out = original(f, opp, match, itt); if (itt.punch) reads.push(match.tick); return out; };
+      for (let i = 0; i < 40; i++) if (!session.step()) problems.push('a one-seat session stalled');
+      if (reads.length !== 1 || reads[0] !== 13) problems.push('the press during the freeze was read at ' + JSON.stringify(reads));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): the host changes the input delay while the peers keep stepping, over a lossy link, and the checksums stay equal (each sender tags its own frames: no agreement on a tick is needed)', () => {
+      const problems = [];
+      const game = makeLockstep(2, { delay: 2, latency: 30, jitter: 15, loss: 0.1, seed: 21 }), [host, guest] = game.peers;
+      const plan = [[300, 5], [600, 2], [800, 6], [1000, 3]], seen = [];
+      const done = playLockstep(game, 1300, () => {
+        if (plan.length && host.match.tick >= plan[0][0]) { const [, frames] = plan.shift(); host.session.setDelay(frames); seen.push(frames); }
+      });
+      if (done !== true) return done;
+      problems.push(...lockstepProblems(game.peers, 1300));
+      if (seen.length !== 4 || host.session.delay !== 3 || guest.session.delay !== 3) problems.push('delays ' + seen + ' / ' + host.session.delay + ' / ' + guest.session.delay);
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): frames lost for longer than the 8 in a packet are fetched with a resend request on the reliable channel (the host stops sending inputs to the guest for 400 ms at delay 6), and the match goes on equal', () => {
+      const game = makeLockstep(2, { delay: 6, latency: 20, seed: 22 }), [host, guest] = game.peers;
+      let blocked = 0;
+      const done = playLockstep(game, 600, (net) => {
+        if (!blocked && host.match.tick >= 200) { blocked = net.t; game.hostEnd(1).blockInput = true; }
+        if (blocked && net.t >= blocked + 400) game.hostEnd(1).blockInput = false;
+      });
+      const problems = done === true ? lockstepProblems(game.peers, 600) : [done];
+      if (!guest.session.stats.needs || !guest.session.stats.fills) problems.push('no resend request was needed: ' + JSON.stringify(guest.session.stats));
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    /* Game.frame with an attached session, two peers in one page: the Game singleton's own fields are swapped around each peer's frame as the sim globals are. A round ends by the clock after 2 s; the guest (a P1 device)
+       presses Punch in the round end: the skip must reach both sims on the same tick, with no desync, and the host retunes the delay as the round end is left. */
+    test('Lockstep (P12-02): through Game.frame and attachNet a round-end skip press on one peer skips on both at the same tick, checksums equal, and the host retunes the delay at the round end', () => {
+      const KEYS = ['state', 'match', 'net', 'netNote', 'acc', 'alpha', 'last', 'endTimer', 'config', 'run', 'pausedFrom', 'pausedBy', 'resultsData'];
+      const pick = () => { const kept = {}; for (const key of KEYS) kept[key] = Game[key]; return kept; };
+      const game = makeLockstep(2, { delay: 2, latency: 40, seed: 13, cfg: { timer: 2 }, device: (seat) => (seat === 1 ? PlayerController : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) }), [host, guest] = game.peers;
+      const outer = pick(), render = Game.render, problems = [], starts = [], ends = [];
+      const peerOf = (match) => game.peers.find((peer) => peer.match === match);
+      const offs = [
+        Events.on('roundEnd', (e) => { ends.push(e.match.tick); Game.onRoundEnd(e); }),
+        Events.on('nextRound', () => Game.onNextRound()),
+        Events.on('fightStart', () => { if (Game.state === GS.COUNTDOWN) Game.go(GS.FIGHT); }),
+        Events.on('roundStart', (e) => starts.push([peerOf(e.match).seat, e.round, e.match.tick])),
+      ];
+      const inGame = (peer, fn) => { const before = pick(); Object.assign(Game, peer.g); try { return fn(); } finally { peer.g = pick(); Object.assign(Game, before); } };
+      try {
+        Game.render = () => {};
+        for (const peer of game.peers) { Object.assign(Game, { state: GS.FIGHT, match: peer.match, net: null, netNote: null, acc: 0, alpha: 0, last: 1000, endTimer: 0, config: { mode: 'free' }, run: null }); Game.attachNet(peer.session); peer.g = pick(); }
+        let now = 1000, pressed = 0;
+        for (let i = 0; i < 700 && !(starts.length >= 4 && game.peers.every((peer) => peer.match.tick >= 400)); i++) {
+          now += TICK_MS; game.net.advance(game.net.t + TICK_MS);
+          for (const peer of game.peers) {
+            if (peer === guest && !pressed && peer.match.phase === 'roundEnd' && peer.match.phaseTicks >= 40) { pressed = peer.match.tick; Input.press('punch'); }   // only the guest's device gets the press
+            inPeer(peer, () => inGame(peer, () => Game.frame(now)));
+          }
+          if (host.session.ended || guest.session.ended) break;
+        }
+        if (!pressed) problems.push('the round never reached its end: ticks ' + game.peers.map((peer) => peer.match.tick + ' ' + peer.match.phase + ' ' + peer.g.state + ' acc ' + peer.g.acc.toFixed(3) + ' ' + peer.session.ended).join(' / '));
+        if (host.session.ended || guest.session.ended) problems.push('ended ' + host.session.ended + '/' + guest.session.ended + ' ' + JSON.stringify(host.desync || guest.desync));
+        const second = [0, 1].map((seat) => starts.find((entry) => entry[0] === seat && entry[1] === 2));
+        if (!second[0] || !second[1] || second[0][2] !== second[1][2]) problems.push('round 2 started at ' + JSON.stringify(second));
+        else if (second[0][2] - ends[0] >= ROUND_END_TICKS - 20) problems.push('the skip did not shorten the round end: ' + (second[0][2] - ends[0]) + ' ticks');
+        let compared = 0;
+        for (const [frame, sum] of host.session.ownSums) if (guest.session.ownSums.has(frame)) { compared++; if (guest.session.ownSums.get(frame) !== sum) problems.push('checksum differs at ' + frame); }
+        if (compared < 3) problems.push('only ' + compared + ' checksums compared');
+        if (!host.session.stats.retunes || host.session.delay !== 4 || guest.session.delay !== 4) problems.push('delay ' + host.session.delay + '/' + guest.session.delay + ' retunes ' + host.session.stats.retunes);
+      } finally {
+        offs.forEach((off) => off()); Game.render = render; Object.assign(Game, outer); UI.netStatus('');
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): an online fight has a way out: the pause key asks "Leave the match?" and the sim goes on; "Connection lost" and "Out of sync" offer Menu (Rematch only with a handler); endMatch only detaches, Leave closes the channels', () => {
+      const problems = [], shown = [], keep = { net: Game.net, netNote: Game.netNote, state: Game.state, match: Game.match, quit: Game.quitToMenu, status: UI.netStatus };
+      const last = () => shown[shown.length - 1] || { text: '', buttons: [] };
+      const labels = () => last().buttons.map((button) => button[0]).join();
+      const click = (label) => last().buttons.find((button) => button[0] === label)[1]();
+      const makeSession = (hooks) => {
+        const link = { closed: 0, send() {}, close() { this.closed++; }, onmessage: null, onclose: null };
+        const match = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, winsNeeded: 2 }));
+        const session = new LockstepSession({ match, seat: 0, seatCount: 2, host: true, links: { 1: link }, delay: 2, localController: randomDevice(0, 1) });
+        Game.attachNet(session, hooks);
+        return { link, match, session };
+      };
+      try {
+        UI.netStatus = (text, ...buttons) => shown.push({ text, buttons });
+        let quits = 0;
+        Game.quitToMenu = () => { quits++; };
+        Game.state = GS.FIGHT;
+        let online = makeSession({});
+        if (Game.pause() !== false || last().text !== 'Leave the match?' || labels() !== 'Leave,Stay') problems.push('pause key: ' + JSON.stringify(last().text) + ' ' + labels());
+        click('Stay');
+        if (last().text !== '') problems.push('Stay did not hide the question');
+        Game.pause(); click('Leave');
+        if (quits !== 1 || online.link.closed !== 1) problems.push('Leave: quit ' + quits + ' closed ' + online.link.closed);
+        let left = 0;
+        online = makeSession({ onLeave: () => { left++; } });
+        Game.pause(); click('Leave');
+        if (left !== 1) problems.push('Leave did not call onLeave');
+        online = makeSession({});
+        online.session.stop('lost', { seat: 0 });
+        if (last().text !== 'Connection lost' || labels() !== 'Menu') problems.push('lost: ' + JSON.stringify(last().text) + ' ' + labels());
+        online = makeSession({});
+        online.session.stop('desync', { frame: 60, seat: 1 });
+        if (last().text !== 'Out of sync' || labels() !== 'Menu') problems.push('desync without a handler: ' + labels());
+        let rematches = 0;
+        online = makeSession({ onRematch: () => { rematches++; } });
+        online.session.stop('desync', { frame: 60, seat: 1 });
+        if (labels() !== 'Rematch,Menu') problems.push('desync with a handler: ' + labels());
+        click('Rematch');
+        if (rematches !== 1) problems.push('Rematch did not call the handler');
+        click('Menu');
+        if (quits !== 3 || online.link.closed !== 1) problems.push('Menu: quit ' + quits + ' closed ' + online.link.closed);
+        online = makeSession({});
+        Game.match = online.match;
+        Game.endMatch();
+        if (Game.net !== null || online.link.closed !== 0 || online.link.onmessage !== null || online.session.ended !== 'closed') problems.push('endMatch: net ' + Game.net + ' closed ' + online.link.closed + ' ended ' + online.session.ended);
+      } finally {
+        UI.netStatus = keep.status; Game.quitToMenu = keep.quit; Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state, match: keep.match });
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* P12-01's link (Online.createLink) as a stand-in with its shape: send(data, quick) -> bool, onMessage(fn(data, quick)) -> off, onState(fn(state)) -> off, close(), state. Delivery is immediate; quick data arrives as an ArrayBuffer. */
+    const makeStandInLinks = () => {
+      const make = () => ({ state: 'open', sent: [], closed: 0, listeners: { message: [], state: [] }, peer: null,
+        send(data, quick = false) { if (this.state !== 'open') return false; this.sent.push(quick); this.peer.listeners.message.slice().forEach((fn) => fn(quick ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data, quick)); return true; },
+        onMessage(fn) { this.listeners.message.push(fn); return () => { this.listeners.message = this.listeners.message.filter((item) => item !== fn); }; },
+        onState(fn) { this.listeners.state.push(fn); return () => { this.listeners.state = this.listeners.state.filter((item) => item !== fn); }; },
+        close() { this.closed++; this.state = 'closed'; } });
+      const a = make(), b = make();
+      a.peer = b; b.peer = a;
+      return [a, b];
+    };
+    test('Lockstep (P12-02): LockstepTransport.fromLink wraps a P12-01 link (input on the quick channel as a Uint8Array, control on the reliable one), carries a 1v1 equal for 300 frames, close() only detaches, a closed or failed link reports onclose', () => {
+      const problems = [], [hostLink, guestLink] = makeStandInLinks();
+      const transports = [LockstepTransport.fromLink(hostLink), LockstepTransport.fromLink(guestLink)];
+      const game = makeLockstep(2, { delay: 2, rtc: transports, seed: 14 });
+      for (let i = 0; i < 4000 && game.peers.some((peer) => peer.match.tick < 300); i++) for (const peer of game.peers) while (peer.match.tick < 300 && stepPeer(peer));
+      problems.push(...lockstepProblems(game.peers, 300, false));
+      if (!hostLink.sent.includes(true) || !hostLink.sent.includes(false)) problems.push('both channels were not used: ' + hostLink.sent.length);
+      let closes = 0;
+      transports[0].onclose = () => { closes++; };
+      hostLink.listeners.state.forEach((fn) => fn('failed')); hostLink.listeners.state.forEach((fn) => fn('open')); hostLink.listeners.state.forEach((fn) => fn('closed'));
+      if (closes !== 2) problems.push('onclose ' + closes);
+      transports[0].close();
+      if (hostLink.closed !== 0 || hostLink.listeners.message.length || hostLink.listeners.state.length) problems.push('close() did not only detach');
+      guestLink.state = 'connecting';
+      const before = guestLink.sent.length;
+      transports[1].send('input', new Uint8Array(1));   // a link that is not open takes nothing and does not throw
+      if (guestLink.sent.length !== before) problems.push('a link that is not open was sent to');
+      return problems.length ? problems.join('; ') : true;
+    });
+    // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
+    /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
+    /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const policy = policyTag ? policyTag.content : '';
+      if (!policy.includes("default-src 'none'") || !policy.includes("connect-src 'none'")) return 'the page policy changed: ' + policy;
+      const connections = [new RTCPeerConnection(), new RTCPeerConnection()];
+      const [offerer, answerer] = connections;
+      const violations = [];
+      const onViolation = (e) => violations.push(e.effectiveDirective + ' ' + e.blockedURI);
+      document.addEventListener('securitypolicyviolation', onViolation);
+      const TIMEOUT_MS = 5000;
+      let timer = 0;
+      let candidates = 0;   // local ICE candidates gathered by both sides; none means the device has no usable network (airplane mode), not a CSP problem
+      const timeout = new Promise((resolve, reject) => {
+        const reason = () => (candidates === 0 ? 'no ICE candidates gathered (no usable network interface?)' : 'ICE state ' + offerer.iceConnectionState + '/' + answerer.iceConnectionState);
+        timer = setTimeout(() => reject(new Error('no message after ' + TIMEOUT_MS + ' ms: ' + reason())), TIMEOUT_MS);
+      });
+      const exchange = async () => {
+        // trickle ICE straight across (fast); the manual copy-paste form only changes when the candidates travel, not what the page may do
+        offerer.onicecandidate = (e) => { if (e.candidate) { candidates++; answerer.addIceCandidate(e.candidate).catch(() => {}); } };   // a late candidate after the test closed the connections is harmless
+        answerer.onicecandidate = (e) => { if (e.candidate) { candidates++; offerer.addIceCandidate(e.candidate).catch(() => {}); } };
+        const channel = offerer.createDataChannel('csp-probe');   // reliable on purpose: the one ping must not be lost (the game's input channel will be unordered)
+        const atAnswerer = new Promise((resolve) => { answerer.ondatachannel = (e) => { e.channel.onmessage = (msg) => { e.channel.send('pong'); resolve(msg.data); }; }; });
+        const atOfferer = new Promise((resolve) => { channel.onmessage = (msg) => resolve(msg.data); });
+        channel.onopen = () => channel.send('ping');
+        await offerer.setLocalDescription(await offerer.createOffer());
+        await answerer.setRemoteDescription(offerer.localDescription);
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        await offerer.setRemoteDescription(answerer.localDescription);
+        return (await atAnswerer) + '/' + (await atOfferer);
+      };
+      const exchanged = exchange();
+      exchanged.catch(() => {});   // when the timeout wins, a later failure of the exchange must not reach the page's unhandledrejection handler
+      return Promise.race([exchanged, timeout]).then((got) => {
+        if (violations.length) return 'CSP violation: ' + violations.join('; ');
+        return got === 'ping/pong' ? true : 'wrong messages: ' + got;
+      }).finally(() => {
+        clearTimeout(timer);
+        document.removeEventListener('securitypolicyviolation', onViolation);
+        connections.forEach((connection) => connection.close());
+      });
+    });
+    /* ---------- online: signaling by copy-paste (P12-01) ---------- */
+    /* Real data-channel SDPs from Chromium 156 and Firefox 157 (the engines with WebRTC on the dev PC), taken after ICE gathering with no ICE server: two mDNS host
+       candidates each (Firefox also lists two TCP ones). Their packed codes are 140 to 160 characters. */
+    const sdpLines = (lines) => lines.join('\r\n') + '\r\n';
+    const SDP_FIXTURES = {
+      chromiumOffer: sdpLines([
+        'v=0',
+        'o=- 1187043519217410436 2 IN IP4 127.0.0.1',
+        's=-',
+        't=0 0',
+        'a=group:BUNDLE 0',
+        'a=extmap-allow-mixed',
+        'a=msid-semantic: WMS',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:3866906279 1 udp 2113937151 15bfeff9-b4f0-43ea-ba9e-72529850feff.local 57619 typ host generation 0 network-cost 999',
+        'a=candidate:357656756 1 udp 2113939711 4ce99e8c-bd69-462a-80c3-1b63fae364f2.local 57620 typ host generation 0 network-cost 999',
+        'a=ice-ufrag:VXjD',
+        'a=ice-pwd:xlRKbMj3SA7RuqnbnE02pmmj',
+        'a=ice-options:trickle',
+        'a=fingerprint:sha-256 E3:1D:24:0E:DD:7D:91:95:52:7A:98:35:EB:6D:DE:9D:3E:C7:68:F5:9E:72:9B:8C:E2:C8:C6:65:B2:47:33:B5',
+        'a=setup:actpass',
+        'a=mid:0',
+        'a=sctp-port:5000',
+        'a=max-message-size:262144',
+      ]),
+      chromiumAnswer: sdpLines([
+        'v=0',
+        'o=- 1613232220409715949 2 IN IP4 127.0.0.1',
+        's=-',
+        't=0 0',
+        'a=group:BUNDLE 0',
+        'a=extmap-allow-mixed',
+        'a=msid-semantic: WMS',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:244871657 1 udp 2113937151 15bfeff9-b4f0-43ea-ba9e-72529850feff.local 55714 typ host generation 0 network-cost 999',
+        'a=candidate:2597268219 1 udp 2113939711 4ce99e8c-bd69-462a-80c3-1b63fae364f2.local 55715 typ host generation 0 network-cost 999',
+        'a=ice-ufrag:780s',
+        'a=ice-pwd:xXHQrK4taf4EwjECF88pE/I6',
+        'a=ice-options:trickle',
+        'a=fingerprint:sha-256 99:5A:F9:FA:E7:8F:52:2D:62:4C:69:1B:9E:71:18:92:A6:40:7E:CD:09:1A:D7:CE:04:A3:AC:30:96:2B:9D:5E',
+        'a=setup:active',
+        'a=mid:0',
+        'a=sctp-port:5000',
+        'a=max-message-size:262144',
+      ]),
+      firefoxOffer: sdpLines([
+        'v=0',
+        'o=mozilla...THIS_IS_SDPARTA-99.0 5444691581700837339 0 IN IP4 0.0.0.0',
+        's=-',
+        't=0 0',
+        'a=sendrecv',
+        'a=fingerprint:sha-256 90:0C:D4:87:23:1E:6A:32:AB:C0:69:DD:CA:4B:81:58:31:6C:3D:F2:26:7C:AD:E1:B2:80:06:43:F5:D6:9C:88',
+        'a=group:BUNDLE 0',
+        'a=ice-options:trickle',
+        'a=msid-semantic:WMS *',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:0 1 UDP 2122187007 43511682-23ff-4f6e-a782-92764ed334ff.local 55719 typ host',
+        'a=candidate:1 1 UDP 2122252543 e7626122-8ad6-4068-981b-dd4094311e98.local 55720 typ host',
+        'a=candidate:2 1 TCP 2105458943 43511682-23ff-4f6e-a782-92764ed334ff.local 9 typ host tcptype active',
+        'a=candidate:3 1 TCP 2105524479 e7626122-8ad6-4068-981b-dd4094311e98.local 9 typ host tcptype active',
+        'a=sendrecv',
+        'a=end-of-candidates',
+        'a=ice-pwd:b28115c25ce01edce811a2e14460c889',
+        'a=ice-ufrag:0f2cbfc8',
+        'a=mid:0',
+        'a=setup:actpass',
+        'a=sctp-port:5000',
+        'a=max-message-size:1073741823',
+      ]),
+      firefoxAnswer: sdpLines([
+        'v=0',
+        'o=mozilla...THIS_IS_SDPARTA-99.0 9159564645491737138 0 IN IP4 0.0.0.0',
+        's=-',
+        't=0 0',
+        'a=sendrecv',
+        'a=fingerprint:sha-256 63:C0:57:6A:09:F1:97:87:BD:EC:FD:8D:4D:31:2C:76:2E:A7:52:03:7F:7D:4E:51:34:B6:06:5A:36:BC:7A:4A',
+        'a=group:BUNDLE 0',
+        'a=ice-options:trickle',
+        'a=msid-semantic:WMS *',
+        'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+        'c=IN IP4 0.0.0.0',
+        'a=candidate:0 1 UDP 2122187007 3649bc5b-b158-4c85-b221-49ee0b35e142.local 55723 typ host',
+        'a=candidate:1 1 UDP 2122252543 93592583-2479-4a21-aa62-ab7ee8ecab7d.local 55724 typ host',
+        'a=candidate:2 1 TCP 2105458943 3649bc5b-b158-4c85-b221-49ee0b35e142.local 9 typ host tcptype active',
+        'a=candidate:3 1 TCP 2105524479 93592583-2479-4a21-aa62-ab7ee8ecab7d.local 9 typ host tcptype active',
+        'a=sendrecv',
+        'a=end-of-candidates',
+        'a=ice-pwd:d21bd5903dcaf7b84010883cea9695e1',
+        'a=ice-ufrag:2308548e',
+        'a=mid:0',
+        'a=setup:active',
+        'a=sctp-port:5000',
+        'a=max-message-size:1073741823',
+      ]),
+    };
+    const OFFER = SDP_FIXTURES.chromiumOffer, ANSWER = SDP_FIXTURES.chromiumAnswer;
+    const iceOf = (sdp, kind) => JSON.stringify(OnlineCode.parseSdp(sdp, kind));   // the values the packed form carries
+    const rejectionOf = (text, expectKind) => { try { OnlineCode.readCode(text, expectKind); return 'accepted'; } catch (e) { return e.code; } };
+    const hasDeflate = typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+    const withCandidate = (sdp, line) => sdp.replace('a=ice-ufrag', line + '\r\na=ice-ufrag');
+    test('Online code (P12-01): real Chromium and Firefox offers and answers pack into one short BPO- / BPA- code of the packed form and come back with the same ICE values; the CRC-16 matches its check value', () => {
+      const bad = [];
+      if (OnlineCode.crc16(Array.from('123456789', (c) => c.charCodeAt(0))) !== 0x29b1) bad.push('CRC-16 check value');
+      for (const name of Object.keys(SDP_FIXTURES)) {
+        const kind = name.endsWith('Answer') ? 1 : 0;
+        const sdp = SDP_FIXTURES[name];
+        const code = OnlineCode.packSdp(kind, 3, sdp);
+        const back = OnlineCode.readCode(code, kind);
+        if (!code.startsWith(ONLINE_PREFIX[kind]) || !/^[A-Za-z0-9_-]+$/.test(code.slice(4))) bad.push(name + ' text ' + code.slice(0, 8));
+        if (code.length > 240) bad.push(name + ' is ' + code.length + ' characters');   // decided: 140 to 240 for 2 to 4 candidates
+        if (back.form !== ONLINE_FORM.PACKED || back.seat !== 3 || back.kind !== kind) bad.push(name + ' header ' + JSON.stringify([back.form, back.seat, back.kind]));
+        if (iceOf(back.sdp, kind) !== iceOf(sdp, kind)) bad.push(name + ' ICE values changed');
+      }
+      const firefox = OnlineCode.readCode(OnlineCode.packSdp(0, 2, SDP_FIXTURES.firefoxOffer), 0);
+      if ((firefox.sdp.match(/a=candidate:/g) || []).length !== 2 || /tcp/i.test(firefox.sdp)) bad.push('the Firefox TCP candidates must be dropped and the two UDP ones kept');
+      // the three address kinds (an mDNS name is in the fixtures), and a code a messenger broke into lines
+      let plain = SDP_FIXTURES.chromiumOffer.replace(/a=candidate:.*\r\n/g, '');
+      plain = withCandidate(withCandidate(withCandidate(plain, 'a=candidate:1 1 udp 2122260223 192.168.1.20 50000 typ host'), 'a=candidate:2 1 UDP 2122194687 2a02:587:1:2:0:0:0:6 50001 typ host'), 'a=candidate:3 1 udp 1 fe80::1 50002 typ host');
+      plain = plain.replace('m=application 9 ', 'm=application 50000 ').replace('c=IN IP4 0.0.0.0', 'c=IN IP4 192.168.1.20');   // with real addresses a browser puts its first candidate's port and address on the media and connection lines
+      const code = OnlineCode.packSdp(0, 2, plain);
+      const back = OnlineCode.readCode(' ' + code.slice(0, 30) + '\r\n' + code.slice(30, 90) + ' \n' + code.slice(90) + ' ', 0);
+      if (back.form !== ONLINE_FORM.PACKED || iceOf(back.sdp, 0) !== iceOf(plain, 0)) bad.push('plain IPv4 and IPv6 addresses');
+      if (!back.sdp.includes(' 192.168.1.20 50000 typ host') || !back.sdp.includes(' 2a02:587:1:2:0:0:0:6 50001 typ host')) bad.push('rebuilt candidate lines');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online code (P12-01): an SDP the packed form cannot say travels whole (deflated where the browser can) and comes back exactly; a deflate bomb and broken deflate are refused', async () => {
+      const bad = [];
+      const manyCandidates = Array.from({ length: 5 }, (_, i) => 'a=candidate:' + (10 + i) + ' 1 udp 2122260223 10.0.0.' + (i + 1) + ' ' + (40000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
+      const variants = [
+        ['seven candidates', 0, manyCandidates],
+        ['a server-reflexive candidate', 0, withCandidate(OFFER, 'a=candidate:9 1 udp 1686052607 203.0.113.5 41000 typ srflx raddr 0.0.0.0 rport 0')],
+        ['a host name that is not an mDNS UUID', 0, withCandidate(OFFER, 'a=candidate:9 1 udp 2122260223 printer.local 41000 typ host')],
+        ['a sha-384 fingerprint', 0, OFFER.replace(/a=fingerprint:.*\r\n/, 'a=fingerprint:sha-384 ' + new Array(48).fill('AB').join(':') + '\r\n')],
+        ['another SCTP port', 0, OFFER.replace('a=sctp-port:5000', 'a=sctp-port:5001')],
+        ['an answer that is passive', 1, ANSWER.replace('a=setup:active', 'a=setup:passive')],
+        ['an offer that is not actpass', 0, OFFER.replace('a=setup:actpass', 'a=setup:active')],
+        ['no candidate at all', 0, OFFER.replace(/a=candidate:.*\r\n/g, '')],
+      ];
+      for (const [name, kind, sdp] of variants) {
+        if (OnlineCode.parseSdp(sdp, kind) !== null) { bad.push(name + ' was packed'); continue; }
+        const code = await OnlineCode.pack(kind, 4, sdp);
+        const back = await OnlineCode.unpack(code, kind);
+        if (back.sdp !== sdp || back.seat !== 4) bad.push(name + ' did not come back as it went');
+        if (back.form !== (hasDeflate ? ONLINE_FORM.DEFLATE : ONLINE_FORM.PLAIN)) bad.push(name + ' form ' + back.form);
+        if (code.length > 1500) bad.push(name + ' is ' + code.length + ' characters');
+      }
+      if (hasDeflate) {
+        const bomb = OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.DEFLATE, 2).concat(await OnlineCode.deflate(new Array(200000).fill(0), 'out')));
+        const broken = OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.DEFLATE, 2).concat([1, 2, 3, 4, 5, 6, 7]));
+        for (const [name, text] of [['a deflate bomb', bomb], ['deflate that is not deflate', broken]]) {
+          try { await OnlineCode.unpack(text, 0); bad.push(name + ' was accepted'); } catch (e) { if (e.code !== 'damaged') bad.push(name + ': ' + e.code); }
+        }
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online code (P12-01): a bad paste is refused with a plain message: empty, not a code, wrong kind, cut off, changed, another version, hostile fields', () => {
+      const bad = [];
+      const offer = OnlineCode.packSdp(0, 2, OFFER), answer = OnlineCode.packSdp(1, 2, ANSWER);
+      const flip = (text, at) => text.slice(0, at) + (text[at] === 'A' ? 'B' : 'A') + text.slice(at + 1);
+      // a code with a good checksum but one field changed by hand
+      const forged = (change) => {
+        const bytes = Array.from(fromBase64Url(offer.slice(4)), (c) => c.charCodeAt(0)).slice(0, -2);
+        change(bytes);
+        const crc = OnlineCode.crc16(bytes);
+        return ONLINE_PREFIX[0] + toBase64Url(String.fromCharCode(...bytes, crc >> 8, crc & 255));
+      };
+      const cases = [
+        ['empty', '', 0, 'empty'], ['blank', ' \n ', 0, 'empty'], ['a fighter code', 'BP1-abcdef', 0, 'notcode'], ['plain words', 'hello there', 0, 'notcode'],
+        ['a lower-case prefix', offer.toLowerCase(), 0, 'notcode'], ['an answer where the offer goes', answer, 0, 'needOffer'], ['an offer where the answer goes', offer, 1, 'needAnswer'],
+        ['cut off', offer.slice(0, offer.length - 9), 0, 'damaged'], ['one character changed', flip(offer, 40), 0, 'damaged'], ['an extra character', offer + 'A', 0, 'damaged'],
+        ['not base64url', ONLINE_PREFIX[0] + '!!!!', 0, 'damaged'], ['too short', ONLINE_PREFIX[0] + 'AAAA', 0, 'damaged'], ['over-long', ONLINE_PREFIX[0] + 'A'.repeat(5000), 0, 'damaged'],
+        ['another code format', forged((b) => { b[0] = ((ONLINE_CODE_VERSION + 1) << 4) | (b[0] & 15); }), 0, 'version'],
+        ['another net protocol', forged((b) => { b[1] = (b[1] & 0xf0) | ((ONLINE_NET_VERSION + 1) & 15); }), 0, 'version'],
+        ['an unknown form', forged((b) => { b[0] = (b[0] & 0xf8) | 5; }), 0, 'damaged'],
+        ['the kind bit against the prefix', forged((b) => { b[0] |= 8; }), 0, 'damaged'],
+        ['seat 1', forged((b) => { b[1] = (1 << 4) | (b[1] & 15); }), 0, 'damaged'], ['seat 9', forged((b) => { b[1] = (9 << 4) | (b[1] & 15); }), 0, 'damaged'],
+        ['a user fragment of 255 characters', forged((b) => { b[2] = 255; }), 0, 'damaged'], ['a trailing byte', forged((b) => { b.push(7); }), 0, 'damaged'],
+        ['a cut candidate list', forged((b) => { b.length -= 5; }), 0, 'damaged'],
+        ['a candidate of an unknown type', forged((b) => { b[b.length - 19] = 9; }), 0, 'damaged'],
+      ];
+      cases.push(['a whole SDP that is not an SDP', OnlineCode.seal(0, OnlineCode.header(0, ONLINE_FORM.PLAIN, 2).concat(Array.from('hello', (c) => c.charCodeAt(0)))), 0, 'damaged']);
+      for (const [name, text, kind, expected] of cases) {
+        const got = rejectionOf(text, kind);
+        if (got !== expected) bad.push(name + ': ' + got + ' (wanted ' + expected + ')');
+      }
+      for (const key of Object.keys(ONLINE_MESSAGES)) if (!/^[\x20-\x7e]{10,200}$/.test(ONLINE_MESSAGES[key])) bad.push('message ' + key + ' is not plain text of 10 to 200 characters');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* An independent reader of a QR matrix (level L): format bits against the standard's table, unmasking, the codewords, Reed-Solomon syndromes, the byte-mode text. */
+    const readQr = (matrix) => {
+      const FORMAT_L = [0b111011111000100, 0b111001011110011, 0b111110110101010, 0b111100010011101, 0b110011000101111, 0b110001100011000, 0b110110001000001, 0b110100101110110];
+      const TOTAL = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532];   // codewords per version 1 to 13
+      const LEVEL_L = [null, [1, 19, 7], [1, 34, 10], [1, 55, 15], [1, 80, 20], [1, 108, 26], [2, 68, 18], [2, 78, 20], [2, 97, 24], [2, 116, 30], [2, 68, 18, 2, 69], [4, 81, 20], [2, 92, 24, 2, 93], [4, 107, 26]];   // blocks, data per block, EC per block (then group 2)
+      const { size, dark } = matrix, version = (size - 17) / 4;
+      const at = (x, y) => dark[y * size + x];
+      const gather = (cells) => cells.reduce((value, [x, y], i) => value | (at(x, y) << i), 0);
+      const first = gather([[8, 0], [8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 7], [8, 8], [7, 8], [5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8]]);
+      const second = gather(Array.from({ length: 8 }, (_, i) => [size - 1 - i, 8]).concat(Array.from({ length: 7 }, (_, i) => [8, size - 7 + i])));
+      const mask = FORMAT_L.indexOf(first);
+      if (mask < 0 || second !== first) return { error: 'format bits ' + first.toString(2) + ' / ' + second.toString(2) };
+      const count = Math.floor(version / 7) + 2, step = Math.floor((version * 8 + count * 3 + 5) / (count * 4 - 4)) * 2;
+      const centres = version === 1 ? [] : [6].concat(Array.from({ length: count - 1 }, (_, i) => size - 7 - (count - 2 - i) * step));
+      const isFunction = (x, y) => {
+        if (x === 6 || y === 6 || (x < 9 && y < 9) || (x >= size - 8 && y < 9) || (x < 9 && y >= size - 8)) return true;
+        if (version >= 7 && ((x >= size - 11 && y < 6) || (y >= size - 11 && x < 6))) return true;
+        return centres.some((cy, i) => centres.some((cx, j) => !(i === 0 && j === 0) && !(i === 0 && j === count - 1) && !(i === count - 1 && j === 0) && Math.abs(x - cx) <= 2 && Math.abs(y - cy) <= 2));
+      };
+      const masked = (x, y) => [(x + y) % 2 === 0, y % 2 === 0, x % 3 === 0, (x + y) % 3 === 0, (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x * y) % 2 + (x * y) % 3 === 0, ((x * y) % 2 + (x * y) % 3) % 2 === 0, ((x + y) % 2 + (x * y) % 3) % 2 === 0][mask];
+      const bits = [];
+      let upward = true;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let s = 0; s < size; s++) {
+          const y = upward ? size - 1 - s : s;
+          for (const x of [right, right - 1]) if (!isFunction(x, y)) bits.push(at(x, y) ^ (masked(x, y) ? 1 : 0));
+        }
+        upward = !upward;
+      }
+      const remainder = version >= 2 && version <= 6 ? 7 : 0;
+      if (bits.length !== TOTAL[version] * 8 + remainder) return { error: 'data modules ' + bits.length + ' of ' + (TOTAL[version] * 8 + remainder) };
+      const words = [];
+      for (let i = 0; i + 8 <= TOTAL[version] * 8; i += 8) words.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+      const spec = LEVEL_L[version], sizes = [];
+      for (let g = 0; g < spec.length - 2; g += 2) for (let b = 0; b < spec[g === 0 ? 0 : 3]; b++) sizes.push(spec[g === 0 ? 1 : 4]);
+      const ecLength = spec[2];
+      const longest = Math.max(...sizes);
+      const blocks = sizes.map(() => []);
+      let next = 0;
+      for (let i = 0; i < longest; i++) blocks.forEach((block, b) => { if (i < sizes[b]) block.push(words[next++]); });
+      for (let i = 0; i < ecLength; i++) blocks.forEach((block) => block.push(words[next++]));
+      const exp = [], log = [];
+      for (let i = 0, v = 1; i < 255; i++) { exp[i] = v; log[v] = i; v <<= 1; if (v & 256) v ^= 0x11d; }
+      const times = (a, b) => (a && b ? exp[(log[a] + log[b]) % 255] : 0);
+      for (const block of blocks) {
+        for (let i = 0; i < ecLength; i++) {
+          let sum = 0;
+          for (const word of block) sum = times(sum, exp[i]) ^ word;
+          if (sum) return { error: 'Reed-Solomon syndrome ' + i + ' is not zero' };
+        }
+      }
+      const data = [].concat(...blocks.map((block, b) => block.slice(0, sizes[b])));
+      const stream = data.map((word) => word.toString(2).padStart(8, '0')).join('');
+      if (stream.slice(0, 4) !== '0100') return { error: 'mode ' + stream.slice(0, 4) };
+      const lengthBits = version < 10 ? 8 : 16, length = parseInt(stream.slice(4, 4 + lengthBits), 2);
+      let text = '';
+      for (let i = 0; i < length; i++) text += String.fromCharCode(parseInt(stream.slice(4 + lengthBits + i * 8, 12 + lengthBits + i * 8), 2));
+      return { text, version, mask };
+    };
+    test('Online QR encoder (P12-01): byte mode, level L, versions 1 to 13: capacities, the format and version bit tables, and a code of every length reads back through an independent reader (modules, mask, Reed-Solomon, text)', () => {
+      const bad = [];
+      const capacities = [17, 32, 53, 78, 106, 134, 154, 192, 230, 271, 321, 367, 425];   // the standard's byte-mode capacities at level L
+      capacities.forEach((capacity, i) => { if (Qr.byteCapacity(i + 1) !== capacity || Qr.versionFor(capacity) !== i + 1 || (capacity < 425 && Qr.versionFor(capacity + 1) !== i + 2)) bad.push('capacity of version ' + (i + 1)); });
+      if (Qr.versionFor(426) !== 0 || Qr.encode('A'.repeat(426)) !== null) bad.push('426 characters must not fit');
+      const formats = ['111011111000100', '111001011110011', '111110110101010', '111100010011101', '110011000101111', '110001100011000', '110110001000001', '110100101110110'];
+      formats.forEach((bits, mask) => { if (Qr.formatValue(mask).toString(2).padStart(15, '0') !== bits) bad.push('format bits of mask ' + mask); });
+      const versionBits = [0x07c94, 0x085bc, 0x09a99, 0x0a4d3, 0x0bbf6, 0x0c762, 0x0d847];   // the standard's 18-bit version information of versions 7 to 13
+      versionBits.forEach((expected, i) => {
+        const version = i + 7, size = 17 + version * 4, frame = Qr.frame(version);
+        let read = 0;   // bit i sits at (size - 11 + i % 3, floor(i / 3)) and, mirrored, at (floor(i / 3), size - 11 + i % 3)
+        let mirrored = 0;
+        for (let bit = 0; bit < 18; bit++) {
+          read |= frame.dark[Math.floor(bit / 3) * size + size - 11 + (bit % 3)] << bit;
+          mirrored |= frame.dark[(size - 11 + (bit % 3)) * size + Math.floor(bit / 3)] << bit;
+        }
+        if (read !== expected || mirrored !== expected) bad.push('version information of version ' + version + ': ' + read.toString(16) + ' / ' + mirrored.toString(16));
+      });
+      const real = [OnlineCode.packSdp(0, 2, SDP_FIXTURES.chromiumOffer), OnlineCode.packSdp(1, 2, SDP_FIXTURES.firefoxAnswer), OnlineCode.packSdp(0, 3, SDP_FIXTURES.firefoxOffer)];
+      const lengths = [1, 17, 18, 32, 33, 53, 54, 78, 79, 106, 107, 134, 135, 154, 155, 192, 193, 230, 231, 271, 272, 321, 322, 367, 368, 425];
+      const texts = real.concat(lengths.map((n) => Array.from({ length: n }, (_, i) => 'BPO-AaZz09_-'[(i * 7 + n) % 12]).join('')));
+      const versions = new Set();
+      for (const text of texts) {
+        const matrix = Qr.encode(text);
+        if (!matrix) { bad.push('no QR for ' + text.length + ' characters'); continue; }
+        const read = readQr(matrix);
+        if (read.error) { bad.push(text.length + ' characters, version ' + matrix.version + ': ' + read.error); continue; }
+        if (read.text !== text) bad.push(text.length + ' characters read back differently');
+        if (read.version !== Qr.versionFor(text.length) || read.mask !== matrix.mask) bad.push('version or mask of ' + text.length);
+        versions.add(matrix.version);
+      }
+      if (versions.size !== 13) bad.push('only versions ' + Array.from(versions).sort((a, b) => a - b).join(','));
+      if (real.some((code) => Qr.versionFor(code.length) > 10)) bad.push('a real code needs more than version 10');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* A stand-in for RTCPeerConnection: the links get it through options.connection, so these tests run without WebRTC (the headless runner) and never touch the network. */
+    const fakeConnection = (script) => {
+      const made = [];
+      class Fake {
+        constructor(config) {
+          this.config = config; this.iceGatheringState = 'new'; this.iceConnectionState = 'new'; this.connectionState = 'new';
+          this.localDescription = null; this.channels = []; this.closed = false; made.push(this);
+        }
+        createDataChannel(label, init) { const channel = { label, init, readyState: 'connecting', sent: [], send(data) { this.sent.push(data); }, close() { this.readyState = 'closed'; } }; this.channels.push(channel); return channel; }
+        async createOffer() { return { type: 'offer', sdp: script.offer }; }
+        async createAnswer() { return { type: 'answer', sdp: script.answer }; }
+        async setLocalDescription(description) { this.localDescription = description; this.iceGatheringState = script.stall ? 'gathering' : 'complete'; }
+        async setRemoteDescription(description) {
+          if (script.remoteError) throw new Error(script.remoteError);
+          this.remote = description;
+          if (script.openFirst && description.type === 'answer') this.open();   // a fast network: the channels open before this call reports back
+        }
+        addEventListener() {}
+        removeEventListener() {}
+        close() { this.closed = true; }
+        open() { for (const channel of this.channels) { channel.readyState = 'open'; channel.onopen(); } }
+        ice(state) { this.iceConnectionState = state; this.oniceconnectionstatechange(); }
+      }
+      Fake.made = made;
+      return Fake;
+    };
+    test('Online link (P12-01): the states idle, gathering, waiting, connecting, open, failed and closed, and a plain error for a bad code, a wrong seat, no network, a browser that refuses the code, ICE failure, a timeout, a host that never answers and a lost connection', async () => {
+      const bad = [];
+      const links = [];   // every link this test makes is closed at the end, so none keeps a timer or a connection
+      const made = (role, options) => { const link = Online.createLink(role, options); links.push(link); return link; };
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const listed = (link) => { const list = []; link.onState((state) => list.push(state)); return list; };
+      const failsWith = async (promise, code) => { try { await promise; return 'did not fail'; } catch (e) { return e.code === code && e.message === ONLINE_MESSAGES[code] ? '' : e.code + ' / ' + e.message; } };
+      const pair = async (script, seat = 2) => {
+        const Fake = fakeConnection(script);
+        const host = made('host', { ...fast, connection: Fake }), guest = made('guest', { ...fast, connection: Fake });
+        const offer = await host.makeOffer(seat);
+        return { Fake, host, guest, offer };
+      };
+      // the happy path, step by step
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        const hostStates = listed(host), guestStates = listed(guest);
+        if (host.state !== 'waiting' || host.seat !== 2 || host.form !== ONLINE_FORM.PACKED || !offer.startsWith('BPO-')) bad.push('host after the offer: ' + host.state);
+        if (host.send('early') !== false) bad.push('send before open must return false');
+        const answer = await guest.acceptOffer(offer);
+        if (guest.state !== 'waiting' || guest.seat !== 2 || !answer.startsWith('BPA-')) bad.push('guest after the answer: ' + guest.state);
+        if (Fake.made[1].remote.type !== 'offer' || !Fake.made[1].remote.sdp.includes('a=setup:actpass') || !/ typ host/.test(Fake.made[1].remote.sdp)) bad.push('the guest got no usable offer');
+        if (Fake.made[0].config.iceServers.length !== 0) bad.push('an ICE server was configured');
+        const [reliable, quick] = Fake.made[0].channels;
+        if (!reliable.init.negotiated || reliable.init.id !== 0 || reliable.init.ordered === false || !quick.init.negotiated || quick.init.id !== 1 || quick.init.ordered !== false || quick.init.maxRetransmits !== 0) bad.push('channel settings');
+        await host.acceptAnswer(answer);
+        if (host.state !== 'connecting') bad.push('host after the answer: ' + host.state);
+        const heard = [];
+        host.onMessage((data, isQuick) => heard.push((isQuick ? 'q:' : 'r:') + data));
+        Fake.made[0].open();
+        Fake.made[1].open();
+        if (host.state !== 'open' || guest.state !== 'open') bad.push('open: ' + host.state + '/' + guest.state);
+        if (!host.send('a') || !host.send('b', true) || reliable.sent.join() !== 'a' || quick.sent.join() !== 'b') bad.push('send on the two channels');
+        reliable.onmessage({ data: 'x' }); quick.onmessage({ data: 'y' });
+        if (heard.join() !== 'r:x,q:y') bad.push('messages heard ' + heard.join());
+        host.close();
+        if (host.state !== 'closed' || host.send('late') !== false || !Fake.made[0].closed) bad.push('close');
+        if (hostStates.join() !== 'connecting,open,closed' || guestStates.join() !== 'gathering,waiting,open') bad.push('state events ' + hostStates.join() + ' | ' + guestStates.join());
+      }
+      // errors the player can read
+      {
+        const none = OFFER.replace(/a=candidate:.*\r\n/g, '');
+        const host = made('host', { ...fast, connection: fakeConnection({ offer: none, answer: ANSWER }) });
+        const problem = await failsWith(host.makeOffer(2), 'nonetwork');
+        if (problem || host.state !== 'failed' || host.error.code !== 'nonetwork') bad.push('no network: ' + problem + ' ' + host.state);
+        const stalled = made('host', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, stall: true }) });
+        if (!(await stalled.makeOffer(2)).startsWith('BPO-')) bad.push('gathering that never completes must end after gatherMs with the candidates so far');
+        stalled.close();
+        const guestOnly = made('guest', { ...fast, connection: fakeConnection({ offer: OFFER, answer: ANSWER, remoteError: 'x' }) });
+        const code = await OnlineCode.pack(0, 2, OFFER);
+        const refused = await failsWith(guestOnly.acceptOffer(code), 'sdp');
+        if (refused || guestOnly.state !== 'failed') bad.push('a code the browser refuses: ' + refused);
+      }
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        if (await failsWith(guest.acceptOffer('BP1-nothing'), 'notcode') || guest.state !== 'idle') bad.push('a bad code must leave the guest idle');
+        if (await failsWith(guest.acceptOffer(''), 'empty')) bad.push('an empty paste');
+        const answer = await guest.acceptOffer(offer);   // the same link takes the good code afterwards
+        const other = await OnlineCode.pack(1, 3, ANSWER);
+        if (await failsWith(host.acceptAnswer(other), 'seat') || host.state !== 'waiting') bad.push('an answer for another seat');
+        if (await failsWith(host.acceptAnswer(offer), 'needAnswer') || host.state !== 'waiting') bad.push('the offer pasted as the answer');
+        if (await failsWith(host.acceptAnswer(answer.slice(0, 50)), 'damaged') || host.state !== 'waiting') bad.push('half an answer');
+        if (await failsWith(host.makeOffer(2), 'state') || await failsWith(guest.acceptOffer(offer), 'state')) bad.push('a second start');
+        await host.acceptAnswer(answer);
+        Fake.made[0].ice('failed');
+        if (host.state !== 'failed' || host.error.code !== 'ice' || host.error.message !== ONLINE_MESSAGES.ice) bad.push('ICE failure: ' + host.state + ' ' + (host.error && host.error.code));
+        if (Fake.made[0].closed !== true || host.send('x')) bad.push('a failed link must be released');
+      }
+      {
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        if (host.state !== 'failed' || host.error.code !== 'timeout' || host.error.message !== ONLINE_MESSAGES.timeout) bad.push('timeout: ' + host.state + ' ' + (host.error && host.error.code));
+        if (guest.state !== 'failed' || guest.error.code !== 'guestWait') bad.push('a host that never answers: ' + guest.state + ' ' + (guest.error && guest.error.code));
+      }
+      {
+        const { Fake, host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER }, 4);
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        if (host.seat !== 4) bad.push('seat 4');
+        Fake.made[0].open();
+        Fake.made[0].channels[1].onclose();
+        if (host.state !== 'closed' || !host.error || host.error.code !== 'lost') bad.push('a lost connection: ' + host.state);
+        if (await failsWith(made('host', { connection: fakeConnection({ offer: OFFER, answer: ANSWER }) }).makeOffer(1), 'state')) bad.push('seat 1 belongs to the host');
+      }
+      {
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER });
+        const answer = await guest.acceptOffer(offer);
+        const both = await Promise.allSettled([host.acceptAnswer(answer), host.acceptAnswer(answer)]);   // a double press on Connect
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (both.length - refused.length !== 1 || refused.length !== 1 || refused[0].reason.code !== 'state' || host.state !== 'connecting') bad.push('a double press on Connect: ' + host.state);
+        host.close();
+      }
+      {
+        // channels that open before setRemoteDescription reports back must leave the host open (the race that failed one run in three between two Chromium windows), and nothing may take it back to connecting
+        const { host, guest, offer } = await pair({ offer: OFFER, answer: ANSWER, openFirst: true });
+        const states = listed(host);
+        await host.acceptAnswer(await guest.acceptOffer(offer));
+        await new Promise((resolve) => setTimeout(resolve, 150));   // longer than connectMs: a stray timer would fail it now
+        if (host.state !== 'open' || states.join() !== 'connecting,open') bad.push('channels open first: ' + host.state + ' ' + states.join());
+        if (await failsWith(host.acceptAnswer(await OnlineCode.pack(1, 2, ANSWER)), 'state')) bad.push('a second answer on an open link');
+      }
+      {
+        // a browser that refuses a description throws a DOMException: its numeric code and its text must not reach the player
+        const refusal = Object.assign(new Error('Failed to execute setRemoteDescription: Failed to parse SessionDescription'), { code: 12, name: 'SyntaxError' });
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        class Refusing extends Fake { async setRemoteDescription() { throw refusal; } }
+        const guest = made('guest', { ...fast, connection: Refusing });
+        const problem = await failsWith(guest.acceptOffer(await OnlineCode.pack(0, 2, OFFER)), 'sdp');
+        if (problem || guest.state !== 'failed' || guest.error.code !== 'sdp' || guest.error.message !== ONLINE_MESSAGES.sdp) bad.push('a refusing browser: ' + problem + ' ' + (guest.error && guest.error.code));
+      }
+      if (hasDeflate) {
+        // a deflated offer is inflated asynchronously: a double press must not start two connections
+        const many = Array.from({ length: 7 }, (_, i) => 'a=candidate:' + (20 + i) + ' 1 udp 2122260223 10.1.0.' + (i + 1) + ' ' + (41000 + i) + ' typ host').reduce((sdp, line) => withCandidate(sdp, line), OFFER);
+        const deflated = await OnlineCode.pack(0, 2, many);
+        if (OnlineCode.readCode(deflated).form !== ONLINE_FORM.DEFLATE) bad.push('the double-press offer must be deflated');
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
+        const guest = made('guest', { ...fast, connection: Fake });
+        const both = await Promise.allSettled([guest.acceptOffer(deflated), guest.acceptOffer(deflated)]);
+        const refused = both.filter((result) => result.status === 'rejected');
+        if (refused.length !== 1 || refused[0].reason.code !== 'state' || Fake.made.length !== 1 || guest.state !== 'waiting') bad.push('a double press on Make answer code: ' + Fake.made.length + ' connections, ' + guest.state);
+        guest.close();
+      }
+      if (Online.supported() !== (typeof RTCPeerConnection !== 'undefined')) bad.push('supported()');
+      links.forEach((link) => link.close());
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
+      const heard = { host: [], guest: [] };
+      host.onMessage((data, quick) => heard.host.push({ quick, data }));
+      guest.onMessage((data, quick) => heard.guest.push({ quick, data }));
+      const opened = (link) => new Promise((resolve, reject) => {
+        link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
+      });
+      const until = (check, what) => new Promise((resolve, reject) => {
+        const started = performance.now();
+        const poll = () => { if (check()) resolve(); else if (performance.now() - started > 3000) reject(new Error('no ' + what)); else setTimeout(poll, 25); };
+        poll();
+      });
+      const run = async () => {
+        const offer = await host.makeOffer(2);
+        const answer = await guest.acceptOffer(' ' + offer.slice(0, 20) + '\n' + offer.slice(20) + ' ');   // only text crosses, as a person would paste it
+        const both = Promise.all([opened(host), opened(guest)]);
+        await host.acceptAnswer(answer);
+        await both;
+        const bad = [];
+        if (host.state !== 'open' || guest.state !== 'open' || guest.seat !== 2) bad.push('states ' + host.state + '/' + guest.state);
+        if (!host.send('hello') || !guest.send(new Uint8Array([1, 2, 3]).buffer)) bad.push('reliable send');
+        await until(() => heard.guest.length >= 1 && heard.host.length >= 1, 'reliable messages');
+        const got = heard.guest[0], back = heard.host[0];
+        if (got.quick || got.data !== 'hello' || back.quick || !(back.data instanceof ArrayBuffer) || back.data.byteLength !== 3) bad.push('reliable messages ' + JSON.stringify([got, back.quick]));
+        const ping = setInterval(() => { host.send('q', true); guest.send('r', true); }, 40);   // the quick channel may lose a message: repeat until one arrives each way
+        try { await until(() => heard.guest.some((m) => m.quick) && heard.host.some((m) => m.quick), 'quick messages'); } finally { clearInterval(ping); }
+        return bad.length ? bad.join('; ') : true;
+      };
+      return run().catch((error) => 'link failed: ' + error.message).then((result) => {
+        host.close(); guest.close();
+        if (result === true && (host.state !== 'closed' || guest.state !== 'closed' || host.send('x') || guest.send('x'))) return 'close left a link open';
+        return result;
+      });
+    });
+    test('Online UI (P12-01): the Online screens follow the link state, a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
+      const bad = [];
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip };
+      try {
+        if (!UI.screen_main().includes('data-act="online"')) bad.push('no Online button on the main menu');
+        const choice = UI.screen_online();
+        if (!choice.includes('data-act="onhost"') || !choice.includes('data-act="onjoin"') || !choice.includes('data-act="back"')) bad.push('the first Online screen');
+        OnlineUI.role = 'host'; OnlineUI.offerCode = ''; OnlineUI.answerCode = ''; OnlineUI.note = ''; OnlineUI.roundTrip = -1;
+        OnlineUI.link = { state: 'gathering', error: null };
+        let screen = UI.screen_onlinehost();
+        if (!screen.includes('Making your code') || !/data-act="oncopy:offer" disabled/.test(screen) || !/data-act="onconnect" disabled/.test(screen)) bad.push('host while gathering');
+        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(100); OnlineUI.link = { state: 'waiting', error: null };
+        screen = UI.screen_onlinehost();
+        if (!screen.includes(OnlineUI.offerCode) || /data-act="oncopy:offer" disabled/.test(screen) || /data-act="onqr:offer" disabled/.test(screen) || /data-act="onconnect" disabled/.test(screen) || !screen.includes('Waiting for your friend')) bad.push('host with a code');
+        OnlineUI.offerCode = 'BPO-' + 'A'.repeat(500);
+        screen = UI.screen_onlinehost();
+        if (!/data-act="onqr:offer" disabled/.test(screen) || !screen.includes('Too long for a QR: use Copy.')) bad.push('a code over 425 characters shows text only');
+        OnlineUI.link = { state: 'open', error: null }; OnlineUI.roundTrip = 3;
+        if (!UI.screen_onlinehost().includes('Connected (round trip 3 ms).')) bad.push('connected line');
+        OnlineUI.link = { state: 'failed', error: { code: 'ice', message: ONLINE_MESSAGES.ice } };
+        screen = UI.screen_onlinehost();
+        if (!screen.includes('warnline') || !screen.includes('could not reach each other')) bad.push('failure line');
+        OnlineUI.link = null; OnlineUI.note = '<b>"x"</b>';
+        if (!UI.screen_onlinehost().includes('&lt;b&gt;&quot;x&quot;&lt;/b&gt;')) bad.push('a note must be escaped');
+        OnlineUI.role = 'guest'; OnlineUI.note = ''; OnlineUI.answerCode = 'BPA-' + 'B'.repeat(100);
+        screen = UI.screen_onlinejoin();
+        if (!screen.includes('id="onOffer"') || !screen.includes(OnlineUI.answerCode) || !screen.includes('data-act="onanswer"')) bad.push('guest screen');
+        if (OnlineUI.onKey({ code: 'KeyA' }, null) !== false) bad.push('a key outside a code box');
+        if (OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: false }) !== true) bad.push('Backspace in a box the player writes in must type, not go back');
+        if (OnlineUI.onKey({ code: 'Escape' }, { tagName: 'TEXTAREA', readOnly: true }) !== false || OnlineUI.onKey({ code: 'Backspace' }, { tagName: 'TEXTAREA', readOnly: true }) !== false) bad.push('Esc and Backspace in a read-only code box must reach the menu (the focus starts there)');
+        // the focus starts on the first enabled data-default: never in a code box
+        const firstFocus = (html) => { const tag = (html.match(/<button[^>]*data-default[^>]*>/g) || []).find((item) => !/ disabled/.test(item)); return tag ? /data-act="([^"]*)"/.exec(tag)[1] : 'none'; };
+        const focusCases = [
+          ['host gathering', 'host', '', '', { state: 'gathering', error: null }, 'back'], ['host with a code', 'host', 'BPO-' + 'A'.repeat(100), '', { state: 'waiting', error: null }, 'oncopy:offer'],
+          ['guest before the paste', 'guest', '', '', null, 'onanswer'], ['guest with an answer', 'guest', '', 'BPA-' + 'B'.repeat(100), { state: 'waiting', error: null }, 'oncopy:answer'],
+          ['guest after a failure', 'guest', '', '', { state: 'failed', error: { code: 'sdp', message: ONLINE_MESSAGES.sdp } }, 'onanswer'],
+        ];
+        for (const [name, role, offerCode, answerCode, link, expected] of focusCases) {
+          OnlineUI.role = role; OnlineUI.offerCode = offerCode; OnlineUI.answerCode = answerCode; OnlineUI.link = link;
+          const got = firstFocus(role === 'host' ? UI.screen_onlinehost() : UI.screen_onlinejoin());
+          if (got !== expected) bad.push('the focus of the ' + name + ' screen starts on ' + got + ', not ' + expected);
+        }
+        // a failed or closed link leaves the paste box writable and Make answer code pressable (the retry)
+        OnlineUI.role = 'guest'; OnlineUI.answerCode = ''; OnlineUI.link = { state: 'closed', error: null };
+        screen = UI.screen_onlinejoin();
+        if (/id="onOffer"[^>]* readonly/.test(screen) || /data-act="onanswer" disabled/.test(screen)) bad.push('after a failure the guest must be able to try again');
+        OnlineUI.link = { state: 'waiting', error: null };
+        if (!/id="onOffer"[^>]* readonly/.test(UI.screen_onlinejoin())) bad.push('the paste box is read-only while the answer is out');
+      } finally {
+        Object.assign(OnlineUI, kept);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online UI (P12-01): release() hands the open link to the caller without closing it (the hand-off point for P12-02 and P12-06); leave() and reset() afterwards leave it open, and a link that is not open is not handed over', async () => {
+      const bad = [];
+      const kept = { link: OnlineUI.link, role: OnlineUI.role, unlisten: OnlineUI.unlisten };
+      const fast = { gatherMs: 20, connectMs: 60, guestWaitMs: 60 };
+      const links = [];
+      try {
+        const Fake = fakeConnection({ offer: OFFER, answer: ANSWER, openFirst: true });
+        OnlineUI.reset();
+        OnlineUI.role = 'host';
+        const host = Online.createLink('host', { ...fast, connection: Fake }), guest = Online.createLink('guest', { ...fast, connection: Fake });
+        links.push(host, guest);
+        OnlineUI.link = host;
+        OnlineUI.unlisten = [host.onState((state) => OnlineUI.onState(host, state)), host.onMessage((data) => OnlineUI.onMessage(host, data))];
+        if (OnlineUI.release() !== null) bad.push('a link that is not open must not be handed over');
+        if (OnlineUI.link !== host) bad.push('a refused release must change nothing');
+        await host.acceptAnswer(await guest.acceptOffer(await host.makeOffer(2)));
+        if (host.state !== 'open') bad.push('the stand-in link did not open: ' + host.state);
+        const sentBefore = Fake.made[0].channels[0].sent.length;   // the screen's test flow pinged once when the link opened
+        const heard = [];
+        const stop = host.onMessage((data) => heard.push(data));   // the caller's own listener must keep working
+        const handed = OnlineUI.release();
+        if (handed !== host || OnlineUI.link !== null || OnlineUI.role !== '' || OnlineUI.unlisten.length) bad.push('release() must return the link and clear the screen');
+        OnlineUI.leave('onlinehost');
+        OnlineUI.reset();
+        if (host.state !== 'open') bad.push('leave() or reset() closed the released link: ' + host.state);
+        Fake.made[0].channels[0].onmessage({ data: 'bp-ping:1' });   // the screen's test flow must not answer any more
+        if (Fake.made[0].channels[0].sent.length !== sentBefore) bad.push('the screen still answers the ping test after release()');
+        Fake.made[0].channels[0].onmessage({ data: 'x' });
+        if (heard.join() !== 'bp-ping:1,x') bad.push('the caller hears ' + heard.join());
+        stop();
+      } finally {
+        links.forEach((link) => link.close());
+        Object.assign(OnlineUI, kept);
+      }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Lockstep (P12-02): a packet or message of another match (a late one after a rematch) is dropped: the match number is in the input header and in every control message', () => {
+      const problems = [], game = makeLockstep(2, { delay: 2, latency: 5, seed: 8 }), [host] = game.peers, id = host.session.matchId, other = (id + 1) & 0xffff;
+      const bytes = packInputs(1, 5, [7], other);
+      if (unpackInputs(bytes).matchId !== other || unpackInputs(packInputs(1, 5, [7], id)).matchId !== id) problems.push('the match number does not round trip');
+      host.session.receive(1, 'input', bytes);
+      if (host.session.got[1].size) problems.push('an input of another match was stored');
+      host.session.receive(1, 'input', packInputs(1, 5, [7], id));
+      if (host.session.got[1].get(5) !== 7) problems.push('an input of this match was not stored');
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1, mid: other }));
+      host.session.receive(1, 'control', JSON.stringify({ t: 'sum', seat: 1, f: 60, s: 1, mid: other }));
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1 }));   // no number at all
+      if (host.session.ended || host.session.theirSums.size) problems.push('a message of another match was taken: ' + host.session.ended);
+      host.session.receive(1, 'control', JSON.stringify({ t: 'desync', f: 60, seat: 1, mid: id }));
+      if (host.session.ended !== 'desync') problems.push('a message of this match was ignored');
+      // two sessions of the same two peers one after the other (a rematch on the same links): the second ignores the first's late packet
+      const sent = [];
+      const link = { send(channel, data) { sent.push([channel, data]); }, close() {}, onmessage: null, onclose: null };
+      const first = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 40, winsNeeded: 2 })), second = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 41, winsNeeded: 2 }));
+      const a = new LockstepSession({ match: first, seat: 0, seatCount: 2, host: true, links: { 1: link }, localController: randomDevice(0, 1) });
+      a.step(); a.sendControl(1, { t: 'ping', at: 1 });
+      const oldPacket = sent.find((entry) => entry[0] === 'input')[1], oldControl = sent.find((entry) => entry[0] === 'control')[1];
+      a.detach();
+      const b = new LockstepSession({ match: second, seat: 0, seatCount: 2, host: true, links: { 1: link }, localController: randomDevice(0, 1) });
+      if (a.matchId === b.matchId) problems.push('two matches got the same default number');
+      link.onmessage('input', oldPacket); link.onmessage('control', oldControl);
+      if (b.got[0].size || b.got[1].size || b.rtts.size) problems.push('a late packet of the old match was accepted');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lockstep (P12-02): a seat that drops during the round end counts for the round-end skip only up to its drop frame, and three peers stay equal; the online pause key toggles the question while a blur or hidden tab only opens it', () => {
+      const problems = [], game = makeLockstep(3, { delay: 2, latency: 10, seed: 5, cfg: { timer: 2 }, device: (seat) => (seat === 2 ? { n: 0, think(f, opp, match, it) { clearIntent(it); if (++this.n > 140) it.punch = true; return it; }, reset() {} } : { think(f, opp, match, it) { return clearIntent(it); }, reset() {} }) });
+      const [host, second] = game.peers;
+      // the rule itself, on a session that learned of the drop at once: a press before the drop frame counts, from the drop frame on it does not
+      const probe = second.session;
+      probe.got[2].set(500, 0x40 << 16); probe.got[2].set(501, 0x40 << 16);
+      probe.dropped.set(2, 501);
+      if (!probe.skipPressed(500) || probe.skipPressed(501)) problems.push('skipPressed ignores the drop frame');
+      probe.dropped.delete(2); probe.got[2].delete(500); probe.got[2].delete(501);
+      let muted = false;
+      const done = playLockstep(game, 700, () => { if (!muted && host.match.tick >= 220) { muted = true; game.mute(2); } });
+      if (done !== true) return done;
+      if (host.drops[0] === undefined || second.drops[0] === undefined) problems.push('the seat was not dropped');
+      if (host.sums.join() !== second.sums.join() || host.session.ended || second.session.ended) problems.push('the two peers that played on differ or stopped: ' + host.session.ended + '/' + second.session.ended);
+      if (host.match.tick < 700) problems.push('the host stopped at ' + host.match.tick);
+      // the pause key online: it toggles, a blur or a hidden tab (automatic) only opens
+      const keep = { net: Game.net, netNote: Game.netNote, state: Game.state, status: UI.netStatus }, shown = [];
+      try {
+        UI.netStatus = (text) => shown.push(text);
+        Game.net = host.session; Game.netNote = { waiting: '', final: '', rematch: null, onLeave: null, leave: false }; Game.state = GS.FIGHT;
+        Game.pause(null, true); Game.pause(null, true);
+        if (!Game.netNote.leave || shown[shown.length - 1] !== 'Leave the match?') problems.push('a blur did not open the question or closed it again');
+        Game.pause();
+        if (Game.netNote.leave) problems.push('the pause key did not close the question');
+        Game.pause(); Game.pause(null, true);
+        if (!Game.netNote.leave) problems.push('a blur closed the question the key had opened');
+      } finally { Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state }); UI.netStatus = keep.status; }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
+       channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
+    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', () => {
+      if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
+      const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });
+      const FRAMES = 120, TIMEOUT_MS = 8000;
+      // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute
+      const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
+      const opened = (link) => new Promise((resolve, reject) => {
+        link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
+      });
+      let game = null, timer = 0;
+      const play = async () => {
+        const offer = await host.makeOffer(2);
+        const answer = await guest.acceptOffer(offer);
+        const both = Promise.all([opened(host), opened(guest)]);
+        await host.acceptAnswer(answer);
+        await both;
+        const transports = [LockstepTransport.fromLink(host), LockstepTransport.fromLink(guest)];
+        game = makeLockstep(2, { delay: 6, rtc: transports, seed: 11 });   // a long delay: the page may render slowly (software GL), and every round trip then moves the peers on by up to 6 frames
+        let strings = 0;
+        while (game.peers.some((peer) => peer.match.tick < FRAMES)) {
+          for (const peer of game.peers) while (peer.match.tick < FRAMES && stepPeer(peer));
+          if (strings < 3 && game.peers[0].match.tick > 20 * (strings + 1)) { strings++; host.send('bp-ping:' + strings); guest.send('bp-pong:' + strings); guest.send('bp-ping:x'); }
+          await yieldNow();
+        }
+        const problems = lockstepProblems(game.peers, FRAMES, false);   // a short run: two checksums, no fight needed
+        if (strings < 3) problems.push('the foreign strings were not sent');
+        return problems.length ? problems.join('; ') : true;
+      };
+      const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + TIMEOUT_MS + ' ms: ' + (game ? 'ticks ' + game.peers.map((peer) => peer.match.tick + (peer.session.ended ? ' ' + peer.session.ended + JSON.stringify(peer.desync) : '')).join(' / ') : 'no link; states ' + host.state + '/' + guest.state))), TIMEOUT_MS); });
+      const played = play();
+      played.catch(() => {});
+      return Promise.race([played, timeout]).finally(() => {
+        clearTimeout(timer);
+        if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
+        host.close(); guest.close();
+      });
+    });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
       if (!hasLayoutEngine()) return true;
-      const skippedNames = results.filter((r) => r.skipped).map((r) => r.name);
+      const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the two WebRTC tests (P12-04, P12-01); every engine a player uses has it
+      const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Online loopback') || r.name.startsWith('Lockstep over real links')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
     });
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
+    results.settled = Promise.all(pendingTests);   // resolves when the async tests (P12-04) have filled in their results
     return results;
   },
 };
