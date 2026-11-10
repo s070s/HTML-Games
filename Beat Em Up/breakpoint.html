@@ -13239,7 +13239,7 @@ const Game = {
     if (onLeave) onLeave(); // the owner of the connection closes it
   },
   endMatch() {
-    if (this.net) { this.net.detach(); this.net = null; this.netNote = null; UI.netStatus(''); } // the connection stays open for the next match
+    if (this.net) { if (this.net === OnlinePlay.lastNet) OnlinePlay.delay = this.net.delay; this.net.detach(); this.net = null; this.netNote = null; UI.netStatus(''); } // the connection stays open for the next match
     if (this.unsubMatch) { this.unsubMatch.forEach((off) => off()); this.unsubMatch = null; }
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
@@ -14096,6 +14096,7 @@ const ONLINE_MESSAGES = {
   nobody: 'Connect at least one friend first: send the code, paste the answer, press Connect.',
   fightTwo: 'A 1 vs 1 needs exactly 2 players. Pick Brawl or Tournament for 3 or 4.',
   someoneLeft: 'A player left, so this fight cannot start again.',
+  joining: 'A player is still joining. Start is on in a moment.',
   sameBrowser: 'Start is off: the devices use different kinds of browser (Chrome or Edge, Firefox, Safari), which can fall out of step. Use the same browser on every device.',
   start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
   state: 'That step is not possible now. Go back and start again.',
@@ -17360,7 +17361,7 @@ const ONLINE_ARENA_DEFAULT = 'warehouse';
 const ONLINE_START = 'bpstart'; // the type of the host's start message on a link's reliable channel (the lockstep ignores it: it has no match number)
 const ONLINE_FIGHT_ROUNDS = 2, ONLINE_FIGHT_SECONDS = 60, ONLINE_BRACKET_SIZE = 8;
 const OnlinePlay = {
-  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, played: false, plan: null, setup: null, delay: NET_INPUT_DELAY, // played: a match ran in this session (its retuned delay carries on); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
+  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
   // seat -> link, for the host its guests, for a guest the host as seat 0 (set by hostOpen and guestBegin)
   get active() { return this.links.size > 0; },
   // --- host
@@ -17428,8 +17429,7 @@ const OnlinePlay = {
     const cfg = Object.assign({}, plan.cfg, { seed: Date.now() >>> 0, keepSeed: true, online: true }); // Game.beginMatch fills items, hazards and assist from this PC's settings: they go to the guests as they are
     const seatCount = Math.max(...seats) + 1, fighterOf = Array.from({ length: seatCount }, (_, seat) => (seats.includes(seat) ? plan.humans.indexOf(seat) : -1));
     this.matchNo = (this.matchNo + 1) & 0xffff;
-    if (this.played && Game.net && Game.net.host) this.delay = Game.net.delay; // a rematch or the next bracket fight of this session starts from the delay the last match was retuned to; a new session starts from the round trips measured when its links opened
-    this.played = true;
+    if (Game.net && Game.net === this.lastNet) this.delay = Game.net.delay; // a rematch starts from the delay the last match was retuned to (the next bracket fight finds it saved here by Game.endMatch); a new session starts from the round trips measured when its links opened, and never from the leftover match of an older session
     if (plan.run) Game.run = plan.run;
     if (plan.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] }; // the session score of a Versus run
     this.build(cfg);
@@ -17441,6 +17441,7 @@ const OnlinePlay = {
     }
     const session = new LockstepSession({ match: Game.match, seat: 0, seatCount, host: true, links, delay: this.delay, fighterOf, matchId: this.matchNo });
     Game.attachNet(session, { onRematch: () => this.rematch(), onLeave: () => this.leave(), onDrop: (info) => this.dropped(info) });
+    this.lastNet = session;
     return '';
   },
   // The same fight again with a new seed (the host's Rematch button and the "Out of sync" one); a brawl or 1v1 is rebuilt from whoever is still connected
@@ -17493,6 +17494,8 @@ const OnlinePlay = {
       fighters = cfg.coop.length;
     } else if (!known(ROSTER_BY_ID, cfg.opponentId)) return bad;
     if (cfg.difficulty !== undefined && !known(DIFFICULTY, cfg.difficulty)) return bad;
+    for (const key of ['goons', 'rival']) if (cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== '' && !known(ROSTER_BY_ID, cfg[key])) return bad; // waveProfiles reads both mid-match: a fighter of the roster or nothing
+    if (cfg.slots !== undefined && cfg.slots !== null && (!Array.isArray(cfg.slots) || cfg.slots.length > LINEUP_MAX || cfg.slots.some((entry) => !entry || typeof entry !== 'object' || !known(ROSTER_BY_ID, entry.id)))) return bad; // a lineup: fighters of the roster
     const seated = Array.isArray(fighterOf) ? fighterOf.filter((index) => index >= 0) : [];
     if (!Array.isArray(fighterOf) || fighterOf.length !== count || fighterOf.some((index) => !Number.isInteger(index) || index < -1 || index >= fighters) || new Set(seated).size !== seated.length) return bad;
     return '';
@@ -17544,12 +17547,13 @@ const OnlinePlay = {
     for (const transport of this.transports.values()) transport.close();
     for (const link of this.links.values()) link.close();
     this.offs = []; this.links.clear(); this.transports.clear(); this.gone.clear(); this.engines.clear();
-    this.isHost = false; this.played = false; this.plan = null; this.setup = null;
+    this.isHost = false; this.lastNet = null; this.plan = null; this.setup = null;
   },
 };
 
 // === 09d ONLINE UI - the smallest flow that starts a game (Online > Host a game or Join a game; the lobby of P12-06 replaces it): codes by Copy, Show QR, Scan or paste. The host has one code box per guest (seats 2 to 4) and a plain Start
 const ONLINE_SCAN_MS = 200; // a camera frame is read this often
+const ONLINE_HELLO_WAIT_MS = 2000; // a connected guest whose browser kind has not arrived yet counts as still joining for this long: Start stays off
 const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when a link opens, the guest answers bp-pong:, the host shows the round trip
 const ONLINE_PONG = 'bp-pong:';
 const ONLINE_HELLO = 'bp-hello:'; // a guest tells the host its kind of browser when the link opens: the browsers round some maths differently (J01), so the host screen can refuse a Start with mixed kinds (OnlinePlay.mixedKinds)
@@ -17636,7 +17640,15 @@ const OnlineUI = {
   },
   onState(link, state) {
     if (!this.owns(link)) return;
-    if (state === 'open') { this.note = ''; if (this.role === 'host') link.send(ONLINE_PING + performance.now()); else link.send(ONLINE_HELLO + onlineEngine()); Sound.ui('ok'); }
+    if (state === 'open') {
+      this.note = '';
+      if (this.role === 'host') {
+        const slot = this.guestOf(link);
+        if (slot) { slot.openedAt = performance.now(); setTimeout(() => this.redraw(), ONLINE_HELLO_WAIT_MS + 50); } // Start comes on when the hello is late, too
+        link.send(ONLINE_PING + performance.now());
+      } else link.send(ONLINE_HELLO + onlineEngine());
+      Sound.ui('ok');
+    }
     this.redraw();
   },
   onMessage(link, data) {
@@ -17728,10 +17740,13 @@ const OnlineUI = {
   openCount() { return this.guests.filter((guest) => guest.link && guest.link.state === 'open').length; },
   // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
   mixedKinds() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && guest.engine && guest.engine !== onlineEngine()); },
+  // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
+  joining() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && !guest.engine && guest.openedAt !== undefined && performance.now() - guest.openedAt < ONLINE_HELLO_WAIT_MS); },
   // Why Start cannot be pressed, or ''
   startProblem() {
     const people = this.openCount() + 1;
     if (!this.openCount()) return ONLINE_MESSAGES.nobody;
+    if (this.joining()) return ONLINE_MESSAGES.joining;
     return this.mixedKinds() ? ONLINE_MESSAGES.sameBrowser : OnlinePlay.modeProblem(this.modeNow(people), people);
   },
   renderHost() {
@@ -17943,7 +17958,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,

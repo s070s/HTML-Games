@@ -47,7 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -18075,8 +18075,19 @@ const SelfTest = {
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other })];
         screen = UI.screen_onlinehost();
         if (!screen.includes(esc(ONLINE_MESSAGES.sameBrowser)) || !/data-act="onstart" disabled/.test(screen) || OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('a guest with another kind of browser must switch Start off and say why');
-        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other }), slot(3, 'waiting', null, 'BPO-x', { engine: other })];
-        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('a guest that is still waiting counts');
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'waiting', null, 'BPO-x', { engine: other })];
+        if (OnlineUI.startProblem() !== '') bad.push('a guest that is still waiting (no link open) of another kind must not block Start: ' + OnlineUI.startProblem());
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'open', null, 'BPO-x', { engine: other })];
+        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('one connected guest of another kind among several must block Start');
+        // a connected guest whose kind has not arrived yet is still joining: Start stays off until the hello comes or 2 s have passed
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() })];
+        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.joining || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(esc(ONLINE_MESSAGES.joining))) bad.push('a guest that opened just now and has not said its kind must switch Start off and say why: ' + OnlineUI.startProblem());
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() - ONLINE_HELLO_WAIT_MS - 100 })];
+        if (OnlineUI.startProblem() !== '') bad.push('a guest whose hello is more than ' + ONLINE_HELLO_WAIT_MS + ' ms late must not hold Start: ' + OnlineUI.startProblem());
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now(), engine: own })];
+        if (OnlineUI.startProblem() !== '') bad.push('a guest that has said its kind is not joining: ' + OnlineUI.startProblem());
+        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() }), slot(3, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { openedAt: performance.now() })];
+        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.joining) bad.push('a joining guest next to a failed one still holds Start');
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { engine: other })];
         if (OnlineUI.startProblem() !== '') bad.push('a failed guest of another kind must not block Start');
         // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
@@ -18246,10 +18257,16 @@ const SelfTest = {
         OnlinePlay.leave(); Game.endMatch();   // the host's own match is over: nothing is up while the guest side is tried
         OnlinePlay.seat = good.seat;
         if (OnlinePlay.problemWith(good) !== '') problems.push('the good message was refused: ' + OnlinePlay.problemWith(good));
+        for (const extra of [{ goons: 'kai', rival: 'mara' }, { goons: '', rival: null }, { slots: [{ id: 'kai', human: true }, { id: 'mara' }] }]) {
+          const fine = JSON.parse(JSON.stringify(good)); Object.assign(fine.cfg, extra);
+          if (OnlinePlay.problemWith(fine) !== '') problems.push('a roster crew, rival or lineup was refused: ' + JSON.stringify(extra));
+        }
         const hostile = {
           'a level called constructor': (m) => { m.cfg.arenaId = 'constructor'; }, 'a fighter called __proto__': (m) => { m.cfg.playerId = '__proto__'; }, 'a party with a null': (m) => { m.cfg.coop = [null, m.cfg.coop[1]]; },
           'a party member called toString': (m) => { m.cfg.coop[0].id = 'toString'; }, 'a party seat 9': (m) => { m.cfg.coop[1].slot = 9; }, 'no party': (m) => { delete m.cfg.coop; },
           'a fighter index past the party': (m) => { m.fighterOf = [5, 0]; m.seatCount = 2; }, 'two seats for one fighter': (m) => { m.fighterOf = [0, 0, -1]; m.seatCount = 3; },
+          'a crew called constructor': (m) => { m.cfg.goons = 'constructor'; }, 'a rival called __proto__': (m) => { m.cfg.rival = '__proto__'; }, 'a rival that is a number': (m) => { m.cfg.rival = 5; },
+          'a lineup that is a string': (m) => { m.cfg.slots = 'kai'; }, 'a lineup entry called toString': (m) => { m.cfg.slots = [{ id: 'kai' }, { id: 'toString' }]; }, 'a lineup of a hundred': (m) => { m.cfg.slots = Array.from({ length: 100 }, () => ({ id: 'kai' })); },
           'a thousand enemies': (m) => { m.cfg.enemies = 1000; }, 'a difficulty called hasOwnProperty': (m) => { m.cfg.difficulty = 'hasOwnProperty'; }, 'a mode of nothing': (m) => { m.mode = 'x'; }, 'no cfg': (m) => { m.cfg = null; },
         };
         for (const [name, change] of Object.entries(hostile)) {
@@ -18290,6 +18307,29 @@ const SelfTest = {
         messages = kit.starts(heard)[0];
         if (messages.length !== 2 || messages[1].delay !== 5 || Game.net.delay !== 5) problems.push('the rematch started at delay ' + (messages[1] && messages[1].delay) + ' / ' + (Game.net && Game.net.delay) + ', not the retuned 5');
         void pairs;
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online play (P12-03 review): an online bracket carries the retuned delay from one fight to the next: Continue on the bracket screen ends the match first (Game.endMatch), and fight 2 still starts at the delay of fight 1, while a new session starts from its own measured round trips', () => {
+      const problems = [], kit = reviewKit();
+      try {
+        let { heard } = kit.open([2, 3]);
+        const fight = () => ({ mode: 'versus', playerId: 'kai', opponentId: 'mara', arenaId: 'dojo', difficulty: 'normal', winsNeeded: 1, timer: 60, items: false, hazards: false, ring: false, ringOut: false, seats: [0, 1] });
+        OnlinePlay.startBracketFight(fight(), [1, 2]);
+        let messages = kit.starts(heard)[0];
+        if (messages.length !== 1 || messages[0].delay !== 3) problems.push('fight 1 started at ' + (messages[0] && messages[0].delay) + ', not the measured 3');
+        Game.net.setDelay(6);   // the host's retune at a round end
+        Game.endMatch();        // what the bracket screen's Continue does before anything else
+        if (Game.net) problems.push('the match did not end');
+        OnlinePlay.startBracketFight(fight(), [1, 2]);
+        messages = kit.starts(heard)[0];
+        if (messages.length !== 2 || messages[1].delay !== 6 || !Game.net || Game.net.delay !== 6) problems.push('fight 2 started at ' + (messages[1] && messages[1].delay) + ' / ' + (Game.net && Game.net.delay) + ', not the retuned 6');
+        // a new session (new links) starts from what it measured, not from the old session's 6
+        Game.net.setDelay(6); Game.endMatch();
+        ({ heard } = kit.open([2], { }));
+        OnlinePlay.startBracketFight(fight(), [1, 0]);
+        messages = kit.starts(heard)[0];
+        if (messages.length !== 1 || messages[0].delay !== 2) problems.push('a new session started at ' + (messages[0] && messages[0].delay) + ', not its measured 2');
       } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
