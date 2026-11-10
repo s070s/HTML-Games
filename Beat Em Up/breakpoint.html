@@ -263,6 +263,12 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .slot .opt.cell .v{min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slot .sno{color:var(--pc);text-align:center}
 .warnline{color:var(--bad)}
+.onlist{list-style:none;margin:.4em 0;padding:0;display:grid;gap:.4em}
+.onrow{display:grid;grid-template-columns:2.2em minmax(5em,.7fr) 1.2fr auto auto auto;grid-template-areas:"no name fig st lat rm";gap:.4em;align-items:center;border-left:.4em solid var(--pc);padding:.2em 0 .2em .4em;min-height:44px}
+.onrow .sno{grid-area:no;color:var(--pc);text-align:center}.onrow .onname{grid-area:name}.onrow .onst{grid-area:st;font-weight:700;white-space:nowrap}.onrow .onlat{grid-area:lat;color:var(--mut);font-size:.85em;white-space:nowrap}
+.onrow .onfig,.onrow .opt.cell{grid-area:fig;min-width:0;overflow-wrap:anywhere}.onrow .opt.cell{margin:0;padding:.35em .5em;justify-content:center;min-height:44px}
+.onrow button.mi{grid-area:rm;width:auto;margin:0;min-height:44px;padding:.3em .6em;font-size:.8em}
+@media (max-width:520px){.onrow{grid-template-columns:2em 1fr auto;grid-template-areas:"no name st" "no fig fig" "no lat rm"}}
 .opt.dim{opacity:.5;cursor:default;pointer-events:none}
 .beat{display:block;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
 .beat:focus{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
@@ -1533,6 +1539,7 @@ const Inputs = {
   active() { return this.coop ? this.party : this.versus ? this.duo : this.solo; },
   // The human player steering a fighter, or null for the CPU / dummy
   forFighter(index) {
+    if (Game.net) return index === Game.net.fighterOf[Game.net.seat] ? Input : null; // online: this device plays its own seat's fighter as P1 (rumble, cues and the touch buttons follow it); a seat that only watches has none
     const match = Game.match;
     if (match && match.setup) { const slot = match.setup[index]; return slot && slot.human >= 0 ? this.players[slot.human] : null; } // a lineup: the person in that slot reads its own input seat
     if (match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; } // also with Inputs.coop off: 1 or 2 people sit on P1 and P2
@@ -9740,15 +9747,17 @@ const MatchLineup = {
     if (!Array.isArray(lineup.slots)) lineup.slots = [];
     const crowd = lineup.crowd = lineup.crowd === true;
     lineup.friendlyFire = lineup.friendlyFire === true;
+    if (crowd || lineup.net !== true) delete lineup.net; // Online friends (P12-06): on only in a lineup, absent otherwise so offline objects stay as they were
     lineup.slots.length = Math.min(lineup.slots.length, crowd ? LINEUP_HUMANS_MAX : LINEUP_MAX);
     for (let i = 0; i < lineup.slots.length; i++) {
       const slot = lineup.slots[i] || {};
       lineup.slots[i] = { id: ROSTER_BY_ID[slot.id] ? slot.id : 'kai', human: crowd || !!slot.human, team: !crowd && Number.isInteger(slot.team) && slot.team >= 0 && slot.team <= LINEUP_TEAMS ? slot.team : 0 };
+      if (lineup.net === true && i > 0 && slot.human && slot.online === true) lineup.slots[i].online = true; // a friend on another device: only a slot after the first, only where Online friends is on
     }
     while (lineup.slots.length < (crowd ? 1 : LINEUP_MIN)) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: crowd, team: 0 });
     lineup.slots[0].human = true;
     let people = 0;
-    for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; people--; }
+    for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; delete slot.online; people--; }
     if (!LINEUP_TIMERS.includes(lineup.timer)) lineup.timer = 0;
     lineup.handicap = lineup.handicap === undefined ? true : !!lineup.handicap;
     if (!LINEUP_DEALS.includes(lineup.deal)) lineup.deal = 'custom';
@@ -12889,6 +12898,7 @@ const Game = {
     const problem = this.lineupProblem();
     if (problem) { Events.emit('toast', { msg: problem, kind: 'warn' }); return false; }
     this.saveSetup();
+    if (this.lineupFor().slots.some((slot) => slot.online)) { OnlineUI.open('host', 'free'); return false; } // the friends come through the online lobby, which starts the fight
     const { run, cfg } = this.freeConfig();
     if (run === 'versus' && !this.versus) this.versus = { score: [0, 0] };
     this.run = { mode: run, player: cfg.playerId };
@@ -13130,7 +13140,7 @@ const Game = {
     if (!lineup) return;
     const old = Setups.d && Setups.d.v === 1 ? plain(Setups.d) : {};
     Setups.d = Object.assign({}, old, { v: 1, freeFight: Object.assign({}, plain(old.freeFight), {
-      type: MatchLineup.type(lineup), crowd: lineup.crowd, slots: lineup.slots.map((slot) => ({ id: slot.id, human: slot.human, team: slot.team })), deal: lineup.deal, handicap: lineup.handicap, clock: lineup.timer,
+      type: MatchLineup.type(lineup), crowd: lineup.crowd, slots: lineup.slots.map((slot) => ({ id: slot.id, human: slot.human && !slot.online, team: slot.team })), deal: lineup.deal, handicap: lineup.handicap, clock: lineup.timer,
       rounds: sel.rounds, roundTimer: sel.timer, arena: sel.arena, difficulty: sel.difficulty, friendlyFire: lineup.friendlyFire, rules: { ...sel.rules },
     }) });
     Setups.save();
@@ -13159,9 +13169,10 @@ const Game = {
   lineupProblem() {
     const lineup = this.lineupFor(), check = MatchLineup.check(lineup), people = MatchLineup.people(lineup);
     if (!check.ok) return check.msg;
-    const locked = lineup.slots.find((slot) => slot.human && !Progress.isUnlocked(slot.id));
+    const locked = lineup.slots.find((slot) => slot.human && !slot.online && !Progress.isUnlocked(slot.id));
     if (locked) return ROSTER_BY_ID[locked.id].name + ' is locked: pick another fighter for the player slot';
-    return people > 2 && !Inputs.autoDevices(people) ? Inputs.missingText(people) : '';
+    const local = people - lineup.slots.filter((slot) => slot.online).length; // a friend on another device needs none of this PC's
+    return local > 2 && !Inputs.autoDevices(local) ? Inputs.missingText(local) : '';
   },
   // The setup as one match config { run, cfg }; Duel, Versus and Co-op keep their own paths
   freeConfig() {
@@ -13215,6 +13226,8 @@ const Game = {
     else if (this.state !== GS.COUNTDOWN) this.go(GS.COUNTDOWN);
     if (this.match.phase === 'fight' && this.state === GS.COUNTDOWN) this.go(GS.FIGHT);
   },
+  // The fighter this device steers: the first one offline; online the fighter of its seat (a seat that only watches: the first)
+  localFighter() { return this.net ? Math.max(0, this.net.fighterOf[this.net.seat]) : 0; },
   // An online match (P12-02): the session steps the sim and decides when it waits. hooks: onRematch() (the "Out of sync" Rematch button; no button without it), onLeave() (after Leave or Menu: close the link), onDesync(info), onDrop(info). The lobby (P12-06) builds the session and calls this.
   attachNet(session, hooks = {}) {
     this.net = session;
@@ -13401,6 +13414,7 @@ const Game = {
   },
   resultsAction(kind) {
     const run = this.run;
+    if (this.net && kind === 'lobby') { OnlinePlay.toLobby(); return; } // online: back to the lobby with the same links
     if (this.net && (kind === 'menu' || kind === 'again')) { if (kind === 'menu') this.leaveOnline(); else OnlinePlay.rematch(); return; } // online: Menu leaves for good and closes the links, Rematch (the host's button) starts the same fight again
     if (kind === 'menu') { this.quitToMenu(); return; }
     if (kind === 'setup') { this.endMatch(); this.go(GS.CHARSEL); if (this.selection.mode === 'free') UI.changeFighters(); return; } // slot 1's cards (Versus: then slot 2)
@@ -14101,6 +14115,9 @@ const ONLINE_MESSAGES = {
   sameBrowser: 'Start is off: the devices use different kinds of browser (Chrome or Edge, Firefox, Safari), which can fall out of step. Use the same browser on every device.',
   start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
   state: 'That step is not possible now. Go back and start again.',
+  lineupCrowd: 'A crowd fight is the Brawl mode online. Pick another fight type in the lineup.',
+  lineupLocal: 'A local Player slot cannot play online. Set it to Online or CPU in the lineup.',
+  lineupNoNet: 'Turn Online friends on in the lineup (Players and teams) and set a slot to Online for each friend.',
 };
 function onlineError(code, message) { const error = new Error(message || ONLINE_MESSAGES[code] || code); error.code = code; return error; }
 
@@ -15170,6 +15187,7 @@ const UI = {
   },
   changeLocal(name, dir, press) {
     const sel = Game.selection;
+    if (name.startsWith('olb:')) { OnlineUI.local(name.slice(4), dir); return; } // the rows of the online lobby
     if (press && name.startsWith('lfig:')) { this.openCards(Number(name.slice(5))); return; }
     if ((this.current === 'lineup' || this.current === 'freemore') && this.lineupLocal(name, dir)) { this.rerender(true); return; }
     if (name === 'ftype') { const at = FIGHT_TYPES.indexOf(MatchLineup.type(Game.lineupFor())); Game.applyType(FIGHT_TYPES[((at < 0 ? (dir > 0 ? -1 : 4) : at) + dir + FIGHT_TYPES.length) % FIGHT_TYPES.length]); this.showFreeScene(); }
@@ -15363,7 +15381,7 @@ const UI = {
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
       '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Tournament</small></button>' +
-      '<button class="mi" data-nav data-act="online">Online<small>Two devices on the same network, joined by copy and paste</small></button>' +
+      '<button class="mi" data-nav data-act="online">Online<small>Up to 4 devices on the same network: lobby, Ready check, Free Fight lineup</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -15538,7 +15556,7 @@ const UI = {
   hasTeammates(lineup) { return lineup.crowd || // any crowd fight counts
      lineup.slots.some((slot, i) => slot.human && slot.team > 0 && lineup.slots.some((other, j) => j !== i && other.team === slot.team)); },
   screen_freefight() {
-    const sel = Game.selection, lineup = Game.lineupFor(), problem = Game.lineupProblem(), cpu = lineup.crowd || lineup.slots.some((slot) => !slot.human);
+    const sel = Game.selection, lineup = Game.lineupFor(), problem = Game.lineupProblem(), cpu = lineup.crowd || lineup.slots.some((slot) => !slot.human), online = lineup.slots.some((slot) => slot.online);
     return this.panelOpen('Free Fight', '38em,64vw') + '<h2>Free Fight</h2>' +
       this.optRow('Fight type', MatchLineup.type(lineup), 'data-local="ftype"', '') +
       '<button class="mi" data-nav data-act="lineup">Players and teams<small>' + esc(this.lineupSummary(lineup)) + '</small></button>' +
@@ -15546,7 +15564,7 @@ const UI = {
       (cpu ? this.levelRow() : this.unusedRow('Difficulty', 'no CPU fighter')) +
       '<button class="mi" data-nav data-act="freemore">More options<small>' + esc(this.moreSummary(lineup)) + '</small></button>' +
       (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') +
-      '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="start"' + (problem ? ' disabled' : '') + '>Start fight</button></div></div></section>';
+      '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-default data-act="start"' + (problem ? ' disabled' : '') + '>' + (online ? 'Open the online lobby' : 'Start fight') + '</button></div></div></section>';
   },
   screen_freemore() {
     const sel = Game.selection, lineup = Game.lineupFor(), plain = MatchLineup.plain(lineup), arena = ARENAS[sel.arena], preset = FightRules.match(sel.rules, lineup, arena, sel);
@@ -15573,12 +15591,12 @@ const UI = {
     const cell = (label, value, attr) => '<div class="opt cell" role="spinbutton" tabindex="0" aria-label="' + esc(label) + ': ' + esc(value) + '" aria-valuetext="' + esc(value) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav ' + attr + '><span class="v">' + esc(value) + '</span></div>';
     let h = this.panelOpen('Players and teams', '46em,96vw', ' lineup') + '<h2>Free Fight: players and teams</h2><p class="sub">' + esc(this.lineupSummary(lineup)) + '</p>';
     h += crowd ? this.optRow('Players', String(lineup.slots.length), 'data-local="lopp"', '') + '<p class="hint">Crowd: ' + coopEnemyCount(lineup.slots.length) + ' enemies (2 + players, up to ' + BRAWL_MAX_ENEMIES + '); waves on levels that have them.</p>'
-      : this.optRow('Opponents', String(lineup.slots.length - 1), 'data-local="lopp"', '') + this.optRow('Teams', LINEUP_DEAL_LABEL[lineup.deal], 'data-local="ldeal"', '');
+      : this.optRow('Opponents', String(lineup.slots.length - 1), 'data-local="lopp"', '') + this.optRow('Teams', LINEUP_DEAL_LABEL[lineup.deal], 'data-local="ldeal"', '') + this.optRow('Online friends', lineup.net ? 'On' : 'Off', 'data-local="lnet"', '');
     h += '<div class="slots">';
     let person = 0;
     lineup.slots.forEach((slot, i) => {
-      const tint = plan.slots.find((s) => s.from === i).tint, who = slot.human ? 'Player ' + (++person) : 'CPU', n = 'Slot ' + (i + 1);
-      h += '<div class="slot tc' + tint + '"><b class="sno">' + (i + 1) + '</b>' + cell(n + ' fighter', ROSTER_BY_ID[slot.id].name, (i === 0 ? 'data-default ' : '') + 'data-local="lfig:' + i + '"') +
+      const tint = plan.slots.find((s) => s.from === i).tint, who = slot.online ? 'Online' : slot.human ? 'Player ' + (++person) : 'CPU', n = 'Slot ' + (i + 1);
+      h += '<div class="slot tc' + tint + '"><b class="sno">' + (i + 1) + '</b>' + (slot.online ? '<div class="opt cell dim" aria-disabled="true"><span class="v">Friend picks</span></div>' : cell(n + ' fighter', ROSTER_BY_ID[slot.id].name, (i === 0 ? 'data-default ' : '') + 'data-local="lfig:' + i + '"')) +
         (crowd ? '<div class="opt cell dim" aria-disabled="true"><span class="v">' + who + '</span></div>'
           : cell(n + ' control', who, 'data-local="lctl:' + i + '"') + cell(n + ' team', slot.team ? 'Team ' + LINEUP_TEAM_LETTERS[slot.team] : 'Solo', 'data-local="ltm:' + i + '"')) + '</div>';
     });
@@ -15593,7 +15611,8 @@ const UI = {
           : ' The teams are uneven. Even teams (' + level + ' CPU) gives nobody extra health or damage here; a player is never weakened' + less + '.') +
         (MatchLineup.plain(lineup) ? ' Plain one-on-one: rounds and the time limit are under More options.' : ' One fight, last team standing wins.');
     }
-    return h + '<p class="hint">' + this.lineupDevicesText(plan.people) + note + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
+    const friends = lineup.slots.filter((slot) => slot.online).length;
+    return h + '<p class="hint">' + this.lineupDevicesText(plan.people - friends) + note + (friends ? ' Online slots are friends on other devices: Start fight opens the online lobby, where each one picks a fighter and says Ready.' : '') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
   },
   // The adjustable rows of Players and teams and More options; true when it handled the name
   lineupLocal(name, dir) {
@@ -15613,16 +15632,21 @@ const UI = {
       const pool = slots[i].human ? open : everyone; // a CPU may take a locked fighter
       slots[i].id = pool[(Math.max(0, pool.indexOf(slots[i].id)) + dir + pool.length) % pool.length];
     } else if (kind === 'lctl' && slots[i]) {
+      const slot = slots[i], states = lineup.net ? 3 : 2, here = slot.online ? 2 : slot.human ? 1 : 0, next = (here + (dir < 0 ? -1 : 1) + states) % states; // CPU, Player (a person at this device) and, where Online friends is on, Online (a friend on another device: P12-06)
       if (i === 0) { Sound.ui('bad'); this.toast('Slot 1 is always a player', 'warn'); }
-      else if (!slots[i].human && MatchLineup.people(lineup) >= LINEUP_HUMANS_MAX) { Sound.ui('bad'); this.toast('At most ' + LINEUP_HUMANS_MAX + ' players', 'warn'); }
+      else if (next > 0 && !slot.human && MatchLineup.people(lineup) >= LINEUP_HUMANS_MAX) { Sound.ui('bad'); this.toast('At most ' + LINEUP_HUMANS_MAX + ' players', 'warn'); }
       else {
-        slots[i].human = !slots[i].human;
-        if (slots[i].human && !Progress.isUnlocked(slots[i].id)) slots[i].id = open.find((id) => !slots.some((s) => s.id === id)) || open[0];
+        slot.human = next > 0;
+        if (next === 2) slot.online = true; else delete slot.online;
+        if (next === 1 && !Progress.isUnlocked(slot.id)) slot.id = open.find((id) => !slots.some((s) => s.id === id)) || open[0];
         if (lineup.deal === 'players') MatchLineup.deal(lineup, 'players');
       }
     } else if (kind === 'ltm' && slots[i]) {
       slots[i].team = (slots[i].team + dir + LINEUP_TEAMS + 1) % (LINEUP_TEAMS + 1);
       lineup.deal = 'custom';
+    } else if (kind === 'lnet') { // Online friends: the Online value of the control cells (P12-06); off again, every Online slot is a CPU
+      if (lineup.net) { delete lineup.net; for (const slot of slots) if (slot.online) { slot.human = false; delete slot.online; } } else lineup.net = true;
+      if (lineup.deal === 'players') MatchLineup.deal(lineup, 'players');
     } else if (kind === 'lhand') lineup.handicap = !lineup.handicap;
     else if (kind === 'lff') lineup.friendlyFire = !lineup.friendlyFire;
     else if (kind === 'ltimer') lineup.timer = LINEUP_TIMERS[(LINEUP_TIMERS.indexOf(lineup.timer) + dir + LINEUP_TIMERS.length) % LINEUP_TIMERS.length];
@@ -15970,7 +15994,7 @@ const UI = {
       (d.runGrade ? '<span>Run grade: <b>' + d.runGrade + '</b></span>' : '') + (best ? '<span>Best grade: <b>' + best + '</b></span>' : '') + '</div>';
   },
   resultsNav(d) {
-    const labels = { bracket: 'Continue', next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
+    const labels = { bracket: 'Continue', lobby: 'Online lobby', next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
     return '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
   },
   // Co-op: the outcome and a column per player
@@ -16522,7 +16546,7 @@ const UI = {
   },
   // USE and LOCK show only when they can do something
   touchContextUpdate(m) {
-    const me = m.fighters[0]; // touch plays P1
+    const me = m.fighters[Game.localFighter()] || m.fighters[0]; // touch plays P1: online, the fighter of this device's seat
     this.showTouchButton('use', touchUseVisible(me, m));
     this.showTouchButton('lock', touchLockVisible(me, m));
   },
@@ -17354,32 +17378,52 @@ const CreatorUI = {
 
 // === 09e ONLINE PLAY (P12-03) - up to 4 people over the links of P12-01. The host picks a mode, builds one match config (seed, rules, the items and hazards and assist settings it holds) and sends it on every link; each peer builds the same match
 // and runs the lockstep of P12-02 over its link(s). A seat is the seat of the link's code minus 1 (the host is seat 0), so a seat nobody fills (a guest that never connected) simply watches. The lobby of P12-06 replaces the picks here.
-const ONLINE_MODES = ['fight', 'brawl', 'tournament'];
-const ONLINE_MODE_LABEL = { fight: '1 vs 1', brawl: 'Brawl', tournament: 'Tournament' };
+const ONLINE_MODES = ['fight', 'brawl', 'tournament', 'free'];
+const ONLINE_MODE_LABEL = { fight: '1 vs 1', brawl: 'Brawl', tournament: 'Tournament', free: 'Free Fight' };
 const ONLINE_MODE_HINT = {
   fight: 'You and one friend: the first to win 2 rounds. Needs exactly 2 players.',
   brawl: 'Everyone on one team against the level\'s CPU gang. 2 to 4 players.',
   tournament: 'A bracket of 8: each person plays their own fights, the CPU plays the rest. 2 to 4 players.',
+  free: 'Your Free Fight lineup (Players and teams): each Online slot is a friend, the CPU fighters fill the rest.',
 };
 const ONLINE_ARENA_DEFAULT = 'warehouse';
 const ONLINE_START = 'bpstart'; // the type of the host's start message on a link's reliable channel (the lockstep ignores it: it has no match number)
 const ONLINE_FIGHT_ROUNDS = 2, ONLINE_FIGHT_SECONDS = 60, ONLINE_BRACKET_SIZE = 8;
 const OnlinePlay = {
-  isHost: false, seat: 0, links: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
+  isHost: false, seat: 0, links: new Map(), picks: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
   // seat -> link, for the host its guests, for a guest the host as seat 0 (set by hostOpen and guestBegin)
   get active() { return this.links.size > 0; },
   // --- host
   // Why this mode cannot start with this many people (the host counts), or ''
   modeProblem(mode, people) {
     if (people < 2) return ONLINE_MESSAGES.nobody;
+    if (mode === 'free') return this.lineupProblem(people - 1);
     return mode === 'fight' && people !== 2 ? ONLINE_MESSAGES.fightTwo : '';
   },
-  // Takes the open guest links { seat (of the code, 2 to 4), link, roundTrip, engine }; the first match's input delay comes from the round trips measured when they opened
-  hostOpen(entries) {
+  // Why the Free Fight lineup cannot be played with this many friends, or '': its Online slots are the friends, nobody else sits at a local device
+  lineupProblem(guests) {
+    const lineup = Game.lineupFor(), online = lineup.slots.filter((slot) => slot.online).length;
+    if (lineup.crowd) return ONLINE_MESSAGES.lineupCrowd;
+    if (!lineup.net) return ONLINE_MESSAGES.lineupNoNet;
+    if (lineup.slots.some((slot, i) => i > 0 && slot.human && !slot.online)) return ONLINE_MESSAGES.lineupLocal;
+    if (online !== guests) return 'The lineup has ' + online + ' Online slot' + (online === 1 ? '' : 's') + ' but ' + guests + ' friend' + (guests === 1 ? ' is' : 's are') + ' connected. Change the lineup or the players.';
+    const check = MatchLineup.check(lineup);
+    return check.ok ? '' : check.msg;
+  },
+  // The fighter a seat picked in the lobby (the first starters when nothing was picked)
+  pickOf(seat) { return onlineFighterOr(this.picks.get(seat), seat); },
+  // The Free Fight lineup in one line, for the lobby
+  lineupText() {
+    const lineup = Game.lineupFor(), online = lineup.slots.filter((slot) => slot.online).length;
+    return MatchLineup.type(lineup) + ', ' + lineup.slots.length + ' fighters, ' + online + ' online slot' + (online === 1 ? '' : 's');
+  },
+  // Takes the open guest links { seat (of the code, 2 to 4), link, roundTrip, samples, engine, fighter } and the host's own pick; the first match's input delay comes from the round trips measured in the lobby (onlineDelayFor)
+  hostOpen(entries, hostFighter) {
     this.leave();
     this.isHost = true; this.seat = 0;
-    for (const entry of entries) { this.adopt(entry.seat - 1, entry.link); if (entry.engine) this.engines.set(entry.seat - 1, entry.engine); }
-    this.delay = netDelayFor(entries.map((entry) => entry.roundTrip).filter((ms) => ms >= 0));
+    this.picks.set(0, onlineFighterOr(hostFighter, 0));
+    for (const entry of entries) { this.adopt(entry.seat - 1, entry.link); this.picks.set(entry.seat - 1, onlineFighterOr(entry.fighter, entry.seat - 1)); if (entry.engine) this.engines.set(entry.seat - 1, entry.engine); }
+    this.delay = onlineDelayFor(entries.map((entry) => (entry.samples && entry.samples.length ? entry.samples : entry.roundTrip >= 0 ? [entry.roundTrip] : [])));
   },
   adopt(seat, link) {
     this.links.set(seat, link);
@@ -17397,18 +17441,41 @@ const OnlinePlay = {
     if (this.mixedKinds(seats)) return ONLINE_MESSAGES.sameBrowser; // the browsers round some maths differently (J01): until the sim is made exact, one kind of browser only
     this.setup = setup;
     if (setup.mode === 'tournament') return this.startBracket(seats);
-    const fighters = seats.map((seat) => DEFAULT_UNLOCKED[seat]), arenaId = ARENAS[setup.arena] ? setup.arena : ONLINE_ARENA_DEFAULT, difficulty = Game.selection.difficulty;
+    if (setup.mode === 'free') return this.startFree(seats);
+    const fighters = seats.map((seat) => this.pickOf(seat)), arenaId = ARENAS[setup.arena] ? setup.arena : ONLINE_ARENA_DEFAULT, difficulty = Game.selection.difficulty;
     const run = { mode: setup.mode === 'fight' ? 'versus' : 'coop', player: fighters[0] };
     if (setup.mode === 'fight') return this.launch({ mode: 'fight', people: seats, humans: seats, run, cfg: { mode: 'versus', playerId: fighters[0], opponentId: fighters[1], arenaId, winsNeeded: ONLINE_FIGHT_ROUNDS, timer: ONLINE_FIGHT_SECONDS } });
     const party = seats.map((seat, k) => ({ slot: seat, id: fighters[k] }));
     const crew = ROSTER.find((r) => !fighters.includes(r.id)).id; // the level's gang is built from a fighter that is not in the party
     return this.launch({ mode: 'brawl', people: seats, humans: seats, run, cfg: { mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId, difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[arenaId].waves, goons: crew } });
   },
+  // The Free Fight lineup of this PC with its people on their seats: slot 1 is the host, each Online slot takes the next connected friend (by seat), everybody plays the fighter they picked in the lobby
+  startFree(seats) {
+    const problem = this.lineupProblem(seats.length - 1);
+    if (problem) return problem;
+    const sel = Game.selection, arenaId = ARENAS[this.setup.arena] ? this.setup.arena : ONLINE_ARENA_DEFAULT, guests = seats.filter((seat) => seat > 0);
+    const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(Game.lineupFor()))), seatOfPerson = [];
+    for (const slot of lineup.slots) {
+      if (!slot.human) continue;
+      const seat = seatOfPerson.length ? guests[seatOfPerson.length - 1] : 0;
+      seatOfPerson.push(seat);
+      slot.id = this.pickOf(seat);
+      delete slot.online;
+    }
+    const fight = FightRules.cfg(sel.rules, lineup, ARENAS[arenaId]);
+    if (MatchLineup.plain(lineup)) { // two people on their own: the same duel as the 1 vs 1, with the lineup's rounds and clock
+      const [first, second] = lineup.slots;
+      return this.launch({ mode: 'fight', people: seatOfPerson, humans: seatOfPerson, run: { mode: 'versus', player: first.id }, cfg: { mode: 'versus', playerId: first.id, opponentId: second.id, arenaId, winsNeeded: sel.rounds, timer: sel.timer, ...fight } });
+    }
+    const plan = MatchLineup.plan(lineup, sel.difficulty);
+    const humans = plan.slots.map((slot) => (slot.human >= 0 ? seatOfPerson[slot.human] : -1)); // the seat of each fighter
+    return this.launch({ mode: 'free', people: seatOfPerson, humans, run: { mode: 'lineup', player: plan.slots[0].id }, cfg: { mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: 'free', playerId: plan.slots[0].id, arenaId, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer, friendlyFire: lineup.friendlyFire, ...fight } });
+  },
   // True when a connected guest's kind of browser is not the host's own (a guest that has not said yet does not count)
   mixedKinds(seats = this.present()) { return seats.some((seat) => this.engines.has(seat) && this.engines.get(seat) !== onlineEngine()); },
   // A bracket of 8 with the people on their seats; its fights with a person in them come back through startBracketFight (Game.beginTournamentMatch)
   startBracket(seats) {
-    const picks = seats.map((seat) => ({ seat, id: DEFAULT_UNLOCKED[seat] }));
+    const picks = seats.map((seat) => ({ seat, id: this.pickOf(seat) }));
     this.prepare();
     Game.playTournament(Tournament.draw({ humans: picks, size: ONLINE_BRACKET_SIZE, seed: Date.now() >>> 0, difficulty: Game.selection.tournamentLevel, ringOut: false }));
     Game.tournamentSeats = false; // the devices of this PC take no part: everyone plays on their own link
@@ -17461,8 +17528,8 @@ const OnlinePlay = {
     this.links.delete(info.seat); this.gone.add(info.seat);
     if (link) link.close();
   },
-  // The buttons of the results screen online: the host goes on (the next bracket fight, or the same fight again), a guest waits for the host
-  resultButtons(buttons) { return this.isHost ? (buttons.includes('bracket') ? ['bracket', 'menu'] : ['again', 'menu']) : ['menu']; },
+  // The buttons of the results screen online: the host goes on (the next bracket fight, or the same fight again) or back to the lobby, a guest waits for the host or goes back to the lobby to wait there
+  resultButtons(buttons) { return this.isHost ? (buttons.includes('bracket') ? ['bracket', 'lobby', 'menu'] : ['again', 'lobby', 'menu']) : ['lobby', 'menu']; },
   // Brings the game to a menu screen and builds the match; Game.inputPlan sees `starting` while the states change
   build(cfg) {
     this.starting = true;
@@ -17483,16 +17550,24 @@ const OnlinePlay = {
   },
   onHostMessage(data) {
     const message = this.readStart(data);
-    if (message) this.play(message);
+    if (message) { this.play(message); return; }
+    const view = onlineReadLobby(data);
+    if (view && (!Game.match || Game.match.phase === 'matchEnd')) this.toLobby(view); // the host went back to its lobby and the match here is over (a list that comes while a match is live is ignored: the next one, a second later, comes after it)
   },
   // Why a start message cannot be played, or '' (a friend's game of another version may send anything: every name is looked up as an own key, every list and number is checked)
   problemWith(message) {
     const bad = ONLINE_MESSAGES.start, cfg = message && message.cfg, count = message && message.seatCount, fighterOf = message && message.fighterOf;
     const known = (table, id) => typeof id === 'string' && Object.hasOwn(table, id);
     if (!cfg || typeof cfg !== 'object' || !['versus', 'free', 'brawl'].includes(cfg.mode) || !known(ARENAS, cfg.arenaId) || !known(ROSTER_BY_ID, cfg.playerId) || !Number.isFinite(cfg.seed)) return bad;
-    if (!['fight', 'brawl', 'tournament'].includes(message.mode) || !Number.isInteger(count) || count < 2 || count > COOP_MAX_PLAYERS || message.seat !== this.seat || !Number.isInteger(message.id) || !Number.isFinite(message.delay)) return bad;
-    let fighters = 2; // the people stand first: a duel has 2 fighters, a brawl one per member of the party
-    if (cfg.mode === 'brawl') {
+    if (!ONLINE_MODES.includes(message.mode) || !Number.isInteger(count) || count < 2 || count > COOP_MAX_PLAYERS || message.seat !== this.seat || !Number.isInteger(message.id) || !Number.isFinite(message.delay)) return bad;
+    let fighters = 2; // the people stand first: a duel has 2 fighters, a brawl one per member of the party, a lineup one per slot
+    const lineup = cfg.mode === 'brawl' && Array.isArray(cfg.slots) && !cfg.coop;
+    if (lineup !== (message.mode === 'free')) return bad;
+    if (lineup) {
+      if (cfg.slots.length < LINEUP_MIN || cfg.slots.length > LINEUP_MAX || !Number.isInteger(cfg.humans) || cfg.humans < 1 || cfg.humans > LINEUP_HUMANS_MAX) return bad;
+      if (cfg.slots.some((slot) => !slot || typeof slot !== 'object' || !known(ROSTER_BY_ID, slot.id) || !Number.isInteger(slot.human) || slot.human < -1 || slot.human >= LINEUP_HUMANS_MAX || !Number.isInteger(slot.team) || slot.team < 0 || slot.team >= LINEUP_MAX || !Number.isFinite(slot.hp) || !Number.isFinite(slot.dmg) || !Number.isInteger(slot.tint))) return bad;
+      fighters = cfg.slots.length;
+    } else if (cfg.mode === 'brawl') {
       if (!Array.isArray(cfg.coop) || !cfg.coop.length || cfg.coop.length > COOP_MAX_PLAYERS || cfg.coop.some((member) => !member || typeof member !== 'object' || !known(ROSTER_BY_ID, member.id) || !Number.isInteger(member.slot) || member.slot < 0 || member.slot >= COOP_MAX_PLAYERS)) return bad;
       if (!Number.isInteger(cfg.enemies) || cfg.enemies < 1 || cfg.enemies > BRAWL_MAX_ENEMIES) return bad;
       fighters = cfg.coop.length;
@@ -17501,6 +17576,7 @@ const OnlinePlay = {
     for (const key of ['goons', 'rival']) if (cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== '' && !known(ROSTER_BY_ID, cfg[key])) return bad; // waveProfiles reads both mid-match: a fighter of the roster or nothing
     if (cfg.slots !== undefined && cfg.slots !== null && (!Array.isArray(cfg.slots) || cfg.slots.length > LINEUP_MAX || cfg.slots.some((entry) => !entry || typeof entry !== 'object' || !known(ROSTER_BY_ID, entry.id)))) return bad; // a lineup: fighters of the roster
     const seated = Array.isArray(fighterOf) ? fighterOf.filter((index) => index >= 0) : [];
+    if (lineup && seated.some((index) => !cfg.slots[index] || cfg.slots[index].human < 0)) return bad; // a seat steers a person's fighter, never a CPU's
     if (!Array.isArray(fighterOf) || fighterOf.length !== count || fighterOf.some((index) => !Number.isInteger(index) || index < -1 || index >= fighters) || new Set(seated).size !== seated.length) return bad;
     return '';
   },
@@ -17510,7 +17586,7 @@ const OnlinePlay = {
     try {
       const cfg = message.cfg;
       cfg.online = true; cfg.keepSeed = true;
-      Game.run = { mode: message.mode === 'fight' ? 'versus' : message.mode === 'brawl' ? 'coop' : 'online', player: cfg.playerId };
+      Game.run = { mode: message.mode === 'fight' ? 'versus' : message.mode === 'brawl' ? 'coop' : message.mode === 'free' ? 'lineup' : 'online', player: cfg.playerId };
       if (message.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] };
       this.build(cfg);
       const session = new LockstepSession({ match: Game.match, seat: this.seat, seatCount: message.seatCount, host: false, hostLink: this.transports.get(0), delay: message.delay, fighterOf: message.fighterOf, matchId: message.id });
@@ -17547,15 +17623,28 @@ const OnlinePlay = {
   },
   // Lets go of everything: the links are closed (the others see it at once)
   leave() {
+    for (const { link } of this.handOff().links) link.close();
+  },
+  // Lets go of the links without closing them (the lobby takes them back, see toLobby): the listeners and transports come off and everything is forgotten; returns what was held
+  handOff() {
+    const held = { links: Array.from(this.links, ([seat, link]) => ({ seat, link })), engines: new Map(this.engines), picks: new Map(this.picks), setup: this.setup, isHost: this.isHost };
     for (const off of this.offs) off();
     for (const transport of this.transports.values()) transport.close();
-    for (const link of this.links.values()) link.close();
-    this.offs = []; this.links.clear(); this.transports.clear(); this.gone.clear(); this.engines.clear();
+    this.offs = []; this.links.clear(); this.transports.clear(); this.gone.clear(); this.engines.clear(); this.picks.clear();
     this.isHost = false; this.lastNet = null; this.plan = null; this.setup = null;
+    return held;
+  },
+  // Back to the lobby after a match (the results screen's Lobby button; a guest also when it hears the host's list): the open links go back to the lobby screens, which own them again (a friend that left is a free seat, a new friend can join), the match is over
+  toLobby(view = null) {
+    const held = this.handOff(), open = held.links.filter(({ link }) => link.state === 'open');
+    for (const { link } of held.links) if (!open.some((other) => other.link === link)) link.close();
+    Game.quitToMenu();
+    if (held.isHost) OnlineUI.resume('host', open.map(({ seat, link }) => ({ seat: seat + 1, link, engine: held.engines.get(seat), fighter: held.picks.get(seat) })), { fighter: held.picks.get(0), mode: held.setup && held.setup.mode, arena: held.setup && held.setup.arena });
+    else if (open.length) { OnlineUI.resume('guest', [{ link: open[0].link }]); if (view) OnlineUI.heardLobby(view); } else UI.toast('The host left the game.', 'warn');
   },
 };
 
-// === 09d ONLINE UI - the smallest flow that starts a game (Online > Host a game or Join a game; the lobby of P12-06 replaces it): codes by Copy, Show QR, Scan or paste. The host has one code box per guest (seats 2 to 4) and a plain Start
+// === 09d ONLINE UI - the smallest flow that starts a game (Online > Host a game or Join a game; since P12-06 these screens are also the lobby: players, fighter picks, Ready, latency, mode and the Free Fight lineup): codes by Copy, Show QR, Scan or paste. The host has one code box per guest (seats 2 to 4) and a plain Start
 const ONLINE_SCAN_MS = 200; // a camera frame is read this often
 const ONLINE_HELLO_WAIT_MS = 2000; // a connected guest whose browser kind has not arrived yet counts as still joining for this long: Start stays off
 const ONLINE_PING = 'bp-ping:'; // the test flow only: the host sends it when a link opens, the guest answers bp-pong:, the host shows the round trip
@@ -17568,6 +17657,52 @@ function onlineEngine(userAgent = typeof navigator === 'undefined' ? '' : String
   if (userAgent.includes('Firefox/')) return 'gecko';
   return userAgent.includes('Chrome/') || userAgent.includes('Chromium/') ? 'blink' : 'webkit';
 }
+const ONLINE_PING_MS = 1000; // the host pings every connected guest this often while its lobby is on screen: the latency list and the first input delay come from these round trips
+const ONLINE_SAMPLES = 8; // round trips kept per guest
+const ONLINE_SAMPLES_MIN = 3; // Start waits until every guest has this many
+const ONLINE_JITTER_MS = 30; // a spread of one guest's samples wider than this adds a frame to the first input delay (P12-03: the jitter, not only the median, decides the stalls)
+const ONLINE_LATENCY_GOOD_MS = 60, ONLINE_LATENCY_FAIR_MS = 120; // the words of the latency list
+const ONLINE_ME = 'bpme', ONLINE_LOBBY = 'bplobby'; // lobby messages, JSON on the reliable channel: a guest's pick and Ready, the host's players and settings
+// A preset fighter that a friend can take (a custom fighter exists on one device only)
+function onlineFighter(id) { return typeof id === 'string' && ROSTER.some((r) => r.id === id); }
+function onlineFighterOr(id, seat) { return onlineFighter(id) ? id : DEFAULT_UNLOCKED[seat]; }
+// The fighter this device offers first: the selected one when it is a preset it has unlocked
+function onlineDefaultFighter() {
+  const id = Game.selection && Game.selection.player;
+  return onlineFighter(id) && Progress.isUnlocked(id) ? id : (ROSTER.find((r) => Progress.isUnlocked(r.id)) || ROSTER[0]).id;
+}
+// The presets this device may offer
+function onlinePool() { return ROSTER.filter((r) => Progress.isUnlocked(r.id)).map((r) => r.id); }
+// The median of the last 5 round trips in ms, or -1 before the first
+function onlineMedianOf(samples) { return samples.length ? Math.round(netMedian(samples.slice(-5))) : -1; }
+function onlineLatencyText(ms) { return ms < 0 ? 'measuring...' : ms + ' ms, ' + (ms < ONLINE_LATENCY_GOOD_MS ? 'good' : ms < ONLINE_LATENCY_FAIR_MS ? 'fair' : 'poor'); }
+// The first input delay from the round trips (ms) measured in the lobby, one list per guest: the delay of the two slowest medians (netDelayFor) and one frame more when any guest's samples spread over ONLINE_JITTER_MS
+function onlineDelayFor(samplesPerGuest) {
+  const lists = samplesPerGuest.map((list) => list.filter((ms) => Number.isFinite(ms) && ms >= 0)).filter((list) => list.length);
+  const spread = Math.max(0, ...lists.map((list) => Math.max(...list) - Math.min(...list)));
+  const delay = netDelayFor(lists.map(netMedian));
+  return lists.length && spread > ONLINE_JITTER_MS ? Math.min(NET_DELAY_MAX, delay + 1) : delay;
+}
+// A guest's message to the host: { fighter, ready }, or null for anything else
+function onlineReadMe(data) {
+  if (typeof data !== 'string' || data.length > 400 || data.charAt(0) !== '{') return null;
+  try { const message = JSON.parse(data); return message && message.t === ONLINE_ME && onlineFighter(message.fighter) && typeof message.ready === 'boolean' ? { fighter: message.fighter, ready: message.ready } : null; } catch (error) { return null; }
+}
+// The host's list for a guest: { mode, arena, text, you, seats: [{ seat, fighter, ready, rt }] }, or null for anything else (a friend's game of another version may send anything)
+function onlineReadLobby(data) {
+  if (typeof data !== 'string' || data.length > 2000 || data.charAt(0) !== '{') return null;
+  let message = null;
+  try { message = JSON.parse(data); } catch (error) { return null; }
+  if (!message || message.t !== ONLINE_LOBBY || !ONLINE_MODES.includes(message.mode) || !Array.isArray(message.seats) || !message.seats.length || message.seats.length > COOP_MAX_PLAYERS) return null;
+  if (!Number.isInteger(message.you) || message.you < 1 || message.you >= COOP_MAX_PLAYERS) return null;
+  const seats = [];
+  for (const row of message.seats) {
+    if (!row || typeof row !== 'object' || !Number.isInteger(row.seat) || row.seat < 0 || row.seat >= COOP_MAX_PLAYERS || seats.some((other) => other.seat === row.seat)) return null;
+    if (!(row.fighter === '' || onlineFighter(row.fighter)) || typeof row.ready !== 'boolean' || !Number.isFinite(row.rt)) return null;
+    seats.push({ seat: row.seat, fighter: row.fighter, ready: row.ready, rt: Math.round(row.rt) });
+  }
+  return { mode: message.mode, arena: typeof message.arena === 'string' && Object.hasOwn(ARENAS, message.arena) ? message.arena : '', text: typeof message.text === 'string' ? message.text.slice(0, 120) : '', you: message.you, seats };
+}
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
@@ -17575,7 +17710,8 @@ const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or rout
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '', // the guest's single link and its fields; note also holds the host's start problem
   guests: [], mode: '', arena: ONLINE_ARENA_DEFAULT, // the host's one slot per guest: { seat, link, offerCode, answerText, note, roundTrip }; the picked mode ('' = by the number of players) and level
-  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, scanSeat: 0, answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
+  scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, scanSeat: 0, scanKind: '', answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
+  hostFighter: '', lastFighter: '', mine: { fighter: '', ready: false }, view: null, first: false, firstCode: '', replyText: '', loop: 0, lineupSig: '', // the lobby: the host's own pick; a guest's pick and Ready, the host's last list of players, "I send the first code" (a Firefox guest) with its two texts; the host's ping timer; the lineup as the guests last agreed to it
   // Ends every link of the screen and forgets everything about it
   reset() {
     this.stopScan();
@@ -17587,7 +17723,7 @@ const OnlineUI = {
   forget() {
     for (const stop of this.unlisten) stop();
     this.unlisten = [];
-    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false; this.guests = []; this.mode = '';
+    this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false; this.guests = []; this.mode = ''; this.first = false; this.firstCode = ''; this.replyText = ''; this.view = null; this.mine = { fighter: '', ready: false }; this.lineupSig = ''; this.stopLoop();
   },
   /* The hand-off point of the guest for the netcode (P12-02) and the lobby (P12-06). Call it when the link has opened and a match or the lobby takes over, BEFORE UI.hideScreen() / UI.go(),
      which leave the Online screens and close whatever link is still the screen's. Returns the open link, now owned by the caller (the screen no longer listens to it and
@@ -17606,15 +17742,45 @@ const OnlineUI = {
     this.stopScan();
     this.forget();
     for (const guest of rest) if (guest.link) guest.link.close();
-    return open.map((guest) => ({ seat: guest.seat, link: guest.link, roundTrip: guest.roundTrip, engine: guest.engine }));
+    return open.map((guest) => ({ seat: guest.seat, link: guest.link, roundTrip: guest.roundTrip, samples: guest.samples || [], engine: guest.engine, fighter: guest.fighter }));
   },
   leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
-  open(role) {
+  open(role, mode = '') {
     this.reset();
     this.role = role;
+    this.hostFighter = this.mine.fighter = this.pickToStart();
+    if (role === 'host') { this.mode = mode; this.lineupSig = this.lineupSignature(); }
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
     Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') this.addGuest();
+    if (role === 'host') { this.addGuest(); this.startLoop(); }
+  },
+  // The pick a lobby starts with: the one of the last lobby, else the selected fighter
+  pickToStart() { return onlineFighter(this.lastFighter) && Progress.isUnlocked(this.lastFighter) ? this.lastFighter : onlineDefaultFighter(); },
+  // The links of a finished match come back to the lobby (OnlinePlay.toLobby): the lobby owns them again. The host gets its guests back, not yet Ready, and a block for the next friend; a guest gets its one link
+  resume(role, entries, info = {}) {
+    this.reset();
+    this.role = role;
+    this.hostFighter = this.mine.fighter = onlineFighter(info.fighter) ? info.fighter : this.pickToStart();
+    if (role === 'host') {
+      this.mode = ONLINE_MODES.includes(info.mode) ? info.mode : '';
+      this.arena = Object.hasOwn(ARENAS, info.arena) ? info.arena : ONLINE_ARENA_DEFAULT;
+      this.guests = entries.map((entry) => ({ seat: entry.seat, link: entry.link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, engine: entry.engine, openedAt: performance.now() - ONLINE_HELLO_WAIT_MS, fighter: entry.fighter, ready: false, samples: [], reverse: false })).sort((a, b) => a.seat - b.seat);
+      for (const guest of this.guests) this.listen(guest.link);
+      this.lineupSig = this.lineupSignature();
+    } else { this.link = entries[0].link; this.listen(this.link); }
+    UI.push('online');
+    UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
+    if (role === 'host') { if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); this.startLoop(); } else this.sendMe();
+  },
+  // Every second while the host's lobby is up: ping each connected guest (the round trips fill the latency list and decide the first input delay), notice a changed lineup, tell the guests the list
+  startLoop() { this.stopLoop(); this.loop = setInterval(() => this.tick(), ONLINE_PING_MS); },
+  stopLoop() { clearInterval(this.loop); this.loop = 0; },
+  tick() {
+    if (this.role !== 'host') { this.stopLoop(); return; }
+    for (const guest of this.guests) if (this.isOpen(guest)) guest.link.send(ONLINE_PING + performance.now());
+    this.syncLineup();
+    this.pushLobby();
   },
   guestOf(link) { return this.guests.find((guest) => guest.link === link); },
   slotOf(seat) { return this.guests.find((guest) => guest.seat === Number(seat)); },
@@ -17624,7 +17790,7 @@ const OnlineUI = {
   // The guest's link (the first one, or after the last one failed or closed)
   makeLink() {
     const old = this.link;
-    const link = Online.createLink(this.role);
+    const link = Online.createLink(this.role, this.first ? { offerer: true } : {});
     this.link = link;
     if (old) old.close();
     this.listen(link);
@@ -17632,16 +17798,32 @@ const OnlineUI = {
   },
   listen(link) { this.unlisten.push(link.onState((state) => this.onState(link, state)), link.onMessage((data) => this.onMessage(link, data))); },
   // Host: the next seat's code (a new slot), or a new code for the seat of a link that failed
-  addGuest(seat = ONLINE_SEAT_MIN + this.guests.length) {
+  // The first seat (2 to 4) that no block holds, or one past the last when all are taken
+  freeSeat() {
+    for (let seat = ONLINE_SEAT_MIN; seat <= ONLINE_SEAT_MAX; seat++) if (!this.slotOf(seat)) return seat;
+    return ONLINE_SEAT_MAX + 1;
+  },
+  addGuest(seat = this.freeSeat(), reverse = false) {
     if (seat > ONLINE_SEAT_MAX) return;
-    const link = Online.createLink('host'), old = this.slotOf(seat), slot = old || { seat, link: null, offerCode: '', answerText: '', note: '', roundTrip: -1 };
+    const link = Online.createLink('host', reverse ? { offerer: false } : {}), old = this.slotOf(seat), slot = old || { seat, link: null, offerCode: '', answerText: '', note: '', roundTrip: -1 };
     if (old && old.link) old.link.close();
-    Object.assign(slot, { link, offerCode: '', answerText: '', note: '', roundTrip: -1, engine: undefined, openedAt: undefined }); // a new guest says its own browser kind
+    Object.assign(slot, { link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, engine: undefined, openedAt: undefined, fighter: undefined, ready: false, samples: [], reverse }); // a new guest says its own browser kind and fighter; reverse: the friend sends the first code (Firefox)
     if (!old) this.guests.push(slot);
     this.listen(link);
-    this.step(link, link.makeOffer(seat), (code) => { slot.offerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));
+    if (!reverse) this.step(link, link.makeOffer(seat), (code) => { slot.offerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));
     this.redraw();
   },
+  // Host, a friend that sends the first code: the pasted (or scanned) code, answered with the seat of this block
+  answerFirst(slot) {
+    if (!slot || !slot.link || slot.answering) return;
+    this.saveFields();
+    slot.note = ''; slot.answering = true;
+    this.step(slot.link, slot.link.acceptOffer(slot.theirs, slot.seat).finally(() => { slot.answering = false; }), (code) => { slot.answerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));
+    this.redraw();
+  },
+  isOpen(guest) { return !!guest.link && guest.link.state === 'open'; },
+  // Whether the host has enough round trips of this guest to trust the delay and the latency words
+  measured(guest) { return (guest.samples || []).length >= ONLINE_SAMPLES_MIN; },
   onState(link, state) {
     if (!this.owns(link)) return;
     if (state === 'open') {
@@ -17650,18 +17832,45 @@ const OnlineUI = {
         const slot = this.guestOf(link);
         if (slot) { slot.openedAt = performance.now(); setTimeout(() => this.redraw(), ONLINE_HELLO_WAIT_MS + 50); } // Start comes on when the hello is late, too
         link.send(ONLINE_PING + performance.now());
-      } else link.send(ONLINE_HELLO + onlineEngine());
+        this.pushLobby();
+      } else { link.send(ONLINE_HELLO + onlineEngine()); this.sendMe(); }
       Sound.ui('ok');
+    } else if (this.role === 'host' && (state === 'closed' || state === 'failed')) {
+      const slot = this.guestOf(link);
+      if (slot && slot.openedAt !== undefined && link.error) UI.toast('Player ' + slot.seat + ' left.', 'warn'); // a connected guest that went away (a guest that was removed or never connected has no error)
+      this.pushLobby();
     }
     this.redraw();
+  },
+  // A guest's own message to the host: its pick and Ready
+  heardMe(slot, me) {
+    if (!slot || !me) return;
+    slot.fighter = me.fighter; slot.ready = me.ready;
+    this.pushLobby();
+    this.redraw();
+  },
+  // The host's list of players and settings, on a guest: a redraw only when something but a latency changed (a tap must not land on a screen that is just being rebuilt)
+  heardLobby(view) {
+    const key = (v) => JSON.stringify([v.mode, v.arena, v.text, v.you, v.seats.map((row) => [row.seat, row.fighter, row.ready])]), same = !!this.view && key(this.view) === key(view);
+    this.view = view;
+    const me = view.seats.find((row) => row.seat === view.you);
+    if (me) this.mine.ready = me.ready;
+    if (same) this.patchLatency(); else this.redraw();
+  },
+  // The latency words of the list, in place
+  patchLatency() {
+    const rows = this.role === 'host' ? this.hostRows() : this.view ? this.view.seats : [];
+    for (const row of rows) { const element = row.seat > 0 ? $('onLat' + row.seat) : null; if (element) element.textContent = onlineLatencyText(row.rt); }
   },
   onMessage(link, data) {
     if (!this.owns(link) || typeof data !== 'string') return;
     if (data.startsWith(ONLINE_PING)) { link.send(ONLINE_PONG + data.slice(ONLINE_PING.length)); return; }
     if (data.startsWith(ONLINE_PONG)) {
       const ms = Math.max(0, Math.round(performance.now() - Number(data.slice(ONLINE_PONG.length)))), slot = this.guestOf(link);
-      if (slot) slot.roundTrip = ms; else this.roundTrip = ms;
-      this.redraw();
+      if (!slot) { this.roundTrip = ms; this.redraw(); return; }
+      const before = this.measured(slot);
+      slot.roundTrip = ms; slot.samples = (slot.samples || []).concat(ms).slice(-ONLINE_SAMPLES);
+      if (before !== this.measured(slot)) this.redraw(); else this.patchLatency();
       return;
     }
     if (data.startsWith(ONLINE_HELLO)) {
@@ -17669,9 +17878,74 @@ const OnlineUI = {
       if (slot && Object.hasOwn(ONLINE_ENGINES, kind)) { slot.engine = kind; this.redraw(); }
       return;
     }
+    if (this.role === 'host') { if (data.charAt(0) === '{') this.heardMe(this.guestOf(link), onlineReadMe(data)); return; }
+    const view = this.role === 'guest' ? onlineReadLobby(data) : null;
+    if (view) { this.heardLobby(view); return; }
     const start = this.role === 'guest' ? OnlinePlay.readStart(data) : null; // the host started the game: this link goes to the game
     const handed = start ? this.release() : null;
     if (handed) OnlinePlay.guestBegin(handed, start);
+  },
+  // The guest's pick and Ready to the host
+  sendMe() { if (this.link && this.link.state === 'open') this.link.send(JSON.stringify({ t: ONLINE_ME, fighter: this.mine.fighter, ready: this.mine.ready })); },
+  // The players as the host knows them: seat 0 is the host, a guest's seat is its code seat minus 1
+  hostRows() {
+    const rows = [{ seat: 0, fighter: this.hostFighter, ready: true, rt: -1 }];
+    for (const guest of this.guests) if (this.isOpen(guest)) rows.push({ seat: guest.seat - 1, fighter: guest.fighter || '', ready: !!guest.ready, rt: onlineMedianOf(guest.samples || []), code: guest.seat, engine: guest.engine });
+    return rows;
+  },
+  // Tells every connected guest the list and the host's settings
+  pushLobby() {
+    const open = this.guests.filter((guest) => this.isOpen(guest));
+    if (!open.length) return;
+    const seats = this.hostRows().map(({ seat, fighter, ready, rt }) => ({ seat, fighter, ready, rt })), mode = this.modeNow(open.length + 1), text = mode === 'free' ? OnlinePlay.lineupText() : '';
+    for (const guest of open) guest.link.send(JSON.stringify({ t: ONLINE_LOBBY, you: guest.seat - 1, mode, arena: this.arena, text, seats }));
+  },
+  // The lineup, level and rules as one text: when it changes the guests' Ready is withdrawn (they agreed to something else)
+  lineupSignature() {
+    if (this.modeNow(this.openCount() + 1) !== 'free') return '';
+    const lineup = Game.lineupFor(), sel = Game.selection;
+    return JSON.stringify([lineup.slots, lineup.crowd, lineup.deal, lineup.handicap, lineup.timer, lineup.friendlyFire, sel.rules, sel.rounds, sel.timer, sel.difficulty, this.arena]);
+  },
+  syncLineup() {
+    const signature = this.lineupSignature();
+    if (signature !== this.lineupSig) { this.lineupSig = signature; this.clearReady(false); }
+  },
+  clearReady(push = true) {
+    for (const guest of this.guests) guest.ready = false;
+    if (push) this.pushLobby();
+  },
+  // The adjustable rows of the lobby (arrow keys, pad and a tap all come through UI.changeLocal)
+  local(name, dir) {
+    if (name === 'fighter') this.cycleFighter(dir);
+    else if (name === 'mode') this.cycleMode(dir);
+    else if (name === 'arena') this.cycleArena(dir);
+  },
+  cycleFighter(dir = 1) {
+    const pool = onlinePool(), now = this.role === 'host' ? this.hostFighter : this.mine.fighter;
+    const next = pool[(Math.max(0, pool.indexOf(now)) + dir + pool.length) % pool.length];
+    this.lastFighter = next;
+    if (this.role === 'host') { this.hostFighter = next; this.pushLobby(); } else { this.mine.fighter = next; this.mine.ready = false; this.sendMe(); } // a new pick is something to be ready for again
+    this.redraw();
+  },
+  cycleMode(dir = 1) {
+    const now = this.modeNow(this.openCount() + 1);
+    this.mode = ONLINE_MODES[(ONLINE_MODES.indexOf(now) + dir + ONLINE_MODES.length) % ONLINE_MODES.length];
+    this.syncLineup();
+    this.clearReady();
+    this.redraw();
+  },
+  cycleArena(dir = 1) {
+    this.arena = ARENA_ORDER[(ARENA_ORDER.indexOf(this.arena) + dir + ARENA_ORDER.length) % ARENA_ORDER.length];
+    this.clearReady();
+    this.redraw();
+  },
+  // Host: a connected player is removed (its link closes; the seat offers a new code)
+  kick(code) {
+    const slot = this.slotOf(code);
+    if (!slot || !slot.link) return;
+    slot.link.close();
+    this.pushLobby();
+    this.redraw();
   },
   fail(error) { this.note = error.message; Sound.ui('bad'); this.redraw(); },
   failSlot(slot, error) { slot.note = error.message; Sound.ui('bad'); this.redraw(); },
@@ -17679,24 +17953,33 @@ const OnlineUI = {
     const answer = $('onAnswer'), offer = $('onOffer');
     if (answer) this.answerText = answer.value;
     if (offer) this.offerText = offer.value;
-    for (const guest of this.guests) { const box = $('onAnswer' + guest.seat); if (box) guest.answerText = box.value; }
+    const reply = $('onReply');
+    if (reply) this.replyText = reply.value;
+    for (const guest of this.guests) { const box = $('onAnswer' + guest.seat), theirs = $('onTheirs' + guest.seat); if (box) guest.answerText = box.value; if (theirs) guest.theirs = theirs.value; }
   },
   redraw() {
     this.saveFields();
     if (UI.current && UI.current.startsWith('online')) UI.rerender(true);
   },
   // What a link's line says: the player's note, else its state in plain words
-  statusOf(link, note, roundTrip, host, engine = '') {
+  statusOf(link, note, roundTrip, host, engine = '', reverse = false) {
     if (note) return note;
     const state = link ? link.state : 'idle';
     if (state === 'gathering') return 'Making your code (checking the network, about 2 seconds)...';
-    if (state === 'waiting') return host ? 'Waiting for your friend\'s answer code.' : 'Send this answer code to the host, then wait here.';
+    if (state === 'waiting') return host ? (reverse ? 'Send this answer code to your friend. They paste it and press Connect.' : 'Waiting for your friend\'s answer code.') : 'Send this answer code to the host, then wait here.';
     if (state === 'connecting') return 'Connecting...';
     if (state === 'open') return host ? 'Connected' + (roundTrip >= 0 ? ' (round trip ' + roundTrip + ' ms)' : '') + '.' + (engine ? ' Browser: ' + ONLINE_ENGINES[engine] + '.' : '') : 'Connected. You are player ' + link.seat + '. Wait here: the host starts the game.';
     if (state === 'failed' || state === 'closed') return link.error ? link.error.message : 'Disconnected.';
-    return host ? '' : 'Paste the host\'s code, then press Make answer code.';
+    return host ? (reverse ? 'Paste your friend\'s code, then press Make answer code.' : '') : 'Paste the host\'s code, then press Make answer code.';
   },
-  statusText() { return this.statusOf(this.link, this.note, this.roundTrip, this.role === 'host'); },
+  statusText() {
+    if (this.first && !this.note) { // a guest that sends the first code
+      const state = this.link ? this.link.state : 'idle';
+      if (state === 'waiting') return 'Send your code to the host, then paste the host\'s answer here and press Connect.';
+      if (state === 'idle') return 'Making your code...';
+    }
+    return this.statusOf(this.link, this.note, this.roundTrip, this.role === 'host');
+  },
   statusIsProblem() { return !!this.note || (!!this.link && !!this.link.error); },
   canType() { return !this.link || ['idle', 'waiting'].includes(this.link.state); },
   codeBox(id, label, code, placeholder) {
@@ -17710,9 +17993,9 @@ const OnlineUI = {
       '<button class="mi" data-nav data-act="onqr:' + kind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
       (code && !fits ? '<p class="hint">Too long for a QR: use Copy.</p>' : '');
   },
-  scanButtons(act, label, link, seat) {
+  scanButtons(act, label, link, seat, want = this.role === 'host' ? 'waiting' : 'idle') { // want: the state of the link when a code is expected (an answer to an offer that is out: waiting; an offer to answer: idle)
     const state = link ? link.state : 'idle', mine = this.scanning && this.scanSeat === seat;
-    if (!mine && (this.scanning || state !== (this.role === 'host' ? 'waiting' : 'idle'))) return ''; // a code is expected only then
+    if (!mine && (this.scanning || state !== want)) return ''; // a code is expected only then
     if (mine) return '<div id="onVideoHold"></div><div class="row cr-actions"><button class="mi" data-nav data-default data-act="onscanx">Stop scanning</button></div>';
     return this.scanOk ? '<button class="mi" data-nav data-act="' + act + '">' + label + '</button>' : '';
   },
@@ -17734,51 +18017,135 @@ const OnlineUI = {
   // One guest of the host screen: its code to send, the box for its answer, Connect, and its own status
   renderGuest(guest) {
     const { seat, link, offerCode } = guest, state = link ? link.state : 'idle', ended = state === 'failed' || state === 'closed', problem = !!guest.note || !!(link && link.error);
+    const swap = '<button class="mi" data-nav data-act="onreverse:' + seat + '"' + (state === 'connecting' ? ' disabled' : '') + '>' + (guest.reverse ? 'I send the first code' : 'My friend sends the first code') + '</button>'; // a Firefox guest cannot answer in time: its code comes first
+    if (guest.reverse) return this.renderFriendFirst(guest, swap, ended, problem);
     return '<div class="onseat"><h3>Player ' + seat + ': send this code</h3>' + this.codeBox('onCode' + seat, 'Your code for player ' + seat, offerCode, 'Making your code...') + this.codeButtons(offerCode, String(seat)) +
       '<h3>Paste player ' + seat + '\'s answer code here</h3>' +
       '<textarea id="onAnswer' + seat + '" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the answer code of player ' + seat + ' here"' + (!link || ['idle', 'waiting'].includes(state) ? '' : ' readonly') + '>' + esc(guest.answerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect:' + seat + '"' + (offerCode && state === 'waiting' ? '' : ' disabled') + '>Connect</button>' + (ended ? '<button class="mi" data-nav data-act="onnew:' + seat + '">New code</button>' : '') + '</div>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onconnect:' + seat + '"' + (offerCode && state === 'waiting' ? '' : ' disabled') + '>Connect</button>' + (ended ? '<button class="mi" data-nav data-act="onnew:' + seat + '">New code</button>' : '') + swap + '</div>' +
       this.scanButtons('onscan:' + seat, 'Scan the answer QR', link, seat) + this.statusLine(this.statusOf(link, guest.note, guest.roundTrip, true, guest.engine), problem, 'onStatus' + seat) + '</div>';
   },
+  // A friend that sends the first code (Firefox as the guest): its code is pasted here, the answer goes back to it
+  renderFriendFirst(guest, swap, ended, problem) {
+    const { seat, link } = guest, state = link ? link.state : 'idle', idle = state === 'idle';
+    return '<div class="onseat"><h3>Player ' + seat + ': paste the code your friend made</h3>' +
+      '<textarea id="onTheirs' + seat + '" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the code of player ' + seat + ' here"' + (idle ? '' : ' readonly') + '>' + esc(guest.theirs || '') + '</textarea>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onhostreply:' + seat + '"' + (idle ? '' : ' disabled') + '>Make answer code</button>' + (ended ? '<button class="mi" data-nav data-act="onnew:' + seat + '">New code</button>' : '') + swap + '</div>' +
+      this.scanButtons('onscanf:' + seat, 'Scan your friend\'s QR', link, seat, 'idle') +
+      (guest.answerCode ? '<h3>Send this answer to player ' + seat + '</h3>' + this.codeBox('onMine' + seat, 'Your answer code for player ' + seat, guest.answerCode, '') + this.codeButtons(guest.answerCode, 'r' + seat) : '') +
+      this.statusLine(this.statusOf(link, guest.note, guest.roundTrip, true, guest.engine, true), problem, 'onStatus' + seat) + '</div>';
+  },
+  // One line per player, the same on the host's screen and on a guest's: seat, name, fighter (the own one is a row to change), Ready and the round trip; the host also gets Remove
+  playerRow(row, youSeat) {
+    const mine = row.seat === youSeat, fighter = ROSTER_BY_ID[row.fighter] ? ROSTER_BY_ID[row.fighter].name : 'Choosing...';
+    const pick = mine ? '<div class="opt cell" role="spinbutton" tabindex="0" aria-label="Your fighter: ' + esc(fighter) + '" aria-valuetext="' + esc(fighter) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav data-local="olb:fighter"><span class="v">' + esc(fighter) + '</span></div>' : '<span class="onfig">' + esc(fighter) + '</span>';
+    const state = row.seat === 0 ? 'Host' : row.ready ? '&#10003; Ready' : '&#9675; Not ready';
+    const latency = row.seat === 0 ? '<span class="onlat"></span>' : '<span class="onlat" id="onLat' + row.seat + '">' + esc(onlineLatencyText(row.rt)) + '</span>';
+    const remove = this.role === 'host' && row.code ? '<button class="mi" data-nav data-act="onkick:' + row.code + '" aria-label="Remove player ' + row.code + '">Remove</button>' : '';
+    return '<li class="onrow tc' + row.seat + '"><b class="sno">P' + (row.seat + 1) + '</b><span class="onname">' + (row.seat === 0 ? 'Host' : 'Player ' + (row.seat + 1)) + (mine ? ' (you)' : '') + (row.engine ? '<small> Browser: ' + ONLINE_ENGINES[row.engine] + '.</small>' : '') + '</span>' + pick + '<span class="onst">' + state + '</span>' + latency + remove + '</li>';
+  },
+  playerList(rows, youSeat) { return '<ul class="onlist" role="list" aria-label="Players">' + rows.map((row) => this.playerRow(row, youSeat)).join('') + '</ul>'; },
   modeNow(people) { return this.mode || (people === 2 ? 'fight' : 'brawl'); },
-  openCount() { return this.guests.filter((guest) => guest.link && guest.link.state === 'open').length; },
+  openCount() { return this.guests.filter((guest) => this.isOpen(guest)).length; },
   // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
-  mixedKinds() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && guest.engine && guest.engine !== onlineEngine()); },
+  mixedKinds() { return this.guests.some((guest) => this.isOpen(guest) && guest.engine && guest.engine !== onlineEngine()); },
   // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
-  joining() { return this.guests.some((guest) => guest.link && guest.link.state === 'open' && !guest.engine && guest.openedAt !== undefined && performance.now() - guest.openedAt < ONLINE_HELLO_WAIT_MS); },
-  // Why Start cannot be pressed, or ''
+  joining() { return this.guests.some((guest) => this.isOpen(guest) && !guest.engine && guest.openedAt !== undefined && performance.now() - guest.openedAt < ONLINE_HELLO_WAIT_MS); },
+  // Why Start cannot be pressed, or '': nobody connected, a guest still joining, mixed browsers, a mode that does not fit the number of players (or the lineup), a guest whose connection is not measured yet, a guest that is not Ready
   startProblem() {
-    const people = this.openCount() + 1;
-    if (!this.openCount()) return ONLINE_MESSAGES.nobody;
+    const open = this.guests.filter((guest) => this.isOpen(guest)), people = open.length + 1;
+    if (!open.length) return ONLINE_MESSAGES.nobody;
     if (this.joining()) return ONLINE_MESSAGES.joining;
-    return this.mixedKinds() ? ONLINE_MESSAGES.sameBrowser : OnlinePlay.modeProblem(this.modeNow(people), people);
+    if (this.mixedKinds()) return ONLINE_MESSAGES.sameBrowser;
+    const modeProblem = OnlinePlay.modeProblem(this.modeNow(people), people);
+    if (modeProblem) return modeProblem;
+    const unsure = open.find((guest) => !this.measured(guest));
+    if (unsure) return 'Measuring the connection to player ' + unsure.seat + '. Start is on in a moment.';
+    const waiting = open.find((guest) => !guest.ready);
+    return waiting ? 'Waiting for player ' + waiting.seat + ' to press Ready.' : '';
   },
   renderHost() {
+    this.syncLineup();
     const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startProblem();
-    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' + this.guests.map((guest) => this.renderGuest(guest)).join('') +
-      '<h3>Start the game (' + people + ' of ' + (ONLINE_SEAT_MAX) + ' players ready)</h3>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-act="onmode">Mode: ' + ONLINE_MODE_LABEL[mode] + '</button>' + (mode === 'tournament' ? '' : '<button class="mi" data-nav data-act="onarena">Level: ' + esc(ARENAS[this.arena].name) + '</button>') + '</div>' +
-      '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + 
-      '<div class="row cr-actions"><button class="mi" data-nav data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button>' + (this.guests.length < ONLINE_SEAT_MAX - 1 ? '<button class="mi" data-nav data-act="onadd">Add another player</button>' : '') + '</div>' +
+    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' +
+      '<h3>Players (' + people + ' of ' + ONLINE_SEAT_MAX + ')</h3>' + this.playerList(this.hostRows(), 0) +
+      this.guests.filter((guest) => !this.isOpen(guest)).map((guest) => this.renderGuest(guest)).join('') +
+      (this.guests.length < ONLINE_SEAT_MAX - 1 ? '<div class="row cr-actions"><button class="mi" data-nav data-act="onadd">Add another player</button></div>' : '') +
+      '<h3>Game</h3>' + UI.optRow('Mode', ONLINE_MODE_LABEL[mode], 'data-local="olb:mode"', '') +
+      (mode === 'tournament' ? '' : UI.optRow('Level', ARENAS[this.arena].name, 'data-local="olb:arena"', '')) +
+      (mode === 'free' ? '<button class="mi" data-nav data-act="onlineup">Lineup<small>' + esc(OnlinePlay.lineupText()) + '</small></button>' : '') +
+      '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') +
+      '<div class="row cr-actions"><button class="mi" data-nav' + (problem ? '' : ' data-default') + ' data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button></div>' +
       (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
+  // The guest once its link is open: the players, the host's settings, its own pick and Ready
+  renderGuestLobby() {
+    const view = this.view, seat = this.link.seat - 1;
+    const rows = (view ? view.seats : [{ seat, fighter: '', ready: false, rt: -1 }]).map((row) => (row.seat === seat ? Object.assign({}, row, { fighter: this.mine.fighter, ready: this.mine.ready }) : row));
+    const game = view ? '<p class="hint"><b>' + ONLINE_MODE_LABEL[view.mode] + '</b>' + (view.mode !== 'tournament' && view.arena ? ' &middot; ' + esc(ARENAS[view.arena].name) : '') + (view.text ? ' &middot; ' + esc(view.text) : '') + '</p><p class="hint">' + ONLINE_MODE_HINT[view.mode] + '</p>' : '<p class="hint">Waiting for the host\'s settings...</p>';
+    return '<section class="screen on" aria-label="Online lobby"><div class="panel wide"><h2>Online lobby</h2><h3>Players</h3>' + this.playerList(rows, seat) + '<h3>Game</h3>' + game +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onready" aria-pressed="' + this.mine.ready + '">' + (this.mine.ready ? 'Ready (tap to wait)' : 'Ready') + '</button></div>' +
+      this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
   renderJoin() {
+    if (this.link && this.link.state === 'open') return this.renderGuestLobby();
+    if (this.first) return this.renderJoinFirst();
     const code = this.answerCode;
     const idle = !this.link || ['idle', 'failed', 'closed'].includes(this.link.state); // after a failure the player may try again: answer() then makes a fresh link
     return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
       '<h3>1. Paste the host\'s code here</h3>' +
       '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button></div>' + this.scanButtons('onscan', 'Scan the host\'s QR', this.link, 0) +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button>' + (idle ? '<button class="mi" data-nav data-act="onfirst">I send the first code (Firefox)</button>' : '') + '</div>' + this.scanButtons('onscan', 'Scan the host\'s QR', this.link, 0) +
       (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
       this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
-  qrCode() {
-    if (this.qrOf === 'answer') return this.answerCode;
-    const guest = this.slotOf(this.qrOf);
-    return guest ? guest.offerCode : '';
+  // The guest sends the first code (a Firefox guest gives up a few seconds after it gets an offer, so the host must answer, not the other way round)
+  renderJoinFirst() {
+    const link = this.link, state = link ? link.state : 'idle', ended = state === 'failed' || state === 'closed', waiting = state === 'waiting';
+    return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
+      '<h3>1. Send this code to the host</h3>' + this.codeBox('onFirst', 'Your code for the host', this.firstCode, 'Making your code...') + this.codeButtons(this.firstCode, 'first') +
+      '<h3>2. Paste the host\'s answer here</h3>' +
+      '<textarea id="onReply" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPA-..." aria-label="Paste the host\'s answer code here"' + (waiting ? '' : ' readonly') + '>' + esc(this.replyText) + '</textarea>' +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onreply"' + (waiting ? '' : ' disabled') + '>Connect</button>' + (ended ? '<button class="mi" data-nav data-act="onfirst">New code</button>' : '') + '<button class="mi" data-nav data-act="onfirstx">The host sends the first code</button></div>' +
+      this.scanButtons('onscanr', 'Scan the host\'s answer QR', link, 0, 'waiting') + this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
+  // Guest: the first code is made here (a new link that offers); the host's answer comes back
+  startFirst() {
+    this.saveFields();
+    this.note = ''; this.first = true; this.firstCode = ''; this.replyText = '';
+    const link = this.makeLink();
+    this.step(link, link.makeOffer(), (code) => { this.firstCode = code; this.redraw(); });
+    this.redraw();
+  },
+  // Guest: back to the host's code coming first
+  stopFirst() {
+    const old = this.link;
+    this.link = null;
+    if (old) old.close();
+    this.first = false; this.firstCode = ''; this.replyText = ''; this.note = '';
+    this.redraw();
+  },
+  // Guest: the host's answer to the code sent first
+  connectFirst() {
+    this.saveFields();
+    this.note = '';
+    if (this.link) this.step(this.link, this.link.acceptAnswer(this.replyText), () => this.redraw());
+  },
+  // True when an open guest's kind of browser is not the host's own (J01: the browsers round some maths differently)
+  // A connected guest that has not told its kind of browser yet, for the first ONLINE_HELLO_WAIT_MS after its link opened
+  // Why Start cannot be pressed, or ''
+  qrCode() { return this.codeOf(String(this.qrOf)); },
+  // The code behind a Copy / Show QR button: 'answer' (the guest's answer), 'first' (the guest's first code), 'r2' (the answer the host made to the first code of seat 2), or a seat (the host's code for it)
+  codeOf(kind) {
+    if (kind === 'answer') return this.answerCode;
+    if (kind === 'first') return this.firstCode;
+    if (kind.charAt(0) === 'r') { const slot = this.slotOf(kind.slice(1)); return slot ? slot.answerCode || '' : ''; }
+    return this.qrCodeOf(kind);
+  },
+  // The read-only box that shows the code of a kind
+  boxOf(kind) { return kind === 'answer' ? 'onCode' : kind === 'first' ? 'onFirst' : kind.charAt(0) === 'r' ? 'onMine' + kind.slice(1) : 'onCode' + kind; },
   renderQr() {
-    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'answer' ? 'answer' : 'host') + ' code"></canvas>' +
+    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'answer' || String(this.qrOf).charAt(0) === 'r' ? 'answer' : this.qrOf === 'first' ? 'first' : 'host') + ' code"></canvas>' +
       '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
   },
   // after every render: the QR canvas, the camera view
@@ -17802,16 +18169,26 @@ const OnlineUI = {
     const handlers = {
       onhost: () => this.open('host'),
       onjoin: () => this.open('guest'),
-      oncopy: () => (arg === 'answer' ? this.copy(this.answerCode, 'onCode') : this.copy(this.qrCodeOf(arg), 'onCode' + arg)),
+      oncopy: () => this.copy(this.codeOf(String(arg)), this.boxOf(String(arg))),
       onqr: () => { this.saveFields(); this.stopScan(); this.qrOf = arg; UI.push('onlineqr'); },
       onscan: () => this.startScan(Number(arg) || 0),
+      onscanf: () => this.startScan(Number(arg) || 0, 'hostFirst'),
+      onscanr: () => this.startScan(0, 'guestReply'),
       onscanx: () => { this.stopScan(); this.redraw(); },
       onconnect: () => this.connect(this.slotOf(arg)),
       onanswer: () => this.answer(),
+      onhostreply: () => this.answerFirst(this.slotOf(arg)),
+      onreverse: () => { const slot = this.slotOf(arg); if (slot) this.addGuest(slot.seat, !slot.reverse); },
+      onfirst: () => this.startFirst(),
+      onfirstx: () => this.stopFirst(),
+      onreply: () => this.connectFirst(),
+      onready: () => { this.mine.ready = !this.mine.ready; this.sendMe(); this.redraw(); },
+      onkick: () => this.kick(Number(arg)),
       onadd: () => this.addGuest(),
-      onnew: () => this.addGuest(Number(arg)),
-      onmode: () => { this.mode = ONLINE_MODES[(ONLINE_MODES.indexOf(this.modeNow(this.openCount() + 1)) + 1) % ONLINE_MODES.length]; this.redraw(); },
-      onarena: () => { this.arena = ARENA_ORDER[(ARENA_ORDER.indexOf(this.arena) + 1) % ARENA_ORDER.length]; this.redraw(); },
+      onnew: () => { const slot = this.slotOf(arg); this.addGuest(Number(arg), !!(slot && slot.reverse)); },
+      onmode: () => this.cycleMode(1),
+      onarena: () => this.cycleArena(1),
+      onlineup: () => UI.push('lineup'),
       onstart: () => this.startGame(),
     };
     const fn = handlers[name];
@@ -17834,8 +18211,8 @@ const OnlineUI = {
   startGame() {
     const problem = this.startProblem();
     if (problem) { this.note = problem; Sound.ui('bad'); this.redraw(); return; }
-    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, entries = this.releaseGuests();
-    OnlinePlay.hostOpen(entries);
+    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, hostFighter = this.hostFighter, entries = this.releaseGuests();
+    OnlinePlay.hostOpen(entries, hostFighter);
     const failure = OnlinePlay.start({ mode, arena });
     if (failure) { OnlinePlay.leave(); UI.toast(failure, 'warn'); UI.hideScreen(); }
   },
@@ -17850,12 +18227,12 @@ const OnlineUI = {
     this.step(link, link.acceptOffer(this.offerText).finally(() => { this.answering = false; }), (code) => { this.answerCode = code; this.redraw(); });
     this.redraw();
   },
-  async startScan(seat = 0) {
+  async startScan(seat = 0, kind = this.role === 'host' ? 'hostAnswer' : 'guestOffer') {
     if (this.scanning) return;
-    const prefix = ONLINE_PREFIX[this.role === 'host' ? 1 : 0];
+    const prefix = ONLINE_PREFIX[kind === 'hostAnswer' || kind === 'guestReply' ? 1 : 0]; // the kind of code expected: an answer to an offer that is out, or an offer
     const ticket = ++this.scanTicket;
     const stale = () => ticket !== this.scanTicket; // stopScan ends every scan in flight: what it later gets (a camera, a playing video) is let go
-    this.scanning = true; this.scanSeat = seat; this.note = '';
+    this.scanning = true; this.scanSeat = seat; this.scanKind = kind; this.note = '';
     this.redraw();
     try {
       const detector = new BarcodeDetector({ formats: ['qr_code'] });
@@ -17888,10 +18265,13 @@ const OnlineUI = {
     } catch (error) { /* a frame that cannot be read: the next one is tried */ } finally { this.scanBusy = false; }
   },
   scanned(value) {
-    const seat = this.scanSeat;
+    const seat = this.scanSeat, kind = this.scanKind, guest = this.slotOf(seat);
     this.stopScan();
     Sound.ui('ok');
-    if (this.role === 'host') { const guest = this.slotOf(seat); if (guest) { guest.answerText = value; this.connect(guest); } } else { this.offerText = value; this.answer(); }
+    if (kind === 'hostAnswer') { if (guest) { guest.answerText = value; this.connect(guest); } }
+    else if (kind === 'hostFirst') { if (guest) { guest.theirs = value; this.answerFirst(guest); } }
+    else if (kind === 'guestReply') { this.replyText = value; this.connectFirst(); }
+    else { this.offerText = value; this.answer(); }
   },
   // The camera stops on a scan, on Stop, on leaving the screen and on a failure
   stopScan() {
@@ -17962,7 +18342,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
