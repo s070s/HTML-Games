@@ -8,7 +8,7 @@ window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
   ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
-  ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
+  DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   uiScaleFor, softKeyboard, keyboardFullHeight, BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
@@ -395,6 +395,93 @@ const SelfTest = {
         if (new Set(base.sums).size < scenario.ticks / 4) problems.push(name + ': the checksum hardly moves (' + new Set(base.sums).size + ' values): the scenario plays nothing');
       }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    const DMATH_SAMPLE_HASH = 2898315846;   // fnv1a of the sample below, recorded once: it is the same in every engine, because DMath uses only exact operations
+    /* P12-08 (closes Appendix D row J01): the simulation reads only DMath (sin, cos, atan2, exp, hypot from + - * / sqrt, which every engine rounds the same), so a phone and a PC play one online match.
+       This test checks the numbers: DMath against Math.* on dense samples (the library is the reference to within 1 ulp, not the other way round), the signs of the special values, and one hash of 20 000 outputs
+       that is a constant: the same constant in Chrome, Firefox and Safari is the cross-engine proof (the owner's iPhone against the PC runs this test too). */
+    test('DMath (P12-08, J01): sin, cos, atan2, exp and hypot match Math.* within 1 ulp-ish on dense samples, keep the special values, and give the same bits in every engine (hash constant)', () => {
+      const problems = [], worst = { sin: 0, cos: 0, atan2: 0, exp: 0, hypot: 0 };
+      const note = (name, got, want, scale) => { const e = Math.abs(got - want) / scale; if (!(e <= worst[name])) worst[name] = e; };   // not <= also catches NaN
+      for (let i = -40000; i <= 40000; i++) { const x = i * 0.00137 + 0.000123; note('sin', DMath.sin(x), Math.sin(x), 1); note('cos', DMath.cos(x), Math.cos(x), 1); }
+      for (let i = 0; i < 20000; i++) {   // directions all round at radii from 1e-3 to 1e3
+        const a = (i / 20000) * 2 * Math.PI - Math.PI, r = Math.pow(10, (i % 97) / 16 - 3), y = Math.sin(a) * r, x = Math.cos(a) * r;
+        { const want = Math.atan2(y, x); note('atan2', DMath.atan2(y, x), want, Math.max(1, Math.abs(want))); }   /* an engine's own atan2 may be 1 ulp (4.4e-16 near pi) away */ note('hypot', DMath.hypot(x, y), Math.hypot(x, y), r);
+      }
+      for (let i = 0; i <= 30000; i++) { const x = -30 + i * 0.0012; note('exp', DMath.exp(x), Math.exp(x), Math.exp(x)); }
+      const limits = { sin: 3.4e-16, cos: 3.4e-16, atan2: 2.3e-16, exp: 4.5e-16, hypot: 5e-16 };   // about 1.5 ulp of 1 for sin and cos (an engine whose own sin is only good to 1 ulp must still pass; the hash below is the cross-engine proof), relative for exp and hypot (sqrt of a sum is within 2 ulp)
+      for (const name in limits) if (!(worst[name] <= limits[name])) problems.push(name + ' off by ' + worst[name]);
+      const same = (a, b) => Object.is(a, b) || (Number.isNaN(a) && Number.isNaN(b));
+      const special = [[DMath.atan2(0, 1), 0], [DMath.atan2(-0, 1), -0], [DMath.atan2(0, -1), Math.PI], [DMath.atan2(-0, -1), -Math.PI], [DMath.atan2(0, 0), 0], [DMath.atan2(1, 0), Math.PI / 2], [DMath.atan2(-1, 0), -Math.PI / 2],
+        [DMath.atan2(Infinity, Infinity), Math.PI / 4], [DMath.atan2(-1, -Infinity), -Math.PI], [DMath.atan2(NaN, 1), NaN], [DMath.exp(0), 1], [DMath.exp(-Infinity), 0], [DMath.exp(Infinity), Infinity], [DMath.exp(NaN), NaN],
+        [DMath.sin(0), 0], [DMath.sin(-0), -0], [DMath.cos(0), 1], [DMath.sin(Infinity), NaN], [DMath.cos(NaN), NaN], [DMath.hypot(3, 4), 5], [DMath.hypot(0, 0), 0], [DMath.hypot(-3, -4), 5]];
+      special.forEach(([got, want], k) => { if (!same(got, want)) problems.push('special value ' + k + ': ' + got + ' not ' + want); });
+      for (const [deg, want] of [[30, 0.5], [90, 0], [180, -1], [270, 0], [360, 1]]) { const got = deg === 30 ? DMath.sin(deg * Math.PI / 180) : DMath.cos(deg * Math.PI / 180); if (Math.abs(got - want) > 3e-16) problems.push('cos or sin of ' + deg + ' degrees ' + got); }
+      let sample = [];   // the bits: a fixed sample of every function, as the text of the numbers
+      for (let i = 0; i < 4000; i++) {
+        const x = (i - 2000) * 0.0173, y = ((i * 37) % 4001 - 2000) * 0.0091;
+        sample.push(DMath.sin(x), DMath.cos(x), DMath.atan2(y, x), DMath.exp(-Math.abs(x) * 0.1), DMath.hypot(x, y));
+      }
+      const hash = fnv1a(sample.join(','));
+      if (hash !== DMATH_SAMPLE_HASH) problems.push('the bits changed: the hash of the sample is ' + hash + ', not ' + DMATH_SAMPLE_HASH + ' (an engine that differs here would put online peers out of step)');
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* The rule behind it, so it holds for later code: the simulation section of the page holds no sin, cos, tan, atan, atan2, asin, acos, exp, log, pow, hypot, cbrt or the like on Math (and no ** at all: its exponent could have a fraction),
+       it calls DMath. The simulation code sits between "// <<SIM BEGIN: name>>" and "// <<SIM END>>" comments in breakpoint.html (fighters, combat, the CPU, the match with its controllers, the level's hazard links, the online lockstep
+       and the helpers the tick calls); new simulation code goes between such markers, and this test scans everything between them as text, constructors, static methods, setters and nested objects included.
+       Cut out of the scan are only the methods named in VISUAL: pose, drawing, particles and the swing of a light, which never write a field the checksum holds and keep Math.*. The text comes from document.scripts (the page's inline
+       script), so it works in Chrome, Firefox, Safari and in the headless runner. The four load-time cone constants are checked by value. */
+    test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
+      const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
+      const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
+        'draw', 'drawPointLightFlicker', 'drawObject', 'drawCracks', 'drawBox', 'drawColumn', 'drawRail', 'drawPanel', 'drawLook', 'drawDeck', 'drawScaffold', 'drawFireDoor', 'drawRubble', 'drawChain', 'drawHead', 'drawLowerFace', 'drawHair', 'drawItems', 'drawFlames', 'drawHazards'];   // pose, drawing, particles: each name on its own, so a new simulation method called draw... is scanned
+      const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
+        'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors(',
+        'const DMath = ', 'const wrapAngle = ', 'const clamp = ', 'function makeRng(', 'const ITEMS = ', 'const WEAPONS = ', 'const HAZARDS = ', 'const newHeld = ', 'const moveById = ', 'const pickupMoveFor = '];
+      const problems = [];
+      const scripts = typeof document !== 'undefined' && document.scripts ? Array.from(document.scripts) : [];
+      const page = scripts.map((el) => el.textContent || '').find((text) => text.includes(BEGIN));
+      if (!page) return 'the page script is not available to the test (document.scripts)';
+      // the chunks between the markers, one string each
+      const chunks = [];
+      for (let from = page.indexOf(BEGIN); from >= 0; from = page.indexOf(BEGIN, from + 1)) {
+        const to = page.indexOf(END, from);
+        if (to < 0) { problems.push('a SIM BEGIN has no SIM END: ' + page.slice(from, from + 60)); break; }
+        const nested = page.indexOf(BEGIN, from + 1);
+        if (nested >= 0 && nested < to) { problems.push('SIM markers inside each other near ' + page.slice(from, from + 60)); break; }
+        chunks.push({ name: page.slice(from + BEGIN.length, page.indexOf('>>', from)), text: page.slice(from, to) });
+      }
+      const used = VISUAL.map(() => 0);
+      let scannedChars = 0, dmathCalls = 0;
+      for (const chunk of chunks) {
+        const kept = [], rows = chunk.text.split(/\r?\n/);
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i], match = /^  (?:static |get |set |async )?([A-Za-z_$][\w$]*)\s*\(/.exec(row);
+          const rule = match ? VISUAL.findIndex((v) => (v instanceof RegExp ? v.test(match[1]) : v === match[1])) : -1;
+          if (rule < 0) { kept.push(row); continue; }
+          used[rule]++;
+          const balance = (text) => (text.match(/\{/g) || []).length - (text.match(/\}/g) || []).length;
+          if (balance(row) > 0) {   // a method body: cut up to and with its closing line
+            while (i + 1 < rows.length && !/^  \}[,;]?\s*$/.test(rows[i + 1])) i++;
+            i++;
+          }
+        }
+        const source = kept.join('\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        scannedChars += source.length;
+        dmathCalls += (source.match(/\bDMath\./g) || []).length;
+        const sourceRows = source.split('\n');
+        sourceRows.forEach((row, k) => { const bad = BAD.exec(row); if (bad) problems.push(chunk.name + ': ' + bad[0].trim() + ' in "' + row.trim().slice(0, 70) + '"'); void k; });
+      }
+      VISUAL.forEach((rule, k) => { if (!used[k]) problems.push('the list of pose and drawing methods names ' + rule + ', which is not in a SIM section any more'); });
+      const all = chunks.map((chunk) => chunk.text).join('\n');
+      for (const needle of MUST_HOLD) if (!all.includes(needle)) problems.push('outside the SIM markers: ' + needle.trim());
+      if (chunks.length < 12 || scannedChars < 250000 || dmathCalls < 100) problems.push('the scan read too little: ' + chunks.length + ' sections, ' + scannedChars + ' characters, ' + dmathCalls + ' DMath calls');
+      for (const [name, degrees] of [['PICKUP_CONE_COS', 70], ['SPRAY_CONE_COS', 40], ['LOCK_VIEW_COS', 100], ['LOCK_STICK_COS', 60]]) {
+        const value = { PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS }[name];
+        if (value !== DMath.cos(degrees * Math.PI / 180)) problems.push(name + ' is not DMath.cos of ' + degrees + ' degrees');
+      }
+      return problems.length ? problems.slice(0, 8).join('; ') : true;
     });
     test('Jab connects once and deals damage', () => {
       const log = self.capture(['hit']);
@@ -19419,27 +19506,25 @@ const SelfTest = {
         if (!screen.includes('5 ms, good') || !screen.includes(ONLINE_MESSAGES.timeout) || !screen.includes('Waiting for your friend')) bad.push('each guest has its own line');
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two')];
         if (!UI.screen_onlinehost().includes('data-act="onadd"')) bad.push('no Add another player with one guest');
-        // the guest's kind of browser: shown on its line, and a warning when it is not the host's own kind
+        // the guest's kind of browser: shown on its line; any mix of kinds may start (P12-08: the simulation is bit for bit the same in every engine, J01)
         const own = onlineEngine(), other = Object.keys(ONLINE_ENGINES).find((kind) => kind !== own);
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own })];
         screen = UI.screen_onlinehost();
-        if (!screen.includes('Browser: ' + ONLINE_ENGINES[own] + '.') || screen.includes(esc(ONLINE_MESSAGES.sameBrowser)) || /data-act="onstart" disabled/.test(screen)) bad.push("a guest with the host's own kind of browser");
+        if (!screen.includes('Browser: ' + ONLINE_ENGINES[own] + '.') || /data-act="onstart" disabled/.test(screen)) bad.push("a guest with the host's own kind of browser");
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: other })];
         screen = UI.screen_onlinehost();
-        if (!screen.includes(esc(ONLINE_MESSAGES.sameBrowser)) || !/data-act="onstart" disabled/.test(screen) || OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('a guest with another kind of browser must switch Start off and say why');
-        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'waiting', null, 'BPO-x', { engine: other })];
-        if (OnlineUI.startProblem() !== '') bad.push('a guest that is still waiting (no link open) of another kind must not block Start: ' + OnlineUI.startProblem());
+        if (!screen.includes('Browser: ' + ONLINE_ENGINES[other] + '.') || /data-act="onstart" disabled/.test(screen) || OnlineUI.startProblem() !== '') bad.push('a guest with another kind of browser must not hold Start: ' + OnlineUI.startProblem());
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'open', null, 'BPO-x', { engine: other })];
-        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.sameBrowser) bad.push('one connected guest of another kind among several must block Start');
-        // a connected guest whose kind has not arrived yet is still joining: Start stays off until the hello comes or 2 s have passed
+        if (OnlineUI.startProblem() !== '') bad.push('a mix of kinds of browser must not hold Start: ' + OnlineUI.startProblem());
+        // a connected guest whose kind has not arrived yet does not hold Start either (the hello is only shown)
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() })];
-        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.joining || !/data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !UI.screen_onlinehost().includes(esc(ONLINE_MESSAGES.joining))) bad.push('a guest that opened just now and has not said its kind must switch Start off and say why: ' + OnlineUI.startProblem());
-        // the real wiring: a host guest link that opens marks its slot as joining
+        if (OnlineUI.startProblem() !== '') bad.push('a guest that opened just now and has not said its kind must not hold Start: ' + OnlineUI.startProblem());
+        // the real wiring: a host guest link that opens marks its slot
         const opening = slot(2, 'open', null, 'BPO-two');
         opening.link.send = () => true;
         OnlineUI.guests = [opening];
         OnlineUI.onState(opening.link, 'open');
-        if (!(opening.openedAt > 0) || OnlineUI.startProblem() !== ONLINE_MESSAGES.joining) bad.push('a guest link that opens must hold Start until its hello: ' + OnlineUI.startProblem());
+        if (!(opening.openedAt > 0)) bad.push('a guest link that opens must mark its slot');
         // a new code for a failed seat forgets the old guest's kind
         const failedSeat = slot(2, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { engine: other, openedAt: 1 });
         failedSeat.link.close = () => {};
@@ -19450,12 +19535,6 @@ const SelfTest = {
         if (recoded.engine !== undefined || recoded.openedAt !== undefined) bad.push('a re-coded seat kept the old guest\'s browser kind');
         OnlineUI.unlisten.splice(listenersBefore).forEach((off) => off());
         if (recoded.link && recoded.link.close) recoded.link.close();
-        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() - ONLINE_HELLO_WAIT_MS - 100 })];
-        if (OnlineUI.startProblem() !== '') bad.push('a guest whose hello is more than ' + ONLINE_HELLO_WAIT_MS + ' ms late must not hold Start: ' + OnlineUI.startProblem());
-        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now(), engine: own })];
-        if (OnlineUI.startProblem() !== '') bad.push('a guest that has said its kind is not joining: ' + OnlineUI.startProblem());
-        OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { openedAt: performance.now() }), slot(3, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { openedAt: performance.now() })];
-        if (OnlineUI.startProblem() !== ONLINE_MESSAGES.joining) bad.push('a joining guest next to a failed one still holds Start');
         OnlineUI.guests = [slot(2, 'open', null, 'BPO-two', { engine: own }), slot(3, 'failed', { code: 'ice', message: ONLINE_MESSAGES.ice }, 'BPO-x', { engine: other })];
         if (OnlineUI.startProblem() !== '') bad.push('a failed guest of another kind must not block Start');
         // Start: needs a connected friend; the mode follows the number of players until it is picked; a 1 vs 1 needs exactly 2
@@ -19658,16 +19737,16 @@ const SelfTest = {
       } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally { kit.restore(); }
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
-    test('Online play (P12-03 review): Start is refused while a connected guest uses another kind of browser (the reason is the plain text), allowed for the same kind or a guest that has not said yet, and a rematch starts from the delay the last match was retuned to', () => {
+    test('Online play (P12-03 review, P12-08): Start is allowed for any mix of browser kinds (a phone and a PC play together: the simulation is the same bit for bit, J01), and a rematch starts from the delay the last match was retuned to', () => {
       const problems = [], kit = reviewKit();
       try {
         const other = Object.keys(ONLINE_ENGINES).find((kind) => kind !== onlineEngine());
         kit.open([2, 3], { 2: onlineEngine(), 3: other });
-        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' }) !== ONLINE_MESSAGES.sameBrowser || Game.net) problems.push('a mixed set started or gave another reason');
+        if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' }) !== '' || !Game.net) problems.push('a mixed set did not start');
         let { pairs, heard } = kit.open([2, 3], { 2: onlineEngine() });
         if (OnlinePlay.start({ mode: 'brawl', arena: 'warehouse' }) !== '' || !Game.net) problems.push('a guest that has not said its kind blocked Start');
-        ({ pairs, heard } = kit.open([2], { 2: onlineEngine() }));
-        if (OnlinePlay.start({ mode: 'fight', arena: 'dojo' }) !== '') problems.push('the same kind did not start');
+        ({ pairs, heard } = kit.open([2], { 2: other }));
+        if (OnlinePlay.start({ mode: 'fight', arena: 'dojo' }) !== '') problems.push('a guest of another kind did not start');
         let messages = kit.starts(heard)[0];
         if (messages[0].delay !== 2 || Game.net.delay !== 2) problems.push('the first delay at a 20 ms round trip is ' + messages[0].delay);
         Game.net.setDelay(5);   // the host's retune at a round end
@@ -20036,14 +20115,15 @@ const SelfTest = {
       // what each text must say: the reason, then what to try
       const ADVICE = {
         nonetwork: [/No network address/, /Wi-Fi/], ice: [/block direct connections/, /guest Wi-Fi/, /VPN/, /same home Wi-Fi/, /hotspot/], timeout: [/did not open in time/, /new codes/, /hotspot/, /block direct connections/],
-        guestWait: [/did not answer in time/, /some browsers, like Firefox, wait only a few seconds/, /try Firefox as the host/], sameBrowser: [/different kinds of browser/, /same browser on every device/], lost: [/connection was lost/, /Wi-Fi/], sdp: [/could not use the code/, /new one/], unsupported: [/no WebRTC/, /Chrome/],
+        guestWait: [/did not answer in time/, /some browsers, like Firefox, wait only a few seconds/, /try Firefox as the host/], lost: [/connection was lost/, /Wi-Fi/], sdp: [/could not use the code/, /new one/], unsupported: [/no WebRTC/, /Chrome/],
       };
       for (const [code, words] of Object.entries(ADVICE)) {
         const text = ONLINE_MESSAGES[code];
         if (!text || text.length > 200 || /DOMException|Error|undefined|\[object/.test(text)) bad.push(code + ': not a short plain text');
         for (const word of words) if (!word.test(text)) bad.push(code + ' lacks ' + word);
       }
-      for (const word of [/same Wi-Fi or router/, /one phone's hotspot/, /block direct connections/, /No server is used/, /same kind of browser/]) if (!word.test(ONLINE_LIMITS)) bad.push('the limits note lacks ' + word);
+      for (const word of [/same Wi-Fi or router/, /one phone's hotspot/, /block direct connections/, /No server is used/]) if (!word.test(ONLINE_LIMITS)) bad.push('the limits note lacks ' + word);
+      if (/kind of browser|same browser/i.test(ONLINE_LIMITS) || ONLINE_MESSAGES.sameBrowser !== undefined || ONLINE_MESSAGES.joining !== undefined) bad.push('the same-browser stopgap text is still there (P12-08: any mix of browsers plays together)');
       if (/most home networks/.test(ONLINE_LIMITS)) bad.push('the limits note promises more than the same Wi-Fi: with no STUN or TURN server only one network works');
       if (!UI.screen_online().includes('same Wi-Fi or network')) bad.push('the first Online screen does not say same network');
       // each failure path through a link: the error carries the reason text, the link ends in failed (or closed after it was open)
