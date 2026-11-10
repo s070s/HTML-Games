@@ -3606,7 +3606,7 @@ const STAIR_UP = 0.5; // m: a step may be stood on from this far below its top (
 const STAIR_FOOT = 0.3; // m: but a step gives footing only from this far below its top (a tread and a little slack), so a body at the side of a flight is never lifted two treads in one tick; it passes the steps within STAIR_UP without standing on them
 const PASS_UNDER = 0.05; // m: a prop that cannot be stood on is passed only by a body whose feet are at least this close to its top (a jump over it); a deck or a step takes its own slack (STAIR_UP, 0.25)
 const PUSH_OUT_MAX = 0.6; // m: a body is not moved farther than this to leave an obstacle through a clear side when the nearest side is within it (a body deep inside a big block still leaves by the nearest clear side, however far)
-const SUPPORT_REACH = 0.15, SUPPORT_REST = 0.03; // m: a fighter walking off a deck, a crate or a step loses the footing when its centre is this far past the footprint; one that is not moving away from it (stepping or jumping up onto it, landing on it, shoved) keeps it over the whole 0.34 m cylinder as before, and the CPU's probes (supportAt) read a body whose feet are within SUPPORT_REST of the top as resting on it (walls and props keep the whole cylinder)
+const SUPPORT_REACH = 0.15; // m: a fighter walking off a deck, a crate or a step loses the footing when its centre is this far past the footprint; one that is not moving away from it (stepping or jumping up onto it, landing on it, shoved) keeps it over the whole 0.34 m cylinder as before; the CPU's probes (supportAt) read the cylinder, and walls and props keep it too
 const STAIR_APPROACH = 0.45; // m: the CPU's first waypoint lies this far before the foot
 const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far beyond the ring
 /* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
@@ -4072,7 +4072,7 @@ const Arena = {
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
       if (item && c.lay) { top = Math.max(top, this.lookTop(c, x, z, y)); continue; }
-      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.foot || 0.25) && c.standable && (item || r <= SUPPORT_REACH || Math.abs(y - c.top) > SUPPORT_REST || dx * dx + dz * dz < SUPPORT_REACH * SUPPORT_REACH)) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
+      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
   },
@@ -4105,8 +4105,8 @@ const Arena = {
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
         const held = d2 < SUPPORT_REACH * SUPPORT_REACH || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz <= 0.01 * Math.sqrt(d2); // under the centre, or between SUPPORT_REACH and the cylinder and not moving away from the footprint (stepping or jumping up onto it, landing on it): a body walking off the edge loses the footing at SUPPORT_REACH
-        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || (held && f.y >= c.top - (c.foot || 0.25)))) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a footing is the footprint under the centre (SUPPORT_REACH): the body is on the deck, not the cylinder
-        if (f.y >= c.top - PASS_UNDER) { if (c.top <= NAV_JUMP && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a low one (a bench, a table, a rail: NAV_JUMP) comes down on it; a body falling past a window or a column goes on falling
+        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || (held && f.y >= c.top - (c.foot || 0.25)))) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a deck, a crate or a step gives footing under the centre, and over the cylinder to a body that is not walking off it (`held`)
+        if (f.y >= c.top - PASS_UNDER) { if (c.shelf && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a table, a bench, a barrier or a crate (what an item lies on: `shelf`) comes down on it; a body falling past a window, a rail or a column goes on falling
         this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
@@ -5214,6 +5214,7 @@ const PLANT_MIN = 0.002; // m: a shift smaller than this is dropped once the pos
 const LIE_POINTS = [0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33]; // the key points of pts the lying box is measured from: root, chest, head, wrists, ankles, knees, elbows
 const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part of a body in a blow is drawn; how fast the lift of the body goes when the blow is over (a tick)
 const NUDGE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.HIT, S.STAGGER, S.STUN, S.ATTACK]; // the states a standing body is slid clear of the walls and the scenery in (steerLie)
+const LIE_EVERY = 4, LIE_LOOK = 1.2; // ticks between two searches for room of a standing body (a power of two); the scenery farther than this from the drawn box is not looked at
 const LIE_THICK = 0.15, LIE_FREE = 0.03, LIE_MOVE = 0.1, LIE_TURN = 0.3, LIE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // a lying body (drawing only): the thickness of a limb added to the key points, the move that still counts as no room needed (m), the most the drawn body slides (m) and turns (rad) in a tick, the four directions tried (the facing first)
 const PLANT_RELEASE_TICKS = 20; // ticks the lowest part stays at the depth of the guard stance after the hold or the lying pose ends
 let PROBE_LOW = null; // while a number: part() records the lowest drawn height instead of drawing
@@ -6338,7 +6339,7 @@ class Fighter {
     this.radius = 0.34; // collision size is the same for every body: height and build are cosmetic
     this.bodyFades = false; // set by a brawl: the knocked-out body fades out (koFade)
     this.sinkLift = 0; this.fitShare = 1; this.fitMoved = 0; // the share of its extension the striking limb is drawn with and the metres the body stepped (attackPose)
-    this.lieYaw = 0; this.lieGoal = 0; this.lieDx = 0; this.lieDz = 0; this.lieMove = [0, 0]; // the direction a lying body is drawn in, the one it turns to, how far it is drawn off its place, and where it would go (steerLie)
+    this.lieYaw = 0; this.lieGoal = 0; this.lieDx = 0; this.lieDz = 0; this.prevLieYaw = 0; this.prevLieDx = 0; this.prevLieDz = 0; this.lieMove = [0, 0]; // the direction a lying body is drawn in, the one it turns to, how far it is drawn off its place, and where it would go (steerLie)
     this.pose = new Float32Array(NP);
     this.tp = new Float32Array(NP);
     this.pts = new Float32Array(36);
@@ -6349,7 +6350,7 @@ class Fighter {
   reset(x, z, yaw, hpFrac, stamFrac) {
     this.x = x; this.y = 0; this.z = z; this.prevX = x; this.prevY = 0; this.prevZ = z; this.prevYaw = yaw;
     this.vx = 0; this.vy = 0; this.vz = 0; this.kx = 0; this.kz = 0; this.yaw = yaw;
-    this.groundY = 0; this.supportY = 0; this.onStair = false; this.leftOnStair = false; this.wallHit = false; this.obstacleHit = null; this.lieYaw = this.lieGoal = yaw; this.lieDx = this.lieDz = 0; // supportY: the height of the footing this fighter last stood on
+    this.groundY = 0; this.supportY = 0; this.onStair = false; this.leftOnStair = false; this.wallHit = false; this.obstacleHit = null; this.lieYaw = this.lieGoal = this.prevLieYaw = yaw; this.lieDx = this.lieDz = this.prevLieDx = this.prevLieDz = 0; // supportY: the height of the footing this fighter last stood on
     this.hazardTouch = null; // the hazard post this fighter was pushed out of this tick
     this.maxHp = this.stats.maxHp; this.maxStam = this.stats.maxStam;
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
@@ -7027,6 +7028,7 @@ class Fighter {
     let x = this.x, z = this.z;
     for (let pass = 0; pass < 3; pass++) {
       for (const q of Arena.colliders) {
+        if (q.x + q.hx < x + lo - LIE_LOOK || q.x - q.hx > x + hi + LIE_LOOK || q.z + q.hz < z + back - LIE_LOOK || q.z - q.hz > z + front + LIE_LOOK) continue;
         if (!q.active || q.base > this.y + SUPPORT_BASE_SLACK || q.top <= STEP_HEIGHT || this.y >= q.top - (q.up || 0.25)) continue; // what it lies over or beside, not what it can lie on
         const ox = Math.min(x + hi, q.x + q.hx) - Math.max(x + lo, q.x - q.hx), oz = Math.min(z + front, q.z + q.hz) - Math.max(z + back, q.z - q.hz);
         if (ox <= 0 || oz <= 0) continue;
@@ -7039,33 +7041,52 @@ class Fighter {
     this.lieMove[0] = x - this.x; this.lieMove[1] = z - this.z;
     return DMath.hypot(this.lieMove[0], this.lieMove[1]);
   }
-  // Drawing only (the body's place and size are the simulation's): the body is drawn clear of the walls and the scenery it stands or lies beside, slid off them by the room its drawn box needs, LIE_MOVE a tick (the 0.34 m cylinder it collides with is narrower than a wide body). A body lying on the floor is also drawn along the first of four directions (the facing, a quarter turn each way, the back) that needs no room, else the one that needs the least, turning to it LIE_TURN a tick, and keeps it while that needs none. Held, thrown, falling or airborne bodies are drawn where they are
+  // The drawn box of a standing body in its guard stance, [u0, u1] along the facing and [v0, v1] across it, from the key points of the pose plus LIE_THICK; measured once and kept with the style's motion. A body that walks or strikes is slid clear of a wall or a prop by this box, not by the limb it holds out
+  uprightBox() {
+    const m = this.motion;
+    if (!m.box) {
+      const kept = this.pose, keptPts = this.pts.slice();
+      this.pose = m.guard;
+      this.walkSkeleton(0, 0, 0, 0, false);
+      let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+      for (const i of LIE_POINTS) { u0 = Math.min(u0, this.pts[i + 2]); u1 = Math.max(u1, this.pts[i + 2]); v0 = Math.min(v0, this.pts[i]); v1 = Math.max(v1, this.pts[i]); }
+      m.box = [u0 - LIE_THICK, u1 + LIE_THICK, v0 - LIE_THICK, v1 + LIE_THICK];
+      this.pose = kept; this.pts.set(keptPts);
+    }
+    return m.box;
+  }
+  // Drawing only (the body's place and size are the simulation's): the body is drawn clear of the walls and the scenery it stands or lies beside, slid off them by the room its drawn box needs, LIE_MOVE a tick (the 0.34 m cylinder it collides with is narrower than a wide body). The room is looked for every LIE_EVERY ticks (lying: every other tick), the slide goes on every tick. A body lying on the floor is also drawn along the first of four directions (the facing, a quarter turn each way, the back) that needs no room, else the one that needs the least, turning to it LIE_TURN a tick, and keeps it while that needs none. Held, thrown, falling or airborne bodies are drawn where they are
   steerLie() {
+    this.prevLieDx = this.lieDx; this.prevLieDz = this.lieDz; this.prevLieYaw = this.lieYaw; // the drawn frame blends from these
     const live = !!this.mates; // in a match (the menu, the creator and the cutscenes draw their fighters where they are put)
     const lying = live && (this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP) && !this.pinnedBy;
     const upright = live && !lying && NUDGE_STATES.includes(this.state) && !this.partner && !this.pinnedBy && this.y <= this.groundY + SUPPORT_EPS && !(this.state === S.ATTACK && (!this.move || this.move.type === 'grab'));
     if (!lying) this.lieYaw = this.lieGoal = this.yaw;
     if (lying || upright) {
-      const fx = this.fwdX, fz = this.fwdZ, pts = this.pts;
-      let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
-      for (const i of LIE_POINTS) { const dx = pts[i] - this.x, dz = pts[i + 2] - this.z, u = dx * fx + dz * fz, v = dx * fz - dz * fx; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
-      u0 -= LIE_THICK; u1 += LIE_THICK; v0 -= LIE_THICK; v1 += LIE_THICK;
-      if (upright) this.lieRoom(this.yaw, u0, u1, v0, v1);
-      else if (this.lieRoom(this.lieGoal, u0, u1, v0, v1) > LIE_FREE) {
-        let least = Infinity;
-        for (const turn of LIE_TURNS) {
-          const room = this.lieRoom(this.yaw + turn, u0, u1, v0, v1);
-          if (room < least - LIE_FREE) { least = room; this.lieGoal = this.yaw + turn; }
-          if (room <= LIE_FREE) break;
+      if (((this.age + this.index) & (lying ? 1 : LIE_EVERY - 1)) === 0) {
+        if (upright) { const box = this.uprightBox(); this.lieRoom(this.yaw, box[0], box[1], box[2], box[3]); }
+        else {
+          const fx = this.fwdX, fz = this.fwdZ, pts = this.pts;
+          let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+          for (const i of LIE_POINTS) { const dx = pts[i] - this.x, dz = pts[i + 2] - this.z, u = dx * fx + dz * fz, v = dx * fz - dz * fx; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+          u0 -= LIE_THICK; u1 += LIE_THICK; v0 -= LIE_THICK; v1 += LIE_THICK;
+          if (this.lieRoom(this.lieGoal, u0, u1, v0, v1) > LIE_FREE) {
+            let least = Infinity;
+            for (const turn of LIE_TURNS) {
+              const room = this.lieRoom(this.yaw + turn, u0, u1, v0, v1);
+              if (room < least - LIE_FREE) { least = room; this.lieGoal = this.yaw + turn; }
+              if (room <= LIE_FREE) break;
+            }
+            this.lieRoom(this.lieGoal, u0, u1, v0, v1);
+          }
         }
-        this.lieRoom(this.lieGoal, u0, u1, v0, v1);
       }
     } else this.lieMove[0] = this.lieMove[1] = 0;
     if (lying) this.lieYaw = wrapAngle(this.lieYaw + clamp(wrapAngle(this.lieGoal - this.lieYaw), -LIE_TURN, LIE_TURN));
     this.lieDx += clamp(this.lieMove[0] - this.lieDx, -LIE_MOVE, LIE_MOVE); this.lieDz += clamp(this.lieMove[1] - this.lieDz, -LIE_MOVE, LIE_MOVE);
   }
-  // The yaw to draw the body with: the facing, turned toward the lying direction as far as the pose lies down
-  bodyYaw(yaw) { return yaw + wrapAngle(this.lieYaw - yaw) * this.pose[J.lie]; }
+  // The yaw to draw the body with: the facing, turned toward the lying direction (blended from the last tick's by alpha) as far as the pose lies down
+  bodyYaw(yaw, alpha = 1) { return yaw + wrapAngle((alpha === 1 ? this.lieYaw : this.prevLieYaw + wrapAngle(this.lieYaw - this.prevLieYaw) * alpha) - yaw) * this.pose[J.lie]; }
   animate(dt) {
     this.animT += dt;
     const carried = this.state === S.CLINCH && this.partner && this.partner.throwPending;
@@ -7471,19 +7492,12 @@ class Fighter {
       this.attackPose();
       this.walkSkeleton(0, 0, 0, 0, false);
       const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb];
-      strikes[key] = this.pts[tip + 2]; strikes[key + 'y'] = this.pts[tip + 1];
+      strikes[key] = this.pts[tip + 2];
       this.striding = false;
       this.moveTick = kept.tick;
       this.pts.set(kept.pts);
     }
     return clamp(mv.reach * this.stats.reach - STRIKE_SHORT - strikes[key], 0, STRIKE_STRIDE_MAX);
-  }
-  // The height of the striking limb's tip above the feet on the first active tick (to 0.05 m), from the measurement strikeStride keeps (the pose with the stride off, so no viewer setting is read); 0 for an item's swing, which has no drawn limb pose. The hit on scenery follows it (Combat.hitObjects)
-  tipHeight(mv) {
-    if (mv.wpn && this.item && mv.swing) return 0;
-    const strikes = this.motion.strikes, key = mv.anim + mv.limb + 'gy';
-    if (strikes[key] === undefined) this.strikeStride(mv);
-    return Math.round(strikes[key] * 20) / 20;
   }
   // Drawing only: the share (STRIKE_REACH_MIN to 1) of its full extension the striking limb is given, so that its tip stops about STRIKE_PAST beyond the target's centre when the body has stepped `moved` m: the target's distance and STRIKE_PAST less the step, over the limb's forward reach (kept by strikeStride). 1 with no target, or when the limb does not reach that far
   strikeReach(mv, moved) {
@@ -7753,8 +7767,8 @@ class Fighter {
     if (fade <= 0) return;
     let px = lerp(this.prevX, this.x, alpha), pz = lerp(this.prevZ, this.z, alpha);
     const py = lerp(this.prevY, this.y, alpha) + this.liftY;
-    const yaw = this.bodyYaw(this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha);
-    px += this.lieDx; pz += this.lieDz; // a body against a wall or scenery is drawn clear of it
+    const yaw = this.bodyYaw(this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha, alpha);
+    px += lerp(this.prevLieDx, this.lieDx, alpha); pz += lerp(this.prevLieDz, this.lieDz, alpha); // a body against a wall or scenery is drawn clear of it
     const footing = Math.min(this.groundY, py); // the surface under the fighter, also in the air
     CAST_SLOT = 1 + Arena.flatFooting(px, pz, footing, this.radius, py - footing);
     BODY_FADE = fade;
@@ -7776,6 +7790,7 @@ const KNOCK_DAMP = GROUND_DAMP;
 const THROW_VEC = [0, 0]; // scratch for Combat.throwVector (no per-frame allocation)
 // Raised ground: every height a hit needs is measured from the attacker's own footing (groundY), never from the floor, so a fight on a deck, stair, scaffold tier or ring plays as on the floor. g = the foe's footing minus the attacker's (m)
 const LOW_REACH_UP = 0.35, MID_REACH_UP = 0.9; // a Low strike (and a stomp) reaches a foe whose feet are at most this far above the attacker's footing, a Mid strike this far
+const BLOW_TIP = [{ H: 1.45, M: 1.05, L: 0.6 }, { H: 1.3, M: 0.9, L: 0.35 }]; // m above the feet: where the fist (0) and the foot (1) of a High, Mid and Low strike meet scenery (about the drawn tip of the 1.0 scale body)
 const blowHeight = (mv) => (mv.type === 'grab' ? 0.9 : mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35); // m above the footing where a blow travels: a prop taller than this stands in its way (Arena.blowBlocked)
 const HIT_SPHERE_UP = 0.3; // m: how far above and below the limb's tip a blow reaches scenery
 const STRIKE_LEDGE = 1.05, GRAB_LEDGE = 0.55; // a strike reaches a foe whose footing is within STRIKE_LEDGE above or below (a ring or stage apron, not a mezzanine); a grab, a throw and a tackle need |g| within GRAB_LEDGE (two stair steps)
@@ -8121,7 +8136,7 @@ const Combat = {
   hitObjects(att, match) {
     const mv = att.move;
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
-    const tip = att.tipHeight(mv), cy = (tip || blowHeight(mv)) + att.y; // the drawn limb's height (body height is cosmetic, so only the limb's own measurement counts), else the height class
+    const tip = mv.wpn && att.item && mv.swing ? 0 : BLOW_TIP[mv.limb[1] === 'L' ? 1 : 0][mv.h], cy = (tip || blowHeight(mv)) + att.y; // the height of the limb that strikes (a table by the height class, not the drawn pose: that follows the look, which is cosmetic), else the height class of an item's swing
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult(); // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
     const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index, tip ? HIT_SPHERE_UP : undefined); // R1: a bottle cuts
     if (n > 0) match.addHitStop(3, att, null);
@@ -9793,7 +9808,7 @@ class AIController {
     if (len < 1e-6) return 0;
     let deepest = 0;
     for (let i = 1; i <= 3; i++) {
-      const d = Math.max(0, look * i / 3 - (f.radius - SUPPORT_REACH)), x = clamp(f.x + dx / len * d, Arena.ax0 + f.radius, Arena.ax1 - f.radius), z = clamp(f.z + dz / len * d, Arena.az0 + f.radius, Arena.az1 - f.radius); // the probe looks f.radius - SUPPORT_REACH less far: a body stands on a deck by its centre now (it used to be by the whole cylinder), and the CPU stops where it always stopped
+      const d = look * i / 3, x = clamp(f.x + dx / len * d, Arena.ax0 + f.radius, Arena.ax1 - f.radius), z = clamp(f.z + dz / len * d, Arena.az0 + f.radius, Arena.az1 - f.radius);
       const drop = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
       if (drop > FALL_STATE_DROP) deepest = Math.max(deepest, drop);
     }
@@ -9883,6 +9898,7 @@ class AIController {
   think(f, opp, match, it) {
     this.crowd = match && match.crowd ? match.crowd : null;
     this.match = match || null;
+    this.foe = opp || null;
     this.chooseIntent(f, opp, match, it);
     if (!this.leaveCreaking(f, it)) this.navigate(f, opp, it);
     this.holdAtEdge(f, it);
@@ -10064,7 +10080,9 @@ class AIController {
     return { kind: 'attack', ticks: this.d.lockout, mv: pick.mv, pick, fired: false };
   }
 
-  inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 + Math.max(0, mv.step - AI_STEP_FREE) && dist >= 0.45; }
+  inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 + Math.max(0, mv.step - AI_STEP_FREE) && dist >= 0.45 && !this.lineBlocked(f, mv); }
+  // Whether scenery stands in the line of the blow mv from f to the foe it is thinking about: a blow through a post or a column does not land (Arena.blowBlocked), so the CPU walks round it instead of swinging
+  lineBlocked(f, mv) { const foe = this.foe; return !!foe && foe !== f && Arena.blowBlocked(f.x, f.z, foe.x, foe.z, Math.max(f.y, foe.y) + blowHeight(mv)); }
   pickMove(f, opp, snap, dist, fastOnly, maxStartup = 99) {
     const d = this.d, st = this.profile.style;
     let best = null, bestScore = 0;
