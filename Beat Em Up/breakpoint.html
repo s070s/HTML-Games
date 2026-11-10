@@ -343,6 +343,17 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
 #fatal .panel{border-color:var(--bad)}
 #fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .25s;z-index:25}
 #fade.on{opacity:1}
+/* --- intro (P18-60): the tap-to-start card and the logo reveal over the live menu */
+#intro{position:absolute;inset:0;z-index:35;background:#02040a;cursor:pointer;touch-action:none;display:flex;align-items:center;justify-content:center;text-align:center;transition:opacity .3s}
+#intro canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#intro.out{opacity:0;pointer-events:none}
+#intro.out.hold{pointer-events:auto}
+#intro .card{position:relative;padding:0 1em;transition:opacity .2s}
+#intro.go .card{opacity:0}
+#intro .press{margin:.9em 0 0;font:700 clamp(.8em,2.6vmin,1.1em)/1.3 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;letter-spacing:.22em;color:var(--txt);animation:introBlink 1.4s ease-in-out infinite}
+#intro .skip{position:absolute;left:0;right:0;bottom:calc(1em + var(--sab));margin:0;font-size:.8em;letter-spacing:.12em;color:var(--mut);opacity:0;transition:opacity .6s .9s}
+#intro.go .skip{opacity:.75}
+@keyframes introBlink{50%{opacity:.35}}
 .reduced *{transition:none!important;animation:none!important}
 .reduced #combo,.reduced #combo2{transition:none}
 @media (max-width:700px){.screen{padding:1em}.panel{padding:.8em .9em}}
@@ -394,7 +405,8 @@ button.mi.scenechip{position:absolute;top:.6em;right:.6em;width:auto;min-height:
    01 core (utilities, events, math, storage, settings), 02 input (keyboard / gamepad / touch -> logical actions), 03 render,
    04 world (materials, arenas, destructible objects, debris, effects), 05 fighters, 05a2 motion,
    05d creator (custom fighters: point-buy, validation, save slots, share codes), 06 ai, 07 match, 08 audio,
-   09 ui (menus, HUD, touch controls, diagnostics 09a, creator screens 09b, self-test loader + boot 09c; the tests are in breakpoint-tests.js). */
+   09 ui (menus, HUD, touch controls, diagnostics 09a, creator screens 09b, self-test loader + boot 09c; the tests are in breakpoint-tests.js),
+   08b title song (the owner's MIDI as a table, a small synth), 10 intro (tap-to-start card, 6 s logo reveal; boot starts it). */
 const VERSION = '1.0.0';
 const FIXED_DT = 1 / 60;
 const MAX_STEPS_PER_FRAME = 5;
@@ -14476,7 +14488,7 @@ function matchEndsOnKo() {
 }
 
 // --- procedural music: bass + drums + arpeggio, tempo, scale and (E8) the drum and bass patterns come from the arena
-const MUSIC_FIGHT = 1; // music intensity tiers: 0 menu, 1 fight, 2 tense fight
+const MUSIC_FIGHT = 1; // music intensity tiers: 0 menu (silent: the title song plays there once, P18-60), 1 fight, 2 tense fight
 const MUSIC_TENSE = 2;
 const TENSE_HP_FRACTION = 0.25; // a fighter below this share of health makes the music tense
 const FIGHT_GAIN = 1.15, TENSE_LIFT = 1.26; // the fight bed level; the tense layer is +2 dB over it
@@ -14485,12 +14497,16 @@ const Music = {
   active: false, track: null, nextTime: 0, step: 0, intensity: 0,
   start(track, intensity) {
     this.track = track; this.intensity = intensity; this.active = true; this.step = 0; this.nextTime = 0;
+    if (intensity > 0) { Song.stop(SONG_FIGHT_FADE_SECS); Intro.skip(); } // a fight takes over from the title song (and from an intro still running)
   },
   stop() { this.active = false; Sound.syncAmbience(null); },
   setIntensity(v) { this.intensity = v; },
   update() {
-    if (!this.active || !Sound.ready()) return;
+    if (!Sound.ready()) return;
+    Song.pump(); // the title song is handed to the audio clock from here once the intro has started it
+    if (!this.active) return;
     Sound.syncAmbience(this.intensity > 0 ? this.track : null);
+    if (this.intensity === 0) return; // the menu has no code-made theme (P18-60)
     const c = Sound.ctx;
     if (this.nextTime < c.currentTime) this.nextTime = c.currentTime + 0.05;
     const tr = this.track, stepDur = 60 / tr.bpm / 4 * (this.intensity >= MUSIC_TENSE ? TENSE_TEMPO : 1);
@@ -14510,7 +14526,7 @@ const Music = {
     const tr = this.track, c = Sound.ctx;
     const s = step % 16, bar = Math.floor(step / 16) % 4;
     const scale = SCALES[tr.mode] || SCALES.minor;
-    const dest = Sound.musicBus, lift = this.intensity === 0 ? 1 : (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN; // the fight bed has its own level (the menu theme none), the tense layer is louder as a whole (E8: about +2 dB over the bed)
+    const dest = Sound.musicBus, lift = (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN; // the fight bed has its own level, the tense layer is louder as a whole (E8: about +2 dB over the bed)
     const voice = (type, f, dur, gain, filt) => {
       const o = c.createOscillator(), g = c.createGain();
       o.type = type; o.frequency.value = f;
@@ -14530,12 +14546,6 @@ const Music = {
     };
     const lowK = clamp(Math.pow(tr.root / 55, 2), 0.7, 1.4), // a low root gets less bass and kick and a high one more, so every level has about the same share under 150 Hz
       floor = tr.floor || 0, kit = DRUM_KITS[floor % 3], line = BASS_LINES[Math.floor(floor / 3) % 3];
-    if (this.intensity === 0) {
-      // calm menu theme: slow pad + sparse arpeggio on two voices an octave apart (P18-29: +12 dB, so it is heard at the default volumes)
-      if (s === 0) { voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8], 2), stepDur * 16, 0.24, 500); voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2) * 1.004, stepDur * 16, 0.17, 600); }
-      if (s % 4 === 2) { const f = this.note(tr.root * 4, scale, [0, 2, 4, 3][(s / 4 | 0) % 4] + bar, 1); voice('triangle', f, stepDur * 3, 0.18); voice('triangle', f * 2, stepDur * 3, 0.1); }
-      return;
-    }
     // drums
     if (kit.kick.includes(s)) { voice('sine', 120, 0.18, 0.34 * lowK, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.34 * lowK * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
     if (kit.snare.includes(s)) hit('snare', 0.32, 0.14);
@@ -14551,6 +14561,150 @@ const Music = {
       if (s % 4 === 3) voice('square', this.note(tr.root, scale, line[((s >> 1) + bar * 2) % 8], 1), stepDur * 0.9, 0.12, 900);
       if (s === 0 && bar === 0) hit('sweep', 0.06, stepDur * 16);
     }
+  },
+};
+
+// === 08b Title song (P18-60): the owner's "Hikari Samurai" MIDI (28 s, 180 bpm) played by a small synth on its own gain node under the music bus
+// The notes are a table (tools/midi-to-song.js makes it from music/hikari-samurai.mid; Appendix C, P18-60). The intro starts the song once; it is handed to the audio clock a little ahead from every frame (Music.update), like the music above
+// song-data:begin (generated by tools/midi-to-song.js from music/hikari-samurai.mid: do not edit by hand)
+const SONG_DATA = {
+  bpm: 180, steps: 336, // steps are sixteenths
+  drums: 'AAAAAAAAIIBBSABACACABAAABABACACAAACAAACAAACACAAACAAACAAACACACACACCCCCCCCCAAAAAAAFABBGABBFABBGABAFABBGABBFACCFACAFABBGABBFABBGABAFABBGABBHCBBHABAFABBGABBFABBGABAFABBGABBFACCFACAFABBGABBFABBGABAFABBGABBFACCFACAFABBGABBFABBGABAFABBGABBFACCFACAFABBGABBFABBGABAFABBGABBHCBBHABAFABBGABBFABBGABAFABBGABBFACCFACAFABBGABBFABBGABAFABBGABBFACCFACA', // a digit per step, a bit per drum: 1 kick, 2 snare, 4 open hat, 8 high tom, 16 crash
+  voices: [ // [name, step of the first onset, notes]: 3 digits per onset = steps since the last onset, 2 * length in steps + 1 for a power chord (root, fifth, octave), pitch - 24
+    ['rhythm', 16, 'AJcGCcBCcBFcCCcBCcBJcEJcGCcBCcBFcCCcBCcBJaEhYQhaQFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFaCFaCFaCFaCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFcCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFYCFaCFaCFaCFa'],
+    ['lead', 14, 'AEjCErCEqCEoCErEEqCErCItEEtCErCEqEEqCImEYkMCeBCfBCkBCoBCkBCfBCkBCoBCrBCkBCqBCrBCvBCqBCrBCvBCyBCvBCrBCqBQoIQjIEqCErCEqCQmICjBCmBQoIQjIE3CEqCErCQmICjBCmBQoIQkIErCCqBCrBEqCMmGEkCEjCIoEIqEIrEQtIErCEqCIoEInEQoIQjIEqCErCEqCQmICjBCmBQoIQjIE3CEqCErCQmICjBCmBQoIQkIErCCqBCrBEqCMmGEkCEjCIoEIqEIrEQtICoBCqBCrBCtBCrBCwBMy'],
+    ['high', 208, 'AQrIQmIEtCEvCEtCQqICmBCqBQrIQmIE7CEtCEvCQqICmBCqBQrIQoIEvCCtBCvBEtCMqGEoCEmCIrEItEIvEQwICrBCtBCvBCwBCvBC0BM5'],
+    ['bass', 80, 'AEcEEQEEcEEQEEcEEQEEcEEQCEaCEcEEQEEcEEQEEcEEQEEcEEQCEaCEYEEMEEYEEMEEYEEMEEYCEXCEVCETCIcEIeEIfEQhIEfCEeCIcEIbEEcEEQEEcEEQEEcEEQEEcEEQCEaCEcEEQEEcEEQEEcEEQEEcEEQCEaCEYEEMEEYEEMEEYEEMEEYCEXCEVCETCIcEIeEIfEQhIEhCIjEEcCIX'],
+  ],
+};
+// song-data:end
+const SONG_DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const SONG_VOICES = ['drums', 'rhythm', 'lead', 'high', 'bass'];
+const SONG_STEP_SECS = 60 / SONG_DATA.bpm / 4; // a step is a sixteenth note
+const SONG_SECS = SONG_DATA.steps * SONG_STEP_SECS; // 28 s
+const SONG_AHEAD_SECS = 0.5; // notes go to the audio clock this far ahead (a frame is far shorter)
+const SONG_LEAD_SECS = 0.12; // the first step sounds this long after the start, so no note is late
+const SONG_LATE_SECS = 0.1; // a note that a stalled frame left this far behind is dropped, not played in a burst
+const SONG_TAIL_SECS = 0.5; // after the last step the sound fades out over this
+const SONG_STOP_SECS = 0.08; // a stop (a skip of the intro) fades out over this
+const SONG_FIGHT_FADE_SECS = 0.25; // a fight taking over fades it out over this
+const SONG_RELEASE_SECS = 0.04; // a note rings this long after its length
+const SONG_MIX = { rhythm: 0.45, lead: 0.5, high: 0.35, guitar: 0.17, bass: 0.22, bassOctave: 0.1, kick: 0.55, snare: 0.38, snareBody: 0.2, hat: 0.14, tom: 0.35, crash: 0.2 }; // the guitars are summed and distorted together, `guitar` is the level after the cabinet; the rest are the peak of one note
+const SONG_VIBRATO_CENTS = 18, SONG_VIBRATO_HZ = 5.5, SONG_VIBRATO_MIN_SECS = 0.3; // a lead note of 0.3 s or more has vibrato
+const songHz = (pitch) => 440 * Math.pow(2, (pitch - 69) / 12);
+let songList = null;
+// Every drum step and note of the table as { step, voice (index in SONG_VOICES), mask | len, chord, pitch }, in time order; decoded once
+function songEvents() {
+  if (songList) return songList;
+  const list = [], digitAt = (text, i) => SONG_DIGITS.indexOf(text[i]);
+  for (let step = 0; step < SONG_DATA.drums.length; step++) if (digitAt(SONG_DATA.drums, step)) list.push({ step, voice: 0, mask: digitAt(SONG_DATA.drums, step) });
+  SONG_DATA.voices.forEach(([name, first, text]) => {
+    let step = first;
+    for (let i = 0; i < text.length; i += 3) {
+      step += digitAt(text, i);
+      const code = digitAt(text, i + 1);
+      list.push({ step, voice: SONG_VOICES.indexOf(name), len: code >> 1, chord: code & 1, pitch: digitAt(text, i + 2) + 24 });
+    }
+  });
+  songList = list.sort((a, b) => a.step - b.step);
+  return songList;
+}
+const songCurve = () => { // a soft clip: the distortion of the guitar amp
+  const size = 513, curve = new Float32Array(size);
+  for (let i = 0; i < size; i++) curve[i] = Math.tanh(3 * (i / (size - 1) * 2 - 1)) / Math.tanh(3);
+  return curve;
+};
+const Song = {
+  playing: false, finished: false, stopped: false, t0: 0, cursor: 0, nodes: null, starts: 0, played: 0, dropped: 0, // starts: how often it was started; played / dropped: the events handed over and the late ones left out
+  // Starts the song from its first step on the audio clock; false when no audio is running (the song is then not played at all)
+  start() {
+    if (!Sound.ready() || !Sound.musicBus) return false;
+    this.stop(0);
+    const c = Sound.ctx, t0 = c.currentTime + SONG_LEAD_SECS, last = t0 + SONG_SECS;
+    const out = c.createGain(), guitar = c.createGain(), shaper = c.createWaveShaper(), high = c.createBiquadFilter(), low = c.createBiquadFilter(), post = c.createGain(), bass = c.createBiquadFilter(), lfo = c.createOscillator(), vibrato = c.createGain();
+    shaper.curve = songCurve();
+    high.type = 'highpass'; high.frequency.value = 90; low.type = 'lowpass'; low.frequency.value = 3800; // the cabinet: no rumble, no fizz
+    bass.type = 'lowpass'; bass.frequency.value = 800;
+    post.gain.value = SONG_MIX.guitar; vibrato.gain.value = SONG_VIBRATO_CENTS; lfo.frequency.value = SONG_VIBRATO_HZ;
+    guitar.connect(shaper); shaper.connect(high); high.connect(low); low.connect(post); post.connect(out); bass.connect(out); lfo.connect(vibrato);
+    out.gain.setValueAtTime(1, last); out.gain.linearRampToValueAtTime(0, last + SONG_TAIL_SECS);
+    out.connect(Sound.musicBus); // the Music volume and the pause duck act on the bus
+    lfo.start(t0); lfo.stop(last + SONG_TAIL_SECS + 0.1);
+    this.nodes = { out, guitar, bass, vibrato, lfo }; this.t0 = t0; this.cursor = 0; this.playing = true; this.finished = false; this.stopped = false; this.starts++;
+    this.pump();
+    return true;
+  },
+  // Seconds into the song on the audio clock (negative before the first step)
+  position() { return Sound.ctx ? Sound.ctx.currentTime - this.t0 : 0; },
+  // Hands the steps of the next `ahead` seconds to the audio clock; ends the song after its tail
+  pump(ahead = SONG_AHEAD_SECS) {
+    if (!this.playing || !Sound.ctx) return;
+    const now = Sound.ctx.currentTime, list = songEvents();
+    while (this.cursor < list.length) {
+      const e = list[this.cursor], at = this.t0 + e.step * SONG_STEP_SECS;
+      if (at > now + ahead) break;
+      this.cursor++;
+      if (at < now - SONG_LATE_SECS) this.dropped++; else this.play(e, at);
+    }
+    if (now >= this.t0 + SONG_SECS + SONG_TAIL_SECS) { this.release(0.1); this.finished = true; }
+  },
+  // Silences the song for good (it is not resumed): a skip of the intro, or a fight starting
+  stop(fadeSecs = SONG_STOP_SECS) {
+    if (!this.playing) return;
+    const gain = this.nodes.out.gain, now = Sound.ctx.currentTime;
+    gain.cancelScheduledValues(now);
+    if (fadeSecs > 0) gain.setTargetAtTime(0, now, fadeSecs / 3); else gain.setValueAtTime(0, now);
+    this.stopped = true;
+    this.release(fadeSecs + 0.1);
+  },
+  release(afterSecs) { // the nodes stay until the notes already handed over have faded
+    const nodes = this.nodes;
+    this.playing = false; this.nodes = null;
+    if (nodes) try { nodes.lfo.stop(); } catch (err) { /* it had stopped */ } // the vibrato does not run on to the planned end of a song that was cut short
+    if (nodes) setTimeout(() => { try { nodes.out.disconnect(); } catch (err) { /* already gone */ } }, afterSecs * 1000);
+  },
+  play(e, at) {
+    this.played++;
+    if (e.voice === 0) { this.drums(e.mask, at); return; }
+    const name = SONG_VOICES[e.voice], secs = e.len * SONG_STEP_SECS, nodes = this.nodes;
+    if (name === 'bass') { this.tone('sawtooth', songHz(e.pitch), at, secs, SONG_MIX.bass, nodes.bass); this.tone('square', songHz(e.pitch) * 2, at, secs, SONG_MIX.bassOctave, nodes.bass); return; } // the octave above gives a small speaker something to hear
+    const gate = name === 'rhythm' && e.len <= 2 ? 0.75 : 1, vibrato = name !== 'rhythm' && secs >= SONG_VIBRATO_MIN_SECS; // chugged chords are cut short
+    for (const pitch of e.chord ? [e.pitch, e.pitch + 7, e.pitch + 12] : [e.pitch]) this.tone('sawtooth', songHz(pitch), at, secs * gate, SONG_MIX[name], nodes.guitar, vibrato);
+  },
+  // One note: an oscillator through its own envelope (attack 5 ms, a fall to 60 % over its length, then the release)
+  tone(type, hz, at, secs, peak, dest, vibrato) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain(), end = at + secs + SONG_RELEASE_SECS;
+    o.type = type; o.frequency.value = hz;
+    g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(peak, at + 0.005); g.gain.exponentialRampToValueAtTime(peak * 0.6, at + secs); g.gain.exponentialRampToValueAtTime(0.0001, end);
+    o.connect(g); g.connect(dest);
+    if (vibrato) this.nodes.vibrato.connect(o.detune);
+    o.onended = () => g.disconnect();
+    o.start(at); o.stop(end + 0.02);
+  },
+  // A sine that falls from `from` to `to` Hz over `glide` seconds, then dies away by `secs`
+  drop(from, to, at, glide, secs, peak) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(from, at); o.frequency.exponentialRampToValueAtTime(to, at + glide);
+    g.gain.setValueAtTime(peak, at); g.gain.exponentialRampToValueAtTime(0.0001, at + secs);
+    o.connect(g); g.connect(this.nodes.out);
+    o.onended = () => g.disconnect();
+    o.start(at); o.stop(at + secs + 0.02);
+  },
+  // Filtered noise that dies away over `secs` (the buffer loops: a crash is longer than it)
+  noise(at, type, hz, q, secs, peak) {
+    const c = Sound.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = Sound.noiseBuf; s.loop = true; f.type = type; f.frequency.value = hz; f.Q.value = q;
+    g.gain.setValueAtTime(peak, at); g.gain.exponentialRampToValueAtTime(0.0001, at + secs);
+    s.connect(f); f.connect(g); g.connect(this.nodes.out);
+    s.onended = () => g.disconnect();
+    s.start(at, Math.random()); s.stop(at + secs + 0.02);
+  },
+  drums(mask, at) { // the bits: 1 kick, 2 snare, 4 open hat, 8 high tom, 16 crash
+    if (mask & 1) this.drop(150, 45, at, 0.12, 0.28, SONG_MIX.kick);
+    if (mask & 2) { this.noise(at, 'bandpass', 1900, 0.8, 0.16, SONG_MIX.snare); this.tone('triangle', 190, at, 0.09, SONG_MIX.snareBody, this.nodes.out); }
+    if (mask & 4) this.noise(at, 'highpass', 7000, 0.7, 0.22, SONG_MIX.hat);
+    if (mask & 8) this.drop(220, 130, at, 0.15, 0.3, SONG_MIX.tom);
+    if (mask & 16) this.noise(at, 'highpass', 4500, 0.7, 1.1, SONG_MIX.crash);
   },
 };
 
@@ -16596,6 +16750,7 @@ const UI = {
     this.frameCount++;
     const pauseShown = this.lastScreen === 'pause'; // a press that led back to the pause screen must not also close it
     this.lastScreen = this.current;
+    if (Intro.phase !== 'off') { this.syncPadPrev(); return; } // the intro owns every press (P18-60)
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
     else if (this.current && this.frameCount % 15 === 1) this.measureMenuFocus();
     if (this.padOverlay()) return;
@@ -18978,6 +19133,7 @@ function testApi() {
     LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music,
+    Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -19095,6 +19251,7 @@ UI.runBrawl = function runBrawl(enemies, opts) {
 
 // Runs the self-tests, loading breakpoint-tests.js first if it is not loaded yet; only (optional) picks tests by name (see run_all)
 UI.runSelfTest = function runSelfTest(only) {
+  Intro.skip(); // a card still standing over the menu would hold back the pad and the menu tests (the Chrome gate loads the page with ?nointro; P18-60)
   if (selfTestRun) return selfTestRun;
   if (!this.selfTestAllowed()) return Promise.resolve();
   this.showSelfTest('Loading ' + SELFTEST_FILE + '...');
@@ -19144,6 +19301,219 @@ UI.runSelfTestWith = async function runSelfTestWith(tests, only) {
   return res;
 };
 
+// === 10 Intro (P18-60): a tap-to-start card, then a 6 s logo reveal over the first six seconds of the title song; the main menu is already live under it and opens when it ends
+const INTRO_SECS = 6; // the reveal; at its end the overlay fades out and the song plays on in the menu
+const INTRO_ARM_MS = 800; // a press waits this long for the audio to run (a gamepad press is no gesture for the browser); then the intro plays without sound
+const INTRO_SKIP_GUARD_MS = 350; // a press this soon after the start (a key held down, the end of the tap that started it) does not skip
+const INTRO_OUT_MS = 300; // the overlay fades out over this
+const INTRO_WATCHDOG_SECS = INTRO_SECS + 2; // the audio clock can stand still (the audio was interrupted): after this many seconds of frames the intro ends anyway
+const INTRO_PIXELS_MAX = 1200000; // the picture is drawn at most this many pixels big (a phone's full resolution is not needed)
+const INTRO_FLAG = /[?&#](nointro|brawl)(?![\w])/; // ?nointro shows no intro (the Chrome gate and the tests use it); a debug brawl starts from the menu at once
+const INTRO_IMPACTS = [[8, 0.3], [9, 0.3], [10, 0.45], [12, 0.8], [16, 1], [24, 1], [32, 1.25], [40, 0.6], [44, 0.6], [48, 0.9], [56, 0.5], [60, 0.6], [64, 0.8], [66, 0.8], [68, 0.9], [70, 1]]; // [step of the song, strength]: the drums and chords the picture lands on; the snare roll of the last bar builds up to the menu
+const INTRO_FLASH_FROM = 0.95; // only the biggest impacts flash (four in the six seconds: steps 16, 24, 32 and 70)
+const INTRO_WORDS = [['BREAK', 16], ['POINT', 24]]; // the halves of the title and the step of the song each smashes in on (the rhythm guitar's first two chords)
+const INTRO_CRACKS = [[16, 0.5, 0.8, 7, 0.34], [24, 0.5, 0.88, 8, 0.4], [32, 0.5, 0.5, 12, 0.7], [48, 0.28, 0.82, 5, 0.3], [48, 0.72, 0.82, 5, 0.3]]; // [step, x, y (fractions of the picture), lines, reach (fraction of the short side)]
+const INTRO_BEAMS = [['#34dcff', 0.2], ['#ffffff', 0.5], ['#ff5c93', 0.8]]; // the spotlights: colour, x (fraction of the width)
+const INTRO_SLAM_SECS = 0.1, INTRO_SLAM_SCALE = 1.2; // a word lands from 2.2 times its size over this long
+const INTRO_PULSE_RATE = 12; // how fast an impact dies away (per second)
+// How hard the picture is hit at time p (seconds into the song): the impacts of the table, each dying away. Drives the shake, the flash, the lights and the dust
+const introPulse = (p, from = 0) => {
+  let sum = 0;
+  for (const [step, strength] of INTRO_IMPACTS) { const age = p - step * SONG_STEP_SECS; if (age >= 0 && strength >= from) sum += strength * Math.exp(-age * INTRO_PULSE_RATE); }
+  return sum;
+};
+// The picture of the reveal at time p, a pure function of p (so a skip, a stall or a test can ask for any moment): g is a 2D context of w x h pixels, look = { reduced, shake (0..1, the Camera shake setting over its default), flash (0..1) }.
+// Reduced motion: no shake, no flash, no dust, no slam; the title fades in and the cracks fade in
+function introFrame(g, w, h, p, look) {
+  const reduced = look.reduced, pulse = reduced ? 0 : introPulse(p), unit = Math.min(w, h), horizon = h * 0.56, margin = unit * 0.05, ramp = clamp((p - 0.4) / 1.6, 0, 1);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.save();
+  if (look.shake > 0 && pulse > 0.02) { const rnd = makeRng(Math.floor(p * 60) + 7), amount = unit * 0.03 * Math.min(pulse, 1.5) * look.shake; g.translate((rnd() - 0.5) * amount, (rnd() - 0.5) * amount); }
+  // the dark arena: back wall, floor, a row of heads along the horizon, the grid of the floor
+  const wall = g.createLinearGradient(0, 0, 0, horizon), floor = g.createLinearGradient(0, horizon, 0, h);
+  wall.addColorStop(0, '#02040a'); wall.addColorStop(1, '#0c1634'); floor.addColorStop(0, '#111a38'); floor.addColorStop(1, '#03050a');
+  g.fillStyle = wall; g.fillRect(-margin, -margin, w + 2 * margin, horizon + margin);
+  g.fillStyle = floor; g.fillRect(-margin, horizon, w + 2 * margin, h - horizon + margin);
+  g.fillStyle = '#04060d';
+  const heads = Math.max(10, Math.round(w / (unit * 0.07)));
+  for (let i = 0; i < heads; i++) { g.beginPath(); g.arc((i + 0.5) * w / heads, horizon - unit * 0.01 + (reduced ? 0 : Math.sin(p * 9 + i * 1.7) * unit * 0.004 * (0.3 + pulse)), unit * 0.03, 0, TAU); g.fill(); }
+  g.strokeStyle = 'rgba(52,220,255,' + (0.05 + 0.1 * ramp).toFixed(3) + ')'; g.lineWidth = Math.max(1, unit * 0.003);
+  g.beginPath();
+  for (let j = -10; j <= 10; j++) { g.moveTo(w / 2 + j * w * 0.012, horizon); g.lineTo(w / 2 + j * w * 0.15, h); }
+  for (let k = 1; k <= 8; k++) { const y = horizon + (h - horizon) * (k / 8) * (k / 8); g.moveTo(0, y); g.lineTo(w, y); }
+  g.stroke();
+  // the spotlights come up, kick with the drums and sway a little
+  g.globalCompositeOperation = 'lighter';
+  const reach = horizon + (h - horizon) * 0.6;
+  INTRO_BEAMS.forEach(([colour, at], i) => {
+    const sway = reduced ? 0 : Math.sin(p * 0.9 + i * 2.1) * w * 0.03, x = w * at + sway, beam = g.createLinearGradient(0, 0, 0, reach);
+    beam.addColorStop(0, colour); beam.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalAlpha = 0.04 + 0.1 * ramp + Math.min(pulse, 1.2) * 0.08; g.fillStyle = beam;
+    g.beginPath(); g.moveTo(x - unit * 0.02, 0); g.lineTo(x + unit * 0.02, 0); g.lineTo(x + sway + w * 0.16, reach); g.lineTo(x + sway - w * 0.16, reach); g.closePath(); g.fill();
+  });
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  // the title: two words, each smashing in on a chord (the same size on every screen: the longer word takes 84 % of the width)
+  const fontOf = (size) => 'italic 900 ' + size + 'px Impact,"Arial Black",sans-serif';
+  g.font = fontOf(100);
+  const widest = Math.max(1, ...INTRO_WORDS.map(([word]) => g.measureText(word).width)), size = Math.min(100 * w * 0.84 / widest, h * 0.27), line = size * 0.98, top = h * 0.4 - line * 0.5;
+  g.font = fontOf(size); g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  INTRO_WORDS.forEach(([word, step], index) => {
+    const age = p - step * SONG_STEP_SECS, landing = 1 - clamp(age / INTRO_SLAM_SECS, 0, 1);
+    const alpha = reduced ? clamp((p - (step * SONG_STEP_SECS - 0.2)) / 0.8, 0, 1) : age >= 0 ? 1 : 0;
+    if (alpha <= 0) return;
+    const scale = reduced ? 1 : 1 + INTRO_SLAM_SCALE * landing * landing + 0.025 * Math.min(pulse, 1), paint = g.createLinearGradient(-size * 1.4, 0, size * 1.4, 0);
+    paint.addColorStop(0, '#34dcff'); paint.addColorStop(0.45, '#ffffff'); paint.addColorStop(1, '#ff5c93');
+    g.save(); g.globalAlpha = alpha; g.translate(w / 2, top + index * line); g.scale(scale, scale);
+    g.lineWidth = size * 0.07; g.strokeStyle = '#02040a'; g.strokeText(word, 0, 0);
+    g.fillStyle = paint; g.fillText(word, 0, 0);
+    g.restore();
+  });
+  // the cracks that follow each landing: lines of six jagged pieces that grow over 0.12 s (Reduced motion: all there, fading in)
+  INTRO_CRACKS.forEach(([step, fx, fy, count, length], index) => {
+    const age = p - step * SONG_STEP_SECS;
+    if (age < 0) return;
+    const rnd = makeRng(1000 + index * 17), pieces = 6, shown = reduced ? pieces : Math.ceil(pieces * clamp(age / 0.12, 0, 1)), cracks = [];
+    for (let i = 0; i < count; i++) {
+      let angle = i / count * TAU + rnd() * 0.6, x = fx * w, y = fy * h;
+      const run = length * unit * (0.5 + rnd() * 0.5) / pieces, points = [[x, y]];
+      for (let s = 0; s < pieces; s++) { angle += (rnd() - 0.5) * 1.1; x += Math.cos(angle) * run; y += Math.sin(angle) * run * 0.6; points.push([x, y]); }
+      cracks.push(points.slice(0, shown + 1));
+    }
+    g.globalAlpha = reduced ? clamp(age / 0.4, 0, 1) : 1;
+    for (let pass = 0; pass < 2; pass++) {
+      g.strokeStyle = pass ? 'rgba(160,235,255,0.85)' : '#000'; g.lineWidth = Math.max(1, unit * (pass ? 0.003 : 0.007));
+      g.beginPath();
+      for (const points of cracks) { g.moveTo(points[0][0], points[0][1]); for (let i = 1; i < points.length; i++) g.lineTo(points[i][0], points[i][1]); }
+      g.stroke();
+    }
+  });
+  // the dust the biggest landings throw up off the floor (none on Reduced motion)
+  if (!reduced) INTRO_IMPACTS.forEach(([step, strength], index) => {
+    const age = p - step * SONG_STEP_SECS;
+    if (strength < 0.8 || age < 0 || age >= 1.1) return;
+    const rnd = makeRng(2000 + index);
+    g.fillStyle = '#b8c4dc'; g.globalAlpha = 0.28 * (1 - age / 1.1);
+    for (let i = 0; i < 9; i++) {
+      const side = rnd() * 2 - 1, rise = rnd(), grain = rnd(), lane = rnd();
+      g.beginPath(); g.arc((0.5 + side * 0.4) * w + side * age * unit * 0.2, horizon + (h - horizon) * (0.45 + 0.4 * lane) - rise * age * unit * 0.25 * (1 - age * 0.5), unit * (0.02 + grain * 0.03) * (1 + age * 1.6), 0, TAU); g.fill();
+    }
+  });
+  g.restore();
+  g.globalAlpha = 1;
+  // the dark corners, and the white flash of the biggest landings (the Flashes setting scales it; Reduced motion and Off show none)
+  const dark = g.createRadialGradient(w / 2, h / 2, unit * 0.3, w / 2, h / 2, Math.hypot(w, h) * 0.6);
+  dark.addColorStop(0, 'rgba(0,0,0,0)'); dark.addColorStop(1, 'rgba(0,0,0,0.75)');
+  g.fillStyle = dark; g.fillRect(0, 0, w, h);
+  const flash = reduced ? 0 : Math.min(0.4, introPulse(p, INTRO_FLASH_FROM) * 0.16) * look.flash;
+  if (flash > 0.01) { g.globalAlpha = flash; g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.globalAlpha = 1; }
+}
+const Intro = {
+  phase: 'off', // 'off' (no intro, skipped or over), 'card' (waits for the first press), 'arming' (pressed, waiting for the audio to run), 'play' (the reveal)
+  el: null, canvas: null, g: null, silent: false, pos: 0, wall: 0, armedAt: 0, startedAt: 0, padHeld: [], handlers: [], still: '',
+  // Puts the card up over the live menu; false when a flag asks for no intro. `where` is location.search + location.hash
+  init(where) {
+    if (this.phase !== 'off' || INTRO_FLAG.test(where)) return false;
+    this.build();
+    this.phase = 'card'; this.silent = false; this.pos = 0; this.wall = 0; this.still = ''; this.padHeld = this.padState();
+    this.listen(window);
+    this.lock(true);
+    if (this.el.focus) this.el.focus({ preventScroll: true });
+    this.draw(0);
+    return true;
+  },
+  listen(win) {
+    const add = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.handlers.push([target, type, fn, options]); };
+    add(win, 'keydown', (e) => this.onKey(e), true); // before the menu's own key handling
+    add(this.el, 'pointerdown', (e) => { if (e.isTrusted && this.phase === 'play') this.press(); }); // a skip is the touch itself
+    add(this.el, 'pointerup', (e) => { if (e.isTrusted && this.phase === 'card') this.press(); }); // the card starts on the release: that is the touch a browser accepts as a gesture for the audio
+  },
+  lock(on) { // the menu under the card takes no focus, tap or reader until the intro is over
+    const screens = $('screens');
+    if (!screens || !screens.setAttribute) return;
+    if (on) screens.setAttribute('inert', ''); else screens.removeAttribute('inert');
+  },
+  build() {
+    const el = document.createElement('div');
+    el.id = 'intro'; el.setAttribute('tabindex', '-1'); el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'BREAKPOINT. Press any key or tap to start.');
+    el.innerHTML = '<canvas aria-hidden="true"></canvas><div class="card"><h1 class="logo">BREAKPOINT</h1><p class="press">PRESS ANY KEY OR TAP TO START</p></div><p class="skip">Press any key or tap to skip</p>';
+    $('app').appendChild(el);
+    this.el = el; this.canvas = el.querySelector('canvas'); this.g = this.canvas.getContext('2d');
+  },
+  onKey(e) {
+    if (this.phase === 'off' || !e.isTrusted) return; // a synthetic key (a test) is not a press
+    if (e.ctrlKey || e.metaKey || e.altKey || /^(Shift|Control|Alt|AltGraph|Meta|CapsLock|NumLock|Escape|F\d{1,2})$/.test(e.key)) return; // a shortcut of the browser, and Escape (the browser does not take it as a gesture for the audio), are not a press
+    e.stopPropagation(); e.preventDefault(); // the menu below never sees it
+    if (!e.repeat) this.press();
+  },
+  // The first press of the card starts the reveal (unlocking the audio in the same gesture); a press during the reveal skips it (and the song stops)
+  press() {
+    if (this.phase === 'card') {
+      Sound.unlock();
+      this.phase = 'arming'; this.armedAt = performance.now(); this.el.classList.add('go');
+      this.arm();
+      return true;
+    }
+    if (this.phase === 'play' && performance.now() - this.startedAt >= INTRO_SKIP_GUARD_MS) { this.skip(); return true; }
+    return false;
+  },
+  // Begins once the audio runs (the song from its first step), or without sound when it cannot
+  arm() {
+    if (Sound.ready()) this.begin(!Song.start());
+    else if (Sound.unsupported || performance.now() - this.armedAt >= INTRO_ARM_MS) this.begin(true);
+  },
+  begin(silent) {
+    this.phase = 'play'; this.silent = silent; this.pos = 0; this.wall = 0; this.startedAt = performance.now();
+  },
+  // Every frame (the game's frame event)
+  update(dt) {
+    if (this.phase === 'off') return;
+    this.pollPad();
+    if (this.phase === 'arming') this.arm();
+    if (this.phase === 'play') {
+      const step = Math.min(dt, 0.1);
+      this.wall += step;
+      this.pos = this.silent ? this.pos + step : Math.max(0, Song.position() - (Sound.ctx.outputLatency || 0)); // the audio clock leads: a frozen clock (the audio was interrupted) freezes the picture too
+      if (this.pos >= INTRO_SECS || this.wall >= INTRO_WATCHDOG_SECS) { this.end(INTRO_OUT_MS, false); return; }
+    }
+    if (this.phase === 'play') this.draw(this.pos); else this.draw(0);
+  },
+  skip() { // the song stops; the menu opens in silence
+    if (this.phase === 'off') return;
+    Song.stop();
+    this.end(INTRO_OUT_MS, true);
+  },
+  end(fadeMs, holdClicks) { // the overlay fades out over the menu; a skip by touch keeps it in the way until it is gone, so the end of that tap does not press a menu button
+    this.phase = 'off';
+    for (const [target, type, fn, options] of this.handlers) target.removeEventListener(type, fn, options);
+    this.handlers = [];
+    this.lock(false);
+    const menu = UI.dom.screens, first = menu && menu.querySelector && (menu.querySelector('[data-default]:not([disabled])') || UI.navItems()[0]);
+    if (first && first.focus) first.focus({ preventScroll: true }); // the menu takes the focus the card had
+    const el = this.el;
+    this.el = null;
+    if (!el) return;
+    el.classList.add('out');
+    if (holdClicks) el.classList.add('hold');
+    setTimeout(() => el.remove(), fadeMs);
+  },
+  pollPad() { // a rising edge of any button of any pad
+    const now = this.padState(), held = this.padHeld;
+    this.padHeld = now;
+    if (now.some((buttons, i) => buttons.some((down, b) => down && !(held[i] && held[i][b])))) this.press();
+  },
+  padState() { return Array.from(readPads()).map((pad) => (pad && pad.connected ? Array.from(pad.buttons, (button) => button.pressed) : [])); },
+  draw(p) {
+    const el = this.el;
+    if (!el || !this.g) return;
+    const cw = el.clientWidth || 1, ch = el.clientHeight || 1, scale = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(INTRO_PIXELS_MAX / (cw * ch))), w = Math.max(1, Math.round(cw * scale)), h = Math.max(1, Math.round(ch * scale)), key = w + 'x' + h;
+    if (this.phase !== 'play' && this.still === key) return; // the card's picture stands still: drawn once per size
+    this.still = this.phase === 'play' ? '' : key;
+    if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
+    const v = Settings.v;
+    introFrame(this.g, w, h, p, { reduced: !!v.reducedMotion, shake: Math.min(1, v.shake / SETTING_DEFS.shake.def), flash: v.flashes === 'off' ? 0 : v.flashes === 'reduced' ? FLASH_REDUCED_ALPHA : 1 });
+  },
+};
+
 // --- boot
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 function checkFeatures() {
@@ -19189,6 +19559,7 @@ function installGlobalHandlers() {
   window.addEventListener('blur', () => { Game.pause(null, true); });
   Events.on('settings', () => { Sound.applyVolumes(); });
   Events.on('frame', () => Music.update());
+  Events.on('frame', (e) => Intro.update(e.dt));
 }
 
 async function boot() {
@@ -19211,6 +19582,7 @@ async function boot() {
     status('Ready', 1); await nextFrame();
     Showcase.set('warehouse', 'kai', 'mara', false);
     Diag.startupMs = performance.now() - t0;
+    Intro.init(location.search + location.hash); // the card goes up over the menu that starts below
     Game.go(GS.MENU);
     Game.start();
     Diag.log('info', 'Started in ' + Math.round(Diag.startupMs) + ' ms');
@@ -19229,7 +19601,7 @@ function fatalStartup(msg) {
   $('screens').innerHTML = '';
 }
 
-window.BREAKPOINT = { version: VERSION, selfTest: (only) => UI.runSelfTest(only), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
+window.BREAKPOINT = { version: VERSION, selfTest: (only) => UI.runSelfTest(only), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), skipIntro: () => Intro.skip(), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
 boot();
 
 })();
