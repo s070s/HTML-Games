@@ -14799,7 +14799,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -15056,6 +15056,7 @@ const UI = {
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
+    this.hudBottom = -1;
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
@@ -16230,7 +16231,15 @@ const UI = {
     }
     if (twin) { twin.n++; twin.age = 0; twin.el.textContent = text + ' x' + twin.n; twin.el.style.color = color; twin.el.style.opacity = '1'; return; }
     const p = kind >= POP_KIND_MAX ? oldest : spare || this.pops[this.popIdx++ % this.pops.length];
-    p.lift = this.popFreeStep(p, x, y, z, text) * POP_LIFT_EM;
+    let step = this.popFreeStep(p, x, y, z, text);
+    while (step < 0) { // no room under the HUD: the oldest live pop gives way, until the new one fits (or none is left)
+      let eldest = null;
+      for (const q of this.pops) if (q !== p && q.age <= q.life && (!eldest || q.age > eldest.age)) eldest = q;
+      if (!eldest) { step = 0; break; }
+      eldest.age = eldest.life + 1; eldest.el.style.opacity = '0';
+      step = this.popFreeStep(p, x, y, z, text);
+    }
+    p.lift = step * POP_LIFT_EM;
     p.age = 0; p.life = 0.95; p.x = x; p.y = y; p.z = z; p.text = text; p.n = 1; p.number = number;
     p.el.textContent = text;
     p.el.style.color = color;
@@ -16240,19 +16249,32 @@ const UI = {
     const size = typeof getComputedStyle === 'function' && this.pops[0] && this.pops[0].el.nodeType ? parseFloat(getComputedStyle(this.pops[0].el).fontSize) : 0;
     return size > 0 ? size : 16 * 1.3;
   },
-  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide. */
+  // The lower edge of the HUD (top bars, party row, level line) in CSS px, measured once and kept until a resize or a match start; 0 where there is no layout
+  popHudBottom() {
+    if (this.hudBottom >= 0) return this.hudBottom;
+    const hud = this.dom.hud;
+    if (!hud || hud.hidden || !hud.querySelectorAll) return 0;
+    let bottom = 0;
+    for (const el of hud.querySelectorAll('.hud-top, #party, #modeinfo')) { const r = el.getBoundingClientRect(); if (r.height > 0) bottom = Math.max(bottom, r.bottom); }
+    this.hudBottom = bottom > 0 ? bottom : -1;
+    return bottom;
+  },
+  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. The pile may not climb into the HUD: a step is allowed only while the pop, at the top of its rise, still has its whole rectangle under the HUD's lower edge; a step 0 that is blocked too gives -1. -1 = no free step within that room (the caller drops the oldest pop). Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide, as before, with no HUD limit. */
   popFreeStep(p, x, y, z, text) {
-    const px = this.popFontPx(), here = [0, 0], there = [0, 0], seen = R.project(x, y, z, here), boxes = [];
+    const px = this.popFontPx(), here = [0, 0], there = [0, 0], top = [0, 0], seen = R.project(x, y, z, here), boxes = [], stepPx = POP_LIFT_EM * px;
     let taken = 0;
     for (const q of this.pops) {
       if (q === p || q.age > q.life) continue;
       if (seen && R.project(q.x, q.y + q.age / q.life * POP_RISE, q.z, there)) boxes.push([there[0], there[1] - q.lift * px, q.el.textContent.length * POP_CHAR_EM * px / 2]);
       else if (Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR) taken |= 1 << Math.round(q.lift / POP_LIFT_EM);
     }
-    const halfWidth = text.length * POP_CHAR_EM * px / 2, halfHeight = POP_LIFT_EM * px; // two rectangles one step high touch at one step
+    const halfWidth = text.length * POP_CHAR_EM * px / 2;
+    const hudBottom = seen ? this.popHudBottom() : 0, rise = seen && R.project(x, y + POP_RISE, z, top) ? here[1] - top[1] : 0;
+    const lastStep = hudBottom > 0 ? Math.max(0, Math.floor((here[1] - rise - hudBottom - stepPx * 0.65) / stepPx)) : this.pops.length - 1; // 0.65: half a rectangle and the 1.25 scale of a new pop
+    const blocked = (step) => (taken >> step & 1) === 1 || boxes.some((b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth && Math.abs(b[1] - (here[1] - step * stepPx)) < stepPx); // two rectangles one step high touch at one step
     let step = 0;
-    while (step < this.pops.length - 1 && (taken >> step & 1 || boxes.some((b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth && Math.abs(b[1] - (here[1] - step * POP_LIFT_EM * px)) < halfHeight))) step++;
-    return step;
+    while (step < lastStep && blocked(step)) step++;
+    return blocked(step) ? -1 : step;
   },
   frame(m) {
     const d = this.dom;
@@ -17963,6 +17985,7 @@ function installGlobalHandlers() {
       const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if (!typing && (window.scrollX || window.scrollY)) window.scrollTo(0, 0);
       Quality.apply();
+      UI.hudBottom = -1; // the HUD may have moved: measured again at the next hit word
     });
   };
   window.addEventListener('resize', queueResize);
