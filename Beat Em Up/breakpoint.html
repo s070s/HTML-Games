@@ -205,7 +205,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
 #grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
 #onboard{position:absolute;left:50%;top:7.4em;transform:translateX(-50%);width:max-content;max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.75);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
-#onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em;column-span:all}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em;column-span:all}
+#onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em;column-span:all}#onboard div{break-inside:avoid}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em;column-span:all}
 @media (orientation:portrait){#onboard{top:calc(10.2*16px*var(--ui));font-size:min(.72em,3vw);line-height:1.35;padding:.5em .8em}}
 @media (max-height:520px) and (orientation:landscape){#onboard{columns:3;column-gap:1.2em;max-width:80vw;font-size:.75em;line-height:1.3;padding:.3em .8em}}
 #grappleHint.go,#grappleHint2.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
@@ -224,7 +224,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 #training.touch{right:calc(2vmin + var(--tbs)*.8 + .9em)} /* with touch controls the II button sits top right (TOUCH_LAYOUT pause slot); the panel moves left of it */
 #training b{color:var(--a1)}
 #modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
-@supports (paint-order:stroke fill){#roundlbl,#modeinfo{-webkit-text-stroke:3px #000;paint-order:stroke fill}} /* an outline only where the stroke goes behind the glyphs */
+#roundlbl,#modeinfo{text-shadow:-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 0 4px #000} /* a ring of shadows round the glyphs: an outline without -webkit-text-stroke, which eats the glyphs where paint-order is not honoured on HTML text (Chromium before 123, older Safari) */
 @media (orientation:portrait){#modeinfo{top:9.4em;max-height:2.7em;overflow:hidden;line-height:1.3;padding:0 4.5em}.hname .cpu{display:none}.hname.long{font-size:.9em}} /* upright phone: the level line under the item row, the right name without CPU (the pink bar says it) */
 #pauseBtn{position:absolute;right:.9em;bottom:1em;pointer-events:auto;font:inherit;font-weight:800;padding:.35em .9em;min-width:44px;min-height:44px;background:rgba(0,0,0,.6);color:#fff;border:2px solid #fff;border-radius:.4em;cursor:pointer;letter-spacing:.1em}
 /* name tags and damage pops use canvas coordinates: undo the HUD's safe-area inset */
@@ -991,7 +991,7 @@ const COACH_TIPS = [
   { key: 'item', text: (k) => k('use') + ' picks it up. Hit with it, or throw it.' },
   { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
 ];
-const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 0.9, POP_KIND_MAX = 4;
+const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 0.9, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life
 const HUD_NAME_LONG = 9;
 const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
 const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
@@ -1871,7 +1871,7 @@ function buildShard() {
   return { v: new Float32Array(v), i: new Uint16Array(idx) };
 }
 
-const FOOTING_REACH = 1; // m: how far a raised shadow plane must have the same footing (Arena.flatFooting)
+const FOOTING_REACH = 1; // m: how far round a standing body a raised shadow plane must have the same footing, plus the throw of the shadow at the body's height in the air (Arena.flatFooting)
 const SHADOW_TINT = 0.35, SHADOW_TINT_ALPHA = 0.38, SHADOW_SOFT_TURN = 0.06, SHADOW_SOFT_ALPHA = 0.26; // shadow: floor colour x 0.35 at 38 % (high: two at 26 %, light turned 0.06 rad each way)
 const FACE_GRID = 8, FACE_CELL = 64; // the face atlas: 8 x 8 cells of 64 px
 // uMode: 0 = lit objects, 1 = planar shadow, 2 = floor
@@ -3286,16 +3286,19 @@ function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assi
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 
-/* Wall dressing (P30-07/08): `d` = the lowest preset that draws a box (6/10/14 dressing + 3 skirting + 2/4/6 signs); no `lamp`, no shadow. Skirting, signs and doors stand 0.04 to 0.12 m out of the wall (under 2.2 m high that is as far as the walking room allows), the ducts and pipes 0.44 m, above head height.
-   Level: [back wall z, side wall x (0 = none), wall height, light, dark, sign colour, extras: recess [x0, x1, dz] (a part of the back wall set back by dz), duct (its height), door (the left door's x)] */
+/* Wall dressing (P30-07/08): `d` = the lowest preset that draws a box (11, 17 and 23 boxes, 9, 15 and 21 where the level has no side wall); no `lamp`, no shadow. Seen from the room no two boxes of one wall overlap (the Wall dressing test checks it): skirting and doors meet at 0.28 m, the pipe stops at the pilasters, doors, windows, notice board, vent signs and pilasters stand in their own columns, the posters in a row under the windows (0.45 to 1.45 m). Skirting, signs and doors stand 0.04 to 0.12 m out of the wall (under 2.2 m high that is as far as the walking room allows), the ducts and pipes 0.44 m, above head height.
+   Level: [back wall z, side wall x (0 = none), wall height, light, dark, sign colour, extras: recess [x0, x1, dz] (a part of the back wall set back by dz), duct (its height), doors [left x, right x], windows [x of two on tier 1, then two on tier 2], vents [left x, right x]] */
 const WALL_DRESS = {
-  warehouse: [-6.6, 11.6, 7, '#8a919c', '#2c3036', '#ffb347'], dojo: [-6.1, 10.1, 6, '#f4f4f0', '#2b3a4a', '#d6303f', { door: 2.6 }], pit: [-6.6, 10.1, 4, '#6d727a', '#16171a', '#f08a30'], rooftop: [-7.3, 0, 3.6, '#6a707a', '#22252c', '#ff8a3a'],
+  warehouse: [-6.6, 11.6, 7, '#8a919c', '#2c3036', '#ffb347'], dojo: [-6.1, 10.1, 6, '#f4f4f0', '#2b3a4a', '#d6303f', { doors: [2.6, 8.2], windows: [-3.2, 5.5, -5.7, -8.1], vents: [-1.4, 4.2] }], pit: [-6.6, 10.1, 4, '#6d727a', '#16171a', '#f08a30'], rooftop: [-7.3, 0, 3.6, '#6a707a', '#22252c', '#ff8a3a'],
   subway: [-6.6, 12.1, 6.4, '#f4f6f8', '#1f5f8f', '#ffd24a'], garage: [-7.1, 11.6, 4.4, '#9a9d9a', '#2a2a2a', '#f0c030'], construction: [-7.1, 0, 7, '#9a9a94', '#3a3a38', '#e0a000'],
   club: [-7.1, 11.1, 6, '#2a2438', '#1b0f3a', '#ff3fae', { recess: [-10.9, -6.5, -0.6], duct: 5.72 }],
 };
+const DRESS_SKIRT = 0.28, DRESS_DOOR_TOP = 2.2, DRESS_POSTER_Y = 0.95; // m: skirting height, door height, centre of the poster row
 function dressWalls(p, id) {
   if (!WALL_DRESS[id]) return; // a test level
-  const [z, xs, top, light, dark, sign, more = {}] = WALL_DRESS[id], wide = xs || 11, high = more.duct || top - (top < 5 ? 0.4 : 0.8), mid = top * 0.55, post = Math.min(2, mid + 0.2), doorL = more.door === undefined ? -7 : more.door, rc = more.recess;
+  const [z, xs, top, light, dark, sign, more = {}] = WALL_DRESS[id], wide = xs || 11, high = more.duct || top - (top < 5 ? 0.4 : 0.8), mid = top * 0.55, rc = more.recess;
+  const [doorL, doorR] = more.doors || [-7, 8.2], [winA, winB, winC, winD] = more.windows || [-2, 2, -4.9, 4.9], [ventL, ventR] = more.vents || [-3.3, 3.3];
+  const tall = top - DRESS_SKIRT, tallY = (top + DRESS_SKIRT) / 2; // pilasters and posts stand on the skirting
   const back = (d, x, y, depth, w, h, color, e) => { // on the back wall; over the recess a box goes onto the set-back face (or is cut to the part outside it)
     let lo = x - w / 2, hi = x + w / 2, dz = 0;
     if (rc && hi > rc[0] && lo < rc[1]) {
@@ -3305,20 +3308,17 @@ function dressWalls(p, id) {
   };
   const side = (d, s, y, depth, len, h, color) => propBox(p, s * (xs - depth / 2), y, -0.4, depth, h, len, color, { d });
   if (id === 'rooftop') propBox(p, 0, top / 2, z - 0.2, 30, top, 0.4, '#2e333c'); // the open roof has no wall: a plant-room wall behind the parapet carries the dressing
-  back(1, 0, high, 0.44, 20, 0.44, dark); back(1, 0, 1.1, 0.1, 20, 0.1, light);
-  back(1, doorL, 1.1, 0.08, 1.4, 2.2, dark); back(1, 8.2, 1.1, 0.08, 1.4, 2.2, dark);
-  back(1, -3.4, mid, 0.06, 2.4, 0.9, '#9db4c8', 0.3); back(1, 5.5, mid, 0.06, 2.4, 0.9, '#9db4c8', 0.3);
+  back(1, 0, high, 0.44, 18, 0.44, dark); back(1, 0, DRESS_SKIRT / 2, 0.1, 2 * wide - 0.4, DRESS_SKIRT, dark);
+  for (const x of [doorL, doorR]) back(1, x, (DRESS_SKIRT + DRESS_DOOR_TOP) / 2, 0.08, 1.4, DRESS_DOOR_TOP - DRESS_SKIRT, dark);
+  back(1, doorL, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2); back(2, doorR, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2);
+  [[1, winA], [1, winB], [2, winC], [2, winD]].forEach(([d, x]) => back(d, x, mid, 0.06, 2, 0.9, '#9db4c8', 0.3));
+  back(1, 0, 2, 0.05, 1.6, 1, light); // the notice board
+  [[1, -3.5], [2, 5.5], [3, -8.4], [3, 0.5]].forEach(([d, x]) => back(d, x, DRESS_POSTER_Y, 0.04, 1, 1, sign, 0.6));
+  back(3, ventL, 1.7, 0.1, 0.3, 0.3, sign, 1.6); back(3, ventR, 1.7, 0.1, 0.3, 0.3, sign, 1.6);
   for (const s of [-1, 1]) {
-    if (xs) side(2, s, high, 0.44, 12, 0.44, dark); else back(2, s * (wide - 1), top / 2, 0.12, 0.2, top, dark);
-    back(2, s * 8, mid, 0.06, 2.4, 0.9, '#9db4c8', 0.3);
-    back(3, s * 1.6, 1.7, 0.1, 0.3, 0.3, sign, 1.6);
-    back(3, s * 9.4, top / 2, 0.12, 0.5, top, light);
+    back(3, s * 9.4, tallY, 0.12, 0.5, tall, light);
+    if (xs) { side(2, s, high, 0.44, 12, 0.44, dark); side(1, s, 0.14, 0.1, 14, DRESS_SKIRT, dark); } else back(2, s * (wide - 1), tallY, 0.12, 0.2, tall, dark);
   }
-  back(1, -wide * 0.45, post, 0.04, 1, 1.2, sign, 0.6); back(1, doorL, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2);
-  back(2, wide * 0.45, post, 0.04, 1, 1.2, sign, 0.6); back(2, 8.2, 2.45, 0.09, 0.5, 0.22, '#2fbf71', 1.2);
-  back(3, -wide * 0.8, post, 0.04, 1, 1.2, sign, 0.6); back(3, wide * 0.8, post, 0.04, 1, 1.2, sign, 0.6);
-  back(1, 0, 0.14, 0.1, 2 * wide - 0.4, 0.28, dark);
-  for (const s of [-1, 1]) if (xs) side(1, s, 0.14, 0.1, 14, 0.28, dark); else back(1, s * wide / 2, 1.05, 0.05, wide - 1, 0.1, dark);
 }
 
 function buildProps(id) {
@@ -3885,10 +3885,16 @@ const Arena = {
   },
 
   // Height of the footing under a fighter's cylinder at (x, z) standing at height y: resolveFighter's groundY rule without moving anything (AI edge checks)
-  // The height a shadow plane may sit at over (x, z): h where the footing is the same at the four corners FOOTING_REACH away, else 0 (the plane would float past a deck edge or over lower stair treads)
-  flatFooting(x, z, h, r) {
+  // How far the level's light throws a shadow sideways per metre of height above the shadow plane (the slant of lightTo)
+  shadowThrow() {
+    const L = (this.def && this.def.env || DEFAULT_ENV).lightTo;
+    return Math.hypot(L[0], L[2]) / Math.max(L[1], 0.1);
+  },
+  // The height a shadow plane may sit at over (x, z): h where the footing is the same at the four corners FOOTING_REACH away, widened by the throw of the shadow at the height `air` above the footing (a jump throws it past the deck edge), else 0 (the plane would float past a deck edge or over lower stair treads)
+  flatFooting(x, z, h, r, air = 0) {
     if (h < 0.02) return 0;
-    for (let k = 0; k < 4; k++) if (Math.abs(this.supportAt(x + (k & 1 ? FOOTING_REACH : -FOOTING_REACH), z + (k & 2 ? FOOTING_REACH : -FOOTING_REACH), h + 0.3, r) - h) > 0.02) return 0;
+    const reach = FOOTING_REACH + this.shadowThrow() * Math.max(air, 0);
+    for (let k = 0; k < 4; k++) if (Math.abs(this.supportAt(x + (k & 1 ? reach : -reach), z + (k & 2 ? reach : -reach), h + 0.3, r) - h) > 0.02) return 0;
     return h;
   },
   supportAt(x, z, y, r, item) {
@@ -7205,7 +7211,7 @@ class Fighter {
     const px = lerp(this.prevX, this.x, alpha), py = lerp(this.prevY, this.y, alpha) + this.liftY, pz = lerp(this.prevZ, this.z, alpha);
     const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
     const footing = Math.min(this.groundY, py); // the surface under the fighter, also in the air
-    CAST_SLOT = 1 + Arena.flatFooting(px, pz, footing, this.radius);
+    CAST_SLOT = 1 + Arena.flatFooting(px, pz, footing, this.radius, py - footing);
     try { this.skeleton(px, py, pz, yaw, true); } finally { CAST_SLOT = 1; }
     if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, (py - footing) * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team
@@ -14940,12 +14946,11 @@ const UI = {
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
     const p1 = Game.match && Game.match.fighters[0]; // the card opens with the fight, so it can name this fighter's defense
     const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
-    return '<h3>CONTROLS</h3>' + move + '<br>' +
-      named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' +
-      named('Defend', 'defend') + ' ' + defendHow + '<br>' +
-      named('Grab / escape', 'grapple') + '<br>' +
-      named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
-      'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings<small>' + close + '</small>';
+    // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
+    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '</div>' +
+      '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
+      '<div>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
+      'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
   },
   // True when this fight starts with an input type that has not seen its card yet
   controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
@@ -16215,27 +16220,40 @@ const UI = {
     const t = e.broke ? 'GUARD BREAK!' : e.brk ? 'COMBO BREAK!' : e.sway ? (e.perfect ? 'PERFECT SWAY!' : 'SWAY') : e.perfect ? 'PERFECT BLOCK!' : 'BLOCK';
     this.popAt(e.x, e.y + 0.1, e.z, t, e.broke ? '#ffb347' : e.brk ? CUE_COLOR.brk : '#9cf4ff');
   },
-  /* Same text again within POP_MERGE_SECONDS and POP_NEAR restarts the earlier pop ("x2"); a pop near live ones takes the lowest free step of POP_LIFT_EM; at most POP_KIND_MAX words and numbers each */
+  /* Same text again within POP_MERGE_SECONDS and POP_NEAR restarts the earlier pop ("x2"); else the pop takes the lowest step of POP_LIFT_EM whose rectangle on screen touches no live pop (where the others are now, risen and lifted, not where they started); at most POP_KIND_MAX words and numbers each */
   popAt(x, y, z, text, color) {
     const number = /^\d/.test(text), near = (q) => Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR;
-    let twin = null, kind = 0, oldest = null, spare = null, used = 0; // used: the lifts (in steps) of the live pops near this one
+    let twin = null, kind = 0, oldest = null, spare = null;
     for (const q of this.pops) {
       if (q.age > q.life) { if (!spare) spare = q; continue; }
-      const close = near(q);
-      if (close) used |= 1 << Math.round(q.lift / POP_LIFT_EM);
-      if (close && !twin && q.text === text && q.age <= POP_MERGE_SECONDS) twin = q;
+      if (!twin && near(q) && q.text === text && q.age <= POP_MERGE_SECONDS) twin = q;
       if (q.number === number) { kind++; if (!oldest || q.age > oldest.age) oldest = q; }
     }
     if (twin) { twin.n++; twin.age = 0; twin.el.textContent = text + ' x' + twin.n; twin.el.style.color = color; twin.el.style.opacity = '1'; return; }
     const p = kind >= POP_KIND_MAX ? oldest : spare || this.pops[this.popIdx++ % this.pops.length];
-    if (p.age <= p.life && near(p)) used &= ~(1 << Math.round(p.lift / POP_LIFT_EM)); // the pop being reused frees its own step
-    let step = 0;
-    while (used >> step & 1) step++; // the lowest free step
-    p.lift = step * POP_LIFT_EM;
+    p.lift = this.popFreeStep(p, x, y, z, text) * POP_LIFT_EM;
     p.age = 0; p.life = 0.95; p.x = x; p.y = y; p.z = z; p.text = text; p.n = 1; p.number = number;
     p.el.textContent = text;
     p.el.style.color = color;
     p.el.style.opacity = '1';
+  },
+  popFontPx() { // the size of one pop's text in CSS px
+    const size = typeof getComputedStyle === 'function' && this.pops[0] && this.pops[0].el.nodeType ? parseFloat(getComputedStyle(this.pops[0].el).fontSize) : 0;
+    return size > 0 ? size : 16 * 1.3;
+  },
+  /* The lowest step (of POP_LIFT_EM) for a new pop at world (x, y, z): a step is free when the new rectangle (the text's width, one step high) overlaps no live pop's rectangle on screen. The older pops are taken where they are now (they have risen POP_RISE over their life), all rise alike, so the gap holds. Without a projection (behind the camera, headless) the world distance of POP_NEAR and the steps taken decide. */
+  popFreeStep(p, x, y, z, text) {
+    const px = this.popFontPx(), here = [0, 0], there = [0, 0], seen = R.project(x, y, z, here), boxes = [];
+    let taken = 0;
+    for (const q of this.pops) {
+      if (q === p || q.age > q.life) continue;
+      if (seen && R.project(q.x, q.y + q.age / q.life * POP_RISE, q.z, there)) boxes.push([there[0], there[1] - q.lift * px, q.el.textContent.length * POP_CHAR_EM * px / 2]);
+      else if (Math.hypot(q.x - x, q.y - y, q.z - z) <= POP_NEAR) taken |= 1 << Math.round(q.lift / POP_LIFT_EM);
+    }
+    const halfWidth = text.length * POP_CHAR_EM * px / 2, halfHeight = POP_LIFT_EM * px; // two rectangles one step high touch at one step
+    let step = 0;
+    while (step < this.pops.length - 1 && (taken >> step & 1 || boxes.some((b) => Math.abs(b[0] - here[0]) < b[2] + halfWidth && Math.abs(b[1] - (here[1] - step * POP_LIFT_EM * px)) < halfHeight))) step++;
+    return step;
   },
   frame(m) {
     const d = this.dom;
@@ -16339,7 +16357,7 @@ const UI = {
       p.age += 1 / 60;
       const u = p.age / p.life;
       if (u >= 1) { p.el.style.opacity = '0'; continue; }
-      if (R.project(p.x, p.y + u * 0.6, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) translateY(-' + p.lift + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
+      if (R.project(p.x, p.y + u * POP_RISE, p.z, out)) p.el.style.transform = 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-50%) translateY(-' + p.lift + 'em) scale(' + (1 + (1 - u) * 0.25).toFixed(2) + ')';
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
@@ -17716,7 +17734,7 @@ function testApi() {
     ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
     BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
     CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
-    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
+    CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, CONTROL_CARD_KINDS, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,

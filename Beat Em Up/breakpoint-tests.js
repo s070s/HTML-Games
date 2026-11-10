@@ -9,7 +9,7 @@ window.BREAKPOINT_TESTS = function (api) {
 const {
   ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
-  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
+  ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_CHAR_EM, POP_RISE, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
   BOOST_DAMAGE_MULT, BOOST_TICKS, BRAWL_MAX_ENEMIES, BUILD_MAX, BUILD_MIN, BUILD_STEP, CAMERA_CHEST, CAMERA_EDGE_PAD,
   CAMERA_FIGHTER_HEIGHT, CAMERA_OCCLUSION_GRACE, CAMERA_THREAT_LEAVE, CAMERA_THREAT_RANGE, CB, CLASSIC_STYLE_IDS, CLINCH_MOVES,
   CLINCH_STRIKE_ANIM_TICKS, CLINCH_STRIKE_COOLDOWN, CLINCH_STRIKE_MAX, CLINCH_STRIKE_POSES, CONTROL_CARD_KINDS, COOP_MAX_PLAYERS, CROWD_HITSTOP_MAX,
@@ -14211,12 +14211,16 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- graphics polish (P18-31, the P18-30 list): everything here is drawn only; the sim reads none of it ---------- */
-    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a pop near live ones takes the lowest free step of 0.9 em; at most 4 words and 4 numbers live, and the 16 elements stay', () => {
-      const bad = [], keep = { pops: UI.pops, idx: UI.popIdx };
+    test('Hit words (P30-11): the same word again within 0.4 s and 0.5 m restarts the earlier one with an "x2"; a new pop takes the lowest step of 0.9 em whose rectangle on screen touches no live pop (older pops counted where they have risen to, words close on screen though apart in the world included); at most 4 words and 4 numbers live, and the 16 elements stay', () => {
+      const bad = [], keep = { pops: UI.pops, idx: UI.popIdx, project: R.project, fontPx: UI.popFontPx };
       const fresh = () => Array.from({ length: 16 }, () => ({ el: { style: {}, textContent: '' }, age: 99, life: 1, x: 0, y: 0, z: 0, text: '', n: 1, number: false, lift: 0 }));
       const live = () => UI.pops.filter((q) => q.age <= q.life), find = (text) => live().find((q) => q.text === text);
       const tick = () => { for (const q of live()) q.age += 0.05; };
+      const FONT = 20, STEP = POP_LIFT_EM * FONT;   // a stand-in for the camera: 100 px to the metre, the text 20 px high
+      const centre = (q) => [640 + q.x * 100, 500 - (q.y + q.age / q.life * POP_RISE) * 100 - q.lift * FONT], halfWidth = (q) => q.el.textContent.length * POP_CHAR_EM * FONT / 2;
+      const clash = () => { const all = live(); for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) { const a = centre(all[i]), c = centre(all[j]); if (Math.abs(a[0] - c[0]) < halfWidth(all[i]) + halfWidth(all[j]) && Math.abs(a[1] - c[1]) < STEP) return all[i].text + ' and ' + all[j].text; } return ''; };
       try {
+        R.project = (x, y, z, out) => { out[0] = 640 + x * 100; out[1] = 500 - y * 100; return true; }; UI.popFontPx = () => FONT;
         UI.pops = fresh(); UI.popIdx = 0;
         UI.popAt(0, 1, 0, 'COUNTER 7', '#fc0'); find('COUNTER 7').age = 0.3;
         UI.popAt(0.3, 1, 0, 'COUNTER 7', '#fc0');
@@ -14225,12 +14229,27 @@ const SelfTest = {
         UI.popAt(0.2, 1, 0, 'COUNTER 7', '#fc0');
         if (live().length !== 1 || first.el.textContent !== 'COUNTER 7 x3') bad.push('no x3');
         UI.popAt(0, 1, 0, '10', '#fff');
-        if (live().length !== 2 || find('10').lift !== POP_LIFT_EM || POP_LIFT_EM !== 0.9 || first.lift !== 0) bad.push('a pop next to another is not lifted: ' + find('10').lift);
-        first.age = 0.5; // too late to merge: a new pop above the other two
-        UI.popAt(0, 1, 0, 'COUNTER 7', '#fc0');
-        if (live().length !== 3 || live().filter((q) => q.text === 'COUNTER 7' && q.n === 1)[0].lift !== POP_LIFT_EM * 2) bad.push('a late twin does not stack: ' + live().map((q) => q.text + ':' + q.lift));
-        UI.popAt(0.9, 1, 0, 'COUNTER 7', '#fc0');
-        if (live().length !== 4 || live().some((q) => q.x === 0.9 && q.lift !== 0)) bad.push('a pop 0.9 m away is lifted or merged');
+        if (live().length !== 2 || find('10').lift !== POP_LIFT_EM || POP_LIFT_EM !== 0.9 || POP_CHAR_EM !== 0.6 || first.lift !== 0) bad.push('a pop next to another is not lifted: ' + find('10').lift);
+        UI.popAt(0.9, 1, 0, 'COUNTER 6', '#fc0');   // 0.9 m away but 90 px: the two words are 126 px half-widths apart, so it must go up
+        if (live().length !== 3 || find('COUNTER 6').lift === 0 || clash()) bad.push('a word close on screen is not lifted: ' + live().map((q) => q.text + ':' + q.lift) + ' ' + clash());
+        UI.popAt(3, 1, 0, 'COUNTER 5', '#fc0');   // 3 m away: 300 px, clear
+        if (find('COUNTER 5').lift !== 0) bad.push('a pop far away is lifted');
+        UI.pops = fresh(); UI.popIdx = 0;   // an older pop has risen: a new one at its start spot sits below it, not on top of the pile
+        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.5;   // 0.316 m up, 32 px: more than the 18 px step
+        UI.popAt(0, 1, 0, 'OTHER', '#fff');
+        if (find('OTHER').lift !== 0 || clash()) bad.push('a pop beside a risen one: ' + live().map((q) => q.text + ':' + q.lift));
+        UI.pops = fresh(); UI.popIdx = 0;
+        UI.popAt(0, 1, 0, 'WORD', '#fff'); find('WORD').age = 0.1;   // risen only 6 px: the new one must clear it
+        UI.popAt(0, 1, 0, 'OTHER', '#fff');
+        if (find('OTHER').lift === 0 || clash()) bad.push('a pop over a young one: ' + live().map((q) => q.text + ':' + q.lift));
+        UI.pops = fresh(); UI.popIdx = 0;   // a burst of words and numbers at slightly different spots and times: none ever covers another
+        const burst = [['COUNTER 7', 0, 1.1], ['11', 0.15, 1.1], ['5', 0.3, 1.2], ['COUNTER 6', 0.2, 1.1], ['9', 0.05, 1.3], ['BLOCK', 0.5, 1.1], ['12', 0.1, 1], ['COUNTER 7', 0.45, 1.2], ['7', 0.2, 1.1], ['SWAY', 0.4, 1.1], ['11', 0.3, 1.15]];
+        burst.forEach(([text, dx, y], k) => { tick(); tick(); UI.popAt(dx, y, 0, text, '#fff'); if (clash()) bad.push('burst ' + k + ': ' + clash()); });
+        UI.pops = fresh(); UI.popIdx = 0;   // without a projection (behind the camera): the world distance and the steps taken, as before
+        R.project = () => false;
+        for (const text of ['ONE', 'TWO', 'THREE']) UI.popAt(0, 1, 0, text, '#fff');
+        if (live().map((q) => q.text + ':' + q.lift).sort().join() !== 'ONE:0,THREE:1.8,TWO:0.9') bad.push('no projection: ' + live().map((q) => q.text + ':' + q.lift));
+        R.project = (x, y, z, out) => { out[0] = 640 + x * 100; out[1] = 500 - y * 100; return true; };
         UI.pops = fresh(); UI.popIdx = 0;   // a lower pop ending frees its step: the next one takes it, not the top of the pile
         for (const text of ['ONE', 'TWO', 'THREE']) UI.popAt(0, 1, 0, text, '#fff');
         live().find((q) => q.text === 'ONE').age = 99;
@@ -14241,17 +14260,18 @@ const SelfTest = {
         const words = live().filter((q) => !q.number).map((q) => q.text).sort().join(), numbers = live().filter((q) => q.number).map((q) => q.text).sort().join();
         if (POP_KIND_MAX !== 4 || words !== 'WORD 2,WORD 3,WORD 4,WORD 5' || numbers !== '12,13,14,15') bad.push('caps: ' + words + ' | ' + numbers);
         if (UI.pops.length !== 16) bad.push('the 16 elements changed');
-      } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; }
+      } finally { UI.pops = keep.pops; UI.popIdx = keep.idx; R.project = keep.project; UI.popFontPx = keep.fontPx; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (6 / 10 / 14 and 3 + 2 / 4 / 6), each against a wall face within the wall height and not buried in or flush with another box, none a shadow caster or a lamp, the 21 swinging lights the same, and the preset decides how many are drawn', () => {
-      const bad = [], put = R.put, keep = { limits: Quality.limits, def: Arena.def }, lampsOf = { warehouse: 5, dojo: 4, subway: 5, garage: 4, pit: 3 }, near = (a, b) => Math.abs(a - b) < 0.015;
+    test('Wall dressing (P30-07, P30-08): every level carries 11, 17 and 23 dressing boxes for low, medium and high (9, 15 and 21 on the two levels without a side wall), each against a wall face within the wall height and no two overlapping on their wall as seen from the room, none a shadow caster or a lamp, the 21 swinging lights the same, and the preset decides how many are drawn', () => {
+      const bad = [], put = R.put, keep = { limits: Quality.limits, def: Arena.def }, lampsOf = { warehouse: 5, dojo: 4, subway: 5, garage: 4, pit: 3 }, noSideWall = ['rooftop', 'construction'], near = (a, b) => Math.abs(a - b) < 0.015;
       let lamps = 0;
       try {
         for (const id of ARENA_ORDER) {
           Arena.build(ARENAS[id]);
           const dressing = Arena.props.filter((p) => p.d), upTo = (tier) => dressing.filter((p) => p.d <= tier).length;
-          if (dressing.length !== 23 || upTo(1) !== 11 || upTo(2) !== 17 || upTo(3) !== 23) bad.push(id + ' has ' + [upTo(1), upTo(2), upTo(3)]);
+          const want = noSideWall.includes(id) ? [9, 15, 21] : [11, 17, 23];
+          if (dressing.length !== want[2] || upTo(1) !== want[0] || upTo(2) !== want[1] || upTo(3) !== want[2]) bad.push(id + ' has ' + [upTo(1), upTo(2), upTo(3)] + ', not ' + want);
           if (dressing.some((p) => p.cast !== false || p.lamp || p.l !== LAYER.SOLID || p.a !== 1)) bad.push(id + ': a dressing box casts a shadow, is a lamp or is not plain solid');
           if (Arena.lamps.length !== (lampsOf[id] || 0)) bad.push(id + ' has ' + Arena.lamps.length + ' lights');
           lamps += Arena.lamps.length;
@@ -14263,12 +14283,12 @@ const SelfTest = {
               : w.sz <= 0.6 && w.sx >= 1 && near(b.z - b.sz / 2, w.z + w.sz / 2) && Math.abs(b.x - w.x) + b.sx / 2 <= w.sx / 2 + 0.02) && b.y + b.sy / 2 <= w.y + w.sy / 2 + 0.02 && b.y - b.sy / 2 >= w.y - w.sy / 2 - 0.02);
             if (!wall) bad.push(tag + ' touches no wall face');
           }
-          const span = (p) => [[p.x - p.sx / 2, p.x + p.sx / 2], [p.y - p.sy / 2, p.y + p.sy / 2], [p.z - p.sz / 2, p.z + p.sz / 2]];
-          for (let i = 0; i < dressing.length; i++) for (let j = 0; j < dressing.length; j++) {   // no box inside another, no two faces on one plane over the same area (z-fighting)
-            if (i === j) continue;
-            const a = span(dressing[i]), c = span(dressing[j]);
-            if (i < j && [0, 1, 2].every((k) => a[k][0] >= c[k][0] - 0.005 && a[k][1] <= c[k][1] + 0.005)) bad.push(id + ': a box is inside another at ' + dressing[i].x.toFixed(1) + ',' + dressing[i].y.toFixed(1));
-            if (i < j && [[0, 1, 2], [2, 1, 0]].some(([along, up, out]) => near(a[out][1], c[out][1]) && Math.min(a[along][1], c[along][1]) - Math.max(a[along][0], c[along][0]) > 0.01 && Math.min(a[up][1], c[up][1]) - Math.max(a[up][0], c[up][0]) > 0.01)) bad.push(id + ': two boxes share a front face at ' + dressing[i].x.toFixed(1) + ',' + dressing[i].y.toFixed(1));
+          const wallOf = (p) => (p.sx <= 0.5 && p.sz >= 10 ? (p.x > 0 ? 'right' : 'left') : 'back');   // the wall a box stands on
+          const rect = (p) => (wallOf(p) === 'back' ? [p.x - p.sx / 2, p.x + p.sx / 2] : [p.z - p.sz / 2, p.z + p.sz / 2]).concat([p.y - p.sy / 2, p.y + p.sy / 2]);   // as seen from the room: along the wall, then up (the depth does not matter: a box in front of another hides it)
+          for (let i = 0; i < dressing.length; i++) for (let j = i + 1; j < dressing.length; j++) {   // every pair on one wall, either one in front: the rectangles must not share any area
+            if (wallOf(dressing[i]) !== wallOf(dressing[j])) continue;
+            const first = rect(dressing[i]), second = rect(dressing[j]);
+            if (Math.min(first[1], second[1]) - Math.max(first[0], second[0]) > 0.01 && Math.min(first[3], second[3]) - Math.max(first[2], second[2]) > 0.01) bad.push(id + ': two boxes overlap on the ' + wallOf(dressing[i]) + ' wall at ' + first.map((v) => v.toFixed(2)) + ' and ' + second.map((v) => v.toFixed(2)));
           }
           const drawn = (level) => { let n = 0; R.put = () => { n++; }; Quality.limits = Object.assign({}, keep.limits, { dress: QUALITY_PRESETS[level].dress }); Arena.lodTick = 1; Arena.draw(); return n; };
           const low = drawn('low'), medium = drawn('medium'), high = drawn('high');
@@ -14278,7 +14298,7 @@ const SelfTest = {
       if (lamps !== 21) bad.push(lamps + ' lights in all');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Shadow height (P30-03): the shadow plane is 1 + the footing height only over flat footing (the same at four corners 1 m round): a fighter inside the Warehouse dock casts at 2, one near its edge, one in the air beside it (falling off) and one on the floor at 1; blob and team disc sit on the surface under the fighter; objects on a deck follow the same rule', () => {
+    test('Shadow height (P30-03): the shadow plane is 1 + the footing height only over flat footing (the same at four corners 1 m round, more the higher the fighter is in the air: the shadow is thrown sideways): a fighter inside the Warehouse dock casts at 2, one jumping a little there still at 2, one jumping high (the shadow reaches past the edge) at 1, one near its edge, one in the air beside it (falling off) and one on the floor at 1; blob and team disc sit on the surface under the fighter; objects on a deck follow the same rule', () => {
       const bad = [], push = R.push, put = R.put, mode = R.shadowMode;
       try {
         const f = new Fighter(ROSTER_BY_ID.kai, 0);
@@ -14292,8 +14312,9 @@ const SelfTest = {
           f.draw(1);
           return { casts: Array.from(new Set(casts)).join(), flats: flats.join() };
         };
-        const inside = drawAt(-8.5, 3.75, 2), edge = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2);
+        const inside = drawAt(-8.5, 3.75, 2), edge = drawAt(-7.3, 3.75, 2), falling = drawAt(-6.5, 3.75, 2, 1), floor = drawAt(0, 0, 2), hop = drawAt(-8.5, 3.75, 2, 0.4), jump = drawAt(-8.5, 3.75, 2, 1.5);
         if (inside.casts !== '2' || edge.casts !== '1' || falling.casts !== '1' || floor.casts !== '1') bad.push('planes: inside the dock ' + inside.casts + ', near the edge ' + edge.casts + ', falling ' + falling.casts + ', floor ' + floor.casts);
+        if (hop.casts !== '2' || jump.casts !== '1') bad.push('a jump over the dock: a hop of 0.4 m casts at ' + hop.casts + ', 1.5 m at ' + jump.casts + ' (the shadow of the head lands 1 m past the edge)');
         const dockBlobs = drawAt(-8.5, 3.75, 1), airBlobs = drawAt(-6.5, 3.75, 1, 1), flatBlobs = drawAt(0, 0, 1);
         if (dockBlobs.flats !== '1.02,1.018' || airBlobs.flats !== '0.02,0.018' || flatBlobs.flats !== '0.02,0.018') bad.push('blob and disc: ' + [dockBlobs.flats, airBlobs.flats, flatBlobs.flats].join(' | '));
         const castsOf = (id, objectId) => {
@@ -14306,7 +14327,7 @@ const SelfTest = {
         const speaker = castsOf('club', 'speakerA'), post = castsOf('rooftop', 'postA');   // a speaker well inside the stage; the post on the tank deck 0.4 m from its edge
         if (speaker.base !== 1 || speaker.casts !== '2' || post.base !== 2 || post.casts !== '1') bad.push('objects: speaker ' + speaker.casts + ', post ' + post.casts);
         Arena.build(ARENAS.warehouse);
-        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-7.3, 3.75, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0) bad.push('flatFooting');
+        if (Arena.flatFooting(-8.5, 3.75, 1, 0.3) !== 1 || Arena.flatFooting(-7.3, 3.75, 1, 0.3) !== 0 || Arena.flatFooting(0, 0, 0, 0.3) !== 0 || Arena.flatFooting(-8.5, 3.75, 1, 0.3, 0.4) !== 1 || Arena.flatFooting(-8.5, 3.75, 1, 0.3, 1.5) !== 0 || Arena.shadowThrow() < 0.5 || Arena.shadowThrow() > 0.8) bad.push('flatFooting');
       } finally { R.push = push; R.put = put; R.shadowMode = mode; Arena.build(ARENAS.warehouse); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
