@@ -13732,7 +13732,7 @@ const impactParts = (tier, band, variant) => {
 };
 // The material of an object or item (M6): small = a hit, big = a break (ONE burst; the debris ticks of a break are played by Sound.material); size scales the level
 const materialParts = (kind, big, size) => {
-  const g = (big ? 0.8 : 0.4) * size, p = [];
+  const g = (big ? 0.8 : 0.4) * size * (!big && (kind === 'wood' || kind === 'paper') ? 0.73 : 1), p = [];   // a small wood or cardboard knock is 2.7 dB under the rest
   if (kind === 'wood') { p.push(NOISE('bandpass', vary(big ? 600 : 900, 0.2), big ? 3000 : 300, 1.2, big ? 0.25 : 0.12, g), TONE('triangle', 230, 130, 0.12, g * 0.7)); }
   else if (kind === 'plastic') { p.push(TONE('triangle', vary(180, 0.06), 140, 0.14, g * 0.7), NOISE('bandpass', 900, 500, 1.2, 0.06, g * 0.25)); }
   else if (kind === 'concrete' || kind === 'brick') { p.push(TONE('sine', 110, 45, big ? 0.25 : 0.2, g * 0.55), NOISE('bandpass', vary(2500, 0.2), 1500, 1, 0.04, g * 0.5), NOISE('lowpass', 900, 200, 0.8, 0.2, g * 0.5)); if (kind === 'brick') p.push(NOISE('highpass', 2000, 1500, 0.7, 0.12, g * 0.4, 0.03)); }
@@ -13746,10 +13746,21 @@ const materialParts = (kind, big, size) => {
   } else p.push(NOISE('lowpass', 400, 200, 0.7, 0.12, g * 3.6), NOISE('bandpass', 1500, 1500, 1.2, 0.15, g * 1.75, 0.02)); // paper: a soft thump and a rustle
   return p;
 };
+const STEP_DB = [-34, -30], STEP_TRIM_DB = [0, 0, 2.2, 0, 0, 0]; // M1: the heard peak of a baked walk and run step (every surface the same: the buffers are normalised); the trim by surface is what the offline render measured off the plan (the gravel is thin)
+const STEP_SECS = 0.12, STEP_PITCH = [1, 0.93]; // M1: a baked footstep is 0.12 s; its two variants are the left and the right foot
+const footParts = (s, pitch, len) => { // M1: the footfall of a surface, one recipe for the bake and the synthesis (the gains are relative: a baked buffer is normalised, the synthesis scales them)
+  const parts = [NOISE(s.filter, s.hz * pitch, s.hz * pitch * 0.5, s.q, s.dur * len, 1)];
+  if (s.tick) parts.push(TONE(s.tickType || 'sine', s.tick[0] * pitch, s.tick[1] * pitch, 0.05 * len, 0.8));
+  if (s.crunch) parts.push(NOISE('highpass', s.crunch, s.crunch, 0.7, 0.03, 0.5));
+  if (s.click) parts.push(TONE('sine', s.click, s.click * 0.8, 0.015, 0.6));
+  return parts;
+};
+const jobParts = (job) => (job.kind === 'hit' ? impactParts(job.tier, job.band, job.variant) : job.kind === 'step' ? footParts(STEP_SURFACES[job.surface], STEP_PITCH[job.variant], job.run ? 0.8 : 1) : materialParts(job.mat, false, 1));
 const bakeJobs = () => {
   const jobs = [];
   for (let tier = 1; tier <= 3; tier++) for (let band = 0; band < 3; band++) for (let variant = 0; variant < BAKE_VARIANTS; variant++) jobs.push({ kind: 'hit', tier, band, variant, secs: IMPACT_SECS[tier - 1] });
   for (const kind of MATERIAL_BAKE) for (let variant = 0; variant < BAKE_VARIANTS; variant++) jobs.push({ kind: 'mat', mat: kind, variant, secs: MATERIAL_SECS });
+  for (let surface = 0; surface < STEP_SURFACES.length; surface++) for (const run of [0, 1]) for (let variant = 0; variant < 2; variant++) jobs.push({ kind: 'step', surface, run, variant, secs: STEP_SECS });
   return jobs;
 };
 const playPart = (c, buffer, dest, part, t) => (part[0] ? noiseNode(c, buffer, dest, part[1], part[2], part[3], part[4], t + part[7], part[5], part[6]) : toneNode(c, dest, part[1], part[2], part[3], t + part[6], part[4], part[5]));
@@ -13761,6 +13772,7 @@ const storeBaked = (done, job, data, makeBuffer) => {
   for (let i = 0; i < data.length; i++) out[i] = data[i] * scale * Math.min(1, (data.length - i) / fade);
   done.bytes += data.length * 4;
   if (job.kind === 'hit') done.bank.hit[job.tier - 1][job.band][job.variant] = buffer;
+  else if (job.kind === 'step') done.bank.step[job.surface][job.run][job.variant] = buffer;
   else (done.bank.mat[job.mat] = done.bank.mat[job.mat] || [])[job.variant] = buffer;
 };
 
@@ -13875,18 +13887,21 @@ const Sound = {
     }).catch((e) => this.bakeFail(e));
   },
   // Resolves { bank, ms, bytes } (ms = main-thread time of the steps): bank.hit[tier - 1][band][variant] and bank.mat[kind][variant]; makeBuffer(length) gives an empty mono buffer at BAKE_RATE
-  bakeRender(OAC, makeBuffer, noise) {
-    const jobs = bakeJobs(), steps = Math.ceil(jobs.length / BAKE_PER_STEP), done = { bank: { hit: [0, 1, 2].map(() => [[], [], []]), mat: {} }, ms: 0, bytes: 0 };
+  bakeRender(OAC, makeBuffer, noise, around = (build) => build()) { // around(build): where the random numbers of the recipes are drawn (a test seeds them there and nowhere else)
+    const jobs = bakeJobs(), steps = Math.ceil(jobs.length / BAKE_PER_STEP), done = { bank: { hit: [0, 1, 2].map(() => [[], [], []]), mat: {}, step: STEP_SURFACES.map(() => [[], []]) }, ms: 0, bytes: 0 };
     return new Promise((resolve, reject) => {
       const step = (n) => {
         const run = () => {
           try {
             const list = jobs.slice(n * BAKE_PER_STEP, (n + 1) * BAKE_PER_STEP), started = performance.now();
-            const oc = new OAC(1, Math.ceil(BAKE_RATE * BAKE_SLOT * list.length), BAKE_RATE);
-            list.forEach((job, i) => { for (const part of job.kind === 'hit' ? impactParts(job.tier, job.band, job.variant) : materialParts(job.mat, false, 1)) playPart(oc, noise, oc.destination, part, i * BAKE_SLOT); });
-            const rendering = oc.startRendering();
+            const oc = around(() => {
+              const context = new OAC(1, Math.ceil(BAKE_RATE * BAKE_SLOT * list.length), BAKE_RATE);
+              list.forEach((job, i) => { for (const part of jobParts(job)) playPart(context, noise, context.destination, part, i * BAKE_SLOT); });
+              return context;
+            });
+            const viaEvent = new Promise((resolve) => { oc.oncomplete = (event) => resolve(event.renderedBuffer); }); // old Safari: the prefixed context has no promise, it fires oncomplete
+            const promise = oc.startRendering(), rendering = promise && typeof promise.then === 'function' ? promise : viaEvent;
             done.ms += performance.now() - started;
-            if (!rendering || typeof rendering.then !== 'function') throw new Error('startRendering gives no promise');
             rendering.then((rendered) => {
               const after = performance.now(), data = rendered.getChannelData(0), slot = Math.round(BAKE_SLOT * BAKE_RATE);
               list.forEach((job, i) => storeBaked(done, job, data.subarray(i * slot, i * slot + Math.round(job.secs * BAKE_RATE)), makeBuffer));
@@ -13986,16 +14001,17 @@ const Sound = {
   },
 
   // --- sound library
-  surface() { return STEP_SURFACES[FLOOR_SURFACE[Arena.def && Arena.def.env ? Arena.def.env.floor || 0 : 0] || 0]; },
+  surfaceIndex() { return FLOOR_SURFACE[Arena.def && Arena.def.env ? Arena.def.env.floor || 0 : 0] || 0; },
+  surface() { return STEP_SURFACES[this.surfaceIndex()]; },
   // A footfall on the surface of the level (M1); also the thud under a landing (M2)
   footfall(s, gain, pitch, len) {
-    this.noise(s.filter, s.hz * pitch, s.hz * pitch * 0.5, s.q, s.dur * len, gain);
-    if (s.tick) this.tone(s.tickType || 'sine', s.tick[0] * pitch, s.tick[1] * pitch, 0.05 * len, gain * 0.8);
-    if (s.crunch) this.noise('highpass', s.crunch, s.crunch, 0.7, 0.03, gain * 0.5);
-    if (s.click) this.tone('sine', s.click, s.click * 0.8, 0.015, gain * 0.6);
+    if (!this.allow('foot', 0, 2)) return; // a footfall under a landing, a fall or a jump is the lowest priority: it goes first when the engine is full
+    for (const part of footParts(s, pitch, len)) this.play(part, undefined, gain);
   },
-  step(run, index, foot) {
+  step(run, index, foot) { // a baked step (one source, one gain) once the bank has them, else the synthesis
     if (!this.allow('step' + index, MIN_GAP.step, 2)) return;
+    const steps = this.bank && this.bank.step;
+    if (steps) { this.playBuffer(steps[this.surfaceIndex()][run ? 1 : 0][foot ? 1 : 0], STEP_DB[run ? 1 : 0] + STEP_TRIM_DB[this.surfaceIndex()] + 20 * Math.log10(vary(1, 0.12)), vary(1, 0.1)); return; }
     const s = this.surface();
     this.footfall(s, s.gain * (run ? s.run || 1.6 : 1) * vary(1, 0.12), vary(1, 0.1) * (foot ? 0.93 : 1), run ? 0.8 : 1);
   },
@@ -14079,7 +14095,7 @@ const Sound = {
   },
   land(power, f) {
     if (!this.allow('land' + (f.index || 0), MIN_GAP.land, 1)) return;
-    const p = Math.pow(Math.min(1, power), 1.5), band = weightBand(f.weight), s = this.surface(), pitch = vary(1, 0.06);   // a soft landing falls off faster than a hard one
+    const p = Math.pow(Math.min(0.83, power), 1.5), band = weightBand(f.weight), s = this.surface(), pitch = vary(1, 0.06);   // a soft landing falls off faster than a hard one
     this.tone('sine', 95 * pitch, 40, [0.12, 0.14, 0.18][band], 0.3 * p); // the body
     this.tone('triangle', 190 * pitch, 80, 0.08, 0.15 * p); // E6: the octave a small speaker can play
     this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.12 * p); // cloth
@@ -14144,7 +14160,7 @@ const Sound = {
   },
   hazardHurt(kind, x) {
     if (kind === 'zap') this.tone('square', vary(600, 0.05), 200, 0.1, 0.2);
-    else if (kind === 'hiss' || kind === 'fire') { if (this.allow('hazHurt', 0.12, 1)) this.noise('bandpass', 1800, 900, 0.8, 0.12, 0.22 * 1.3); }
+    else if (kind === 'hiss' || kind === 'fire') { if (this.allow('hazHurt', 0.12, 1)) this.noise('bandpass', 1800, 900, 0.8, 0.12, 0.22 * (kind === 'hiss' ? 1.04 : 1.3)); }
     else this.heavy(-20, 'h');
   },
   // The menu and the stingers go through the UI bus (E4): the Effects volume, no room, no distance
@@ -14171,6 +14187,7 @@ const Sound = {
     CUE_NOTES.fight.forEach((hz) => t('square', hz, hz, 0.4, 0.07));
     t('sine', 120, 40, 0.5, 0.25); this.noise('highpass', 2500, 1500, 0.7, 0.4, 0.1, 0, 0, bus);
   },
+  decides(m) { return !!m && (!!m.decider || (!m.brawl && !m.setup && m.round > 1 && m.wins[0] === m.winsNeeded - 1 && m.wins[1] === m.winsNeeded - 1)); }, // the next round decides the match: a drawn round, or both sides one win short
   roundStart(round, decider) { // M10: a later round counts itself in pips; the deciding round gets a low double stab
     if (!this.ready()) return;
     const bus = this.uiBus;
@@ -14263,7 +14280,7 @@ const Sound = {
       if (matchEndsOnKo(e.def)) this.bell(); else this.roundKo();
     });
     on('roundEnd', (e) => { if (e.reason === 'time') this.timeUp(); });
-    on('roundStart', (e) => { if (e.round > 1 || (e.match && e.match.decider)) this.roundStart(e.round, !!(e.match && e.match.decider)); });
+    on('roundStart', (e) => { const last = this.decides(e.match); this.fires = []; if (e.round > 1 || last) this.roundStart(e.round, last); });   // a new match starts without the old one's fires
     on('wallSlam', (e) => { this.at(e.x, e.z); this.heavy(-4, 'w'); this.noise('bandpass', 1500, 1500, 1, 0.15, 0.3); });
     on('envImpact', (e) => { this.at(e.x, e.z); if (e.obj && MATERIALS[e.obj.mat]) this.material(e.obj.mat, !!e.broke, e.x, 1.2); else this.heavy(-5, 'e'); });
     on('objHit', (e) => {
@@ -14293,7 +14310,7 @@ const Sound = {
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
     on('timeWarn', (e) => { const hz = e.seconds <= 1 ? 1320 : 990; this.tone('sine', hz, hz, 0.09, 0.25, 0, 0, this.uiBus); });
-    on('matchEnd', (e) => this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus));
+    on('matchEnd', (e) => { this.fires = []; this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus); });
     on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
     on('quickRise', (e) => { this.at(e.f.x, e.f.z); this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.15); this.grunt(e.f, 'effort'); });
     on('fall', (e) => { this.at(e.x, e.z); this.whistle(); });
@@ -14335,6 +14352,7 @@ function matchEndsOnKo(def) {
 const MUSIC_FIGHT = 1; // music intensity tiers: 0 menu, 1 fight, 2 tense fight
 const MUSIC_TENSE = 2;
 const TENSE_HP_FRACTION = 0.25; // a fighter below this share of health makes the music tense
+const FIGHT_GAIN = 1.15, TENSE_LIFT = 1.26; // the fight bed level; the tense layer is +2 dB over it
 const TENSE_TEMPO = 0.96; // the tense layer's step is 4 % shorter
 const Music = {
   active: false, track: null, nextTime: 0, step: 0, intensity: 0,
@@ -14365,11 +14383,11 @@ const Music = {
     const tr = this.track, c = Sound.ctx;
     const s = step % 16, bar = Math.floor(step / 16) % 4;
     const scale = SCALES[tr.mode] || SCALES.minor;
-    const dest = Sound.musicBus;
+    const dest = Sound.musicBus, lift = this.intensity === 0 ? 1 : (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN; // the fight bed has its own level (the menu theme none), the tense layer is louder as a whole (E8: about +2 dB over the bed)
     const voice = (type, f, dur, gain, filt) => {
       const o = c.createOscillator(), g = c.createGain();
       o.type = type; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       let node = o;
       if (filt) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = filt; o.connect(fl); node = fl; }
       node.connect(g); g.connect(dest);
@@ -14378,12 +14396,13 @@ const Music = {
     };
     const hit = (kind, gain, dur) => {
       const sBuf = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
-      sBuf.buffer = Sound.noiseBuf; fl.type = kind === 'hat' || kind === 'sweep' ? 'highpass' : 'bandpass'; fl.frequency.value = kind === 'hat' ? 7000 : kind === 'sweep' ? 2000 : 1800; fl.Q.value = 0.8;
-      if (kind === 'sweep') { fl.frequency.setValueAtTime(800, t); fl.frequency.exponentialRampToValueAtTime(6000, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + dur * 0.9); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
-      else { g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
+      sBuf.buffer = Sound.noiseBuf; sBuf.loop = true; fl.type = kind === 'hat' || kind === 'sweep' ? 'highpass' : 'bandpass'; fl.frequency.value = kind === 'hat' ? 7000 : kind === 'sweep' ? 2000 : 1800; fl.Q.value = 0.8;
+      if (kind === 'sweep') { fl.frequency.setValueAtTime(800, t); fl.frequency.exponentialRampToValueAtTime(6000, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + dur * 0.9); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
+      else { g.gain.setValueAtTime(gain * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
       sBuf.connect(fl); fl.connect(g); g.connect(dest); sBuf.onended = () => g.disconnect(); sBuf.start(t, Math.random()); sBuf.stop(t + dur + 0.02);
     };
-    const floor = tr.floor || 0, kit = DRUM_KITS[floor % 3], line = BASS_LINES[Math.floor(floor / 3) % 3];
+    const lowK = clamp(Math.pow(tr.root / 55, 2), 0.7, 1.4), // a low root gets less bass and kick and a high one more, so every level has about the same share under 150 Hz
+      floor = tr.floor || 0, kit = DRUM_KITS[floor % 3], line = BASS_LINES[Math.floor(floor / 3) % 3];
     if (this.intensity === 0) {
       // calm menu theme: slow pad + sparse arpeggio on two voices an octave apart (P18-29: +12 dB, so it is heard at the default volumes)
       if (s === 0) { voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8], 2), stepDur * 16, 0.24, 500); voice('sawtooth', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2) * 1.004, stepDur * 16, 0.17, 600); }
@@ -14391,14 +14410,14 @@ const Music = {
       return;
     }
     // drums
-    if (kit.kick.includes(s)) { voice('sine', 120, 0.18, 0.5, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
-    if (kit.snare.includes(s)) hit('snare', 0.25, 0.14);
-    if (s % kit.hat === 0) hit('hat', 0.07, 0.04);
+    if (kit.kick.includes(s)) { voice('sine', 120, 0.18, 0.34 * lowK, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.34 * lowK * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
+    if (kit.snare.includes(s)) hit('snare', 0.32, 0.14);
+    if (s % kit.hat === 0) hit('hat', 0.085, 0.04);
     // bass, with its octave above (a square through a 900 Hz low-pass at half the level) so a small speaker has a body to hear
-    if (s % 2 === 0) { const deg = line[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.2, 380); voice('square', this.note(tr.root, scale, deg, 1), stepDur * 1.8, 0.1, 900); }
-    if (s === 0) voice('triangle', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2), stepDur * 16, 0.05, 1400); // a pad on the third, in the mids
+    if (s % 2 === 0) { const deg = line[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.13 * lowK, 380); voice('square', this.note(tr.root, scale, deg, 1), stepDur * 1.8, 0.17, 1100); }
+    if (s === 0) voice('triangle', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2), stepDur * 16, 0.09, 1400); // a pad on the third, in the mids
     // arpeggio lead (+8 dB)
-    if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.11, 1800);
+    if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.14, 1800);
     // tense layer: off-beat hats, a driving octave bass and a rising sweep every 4 bars
     if (this.intensity >= MUSIC_TENSE) {
       if (s % 2 === 1) hit('hat', 0.05, 0.03);

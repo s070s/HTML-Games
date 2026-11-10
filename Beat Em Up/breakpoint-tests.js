@@ -14042,8 +14042,8 @@ const SelfTest = {
       return () => { Events.handlers = handlers; owner.wired = wired; };
     };
     /* Sounds with a stand-in for the audio engine: every voice a call asks for is recorded and handed back as a source that can be stopped */
-    const withVoices = (body) => {
-      const keep = { ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
+    const withVoices = (body, bank = null) => {   // bank: the stand-in bank a baked hit plays (null: the synthesis)
+      const keep = { bank: Sound.bank, playBuffer: Sound.playBuffer, ready: Sound.ready, allow: Sound.allow, tone: Sound.tone, noise: Sound.noise, swell: Sound.swell, material: Sound.material, grunt: Sound.grunt, ctx: Sound.ctx, lowpass: Sound.lowpass, layerQ: Sound.layerQ, heart: Sound.heart, ducked: Sound.ducked };
       const heard = [], source = () => ({ stopped: false, stop() { this.stopped = true; } });
       Sound.ready = () => true; Sound.allow = () => true; Sound.layerQ = []; Sound.heart = false; Sound.ducked = false;
       Sound.tone = (type, f0, f1, dur, gain, delay, pan, dest) => { const s = source(); heard.push({ kind: 'tone', f0, dest, s }); return s; };
@@ -14051,36 +14051,45 @@ const SelfTest = {
       Sound.swell = () => { const s = source(); heard.push({ kind: 'swell', s }); return s; };
       Sound.material = (kind) => heard.push({ kind: 'material', material: kind });
       Sound.grunt = () => {};
+      Sound.bank = bank; Sound.playBuffer = (buffer, db, rate) => { const s = source(); heard.push({ kind: 'buffer', buffer, db, rate, s }); return s; };
       try { return body(heard); } finally { Object.assign(Sound, keep); }
     };
-    test('Layered impact sound (P13-02): every hit adds a thud pitched by weight class, a slap, snap or crack by tier, a material layer for an item, and a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the effects bus carries them', () => {
+    const bakedStandIn = () => {   // a bank of tagged stand-in buffers: bank.hit[tier - 1][band][variant] and bank.mat[kind][variant]
+      const three = (make) => [0, 1, 2].map(make);
+      return { hit: three((t) => three((b) => three((v) => ({ id: 'hit', tier: t + 1, band: b, variant: v })))), mat: { wood: three((v) => ({ id: 'mat', mat: 'wood', variant: v })), metal: three((v) => ({ id: 'mat', mat: 'metal', variant: v })), glass: three((v) => ({ id: 'mat', mat: 'glass', variant: v })) } };
+    };
+    test('Layered impact sound (P13-02): in both paths (the baked bank, and the synthesis with no bank) every hit is heavier for a heavier body, one sound per tier, a material layer for an item, a crowd swell on the knock-out that ends a fight where a crowd stands; at most 12 sources at once (the oldest stops); the synthesis rides the effects bus', () => {
       const bad = [], keepArena = Arena.def;
       const unwire = wireFor(Sound, () => Sound.wire());
       try {
-        withVoices((heard) => {
+        for (const baked of [false, true]) withVoices((heard) => {
+          const label = baked ? 'baked: ' : 'synthesis: ', fail = (text) => bad.push(label + text);
           const hit = (extra) => { heard.length = 0; Events.emit('hit', Object.assign({ x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }, extra)); return heard.slice(); };
-          const thud = (weight) => hit({ def: { index: 1, weight, y: 0 } }).filter((v) => v.kind === 'tone')[1].f0;
-          if (!(thud(0) > thud(2) && thud(2) > thud(4))) bad.push('the thud is not lower for heavier bodies: ' + [0, 2, 4].map(thud));
-          const snap = (tier) => { const v = hit({ mv: { tier, cat: 'punch', name: 'x' } }).filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
-          if (new Set([1, 2, 3].map(snap)).size !== 3) bad.push('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
-          if (hit({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }).filter((q) => q.kind === 'material').map((q) => q.material).join() !== WEAPONS.bat.mat) bad.push('no material layer for a bat');
-          if (hit({}).some((q) => q.kind === 'material')) bad.push('a bare hand has a material');
-          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) bad.push('a swell without a crowd');
-          if (hit({}).some((q) => q.dest !== undefined)) bad.push('a layer bypasses the effects bus');
+          const buffers = (list) => list.filter((q) => q.kind === 'buffer');
+          const thud = (weight) => { const list = hit({ def: { index: 1, weight, y: 0 } }); return baked ? buffers(list)[0].buffer.band : -list.filter((v) => v.kind === 'tone')[1].f0; };   // the synthesis gets lower, the bank goes up a weight band
+          if (!(thud(0) < thud(2) && thud(2) < thud(4))) fail('the thud is not heavier for heavier bodies: ' + [0, 2, 4].map(thud));
+          const snap = (tier) => { const list = hit({ mv: { tier, cat: 'punch', name: 'x' } }); if (baked) return buffers(list)[0].buffer.tier; const v = list.filter((q) => q.kind === 'noise'); return v[v.length - 1].filter + v[v.length - 1].f0; };
+          if (new Set([1, 2, 3].map(snap)).size !== 3) fail('slap, snap and crack sound alike: ' + [1, 2, 3].map(snap));
+          const materials = (extra) => { const list = hit(extra); return (baked ? buffers(list).filter((q) => q.buffer.mat).map((q) => q.buffer.mat) : list.filter((q) => q.kind === 'material').map((q) => q.material)).join(); };
+          if (materials({ mv: Object.assign({}, ATTACKS.jab, { wpn: 'bat' }) }) !== WEAPONS.bat.mat) fail('no material layer for a bat');
+          if (materials({})) fail('a bare hand has a material');
+          if (hit({ ko: true }).some((q) => q.kind === 'swell') && !Arena.props.some((q) => q.ph !== undefined)) fail('a swell without a crowd');
+          if (!baked && hit({}).some((q) => q.dest !== undefined)) fail('a layer bypasses the effects bus');
+          if (baked && buffers(hit({})).length !== 1) fail('a baked hit is not one source');
           Arena.build(ARENAS.club);
-          if (!Arena.props.some((q) => q.ph !== undefined)) bad.push('the Night Club has no crowd to test with');
-          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) bad.push('no crowd swell on a knock-out');
-          if (hit({ ko: false }).some((q) => q.kind === 'swell')) bad.push('a swell without a knock-out');
+          if (!Arena.props.some((q) => q.ph !== undefined)) fail('the Night Club has no crowd to test with');
+          else if (!hit({ ko: true }).some((q) => q.kind === 'swell')) fail('no crowd swell on a knock-out');
+          if (hit({ ko: false }).some((q) => q.kind === 'swell')) fail('a swell without a knock-out');
           heard.length = 0; Sound.layerQ = [];
           const layered = [], realLayer = Sound.layer;
           Sound.layer = function (s) { if (s) layered.push(s); return realLayer.call(this, s); };
           try { for (let i = 0; i < 20; i++) Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false }); } finally { Sound.layer = realLayer; }
-          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length;
-          if (layered.length !== 40 || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) bad.push('the cap: ' + Sound.layerQ.length + ' queued, ' + stopped + ' of ' + layered.length + ' stopped, ' + others + ' others stopped');
+          const stopped = layered.filter((s) => s.stopped).length, others = heard.filter((q) => q.s && !layered.includes(q.s) && q.s.stopped).length, expected = baked ? 20 : 40;
+          if (layered.length !== expected || Sound.layerQ.length !== HIT_LAYER_VOICES || stopped !== layered.length - HIT_LAYER_VOICES || !layered[0].stopped || layered[layered.length - 1].stopped || others) fail('the cap: ' + layered.length + ' layered (' + expected + ' expected), ' + Sound.layerQ.length + ' queued, ' + stopped + ' stopped, ' + others + ' others stopped');
           Sound.allow = () => false; heard.length = 0;
           Events.emit('hit', { x: 0, y: 1, z: 0, dirx: 1, dirz: 0, att: {}, def: { index: 1, weight: 2, y: 0 }, mv: ATTACKS.jab, kind: 'hit', ko: false, counter: false });
-          if (heard.length) bad.push('a hit the engine skipped still layers');
-        });
+          if (heard.length) fail('a hit the engine skipped still layers');
+        }, baked ? bakedStandIn() : null);
       } finally { if (keepArena) Arena.build(keepArena); unwire(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
@@ -14119,11 +14128,12 @@ const SelfTest = {
     });
     /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
     const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
-    const SOUND_RENDER_LIMIT_MS = 120000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const isolatedSound = () => Object.assign({}, Sound, { ctx: null, bank: null, bakeState: 'idle', bakeError: '', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeFrom: 0, unsupported: false, voices: 0, last: {}, layerQ: [], spot: null, wired: false, fires: [], amb: null, ambKey: -1, lastVariant: {} });   // a shallow copy of the engine for a test that must not touch the page's own
     const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
     const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
       const keep = saveSound(), heard = [];
-      Sound.ready = () => true; Sound.allow = () => true; Sound.spot = null;
+      Sound.ready = () => true; Sound.allow = () => true; Sound.spot = null; Sound.bank = null;   // the recorder hears the synthesis, with a bank or without
       Sound.tone = (type, f0, f1, dur, gain) => { heard.push(['tone', f0, f1, dur, gain]); return { stop() {} }; };
       Sound.noise = (filter, f0, f1, q, dur, gain) => { heard.push(['noise', f0, f1, q, dur, gain]); return { stop() {} }; };
       try { return body(heard); } finally { Object.assign(Sound, keep); }
@@ -14138,6 +14148,9 @@ const SelfTest = {
     class MockOfflineContext {
       constructor(channels, length, rate) { this.length = length; this.destination = mockNode(); MockOfflineContext.made.push(this); return new Proxy(this, { get: (t, k) => (k in t ? t[k] : typeof k === 'string' && k.startsWith('create') ? () => mockNode() : undefined) }); }
       startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; return Promise.resolve({ getChannelData: () => data }); }
+    }
+    class MockOfflineCallbackContext extends MockOfflineContext {   // old Safari: startRendering returns nothing, oncomplete fires with the rendered buffer
+      startRendering() { const data = new Float32Array(this.length); for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.4; setTimeout(() => this.oncomplete({ renderedBuffer: { getChannelData: () => data } }), 0); }
     }
     MockOfflineContext.made = [];
     const waitFor = (test, ms) => new Promise((resolve) => { const t0 = Date.now(), poll = () => (test() || Date.now() - t0 > ms ? resolve(test()) : setTimeout(poll, 10)); poll(); });
@@ -14214,20 +14227,18 @@ const SelfTest = {
       } finally { Object.assign(Sound, keep); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 36 buffers of about 1.4 MB', async () => {
-      await waitFor(() => Sound.bakeState !== 'running', 8000);   // the page's own bake (after a click) may still be running: it would put its real buffers into the bank under this test
-      const bad = [], keep = saveSound(), keepBake = { from: Sound.bakeFrom };
+    test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 60 buffers (27 impacts, 9 materials, 24 footsteps) of about 1.6 MB', async () => {
+      const Sound = isolatedSound(), bad = [];   // a copy of the engine: the page's own Sound (its context, its bank, its bake in flight) is never touched, so nothing here can be heard or restored late
       try {
-        Sound.ctx = null; Sound.bank = null; Sound.bakeState = 'idle'; Sound.unsupported = false; Sound.voices = 0; Sound.last = {};
         MockOfflineContext.made.length = 0;
         const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the other async tests run side by side with this one
         withMocks(() => Sound.unlock());
         if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
         await waitFor(() => Sound.bakeState !== 'running', 4000);
-        const bank = Sound.bank, count = bank ? bank.hit.flat(2).length + Object.values(bank.mat).flat().length : 0;
-        if (Sound.bakeState !== 'done' || count !== 36) bad.push('after unlock: ' + Sound.bakeState + ', ' + count + ' buffers (' + Sound.bakeError + ')');
-        if (MockOfflineContext.made.length !== 3) bad.push(MockOfflineContext.made.length + ' offline contexts, not 3 idle steps');
-        if (Sound.bakeBytes !== Math.round(4 * BAKE_RATE * (9 * (0.2 + 0.28 + 0.4) + 9 * 0.3))) bad.push('the bank is ' + Sound.bakeBytes + ' bytes');
+        const bank = Sound.bank, count = bank ? bank.hit.flat(2).length + Object.values(bank.mat).flat().length + bank.step.flat(2).length : 0;
+        if (Sound.bakeState !== 'done' || count !== 60) bad.push('after unlock: ' + Sound.bakeState + ', ' + count + ' buffers (' + Sound.bakeError + ')');
+        if (MockOfflineContext.made.length !== 5) bad.push(MockOfflineContext.made.length + ' offline contexts, not 5 idle steps');
+        if (Sound.bakeBytes !== Math.round(4 * BAKE_RATE * (9 * (0.2 + 0.28 + 0.4) + 9 * 0.3 + 24 * 0.12))) bad.push('the bank is ' + Sound.bakeBytes + ' bytes');
         if (bank && bank.hit.flat(2).some((buffer) => Math.max(...buffer.data.map(Math.abs)) > 1.0001 || Math.max(...buffer.data.map(Math.abs)) < 0.99)) bad.push('a baked buffer is not normalised to full scale');
         // a bank plays one baked source and no synthesis; no bank plays the synthesis
         const unwire = wireFor(Sound, () => Sound.wire());
@@ -14237,7 +14248,11 @@ const SelfTest = {
           Sound.playBuffer = () => { calls.buffers++; return { stop() {} }; }; Sound.tone = () => { calls.synth++; return { stop() {} }; }; Sound.noise = () => { calls.synth++; return { stop() {} }; };
           Events.emit('hit', HIT_EVENT({ mv: ATTACKS.jab }));
           if (calls.buffers !== 1 || calls.synth !== 0) bad.push('with a bank a hit plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
-          Sound.bank = null; calls.buffers = 0; calls.synth = 0;
+          calls.buffers = 0; calls.synth = 0; Events.emit('step', { f: { x: 0, z: 0, index: 1, stepIndex: 0 }, run: false });
+          if (calls.buffers !== 1 || calls.synth !== 0) bad.push('with a bank a step plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+          Sound.bank = null; calls.buffers = 0; calls.synth = 0; Events.emit('step', { f: { x: 0, z: 0, index: 1, stepIndex: 0 }, run: false });
+          if (calls.buffers !== 0 || calls.synth < 1) bad.push('without a bank a step plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
+          calls.buffers = 0; calls.synth = 0;
           Events.emit('hit', HIT_EVENT({ mv: ATTACKS.jab }));
           if (calls.buffers !== 0 || calls.synth < 2) bad.push('without a bank a hit plays ' + calls.buffers + ' baked and ' + calls.synth + ' synthesised sources');
         } finally { unwire(); }
@@ -14250,11 +14265,9 @@ const SelfTest = {
         Sound.bank = null; Sound.bakeState = 'idle';
         withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = undefined; Sound.bake(); });
         if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
-        Sound.bakeState = 'idle'; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineContext; Sound.bake(); });   // an old Safari has the prefixed name only
-        if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else await waitFor(() => Sound.bakeState !== 'running', 4000);
-      } finally {
-        Object.assign(Sound, keep, { bakeFrom: keepBake.from });
-      }
+        Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
+        if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); }
+      } finally { Sound.ready = () => false; }   // the copy is thrown away
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
     test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
@@ -14282,6 +14295,59 @@ const SelfTest = {
         Sound.spot = null; panners = 0; Sound.tone('sine', 100, 50, 0.1, 0.4); if (panners) bad.push('a sound with no place makes a panner');
         Sound.tone('sine', 100, 50, 0.1, 0.4, 0, 0, { ui: true }); if (gains.length < 3) bad.push('a bus sound is not made');
       } finally { Camera.target[0] = keepCamera.target[0]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Object.assign(Sound, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const soundHandlers = () => {   // the handlers Sound.wire adds, on their own (the other listeners of the game stay out of the test)
+      const kept = Events.handlers, wasWired = Sound.wired; Events.handlers = {}; Sound.wired = false; Sound.wire();
+      const handlers = Events.handlers; Events.handlers = kept; Sound.wired = wasWired;
+      return (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
+    };
+    test('Music sweep (P18-29): the tense layer\'s rising sweep lasts its whole bar: its noise source loops, so it never runs out of buffer (it did, 1 s in, with a click every 4 bars)', () => {
+      const bad = [], keep = { ctx: Sound.ctx, noiseBuf: Sound.noiseBuf, musicBus: Sound.musicBus, track: Music.track, intensity: Music.intensity }, keepRandom = Math.random, sources = [];
+      const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
+      const node = (extra) => Object.assign({ connect() {}, disconnect() {}, start() {}, stop() {} }, extra);
+      Sound.ctx = { currentTime: 0, createOscillator: () => node({ frequency: param() }), createGain: () => node({ gain: param() }), createBiquadFilter: () => node({ frequency: param(), Q: param() }), createBufferSource() { const s = node({ loop: false, start(at, offset) { this.from = at; this.offset = offset; }, stop(at) { this.until = at; } }); sources.push(s); return s; } };
+      Sound.noiseBuf = { duration: 2 }; Sound.musicBus = {};
+      try {
+        Math.random = () => 0.99;   // the worst start: almost 1 s into the 2 s buffer
+        Music.track = { bpm: 118, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = 2;
+        Music.schedule(0, 0, 60 / 118 / 4 * 0.96);   // bar 1, step 0: the sweep
+        const sweeps = sources.filter((s) => s.until - s.from > 1);
+        if (sweeps.length !== 1) bad.push(sweeps.length + ' sources last over a second, not the one sweep');
+        for (const s of sources) if (!s.loop && s.until - s.from > Sound.noiseBuf.duration - s.offset) bad.push('a noise source of ' + (s.until - s.from).toFixed(2) + ' s runs out of buffer from ' + s.offset + ' s in');
+      } finally { Math.random = keepRandom; Object.assign(Sound, { ctx: keep.ctx, noiseBuf: keep.noiseBuf, musicBus: keep.musicBus }); Music.track = keep.track; Music.intensity = keep.intensity; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Round start (P18-29): the low double stab plays when the next round decides the match (after a drawn round, or at 1-1 in a best of 3, 2-2 in a best of 5), the pips in any other later round, nothing in round 1, and no stab in a brawl or a lineup', () => {
+      const bad = [], fire = soundHandlers();
+      const match = (extra) => Object.assign({ decider: false, brawl: false, setup: null, round: 2, wins: [1, 0], winsNeeded: 2 }, extra);
+      const cases = [['1-0 of a best of 3', 2, match({}), 'pips'], ['1-1 of a best of 3', 3, match({ round: 3, wins: [1, 1] }), 'stab'], ['2-2 of a best of 5', 5, match({ round: 5, wins: [2, 2], winsNeeded: 3 }), 'stab'], ['after a drawn round', 3, match({ round: 3, decider: true, wins: [2, 2], winsNeeded: 3 }), 'stab'],
+        ['0-0, round 1', 1, match({ round: 1, wins: [0, 0] }), 'nothing'], ['a brawl wave', 2, match({ brawl: true, wins: [1, 1] }), 'pips'], ['a lineup round', 2, match({ setup: [{}], wins: [1, 1] }), 'pips']];
+      recordSound((heard) => {
+        for (const [label, round, m, expected] of cases) {
+          heard.length = 0; fire('roundStart', { round, match: m });
+          const got = !heard.length ? 'nothing' : heard.every((row) => row[1] === 110) ? 'stab' : heard.every((row) => row[1] === 880) ? 'pips' : 'mixed';
+          if (got !== expected) bad.push(label + ' plays ' + got + ', not ' + expected);
+        }
+      });
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Sound footfalls (P18-29): the footfall under a jump, a landing or a fall is the lowest priority: at 16 live sources it is refused with its whoosh; a new match or the end of one clears the fires, so a quick Retry has no old crackle', () => {
+      const bad = [], keep = saveSound(), keepFanfare = Sound.fanfare, fire = soundHandlers(), heard = [];
+      try {
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.ready = () => true; Sound.allow = keep.allow; Sound.last = {}; Sound.layerQ = []; Sound.spot = null; Sound.bank = null;
+        Sound.tone = () => { heard.push('t'); return { stop() {} }; }; Sound.noise = () => { heard.push('n'); return { stop() {} }; };
+        const jumper = { x: 0, z: 0, index: 1 };
+        for (const [voices, label] of [[5, 'with room'], [18, 'at 18 live sources'], [26, 'at 26 live sources']]) {
+          Sound.voices = voices; Sound.last = {}; heard.length = 0; fire('jump', { f: jumper });
+          if (voices === 5 && heard.length < 2) bad.push('a jump makes no sound ' + label);
+          if (voices === 18 && heard.length !== 1) bad.push('a jump at 18 live sources plays ' + heard.length + ' sources, not just its whoosh (the footfall is priority 2, refused from 16)');
+          if (voices === 26 && heard.length) bad.push('a jump still sounds ' + label + ' (' + heard.length + ' sources)');
+        }
+        Sound.voices = 18; Sound.last = {}; heard.length = 0; Sound.footfall(STEP_SURFACES[0], 0.1, 1, 1); if (heard.length) bad.push('a bare footfall is not gated');
+        Sound.fires = [{ until: 99, x: 0, z: 0 }]; fire('roundStart', { round: 1, match: { decider: false, brawl: false, setup: null, round: 1, wins: [0, 0], winsNeeded: 2 } }); if (Sound.fires.length) bad.push('the old fires burn on in the next match');
+        Sound.fires = [{ until: 99, x: 0, z: 0 }]; Sound.fanfare = () => {}; fire('matchEnd', { match: { setup: null, matchWinner: 0, versus: false } }); if (Sound.fires.length) bad.push('the fires outlive the match');
+      } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* An offline render of the sound table (Chrome: OfflineAudioContext; the headless run skips these two tests). Every sound plays through the real Sound code and the real handlers into the real bus chain (default volumes) in its own slot of one context;
@@ -14326,15 +14392,14 @@ const SelfTest = {
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
-    const renderSounds = async (volumes, gap, only) => {
+    const renderSounds = async (volumes, gap, only, ctl) => {   // ctl: the deferred test's token, { cancelled }
       const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
       const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-      const seeded = randomFrom(20181029);
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
-      const inOffline = (offline, work) => {
+      const inOffline = (offline, work, seed) => {   // seed: every play draws its random numbers from its own seed, so a row's level does not depend on how many numbers the rows before it took
         const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
         Object.assign(Sound, offline); Object.assign(Settings.v, v);   // the engine reads the saved volumes itself (the music pump after a heavy hit), so they are the render's too
-        Math.random = seeded; Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
+        Math.random = randomFrom(seed); Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
         try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; Object.assign(Settings.v, keepVolumes); }
       };
       const keepHandlers = Events.handlers, keepWired = Sound.wired, realAllow = Sound.allow, liveVoices = Sound.voices;   // the offline sources' onended handlers count the live Sound's voices down: it is put back at the end
@@ -14351,12 +14416,15 @@ const SelfTest = {
         const setGain = (node, value) => { node.gain.cancelScheduledValues(0); node.gain.value = value; };
         setGain(Sound.master, v.master); setGain(Sound.sfxBus, v.sfx); setGain(Sound.uiBus, v.sfx); setGain(Sound.musicBus, v.music * 0.55);
         Sound.ready = () => true; Sound.allow = realAllow; Sound.voices = 0; Sound.last = {}; Sound.layerQ = []; Sound.spot = null; Sound.amb = null; Sound.ambKey = -1; Sound.bank = null;
-      });
-      const keepRandom = Math.random; Math.random = randomFrom(4711);   // the same bank every run, so the levels are the same every run
-      try { offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf)).bank; } finally { Math.random = keepRandom; }
+      }, 1);
+      const bakeRandom = randomFrom(4711), seedBake = (build) => { const keepRandom = Math.random; Math.random = bakeRandom; try { return build(); } finally { Math.random = keepRandom; } };   // the same bank every run, so the levels are the same every run; the random is seeded inside the synchronous build of each step only
+      offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf, seedBake)).bank;
+      if (ctl && ctl.cancelled) throw new Error('cancelled');
       const failures = [];
-      for (const slot of slots) oc.suspend(slot.from).then(() => { inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }); oc.resume(); });
-      const rendered = await oc.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
+      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slots.indexOf(slot)); oc.resume(); });
+      const rendered = await oc.startRendering();
+      if (ctl && ctl.cancelled) throw new Error('cancelled');
+      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
       await new Promise((resolve) => setTimeout(resolve, 60)); Sound.voices = liveVoices;   // (the ended events of the offline sources come in after the render)
       slots.forEach((slot, i) => {
         const end = Math.floor((i + 1 < slots.length ? slots[i + 1].from : total) * SR); let peak = 0;
@@ -14365,9 +14433,9 @@ const SelfTest = {
       });
       return { peaks, table, failures };
     };
-    test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async () => {
+    test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async (ctl) => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
-      const { peaks, table, failures } = await renderSounds({}, 0.25), bad = failures.slice();
+      const { peaks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
       for (const [name, target] of table) {
         const peak = peaks[name];
         if (!(peak <= -1)) bad.push(name + ' peaks at ' + peak.toFixed(1) + ' dBFS (over -1)');
@@ -14376,11 +14444,11 @@ const SelfTest = {
       }
       return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
-    test('Sound buses (P18-29): every source connects to the effects, UI or music bus; with master, effects or music at 0 the matching sounds render silent (an offline render; Chrome only)', async () => {
+    test('Sound buses (P18-29): every source connects to the effects, UI or music bus; with master, effects or music at 0 the matching sounds render silent (an offline render; Chrome only)', async (ctl) => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
       const bad = [], quiet = -70, music = (name) => /^(music|ambience)/.test(name), sounds = (name) => !music(name);
       const loudest = (peaks) => Math.max(...Object.values(peaks)), loud = (peaks) => Object.entries(peaks).filter(([, p]) => p > quiet).map(([n]) => n);
-      const master = await renderSounds({ master: 0 }, 0), effects = await renderSounds({ sfx: 0 }, 0, sounds), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3'), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed)$/.test(name));
+      const master = await renderSounds({ master: 0 }, 0, undefined, ctl), effects = await renderSounds({ sfx: 0 }, 0, sounds, ctl), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3', ctl), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed)$/.test(name), ctl);
       for (const run of [master, effects, noMusic, full]) bad.push(...run.failures);
       if (loudest(master.peaks) > quiet) bad.push('master at 0 still sounds: ' + loud(master.peaks).slice(0, 3).join(', '));
       if (loudest(effects.peaks) > quiet) bad.push('effects at 0 still sounds: ' + loud(effects.peaks).slice(0, 3).join(', '));
@@ -19033,11 +19101,16 @@ const SelfTest = {
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     const runDeferred = async () => {
       for (const { entry, fn, limitMs } of deferredTests) {
-        const started = performance.now(); let timer = 0;
+        const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
         try {
           const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
-          record(entry, await Promise.race([fn(), tooSlow]));
-        } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); } finally { clearTimeout(timer); }
+          work = Promise.resolve(fn(ctl));
+          record(entry, await Promise.race([work, tooSlow]));
+        } catch (e) {
+          entry.detail = 'exception: ' + String(e && e.message || e);
+          ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
+          if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+        } finally { clearTimeout(timer); }
         entry.ms = Math.round(performance.now() - started);
         self.made.splice(0).forEach((made) => made.dispose());
         if (Match.current) Match.current.dispose();
