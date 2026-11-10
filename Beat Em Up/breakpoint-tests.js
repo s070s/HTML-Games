@@ -47,7 +47,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -19455,8 +19455,12 @@ const SelfTest = {
       for (const [name, text] of Object.entries(refused)) if (onlineReadLobby(text) !== null) bad.push('the list was taken: ' + name);
       if (onlineReadLobby(mutate({ arena: 'toString' })).arena !== '' || onlineReadLobby(mutate({ text: 'z'.repeat(500) })).text.length !== 120 || onlineReadLobby(mutate({ text: 5 })).text !== '') bad.push('an unknown level is dropped and a long text is cut to 120 characters');
       if (onlineReadLobby(null) !== null || onlineReadLobby(new ArrayBuffer(4)) !== null) bad.push('a non-string');
-      const me = onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true }));
-      if (!me || me.fighter !== 'mara' || me.ready !== true) bad.push('a valid pick');
+      const me = onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true, rev: 3 }));
+      if (!me || me.fighter !== 'mara' || me.ready !== true || me.rev !== 3 || onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true })).rev !== -1 || onlineReadMe(JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: true, rev: 'x' })).rev !== -1) bad.push('a valid pick and its revision');
+      if (onlineReadLobby(mutate({ rev: 4 })).rev !== 4 || onlineReadLobby(mutate({ rev: -1 })) !== null || onlineReadLobby(mutate({ rev: 1.5 })) !== null || onlineReadLobby(mutate({ rev: '1' })) !== null) bad.push('the revision of a list');
+      const tidy = { t: ONLINE_LOBBY, you: 1, mode: 'brawl', arena: 'dojo', text: '', rev: 2, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: 5 }] };
+      if (onlineReadLobby(JSON.stringify(Object.assign({}, tidy, { seats: [{ seat: 0, fighter: 'kai', ready: true, rt: NaN }] }))) !== null) bad.push('a list with a round trip that is not a number must be refused whole, so the host never sends one');
+      if (onlineLatencyText(ONLINE_NO_REPLY) !== 'no reply') bad.push('no reply words: ' + onlineLatencyText(ONLINE_NO_REPLY));
       for (const text of ['{', JSON.stringify({ t: ONLINE_ME, fighter: 'toString', ready: true }), JSON.stringify({ t: ONLINE_ME, fighter: 'mara', ready: 1 }), JSON.stringify({ t: 'x', fighter: 'mara', ready: true }), JSON.stringify({ t: ONLINE_ME, fighter: 'c0', ready: true }), 'x'.repeat(500), null]) if (onlineReadMe(text) !== null) bad.push('a pick was taken: ' + String(text).slice(0, 40));
       if (!onlineFighter('kai') || onlineFighter('toString') || onlineFighter('c0') || onlineFighter(5) || onlineFighterOr('nope', 2) !== DEFAULT_UNLOCKED[2] || onlineFighterOr('mara', 2) !== 'mara') bad.push('onlineFighter');
       // the first delay: the median of each guest's samples through netDelayFor, one more frame when a guest's samples spread over ONLINE_JITTER_MS, never above the limit
@@ -19486,7 +19490,7 @@ const SelfTest = {
         const say = (guest, message) => OnlineUI.onMessage(guest.link, typeof message === 'string' ? message : JSON.stringify(message));
         const rows = OnlineUI.hostRows();
         if (rows.map((row) => row.seat).join() !== '0,1,2' || !rows[0].ready || rows[0].fighter !== 'kai' || rows[1].ready || rows[1].rt !== -1) bad.push('the first rows ' + JSON.stringify(rows));
-        say(a, { t: ONLINE_ME, fighter: 'mara', ready: false }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true });
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: false, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
         if (a.fighter !== 'mara' || a.ready !== false || b.fighter !== 'brutus' || b.ready !== true) bad.push('their picks');
         for (const hostile of [{ t: ONLINE_ME, fighter: 'toString', ready: true }, { t: ONLINE_ME, fighter: 'c0', ready: true }, { t: ONLINE_ME, fighter: 'mara', ready: 'yes' }, { t: 'bpstart' }, '{not json', 'bp-nothing', JSON.stringify([1, 2])]) say(a, hostile);
         if (a.fighter !== 'mara' || a.ready !== false) bad.push('a hostile message changed a guest: ' + a.fighter + ' ' + a.ready);
@@ -19499,7 +19503,7 @@ const SelfTest = {
         if (!screen.includes('Waiting for player 2 to press Ready.') || !/data-act="onstart" disabled/.test(screen) || !screen.includes('<span class="onst">&#9675; Not ready</span>') || !screen.includes('<span class="onst">&#10003; Ready</span>') || !screen.includes(ROSTER_BY_ID.mara.name) || !screen.includes(ROSTER_BY_ID.brutus.name) || !/id="onLat1">\d+ ms, (good|fair|poor)</.test(screen)) bad.push('the list on screen');
         for (let k = 0; k < 40; k++) say(a, ONLINE_PONG + (performance.now() - 40));
         if (a.samples.length !== ONLINE_SAMPLES) bad.push('the samples are not capped: ' + a.samples.length);
-        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true });
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev });
         if (OnlineUI.startProblem() !== '' || /data-act="onstart" disabled/.test(UI.screen_onlinehost()) || !/data-default data-act="onstart"/.test(UI.screen_onlinehost())) bad.push('everyone ready: "' + OnlineUI.startProblem() + '"');
         // every guest gets the list, each its own seat
         for (const list of heard) list.length = 0;
@@ -19509,10 +19513,10 @@ const SelfTest = {
         // a changed mode, level or lineup withdraws every Ready and tells the guests
         OnlineUI.act('onmode');
         if (OnlineUI.mode !== 'tournament' || a.ready || b.ready || lastList(heard[0]).seats.some((row) => row.seat > 0 && row.ready) || lastList(heard[0]).mode !== 'tournament') bad.push('a new mode kept a Ready');
-        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true });
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
         OnlineUI.act('onarena');
         if (a.ready || b.ready || lastList(heard[1]).arena !== OnlineUI.arena) bad.push('a new level kept a Ready');
-        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true });
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: OnlineUI.rev }); say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true, rev: OnlineUI.rev });
         UI.changeLocal('olb:mode', -1);
         if (OnlineUI.mode !== 'brawl' || a.ready) bad.push('the arrow back through the modes: ' + OnlineUI.mode);
         // the host's own pick goes into the list
@@ -19533,8 +19537,9 @@ const SelfTest = {
         screen = UI.screen_onlinehost();
         if (OnlineUI.hostRows().length !== 2 || !screen.includes('data-act="onnew:3"') || !lastList(heard[0]) || lastList(heard[0]).seats.length !== 2) bad.push('a guest that left stays on the list: ' + OnlineUI.hostRows().length);
         // Remove closes the seat of a connected player and the seat offers a new code
+        heard[0].length = 0;
         OnlineUI.act('onkick', '2');
-        if (pairs[0][0].state !== 'closed' || OnlineUI.hostRows().length !== 1 || !UI.screen_onlinehost().includes('data-act="onnew:2"') || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Remove: ' + pairs[0][0].state);
+        if (!heard[0].includes(ONLINE_REMOVED) || OnlineUI.isOpen(OnlineUI.slotOf(2)) || OnlineUI.hostRows().length !== 1 || !UI.screen_onlinehost().includes('data-act="onnew:2"') || OnlineUI.startProblem() !== ONLINE_MESSAGES.nobody) bad.push('Remove: ' + heard[0].join('|') + ' ' + pairs[0][0].state);
         // the list names who can be removed and the rows are on the touch route
         if (!screen.includes('role="list"') || !/<li class="onrow tc0">/.test(screen)) bad.push('the list markup');
       } finally { kit.restore(); }
@@ -19721,7 +19726,7 @@ const SelfTest = {
         const refuse = {
           'a slot with 9 as its person': (m) => { m.cfg.slots[0].human = 9; }, 'a slot that is not an object': (m) => { m.cfg.slots[1] = null; }, 'an unknown fighter': (m) => { m.cfg.slots[2].id = 'toString'; }, 'health as text': (m) => { m.cfg.slots[3].hp = 'x'; },
           'a team of 99': (m) => { m.cfg.slots[3].team = 99; }, 'one slot': (m) => { m.cfg.slots.length = 1; }, 'nine slots': (m) => { m.cfg.slots = Array.from({ length: 9 }, () => m.cfg.slots[0]); }, 'no people counted': (m) => { m.cfg.humans = 0; },
-          'the lineup said as a brawl': (m) => { m.mode = 'brawl'; }, 'a brawl said as a lineup': (m) => { delete m.cfg.slots; }, 'a seat that steers a CPU fighter': (m) => { m.fighterOf = [0, -1, 1, 3]; }, 'a tint that is text': (m) => { m.cfg.slots[0].tint = 'red'; },
+          'the lineup said as a brawl': (m) => { m.mode = 'brawl'; }, 'a brawl said as a lineup': (m) => { delete m.cfg.slots; }, 'a seat that steers a CPU fighter': (m) => { m.fighterOf = [0, -1, 1, 3]; }, 'a tint that is text': (m) => { m.cfg.slots[0].tint = 'red'; }, 'team names with a null': (m) => { m.cfg.teamNames = [null]; }, 'team names with a number': (m) => { m.cfg.teamNames = [5, 'TEAM B']; }, 'team names that are not a list': (m) => { m.cfg.teamNames = 'TEAM A'; }, 'no team names': (m) => { delete m.cfg.teamNames; }, 'a team name of 99 letters': (m) => { m.cfg.teamNames = ['x'.repeat(99)]; }, 'nine team names': (m) => { m.cfg.teamNames = Array.from({ length: 9 }, () => 'TEAM A'); },
         };
         for (const [name, change] of Object.entries(refuse)) { const message = clone(); change(message); const got = OnlinePlay.problemWith(message); if (got !== ONLINE_MESSAGES.start) bad.push('accepted: ' + name + ' (' + got + ')'); }
         OnlinePlay.leave();
@@ -19848,7 +19853,6 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Online lobby (P12-06): a Firefox guest sends the first code: its screen makes the code (Copy, Show QR, a box for the host\'s answer), the host\'s block answers it with the seat of that block and shows the answer to send back, the guest\'s Connect opens the link; the host can switch a seat between the two directions, and a scanned code takes the same route as a pasted one', async () => {
-      await Promise.allSettled(pendingTests.slice()); // an async test starts its first step while the sync tests after it run, and they share OnlineUI and Online.createLink: this one waits until every earlier async test is done before it changes either
       const bad = [], lobby = lobbyKit(), originalCreate = Online.createLink, links = [];
       const Fake = fakeConnection({ offer: OFFER, answer: ANSWER });
       Online.createLink = (role, options = {}) => { const link = originalCreate(role, { gatherMs: 20, connectMs: 5000, guestWaitMs: 5000, connection: Fake, ...options }); links.push(link); return link; };
@@ -19920,7 +19924,7 @@ const SelfTest = {
         lobby.restore();
       }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
-    });
+    }, 10000); // deferred: it runs after every other test (they share OnlineUI and Online.createLink with the async tests above) and its time limit starts then
     test('Online lobby (P12-06): after a match the host can go back to the lobby with the same links (the Lobby button of the results): nobody is Ready, a friend that left is a free seat, a new friend can join; a guest goes back when the host does (only once its own match is over) or by itself; Rematch after "Out of sync" is a new match with a new number', () => {
       const kit = reviewKit(), lobby = lobbyKit(), bad = [], keepNow = Game.quitToMenu, keepHide = UI.hideScreen;
       UI.hideScreen = () => { UI.current = null; }; // the headless stub has no screen container; a match that starts from a lobby screen leaves it
@@ -19990,6 +19994,196 @@ const SelfTest = {
         if (OnlineUI.role === 'guest' || !lobby.toasts.includes('The host left the game.')) bad.push('a guest without a link went to the lobby');
       } finally { OnlinePlay.leave(); lobby.restore(); kit.restore(); Game.quitToMenu = keepNow; UI.hideScreen = keepHide; }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- the review of P12-06 ---------- */
+    test('Online lobby (P12-06 review): a guest\'s Ready and the host\'s list belong to one connection - when its link closes or fails, and when it makes a new link, Ready is off and the old list is gone, so the next lobby does not show the last one', () => {
+      const bad = [], lobby = lobbyKit(), keepCreate = Online.createLink;
+      const list = { mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 4, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'mara', ready: true, rt: 20 }] };
+      const guestOn = (link) => Object.assign(OnlineUI, { role: 'guest', guests: [], link, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: true }, view: JSON.parse(JSON.stringify(list)) });
+      try {
+        for (const end of ['closed', 'failed']) {
+          const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+          guestOn(guestSide); OnlineUI.listen(guestSide);
+          guestSide.state = end; OnlineUI.onState(guestSide, end);
+          if (OnlineUI.mine.ready || OnlineUI.view !== null) bad.push('a link that ' + end + ' kept Ready or the list');
+        }
+        const [, second] = makeStandInLinks(); second.seat = 3;
+        guestOn(second);
+        Online.createLink = () => { const [fresh] = makeStandInLinks(); fresh.seat = 3; return fresh; };
+        OnlineUI.makeLink();
+        if (OnlineUI.mine.ready || OnlineUI.view !== null || OnlineUI.link === second) bad.push('a new link kept Ready or the list');
+        if (!UI.screen_onlinejoin().includes('aria-pressed="false"')) bad.push('the new connection shows Ready pressed');
+        const [, third] = makeStandInLinks(); third.seat = 3;
+        guestOn(third); OnlineUI.first = true;
+        OnlineUI.stopFirst();
+        if (OnlineUI.mine.ready || OnlineUI.view !== null) bad.push('going back to the host\'s code first kept Ready or the list');
+      } finally { Online.createLink = keepCreate; lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): a Ready counts only for the settings it saw - the host numbers its settings (mode, level, lineup), the list and every guest message carry the number, and a Ready with an old number is not a Ready', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        const say = (guest, message) => OnlineUI.onMessage(guest.link, JSON.stringify(message));
+        const rev0 = OnlineUI.rev;
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev0 });
+        if (!a.ready) bad.push('a Ready for the current settings');
+        OnlineUI.pushLobby();
+        if (lastList(heard[0]).rev !== rev0) bad.push('the list carries the revision');
+        OnlineUI.act('onarena');
+        if (OnlineUI.rev <= rev0 || a.ready || lastList(heard[1]).rev !== OnlineUI.rev) bad.push('a new level raises the revision and withdraws Ready: ' + rev0 + ' > ' + OnlineUI.rev);
+        const rev1 = OnlineUI.rev;
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev0 });
+        if (a.ready || lastList(heard[0]).seats[1].ready) bad.push('a Ready made for the old level was taken');
+        say(b, { t: ONLINE_ME, fighter: 'brutus', ready: true });
+        if (b.ready) bad.push('a Ready with no revision was taken');
+        say(a, { t: ONLINE_ME, fighter: 'mara', ready: true, rev: rev1 });
+        if (!a.ready) bad.push('a Ready for the new level');
+        OnlineUI.act('onmode');
+        if (OnlineUI.rev === rev1 || a.ready) bad.push('a new mode raises the revision too');
+        // the guest's side: its Ready names the revision of the list it saw (0 before any list), and a list that withdraws Ready turns its button off
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        const toHost = []; hostSide.onMessage((data) => toHost.push(data));
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: false }, view: null });
+        OnlineUI.act('onready');
+        let sent = onlineReadMe(toHost[toHost.length - 1]);
+        if (!sent || sent.ready !== true || sent.rev !== 0) bad.push('a Ready before any list names revision 0: ' + toHost[toHost.length - 1]);
+        const seats = [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }, { seat: 2, fighter: 'kai', ready: false, rt: 30 }];
+        OnlineUI.heardLobby({ mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 7, seats });
+        if (OnlineUI.mine.ready) bad.push('a list that says not ready left the button on');
+        OnlineUI.act('onready');
+        sent = onlineReadMe(toHost[toHost.length - 1]);
+        if (!sent || sent.ready !== true || sent.rev !== 7) bad.push('a Ready names the revision of the list: ' + toHost[toHost.length - 1]);
+        OnlineUI.heardLobby({ mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 8, seats });
+        if (OnlineUI.mine.ready) bad.push('a new revision from the host takes Ready off');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): a round trip that is not a number is dropped (the list would carry null and every guest would refuse it), and a guest that misses three pings shows "no reply", holds Start and comes back with its next answer', () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { heard } = lobby.host([2, 3]);
+        const [a, b] = OnlineUI.guests;
+        const pong = (guest, text) => OnlineUI.onMessage(guest.link, ONLINE_PONG + text);
+        for (const text of ['abc', '', 'NaN', 'Infinity', '-Infinity', '1e999']) pong(a, text);
+        if (a.samples.length || a.roundTrip !== -1) bad.push('a pong that is not a time was kept: ' + a.samples.join());
+        for (let k = 0; k < ONLINE_SAMPLES_MIN; k++) for (const guest of [a, b]) { pong(guest, String(performance.now() - 20)); guest.ready = true; }
+        pong(a, 'abc');
+        OnlineUI.pushLobby();
+        const list = lastList(heard[1]);
+        if (!list || list.seats.some((row) => !Number.isFinite(row.rt))) bad.push('the list a guest gets must stay readable: ' + JSON.stringify(list));
+        if (OnlineUI.startProblem() !== '') bad.push('both guests answer: ' + OnlineUI.startProblem());
+        // two pings pass, a third: guest 2 stays quiet, guest 3 answers each time
+        for (let k = 0; k < ONLINE_MISSED_PINGS; k++) {
+          if (k === ONLINE_MISSED_PINGS - 1 && OnlineUI.silent(a)) bad.push('silent after ' + k + ' pings');
+          OnlineUI.tick(); pong(b, String(performance.now() - 20));
+        }
+        if (!OnlineUI.silent(a) || OnlineUI.silent(b)) bad.push('the quiet guest is not told apart: ' + a.missed + ' ' + b.missed);
+        const rows = OnlineUI.hostRows();
+        if (rows[1].rt !== ONLINE_NO_REPLY || rows[2].rt < 0) bad.push('rows ' + JSON.stringify(rows.map((row) => row.rt)));
+        if (!UI.screen_onlinehost().includes('no reply')) bad.push('the host screen does not say no reply');
+        if (OnlineUI.startProblem() !== 'Player 2 does not answer. Wait a moment, or remove them.') bad.push('Start with a quiet guest: ' + OnlineUI.startProblem());
+        const toB = lastList(heard[1]);
+        if (!toB || toB.seats[1].rt !== ONLINE_NO_REPLY) bad.push('the guests are told: ' + JSON.stringify(toB && toB.seats));
+        pong(a, String(performance.now() - 20));
+        if (OnlineUI.silent(a) || OnlineUI.hostRows()[1].rt < 0 || OnlineUI.startProblem() !== '') bad.push('an answer brings the guest back: ' + OnlineUI.startProblem());
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Online lobby (P12-06 review): Remove tells the guest it was removed (the guest\'s screen says so, not "check the Wi-Fi"), the seat is free at once, and the link closes a moment later', async () => {
+      const bad = [], lobby = lobbyKit();
+      try {
+        const { pairs, heard } = lobby.host([2, 3]);
+        heard[0].length = 0;
+        OnlineUI.act('onkick', '2');
+        if (!heard[0].includes(ONLINE_REMOVED) || OnlineUI.isOpen(OnlineUI.slotOf(2)) || OnlineUI.hostRows().length !== 2) bad.push('Remove: ' + heard[0].join('|'));
+        if (pairs[0][0].state !== 'open') bad.push('the link closed before the message could leave');
+        await new Promise((resolve) => setTimeout(resolve, ONLINE_REMOVE_CLOSE_MS + 120));
+        if (pairs[0][0].state !== 'closed') bad.push('the link of a removed guest did not close');
+        if (pairs[1][0].state !== 'open') bad.push('another guest was closed');
+        // the guest's side
+        const [hostSide, guestSide] = makeStandInLinks(); hostSide.seat = guestSide.seat = 3;
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: 'kai', ready: true }, view: { mode: 'brawl', arena: 'dojo', text: '', you: 2, rev: 1, seats: [{ seat: 0, fighter: 'kai', ready: true, rt: -1 }] } });
+        OnlineUI.listen(guestSide);
+        hostSide.send(ONLINE_REMOVED);
+        const screen = UI.screen_onlinejoin();
+        if (guestSide.state !== 'closed' || OnlineUI.mine.ready || OnlineUI.view !== null || !screen.includes(esc(ONLINE_MESSAGES.removed)) || screen.includes('Check the Wi-Fi')) bad.push('the guest after Remove: ' + guestSide.state + ' ' + screen.includes(esc(ONLINE_MESSAGES.removed)));
+        // only the link this screen holds may remove it
+        const [, otherGuest] = makeStandInLinks();
+        Object.assign(OnlineUI, { role: 'guest', link: guestSide, note: '' });
+        OnlineUI.onMessage(otherGuest, ONLINE_REMOVED);
+        if (OnlineUI.note !== '') bad.push('a link this screen does not hold removed the guest');
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    }, 10000); // deferred: it runs after every other test, so the shared OnlineUI is its own, and its time limit starts then
+    /* Layout (P18-19 way): the lobby screens in a frame of a phone, portrait and landscape. Every control and every part of a lobby row must be inside the screen, not clipped and not on top of another control. */
+    test('Online lobby (P12-06 review): the lobby screens fit a phone - layout at 390 x 844 and 844 x 390: the host lobby with three guests (Remove, the browser text, no reply), the host lobby with a seat still waiting, the guest lobby and Players and teams with Online friends: no sideways scroll, every control and every part of a row inside the screen, nothing clipped, no two controls on top of each other', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the phone sizes were not measured';
+      const bad = [], styles = [...document.querySelectorAll('style')].map((st) => st.textContent).join('\n'), lobby = lobbyKit();
+      const longest = ROSTER.reduce((best, r) => (r.name.length > best.name.length ? r : best)).id, pages = [];
+      try {
+        lobby.host([2, 3, 4], { fighter: longest, ready: true, samples: [20, 20, 20], engine: 'gecko', missed: 0 });
+        OnlineUI.hostFighter = longest; OnlineUI.guests[1].ready = false; OnlineUI.guests[2].missed = ONLINE_MISSED_PINGS;
+        pages.push(['host lobby with three guests', UI.screen_onlinehost()]);
+        OnlineUI.mode = 'free';
+        pages.push(['host lobby, Free Fight', UI.screen_onlinehost()]);
+        lobby.host([2], { fighter: longest, ready: true, samples: [20, 20, 20] });
+        OnlineUI.guests.push({ seat: 3, link: { state: 'waiting', error: null, seat: 3 }, offerCode: 'BPO-' + 'A'.repeat(300), answerText: '', note: '', roundTrip: -1, samples: [], ready: false });
+        OnlineUI.guests.push({ seat: 4, link: { state: 'failed', error: { code: 'timeout', message: ONLINE_MESSAGES.timeout }, seat: 4 }, offerCode: 'BPO-x', answerText: '', note: '', roundTrip: -1, samples: [], ready: false });
+        pages.push(['host lobby with a waiting seat and a failed one', UI.screen_onlinehost()]);
+        const [, guestSide] = makeStandInLinks(); guestSide.seat = 4;
+        const seats = [0, 1, 2, 3].map((seat) => ({ seat, fighter: longest, ready: seat !== 2, rt: seat === 0 ? -1 : seat === 3 ? ONLINE_NO_REPLY : 150 }));
+        Object.assign(OnlineUI, { role: 'guest', guests: [], link: guestSide, note: '', first: false, unlisten: [], mine: { fighter: longest, ready: false }, view: { mode: 'free', arena: 'dojo', text: 'Brawl, 4 fighters, 3 online slots', you: 3, rev: 1, seats } });
+        pages.push(['guest lobby', UI.screen_onlinejoin()]);
+        Object.assign(OnlineUI, { link: { state: 'closed', error: null, seat: 4 }, view: null, note: ONLINE_MESSAGES.removed });
+        pages.push(['guest after Remove', UI.screen_onlinejoin()]);
+        const keepSave = Setups.save; Setups.save = () => {};
+        withFree(() => {
+          UI.lineupLocal('lopp', 1); UI.lineupLocal('lopp', 1); UI.lineupLocal('lnet', 1);
+          for (let slot = 1; slot < 4; slot++) UI.lineupLocal('lctl:' + slot, 1), UI.lineupLocal('lctl:' + slot, 1);
+          pages.push(['Players and teams with Online friends', UI.screen_lineup()], ['Free Fight first screen with Online friends', UI.screen_freefight()]);
+        });
+        Setups.save = keepSave;
+        for (const [width, height] of [[390, 844], [844, 390]]) {
+          for (const [name, html] of pages) {
+            const frame = document.createElement('iframe');
+            frame.style.cssText = 'position:fixed;left:0;top:0;border:0;visibility:hidden;width:' + width + 'px;height:' + height + 'px';
+            document.body.appendChild(frame);
+            try {
+              const doc = frame.contentDocument, win = frame.contentWindow, where = name + ' at ' + width + ' x ' + height + ': ';
+              doc.open(); doc.write('<!doctype html><meta charset="utf-8"><style>' + styles + '</style><div id="app"><div id="screens">' + html + '</div></div>'); doc.close();
+              const screen = doc.querySelector('.screen'), panel = doc.querySelector('.panel');
+              if (!screen || !panel) { bad.push(where + 'no screen'); continue; }
+              const sideways = Math.max(screen.scrollWidth - screen.clientWidth, panel.scrollWidth - panel.clientWidth, doc.documentElement.scrollWidth - width);
+              if (sideways > 1) bad.push(where + 'sideways ' + sideways);
+              const label = (el) => (el.getAttribute('aria-label') || el.id || el.textContent || el.tagName).trim().slice(0, 28);
+              const controls = [...doc.querySelectorAll('button, [data-nav], textarea')].map((el) => [el, el.getBoundingClientRect()]);
+              for (const [el, r] of controls) {
+                if (r.width < 8 || r.height < 8) bad.push(where + label(el) + ' is not visible');
+                else if (r.left < -1 || r.right > width + 1) bad.push(where + label(el) + ' leaves the screen sideways (' + Math.round(r.left) + ' to ' + Math.round(r.right) + ')');
+              }
+              const mine = (el) => !!el.closest('.onrow') || (!!el.closest('.slot') && /^(Online|Friend picks)$/.test(el.textContent.trim())); // a fighter name in a lineup cell is cut with an ellipsis by design (P18-19): only this task's own texts must fit
+              for (const el of [...doc.querySelectorAll('.onrow *, .slot .v, .onseat button.mi, .row button.mi')].filter(mine)) {
+                const overflow = win.getComputedStyle(el).overflowX;
+                if (el.clientWidth > 0 && (overflow === 'hidden' || overflow === 'clip') && el.scrollWidth > el.clientWidth + 1) bad.push(where + label(el) + ' is clipped (' + el.scrollWidth + ' in ' + el.clientWidth + ')');
+              }
+              for (const row of doc.querySelectorAll('.onrow')) {
+                const box = row.getBoundingClientRect();
+                for (const part of row.children) { const r = part.getBoundingClientRect(); if (r.width > 0 && (r.left < box.left - 1 || r.right > box.right + 1)) bad.push(where + label(part) + ' sticks out of its row'); }
+              }
+              const flat = controls.filter(([el]) => !el.closest('.sticky'));
+              for (let i = 0; i < flat.length; i++) for (let j = i + 1; j < flat.length; j++) {
+                const [one, a] = flat[i], [two, b] = flat[j];
+                if (one.contains(two) || two.contains(one)) continue;
+                const across = Math.min(a.right, b.right) - Math.max(a.left, b.left), down = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                if (across > 2 && down > 2) bad.push(where + label(one) + ' and ' + label(two) + ' overlap');
+              }
+            } finally { if (frame.parentNode) frame.parentNode.removeChild(frame); }
+          }
+        }
+      } finally { lobby.restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
