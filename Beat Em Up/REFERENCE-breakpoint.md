@@ -4646,6 +4646,34 @@ Open questions for the owner: enable GitHub Pages (public); allow two extra file
 - Docs in the same change: Appendix C "as built" line for this entry, the Settings and Help text (no Settings change), the P14-02 list of gameplay options (the momentum rule), and the P16-03 owner line above.
 - Checks done for this entry: reading only (`breakpoint.html` at 2041038 read through `git show`, REFERENCE-breakpoint.md Appendices A, B, C (P18-06, P18-12, P18-23, P18-27), the task JSON, SPEC.md and TASKS.md); web research on 2026-11-07 for the genre's identity features (written up with URLs, dates and verified marks in `P18-14B.md`, Appendix B; unsourced claims were dropped). Line numbers and the file size (1,178,914 LF bytes) were taken from the commit. No game file, test file or fingerprint was touched, and no test was run.
 
+### P18-14 owner pick (2026-11-10)
+
+- Owner (2026-11-10, 14:40 to 14:51; their words are in the tracking repo, `Breakpoint/HANDOFF.md`, "Owner input 2026-11-10") picked **both C and B** of the entry above. The two sentences the owner selected:
+  - C, Street Chain: "Scenery effects that set each other off (spark, fire, collapse) are named ('CHAIN x3'), counted, and pay Momentum to whoever lit them."
+  - B, The Beat: "Perfect-timing defence as the signature: one window for Block and Sway, a 'PERFECT' ring and chime, streaks feed Momentum."
+- So the entry above is no longer only a recommendation: both options are built, and A stays as BP-P18-48 (done). D and E were not picked and stay rejected as written above. BP-P18-14 is ticked by the coordinator.
+- C is **BP-P18-49**, built from "Street Chain, as decided for build" above with two changes. It depends on BP-P18-61, BP-P18-29 and BP-P18-14 (BP-P18-13 and BP-P18-48 are done). Its balance check is Hard only, 200 seeds per chain level; the full grid (all four difficulties, 600 seeds per chain level) moves to BP-P14-04.
+- B is decided in **BP-P18-61** (the window, the streak, the cues, the Momentum paid per step) and built as **BP-P18-63**, after the new Sway (BP-P18-62). The sketch in row B said a 7-tick window; the task text says a perfect starts at most 6 ticks before contact, and BP-P18-61 sets the final number. Block and Sway perfects count the same. One Momentum budget covers perfects, Beat streaks and Street Chain pay: with every source on, the boost starts 0.5 to 2 times per fighter per round.
+- The owner's other requests of the same session, and the task each became:
+
+  | Owner request (2026-11-10) | Tasks |
+  |---|---|
+  | Easy Arcade is too easy: "i can just spam punch,kick and win"; keep the automatic lock-on | BP-P18-73 (the CPU answers mashing at every difficulty; a Mash script wins at most 40 percent of Easy 1v1 fights and of Easy Arcade stages after stage 2); tuned in BP-P14-05 |
+  | Evaluate collisions, hitboxes, hurtboxes and their accuracy ("floating through") | BP-P18-64 (audit, findings in Appendix D), BP-P18-65 (fixes) |
+  | More weapons (blades, guns, blunt) and goons that come equipped | BP-P18-66 (decide), BP-P18-67 (weapons), BP-P18-68 (armed goons) |
+  | Missing progression feel: more unlocks and reasons for them | BP-P18-71 (audit and decide), BP-P18-72 (build) |
+  | Menus mobile first, working in landscape and portrait (the creator in landscape) | BP-P18-69 (audit and decide), BP-P18-70 (build) |
+  | Rework Sway: hold to prepare, sway at a stamina cost when attacks land | BP-P18-61 (decide), BP-P18-62 (build) |
+  | Stamina that means something: less stamina, weaker fighting; not abundant, not drained fast; re-cost every action | BP-P18-61 (decide), BP-P18-52 (rescoped: builds the BP-P18-61 stamina rules) |
+  | X-factor B and C | BP-P18-61 and BP-P18-63 (B), BP-P18-49 (C) |
+
+- Sequencing decision (coordinator, 2026-11-10): all mechanics changes land first, then one balance pass (BP-P14-02 to BP-P14-05). In detail:
+  - BP-P17-10 merges with a coarse screen (N=20, seeds 5001, Normal and Hard; each style's average over its 15 opponents inside 35 to 65 percent). Its per-pair balance at all four difficulties moves to BP-P14-03 and BP-P14-04, where reach and move-table edits are allowed.
+  - BP-P18-07, BP-P18-09 and BP-P18-24 check with a smoke test (Hard, N=20: each preset's win rate moves no more than 6 points with the feature on versus off) instead of the P14-01 targets. The full check is BP-P14-04.
+  - BP-P18-63 and BP-P18-65 record a warning screen and tune nothing.
+  - Order in TASKS.md: BP-P18-29, BP-P12-06, BP-P17-10, then the decisions and audits (BP-P18-66, BP-P12-08, BP-P18-64, BP-P18-61, BP-P18-69), the menu layout and collision fixes, the stamina, Sway and Beat builds, Street Chain, the abilities and group attacks, the new weapons and armed goons, the anti-mash CPU, progression, the performance work (alone), then BP-P14-02 to BP-P14-05, the animation rework, and Stages 15 and 16.
+- Nothing in this entry changes the game code, a test or a fingerprint.
+
 ### P18-45 built: Tournament Ring-out row
 
 - The Tournament join screen has a Ring-out row (Off, On) after Entrants and Difficulty; it is hidden when a saved bracket is continued, like the other two. A tap, the arrow keys and a gamepad change it through `changeLocal('tring')`; `Game.saveLevel` stores it with the Difficulty as `setups.tournament.ringOut` (a boolean), `Game.loadLevels` reads it into `selection.tournamentRing`.
