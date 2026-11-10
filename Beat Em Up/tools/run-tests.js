@@ -263,7 +263,9 @@ async function main() {
   const filter = chooseFilter(args);
   if (args.list) { (filter || ['(every test)']).forEach((name) => console.log(name)); process.exit(0); }
   if (filter && !filter.length) { console.log('No test picked: nothing to run.'); process.exit(0); }
-  vm.runInContext(gameScript(), context, { filename: HTML_FILE });
+  const script = gameScript();
+  document.scripts = [{ textContent: script }];   // the page's inline script, as a browser's document.scripts shows it: the source scan of the simulation (P12-08) reads it
+  vm.runInContext(script, context, { filename: HTML_FILE });
   if (typeof sandbox.__ev !== 'function') throw new Error('game script did not install __ev');
   const ev = sandbox.__ev;
   ev('Store.init(); Settings.init(); Keymap.init(); Keymap2.init(); Progress.init(); CustomRoster.init(); Debris.init(); FX.init(); Inputs.init(); Effects.init();');
