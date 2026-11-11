@@ -3586,6 +3586,7 @@ function makeObject(def, rng) {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
     standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, foot: def.step ? STAIR_FOOT : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
     shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''), // an item thrown onto it lies on its top
+    perch: (def.type === 'box' || def.type === 'column') && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|chair|sofa|)$/.test(def.look || ''), // a body that jumps over it comes down on it
     lay: def.type === 'box' && /^(sofa|car|rack)$/.test(def.look || ''), // an item lies on the highest drawn part under it
   };
   return o;
@@ -3605,7 +3606,7 @@ const NAV_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-
 const STAIR_UP = 0.5; // m: a step may be stood on from this far below its top (one step of slack, so a fast climb never snags on the step after next)
 const STAIR_FOOT = 0.3; // m: but a step gives footing only from this far below its top (a tread and a little slack), so a body at the side of a flight is never lifted two treads in one tick; it passes the steps within STAIR_UP without standing on them
 const PASS_UNDER = 0.05; // m: a prop that cannot be stood on is passed only by a body whose feet are at least this close to its top (a jump over it); a deck or a step takes its own slack (STAIR_UP, 0.25)
-const PUSH_OUT_MAX = 0.6; // m: a body is not moved farther than this to leave an obstacle through a clear side when the nearest side is within it (a body deep inside a big block still leaves by the nearest clear side, however far)
+const PUSH_OUT_MAX = 0.6, PUSH_DEEP = 1.2, PUSH_ESCAPE = 3; // m: a body is not moved farther than PUSH_OUT_MAX to leave an obstacle when the nearest side inside the arena is within it (it leaves through that one, not across a block); from deeper than PUSH_OUT_MAX it leaves PUSH_DEEP a tick (the first pass of a tick only), unless its way out is farther than PUSH_ESCAPE
 const SUPPORT_REACH = 0.15; // m: a fighter walking off a deck, a crate or a step loses the footing when its centre is this far past the footprint; one that is not moving away from it (stepping or jumping up onto it, landing on it, shoved) keeps it over the whole 0.34 m cylinder as before; the CPU's probes (supportAt) read the cylinder, and walls and props keep it too
 const STAIR_APPROACH = 0.45; // m: the CPU's first waypoint lies this far before the foot
 const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far beyond the ring
@@ -4104,10 +4105,10 @@ const Arena = {
         let dx = f.x - nx, dz = f.z - nz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        const held = d2 < SUPPORT_REACH * SUPPORT_REACH || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz <= 0.01 * Math.sqrt(d2); // under the centre, or between SUPPORT_REACH and the cylinder and not moving away from the footprint (stepping or jumping up onto it, landing on it): a body walking off the edge loses the footing at SUPPORT_REACH
+        const held = d2 < SUPPORT_REACH * SUPPORT_REACH || f.vy > 0 || (c.obj && c.obj.step) || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz < -0.01 * Math.sqrt(d2); // under the centre, or between SUPPORT_REACH and the cylinder for a step of a stair (the treads are as narrow as the body), while rising, or moving toward the footprint (jumping up onto it, landing on it): a body that stands, walks along or walks off the edge of the surface it rests on loses the footing at SUPPORT_REACH
         if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || (held && f.y >= c.top - (c.foot || 0.25)))) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a deck, a crate or a step gives footing under the centre, and over the cylinder to a body that is not walking off it (`held`)
-        if (f.y >= c.top - PASS_UNDER) { if (c.shelf && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a table, a bench, a barrier or a crate (what an item lies on: `shelf`) comes down on it; a body falling past a window, a rail or a column goes on falling
-        this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1);
+        if (f.y >= c.top - PASS_UNDER) { if (c.perch && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a table, a bench, a barrier or a crate (what an item lies on: `shelf`) comes down on it; a body falling past a window, a rail or a column goes on falling
+        this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1, pass);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
         if (c.haz) f.hazardTouch = c.haz; // a hazard's post
@@ -4120,7 +4121,7 @@ const Arena = {
   },
 
   // Moves a fighter out of an obstacle the shortest way that stays inside the arena (x0 to x1, z0 to z1: the fighter's limits)
-  pushOut(f, c, dx, dz, d2, x0, x1, z0, z1) {
+  pushOut(f, c, dx, dz, d2, x0, x1, z0, z1, pass) {
     const r = f.radius;
     // the fighter may still be past a wall here (the wall clamp runs last)
     const clears = (x, z) => {
@@ -4153,6 +4154,8 @@ const Arena = {
     }
     let to = best || nearest;
     if (best && close && DMath.hypot(best[0] - f.x, best[1] - f.z) > PUSH_OUT_MAX && DMath.hypot(close[0] - f.x, close[1] - f.z) <= PUSH_OUT_MAX) to = close; // the only clear way out is across a big block: the near side inside the arena is no jump, and what is in its way (a neighbour) is cleared by the passes that follow
+    const gapX = to[0] - f.x, gapZ = to[1] - f.z, gap = DMath.hypot(gapX, gapZ);
+    if (gap > PUSH_OUT_MAX && gap <= PUSH_ESCAPE) { if (pass === 0) { const slide = Math.min(gap, PUSH_DEEP); f.x += gapX / gap * slide; f.z += gapZ / gap * slide; } return; } // deep inside a big block (a spawn, rubble that fell on a body): it leaves PUSH_DEEP a tick (the first pass only), not across the block in one go; a body with no clear side nearer than PUSH_ESCAPE (the end of a collapsed deck, walled in by rubble) is out at once
     f.x = to[0]; f.z = to[1];
   },
 
@@ -5215,7 +5218,7 @@ const LIE_POINTS = [0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33]; // the key points o
 const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part of a body in a blow is drawn; how fast the lift of the body goes when the blow is over (a tick)
 const NUDGE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.HIT, S.STAGGER, S.STUN, S.ATTACK]; // the states a standing body is slid clear of the walls and the scenery in (steerLie)
 const LIE_EVERY = 4, LIE_LOOK = 1.2; // ticks between two searches for room of a standing body (a power of two); the scenery farther than this from the drawn box is not looked at
-const LIE_THICK = 0.15, LIE_FREE = 0.03, LIE_MOVE = 0.1, LIE_TURN = 0.3, LIE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // a lying body (drawing only): the thickness of a limb added to the key points, the move that still counts as no room needed (m), the most the drawn body slides (m) and turns (rad) in a tick, the four directions tried (the facing first)
+const LIE_SLIDE_MAX = 0.35, LIE_THICK = 0.15, LIE_FREE = 0.03, LIE_MOVE = 0.1, LIE_TURN = 0.3, LIE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // a lying body (drawing only): the farthest the drawn body is slid off a wall or a prop (m), the thickness of a limb added to the key points, the move that still counts as no room needed (m), the most the drawn body slides (m) and turns (rad) in a tick, the four directions tried (the facing first)
 const PLANT_RELEASE_TICKS = 20; // ticks the lowest part stays at the depth of the guard stance after the hold or the lying pose ends
 let PROBE_LOW = null; // while a number: part() records the lowest drawn height instead of drawing
 
@@ -5267,7 +5270,7 @@ const STRIKE_STEP_HIP = 0.4; // rad: how far the lead thigh swings forward at mi
 const STRIKE_STEP_CLEAR = 0.1; // m: how high the lead foot is above the floor at mid-step
 const STRIKE_TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }; // key point (3 numbers each in pts) of the limb that strikes: wrist or ankle
 const STRIKE_ROOM = 0.6; // m: the nearest the drawn stride may bring the two bodies' centres
-const STRIKE_FIT = 0.02, STRIKE_FIT_SIDE = 0.25; // m: the tip may end this much beyond the wanted place before the limb is fitted again; a foe farther than this to the side of the blow's line gets the full extension
+const STRIKE_FIT = 0.02; // m: the tip may end this much beyond the wanted place before the limb is fitted again
 const STRIKE_PAST = 0.2, STRIKE_REACH_MIN = 0.05; // m: how far past the foe's centre the drawn limb tip may end; the least share of its extension a limb is given
 const STRIKE_LANE = 0.7; // m: a fighter this close to the line of the step (to either side) is in its way
 const STRIKE_PROBE = 0.1; // m: the spacing at which the step is checked against props
@@ -7038,8 +7041,9 @@ class Fighter {
       }
       x = Math.min(Math.max(x, Arena.ax0 - lo), Arena.ax1 - hi); z = Math.min(Math.max(z, Arena.az0 - back), Arena.az1 - front); // the wall is the last word
     }
-    this.lieMove[0] = x - this.x; this.lieMove[1] = z - this.z;
-    return DMath.hypot(this.lieMove[0], this.lieMove[1]);
+    const room = DMath.hypot(x - this.x, z - this.z), shown = Math.min(1, LIE_SLIDE_MAX / Math.max(room, 1e-6)); // the room it needs; the body is drawn moved by at most LIE_SLIDE_MAX of it (a limb into a wall further than that is better than a body that jumps across a prop)
+    this.lieMove[0] = (x - this.x) * shown; this.lieMove[1] = (z - this.z) * shown;
+    return room;
   }
   // The drawn box of a standing body in its guard stance, [u0, u1] along the facing and [v0, v1] across it, from the key points of the pose plus LIE_THICK; measured once and kept with the style's motion. A body that walks or strikes is slid clear of a wall or a prop by this box, not by the limb it holds out
   uprightBox() {
@@ -7501,39 +7505,46 @@ class Fighter {
   }
   // Drawing only: the share (STRIKE_REACH_MIN to 1) of its full extension the striking limb is given, so that its tip stops about STRIKE_PAST beyond the target's centre when the body has stepped `moved` m: the target's distance and STRIKE_PAST less the step, over the limb's forward reach (kept by strikeStride). 1 with no target, or when the limb does not reach that far
   strikeReach(mv, moved) {
-    const target = this.target, full = this.motion.strikes[mv.anim + mv.limb + 'g'];
-    if (!target || target === this || target.alive === false || !(full > STRIKE_REACH_MIN)) return 1;
-    if (target.state === S.SWAY || Math.abs((target.x - this.x) * this.fwdZ - (target.z - this.z) * this.fwdX) > STRIKE_FIT_SIDE) return 1; // a foe that sways, or stands beside the line of the blow, is missed, not struck through
-    return clamp((DMath.hypot(target.x - this.x, target.z - this.z) + STRIKE_PAST - moved) / full, STRIKE_REACH_MIN, 1);
+    const full = this.motion.strikes[mv.anim + mv.limb + 'g'], aim = this.fitAim(mv);
+    if (aim === null || !(full > STRIKE_REACH_MIN)) return 1;
+    return clamp((aim + STRIKE_PAST - moved) / full, STRIKE_REACH_MIN, 1);
+  }
+  // How far ahead of this fighter (along its facing) the foe stands that the blow mv would strike, or null when there is none to fit to: no target, a foe that sways, or one beside the line of the blow beyond where the blow still lands (the move's width and the foe's hurt width: Combat.evaluate), which is missed, not struck through
+  fitAim(mv) {
+    const t = this.target;
+    if (!t || t === this || t.alive === false || t.state === S.SWAY) return null;
+    const dx = t.x - this.x, dz = t.z - this.z;
+    if (Math.abs(dx * this.fwdZ - dz * this.fwdX) > mv.width + (t.radius || this.radius) * 0.6) return null;
+    return dx * this.fwdX + dz * this.fwdZ;
   }
   // Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose.
   attackPose() {
     this.strikePose(0);
-    const mv = this.move, target = this.target;
-    if (!mv || this.fitShare >= 1 || !target) return;
-    const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb], want = DMath.hypot(target.x - this.x, target.z - this.z) + STRIKE_PAST;
+    const mv = this.move;
+    if (!mv || this.fitShare >= 1) return;
+    const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb], want = this.fitAim(mv) + STRIKE_PAST, moved = this.fitMoved; // the step does not depend on the share: it is looked for once
     for (let pass = 0; pass < 5; pass++) { // the limb does not extend in a straight line with the share: measure where the tip is and fit it
       this.walkSkeleton(0, 0, 0, 0, false);
       const got = this.pts[tip + 2];
       if (got <= want + STRIKE_FIT || got <= this.fitMoved) break;
-      this.strikePose(clamp(this.fitShare * (want - this.fitMoved) / (got - this.fitMoved), STRIKE_REACH_MIN, 1));
+      this.strikePose(clamp(this.fitShare * (want - moved) / (got - moved), STRIKE_REACH_MIN, 1), moved);
     }
   }
   // The strike pose with the limb given `share` of its extension (0: the share strikeReach asks for)
-  strikePose(share) {
+  strikePose(share, stepped) {
     const mv = this.move, pose = this.pose, m = this.motion;
     const g = m.guard;
     this.fitShare = 1;
     if (!mv) { pose.set(g); return; }
     if (mv.wpn && this.item && mv.swing) { this.weaponAttackPose(mv); return; } // an item's own swing
-    const step = this.strikeStride(mv); // first: measuring it draws the pose
+    const step = stepped !== undefined ? 0 : this.strikeStride(mv); // first: measuring it draws the pose (attackPose has measured the step already and gives it as `stepped`)
     const strike = styledStrikePose(mv, m);
     const kick = isKickAnim(mv.anim);
     const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
     const spec = !m.noTech && STYLE_TECH[m.styleId] && (kick ? STYLE_TECH[m.styleId].kick : STYLE_TECH[m.styleId].punch);
     const windup = (mv.tier === 3 ? 0.45 : 0.28) * ((spec && spec.wind) || 1), snap = kick ? m.kickSnap : m.punchSnap;
     const ext = strikeExtension(t, startup, active, recovery, windup, snap);
-    const moved = ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
+    const moved = stepped !== undefined ? stepped : ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
     const reach = ext > 0 ? share || this.strikeReach(mv, moved) : 1; // the share of its full extension the limb is given, so it does not go on through a near foe
     this.fitShare = reach; this.fitMoved = moved;
     if (kick && ext > 0) {
@@ -9900,6 +9911,7 @@ class AIController {
     this.crowd = match && match.crowd ? match.crowd : null;
     this.match = match || null;
     this.foe = opp || null;
+    this.lineMemo = null; // lineBlocked answers of this think only
     this.chooseIntent(f, opp, match, it);
     if (!this.leaveCreaking(f, it)) this.navigate(f, opp, it);
     this.holdAtEdge(f, it);
@@ -10083,7 +10095,17 @@ class AIController {
 
   inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 + Math.max(0, mv.step - AI_STEP_FREE) && dist >= 0.45 && !this.lineBlocked(f, mv); }
   // Whether scenery stands in the line of the blow mv from f to the foe it is thinking about: a blow through a post or a column does not land (Arena.blowBlocked), so the CPU walks round it instead of swinging
-  lineBlocked(f, mv) { const foe = this.foe; return !!foe && foe !== f && Arena.blowBlocked(f.x, f.z, foe.x, foe.z, Math.max(f.y, foe.y) + blowHeight(mv)); }
+  // (asked for every move of the list, with three heights between them: the answer is kept per blow height for the rest of the think, where nobody moves)
+  lineBlocked(f, mv) {
+    const foe = this.foe;
+    if (!foe || foe === f) return false;
+    const blowY = Math.max(f.y, foe.y) + blowHeight(mv), memo = this.lineMemo || (this.lineMemo = { heights: [], blocked: [] });
+    const at = memo.heights.indexOf(blowY);
+    if (at >= 0) return memo.blocked[at];
+    const blocked = Arena.blowBlocked(f.x, f.z, foe.x, foe.z, blowY);
+    memo.heights.push(blowY); memo.blocked.push(blocked);
+    return blocked;
+  }
   pickMove(f, opp, snap, dist, fastOnly, maxStartup = 99) {
     const d = this.d, st = this.profile.style;
     let best = null, bestScore = 0;

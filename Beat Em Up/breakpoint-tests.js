@@ -16245,7 +16245,7 @@ const SelfTest = {
             for (const [ax, az] of [[1, 0], [0, 1]]) {
               if (found) break;
               const lo = { x: d.x + ox - ax * RAISED_GAP / 2, z: d.z + oz - az * RAISED_GAP / 2, y: d.top }, hi = { x: d.x + ox + ax * RAISED_GAP / 2, z: d.z + oz + az * RAISED_GAP / 2, y: d.top };
-              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi, room: ax ? d.x + d.hx - hi.x : d.z + d.hz - hi.z }); found = 1; }   // room: the deck behind the foe
+              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi, deck: d, room: ax ? d.x + d.hx - hi.x : d.z + d.hz - hi.z }); found = 1; }   // room: the deck behind the foe
             }
           }
         }
@@ -16298,6 +16298,14 @@ const SelfTest = {
     };
     const raisedGap = (m) => m.fighters[1].groundY - m.fighters[0].groundY;   // g
     const raisedBad = (run, text) => run.label + ': ' + text;
+    const raisedLungeSpots = (run) => {   // the run with the pair moved toward the attacker's edge until RAISED_SHOVE of deck is behind the foe; null when the deck is too short for that
+      const shift = RAISED_SHOVE - run.c.room;
+      if (shift <= 0) return run;
+      const ax = (run.def.x - run.att.x) / RAISED_GAP, az = (run.def.z - run.att.z) / RAISED_GAP;
+      const att = { x: run.att.x - ax * shift, z: run.att.z - az * shift, y: run.att.y }, def = { x: run.def.x - ax * shift, z: run.def.z - az * shift, y: run.def.y };
+      const deck = run.c.deck;
+      return raisedInside(att, deck) && raisedInside(def, deck) && raisedSpotOk(att) && raisedSpotOk(def) ? Object.assign({}, run, { att, def }) : null;
+    };
 
     test('Raised ground (P18-44): every level lists its decks, stairs, scaffold tiers and rings, each with room for two fighters and, where there is a free floor spot, a floor spot beside it', () => {
       const problems = [], seen = new Set();
@@ -16336,8 +16344,9 @@ const SelfTest = {
       for (const run of raisedRuns()) {
         for (const [name, script] of raisedStrikes) {
           if (name === 'running lunge' && run.c.how === 'ledge') continue;   // a run toward a ledge is a run off it or into it, not a lunge
-          if (name === 'running lunge' && run.c.how === 'same' && run.c.room < RAISED_SHOVE) continue;   // a run shoves the foe back up to 0.85 m, and a body falls 0.15 m past the edge (P18-65, K04; it was 0.35): on a small deck the foe is shoved off before the lunge lands
-          const r = raisedStrike(run, script);
+          const spots = name === 'running lunge' && run.c.how === 'same' ? raisedLungeSpots(run) : run;   // a run shoves the foe back up to 0.85 m, and a body falls 0.15 m past the edge (P18-65, K04; it was 0.35): the pair stands RAISED_SHOVE from the foe's edge, and a deck too short for that has no lunge case
+          if (!spots) continue;
+          const r = raisedStrike(spots, script);
           if (!r.height) problems.push(raisedBad(run, name + ' started no move'));
           else if (r.landed !== raisedStrikeLands(r.height, r.g)) problems.push(raisedBad(run, name + ' (' + r.move + ', ' + r.height + ') ' + (r.landed ? 'landed' : 'missed') + ' at g ' + r.g.toFixed(2)));
         }
@@ -21634,7 +21643,7 @@ const SelfTest = {
       return worst.wall > LIMIT || worst.prop > LIMIT ? 'wall ' + worst.wall.toFixed(2) + ' m (' + worst.wallAt + '), scenery ' + worst.prop.toFixed(2) + ' m deep (' + worst.propAt + '); ' + rows.join('; ') : true;
     })));
 
-    test('Collisions (P18-65, K04): a body walked off any standable top of the 8 levels (crates, benches, kiosks, decks, mezzanines) starts to fall when its centre is 0.15 m past the edge (a tick of walking more, 0.2 m, at most; 0.32 m where another deck or the top step of a stair at about its height is within 0.4 m and holds the body), not 0.35 to 0.5 m as before; the drawn feet in the stride are not limited (a lead foot is up to 0.65 m ahead of the centre)', () => keepArena(() => quietEvents(() => {
+    test('Collisions (P18-65, K04): a body walked off any standable top of the 8 levels (crates, benches, kiosks, decks, mezzanines) starts to fall when its centre is 0.15 m past the edge (a tick of walking more, 0.2 m, at most; 0.4 m where another deck or the top step of a stair at about its height is within 0.4 m and holds the body: a stair tread keeps the whole cylinder), not 0.35 to 0.5 m as before; the drawn feet in the stride are not limited (a lead foot is up to 0.65 m ahead of the centre)', () => keepArena(() => quietEvents(() => {
       const bad = [];
       let walks = 0, fell = 0;
       for (const arenaId of ARENA_ORDER) {
@@ -21658,12 +21667,25 @@ const SelfTest = {
             if (leftAt === null) continue;   // it met a wall or a prop, or the edge joins another deck
             fell++;
             const stepTouches = Arena.colliders.some((q) => q.active && q.standable && !(q.x === c.x && q.z === c.z) && Math.abs(q.top - c.top) <= 0.3 && Math.hypot(Math.max(Math.abs(q.x - c.x) - q.hx - c.hx, 0), Math.max(Math.abs(q.z - c.z) - q.hz - c.hz, 0)) < 0.4);   // another deck or the top step of a stair at about the same height, close by: it holds the body too
-            if (leftAt > (stepTouches ? 0.32 : 0.2) && bad.length < 5) bad.push(arenaId + ' ' + o.id + ': started to fall ' + leftAt.toFixed(2) + ' m past the edge');
+            if (leftAt > (stepTouches ? 0.4 : 0.2) && bad.length < 5) bad.push(arenaId + ' ' + o.id + ': started to fall ' + leftAt.toFixed(2) + ' m past the edge');
           }
         }
         colDispose(m);
       }
       if (walks < 100 || fell < 60) return 'only ' + walks + ' walks, ' + fell + ' ended in a fall';
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K04): a body that stands still 0.25 m or 0.3 m past the edge of a crate, or walks along the edge 0.25 m past it, does not hover at the crate\'s height (it falls)', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      for (const [what, past, along] of [['stands 0.25 m past', 0.25, false], ['stands 0.3 m past', 0.3, false], ['walks along 0.25 m past', 0.25, true]]) {
+        const m = mk({ arenaId: 'warehouse', items: false, hazards: false }, along ? colWalk(0, 1) : null), A = m.fighters[0], B = m.fighters[1];
+        const c = Arena.objects.find((q) => q.id === 'crateA').collider;
+        A.reset(c.x + c.hx + past, c.z - (along ? 0.3 : 0), along ? 0 : Math.PI / 2, 1, 1); A.y = A.prevY = A.groundY = A.supportY = c.top; B.reset(-9, -5, 0, 1, 1);
+        for (let t = 0; t < 20; t++) m.step();
+        if (!(A.y < c.top - 0.3)) bad.push('a body that ' + what + ' the edge is still at ' + A.y.toFixed(2) + ' m (the crate is ' + c.top + ')');
+        colDispose(m);
+      }
       return bad.length ? bad.join('; ') : true;
     })));
 
@@ -21691,7 +21713,7 @@ const SelfTest = {
       return bad.length ? bad.join('; ') : true;
     })));
 
-    test('Collisions (P18-65, K06): in every move of every style the drawn limb tip at the contact tick is not more than 0.34 m past a foe at 0.68 m, 1.0 m and the front of the volume, and not more than 0.2 m short of its body', () => keepArena(() => {
+    test('Collisions (P18-65, K06): in every move of every style the drawn limb tip at the contact tick is not more than 0.34 m past a foe at 0.68 m, 1.0 m and the front of the volume, straight ahead and 0.25 m and 0.4 m to the side where the blow still lands, and straight ahead not more than 0.2 m short of its body', () => keepArena(() => {
       const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'], TIP = { LA: 9, RA: 12, LL: 15, RL: 18 };
       const FOE_RADIUS = 0.34, PAST = 0.34, SHORT = 0.2;
       Arena.build(colEmptyArena());
@@ -21704,13 +21726,13 @@ const SelfTest = {
           const mv = moveFor(style, id), tip = mv.anim === 'elbowH' ? 33 : TIP[mv.limb], front = mv.reach * f.stats.reach;
           if (mv.type === 'grab') continue;
           f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0;
-          for (const d of [0.68, 1.0, front + FOE_RADIUS]) {
-            if (d > front + FOE_RADIUS + 1e-6) continue;   // the foe is out of the volume: the blow cannot land
-            f.x = f.z = 0; f.yaw = 0; f.target = { x: 0, z: d, alive: true };
+          for (const d of [0.68, 1.0, front + FOE_RADIUS]) for (const side of [0, 0.25, 0.4]) {
+            if (d > front + FOE_RADIUS + 1e-6 || side > mv.width + FOE_RADIUS * 0.6) continue;   // the foe is out of the volume, or beside it: the blow cannot land (Combat.evaluate)
+            f.x = f.z = 0; f.yaw = 0; f.target = { x: side, z: d, alive: true };
             f.attackPose(); f.skeleton(0, 0, 0, 0, false);
             const forward = f.pts[tip + 2], past = forward - d, short = d - FOE_RADIUS - forward;
             pairs++; seen.add(r.id + ' ' + id);
-            if (past > PAST || short > SHORT) problems.push(r.id + ' ' + id + ' at ' + d.toFixed(2) + (past > PAST ? ' past ' + past.toFixed(2) : ' short ' + short.toFixed(2)));
+            if (past > PAST || (!side && short > SHORT)) problems.push(r.id + ' ' + id + ' at ' + d.toFixed(2) + ' side ' + side + (past > PAST ? ' past ' + past.toFixed(2) : ' short ' + short.toFixed(2)));
           }
         }
       }
@@ -21747,7 +21769,7 @@ const SelfTest = {
       return deepest > LIMIT ? 'deepest ' + deepest.toFixed(2) + ' m: ' + bad.join(', ') : true;
     })));
 
-    test('Collisions (P18-65, K08): jumping at a bench, stool, rail, car, dumpster or table (a prop between 0.3 and 1.3 m that cannot be stood on) never puts the body more than 0.05 m into it, and no tick moves the body more than 0.7 m (a run is 0.09 m a tick; the push out of a chair, a stool or a long table it ran into while still rising is through the nearest clear side, 0.65 m at most; before, a body that landed in a bench was moved up to 1.2 m)', () => keepArena(() => quietEvents(() => {
+    test('Collisions (P18-65, K08): jumping at a bench, stool, rail, car, dumpster or table (a prop between 0.3 and 1.3 m that cannot be stood on) never puts the body more than 0.05 m into it, and no tick moves the body more than 0.3 m (a run is 0.09 m a tick; before, a body that landed in a bench or a chair was popped out up to 0.5 m)', () => keepArena(() => quietEvents(() => {
       const bad = [];
       let trials = 0, jumps = 0, deepest = 0;
       for (const arenaId of ARENA_ORDER) {
@@ -21772,7 +21794,7 @@ const SelfTest = {
             }
             trials++; if (jumped) jumps++;
             deepest = Math.max(deepest, into);
-            if ((into > 0.05 || step > 0.7) && bad.length < 6) bad.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + '): ' + (into > 0.05 ? 'in ' + into.toFixed(2) : 'moved ' + step.toFixed(2)));
+            if ((into > 0.05 || step > 0.3) && bad.length < 6) bad.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + '): ' + (into > 0.05 ? 'in ' + into.toFixed(2) : 'moved ' + step.toFixed(2)));
           }
         }
         colDispose(m);
@@ -21814,6 +21836,31 @@ const SelfTest = {
       if (flights < 500) return 'only ' + flights + ' flights';
       return bad.length ? 'a body moved ' + biggest.toFixed(2) + ' m in one tick: ' + bad.join('; ') : true;
     })));
+
+    test('Collisions (P18-65, K09): a body whose centre is deep inside a big block (a mezzanine, a container, a housing: placed there by a spawn or by rubble) leaves it at most 1.2 m a tick (it was across the block in one tick, up to 2.3 m) and is out within 12 ticks', () => keepArena(() => {
+      const bad = [];
+      let blocks = 0;
+      for (const arenaId of ARENA_ORDER) {
+        Arena.build(ARENAS[arenaId]);
+        const f = new Fighter(ROSTER_BY_ID.brutus, 0);
+        for (const c of Arena.colliders.filter((q) => q.active && q.base === 0 && !q.standable && q.top > 1.3 && Math.min(q.hx, q.hz) >= 0.6)) {
+          if (Arena.colliders.some((q) => q !== c && q.active && q.top > 0.3 && !q.base && Math.abs(c.x - q.x) < q.hx + 0.1 && Math.abs(c.z - q.z) < q.hz + 0.1)) continue;
+          blocks++;
+          f.x = f.prevX = c.x; f.z = f.prevZ = c.z; f.y = f.prevY = 0; f.vx = f.vz = f.kx = f.kz = 0;
+          let worst = 0;
+          for (let ticks = 0; ticks < 12; ticks++) {
+            const x = f.x, z = f.z;
+            Arena.resolveFighter(f);
+            worst = Math.max(worst, Math.hypot(f.x - x, f.z - z));
+            if (Math.abs(f.x - c.x) >= c.hx - 0.01 || Math.abs(f.z - c.z) >= c.hz - 0.01) break;
+          }
+          const out = Math.abs(f.x - c.x) >= c.hx - 0.01 || Math.abs(f.z - c.z) >= c.hz - 0.01;
+          if ((worst > 1.21 || !out) && bad.length < 5) bad.push(arenaId + ' ' + (c.obj && c.obj.id) + ' moved ' + worst.toFixed(2) + (out ? '' : ', still inside after 12 ticks'));
+        }
+      }
+      if (blocks < 5) return 'only ' + blocks + ' blocks';
+      return bad.length ? bad.join('; ') : true;
+    }));
 
     test('Collisions (P18-65, K10): walking or running at the side or the front of any flight of steps from 8 headings, no tick lifts the body more than 0.26 m (one tread)', () => keepArena(() => quietEvents(() => {
       const heads = []; for (let k = 0; k < 8; k++) heads.push([Math.sin(k * Math.PI / 4), Math.cos(k * Math.PI / 4)]);
