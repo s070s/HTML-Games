@@ -54,7 +54,7 @@ const {
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music,
+  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music, MESH,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -434,7 +434,7 @@ const SelfTest = {
     test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
       const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
       const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
-      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'strikePose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
         'draw', 'drawPointLightFlicker', 'drawObject', 'drawCracks', 'drawBox', 'drawColumn', 'drawRail', 'drawPanel', 'drawLook', 'drawDeck', 'drawScaffold', 'drawFireDoor', 'drawRubble', 'drawChain', 'drawHead', 'drawLowerFace', 'drawHair', 'drawItems', 'drawFlames', 'drawHazards'];   // pose, drawing, particles: each name on its own, so a new simulation method called draw... is scanned
       const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
         'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors(',
@@ -5946,8 +5946,10 @@ const SelfTest = {
           if (!(far.rootZ - rest > 0.1 && far.rootZ - rest <= STRIKE_STRIDE_MAX + OWN_LEAN)) problems.push(at + ' step ' + (far.rootZ - rest).toFixed(2));
           const own = frame(f, mv.startup + 1, STRIKE_ROOM).rootZ;   // a foe at STRIKE_ROOM leaves no room to step: what is left is the lean of the pose itself
           if (own > OWN_LEAN) problems.push(at + ' own lean ' + own.toFixed(2));
-          for (const distance of [0.8, 1.2, 3]) {   // the step is the fitted one, or what is left of the distance beyond STRIKE_ROOM, to within 5 mm
-            const stepped = frame(f, mv.startup + 1, distance).rootZ - own, allowed = Math.min(f.strikeStride(mv), distance - STRIKE_ROOM);
+          for (const distance of [0.8, 1.2, 3]) {   // the step is the fitted one, or what is left of the distance beyond STRIKE_ROOM, to within 5 mm; the lean of the pose itself is the one the limb's share asks for (P18-65, K06: a near foe takes less of it), so it is measured with the same share and no step
+            const placed = frame(f, mv.startup + 1, distance), share = f.fitShare;
+            f.striding = true; f.strikePose(share); f.skeleton(0, 0, 0, 0, false); const lean = f.pts[2]; f.striding = false;
+            const stepped = placed.rootZ - lean, allowed = Math.min(f.strikeStride(mv), distance - STRIKE_ROOM);
             if (Math.abs(stepped - allowed) > 0.005) problems.push(at + ' foe at ' + distance + ': stepped ' + stepped.toFixed(3) + ' of ' + allowed.toFixed(3));
           }
           let back = 0, kneeUp = 0, thighUp = 0;
@@ -16222,6 +16224,7 @@ const SelfTest = {
        The rule between two footings (g = the foe's footing minus the attacker's): a strike reaches while the two are within RAISED_STRIKE_LEDGE; a Low strike (and a stomp on a downed foe) only a foe at most RAISED_LOW_UP above,
        a Mid strike at most RAISED_MID_UP above; a grab, a throw and a tackle need the two within RAISED_GRAB_LEDGE; a hold within RAISED_HOLD_LEDGE (the old SUBMIT_LEVEL_GAP). Every raised surface is read from the built level. */
     const RAISED_LOW_UP = 0.35, RAISED_MID_UP = 0.9, RAISED_STRIKE_LEDGE = 1.05, RAISED_GRAB_LEDGE = 0.55, RAISED_HOLD_LEDGE = 0.6;   // m
+    const RAISED_SHOVE = 1.0;   // m: the deck behind a foe that a six tick run of the attacker shoves (0.85 m) and that still stands on it (0.15 m)
     const RAISED_GAP = 0.9, RAISED_LEDGE_GAP = 1.1, RAISED_INSET = 0.6, RAISED_BODY = 0.34, RAISED_STEP_PAIR = 0.7;   // m: the two fighters of a pair stand this far apart (a pair across a ledge: farther, the one above stands this far in from the edge); a body's radius; the least distance between the two steps of a stair pair
     const raisedStrikeLands = (height, g) => Math.abs(g) <= RAISED_STRIKE_LEDGE && (height === 'L' ? g <= RAISED_LOW_UP : height === 'M' ? g <= RAISED_MID_UP : true);
     const raisedSpread = (half) => { const out = [0]; for (let d = 0.25; d <= half; d += 0.25) out.push(d, -d); return out; };   // 0, +0.25, -0.25, +0.5 ... the spots tried, the middle first
@@ -16242,7 +16245,7 @@ const SelfTest = {
             for (const [ax, az] of [[1, 0], [0, 1]]) {
               if (found) break;
               const lo = { x: d.x + ox - ax * RAISED_GAP / 2, z: d.z + oz - az * RAISED_GAP / 2, y: d.top }, hi = { x: d.x + ox + ax * RAISED_GAP / 2, z: d.z + oz + az * RAISED_GAP / 2, y: d.top };
-              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi }); found = 1; }
+              if (raisedInside(lo, d) && raisedInside(hi, d) && raisedSpotOk(lo) && raisedSpotOk(hi)) { cases.push({ name: d.id, kind: d.kind, how: 'same', lo, hi, deck: d, room: ax ? d.x + d.hx - hi.x : d.z + d.hz - hi.z }); found = 1; }   // room: the deck behind the foe
             }
           }
         }
@@ -16295,6 +16298,14 @@ const SelfTest = {
     };
     const raisedGap = (m) => m.fighters[1].groundY - m.fighters[0].groundY;   // g
     const raisedBad = (run, text) => run.label + ': ' + text;
+    const raisedLungeSpots = (run) => {   // the run with the pair moved toward the attacker's edge until RAISED_SHOVE of deck is behind the foe; null when the deck is too short for that
+      const shift = RAISED_SHOVE - run.c.room;
+      if (shift <= 0) return run;
+      const ax = (run.def.x - run.att.x) / RAISED_GAP, az = (run.def.z - run.att.z) / RAISED_GAP;
+      const att = { x: run.att.x - ax * shift, z: run.att.z - az * shift, y: run.att.y }, def = { x: run.def.x - ax * shift, z: run.def.z - az * shift, y: run.def.y };
+      const deck = run.c.deck;
+      return raisedInside(att, deck) && raisedInside(def, deck) && raisedSpotOk(att) && raisedSpotOk(def) ? Object.assign({}, run, { att, def }) : null;
+    };
 
     test('Raised ground (P18-44): every level lists its decks, stairs, scaffold tiers and rings, each with room for two fighters and, where there is a free floor spot, a floor spot beside it', () => {
       const problems = [], seen = new Set();
@@ -16333,7 +16344,9 @@ const SelfTest = {
       for (const run of raisedRuns()) {
         for (const [name, script] of raisedStrikes) {
           if (name === 'running lunge' && run.c.how === 'ledge') continue;   // a run toward a ledge is a run off it or into it, not a lunge
-          const r = raisedStrike(run, script);
+          const spots = name === 'running lunge' && run.c.how === 'same' ? raisedLungeSpots(run) : run;   // a run shoves the foe back up to 0.85 m, and a body falls 0.15 m past the edge (P18-65, K04; it was 0.35): the pair stands RAISED_SHOVE from the foe's edge, and a deck too short for that has no lunge case
+          if (!spots) continue;
+          const r = raisedStrike(spots, script);
           if (!r.height) problems.push(raisedBad(run, name + ' started no move'));
           else if (r.landed !== raisedStrikeLands(r.height, r.g)) problems.push(raisedBad(run, name + ' (' + r.move + ', ' + r.height + ') ' + (r.landed ? 'landed' : 'missed') + ' at g ' + r.g.toFixed(2)));
         }
@@ -21492,6 +21505,526 @@ const SelfTest = {
       } finally { Object.assign(Settings.v, keep); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- Collisions, hitboxes and hurtboxes (P18-65): the findings K01 to K10 of the P18-64 audit (Appendix D). Each test was written first and run on the game before its fix, where it failed ---------- */
+    const quietEvents = (fn) => { const saved = Events.handlers; Events.handlers = {}; try { return fn(); } finally { Events.handlers = saved; } };   // no sound, effect or camera reaction to thousands of blows
+    const keepArena = (fn) => { const keep = Arena.def; try { return fn(); } finally { delete ARENAS.probeEmpty; if (keep) Arena.build(keep); } };
+    const colWalk = (hx, hz, run) => (it, f) => { f.blind = 3; f.yaw = f.prevYaw = Math.atan2(hx, hz); it.fwd = 1; it.run = !!run; };   // walks along a heading
+    const colWalkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };
+    const colDispose = (m) => { const at = self.made.indexOf(m); if (at >= 0) self.made.splice(at, 1); m.dispose(); };
+    const colOutside = (c, x, z) => Math.hypot(Math.max(Math.abs(x - c.x) - c.hx, 0), Math.max(Math.abs(z - c.z) - c.hz, 0));   // distance of a point outside a collider's footprint
+    const colProp = (o) => { const c = o.collider; return c.top > 0.3 && c.base <= 0.1 && !o.step; };   // a prop that stands on the floor and a body may not walk over
+    /* The boxes [minx, maxx, miny, maxy, minz, maxz] of every piece the renderer would draw for this fighter in the pose it has now (what draw() does, with the yaw it would use) */
+    const colDrawn = (f) => {
+      const pieces = [], saved = R.push;
+      R.push = (layer, mesh, M) => {
+        const ext = (i) => (mesh === MESH.CUBE ? 0.5 * (Math.abs(M[i]) + Math.abs(M[4 + i]) + Math.abs(M[8 + i])) : mesh === MESH.SPHERE ? 0.5 * Math.hypot(M[i], M[4 + i], M[8 + i]) : 0.5 * (Math.hypot(M[i], M[8 + i]) + Math.abs(M[4 + i])));
+        const ex = ext(0), ey = ext(1), ez = ext(2);
+        pieces.push([M[12] - ex, M[12] + ex, M[13] - ey, M[13] + ey, M[14] - ez, M[14] + ez]);
+      };
+      const drawn = typeof f.bodyYaw === 'function';   // a lying body is drawn along its lying direction, and a body against a wall or scenery slid clear of it
+      try { f.skeleton(f.x + (drawn ? f.lieDx : 0), f.y, f.z + (drawn ? f.lieDz : 0), drawn ? f.bodyYaw(f.yaw) : f.yaw, true); } finally { R.push = saved; }
+      return pieces;
+    };
+    const colPenetration = (pieces, y, skip) => {   // how deep the drawn pieces go into a collider (the smallest of the three overlaps, the largest over all pieces and colliders)
+      let depth = 0;
+      for (const p of pieces) for (const c of Arena.colliders) {
+        if (!c.active || c.top <= y + 0.03 || c.base > y + 2.6 || (skip && skip(c))) continue;
+        const ox = Math.min(p[1], c.x + c.hx) - Math.max(p[0], c.x - c.hx), oz = Math.min(p[5], c.z + c.hz) - Math.max(p[4], c.z - c.hz), oy = Math.min(p[3], c.top) - Math.max(p[2], c.base);
+        if (ox > 0 && oz > 0 && oy > 0) depth = Math.max(depth, Math.min(ox, oz, oy));
+      }
+      return depth;
+    };
+    const colAlone = (x, z, skip, room) => !Arena.colliders.some((c) => c.active && c.top > 0.3 && c.base <= 1 && !(c.obj && c.obj.id === skip) && colOutside(c, x, z) < room);   // nothing else (than the one prop it is against) within `room` m of the spot
+    const colEmptyArena = () => { ARENAS.probeEmpty = Object.assign({}, ARENAS.warehouse, { id: 'probeEmpty', objects: [], builds: [], items: [], hazards: [], waves: null, bounds: { x: 16, z: 10 } }); return ARENAS.probeEmpty; };
+
+    test('Collisions (P18-65, K01): a strike, a kick and a grab do not land through scenery taller than the blow (columns, machines, rails, panels, boxes) on any of the 8 levels; a deck, a ring rope and a scaffold pole do not stop them; the same pairs land with the scenery out of the way', () => keepArena(() => quietEvents(() => {
+      const HEIGHT = { H: 1.4, M: 1.0, L: 0.35 }, GRAB_HEIGHT = 0.9;
+      const moves = [moveFor('boxer', 'jab'), moveFor('kickboxer', 'low_kick'), moveFor('kickboxer', 'front_kick'), ATTACKS.grab];
+      const through = [], stopped = [];
+      let pairs = 0, shouldStop = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false, playerId: 'kai', opponentId: 'mara' });
+        const A = m.fighters[0], B = m.fighters[1];
+        for (const o of Arena.objects) {
+          const c = o.collider;
+          if (c.top < 0.5 || c.base > 0.3 || o.step) continue;
+          for (const [hx, hz] of [[1, 0], [0, 1]]) {
+            const along = Math.abs(hx) * c.hx + Math.abs(hz) * c.hz, d = along + 0.36;
+            const ax = c.x - hx * d, az = c.z - hz * d, bx = c.x + hx * d, bz = c.z + hz * d;
+            if (Arena.outside(ax, az, 0.3) || Arena.outside(bx, bz, 0.3) || Arena.insideSolid(ax, az, 0.33, 0) || Arena.insideSolid(bx, bz, 0.33, 0)) continue;
+            for (const mv of moves) {
+              const trial = (scenery) => {
+                Arena.reset(); m.startRound();
+                const live = Arena.objects.find((q) => q.id === o.id);   // a reset builds the level again
+                live.collider.active = scenery; live.hp = live.maxHp = 1e9;   // the blow must not break a light box in its first active tick and go on to land through the gap
+                A.reset(ax, az, Math.atan2(hx, hz), 1, 1); B.reset(bx, bz, Math.atan2(-hx, -hz), 1, 1);
+                A.target = B; B.target = A;
+                if (!A.startAttack(mv)) return null;
+                return !!Combat.evaluate(A, B);   // what the move would do on its first active tick: the bodies stay where they stand, so the one thing that changes with the scenery is whether it is in the way
+              };
+              if (trial(false) !== true) continue;   // out of reach even with nothing between: no pair
+              const lands = trial(true), blow = mv.type === 'grab' ? GRAB_HEIGHT : HEIGHT[mv.h], blocks = !c.deck && c.top > blow && o.type !== 'scaffold' && !(o.type === 'rail' && o.bounce);
+              pairs++;
+              if (blocks) shouldStop++;
+              if (blocks && lands && through.length < 6) through.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + ') ' + mv.id);
+              if (!blocks && lands === false && stopped.length < 6) stopped.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + (c.deck ? ' deck' : '') + ') ' + mv.id);
+            }
+          }
+        }
+        colDispose(m);
+      }
+      if (pairs < 100 || shouldStop < 10) return 'only ' + pairs + ' pairs in reach, ' + shouldStop + ' with scenery in the way';
+      const bad = [];
+      if (through.length) bad.push('landed through scenery: ' + through.join(', '));
+      if (stopped.length) bad.push('stopped by scenery that is lower than the blow or a deck: ' + stopped.join(', '));
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K02): a knocked-out body in a brawl is solid for 150 ticks (a living fighter walking at it is stopped at 0.5 m or more), then it can be walked through and it is drawn fading, gone 60 ticks later', () => keepArena(() => quietEvents(() => {
+      const KO_BODY = 150, KO_FADE = 60, bad = [];
+      for (const arenaId of ['warehouse', 'garage']) {
+        const m = self.makeBrawl({ arenaId, enemies: 2, items: false, hazards: false }, colWalkTo(3, 0), null, null);
+        const A = m.fighters[0], E = m.fighters[1], E2 = m.fighters[2];
+        m.startRound();
+        E2.reset(9, 5, 0, 1, 1); A.reset(-3, 0, Math.PI / 2, 1, 1); E.reset(0, 0, -Math.PI / 2, 1, 1);
+        E.hp = 1; Combat.knockOut(E, null, null, m); E.kx = E.kz = 0;
+        let nearest = 9;
+        for (let t = 0; t < 120; t++) { m.step(); nearest = Math.min(nearest, Math.hypot(A.x - E.x, A.z - E.z)); }
+        if (!(nearest >= 0.5)) bad.push(arenaId + ': a fighter walked to ' + nearest.toFixed(2) + ' m from a knocked-out body');
+        if (typeof E.koFade !== 'function') { bad.push('no koFade()'); colDispose(m); continue; }
+        if (E.koFade() !== 1 || E.stateTicks >= KO_BODY) bad.push(arenaId + ': the body fades or is gone at tick ' + E.stateTicks);
+        while (E.stateTicks <= KO_BODY + 2) m.step();
+        const fade = E.koFade();
+        if (!(fade > 0 && fade < 1)) bad.push(arenaId + ': not fading just after ' + KO_BODY + ' ticks (' + fade + ')');
+        A.reset(-1.5, 0, Math.PI / 2, 1, 1); m.controllers[0] = ScriptedController.make(colWalkTo(1.5, 0));
+        let through = 9;
+        for (let t = 0; t < 60; t++) { m.step(); through = Math.min(through, Math.hypot(A.x - E.x, A.z - E.z)); }
+        if (!(through < 0.3)) bad.push(arenaId + ': the body still stops a fighter after ' + KO_BODY + ' ticks (' + through.toFixed(2) + ' m)');
+        while (E.stateTicks < KO_BODY + KO_FADE + 2) m.step();
+        if (E.koFade() !== 0) bad.push(arenaId + ': the body is not gone after the fade (' + E.koFade() + ')');
+        colDispose(m);
+      }
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K03): a knocked-down and a knocked-out body lies inside the walls and overlaps no scenery by more than 0.05 m, against every wall and every side of every prop of all 8 levels (BRUTUS, the widest)', () => keepArena(() => quietEvents(() => {
+      const LIMIT = 0.05, YAWS = 4;
+      const lie = (m, A, mode) => {
+        A.setState(S.THROWN); A.lieSign = A.lieSign || 1; A.downMult = 1; A.vy = 0.3; A.y = A.groundY + 0.02; A.kx = A.kz = 0; A.bodyBy = null;
+        for (let t = 0; t < 40 && A.state === S.THROWN; t++) m.step();
+        if (mode === 'KO') { Combat.knockOut(A, null, null, m); A.kx = A.kz = 0; for (let t = 0; t < 120 && A.y > A.groundY + 0.005; t++) m.step(); }   // it falls where it stands (the slide of a knock-out is the simulation's own)
+        for (let t = 0; t < 20; t++) m.step();
+      };
+      const worst = { wall: 0, prop: 0 }, rows = [];
+      let trials = 0;
+      for (const arenaId of ARENA_ORDER) for (const fid of ['brutus']) {
+        const m = mk({ arenaId, items: false, hazards: false, playerId: fid, opponentId: fid === 'kai' ? 'mara' : 'kai' });
+        const A = m.fighters[0], B = m.fighters[1], b = ARENAS[arenaId].bounds, r = 0.34;
+        const spots = [];
+        for (const s of [-1, 1]) for (const t of [-0.5, 0, 0.5]) { spots.push({ wall: true, x: s * (b.x - r), z: t * b.z }); spots.push({ wall: true, x: t * b.x, z: s * (b.z - r) }); }
+        for (const o of Arena.objects) { const c = o.collider; if (!colProp(o)) continue; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) spots.push({ wall: false, id: o.id + ' ' + dx + dz, prop: o.id, x: c.x + dx * (c.hx + r + 0.002), z: c.z + dz * (c.hz + r + 0.002) }); }
+        for (const sp of spots) for (const mode of ['DOWN', 'KO']) for (let k = 0; k < YAWS; k++) {
+          if (Arena.outside(sp.x, sp.z, r - 0.01) || Arena.insideSolid(sp.x, sp.z, r - 0.01, 0) || !colAlone(sp.x, sp.z, sp.prop, 1.5) || (!sp.wall && Arena.outside(sp.x, sp.z, 1.5))) continue;   // open ground against one wall or one prop: a corner or a gap between two props has no room for a body 2 m long
+          m.startRound(); Arena.reset();
+          B.reset(sp.x < 0 ? 9 : -9, sp.z < 0 ? 5 : -5, 0, 1, 1);
+          A.reset(sp.x, sp.z, k * 2 * Math.PI / YAWS, 1, 1); A.lieSign = k % 2 ? -1 : 1;
+          lie(m, A, mode);
+          trials++;
+          const pieces = colDrawn(A), x0 = Math.min(...pieces.map((p) => p[0])), x1 = Math.max(...pieces.map((p) => p[1])), z0 = Math.min(...pieces.map((p) => p[4])), z1 = Math.max(...pieces.map((p) => p[5]));
+          const beyond = Math.max(-b.x - x0, x1 - b.x, -b.z - z0, z1 - b.z, 0), depth = sp.wall ? 0 : colPenetration(pieces, A.y);
+          if (beyond > worst.wall) worst.wallAt = arenaId + ' ' + (sp.wall ? 'wall' : sp.id) + ' ' + mode + ' yaw ' + k + ' at ' + sp.x.toFixed(1) + ',' + sp.z.toFixed(1);
+          if (depth > worst.prop) worst.propAt = arenaId + ' ' + sp.id + ' ' + mode + ' yaw ' + k;
+          worst.wall = Math.max(worst.wall, beyond); worst.prop = Math.max(worst.prop, depth);
+          if ((beyond > LIMIT || depth > LIMIT) && rows.length < 5) rows.push(arenaId + ' ' + fid + ' ' + (sp.wall ? 'wall' : sp.id) + ' ' + mode + ' yaw ' + k + ': ' + (beyond > LIMIT ? 'beyond the wall ' + beyond.toFixed(2) : 'in scenery ' + depth.toFixed(2)));
+        }
+        colDispose(m);
+      }
+      if (trials < 1000) return 'only ' + trials + ' trials';
+      return worst.wall > LIMIT || worst.prop > LIMIT ? 'wall ' + worst.wall.toFixed(2) + ' m (' + worst.wallAt + '), scenery ' + worst.prop.toFixed(2) + ' m deep (' + worst.propAt + '); ' + rows.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K04): a body walked off any standable top of the 8 levels (crates, benches, kiosks, decks, mezzanines) starts to fall when its centre is 0.15 m past the edge (a tick of walking more, 0.2 m, at most; 0.32 m where another deck or the top step of a stair at about its height is within 0.4 m and holds the body), not 0.35 to 0.5 m as before; the drawn feet in the stride are not limited (a lead foot is up to 0.65 m ahead of the centre)', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      let walks = 0, fell = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1];
+        for (const o of Arena.objects.filter((q) => q.collider.standable && q.collider.top >= 0.5 && !q.step)) {
+          const c = o.collider;
+          for (const [hx, hz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // the walk starts 0.8 m from the edge it walks to
+            const x = c.x + hx * Math.max(0, c.hx - 0.8), z = c.z + hz * Math.max(0, c.hz - 0.8);
+            if (Arena.insideSolid(x, z, 0.34, c.top)) continue;
+            Arena.reset(); m.startRound();
+            m.controllers[0] = ScriptedController.make(colWalk(hx, hz));
+            A.reset(x, z, Math.atan2(hx, hz), 1, 1); A.y = A.prevY = A.groundY = A.supportY = c.top; B.reset(x < 0 ? 9 : -9, z < 0 ? 5 : -5, 0, 1, 1);
+            let leftAt = null, level = c.top;
+            for (let t = 0; t < 160 && leftAt === null; t++) {
+              m.step();
+              const same = Arena.colliders.filter((q) => q.active && Math.abs(q.top - level) < 0.02), past = Math.min(...same.map((q) => colOutside(q, A.x, A.z)));   // how far the centre is outside everything at the level it stood on
+              if (A.groundY < level - 0.05) { leftAt = past; break; }   // that footing is gone from under the centre
+              level = Math.max(level, A.groundY);
+            }
+            walks++;
+            if (leftAt === null) continue;   // it met a wall or a prop, or the edge joins another deck
+            fell++;
+            const stepTouches = Arena.colliders.some((q) => q.active && q.standable && !(q.x === c.x && q.z === c.z) && Math.abs(q.top - c.top) <= 0.3 && Math.hypot(Math.max(Math.abs(q.x - c.x) - q.hx - c.hx, 0), Math.max(Math.abs(q.z - c.z) - q.hz - c.hz, 0)) < 0.4);   // another deck or the top step of a stair at about the same height, close by: it holds the body too
+            if (leftAt > (stepTouches ? 0.32 : 0.2) && bad.length < 5) bad.push(arenaId + ' ' + o.id + ': started to fall ' + leftAt.toFixed(2) + ' m past the edge');
+          }
+        }
+        colDispose(m);
+      }
+      if (walks < 100 || fell < 60) return 'only ' + walks + ' walks, ' + fell + ' ended in a fall';
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K04): a body that stands still 0.25 m or 0.3 m past the edge of a crate, or walks along the edge 0.25 m past it, does not hover at the crate\'s height (it falls); the same for a body still 0.25 m past the side or the open end of the top step of a flight of stairs (a tread keeps the footing only toward the next tread of its flight)', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      for (const [what, past, along] of [['stands 0.25 m past', 0.25, false], ['stands 0.3 m past', 0.3, false], ['walks along 0.25 m past', 0.25, true]]) {
+        const m = mk({ arenaId: 'warehouse', items: false, hazards: false }, along ? colWalk(0, 1) : null), A = m.fighters[0], B = m.fighters[1];
+        const c = Arena.objects.find((q) => q.id === 'crateA').collider;
+        A.reset(c.x + c.hx + past, c.z - (along ? 0.3 : 0), along ? 0 : Math.PI / 2, 1, 1); A.y = A.prevY = A.groundY = A.supportY = c.top; B.reset(-9, -5, 0, 1, 1);
+        for (let t = 0; t < 20; t++) m.step();
+        if (!(A.y < c.top - 0.3)) bad.push('a body that ' + what + ' the edge is still at ' + A.y.toFixed(2) + ' m (the crate is ' + c.top + ')');
+        colDispose(m);
+      }
+      let sides = 0;
+      for (const arenaId of ARENA_ORDER) {   // the top step of every flight: past its sides and its open end the footing goes at 0.15 m like any edge (only the way to the next tread of the flight keeps the cylinder)
+        const m = mk({ arenaId, items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1];
+        for (const lane of Arena.stairs) {   // a flight: its direction (dx, dz) and the highest of its treads (ids "<flight>.<n>")
+          const top = Arena.colliders.filter((q) => q.active && q.obj && q.obj.step && q.obj.id.startsWith(lane.id + '.')).reduce((a, b) => (b.top > a.top ? b : a)), topId = top.obj.id;
+          for (const [ax, az] of [[lane.dz, lane.dx], [-lane.dz, -lane.dx], [lane.dx, lane.dz]]) {   // the two sides across the flight, and the open end beyond its last tread
+            const x = top.x + ax * (top.hx + 0.25), z = top.z + az * (top.hz + 0.25);
+            const held = Arena.colliders.some((q) => q.active && (q.obj && q.obj.id) !== topId && q.top >= top.top - 0.3 && colOutside(q, x, z) < (q.obj && q.obj.step ? 0.01 : 0.4));   // a deck or a wall of props within 0.4 m, or a lower tread under the centre, holds the body there
+            if (held || Arena.outside(x, z, 0.34)) continue;
+            sides++;
+            Arena.reset(); m.startRound();
+            B.reset(x < 0 ? 9 : -9, z < 0 ? 5 : -5, 0, 1, 1); A.reset(x, z, 0, 1, 1); A.y = A.prevY = A.groundY = A.supportY = top.top;
+            for (let t = 0; t < 30; t++) m.step();
+            if (!(A.y < top.top - 0.3) && bad.length < 6) bad.push(arenaId + ' ' + topId + ': a body that stands still 0.25 m past the ' + (ax * lane.dx + az * lane.dz ? 'open end' : 'side') + ' of the top step (' + top.top + ') is still at ' + A.y.toFixed(2) + ' m');
+          }
+        }
+        colDispose(m);
+      }
+      if (sides < 4) bad.push('only ' + sides + ' free sides of top steps');
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K05): the hit on scenery follows the limb: a High hand strike passes over a 0.95 m crate and breaks nothing, a Low kick and a High kick hit it, a High strike hits a 1.8 m crate', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      let struck = false;
+      const crate = (h) => ({ id: 'target', type: 'box', look: 'crate', mat: 'concrete', x: 0, z: 0, hx: 0.5, hz: 0.5, h, fixed: false, hpMul: 50 });
+      try {
+        for (const [what, style, id, height, hits] of [['a High strike on a 0.95 m crate', 'boxer', 'jab', 0.95, false], ['a Low kick on a 0.95 m crate', 'kickboxer', 'low_kick', 0.95, true], ['a High kick on a 0.95 m crate (the foot at 1.3 m touches its top)', 'kickboxer', 'roundhouse', 0.95, true], ['a High strike on a 1.8 m crate', 'boxer', 'jab', 1.8, true]]) {
+          const arenaId = 'probeProp' + height * 100;   // an arena is built once per id
+          ARENAS[arenaId] = Object.assign({}, ARENAS.warehouse, { id: arenaId, objects: [crate(height)], builds: [], items: [], hazards: [], waves: null, bounds: { x: 16, z: 10 } });
+          const profile = ROSTER.find((r) => moveStyleFor(r) === style), mv = moveFor(style, id);
+          const m = mk({ arenaId, items: false, hazards: false, playerId: profile.id, opponentId: profile.id === 'kai' ? 'mara' : 'kai' });
+          Events.on('objHit', () => { struck = true; });   // a match clears the listeners when it goes
+          const A = m.fighters[0], B = m.fighters[1], o = Arena.objects[0], sphere = mv.reach * A.stats.reach * 0.8;
+          B.reset(9, 6, 0, 1, 1); A.reset(-0.25 - sphere, 0, Math.PI / 2, 1, 1);   // the sphere's centre is 0.25 m inside the crate's face
+          A.target = null; struck = false;
+          if (!A.startAttack(mv)) bad.push(what + ': the move did not start');
+          for (let t = 0; t < mv.startup + mv.active + 2; t++) m.step();
+          const hit = struck;
+          if (hit !== hits) bad.push(what + (hit ? ' hit it' : ' missed it') + ' (' + mv.h + ')');
+          colDispose(m);
+        }
+      } finally { delete ARENAS.probeProp95; delete ARENAS.probeProp180; }
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K06): in every move of every style the drawn limb tip at the contact tick is not more than 0.34 m past a foe at 0.68 m, 1.0 m and the front of the volume, straight ahead and 0.25 m and 0.4 m to the side where the blow still lands, and straight ahead not more than 0.2 m short of its body', () => keepArena(() => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'], TIP = { LA: 9, RA: 12, LL: 15, RL: 18 };
+      const FOE_RADIUS = 0.34, PAST = 0.34, SHORT = 0.2;
+      Arena.build(colEmptyArena());
+      const problems = [], seen = new Set();
+      let pairs = 0;
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0), style = moveStyleFor(r), table = stringsFor(style), ids = new Set(AIR_AND_COUNTER);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = moveFor(style, id), tip = mv.anim === 'elbowH' ? 33 : TIP[mv.limb], front = mv.reach * f.stats.reach;
+          if (mv.type === 'grab') continue;
+          f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = mv.startup + 1; f.whiffExtra = 0;
+          for (const d of [0.68, 1.0, front + FOE_RADIUS]) for (const side of [0, 0.25, 0.4]) {
+            if (d > front + FOE_RADIUS + 1e-6 || side > mv.width + FOE_RADIUS * 0.6) continue;   // the foe is out of the volume, or beside it: the blow cannot land (Combat.evaluate)
+            f.x = f.z = 0; f.yaw = 0; f.target = { x: side, z: d, alive: true };
+            f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+            const forward = f.pts[tip + 2], past = forward - d, short = d - FOE_RADIUS - forward;
+            pairs++; seen.add(r.id + ' ' + id);
+            if (past > PAST || (!side && short > SHORT)) problems.push(r.id + ' ' + id + ' at ' + d.toFixed(2) + ' side ' + side + (past > PAST ? ' past ' + past.toFixed(2) : ' short ' + short.toFixed(2)));
+          }
+        }
+      }
+      if (pairs < 1000 || ![...seen].some((key) => key.startsWith('yuki '))) return 'only ' + pairs + ' pairs checked';
+      return problems.length ? problems.length + ' misses: ' + problems.slice(0, 8).join('; ') : true;
+    }));
+
+    test('Collisions (P18-65, K07): the widest and the narrowest bodies standing against every prop of every level (their centres where the simulation leaves them) draw no more than 0.1 m into it', () => keepArena(() => quietEvents(() => {
+      const LIMIT = 0.1, bad = [];
+      const width = (r) => { const f = new Fighter(r, 0); f.pose.set(f.motion.guard); const p = colDrawn(f); return Math.max(...p.map((q) => q[1])) - Math.min(...p.map((q) => q[0])); };
+      const ranked = ROSTER.map((r) => ({ id: r.id, w: width(r) })).sort((p, q) => p.w - q.w), picks = [ranked[0].id, ranked[ranked.length - 1].id];
+      let trials = 0, deepest = 0;
+      for (const arenaId of ARENA_ORDER) for (const fid of picks) {
+        const m = mk({ arenaId, items: false, hazards: false, playerId: fid, opponentId: fid === 'kai' ? 'mara' : 'kai' });
+        const A = m.fighters[0], B = m.fighters[1], r = 0.34;
+        for (const o of Arena.objects) {
+          const c = o.collider;
+          if (!colProp(o)) continue;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const face of [true, false]) {
+            const x = c.x + dx * (c.hx + r + 0.002), z = c.z + dz * (c.hz + r + 0.002);
+            if (Arena.outside(x, z, 1.5) || Arena.insideSolid(x, z, r - 0.01, 0) || !colAlone(x, z, o.id, 1.5)) continue;   // open ground against one prop (a gap between two props has no room for a body 1 m wide)
+            m.startRound(); Arena.reset();
+            B.reset(x < 0 ? 9 : -9, z < 0 ? 5 : -5, 0, 1, 1);
+            A.reset(x, z, Math.atan2(face ? -dx : -dz, face ? -dz : dx), 1, 1); A.target = null;
+            for (let t = 0; t < 12; t++) m.step();
+            const depth = colPenetration(colDrawn(A), A.y);
+            trials++; deepest = Math.max(deepest, depth);
+            if (depth > LIMIT && bad.length < 6) bad.push(arenaId + ' ' + fid + ' ' + o.id + ' ' + depth.toFixed(2));
+          }
+        }
+        colDispose(m);
+      }
+      if (trials < 400) return 'only ' + trials + ' trials';
+      return deepest > LIMIT ? 'deepest ' + deepest.toFixed(2) + ' m: ' + bad.join(', ') : true;
+    })));
+
+    test('Collisions (P18-65, K08): jumping at a bench, stool, rail, car, dumpster or table (a prop between 0.3 and 1.3 m that cannot be stood on) never puts the body more than 0.05 m into it, and no tick moves the body more than 0.3 m (a run is 0.09 m a tick; before, a body that landed in a bench or a chair was popped out up to 0.5 m)', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      let trials = 0, jumps = 0, deepest = 0, seats = 0;
+      const SEAT_LOOKS = { chair: 0.6, sofa: 0.68 };   // the height of the seat as a share of the object's height (LOOKS: the chair's seat part is at 0.55 + 0.05, the sofa's cushion at 0.62 + 0.06)
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false });
+        const A = m.fighters[0], B = m.fighters[1];
+        for (const o of Arena.objects) {
+          const c = o.collider;
+          if (c.standable || c.deck || o.step || c.top <= 0.3 || c.top > 1.3 || c.base > 0.1) continue;
+          const solidTop = SEAT_LOOKS[o.look] && c.seat ? c.base + SEAT_LOOKS[o.look] * o.h : c.top;
+          for (const [hx, hz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const run of [false, true]) for (const lead of [0.7, 1.7]) {
+            const along = Math.abs(hx) * c.hx + Math.abs(hz) * c.hz, sx = c.x - hx * (along + 2.6), sz = c.z - hz * (along + 2.6);
+            if (Arena.outside(sx, sz, 0.4) || Arena.insideSolid(sx, sz, 0.34, 0)) continue;
+            Arena.reset(); m.startRound();
+            B.reset(sx < 0 ? 9 : -9, sz < 0 ? 5 : -5, 0, 1, 1); A.reset(sx, sz, Math.atan2(hx, hz), 1, 1);
+            let jumped = false;
+            m.controllers[0] = ScriptedController.make((it, f) => { f.blind = 3; f.yaw = f.prevYaw = Math.atan2(hx, hz); it.fwd = 1; it.run = run; if (!jumped && (c.x - f.x) * hx + (c.z - f.z) * hz - along < lead + (run ? 0.5 : 0)) { it.jump = true; jumped = true; } });
+            let into = 0, px = A.x, pz = A.z, step = 0;
+            for (let t = 0; t < 120; t++) {
+              m.step();
+              const reach = colOutside(c, A.x, A.z);
+              if (A.y < solidTop - 0.06 && A.y > c.base - 1) into = Math.max(into, 0.34 - reach);   // feet lower than the top by more than the 0.05 m the sim lets a jump pass (a chair or a stool: lower than its drawn seat, which a body may stand on)
+              step = Math.max(step, Math.hypot(A.x - px, A.z - pz)); px = A.x; pz = A.z;
+            }
+            trials++; if (jumped) jumps++;
+            deepest = Math.max(deepest, into);
+            if ((into > 0.05 || step > 0.3) && bad.length < 6) bad.push(arenaId + ' ' + o.id + ' (' + c.top.toFixed(2) + '): ' + (into > 0.05 ? 'in ' + into.toFixed(2) : 'moved ' + step.toFixed(2)));
+          }
+        }
+        for (const o of Arena.objects.filter((q) => q.collider.seat && SEAT_LOOKS[q.look])) {   // a body that comes down on a chair, a stool or a sofa stands on the drawn seat, not hovering at the collider's top (the chair back and the arms stand higher than the seat; a 0.9 m sofa is a standable block and is stood on at its top)
+          const c = o.collider, seat = c.base + SEAT_LOOKS[o.look] * o.h;
+          Arena.reset(); m.startRound();
+          m.controllers[0] = ScriptedController.make((it, f) => { f.blind = 3; });   // stands still
+          B.reset(c.x < 0 ? 9 : -9, c.z < 0 ? 5 : -5, 0, 1, 1); A.reset(c.x, c.z, 0, 1, 1);
+          A.y = A.prevY = c.top + 0.35;
+          for (let t = 0; t < 60; t++) m.step();
+          seats++;
+          if (Math.abs(A.y - seat) > 0.05 && bad.length < 6) bad.push(arenaId + ' ' + o.id + ' (' + o.look + ' top ' + c.top.toFixed(2) + '): a body that came down on it stands at ' + A.y.toFixed(2) + ', the drawn seat is at ' + seat.toFixed(2));
+        }
+        colDispose(m);
+      }
+      if (seats < 8) return 'only ' + seats + ' chairs, stools and sofas';
+      if (trials < 200 || jumps < 150) return 'only ' + trials + ' approaches, ' + jumps + ' jumps';
+      return bad.length ? bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K09): no thrown, knocked-down, knocked-out or staggering body moves more than 0.6 m in one tick on any level (the three flights the audit found, and a grid of starts)', () => keepArena(() => quietEvents(() => {
+      const KINDS = [['throw', 6.4, 3.6, 'THROWN'], ['stagger', 12, 0, 'HIT']];
+      const KNOWN = [['subway', -6, 2, 'throw', 6.4, 3.6, 'THROWN', 7], ['rooftop', 10, 1.5, 'stagger', 12, 0, 'HIT', 4], ['club', 2.5, -3.5, 'stagger', 12, 0, 'HIT', 3]];   // the starts of the three flights of the audit (heading in eighths of a turn)
+      const bad = [];
+      let flights = 0, biggest = 0;
+      const fly = (m, A, B, gx, gz, k, v, arc, st, arenaId) => {
+        const hx = Math.sin(k * Math.PI / 4), hz = Math.cos(k * Math.PI / 4);
+        m.startRound(); Arena.reset(); m.items.length = 0;
+        B.reset(gx < 0 ? 9 : -9, gz < 0 ? 5 : -5, 0, 1, 1); A.reset(gx, gz, k * Math.PI / 4, 1, 1);
+        if (st === 'THROWN') { A.setState(S.THROWN); A.vy = arc; A.y = 0.03; A.kx = hx * v; A.kz = hz * v; A.flightId = ++Combat.flightCounter; A.bodyBy = null; }
+        else if (st === 'KO') { A.hp = 1; Combat.knockOut(A, null, null, m); A.kx = hx * v; A.kz = hz * v; A.vy = arc; }
+        else { A.reactDur = 40; A.setState(S.HIT); A.kx = hx * v; A.kz = hz * v; }
+        let px = A.x, pz = A.z, step = 0;
+        for (let t = 0; t < 120; t++) {
+          m.step();
+          step = Math.max(step, Math.hypot(A.x - px, A.z - pz)); px = A.x; pz = A.z;
+          if ((A.state === S.DOWN || A.state === S.IDLE) && t > 20 && Math.hypot(A.kx, A.kz) < 0.05) break;
+        }
+        flights++; biggest = Math.max(biggest, step);
+        if (step > 0.6 && bad.length < 6) bad.push(arenaId + ' from (' + gx.toFixed(2) + ', ' + gz.toFixed(2) + ') ' + st + ' heading ' + k + ': ' + step.toFixed(2) + ' m in a tick');
+      };
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1], b = ARENAS[arenaId].bounds;
+        for (const row of KNOWN) if (row[0] === arenaId) fly(m, A, B, row[1], row[2], row[7], row[4], row[5], row[6], arenaId);
+        for (let gx = -b.x + 1; gx < b.x; gx += 4) for (let gz = -b.z + 1; gz < b.z; gz += 4) {
+          if (Arena.outside(gx, gz, 0.34) || Arena.insideSolid(gx, gz, 0.34, 0)) continue;
+          for (let k = 0; k < 8; k += 2) for (const [, v, arc, st] of KINDS) fly(m, A, B, gx, gz, k, v, arc, st, arenaId);
+        }
+        colDispose(m);
+      }
+      if (flights < 500) return 'only ' + flights + ' flights';
+      return bad.length ? 'a body moved ' + biggest.toFixed(2) + ' m in one tick: ' + bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K09): a body whose centre is deep inside a big block (a mezzanine, a container, a housing: placed there by a spawn or by rubble) leaves it at most 1.2 m a tick in all the passes together (it was across the block in one tick, up to 2.3 m, and 1.29 to 1.64 m from a synthetic block whose way out is a little more than 1.2 m) and is out within 12 ticks', () => keepArena(() => {
+      const bad = [];
+      let blocks = 0;
+      const f = new Fighter(ROSTER_BY_ID.brutus, 0);
+      const leave = (label, c) => {   // the body starts at the block's centre; every call of resolveFighter is one tick (all its passes)
+        f.x = f.prevX = c.x; f.z = f.prevZ = c.z; f.y = f.prevY = 0; f.vx = f.vz = f.kx = f.kz = 0;
+        let worst = 0;
+        for (let ticks = 0; ticks < 12; ticks++) {
+          const x = f.x, z = f.z;
+          Arena.resolveFighter(f);
+          worst = Math.max(worst, Math.hypot(f.x - x, f.z - z));
+          if (Math.abs(f.x - c.x) >= c.hx - 0.01 || Math.abs(f.z - c.z) >= c.hz - 0.01) break;
+        }
+        const out = Math.abs(f.x - c.x) >= c.hx - 0.01 || Math.abs(f.z - c.z) >= c.hz - 0.01;
+        if ((worst > 1.21 || !out) && bad.length < 5) bad.push(label + ' moved ' + worst.toFixed(2) + (out ? '' : ', still inside after 12 ticks'));
+      };
+      for (const arenaId of ARENA_ORDER) {
+        Arena.build(ARENAS[arenaId]);
+        for (const c of Arena.colliders.filter((q) => q.active && q.base === 0 && !q.standable && q.top > 1.3 && Math.min(q.hx, q.hz) >= 0.6)) {
+          if (Arena.colliders.some((q) => q !== c && q.active && q.top > 0.3 && !q.base && Math.abs(c.x - q.x) < q.hx + 0.1 && Math.abs(c.z - q.z) < q.hz + 0.1)) continue;
+          blocks++;
+          leave(arenaId + ' ' + (c.obj && c.obj.id), c);
+        }
+      }
+      try {   // blocks whose way out is a little more than PUSH_DEEP: the first pass slides 1.2 m, the later passes must not move the rest in the same tick (it was 1.29 to 1.64 m)
+        for (const half of [0.95, 1.0, 1.1, 1.3]) {
+          const id = 'probeDeep' + Math.round(half * 100);
+          ARENAS[id] = Object.assign({}, ARENAS.warehouse, { id, objects: [{ id: 'blk', type: 'box', look: 'container', mat: 'metal', x: 0, z: 0, hx: half, hz: half + 0.5, h: 2.4, fixed: true }], builds: [], items: [], hazards: [], waves: null });
+          Arena.build(ARENAS[id]);
+          const c = Arena.colliders.find((q) => q.active && Math.abs(q.x) < 0.01 && Math.abs(q.z) < 0.01);
+          if (!c) { bad.push('the synthetic block of half size ' + half + ' was not built'); continue; }
+          blocks++;
+          leave('a block of half size ' + half, c);
+        }
+      } finally { for (const half of [0.95, 1.0, 1.1, 1.3]) delete ARENAS['probeDeep' + Math.round(half * 100)]; }
+      if (blocks < 5) return 'only ' + blocks + ' blocks';
+      return bad.length ? bad.join('; ') : true;
+    }));
+
+    test('Collisions (P18-65, K10): walking or running at the side or the front of any flight of steps from 8 headings, no tick lifts the body more than 0.26 m (one tread)', () => keepArena(() => quietEvents(() => {
+      const heads = []; for (let k = 0; k < 8; k++) heads.push([Math.sin(k * Math.PI / 4), Math.cos(k * Math.PI / 4)]);
+      const bad = [];
+      let trials = 0, biggest = 0;
+      for (const arenaId of ARENA_ORDER) {
+        const m = mk({ arenaId, items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1];
+        for (const s of Arena.stairs) {
+          const tx = (s.ax + s.bx) / 2, tz = (s.az + s.bz) / 2;
+          for (const run of [false, true]) for (const [hx, hz] of heads) {
+            const sx = tx - hx * 2.2, sz = tz - hz * 2.2;
+            if (Arena.outside(sx, sz, 0.34) || Arena.insideSolid(sx, sz, 0.34, 0)) continue;
+            Arena.reset(); m.startRound();
+            A.reset(sx, sz, Math.atan2(hx, hz), 1, 1); B.reset(sx < 0 ? 9 : -9, sz < 0 ? 5 : -5, 0, 1, 1);
+            m.controllers[0] = ScriptedController.make(colWalkTo(tx, tz, run));
+            let prevY = A.y, rise = 0;
+            for (let t = 0; t < 100; t++) {
+              m.step();
+              if (A.state === S.FALL || A.state === S.JUMP || A.state === S.THROWN) { prevY = A.y; continue; }
+              rise = Math.max(rise, A.y - prevY); prevY = A.y;
+            }
+            trials++; biggest = Math.max(biggest, rise);
+            if (rise > 0.26 && bad.length < 6) bad.push(arenaId + ' ' + s.id + ' ' + (run ? 'run' : 'walk') + ' from (' + hx.toFixed(2) + ', ' + hz.toFixed(2) + '): ' + rise.toFixed(2));
+          }
+        }
+        colDispose(m);
+      }
+      if (trials < 80) return 'only ' + trials + ' approaches';
+      return bad.length ? 'lifted ' + biggest.toFixed(2) + ' m in a tick: ' + bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K11): in every move of the first fighter of each of the 16 styles on flat floor, no drawn part goes more than 0.1 m under the floor', () => keepArena(() => quietEvents(() => {
+      const LIMIT = 0.1;
+      Arena.build(colEmptyArena());
+      const m = mk({ arenaId: 'probeEmpty', items: false, hazards: false });
+      const A = m.fighters[0], B = m.fighters[1], rows = [];
+      let moves = 0;
+      for (const styleId of MOVE_STYLE_IDS) {
+        const profile = ROSTER.find((r) => moveStyleFor(r) === styleId);
+        A.profile = profile;
+        const f = new Fighter(profile, 0);
+        m.fighters[0] = f;
+        const table = stringsFor(styleId), ids = new Set();
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+        for (const id of ids) {
+          const mv = moveFor(styleId, id);
+          if (!mv || mv.ctx === 'air' || mv.ctx === 'counter' || mv.wpn) continue;
+          B.reset(9, 6, 0, 1, 1); f.reset(0, 0, 0, 1, 1);
+          if (!f.startAttack(mv)) continue;
+          let sink = 0;
+          for (let t = 0; t < f.mStartup + f.mActive + f.mRecovery + 2 && f.state === S.ATTACK; t++) { m.step(); sink = Math.max(sink, f.y - Math.min(...colDrawn(f).map((p) => p[2]))); }
+          moves++;
+          if (sink > LIMIT + 0.005 && rows.length < 6) rows.push(profile.id + ' ' + id + ' ' + sink.toFixed(2));
+        }
+      }
+      m.fighters[0] = A;
+      if (moves < 100) return 'only ' + moves + ' moves';
+      return rows.length ? 'a part goes under the floor: ' + rows.join(', ') : true;
+    })));
+
+    test('Collisions (P18-65, K12): a grate or boards deck, whose collider is a block from the floor, is drawn as one (a plate with a solid body under it, not a plate on four posts)', () => keepArena(() => {
+      const bad = [];
+      let decks = 0;
+      for (const arenaId of ARENA_ORDER) {
+        Arena.build(ARENAS[arenaId]);
+        for (const o of Arena.objects) {
+          if (o.type !== 'deck' || o.step || !(o.look === 'grate' || o.look === 'boards') || o.collider.base > 0.05) continue;
+          const cubes = [], saved = R.put;
+          R.put = (layer, mesh, x, y, z, sx, sy, sz) => { if (layer === LAYER.SOLID && mesh === MESH.CUBE) cubes.push([x, y, z, sx, sy, sz]); };
+          try { Arena.drawDeck(o, o.x, o.z); } finally { R.put = saved; }
+          decks++;
+          const solid = cubes.some(([x, y, z, sx, sy, sz]) => sx >= o.hx * 2 - 0.1 && sz >= o.hz * 2 - 0.1 && y - sy / 2 <= 0.05 && y + sy / 2 >= o.h - 0.15);
+          if (!solid && bad.length < 5) bad.push(arenaId + ' ' + o.id);
+        }
+      }
+      if (decks < 10) return 'only ' + decks + ' decks';
+      return bad.length ? 'drawn open: ' + bad.join(', ') : true;
+    }));
+
+    test('Collisions (P18-65, K13): a brick, a bat and a chair thrown at every prop of the Garage from 4 sides never come to rest outside the arena (the dumpster in the corner pushed them out past the wall)', () => keepArena(() => quietEvents(() => {
+      const bad = [];
+      let throws = 0;
+      const m = mk({ arenaId: 'garage', items: false, hazards: false }), A = m.fighters[0], B = m.fighters[1];
+      B.team = A.team;
+      for (const o of Arena.objects.filter((q) => q.collider.top > 0.25 && q.collider.base < 0.5 && !q.step)) {
+        const c = o.collider;
+        for (const [hx, hz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const along = Math.abs(hx) * c.hx + Math.abs(hz) * c.hz, sx = c.x - hx * (along + 2.5), sz = c.z - hz * (along + 2.5);
+          if (Arena.outside(sx, sz, 0.4) || Arena.insideSolid(sx, sz, 0.34, 0)) continue;
+          for (const id of ['brick', 'bat', 'chair']) {
+            Arena.reset(); m.items.length = 0;
+            B.reset(sx < 0 ? 9 : -9, sz < 0 ? 5 : -5, 0, 1, 1); A.reset(sx, sz, Math.atan2(hx, hz), 1, 1);
+            A.item = { id, dur: 9, sprays: 3 };
+            const loose = m.throwItem(A);
+            throws++;
+            for (let t = 0; t < 90 && m.items.includes(loose); t++) m.step();
+            if (m.items.includes(loose) && (loose.x < Arena.ax0 - 0.01 || loose.x > Arena.ax1 + 0.01 || loose.z < Arena.az0 - 0.01 || loose.z > Arena.az1 + 0.01) && bad.length < 5) bad.push(o.id + ' ' + id + ' at ' + loose.x.toFixed(2) + ', ' + loose.z.toFixed(2));
+          }
+        }
+      }
+      if (throws < 100) return 'only ' + throws + ' throws';
+      return bad.length ? 'came to rest outside the arena: ' + bad.join('; ') : true;
+    })));
+
+    test('Collisions (P18-65, K15): no wave entry spot of any level has the 0.34 m body inside scenery (the Club entry at (-9.15, 4.8) was 0.04 m inside a chair, and the first tick pushed the enemy out)', () => {
+      const bad = [];
+      for (const id of WAVE_LEVELS) {
+        const m = track(new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, seed: 5, arenaId: id, items: false, hazards: false }));
+        ARENAS[id].waves.forEach((row, k) => {
+          for (let j = 0; j < row[0]; j++) {
+            const s = m.waveSpot(k, j, row[0], 0.34);
+            if (Arena.insideSolid(s.x, s.z, 0.34, s.top) && bad.length < 5) bad.push(id + ' wave ' + k + ' #' + j + ' at ' + s.x.toFixed(2) + ', ' + s.z.toFixed(2));
+          }
+        });
+      }
+      return bad.length ? 'inside scenery: ' + bad.join('; ') : true;
+    });
+
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
