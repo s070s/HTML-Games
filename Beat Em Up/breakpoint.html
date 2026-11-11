@@ -3578,15 +3578,17 @@ function makeObject(def, rng) {
     stage: 0, destroyed: false, phase: 'intact', phaseTimer: 0,
     wob: 0, wobPhase: 0, lastSrc: -1, lastImpactTick: -99,
     cracks, collider: null, rubble: null, heat: 0, fire: 0, blaze: null, near: null, alarm: 0, // ticks in a fire zone, ticks of fire left, its fire zone, flammable neighbours (Arena.build), car alarm seconds
-    base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, bounce: !!def.bounce, step: !!def.step, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false, // standing height, rests on, weight that breaks it, takes no damage
+    base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, bounce: !!def.bounce, step: !!def.step, lane: def.lane || null, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false, // standing height, rests on, weight that breaks it, takes no damage
   };
   const thin = def.type === 'panel' || def.type === 'rail';
   const deck = def.type === 'deck';
+  const standable = deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8);
+  const perch = (def.type === 'box' || def.type === 'column') && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|chair|sofa|)$/.test(def.look || '');
   o.collider = {
     x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
-    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, foot: def.step ? STAIR_FOOT : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
+    standable, up: def.step ? STAIR_UP : 0.25, foot: def.step ? STAIR_FOOT : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
     shelf: def.type === 'box' && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|)$/.test(def.look || ''), // an item thrown onto it lies on its top
-    perch: (def.type === 'box' || def.type === 'column') && def.h <= 1.05 && /^(table|bench|barrier|crate|kiosk|chair|sofa|)$/.test(def.look || ''), // a body that jumps over it comes down on it
+    perch, seat: perch && !standable && /^(chair|sofa)$/.test(def.look || ''), // perch: a body that jumps over it comes down on it; seat: on the drawn seat, not at the collider's top (the back and the arms of a chair or a sofa stand higher: Arena.seatTop); a 0.9 m sofa is a standable block, stood on at its top
     lay: def.type === 'box' && /^(sofa|car|rack)$/.test(def.look || ''), // an item lies on the highest drawn part under it
   };
   return o;
@@ -3608,6 +3610,7 @@ const STAIR_FOOT = 0.3; // m: but a step gives footing only from this far below 
 const PASS_UNDER = 0.05; // m: a prop that cannot be stood on is passed only by a body whose feet are at least this close to its top (a jump over it); a deck or a step takes its own slack (STAIR_UP, 0.25)
 const PUSH_OUT_MAX = 0.6, PUSH_DEEP = 1.2, PUSH_ESCAPE = 3; // m: a body is not moved farther than PUSH_OUT_MAX to leave an obstacle when the nearest side inside the arena is within it (it leaves through that one, not across a block); from deeper than PUSH_OUT_MAX it leaves PUSH_DEEP a tick (the first pass of a tick only), unless its way out is farther than PUSH_ESCAPE
 const SUPPORT_REACH = 0.15; // m: a fighter walking off a deck, a crate or a step loses the footing when its centre is this far past the footprint; one that is not moving away from it (stepping or jumping up onto it, landing on it, shoved) keeps it over the whole 0.34 m cylinder as before; the CPU's probes (supportAt) read the cylinder, and walls and props keep it too
+const STAIR_BESIDE_REACH = 0.4, STAIR_BESIDE_HEIGHT = 0.3; // m: a step keeps the footing of its whole cylinder beside a deck or a crate whose top is within STAIR_BESIDE_HEIGHT of its own, for a body within STAIR_BESIDE_REACH of that deck (the CPU crosses from the flight to the deck by the corner); everywhere else past the side or the open end of a flight it is SUPPORT_REACH
 const STAIR_APPROACH = 0.45; // m: the CPU's first waypoint lies this far before the foot
 const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far beyond the ring
 /* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
@@ -3639,7 +3642,7 @@ function builtOf(def) {
     const ramp = look === 'ramp', rise = ramp ? RAMP_RISE : STAIR_RISE, run = ramp ? RAMP_RUN : STAIR_RUN, count = Math.round((top - from) / rise), [dx, dz] = STAIR_DIRS[dir];
     for (let i = 1; i <= count; i++) {
       const along = (i - 0.5) * run;
-      objects.push({ id: id + '.' + i, type: 'deck', look, mat, step: 1, fixed: 1, on, x: x + dx * along, z: z + dz * along, hx: dx ? run / 2 : width / 2, hz: dx ? width / 2 : run / 2, h: from + i * rise });
+      objects.push({ id: id + '.' + i, type: 'deck', look, mat, step: 1, lane: { dx, dz, prev: i > 1, next: i < count }, fixed: 1, on, x: x + dx * along, z: z + dz * along, hx: dx ? run / 2 : width / 2, hz: dx ? width / 2 : run / 2, h: from + i * rise });
     }
     const len = count * run;
     stairs.push({ id, dir, dx, dz, width, from, top, len, x, z, ax: x - dx * STAIR_APPROACH, az: z - dz * STAIR_APPROACH, bx: x + dx * (len - run / 2), bz: z + dz * (len - run / 2) });
@@ -3672,6 +3675,7 @@ const Arena = {
     this.collapses.length = 0;
     this.navVersion++;
     this.colliders = this.objects.map((o) => o.collider);
+    for (const c of this.colliders) if (c.obj.lane) c.beside = this.colliders.filter((q) => q !== c && q.standable && q.obj && !q.obj.lane && Math.abs(q.top - c.top) <= STAIR_BESIDE_HEIGHT && Math.abs(q.x - c.x) < q.hx + c.hx + STAIR_BESIDE_REACH && Math.abs(q.z - c.z) < q.hz + c.hz + STAIR_BESIDE_REACH); // the decks and crates a step stands beside (a flight comes up to a deck)
     this.props = this.propCache[def.id] || (this.propCache[def.id] = buildProps(def.id));
     for (const p of this.props) { p.lean = p.cheer = 0; if (p.lamp) p.lamp.amp = 0; } // the props are cached per level: a new fight starts with the lights at rest
     this.lamps = [...new Set(this.props.filter((p) => p.lamp).map((p) => p.lamp))]; // the hanging lights of the level, once (Feel.shake)
@@ -3902,7 +3906,7 @@ const Arena = {
       for (let i = 0; i < nx; i++) {
         const x = -b.x + (i + 0.5) * nav.cw, z = -b.z + (j + 0.5) * nav.ch;
         let h = 0;
-        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + 0.1 && Math.abs(z - c.z) <= c.hz + 0.1 && c.top > h) h = c.top;
+        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + (c.obj && c.obj.lane ? 0 : 0.1) && Math.abs(z - c.z) <= c.hz + (c.obj && c.obj.lane ? 0 : 0.1) && c.top > h) h = c.top; // a step of a flight counts only under the cell's centre: the walk keeps to the treads, a body is not held at the side of a flight (resolveFighter)
         let fits = x >= this.ax0 + r && x <= this.ax1 - r && z >= this.az0 + r && z <= this.az1 - r;
         for (let k = 0; fits && k < this.colliders.length; k++) {
           const c = this.colliders[k];
@@ -4072,13 +4076,14 @@ const Arena = {
       if (!c.active) continue;
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
+      if (c.obj && c.obj.lane && c.top > STEP_HEIGHT && dx * dx + dz * dz >= SUPPORT_REACH * SUPPORT_REACH && !this.stepHolds(c, dx, dz, x, z)) continue; // the cylinder of a body over the side or the open end of a flight finds no footing there (resolveFighter), unless the flight stands beside a deck: the CPU's edge probes read the same footing
       if (item && c.lay) { top = Math.max(top, this.lookTop(c, x, z, y)); continue; }
       if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable) || (item && c.shelf && y >= c.top - 0.05)) top = Math.max(top, c.top);
     }
     return top;
   },
   // Where an item at height y over (x, z) lies on a sofa, car or rack (c.lay): the highest drawn top of its block and look parts that it is not below (ITEM_FOOTING beyond a part); 0 inside a taller part (a side hit)
-  lookTop(c, x, z, y) {
+  lookTop(c, x, z, y, solid = true) { // solid: a point inside a taller part is a side hit (0); a body standing on a seat ignores the parts above it
     const o = c.obj, look = LOOKS[o.look];
     let top = 0, inside = false;
     for (let i = 0; i < look.length; i++) {
@@ -4087,14 +4092,30 @@ const Arena = {
       if (!h || beyondX > ITEM_FOOTING || beyondZ > ITEM_FOOTING) continue;
       if (partTop <= y + 0.05) top = Math.max(top, partTop); else if (beyondX <= 0 && beyondZ <= 0) inside = true;
     }
-    return inside ? 0 : top;
+    return inside && solid ? 0 : top;
+  },
+  // The height a body stands at over (x, z) of a chair, stool or sofa (c.seat): its highest drawn part that is no higher than the collider (the seat, or an arm of a sofa), not the collider's top (0.5 m for a chair that is seated at 0.3 m); the collider's top where no part is under the point
+  seatTop(c, x, z) {
+    return this.lookTop(c, x, z, c.top - 0.05, false) || c.top;
+  },
+
+  // Whether a body whose centre is (dx, dz) off the footprint of a step is in line with its flight (within SUPPORT_REACH of the width) and beyond an end that has a neighbouring tread of the same flight: the treads are as narrow as the body, so the footing of the step holds over the whole cylinder there (for a body that climbs or stands on the flight). Past the sides and past the open ends of the flight the footing goes at SUPPORT_REACH like any edge
+  alongFlight(lane, dx, dz) {
+    const along = dx * lane.dx + dz * lane.dz, across = dx * lane.dz - dz * lane.dx;
+    return Math.abs(across) < SUPPORT_REACH && (along > 0 ? lane.next : lane.prev);
+  },
+  // Whether a step keeps the footing of the whole cylinder of a body at (x, z): in line with its flight, or beside a deck that the body is within STAIR_BESIDE_REACH of
+  stepHolds(c, dx, dz, x, z) {
+    if (this.alongFlight(c.obj.lane, dx, dz)) return true;
+    for (const q of c.beside) if (q.active && Math.abs(x - q.x) < q.hx + STAIR_BESIDE_REACH && Math.abs(z - q.z) < q.hz + STAIR_BESIDE_REACH) return true;
+    return false;
   },
 
   // Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info.
   resolveFighter(f) {
     const r = f.radius, x0 = this.ax0 + r, x1 = this.ax1 - r, z0 = this.az0 + r, z1 = this.az1 - r;
     f.wallHit = false; f.obstacleHit = null; f.hazardTouch = null;
-    let groundY = 0, stair = false;
+    let groundY = 0, stair = false, slid = false; // slid: pushOut slid the body out of a deep block this tick
     for (let pass = 0; pass < 3; pass++) {
       groundY = 0; stair = false;
       let moved = false;
@@ -4105,10 +4126,12 @@ const Arena = {
         let dx = f.x - nx, dz = f.z - nz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        const held = d2 < SUPPORT_REACH * SUPPORT_REACH || f.vy > 0 || (c.obj && c.obj.step) || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz < -0.01 * Math.sqrt(d2); // under the centre, or between SUPPORT_REACH and the cylinder for a step of a stair (the treads are as narrow as the body), while rising, or moving toward the footprint (jumping up onto it, landing on it): a body that stands, walks along or walks off the edge of the surface it rests on loses the footing at SUPPORT_REACH
+        const held = d2 < SUPPORT_REACH * SUPPORT_REACH || f.vy > 0 || (f.vx + f.kx) * dx + (f.vz + f.kz) * dz < -0.01 * Math.sqrt(d2) || (c.obj && c.obj.lane && (f.vx + f.kx) * dx + (f.vz + f.kz) * dz <= 0.01 * Math.sqrt(d2) && this.stepHolds(c, dx, dz, f.x, f.z)); // under the centre, or between SUPPORT_REACH and the cylinder along a flight of stairs toward a neighbouring tread of the flight, or beside a deck, for a body that is not walking away from the step (the treads are as narrow as the body; past the side or the open end of the flight, or walking down off the step, it is SUPPORT_REACH like any edge), while rising, or moving toward the footprint (jumping up onto it, landing on it): a body that stands, walks along or walks off the edge of the surface it rests on loses the footing at SUPPORT_REACH
         if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY && (c.top <= STEP_HEIGHT || (held && f.y >= c.top - (c.foot || 0.25)))) { groundY = c.top; stair = !!(c.obj && c.obj.step); } continue; } // a deck, a crate or a step gives footing under the centre, and over the cylinder to a body that is not walking off it (`held`)
-        if (f.y >= c.top - PASS_UNDER) { if (c.perch && c.top > groundY && held) { groundY = c.top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a table, a bench, a barrier or a crate (what an item lies on: `shelf`) comes down on it; a body falling past a window, a rail or a column goes on falling
-        this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1, pass);
+        const top = c.seat ? this.seatTop(c, nx, nz) : c.top; // a chair, a stool or a sofa that cannot be stood on as a whole (a 0.9 m sofa can) is stood on at its drawn seat
+        if (f.y >= top - PASS_UNDER || (c.perch && f.vy < 0 && f.prevY >= top - PASS_UNDER)) { if (c.perch && top > groundY && held) { groundY = top; stair = false; } continue; } // what is left here is no deck: only a body that is up at its top passes it, and a jump over a table, a bench, a barrier or a crate (what an item lies on: `shelf`) comes down on it (a fall of more than PASS_UNDER in the tick that reaches the top lands too: it was above the top a tick ago); a body falling past a window, a rail or a column goes on falling
+        if (slid) continue; // PUSH_DEEP is all a body moves in a tick: the passes after a slide only read the footing at the new place
+        if (this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1, pass)) slid = true;
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
         if (c.haz) f.hazardTouch = c.haz; // a hazard's post
@@ -4155,7 +4178,7 @@ const Arena = {
     let to = best || nearest;
     if (best && close && DMath.hypot(best[0] - f.x, best[1] - f.z) > PUSH_OUT_MAX && DMath.hypot(close[0] - f.x, close[1] - f.z) <= PUSH_OUT_MAX) to = close; // the only clear way out is across a big block: the near side inside the arena is no jump, and what is in its way (a neighbour) is cleared by the passes that follow
     const gapX = to[0] - f.x, gapZ = to[1] - f.z, gap = DMath.hypot(gapX, gapZ);
-    if (gap > PUSH_OUT_MAX && gap <= PUSH_ESCAPE) { if (pass === 0) { const slide = Math.min(gap, PUSH_DEEP); f.x += gapX / gap * slide; f.z += gapZ / gap * slide; } return; } // deep inside a big block (a spawn, rubble that fell on a body): it leaves PUSH_DEEP a tick (the first pass only), not across the block in one go; a body with no clear side nearer than PUSH_ESCAPE (the end of a collapsed deck, walled in by rubble) is out at once
+    if (gap > PUSH_OUT_MAX && gap <= PUSH_ESCAPE) { if (pass === 0) { const slide = Math.min(gap, PUSH_DEEP); f.x += gapX / gap * slide; f.z += gapZ / gap * slide; return true; } return false; } // deep inside a big block (a spawn, rubble that fell on a body): it leaves PUSH_DEEP a tick (the first pass only, and no pass moves it after the slide: true is returned), not across the block in one go; a body with no clear side nearer than PUSH_ESCAPE (the end of a collapsed deck, walled in by rubble) is out at once
     f.x = to[0]; f.z = to[1];
   },
 
@@ -7804,7 +7827,7 @@ const THROW_VEC = [0, 0]; // scratch for Combat.throwVector (no per-frame alloca
 const LOW_REACH_UP = 0.35, MID_REACH_UP = 0.9; // a Low strike (and a stomp) reaches a foe whose feet are at most this far above the attacker's footing, a Mid strike this far
 const BLOW_TIP = [{ H: 1.45, M: 1.05, L: 0.6 }, { H: 1.3, M: 0.9, L: 0.35 }]; // m above the feet: where the fist (0) and the foot (1) of a High, Mid and Low strike meet scenery (about the drawn tip of the 1.0 scale body)
 const blowHeight = (mv) => (mv.type === 'grab' ? 0.9 : mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35); // m above the footing where a blow travels: a prop taller than this stands in its way (Arena.blowBlocked)
-const HIT_SPHERE_UP = 0.3; // m: how far above and below the limb's tip a blow reaches scenery
+const HIT_SPHERE_UP = [0.3, 0.36]; // m: how far above and below the limb's tip a blow reaches scenery: a fist (0), a foot (1: the High kick's foot at 1.3 m reaches the top of a 0.95 m crate, where the drawn foot touches it)
 const STRIKE_LEDGE = 1.05, GRAB_LEDGE = 0.55; // a strike reaches a foe whose footing is within STRIKE_LEDGE above or below (a ring or stage apron, not a mezzanine); a grab, a throw and a tackle need |g| within GRAB_LEDGE (two stair steps)
 const Combat = {
   attackCounter: 0,
@@ -8150,7 +8173,7 @@ const Combat = {
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
     const tip = mv.wpn && att.item && mv.swing ? 0 : BLOW_TIP[mv.limb[1] === 'L' ? 1 : 0][mv.h], cy = (tip || blowHeight(mv)) + att.y; // the height of the limb that strikes (a table by the height class, not the drawn pose: that follows the look, which is cosmetic), else the height class of an item's swing
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult(); // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
-    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index, tip ? HIT_SPHERE_UP : undefined); // R1: a bottle cuts
+    const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, att.itemDef && att.itemDef.sp === 'shatter' ? 'sharp' : mv.cat, att.fwdX, att.fwdZ, att.index, tip ? HIT_SPHERE_UP[mv.limb[1] === 'L' ? 1 : 0] : undefined); // R1: a bottle cuts
     if (n > 0) match.addHitStop(3, att, null);
     if (match.hazards && match.hazards.length) match.hazardStrike(att, cx, cy, cz); // a hazard's post
     return n;
