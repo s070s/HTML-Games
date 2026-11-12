@@ -2832,7 +2832,7 @@ const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5,
   [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1], [0, 0.9, 0], [0, 0.9, 1], [0.5, 1.0, 1], [-0.5, 1.0, 1]]; // the steep ones: nearly straight down, for a player in a corner behind a long rack; the last two the same from either side with the aim on the players (P17-10: a thin screen with three enemies round it left no other pose)
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10; // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
 const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0; // m: a ceiling prop (its underside this high) fades out when the eye passes within this of it, so a light tube never fills the picture
-const CAMERA_NEAR = 0.5, CAMERA_FAR = 80; // m: the clip planes (P18-77). The fight cameras show surfaces from 0.75 m to 43 m away (all 8 levels, 1280x720, 844x390 and 390x844) and the eye stays 0.6 m inside the walls, so nothing is cut; a 24-bit depth step at 43 m is 0.22 mm (it was 0.36 mm with 0.3 and 120), which keeps a 0.002 m offset eight steps clear
+const CAMERA_NEAR = 0.5, CAMERA_FAR = 80; // m: the clip planes (P18-77). The fight cameras show surfaces from 0.75 m to 43 m away (all 8 levels, 1280x720, 844x390 and 390x844) and the eye reaches the 0.6 m wall margin only when it looks along or away from that wall, so the four corners of the near plane stay inside the room (at least 0.148 m clear, checked in "Arena bounds (P17-08)") and nothing is cut; a 24-bit depth step at 43 m is 0.22 mm (it was 0.36 mm with 0.3 and 120), which keeps a 0.002 m offset eight steps clear
 const CAMERA_AIM_REACH = 0.95; // share of the half size of the room the camera may aim out to
 const CAMERA_WALL_MARGIN = 0.6; // m: the eye stays this far inside the side and back walls of the room
 const CAMERA_EDGE_PAD = 30; // px: how far inside the screen edge the arrow for an off-screen attacker sits
@@ -3509,7 +3509,7 @@ function buildProps(id) {
     for (let i = 0; i < 5; i++) propSph(p, 5.6 + i * 0.8, 3.2, 4.8, 0.09, '#ffe3a0', { e: 2 }); // string lights over the lounge
   } else if (id === 'subway') {
     propBox(p, 0, 3.2, -6.8, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -6.56, 30, 0.9, 0.06, '#1f5f8f'); // the tiled wall behind the track and the blue station band
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -6.58, 0.05, 6.4, 0.05, '#aab2b8');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.19, -6.58, 0.05, 6.38, 0.05, '#aab2b8'); // a rib stops 0.02 m under the wall top: its top face no longer shares a plane with the wall's (z-fighting, P18-77)
     propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507'); // the tunnel mouth in the east wall
     propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 }); // the station name board
@@ -4413,7 +4413,7 @@ const Arena = {
       if (!o.far) {
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), (h - 0.1) * 0.5, z + sz * (hz - 0.06), 0.12, h - 0.1, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // a leg ends under the plate (z-fighting)
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces and the lip
+        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2 - 0.02, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces; they stop 0.01 m short of each end, so their front end sits inside the lip (top h + 0.012) and ties with none of its faces
       }
     } else { // slab, stage
       const stage = look === 'stage';
@@ -4479,7 +4479,7 @@ const Arena = {
     }
     near.sort((p, q) => p.d2 - q.d2);
     for (let i = 0, full = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
-      const holds = near[i].far ? i < limits.live - LOD_KEEP : i < limits.live + LOD_KEEP;
+      const holds = near[i].far ? i < Math.max(0, limits.live - LOD_KEEP) : i < limits.live + LOD_KEEP;   // live must stay above LOD_KEEP, or a plain object could never get its look back
       near[i].far = !(holds && full < limits.live);
       if (!near[i].far) full++;
     }
