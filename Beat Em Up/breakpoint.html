@@ -4479,7 +4479,7 @@ const Arena = {
     }
     near.sort((p, q) => p.d2 - q.d2);
     for (let i = 0, full = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
-      const holds = near[i].far ? i < Math.max(0, limits.live - LOD_KEEP) : i < limits.live + LOD_KEEP;   // live must stay above LOD_KEEP, or a plain object could never get its look back
+      const holds = near[i].far ? i < Math.max(1, limits.live - LOD_KEEP) : i < limits.live + LOD_KEEP;   // at least the nearest plain object gets its look back, whatever live is (full < live below keeps live 0 all plain)
       near[i].far = !(holds && full < limits.live);
       if (!near[i].far) full++;
     }

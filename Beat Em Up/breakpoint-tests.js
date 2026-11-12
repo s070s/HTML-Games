@@ -22120,7 +22120,7 @@ const SelfTest = {
           const lifted = [0, 1, 2].map((k) => point[k] + f.normal[k] * 0.002);
           return eyes.some((eye) => zDot(f.normal, zSub(eye, lifted)) > 0.05 && !zBlocked(lifted, eye, boxes, [p, q]));
         });
-        if (seen) pairs.push(describe(f) + ' and ' + describe(g) + ' share ' + shared.area.toFixed(3) + ' m2, ' + gap.toFixed(4) + ' m apart');
+        if (seen) pairs.push(describe(f) + ' and ' + describe(g) + ' share ' + shared.area.toFixed(4) + ' m2, ' + gap.toFixed(4) + ' m apart');
       }
       return pairs;
     };
@@ -22134,7 +22134,7 @@ const SelfTest = {
             const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), recs = [];
             let item = false;
             R.push = (layer, mesh, matrix, colour, alpha, glow, rough) => { recs.push({ layer, mesh, m: Array.from(matrix), colour: Array.from(colour), alpha, glow: glow || 0, rough: rough || 0, item }); };
-            try { Arena.lodTick = lod ? 0 : 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
+            try { if (lod) for (const o of Arena.objects) o.far = true; Arena.lodTick = 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
             if (recs.length < 100) problems.push(preset + ' ' + id + ' drew only ' + recs.length + ' pieces');
             for (const pair of zFightPairs(recs, ARENAS[id].bounds)) problems.push(preset + ' ' + id + ': ' + pair);
           }
