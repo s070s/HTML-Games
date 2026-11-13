@@ -19417,10 +19417,11 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the combo counter of a Training with touch controls overlaps not the coach/grab hint, the Training panel is drawn over a fighter name tag, the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
+      const hintText = 'Coach: block the jab, then answer with your own fast punch';   // a long coach line: it wraps to three lines on a phone held upright
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
       const kinds = [['Training', 'tt'], ['Keyboard Training', ''], ['Co-op', 'coop']];   // Keyboard Training: no touch controls, the data panel on the right
       for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640], [600, 560]]) {   // 600 x 560: a near-square desktop window
@@ -19438,10 +19439,22 @@ const SelfTest = {
           if (keys) doc.getElementById('touch').hidden = true;
           if (kind.endsWith('Training')) { panel.hidden = false; if (!keys) panel.classList.add('touch'); panel.innerHTML = training; }
           else party.innerHTML = [1, 2, 3, 4].map((n) => '<div class="pc seat' + n + '"><div class="pn"><b>P' + n + '</b> FIGHTER' + n + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
+          const hint = doc.getElementById('grappleHint');
+          hint.hidden = false; hint.textContent = hintText;
           const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
           const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = keys ? [] : [...doc.querySelectorAll('#touch .tb')];
           if (kind.endsWith('Training')) for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
           if (!kind.endsWith('Training') && cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
+          const spanOf = (el) => { const r = rect(el); return Math.round(r.left) + '-' + Math.round(r.right) + ' x ' + Math.round(r.top) + '-' + Math.round(r.bottom); };
+          if (kind === 'Training' && cross(rect(doc.getElementById('combo')), rect(hint))) bad.push(where + 'the combo counter (' + spanOf(doc.getElementById('combo')) + ') overlaps the coach/grab hint (' + spanOf(hint) + ')');
+          if (kind.endsWith('Training')) {   // a fighter name tag (the player's "1P" tag stands over the panel in a phone held upright) must not hide a line of the panel: the tag in the middle of the panel, and what is on top there (the coach hint may be, the tag may not)
+            const tag = doc.createElement('div'), box = rect(panel);
+            tag.className = 'tag p1'; tag.textContent = '1P'; doc.getElementById('tags').appendChild(tag);
+            tag.style.transform = 'translate(' + (box.left + box.width / 2) + 'px,' + (box.top + box.height / 2 + 12) + 'px) translate(-50%,-100%)';
+            hud.style.pointerEvents = 'auto';   // the live HUD takes no pointer, and elementFromPoint skips such elements
+            const tagBox = rect(tag), top = doc.elementFromPoint(tagBox.left + tagBox.width / 2, tagBox.top + tagBox.height / 2);
+            if (!top || tag.contains(top)) bad.push(where + 'a fighter name tag is drawn over the data panel');
+          }
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
           if (!keys) for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
           if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
@@ -19450,7 +19463,7 @@ const SelfTest = {
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
-    layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card (also in a one-person Co-op and a Lineup with a person) and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844, also at UI scale 0.8; the Training panel (the real UI.trainingPanel text) holds FRAME DATA, Startup, Result and Advantage inside its box at those sizes, and its KEYS line is one line on a landscape phone', () => {
+    layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card (also in a one-person Co-op and a Lineup with a person) and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844, also at UI scale 0.8; the Training panel (the real UI.trainingPanel text) holds FRAME DATA, Startup, Result and Advantage inside its box at those sizes, its KEYS line is inside the panel (not at 640 x 360, where there is no room), and it is one line on a landscape phone', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●';
       const longest = (texts) => texts.slice().sort((a, b) => b.length - a.length)[0];
@@ -19551,6 +19564,9 @@ const SelfTest = {
               else if (found.some((line) => line.top < box.top || line.bottom > box.bottom - 1 + 0.5)) bad.push(where + 'the "' + needle + '" line (' + Math.round(found[0].top) + '-' + Math.round(found[found.length - 1].bottom) + ') is outside the Training panel (' + Math.round(box.top) + '-' + Math.round(box.bottom) + ')');
             }
             const keysLine = linesWith(TRAINING_KEYS[kind.touch ? 'touch' : 'keyboard']);
+            const keysHidden = width === 640 && height === 360;   // known: at 640 x 360 the panel has room for 6 lines above the stick (touch) or 11 above the pause button (keyboard) and the KEYS line comes after 7 to 9 lines of frame data (Appendix C, BP-P18-78)
+            if (!keysLine.length) bad.push(where + 'no KEYS line in the Training panel');
+            else if (!keysHidden && keysLine.some((line) => line.top < box.top || line.bottom > box.bottom - 1 + 0.5)) bad.push(where + 'the KEYS line (' + Math.round(keysLine[0].top) + '-' + Math.round(keysLine[keysLine.length - 1].bottom) + ') is outside the Training panel (' + Math.round(box.top) + '-' + Math.round(box.bottom) + ')');
             if (kind.touch && width > height && new Set(keysLine.map((line) => Math.round(line.top))).size > 1) bad.push(where + 'the KEYS line takes ' + new Set(keysLine.map((line) => Math.round(line.top))).size + ' lines on a landscape phone');
           }
         }, scale);
