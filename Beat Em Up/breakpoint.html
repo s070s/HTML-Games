@@ -240,6 +240,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:10em;width:15em;max-height:calc(100% - 11.3em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{left:.9em;right:auto;width:min(21em,50%);max-height:min(10em,calc(100% - 10em - max(30vmin,130px) - 7vmin))} /* with touch controls the panel sits at the left under the health bars, 6 lines at most and above the stick; the buttons are on the right */
+@media (orientation:portrait){#training{top:15.2em;max-height:calc(100% - 16.5em - 52px)}} /* upright: the level line (#modeinfo) runs down to 11.4em of the HUD, the panel (font .8em) starts under it at 12.2em, with keyboard or gamepad too */
 @media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
 #hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
 @media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */

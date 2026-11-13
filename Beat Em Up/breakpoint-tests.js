@@ -15509,6 +15509,31 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Training panel upright: in an upright window the Training panel starts under the level line, with touch, keyboard or gamepad (the level line wraps to 3 lines on a 390 px window and ran under FRAME DATA)', () => {
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (!sheets || !sheets.length) return true;   // a headless run has no stylesheet; a browser run reads the rules
+      const plain = {}, upright = {};
+      const read = (rules, into) => {
+        for (const rule of Array.from(rules)) {
+          if (rule.media && rule.cssRules) { read(rule.cssRules, /orientation:\s*portrait/.test(rule.conditionText || rule.media.mediaText) ? upright : into); continue; }
+          if (!rule.style || !rule.selectorText) continue;
+          for (const selector of rule.selectorText.split(',').map((part) => part.trim())) {
+            const box = into[selector] || (into[selector] = {});
+            for (const key of ['top', 'max-height', 'font-size']) if (rule.style.getPropertyValue(key)) box[key] = rule.style.getPropertyValue(key);
+          }
+        }
+      };
+      for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules, plain); } catch (error) { /* a sheet from another origin */ } }
+      const em = (box, key) => parseFloat((box && box[key]) || 'NaN');
+      const infoSize = em(plain['#modeinfo'], 'font-size'), panelSize = em(plain['#training'], 'font-size');
+      const lineEnd = (em(upright['#modeinfo'], 'top') + em(upright['#modeinfo'], 'max-height')) * infoSize;   // in HUD em
+      const bad = [];
+      for (const selector of ['#training', '#training.touch']) {
+        const start = em(upright[selector], 'top') * panelSize;
+        if (!(start >= lineEnd)) bad.push(selector + ' starts at ' + start.toFixed(2) + ' em, the level line ends at ' + lineEnd.toFixed(2) + ' em');
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Menu showcase (P30-16): the pair is aimed at the free strip beside the menu panel (nothing when the panel is centred or absent) and sits 15 % closer on a phone', () => withCamera(() => {
       const bad = [], keep = { dom: UI.dom, focus: Showcase.menuFocus, t: Showcase.t }, w = window.innerWidth;
       const panel = (left, right) => ({ screens: { querySelector: () => ({ getBoundingClientRect: () => ({ left: left * w, right: right * w }) }) } });
