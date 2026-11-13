@@ -192,6 +192,10 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .bar.st i{background:#8dff7a}
 .bar.st.low i{background:repeating-linear-gradient(90deg,#ffb347 0 .35em,#7a3d00 .35em .7em)}
 .bar.st.low{border-style:dashed;border-color:#ffb347}
+.bar.st::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.55) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(25% - .5px),rgba(255,255,255,.55) calc(25% - .5px) calc(25% + .5px),transparent calc(25% + .5px))}.hs.r .bar.st::after{background-image:linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.55) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(75% - .5px),rgba(255,255,255,.55) calc(75% - .5px) calc(75% + .5px),transparent calc(75% + .5px))} /* hairline ticks at 50 % and 25 % of the tank, over the fill; the right bar fills from the right, so its 25 % is 75 % from the left */
+.bar.st.winded i{background:#f2e45a}
+.bar.st.spent i{background:repeating-linear-gradient(90deg,#ff4a4a 0 .2em,#5a0f0f .2em .4em)}
+.bar.st.spent{border-color:#ff4a4a}
 .bar.mo{height:.4em;margin-top:.2em;border-width:1px;width:70%}
 .hs.r .bar.mo{margin-left:30%}
 .bar.mo i,.hs.r .bar.mo i{background:#c9b88a}
@@ -4719,13 +4723,25 @@ function canTransition(from, to) {
 /* --- attributes -> gameplay (attribute scale 1..10, 5 = baseline 1.0)
    Slopes tuned so +2 in any one attribute (7 vs 5, hard CPU mirrors, 432 matches each) wins 61-69%; reach, balance's heavy-hit impact and recovery's stamina regen were flattened (they won .69, .74, .74). */
 const ATTR_KEYS = ['health', 'stamina', 'strength', 'speed', 'reach', 'defense', 'balance', 'recovery'];
-/* Stamina. The people's side of a match at the CPU levels (not Versus, Training or an even-damage run, and not people alone; a lineup gives it to its people only) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack (ATTACK_NO_REGEN) or a blocked hit (GUARD_NO_REGEN); attackShare = share of the rate while still attacking; perfectBlock and perfectSway = stamina a perfect block / sway gives back. Hard, Expert and every CPU fighter keep the plain rules (STAMINA_EDGE_NONE).
-   Move costs are in ATTACKS; SWAY_COST, SIDESTEP_COST, JUMP_COST and RUN_DRAIN are with the other movement. */
-const ATTACK_NO_REGEN = 36, GUARD_NO_REGEN = 50;
-const STAMINA_EDGE_NONE = { regen: 1, delay: 1, attackShare: 0, perfectBlock: 6, perfectSway: 0 };
+/* Stamina (P18-61 section 4). Move costs are in ATTACKS and WEAPON_MOVES, scaled once by STAMINA_PRICE_K (stamPrice); a string step started from the ATTACK state costs CHAIN_PRICE_K times that, except for a CPU fighter; SWAY_COST, SIDESTEP_COST, JUMP_COST and RUN_DRAIN are with the other movement.
+   Regeneration: the fighter's rate x STAMINA_REGEN_K x the share of its state (REGEN_SHARE) x the refill factor of its band; it starts ATTACK_NO_REGEN ticks after an attack, GUARD_NO_REGEN after a blocked hit.
+   STAMINA_BANDS (the fraction of the tank, highest first; the first row the tank reaches): damage dealt, startup and recovery time, walk speed and refill all scale with it. A move the tank cannot pay does at most EMPTY_MOVE_DAMAGE and starts EMPTY_MOVE_STARTUP ticks later.
+   The people's side of a match at the CPU levels (not Versus, Training or an even-damage run, and not people alone; a lineup gives it to its people only) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack or a blocked hit; attackShare = share of the rate while still attacking; perfect = stamina a perfect block or sway gives back. Hard, Expert and every CPU fighter keep the plain rules (STAMINA_EDGE_NONE). */
+const STAMINA_PRICE_K = 1.15, CHAIN_PRICE_K = 1.8, STAMINA_REGEN_K = 1.3; // CHAIN_PRICE_K 1.8, not the decided 1.6: with 1.6 the Mash script was exhausted 47.5 % of the long duel at Expert (target 50), see Appendix C "BP-P18-52 as built"
+const stamPrice = (base) => Math.round(base * STAMINA_PRICE_K * 10) / 10;
+const ATTACK_NO_REGEN = 24, GUARD_NO_REGEN = 40;
+const REGEN_SHARE = { idle: 1, walk: 0.6, guard: 0.4, guardStun: 0.1, down: 0.4, getUp: 0.4, air: 0.2, hit: 0.15 };
+const STAMINA_BANDS = [
+  { from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1 },
+  { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1 },
+  { from: 0.1, name: 'Tired', dmg: 0.6, slow: 1.4, walk: 0.9, regen: 0.85 },
+  { from: 0, name: 'Spent', dmg: 0.4, slow: 1.6, walk: 0.85, regen: 0.75 },
+];
+const EMPTY_MOVE_DAMAGE = 0.35, EMPTY_MOVE_STARTUP = 4;
+const STAMINA_EDGE_NONE = { regen: 1, delay: 1, attackShare: 0, perfect: 6 };
 const PLAYER_STAMINA_EDGE = {
-  easy: { regen: 1.6, delay: 0.5, attackShare: 0.35, perfectBlock: 8, perfectSway: 5 },
-  normal: { regen: 1.2, delay: 0.65, attackShare: 0.2, perfectBlock: 7, perfectSway: 3 },
+  easy: { regen: 1.3, delay: 0.85, attackShare: 0.1, perfect: 8 },
+  normal: { regen: 1.15, delay: 0.9, attackShare: 0.1, perfect: 7 },
   hard: STAMINA_EDGE_NONE,
   expert: STAMINA_EDGE_NONE,
 };
@@ -5118,6 +5134,7 @@ function tableFromPositions(text) {
 // The row a string typed so far (keys such as 'PK') plays in a style's tables (default: STRINGS), or null
 function stringRow(keys, low, table) { const t = table || STRINGS; return (low && t.crouch[keys]) || t.stand[keys] || null; }
 const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
+for (const row of ALL_MOVES) row.stam = stamPrice(row.stam); // once, after the last row exists: every price is the table's real price (AI, HUD and tests read it)
 
 // Timing constants (ticks unless noted)
 const BUFFER_TICKS = 12; // input buffer window (0.2 s)
@@ -6290,6 +6307,7 @@ function makeWeaponMove(w, n) {
 }
 const WEAPON_MOVES = {};
 for (const id in WEAPONS) for (let n = 1; n <= WEAPON_STEPS[WEAPONS[id].cls] + (id === 'stick' ? 1 : 0); n++) WEAPON_MOVES[id + ':' + n] = makeWeaponMove(WEAPONS[id], n);
+for (const id in WEAPON_MOVES) WEAPON_MOVES[id].stam = stamPrice(WEAPON_MOVES[id].stam);
 const PICKUP_MOVES = ['reachLow', 'reachMid', 'reachHigh'].map((anim) => makeAttack('pickup_' + anim, { name: 'Pick up', limb: 'RA', anim, type: 'pickup', ctx: 'pickup', startup: 8, active: 0, recovery: 6, dmg: 0, stam: 0, reach: 0, width: 0, hitstun: 0, blockstun: 0, push: 0, step: 0 }));
 const pickupMoveFor = (y) => PICKUP_MOVES[y < PICKUP_LOW_BELOW ? 0 : y < PICKUP_HIGH_FROM ? 1 : 2];
 const moveById = (id) => ATTACKS[id] || WEAPON_MOVES[id];
@@ -6415,6 +6433,7 @@ class Fighter {
     this.team = team === undefined ? Math.min(index, 1) : team; // 0 = players, 1 = enemies; the two sides of a 1v1 are teams 0 and 1
     this.tint = this.team; // colour of the floor disc and the HUD (MARKER_RGB); a lineup sets its own
     this.person = false; // a lineup: a person plays this fighter
+    this.cpu = false; // the match sets it each tick from the controller (an AIController): a CPU fighter does not pay the chain price of a cancelled string step
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile); // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
@@ -6513,6 +6532,7 @@ class Fighter {
   get guardMode() { return this.item && this.item.id === 'binlid' ? 'block' : this.defense; } // the bin lid is a shield: a Sway fighter holding it blocks
   get maxSteps() { return this.item && this.item.id === 'stick' && moveStyleFor(this.profile) === 'kali' ? STRING_MAX_STEPS + 1 : STRING_MAX_STEPS; }
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
+  get band() { for (const row of STAMINA_BANDS) if (this.stam >= this.maxStam * row.from) return row; return STAMINA_BANDS[STAMINA_BANDS.length - 1]; } // the first row the tank reaches; a tank below 0 is Spent
   get airborne() { return this.y > this.groundY + 0.05; }
   get fwdX() { return DMath.sin(this.yaw); }
   get fwdZ() { return DMath.cos(this.yaw); }
@@ -6621,13 +6641,13 @@ class Fighter {
   moveSpeedMult(mv) {
     const lead = mv.limb[0] === 'L';
     let m = this.stats.atkSpeed * (lead ? 0.94 : 1.04);
-    if (this.lowStamina) m *= 1.1;
+    m *= this.band.slow;
     return m;
   }
   damageMult(mv) {
     const lead = mv.limb[0] === 'L';
     let m = this.stats.damage * (lead ? 0.95 : 1.08);
-    if (this.exhaustedMove) m *= 0.6; else if (this.lowStamina) m *= 0.85;
+    m *= this.exhaustedMove ? Math.min(this.band.dmg, EMPTY_MOVE_DAMAGE) : this.band.dmg;
     return m * this.boostMult();
   }
   // --- momentum boost: see MOMENTUM_MAX
@@ -6649,8 +6669,9 @@ class Fighter {
     if (pick && pick.keys) { this.stringKeys = pick.keys; this.stringLow = pick.low; this.stringTick = pick.tick; } else this.resetString();
     if (mv.ctx === 'counter') this.counterWindow = 0; // one counter per perfect block
     if (mv.ctx === 'air') this.airAttackUsed = true; // one air attack per jump
-    this.exhaustedMove = this.stam < mv.stam;
-    this.stam = Math.max(0, this.stam - mv.stam);
+    const price = mv.stam * (chained && !this.cpu ? CHAIN_PRICE_K : 1); // a string step cancelled into the last one costs more: what taxes a masher
+    this.exhaustedMove = this.stam < price;
+    this.stam = Math.max(0, this.stam - price);
     this.noRegen = Math.round(ATTACK_NO_REGEN * this.stats.edge.delay);
     if (this.stam <= 0 && mv.stam > 0) this.exhaust = 50;
     const sp = this.moveSpeedMult(mv);
@@ -6660,7 +6681,7 @@ class Fighter {
     this.hitList.length = 0;
     this.moveConnected = false;
     this.whiffExtra = 0;
-    this.mStartup = Math.max(2, Math.round(mv.startup * sp) + (this.exhaustedMove ? 3 : 0));
+    this.mStartup = Math.max(2, Math.round(mv.startup * sp) + (this.exhaustedMove ? EMPTY_MOVE_STARTUP : 0));
     this.mActive = mv.active;
     this.mRecovery = Math.max(3, Math.round(mv.recovery * sp));
     if (this.lastMoveId === mv.id && this.repeatTimer > 0) this.repeatCount++; else this.repeatCount = 0;
@@ -6821,18 +6842,18 @@ class Fighter {
     if (!this.alive || this.noRegen > 0) return;
     let k = 0;
     switch (this.state) {
-      case S.IDLE: case S.CROUCH: k = 1; break;
+      case S.IDLE: case S.CROUCH: k = REGEN_SHARE.idle; break;
       case S.ATTACK: k = this.stats.edge.attackShare; break;
-      case S.WALK: k = 0.6; break;
-      case S.BLOCK_H: case S.BLOCK_L: k = this.blockStun > 0 ? 0.1 : 0.4; break;
-      case S.DOWN: k = this.pinnedBy ? 0 : 0.6; break; // held in a submission: the hold drains stamina, it never regenerates
-      case S.GETUP: k = 0.6; break;
-      case S.JUMP: case S.SIDESTEP: k = 0.2; break;
-      case S.HIT: case S.STAGGER: case S.STUN: k = 0.15; break;
+      case S.WALK: k = REGEN_SHARE.walk; break;
+      case S.BLOCK_H: case S.BLOCK_L: k = this.blockStun > 0 ? REGEN_SHARE.guardStun : REGEN_SHARE.guard; break;
+      case S.DOWN: k = this.pinnedBy ? 0 : REGEN_SHARE.down; break; // held in a submission: the hold drains stamina, it never regenerates
+      case S.GETUP: k = REGEN_SHARE.getUp; break;
+      case S.JUMP: case S.SIDESTEP: k = REGEN_SHARE.air; break;
+      case S.HIT: case S.STAGGER: case S.STUN: k = REGEN_SHARE.hit; break;
       default: k = 0;
     }
-    if (this.lowStamina && k > 0) k *= 0.8;
-    this.stam = Math.min(this.maxStam, this.stam + this.stats.regen * k * FIXED_DT);
+    if (k > 0) k *= this.band.regen;
+    this.stam = Math.min(this.maxStam, this.stam + this.stats.regen * STAMINA_REGEN_K * k * FIXED_DT);
   }
 
   updateFree(it, opp, match) {
@@ -6864,7 +6885,7 @@ class Fighter {
       this.noRegen = 20;
       if (this.stam <= 0) this.exhaust = 60;
     } else if (moving) speed = (fwd > 0 ? WALK_FORWARD : WALK_BACK);
-    if (this.lowStamina) mul *= 0.92;
+    mul *= this.band.walk;
     const fx = this.fwdX, fz = this.fwdZ, rx = -fz, rz = fx;
     const along = target === S.RUN ? 1 : fwd * speed;
     const lateral = target === S.RUN ? 0 : side * WALK_SIDE;
@@ -7017,7 +7038,7 @@ class Fighter {
     const data = throwFor(this.grip, dir, moveStyleFor(this.profile));
     const def = this.partner;
     this.throwPending = { tick: 0, dir, data, side: dir === 'left' ? -1 : 1, baseYaw: def ? def.yaw : this.yaw };
-    this.stam = Math.max(0, this.stam - data.stam);
+    this.stam = Math.max(0, this.stam - stamPrice(data.stam));
     this.noRegen = 40;
     Events.emit('throwStart', { f: this, dir, name: data.name });
   }
@@ -8177,7 +8198,7 @@ const Combat = {
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
       def.gainMomentum(MOMENTUM_PERFECT);
-      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfectBlock);
+      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfect);
       def.blockStun = 0;
       att.reactDur = 26; att.hitKind = 'mid';
       att.setState(S.STAGGER); att.hitAt = -99;
@@ -8220,7 +8241,7 @@ const Combat = {
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
       def.gainMomentum(MOMENTUM_PERFECT);
-      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfectSway);
+      def.stam = Math.min(def.maxStam, def.stam + def.stats.edge.perfect);
       def.swayEnd = SWAY_PERFECT_FREE_TICK;
       match.addHitStop(4, att, def);
     }
@@ -8290,8 +8311,8 @@ const Combat = {
     att.clinchStrikeKind = cm.id;
     att.clinchStrikes++;
     this.claimCombo(att, def);
-    const exhausted = att.stam < cm.stam; // an empty tank still lands the strike, but weakly
-    att.stam = Math.max(0, att.stam - cm.stam);
+    const price = stamPrice(cm.stam), exhausted = att.stam < price; // an empty tank still lands the strike, but weakly
+    att.stam = Math.max(0, att.stam - price);
     att.noRegen = 30;
     def.stam = Math.max(0, def.stam - cm.drain);
     const dmg = Math.max(1, Math.round(cm.dmg * att.stats.damage * att.boostMult() * (exhausted ? 0.6 : 1) * this.comboScale(def.gotHits) * def.stats.taken * 10) / 10);
@@ -9590,14 +9611,14 @@ class AIController {
     this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
     return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
   }
-  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel or a hydrant, P18-13: with bait the Warehouse CPU stopped using the load; within AI_HAZARD_BAIT_RANGE) and waits there on guard
+  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle fire barrel or falling load (a strike hazard; not a panel, and not a steam pipe or a hydrant whose jet only pushes; P18-13: with bait the Warehouse CPU stopped using the load; P18-52: on the Club, where the pipes were the only strike hazard it baited toward, a bait cost the CPU 6 damage a match, so it baits toward nothing there now; within AI_HAZARD_BAIT_RANGE) and waits there on guard
   hazardBait(f, opp) {
     const match = this.match, chance = AI_HAZARD_BAIT[this.d.id];
     if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null; // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once
     let best = null, spot = null, bestGap = AI_HAZARD_BAIT_RANGE;
     for (const h of match.hazards) { // the nearest idle strike hazard that has a spot to wait at
       const gap = DMath.hypot(h.x - f.x, h.z - f.z);
-      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || h.def.douse || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters)
+      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || h.def.fx === 'push' || gap >= bestGap) continue; // (a panel is not baited toward: a fight in its arc shocks both fighters; a pushing jet is not either: the target chases the CPU, catches it on its backward walk before it arrives, and the CPU has given up its opening for 3 damage and a shove)
       const at = this.baitSpot(f, opp, h);
       if (at) { bestGap = gap; best = h; spot = at; }
     }
@@ -12255,6 +12276,8 @@ class MatchSim {
       const f = fighters[i];
       if (this.locked || !f.alive) { clearIntent(this.intents[i]); f.lockOn = null; f.stickMag = 0; } // the lock ends with the fight and with a knock-out
       else {
+        const controller = this.controllers[i];
+        f.cpu = controller instanceof AIController || controller.ai instanceof AIController; // whoever steers it now (a swapped-in script or person pays the chain price); a Training dummy in an AI mode steers through an inner AIController
         this.controllers[i].think(f, f.target, this, this.intents[i]);
         if (this.controllers[i].human) { this.updateLock(f, this.intents[i]); this.readAssist(this.intents[i]); }
       }
@@ -17137,13 +17160,13 @@ const UI = {
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
       const c = CLINCH_MOVES[id];
-      return '<tr><td>' + esc(clinchMoveName(styleId, id)) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + c.stam + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
+      return '<tr><td>' + esc(clinchMoveName(styleId, id)) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + stamPrice(c.stam) + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
     }).join('');
     const tackleHit = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: 0, hitstun: Math.round(TACKLE_MOVE.hitstun * 1.15) }).onHit, tackleBlock = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock;
     const tackleRow = weightClass(profile) < TACKLE_MIN_GAP || carry ? '' : '<tr><td>' + esc(TACKLE_MOVE.name) + '</td><td>Run into a fighter at least ' + TACKLE_MIN_GAP + ' weight classes lighter</td><td>Mid, 0 / 1 / 0 frames, ' + TACKLE_MOVE.dmg + ' dmg, hit ' + adv(tackleHit) + ' / block ' + adv(tackleBlock) + ' (stagger; Block stops it with no damage, Sway or Sidestep dodges it)</td></tr>';
     const throwRows = ['front', 'rear', 'low'].flatMap((grip) => THROW_DIRS.filter((dir) => dir !== 'left').map((dir) => { // left and right are mirror images; the style's own throws replace some of the set
       const t = throwFor(grip, dir, styleId);
-      return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + t.stam + ' stam</td></tr>';
+      return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + stamPrice(t.stam) + ' stam</td></tr>';
     })).join('');
     const legend = [[attackInputFullName(profile, 'punch', !!held), 'punch'], [attackInputFullName(profile, 'kick', !!held), 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
@@ -17654,6 +17677,16 @@ const UI = {
     const lowHp = Math.min(a.hp / a.maxHp, b.hp / b.maxHp) < TENSE_HP_FRACTION;
     return m.decider || matchPoint || lowHp;
   },
+  // The stamina bar of fighter i: classes winded (25 to 50 %), low (under 25 %) and spent (under 10 %), set only when the band changes
+  staminaBand(i, f) {
+    const band = f.band;
+    if (this.cache['band' + i] === band) return;
+    this.cache['band' + i] = band;
+    const classes = this.dom['stb' + (i + 1)].classList;
+    classes.toggle('winded', band.name === 'Winded');
+    classes.toggle('low', f.lowStamina);
+    classes.toggle('spent', band.name === 'Spent');
+  },
   hudUpdate(m) {
     const [a, b] = m.fighters;
     const dt = 1 / 60;
@@ -17664,8 +17697,7 @@ const UI = {
       this.setTransform('hg' + i, this.dom['hg' + (i + 1)], 'scaleX(' + this.ghost[i].toFixed(3) + ')');
       this.setText('ht' + i, this.dom['ht' + (i + 1)], Math.ceil(f.hp) + ' / ' + f.maxHp);
       this.setTransform('st' + i, this.dom['st' + (i + 1)], 'scaleX(' + clamp(f.stam / f.maxStam, 0, 1).toFixed(3) + ')');
-      const low = f.lowStamina;
-      if (this.cache['low' + i] !== low) { this.cache['low' + i] = low; this.dom['stb' + (i + 1)].classList.toggle('low', low); }
+      this.staminaBand(i, f);
       // momentum: the gauge filling, then the running boost draining
       const boosted = f.boostTicks > 0;
       this.setTransform('mo' + i, this.dom['mo' + (i + 1)], 'scaleX(' + clamp(boosted ? f.boostTicks / BOOST_TICKS : f.momentum / MOMENTUM_MAX, 0, 1).toFixed(3) + ')');
@@ -17941,6 +17973,7 @@ const UI = {
   trainingPanel(m) {
     let h = '<b>FRAME DATA</b> (60 fps)<br>' + this.frameDataHtml(m.lastMove);
     const a = m.fighters[0];
+    h += '<br><b>STAMINA</b> ' + a.band.name + (a.lowStamina ? ' (LOW STAMINA)' : '');
     h += '<br><b>STYLE</b> ' + this.styleLine(a) + '<br><b>Dummy style</b> ' + this.styleLine(m.fighters[1]);
     h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>LINK</b> ' + (m.linkRead || '-') + '<br><b>DEFEND</b> ' + (m.defRead || '-') + '<br><b>Dummy:</b> ' + dummyLabel(m);
     if (m.scenarioNo === 6) h += '<br><b>HOLD PRACTICE</b> ' + (styleCanSubmit(a.profile) ? 'Step to the dummy and press Grapple, then tap Grapple. The dummy stays down; set it to Easy to Expert and it taps Defend to escape.' : 'Your style has no holds (see the Move list). Pick ' + esc(submissionStyleText()) + ' to try one.');
@@ -19878,7 +19911,7 @@ function testApi() {
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
-    ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
+    ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
