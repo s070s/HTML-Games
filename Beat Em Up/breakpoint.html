@@ -8488,14 +8488,19 @@ const Combat = {
     att.tackleUsed = true; // the first contact of a run decides it, whatever the answer
     if (TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state) || def.invuln > 0 || def.y - def.groundY > 0.5) return;
     const x = (att.x + def.x) / 2, z = (att.z + def.z) / 2, nx = dx / (dist || 1), nz = dz / (dist || 1);
-    if (def.state === S.SIDESTEP || (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS)) { // the tackler runs past
+    if (def.state === S.SIDESTEP) { // the tackler runs past: a Sidestep is free
       Events.emit('tackle', { att, def, result: 'dodged', x, y: def.y + 1.1, z });
+      return;
+    }
+    if (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) { // the charge is a strike: it meets a running sway's i-frames and the dodge pays its tier like any strike's (the perfect rule is the strike's, see evaluate)
+      const broke = this.swayHit({ type: 'sway', att, def, mv: TACKLE_MOVE, perfect: def.stateTicks <= PERFECT_BLOCK_TICKS && !def.swayAuto && def.readyFresh }, match);
+      Events.emit('tackle', { att, def, result: broke ? 'hit' : 'dodged', broke, x, y: def.y + 1.1, z });
       return;
     }
     if (def.swayReady && (def.state === S.IDLE || def.state === S.WALK || def.state === S.CROUCH)) { // the charge is a strike: a prepared Sway fighter slips it like one (it pays its tier, a perfect is free, a tank that cannot pay breaks the guard)
       def.startSway({ side: def.stickSide, fwd: def.stickFwd }, att, true);
       const broke = this.swayHit({ type: 'sway', att, def, mv: TACKLE_MOVE, auto: true, perfect: def.age - def.readyAt <= PERFECT_BLOCK_TICKS && def.readyFresh }, match);
-      Events.emit('tackle', { att, def, result: broke ? 'hit' : 'dodged', x, y: def.y + 1.1, z }); // a broken guard reads as a hit here: its block event has the details
+      Events.emit('tackle', { att, def, result: broke ? 'hit' : 'dodged', broke, x, y: def.y + 1.1, z }); // a broken guard reads as a hit here: its block event has the details
       return;
     }
     if (isBlockState(def.state) && def.fwdX * -dx + def.fwdZ * -dz > 0) { // a guard facing the charge stops it: no damage
@@ -11300,7 +11305,7 @@ class MatchSim {
       const s = this.stats[e.def.index];
       s.blocks++; if (e.perfect) s.perfect++;
       if (e.def.index === 0) this.defRead = defenceReading(e);
-      if (e.att.index === 0 && this.lastMove) {
+      if (e.att.index === 0 && this.lastMove && e.mv !== TACKLE_MOVE) { // the charge writes its own row in the tackle handler
         const lm = this.lastMove;
         lm.result = e.sway ? (e.broke ? 'sway failed' : e.perfect ? 'perfect sway' : 'swayed') : e.perfect ? 'perfect block' : 'blocked';
         lm.adv = e.sway ? null : frameAdvantage(e.mv, { active: lm.active, recovery: lm.recovery, blockstun: e.def.blockStun || e.mv.blockstun });
@@ -11321,9 +11326,9 @@ class MatchSim {
     on('clinch', (e) => { if (e.att.index === 0 && this.lastMove && this.lastMove.mv.id === 'grab') this.lastMove.result = 'clinched'; });
     on('tackle', (e) => {
       if (e.att.index !== 0) return;
-      if (e.result === 'hit') return; // the hit event of the same tick has the damage and the advantage
+      if (e.result === 'hit' && !e.broke) return; // the hit event of the same tick has the damage and the advantage; a broken Sway guard has no hit event
       const blocked = e.result === 'blocked';
-      note({ mv: TACKLE_MOVE, startup: 0, active: 1, recovery: blocked ? TACKLE_STOP_LOCK : 0, result: e.result, adv: blocked ? { onHit: null, onBlock: frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock } : null });
+      note({ mv: TACKLE_MOVE, startup: 0, active: 1, recovery: blocked ? TACKLE_STOP_LOCK : 0, result: e.broke ? 'sway failed' : e.result, adv: blocked ? { onHit: null, onBlock: frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock } : null });
     });
     on('submission', (e) => { if (e.att.index === 0) note({ mv: { id: 'hold', name: 'Hold' }, startup: 0, active: SUBMIT_MAX_TICKS, recovery: SUBMIT_AFTER_LOCK, result: 'holding', note: 'damage builds while the hold lasts; the held fighter taps Defend to escape' }); });
     on('submissionEnd', (e) => {

@@ -10329,9 +10329,11 @@ const SelfTest = {
     });
     test('Hazards: in ordinary seeded CPU against CPU matches (nobody placed anywhere) a CPU sets a hazard off in at least 4 of 24 seeds on every level with a reachable strike hazard (the Gym and the Subway are exempt: a panel only), and the matches run on without a hazard breaking a rule', () => {
       const problems = [];
+      const HAZARD_SEED_FLOOR = 4;
       for (const arenaId of ARENA_ORDER) {
+        const strikes = ARENAS[arenaId].hazards.some(([type]) => HAZARDS[type].trig === 'strike' && type !== 'panel');   // a CPU cannot strike a panel (it is out of reach of a blow from outside its arc): the Gym, with a fuse box and a mirror, only gets what comes by chance
+        if (!strikes) continue;   // exempt levels assert nothing, so they run no matches
         let seeds = 0;
-        const HAZARD_SEED_FLOOR = 4;
         const tries = 24;   // every level, the same fixed seeds 1 to 24 (never picked to pass): measured with the P18-62 Sway, Warehouse 11, Pit 7, Rooftop 24, Garage 11, Construction 13, Club 5 of 24; 12 seeds read the Pit at 2 of 12 although its rate (about 35 percent over 144 seeds) barely moved, so the floor is 4 of 24 (about 17 percent), under every measured rate
         for (let seed = 1; seed <= tries; seed++) {
           const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 60, seed, arenaId, difficulty: 'hard', items: true, hazards: true, winsNeeded: 2 })), log = cpuLog(m);
@@ -10341,8 +10343,7 @@ const SelfTest = {
           if (log.some((e) => e.by >= 0)) seeds++;
           m.dispose();
         }
-        const strikes = ARENAS[arenaId].hazards.some(([type]) => HAZARDS[type].trig === 'strike' && type !== 'panel');   // a CPU cannot strike a panel (it is out of reach of a blow from outside its arc): the Gym, with a fuse box and a mirror, only gets what comes by chance
-        if (seeds < (strikes ? HAZARD_SEED_FLOOR : 0)) problems.push(arenaId + ': a CPU used a hazard in ' + seeds + ' of ' + tries + ' seeded matches');
+        if (seeds < HAZARD_SEED_FLOOR) problems.push(arenaId + ': a CPU used a hazard in ' + seeds + ' of ' + tries + ' seeded matches');
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -17735,13 +17736,14 @@ const SelfTest = {
         const off = Events.on('block', (e) => { if (!seen) seen = { before: last, after: e.def.stam, state: e.def.state }; });
         for (let i = 0; i < 100; i++) { if (!seen) victim.stam = Math.min(victim.stam, stam); last = victim.stam; m.step(); }   // the refill must not lift a short tank above the price before the charge arrives
         off(); log.stop();
-        const result = { tackles: log.tackle.map((e) => e.result), hits: log.hit.length, blocks: log.block.length, e: log.block[0], seen, hp0, hp: victim.hp, max: victim.maxHp };
+        const result = { tackles: log.tackle.map((e) => e.result), hits: log.hit.length, blocks: log.block.length, e: log.block[0], seen, hp0, hp: victim.hp, max: victim.maxHp, lastMove: m.lastMove && m.lastMove.result };
         m.dispose();
         return result;
       };
       const paid = charge(50), empty = charge(swayCost(TACKLE_MOVE) - 3);
       if (paid.tackles.join() !== 'dodged' || paid.hits !== 0 || paid.hp !== paid.max || paid.blocks !== 1 || !paid.e.sway || !paid.e.auto || paid.e.perfect || paid.e.broke || paid.e.cost !== swayCost(TACKLE_MOVE) || !paid.seen || Math.abs(paid.seen.before - paid.seen.after - swayCost(TACKLE_MOVE)) > 0.5) problems.push('the holder with a full tank: ' + JSON.stringify([paid.tackles, paid.hits, paid.hp, paid.blocks, paid.e && [paid.e.sway, paid.e.auto, paid.e.perfect, paid.e.broke, paid.e.cost]]));
       if (empty.blocks !== 1 || !empty.e.broke || !empty.e.sway || empty.seen.state !== S.STUN || empty.hits !== 0 || empty.hp >= empty.hp0 || empty.tackles.length !== 1) problems.push('the holder with a short tank is not guard-broken: ' + JSON.stringify([empty.tackles, empty.blocks, empty.e && empty.e.broke, empty.seen && empty.seen.state, empty.hits, empty.hp0, empty.hp]));
+      if (paid.lastMove !== 'dodged' || empty.lastMove !== 'sway failed') problems.push('Training reads the charge as ' + paid.lastMove + ' (full tank) and ' + empty.lastMove + ' (short tank), not dodged and sway failed');
       const thrown = itemDuel(3, once(2, 'use'), (it) => { it.defend = true; });
       thrown.fighters[0].item = held('brick'); thrown.fighters[1].defense = 'sway';
       const log = hitLog(), blocks = self.capture(['block']);
@@ -17749,6 +17751,34 @@ const SelfTest = {
       for (let i = 0; i < 50; i++) { thrown.step(); if (i === 3 && thrown.fighters[1].swayReady) prepared = true; }
       log.stop(); blocks.stop();
       if (!prepared || log.length !== 1 || log[0].def !== 1 || blocks.block.length) problems.push('a thrown item on a prepared fighter: prepared ' + prepared + ', ' + log.length + ' hits, ' + blocks.block.length + ' dodges');
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* A charge that meets a running TAP sway (review round 2): the charge is a strike, so the dodge pays its tier like any strike's; a Sidestep stays free. The runner holds run from tick 0, the tap is pressed when it is `lead` m away. */
+    const PERFECT_TAP_LEAD = 0.9, PLAIN_TAP_LEAD = 1.25;   // metres between runner and target at the press: the charge arrives in the sway's first 7 ticks (perfect) or later in its i-frames (a plain dodge, age above PERFECT_BLOCK_TICKS; the test asserts both)
+    const chargeTap = (lead, stam, sidestep) => {
+      const log = self.capture(['tackle', 'hit', 'block']);
+      let pressed = false;
+      const m = tackleMatch('brutus', 'yuki', (it, f, o) => { if (!pressed && Math.hypot(o.x - f.x, o.z - f.z) < lead) { pressed = true; if (sidestep) it.sidestep = 1; else it.defend = true; } }, null, (it, f, o, mm) => { if (mm.tick < 45) runAt(it); });
+      const victim = m.fighters[1];
+      victim.stam = stam;
+      let last = victim.stam, seen = null;
+      const off = Events.on('block', (e) => { if (!seen) seen = { before: last, after: e.def.stam, state: e.def.state }; });
+      for (let i = 0; i < 100; i++) { if (!seen) victim.stam = Math.min(victim.stam, stam); last = victim.stam; m.step(); }
+      off(); log.stop();
+      const result = { tackles: log.tackle.map((e) => e.result), brokeFlags: log.tackle.map((e) => !!e.broke), hits: log.hit.length, e: log.block[0], blocks: log.block.length, seen, hp0: victim.maxHp, hp: victim.hp, lastMove: m.lastMove };
+      m.dispose();
+      return result;
+    };
+    test('Sway hold (P18-62): a charge that meets a tapped sway is a strike: a plain tap pays the tier 3 price, a perfect tap pays nothing, a short tank is guard-broken and Training reads it; a Sidestep stays free', () => {
+      const problems = [], price = swayCost(TACKLE_MOVE);
+      const plain = chargeTap(PLAIN_TAP_LEAD, 50), perfect = chargeTap(PERFECT_TAP_LEAD, 50), short = chargeTap(PLAIN_TAP_LEAD, price - 3), side = chargeTap(PERFECT_TAP_LEAD, 50, true);
+      const paidOk = plain.tackles.join() === 'dodged' && plain.hits === 0 && plain.hp === plain.hp0 && plain.blocks === 1 && plain.e.sway && !plain.e.auto && !plain.e.perfect && !plain.e.broke && plain.e.age > PERFECT_BLOCK_TICKS && plain.e.cost === price && plain.seen && Math.abs(plain.seen.before - plain.seen.after - price) < 0.5;
+      if (!paidOk) problems.push('a plain tap: ' + JSON.stringify([plain.tackles, plain.hits, plain.hp, plain.blocks, plain.e && [plain.e.sway, plain.e.auto, plain.e.perfect, plain.e.broke, plain.e.age, plain.e.cost], plain.seen]));
+      const perfectOk = perfect.tackles.join() === 'dodged' && perfect.hits === 0 && perfect.blocks === 1 && perfect.e.sway && !perfect.e.auto && perfect.e.perfect && perfect.e.cost === 0 && perfect.seen && perfect.seen.after >= perfect.seen.before;
+      if (!perfectOk) problems.push('a perfect tap: ' + JSON.stringify([perfect.tackles, perfect.hits, perfect.blocks, perfect.e && [perfect.e.sway, perfect.e.auto, perfect.e.perfect, perfect.e.age, perfect.e.cost], perfect.seen]));
+      const shortOk = short.blocks === 1 && short.e.broke && short.e.sway && short.seen.state === S.STUN && short.hits === 0 && short.hp < short.hp0 && short.tackles.join() === 'hit' && short.brokeFlags.join() === 'true' && short.lastMove.result === 'sway failed' && short.lastMove.mv === TACKLE_MOVE;
+      if (!shortOk) problems.push('a short tank: ' + JSON.stringify([short.tackles, short.blocks, short.e && short.e.broke, short.seen && short.seen.state, short.hits, short.hp0, short.hp, short.lastMove && short.lastMove.result]));
+      if (side.tackles.join() !== 'dodged' || side.hits !== 0 || side.blocks !== 0 || side.hp !== side.hp0) problems.push('a Sidestep is not free: ' + JSON.stringify([side.tackles, side.hits, side.blocks, side.hp]));
       return problems.length ? problems.join('; ') : true;
     });
     test('Sway hold (P18-62): a strike that meets the i-frames of a sway the hold started is still a held dodge (Training reads SWAY (held), its age counts from the hold, not from the sway)', () => {
@@ -17820,6 +17850,7 @@ const SelfTest = {
           if (plan(200, 0, need, tier).p !== null || plan(200, 0, need + 0.9, tier).p !== null || !plan(200, 0, need + 1, tier).p) problems.push('tier ' + tier + ': the CPU does not keep 1 to spare over the price ' + need);
         }
       } finally { api.set.simRng(keepRng); }
+      const SWAY_CPU_FLOOR = { hard: 10, expert: 40 };   // CPU dodges over these 24 seeds (timer 20, winsNeeded 1): measured 23 at Hard and 90 at Expert (the 86 and 213 of the REFERENCE are the longer P0-06 runs), so each floor is under half of it and catches a CPU that nearly stops swaying, which a floor of 1 would not
       const sways = { easy: 0, normal: 0, hard: 0, expert: 0 }, broke = { easy: 0, normal: 0, hard: 0, expert: 0 };   // per difficulty: a total could hide a level that never sways
       for (const difficulty of ['easy', 'normal', 'hard', 'expert']) {
         for (let seed = 1; seed <= 24; seed++) {
@@ -17836,7 +17867,7 @@ const SelfTest = {
         if (problems.length > 5) break;
       }
       // Easy and Normal sway use is not asserted: their swayRead delays (8 and 18 ticks) never see a strike in time, so it moves to BP-P14-05 as a tuning row (AC-003 of P18-62 is Hard and Expert)
-      if (sways.hard < 1 || sways.expert < 1) problems.push('the Sway CPU swayed ' + sways.hard + ' times at Hard and ' + sways.expert + ' at Expert');
+      if (sways.hard < SWAY_CPU_FLOOR.hard || sways.expert < SWAY_CPU_FLOOR.expert) problems.push('the Sway CPU swayed ' + sways.hard + ' times at Hard and ' + sways.expert + ' at Expert');
       for (const difficulty of Object.keys(broke)) if (broke[difficulty] !== 0) problems.push(broke[difficulty] + ' of ' + sways[difficulty] + ' CPU dodges at ' + difficulty + ' failed on an empty tank');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     }, 180000);
