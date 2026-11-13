@@ -18010,7 +18010,7 @@ const SelfTest = {
       // a denied press (at 40, rearmAt is 93) is the tap: the strike 3 and 6 ticks after it is a perfect sway, 7 and 11 ticks a plain one, 12 hits
       for (const [lead, want] of [[3, 'sway+'], [6, 'sway+'], [7, 'sway'], [11, 'sway'], [12, 'hit']]) {
         const r = stanceTrace({ down: (t) => (t >= P && t < 20) || t >= 40, strikes: 40 + lead - reach, ticks: 80 }), ev = r.log[0];
-        if (!ev || verdict(ev) !== want || (want !== 'hit' && ev.e.auto)) problems.push('denied press, strike ' + lead + ' ticks later: ' + (ev ? verdict(ev) + (ev.e.auto ? ' (held)' : '') : 'nothing') + ', want ' + want);
+        if (!ev || verdict(ev) !== want || (want !== 'hit' && ev.e.auto) || (want === 'sway+' && ev.e.cost !== 0)) problems.push('denied press, strike ' + lead + ' ticks later: ' + (ev ? verdict(ev) + (ev.e.auto ? ' (held)' : '') : 'nothing') + ', want ' + want);
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -18048,6 +18048,10 @@ const SelfTest = {
       untouched(stanceTrace({ down: () => false, ticks: 100 }), 'a Sway fighter without Defend');
       const lid = stanceTrace({ down: () => true, ticks: 60, script: (f) => { f.item = { id: 'binlid', dur: 99, sprays: 0 }; } });
       untouched(lid, 'a Sway fighter behind a bin lid');
+      // the lid lost while Defend stays down: the hold gave no stance, so it never stamps the shared cooldown and never prepares
+      let stampAtLoss = null;
+      const lost = stanceTrace({ down: () => true, ticks: 90, script: (f, t) => { if (t < 30) f.item = { id: 'binlid', dur: 99, sprays: 0 }; else if (t === 30) { f.item = null; stampAtLoss = f.lastBlockAt; } } });
+      if (lost.def.lastBlockAt !== stampAtLoss || lost.rows.some((row) => row.age >= 30 && row.ready)) problems.push('a lid lost while Defend is held stamps the cooldown (' + stampAtLoss + ' to ' + lost.def.lastBlockAt + ') or prepares');
       return problems.length ? problems.join('; ') : true;
     });
     test('Sway stance (P19-13): keyboard, gamepad and touch hold Defend, spend the stance and arm it again by a new press at rearmAt the same way', () => {

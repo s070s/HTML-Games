@@ -6931,11 +6931,11 @@ class Fighter {
     if (this.guardMode === 'sway' && (this.defendPressed || (this.age === 1 && it.defend))) this.armStance(); // a press in any state, or a round that starts with Defend down
     const free = this.state === S.IDLE || this.state === S.WALK || this.state === S.CROUCH;
     let ready = this.guardMode === 'sway' && it.defend && free && !this.airborne && this.swayBuffer === 0 && !this.readySpent;
-    if (ready && !this.readyPrev) this.markDefenceStart(); // Defend was already down on the first free tick
     if (ready) { // only ticks stood prepared count: the tap's own sway, a stun, an attack and a get-up use none of the stance
       if (this.readyLeft > 0) this.readyLeft--;
       else { ready = false; this.readySpent = true; }
     }
+    if (ready && !this.readyPrev) this.markDefenceStart(); // Defend was already down on the first free tick; after the count, so a hold that gives no stance never stamps the shared cooldown
     this.readyPrev = ready || (this.state === S.SWAY && it.defend) || this.readySpent; // a sway that ends with Defend still down is the same hold going on; a spent hold is not a new start
     this.swayReady = ready;
   }
