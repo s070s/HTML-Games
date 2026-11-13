@@ -10916,8 +10916,13 @@ const SelfTest = {
               Camera.snapNext = true; Camera.resetGroup();
               for (let i = 0; i < 60; i++) { if (mode === 'duel') Camera.follow(1 / 60, f[0], f[1], def); else Camera.followGroup(1 / 60, f, def); }
               const tag = id + ' ' + mode + ' ' + w + 'x' + h + ' at ' + x.toFixed(1) + ',' + z.toFixed(1);
-              const clear = 0.3 * (1 + Math.tan(Camera.baseFov / 2) * w / h);   // the near plane (0.3 m) and how far its corners reach sideways
-              if (roomX - Math.abs(Camera.pos[0]) < clear || Camera.pos[2] + roomZ < clear) problems.push(tag + ': the eye is at ' + Camera.pos.map((v) => v.toFixed(2)) + ', less than ' + clear.toFixed(2) + ' m from the wall face');
+              Camera.apply();   // the four corners of the near plane must lie inside the drawn room: the eye reaches the wall margin only when it looks along or away from that wall, so the plane (0.5 m, P18-77) is not cut by it
+              const view = Camera.view, near = Camera.proj[14] / (Camera.proj[10] - 1), halfUp = near * Math.tan(Camera.fov / 2), halfRight = halfUp * Camera.aspect;
+              const eyeAt = [Camera.pos[0] + Camera.jx, Camera.pos[1] + Camera.jy, Camera.pos[2] + Camera.jz];
+              for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {   // each corner = eye - near * back + sx * halfRight * right + sy * halfUp * up (the view rows 0, 1 and 2 are right, up and back)
+                const corner = [0, 1, 2].map((k) => eyeAt[k] - near * view[4 * k + 2] + sx * halfRight * view[4 * k] + sy * halfUp * view[4 * k + 1]);
+                if (Math.abs(corner[0]) >= roomX || corner[2] <= -roomZ) { problems.push(tag + ': the eye is at ' + eyeAt.map((v) => v.toFixed(2)) + ' and a corner of the near plane at ' + corner.map((v) => v.toFixed(2)) + ' is outside the wall face'); break; }
+              }
               for (const fighter of f) {
                 if (fighter.index >= m.partySize + (mode === 'duel' ? 1 : 0)) continue;
                 if (Camera.offscreenMark(fighter.x, fighter.y + 1.0, fighter.z, w, h, 0, out) || Camera.offscreenMark(fighter.x, fighter.y + 0.1, fighter.z, w, h, 0, out)) problems.push(tag + ': fighter ' + fighter.index + ' is off screen');
@@ -22245,6 +22250,191 @@ const SelfTest = {
         });
       }
       return bad.length ? 'inside scenery: ' + bad.join('; ') : true;
+    });
+
+    /* ---------- P18-77: z-fighting, depth steps and pops in the levels (Appendix D "P18-77") ---------- */
+    /* A face drawn at the depth of another that faces the same way, over the same area, is a coin toss per pixel (z-fighting). Every draw call of a level (props, objects, items, hazards) is recorded with R.push;
+       each box is six flat faces and each cylinder two (16-gon caps); two faces that face one way, lie within Z_FIGHT_GAP of each other, share more than Z_FIGHT_AREA (Z_FIGHT_AREA_ITEM for a parked weapon), differ in colour, layer or light, and both show to
+       some eye of the fight cameras (a ray from the eye to the shared area meets no opaque box first) are a pair. Same-coloured neighbours (the posts of a frame) cannot be told apart on screen and do not count. */
+    const Z_FIGHT_GAP = 0.002, Z_FIGHT_AREA = 0.0002, Z_FIGHT_AREA_ITEM = 0.004;   // m, m2 (0.0002 and not 0.0005: the board gaps of a deck end 0.03 x 0.008 = 0.00024 m2 against the lip, and a floor of 0.0005 let that tie through): the pieces of a parked weapon are a few centimetres each and sometimes share a face with a neighbour, so a pair that holds one needs more area to count
+    const zDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const zSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const zCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const zUnit = (a) => { const length = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / length, a[1] / length, a[2] / length]; };
+    const zMove = (m, p) => [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+    const zAreaOf = (points) => { let sum = 0; for (let i = 0; i < points.length; i++) { const a = points[i], b = points[(i + 1) % points.length]; sum += a[0] * b[1] - b[0] * a[1]; } return sum / 2; };
+    // The flat faces of one recorded instance: a box gives six quads, a cylinder two caps; each has its outward normal, the offset d of its plane along it, its corners and its centre
+    const zFacesOf = (rec) => {
+      const faces = [], body = zMove(rec.m, [0, 0, 0]);
+      const add = (local, corners) => {
+        const polygon = corners.map((corner) => zMove(rec.m, corner)), centre = zMove(rec.m, [local[0] * 0.5, local[1] * 0.5, local[2] * 0.5]);
+        let normal = zUnit(zCross(zSub(polygon[1], polygon[0]), zSub(polygon[2], polygon[1])));
+        if (zDot(normal, zSub(centre, body)) < 0) normal = [-normal[0], -normal[1], -normal[2]];
+        faces.push({ rec, normal, d: zDot(normal, centre), centre, polygon });
+      };
+      if (rec.mesh === MESH.CUBE) {
+        for (const local of [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]]) {
+          const across = local[1] ? [[1, 0, 0], [0, 0, 1]] : local[0] ? [[0, 1, 0], [0, 0, 1]] : [[1, 0, 0], [0, 1, 0]];
+          add(local, [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [0, 1, 2].map((k) => local[k] * 0.5 + 0.5 * (u * across[0][k] + v * across[1][k]))));
+        }
+      } else if (rec.mesh === MESH.CYL) {
+        for (const up of [1, -1]) add([0, up, 0], Array.from({ length: 16 }, (_, j) => [Math.cos(j / 16 * 2 * Math.PI) * 0.5, up * 0.5, Math.sin(j / 16 * 2 * Math.PI) * 0.5]));
+      }
+      return faces;
+    };
+    // The area two coplanar faces share and a few points inside it (3D), by clipping one polygon with the other in the plane's own 2D axes
+    const zShared = (f, g) => {
+      const n = f.normal, across = zUnit(zCross(Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], n)), up = zCross(n, across), flat = (p) => [zDot(p, across), zDot(p, up)];
+      const first = f.polygon.map(flat), second = g.polygon.map(flat);
+      if (zAreaOf(first) < 0) first.reverse();
+      if (zAreaOf(second) < 0) second.reverse();
+      let kept = first;
+      for (let i = 0; i < second.length && kept.length; i++) {
+        const a = second[i], b = second[(i + 1) % second.length], input = kept, inside = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= -1e-9;
+        const cut = (p, q) => { const t = ((p[0] - a[0]) * (a[1] - b[1]) - (p[1] - a[1]) * (a[0] - b[0])) / (((p[0] - q[0]) * (a[1] - b[1]) - (p[1] - q[1]) * (a[0] - b[0])) || 1e-12); return [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]; };
+        kept = [];
+        for (let j = 0; j < input.length; j++) {
+          const p = input[j], q = input[(j + 1) % input.length];
+          if (inside(p)) { kept.push(p); if (!inside(q)) kept.push(cut(p, q)); } else if (inside(q)) kept.push(cut(p, q));
+        }
+      }
+      if (kept.length < 3) return { area: 0, points: [] };
+      const mid = [kept.reduce((s, p) => s + p[0], 0) / kept.length, kept.reduce((s, p) => s + p[1], 0) / kept.length], base = zDot(n, f.centre);
+      const back = (p) => [0, 1, 2].map((k) => across[k] * p[0] + up[k] * p[1] + n[k] * base);
+      return { area: Math.abs(zAreaOf(kept)), points: [mid].concat(kept.map((p) => [mid[0] + (p[0] - mid[0]) * 0.8, mid[1] + (p[1] - mid[1]) * 0.8])).map(back) };
+    };
+    // Whether the segment from p to eye crosses an opaque box or cylinder (as its bounding box) other than those in `skip`
+    const zBlocked = (p, eye, boxes, skip) => {
+      const way = zSub(eye, p), length = Math.hypot(way[0], way[1], way[2]), dir = way.map((v) => v / length);
+      return boxes.some((box) => {
+        if (skip.includes(box.rec)) return false;
+        const from = zSub(p, box.at), start = [zDot(from, box.x) / box.sx, zDot(from, box.y) / box.sy, zDot(from, box.z) / box.sz], step = [zDot(dir, box.x) / box.sx, zDot(dir, box.y) / box.sy, zDot(dir, box.z) / box.sz];
+        let t0 = 0.0005, t1 = length - 0.0005;
+        for (let k = 0; k < 3; k++) {
+          if (Math.abs(step[k]) < 1e-12) { if (start[k] < -0.5 || start[k] > 0.5) return false; continue; }
+          const a = (-0.5 - start[k]) / step[k], b = (0.5 - start[k]) / step[k];
+          t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+        }
+        return t0 <= t1;
+      });
+    };
+    // Every pair of faces of the recorded instances (see above) that z-fight on a level with these bounds
+    const zFightPairs = (recs, bounds) => {
+      const faces = [].concat(...recs.map(zFacesOf)), boxes = recs.filter((r) => r.layer <= LAYER.SOLID && r.alpha >= 0.99 && (r.mesh === MESH.CUBE || r.mesh === MESH.CYL)).map((r) => {
+        const x = [r.m[0], r.m[1], r.m[2]], y = [r.m[4], r.m[5], r.m[6]], z = [r.m[8], r.m[9], r.m[10]];
+        return { rec: r, x, y, z, at: [r.m[12], r.m[13], r.m[14]], sx: zDot(x, x) || 1, sy: zDot(y, y) || 1, sz: zDot(z, z) || 1 };
+      });
+      const eyes = [], reach = Math.max(1, bounds.x - 0.6);   // the eye stays 0.6 m inside the side and back walls, up to 12 m in front of the front line, as high as a portrait phone lifts it
+      for (const fx of [-1, 0, 1]) for (const z of [-(bounds.z - 0.6), bounds.z, bounds.z + 12]) for (const y of [1.8, 5, 10, 17]) eyes.push([fx * reach, y, z]);
+      const pairs = [], round2 = (v) => Math.round(v * 100) / 100;
+      const describe = (f) => (f.rec.mesh === MESH.CUBE ? 'box ' : 'cylinder ') + [[0, 1, 2], [4, 5, 6], [8, 9, 10]].map((c) => Math.round(Math.hypot(f.rec.m[c[0]], f.rec.m[c[1]], f.rec.m[c[2]]) * 1000) / 1000).join('x') + ' at ' + f.rec.m.slice(12, 15).map(round2);   // the size and the centre of an instance
+      const groups = new Map();   // the faces by the way they face: only faces of one direction can fight, and within it only those whose planes lie near each other
+      for (const face of faces) { const key = face.normal.map((v) => Math.round(v * 1000) / 1000).join(','); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(face); }
+      for (const group of groups.values()) group.sort((p, q) => p.d - q.d);
+      for (const group of groups.values()) for (let a = 0; a < group.length; a++) for (let b = a + 1; b < group.length && group[b].d - group[a].d < Z_FIGHT_GAP; b++) {
+        const f = group[a], g = group[b], gap = group[b].d - group[a].d;
+        if (f.rec === g.rec) continue;
+        const p = f.rec, q = g.rec, colour = Math.abs(p.colour[0] - q.colour[0]) + Math.abs(p.colour[1] - q.colour[1]) + Math.abs(p.colour[2] - q.colour[2]);
+        if (colour <= 0.03 && p.layer === q.layer && Math.abs(p.alpha - q.alpha) <= 0.02 && Math.abs(p.glow - q.glow) <= 0.05 && Math.abs(p.rough - q.rough) <= 0.15) continue;
+        const shared = zShared(f, g);
+        if (shared.area < (p.item || q.item ? Z_FIGHT_AREA_ITEM : Z_FIGHT_AREA)) continue;
+        const seen = shared.points.slice(0, 5).some((point) => {
+          const lifted = [0, 1, 2].map((k) => point[k] + f.normal[k] * 0.002);
+          return eyes.some((eye) => zDot(f.normal, zSub(eye, lifted)) > 0.05 && !zBlocked(lifted, eye, boxes, [p, q]));
+        });
+        if (seen) pairs.push(describe(f) + ' and ' + describe(g) + ' share ' + shared.area.toFixed(4) + ' m2, ' + gap.toFixed(4) + ' m apart');
+      }
+      return pairs;
+    };
+    test('Z-fighting (P18-77): on every level, with the High and the Low preset (the plain looks), no two faces of different colour face the same way, lie within 0.002 m of each other, share more than 0.0002 m2 (0.004 m2 for a parked weapon) and both show to a fight camera (wall tops and pilasters, posters and wall strips, deck plates, legs, lips and meshes, column collars, sofa arms, stair treads, hazard strips)', () => {
+      const problems = [], push = R.push, limits = Quality.limits, eye = Camera.pos.slice();
+      try {
+        Camera.pos[0] = 0; Camera.pos[1] = 1.8; Camera.pos[2] = 40;   // far from every ceiling prop: none is faded
+        for (const [preset, lod] of [['high', false], ['low', true]]) {   // high: every dressing box is drawn; low: the plain looks of every destructible (set below; lodTick 1 keeps updateLod from running on this draw) and the least dressing
+          Quality.limits = QUALITY_PRESETS[preset];
+          for (const id of ARENA_ORDER) {
+            const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), recs = [];
+            let item = false;
+            R.push = (layer, mesh, matrix, colour, alpha, glow, rough) => { recs.push({ layer, mesh, m: Array.from(matrix), colour: Array.from(colour), alpha, glow: glow || 0, rough: rough || 0, item }); };
+            try { if (lod) for (const o of Arena.objects) if (!o.fixed) o.far = true; Arena.lodTick = 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
+            if (recs.length < 100) problems.push(preset + ' ' + id + ' drew only ' + recs.length + ' pieces');
+            for (const pair of zFightPairs(recs, ARENAS[id].bounds)) problems.push(preset + ' ' + id + ': ' + pair);
+          }
+        }
+      } finally { R.push = push; Quality.limits = limits; Camera.pos[0] = eye[0]; Camera.pos[1] = eye[1]; Camera.pos[2] = eye[2]; Arena.build(ARENAS.warehouse); Debris.clear(); FX.clear(); }
+      return problems.length ? problems.length + ' pairs: ' + problems.slice(0, 4).join('; ') : true;
+    });
+    test('Depth precision (P18-77): the clip planes keep a 0.002 m offset eight depth steps wide of a 24-bit buffer at the farthest surface a fight camera shows (43 m, measured on all 8 levels at 1280x720, 844x390 and 390x844), and the far plane keeps every level whole (the near plane against the walls is checked by "Arena bounds (P17-08)": its four corners stay inside the room)', () => {
+      const bad = [], keep = [R.cssW, R.cssH];
+      try {
+        R.cssW = 1280; R.cssH = 720; Camera.apply();
+        const p = Camera.proj, near = p[14] / (p[10] - 1), far = p[14] / (p[10] + 1), farthest = 43, step = farthest * farthest * (far - near) / (far * near * 16777216);   // the size of one depth step at that distance (m)
+        if (8 * step > Z_FIGHT_GAP) bad.push('a depth step at ' + farthest + ' m is ' + (step * 1000).toFixed(3) + ' mm: ' + Z_FIGHT_GAP / step + ' steps in ' + Z_FIGHT_GAP + ' m, not 8 (near ' + near.toFixed(2) + ', far ' + far.toFixed(0) + ')');
+        if (far < 60) bad.push('the far plane at ' + far.toFixed(0) + ' m cuts a level (the farthest wall is 43 m away)');
+      } finally { R.cssW = keep[0]; R.cssH = keep[1]; Camera.apply(); }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Ceiling props (P18-77): a light tube fades with no jump as the eye comes up to it (0.05 of its opacity at most between two eyes 0.01 m apart), is whole 1.2 m away and gone before the eye is 0.3 m away', () => {
+      const bad = [], put = R.put, eye = Camera.pos.slice();
+      try {
+        Arena.build(ARENAS.garage);   // its tubes hang at 4.2 m: their undersides are over the 3 m ceiling line
+        const tube = Arena.props.find((q) => !q.d && q.sx >= 2 && q.y - q.sy * 0.5 >= 3);
+        if (!tube) return 'the Garage has no ceiling tube to test';
+        const opacity = (distance) => {   // the opacity the tube is drawn with when the eye is `distance` under it (0 when it is not drawn)
+          Camera.pos[0] = tube.x; Camera.pos[1] = tube.y - tube.sy * 0.5 - distance; Camera.pos[2] = tube.z;
+          let seen = 0;
+          R.put = (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, colour, alpha) => { if (x === tube.x && z === tube.z && sx === tube.sx && sy === tube.sy) seen = layer === LAYER.ALPHA ? alpha : 1; };
+          Arena.lodTick = 1; Arena.draw();
+          return seen;
+        };
+        let last = opacity(0.2);
+        for (let d = 0.21; d <= 1.5; d += 0.01) {
+          const now = opacity(d);
+          if (Math.abs(now - last) > 0.05) { bad.push('the opacity jumps from ' + last.toFixed(2) + ' to ' + now.toFixed(2) + ' between eyes ' + (d - 0.01).toFixed(2) + ' and ' + d.toFixed(2) + ' m under it'); break; }
+          last = now;
+        }
+        if (opacity(1.2) !== 1) bad.push('the tube is not whole 1.2 m away');
+        if (opacity(0.3) !== 0) bad.push('the tube is still drawn with the eye 0.3 m away (' + opacity(0.3).toFixed(2) + ')');
+      } finally { R.put = put; Camera.pos[0] = eye[0]; Camera.pos[1] = eye[1]; Camera.pos[2] = eye[2]; Arena.build(ARENAS.warehouse); Debris.clear(); }
+      return bad.length ? bad.join('; ') : true;
+    });
+
+    test('Detail budget (P18-77): two objects trading places at the edge of the detail budget do not swap looks each time the budget is recounted (the straps and doors that popped on and off at low quality)', () => {
+      const keep = { objects: Arena.objects, limits: Quality.limits, aim: Camera.target.slice() };
+      try {
+        Quality.limits = Object.assign({}, QUALITY_PRESETS.low, { live: 5 });
+        Arena.objects = Array.from({ length: 20 }, (_, i) => ({ x: i, z: 0, fixed: false, destroyed: false, far: false, hide: false }));   // a row of intact objects, 1 m apart
+        let swaps = 0, last = '';
+        for (let k = 0; k < 12; k++) {
+          Camera.target[0] = 4.5 + (k % 2 ? 0.01 : -0.01); Camera.target[2] = 0;   // the aim crosses the line between the objects 4 and 5 on every call, so the 2nd and the 7th trade the last place in the budget
+          Arena.updateLod();
+          const now = Arena.objects.map((o) => o.far).join();
+          if (k && now !== last) swaps++;
+          last = now;
+        }
+        const full = Arena.objects.filter((o) => !o.far).length;
+        if (swaps > 0) return 'the set of objects drawn in full changed ' + swaps + ' times in 11 recounts with the aim moving 0.02 m';
+        if (full !== 5) return full + ' objects drawn in full, the budget is 5';
+      } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
+      return true;
+    });
+    test('Detail budget fill (P18-77): with every object plain (the camera turned to another part of the level), a budget of 0, 1, 2, 5 or 14 is filled in one recount and stays filled with the same objects, nearest first', () => {
+      const keep = { objects: Arena.objects, limits: Quality.limits, aim: Camera.target.slice() }, bad = [];
+      try {
+        Camera.target[0] = 0; Camera.target[2] = 0;
+        for (const live of [0, 1, 2, 5, 14]) {
+          Quality.limits = Object.assign({}, QUALITY_PRESETS.low, { live });
+          Arena.objects = Array.from({ length: 20 }, (_, i) => ({ x: i, z: 0, fixed: false, destroyed: false, far: true, hide: false }));   // a row of intact plain objects, nearest first
+          Arena.updateLod();
+          const first = Arena.objects.map((o) => o.far).join();
+          Arena.updateLod();
+          const drawn = Arena.objects.filter((o) => !o.far).map((o) => o.x);
+          if (drawn.length !== live) bad.push('budget ' + live + ': ' + drawn.length + ' drawn in full');
+          else if (drawn.some((x, k) => x !== k)) bad.push('budget ' + live + ': not the nearest (' + drawn.join(',') + ')');
+          if (Arena.objects.map((o) => o.far).join() !== first) bad.push('budget ' + live + ': changed on the second recount');
+        }
+      } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
+      return bad.length ? bad.join('; ') : true;
     });
 
     /* ---------- the runner and what the tests leave open (P18-74) ---------- */

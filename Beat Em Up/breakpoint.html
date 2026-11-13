@@ -2843,6 +2843,7 @@ const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5,
   [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1], [0, 0.9, 0], [0, 0.9, 1], [0.5, 1.0, 1], [-0.5, 1.0, 1]]; // the steep ones: nearly straight down, for a player in a corner behind a long rack; the last two the same from either side with the aim on the players (P17-10: a thin screen with three enemies round it left no other pose)
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10; // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
 const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0; // m: a ceiling prop (its underside this high) fades out when the eye passes within this of it, so a light tube never fills the picture
+const CAMERA_NEAR = 0.5, CAMERA_FAR = 80; // m: the clip planes (P18-77). The fight cameras show surfaces from 0.75 m to 43 m away (all 8 levels, 1280x720, 844x390 and 390x844) and the eye reaches the 0.6 m wall margin only when it looks along or away from that wall, so the four corners of the near plane stay inside the room (at least 0.148 m clear, checked in "Arena bounds (P17-08)") and nothing is cut; a 24-bit depth step at 43 m is 0.22 mm (it was 0.36 mm with 0.3 and 120), which keeps a 0.002 m offset eight steps clear
 const CAMERA_AIM_REACH = 0.95; // share of the half size of the room the camera may aim out to
 const CAMERA_WALL_MARGIN = 0.6; // m: the eye stays this far inside the side and back walls of the room
 const CAMERA_EDGE_PAD = 30; // px: how far inside the screen edge the arrow for an off-screen attacker sits
@@ -3117,7 +3118,7 @@ const Camera = {
     const w = R.cssW, h = R.cssH;
     this.aspect = w / h;
     this.fov = this.baseFov - this.fovPulse * 0.06;
-    M4.perspective(this.proj, this.fov, this.aspect, 0.3, 120);
+    M4.perspective(this.proj, this.fov, this.aspect, CAMERA_NEAR, CAMERA_FAR);
     M4.lookAt(this.view, this.pos[0] + this.jx, this.pos[1] + this.jy, this.pos[2] + this.jz, this.target[0], this.target[1], this.target[2]);
     R.setCamera(this.view, this.proj, this.pos);
   },
@@ -3125,6 +3126,7 @@ const Camera = {
 
 // === 04 WORLD - materials, arenas, destructible objects, debris pool, particles
 const STEP_HEIGHT = 0.3; // obstacles lower than this are walked over
+const STEP_LIP = 0.004; // m: how far a stair tread is drawn past its block on every side (drawing only)
 const OBJ_DAMAGE_SCALE = 1.4;
 const GRAVITY = 15;
 const STAGE_NAMES = ['Intact', 'Lightly damaged', 'Cracked', 'Critical', 'Destroyed'];
@@ -3442,6 +3444,7 @@ const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 
 
 // --- static decoration builders
 const swayLamp = (x, z, top) => ({ x, z, top, amp: 0, t0: 0 }); // a hanging light that can swing (P13-02): where it hangs, the height it hangs from, and the swing it was given (amp rad from Arena.time t0)
+const FLUSH_GAP = 0.01; // m: the step between two faces of different pieces that face the same way over the same area (a wall top and a pilaster top, a leg top and a deck top): never closer than this, or the depth buffer picks between them pixel by pixel (z-fighting, Appendix D P18-77); the self-test "Z-fighting" keeps every pair of different colour 0.002 m apart or more
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
@@ -3458,7 +3461,7 @@ function dressWalls(p, id) {
   if (!WALL_DRESS[id]) return; // a test level
   const [z, xs, top, light, dark, sign, more = {}] = WALL_DRESS[id], wide = xs || 11, high = more.duct || top - (top < 5 ? 0.4 : 0.8), mid = top * 0.55, rc = more.recess;
   const [doorL, doorR] = more.doors || [-7, 8.2], [winA, winB, winC, winD] = more.windows || [-2, 2, -4.9, 4.9], [ventL, ventR] = more.vents || [-3.3, 3.3];
-  const tall = top - DRESS_SKIRT, tallY = (top + DRESS_SKIRT) / 2; // pilasters and posts stand on the skirting
+  const tall = top - DRESS_SKIRT - 2 * FLUSH_GAP, tallY = (top + DRESS_SKIRT - 2 * FLUSH_GAP) / 2; // pilasters and posts stand on the skirting, 0.02 m under the wall top (the level's own pilasters, 0.01 m under it, stand there too: z-fighting of the tops)
   const back = (d, x, y, depth, w, h, color, e) => { // on the back wall; over the recess a box goes onto the set-back face (or is cut to the part outside it)
     let lo = x - w / 2, hi = x + w / 2, dz = 0;
     if (rc && hi > rc[0] && lo < rc[1]) {
@@ -3487,21 +3490,21 @@ function buildProps(id) {
   propBox(p, 0, -0.1, 0, 60, 0.2, 40, '#555555', { l: LAYER.GROUND });
   if (id === 'warehouse') {
     propBox(p, 0, 3.5, -6.8, 30, 7, 0.4, '#454a52');
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5, -6.67, 0.26, 7, 0.22, '#363a41');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5 - FLUSH_GAP / 2, -6.68, 0.26, 7 - FLUSH_GAP, 0.2, '#363a41'); // 0.01 m under the wall top, its face 0.02 m behind the posters (z-fighting)
     propBox(p, 1.5, 1.7, -6.62, 5, 3.4, 0.16, '#6b727c');
-    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 5, 0.04, 0.06, '#4b5159');
-    propBox(p, -11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
+    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 4.96, 0.04, 0.06, '#4b5159'); // 0.02 m short at each end of the 5 m panel (z-fighting at the end faces)
+    propBox(p, -11.8, 3.5 - FLUSH_GAP, -0.4, 0.4, 7 - 2 * FLUSH_GAP, 15.2, '#3e434a'); propBox(p, 11.8, 3.5 - FLUSH_GAP, -0.4, 0.4, 7 - 2 * FLUSH_GAP, 15.2, '#3e434a'); // the side walls 0.02 m under the back wall and 0.01 m under its pilasters where they cross them (z-fighting of the tops)
     for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 7); propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222', { lamp }); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4, lamp }); }
     propBox(p, -11.57, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c'); // the loading-bay door above the dock
-    for (let i = 0; i < 9; i++) propBox(p, -11.525, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
+    for (let i = 0; i < 9; i++) propBox(p, -11.52, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.56, '#4b5159'); // 0.02 m short at each end, 0.005 m proud of the skirting (z-fighting)
   } else if (id === 'dojo') {
     propBox(p, 0, 3.0, -6.3, 24, 6, 0.4, '#d5dae0');
     propBox(p, 0, 0.5, -6.15, 24, 1.0, 0.3, '#2b3a4a');
-    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.085, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips
-    propBox(p, -10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
-    propBox(p, 0, 3.2, -6.05, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6');
+    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.09, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips, their face 0.005 m behind the posters (z-fighting)
+    propBox(p, -10.3, 3.0 - FLUSH_GAP / 2, -0.4, 0.4, 6 - FLUSH_GAP, 14, '#cfd4da'); propBox(p, 10.3, 3.0 - FLUSH_GAP / 2, -0.4, 0.4, 6 - FLUSH_GAP, 14, '#cfd4da'); // 0.01 m under the back wall where they cross it
+    propBox(p, 0, 3.2, -6.05, 1.64, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6'); // the banner (0.02 m wider than the notice board in front of it, z-fighting of the end faces)
     for (const x of [-6, -2, 2, 6]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7, lamp }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent strips
-    for (const z of [-5.6, 4.8]) propBox(p, -10.1, 2.5, z, 0.2, 5, 0.45, '#9aa3ad');
+    for (const z of [-5.6, 4.8]) propBox(p, -10.09, 2.5, z, 0.2, 5, 0.45, '#9aa3ad'); // 0.01 m proud of the skirting (z-fighting)
   } else if (id === 'rooftop') {
     for (let i = 0; i < 16; i++) { // the city beyond the roof edge: dark towers with a few lit windows
       const h = 6 + (i * 7) % 9, x = -24 + i * 3.2, z = -13 - (i % 3) * 3.5;
@@ -3517,13 +3520,13 @@ function buildProps(id) {
     for (let i = 0; i < 5; i++) propSph(p, 5.6 + i * 0.8, 3.2, 4.8, 0.09, '#ffe3a0', { e: 2 }); // string lights over the lounge
   } else if (id === 'subway') {
     propBox(p, 0, 3.2, -6.8, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -6.56, 30, 0.9, 0.06, '#1f5f8f'); // the tiled wall behind the track and the blue station band
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -6.58, 0.05, 6.4, 0.05, '#aab2b8');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.19, -6.58, 0.05, 6.38, 0.05, '#aab2b8'); // a rib stops 0.02 m under the wall top: its top face no longer shares a plane with the wall's (z-fighting, P18-77)
     propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507'); // the tunnel mouth in the east wall
     propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 }); // the station name board
     for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8, lamp }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent tubes
     for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 }); // red warning lamps along the platform edge
-    propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
+    propBox(p, -12.1, 1.3 - FLUSH_GAP / 2, 2.75, 0.2, 2.4 - FLUSH_GAP, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
   } else if (id === 'garage') {
     propBox(p, 0, 2.2, -7.35, 30, 4.4, 0.5, '#6e716f'); propBox(p, -11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
     for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.05, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a'); // hazard stripes on the wall foot
@@ -3533,7 +3536,7 @@ function buildProps(id) {
     propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a'); // the ticket booth's counter
   } else if (id === 'construction') {
     propBox(p, 0, 3.5, -7.35, 30, 7, 0.5, '#6b6a66'); // the unfinished building behind the scaffold
-    for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5, -7.25, 0.5, 7, 0.4, '#8a8984');
+    for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5 - FLUSH_GAP / 2, -7.27, 0.5, 7 - FLUSH_GAP, 0.4, '#8a8984'); // 0.01 m under the wall top, the face 0.02 m behind the dressing (z-fighting)
     for (const y of [3.2, 6.4]) propBox(p, 0, y, -7.2, 30, 0.35, 0.8, '#8a8984');
     for (let i = 0; i < 12; i++) propCyl(p, -13 + i * 2.4, 7.2, -7.2, 0.05, 1.4, '#7a4a2a'); // rebar sticking out of the top
     propBox(p, -3.5, 4.0, -8.3, 0.6, 8, 0.6, '#e0a000'); propBox(p, -2.2, 8.2, -8.3, 8, 0.4, 0.4, '#e0a000'); // the crane's mast and jib behind the wall
@@ -3628,10 +3631,10 @@ const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far bey
    with x and z as shares of the half size (-1 to 1), y as a share of the height, and the size as shares of the full width, height and depth. */
 const LOOKS = {
   dumpster: [1, [0, 0, 1, 0, 1.06, 0.07, 1.08, '#1d2a21'], [0, 0, 0.5, 1.02, 0.92, 0.1, 0.03, '#d6b32a'], [0, -1.02, 0.5, 0, 0.03, 0.8, 0.9, '#2c3b30']],
-  vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.96, 1.01, 1.02, 0.08, 0.04, '#b32a2a']],
+  vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.95, 1.01, 1.02, 0.08, 0.04, '#b32a2a']], // the red band's top 0.01 of the height under the block's (it was level: z-fighting)
   speaker: [1, [0, 0, 0.3, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 0.72, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 1, 0, 1.04, 0.04, 1.04, '#202020']],
   table: [0, [0, 0, 0.96, 0, 1.12, 0.08, 1.2, '#a87846'], [0, -0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, -0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c']],
-  sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c']],
+  sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1.03, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1.03, '#66392c']], // the arms stand 3 % of the depth out of the seat's front and back faces (they were level: z-fighting)
   container: [1, [0, -0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, -0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 1, 0, 1.02, 0.03, 1.02, '#5a1f14']],
   lockers: [1, [0, -1.01, 0.5, -0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.5, 0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.62, -0.18, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.62, 0.48, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.9, 0, 0.03, 0.04, 0.9, '#20272e']],
   car: [0.55, [0, -0.1, 0.8, 0, 0.5, 0.42, 0.92, '#25323f'], [0, -0.1, 1, 0, 0.52, 0.05, 0.94, '#b9bec6'], [0, -0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, -0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'],
@@ -3644,6 +3647,7 @@ const LOOKS = {
 };
 const RUBBLE_MARGIN = 0.2; // m: a pile of concrete or brick rubble reaches this far beyond the footprint of what broke
 const DECK_PIECES_MAX = 16; // pieces a collapsing deck can throw at most
+const LOD_KEEP = 2; // ranks: the slack round the detail budget (Quality.limits.live) inside which an object keeps the look it has (Arena.updateLod)
 const SCAFFOLD_BAY = [2.0, 1.2], SCAFFOLD_TIER = 1.5, SCAFFOLD_WEAK = 3, SCAFFOLD_STANDARD_HP = 0.5, SCAFFOLD_STAIR_WIDTH = 1.0;
 const BUILT = {};
 function builtOf(def) {
@@ -4215,7 +4219,7 @@ const Arena = {
       if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) { // overhead: it fades as the eye comes near it (the hanging load does the same)
         const eye = Camera.pos, near = Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0));
         if (near < CAMERA_PROP_FADE) {
-          alpha = p.a * clamp((near - 0.3) / (CAMERA_PROP_FADE - 0.3), 0, 1) * 0.8;
+          alpha = p.a * clamp((near - CAMERA_NEAR) / (CAMERA_PROP_FADE - CAMERA_NEAR), 0, 1); // 1 at the edge of the fade (it was 0.8: a jump from solid to 0.8 as the eye crossed it), 0 at the near plane
           if (alpha < 0.02) continue;
           layer = LAYER.ALPHA;
         }
@@ -4312,7 +4316,7 @@ const Arena = {
     if (o.far) return;
     const dark = C(MATERIALS[o.mat].dark);
     this.put(LAYER.SOLID, MESH.CYL, x, 0.12, z, d * 1.25, 0.24, d * 1.25, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-    if (o.mat === 'concrete') this.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+    if (o.mat === 'concrete') this.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1 - FLUSH_GAP, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the collar's top 0.01 m under the column's (z-fighting of the two discs)
     if (st >= 3 && o.mat === 'concrete') for (let i = 0; i < 3; i++) this.put(LAYER.SOLID, MESH.CYL, x + (i - 1) * 0.12, hh + 0.12, z + (i % 2 ? 0.1 : -0.1), 0.04, 0.5, 0.04, 0.2 * (i - 1), 0, 0.15 * (i - 1), C('#7a4a2a'), 1, 0, 0.9, false, 0);
     const r = o.hx;
     for (let i = 0; i < o.cracks.length; i++) {
@@ -4399,7 +4403,7 @@ const Arena = {
     const h = o.h, hx = o.hx, hz = o.hz, col = this.tone(o), dark = C(MATERIALS[o.mat].dark), look = o.look;
     if (o.step) {
       this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z, hx * 2, h, hz * 2, 0, 0, 0, look === 'ramp' ? C('#7d8087') : dark, 1, 0, 0.85, false, 0);
-      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.03, z, hx * 2.02, 0.07, hz * 2.02, 0, 0, 0, col, 1, 0, 0.7, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.03, z, hx * 2 + 2 * STEP_LIP, 0.07, hz * 2 + 2 * STEP_LIP, 0, 0, 0, col, 1, 0, 0.7, true, 0); // the tread overhangs its block by a fixed 0.004 m (1 % of a 0.35 m run was 0.002 m: too near for the depth buffer)
       return;
     }
     const lip = C('#d6b32a');
@@ -4407,9 +4411,9 @@ const Arena = {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.04, z, hx * 2, 0.08, hz * 2, 0, 0, 0, col, 1, 0, 0.5, true, 0);
       this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.08) * 0.5, z, hx * 2 - 0.04, h - 0.08, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate: the collider is a block from the floor, and nothing can go under it
       if (!o.far) {
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), h * 0.5, z + sz * (hz - 0.08), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0);
-        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
-        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z - hz + 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), (h - 0.08) * 0.5, z + sz * (hz - 0.08), 0.12, h - 0.08, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0); // a leg ends under the plate, not level with its top (z-fighting)
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.16, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0); // the mesh stops under the plate (its end faces were level with the plate's)
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z - hz + 0.02, hx * 2, h - 0.16, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
         const slope = Math.atan2(h - 0.2, hx * 2), len = Math.hypot(h - 0.2, hx * 2);
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, slope, dark, 1, 0, 0.5, false, 0);
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, -slope, dark, 1, 0, 0.5, false, 0);
@@ -4418,9 +4422,9 @@ const Arena = {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.05, z, hx * 2, 0.1, hz * 2, 0, 0, 0, col, 1, 0, 0.85, true, 0);
       this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.1) * 0.5, z, hx * 2 - 0.04, h - 0.1, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate (see the grate)
       if (!o.far) {
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), h * 0.5, z + sz * (hz - 0.06), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), (h - 0.1) * 0.5, z + sz * (hz - 0.06), 0.12, h - 0.1, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // a leg ends under the plate (z-fighting)
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.001, z, 0.03, 0.01, hz * 2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2 - 2 * (FLUSH_GAP + 0.01), 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces; they stop 0.02 m short of each end, so their front end sits inside the lip (top h + 0.012, front FLUSH_GAP back from the edge) and ties with none of its faces
       }
     } else { // slab, stage
       const stage = look === 'stage';
@@ -4429,7 +4433,7 @@ const Arena = {
       if (!o.far && !stage) for (let i = 0; i < 3; i++) this.put(LAYER.ALPHA, MESH.CUBE, x - hx * 0.6 + i * hx * 0.6, h * 0.6, z + hz + 0.01, hx * 0.4, 0.7, 0.02, 0, 0, 0, C('#a8dcff'), 0.6, 0.1, 0.1, false, 0); // the windows of the office front
     }
     if (o.far) return;
-    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.005, z + hz - 0.05, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.006, z + hz - 0.05 - FLUSH_GAP, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0); // the lip stands on the plate (its front face no longer overlaps the plate's), FLUSH_GAP back from the edge: a box standing at the edge (the garage kerbs) has its face where the lip's was
     if (o.stage > 0) this.drawCracks(o, x, z, hx, hz);
   },
   // One scaffold bay: four standards, a ledger and a brace per tier
@@ -4485,7 +4489,15 @@ const Arena = {
       if (!o.destroyed) { o.d2 = (o.x - tx) * (o.x - tx) + (o.z - tz) * (o.z - tz); near.push(o); } else if (o.rubble) gone.push(o);
     }
     near.sort((p, q) => p.d2 - q.d2);
-    for (let i = 0; i < near.length; i++) near[i].far = i >= limits.live;
+    let full = 0;
+    for (let i = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
+      const holds = near[i].far ? i < limits.live - LOD_KEEP : i < limits.live + LOD_KEEP;
+      near[i].far = !(holds && full < limits.live);
+      if (!near[i].far) full++;
+    }
+    for (let i = 0; i < near.length && i < limits.live + LOD_KEEP && full < limits.live; i++) { // a budget left unused (every near object was plain: the camera turned, or live is LOD_KEEP or less) goes to the nearest plain objects inside the slack; a full budget is not touched, so no swap
+      if (near[i].far) { near[i].far = false; full++; }
+    }
     gone.sort((p, q) => q.brokeAt - p.brokeAt);
     for (let i = 0; i < gone.length; i++) gone[i].hide = i >= limits.heaps;
   },
@@ -11977,7 +11989,7 @@ class MatchSim {
         }
       } else if (h.type === 'drop') {
         hput(LAYER.ALPHA, MESH.CUBE, h.x, 0.015, h.z, h.hx * 2, 0.01, h.hz * 2, h.yaw, '#050505', 0.85, 0, 1);
-        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2, h.yaw, '#e0b100', 1, 0, 0.7);
+        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2 + 0.04, h.yaw, '#e0b100', 1, 0, 0.7); // the edge strips run 0.02 m past the dark pit at each end (their end faces were level with its)
       } else if (h.type === 'blaze' && on) { // R4: the flames on a burning object
         const o = h.of;
         for (let k = 0; k < 2; k++) this.drawFlames(o.x + (k - 0.5) * o.hx, o.base + o.h * 0.6, o.z, 0.5, 0.5 + o.h * 0.5, h.seq + k * 7);
