@@ -54,7 +54,7 @@ const {
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music, MESH,
+  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -248,28 +248,45 @@ const SelfTest = {
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
-    const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
-    const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
+    const REAL_LINK_LIMIT_MS = 30000;   // the tests over real WebRTC connections (P18-74): their handshakes and the lockstep run at network speed; measured alone in headless Chromium: CSP 1.8 s, loopback 3.3 s, two peers 5.3 s, four peers 10.4 s
+    const AsyncFunction = (async () => {}).constructor;
+    const deferredTests = [];   // tests that pass a limitMs (they render audio offline) and every `async` test (P18-74): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
+    const syncPass = { endedAt: 0 };   // when the synchronous pass over the tests ended (performance.now); 0 while it runs
+    const NativeConnection = window.RTCPeerConnection;   // undefined in the headless stub
+    const alreadyWatched = Boolean(NativeConnection && NativeConnection.madeList);   // an overlapping run has wrapped it already: this run shares its list and leaves the restoring to that run
+    const madeConnections = alreadyWatched ? NativeConnection.madeList : [];   // every RTCPeerConnection made while the tests run (P18-74), so a test can check that none is left open
+    let WatchedConnection = null;
+    if (NativeConnection && !alreadyWatched) {
+      WatchedConnection = class extends NativeConnection { constructor(...args) { super(...args); madeConnections.push(this); } };
+      WatchedConnection.madeList = madeConnections;
+      window.RTCPeerConnection = WatchedConnection;
+    }
+    const stopWatching = () => { if (WatchedConnection && window.RTCPeerConnection === WatchedConnection) window.RTCPeerConnection = NativeConnection; };   // the real constructor is back when the deferred tests are done, or when one of them throws
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn, limitMs) => {   // limitMs (the async tests that render audio offline, and the layout tests with their many frames): defer the test, run it after every other test, and give it that long
+    const runInPass = (entry, fn) => {   // a plain test: its result is known when it returns; a promise is a mistake (see test)
+      try {
+        const r = fn();
+        if (r && typeof r.then === 'function') {
+          r.then(() => {}, () => {});   // nobody waits for it: its rejection is not left unhandled
+          Object.assign(entry, { pass: false, skipped: false, detail: 'it returned a promise but is not an async function: return a promise only from an async test (a plain function starts it inside the synchronous pass, with its clocks running and the event loop shut)' });
+        } else record(entry, r);
+      } catch (e) { Object.assign(entry, { pass: false, skipped: false, detail: 'exception: ' + String(e && e.message || e) }); }
+    };
+    const test = (name, fn, limitMs) => {   // limitMs (a deferred test that needs more than the 10 s of an async test: audio rendered offline, the layout tests with their many frames, real links): give it that long; an `async` function is deferred either way, a plain one runs in the pass and must return its result, never a promise
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
       const entry = { name, pass: false, detail: 'still running' };
       results.push(entry);
-      if (limitMs) { deferredTests.push({ entry, fn, limitMs }); return; }
-      try {
-        const r = fn();
-        if (r && typeof r.then === 'function') {
-          let timer = 0;
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
-          const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
-          pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
-        } else record(entry, r);
-      } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); }
+      /* An async test waits for timers, a real WebRTC connection or the audio thread, so it needs the event loop, which stays shut until this synchronous pass has run every other test (minutes in all).
+         Started inside the pass, its 10 s limit and its own waitFor / until clocks ran out before the first timer could fire: the online-link tests failed with "no result after 10000 ms", the sound bake with "did not finish" (P18-74). */
+      if (limitMs || fn instanceof AsyncFunction) { deferredTests.push({ entry, fn, limitMs: limitMs || ASYNC_TEST_LIMIT_MS }); return; }
+      runInPass(entry, fn);
       entry.ms = Math.round(performance.now() - started);
-      self.made.splice(0).forEach((made) => made.dispose());
-      if (Match.current) Match.current.dispose();
+      try {
+        self.made.splice(0).forEach((made) => made.dispose());
+        if (Match.current) Match.current.dispose();
+      } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }   // a failing dispose fails this test and does not end the pass
       void m;
     };
     const hasLayoutEngine = () => typeof document !== 'undefined' && 'contentDocument' in document.createElement('iframe');   // the headless stub has no frames and no layout engine; every real browser has both. A test may skip only when this is false
@@ -14780,7 +14797,7 @@ const SelfTest = {
     });
     /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
     const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
-    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once with every baked variant combination as well (levels, about 250 s of audio) or four times (buses); measured in Chrome 2026-11-12 (three full runs): levels 8.6 to 8.9 s, buses 4.6 s, so the limit only matters on a PC that renders below real time
     const isolatedSound = () => Object.assign({}, Sound, { ctx: null, bank: null, bakeState: 'idle', bakeError: '', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeFrom: 0, unsupported: false, voices: 0, last: {}, layerQ: [], spot: null, wired: false, fires: [], amb: null, ambKey: -1, lastVariant: {} });   // a shallow copy of the engine for a test that must not touch the page's own
     const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
     const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
@@ -14882,9 +14899,11 @@ const SelfTest = {
     });
     test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 60 buffers (27 impacts, 9 materials, 24 footsteps) of about 1.6 MB', async () => {
       const Sound = isolatedSound(), bad = [];   // a copy of the engine: the page's own Sound (its context, its bank, its bake in flight) is never touched, so nothing here can be heard or restored late
+      const heldIdle = window.requestIdleCallback;
+      window.requestIdleCallback = (run) => setTimeout(run, 0);   // P18-74: each bake step waits for an idle moment, which a page that is drawing never has, so every step ran after its 500 ms timeout and five steps came within a hair of the 4 s waits below; a prompt stand-in tests the bake, not the browser's idle scheduling
       try {
         MockOfflineContext.made.length = 0;
-        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the other async tests run side by side with this one
+        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the deferred tests run one at a time (P18-74), but the page's own timers and frames run between the awaits of this one
         withMocks(() => Sound.unlock());
         if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
         await waitFor(() => Sound.bakeState !== 'running', 4000);
@@ -14921,7 +14940,7 @@ const SelfTest = {
         if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
         Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
         if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) and refuses a rate under 44.1 kHz does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); else if (Sound.bank.hit[0][0][0].sampleRate !== 44100 || Sound.bank.step[0][0][0].length !== Math.round(0.12 * 44100)) bad.push('the prefixed context bakes at ' + Sound.bank.hit[0][0][0].sampleRate + ' Hz, not 44100'); }
-      } finally { Sound.ready = () => false; }   // the copy is thrown away
+      } finally { Sound.ready = () => false; window.requestIdleCallback = heldIdle; }   // the copy is thrown away
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
     test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
@@ -15100,7 +15119,8 @@ const SelfTest = {
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
-    const renderSounds = async (volumes, gap, only, ctl) => {   // ctl: the deferred test's token, { cancelled }
+    // `codes` (optional, { name: how many baked variants the row picks }, from an earlier render's `picks`): only those rows are rendered, once for every combination of their variants (BAKE_VARIANTS to the power of the picks), the variants forced instead of drawn; `all[name]` lists the peak of each combination
+    const renderSounds = async (volumes, gap, only, ctl, codes) => {   // ctl: the deferred test's token, { cancelled }
       const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
       const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
@@ -15115,10 +15135,25 @@ const SelfTest = {
       const fire = (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
       let table = soundTable(fire);
       if (only) table = table.filter((row) => only(row[0]));
-      const slots = []; let at = START;
-      for (const row of table) { slots.push({ name: row[0], from: at, play: row[3] }); at += row[2] + gap; }
+      if (codes) table = table.filter((row) => codes[row[0]] > 0);
+      const slots = [], picks = {}; let at = START;
+      table.forEach((row, rowIndex) => {
+        const combinations = codes ? Math.pow(BAKE_VARIANTS, codes[row[0]]) : 1;
+        for (let code = 0; code < combinations; code++) { slots.push({ name: row[0], row: rowIndex, code: codes ? code : undefined, from: at, play: row[3] }); at += row[2] + gap; }
+      });
+      // One play of a slot; `picks[name]` counts the baked variants it chose. With a code the variant of the n-th choice is the n-th digit of the code (base BAKE_VARIANTS), whatever the earlier plays left in `lastVariant`
+      const playSlot = (slot) => {
+        const keepPick = Sound.pickVariant; let calls = 0;
+        Sound.pickVariant = function (key) {
+          const call = calls++;
+          if (slot.code === undefined) return keepPick.call(this, key);
+          Math.random();   // the draw the real choice takes, so the random draws after it keep their order (the run is repeatable; the play-to-play jitter itself is not what this test checks)
+          return Math.floor(slot.code / Math.pow(BAKE_VARIANTS, call)) % BAKE_VARIANTS;
+        };
+        try { slot.play(); } finally { Sound.pickVariant = keepPick; picks[slot.name] = Math.max(picks[slot.name] || 0, calls); }
+      };
       const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
-      const offline = { ctx: null };
+      const offline = { ctx: null, lastVariant: {} };   // P18-74: the render starts from no variant played yet; it used to share the page's own record, which the matches of the earlier tests had filled, so "bat hit" came out at -2.9 dBFS in a full run and -4.4 alone (target -5 within 2)
       inOffline(offline, () => {
         Sound.ctx = oc; Sound.build(); Sound.setReverb(1.7, 0.3);
         const setGain = (node, value) => { node.gain.cancelScheduledValues(0); node.gain.value = value; };
@@ -15129,26 +15164,31 @@ const SelfTest = {
       offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf, seedBake)).bank;
       if (ctl && ctl.cancelled) throw new Error('cancelled');
       const failures = [];
-      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slots.indexOf(slot)); oc.resume(); });
+      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { playSlot(slot); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slot.row); oc.resume(); });
       const rendered = await oc.startRendering();
       if (ctl && ctl.cancelled) throw new Error('cancelled');
-      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
+      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {}, all = {};
       await new Promise((resolve) => setTimeout(resolve, 60)); Sound.voices = liveVoices;   // (the ended events of the offline sources come in after the render)
       slots.forEach((slot, i) => {
         const end = Math.floor((i + 1 < slots.length ? slots[i + 1].from : total) * SR); let peak = 0;
         for (let k = Math.floor(slot.from * SR); k < end; k++) peak = Math.max(peak, Math.abs(left[k] + right[k]) / 2);
-        peaks[slot.name] = 20 * Math.log10(Math.max(peak, 1e-9));
+        const level = 20 * Math.log10(Math.max(peak, 1e-9));
+        (all[slot.name] = all[slot.name] || []).push(level);
+        if (!(slot.name in peaks)) peaks[slot.name] = level;
       });
-      return { peaks, table, failures };
+      return { peaks, all, picks, table, failures };
     };
     test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async (ctl) => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
-      const { peaks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      // P18-74: a sound that picks baked variants is measured with every combination of them (forced, so the result does not depend on which variants earlier tests played), and the loudest and quietest must be in range
+      const { peaks, picks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      const varied = await renderSounds({}, 0.25, undefined, ctl, picks);
+      bad.push(...varied.failures);
       for (const [name, target] of table) {
-        const peak = peaks[name];
-        if (!(peak <= -1)) bad.push(name + ' peaks at ' + peak.toFixed(1) + ' dBFS (over -1)');
-        else if (target !== null && Math.abs(peak - target) > 2) bad.push(name + ' ' + peak.toFixed(1) + ' dBFS, target ' + target);
-        if (peak < -70) bad.push(name + ' is silent');
+        const levels = varied.all[name] || [peaks[name]], loudest = Math.max(...levels), quietest = Math.min(...levels), list = levels.map((level) => level.toFixed(1)).join(' / ');
+        if (!(loudest <= -1)) bad.push(name + ' peaks at ' + loudest.toFixed(1) + ' dBFS (over -1; variants ' + list + ')');
+        else if (target !== null && (Math.abs(loudest - target) > 2 || Math.abs(quietest - target) > 2)) bad.push(name + ' ' + list + ' dBFS, target ' + target);
+        if (quietest < -70) bad.push(name + ' is silent');
       }
       return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
@@ -19148,8 +19188,8 @@ const SelfTest = {
     // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
     /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
     /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
-       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
-    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see runDeferred). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       const policy = policyTag ? policyTag.content : '';
@@ -19190,7 +19230,7 @@ const SelfTest = {
         document.removeEventListener('securitypolicyviolation', onViolation);
         connections.forEach((connection) => connection.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: signaling by copy-paste (P12-01) ---------- */
     /* Real data-channel SDPs from Chromium 156 and Firefox 157 (the engines with WebRTC on the dev PC), taken after ICE gathering with no ICE server: two mDNS host
        candidates each (Firefox also lists two TCP ones). Their packed codes are 140 to 160 characters. */
@@ -19629,7 +19669,7 @@ const SelfTest = {
       links.forEach((link) => link.close());
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
+    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
       const heard = { host: [], guest: [] };
@@ -19664,7 +19704,7 @@ const SelfTest = {
         if (result === true && (host.state !== 'closed' || guest.state !== 'closed' || host.send('x') || guest.send('x'))) return 'close left a link open';
         return result;
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     test('Online UI (P12-01, P12-03): the Online screens follow the link state (the host has one block per guest), a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
       const bad = [];
       const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip, guests: OnlineUI.guests, mode: OnlineUI.mode, arena: OnlineUI.arena };
@@ -20225,10 +20265,10 @@ const SelfTest = {
     });
     /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
        channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });
-      const FRAMES = 120, TIMEOUT_MS = 8000;
+      const FRAMES = 120, TIMEOUT_MS = 20000;
       // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
       const opened = (link) => new Promise((resolve, reject) => {
@@ -20261,12 +20301,12 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         host.close(); guest.close();
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* Four real links (host and three guests, three copy-paste handshakes in this page, no server) wrapped by LockstepTransport.fromLink carry a short brawl of four people. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const hosts = [2, 3, 4].map(() => Online.createLink('host', { gatherMs: 1000 })), guests = hosts.map(() => Online.createLink('guest', { gatherMs: 1000 }));
-      const FRAMES = 180, TIMEOUT_MS = 9000;
+      const FRAMES = 180, TIMEOUT_MS = 25000;
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });   // no setTimeout: see the two-link test
       const opened = (link) => new Promise((resolve, reject) => {
         link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
@@ -20300,7 +20340,7 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         hosts.concat(guests).forEach((link) => link.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: the limits and every failure with its reason (P12-07) ---------- */
     test('Online failures (P12-07): every way a link can fail ends with a short plain reason and what to try: no network address, a code the browser refuses, ICE failure (a network that blocks direct connections), a timeout, the Firefox guest that is not answered in time, a lost connection; the screens show it', async () => {
       const bad = [], links = [];
@@ -22207,6 +22247,46 @@ const SelfTest = {
       return bad.length ? 'inside scenery: ' + bad.join('; ') : true;
     });
 
+    /* ---------- the runner and what the tests leave open (P18-74) ---------- */
+    test('Test runner (P18-74): an async test starts only after the synchronous pass over the tests has ended, so its 10 s limit and its timers run on a free event loop (inside the pass the online-link tests failed with "no result after 10000 ms"); a plain test that returns a promise fails with a message saying so instead of starting inside the pass', async () => {
+      const bad = [];
+      if (!(syncPass.endedAt > 0)) bad.push('an async test started inside the synchronous pass');
+      const promised = { detail: '', pass: true }, plain = { detail: '', pass: false }, thrown = { detail: '', pass: true };
+      runInPass(promised, () => Promise.resolve(true));
+      runInPass(plain, () => true);
+      runInPass(thrown, () => { throw new Error('boom'); });
+      if (promised.pass || !promised.detail.includes('return a promise only from an async test')) bad.push('a plain test that returns a promise: pass ' + promised.pass + ', "' + promised.detail + '"');
+      if (!plain.pass || thrown.pass || thrown.detail !== 'exception: boom') bad.push('a plain test: pass ' + plain.pass + '; one that throws: pass ' + thrown.pass + ', "' + thrown.detail + '"');
+      if (!((async () => {}) instanceof AsyncFunction)) bad.push('an async function is not told apart from a plain one');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Announcer (P18-74): any number of banners and announcements leaves at most two timers waiting (the newest banner\'s and the newest announcement\'s); the self-tests used to leave 76 000 behind, and the page then spent minutes running them before any other timer could fire; announcements said in the same 30 ms are all read out, once each', () => {
+      const keep = { dom: UI.dom, set: window.setTimeout, clear: window.clearTimeout, banners: UI.banners, bannerTimer: UI.bannerTimer, sayTimer: UI.sayTimer, sayPending: UI.sayPending };
+      const waiting = new Map();   // timer id -> its callback
+      let nextId = 1;
+      UI.dom = { announce: { textContent: '' }, banner: { innerHTML: '', classList: { add() {}, remove() {} } } };
+      window.setTimeout = (callback) => { waiting.set(nextId, callback); return nextId++; };   // nothing is scheduled: the test only counts the timers asked for and not cancelled, and fires them itself
+      window.clearTimeout = (id) => { waiting.delete(id); };
+      try {
+        const bad = [];
+        for (let i = 0; i < 1000; i++) { UI.banner('ROUND ' + i, 'FIGHT', 1500); UI.say('Player ' + i + ' is out'); }
+        if (waiting.size > 2) bad.push(waiting.size + ' timers are waiting after 1000 banners and 1000 announcements');
+        waiting.clear(); UI.sayPending = [];
+        UI.say('K.O.!'); UI.say('Player 2 is out'); UI.say('Player 2 is out');   // two knock-outs on one tick, the second said twice
+        if (waiting.size !== 1) bad.push(waiting.size + ' timers are waiting after three announcements in one tick');
+        if (UI.dom.announce.textContent !== '') bad.push('the live region holds "' + UI.dom.announce.textContent + '" before the timer fires');
+        [...waiting.values()].forEach((callback) => callback());
+        if (UI.dom.announce.textContent !== 'K.O.! Player 2 is out') bad.push('the live region reads "' + UI.dom.announce.textContent + '", not both announcements once each');
+        if (UI.sayPending.length) bad.push('the announcements are still waiting after the timer fired');
+        return bad.length ? bad.join('; ') : true;
+      } finally { Object.assign(window, { setTimeout: keep.set, clearTimeout: keep.clear }); Object.assign(UI, { dom: keep.dom, banners: keep.banners, bannerTimer: keep.bannerTimer, sayTimer: keep.sayTimer, sayPending: keep.sayPending }); }
+    });
+    /* Deferred and registered after every other test, so the connections of the whole run are counted */
+    test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
+      const open = madeConnections.filter((connection) => connection.signalingState !== 'closed');
+      return open.length ? open.length + ' of ' + madeConnections.length + ' RTCPeerConnections are still open (' + open.map((connection) => connection.connectionState).join(', ') + ')' : true;
+    }, 1000);
+
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
@@ -22214,27 +22294,32 @@ const SelfTest = {
       const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the two WebRTC tests (P12-04, P12-01); every engine a player uses has it
       const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Online loopback') || r.name.startsWith('Lockstep over real links')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
-    });
+    }, 1000); // deferred (P18-74): it runs after every other test, so the results it reads include the async tests (they used to be still running here)
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     const runDeferred = async () => {
-      for (const { entry, fn, limitMs } of deferredTests) {
-        const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
-        try {
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
-          work = Promise.resolve(fn(ctl));
-          record(entry, await Promise.race([work, tooSlow]));
-        } catch (e) {
-          entry.detail = 'exception: ' + String(e && e.message || e);
-          ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
-          if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
-        } finally { clearTimeout(timer); }
-        entry.ms = Math.round(performance.now() - started);
-        self.made.splice(0).forEach((made) => made.dispose());
-        if (Match.current) Match.current.dispose();
-      }
+      try {
+        for (const { entry, fn, limitMs } of deferredTests) {
+          const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
+          try {
+            const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+            work = Promise.resolve(fn(ctl));
+            record(entry, await Promise.race([work, tooSlow]));
+          } catch (e) {
+            entry.detail = 'exception: ' + String(e && e.message || e);
+            ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
+            if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+          } finally { clearTimeout(timer); }
+          entry.ms = Math.round(performance.now() - started);
+          try {
+            self.made.splice(0).forEach((made) => made.dispose());
+            if (Match.current) Match.current.dispose();
+          } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }
+        }
+      } finally { stopWatching(); }
     };
-    results.settled = Promise.all(pendingTests).then(runDeferred);   // resolves when the async tests (P12-04) have filled in their results
+    syncPass.endedAt = performance.now();
+    results.settled = Promise.resolve().then(runDeferred);   // resolves when the deferred tests (every async one, P12-04) have filled in their results; they start after run_all has returned
     return results;
   },
 };
