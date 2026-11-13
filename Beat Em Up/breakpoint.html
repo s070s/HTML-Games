@@ -4413,7 +4413,7 @@ const Arena = {
       if (!o.far) {
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), (h - 0.1) * 0.5, z + sz * (hz - 0.06), 0.12, h - 0.1, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // a leg ends under the plate (z-fighting)
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2 - 0.02, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces; they stop 0.01 m short of each end, so their front end sits inside the lip (top h + 0.012) and ties with none of its faces
+        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2 - 2 * (FLUSH_GAP + 0.01), 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces; they stop 0.02 m short of each end, so their front end sits inside the lip (top h + 0.012, front FLUSH_GAP back from the edge) and ties with none of its faces
       }
     } else { // slab, stage
       const stage = look === 'stage';
@@ -4422,7 +4422,7 @@ const Arena = {
       if (!o.far && !stage) for (let i = 0; i < 3; i++) this.put(LAYER.ALPHA, MESH.CUBE, x - hx * 0.6 + i * hx * 0.6, h * 0.6, z + hz + 0.01, hx * 0.4, 0.7, 0.02, 0, 0, 0, C('#a8dcff'), 0.6, 0.1, 0.1, false, 0); // the windows of the office front
     }
     if (o.far) return;
-    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.006, z + hz - 0.05, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0); // the lip stands on the plate (its front face no longer overlaps the plate's)
+    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.006, z + hz - 0.05 - FLUSH_GAP, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0); // the lip stands on the plate (its front face no longer overlaps the plate's), FLUSH_GAP back from the edge: a box standing at the edge (the garage kerbs) has its face where the lip's was
     if (o.stage > 0) this.drawCracks(o, x, z, hx, hz);
   },
   // One scaffold bay: four standards, a ledger and a brace per tier
@@ -4478,10 +4478,14 @@ const Arena = {
       if (!o.destroyed) { o.d2 = (o.x - tx) * (o.x - tx) + (o.z - tz) * (o.z - tz); near.push(o); } else if (o.rubble) gone.push(o);
     }
     near.sort((p, q) => p.d2 - q.d2);
-    for (let i = 0, full = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
-      const holds = near[i].far ? i < Math.max(1, limits.live - LOD_KEEP) : i < limits.live + LOD_KEEP;   // at least the nearest plain object gets its look back, whatever live is (full < live below keeps live 0 all plain)
+    let full = 0;
+    for (let i = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
+      const holds = near[i].far ? i < limits.live - LOD_KEEP : i < limits.live + LOD_KEEP;
       near[i].far = !(holds && full < limits.live);
       if (!near[i].far) full++;
+    }
+    for (let i = 0; i < near.length && i < limits.live + LOD_KEEP && full < limits.live; i++) { // a budget left unused (every near object was plain: the camera turned, or live is LOD_KEEP or less) goes to the nearest plain objects inside the slack; a full budget is not touched, so no swap
+      if (near[i].far) { near[i].far = false; full++; }
     }
     gone.sort((p, q) => q.brokeAt - p.brokeAt);
     for (let i = 0; i < gone.length; i++) gone[i].hide = i >= limits.heaps;

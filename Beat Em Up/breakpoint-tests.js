@@ -22128,13 +22128,13 @@ const SelfTest = {
       const problems = [], push = R.push, limits = Quality.limits, eye = Camera.pos.slice();
       try {
         Camera.pos[0] = 0; Camera.pos[1] = 1.8; Camera.pos[2] = 40;   // far from every ceiling prop: none is faded
-        for (const [preset, lod] of [['high', false], ['low', true]]) {   // high: every dressing box is drawn; low: the plain looks of the objects past the detail budget (updateLod runs on the draw) and the least dressing
+        for (const [preset, lod] of [['high', false], ['low', true]]) {   // high: every dressing box is drawn; low: the plain looks of every destructible (set below; lodTick 1 keeps updateLod from running on this draw) and the least dressing
           Quality.limits = QUALITY_PRESETS[preset];
           for (const id of ARENA_ORDER) {
             const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), recs = [];
             let item = false;
             R.push = (layer, mesh, matrix, colour, alpha, glow, rough) => { recs.push({ layer, mesh, m: Array.from(matrix), colour: Array.from(colour), alpha, glow: glow || 0, rough: rough || 0, item }); };
-            try { if (lod) for (const o of Arena.objects) o.far = true; Arena.lodTick = 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
+            try { if (lod) for (const o of Arena.objects) if (!o.fixed) o.far = true; Arena.lodTick = 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
             if (recs.length < 100) problems.push(preset + ' ' + id + ' drew only ' + recs.length + ' pieces');
             for (const pair of zFightPairs(recs, ARENAS[id].bounds)) problems.push(preset + ' ' + id + ': ' + pair);
           }
@@ -22195,6 +22195,24 @@ const SelfTest = {
         if (full !== 5) return full + ' objects drawn in full, the budget is 5';
       } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
       return true;
+    });
+    test('Detail budget fill (P18-77): with every object plain (the camera turned to another part of the level), a budget of 0, 1, 2, 5 or 14 is filled in one recount and stays filled with the same objects, nearest first', () => {
+      const keep = { objects: Arena.objects, limits: Quality.limits, aim: Camera.target.slice() }, bad = [];
+      try {
+        Camera.target[0] = 0; Camera.target[2] = 0;
+        for (const live of [0, 1, 2, 5, 14]) {
+          Quality.limits = Object.assign({}, QUALITY_PRESETS.low, { live });
+          Arena.objects = Array.from({ length: 20 }, (_, i) => ({ x: i, z: 0, fixed: false, destroyed: false, far: true, hide: false }));   // a row of intact plain objects, nearest first
+          Arena.updateLod();
+          const first = Arena.objects.map((o) => o.far).join();
+          Arena.updateLod();
+          const drawn = Arena.objects.filter((o) => !o.far).map((o) => o.x);
+          if (drawn.length !== live) bad.push('budget ' + live + ': ' + drawn.length + ' drawn in full');
+          else if (drawn.some((x, k) => x !== k)) bad.push('budget ' + live + ': not the nearest (' + drawn.join(',') + ')');
+          if (Arena.objects.map((o) => o.far).join() !== first) bad.push('budget ' + live + ': changed on the second recount');
+        }
+      } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
+      return bad.length ? bad.join('; ') : true;
     });
 
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
