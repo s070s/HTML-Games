@@ -1216,19 +1216,28 @@ const SelfTest = {
     });
     test('Submission meter: a hold in progress shows how close the held fighter is to free (empty at the holder\'s lead cap, full at the escape goal), the seconds left, the hold name and who taps what; the HUD update runs through a hold without error', () => {
       const problems = [], m = holdMatch({}, once(2, 'grapple'), idle), a = m.fighters[0], v = m.fighters[1];
-      self.run(m, 8);
-      if (a.state !== S.SUBMIT) problems.push('no hold');
-      m.controllers[0].human = true; m.controllers[1].human = true;
-      a.holdContest = SUBMIT_CONTEST_FLOOR; const low = UI.holdMeterFor(m, a);
-      a.holdContest = SUBMIT_ESCAPE_GOAL; const full = UI.holdMeterFor(m, a);
-      a.holdContest = (SUBMIT_CONTEST_FLOOR + SUBMIT_ESCAPE_GOAL) / 2; const mid = UI.holdMeterFor(m, a);
-      if (low.progress !== 0 || full.progress !== 1 || Math.abs(mid.progress - 0.5) > 1e-9) problems.push('progress ' + [low.progress, mid.progress, full.progress]);
-      if (!(low.left > 3.5 && low.left <= SUBMIT_MAX_TICKS / 60) || !mid.html.includes('width:50%') || !mid.html.includes('ESCAPE') || !mid.html.includes('HELD') || !mid.html.includes('PIN')) problems.push('html ' + mid.html);
-      if (!mid.html.includes('TO ESCAPE') || !mid.html.includes('TO SQUEEZE') || (mid.html.match(/class="tap"/g) || []).length !== 2) problems.push('who taps what, a line each');
-      m.controllers[0].human = false; if (UI.holdMeterFor(m, a).html.includes('TO SQUEEZE')) problems.push('a CPU holder is told to squeeze');
-      try { if (UI.dom.holdPrompt) UI.holdUi(m); a.holdTicks = SUBMIT_MAX_TICKS; UI.holdMeterFor(m, a); } catch (e) { problems.push('holdUi ' + e.message); }
-      if (v.pinnedBy !== a) problems.push('victim not held');
-      m.dispose();
+      /* UI.holdUi writes the hold meter into the live HUD: keep what the HUD held (and the UI cache that says so) and put it back in the finally, so no meter is left behind (a stray .bar in the HUD failed the P18-69 layout test when only the HUD tests ran) */
+      const holdNodes = ['holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2'].map((id) => UI.dom[id]).filter(Boolean);
+      const savedNodes = holdNodes.map((el) => ({ el, html: el.innerHTML, hidden: el.hidden, className: el.className, transform: el.style.transform })), savedCache = UI.cache;
+      UI.cache = {};
+      try {
+        self.run(m, 8);
+        if (a.state !== S.SUBMIT) problems.push('no hold');
+        m.controllers[0].human = true; m.controllers[1].human = true;
+        a.holdContest = SUBMIT_CONTEST_FLOOR; const low = UI.holdMeterFor(m, a);
+        a.holdContest = SUBMIT_ESCAPE_GOAL; const full = UI.holdMeterFor(m, a);
+        a.holdContest = (SUBMIT_CONTEST_FLOOR + SUBMIT_ESCAPE_GOAL) / 2; const mid = UI.holdMeterFor(m, a);
+        if (low.progress !== 0 || full.progress !== 1 || Math.abs(mid.progress - 0.5) > 1e-9) problems.push('progress ' + [low.progress, mid.progress, full.progress]);
+        if (!(low.left > 3.5 && low.left <= SUBMIT_MAX_TICKS / 60) || !mid.html.includes('width:50%') || !mid.html.includes('ESCAPE') || !mid.html.includes('HELD') || !mid.html.includes('PIN')) problems.push('html ' + mid.html);
+        if (!mid.html.includes('TO ESCAPE') || !mid.html.includes('TO SQUEEZE') || (mid.html.match(/class="tap"/g) || []).length !== 2) problems.push('who taps what, a line each');
+        m.controllers[0].human = false; if (UI.holdMeterFor(m, a).html.includes('TO SQUEEZE')) problems.push('a CPU holder is told to squeeze');
+        try { if (UI.dom.holdPrompt) UI.holdUi(m); a.holdTicks = SUBMIT_MAX_TICKS; UI.holdMeterFor(m, a); } catch (e) { problems.push('holdUi ' + e.message); }
+        if (v.pinnedBy !== a) problems.push('victim not held');
+      } finally {
+        for (const saved of savedNodes) { saved.el.innerHTML = saved.html; saved.el.hidden = saved.hidden; saved.el.className = saved.className; saved.el.style.transform = saved.transform; }
+        UI.cache = savedCache;
+        m.dispose();
+      }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Training scenario 6: the dummy lies on the floor within reach for longer than a hold lasts, a hold style can start one at once, and the training panel says what to do (or that the style has no holds)', () => {
