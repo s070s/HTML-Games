@@ -31,7 +31,7 @@ const {
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
-  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
+  TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRAINING_KEYS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
   VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost, attrTotal, canSetAttr,
   canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom, defaultDefense,
   deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url, handScale,
@@ -16450,9 +16450,10 @@ const SelfTest = {
       return problems.length ? problems.join('; ') : true;
     });
     test('Training KEYS (P18-78): the level line of a Training match is the level name only, and the KEYS line of the Training panel names the keys of the current input type only (keyboard: Tab, F2, 1-6; gamepad: Select, Start; touch: the II button) and none of another type\'s', () => {
-      const bad = [], saved = { dom: UI.dom, cache: UI.cache, device: Input.lastDevice, touch: Settings.v.touch };
+      const bad = [], saved = { dom: UI.dom, cache: UI.cache, device: Input.lastDevice, touch: Settings.v.touch, run: Game.run };
       const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {});
       try {
+        Game.run = null;   // levelLine reads the saved run first: a stale Arcade or Survival run left by another test would give the level line of that mode
         const name = training.def.name.toUpperCase();
         if (UI.levelLine(training) !== name) bad.push('the level line is "' + UI.levelLine(training) + '", not "' + name + '"');
         Settings.v.touch = 'off';   // a touch-capable PC must not turn the keyboard case into touch
@@ -16463,9 +16464,11 @@ const SelfTest = {
           UI.trainingPanel(training);
           const keys = (/<b>KEYS<\/b> ([^<]*)</.exec(panel.innerHTML) || [])[1];
           if (!keys) { bad.push(device + ': no KEYS line'); continue; }
+          if (!panel.innerHTML.startsWith('<b>FRAME DATA</b>') || panel.innerHTML.indexOf('<b>KEYS</b>') < panel.innerHTML.indexOf('<b>FRAME DATA</b>')) bad.push(device + ': FRAME DATA is not the first line and KEYS after it');   // a phone panel shows only a few lines and cannot scroll
+          if (keys !== TRAINING_KEYS[device]) bad.push(device + ' KEYS "' + keys + '" is not TRAINING_KEYS.' + device);
           for (const other of Object.keys(words)) for (const word of words[other]) if ((other === device) !== keys.includes(word)) bad.push(device + ' KEYS "' + keys + '" ' + (other === device ? 'lacks' : 'names') + ' "' + word + '"');
         }
-      } finally { UI.dom = saved.dom; UI.cache = saved.cache; Input.lastDevice = saved.device; Settings.v.touch = saved.touch; training.dispose(); }
+      } finally { UI.dom = saved.dom; UI.cache = saved.cache; Input.lastDevice = saved.device; Settings.v.touch = saved.touch; Game.run = saved.run; training.dispose(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Stamina (P18-52): the stamina bar gets the winded (25 to 50 %), low (under 25 %) and spent (under 10 %) classes by band, and Training names the band', () => {
@@ -19438,7 +19441,7 @@ const SelfTest = {
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
-    layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844', () => {
+    layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card (also in a one-person Co-op and a Lineup with a person) and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844, also at UI scale 0.8; the Training panel (the real UI.trainingPanel text) holds FRAME DATA, Startup, Result and Advantage inside its box at those sizes, and its KEYS line is one line on a landscape phone', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●';
       const longest = (texts) => texts.slice().sort((a, b) => b.length - a.length)[0];
@@ -19458,19 +19461,34 @@ const SelfTest = {
         lines.versus = UI.levelLine(stand({ versus: true }));
         lines.training = UI.levelLine(stand({}));
       } finally { Game.run = saved.run; Game.versus = saved.versus; }
+      /* The Training panel text of the game itself, for keyboard and touch: a Training match whose last move has every frame-data line (a string step, Startup, Result, Advantage), through UI.trainingPanel on a stand-in element. */
+      const panelHtml = {}, savedPanel = { dom: UI.dom, cache: UI.cache, device: Input.lastDevice, touch: Settings.v.touch };
+      const trainingMatch = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {});
+      try {
+        trainingMatch.lastMove = { mv: { name: 'Jab' }, string: 'step 1: Jab', startup: 6, active: 3, recovery: 12, result: 'hit', adv: { onHit: 3, onBlock: -4 }, escape: 0, note: '', dmg: 5 };
+        Settings.v.touch = 'off';   // a touch-capable PC must not turn the keyboard text into the touch one
+        for (const device of ['keyboard', 'touch']) {
+          const stand = { innerHTML: '', hidden: false };
+          Input.lastDevice = device; UI.dom = { training: stand }; UI.cache = {};
+          UI.trainingPanel(trainingMatch);
+          panelHtml[device] = stand.innerHTML;
+        }
+      } finally { UI.dom = savedPanel.dom; UI.cache = savedPanel.cache; Input.lastDevice = savedPanel.device; Settings.v.touch = savedPanel.touch; trainingMatch.dispose(); }
       const itemLabel = longest(Object.values(WEAPONS).map((weapon) => weapon.name.toUpperCase() + ' ' + dot.repeat(weapon.dur)));
       const sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100 / 100', ht2: '100 / 100', timer: '60', roundlbl: 'FINAL ROUND', pips1: dot + dot, pips2: dot + dot, item1: itemLabel, item2: itemLabel };
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
       const fightLines = ['arcade', 'survival', 'free', 'brawl', 'versus'];
       const kinds = [
-        { name: 'Training with touch', hud: 'tt', touch: true, panel: true, lines: ['training'] },
-        { name: 'Training with keyboard', hud: '', touch: false, panel: true, lines: ['training'] },
-        { name: 'Fight with touch', hud: '', touch: true, lines: fightLines },
-        { name: 'Fight with keyboard', hud: '', touch: false, lines: fightLines },
-        { name: 'Co-op', hud: 'coop', touch: false, party: 4, lines: ['coop'] },
-        { name: 'Lineup', hud: 'lineup', touch: false, party: LINEUP_MAX, lines: ['lineup'] },
+        { name: 'Training with touch', hud: 'tt', touch: true, panel: true, card: true, lines: ['training'] },
+        { name: 'Training with keyboard', hud: '', touch: false, panel: true, card: true, lines: ['training'] },
+        { name: 'Fight with touch', hud: '', touch: true, card: true, lines: fightLines },
+        { name: 'Fight with keyboard', hud: '', touch: false, card: true, lines: fightLines },
+        { name: 'Co-op of four', hud: 'coop', touch: false, party: 4, lines: ['coop'] },   // a party of several was told its devices on the lineup screen: no Controls card
+        { name: 'Co-op of one', hud: 'coop', touch: false, party: 1, card: true, lines: ['coop'] },   // one person: the card is shown (UI.hudShow)
+        { name: 'Lineup without a person', hud: 'lineup', touch: false, party: LINEUP_MAX, lines: ['lineup'] },
+        { name: 'Lineup with a person', hud: 'lineup', touch: false, party: LINEUP_MAX, card: true, lines: ['lineup'] },
       ];
-      for (const kind of kinds) for (const [width, height] of [[1280, 720], [1024, 768], [844, 390], [640, 360], [390, 844]]) {
+      for (const kind of kinds) for (const scale of [undefined, 0.8]) for (const [width, height] of [[1280, 720], [1024, 768], [844, 390], [640, 360], [390, 844]]) {
         const html = '<div id="hud" class="' + kind.hud + '">' + hudHtml + '</div>' + (kind.touch ? '<div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>' : '');
         inLayoutFrame(width, height, '', (doc) => {
           doc.getElementById('screens').innerHTML = '';
@@ -19480,9 +19498,9 @@ const SelfTest = {
           const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), card = doc.getElementById('onboard'), info = doc.getElementById('modeinfo');
           hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
           for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
-          if (kind.panel) { panel.hidden = false; if (kind.touch) panel.classList.add('touch'); panel.innerHTML = '<b>KEYS</b> ' + (kind.touch ? 'tap II (top right): reset, arena reset, scenarios' : 'Tab reset - F2 reset arena - 1-6 scenarios') + '<br><b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg'; }
+          if (kind.panel) { panel.hidden = false; if (kind.touch) panel.classList.add('touch'); panel.innerHTML = panelHtml[kind.touch ? 'touch' : 'keyboard']; }
           if (kind.party) doc.getElementById('party').innerHTML = new Array(kind.party).fill(0).map((unused, n) => '<div class="pc seat' + ((n % 4) + 1) + '"><div class="pn"><b>P' + (n + 1) + '</b> FIGHTER' + (n + 1) + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
-          if (!kind.party) { card.innerHTML = UI.controlsCardHtml(kind.touch ? 'touch' : 'keyboard'); card.hidden = false; }
+          if (kind.card) { card.innerHTML = UI.controlsCardHtml(kind.touch ? 'touch' : 'keyboard'); card.hidden = false; }
           const rect = (el) => el.getBoundingClientRect();
           const glyphs = (el) => {   // the box round the letters, not round the element
             const range = doc.createRange(); range.selectNodeContents(el);
@@ -19495,18 +19513,38 @@ const SelfTest = {
           if (kind.party) parts.push(['the party row', rect(doc.getElementById('party'))]);
           if (kind.panel) parts.push(['the Training panel', rect(panel)]);
           if (kind.touch) parts.push(['the pause button', rect(doc.querySelector('#touch .tb[data-a="pause"]'))]);
-          if (!kind.party) parts.push(['the controls card', rect(card)]);
+          if (kind.card) parts.push(['the controls card', rect(card)]);
           const cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
           for (const key of kind.lines) {
             info.textContent = lines[key];
-            const where = kind.name + ' at ' + width + ' x ' + height + ', ' + key + ' line: ';
+            const where = kind.name + ' at ' + width + ' x ' + height + (scale ? ' with UI scale ' + scale : '') + ', ' + key + ' line: ';
             const box = glyphs(info);
             if (!box) { bad.push(where + 'no glyphs'); continue; }
             for (const [label, other] of parts) if (other && other.right - other.left > 0 && cross(box, other)) bad.push(where + 'the level line (' + Math.round(box.left) + '-' + Math.round(box.right) + ' x ' + Math.round(box.top) + '-' + Math.round(box.bottom) + ') runs over ' + label + ' (' + Math.round(other.left) + '-' + Math.round(other.right) + ' x ' + Math.round(other.top) + '-' + Math.round(other.bottom) + ')');
             if (box.left < 0 || box.right > width) bad.push(where + 'the level line leaves the window');
             if (info.scrollHeight > info.clientHeight + 1) bad.push(where + 'the level line is cut (' + info.scrollHeight + ' px of text in ' + info.clientHeight + ')');
           }
-        });
+          if (kind.panel) {   // the panel cannot scroll (the HUD takes no pointer): a frame-data line outside its box is lost to the player
+            const where = kind.name + ' at ' + width + ' x ' + height + (scale ? ' with UI scale ' + scale : '') + ': ';
+            const box = rect(panel);
+            const linesWith = (needle) => {   // the boxes of the text line(s) of the panel that hold the needle
+              const walker = doc.createTreeWalker(panel, 4);   // 4 = NodeFilter.SHOW_TEXT
+              for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (!node.textContent.includes(needle)) continue;
+                const range = doc.createRange(); range.selectNodeContents(node);
+                return [...range.getClientRects()].filter((line) => line.width > 0);
+              }
+              return [];
+            };
+            for (const needle of ['FRAME DATA', 'Startup', 'Result:', 'Advantage:']) {
+              const found = linesWith(needle);
+              if (!found.length) bad.push(where + 'no "' + needle + '" line in the Training panel');
+              else if (found.some((line) => line.top < box.top || line.bottom > box.bottom - 1 + 0.5)) bad.push(where + 'the "' + needle + '" line (' + Math.round(found[0].top) + '-' + Math.round(found[found.length - 1].bottom) + ') is outside the Training panel (' + Math.round(box.top) + '-' + Math.round(box.bottom) + ')');
+            }
+            const keysLine = linesWith(TRAINING_KEYS[kind.touch ? 'touch' : 'keyboard']);
+            if (kind.touch && width > height && new Set(keysLine.map((line) => Math.round(line.top))).size > 1) bad.push(where + 'the KEYS line takes ' + new Set(keysLine.map((line) => Math.round(line.top))).size + ' lines on a landscape phone');
+          }
+        }, scale);
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
