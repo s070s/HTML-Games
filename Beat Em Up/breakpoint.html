@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="BREAKPOINT">
 <meta name="format-detection" content="telephone=no">
 <meta name="description" content="BREAKPOINT - a 3D fighting game with destructible arenas. Single self-contained HTML file.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src wss://tracker.openwebtorrent.com wss://tracker.webtorrent.dev wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884; base-uri 'none'; form-action 'none'">
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
@@ -216,6 +216,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 #netwait{position:absolute;left:50%;top:18%;transform:translateX(-50%);padding:.3em .9em;background:rgba(0,0,0,.7);border:2px solid #ffb347;color:#ffb347;letter-spacing:.08em;text-align:center;pointer-events:auto}
 #netwait[hidden]{display:none}
 #netwait button{margin-left:.8em;font:inherit;color:#fff;background:#222;border:2px solid #fff;padding:.1em .7em;cursor:pointer}
+#netwait button.sel{border-color:#ffb347;background:#4a3410;box-shadow:0 0 0 2px #ffb347}
 #warn,#warn2{position:absolute;left:1.2em;bottom:1.2em;font-size:1em;letter-spacing:.1em;color:#ffb347;border:2px dashed #ffb347;padding:.2em .7em;background:rgba(0,0,0,.6);opacity:0}
 #warn2{left:auto;right:1.2em;bottom:4.4em}
 #warn.on,#warn2.on{opacity:1;animation:blink 1s steps(2) infinite}
@@ -308,6 +309,8 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .onrow .sno{grid-area:no;color:var(--pc);text-align:center}.onrow .onname{grid-area:name}.onrow .onst{grid-area:st;font-weight:700;white-space:nowrap}.onrow .onlat{grid-area:lat;color:var(--mut);font-size:.85em;white-space:nowrap}
 .onrow .onfig,.onrow .opt.cell{grid-area:fig;min-width:0;overflow-wrap:anywhere}.onrow .opt.cell{margin:0;padding:.35em .5em;justify-content:center;min-height:44px}
 .onrow button.mi{grid-area:rm;width:auto;margin:0;min-height:44px;padding:.3em .6em;font-size:.8em}
+.roombox{margin:.4em 0}.roomcode{font:800 clamp(2em,9vw,3.6em)/1.1 Consolas,monospace;letter-spacing:.22em;text-align:center;color:var(--a1);background:#0b1224;border:2px solid #2a3b66;border-radius:.4em;padding:.25em .2em .25em .45em;user-select:text;-webkit-user-select:text}
+.roomlink{overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.roomin{text-transform:uppercase;letter-spacing:.3em;font-size:1.4em;text-align:center}.roomcells{display:flex;gap:.4em;margin:.4em 0}.roomcells .opt.cell{flex:1 1 0;margin:0;padding:.3em;justify-content:center;min-height:44px}.roomcells .opt .v{min-width:0;text-align:center;font-size:1.4em}
 @media (max-width:520px){.onrow{grid-template-columns:2em 1fr auto;grid-template-areas:"no name st" "no fig fig" "no lat rm"}}
 .opt.dim{opacity:.5;cursor:default;pointer-events:none}
 .beat{display:block;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
@@ -1491,6 +1494,7 @@ class PlayerInput {
     this.padHeld.menuOk = down(0);
     this.padHeld.menuBack = down(1);
     this.padHeld.menuStart = down(COOP_START_BUTTON); // Start on the Free Fight screen starts the fight
+    this.padHeld.menuSelect = down(PAD_SELECT_BUTTON); // a short Select press leaves an online match's question (A, B and the stick are fight buttons there)
     this.padHeld.menuL1 = down(4); this.padHeld.menuR1 = down(5); this.padHeld.menuL2 = down(6); this.padHeld.menuR2 = down(7); // raw shoulder buttons: creator tabs and preview turn
     let anyButton = false;
     for (const action in map) {
@@ -1657,7 +1661,7 @@ const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
 const Input3 = new PlayerInput(2, null); // co-op only; the keyboard layout of a seat is set by Inputs.applySeats
 const Input4 = new PlayerInput(3, null);
-const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2', 'menuStart']; // raw pad buttons: confirm / back, creator tabs and turning, Start
+const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2', 'menuStart', 'menuSelect']; // raw pad buttons: confirm / back, creator tabs and turning, Start, Select
 // Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to
 const Inputs = {
   players: [Input, Input2, Input3, Input4],
@@ -1670,7 +1674,7 @@ const Inputs = {
   party: [], // the seated players' inputs, in seat order (what active() returns in a co-op)
   lobbyHeld: {}, // join screen: the buttons each pad held on the last frame, so only a new press counts
   seatPadIds: [null, null, null, null], // the id string of the gamepad in each gamepad seat
-  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false, start: false }, // scratch for anyPadMenu
+  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false, start: false, select: false }, // scratch for anyPadMenu
   padSlots: [-1, -1], // Versus: pad index held by P1 / P2; a pad stays with its player until it disconnects
   enabled: false,
   attached: false,
@@ -1908,13 +1912,13 @@ const Inputs = {
   // The menu buttons held on any connected gamepad, seated or not
   anyPadMenu() {
     const out = this.anyPad;
-    out.up = out.down = out.left = out.right = out.ok = out.back = out.start = false;
+    out.up = out.down = out.left = out.right = out.ok = out.back = out.start = out.select = false;
     if (!navigator.getGamepads) return out;
     for (const pad of readPads()) {
       if (!pad || !pad.connected) continue;
       const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
       const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
-      out.ok = out.ok || down(0); out.back = out.back || down(1); out.start = out.start || down(COOP_START_BUTTON);
+      out.ok = out.ok || down(0); out.back = out.back || down(1); out.start = out.start || down(COOP_START_BUTTON); out.select = out.select || down(PAD_SELECT_BUTTON);
       out.up = out.up || y < -PAD_DIGITAL || down(12); out.down = out.down || y > PAD_DIGITAL || down(13);
       out.left = out.left || x < -PAD_DIGITAL || down(14); out.right = out.right || x > PAD_DIGITAL || down(15);
     }
@@ -1962,6 +1966,7 @@ const Inputs = {
     this.menuHeld.menuOk = !!this.menuHeld.menuOk || any.ok;
     this.menuHeld.menuBack = !!this.menuHeld.menuBack || any.back;
     this.menuHeld.menuStart = !!this.menuHeld.menuStart || any.start;
+    this.menuHeld.menuSelect = !!this.menuHeld.menuSelect || any.select;
   },
 };
 
@@ -13191,10 +13196,12 @@ function shuffled(list, rng) {
    The connection belongs to its owner (P12-01 / the lobby): `Game.endMatch` (a rematch, a restart, the next tournament fight) only calls `session.detach()`, which lets go of the transports; make a new session on the same transports for the next match. `session.close()` also only detaches a link transport,
    and the owner closes the link and its RTCPeerConnection. `Game.leaveOnline()` (the Leave and Menu buttons of the status line) does quitToMenu, `session.close()` and then `hooks.onLeave()`, where the owner closes the link so the others see it at once.
    A transport is { send(channel, data), close(), onmessage(channel, data), onclose() } with channel 'input' (a Uint8Array) or 'control' (a string). Rollback is out of scope. */
-const NET_INPUT_DELAY = 2, NET_DELAY_MIN = 2, NET_DELAY_MAX = 6; // frames; 2 on a LAN
+const NET_INPUT_DELAY = 2, NET_DELAY_MIN = 2, NET_DELAY_MAX = 10; // frames; 2 on a LAN; the ceiling is 10 since P19-12 (N12): friends far apart or on mobile data have a round trip of 170 to 300 ms, which 6 frames (2 x 5 x 16.7 ms = 167 ms) could not cover, so the sim waited every few frames. The delay always follows the measured round trip: a local link stays at 2 or 3
 const NET_FRAME_MS = 16.7; // one frame in the delay formula
 const NET_REDUNDANCY = 8; // input frames per packet
 const NET_CHECK_EVERY = 60; // frames between state checksums
+const NET_PAD = 1, NET_PAD_PICK = 2; // the third item of a status-line button: the pad and Enter press it / and it is the one picked first (UI.netStatus)
+const NET_LEAVE_TEXT = 'Leave the match? Gamepad: Select leaves, Start stays.'; // the question behind the pause key: the sim goes on, so on a pad only Select (short press) and Start answer it, never the stick, A or B
 const NET_WAIT_SHOW_MS = 500, NET_DROP_MS = 10000, NET_GUEST_GRACE_MS = 5000; // "Waiting for P3..." after 0.5 s; a seat is dropped after 10 s (a guest lets the host decide first)
 const NET_PING_SAMPLES = 20, NET_PING_EVERY_MS = 1000;
 const NET_RESEND_MS = 16; // a stalled peer repeats its newest inputs this often
@@ -13269,7 +13276,7 @@ function netMedian(samples) {
   const sorted = samples.slice().sort((a, b) => a - b), mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
-// The input delay in frames from the round-trip times (ms) of the guests' links: clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6). With several guests the slowest path is guest to host to guest: the two largest round trips, halved and added.
+// The input delay in frames from the round-trip times (ms) of the guests' links: clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 10). With several guests the slowest path is guest to host to guest: the two largest round trips, halved and added.
 function netDelayFor(roundTrips) {
   const sorted = roundTrips.filter(Number.isFinite).sort((a, b) => b - a);
   if (!sorted.length) return NET_INPUT_DELAY;
@@ -14140,18 +14147,24 @@ const Game = {
   // An online match (P12-02): the session steps the sim and decides when it waits. hooks: onRematch() (the "Out of sync" Rematch button; no button without it), onLeave() (after Leave or Menu: close the link), onDesync(info), onDrop(info). The lobby (P12-06) builds the session and calls this.
   attachNet(session, hooks = {}) {
     this.net = session;
-    this.netNote = { waiting: '', final: '', rematch: hooks.onRematch || null, onLeave: hooks.onLeave || null, leave: false };
+    this.netNote = { waiting: '', final: '', rematch: hooks.onRematch || null, onLeave: hooks.onLeave || null, leave: false, desync: false, left: [] }; // left: the seats whose people left during the match (the results say so, N18)
     session.onWaiting = (text) => { this.netNote.waiting = text || ''; this.netShow(); };
-    session.onDesync = (info) => { this.netNote.final = info.text; this.netShow(); if (hooks.onDesync) hooks.onDesync(info); };
-    session.onDrop = (info) => { if (info.outcome === 'lost') { this.netNote.final = 'Connection lost'; this.netShow(); } if (hooks.onDrop) hooks.onDrop(info); };
+    session.onDesync = (info) => { this.netNote.final = info.text; this.netNote.desync = true; this.netShow(); if (hooks.onDesync) hooks.onDesync(info); };
+    session.onDrop = (info) => {
+      if (info.outcome === 'lost') { this.netNote.final = (hooks.lostText && hooks.lostText()) || 'Connection lost'; this.netShow(); } // the host said goodbye first: "The host left the game." (N19)
+      else this.netNote.left.push(info.seat);
+      if (hooks.onDrop) hooks.onDrop(info);
+    };
   },
-  // The one status line of an online fight: Connection lost / Out of sync (Menu, and Rematch where there is a handler), the question behind the pause key (Leave / Stay), or the waiting text (Menu)
+  // The one status line of an online fight: Connection lost / Out of sync (Menu, and Rematch where there is a handler; a guest that is out of sync stays and says the host can start a rematch, N20), the question behind the pause key (Leave / Stay), or the waiting text (Menu).
+  // The pad and Enter reach the buttons of the first three (NET_PAD, NET_PAD_PICK: the one picked first; N08), never the waiting line
   netShow() {
-    const note = this.netNote, menu = ['Menu', () => this.leaveOnline()];
+    const note = this.netNote, leave = () => this.leaveOnline();
     if (!note) UI.netStatus('');
-    else if (note.final) UI.netStatus(note.final, ...(note.rematch ? [['Rematch', note.rematch]] : []), menu);
-    else if (note.leave) UI.netStatus('Leave the match?', ['Leave', () => this.leaveOnline()], ['Stay', () => { note.leave = false; this.netShow(); }]);
-    else UI.netStatus(note.waiting, menu);
+    else if (note.final && note.desync && !note.rematch) UI.netStatus(note.final + '. The host can start a rematch.', ['Leave', leave, NET_PAD_PICK]);
+    else if (note.final) UI.netStatus(note.final, ...(note.rematch ? [['Rematch', note.rematch, NET_PAD_PICK]] : []), ['Menu', leave, note.rematch ? NET_PAD : NET_PAD_PICK]);
+    else if (note.leave) UI.netStatus(NET_LEAVE_TEXT, ['Leave', leave, NET_PAD], ['Stay', () => { note.leave = false; this.netShow(); }, NET_PAD_PICK]);
+    else UI.netStatus(note.waiting, ['Menu', leave]);
   },
   // Out of an online match for good: back to the menu and both channels closed, so the others see it at once instead of waiting 10 s
   leaveOnline() {
@@ -14271,6 +14284,7 @@ const Game = {
     if (mine !== 0 && !(run && run.mode === 'versus')) this.seatView(data, m, mine); // the Versus results are P1 against P2 for everyone
     data.mode = run ? run.mode : 'free';
     data.playerWon = playerWon;
+    if (this.net) { data.online = true; data.left = this.netNote ? this.netNote.left.slice() : []; } // the results say it was an online match and who left it (N24, N18)
     data.buttons = [];
     const personWon = m.peopleWon(); // a lineup is won by a team; a person on it makes it a victory
     if (m.setup) data.draw = m.matchWinner < 0;
@@ -14351,8 +14365,8 @@ const Game = {
 
   // --- pause
   pause(by, automatic = false) {
-    if (this.net) { // an online match cannot pause (the other seats would wait): the pause key and button toggle the question whether to leave, the sim goes on; a window blur or a hidden tab (automatic) only opens it
-      if (this.state === GS.FIGHT || this.state === GS.COUNTDOWN || this.state === GS.ROUND_END) { this.netNote.leave = automatic ? true : !this.netNote.leave; this.netShow(); }
+    if (this.net) { // an online match cannot pause (the other seats would wait): the pause key and button toggle the question whether to leave, the sim goes on; a window blur or a hidden tab (automatic) asks nothing (N15: a click outside the frame or a fullscreen toggle blurs the page)
+      if (!automatic && (this.state === GS.FIGHT || this.state === GS.COUNTDOWN || this.state === GS.ROUND_END)) { this.netNote.leave = !this.netNote.leave; this.netShow(); }
       return false;
     }
     if (this.state !== GS.FIGHT && this.state !== GS.COUNTDOWN) return false;
@@ -15501,7 +15515,7 @@ const Song = {
   },
 };
 
-// === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
+// === 09 Online - signaling by copy-paste (P12-01) or by a room code (P19-12): the code format, the QR encoder, the peer link and the room signalling (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
 const ONLINE_NET_VERSION = 4; // the match message protocol (raised when the messages or the simulation's bits change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start; 4 since P12-08, whose exact simulation maths gives other bits than the old build's); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
@@ -15518,6 +15532,9 @@ const ONLINE_UFRAG_RANGE = [4, 32]; // RFC 8839 ice-ufrag and ice-pwd lengths
 const ONLINE_PWD_RANGE = [22, 32];
 const ONLINE_CANDIDATE_TYPE = { MDNS: 0, IPV4: 1, IPV6: 2 };
 const ONLINE_ADDRESS_BYTES = [16, 4, 16];
+const ONLINE_CANDIDATE_PUBLIC = 16; // flag on a packed candidate's type byte: a server-reflexive candidate (the public address a STUN server saw), not a host one
+const ONLINE_PRIORITY_HOST = 126, ONLINE_PRIORITY_REFLEXIVE = 100; // the type preference in an ICE priority (RFC 8445): a host candidate is tried before a server-reflexive one
+const ONLINE_ICE_SERVERS =[{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }]; // free public STUN (P19-12, N01): each link learns its public address, so two networks can connect; no TURN (Owner step)
 const ONLINE_MDNS = /^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\.local$/i; // Chrome, Firefox and Safari hide a host address behind a UUID
 const ONLINE_SDP_MEDIA = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
 const ONLINE_SDP_MEDIA_PATTERN = /^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/; // with real addresses (no mDNS) a browser puts its first candidate's port here
@@ -15531,19 +15548,28 @@ const ONLINE_MESSAGES = {
   version: 'This code is from another version of the game. Everyone needs the same version.',
   seat: 'This answer is for another seat. Use the answer to the code you sent for this seat.',
   nonetwork: 'No network address was found. Connect to Wi-Fi or a router first (mobile data and some VPNs hide the address), then try again.',
-  ice: 'The devices could not connect. Some networks block direct connections: guest Wi-Fi, office or school networks, VPNs, some mobile data. Use the same home Wi-Fi, or a phone hotspot.',
-  timeout: 'The connection did not open in time. Make new codes and try again on the same Wi-Fi or a phone hotspot (some networks block direct connections).',
+  ice: 'The devices could not connect. Your networks block a direct link (guest Wi-Fi, office or school networks, VPNs, some mobile data). Try Wi-Fi on one side, or a phone hotspot.',
+  timeout: 'The connection did not open in time. Try again, or use Wi-Fi on one side or a phone hotspot (some networks block a direct link).',
   guestWait: 'The host did not answer in time (some browsers, like Firefox, wait only a few seconds). Ask for a new code and answer faster, try Firefox as the host, or send the first code yourself.',
   answerWait: 'Your friend did not enter your answer in time (some browsers, like Firefox, wait only a few seconds). Make a new code, and let the friend with Firefox send the first code.',
+  iceWait: 'The connection did not start. The other side may not have entered the code yet, or your networks block a direct link. Make a new code, or try Wi-Fi on one side.',
   lost: 'The connection was lost. Check the Wi-Fi, then join again.',
+  joinBack: 'Welcome back. Looking for the game again...',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
   unsupported: 'This browser cannot make an online connection (no WebRTC). Try the latest Chrome, Edge, Firefox or Safari.',
-  nobody: 'Connect at least one friend first: send the code, paste the answer, press Connect.',
+  nobody: 'Wait for at least one friend: they type your room code on Join a game.',
+  roomCode: 'A room code has 5 symbols: letters without vowels and the numbers 2 to 9.',
+  noService: 'Can\'t reach the free join service from here. Use codes instead (the same Wi-Fi is enough for them), or check the internet connection.',
+  noCrypto: 'Room codes need a secure page (https). Use codes instead.',
+  roomFull: 'This game is full (4 players). Ask the host for a free seat.',
+  roomVersion: 'This game runs another version of Breakpoint. Everyone needs the same version.',
+  roomLost: 'The room service dropped, so new friends cannot join with the code. Friends already in stay connected. Trying to get the code back.',
   fightTwo: 'A 1 vs 1 needs exactly 2 players. Pick Brawl or Tournament for 3 or 4.',
   someoneLeft: 'A player left, so this fight cannot start again.',
   start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
   state: 'That step is not possible now. Go back and start again.',
   removed: 'The host removed you from the game. Ask the host for a new code to join again.',
+  hostLeft: 'The host left the game.',
   lineupCrowd: 'A crowd fight is the Brawl mode online. Pick another fight type in the lineup.',
   lineupLocal: 'A local Player slot cannot play online. Set it to Online or CPU in the lineup.',
   lineupNoNet: 'Turn Online friends on in the lineup (Players and teams) and set a slot to Online for each friend.',
@@ -15618,9 +15644,11 @@ const OnlineCode = {
         if (parts[2].toLowerCase() === 'tcp') continue; // the game uses UDP only
         const address = this.addressOf(parts[4]);
         const candidatePort = Number(parts[5]);
-        const plain = parts[2].toLowerCase() === 'udp' && parts[1] === '1' && parts[7] === 'host';
+        const plain = parts[2].toLowerCase() === 'udp' && parts[1] === '1' && (parts[7] === 'host' || parts[7] === 'srflx');
         if (!plain || !address || !Number.isInteger(candidatePort) || candidatePort < 1 || candidatePort > 65535) return null;
-        found.candidates.push({ type: address.type, bytes: address.bytes, port: candidatePort });
+        const reflexive = parts[7] === 'srflx'; // the public address STUN found (its raddr and rport are dropped: the other side needs only where to send)
+        if (reflexive && address.type === ONLINE_CANDIDATE_TYPE.MDNS) return null;
+        found.candidates.push({ type: address.type, bytes: address.bytes, port: candidatePort, reflexive });
       }
     }
     const lengthOk = (text, range) => text.length >= range[0] && text.length <= range[1] && ONLINE_ICE_CHARS.test(text);
@@ -15637,8 +15665,9 @@ const OnlineCode = {
       'a=fingerprint:sha-256 ' + found.fingerprint.map((byte) => byte.toString(16).toUpperCase().padStart(2, '0')).join(':'),
       'a=setup:' + (kind ? 'active' : 'actpass'), 'a=mid:0', 'a=sctp-port:5000', 'a=max-message-size:262144'];
     found.candidates.forEach((candidate, index) => {
-      const priority = (126 << 24) + ((65535 - index) << 8) + 255; // host type preference, earlier candidates first, component 1
-      lines.push('a=candidate:' + (index + 1) + ' 1 udp ' + priority + ' ' + this.addressText(candidate.type, candidate.bytes) + ' ' + candidate.port + ' typ host');
+      const priority = ((candidate.reflexive ? ONLINE_PRIORITY_REFLEXIVE : ONLINE_PRIORITY_HOST) << 24) + ((65535 - index) << 8) + 255; // type preference (host before server-reflexive), earlier candidates first, component 1
+      const kind = candidate.reflexive ? 'srflx raddr 0.0.0.0 rport 0' : 'host';
+      lines.push('a=candidate:' + (index + 1) + ' 1 udp ' + priority + ' ' + this.addressText(candidate.type, candidate.bytes) + ' ' + candidate.port + ' typ ' + kind);
     });
     lines.push('a=end-of-candidates');
     return lines.join('\r\n') + '\r\n';
@@ -15668,7 +15697,7 @@ const OnlineCode = {
     if (!found) return null;
     const bytes = this.header(kind, ONLINE_FORM.PACKED, seat);
     bytes.push(found.ufrag.length, ...Array.from(found.ufrag, (char) => char.charCodeAt(0)), found.pwd.length, ...Array.from(found.pwd, (char) => char.charCodeAt(0)), ...found.fingerprint, found.candidates.length);
-    for (const candidate of found.candidates) bytes.push(candidate.type, ...candidate.bytes, candidate.port >> 8, candidate.port & 255);
+    for (const candidate of found.candidates) bytes.push(candidate.type | (candidate.reflexive ? ONLINE_CANDIDATE_PUBLIC : 0), ...candidate.bytes, candidate.port >> 8, candidate.port & 255);
     return this.seal(kind, bytes);
   },
   // The code text for an SDP: the packed form, or the whole SDP deflated (where the browser has CompressionStream) or as it is
@@ -15732,11 +15761,11 @@ const OnlineCode = {
     const count = take(1)[0];
     if (count < 1 || count > ONLINE_CANDIDATES_MAX) throw onlineError('damaged');
     for (let i = 0; i < count; i++) {
-      const type = take(1)[0];
-      if (type >= ONLINE_ADDRESS_BYTES.length) throw onlineError('damaged');
+      const typeByte = take(1)[0], type = typeByte & ~ONLINE_CANDIDATE_PUBLIC, reflexive = (typeByte & ONLINE_CANDIDATE_PUBLIC) !== 0;
+      if (type >= ONLINE_ADDRESS_BYTES.length || (reflexive && type === ONLINE_CANDIDATE_TYPE.MDNS)) throw onlineError('damaged');
       const address = take(ONLINE_ADDRESS_BYTES[type]);
       const port = take(2);
-      found.candidates.push({ type, bytes: address, port: (port[0] << 8) | port[1] });
+      found.candidates.push({ type, bytes: address, port: (port[0] << 8) | port[1], reflexive });
     }
     if (at !== end) throw onlineError('damaged');
     return found;
@@ -15927,11 +15956,11 @@ const Qr = {
   },
 };
 
-/* The peer link: one RTCPeerConnection with two data channels, made and joined by codes (no signaling server, no ICE server).
+/* The peer link: one RTCPeerConnection with two data channels, made and joined by codes or through a room (OnlineRoom); public STUN servers only, no TURN.
    States: idle, gathering (making a code), waiting (the code is out, the other side's code is not in yet), connecting, open, failed, closed.
    Channels (negotiated, ids fixed, so neither side waits for ondatachannel): reliable = ordered, quick = unordered, no resend (the P12-02 inputs).
    API for the netcode: state, error, seat, send(data, quick), onMessage(fn), onState(fn), close(); each on* returns a function that removes the listener. */
-function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection), offerer: the self-tests set them
+function createOnlineLink(role, options = {}) { /// options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection), iceServers (the self-tests pass [] so none reaches the network), offerer: the self-tests set them
   const host = role === 'host';
   const offerer = options.offerer === undefined ? host : options.offerer === true; // who makes the first code: the host by default; a Firefox guest does (its ICE agent waits only about 5 s after it has an offer, the one that makes the first code waits for ever), P12-06
   const gatherMs = options.gatherMs ?? ONLINE_GATHER_MS, connectMs = options.connectMs ?? ONLINE_CONNECT_MS, guestWaitMs = options.guestWaitMs ?? ONLINE_GUEST_WAIT_MS;
@@ -15947,10 +15976,17 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     state = next;
     emit('state', state, failure);
   };
-  const release = () => {
+  // graceMs: the channels and the connection are let go this long after the link says closed, so a last message (the host's goodbye) can still leave (N19); the link ignores every event from this moment on
+  const release = (graceMs = 0) => {
     clearTimeout(timer);
-    for (const name of ['reliable', 'quick']) { const channel = channels[name]; if (channel) { channel.onopen = channel.onclose = channel.onmessage = null; try { channel.close(); } catch (error) { /* already closed */ } } }
-    if (connection) { connection.oniceconnectionstatechange = connection.onconnectionstatechange = null; try { connection.close(); } catch (error) { /* already closed */ } }
+    for (const name of ['reliable', 'quick']) { const channel = channels[name]; if (channel) channel.onopen = channel.onclose = channel.onmessage = null; }
+    if (connection) connection.oniceconnectionstatechange = connection.onconnectionstatechange = null;
+    const held = { channels: Object.values(channels), connection };
+    const teardown = () => {
+      for (const channel of held.channels) { if (channel) try { channel.close(); } catch (error) { /* already closed */ } }
+      if (held.connection) try { held.connection.close(); } catch (error) { /* already closed */ }
+    };
+    if (graceMs > 0) setTimeout(teardown, graceMs); else teardown();
   };
   const fail = (code, message) => {
     if (state === 'failed' || state === 'closed') return;
@@ -15959,7 +15995,7 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     setState('failed');
   };
   const lost = () => {
-    if (state === 'open') { failure = { code: 'lost', message: ONLINE_MESSAGES.lost }; release(); setState('closed'); } else if (state === 'connecting') fail('ice'); else if (state === 'waiting') fail(offerer ? 'ice' : host ? 'answerWait' : 'guestWait'); // the side that answered, and waits for the other to enter its answer
+    if (state === 'open') { failure = { code: 'lost', message: ONLINE_MESSAGES.lost }; release(); setState('closed'); } else if (state === 'connecting') fail('ice'); else if (state === 'waiting') fail(offerer ? 'ice' : 'iceWait'); // the side that answered and waits for the other to enter its answer: its checks run out before the other side has started its own (or the networks block them): both reasons are named (N06)
   };
   const arm = (ms, code) => { clearTimeout(timer); timer = setTimeout(() => fail(code), ms); };
   const checkOpen = () => {
@@ -15969,7 +16005,7 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
   const start = () => {
     const Connection = options.connection || (typeof RTCPeerConnection === 'undefined' ? null : RTCPeerConnection);
     if (!Connection) throw onlineError('unsupported');
-    connection = new Connection({ iceServers: [] });
+    connection = new Connection({ iceServers: options.iceServers || ONLINE_ICE_SERVERS });
     channels.reliable = connection.createDataChannel('bp-reliable', { negotiated: true, id: 0 });
     channels.quick = connection.createDataChannel('bp-quick', { negotiated: true, id: 1, ordered: false, maxRetransmits: 0 });
     for (const name of ['reliable', 'quick']) {
@@ -15991,12 +16027,17 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     limit = setTimeout(done, gatherMs);
     connection.addEventListener('icegatheringstatechange', onChange);
   });
-  // The local description with every candidate found so far, as a code
-  const localCode = async (kind) => {
+  // The local description with every candidate found so far
+  const localSdp = async () => {
     await gathered();
     if (state !== 'gathering') throw onlineError('state');
     const sdp = connection.localDescription ? connection.localDescription.sdp : '';
     if (!/^a=candidate:/m.test(sdp)) throw onlineError('nonetwork');
+    return sdp;
+  };
+  // ... as a code
+  const localCode = async (kind) => {
+    const sdp = await localSdp();
     const code = await OnlineCode.pack(kind, seat, sdp);
     form = (await OnlineCode.unpack(code)).form;
     return code;
@@ -16058,6 +16099,48 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
         await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
       });
     },
+    /* The room flow (P19-12): no code text, the descriptions travel as plain SDP through the room services (OnlineRoom). The friend's link makes the offer (made with { offerer: true }),
+       the host's link (made with { offerer: false }) answers it at once and gives the friend its seat; both then connect, so a failed ICE is 'ice' on both sides. */
+    makeRoomOffer() {
+      if (!offerer || host || state !== 'idle') return Promise.reject(onlineError('state'));
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setLocalDescription(await connection.createOffer());
+        const sdp = await localSdp();
+        setState('waiting');
+        return sdp;
+      });
+    },
+    answerRoomOffer(offerSdp, seatNumber) {
+      if (offerer || !host || state !== 'idle' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+      seat = seatNumber;
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+        await connection.setLocalDescription(await connection.createAnswer());
+        const sdp = await localSdp();
+        setState('connecting');
+        arm(connectMs, 'timeout');
+        return sdp;
+      });
+    },
+    acceptRoomAnswer(answerSdp, seatNumber) {
+      if (!offerer || host || state !== 'waiting' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+      return guard(async () => {
+        seat = seatNumber;
+        setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
+        arm(connectMs, 'timeout');
+        await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      });
+    },
+    // N09: a phone that goes to another app (a chat, to read the code) may stop the page for a while: the limits of a link stop with it and start again when the page is back
+    suspend() { if (state === 'waiting' || state === 'connecting') clearTimeout(timer); },
+    resume() {
+      if (state === 'connecting') arm(connectMs, 'timeout');
+      else if (state === 'waiting' && !offerer) arm(guestWaitMs, host ? 'answerWait' : 'guestWait');
+    },
     // true when sent; false when the link is not open (nothing is queued)
     send(data, quick = false) {
       const channel = quick ? channels.quick : channels.reliable;
@@ -16067,18 +16150,533 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     },
     onMessage(fn) { listeners.message.push(fn); return () => { listeners.message = listeners.message.filter((item) => item !== fn); }; },
     onState(fn) { listeners.state.push(fn); return () => { listeners.state = listeners.state.filter((item) => item !== fn); }; },
-    close() {
+    close(graceMs = 0) {
       if (state === 'closed' || state === 'failed') return;
-      release();
+      release(graceMs);
       setState('closed');
       listeners.message = []; listeners.state = [];
     },
   };
 }
+/* === 09b Online rooms (P19-12, Appendix C "BP-P19-11 online one-code design"): the host's room code of 5 symbols finds the host through free public signalling services (no account, no server of ours).
+   Only random ids, the room's id and topic (made from the code by PBKDF2) and the two SDP descriptions pass through them, never a name, a setting or an input (those travel on the data channel); the descriptions are sealed with a key made from the code, on the trackers and the brokers alike. Outside the simulation: nothing here touches a fight.
+   Two public WebTorrent trackers (the announce / offer / answer protocol of the open-source trystero and WebTorrent projects, over WSS on port 443) and two public MQTT brokers run at the same time; the first path that delivers wins.
+   A host's code is live only when a path has really carried a message back to it (the echo of a probe through that path); both protocols are spoken directly over WebSocket, no library. */
+const ROOM_ALPHABET = 'BCDFGHJKMNPQRSTVWXZ23456789'; // 27 symbols: no vowels (so no words) and none of 0 O 1 I L; 27 ^ 5 = 14.3 million codes
+const ROOM_CODE_LENGTH = 5;
+const ROOM_TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev']; // public WebTorrent trackers (no account): each relays a friend's offer to the peers of the same info_hash and an answer back (measured 2026-11-13, Appendix D "BP-P19-12 built (part B)"). The PeerJS public server registers a client but relays nothing, so it is gone
+const ROOM_MQTT_URLS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt']; // public brokers for testing: the fallback only
+const ROOM_ID_PREFIX = { guest: 'bp4g' }; // only a friend has an id (the host is found by its hashed room, never by an id)
+const ROOM_ID_PATTERN = /^bp4g[0-9a-f]{20}$/;
+const ROOM_NONCE_PATTERN = /^[0-9a-f]{16}$/;
+const ROOM_ID_HEX = 20, ROOM_TOPIC_HEX = 32, ROOM_NONCE_HEX = 16;
+const ROOM_TRACKER_ANNOUNCE_MS = 30000; // a host says again that it is there (a tracker keeps a peer about 2 minutes: its announce interval)
+const ROOM_TRACKER_RESEND_MS = 4000; // a friend repeats its offers: the tracker hands them to random peers of the room, which may be another friend
+const ROOM_TRACKER_OFFERS = 3; // offers in one announce: with at most 3 friends and the host in the room, one of them always reaches the host
+const ROOM_PEER_BYTES = 20; // the length of a tracker's peer id, offer id and info hash
+const ROOM_ECHO_MS = 4000; // a host's probe must come back through a path within this long, else that path cannot relay
+const ROOM_MQTT_KEEPALIVE_S = 30, ROOM_MQTT_PING_MS = 20000;
+const ROOM_CLAIM_REFRESH_MS = 30000, ROOM_CLAIM_STALE_MS = 120000, ROOM_CLAIM_WAIT_MS = 1000; // a host's retained claim on a broker: refreshed, old after 2 minutes, and how long a new host listens for another claim of its code
+const ROOM_REACH_MS = 8000; // no path has carried a probe back to the host by then: "Can't reach the free join service"
+const ROOM_ANSWER_MS = 12000; // a friend's offer sent, no answer by then: "No game with code ..."
+const ROOM_CODE_TRIES = 3; // new codes made when the code is taken
+const ROOM_TEXT_MAX_CHARS = 32768; // the longest tracker message read (a sealed SDP of the largest size, in base64, fits)
+const ROOM_MQTT_PACKET_MAX = 32768; // a PUBLISH longer than this is dropped unread (the route stays up)
+const ROOM_KDF_ITERATIONS = 200000; // PBKDF2-SHA-256 rounds on the 5-symbol code (14.3 million of them): one guess costs this much, so a list of hashed rooms or a recorded message does not give the code away cheaply; measured on this PC in Appendix D "BP-P19-12 review fixes"
+const ROOM_KDF_SALT = 'breakpoint-room-salt-v2'; // fixed: the code alone must give the same room on every device
+const ROOM_MASTER_CACHE_MAX = 4; // codes whose PBKDF2 result is kept: a re-registered host or a friend that asks again does not pay the rounds twice
+const ROOM_CLAIM_FUTURE_MS = 60000; // a claim dated later than this ahead of the clock is not honest (a made-up claim could hold a code for good)
+const ROOM_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const ROOM_SEEN_MAX = 40; // offers a host remembers having answered
+const ROOM_SDP_CANDIDATES_MAX = 40;
+
+const RoomCode = {
+  // 5 uniformly drawn symbols (a byte at or over 243 = 27 * 9 is thrown away, so no symbol is likelier than another)
+  make() {
+    const limit = 256 - (256 % ROOM_ALPHABET.length), symbols = [];
+    while (symbols.length < ROOM_CODE_LENGTH) {
+      const bytes = Array.from(crypto.getRandomValues(new Uint8Array(ROOM_CODE_LENGTH * 2))).filter((byte) => byte < limit);
+      for (const byte of bytes) if (symbols.length < ROOM_CODE_LENGTH) symbols.push(ROOM_ALPHABET[byte % ROOM_ALPHABET.length]);
+    }
+    return symbols.join('');
+  },
+  // Typed text -> the code (read case-blind, spaces and dashes ignored), or '' when it is not exactly 5 symbols of the alphabet
+  read(text) {
+    const clean = String(text || '').toUpperCase().replace(/[\s-]+/g, '');
+    return clean.length === ROOM_CODE_LENGTH && Array.from(clean).every((symbol) => ROOM_ALPHABET.includes(symbol)) ? clean : '';
+  },
+  // The 5 cells of the gamepad picker for a text: a symbol each, '' for an empty cell
+  cellsOf(text) { const clean = this.typed(text); return Array.from({ length: ROOM_CODE_LENGTH }, (_, index) => clean[index] || ''); },
+  // What a box keeps while the player types: the symbols of the alphabet only, at most 5 (a vowel or a look-alike is dropped)
+  typed(text) { return Array.from(String(text || '').toUpperCase()).filter((symbol) => ROOM_ALPHABET.includes(symbol)).slice(0, ROOM_CODE_LENGTH).join(''); },
+  // The code of a `?join=K7QX4` link (location.search), or ''
+  fromLink(search) {
+    const found = /[?&]join=([^&#]*)/.exec(String(search || ''));
+    if (!found) return '';
+    try { return this.read(decodeURIComponent(found[1])); } catch (error) { return ''; }
+  },
+  // The link a friend opens: this page's address without its query and hash, then ?join=CODE
+  linkFor(code, pageHref) { return String(pageHref || '').split(/[?#]/)[0] + '?join=' + code; },
+  // One symbol further (dir 1) or back (dir -1) in the alphabet, for the gamepad cells (an empty cell starts at the first symbol or the last)
+  step(symbol, dir) {
+    const at = symbol ? ROOM_ALPHABET.indexOf(symbol) : -1; // (indexOf of '' is 0: an empty cell must not read as the first symbol)
+    if (at < 0) return ROOM_ALPHABET[dir > 0 ? 0 : ROOM_ALPHABET.length - 1];
+    return ROOM_ALPHABET[(at + dir + ROOM_ALPHABET.length) % ROOM_ALPHABET.length];
+  },
+};
+
+const RoomCrypto = {
+  available() { return typeof crypto !== 'undefined' && !!crypto.subtle && typeof crypto.getRandomValues === 'function'; }, // WebCrypto needs a secure page (https, localhost)
+  randomHex(length) { return OnlineCode.bytesHex(Array.from(crypto.getRandomValues(new Uint8Array(length / 2)))); },
+  // A tracker's peer id or offer id: 20 bytes as a binary string (one character per byte, as the tracker protocol writes them); the first bytes may be given (a hex text), the rest is random
+  randomBinary(prefixHex = '') {
+    const bytes = crypto.getRandomValues(new Uint8Array(ROOM_PEER_BYTES));
+    for (let index = 0; index < prefixHex.length / 2; index++) bytes[index] = parseInt(prefixHex.slice(index * 2, index * 2 + 2), 16);
+    return String.fromCharCode(...bytes);
+  },
+  // The one slow step of a code: PBKDF2-SHA-256 (ROOM_KDF_ITERATIONS rounds, a fixed salt), 32 bytes. Kept for the last codes, so a second hub of the same code does not pay the rounds again
+  master(code) {
+    let made = this.masters.get(code);
+    if (made) return made;
+    made = crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveBits'])
+      .then((material) => crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(ROOM_KDF_SALT), iterations: ROOM_KDF_ITERATIONS, hash: 'SHA-256' }, material, 256))
+      .then((bits) => new Uint8Array(bits));
+    if (this.masters.size >= ROOM_MASTER_CACHE_MAX) this.masters.delete(this.masters.keys().next().value);
+    this.masters.set(code, made);
+    made.catch(() => this.masters.delete(code));
+    return made;
+  },
+  masters: new Map(),
+  // 32 bytes for one purpose: SHA-256 of the master and the purpose's name, so the info hash, the topic and the key do not reveal one another
+  async part(code, purpose) { return new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from([...await this.master(code), ...new TextEncoder().encode(purpose)]))); },
+  // The room's info hash on a tracker (20 bytes as a binary string) and the root of its MQTT topics: made from the code by PBKDF2, so the code itself never travels and a hash seen on a service costs work to turn back into a code (the salt is fixed, so one precomputed table of all 14.3 million codes serves every room: slow to make, not impossible)
+  async ids(code) {
+    const [swarm, topic] = await Promise.all([this.part(code, 'swarm'), this.part(code, 'topic')]);
+    return { swarm: String.fromCharCode(...swarm.slice(0, ROOM_PEER_BYTES)), topic: 'bp4/' + OnlineCode.bytesHex(Array.from(topic)).slice(0, ROOM_TOPIC_HEX) };
+  },
+  // The AES-GCM key of a room: it keeps the descriptions from readers of a public service who do not know the code
+  async key(code) { return crypto.subtle.importKey('raw', await this.part(code, 'key'), 'AES-GCM', false, ['encrypt', 'decrypt']); },
+  // message -> bytes: a fresh 12-byte nonce, then the ciphertext
+  async seal(key, message) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(message))));
+    const out = new Uint8Array(iv.length + body.length);
+    out.set(iv); out.set(body, iv.length);
+    return out;
+  },
+  // bytes -> the message, or null for anything that does not decrypt with this key or is not JSON
+  async open(key, bytes) {
+    if (bytes.length < 12 + 16) return null;
+    try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12)))); } catch (error) { return null; }
+  },
+  // The same as text (base64), for a tracker, which carries text
+  async sealText(key, message) { return btoa(String.fromCharCode(...await this.seal(key, message))); },
+  async openText(key, text) {
+    if (typeof text !== 'string' || !ROOM_BASE64.test(text)) return null;
+    try { return await this.open(key, Uint8Array.from(atob(text), (character) => character.charCodeAt(0))); } catch (error) { return null; }
+  },
+};
+
+// The messages of the room protocol, read strictly: a field of the wrong kind or any unknown shape is refused (null), whoever sent it
+const RoomMessage = {
+  // The SDP of a stranger's message, or '': printable text, one data-channel media section, a sane number of candidates
+  sdp(text) {
+    if (typeof text !== 'string' || text.length > ONLINE_SDP_MAX_BYTES || !text.startsWith('v=0') || !/^[\x20-\x7e\r\n]+$/.test(text)) return '';
+    const lines = text.split(/\r?\n/), media = lines.filter((line) => line.startsWith('m=')), candidates = lines.filter((line) => line.startsWith('a=candidate:'));
+    return media.length === 1 && ONLINE_SDP_MEDIA_PATTERN.test(media[0]) && candidates.length <= ROOM_SDP_CANDIDATES_MAX ? text : '';
+  },
+  // { t: 'offer', from, nonce, bp, sdp } from a friend; { t: 'answer', nonce, bp, host, sdp, seat } or { t: 'answer', nonce, bp, host, full: true } or { t: 'answer', nonce, bp, host, version } from the host (host: the id of the host that answers, its room nonce)
+  read(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.nonce !== 'string' || !ROOM_NONCE_PATTERN.test(value.nonce) || !Number.isInteger(value.bp)) return null;
+    const { nonce, bp } = value;
+    if (value.t === 'offer') {
+      const sdp = this.sdp(value.sdp);
+      return sdp && typeof value.from === 'string' && ROOM_ID_PATTERN.test(value.from) ? { t: 'offer', from: value.from, nonce, bp, sdp } : null;
+    }
+    if (value.t !== 'answer' || typeof value.host !== 'string' || !ROOM_NONCE_PATTERN.test(value.host)) return null;
+    const { host } = value;
+    if (value.full === true) return { t: 'answer', nonce, bp, host, full: true };
+    if (Number.isInteger(value.version)) return { t: 'answer', nonce, bp, host, version: value.version };
+    const sdp = this.sdp(value.sdp);
+    return sdp && Number.isInteger(value.seat) && value.seat >= ONLINE_SEAT_MIN && value.seat <= ONLINE_SEAT_MAX ? { t: 'answer', nonce, bp, host, sdp, seat: value.seat } : null;
+  },
+  // A host's probe to itself (sent through a path to see that the path relays): { t: 'probe', nonce }
+  readProbe(value) { return value && typeof value === 'object' && value.t === 'probe' && typeof value.nonce === 'string' && ROOM_NONCE_PATTERN.test(value.nonce) ? { t: 'probe', nonce: value.nonce } : null; },
+  // A host's claim on a code (kept by a broker): { t: 'claim', nonce, time }; a time more than ROOM_CLAIM_FUTURE_MS ahead of now is refused
+  readClaim(value, now = Date.now()) {
+    return value && typeof value === 'object' && value.t === 'claim' && typeof value.nonce === 'string' && ROOM_NONCE_PATTERN.test(value.nonce) && Number.isFinite(value.time) && value.time <= now + ROOM_CLAIM_FUTURE_MS ? { nonce: value.nonce, time: value.time } : null;
+  },
+};
+
+// The WebTorrent tracker protocol over WebSocket (bittorrent-tracker; trystero's torrent strategy speaks it too), the few messages this game speaks. Peer ids, offer ids and the info hash are binary strings of 20 characters (one character per byte).
+// A tracker passes only the `type` and the `sdp` of an offer or answer on and drops every other field, so the room message travels sealed (AES-GCM, base64, the key of the code: the same as on the brokers) inside `sdp`.
+const TrackerWire = {
+  announce(swarm, peerId, fields) { return JSON.stringify(Object.assign({ action: 'announce', info_hash: swarm, peer_id: peerId }, fields)); },
+  // A host is a seeder (left 0) that asks for nobody (numwant 0): the tracker counts it in `complete`, which tells a friend that somebody hosts this room. event: 'started', 'stopped' or nothing (a repeat)
+  presence(swarm, peerId, event) { return this.announce(swarm, peerId, { numwant: 0, left: 0, uploaded: 0, downloaded: 0, event }); },
+  // A friend's offers (or a probe): the tracker hands each one to another peer of the room, up to numwant
+  offers(swarm, peerId, offerIds, payload) { return this.announce(swarm, peerId, { numwant: offerIds.length, offers: offerIds.map((id) => ({ offer_id: id, offer: { type: 'offer', sdp: payload } })) }); }, // payload: the sealed text of a room message (RoomCrypto.sealText)
+  answer(swarm, peerId, toPeerId, offerId, payload) { return this.announce(swarm, peerId, { to_peer_id: toPeerId, offer_id: offerId, left: 0, answer: { type: 'answer', sdp: payload } }); },
+  // The id a host's tracker peer id names: its first 8 bytes are the host's room nonce (as hex), the rest is random
+  hostOf(peerId) { return Array.from(peerId.slice(0, ROOM_NONCE_HEX / 2), (character) => character.charCodeAt(0).toString(16).padStart(2, '0')).join(''); },
+  binary(value) { return typeof value === 'string' && value.length === ROOM_PEER_BYTES && /^[\u0000-\u00ff]+$/.test(value); },
+  // The sealed text that a tracker carried in `sdp` (base64 text), or null
+  payload(wrapper, type) {
+    return wrapper && typeof wrapper === 'object' && wrapper.type === type && typeof wrapper.sdp === 'string' && wrapper.sdp.length <= ROOM_TEXT_MAX_CHARS && ROOM_BASE64.test(wrapper.sdp) ? wrapper.sdp : null;
+  },
+  // A message of the tracker for this room (info_hash = swarm) as { kind: 'ack', complete } (the answer to our own announce: how many hosts the room has), { kind: 'offer', peerId, offerId, payload } (payload: the sealed text of a friend's offer or a host's probe)
+  // or { kind: 'answer', peerId, offerId, payload } (peerId: the sender), or null for anything else (a failure, another room, a wrong shape); what the payload holds is read after RoomCrypto.openText
+  read(text, swarm) {
+    if (typeof text !== 'string' || text.length > ROOM_TEXT_MAX_CHARS) return null;
+    let data;
+    try { data = JSON.parse(text); } catch (error) { return null; }
+    if (!data || typeof data !== 'object' || Array.isArray(data) || data.action !== 'announce' || data.info_hash !== swarm) return null;
+    if (data.offer !== undefined) {
+      const payload = this.payload(data.offer, 'offer');
+      return payload && this.binary(data.peer_id) && this.binary(data.offer_id) ? { kind: 'offer', peerId: data.peer_id, offerId: data.offer_id, payload } : null;
+    }
+    if (data.answer !== undefined) {
+      const payload = this.payload(data.answer, 'answer');
+      return payload && this.binary(data.peer_id) && this.binary(data.offer_id) ? { kind: 'answer', peerId: data.peer_id, offerId: data.offer_id, payload } : null;
+    }
+    return Number.isInteger(data.complete) && data.complete >= 0 ? { kind: 'ack', complete: data.complete } : null;
+  },
+};
+
+// MQTT 3.1.1 (OASIS), only what the room needs: CONNECT, SUBSCRIBE, PUBLISH at QoS 0 (retain for a claim), PINGREQ, DISCONNECT out; CONNACK, SUBACK, PUBLISH, PINGRESP in
+const MqttWire = {
+  text(value) { const bytes = new TextEncoder().encode(value); return [bytes.length >> 8, bytes.length & 255, ...bytes]; },
+  length(count) { // the remaining length: 7 bits a byte, the high bit says another byte follows
+    const bytes = [];
+    let rest = count;
+    do { let digit = rest % 128; rest = Math.floor(rest / 128); if (rest > 0) digit |= 128; bytes.push(digit); } while (rest > 0);
+    return bytes;
+  },
+  packet(firstByte, body) { return Uint8Array.from([firstByte, ...this.length(body.length), ...body]); },
+  connect(clientId) { return this.packet(0x10, [...this.text('MQTT'), 4, 2, ROOM_MQTT_KEEPALIVE_S >> 8, ROOM_MQTT_KEEPALIVE_S & 255, ...this.text(clientId)]); }, // protocol level 4, flags: clean session
+  subscribe(packetId, topic) { return this.packet(0x82, [packetId >> 8, packetId & 255, ...this.text(topic), 0]); }, // requested QoS 0
+  publish(topic, payload, retain = false) { return this.packet(0x30 | (retain ? 1 : 0), [...this.text(topic), ...payload]); },
+  PING: Uint8Array.from([0xc0, 0]),
+  DISCONNECT: Uint8Array.from([0xe0, 0]),
+  // One packet at the start of `buffer` as { used, packet }, or null while bytes are still missing; throws on anything this client never asks for (a QoS above 0, a packet type it does not know, a bad length)
+  take(buffer) {
+    if (buffer.length < 2) return null;
+    let count = 0, multiplier = 1, at = 1, digit = 0;
+    do {
+      if (at >= buffer.length) return null;
+      if (multiplier > 128 * 128 * 128) throw new Error('bad length');
+      digit = buffer[at++];
+      count += (digit & 127) * multiplier;
+      multiplier *= 128;
+    } while (digit & 128);
+    if (count > ROOM_MQTT_PACKET_MAX) {
+      if (buffer[0] >> 4 === 3) return { used: at, skip: count, packet: null }; // an oversized PUBLISH (a stranger on the topic): its bytes are dropped as they come, the connection stays
+      throw new Error('too long');
+    }
+    if (buffer.length < at + count) return null;
+    return { used: at + count, packet: this.parse(buffer[0] >> 4, buffer[0] & 15, buffer.slice(at, at + count)) };
+  },
+  parse(type, flags, body) {
+    if (type === 2 && body.length === 2) return { type: 'connack', code: body[1] };
+    if (type === 9 && body.length >= 3) return { type: 'suback', id: (body[0] << 8) | body[1], codes: Array.from(body.slice(2)) };
+    if (type === 13 && body.length === 0) return { type: 'pingresp' };
+    if (type === 3 && (flags & 6) === 0 && body.length >= 2) { // QoS 0: no packet id
+      const topicLength = (body[0] << 8) | body[1];
+      if (body.length < 2 + topicLength) throw new Error('bad publish');
+      return { type: 'publish', retain: (flags & 1) === 1, topic: new TextDecoder().decode(body.slice(2, 2 + topicLength)), payload: body.slice(2 + topicLength) };
+    }
+    throw new Error('unexpected packet ' + type);
+  },
+  // A reader that takes the bytes of each WebSocket message and returns the packets complete so far (a packet may span messages, a message may hold several)
+  reader() {
+    let buffer = new Uint8Array(0), dropping = 0; // dropping: the bytes of an oversized PUBLISH that are still to come (they are not kept)
+    return {
+      feed(chunk) {
+        const rest = chunk.slice(Math.min(dropping, chunk.length));
+        dropping -= chunk.length - rest.length;
+        const joined = new Uint8Array(buffer.length + rest.length);
+        joined.set(buffer); joined.set(rest, buffer.length);
+        buffer = joined;
+        const packets = [];
+        for (let taken = MqttWire.take(buffer); taken; taken = MqttWire.take(buffer)) {
+          buffer = buffer.slice(taken.used);
+          if (taken.packet) packets.push(taken.packet);
+          if (taken.skip) { const skipped = Math.min(taken.skip, buffer.length); buffer = buffer.slice(skipped); dropping = taken.skip - skipped; }
+        }
+        return packets;
+      },
+    };
+  },
+};
+
+const roomSocket = (url, protocols) => new (Online.socketClass || WebSocket)(url, protocols); // Online.socketClass: the self-tests' stand-in, so no test reaches a real service
+
+// One signalling path. context: { host, ids, key, nonce, report(route, kind, data) }; kinds: ready (a host: a probe has come back through this path; a friend: the path is open), missing (a friend: nobody is there), down, taken, message. route.send(target, message), route.close()
+// A WebTorrent tracker: the host registers as a seeder of the room's info hash and proves the path with a probe from a second socket; a friend sends its offer (repeated, to random peers of the room) and takes the answer the host returns
+function createTrackerRoute(context, url) {
+  const route = { name: 'tracker', url, state: 'connecting', sent: false };
+  const swarm = context.ids.swarm, peerId = RoomCrypto.randomBinary(context.host ? context.nonce : ''), replyTo = new Map(), timers = []; // peerId: a host's names its id (its first 8 bytes are the room nonce); replyTo: a friend's offer nonce -> the tracker's peer id and offer id to answer it by
+  let socket = null, prober = null, over = false, confirmed = false, asked = false, offerIds = [];
+  const transmit = (target, text) => { try { target.send(text); } catch (error) { /* closing: its close ends the route */ } };
+  const letGo = (target) => { try { if (target) target.close(); } catch (error) { /* already closed */ } };
+  const stop = () => { over = true; timers.forEach((timer) => clearTimeout(timer)); letGo(prober); prober = null; }; // clearTimeout also clears an interval (one shared list in the browser)
+  const end = (kind) => { if (over) return; stop(); letGo(socket); context.report(route, kind); };
+  const presence = (event) => transmit(socket, TrackerWire.presence(swarm, peerId, event));
+  // The host's probe: its own offer sent from a second socket, which the tracker hands to the host's first one. Back within ROOM_ECHO_MS = this tracker really relays (the PeerJS server did not)
+  const probe = () => {
+    try { prober = roomSocket(url); } catch (error) { end('down'); return; }
+    const probeId = RoomCrypto.randomBinary(), offerId = RoomCrypto.randomBinary();
+    prober.onopen = () => RoomCrypto.sealText(context.key, { t: 'probe', nonce: context.nonce }).then((payload) => { if (!over) transmit(prober, TrackerWire.offers(swarm, probeId, [offerId], payload)); });
+    timers.push(setTimeout(() => { if (!confirmed) end('down'); }, context.echoMs));
+  };
+  const heardAsHost = (read) => {
+    if (read.kind === 'ack') { if (!asked) { asked = true; probe(); } return; } // the tracker has registered the host: now the probe
+    if (read.kind !== 'offer') return;
+    RoomCrypto.openText(context.key, read.payload).then((opened) => { // what does not open with the code's key is no message of this room
+      if (over || !opened) return;
+      const probe = RoomMessage.readProbe(opened);
+      if (probe) {
+        if (probe.nonce === context.nonce && !confirmed) { confirmed = true; letGo(prober); prober = null; context.report(route, 'ready'); }
+        return;
+      }
+      const message = RoomMessage.read(opened);
+      if (!message || message.t !== 'offer') return;
+      replyTo.set(message.nonce, { peerId: read.peerId, offerId: read.offerId });
+      if (replyTo.size > ROOM_SEEN_MAX) replyTo.delete(replyTo.keys().next().value);
+      context.report(route, 'message', message);
+    });
+  };
+  const heardAsFriend = (read) => {
+    if (read.kind === 'ack') { if (read.complete === 0) context.report(route, 'missing'); else if (route.state === 'missing') context.report(route, 'ready'); return; } // the tracker's count of hosts is the number of seeders
+    if (read.kind !== 'answer' || !offerIds.includes(read.offerId)) return;
+    RoomCrypto.openText(context.key, read.payload).then((opened) => {
+      const message = opened && RoomMessage.read(opened);
+      if (over || !message || message.t !== 'answer' || message.host !== TrackerWire.hostOf(read.peerId)) return; // only the peer the host's registration names: its peer id carries the host's id, and the answer says the same
+      context.report(route, 'message', message);
+    });
+  };
+  route.open = () => {
+    try { socket = roomSocket(url); } catch (error) { end('down'); return; }
+    socket.onopen = () => {
+      if (!context.host) { context.report(route, 'ready'); return; }
+      presence('started');
+      timers.push(setInterval(() => presence(), ROOM_TRACKER_ANNOUNCE_MS));
+    };
+    socket.onmessage = (event) => {
+      const read = TrackerWire.read(event.data, swarm);
+      if (!read) return; // anything the game does not expect is ignored
+      if (context.host) heardAsHost(read); else heardAsFriend(read);
+    };
+    socket.onerror = () => end('down');
+    socket.onclose = () => end('down');
+  };
+  route.send = (target, message) => {
+    if (target === 'host') { // the tracker hands an offer to a random peer of the room, which may be another friend: several offers per announce, and the announce again every few seconds
+      offerIds = Array.from({ length: ROOM_TRACKER_OFFERS }, () => RoomCrypto.randomBinary());
+      RoomCrypto.sealText(context.key, message).then((payload) => {
+        if (over) return;
+        const text = TrackerWire.offers(swarm, peerId, offerIds, payload);
+        transmit(socket, text);
+        timers.push(setInterval(() => transmit(socket, text), context.resendMs));
+      });
+      return;
+    }
+    const reply = replyTo.get(message.nonce);
+    if (reply) RoomCrypto.sealText(context.key, message).then((payload) => { if (!over) transmit(socket, TrackerWire.answer(swarm, peerId, reply.peerId, reply.offerId, payload)); });
+  };
+  route.close = () => {
+    if (over) return;
+    if (context.host && socket) presence('stopped'); // the tracker forgets the host at once
+    stop();
+    letGo(socket);
+  };
+  return route;
+}
+
+function createMqttRoute(context, url) {
+  const route = { name: 'mqtt', url, state: 'connecting', sent: false };
+  const root = context.ids.topic, own = context.host ? root + '/h' : root + '/g/' + context.ownId, claimTopic = root + '/claim';
+  const ownNonce = context.nonce, reader = MqttWire.reader(), timers = []; // clearTimeout also clears an interval (one shared list in the browser)
+  let socket = null, over = false, acknowledged = 0, claimed = false, claimSeen = false, confirmed = false;
+  const stop = () => { over = true; timers.forEach((timer) => clearTimeout(timer)); };
+  const transmit = (bytes) => { try { socket.send(bytes); } catch (error) { /* closing: its close ends the route */ } };
+  const end = (kind) => { if (over) return; stop(); try { socket.close(); } catch (error) { /* already closed */ } context.report(route, kind); };
+  const publish = async (topic, message, retain = false) => {
+    const bytes = await RoomCrypto.seal(context.key, message);
+    if (!over) transmit(MqttWire.publish(topic, bytes, retain));
+  };
+  const claim = () => { claimed = true; publish(claimTopic, { t: 'claim', nonce: ownNonce, time: Date.now() }, true); };
+  const echo = () => { // the host's probe to its own topic: a broker that delivers it back relays; one that does not, within ROOM_ECHO_MS, is not a path
+    publish(own, { t: 'probe', nonce: ownNonce });
+    timers.push(setTimeout(() => { if (!confirmed) end('down'); }, context.echoMs));
+  };
+  const subscribed = () => { // both subscriptions are in; a retained claim of another host or a guest's host arrives within ROOM_CLAIM_WAIT_MS
+    timers.push(setTimeout(() => {
+      if (over) return;
+      if (context.host) { claim(); timers.push(setInterval(claim, ROOM_CLAIM_REFRESH_MS)); echo(); } else if (!claimSeen) context.report(route, 'missing');
+    }, ROOM_CLAIM_WAIT_MS));
+    if (!context.host) context.report(route, 'ready'); // a friend may send at once: the claim only tells it early that nobody is there
+  };
+  const heardClaim = (message) => {
+    const found = RoomMessage.readClaim(message); // a claim dated in the future is refused here
+    if (!found || found.nonce === ownNonce) return;
+    if (context.host) { if (!claimed && !context.owned && Date.now() - found.time < ROOM_CLAIM_STALE_MS) end('taken'); return; } // somebody else holds this code: only a claim that was there before this host made its own counts (the wait window), a later one is ignored (or any code holder could knock a live host off its code); a host that registers its code again (context.owned: it was live) never loses it to a claim
+    claimSeen = true;
+    context.report(route, 'host', found.nonce); // the id of the host that holds the code: the answer must come from it
+    if (route.state === 'missing') context.report(route, 'ready');
+  };
+  const heard = async (packet) => {
+    if (!packet.payload.length) return; // an empty retained message clears a claim
+    const message = await RoomCrypto.open(context.key, packet.payload);
+    if (over || !message) return;
+    if (packet.topic === claimTopic) { heardClaim(message); return; }
+    if (packet.topic !== own) return;
+    const probe = context.host ? RoomMessage.readProbe(message) : null;
+    if (probe) { if (probe.nonce === ownNonce && !confirmed) { confirmed = true; context.report(route, 'ready'); } return; }
+    const read = RoomMessage.read(message);
+    if (read) context.report(route, 'message', read);
+  };
+  const handle = (packet) => {
+    if (packet.type === 'connack') {
+      if (packet.code !== 0) { end('down'); return; }
+      timers.push(setInterval(() => transmit(MqttWire.PING), ROOM_MQTT_PING_MS));
+      transmit(MqttWire.subscribe(1, own)); transmit(MqttWire.subscribe(2, claimTopic));
+    } else if (packet.type === 'suback') {
+      if (packet.codes.includes(0x80)) end('down'); else if (++acknowledged === 2) subscribed();
+    } else if (packet.type === 'publish') heard(packet);
+  };
+  route.open = () => {
+    try { socket = roomSocket(url, 'mqtt'); } catch (error) { end('down'); return; }
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = () => transmit(MqttWire.connect('bp4c' + RoomCrypto.randomHex(16)));
+    socket.onmessage = (event) => {
+      if (!(event.data instanceof ArrayBuffer)) { end('down'); return; } // a text frame is not MQTT
+      try { for (const packet of reader.feed(new Uint8Array(event.data))) handle(packet); } catch (error) { end('down'); }
+    };
+    socket.onerror = () => end('down');
+    socket.onclose = () => end('down');
+  };
+  route.send = (target, message) => { publish(target === 'host' ? root + '/h' : root + '/g/' + target, message); };
+  route.close = () => {
+    if (over) return;
+    stop();
+    if (!socket) return;
+    if (claimed) transmit(MqttWire.publish(claimTopic, new Uint8Array(0), true)); // the retained claim is cleared: the code is free
+    transmit(MqttWire.DISCONNECT);
+    try { socket.close(); } catch (error) { /* already closed */ }
+  };
+  return route;
+}
+
+/* The room of one code on every service at once. role: 'host' (registers the code and answers the offers that come) or 'guest' (sends one offer and takes the first answer).
+   handlers: onReady(path) the code is live: a probe of the host has come back through that path (the first), onTaken() another host holds the code, onUnreachable(wasLive) no service answers, onOffer(message, reply) a friend's offer (host),
+   onAnswer(message) the host's answer (guest), onMissing() nobody answers to this code (guest). options.reachMs / answerMs / echoMs / resendMs shorten the limits for the self-tests. */
+function createRoomHub(role, code, handlers, options = {}) {
+  const host = role === 'host';
+  const hub = { role, code, ownId: host ? '' : options.ownId || ROOM_ID_PREFIX.guest + RoomCrypto.randomHex(ROOM_ID_HEX), routes: [] }; // ownId: a friend's id in its offer (a join that asks again keeps its id: the answer comes to it)
+  const routes = hub.routes, seen = options.seen || new Map(), hostIds = new Set(), hostNonce = options.nonce || RoomCrypto.randomHex(ROOM_NONCE_HEX); // seen: a host's answered offers by nonce (options.seen: the ones of the hub this one replaces); hostIds: the hosts a friend has been told of (a claim); hostNonce: a host's own id
+  let closed = false, everUsable = false, pending = null, answered = false, reachTimer = 0, answerTimer = 0;
+  const usable = (route) => route.state === 'ready' || route.state === 'missing';
+  const verdict = () => { // every path has had its say
+    if (closed || routes.some((route) => route.state === 'connecting' || route.state === 'ready')) return;
+    if (host || !pending) { handlers.onUnreachable(everUsable); return; }
+    if (routes.some((route) => route.state === 'missing')) handlers.onMissing(); else handlers.onUnreachable(everUsable);
+  };
+  const offer = (route, message) => {
+    const known = seen.get(message.nonce);
+    if (known) { known.routes.add(route); if (known.answer) route.send(known.from, known.answer); return; } // the same offer on another path: answered once, the answer goes there too
+    if (seen.size >= ROOM_SEEN_MAX) seen.delete(seen.keys().next().value);
+    const entry = { from: message.from, routes: new Set([route]), answer: null };
+    seen.set(message.nonce, entry);
+    handlers.onOffer(message, (answer) => { const signed = Object.assign({ host: hostNonce }, answer); entry.answer = signed; for (const via of entry.routes) via.send(entry.from, signed); }); // every answer names its host
+  };
+  const heard = (route, message) => {
+    if (host) { if (message.t === 'offer') offer(route, message); return; }
+    if (message.t !== 'answer' || !pending || message.nonce !== pending.nonce || answered) return;
+    if (hostIds.size && !hostIds.has(message.host)) return; // the host's claim names who answers: an answer from another sender is not taken
+    answered = true;
+    clearTimeout(answerTimer);
+    handlers.onAnswer(message);
+  };
+  const report = (route, kind, data) => {
+    if (closed) return;
+    if (kind === 'ready') {
+      route.state = 'ready';
+      if (!everUsable) { everUsable = true; clearTimeout(reachTimer); handlers.onReady(route.name); }
+      if (pending && !route.sent) { route.sent = true; route.send('host', pending); }
+    } else if (kind === 'missing') { route.state = 'missing'; verdict(); }
+    else if (kind === 'taken') { route.state = 'down'; handlers.onTaken(); }
+    else if (kind === 'down') { route.state = 'down'; verdict(); }
+    else if (kind === 'host') { if (!host) hostIds.add(data); }
+    else if (kind === 'message') heard(route, data);
+  };
+  hub.start = async () => {
+    reachTimer = setTimeout(() => { if (!everUsable && !closed) handlers.onUnreachable(false); }, options.reachMs ?? ROOM_REACH_MS);
+    let ids = null, key = null;
+    try { [ids, key] = await Promise.all([RoomCrypto.ids(code), RoomCrypto.key(code)]); } catch (error) { if (!closed) handlers.onUnreachable(false); return; }
+    if (closed) return;
+    const context = { host, ids, key, ownId: hub.ownId, nonce: hostNonce, owned: !!options.owned, echoMs: options.echoMs ?? ROOM_ECHO_MS, resendMs: options.resendMs ?? ROOM_TRACKER_RESEND_MS, report }; // nonce: the claim on a broker that is ours, and the host's probe
+    routes.push(...ROOM_TRACKER_URLS.map((url) => createTrackerRoute(context, url)), ...ROOM_MQTT_URLS.map((url) => createMqttRoute(context, url)));
+    for (const route of routes) route.open();
+  };
+  // The friend's offer: sent on every path that is up now and on each that comes up later; nobody answering in time is "no game with this code"
+  hub.sendOffer = (message) => {
+    pending = message;
+    answerTimer = setTimeout(() => { if (!answered && !closed) handlers.onMissing(); }, options.answerMs ?? ROOM_ANSWER_MS);
+    for (const route of routes) if (usable(route) && !route.sent) { route.sent = true; route.send('host', message); }
+  };
+  // A host: the offer of this nonce is a new one next time (its seat was freed, so a friend that comes back is not sent the answer of a link that is gone)
+  hub.forget = (nonce) => { seen.delete(nonce); };
+  // A host that registers again with a new hub hands over the offers it answered, so a friend that asks again is answered with the same seat and not given a second one
+  hub.takeSeen = () => { for (const entry of seen.values()) entry.routes = new Set(); return seen; };
+  hub.close = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(reachTimer); clearTimeout(answerTimer);
+    for (const route of routes) route.close();
+  };
+  return hub;
+}
+
+// The friend's side: a guest link (made with { offerer: true }) makes its offer, the room carries it, the host's answer goes into the link, and the link connects. Resolves when the answer is in
+// (the link then opens by itself); rejects with a coded error (noRoom, noService, roomFull, roomVersion, or the link's own). cancel() ends it and closes the room.
+function joinRoom(code, link, options = {}) {
+  let hub = null, finished = false, settle = null, offerMessage = null;
+  const done = new Promise((resolve, reject) => {
+    settle = (error) => { if (finished) return; finished = true; if (hub) hub.close(); if (error) reject(error); else resolve(); };
+  });
+  const accept = (answer) => {
+    if (answer.full) { settle(onlineError('roomFull')); return; }
+    if (answer.version) { settle(onlineError('roomVersion')); return; }
+    link.acceptRoomAnswer(answer.sdp, answer.seat).then(() => settle(), settle);
+  };
+  const ask = (ownId) => { // the room's paths and the offer
+    hub = createRoomHub('guest', code, { onReady() {}, onTaken() {}, onUnreachable: () => settle(onlineError('noService')), onMissing: () => settle(onlineError('noRoom', onlineNoRoom(code))), onAnswer: accept }, Object.assign({}, options, { ownId }));
+    hub.start();
+    hub.sendOffer(offerMessage);
+  };
+  link.makeRoomOffer().then((sdp) => {
+    if (finished) return;
+    const ownId = ROOM_ID_PREFIX.guest + RoomCrypto.randomHex(ROOM_ID_HEX);
+    offerMessage = { t: 'offer', from: ownId, nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX), bp: ONLINE_NET_VERSION, sdp };
+    ask(ownId);
+  }, (error) => settle(error));
+  // N09: the page went to the background: the paths close and their limits stop; back again, the same offer is asked again on new paths (the host answers a nonce it knows with the answer it made, so an answer that was lost on the way comes again)
+  return {
+    done, cancel: () => settle(onlineError('state')),
+    suspend() { if (!finished && hub) hub.close(); },
+    resume() { if (!finished && offerMessage) ask(offerMessage.from); },
+    get pending() { return !finished; },
+    get hub() { return hub; },
+  };
+}
+const onlineNoRoom = (code) => 'No game with code ' + code + '. Check the letters, or ask your friend for the code on their screen.';
+
 const Online = {
   code: OnlineCode,
   qr: Qr,
   createLink: createOnlineLink,
+  socketClass: null, // a stand-in for WebSocket that the self-tests put in, so none reaches a real room service (null: the browser's)
   supported() { return typeof RTCPeerConnection !== 'undefined'; },
   // QR scan only where the browser can read a QR code from a camera (in practice Chrome on Android); everywhere else the player pastes
   async canScan() {
@@ -16179,7 +16777,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], netChoices: [], netPick: 0, netPadPrev: { ok: false, back: false, left: false, right: false, select: false }, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -16248,6 +16846,7 @@ const UI = {
     this.buildTouch();
     this.applyTouchVisibility();
     CreatorUI.init();
+    OnlineUI.init();
     this.announceControlsChange();
   },
   // One toast on the first load after saved controls were migrated
@@ -16294,12 +16893,45 @@ const UI = {
     this.sayTimer = setTimeout(() => { this.dom.announce.textContent = this.sayPending.reduce((all, part) => all ? all + (/[.!?]$/.test(all) ? ' ' : '. ') + part : part, ''); this.sayPending = []; }, 30);   // a text that already ends in a stop is not given a second one
   },
   // The online status line over a fight (P12-02): the text and its buttons, each [label, action]; empty text hides it
-  netStatus(text, ...buttons) {
+  netStatus(text, ...buttons) { // a button may carry a third item: NET_PAD (the pad and Enter press it) or NET_PAD_PICK (the same, and the one picked first)
     const box = this.dom.netwait;
     if (!box) return; // the page has no HUD yet (a headless run)
     box.textContent = text || '';
-    if (text) for (const [label, action] of buttons) { const button = document.createElement('button'); button.textContent = label; button.onclick = action; box.appendChild(button); }
+    this.netChoices = [];
+    if (text) {
+      buttons.forEach(([label, action, pad]) => {
+        const button = document.createElement('button');
+        button.textContent = label; button.onclick = action; box.appendChild(button);
+        if (pad) { this.netChoices.push({ button, action }); if (pad === NET_PAD_PICK || this.netChoices.length === 1) this.netPick = this.netChoices.length - 1; }
+      });
+    }
+    this.paintNetPick();
     box.hidden = !text;
+  },
+  // N08: the buttons of an online fight's status line (the question to leave, Out of sync, Connection lost) were reachable by a click or a tap only. Now the pad's left and right pick one, confirm presses it and back presses the last;
+  // Enter presses the picked one, Tab picks the next, Escape presses the last when the match is over (during the question the pause key already closes it). The plain "Waiting for P2..." line has no pad buttons: a fighter's own button press must never leave the match
+  paintNetPick() { this.netChoices.forEach((choice, index) => choice.button.classList.toggle('sel', index === this.netPick)); },
+  pickNet(dir) { if (this.netChoices.length < 2) return; this.netPick = (this.netPick + dir + this.netChoices.length) % this.netChoices.length; this.paintNetPick(); Sound.ui('move'); },
+  padNetStatus() {
+    const prev = this.netPadPrev, held = Inputs.menuHeld, dir = Inputs.menuDir, ok = !!held.menuOk, back = !!held.menuBack, select = !!held.menuSelect, left = !!dir.left, right = !!dir.right, choices = this.netChoices;
+    const asking = !!(Game.netNote && Game.netNote.leave && !Game.netNote.final); // the question to leave: the sim runs on, so the stick, A and B are the fighter's buttons and never answer it (Start, the pause key, stays; a short Select leaves)
+    if (asking && choices.length && this.dom.netwait && !this.dom.netwait.hidden) {
+      if (select && !prev.select) Game.leaveOnline();
+    } else if (choices.length && this.dom.netwait && !this.dom.netwait.hidden) {
+      if (right && !prev.right) this.pickNet(1);
+      if (left && !prev.left) this.pickNet(-1);
+      if (ok && !prev.ok) choices[this.netPick].action();
+      else if (back && !prev.back) choices[choices.length - 1].action();
+    }
+    prev.ok = ok; prev.back = back; prev.select = select; prev.left = left; prev.right = right;
+  },
+  netKey(e) { // true when the key was for the status line
+    const choices = this.netChoices;
+    if (!choices.length || !this.dom.netwait || this.dom.netwait.hidden || e.repeat) return false;
+    if (e.code === 'Enter') { e.preventDefault(); choices[this.netPick].action(); return true; }
+    if (e.code === 'Tab') { e.preventDefault(); this.pickNet(1); return true; }
+    if (e.code === 'Escape' && Game.netNote && Game.netNote.final) { e.preventDefault(); choices[choices.length - 1].action(); return true; }
+    return false;
   },
   banner(text, sub, ms) {
     const b = this.dom.banner, id = ++this.banners;
@@ -16588,7 +17220,7 @@ const UI = {
       if (errBtn && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); errBtn.click(); } else if (errBtn) errBtn.focus();
       return;
     }
-    if (!this.current) return;
+    if (!this.current) { this.netKey(e); return; }
     if (this.current === 'creator' && CreatorUI.onKey(e)) return;
     if (this.current.startsWith('online') && OnlineUI.onKey(e)) return;
     const el = document.activeElement;
@@ -16837,7 +17469,7 @@ const UI = {
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
       '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Tournament</small></button>' +
-      '<button class="mi" data-nav data-act="online">Online<small>Up to 4 devices on the same network: lobby, Ready check, Free Fight lineup</small></button>' +
+      '<button class="mi" data-nav data-act="online">Online<small>Up to 4 players with a room code: lobby, Ready check, Free Fight lineup</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -17423,7 +18055,7 @@ const UI = {
       '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / ' + STORY_STAGES + '</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
       '<h3>Tips</h3><p>Arenas are destructible: crates splinter, concrete pillars crack and shed chunks, steel railings bend and collapse, glass and paper screens shatter. Throws and knockbacks into scenery cause extra damage and change where you can walk.</p>' +
       this.holdHelpHtml() +
-      '<h3>Compatibility &amp; limits</h3><p>Online play (up to 4 devices): ' + esc(ONLINE_LIMITS) + ' Firefox as the guest must answer within a few seconds: let it host, or scan the code.</p><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
+      '<h3>Compatibility &amp; limits</h3><p>Online play (up to 4 players): ' + esc(ONLINE_LIMITS) + ' ' + esc(ONLINE_PRIVACY) + ' With the two codes instead of a room code, Firefox as the guest must answer within a few seconds: let it host, or scan the code.</p><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
       '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-act="selftest">Run self-test</button></div><pre id="selftestOut" style="white-space:pre-wrap;font-size:.8em;max-height:14em;overflow:auto"></pre></div></section>';
   },
   screen_pause() {
@@ -17467,9 +18099,14 @@ const UI = {
     return '<div class="gradebox"><b>' + g.letter + '</b><span>Fight grade &middot; Time ' + g.time + ' &middot; Damage ' + g.damage + ' &middot; Variety ' + g.variety + '</span>' +
       (d.runGrade ? '<span>Run grade: <b>' + d.runGrade + '</b></span>' : '') + (best ? '<span>Best grade: <b>' + best + '</b></span>' : '') + '</div>';
   },
+  // N18: an online match that somebody left says so (a 1 vs 1 was won by forfeit)
+  leftLine(d) {
+    if (!d.online || !d.left || !d.left.length) return '';
+    return '<p class="warnline">' + d.left.map((seat) => 'P' + (seat + 1)).join(' and ') + ' left' + (d.mode === 'versus' ? ': win by forfeit' : ' the match') + '.</p>';
+  },
   resultsNav(d) {
     const labels = { bracket: 'Continue', lobby: 'Online lobby', next: d.mode === 'arcade' ? 'Next stage' : 'Next fight', retry: 'Retry this stage', skip: 'Skip stage', ending: 'See the ending', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
-    return '<nav class="resnav">' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
+    return this.leftLine(d) + '<nav class="resnav">' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
   },
   // Co-op: the outcome and a column per player
   coopResults(d) {
@@ -17478,7 +18115,7 @@ const UI = {
       ['Best combo', (s) => s.stats.maxCombo + ' hits'], ['Knock-outs', (s) => s.stats.kos], ['Throws', (s) => s.stats.throws], ['Objects destroyed', (s) => s.stats.objects]];
     if (d.grades) rows.push(['Grade', (s) => d.grades[members.indexOf(s)].letter]);
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div>' +
-      '<p class="sub">Free Fight &middot; Co-op &middot; enemies down ' + d.enemiesDown + ' / ' + d.enemies + ' &middot; ' + clockText(d.seconds) + (d.friendlyFire ? ' &middot; friendly fire on' : '') + '</p>';
+      '<p class="sub">' + (d.online ? 'Online &middot; Brawl' : 'Free Fight &middot; Co-op') + ' &middot; enemies down ' + d.enemiesDown + ' / ' + d.enemies + ' &middot; ' + clockText(d.seconds) + (d.friendlyFire ? ' &middot; friendly fire on' : '') + '</p>';
     h += '<table class="ctl stack"><tr><th></th>' + members.map((s) => '<th><span class="pcname seat' + (s.slot + 1) + '">P' + (s.slot + 1) + ' ' + esc(s.name) + '</span></th>').join('') + '</tr>' +
       rows.map((row) => '<tr><td>' + row[0] + '</td>' + members.map((s) => '<td data-l="P' + (s.slot + 1) + ' ' + esc(s.name) + '">' + row[1](s) + '</td>').join('') + '</tr>').join('') + '</table>';
     if (d.grades && Progress.d.grades.free) h += '<p>Best grade: <b>' + Progress.d.grades.free + '</b></p>';
@@ -17490,7 +18127,7 @@ const UI = {
     const rows = [['Rounds won', d.wins[0], d.wins[1]], ['Damage dealt', Math.round(s[0].damage), Math.round(s[1].damage)], ['Hits landed', s[0].hits, s[1].hits],
       ['Best combo', s[0].maxCombo + ' hits', s[1].maxCombo + ' hits'], ['Blocks or sways (perfect)',s[0].blocks + ' (' + s[0].perfect + ')', s[1].blocks + ' (' + s[1].perfect + ')'],
       ['Throws', s[0].throws, s[1].throws], ['Objects destroyed', s[0].objects, s[1].objects]];
-    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt c' + (w + 1) + '">P' + (w + 1) + ' wins</div><p class="sub">Free Fight &middot; Versus &middot; ' + esc(names[w]) + ' takes the match &middot; ' + clockText(d.seconds) + '</p>';
+    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt c' + (w + 1) + '">P' + (w + 1) + ' wins</div><p class="sub">' + (d.online ? 'Online &middot; 1 vs 1' : 'Free Fight &middot; Versus') + ' &middot; ' + esc(names[w]) + ' takes the match &middot; ' + clockText(d.seconds) + '</p>';
     h += '<p>Session score: <b class="c1">P1 ' + d.score[0] + '</b> - <b class="c2">' + d.score[1] + ' P2</b></p>';
     h += '<table class="ctl"><tr><th></th><th><span class="c1">P1 ' + esc(names[0]) + '</span></th><th><span class="c2">P2 ' + esc(names[1]) + '</span></th></tr>' + rows.map((r) => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>').join('') + '</table>';
     return h + this.resultsNav(d);
@@ -17583,7 +18220,7 @@ const UI = {
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
     else if (this.current && this.frameCount % 15 === 1) this.measureMenuFocus();
     if (this.padOverlay()) return;
-    if (!this.current) return;
+    if (!this.current) { this.padNetStatus(); return; } // a fight: only the status line of an online match takes the pad
     if (Inputs.captureCallback) { this.padCancelCapture(); return; }
     if (this.current === 'coop') { this.syncPadPrev(); return; } // A joins there and never confirms
     const unpause = Inputs.take('pause') || (Game.watchOnly() && Inputs.menuStartPressed); // P / gamepad Start close the pause screen (a watched fight: Start on any pad)
@@ -17591,12 +18228,15 @@ const UI = {
     if (this.current === 'scene' && this.scenePoll(unpause)) return;
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
     const ok = !!(ph.menuOk), back = !!(ph.menuBack);
-    if (pd.down && !p.down) this.moveFocus(1);
-    if (pd.up && !p.up) this.moveFocus(-1);
-    const el = document.activeElement;
-    if (pd.right && !p.right) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.classList.contains('card')) this.moveFocus(1); }
-    if (pd.left && !p.left) { if (el && el.classList.contains('opt')) this.adjust(el, -1); else if (el && el.classList.contains('card')) this.moveFocus(-1); }
-    if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1, true); else if (el && el.tagName === 'BUTTON') el.click(); }
+    const el = document.activeElement, cell = OnlineUI.cellOf(el); // a cell of the room code: up and down change its symbol, left and right move (P19-12)
+    if (cell >= 0) OnlineUI.padCell(cell, pd, p, ok && !p.ok && performance.now() > this.guardUntil);
+    else {
+      if (pd.down && !p.down) this.moveFocus(1);
+      if (pd.up && !p.up) this.moveFocus(-1);
+      if (pd.right && !p.right) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.classList.contains('card')) this.moveFocus(1); }
+      if (pd.left && !p.left) { if (el && el.classList.contains('opt')) this.adjust(el, -1); else if (el && el.classList.contains('card')) this.moveFocus(-1); }
+      if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1, true); else if (el && el.tagName === 'BUTTON') el.click(); }
+    }
     if (back && !p.back && performance.now() > this.guardUntil) this.back();
     const start = !!ph.menuStart;
     if (start && !this.startHeld && this.current === 'freefight' && performance.now() > this.guardUntil) this.act('start');
@@ -19004,7 +19644,7 @@ const ONLINE_TEAM_NAME_MAX = 40; // a team's name in a start message (the host b
 const ONLINE_START = 'bpstart'; // the type of the host's start message on a link's reliable channel (the lockstep ignores it: it has no match number)
 const ONLINE_FIGHT_ROUNDS = 2, ONLINE_FIGHT_SECONDS = 60, ONLINE_BRACKET_SIZE = 8;
 const OnlinePlay = {
-  isHost: false, seat: 0, links: new Map(), picks: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
+  isHost: false, hostLeft: false, seat: 0, links: new Map(), picks: new Map(), transports: new Map(), offs: [], gone: new Set(), engines: new Map(), starting: false, matchNo: 0, lastNet: null, plan: null, setup: null, delay: NET_INPUT_DELAY, // lastNet: the lockstep session of this session's last match (Game.endMatch saves its retuned delay into delay); engines: seat -> the guest's kind of browser; starting: a match is being built (Game.inputPlan)
   // seat -> link, for the host its guests, for a guest the host as seat 0 (set by hostOpen and guestBegin)
   get active() { return this.links.size > 0; },
   // --- host
@@ -19140,7 +19780,11 @@ const OnlinePlay = {
     if (link) link.close();
   },
   // The buttons of the results screen online: the host goes on (the next bracket fight, or the same fight again) or back to the lobby, a guest waits for the host or goes back to the lobby to wait there
-  resultButtons(buttons) { return this.isHost ? (buttons.includes('bracket') ? ['bracket', 'lobby', 'menu'] : ['again', 'lobby', 'menu']) : ['lobby', 'menu']; },
+  resultButtons(buttons) {
+    if (!this.isHost) return ['lobby', 'menu'];
+    const alone = this.present().length < 2; // nobody is left to play against: no Rematch, no next fight (N18)
+    return alone ? ['lobby', 'menu'] : buttons.includes('bracket') ? ['bracket', 'lobby', 'menu'] : ['again', 'lobby', 'menu'];
+  },
   // Brings the game to a menu screen and builds the match; Game.inputPlan sees `starting` while the states change
   build(cfg) {
     this.starting = true;
@@ -19155,11 +19799,12 @@ const OnlinePlay = {
   // The link of a guest that the host's first start message arrived on (released from the Join screen)
   guestBegin(link, message) {
     this.leave();
-    this.isHost = false; this.seat = link.seat - 1;
+    this.isHost = false; this.seat = link.seat - 1; this.hostLeft = false;
     this.adopt(0, link);
     this.onHostMessage(JSON.stringify(message));
   },
   onHostMessage(data) {
+    if (data === ONLINE_BYE) { this.hostLeft = true; return; } // the link closes a moment later: the match says why
     const message = this.readStart(data);
     if (message) { this.play(message); return; }
     const view = onlineReadLobby(data);
@@ -19202,7 +19847,7 @@ const OnlinePlay = {
       if (message.mode === 'fight' && !Game.versus) Game.versus = { score: [0, 0] };
       this.build(cfg);
       const session = new LockstepSession({ match: Game.match, seat: this.seat, seatCount: message.seatCount, host: false, hostLink: this.transports.get(0), delay: message.delay, fighterOf: message.fighterOf, matchId: message.id });
-      Game.attachNet(session, { onLeave: () => this.leave() });
+      Game.attachNet(session, { onLeave: () => this.leave(), lostText: () => (this.hostLeft ? ONLINE_MESSAGES.hostLeft : '') });
       UI.toast('You are P' + (this.seat + 1), '', 2500);
     } catch (error) { // whatever the message still got past the checks: the player gets the plain text, not a broken game
       Diag.log('warn', 'Online start: ' + (error && error.message ? error.message : error));
@@ -19225,7 +19870,11 @@ const OnlinePlay = {
     this.links.delete(seat); this.gone.add(seat);
     const over = !!Game.net && !!Game.match && Game.match.phase === 'matchEnd'; // the results: the session no longer watches the links
     if (Game.net && !over) return; // a match is on: its session handles the drop
-    UI.toast(this.isHost ? 'Player ' + (seat + 1) + ' left.' : 'The host left the game.', 'warn');
+    UI.toast(this.isHost ? 'Player ' + (seat + 1) + ' left.' : ONLINE_MESSAGES.hostLeft, 'warn');
+    if (over && this.isHost && Game.resultsData && this.present().length < 2) { // the last friend left on the results: no Rematch any more
+      Game.resultsData.buttons = Game.resultsData.buttons.filter((button) => button !== 'again' && button !== 'bracket');
+      if (UI.current === 'results') UI.rerender(true);
+    }
     if (!Game.net && (!this.isHost || !this.links.size)) this.exit(); // on the results the player leaves with the Main menu button
   },
   // Out of the online game for good: the links are closed and the game goes to the main menu
@@ -19235,7 +19884,9 @@ const OnlinePlay = {
   },
   // Lets go of everything: the links are closed (the others see it at once)
   leave() {
-    for (const { link } of this.handOff().links) link.close();
+    const { links, isHost } = this.handOff();
+    for (const { link } of links) { if (isHost) onlineSayBye(link); else link.close(); }
+    if (links.length) OnlineUI.heldRoom = null; // the host left the online game with its friends in it: the room code ends (a match that goes back to its lobby hands the links over first, so none are left here)
   },
   // Lets go of the links without closing them (the lobby takes them back, see toLobby): the listeners and transports come off and everything is forgotten; returns what was held
   handOff() {
@@ -19271,11 +19922,21 @@ function onlineEngine(userAgent = typeof navigator === 'undefined' ? '' : String
 const ONLINE_PING_MS = 1000; // the host pings every connected guest this often while its lobby is on screen: the latency list and the first input delay come from these round trips
 const ONLINE_SAMPLES = 8; // round trips kept per guest
 const ONLINE_SAMPLES_MIN = 3; // Start waits until every guest has this many
+const ONLINE_DELAY_SLOW = 5; // frames: from here the lobby says that the connection is slow (N12)
+const ONLINE_RESUME_MS = 3000; // a page that was in the background this long registers its room code again (N09)
+const ROOM_RETRY_STEPS_MS = [2000, 5000, 15000, 30000]; // a host whose room service dropped registers its code again after these waits (the last one repeats) until it holds again or the room is left
 const ONLINE_JITTER_MS = 30; // a spread of one guest's samples wider than this adds a frame to the first input delay (P12-03: the jitter, not only the median, decides the stalls)
 const ONLINE_LATENCY_GOOD_MS = 60, ONLINE_LATENCY_FAIR_MS = 120; // the words of the latency list
 const ONLINE_NO_REPLY = -2; // the round trip the list shows for a guest that has stopped answering pings
 const ONLINE_MISSED_PINGS = 3; // pings in a row without an answer before the list says no reply and Start waits
 const ONLINE_REMOVED = 'bp-removed:'; // the host's last message to a guest it removed
+const ONLINE_BYE = 'bp-bye:'; // the host's last message to every friend when it leaves on purpose (N19): "The host left the game." instead of "Connection lost"
+// The host closes a link on purpose: an open one is told first and closes a moment later so the message can arrive
+function onlineSayBye(link) {
+  if (link.state !== 'open') { link.close(); return; }
+  link.send(ONLINE_BYE);
+  link.close(ONLINE_REMOVE_CLOSE_MS);
+}
 const ONLINE_REMOVE_CLOSE_MS = 250; // the link of a removed guest closes this long after that message, so it can arrive first
 const ONLINE_ME = 'bpme', ONLINE_LOBBY = 'bplobby'; // lobby messages, JSON on the reliable channel: a guest's pick and Ready, the host's players and settings
 // A preset fighter that a friend can take (a custom fighter exists on one device only)
@@ -19321,21 +19982,26 @@ function onlineReadLobby(data) {
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
-const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or router, or on one phone\'s hotspot. Networks that block direct connections (guest Wi-Fi, office or school networks, VPNs, mobile data) do not work. No server is used: the devices talk to each other.'; // P12-07; no browser rule since P12-08: a phone and a PC play together (Appendix D row J01)
+const ONLINE_PRIVACY = 'The devices you play with, and anyone who has your room code, can see each other\'s public internet address (that is how a direct connection works).'; // P19-12 review: said once, in the help
+const ONLINE_LIMITS = 'Friends connect over the internet or the same Wi-Fi. A free public service passes the first message, then the devices talk straight to each other. Some networks block direct connections (guest Wi-Fi, office or school networks, VPNs, some mobile data): then try Wi-Fi on one side, or a phone hotspot.'; // P12-07, P19-12 (N23); no browser rule since P12-08: a phone and a PC play together (Appendix D row J01)
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '', // the guest's single link and its fields; note also holds the host's start problem
+  hiddenAt: 0, // when the page went to the background (N09)
+  retrySteps: ROOM_RETRY_STEPS_MS, // the waits before a host registers its code again (a test puts short ones in)
+  room: null, heldRoom: null, // the room flow (P19-12): the room of this screen (the host's { info, hub, status, tries }, a guest's { cells, join, note }) and the room a started match keeps for its lobby; null = the two-code screens
   guests: [], mode: '', arena: ONLINE_ARENA_DEFAULT, // the host's one slot per guest: { seat, link, offerCode, answerText, note, roundTrip }; the picked mode ('' = by the number of players) and level
   scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, scanSeat: 0, scanKind: '', answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
   hostFighter: '', lastFighter: '', mine: { fighter: '', ready: false }, view: null, first: false, firstCode: '', replyText: '', loop: 0, lineupSig: '', rev: 1, // the lobby (rev: the revision of the settings, raised whenever they change; a guest's Ready counts only for the revision it saw): the host's own pick; a guest's pick and Ready, the host's last list of players, "I send the first code" (a Firefox guest) with its two texts; the host's ping timer; the lineup as the guests last agreed to it
   // Ends every link of the screen and forgets everything about it
   reset() {
     this.stopScan();
-    const old = [this.link].concat(this.guests.map((guest) => guest.link));
+    const old = [this.link].concat(this.guests.map((guest) => guest.link)), host = this.role === 'host';
     this.forget(); // before the close, so the links' state events are ignored
-    for (const link of old) if (link) link.close();
+    for (const link of old) if (link) { if (host) onlineSayBye(link); else link.close(); } // a friend in the lobby is told that the host leaves (N19)
   },
   // Lets go of the links without closing them: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
   forget() {
+    this.closeRoom();
     for (const stop of this.unlisten) stop();
     this.unlisten = [];
     this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false; this.guests = []; this.mode = ''; this.first = false; this.firstCode = ''; this.replyText = ''; this.view = null; this.mine = { fighter: '', ready: false }; this.lineupSig = ''; this.stopLoop();
@@ -19360,19 +20026,149 @@ const OnlineUI = {
     return open.map((guest) => ({ seat: guest.seat, link: guest.link, roundTrip: guest.roundTrip, samples: guest.samples || [], engine: guest.engine, fighter: guest.fighter }));
   },
   leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
-  open(role, mode = '') {
+  closeRoom() {
+    const room = this.room;
+    this.room = null;
+    if (room) clearTimeout(room.retryTimer);
+    if (room && room.hub) room.hub.close();
+    if (room && room.join) room.join.cancel();
+  },
+  /* --- the room flow (P19-12): one 5-symbol code; the friend types it and nothing goes back. The two-code screens stay behind "Use codes instead" / "Join with codes instead". */
+  // Host: a new room (a lobby that comes back after a match, resume, takes the same one); a guest: the Join screen, the code of a ?join= link already in the box (the friend presses Join: a link never joins by itself)
+  open(role, mode = '', code = '') {
+    this.heldRoom = null;
     this.reset();
     this.role = role;
     this.hostFighter = this.mine.fighter = this.pickToStart();
     if (role === 'host') { this.mode = mode; this.lineupSig = this.lineupSignature(); }
+    this.room = role === 'host' ? this.makingRoom() : { cells: RoomCode.cellsOf(code), join: null, note: '' }; // before the screen opens, so its first draw is the room's
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
-    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') { this.addGuest(); this.startLoop(); }
+    if (role === 'host') { this.startRoomHost(); this.startLoop(); return; }
+    this.redraw();
   },
+  makingRoom() { return { info: { code: '' }, hub: null, status: 'making', tries: 1 }; },
+  // Host: registers the code on the room services; a code that is taken is replaced by a new one (at most ROOM_CODE_TRIES)
+  // carry: { seen, retries } of the room this one replaces (the offers it answered, how many times in a row the service was lost)
+  startRoomHost(info = null, tries = 1, carry = {}) {
+    if (!RoomCrypto.available()) { this.room = { info: { code: '' }, hub: null, status: 'nocrypto', tries }; this.redraw(); return; }
+    if (!info) info = { code: RoomCode.make(), nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX) }; // the nonce stays with the code, so the same host comes back to it after a match without being refused as another host
+    const retries = carry.retries || 0, room = { info, hub: null, status: retries ? 'lost' : 'making', tries, retries, retryTimer: 0 }, mine = () => this.room === room;
+    this.room = room;
+    room.hub = createRoomHub('host', info.code, {
+      onReady: () => { if (mine()) { room.status = 'live'; room.retries = 0; info.live = true; this.redraw(); } }, // info.live: this code was ours once, so a claim another host left on it later is ours too
+      onTaken: () => { if (mine()) this.retakeRoom(room); },
+      onUnreachable: (wasLive) => { if (!mine()) return; room.status = wasLive || retries || info.live ? 'lost' : 'down'; if (room.status === 'lost') this.retryRoom(room); this.redraw(); },
+      onOffer: (message, reply) => { if (mine()) this.roomOffer(message, reply); },
+    }, { nonce: info.nonce, seen: carry.seen, owned: !!info.live });
+    room.hub.start();
+    this.redraw();
+  },
+  // Host: the room service dropped after the code was live: the same code is registered again after a growing wait (ROOM_RETRY_STEPS_MS), until the room is left or it holds again
+  retryRoom(room) {
+    if (room.retryTimer) return;
+    const steps = this.retrySteps;
+    room.retryTimer = setTimeout(() => { if (this.room === room) this.reregisterRoom(room, room.retries + 1); }, steps[Math.min(room.retries, steps.length - 1)]);
+  },
+  // Host: the same code on a new hub (the sockets of the old one are gone or may be dead); the offers the old hub answered move over, so a friend that asks again keeps its seat and does not take a second one
+  reregisterRoom(room, retries = 0) {
+    clearTimeout(room.retryTimer);
+    const seen = room.hub.takeSeen();
+    room.hub.close();
+    this.startRoomHost(room.info, room.tries, { seen, retries });
+  },
+  retakeRoom(room) {
+    room.hub.close();
+    if (room.tries < ROOM_CODE_TRIES) { this.startRoomHost(null, room.tries + 1); return; }
+    room.status = 'down';
+    this.redraw();
+  },
+  // Host: a friend's offer. A friend of another version, or with no seat left, is told so; otherwise it gets the next seat and the answer goes back at once (one code serves every seat)
+  roomOffer(message, reply) {
+    const answer = (extra) => reply(Object.assign({ t: 'answer', nonce: message.nonce, bp: ONLINE_NET_VERSION }, extra));
+    if (message.bp !== ONLINE_NET_VERSION) { answer({ version: ONLINE_NET_VERSION }); return; }
+    const seat = this.freeSeat();
+    if (seat > ONLINE_SEAT_MAX) { answer({ full: true }); return; }
+    const link = Online.createLink('host', { offerer: false }), slot = { seat, link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, ready: false, samples: [], missed: 0, removed: false, reverse: false, room: true, nonce: message.nonce }; // nonce: the friend's offer, forgotten by the room when the seat is freed
+    this.guests.push(slot);
+    this.listen(link);
+    this.step(link, link.answerRoomOffer(message.sdp, seat), (sdp) => { answer({ sdp, seat }); this.redraw(); }, (error) => this.freeRoomSlot(slot, link, error));
+    this.redraw();
+  },
+  // Host: a room friend that never connected, failed or left: the seat is simply free again (the room code is still good), and the host is told why
+  freeRoomSlot(slot, link, error = link.error) {
+    this.guests = this.guests.filter((guest) => guest !== slot);
+    if (slot.nonce && this.room && this.room.hub) this.room.hub.forget(slot.nonce); // a friend that comes back with the same offer after this (longer than the link's connect time) is a new friend
+    if (error && slot.openedAt === undefined && !slot.removed) UI.toast('A friend could not connect. ' + error.message, 'warn');
+    link.close();
+    this.redraw();
+  },
+  // Host: the two-code screens instead of the room (the friends already connected stay)
+  useCodesHost() {
+    this.heldRoom = null;
+    this.closeRoom();
+    for (const slot of this.guests.filter((guest) => guest.room && !this.isOpen(guest))) { slot.link.close(); this.guests = this.guests.filter((guest) => guest !== slot); }
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === 'host') this.redraw(); });
+    if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); else this.redraw();
+  },
+  // Guest: the two-code screens instead of the room
+  useCodesGuest() {
+    this.closeRoom();
+    if (this.link) { this.forgetLobby(); this.link.close(); this.link = null; }
+    this.note = ''; this.first = false;
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === 'guest') this.redraw(); });
+    this.startFirst(); // the friend makes the first code (N05)
+  },
+  // Guest: the typed code -> a link that makes its offer, the room carries it, the link connects and opens as usual (the lobby then takes over)
+  joinTyped() {
+    const room = this.room, code = room && room.cells ? RoomCode.read(room.cells.join('')) : '';
+    if (!room || !room.cells || this.joinBusy()) return;
+    room.note = ''; room.back = false;
+    if (!code) { room.note = ONLINE_MESSAGES.roomCode; Sound.ui('bad'); this.redraw(); return; }
+    if (!RoomCrypto.available()) { room.note = ONLINE_MESSAGES.noCrypto; Sound.ui('bad'); this.redraw(); return; }
+    const link = this.makeLink({ offerer: true });
+    room.join = joinRoom(code, link);
+    this.step(link, room.join.done, () => this.redraw(), (error) => { room.note = error.message; Sound.ui('bad'); link.close(); this.redraw(); });
+    this.redraw();
+  },
+  joinBusy() { return !!this.link && ['gathering', 'waiting', 'connecting'].includes(this.link.state); },
+  // Guest: a symbol of the pad's cells one step on (the keyboard and touch type into the box; a tap on a cell steps it too)
+  stepCell(index, dir) {
+    if (!this.room || !this.room.cells || this.joinBusy()) return;
+    this.room.cells[index] = RoomCode.step(this.room.cells[index], dir);
+    this.room.note = '';
+    this.redraw();
+  },
+  // The box of the Join screen was typed in: it keeps symbols of the alphabet only, the cells follow, and the fifth symbol joins by itself
+  onInput(e) {
+    const box = e.target;
+    if (!this.room || !this.room.cells || !box || box.id !== 'onRoom') return;
+    const clean = RoomCode.typed(RoomCode.fromLink(box.value) || box.value);
+    if (clean !== box.value) box.value = clean;
+    this.room.cells = RoomCode.cellsOf(clean);
+    this.room.note = '';
+    this.room.cells.forEach((symbol, index) => { // the cells of the pad follow the box in place (a redraw would take the focus out of it)
+      const cell = $('onCell' + index), face = cell && cell.querySelector('.v');
+      if (face) { face.textContent = symbol || '_'; cell.setAttribute('aria-valuetext', symbol || 'empty'); }
+    });
+    if (clean.length === ROOM_CODE_LENGTH) this.joinTyped();
+  },
+  init() { UI.dom.screens.addEventListener('input', (e) => this.onInput(e)); },
+  // The gamepad on a cell of the code: up and down change the symbol, left and right move to the next cell (the cells are neighbours in the menu order, so past the ends the focus goes on), A moves on and joins on the last
+  padCell(cell, pad, before, pressed) {
+    if (pad.up && !before.up) this.stepCell(cell, 1);
+    if (pad.down && !before.down) this.stepCell(cell, -1);
+    if (pad.right && !before.right) UI.moveFocus(1);
+    if (pad.left && !before.left) UI.moveFocus(-1);
+    if (pressed) { if (cell === ROOM_CODE_LENGTH - 1 || this.room.cells.every(Boolean)) this.joinTyped(); else UI.moveFocus(1); }
+  },
+  // The index of the room cell that has the focus, or -1
+  cellOf(el) { const found = el && el.id ? /^onCell([0-4])$/.exec(el.id) : null; return found && this.room && this.room.cells ? Number(found[1]) : -1; },
   // The pick a lobby starts with: the one of the last lobby, else the selected fighter
   pickToStart() { return onlineFighter(this.lastFighter) && Progress.isUnlocked(this.lastFighter) ? this.lastFighter : onlineDefaultFighter(); },
   // The links of a finished match come back to the lobby (OnlinePlay.toLobby): the lobby owns them again. The host gets its guests back, not yet Ready, and a block for the next friend; a guest gets its one link
   resume(role, entries, info = {}) {
+    const held = this.heldRoom; // the room of the match that just ended (a room lobby comes back with the same code)
+    this.heldRoom = null;
     this.reset();
     this.role = role;
     this.hostFighter = this.mine.fighter = onlineFighter(info.fighter) ? info.fighter : this.pickToStart();
@@ -19383,11 +20179,29 @@ const OnlineUI = {
       for (const guest of this.guests) this.listen(guest.link);
       this.lineupSig = this.lineupSignature();
     } else { this.link = entries[0].link; this.listen(this.link); }
+    if (role === 'host' && held) this.room = this.makingRoom();
     UI.push('online');
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
     Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') { if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); this.startLoop(); } else this.sendMe();
+    if (role === 'host') { if (held) this.startRoomHost(held); else if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); this.startLoop(); } else this.sendMe();
   },
+  // N09: a phone that goes to another app (a chat, to read the code) may stop the page for a while. Its timers stop with it (a join does not run out, a connecting link does not time out) and, back again, the join asks again and a host registers its room code again
+  pageHidden() {
+    this.hiddenAt = performance.now();
+    if (this.room && this.room.join && this.room.join.pending) this.room.join.suspend();
+    for (const link of this.ownLinks()) link.suspend();
+  },
+  pageShown() {
+    const away = this.hiddenAt ? performance.now() - this.hiddenAt : 0;
+    if (!this.hiddenAt) return;
+    this.hiddenAt = 0;
+    if (this.room && this.room.join && this.room.join.pending) { this.room.back = true; this.room.join.resume(); }
+    for (const link of this.ownLinks()) link.resume();
+    const room = this.room;
+    if (this.role === 'host' && room && room.hub && room.info && room.info.code && away >= ONLINE_RESUME_MS) this.reregisterRoom(room); // the sockets of a page that was away may be dead: the same code is registered again
+    this.redraw();
+  },
+  ownLinks() { return [this.link].concat(this.guests.map((guest) => guest.link)).filter((link) => link && typeof link.suspend === 'function'); },
   // Every second while the host's lobby is up: ping each connected guest (the round trips fill the latency list and decide the first input delay), notice a changed lineup, tell the guests the list
   startLoop() { this.stopLoop(); this.loop = setInterval(() => this.tick(), ONLINE_PING_MS); },
   stopLoop() { clearInterval(this.loop); this.loop = 0; },
@@ -19413,10 +20227,10 @@ const OnlineUI = {
   // A guest's own Ready and the host's last list belong to one connection
   forgetLobby() { this.mine.ready = false; this.view = null; },
   // The guest's link (the first one, or after the last one failed or closed)
-  makeLink() {
+  makeLink(options = this.first ? { offerer: true } : {}) {
     const old = this.link;
     this.forgetLobby(); // what the last connection showed and agreed to is not true of the next one
-    const link = Online.createLink(this.role, this.first ? { offerer: true } : {});
+    const link = Online.createLink(this.role, options);
     this.link = link;
     if (old) old.close();
     this.listen(link);
@@ -19429,15 +20243,22 @@ const OnlineUI = {
     for (let seat = ONLINE_SEAT_MIN; seat <= ONLINE_SEAT_MAX; seat++) if (!this.slotOf(seat)) return seat;
     return ONLINE_SEAT_MAX + 1;
   },
-  addGuest(seat = this.freeSeat(), reverse = false) {
+  addGuest(seat = this.freeSeat(), reverse = true) { // the friend sends the first code unless the player turns it round (N05: the side that answers is the one that waits, and it is the host, whose browser is the one that can)
     if (seat > ONLINE_SEAT_MAX) return;
     const link = Online.createLink('host', reverse ? { offerer: false } : {}), old = this.slotOf(seat), slot = old || { seat, link: null, offerCode: '', answerText: '', note: '', roundTrip: -1 };
-    if (old && old.link) old.link.close();
+    if (old && old.link) { const stale = old.link; old.link = null; stale.close(); } // the slot lets go first: the close of the old link must not renew the seat again
     Object.assign(slot, { link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, engine: undefined, openedAt: undefined, fighter: undefined, ready: false, samples: [], missed: 0, removed: false, reverse }); // a new guest says its own browser kind and fighter; reverse: the friend sends the first code (Firefox)
     if (!old) this.guests.push(slot);
     this.listen(link);
     if (!reverse) this.step(link, link.makeOffer(seat), (code) => { slot.offerCode = code; this.redraw(); }, (error) => this.failSlot(slot, error));
     this.redraw();
+  },
+  // Host, two-code screens: the seat of a friend that left, was removed or failed gets a new code at once with its boxes empty, and says why (N10)
+  renewSlot(slot, link) {
+    const why = slot.removed ? slot.note : link.error ? link.error.message : '';
+    this.addGuest(slot.seat, slot.reverse);
+    const fresh = this.slotOf(slot.seat);
+    if (fresh) fresh.note = why;
   },
   // Host, a friend that sends the first code: the pasted (or scanned) code, answered with the seat of this block
   answerFirst(slot) {
@@ -19465,9 +20286,12 @@ const OnlineUI = {
       Sound.ui('ok');
     } else if (this.role === 'guest' && (state === 'closed' || state === 'failed')) {
       this.forgetLobby();
+      this.forgetCodes(); // the host's code it pasted and the answer it made are dead (N11)
     } else if (this.role === 'host' && (state === 'closed' || state === 'failed')) {
       const slot = this.guestOf(link);
       if (slot && slot.openedAt !== undefined && link.error && !slot.removed) UI.toast('Player ' + slot.seat + ' left.', 'warn'); // a connected guest that went away (a guest that was removed or never connected has no error)
+      if (slot && slot.room) this.freeRoomSlot(slot, link);
+      else if (slot && (slot.offerCode || slot.answerCode || slot.openedAt !== undefined || slot.removed)) this.renewSlot(slot, link); // a seat that was in use: its code is dead (N10)
       this.pushLobby();
     }
     this.redraw();
@@ -19491,6 +20315,8 @@ const OnlineUI = {
   patchLatency() {
     const rows = this.role === 'host' ? this.hostRows() : this.view ? this.view.seats : [];
     for (const row of rows) { const element = row.seat > 0 ? $('onLat' + row.seat) : null; if (element) element.textContent = onlineLatencyText(row.rt); }
+    const delay = $('onDelay');
+    if (delay && this.role === 'host') delay.textContent = this.delayText() || delay.textContent;
   },
   onMessage(link, data) {
     if (!this.owns(link) || typeof data !== 'string') return;
@@ -19511,6 +20337,7 @@ const OnlineUI = {
       return;
     }
     if (data === ONLINE_REMOVED) { if (this.role === 'guest' && link === this.link) this.removedByHost(link); return; }
+    if (data === ONLINE_BYE) { if (this.role === 'guest' && link === this.link) this.hostSaidBye(); return; }
     if (this.role === 'host') { if (data.charAt(0) === '{') this.heardMe(this.guestOf(link), onlineReadMe(data)); return; }
     const view = this.role === 'guest' ? onlineReadLobby(data) : null;
     if (view) { this.heardLobby(view); return; }
@@ -19518,13 +20345,24 @@ const OnlineUI = {
     const handed = start ? this.release() : null;
     if (handed) OnlinePlay.guestBegin(handed, start);
   },
-  // The host removed this guest: the screen says so (not check the Wi-Fi) and the link closes
+  // The host removed this guest: the screen says so (not check the Wi-Fi), the link closes, and the old codes are gone (N11: a removed friend must not see the host's dead code and its own old answer)
   removedByHost(link) {
-    this.note = ONLINE_MESSAGES.removed;
+    this.say(ONLINE_MESSAGES.removed);
     this.forgetLobby();
+    this.forgetCodes();
     link.close();
     this.redraw();
   },
+  // The host left on purpose: its link closes a moment later; the screen says why instead of "Disconnected"
+  hostSaidBye() {
+    this.say(ONLINE_MESSAGES.hostLeft);
+    this.forgetLobby();
+    this.forgetCodes();
+    this.redraw();
+  },
+  say(text) { this.note = text; if (this.room && this.room.cells) this.room.note = text; }, // the note of the two-code screens and of the room Join screen
+  // The codes of a connection that is over (N11): the pasted host code, the answer made for it, and the first code of the other order with its reply
+  forgetCodes() { this.offerText = ''; this.answerCode = ''; this.firstCode = ''; this.replyText = ''; },
   // The guest's pick and Ready to the host (a guest that has no pick yet offers the one a lobby starts with, so the host never gets a message it must refuse)
   sendMe() {
     if (!this.link || this.link.state !== 'open') return;
@@ -19565,6 +20403,7 @@ const OnlineUI = {
     if (name === 'fighter') this.cycleFighter(dir);
     else if (name === 'mode') this.cycleMode(dir);
     else if (name === 'arena') this.cycleArena(dir);
+    else if (name.startsWith('cell:')) this.stepCell(Number(name.slice(5)), dir);
   },
   cycleFighter(dir = 1) {
     const pool = onlinePool(), now = this.role === 'host' ? this.hostFighter : this.mine.fighter;
@@ -19633,14 +20472,23 @@ const OnlineUI = {
   canType() { return !this.link || ['idle', 'waiting'].includes(this.link.state); },
   codeBox(id, label, code, placeholder) {
     const rows = Math.min(8, Math.max(3, Math.ceil(code.length / ONLINE_CODE_CHARS_PER_ROW))); // a phone shows about 32 characters a row; the whole code stays in view
-    return '<textarea id="' + id + '" class="crin" data-nav readonly rows="' + rows + '" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>';
+    return '<textarea id="' + id + '" class="crin" data-nav' + (code ? '' : ' data-default') + ' readonly rows="' + rows + '" aria-label="' + label + '" placeholder="' + placeholder + '">' + esc(code) + '</textarea>'; // while the code is made (Copy is off) the box has the focus, so it never lands on Add another player (N22)
   },
   // kind: 'answer' (the guest's code) or the seat of a host slot
   codeButtons(code, kind) {
-    const fits = !!code && Qr.versionFor(code.length) > 0;
-    return '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="oncopy:' + kind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
+    const fits = !!code && Qr.versionFor(code.length) > 0, canShare = typeof navigator.share === 'function'; // the share sheet works in itch.io's frame (web-share is allowed there), the clipboard does not
+    return '<div class="row cr-actions">' + (canShare ? '<button class="mi" data-nav data-act="oncodeshare:' + kind + '"' + (code ? '' : ' disabled') + '>Share</button>' : '') +
+      '<button class="mi" data-nav data-default data-act="oncopy:' + kind + '"' + (code ? '' : ' disabled') + '>Copy</button>' +
       '<button class="mi" data-nav data-act="onqr:' + kind + '"' + (fits ? '' : ' disabled') + '>Show QR</button></div>' +
+      (code ? '<p class="hint" id="onCopyHint">' + this.copyHint() + '</p>' : '') +
       (code && !fits ? '<p class="hint">Too long for a QR: use Copy.</p>' : '');
+  },
+  // A touch screen has no Ctrl+C: it is told to press and hold; a keyboard is told to click and copy (N03)
+  touchPrimary() { return Inputs.players[0].lastDevice === 'touch' || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches); },
+  copyHint() { return this.touchPrimary() ? 'Press and hold the code, then choose Copy.' : 'Click the code, then press Ctrl+C.'; },
+  shareCode(kind) {
+    const code = this.codeOf(String(kind));
+    if (code && typeof navigator.share === 'function') navigator.share({ text: code }).catch(() => {}); // a closed share sheet is no error
   },
   scanButtons(act, label, link, seat, want = this.role === 'host' ? 'waiting' : 'idle') { // want: the state of the link when a code is expected (an answer to an offer that is out: waiting; an offer to answer: idle)
     const state = link ? link.state : 'idle', mine = this.scanning && this.scanSeat === seat;
@@ -19658,10 +20506,10 @@ const OnlineUI = {
   renderChoice() {
     const off = Online.supported() ? '' : ' disabled';
     return '<section class="screen on" aria-label="Play online"><div class="panel"><h2>Play online</h2>' +
-      '<p class="hint" style="margin-top:0">Up to 4 devices on the same Wi-Fi or network. The host sends each friend a short code, the friend sends one back (copy and paste, or a QR code).' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p>' +
+      '<p class="hint" style="margin-top:0">Up to 4 players. The host gets a room code of 5 symbols and each friend types it on Join a game (or opens the link the host shares). Nothing goes back.' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p>' +
       '<p class="hint">' + ONLINE_LIMITS + '</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Make a code for each friend and start the game</small></button>' +
-      '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Paste the host\'s code and send back the answer</small></button>' + BACK_BUTTON + '</nav></div></section>';
+      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Get a room code to give your friends</small></button>' +
+      '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Type the room code from your friend</small></button>' + BACK_BUTTON + '</nav></div></section>';
   },
   // One guest of the host screen: its code to send, the box for its answer, Connect, and its own status
   renderGuest(guest) {
@@ -19678,7 +20526,7 @@ const OnlineUI = {
   renderFriendFirst(guest, swap, ended, problem) {
     const { seat, link } = guest, state = link ? link.state : 'idle', idle = state === 'idle';
     return '<div class="onseat"><h3>Player ' + seat + ': paste the code your friend made</h3>' +
-      '<textarea id="onTheirs' + seat + '" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the code of player ' + seat + ' here"' + (idle ? '' : ' readonly') + '>' + esc(guest.theirs || '') + '</textarea>' +
+      '<textarea id="onTheirs' + seat + '" class="crin" data-nav' + (idle ? ' data-default' : '') + ' rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the code of player ' + seat + ' here"' + (idle ? '' : ' readonly') + '>' + esc(guest.theirs || '') + '</textarea>' +
       '<div class="row cr-actions"><button class="mi" data-nav data-act="onhostreply:' + seat + '"' + (idle ? '' : ' disabled') + '>Make answer code</button>' + (ended ? '<button class="mi" data-nav data-act="onnew:' + seat + '">New code</button>' : '') + swap + '</div>' +
       this.scanButtons('onscanf:' + seat, 'Scan your friend\'s QR', link, seat, 'idle') +
       (guest.answerCode ? '<h3>Send this answer to player ' + seat + '</h3>' + this.codeBox('onMine' + seat, 'Your answer code for player ' + seat, guest.answerCode, '') + this.codeButtons(guest.answerCode, 'r' + seat) : '') +
@@ -19687,7 +20535,8 @@ const OnlineUI = {
   // One line per player, the same on the host's screen and on a guest's: seat, name, fighter (the own one is a row to change), Ready and the round trip; the host also gets Remove
   playerRow(row, youSeat) {
     const mine = row.seat === youSeat, fighter = ROSTER_BY_ID[row.fighter] ? ROSTER_BY_ID[row.fighter].name : 'Choosing...';
-    const pick = mine ? '<div class="opt cell" role="spinbutton" tabindex="0" aria-label="Your fighter: ' + esc(fighter) + '" aria-valuetext="' + esc(fighter) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav data-local="olb:fighter"><span class="v">' + esc(fighter) + '</span></div>' : '<span class="onfig">' + esc(fighter) + '</span>';
+    const first = mine && this.role === 'host' && this.openCount() > 0 && !!this.startProblem() ? ' data-default' : ''; // a friend is in and Start is not on yet: the focus is on the host's own fighter row, never on Back (N07)
+    const pick = mine ? '<div class="opt cell" role="spinbutton" tabindex="0" aria-label="Your fighter: ' + esc(fighter) + '" aria-valuetext="' + esc(fighter) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav' + first + ' data-local="olb:fighter"><span class="v">' + esc(fighter) + '</span></div>' : '<span class="onfig">' + esc(fighter) + '</span>';
     const state = row.seat === 0 ? 'Host' : row.ready ? '&#10003; Ready' : '&#9675; Not ready';
     const latency = row.seat === 0 ? '<span class="onlat"></span>' : '<span class="onlat" id="onLat' + row.seat + '">' + esc(onlineLatencyText(row.rt)) + '</span>';
     const remove = this.role === 'host' && row.code ? '<button class="mi" data-nav data-act="onkick:' + row.code + '" aria-label="Remove player ' + row.code + '">Remove</button>' : '';
@@ -19697,31 +20546,68 @@ const OnlineUI = {
   modeNow(people) { return this.mode || (people === 2 ? 'fight' : 'brawl'); },
   openCount() { return this.guests.filter((guest) => this.isOpen(guest)).length; },
   // Why Start cannot be pressed, or '': nobody connected, a mode that does not fit the number of players (or the lineup), a guest whose connection is not measured yet, a guest that is not Ready
-  startProblem() {
+  startProblem() { return this.startState().text; },
+  // { text, soft }: soft = the host only has to wait (nobody yet, a connection being measured, a friend not Ready): a plain hint; the rest is a problem to fix (N21)
+  startState() {
     const open = this.guests.filter((guest) => this.isOpen(guest)), people = open.length + 1;
-    if (!open.length) return ONLINE_MESSAGES.nobody;
+    if (!open.length) return { text: ONLINE_MESSAGES.nobody, soft: true };
     const mute = open.find((guest) => this.silent(guest));
-    if (mute) return 'Player ' + mute.seat + ' does not answer. Wait a moment, or remove them.';
+    if (mute) return { text: 'Player ' + mute.seat + ' does not answer. Wait a moment, or remove them.', soft: false };
     const modeProblem = OnlinePlay.modeProblem(this.modeNow(people), people);
-    if (modeProblem) return modeProblem;
+    if (modeProblem) return { text: modeProblem, soft: false };
     const unsure = open.find((guest) => !this.measured(guest));
-    if (unsure) return 'Measuring the connection to player ' + unsure.seat + '. Start is on in a moment.';
+    if (unsure) return { text: 'Measuring the connection to player ' + unsure.seat + '. Start is on in a moment.', soft: true };
     const waiting = open.find((guest) => !guest.ready);
-    return waiting ? 'Waiting for player ' + waiting.seat + ' to press Ready.' : '';
+    return waiting ? { text: 'Waiting for player ' + waiting.seat + ' to press Ready.', soft: true } : { text: '', soft: false };
+  },
+  // N12: the input delay the next match will use, from the round trips measured so far (the same numbers Start takes)
+  delayText() {
+    const measured = this.guests.filter((guest) => this.isOpen(guest) && this.measured(guest));
+    if (!measured.length) return '';
+    const frames = onlineDelayFor(measured.map((guest) => guest.samples));
+    return 'Input delay for this match: ' + frames + ' frames (about ' + Math.round(frames * NET_FRAME_MS) + ' ms)' + (frames >= ONLINE_DELAY_SLOW ? '. The connection is slow: moves answer a little late.' : '.');
   },
   renderHost() {
+    if (this.room) return this.renderRoomHost();
     this.syncLineup();
-    const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startProblem();
+    const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startState();
     return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' +
       '<h3>Players (' + people + ' of ' + ONLINE_SEAT_MAX + ')</h3>' + this.playerList(this.hostRows(), 0) +
       this.guests.filter((guest) => !this.isOpen(guest)).map((guest) => this.renderGuest(guest)).join('') +
       (this.guests.length < ONLINE_SEAT_MAX - 1 ? '<div class="row cr-actions"><button class="mi" data-nav data-act="onadd">Add another player</button></div>' : '') +
-      '<h3>Game</h3>' + UI.optRow('Mode', ONLINE_MODE_LABEL[mode], 'data-local="olb:mode"', '') +
+      this.hostGame(mode, problem) + this.hostFoot();
+  },
+  // The Mode, Level and Lineup rows, the hint, the start problem and Start (the same on the room screen and the two-code screen)
+  hostGame(mode, problem) {
+    return '<h3>Game</h3>' + UI.optRow('Mode', ONLINE_MODE_LABEL[mode], 'data-local="olb:mode"', '') +
       (mode === 'tournament' ? '' : UI.optRow('Level', ARENAS[this.arena].name, 'data-local="olb:arena"', '')) +
       (mode === 'free' ? '<button class="mi" data-nav data-act="onlineup">Lineup<small>' + esc(OnlinePlay.lineupText()) + '</small></button>' : '') +
-      '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') +
-      '<div class="row cr-actions"><button class="mi" data-nav' + (problem ? '' : ' data-default') + ' data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button></div>' +
-      (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+      '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (this.delayText() ? '<p class="hint" id="onDelay">' + esc(this.delayText()) + '</p>' : '') + (problem.text ? '<p id="onStartHint" class="hint' + (problem.soft ? '' : ' warnline') + '">' + esc(problem.text) + '</p>' : '') +
+      '<div class="row cr-actions"><button class="mi" data-nav' + (problem.text ? '' : ' data-default') + ' data-act="onstart"' + (problem.text ? ' disabled' : '') + '>Start</button></div>';
+  },
+  hostFoot() { return (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + (this.openCount() ? BACK_BUTTON : ONLINE_BACK_BUTTON) + '</div></div></section>'; }, // with a friend in, Back is not the default focus: one press of A must not close the lobby (N07)
+  // The room screen of the host: the code to read out or share, who is in, the game rows. A friend that is still connecting has a line; one that fails or leaves is gone and its seat is free (the code stays good)
+  renderRoomHost() {
+    this.syncLineup();
+    const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startState();
+    const joining = this.guests.filter((guest) => guest.room && !this.isOpen(guest));
+    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' + this.roomCodeBlock(this.room) +
+      '<h3>Players (' + people + ' of ' + ONLINE_SEAT_MAX + ')</h3>' + this.playerList(this.hostRows(), 0) +
+      joining.map((guest) => '<p class="hint">Player ' + guest.seat + ' is joining...</p>').join('') +
+      this.hostGame(mode, problem) + this.hostFoot();
+  },
+  roomCodeBlock(room) {
+    const code = room.info.code, shown = (room.status === 'live' || room.status === 'lost') && !!code, share = this.openCount() === 0 ? ' data-default' : ''; // Share has the focus until a friend is in: then Start is the default
+    const link = shown && !this.framed() ? RoomCode.linkFor(code, location.href) : ''; // the link a friend can open instead of typing (not inside a frame)
+    const codeBox = shown ? '<p class="hint" style="margin-top:0">Your friends type this code on Join a game.</p><div id="onRoomCode" class="roomcode" role="img" aria-label="Room code ' + esc(code.split('').join(' ')) + '">' + esc(code) + '</div>' + (link ? '<p class="hint roomlink">Or they open this link: <span id="onRoomLink">' + esc(link) + '</span></p>' : '') + (this.touchPrimary() ? '<p class="hint" id="onCopyHint">Press and hold the code to copy it.</p>' : '') : '';
+    const actions = (shown ? '<button class="mi" data-nav' + share + ' data-act="onshare">Share</button>' : '') + (link ? '<button class="mi" data-nav data-act="onqr:room">Show QR</button>' : '') + '<button class="mi" data-nav' + (shown ? '' : ' data-default') + ' data-act="onmanual">Use codes instead</button>';
+    return '<div class="roombox">' + codeBox + '<div class="row cr-actions">' + actions + '</div>' + this.statusLine(this.roomStatusText(room), room.status !== 'live' && room.status !== 'making', 'onRoomStatus') + '</div>';
+  },
+  roomStatusText(room) {
+    if (room.status === 'making') return 'Making your room code...';
+    if (room.status === 'live') return this.openCount() ? 'Code ready. More friends can join with it.' : 'Code ready. Waiting for your friends.';
+    if (room.status === 'nocrypto') return ONLINE_MESSAGES.noCrypto;
+    return room.status === 'lost' ? ONLINE_MESSAGES.roomLost : ONLINE_MESSAGES.noService;
   },
   // The guest once its link is open: the players, the host's settings, its own pick and Ready
   renderGuestLobby() {
@@ -19734,16 +20620,39 @@ const OnlineUI = {
   },
   renderJoin() {
     if (this.link && this.link.state === 'open') return this.renderGuestLobby();
+    if (this.room) return this.renderRoomJoin();
     if (this.first) return this.renderJoinFirst();
     const code = this.answerCode;
     const idle = !this.link || ['idle', 'failed', 'closed'].includes(this.link.state); // after a failure the player may try again: answer() then makes a fresh link
     return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2>' +
       '<h3>1. Paste the host\'s code here</h3>' +
       '<textarea id="onOffer" class="crin" data-nav rows="3" maxlength="' + ONLINE_CODE_MAX_CHARS + '" placeholder="BPO-..." aria-label="Paste the host\'s code here"' + (idle ? '' : ' readonly') + '>' + esc(this.offerText) + '</textarea>' +
-      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button>' + (idle ? '<button class="mi" data-nav data-act="onfirst">I send the first code (Firefox)</button>' : '') + '</div>' + this.scanButtons('onscan', 'Scan the host\'s QR', this.link, 0) +
+      '<div class="row cr-actions"><button class="mi" data-nav data-default data-act="onanswer"' + (idle ? '' : ' disabled') + '>Make answer code</button>' + (idle ? '<button class="mi" data-nav data-act="onfirst">I send the first code</button>' : '') + '</div>' + this.scanButtons('onscan', 'Scan the host\'s QR', this.link, 0) +
       (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
       this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
+  // The Join screen of the room flow: the code typed into one box (keyboard, touch), the pad's 5 cells when a gamepad is in use, Join, and the way to the two codes
+  renderRoomJoin() {
+    const room = this.room, busy = this.joinBusy(), typed = room.cells.join('');
+    const cells = room.cells.map((symbol, index) => '<div id="onCell' + index + '" class="opt cell" role="spinbutton" tabindex="0" aria-label="Symbol ' + (index + 1) + ' of the room code" aria-valuetext="' + (symbol || 'empty') + '" data-nav data-local="olb:cell:' + index + '"><span class="v">' + (symbol || '_') + '</span></div>').join('');
+    return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2><h3>Type the room code from the host\'s screen</h3>' +
+      '<input id="onRoom" class="crin roomin" data-nav data-default type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="K7QX4" aria-label="Room code of 5 symbols" value="' + esc(typed) + '"' + (busy ? ' readonly' : '') + '>' +
+      (this.padWanted() ? '<p class="hint">Gamepad: up and down change a symbol, left and right move on, A joins.</p><div class="roomcells" role="group" aria-label="Room code symbols">' + cells + '</div>' : '') +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onroomjoin"' + (busy ? ' disabled' : '') + '>Join</button><button class="mi" data-nav data-act="onmanualjoin">Join with codes instead</button></div>' +
+      this.statusLine(this.roomJoinText(room), !!room.note || (!!this.link && !!this.link.error)) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
+  roomJoinText(room) {
+    const link = this.link, state = link ? link.state : 'idle';
+    if (room.note) return room.note;
+    if (state === 'failed' || state === 'closed') return link.error ? link.error.message : 'Disconnected.';
+    if (state === 'gathering') return 'Preparing the connection (about 2 seconds)...';
+    if (state === 'waiting') return room.back ? ONLINE_MESSAGES.joinBack : 'Looking for the game with code ' + room.cells.join('') + '...';
+    if (state === 'connecting') return 'Found it. Connecting...';
+    if (room.cells.every(Boolean)) return 'The code ' + room.cells.join('') + ' is in. Press Join.';
+    return 'Type the 5 symbols of the code: letters without vowels, and the numbers 2 to 9.';
+  },
+  // A gamepad is in use: the pad's cells are shown (nothing else on this screen needs a keyboard)
+  padWanted() { return Inputs.players[0].lastDevice === 'gamepad' || (typeof navigator.getGamepads === 'function' && Array.from(navigator.getGamepads()).some(Boolean)); },
   // The guest sends the first code (a Firefox guest gives up a few seconds after it gets an offer, so the host must answer, not the other way round)
   renderJoinFirst() {
     const link = this.link, state = link ? link.state : 'idle', ended = state === 'failed' || state === 'closed', waiting = state === 'waiting';
@@ -19780,16 +20689,22 @@ const OnlineUI = {
   qrCode() { return this.codeOf(String(this.qrOf)); },
   // The code behind a Copy / Show QR button: 'answer' (the guest's answer), 'first' (the guest's first code), 'r2' (the answer the host made to the first code of seat 2), or a seat (the host's code for it)
   codeOf(kind) {
+    if (kind === 'room') return this.roomLink(); // (before the 'r' of an answer to a first code: "room" starts with it)
     if (kind === 'answer') return this.answerCode;
     if (kind === 'first') return this.firstCode;
     if (kind.charAt(0) === 'r') { const slot = this.slotOf(kind.slice(1)); return slot ? slot.answerCode || '' : ''; }
     return this.qrCodeOf(kind);
   },
+  // The link a friend can open instead of typing the code (a ?join= address; not inside a frame, where the page cannot read the address around it), or ''
+  roomLink() {
+    const code = this.room && this.room.info ? this.room.info.code : '';
+    return code && !this.framed() ? RoomCode.linkFor(code, location.href) : '';
+  },
   // The read-only box that shows the code of a kind
   boxOf(kind) { return kind === 'answer' ? 'onCode' : kind === 'first' ? 'onFirst' : kind.charAt(0) === 'r' ? 'onMine' + kind.slice(1) : 'onCode' + kind; },
   renderQr() {
-    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="QR code of your ' + (this.qrOf === 'answer' || String(this.qrOf).charAt(0) === 'r' ? 'answer' : this.qrOf === 'first' ? 'first' : 'host') + ' code"></canvas>' +
-      '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.</p>' + BACK_BUTTON + '</div></div></div></section>';
+    return '<section class="screen on center" aria-label="QR code"><div class="panel"><div class="qrbox"><canvas id="onQr" class="qr" role="img" aria-label="' + (this.qrOf === 'room' ? 'QR code of the link to your game' : 'QR code of your ' + (this.qrOf === 'answer' || String(this.qrOf).charAt(0) === 'r' ? 'answer' : this.qrOf === 'first' ? 'first' : 'host') + ' code') + '"></canvas>' +
+      '<div style="flex:1 1 12em;min-width:0"><p class="hint" style="margin-top:0">' + (this.qrOf === 'room' ? 'Your friend points the phone camera at this: the link opens the game and joins it. Any camera app reads it.' : 'Let your friend scan this with the game\'s Scan button, or use Copy on the previous screen.') + '</p>' + BACK_BUTTON + '</div></div></div></section>';
   },
   // after every render: the QR canvas, the camera view
   afterRender() {
@@ -19812,7 +20727,12 @@ const OnlineUI = {
     const handlers = {
       onhost: () => this.open('host'),
       onjoin: () => this.open('guest'),
+      onshare: () => this.share(),
+      onmanual: () => this.useCodesHost(),
+      onmanualjoin: () => this.useCodesGuest(),
+      onroomjoin: () => this.joinTyped(),
       oncopy: () => this.copy(this.codeOf(String(arg)), this.boxOf(String(arg))),
+      oncodeshare: () => this.shareCode(arg),
       onqr: () => { this.saveFields(); this.stopScan(); this.qrOf = arg; UI.push('onlineqr'); },
       onscan: () => this.startScan(Number(arg) || 0),
       onscanf: () => this.startScan(Number(arg) || 0, 'hostFirst'),
@@ -19838,9 +20758,20 @@ const OnlineUI = {
     if (fn) fn();
   },
   qrCodeOf(seat) { const guest = this.slotOf(seat); return guest ? guest.offerCode : ''; },
+  // Host: the room code to a friend: a link outside a frame, else the code and the page address (inside itch.io's frame the game cannot read its page's address), through the share sheet where there is one
+  framed() { return !!window.top && window.top !== window; }, // inside a frame (itch.io) the page cannot read the address of the page around it
+  share(framed = this.framed()) {
+    const code = this.room && this.room.info ? this.room.info.code : '';
+    if (!code) return;
+    const link = framed ? '' : RoomCode.linkFor(code, location.href);
+    const text = 'Join my Breakpoint game: code ' + code + (!link && document.referrer ? ' ' + document.referrer : '');
+    const tellCode = () => UI.toast('Tell your friends the code ' + code, 'warn');
+    if (typeof navigator.share === 'function') { navigator.share(link ? { text, url: link } : { text }).catch(() => {}); return; } // a closed share sheet is no error
+    try { navigator.clipboard.writeText(link || text).then(() => UI.toast('Copied. Send it to your friends.'), tellCode); } catch (error) { tellCode(); }
+  },
   copy(code, boxId) {
     const box = $(boxId);
-    const manual = () => { if (box) { box.focus(); box.select(); } UI.toast('Select the code and copy it (Ctrl+C)', 'warn'); };
+    const manual = () => { if (box) { box.focus(); box.select(); } UI.toast(this.touchPrimary() ? 'Copy is not allowed here. Press and hold the code, then choose Copy.' : 'Copy is not allowed here. The code is selected: press Ctrl+C.', 'warn'); }; // itch.io's frame refuses the clipboard (N03)
     try { navigator.clipboard.writeText(code).then(() => UI.toast('Code copied to the clipboard'), manual); } catch (error) { manual(); }
   },
   // Host: the pasted (or scanned) answer code of one guest
@@ -19854,8 +20785,9 @@ const OnlineUI = {
   startGame() {
     const problem = this.startProblem();
     if (problem) { this.note = problem; Sound.ui('bad'); this.redraw(); return; }
-    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, hostFighter = this.hostFighter, entries = this.releaseGuests();
+    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, hostFighter = this.hostFighter, held = this.room ? this.room.info : null, entries = this.releaseGuests(); // releaseGuests closes the room: its code is kept for the lobby that comes back after the match
     OnlinePlay.hostOpen(entries, hostFighter);
+    this.heldRoom = held;
     const failure = OnlinePlay.start({ mode, arena });
     if (failure) { OnlinePlay.leave(); UI.toast(failure, 'warn'); UI.hideScreen(); }
   },
@@ -19927,8 +20859,9 @@ const OnlineUI = {
   },
   // true when the key was typed into a box the player can write in; a code box that is only for reading (Copy) leaves Esc, Backspace and the arrows to the menu
   onKey(e, el = document.activeElement) {
-    if (!el || el.tagName !== 'TEXTAREA' || el.readOnly) return false;
-    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
+    if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') || el.readOnly) return false;
+    if (e.code === 'Enter' && el.id === 'onRoom') { e.preventDefault(); this.joinTyped(); return true; }
+    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item !== el && item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
     if (e.code === 'ArrowUp' || e.code === 'ArrowDown') { e.preventDefault(); UI.moveFocus(e.code === 'ArrowUp' ? -1 : 1); return true; }
     return true; // every other key types, selects or pastes normally (Backspace must not go back)
   },
@@ -19986,7 +20919,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ROOM_BASE64, ROOM_MASTER_CACHE_MAX, ROOM_CLAIM_FUTURE_MS, ROOM_KDF_ITERATIONS, ROOM_RETRY_STEPS_MS, ONLINE_PRIVACY, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_BYE, onlineSayBye, ONLINE_DELAY_SLOW, ONLINE_RESUME_MS, NET_PAD, NET_PAD_PICK, NET_LEAVE_TEXT, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -20423,7 +21356,7 @@ function installGlobalHandlers() {
   window.addEventListener('resize', syncKeyboard);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', syncKeyboard);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { Game.pause(null, true); Sound.suspend(); } else { Sound.resumeIfAllowed(); queueResize(); }
+    if (document.hidden) { Game.pause(null, true); Sound.suspend(); OnlineUI.pageHidden(); } else { Sound.resumeIfAllowed(); queueResize(); OnlineUI.pageShown(); } // a phone in another app: the online join and room pause with the page (N09)
   });
   // back from the bfcache or another app (iOS): audio may still be suspended
   window.addEventListener('pageshow', () => { Sound.resumeIfAllowed(); queueResize(); });
@@ -20457,6 +21390,8 @@ async function boot() {
     Game.go(GS.MENU);
     Game.start();
     Diag.log('info', 'Started in ' + Math.round(Diag.startupMs) + ' ms');
+    const joinCode = Online.supported() ? RoomCode.fromLink(location.search) : ''; // a friend's link ?join=K7QX4 (P19-12): the card comes down, the Join screen is up with the code in and waits for the Join press
+    if (joinCode) { Intro.skip(); UI.push('online'); OnlineUI.open('guest', '', joinCode); try { history.replaceState(null, '', location.pathname); } catch (error) { /* a page that may not change its address keeps the link */ } }
     const brawlFlag = /[?&#]brawl(?:=(\d+))?(?![\w])/.exec(location.search + location.hash); // debug flag: ?brawl=6 starts a brawl with that many enemies
     if (brawlFlag) UI.runBrawl(brawlFlag[1] ? Number(brawlFlag[1]) : BRAWL_DEFAULT_ENEMIES);
   } catch (e) {
