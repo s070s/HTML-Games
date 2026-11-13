@@ -9551,7 +9551,7 @@ class AIController {
     this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
     return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
   }
-  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel, and not a steam pipe or a hydrant whose jet only pushes; P18-13: with bait the Warehouse CPU stopped using the load; P18-52: on the Club, where the pipes are the only strike hazard, a bait cost the CPU 6 damage a match; within AI_HAZARD_BAIT_RANGE) and waits there on guard
+  // (3) BAIT: nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel, and not a steam pipe or a hydrant whose jet only pushes; P18-13: with bait the Warehouse CPU stopped using the load; P18-52: on the Club, where the pipes are the only strike hazard it baits toward, a bait cost the CPU 6 damage a match; within AI_HAZARD_BAIT_RANGE) and waits there on guard
   hazardBait(f, opp) {
     const match = this.match, chance = AI_HAZARD_BAIT[this.d.id];
     if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null; // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once

@@ -10359,7 +10359,7 @@ const SelfTest = {
       return problems.length ? problems.join('; ') : true;
     });
     test('Hazards (P8-03): a CPU that baits toward a hazard takes the same damage from a plain chaser as one that never baits (same seeds: all levels together no more than 10 percent worse, no level worse by more than two standard errors of the paired difference), takes no hazard damage it caused itself, and every bait spot is outside all hazard zones (and inside the ring with ring-out on)', () => {
-      const problems = [], saved = AI_HAZARD_BAIT.hard, BAIT_SEEDS = 60, BAIT_TICKS = 1200;   // 60 seeds (P17-10): the per-match bait cost is small and uneven (per seed -30 to +32), so 12 seeds put 2 standard errors on seed luck. P18-52: the cost was real on the Club, only the first 60 seeds read it low (240 seeds at c0e10f0: +6.8 +- 1.3 a match, seeds 1-60 +3.9; on this branch before the fix +5.8 +- 1.6); a CPU baiting toward a steam pipe was caught on its backward walk and lost its opening for a push of 3 damage, so hazardBait no longer baits toward a pushing jet (240 seeds now: Club 0, the other levels as before)
+      const problems = [], saved = AI_HAZARD_BAIT.hard, BAIT_SEEDS = 60, BAIT_TICKS = 1200;   // 60 seeds (P17-10): the per-match bait cost is small and uneven (per seed -30 to +32), so 12 seeds put 2 standard errors on seed luck. P18-52: the cost was real on the Club, only the first 60 seeds read it low (240 seeds at c0e10f0: +6.8 +- 1.3 a match, seeds 1-60 +3.9; on this branch before the fix +5.8 +- 1.6); a CPU baiting toward a steam pipe was caught on its backward walk and lost its opening for a push of 3 damage, so hazardBait no longer baits toward a pushing jet (240 seeds now: Club 0, Pit +0.34 to +0.28, the others unchanged)
       let sumOff = 0, sumOn = 0, selfHarm = 0;
       try {
         for (const id of ARENA_ORDER) {
@@ -10387,8 +10387,9 @@ const SelfTest = {
       if (selfHarm) problems.push('the CPU hurt itself with a hazard it set off: ' + selfHarm.toFixed(0));
       AI_HAZARD_BAIT.hard = 1;
       try {
-        for (const [id, baits] of [['club', false], ['construction', true], ['rooftop', true]]) {   // the Club has only steam pipes (a jet that pushes): no bait; a fire barrel or a load is baited toward
-          const m = ringMatch(id, false), ai = new AIController(m.fighters[0].profile, 'hard'), [a, b] = m.fighters;
+        for (const [id, baits] of [['club', false], ['pit', true], ['construction', true], ['rooftop', true]]) {   // the Club baits toward nothing (its steam pipes only push), the Pit toward its fire, not its pipe; a fire barrel or a load is baited toward
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id, difficulty: 'hard', items: false, hazards: true, winsNeeded: 99, evenDamage: true })), ai = new AIController(m.fighters[0].profile, 'hard'), [a, b] = m.fighters;   // the level's own hazards: a ring match has none
+          if (id === 'club' && !m.hazards.some((h) => h.def.fx === 'push')) problems.push('the Club match has no steam pipe, so its no-bait check proves nothing');
           ai.match = m; b.state = S.ATTACK;   // the target is coming for the CPU (pressedBy)
           const plan = ai.hazardBait(a, b);
           if (!!plan !== baits || (plan && plan.h.def.fx === 'push')) problems.push(id + (plan ? ' baits toward a ' + plan.h.type : ' does not bait'));
