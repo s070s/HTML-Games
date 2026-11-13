@@ -19417,7 +19417,7 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the combo counter of a Training with touch controls overlaps not the coach/grab hint, the Training panel is drawn over a fighter name tag, the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the combo counter of a Training with touch controls overlaps not the coach/grab hint, the Training panel is drawn over a fighter name tag while a damage pop and an off-screen arrow are drawn over the panel, the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
@@ -19454,6 +19454,14 @@ const SelfTest = {
             hud.style.pointerEvents = 'auto';   // the live HUD takes no pointer, and elementFromPoint skips such elements
             const tagBox = rect(tag), top = doc.elementFromPoint(tagBox.left + tagBox.width / 2, tagBox.top + tagBox.height / 2);
             if (!top || tag.contains(top)) bad.push(where + 'a fighter name tag is drawn over the data panel');
+            const pop = doc.createElement('div');   // a damage pop (and a hit word) lives in #tags too, but it must stay readable: it is on top of the panel
+            pop.className = 'pop'; pop.textContent = '99'; doc.getElementById('tags').appendChild(pop);
+            pop.style.transform = 'translate(' + (box.left + box.width / 2) + 'px,' + (box.top + box.height / 2) + 'px)';
+            const popBox = rect(pop), popTop = doc.elementFromPoint(popBox.left + popBox.width / 2, popBox.top + popBox.height / 2);
+            if (!popTop || !pop.contains(popTop)) bad.push(where + 'a damage pop is not on top of the data panel');
+            const edge = doc.createElement('div');   // an off-screen arrow has pointer-events:none (elementFromPoint skips it): its stacking level is read instead, a level above the panel's (auto)
+            edge.className = 'edge'; doc.getElementById('tags').appendChild(edge);
+            if (doc.defaultView.getComputedStyle(edge).zIndex !== '1') bad.push(where + 'an off-screen arrow is not above the data panel (z-index ' + doc.defaultView.getComputedStyle(edge).zIndex + ')');
           }
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
           if (!keys) for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
@@ -19463,6 +19471,39 @@ const SelfTest = {
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
+    /* P18-78 review: #onboard has z-index 2; without a stacking context on #hud that lifted the Controls card above the #touch layer (a later sibling) and the card covered the stick and buttons on a first touch fight. The real HUD markup, the real card, the real touch buttons. */
+    layoutTest('Layout (P18-69): with the Controls card shown on a first touch fight (Training) at 640 x 360, 667 x 375 and 360 x 640, every touch button the card overlaps is what is on top at its centre and at the middle of the overlap - the card never covers the controls', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], hudHtml = document.getElementById('hud').innerHTML, buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
+      const html = '<div id="hud" class="tt">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
+      let overlaps = 0;
+      for (const [width, height] of [[640, 360], [667, 375], [360, 640]]) inLayoutFrame(width, height, '', (doc) => {
+        const where = 'Controls card at ' + width + ' x ' + height + ': ';
+        doc.getElementById('screens').innerHTML = '';
+        doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
+        const card = doc.getElementById('onboard');
+        doc.getElementById('hud').hidden = false; doc.getElementById('pauseBtn').hidden = true;
+        for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
+        card.innerHTML = UI.controlsCardHtml('touch'); card.hidden = false;
+        const cardBox = card.getBoundingClientRect();
+        const controls = [...doc.querySelectorAll('#touch .tb'), doc.getElementById('stickBase')];
+        for (const control of controls) {
+          const box = control.getBoundingClientRect(), left = Math.max(box.left, cardBox.left), right = Math.min(box.right, cardBox.right), top = Math.max(box.top, cardBox.top), bottom = Math.min(box.bottom, cardBox.bottom);
+          if (box.width < 1 || right - left <= 2 || bottom - top <= 2) continue;
+          const centreX = box.left + box.width / 2, centreY = box.top + box.height / 2, radius = Math.min(box.width, box.height) / 2;
+          const nearX = Math.min(Math.max(centreX, cardBox.left + 1), cardBox.right - 1), nearY = Math.min(Math.max(centreY, cardBox.top + 1), cardBox.bottom - 1);   // the button's centre, and the point of the card nearest to it: both on the round button (a corner of the overlap box is not, and elementFromPoint follows the border radius)
+          const points = [[centreX, centreY], [nearX, nearY]].filter(([x, y]) => x >= cardBox.left && x < cardBox.right && y >= cardBox.top && y < cardBox.bottom && Math.hypot(x - centreX, y - centreY) <= radius * 0.9);
+          if (points.length) overlaps++;
+          for (const [x, y] of points) {
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            const on = doc.elementFromPoint(x, y);
+            if (!on || !control.contains(on)) bad.push(where + 'the ' + (control.dataset.a || 'stick') + ' button is under ' + (on && on.id ? '#' + on.id : 'the card') + ' at ' + Math.round(x) + ',' + Math.round(y));
+          }
+        }
+      });
+      if (!overlaps) bad.push('no touch button overlaps the Controls card at any of the three sizes: the test measures nothing');
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    });
     layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card (also in a one-person Co-op and a Lineup with a person) and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844, also at UI scale 0.8; the Training panel (the real UI.trainingPanel text) holds FRAME DATA, Startup, Result and Advantage inside its box at those sizes, its KEYS line is inside the panel (not at 640 x 360, where there is no room), and it is one line on a landscape phone', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●';
