@@ -21988,6 +21988,46 @@ const SelfTest = {
       } catch (error) { bad.push('threw ' + error.message); } finally { hubs.forEach((hub) => hub.close()); roomClean(); kit.restore(); restore(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, 20000);
+    test('Online rooms (P19-12 review 2): a host that registers its code again keeps it - a stranger\'s fresh claim found on the code by the new hub does not end it as taken, the same code and nonce go live again, and the host is marked as having had the code', async () => {
+      if (!roomCrypto) return NO_CRYPTO;
+      const kit = roomUiKit(), bad = [], net = fakeRoomNet(['tracker0', 'tracker1', 'mqtt1']), restore = net.install();
+      try {
+        Online.supported = () => true;
+        OnlineUI.reset(); OnlineUI.role = 'host'; OnlineUI.guests = []; OnlineUI.lineupSig = '';
+        OnlineUI.startRoomHost({ code: 'RT6K3', nonce: '0123456789abcdef' });
+        await roomWait(() => OnlineUI.room.status === 'live', 'the code live', 3000);
+        if (OnlineUI.room.info.live !== true) bad.push('the code is live but not marked as the host\'s own');
+        const ids = await RoomCrypto.ids('RT6K3'), key = await RoomCrypto.key('RT6K3');
+        const foreign = Array.from(await RoomCrypto.seal(key, { t: 'claim', nonce: 'bbbbbbbbbbbbbbbb', time: Date.now() })); // a fresh claim of another host id: the page was away, and the claim of this host's old hub could not be cleared
+        const before = OnlineUI.room.hub;
+        OnlineUI.reregisterRoom(OnlineUI.room);   // the page was away: the code is registered again on a new hub (the old hub's clearing of its own claim is done by now)
+        net.retained[0].set(ids.topic + '/claim', foreign);
+        if (OnlineUI.room.hub === before) bad.push('no new hub');
+        await roomWait(() => OnlineUI.room.status === 'live', 'the code live again over a fresh foreign claim', 4000).catch(() => bad.push('the code did not come back: ' + OnlineUI.room.status + ' ' + OnlineUI.room.info.code));
+        if (OnlineUI.room.info.code !== 'RT6K3' || OnlineUI.room.info.nonce !== '0123456789abcdef') bad.push('the host lost its code to the foreign claim: ' + OnlineUI.room.info.code + ' ' + OnlineUI.room.info.nonce);
+        if (OnlineUI.room.tries !== 1) bad.push('a new code was tried: tries ' + OnlineUI.room.tries);
+      } catch (error) { bad.push('threw ' + error.message); } finally { roomClean(); kit.restore(); restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, 20000);
+    test('Online rooms (P19-12 review 2): a host that comes back to the page while every room service is down is "lost" and tried again - not "down" for good - and the same code is live again when a service is back', async () => {
+      if (!roomCrypto) return NO_CRYPTO;
+      const kit = roomUiKit(), bad = [], net = fakeRoomNet(['tracker1', 'mqtt0', 'mqtt1']), restore = net.install(), keepSteps = OnlineUI.retrySteps;
+      try {
+        Online.supported = () => true;
+        OnlineUI.retrySteps = [60, 120];
+        OnlineUI.reset(); OnlineUI.role = 'host'; OnlineUI.guests = []; OnlineUI.lineupSig = '';
+        OnlineUI.startRoomHost({ code: 'RT6K3', nonce: '0123456789abcdef' });
+        await roomWait(() => OnlineUI.room.status === 'live', 'the code live', 3000);
+        net.block.add('tracker0');   // the service is down when the page comes back
+        OnlineUI.reregisterRoom(OnlineUI.room);   // what the page's return does (retries 0)
+        await roomWait(() => OnlineUI.room.status === 'lost', 'the code reported lost', 3000).catch(() => bad.push('after the return with the services down the status is ' + OnlineUI.room.status + ', not lost'));
+        await roomWait(() => OnlineUI.room.retries >= 1, 'a try', 3000).catch(() => bad.push('no try was scheduled: retries ' + OnlineUI.room.retries + ', status ' + OnlineUI.room.status));
+        net.block.delete('tracker0');   // the service is back
+        await roomWait(() => OnlineUI.room.status === 'live', 'the code live again', 4000).catch(() => bad.push('the code did not come back when the service did: ' + OnlineUI.room.status));
+        if (OnlineUI.room.info.code !== 'RT6K3') bad.push('another code: ' + OnlineUI.room.info.code);
+      } catch (error) { bad.push('threw ' + error.message); } finally { OnlineUI.retrySteps = keepSteps; roomClean(); kit.restore(); restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, 20000);
     test('Online rooms (P19-12 review): a ?join= link fills in the code and waits for the Join press - nothing is asked of the services until then - and the help says that the players\' devices, and anyone with the code, can see each other\'s public internet address', async () => {
       if (!roomCrypto) return NO_CRYPTO;
       const kit = roomUiKit(), bad = [], net = fakeRoomNet(['tracker1', 'mqtt0', 'mqtt1']), restore = net.install(), log = roomLog(), keepPush = UI.push;

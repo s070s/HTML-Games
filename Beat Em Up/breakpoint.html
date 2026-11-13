@@ -16249,7 +16249,7 @@ const RoomCrypto = {
   masters: new Map(),
   // 32 bytes for one purpose: SHA-256 of the master and the purpose's name, so the info hash, the topic and the key do not reveal one another
   async part(code, purpose) { return new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from([...await this.master(code), ...new TextEncoder().encode(purpose)]))); },
-  // The room's info hash on a tracker (20 bytes as a binary string) and the root of its MQTT topics: made from the code by PBKDF2, so the code itself never travels and a hash seen on a service is not a cheap guess of the code
+  // The room's info hash on a tracker (20 bytes as a binary string) and the root of its MQTT topics: made from the code by PBKDF2, so the code itself never travels and a hash seen on a service costs work to turn back into a code (the salt is fixed, so one precomputed table of all 14.3 million codes serves every room: slow to make, not impossible)
   async ids(code) {
     const [swarm, topic] = await Promise.all([this.part(code, 'swarm'), this.part(code, 'topic')]);
     return { swarm: String.fromCharCode(...swarm.slice(0, ROOM_PEER_BYTES)), topic: 'bp4/' + OnlineCode.bytesHex(Array.from(topic)).slice(0, ROOM_TOPIC_HEX) };
@@ -16520,7 +16520,7 @@ function createMqttRoute(context, url) {
   const heardClaim = (message) => {
     const found = RoomMessage.readClaim(message); // a claim dated in the future is refused here
     if (!found || found.nonce === ownNonce) return;
-    if (context.host) { if (!claimed && Date.now() - found.time < ROOM_CLAIM_STALE_MS) end('taken'); return; } // somebody else holds this code: only a claim that was there before this host made its own counts (the wait window), a later one is ignored (or any code holder could knock a live host off its code)
+    if (context.host) { if (!claimed && !context.owned && Date.now() - found.time < ROOM_CLAIM_STALE_MS) end('taken'); return; } // somebody else holds this code: only a claim that was there before this host made its own counts (the wait window), a later one is ignored (or any code holder could knock a live host off its code); a host that registers its code again (context.owned: it was live) never loses it to a claim
     claimSeen = true;
     context.report(route, 'host', found.nonce); // the id of the host that holds the code: the answer must come from it
     if (route.state === 'missing') context.report(route, 'ready');
@@ -16615,7 +16615,7 @@ function createRoomHub(role, code, handlers, options = {}) {
     let ids = null, key = null;
     try { [ids, key] = await Promise.all([RoomCrypto.ids(code), RoomCrypto.key(code)]); } catch (error) { if (!closed) handlers.onUnreachable(false); return; }
     if (closed) return;
-    const context = { host, ids, key, ownId: hub.ownId, nonce: hostNonce, echoMs: options.echoMs ?? ROOM_ECHO_MS, resendMs: options.resendMs ?? ROOM_TRACKER_RESEND_MS, report }; // nonce: the claim on a broker that is ours, and the host's probe
+    const context = { host, ids, key, ownId: hub.ownId, nonce: hostNonce, owned: !!options.owned, echoMs: options.echoMs ?? ROOM_ECHO_MS, resendMs: options.resendMs ?? ROOM_TRACKER_RESEND_MS, report }; // nonce: the claim on a broker that is ours, and the host's probe
     routes.push(...ROOM_TRACKER_URLS.map((url) => createTrackerRoute(context, url)), ...ROOM_MQTT_URLS.map((url) => createMqttRoute(context, url)));
     for (const route of routes) route.open();
   };
@@ -20055,11 +20055,11 @@ const OnlineUI = {
     const retries = carry.retries || 0, room = { info, hub: null, status: retries ? 'lost' : 'making', tries, retries, retryTimer: 0 }, mine = () => this.room === room;
     this.room = room;
     room.hub = createRoomHub('host', info.code, {
-      onReady: () => { if (mine()) { room.status = 'live'; room.retries = 0; this.redraw(); } },
+      onReady: () => { if (mine()) { room.status = 'live'; room.retries = 0; info.live = true; this.redraw(); } }, // info.live: this code was ours once, so a claim another host left on it later is ours too
       onTaken: () => { if (mine()) this.retakeRoom(room); },
-      onUnreachable: (wasLive) => { if (!mine()) return; room.status = wasLive || retries ? 'lost' : 'down'; if (room.status === 'lost') this.retryRoom(room); this.redraw(); },
+      onUnreachable: (wasLive) => { if (!mine()) return; room.status = wasLive || retries || info.live ? 'lost' : 'down'; if (room.status === 'lost') this.retryRoom(room); this.redraw(); },
       onOffer: (message, reply) => { if (mine()) this.roomOffer(message, reply); },
-    }, { nonce: info.nonce, seen: carry.seen });
+    }, { nonce: info.nonce, seen: carry.seen, owned: !!info.live });
     room.hub.start();
     this.redraw();
   },
