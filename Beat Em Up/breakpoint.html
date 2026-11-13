@@ -5144,7 +5144,7 @@ const LATE_DEFEND_TICKS = 12;
 const COMBO_BROKEN_TICKS = 36;
 const COUNTER_WINDOW_PERFECT = 50; // only a perfect block (or perfect sway) opens a counter, and only for one move
 /* Sway: a fresh Defend press leans out of the way. Strikes miss during the first SWAY_IFRAME_TICKS (grabs still connect); one that would have hit on sway ticks 0 to PERFECT_BLOCK_TICKS is a perfect sway and opens a counter.
-   Hittable for the next SWAY_RECOVERY_TICKS. A held Defend never repeats the sway. */
+   Hittable for the next SWAY_RECOVERY_TICKS. A held Defend (P18-62) prepares the sway: each strike that would land, a heavy charge included, starts it by itself and pays swayCost; thrown items still hit a holder. */
 const SWAY_COST_BY_TIER = [5, 6, 8]; // P18-62: stamina each strike costs a sway that dodges it (jab / cross / hook tier); the press itself is free
 const swayCost = (mv) => SWAY_COST_BY_TIER[Math.min(SWAY_COST_BY_TIER.length, Math.max(1, mv.tier || 1)) - 1];
 const SWAY_READY_REGEN = 0.3; // a prepared Sway fighter (Defend held, free) refills at this share of the rate: holding must not be a safer rest than a guard (0.4)
@@ -5652,7 +5652,7 @@ const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
 // What Defend does, in plain words
 const DEFENSE_HELP = {
   block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter.',
-  sway: 'Press Defend before the fight reaches you and keep it down: the press leans out at once, and then each strike that would hit you slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina; grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter.',
+  sway: 'Press Defend before the fight reaches you and keep it down: the press leans out at once, and then each strike that would hit you slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina; grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter. A heavy charge is slipped like a strike, but a thrown item still hits you while you only hold Defend (only a sway already under way dodges it).',
 };
 const COMBO_HELP = 'While you are hit you cannot act, and a hit that lands while you are still stunned cannot be stopped. Once you are free, Defend can: keep it held and your guard starts the moment you are free, so a hit right then is a perfect block that breaks the combo (a Sway fighter who keeps it held is ready the moment they are free). A guard raised in the last half second cannot be perfect.';
 // Move styles whose fighters may hold a downed opponent: every style whose row lists holds in submit
@@ -8277,7 +8277,8 @@ const Combat = {
   swayHit(d, match) {
     const { att, def, mv, perfect } = d;
     const pos = this.hitPoint(att, def, mv);
-    const age = d.auto ? def.age - def.readyAt : def.stateTicks, brk = perfect && this.comboBreak(att, def); // how long the defence had run
+    const auto = !!d.auto || (def.state === S.SWAY && def.swayAuto); // a strike that meets the i-frames of a sway the hold started is still a held dodge
+    const age = auto ? def.age - def.readyAt : def.stateTicks, brk = perfect && this.comboBreak(att, def); // how long the defence had run
     const cost = perfect ? 0 : swayCost(mv);
     let broke = false;
     if (perfect) {
@@ -8290,9 +8291,11 @@ const Combat = {
       broke = true;
       def.stam = 0;
       this.guardBreak(att, def, mv, match);
+      att.moveConnected = true; // as blockHit does: a broken guard is a connected move, not a miss (no extra recovery, the string and the CPU chain go on)
       Events.emit('lowStamina', { f: def, refused: true }); // the stamina bar flashes: the dodge could not be paid
     } else def.stam -= cost;
-    Events.emit('block', { att, def, mv, perfect, broke, brk, age, cost, refund: perfect ? def.stats.edge.perfect : 0, auto: !!d.auto, fresh: def.readyFresh, since: def.readyGap, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
+    Events.emit('block', { att, def, mv, perfect, broke, brk, age, cost, refund: perfect ? def.stats.edge.perfect : 0, auto, fresh: def.readyFresh, since: def.readyGap, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
+    return broke;
   },
 
   // Environmental hit: a strike that lands on scenery
@@ -8487,6 +8490,12 @@ const Combat = {
     const x = (att.x + def.x) / 2, z = (att.z + def.z) / 2, nx = dx / (dist || 1), nz = dz / (dist || 1);
     if (def.state === S.SIDESTEP || (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS)) { // the tackler runs past
       Events.emit('tackle', { att, def, result: 'dodged', x, y: def.y + 1.1, z });
+      return;
+    }
+    if (def.swayReady && (def.state === S.IDLE || def.state === S.WALK || def.state === S.CROUCH)) { // the charge is a strike: a prepared Sway fighter slips it like one (it pays its tier, a perfect is free, a tank that cannot pay breaks the guard)
+      def.startSway({ side: def.stickSide, fwd: def.stickFwd }, att, true);
+      const broke = this.swayHit({ type: 'sway', att, def, mv: TACKLE_MOVE, auto: true, perfect: def.age - def.readyAt <= PERFECT_BLOCK_TICKS && def.readyFresh }, match);
+      Events.emit('tackle', { att, def, result: broke ? 'hit' : 'dodged', x, y: def.y + 1.1, z }); // a broken guard reads as a hit here: its block event has the details
       return;
     }
     if (isBlockState(def.state) && def.fwdX * -dx + def.fwdZ * -dz > 0) { // a guard facing the charge stops it: no damage
