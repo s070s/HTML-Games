@@ -16289,7 +16289,7 @@ const TrackerWire = {
   // A friend's offers (or a probe): the tracker hands each one to another peer of the room, up to numwant
   offers(swarm, peerId, offerIds, message) { return this.announce(swarm, peerId, { numwant: offerIds.length, offers: offerIds.map((id) => ({ offer_id: id, offer: { type: 'offer', sdp: JSON.stringify(message) } })) }); },
   answer(swarm, peerId, toPeerId, offerId, message) { return this.announce(swarm, peerId, { to_peer_id: toPeerId, offer_id: offerId, left: 0, answer: { type: 'answer', sdp: JSON.stringify(message) } }); },
-  binary(value) { return typeof value === 'string' && value.length === ROOM_PEER_BYTES && /^[\u0000-ÿ]+$/.test(value); },
+  binary(value) { return typeof value === 'string' && value.length === ROOM_PEER_BYTES && /^[\u0000-\u00ff]+$/.test(value); },
   // The room message that a tracker carried in `sdp` (a string of JSON), or null
   inner(wrapper, type) {
     if (!wrapper || typeof wrapper !== 'object' || wrapper.type !== type || typeof wrapper.sdp !== 'string' || wrapper.sdp.length > ROOM_TEXT_MAX_CHARS) return null;
