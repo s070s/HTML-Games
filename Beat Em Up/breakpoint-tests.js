@@ -54,7 +54,7 @@ const {
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music, MESH,
+  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -248,28 +248,45 @@ const SelfTest = {
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
-    const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
-    const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
+    const REAL_LINK_LIMIT_MS = 30000;   // the tests over real WebRTC connections (P18-74): their handshakes and the lockstep run at network speed; measured alone in headless Chromium: CSP 1.8 s, loopback 3.3 s, two peers 5.3 s, four peers 10.4 s
+    const AsyncFunction = (async () => {}).constructor;
+    const deferredTests = [];   // tests that pass a limitMs (they render audio offline) and every `async` test (P18-74): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
+    const syncPass = { endedAt: 0 };   // when the synchronous pass over the tests ended (performance.now); 0 while it runs
+    const NativeConnection = window.RTCPeerConnection;   // undefined in the headless stub
+    const alreadyWatched = Boolean(NativeConnection && NativeConnection.madeList);   // an overlapping run has wrapped it already: this run shares its list and leaves the restoring to that run
+    const madeConnections = alreadyWatched ? NativeConnection.madeList : [];   // every RTCPeerConnection made while the tests run (P18-74), so a test can check that none is left open
+    let WatchedConnection = null;
+    if (NativeConnection && !alreadyWatched) {
+      WatchedConnection = class extends NativeConnection { constructor(...args) { super(...args); madeConnections.push(this); } };
+      WatchedConnection.madeList = madeConnections;
+      window.RTCPeerConnection = WatchedConnection;
+    }
+    const stopWatching = () => { if (WatchedConnection && window.RTCPeerConnection === WatchedConnection) window.RTCPeerConnection = NativeConnection; };   // the real constructor is back when the deferred tests are done, or when one of them throws
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn, limitMs) => {   // limitMs (the async tests that render audio offline, and the layout tests with their many frames): defer the test, run it after every other test, and give it that long
+    const runInPass = (entry, fn) => {   // a plain test: its result is known when it returns; a promise is a mistake (see test)
+      try {
+        const r = fn();
+        if (r && typeof r.then === 'function') {
+          r.then(() => {}, () => {});   // nobody waits for it: its rejection is not left unhandled
+          Object.assign(entry, { pass: false, skipped: false, detail: 'it returned a promise but is not an async function: return a promise only from an async test (a plain function starts it inside the synchronous pass, with its clocks running and the event loop shut)' });
+        } else record(entry, r);
+      } catch (e) { Object.assign(entry, { pass: false, skipped: false, detail: 'exception: ' + String(e && e.message || e) }); }
+    };
+    const test = (name, fn, limitMs) => {   // limitMs (a deferred test that needs more than the 10 s of an async test: audio rendered offline, the layout tests with their many frames, real links): give it that long; an `async` function is deferred either way, a plain one runs in the pass and must return its result, never a promise
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
       const entry = { name, pass: false, detail: 'still running' };
       results.push(entry);
-      if (limitMs) { deferredTests.push({ entry, fn, limitMs }); return; }
-      try {
-        const r = fn();
-        if (r && typeof r.then === 'function') {
-          let timer = 0;
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
-          const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
-          pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
-        } else record(entry, r);
-      } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); }
+      /* An async test waits for timers, a real WebRTC connection or the audio thread, so it needs the event loop, which stays shut until this synchronous pass has run every other test (minutes in all).
+         Started inside the pass, its 10 s limit and its own waitFor / until clocks ran out before the first timer could fire: the online-link tests failed with "no result after 10000 ms", the sound bake with "did not finish" (P18-74). */
+      if (limitMs || fn instanceof AsyncFunction) { deferredTests.push({ entry, fn, limitMs: limitMs || ASYNC_TEST_LIMIT_MS }); return; }
+      runInPass(entry, fn);
       entry.ms = Math.round(performance.now() - started);
-      self.made.splice(0).forEach((made) => made.dispose());
-      if (Match.current) Match.current.dispose();
+      try {
+        self.made.splice(0).forEach((made) => made.dispose());
+        if (Match.current) Match.current.dispose();
+      } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }   // a failing dispose fails this test and does not end the pass
       void m;
     };
     const hasLayoutEngine = () => typeof document !== 'undefined' && 'contentDocument' in document.createElement('iframe');   // the headless stub has no frames and no layout engine; every real browser has both. A test may skip only when this is false
@@ -7573,7 +7590,7 @@ const SelfTest = {
     const quietAll = (m) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
     const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
     const ROSTER_IDS = ROSTER.map((r) => r.id);
-    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id, i) => [id, 0, i === 0]));   // slot 1 is the person, as these tests meant when slot 1 could not be a CPU (an all-CPU lineup has its own tests above)
     test('Hit freeze (P18-53): a 1v1 freezes on every hit as before; with more than two fighters a CPU against CPU hit never freezes, the one person\'s own hits freeze at most CROWD_HITSTOP_MAX ticks, and with two or more people nothing freezes', () => {
       const bad = [];
       const solo = mk({});
@@ -7602,11 +7619,11 @@ const SelfTest = {
       if (two.hitStop !== 0) bad.push('two people froze ' + two.hitStop);
       return bad.length ? bad.join('; ') : true;
     });
-    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
+    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 as given (a CPU stays a CPU), at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
       const problems = [];
       const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));
       const fixed = MatchLineup.fix({ slots: raw, handicap: 0, timer: 5, deal: 'nonsense' });
-      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || !fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
+      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
       if (MatchLineup.people(fixed) !== LINEUP_HUMANS_MAX || fixed.timer !== 0 || fixed.handicap !== false || fixed.deal !== 'custom') problems.push('rest ' + JSON.stringify({ people: MatchLineup.people(fixed), timer: fixed.timer, handicap: fixed.handicap, deal: fixed.deal }));
       if (MatchLineup.fix({ slots: [] }).slots.length !== LINEUP_MIN || MatchLineup.fix({ slots: [{ id: 'mara', human: false, team: 1 }] }).slots[0].id !== 'mara') problems.push('padding');
       const same = lineupOf([['kai', 1, true], ['mara', 1, false]]);
@@ -7623,6 +7640,165 @@ const SelfTest = {
       for (const kind of LINEUP_DEALS) { MatchLineup.deal(dealt, kind); teams.push(dealt.slots.map((slot) => slot.team).join('')); }
       if (teams.join() !== '00000,12122,12121,12312,12341') problems.push('deals ' + teams.join());
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Watch-only Free Fight (BP-P18-75): slot 1 can be a CPU, so a lineup of CPUs only is fought with nobody at a device ----- */
+    test('Watch-only Free Fight (P18-75): MatchLineup keeps a lineup with no person (Duel, Brawl, every team deal, the even-teams rule between CPU teams), a crowd still needs its people, Online friends need a person in slot 1 (without one an Online slot is a CPU, not a local person), and a save loads slot 1 as a person unless it says CPU', () => {
+      const bad = [];
+      const cpus = (count, extra) => MatchLineup.fix(Object.assign({ slots: ROSTER_IDS.slice(0, count).map((id) => ({ id, human: false, team: 0 })) }, extra));
+      const duel = cpus(2), eight = cpus(8), four = cpus(4);
+      if (MatchLineup.people(duel) !== 0 || duel.slots[0].human || !MatchLineup.check(duel).ok || MatchLineup.type(duel) !== 'Duel') bad.push('an all-CPU duel: ' + JSON.stringify([MatchLineup.people(duel), MatchLineup.check(duel).msg, MatchLineup.type(duel)]));
+      if (MatchLineup.people(eight) !== 0 || eight.slots.length !== LINEUP_MAX || eight.slots.some((slot) => slot.human)) bad.push('eight CPUs were changed: ' + MatchLineup.people(eight));
+      for (const kind of LINEUP_DEALS) {
+        MatchLineup.deal(eight, kind);
+        const check = MatchLineup.check(eight);
+        if (!check.ok) bad.push('the ' + kind + ' deal of eight CPUs: ' + check.msg);
+        if (kind === 'players' && eight.slots.map((slot) => slot.team).join('') !== '12121212') bad.push('players deal with nobody: ' + eight.slots.map((slot) => slot.team).join(''));
+      }
+      MatchLineup.deal(four, 'players');
+      if (MatchLineup.type(four) !== 'Brawl' || !MatchLineup.check(four).ok || MatchLineup.plan(four).people !== 0) bad.push('an all-CPU Brawl: ' + MatchLineup.type(four));
+      const crowd = MatchLineup.fix({ crowd: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+      if (!crowd.slots.every((slot) => slot.human) || MatchLineup.people(crowd) !== 2) bad.push('a crowd of CPUs kept no people');
+      const withHost = (human) => MatchLineup.fix({ net: true, slots: [{ id: 'kai', human }, { id: 'mara', human: true, online: true }] });   // fix() rewrites the slots array it is given: a fresh one each time
+      if (withHost(false).slots.some((slot) => slot.online) || !withHost(true).slots[1].online) bad.push('Online friends with and without a person in slot 1');
+      const sitsOut = withHost(false).slots[1], local = MatchLineup.fix({ net: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: true }] }).slots[1];
+      if (sitsOut.human || sitsOut.online || !withHost(true).slots[1].human || !local.human) bad.push('an Online friend of a CPU in slot 1 became a local person (human ' + sitsOut.human + '), or a local person was lost (' + local.human + ')');
+      const uneven = cpus(3, { handicap: true });
+      uneven.slots[0].team = 1; uneven.slots[1].team = 2; uneven.slots[2].team = 2;
+      const plan = MatchLineup.plan(uneven, 'easy');
+      if (plan.people !== 0 || plan.slots[0].id !== 'kai' || plan.slots[0].hp !== MatchLineup.handicapFactor('easy', 2) || !(plan.slots[0].hp < 1) || plan.slots[1].hp !== 1) bad.push('the CPU-only handicap: ' + plan.slots.map((s) => s.hp.toFixed(2)).join());
+      const keep = { setups: Setups.d, lineups: Game.lineups, sel: Object.assign({}, Game.selection), raw: Store.get(KEY_SETUPS) };
+      try {
+        const load = (freeFight) => { Setups.d = { v: 1, freeFight }; Game.lineups = {}; return Game.lineupFor(); };
+        const old = load({ type: 'Duel', crowd: false, slots: [{ id: 'kai', human: true, team: 0 }, { id: 'mara', human: false, team: 0 }], deal: 'ffa', handicap: true, clock: 0, rounds: 2, roundTimer: 60, arena: 'warehouse', difficulty: 'normal', friendlyFire: false });
+        if (old.slots.map((slot) => [slot.id, slot.human, slot.team].join()).join(' ') !== 'kai,true,0 mara,false,0') bad.push('an old save changed: ' + JSON.stringify(old.slots));
+        if (!load({ slots: [{ id: 'kai' }, { id: 'mara' }] }).slots[0].human || !load({ slots: [null, { id: 'mara' }] }).slots[0].human) bad.push('a save with no control field for slot 1 is not a person');
+        const watch = load({ slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+        if (watch.slots[0].human || watch.slots[1].human) bad.push('a saved CPU slot 1 loaded as a person');
+        Game.saveSetup();
+        Game.lineups = {};
+        if (Setups.d.freeFight.slots[0].human !== false || Game.lineupFor().slots[0].human) bad.push('a CPU slot 1 was not saved and read back');
+      } finally {
+        Setups.d = keep.setups; Game.lineups = keep.lineups; Object.assign(Game.selection, keep.sel);
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const WATCH_MAX_TICKS = 60 * 60 * 3;   // a watched fight that has no result by then is a bug (the lineups below carry a 60 s clock)
+    const WATCH_DUEL = [['kai', 0, false], ['mara', 0, false]];
+    const WATCH_BRAWL = ROSTER_IDS.slice(0, 8).map((id, i) => [id, 1 + (i % 3), false]);
+    const watchMatch = (list, extra) => lineupMatch(lineupOf(list, { timer: 60 }), Object.assign({ timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }, extra));
+    const watchPlay = (list, extra) => {   // a lineup built the way the game builds it, played to its result with no input at all
+      const m = watchMatch(list, extra);
+      let ticks = 0;
+      while (m.phase !== 'matchEnd' && ticks < WATCH_MAX_TICKS) { m.step(); ticks++; }
+      return { m, ticks };
+    };
+    const watchSignature = ({ m, ticks }) => JSON.stringify([m.matchWinner, ticks, m.fighters.map((f) => [f.alive, Math.round(f.hp * 1000)]), m.stats.map((s) => Math.round(s.damage * 1000))]);
+    test('Watch-only Free Fight (P18-75): an all-CPU 1 vs 1 and an 8-fighter team brawl run to a result with no input, nothing counts (no grade, tips off, the Progress save byte for byte the same), the results say so, a win on the clock ends on "<TEAM> WINS" and a draw on "DRAW" (never "VICTORY"), the same seed plays the same fight twice, and a person in slot 2 is the lead that reads seat 1', () => {
+      const bad = [], saved = keepProgress(), keep = { match: Game.match, run: Game.run, data: Game.resultsData, go: Game.go, config: Game.config, state: Game.state, banner: UI.banner };
+      try {
+        let goneTo = null;
+        Game.go = (to) => { goneTo = to; return true; };   // the results record is checked, and the state the game goes to, but the state change itself does not happen
+        for (const [name, list] of [['1 vs 1', WATCH_DUEL], ['8-fighter team brawl', WATCH_BRAWL]]) {
+          const progressBefore = Store.get(KEY_PROGRESS), stateBefore = JSON.stringify(Progress.d);
+          const first = watchPlay(list), m = first.m;
+          if (m.phase !== 'matchEnd') { bad.push(name + ' had no result in ' + WATCH_MAX_TICKS + ' ticks'); continue; }
+          if (m.hasPerson() || !m.controllers.every((controller) => controller instanceof AIController) || m.fighters.some((f) => f.person || f.stats.edge !== STAMINA_EDGE_NONE)) bad.push(name + ' has a person, a controller that reads input or a CPU with the person\'s stamina edge');
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          if (m.fighters.some((f) => Inputs.forFighter(f.index))) bad.push(name + ': a fighter reads an input seat');
+          if (Coach.eligible(m)) bad.push(name + ' is eligible for tips and the loss streak');
+          Game.onMatchEnd();
+          const data = Game.resultsData, html = UI.screen_results();
+          if (data.mode !== 'lineup' || data.watching !== true || data.playerWon || data.grade || !html.includes('does not count') || /Victory|Defeat|gradebox/.test(html) || !html.includes(m.matchWinner < 0 ? 'Draw' : ' wins')) bad.push(name + ' results: ' + JSON.stringify([data.watching, data.playerWon, !!data.grade]));
+          if (Store.get(KEY_PROGRESS) !== progressBefore || JSON.stringify(Progress.d) !== stateBefore) bad.push(name + ' changed the Progress save');
+          if (watchSignature(watchPlay(list)) !== watchSignature(first)) bad.push(name + ' played differently with the same seed');
+        }
+        const banners = [];
+        UI.banner = (text, sub) => { banners.push(text + '/' + sub); };
+        const endOf = (m) => {   // the game's own end of a fight: the state it goes to and the banner that state puts up
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          goneTo = null; Game.onMatchEnd();
+          banners.length = 0; if (goneTo === GS.VICTORY) UI.victoryBanner(); else UI.defeatBanner();   // the two lines of UI.onGameState that put the banner up (the rest of it needs the page)
+          return { state: goneTo, banner: banners.join('|') };
+        };
+        const drawn = watchMatch(WATCH_DUEL), won = watchMatch(WATCH_DUEL);
+        quietAll(drawn); quietAll(won);
+        drawn.roundTicks = 2; self.run(drawn, 5);   // both at full health when the clock runs out: a draw
+        Combat.knockOut(won.fighters[1], won.fighters[0], null, won); self.run(won, KO_DELAY_TICKS + 20);
+        if (!drawn.matchOver || drawn.matchWinner !== -1 || !won.matchOver || won.matchWinner !== 0) bad.push('the two endings were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        const drawEnd = endOf(drawn), winEnd = endOf(won);
+        if (drawEnd.state !== GS.DEFEAT || drawEnd.banner !== 'DRAW/') bad.push('a watched draw ended on ' + drawEnd.state + ' "' + drawEnd.banner + '", not the DRAW banner');
+        if (winEnd.state !== GS.VICTORY || winEnd.banner !== won.teamNames[0].toUpperCase() + ' WINS/' || !won.teamNames[0]) bad.push('a watched win ended on ' + winEnd.state + ' "' + winEnd.banner + '", not "<TEAM> WINS"');
+        if (/VICTORY|DEFEAT/.test(drawEnd.banner + winEnd.banner)) bad.push('a watched fight shows player wording: ' + drawEnd.banner + ' ' + winEnd.banner);
+        const other = lineupMatch(lineupOf([['kai', 1, false], ['mara', 2, true]]), { timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }), watched = watchPlay(WATCH_DUEL).m;
+        Game.match = other;
+        if (!other.hasPerson() || other.fighters[0].id !== 'mara' || !other.fighters[0].person || Inputs.forFighter(0) !== Input || Inputs.forFighter(1) || other.fighters[0].stats.edge === STAMINA_EDGE_NONE || other.fighters[1].stats.edge !== STAMINA_EDGE_NONE || !Coach.eligible(other)) bad.push('a person in slot 2 is not the lead on seat 1, or the CPU in slot 1 was treated as a person');
+        if (!UI.lineupHeading(other, true).includes('<b>P1</b>') || UI.tagLabel(other, 0) !== '1P' || UI.tagLabel(other, 1) !== 'CPU') bad.push('the HUD does not follow the person in slot 2: ' + UI.lineupHeading(other, true));
+        if (UI.lineupHeading(watched, true).includes('P1') || !UI.lineupHeading(watched, true).includes('CPU') || UI.tagLabel(watched, 0) !== 'CPU') bad.push('the HUD of a watched fight has a you marker: ' + UI.lineupHeading(watched, true));
+        const wide = lineupMatch(lineupOf(['kai', 'mara', 'brutus', 'yuki'].map((id) => [id, 0, false])), {});
+        wide.fighters.forEach((f, k) => { f.x = f.prevX = k * 30; f.z = f.prevZ = 0; });
+        const nearOnly = Camera.frameFighters(wide.fighters), everyone = Camera.frameFighters(wide.fighters, true);
+        if (everyone !== 4 || nearOnly >= everyone) bad.push('the camera of a watched fight frames ' + everyone + ' of 4 (' + nearOnly + ' without the watch flag)');
+        Game.state = GS.FIGHT;
+        const planOf = (humans) => { Game.config = { slots: wide.fighters, humans }; return [Game.inputPlan(), Game.watchOnly()].join(); };
+        if (planOf(0) !== 'versus,true' || planOf(1) !== 'solo,false' || planOf(2) !== 'versus,false') bad.push('input plan with 0, 1 and 2 people: ' + [planOf(0), planOf(1), planOf(2)]);
+      } finally { Game.match = keep.match; Game.run = keep.run; Game.resultsData = keep.data; Game.go = keep.go; Game.config = keep.config; Game.state = keep.state; UI.banner = keep.banner; restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Watch-only Free Fight (P18-75): slot 1 set to CPU on Players and teams starts a fight no seat steers, both input seats and a third and a fourth gamepad (no seat) can pause and resume it, it plays to results that say it does not count, and the Progress save is untouched', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const bad = [], saved = keepProgress(), keep = { setups: Setups.d, lineups: Game.lineups, raw: Store.get(KEY_SETUPS), render: Game.render }, progressBefore = Store.get(KEY_PROGRESS);
+      try {
+        self.freshFree(); Game.chooseMode('free'); Game.applyType('Duel');
+        UI.lineupLocal('lctl:0', 1);
+        const lineup = Game.lineupFor();
+        lineup.timer = 60;   // the fight ends on the clock if the two CPUs do not finish it
+        if (lineup.slots[0].human || !UI.screen_lineup().includes('Slot 1 control: CPU') || !UI.screen_lineup().includes('Watch only')) bad.push('slot 1 did not show as a CPU on Players and teams');
+        Game.startFromSelection();
+        if (!Game.match || Game.match.hasPerson() || Game.inputPlan() !== 'versus' || Inputs.active().length !== 2) bad.push('the fight did not start with nobody and both seats free: ' + (Game.match && Game.match.hasPerson()));
+        Game.render = () => {};
+        let now = performance.now();
+        const frame = () => { now += 16.7; Game.frame(now); };
+        for (let i = 0; i < 400 && Game.state !== GS.FIGHT; i++) frame();
+        if (UI.dom.hn1.innerHTML.includes('P1') || UI.dom.hn1.innerHTML.includes('1P')) bad.push('the HUD shows a you marker: ' + UI.dom.hn1.innerHTML);
+        for (const seat of [Input2, Input]) {
+          seat.press('pause'); frame();
+          if (Game.state !== GS.PAUSED || Game.pausedBy !== seat) bad.push('a seat could not pause: ' + Game.state);
+          Game.resume();
+        }
+        const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), keepSlots = Inputs.padSlots.slice(), keepSeats = Inputs.players.map((p) => [p.lastDevice, p.padIndex]);
+        const pads = [0, 1, 2, 3].map((i) => fakePad('pad ' + i));   // four connected pads: only the first two have a seat, the third and fourth are read by nobody
+        Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+        try {
+          frame();
+          for (const index of [2, 3]) {
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.PAUSED || Game.pausedBy !== null) bad.push('Start on pad ' + (index + 1) + ' did not pause the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            UI.guardUntil = 0;   // the guard that keeps a press that paused from closing the screen, in real time
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.FIGHT) bad.push('Start on pad ' + (index + 1) + ' did not resume the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            if (Game.state !== GS.FIGHT) bad.push('pad ' + (index + 1) + ' released Start and the fight paused again: ' + Game.state);
+          }
+        } finally {
+          if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+          Inputs.padSlots = keepSlots;
+          Inputs.players.forEach((p, i) => { p.releaseAll(); p.reset(); [p.lastDevice, p.padIndex] = keepSeats[i]; });
+          if (Game.state === GS.PAUSED) Game.resume();
+        }
+        for (let i = 0; i < 9000 && Game.state !== GS.RESULTS; i++) frame();
+        const data = Game.resultsData;
+        if (Game.state !== GS.RESULTS || !data || !data.watching || data.playerWon || data.grade || !UI.screen_results().includes('does not count')) bad.push('no watch-only results: ' + Game.state);
+        if (Store.get(KEY_PROGRESS) !== progressBefore) bad.push('the fight changed the Progress save');
+      } finally {
+        Game.render = keep.render;
+        Game.quitToMenu();
+        Setups.d = keep.setups; Game.lineups = keep.lineups;
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+        restoreProgress(saved);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Lineup: the plan puts the lead\'s team first, people before CPU, one team per group, the colours of Team A to D fixed and the spare ones for free-for-all slots, and the handicap only on the smaller teams', () => {
       const problems = [];
@@ -7855,7 +8031,7 @@ const SelfTest = {
       if (levels !== 'expert,expert,easy') problems.push('difficulty by team ' + levels);
       return problems.length ? problems.join('; ') : true;
     });
-    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 always), cycle teams, the handicap and the clock', () => {
+    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 too), cycle teams, the handicap and the clock', () => {
       const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepToast = UI.toast, problems = [];
       try {
         UI.toast = () => {};
@@ -7871,9 +8047,11 @@ const SelfTest = {
         step('lopp', 1); step('lopp', 1);
         if (new Set(lineup.slots.map((s) => s.id)).size !== lineup.slots.length || lineup.slots.slice(1).some((s) => s.human || s.team !== 2)) problems.push('added slots ' + JSON.stringify(lineup.slots));
         UI.lineupLocal('lctl:0', 1);
-        if (!lineup.slots[0].human) problems.push('slot 1 lost its player');
+        if (lineup.slots[0].human || MatchLineup.people(lineup) !== 0) problems.push('slot 1 did not become a CPU');
+        UI.lineupLocal('lctl:0', 1);
+        if (!lineup.slots[0].human) problems.push('slot 1 did not become a player again');
         step('lopp', 1);
-        for (const i of [1, 2, 3, 4, 0]) UI.lineupLocal('lctl:' + i, 1);
+        for (const i of [1, 2, 3, 4]) UI.lineupLocal('lctl:' + i, 1);
         if (MatchLineup.people(lineup) !== LINEUP_HUMANS_MAX || lineup.slots[4].human || !lineup.slots[0].human) problems.push('players ' + MatchLineup.people(lineup));
         const before = lineup.slots[2].id;
         UI.lineupLocal('lfig:2', 1);
@@ -14624,7 +14802,7 @@ const SelfTest = {
     });
     /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
     const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
-    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once with every baked variant combination as well (levels, about 250 s of audio) or four times (buses); measured in Chrome 2026-11-12 (three full runs): levels 8.6 to 8.9 s, buses 4.6 s, so the limit only matters on a PC that renders below real time
     const isolatedSound = () => Object.assign({}, Sound, { ctx: null, bank: null, bakeState: 'idle', bakeError: '', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeFrom: 0, unsupported: false, voices: 0, last: {}, layerQ: [], spot: null, wired: false, fires: [], amb: null, ambKey: -1, lastVariant: {} });   // a shallow copy of the engine for a test that must not touch the page's own
     const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
     const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
@@ -14726,9 +14904,11 @@ const SelfTest = {
     });
     test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 60 buffers (27 impacts, 9 materials, 24 footsteps) of about 1.6 MB', async () => {
       const Sound = isolatedSound(), bad = [];   // a copy of the engine: the page's own Sound (its context, its bank, its bake in flight) is never touched, so nothing here can be heard or restored late
+      const heldIdle = window.requestIdleCallback;
+      window.requestIdleCallback = (run) => setTimeout(run, 0);   // P18-74: each bake step waits for an idle moment, which a page that is drawing never has, so every step ran after its 500 ms timeout and five steps came within a hair of the 4 s waits below; a prompt stand-in tests the bake, not the browser's idle scheduling
       try {
         MockOfflineContext.made.length = 0;
-        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the other async tests run side by side with this one
+        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the deferred tests run one at a time (P18-74), but the page's own timers and frames run between the awaits of this one
         withMocks(() => Sound.unlock());
         if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
         await waitFor(() => Sound.bakeState !== 'running', 4000);
@@ -14765,7 +14945,7 @@ const SelfTest = {
         if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
         Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
         if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) and refuses a rate under 44.1 kHz does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); else if (Sound.bank.hit[0][0][0].sampleRate !== 44100 || Sound.bank.step[0][0][0].length !== Math.round(0.12 * 44100)) bad.push('the prefixed context bakes at ' + Sound.bank.hit[0][0][0].sampleRate + ' Hz, not 44100'); }
-      } finally { Sound.ready = () => false; }   // the copy is thrown away
+      } finally { Sound.ready = () => false; window.requestIdleCallback = heldIdle; }   // the copy is thrown away
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
     test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
@@ -14848,6 +15028,25 @@ const SelfTest = {
       } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Watch-only Free Fight (P18-75): the end jingle plays when a team won a fight nobody played, and a draw of CPUs plays nothing (no victory fanfare, no defeat tune); a fight with a person still plays its own win or loss', () => {
+      const bad = [], keep = saveSound(), keepFanfare = Sound.fanfare, fire = soundHandlers(), heard = [];
+      try {
+        Sound.ready = () => true; Sound.fanfare = (win) => { heard.push(win); };
+        const ended = (m) => { heard.length = 0; fire('matchEnd', { match: m }); return heard.join(); };
+        const watched = (finish) => { const m = watchMatch(WATCH_DUEL); quietAll(m); finish(m); return m; };
+        const drawn = watched((m) => { m.roundTicks = 2; self.run(m, 5); });
+        const won = watched((m) => { Combat.knockOut(m.fighters[1], m.fighters[0], null, m); self.run(m, KO_DELAY_TICKS + 20); });
+        if (drawn.matchWinner !== -1 || won.matchWinner !== 0) bad.push('the two fights were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        if (ended(won) !== 'true') bad.push('a watched win played ' + (ended(won) || 'nothing'));
+        if (ended(drawn) !== '') bad.push('a watched draw played ' + ended(drawn));
+        const person = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), lost = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]]));
+        quietAll(person); quietAll(lost);
+        Combat.knockOut(person.fighters[1], person.fighters[0], null, person); self.run(person, KO_DELAY_TICKS + 20);
+        Combat.knockOut(lost.fighters[0], lost.fighters[1], null, lost); self.run(lost, KO_DELAY_TICKS + 20);
+        if (ended(person) !== 'true' || ended(lost) !== 'false') bad.push('a fight with a person: win ' + ended(person) + ', loss ' + ended(lost));
+      } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     test('Sound fires (P18-29): a burning object crackles as long as its material burns (cardboard 3 s, wood 8 s), and the crackle clock runs only in a live fight: a pause does not shorten it, slow motion slows it', () => {
       const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { hazard: Sound.hazard, clock: Sound.clock, fires: Sound.fires, allow: Sound.allow, breathAt: Sound.breathAt, crackleAt: Sound.crackleAt }, fire = soundHandlers();
       try {
@@ -14925,7 +15124,8 @@ const SelfTest = {
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
-    const renderSounds = async (volumes, gap, only, ctl) => {   // ctl: the deferred test's token, { cancelled }
+    // `codes` (optional, { name: how many baked variants the row picks }, from an earlier render's `picks`): only those rows are rendered, once for every combination of their variants (BAKE_VARIANTS to the power of the picks), the variants forced instead of drawn; `all[name]` lists the peak of each combination
+    const renderSounds = async (volumes, gap, only, ctl, codes) => {   // ctl: the deferred test's token, { cancelled }
       const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
       const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
@@ -14940,10 +15140,25 @@ const SelfTest = {
       const fire = (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
       let table = soundTable(fire);
       if (only) table = table.filter((row) => only(row[0]));
-      const slots = []; let at = START;
-      for (const row of table) { slots.push({ name: row[0], from: at, play: row[3] }); at += row[2] + gap; }
+      if (codes) table = table.filter((row) => codes[row[0]] > 0);
+      const slots = [], picks = {}; let at = START;
+      table.forEach((row, rowIndex) => {
+        const combinations = codes ? Math.pow(BAKE_VARIANTS, codes[row[0]]) : 1;
+        for (let code = 0; code < combinations; code++) { slots.push({ name: row[0], row: rowIndex, code: codes ? code : undefined, from: at, play: row[3] }); at += row[2] + gap; }
+      });
+      // One play of a slot; `picks[name]` counts the baked variants it chose. With a code the variant of the n-th choice is the n-th digit of the code (base BAKE_VARIANTS), whatever the earlier plays left in `lastVariant`
+      const playSlot = (slot) => {
+        const keepPick = Sound.pickVariant; let calls = 0;
+        Sound.pickVariant = function (key) {
+          const call = calls++;
+          if (slot.code === undefined) return keepPick.call(this, key);
+          Math.random();   // the draw the real choice takes, so the random draws after it keep their order (the run is repeatable; the play-to-play jitter itself is not what this test checks)
+          return Math.floor(slot.code / Math.pow(BAKE_VARIANTS, call)) % BAKE_VARIANTS;
+        };
+        try { slot.play(); } finally { Sound.pickVariant = keepPick; picks[slot.name] = Math.max(picks[slot.name] || 0, calls); }
+      };
       const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
-      const offline = { ctx: null };
+      const offline = { ctx: null, lastVariant: {} };   // P18-74: the render starts from no variant played yet; it used to share the page's own record, which the matches of the earlier tests had filled, so "bat hit" came out at -2.9 dBFS in a full run and -4.4 alone (target -5 within 2)
       inOffline(offline, () => {
         Sound.ctx = oc; Sound.build(); Sound.setReverb(1.7, 0.3);
         const setGain = (node, value) => { node.gain.cancelScheduledValues(0); node.gain.value = value; };
@@ -14954,26 +15169,31 @@ const SelfTest = {
       offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf, seedBake)).bank;
       if (ctl && ctl.cancelled) throw new Error('cancelled');
       const failures = [];
-      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slots.indexOf(slot)); oc.resume(); });
+      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { playSlot(slot); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slot.row); oc.resume(); });
       const rendered = await oc.startRendering();
       if (ctl && ctl.cancelled) throw new Error('cancelled');
-      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
+      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {}, all = {};
       await new Promise((resolve) => setTimeout(resolve, 60)); Sound.voices = liveVoices;   // (the ended events of the offline sources come in after the render)
       slots.forEach((slot, i) => {
         const end = Math.floor((i + 1 < slots.length ? slots[i + 1].from : total) * SR); let peak = 0;
         for (let k = Math.floor(slot.from * SR); k < end; k++) peak = Math.max(peak, Math.abs(left[k] + right[k]) / 2);
-        peaks[slot.name] = 20 * Math.log10(Math.max(peak, 1e-9));
+        const level = 20 * Math.log10(Math.max(peak, 1e-9));
+        (all[slot.name] = all[slot.name] || []).push(level);
+        if (!(slot.name in peaks)) peaks[slot.name] = level;
       });
-      return { peaks, table, failures };
+      return { peaks, all, picks, table, failures };
     };
     test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async (ctl) => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
-      const { peaks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      // P18-74: a sound that picks baked variants is measured with every combination of them (forced, so the result does not depend on which variants earlier tests played), and the loudest and quietest must be in range
+      const { peaks, picks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      const varied = await renderSounds({}, 0.25, undefined, ctl, picks);
+      bad.push(...varied.failures);
       for (const [name, target] of table) {
-        const peak = peaks[name];
-        if (!(peak <= -1)) bad.push(name + ' peaks at ' + peak.toFixed(1) + ' dBFS (over -1)');
-        else if (target !== null && Math.abs(peak - target) > 2) bad.push(name + ' ' + peak.toFixed(1) + ' dBFS, target ' + target);
-        if (peak < -70) bad.push(name + ' is silent');
+        const levels = varied.all[name] || [peaks[name]], loudest = Math.max(...levels), quietest = Math.min(...levels), list = levels.map((level) => level.toFixed(1)).join(' / ');
+        if (!(loudest <= -1)) bad.push(name + ' peaks at ' + loudest.toFixed(1) + ' dBFS (over -1; variants ' + list + ')');
+        else if (target !== null && (Math.abs(loudest - target) > 2 || Math.abs(quietest - target) > 2)) bad.push(name + ' ' + list + ' dBFS, target ' + target);
+        if (quietest < -70) bad.push(name + ' is silent');
       }
       return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
@@ -17460,7 +17680,7 @@ const SelfTest = {
       } catch (error) { bad.push('threw ' + error.message); } finally { restoreProgress(saved); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 cannot be a CPU, and the crowd runs for 1 to 4 people', () => {
+    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 can be a CPU and a player again, and the crowd runs for 1 to 4 people', () => {
       const bad = [];
       {
         const ran = withFlow([fakePad('a'), fakePad('b'), fakePad('c')], (flow) => {
@@ -17471,7 +17691,9 @@ const SelfTest = {
           if (!Game.match || Game.match.fighters.length !== 6 || Game.match.partySize !== 1 || !Game.match.setup) flow.problems.push('1 against 5: ' + (Game.match && Game.match.fighters.length));
           Game.quitToMenu();
           UI.lineupLocal('lctl:0', 1);
-          if (!Game.lineupFor().slots[0].human || !flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 became a CPU');
+          if (Game.lineupFor().slots[0].human || flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 did not become a CPU');
+          UI.lineupLocal('lctl:0', 1);
+          if (!Game.lineupFor().slots[0].human) flow.problems.push('slot 1 did not come back as a player');
           for (const people of [1, 2, 3, 4]) {
             Game.chooseMode('free'); Game.applyType('Co-op');
             const lineup = Game.lineupFor();
@@ -18971,8 +19193,8 @@ const SelfTest = {
     // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
     /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
     /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
-       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
-    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see runDeferred). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       const policy = policyTag ? policyTag.content : '';
@@ -19013,7 +19235,7 @@ const SelfTest = {
         document.removeEventListener('securitypolicyviolation', onViolation);
         connections.forEach((connection) => connection.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: signaling by copy-paste (P12-01) ---------- */
     /* Real data-channel SDPs from Chromium 156 and Firefox 157 (the engines with WebRTC on the dev PC), taken after ICE gathering with no ICE server: two mDNS host
        candidates each (Firefox also lists two TCP ones). Their packed codes are 140 to 160 characters. */
@@ -19452,7 +19674,7 @@ const SelfTest = {
       links.forEach((link) => link.close());
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
+    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
       const heard = { host: [], guest: [] };
@@ -19487,7 +19709,7 @@ const SelfTest = {
         if (result === true && (host.state !== 'closed' || guest.state !== 'closed' || host.send('x') || guest.send('x'))) return 'close left a link open';
         return result;
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     test('Online UI (P12-01, P12-03): the Online screens follow the link state (the host has one block per guest), a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
       const bad = [];
       const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip, guests: OnlineUI.guests, mode: OnlineUI.mode, arena: OnlineUI.arena };
@@ -20048,10 +20270,10 @@ const SelfTest = {
     });
     /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
        channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });
-      const FRAMES = 120, TIMEOUT_MS = 8000;
+      const FRAMES = 120, TIMEOUT_MS = 20000;
       // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
       const opened = (link) => new Promise((resolve, reject) => {
@@ -20084,12 +20306,12 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         host.close(); guest.close();
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* Four real links (host and three guests, three copy-paste handshakes in this page, no server) wrapped by LockstepTransport.fromLink carry a short brawl of four people. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const hosts = [2, 3, 4].map(() => Online.createLink('host', { gatherMs: 1000 })), guests = hosts.map(() => Online.createLink('guest', { gatherMs: 1000 }));
-      const FRAMES = 180, TIMEOUT_MS = 9000;
+      const FRAMES = 180, TIMEOUT_MS = 25000;
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });   // no setTimeout: see the two-link test
       const opened = (link) => new Promise((resolve, reject) => {
         link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
@@ -20123,7 +20345,7 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         hosts.concat(guests).forEach((link) => link.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: the limits and every failure with its reason (P12-07) ---------- */
     test('Online failures (P12-07): every way a link can fail ends with a short plain reason and what to try: no network address, a code the browser refuses, ICE failure (a network that blocks direct connections), a timeout, the Firefox guest that is not answered in time, a lost connection; the screens show it', async () => {
       const bad = [], links = [];
@@ -22215,6 +22437,46 @@ const SelfTest = {
       return bad.length ? bad.join('; ') : true;
     });
 
+    /* ---------- the runner and what the tests leave open (P18-74) ---------- */
+    test('Test runner (P18-74): an async test starts only after the synchronous pass over the tests has ended, so its 10 s limit and its timers run on a free event loop (inside the pass the online-link tests failed with "no result after 10000 ms"); a plain test that returns a promise fails with a message saying so instead of starting inside the pass', async () => {
+      const bad = [];
+      if (!(syncPass.endedAt > 0)) bad.push('an async test started inside the synchronous pass');
+      const promised = { detail: '', pass: true }, plain = { detail: '', pass: false }, thrown = { detail: '', pass: true };
+      runInPass(promised, () => Promise.resolve(true));
+      runInPass(plain, () => true);
+      runInPass(thrown, () => { throw new Error('boom'); });
+      if (promised.pass || !promised.detail.includes('return a promise only from an async test')) bad.push('a plain test that returns a promise: pass ' + promised.pass + ', "' + promised.detail + '"');
+      if (!plain.pass || thrown.pass || thrown.detail !== 'exception: boom') bad.push('a plain test: pass ' + plain.pass + '; one that throws: pass ' + thrown.pass + ', "' + thrown.detail + '"');
+      if (!((async () => {}) instanceof AsyncFunction)) bad.push('an async function is not told apart from a plain one');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Announcer (P18-74): any number of banners and announcements leaves at most two timers waiting (the newest banner\'s and the newest announcement\'s); the self-tests used to leave 76 000 behind, and the page then spent minutes running them before any other timer could fire; announcements said in the same 30 ms are all read out, once each', () => {
+      const keep = { dom: UI.dom, set: window.setTimeout, clear: window.clearTimeout, banners: UI.banners, bannerTimer: UI.bannerTimer, sayTimer: UI.sayTimer, sayPending: UI.sayPending };
+      const waiting = new Map();   // timer id -> its callback
+      let nextId = 1;
+      UI.dom = { announce: { textContent: '' }, banner: { innerHTML: '', classList: { add() {}, remove() {} } } };
+      window.setTimeout = (callback) => { waiting.set(nextId, callback); return nextId++; };   // nothing is scheduled: the test only counts the timers asked for and not cancelled, and fires them itself
+      window.clearTimeout = (id) => { waiting.delete(id); };
+      try {
+        const bad = [];
+        for (let i = 0; i < 1000; i++) { UI.banner('ROUND ' + i, 'FIGHT', 1500); UI.say('Player ' + i + ' is out'); }
+        if (waiting.size > 2) bad.push(waiting.size + ' timers are waiting after 1000 banners and 1000 announcements');
+        waiting.clear(); UI.sayPending = [];
+        UI.say('K.O.!'); UI.say('Player 2 is out'); UI.say('Player 2 is out');   // two knock-outs on one tick, the second said twice
+        if (waiting.size !== 1) bad.push(waiting.size + ' timers are waiting after three announcements in one tick');
+        if (UI.dom.announce.textContent !== '') bad.push('the live region holds "' + UI.dom.announce.textContent + '" before the timer fires');
+        [...waiting.values()].forEach((callback) => callback());
+        if (UI.dom.announce.textContent !== 'K.O.! Player 2 is out') bad.push('the live region reads "' + UI.dom.announce.textContent + '", not both announcements once each');
+        if (UI.sayPending.length) bad.push('the announcements are still waiting after the timer fired');
+        return bad.length ? bad.join('; ') : true;
+      } finally { Object.assign(window, { setTimeout: keep.set, clearTimeout: keep.clear }); Object.assign(UI, { dom: keep.dom, banners: keep.banners, bannerTimer: keep.bannerTimer, sayTimer: keep.sayTimer, sayPending: keep.sayPending }); }
+    });
+    /* Deferred and registered after every other test, so the connections of the whole run are counted */
+    test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
+      const open = madeConnections.filter((connection) => connection.signalingState !== 'closed');
+      return open.length ? open.length + ' of ' + madeConnections.length + ' RTCPeerConnections are still open (' + open.map((connection) => connection.connectionState).join(', ') + ')' : true;
+    }, 1000);
+
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
@@ -22222,27 +22484,32 @@ const SelfTest = {
       const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the two WebRTC tests (P12-04, P12-01); every engine a player uses has it
       const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Online loopback') || r.name.startsWith('Lockstep over real links')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
-    });
+    }, 1000); // deferred (P18-74): it runs after every other test, so the results it reads include the async tests (they used to be still running here)
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     const runDeferred = async () => {
-      for (const { entry, fn, limitMs } of deferredTests) {
-        const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
-        try {
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
-          work = Promise.resolve(fn(ctl));
-          record(entry, await Promise.race([work, tooSlow]));
-        } catch (e) {
-          entry.detail = 'exception: ' + String(e && e.message || e);
-          ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
-          if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
-        } finally { clearTimeout(timer); }
-        entry.ms = Math.round(performance.now() - started);
-        self.made.splice(0).forEach((made) => made.dispose());
-        if (Match.current) Match.current.dispose();
-      }
+      try {
+        for (const { entry, fn, limitMs } of deferredTests) {
+          const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
+          try {
+            const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+            work = Promise.resolve(fn(ctl));
+            record(entry, await Promise.race([work, tooSlow]));
+          } catch (e) {
+            entry.detail = 'exception: ' + String(e && e.message || e);
+            ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
+            if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+          } finally { clearTimeout(timer); }
+          entry.ms = Math.round(performance.now() - started);
+          try {
+            self.made.splice(0).forEach((made) => made.dispose());
+            if (Match.current) Match.current.dispose();
+          } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }
+        }
+      } finally { stopWatching(); }
     };
-    results.settled = Promise.all(pendingTests).then(runDeferred);   // resolves when the async tests (P12-04) have filled in their results
+    syncPass.endedAt = performance.now();
+    results.settled = Promise.resolve().then(runDeferred);   // resolves when the deferred tests (every async one, P12-04) have filled in their results; they start after run_all has returned
     return results;
   },
 };
