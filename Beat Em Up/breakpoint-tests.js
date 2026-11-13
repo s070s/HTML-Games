@@ -48,7 +48,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_BYE, onlineSayBye, ONLINE_DELAY_SLOW, ONLINE_RESUME_MS, NET_PAD, NET_PAD_PICK, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_BYE, onlineSayBye, ONLINE_DELAY_SLOW, ONLINE_RESUME_MS, NET_PAD, NET_PAD_PICK, NET_LEAVE_TEXT, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -19350,7 +19350,7 @@ const SelfTest = {
         Game.quitToMenu = () => { quits++; };
         Game.state = GS.FIGHT;
         let online = makeSession({});
-        if (Game.pause() !== false || last().text !== 'Leave the match?' || labels() !== 'Leave,Stay') problems.push('pause key: ' + JSON.stringify(last().text) + ' ' + labels());
+        if (Game.pause() !== false || last().text !== NET_LEAVE_TEXT || labels() !== 'Leave,Stay') problems.push('pause key: ' + JSON.stringify(last().text) + ' ' + labels());
         click('Stay');
         if (last().text !== '') problems.push('Stay did not hide the question');
         Game.pause(); click('Leave');
@@ -20978,7 +20978,7 @@ const SelfTest = {
         if (typeof Event === 'function') window.dispatchEvent(new Event('blur'));   // the page's own handler (the headless stub has no Event)
         if (Game.netNote.leave || shown.length) problems.push('the window blur of the page opened the question (N15)');
         Game.pause();
-        if (!Game.netNote.leave || shown[shown.length - 1] !== 'Leave the match?') problems.push('the pause key did not open the question');
+        if (!Game.netNote.leave || shown[shown.length - 1] !== NET_LEAVE_TEXT) problems.push('the pause key did not open the question');
         Game.pause(null, true); if (typeof Event === 'function') window.dispatchEvent(new Event('blur'));
         if (!Game.netNote.leave) problems.push('a blur closed the question the key had opened');
         Game.pause();
@@ -22376,11 +22376,11 @@ const SelfTest = {
         return { link, match, session };
       };
       const labels = () => UI.netChoices.map((choice) => choice.button.textContent).join(), picked = () => UI.netChoices.findIndex((choice) => choice.button.classList.contains('sel'));
-      const press = (field) => { Inputs.menuHeld[field] = true; UI.padNetStatus(); Inputs.menuHeld[field] = false; UI.padNetStatus(); };   // a press: the rising edge, then let go
+      const press = (field) => { Inputs.menuHeld[field] = true; UI.padNetStatus(); Inputs.menuHeld[field] = false; UI.padNetStatus(); };   // a press: the rising edge, then let go (menuOk = A, menuBack = B, menuSelect = Select)
       const step = (dir) => { Inputs.menuDir[dir] = true; UI.padNetStatus(); Inputs.menuDir[dir] = false; UI.padNetStatus(); };
       const key = (code) => { const event = { code, repeat: false, prevented: false, preventDefault() { this.prevented = true; } }; return UI.netKey(event) && event.prevented; };
       try {
-        Inputs.menuHeld = { menuOk: false, menuBack: false }; Inputs.menuDir = { up: false, down: false, left: false, right: false }; UI.netPadPrev = { ok: false, back: false, left: false, right: false };
+        Inputs.menuHeld = { menuOk: false, menuBack: false, menuSelect: false }; Inputs.menuDir = { up: false, down: false, left: false, right: false }; UI.netPadPrev = { ok: false, back: false, select: false, left: false, right: false };
         let quits = 0, left = 0, rematches = 0;
         Game.quitToMenu = () => { quits++; };
         Game.state = GS.FIGHT;
@@ -22390,21 +22390,18 @@ const SelfTest = {
         if (UI.netChoices.length || !UI.dom.netwait.querySelector('button')) problems.push('the waiting line has its Menu button for a click only');
         press('menuOk'); press('menuBack');
         if (quits || key('Enter')) problems.push('a press on the waiting line left the match');
-        // the question: Stay is picked first, left and right pick, confirm presses
+        // the question (the sim runs on, so the stick, A and B are fight buttons: they answer nothing; Start, the pause key, is Stay; a short Select leaves)
         Game.pause();
-        if (labels() !== 'Leave,Stay' || picked() !== 1) problems.push('the question: ' + labels() + ' picked ' + picked());
-        press('menuOk');
-        if (Game.netNote.leave || !UI.dom.netwait.hidden && UI.dom.netwait.textContent.startsWith('Leave')) problems.push('confirm on Stay did not close the question');
-        Game.pause(); step('left');
-        if (picked() !== 0) problems.push('left did not pick Leave: ' + picked());
-        step('right');
-        if (picked() !== 1) problems.push('right did not pick Stay');
-        step('left'); press('menuOk');
-        if (quits !== 1 || left !== 1) problems.push('confirm on Leave: quit ' + quits + ' left ' + left);
+        if (labels() !== 'Leave,Stay' || picked() !== 1 || !UI.dom.netwait.textContent.includes('Select leaves') || !UI.dom.netwait.textContent.includes('Start stays')) problems.push('the question: ' + labels() + ' picked ' + picked() + ' ' + UI.dom.netwait.textContent);
+        press('menuOk'); press('menuBack'); step('left'); step('right'); step('right'); step('left');
+        if (!Game.netNote.leave || quits || left || picked() !== 1) problems.push('the stick, A or B answered the question: leave ' + Game.netNote.leave + ' quit ' + quits + ' picked ' + picked());
+        Game.pause();
+        if (Game.netNote.leave || quits) problems.push('Start (the pause key) did not close the question');
+        Game.pause(); press('menuSelect');
+        if (quits !== 1 || left !== 1) problems.push('Select on the question: quit ' + quits + ' left ' + left);
         online = makeSession({}); Game.pause(); press('menuBack');
-        if (Game.netNote.leave || quits !== 1) problems.push('back on the question is Stay');
+        if (!Game.netNote.leave || quits !== 1) problems.push('back on the question must not answer it');
         // the keyboard: Enter presses the picked, Tab picks the next, Escape on the question is the pause key's own
-        Game.pause();
         if (!key('Tab') || picked() !== 0 || !key('Tab') || picked() !== 1) problems.push('Tab picks the next');
         if (key('Escape')) problems.push('Escape on the question belongs to the pause key');
         if (!key('Enter') || Game.netNote.leave) problems.push('Enter on Stay');
@@ -22436,14 +22433,55 @@ const SelfTest = {
         const screen = UI.current; UI.current = null;
         try {
           Inputs.menuHeld.menuOk = false; UI.update(); Inputs.menuHeld.menuOk = true; UI.update();
-          if (Game.netNote.leave) problems.push('UI.update did not hand the pad to the status line');
+          if (!Game.netNote.leave || quits !== 5) problems.push('UI.update: A answered the question');
           Inputs.menuHeld.menuOk = false; UI.update();
-          Game.pause();
+          Inputs.menuHeld.menuSelect = true; UI.update();
+          if (quits !== 6) problems.push('UI.update did not hand Select to the status line: quit ' + quits);
+          Inputs.menuHeld.menuSelect = false; UI.update();
+          online = makeSession({}); Game.pause();
           UI.onKey({ code: 'Enter', repeat: false, preventDefault() {} });
           if (Game.netNote.leave) problems.push('UI.onKey did not hand Enter to the status line');
         } finally { UI.current = screen; }
       } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally {
-        UI.netStatus(''); Inputs.menuHeld = keep.held; Inputs.menuDir = keep.dir; UI.netPadPrev = { ok: false, back: false, left: false, right: false };
+        UI.netStatus(''); Inputs.menuHeld = keep.held; Inputs.menuDir = keep.dir; UI.netPadPrev = { ok: false, back: false, select: false, left: false, right: false };
+        Game.quitToMenu = keep.quit; Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state, match: keep.match });
+      }
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Online findings (P19-12, review): the question to leave is not answered by the fight - with it up the pad\'s stick, A (kick) and B (kick) read from a real pad state leave nobody and stay fight inputs, Select (a short press) leaves, Start stays', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no HUD element for the status line)';
+      const problems = [], keep = { net: Game.net, netNote: Game.netNote, state: Game.state, match: Game.match, quit: Game.quitToMenu, prev: UI.netPadPrev };
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })), pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const frame = () => { Input.pollPad(); Inputs.mergeMenuPads(); UI.padNetStatus(); Game.pollMatchInput(); };   // what one rendered frame does with the pad
+      const tap = (button) => { buttons[button].pressed = true; frame(); buttons[button].pressed = false; frame(); };
+      try {
+        Input.reset(); Input.lastDevice = 'gamepad'; UI.netPadPrev = { ok: false, back: false, select: false, left: false, right: false };
+        const link = { closed: 0, send() {}, close() { this.closed++; }, onmessage: null, onclose: null };
+        const match = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, winsNeeded: 2 }));
+        const session = new LockstepSession({ match, seat: 0, seatCount: 2, host: true, links: { 1: link }, delay: 2, localController: randomDevice(0, 1) });
+        let quits = 0, left = 0;
+        Game.quitToMenu = () => { quits++; };
+        Game.state = GS.FIGHT; Game.match = match;
+        Game.attachNet(session, { onLeave: () => { left++; } });
+        frame();
+        tap(PAD_BUTTONS.pause[0]);   // Start: the question opens
+        if (!Game.netNote.leave) { problems.push('Start did not open the question'); return problems.join('; '); }
+        pad.axes[0] = 1; frame(); pad.axes[0] = -1; frame(); pad.axes[0] = 0; pad.axes[1] = -1; frame(); pad.axes[1] = 0; frame();   // the stick: right, left, up
+        tap(0); tap(1); tap(2);   // A and B (kicks), a punch
+        if (quits || left || link.closed || !Game.netNote.leave) problems.push('the stick or a fight button answered the question: quit ' + quits + ' closed ' + link.closed + ' open ' + Game.netNote.leave);
+        if (!Input.take('kick') || !Input.take('punch')) problems.push('the fight buttons were eaten by the question: they must still reach the fighter');
+        tap(PAD_BUTTONS.pause[0]);   // Start: Stay
+        if (Game.netNote.leave || quits) problems.push('Start did not close the question');
+        tap(PAD_SELECT_BUTTON);
+        if (quits || Game.netNote.leave) problems.push('Select with no question left the match or opened it');
+        tap(PAD_BUTTONS.pause[0]); tap(PAD_SELECT_BUTTON);   // the question, then a short Select
+        if (quits !== 1 || left !== 1 || link.closed !== 1) problems.push('a short Select did not leave: quit ' + quits + ' left ' + left + ' closed ' + link.closed);
+      } catch (error) { problems.push(String(error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+        UI.netStatus(''); UI.netPadPrev = keep.prev;
         Game.quitToMenu = keep.quit; Object.assign(Game, { net: keep.net, netNote: keep.netNote, state: keep.state, match: keep.match });
       }
       return problems.length ? problems.slice(0, 5).join('; ') : true;

@@ -1494,6 +1494,7 @@ class PlayerInput {
     this.padHeld.menuOk = down(0);
     this.padHeld.menuBack = down(1);
     this.padHeld.menuStart = down(COOP_START_BUTTON); // Start on the Free Fight screen starts the fight
+    this.padHeld.menuSelect = down(PAD_SELECT_BUTTON); // a short Select press leaves an online match's question (A, B and the stick are fight buttons there)
     this.padHeld.menuL1 = down(4); this.padHeld.menuR1 = down(5); this.padHeld.menuL2 = down(6); this.padHeld.menuR2 = down(7); // raw shoulder buttons: creator tabs and preview turn
     let anyButton = false;
     for (const action in map) {
@@ -1660,7 +1661,7 @@ const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
 const Input3 = new PlayerInput(2, null); // co-op only; the keyboard layout of a seat is set by Inputs.applySeats
 const Input4 = new PlayerInput(3, null);
-const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2', 'menuStart']; // raw pad buttons: confirm / back, creator tabs and turning, Start
+const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2', 'menuStart', 'menuSelect']; // raw pad buttons: confirm / back, creator tabs and turning, Start, Select
 // Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to
 const Inputs = {
   players: [Input, Input2, Input3, Input4],
@@ -1673,7 +1674,7 @@ const Inputs = {
   party: [], // the seated players' inputs, in seat order (what active() returns in a co-op)
   lobbyHeld: {}, // join screen: the buttons each pad held on the last frame, so only a new press counts
   seatPadIds: [null, null, null, null], // the id string of the gamepad in each gamepad seat
-  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false, start: false }, // scratch for anyPadMenu
+  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false, start: false, select: false }, // scratch for anyPadMenu
   padSlots: [-1, -1], // Versus: pad index held by P1 / P2; a pad stays with its player until it disconnects
   enabled: false,
   attached: false,
@@ -1911,13 +1912,13 @@ const Inputs = {
   // The menu buttons held on any connected gamepad, seated or not
   anyPadMenu() {
     const out = this.anyPad;
-    out.up = out.down = out.left = out.right = out.ok = out.back = out.start = false;
+    out.up = out.down = out.left = out.right = out.ok = out.back = out.start = out.select = false;
     if (!navigator.getGamepads) return out;
     for (const pad of readPads()) {
       if (!pad || !pad.connected) continue;
       const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
       const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
-      out.ok = out.ok || down(0); out.back = out.back || down(1); out.start = out.start || down(COOP_START_BUTTON);
+      out.ok = out.ok || down(0); out.back = out.back || down(1); out.start = out.start || down(COOP_START_BUTTON); out.select = out.select || down(PAD_SELECT_BUTTON);
       out.up = out.up || y < -PAD_DIGITAL || down(12); out.down = out.down || y > PAD_DIGITAL || down(13);
       out.left = out.left || x < -PAD_DIGITAL || down(14); out.right = out.right || x > PAD_DIGITAL || down(15);
     }
@@ -1965,6 +1966,7 @@ const Inputs = {
     this.menuHeld.menuOk = !!this.menuHeld.menuOk || any.ok;
     this.menuHeld.menuBack = !!this.menuHeld.menuBack || any.back;
     this.menuHeld.menuStart = !!this.menuHeld.menuStart || any.start;
+    this.menuHeld.menuSelect = !!this.menuHeld.menuSelect || any.select;
   },
 };
 
@@ -13199,6 +13201,7 @@ const NET_FRAME_MS = 16.7; // one frame in the delay formula
 const NET_REDUNDANCY = 8; // input frames per packet
 const NET_CHECK_EVERY = 60; // frames between state checksums
 const NET_PAD = 1, NET_PAD_PICK = 2; // the third item of a status-line button: the pad and Enter press it / and it is the one picked first (UI.netStatus)
+const NET_LEAVE_TEXT = 'Leave the match? Gamepad: Select leaves, Start stays.'; // the question behind the pause key: the sim goes on, so on a pad only Select (short press) and Start answer it, never the stick, A or B
 const NET_WAIT_SHOW_MS = 500, NET_DROP_MS = 10000, NET_GUEST_GRACE_MS = 5000; // "Waiting for P3..." after 0.5 s; a seat is dropped after 10 s (a guest lets the host decide first)
 const NET_PING_SAMPLES = 20, NET_PING_EVERY_MS = 1000;
 const NET_RESEND_MS = 16; // a stalled peer repeats its newest inputs this often
@@ -14160,7 +14163,7 @@ const Game = {
     if (!note) UI.netStatus('');
     else if (note.final && note.desync && !note.rematch) UI.netStatus(note.final + '. The host can start a rematch.', ['Leave', leave, NET_PAD_PICK]);
     else if (note.final) UI.netStatus(note.final, ...(note.rematch ? [['Rematch', note.rematch, NET_PAD_PICK]] : []), ['Menu', leave, note.rematch ? NET_PAD : NET_PAD_PICK]);
-    else if (note.leave) UI.netStatus('Leave the match?', ['Leave', leave, NET_PAD], ['Stay', () => { note.leave = false; this.netShow(); }, NET_PAD_PICK]);
+    else if (note.leave) UI.netStatus(NET_LEAVE_TEXT, ['Leave', leave, NET_PAD], ['Stay', () => { note.leave = false; this.netShow(); }, NET_PAD_PICK]);
     else UI.netStatus(note.waiting, ['Menu', leave]);
   },
   // Out of an online match for good: back to the menu and both channels closed, so the others see it at once instead of waiting 10 s
@@ -16718,7 +16721,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], netChoices: [], netPick: 0, netPadPrev: { ok: false, back: false, left: false, right: false }, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], netChoices: [], netPick: 0, netPadPrev: { ok: false, back: false, left: false, right: false, select: false }, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -16854,14 +16857,17 @@ const UI = {
   paintNetPick() { this.netChoices.forEach((choice, index) => choice.button.classList.toggle('sel', index === this.netPick)); },
   pickNet(dir) { if (this.netChoices.length < 2) return; this.netPick = (this.netPick + dir + this.netChoices.length) % this.netChoices.length; this.paintNetPick(); Sound.ui('move'); },
   padNetStatus() {
-    const prev = this.netPadPrev, held = Inputs.menuHeld, dir = Inputs.menuDir, ok = !!held.menuOk, back = !!held.menuBack, left = !!dir.left, right = !!dir.right, choices = this.netChoices;
-    if (choices.length && this.dom.netwait && !this.dom.netwait.hidden) {
+    const prev = this.netPadPrev, held = Inputs.menuHeld, dir = Inputs.menuDir, ok = !!held.menuOk, back = !!held.menuBack, select = !!held.menuSelect, left = !!dir.left, right = !!dir.right, choices = this.netChoices;
+    const asking = !!(Game.netNote && Game.netNote.leave && !Game.netNote.final); // the question to leave: the sim runs on, so the stick, A and B are the fighter's buttons and never answer it (Start, the pause key, stays; a short Select leaves)
+    if (asking && choices.length && this.dom.netwait && !this.dom.netwait.hidden) {
+      if (select && !prev.select) Game.leaveOnline();
+    } else if (choices.length && this.dom.netwait && !this.dom.netwait.hidden) {
       if (right && !prev.right) this.pickNet(1);
       if (left && !prev.left) this.pickNet(-1);
       if (ok && !prev.ok) choices[this.netPick].action();
       else if (back && !prev.back) choices[choices.length - 1].action();
     }
-    prev.ok = ok; prev.back = back; prev.left = left; prev.right = right;
+    prev.ok = ok; prev.back = back; prev.select = select; prev.left = left; prev.right = right;
   },
   netKey(e) { // true when the key was for the status line
     const choices = this.netChoices;
@@ -20837,7 +20843,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_BYE, onlineSayBye, ONLINE_DELAY_SLOW, ONLINE_RESUME_MS, NET_PAD, NET_PAD_PICK, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_BYE, onlineSayBye, ONLINE_DELAY_SLOW, ONLINE_RESUME_MS, NET_PAD, NET_PAD_PICK, NET_LEAVE_TEXT, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
