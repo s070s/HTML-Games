@@ -172,7 +172,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
  .crop .row button.mi{flex:1 1 0;min-width:0;padding:.3em}
 }
 /* --- HUD */
-#hud{position:absolute;top:var(--sat);right:var(--sar);bottom:var(--sab);left:var(--sal);pointer-events:none;font-weight:800;text-shadow:0 2px 4px #000}
+#hud{position:absolute;top:var(--sat);right:var(--sar);bottom:var(--sab);left:var(--sal);pointer-events:none;font-weight:800;text-shadow:0 2px 4px #000;isolation:isolate} /* its own stacking context: the z-indexes inside the HUD (the Controls card, the pops) stay inside it, so the card cannot cover the #touch buttons, which come after the HUD (P18-78) */
 .hud-top{position:absolute;top:.6em;left:.9em;right:.9em;display:flex;gap:1.2em;align-items:flex-start}
 .hs{flex:1;min-width:0}
 .hs.r{text-align:right}
@@ -226,10 +226,10 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 @media (orientation:portrait){#grappleHint{bottom:auto;top:34%}}
 .vs #grappleHint{left:1em;transform:none;max-width:46%;border-color:var(--a1)}
 #grappleHint2{left:auto;right:1em;transform:none;max-width:46%;border-color:var(--a2)}
-#onboard{position:absolute;left:50%;top:7.4em;transform:translateX(-50%);width:max-content;max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.75);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
+#onboard{position:absolute;z-index:2;left:50%;top:max(7.4em,8.2*var(--mi));transform:translateX(-50%);width:max-content;max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.75);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
 #onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em;column-span:all}#onboard div{break-inside:avoid}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em;column-span:all;font-size:12px}
-@media (orientation:portrait){#onboard{top:calc(10.2*16px*var(--ui));font-size:max(12px,min(.72em,3vw));line-height:1.35;padding:.5em .8em}}
-@media (max-height:520px) and (orientation:landscape){#onboard{columns:3;column-gap:1.2em;max-width:80vw;font-size:.75em;line-height:1.3;padding:.3em .8em}}
+@media (orientation:portrait){#onboard{top:max(12.8*16px*var(--ui),15.2*var(--mi));font-size:max(12px,min(.72em,3vw));line-height:1.35;padding:.5em .8em}}
+@media (max-height:520px) and (orientation:landscape){#onboard{top:calc(9.5*var(--mi));columns:3;column-gap:1.2em;max-width:80vw;font-size:.75em;line-height:1.3;padding:.3em .8em}} /* top: 9.5 level-line em (--mi), under the two lines the level line wraps to in the strip between the bars (P18-78) */
 #grappleHint.go,#grappleHint2.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
 .hold-prompt,.hold-meter{position:absolute;left:0;top:0;pointer-events:none;background:rgba(0,0,0,.78);border:2px solid #fff;letter-spacing:.06em;white-space:nowrap;will-change:transform}
 .hold-prompt{padding:.3em .7em;font-size:.95em}
@@ -243,18 +243,25 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hold-meter .tap{margin-top:.15em;color:var(--warn)}
 .hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:10em;width:15em;max-height:calc(100% - 11.3em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
-#training.touch{left:.9em;right:auto;width:min(21em,50%);max-height:min(10em,calc(100% - 10em - max(30vmin,130px) - 7vmin))} /* with touch controls the panel sits at the left under the health bars, 6 lines at most and above the stick; the buttons are on the right */
-@media (orientation:portrait){#training{top:15.2em;max-height:calc(100% - 16.5em - 52px)}} /* upright: the level line (#modeinfo) runs down to 11.4em of the HUD, the panel (font .8em) starts under it at 12.2em, with keyboard or gamepad too */
-@media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
-#hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
-@media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */
+#training.touch{--tl:1.5em;left:.9em;right:auto;width:min(21em,50%);padding-bottom:0;max-height:min(15em,calc(100% - 10em - max(30vmin,130px) - 7vmin));max-height:calc(round(down,min(15em,calc(100% - 10em - max(30vmin,130px) - 7vmin)) - .5em - 2px,var(--tl)) + .5em + 2px)} /* with touch controls the panel sits at the left under the health bars, above the stick; the buttons are on the right. Up to 15 em tall, in whole lines (round(), the line before it is the fallback; no bottom padding, it would show the top of the next line): 9 lines of 1.5 em, so FRAME DATA down to KEYS is inside on a tablet (P18-78) */
+@media (orientation:portrait){#training{top:15.8em;max-height:calc(100% - 17.1em - 52px)}} /* upright: the level line (#modeinfo) runs down to 12.6em of the HUD (4 lines, from 9.4em at font .85em), the panel (font .8em) starts under it at 12.6em, with keyboard or gamepad too */
+@media (orientation:portrait){#training.touch{top:15.8em;width:17em;max-height:min(17em,calc(100% - 15.8em - 12vh - 4.4*max(50px,15vw) - 2vw));max-height:calc(round(down,min(17em,calc(100% - 15.8em - 12vh - 4.4*max(50px,15vw) - 2vw)) - .5em - 2px,var(--tl)) + .5em + 2px)}}@media (orientation:portrait) and (max-height:700px){#training.touch{--tl:1.25em;line-height:1.25}} /* 17 em wide and up to 17 em tall in whole lines (10 lines): FRAME DATA down to the KEYS line (2 lines in 17 em) stays inside the box, which cannot scroll; a phone 700 px high or less has 1.25 line spacing (--tl, the line the box is rounded to): the 360 x 640 phone has room for 6 of them above the controls (P18-78) */
+@media (max-height:520px) and (orientation:landscape){#training{line-height:1.25}} /* a short window with the keyboard or a gamepad: 1.25 line spacing too (the touch panel below has it), so the KEYS line (2 lines in 15 em) fits above the pause button at 844 x 390 (P18-78) */
+@media (max-height:520px) and (orientation:landscape){#training.touch{top:7.6em;line-height:1.25;padding:.3em .7em 0;max-height:min(11em,calc(100% - 7.6em - max(30vmin,130px) - 7vmin));max-height:calc(round(down,min(11em,calc(100% - 7.6em - max(30vmin,130px) - 7vmin)) - .3em - 2px,1.25em) + .3em + 2px)}} /* a small landscape phone: the panel starts just under the one-line level line (7.6 em of its own size = 97 px at 640 x 360) with 1.25 line spacing, so the 6 lines of FRAME DATA down to Advantage fit above the stick; its height is whole lines (round(), the line before it is the fallback), so no line is cut in half at the bottom (no bottom padding: it would show the top of the next line) (P18-78) */
+#hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em);top:calc(10*12.8px*var(--ui))} /* touch Training: the player's combo counter sits right of the data panel, not under it, from the panel's top: well above the coach/grab hint, which is at the bottom of a landscape screen (P18-78) */
+@media (max-height:520px) and (orientation:landscape){#hud.tt #combo{top:max(calc(7.6*12.8px*var(--ui)),calc(7.9*var(--mi)))}} /* a small landscape phone: the panel's top there, and never above the end of the level line (7.9 level-line em; at UI scale 0.8 the panel starts higher than the line ends, but beside it) */
+@media (orientation:portrait){#hud.tt #combo{left:calc(.9*16px*var(--ui) + 17*12.8px*var(--ui) + 8px*var(--ui));top:min(calc(15.8*12.8px*var(--ui)),calc(34% - 3.1*16px*var(--ui)));font-size:min(1.6em,calc((100vw - 2*.9*16px*var(--ui) - 17*12.8px*var(--ui) - 8px*var(--ui))/3.6))}#hud.tt #grappleHint{z-index:1}} /* portrait: right of the 17 em wide panel, from its top (the dummy's counter ends above that); under it the panel is now too tall to leave room. The counter (2.73 HUD em tall) also ends above the top of the coach/grab hint (34 %): on a 360 x 640 phone it starts higher than the panel then. Its text (3.6 of its own em wide) shrinks to the room that is left between the panel and the right edge, so it never wraps (UI scale 1.5 on a 390 px wide phone). The hint, which spans the width, is drawn over the panel instead of under it (P18-78) */
 #training b{color:var(--a1)}
-#modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
+#hud{--mi:max(12px,.85*16px*var(--ui))} /* the font size of the level line (#modeinfo): .85 of the HUD's, never under 12 px at UI scale 0.8; the Controls card places itself under the line by it. Set by the #hud #modeinfo rule below; #modeinfo keeps its plain .85em for the P18-76 self-test, which reads that number (P18-78) */
+#modeinfo{position:absolute;top:5.6em;left:calc(35% - 2.77*16px*var(--ui));right:calc(35% - 2.77*16px*var(--ui));text-align:center;text-wrap:balance;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
+/* the level line stays in the free strip between the two stamina and Momentum bars (each is 70 % of its half of the top row): 30 % of the HUD width + 6.02 HUD em wide, less .5 em of margin; a longer line wraps there, it is never cut (P18-78) */
+#hud #modeinfo{font-size:var(--mi)}
 #roundlbl,#modeinfo{text-shadow:-1.5px -1.5px 0 #000,1.5px -1.5px 0 #000,-1.5px 1.5px 0 #000,1.5px 1.5px 0 #000,0 0 4px #000} /* a ring of shadows round the glyphs: an outline without -webkit-text-stroke, which eats the glyphs where paint-order is not honoured on HTML text (Chromium before 123, older Safari) */
-@media (orientation:portrait){#modeinfo{top:9.4em;max-height:4em;overflow:hidden;line-height:1.3;padding:0 4.5em}.hname .cpu{display:none}.hname.long{font-size:.9em}} /* upright phone: the level line under the item row, the right name without CPU (the pink bar says it) */
+@media (orientation:portrait){#modeinfo{top:9.4em;left:0;right:0;max-height:5.4em;overflow:hidden;line-height:1.3;letter-spacing:.08em;padding:0 4.5em}.hname .cpu{display:none}.hname.long{font-size:.9em}} /* upright phone: the level line under the item row (up to 4 lines, a little tighter in letter spacing so the longest line, Brawl with Friendly fire and waves, fits at 360 px), the right name without CPU (the pink bar says it) */
 #pauseBtn{position:absolute;right:.9em;bottom:1em;pointer-events:auto;font:inherit;font-weight:800;padding:.35em .9em;min-width:44px;min-height:44px;background:rgba(0,0,0,.6);color:#fff;border:2px solid #fff;border-radius:.4em;cursor:pointer;letter-spacing:.1em}
 /* name tags and damage pops use canvas coordinates: undo the HUD's safe-area inset */
-#tags{position:absolute;top:calc(-1*var(--sat));right:calc(-1*var(--sar));bottom:calc(-1*var(--sab));left:calc(-1*var(--sal));overflow:hidden}
+#tags{position:absolute;top:calc(-1*var(--sat));right:calc(-1*var(--sar));bottom:calc(-1*var(--sab));left:calc(-1*var(--sal));overflow:hidden} /* #tags comes before #training in the markup, so the Training panel is drawn over the fighter name tags and a tag never hides a line of it (P18-78) */
+#hud .pop,#hud .edge{z-index:1} /* damage pops, hit words and the off-screen arrows live in #tags too, but they must stay readable over the Training panel: above it (z-index auto) and under the Controls card (2); in every fight they also draw over the desktop pause button (looks only: pops take no clicks); the name tags stay under the panel (P18-78) */
 .tag{position:absolute;left:0;top:0;white-space:nowrap;font-size:.8em;letter-spacing:.1em;padding:.1em .5em;background:rgba(0,0,0,.6);border:1px solid #fff;transform:translate(-50%,-100%);will-change:transform}
 .tag.p1{border-color:var(--a1)}
 .tag.p2{border-color:var(--a2)}
@@ -283,8 +290,11 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .pc .ps i{background:#8dff7a}
 .pc.out{opacity:.5;border-style:dashed}
 .pc.out .pn::after{content:" OUT";color:var(--bad)}
-.coop #modeinfo{top:8.3em}
-.lineup #modeinfo{top:8.3em} /* modeinfo's em is .85 of the HUD's: this puts it under the party row (which ends near 6.8 HUD em) */
+.coop #modeinfo{top:9.6em}
+.lineup #modeinfo{top:9.6em} /* modeinfo's em is .85 of the HUD's: this puts it (8.16 HUD em) under the party row (which ends near 6.8 HUD em) and under the right bar's item row (which ends near 7.9 HUD em) (P18-78) */
+@media (max-width:700px) and (orientation:landscape){#hud{--mi:max(12px,.75*16px*var(--ui))}#modeinfo{top:6.4em;letter-spacing:.06em}.coop #modeinfo,.lineup #modeinfo{top:10.9em}} /* a small landscape phone: 12 px glyphs (4.8 HUD em from the top, and the same 8.2 under the party row) keep the longest line at 2 lines in the narrow strip between the bars (P18-78) */
+@media (orientation:landscape){.coop #onboard,.lineup #onboard{top:calc(12.2*var(--mi))}}
+@media (max-width:700px) and (orientation:landscape){.coop #onboard,.lineup #onboard{top:calc(15.2*var(--mi))}} /* the Controls card of a one-person Co-op or of a Lineup with a person starts under the two lines of the level line (three at UI scale 0.8 on a small phone), which sits lower there (9.6 em, 10.9 em on a small phone) (P18-78) */
 .coop #combo,.coop #combo2,.lineup #combo,.lineup #combo2{top:9.3em}
 .tag[class*=" tc"]{border-color:var(--pc)}
 .slots{display:grid;gap:.45em;margin:.5em 0}
@@ -420,8 +430,8 @@ button.mi.ar{display:block;flex:none;width:44px;min-height:44px;margin:-.5em 0 -
     <div id="holdPrompt2" class="hold-prompt" hidden></div>
     <div id="holdMeter" class="hold-meter" hidden></div>
     <div id="holdMeter2" class="hold-meter" hidden></div>
-    <div id="training" hidden></div>
     <div id="tags"></div>
+    <div id="training" hidden></div>
     <div id="onboard" role="dialog" aria-label="Controls" hidden></div>
     <button id="pauseBtn" aria-label="Pause">&#10074;&#10074; PAUSE</button>
   </div>
@@ -16093,6 +16103,8 @@ const SETUP_LABEL = { free: 'FREE FIGHT' }; // what a lineup match is called on 
 const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '2 teams', 3: '3 teams', 4: '4 teams', custom: 'Custom' };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'tournament'];
 const BACK_BUTTON = '<button class="mi" data-nav data-act="back">Back</button>';
+// The Training panel's KEYS line per input type: only what that device has, short enough for one line of the narrow phone panel. The touch pause menu (screen_pause, the II button) offers Reset positions and health, Reset arena objects and Load scenario.
+const TRAINING_KEYS = { keyboard: 'Tab reset · F2 arena · 1-6 scenarios', gamepad: 'hold Select: reset · Start: menu', touch: 'II: reset · arena · scenarios' };
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'R3 (click the right stick)', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'L2', grapple: 'R2 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 // Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two context buttons
@@ -17735,6 +17747,20 @@ const UI = {
   },
   // Final round, match point or a fighter close to a knock-out
   survivalLine(m, run) { return 'SURVIVAL · ' + (run.type ? 'FIGHT ' + (run.kills + 1) + ' · ' + m.def.name.toUpperCase() : 'DEFEATED ' + run.kills) + ' · ' + DIFFICULTY[m.cfg.difficulty].label.toUpperCase(); },
+  // The level line (#modeinfo) of a match: the mode, the level and what runs on it; Training shows the level only (its keys are the KEYS line of the Training panel)
+  levelLine(m) {
+    const cfg = m.cfg;
+    let info = '';
+    const run = Game.run;
+    if (run && run.mode === 'arcade') info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + STORY_STAGES + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase() + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
+    else if ((cfg.mode === 'survival' || cfg.survival) && run) info = this.survivalLine(m, run); // a Survival brawl runs as a brawl but is still Survival
+    else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    else if (m.setup) info = SETUP_LABEL[cfg.setupMode] + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + ' · ' + m.fighters.length + ' FIGHTERS';
+    else if (m.brawl) info = (m.coop ? SETUP_LABEL.free : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
+    else if (m.versus) info = SETUP_LABEL.free + ' · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
+    else info = m.def.name.toUpperCase(); // Training: the keys of the current device are the KEYS line of the Training panel (trainingPanel)
+    return info;
+  },
   tenseMoment(m) {
     if (m.training) return false;
     const [a, b] = m.fighters;
@@ -17783,22 +17809,12 @@ const UI = {
     this.setText('item1', this.dom.item1, watching ? '' : heldLabel(a));
     const duo = m.setup ? (m.personFighters.length === 2 ? m.personFighters[1] : null) : (m.versus ? b : null); // the second person's own combo, warning and hint, on the right
     this.setText('item2', this.dom.item2, duo ? heldLabel(duo) : '');
-    const cfg = m.cfg;
     this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.setup ? SETUP_LABEL[m.cfg.setupMode] : m.coop ? SETUP_LABEL.free : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
     if (!m.training && !m.brawl) {
       const pip = (w) => '●'.repeat(w) + '○'.repeat(Math.max(0, m.winsNeeded - w));
       this.setText('pips1', this.dom.pips1, pip(m.wins[0])); this.setText('pips2', this.dom.pips2, pip(m.wins[1]));
     } else { this.setText('pips1', this.dom.pips1, ''); this.setText('pips2', this.dom.pips2, ''); }
-    let info = '';
-    const run = Game.run;
-    if (run && run.mode === 'arcade') info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + STORY_STAGES + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase() + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
-    else if ((cfg.mode === 'survival' || cfg.survival) && run) info = this.survivalLine(m, run); // a Survival brawl runs as a brawl but is still Survival
-    else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
-    else if (m.setup) info = SETUP_LABEL[cfg.setupMode] + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + ' · ' + m.fighters.length + ' FIGHTERS';
-    else if (m.brawl) info = (m.coop ? SETUP_LABEL.free : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
-    else if (m.versus) info = SETUP_LABEL.free + ' · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
-    else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-6 scenarios');
-    this.setText('modeinfo', this.dom.modeinfo, info);
+    this.setText('modeinfo', this.dom.modeinfo, this.levelLine(m));
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus
     const lone = m.setup ? !watching && m.personFighters.length <= 2 : !m.coop || m.partySize === 1; // a co-op party of several has no room for one player's combo, warning and hint
     this.comboBox('combo', this.dom.combo, a, lone);
@@ -18040,7 +18056,7 @@ const UI = {
   },
   toggleHidden(key, el, hidden) { if (this.cache[key] !== hidden) { this.cache[key] = hidden; el.hidden = hidden; } },
   trainingPanel(m) {
-    let h = '<b>FRAME DATA</b> (60 fps)<br>' + this.frameDataHtml(m.lastMove);
+    let h = '<b>FRAME DATA</b> (60 fps)<br>' + this.frameDataHtml(m.lastMove) + '<br><b>KEYS</b> ' + TRAINING_KEYS[this.onboardKind()]; // KEYS after the frame data: on a phone the panel shows only a few lines, the frame data comes first
     const a = m.fighters[0];
     h += '<br><b>STAMINA</b> ' + a.band.name + (a.lowStamina ? ' (LOW STAMINA)' : '');
     h += '<br><b>DEFENCE</b> ' + defenceCooldownText(a); // P18-62: ready, or the ticks left of the cooldown Block and Sway share
@@ -19953,7 +19969,7 @@ function testApi() {
     STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
-    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
+    TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRAINING_KEYS, TRANSITIONS, UI,
     UNLOCK_RULES, VETERAN_BUDGET, VICTORY_POSES, WAKEUP_GRACE_TICKS, WEIGHT_CLASS_BOUNDS, WEIGHT_CLASS_NAMES, attrCost,
     attrTotal, canSetAttr, canTransition, clamp, clearIntent, cloneCustom, coopEnemyCount, customProfile, decodeCustom, defaultCustom,
     defaultDefense, deriveStats, encodeCustom, esc, escapeStartFor, faceExpression, fnv1a, frameAdvantage, frameScale, fromBase64Url,
