@@ -1882,6 +1882,34 @@ const SelfTest = {
         if (hadDom) UI.applyTouchVisibility(); else delete UI.dom.touch;
       }
     });
+    test('Training HUD class: touch Training in a fight is #hud.tt (the data panel at the left); keyboard or gamepad Training, and a Training pause or round end with the HUD up, is #hud.tk (the panel at the right); the menu and other fights are neither', () => {
+      const fake = () => { const on = new Set(); return { hidden: false, classList: { toggle: (name, want) => { if (want) on.add(name); else on.delete(name); }, contains: (name) => on.has(name) } }; };
+      const keep = { touch: Settings.v.touch, state: Game.state, match: Game.match, config: Game.config, coop: Inputs.coop, device: Input.lastDevice, dom: { hud: UI.dom.hud, training: UI.dom.training, touch: UI.dom.touch, pauseBtn: UI.dom.pauseBtn } };
+      const bad = [];
+      try {
+        Game.config = null; Inputs.coop = null;   // no watch-only lineup, no co-op: both turn the pad off
+        Object.assign(UI.dom, { hud: fake(), training: fake(), touch: fake(), pauseBtn: fake() });   // stand-ins: the real HUD is left as it is
+        const check = (touch, state, training, hudUp, tt, tk) => {
+          Settings.v.touch = touch; Game.state = state; Game.match = { training }; UI.dom.hud.hidden = !hudUp; UI.applyTouchVisibility();
+          const got = [UI.dom.hud.classList.contains('tt'), UI.dom.hud.classList.contains('tk')];
+          if (got[0] !== tt || got[1] !== tk) bad.push('touch ' + touch + ', ' + state + (training ? ', Training' : ', a fight') + (hudUp ? '' : ', HUD hidden') + ': tt ' + got[0] + ', tk ' + got[1]);
+        };
+        check('on', GS.FIGHT, true, true, true, false);
+        check('on', GS.PAUSED, true, true, false, true);
+        check('off', GS.FIGHT, true, true, false, true);
+        check('off', GS.COUNTDOWN, true, true, false, true);
+        check('off', GS.PAUSED, true, true, false, true);
+        check('off', GS.ROUND_END, true, true, false, true);
+        check('off', GS.FIGHT, false, true, false, false);
+        check('on', GS.FIGHT, false, true, false, false);
+        check('off', GS.MENU, true, false, false, false);
+      } finally {
+        Settings.v.touch = keep.touch; Game.state = keep.state; Game.match = keep.match; Game.config = keep.config; Inputs.coop = keep.coop; Input.lastDevice = keep.device; Input.releaseAll();
+        Object.assign(UI.dom, keep.dom);
+        if (keep.dom.hud && keep.dom.touch) UI.applyTouchVisibility();
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Touch layout: no button overlaps another, the stick or the HUD bars at 640x360 and 844x390, and every action is in thumb reach', () => {
       const none = { sat: 0, sar: 0, sab: 0, sal: 0 }, notch = { sat: 0, sar: 47, sab: 21, sal: 47 };
       const views = [['landscape', 640, 360, none], ['landscape', 844, 390, none], ['landscape', 844, 390, notch], ['landscape', 568, 320, none], ['portrait', 360, 640, none], ['portrait', 390, 844, { sat: 47, sar: 0, sab: 34, sal: 0 }]];
@@ -15529,7 +15557,8 @@ const SelfTest = {
       const lineEnd = (em(upright['#modeinfo'], 'top') + em(upright['#modeinfo'], 'max-height')) * infoSize;   // in HUD em
       const bad = [];
       for (const selector of ['#training', '#training.touch']) {
-        const start = em(upright[selector] && upright[selector].top ? upright[selector] : upright['#training'], 'top') * panelSize;   // the touch panel may take its top from the plain upright rule
+        const own = upright[selector] && upright[selector].top ? upright[selector] : plain[selector] && plain[selector].top ? plain[selector] : upright['#training'];   // the cascade: its own upright rule, its own plain rule (it outranks #training), then the plain upright #training
+        const start = em(own, 'top') * panelSize;
         if (!(start >= lineEnd)) bad.push(selector + ' starts at ' + start.toFixed(2) + ' em, the level line ends at ' + lineEnd.toFixed(2) + ' em');
       }
       return bad.length ? bad.join('; ') : true;
@@ -19188,20 +19217,20 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
       const kinds = [['Training', 'tt'], ['Keyboard Training', 'tk'], ['Co-op', 'coop']];   // Keyboard Training: no touch controls, the data panel on the right
-      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
+      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640], [600, 560]]) {   // 600 x 560: a near-square desktop window
         const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
         inLayoutFrame(width, height, '', (doc, win) => {
           const where = kind + ' HUD at ' + width + ' x ' + height + (scaled ? ' with UI scale 1.5' : '') + ': ';
           doc.getElementById('screens').innerHTML = '';
           doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
           for (const [id, text] of Object.entries(sample)) { const el = doc.getElementById(id); if (el) el.textContent = text; }
-          for (const id of ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '12 HITS<small>COMBO</small>'; el.classList.add('on'); }
+          for (const id of ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '99 HITS<small>999 DAMAGE</small>'; el.classList.add('on'); }
           const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), party = doc.getElementById('party');
           hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
           for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
