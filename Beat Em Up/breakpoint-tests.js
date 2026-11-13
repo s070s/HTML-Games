@@ -28,7 +28,7 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
@@ -17119,7 +17119,7 @@ const SelfTest = {
       if (switched !== 'plain') problems.push('high to low switch ' + switched);
       return problems.length ? problems.join('; ') : true;
     });
-    /* A hit, then a second strike that goes active g ticks after the foe's last stunned tick (g 0 or less: the foe is still held). defence: 'none', 'block' (Defend held from the first contact on), 'sway' (one tap on the last stunned tick).
+    /* A hit, then a second strike that goes active g ticks after the foe's last stunned tick (g 0 or less: the foe is still held). defence: 'none', 'block' (Defend held from the first contact on), 'sway' (one tap on the last stunned tick), 'hold' (a Sway fighter with Defend held from the first contact on).
        cool: the ticks between the guard's previous start and the free tick. Returns the second strike's contact: { v, ev } and the numbers of the run. */
     const chainCache = {};
     const chainRun = (o) => {
@@ -17142,12 +17142,12 @@ const SelfTest = {
         const t = m.matchTicks;
         if (o.first.tier === 3 && t >= o.start - 1 && t <= o.start + 20) self.place(m, TIMING_GAP);   // a strong first move pushes the foe out of the harness spacing: it is held at the spacing while the second step starts (the timing of a link does not depend on where the foe stands)
         if (o.hits && t === TIMING_START - 1) { f.gotHits = o.hits - 1; f.comboFoe = m.fighters[0]; }
-        if (o.defence === 'block' && t > o.contact) it.defend = true;
+        if ((o.defence === 'block' || o.defence === 'hold') && t > o.contact) it.defend = true;   // P18-62: 'hold' = a Sway fighter with Defend held from the first contact on
         if (o.defence === 'sway' && t === o.tf - (o.early || 0)) it.defend = true;
         if (o.defence === 'jab' && t === o.tf + 1) it.punch = true;   // a quick move on the free tick
         if (o.cool !== undefined && t === 1) f.lastBlockAt = o.tf + 1 - o.cool;
       });
-      m.fighters[1].defense = o.defence === 'sway' ? 'sway' : 'block';
+      m.fighters[1].defense = o.defence === 'sway' || o.defence === 'hold' ? 'sway' : 'block';
       if (o.defence === 'jab') m.fighters[1].defense = 'block';
       setAttrs(m.fighters[1], { balance: o.balance || 5 }); setAttrs(m.fighters[0], { speed: 5 });   // the base fighter of the decision: Speed 5, Balance 5
       self.place(m, TIMING_GAP);
@@ -17523,7 +17523,7 @@ const SelfTest = {
       if (late(2, true) !== 0) problems.push('the attacker staggered by a perfect block reads LATE');
       return problems.length ? problems.join('; ') : true;
     });
-    test('Cues (P18-04): a Sway press with a short tank is no longer refused (P18-62): it sways, nothing is refused, and the dodge it cannot pay is a guard break with the low-stamina warning kept', () => {
+    test('Cues (P18-04): a Sway press with a short tank is no longer refused (P18-62): it sways at once, and the dodge it cannot pay is a guard break that flashes the stamina bar (the low-stamina event with refused set, once)', () => {
       const attempt = (stamina) => {
         const log = self.capture(['lowStamina', 'block']);
         const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.roundhouse); }, (it, f, o, mm) => { if (f.state !== S.SWAY) f.stam = stamina; swayAt(9)(it, f, o, mm); });   // a plain dodge (lead 9): a tier 2 strike; the tank is held at its level until the press
@@ -17531,7 +17531,302 @@ const SelfTest = {
         return { refused: log.lowStamina.filter((e) => e.refused).length, warned: log.lowStamina.filter((e) => !e.refused).length, broke: log.block.filter((e) => e.sway && e.broke).length, dodged: log.block.filter((e) => e.sway && !e.broke).length };
       };
       const short = attempt(SWAY_COST_BY_TIER[1] - 1), enough = attempt(SWAY_COST_BY_TIER[1] + 40);
-      return short.refused === 0 && short.broke === 1 && short.warned >= 1 && enough.refused === 0 && enough.broke === 0 && enough.dodged === 1 ? true : JSON.stringify({ short, enough });
+      return short.refused === 1 && short.broke === 1 && short.warned >= 1 && enough.refused === 0 && enough.broke === 0 && enough.dodged === 1 ? true : JSON.stringify({ short, enough });
+    });
+    /* ---------- Sway hold (P18-62): hold Defend to prepare; each strike that would land is slipped at the price of its tier (REFERENCE-breakpoint.md, Appendix C, P18-61 section 1) ---------- */
+    const HOLD_STRIKE_AT = 40;   // a hold trial's strike starts on this tick; the defender has been prepared since tick 1 (a round that starts with Defend down is a hold, not a press)
+    /* A prepared Sway fighter (fighter 2: Defend held from tick 1, the stick at o.side / o.fwd) against one strike (o.mv) of fighter 1; o.wall stands the defender 0.4 m from the wall. got = the tank before the contact tick and what the contact event saw. */
+    const holdRun = (o) => {
+      const mv = o.mv || ATTACKS.jab, at = o.at || HOLD_STRIKE_AT;
+      const m = mk(o.cfg || {}, (it, f) => { if (m.matchTicks === at) f.startAttack(mv); }, (it) => { it.defend = o.hold !== false; it.side = o.side || 0; it.fwd = o.fwd || 0; });
+      const def = m.fighters[1];
+      def.defense = 'sway';
+      if (o.stam !== undefined) def.stam = o.stam;
+      if (o.wall) self.place(m, TIMING_GAP, ARENAS.warehouse.bounds.x - 0.4 - TIMING_GAP / 2); else self.place(m, TIMING_GAP);
+      const log = watchTicks(m, ['hit', 'block']);
+      let last = def.stam, got = null;
+      const off = Events.on('block', (e) => { if (!got) got = { before: last, after: e.def.stam, counter: e.def.counterWindow, end: e.def.swayEnd, ticks: e.def.stateTicks }; });
+      for (let i = 0; i < (o.ticks || 80); i++) { last = def.stam; m.step(); }
+      off(); log.stop();
+      return { m, log, got, def, att: m.fighters[0] };
+    };
+    test('Sway hold (P18-62): a held Sway slips each strike on its contact tick (no damage, no reaction) and pays 5 / 6 / 8 stamina for a jab / cross / hook, with the stick left, right and neutral, in the open and at a wall', () => {
+      const problems = [];
+      for (const mv of [ATTACKS.jab, ATTACKS.cross, ATTACKS.hook]) for (const wall of [false, true]) for (const side of [-1, 0, 1]) {
+        const r = holdRun({ mv, side, wall }), label = mv.id + (wall ? ' at the wall' : '') + ' stick ' + side;
+        const blocks = r.log.filter((ev) => ev.n === 'block'), hits = r.log.filter((ev) => ev.n === 'hit'), e = blocks[0] && blocks[0].e;
+        if (hits.length || blocks.length !== 1) { problems.push(label + ': ' + hits.length + ' hits, ' + blocks.length + ' dodges'); continue; }
+        if (!e.sway || !e.auto || e.perfect || e.broke || e.cost !== SWAY_COST_BY_TIER[mv.tier - 1] || e.cost !== swayCost(mv)) problems.push(label + ': event ' + JSON.stringify([e.sway, e.auto, e.perfect, e.broke, e.cost]));
+        if (Math.abs(r.got.before - r.got.after - e.cost) > 0.5) problems.push(label + ': the tank fell ' + (r.got.before - r.got.after).toFixed(2));
+        if (r.def.hp !== r.def.maxHp || r.def.swayDir !== side || STUN_STATES.includes(r.def.state)) problems.push(label + ': hp ' + r.def.hp + ', lean ' + r.def.swayDir + ', state ' + r.def.state);
+      }
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Sway hold (P18-62): the tap stays: a strike 3 and 6 ticks after the press is a perfect (no cost, the refund, a counter window of 50, the sway ends on tick 21, Momentum), 7 to 11 ticks a plain dodge that pays, 12 or more hits; a press with nothing coming costs nothing', () => {
+      const problems = [];
+      const trial = (lead, mv) => {
+        let last = 0, lastMomentum = 0, got = null;
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(mv || ATTACKS.roundhouse); }, swayAt(lead));   // the roundhouse is a tier 2 strike
+        m.fighters[1].stam = 50; self.place(m, 1.2);
+        const log = watchTicks(m, ['hit', 'block']), def = m.fighters[1];
+        const off = Events.on('block', (e) => { if (!got) got = { before: last, after: e.def.stam, counter: e.def.counterWindow, end: e.def.swayEnd, momentum: e.def.momentum - lastMomentum, e }; });
+        for (let i = 0; i < 60; i++) { last = def.stam; lastMomentum = def.momentum; m.step(); }
+        off(); log.stop();
+        return { log, got, refund: def.stats.edge.perfect };
+      };
+      for (const lead of [3, 6]) {
+        const r = trial(lead), g = r.got;
+        if (!g || !g.e.perfect || !g.e.sway || g.e.auto || g.e.cost !== 0 || Math.abs(g.after - g.before - r.refund) > 0.5 || g.counter !== COUNTER_WINDOW_PERFECT || g.end !== SWAY_PERFECT_FREE_TICK || !(g.momentum > 0)) problems.push('lead ' + lead + ': ' + JSON.stringify(g && Object.assign({}, g, { e: undefined })));
+      }
+      for (const lead of [7, 9, 11]) {
+        const r = trial(lead), g = r.got;
+        if (!g || g.e.perfect || g.e.auto || g.e.cost !== SWAY_COST_BY_TIER[1] || Math.abs(g.before - g.after - SWAY_COST_BY_TIER[1]) > 0.5 || g.counter !== 0 || g.end !== SWAY_TOTAL_TICKS) problems.push('lead ' + lead + ': ' + JSON.stringify(g && Object.assign({}, g, { e: undefined })));
+      }
+      const late = trial(12, ATTACKS.heavy_roundhouse);   // startup 17: a press 12 ticks ahead is possible
+      if (late.got || !late.log.some((ev) => ev.n === 'hit')) problems.push('lead 12 did not hit: ' + late.log.map((ev) => ev.n).join());
+      // a sway that ends with Defend still down leaves the fighter prepared: the next strike is slipped by the hold at its cost, and the cooldown was stamped once (by the press)
+      const m = mk({}, (it, f) => { if (m.matchTicks === 60) f.startAttack(ATTACKS.jab); }, (it) => { it.defend = m.matchTicks >= 3; });
+      m.fighters[1].defense = 'sway'; self.place(m, TIMING_GAP);
+      const log = watchTicks(m, ['hit', 'block']), def = m.fighters[1];
+      let stampedAt = null;
+      for (let i = 0; i < 70; i++) { m.step(); if (m.matchTicks === 59) stampedAt = def.lastBlockAt; }
+      log.stop();
+      const e = log.length === 1 && log[0].n === 'block' ? log[0].e : null;
+      if (!e || !e.auto || e.perfect || e.cost !== SWAY_COST_BY_TIER[0] || stampedAt !== 3) problems.push('prepared after a sway: ' + JSON.stringify([log.length && log[0].n, e && e.auto, e && e.perfect, e && e.cost, stampedAt]));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway hold (P18-62): held into the free tick: a hit stun ends with Defend held and a strike 3 ticks later is a perfect sway that breaks the combo (1 to 7 ticks perfect, later plain, still held when it comes earlier); the shared cooldown applies', () => {
+      const problems = [];
+      for (let g = -2; g <= 14; g++) {
+        const want = g <= 0 ? 'hit' : g <= PERFECT_BLOCK_TICKS + 1 ? 'sway+' : 'sway';
+        const hold = chainRun({ g, defence: 'hold' });
+        if (hold.v !== want) problems.push('g ' + g + ' hold ' + hold.v + ', want ' + want);
+        if (hold.v === 'sway+' && !(hold.ev.e.auto && hold.ev.e.refund > 0 && hold.ev.e.cost === 0)) problems.push('g ' + g + ' the perfect is not a hold with its refund');
+        const soon = chainRun({ g, defence: 'hold', cool: PERFECT_BLOCK_COOLDOWN - 1 }), ready = chainRun({ g, defence: 'hold', cool: PERFECT_BLOCK_COOLDOWN });
+        if (soon.v !== (g <= 0 ? 'hit' : 'sway')) problems.push('g ' + g + ' a defence started ' + (PERFECT_BLOCK_COOLDOWN - 1) + ' ticks before ' + soon.v);
+        if (ready.v !== want) problems.push('g ' + g + ' a defence started ' + PERFECT_BLOCK_COOLDOWN + ' ticks before ' + ready.v);
+      }
+      const r = chainRun({ g: 3, defence: 'hold' }), att = r.m.fighters[0], def = r.m.fighters[1], breaks = r.log.filter((ev) => ev.n === 'comboBreak');
+      if (breaks.length !== 1 || breaks[0].e.att !== att || breaks[0].e.def !== def || r.ev.e.brk !== true || def.gotHits !== 0) problems.push('the perfect hold did not break the combo: ' + breaks.length + ' breaks, got ' + def.gotHits);
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Sway hold (P18-62): Block and Sway share the 30-tick cooldown: Block then Sway, Sway then Block and Sway then Sway inside it are never perfect (still guarded or slipped, and read TOO SOON with the ticks since the last defence); 30 ticks apart they are perfect', () => {
+      const problems = [], S1 = 4;
+      const base = windowTrial(ATTACKS.jab, 'block', null, 0), reach = base.t - TIMING_START;   // ticks from a jab's start to its contact
+      const trial = (first, second, input2) => {
+        const start2 = first === 'sway' ? Math.max(input2, S1 + SWAY_TOTAL_TICKS + 1) : input2;   // a sway is busy for 27 ticks: the next defence starts on the tick after it
+        const m = mk({}, (it, f) => { if (m.matchTicks === start2 + 2 - reach) f.startAttack(ATTACKS.jab); }, (it, f) => {
+          const t = m.matchTicks;
+          f.defense = t < S1 + 8 ? first : second;
+          it.defend = (first === 'block' ? t >= S1 && t < S1 + 4 : t === S1) || (second === 'block' ? t >= input2 : t === input2);
+        });
+        m.fighters[1].defense = first; self.place(m, TIMING_GAP);
+        const log = watchTicks(m, ['hit', 'block']);
+        for (let i = 0; i < start2 + 20; i++) m.step();
+        log.stop();
+        return { gap: start2 - S1, ev: log[0], v: log.length ? verdict(log[0]) : 'none' };
+      };
+      const cases = [['block', 'sway', S1 + 20], ['block', 'sway', S1 + 29], ['block', 'sway', S1 + 30], ['block', 'sway', S1 + 31], ['sway', 'block', S1 + 20], ['sway', 'block', S1 + 30], ['sway', 'block', S1 + 31], ['sway', 'sway', S1 + 25], ['sway', 'sway', S1 + 30], ['sway', 'sway', S1 + 31]];
+      for (const [first, second, input2] of cases) {
+        const r = trial(first, second, input2), fresh = r.gap >= PERFECT_BLOCK_COOLDOWN, want = second === 'sway' ? (fresh ? 'sway+' : 'sway') : (fresh ? 'perfect' : 'plain'), label = first + ' then ' + second + ' ' + r.gap + ' ticks later: ';
+        if (r.v !== want) problems.push(label + r.v + ', want ' + want);
+        else if (!fresh && !defenceReading(r.ev.e).startsWith('TOO SOON (' + r.gap + ' ticks since the last defence)')) problems.push(label + 'reads "' + defenceReading(r.ev.e) + '"');
+      }
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Sway hold (P18-62): an empty tank fails the dodge like a broken guard (STUN 80, 30 % chip, the same push and hit-stop as blockHit, the next hit lands at x 1.2); a perfect sway still works at 0', () => {
+      const problems = [];
+      const trial = (how) => {
+        const m = mk({}); self.place(m, 1.0);
+        const att = m.fighters[0], def = m.fighters[1];
+        att.startAttack(ATTACKS.cross); att.moveTick = att.mStartup + 1;
+        if (how === 'block') { def.defense = 'block'; def.setState(S.BLOCK_H); def.stateTicks = 20; def.stam = 0.1; }
+        else { def.defense = 'sway'; def.swayReady = true; def.readyAt = def.age - 30; def.readyFresh = true; def.stam = SWAY_COST_BY_TIER[1] - 1; }   // prepared 30 ticks ago: a plain dodge of a tier 2 strike
+        const log = self.capture(['block']);
+        const d = Combat.evaluate(att, def); Combat.apply(d, m); log.stop();
+        return { m, def, e: log.block[0], read: [def.state, def.reactDur, def.hitKind, def.hp, def.kx, def.kz, m.hitStop, def.stam === 0] };
+      };
+      const block = trial('block'), sway = trial('sway');
+      if (!block.e.broke || !sway.e.broke || !sway.e.sway) problems.push('broke flags ' + [block.e.broke, sway.e.broke, sway.e.sway]);
+      if (JSON.stringify(sway.read) !== JSON.stringify(block.read) || sway.def.state !== S.STUN || sway.def.reactDur !== 80) problems.push('a broken sway differs from a broken guard: ' + JSON.stringify(sway.read) + ' against ' + JSON.stringify(block.read));
+      if (defenceReading(sway.e) !== 'SWAY FAILED - out of stamina') problems.push('reads "' + defenceReading(sway.e) + '"');
+      const perfect = (() => {
+        const m = mk({}); self.place(m, 1.0);
+        const att = m.fighters[0], def = m.fighters[1];
+        att.startAttack(ATTACKS.cross); att.moveTick = att.mStartup + 1;
+        def.defense = 'sway'; def.swayReady = true; def.readyAt = def.age - 2; def.readyFresh = true; def.stam = 0;
+        const d = Combat.evaluate(att, def); Combat.apply(d, m);
+        return { perfect: d.perfect, state: def.state, stam: def.stam, counter: def.counterWindow, refund: def.stats.edge.perfect };
+      })();
+      if (!perfect.perfect || perfect.state !== S.SWAY || perfect.stam !== perfect.refund || perfect.counter !== COUNTER_WINDOW_PERFECT) problems.push('a perfect at 0 stamina: ' + JSON.stringify(perfect));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway hold (P18-62): a prepared fighter walks at 0.6, refills at 0.3 of the rate and shows the ready pose; a Block fighter, a fighter without Defend and one who lets go are never prepared', () => {
+      const problems = [];
+      const run = (defense, held, ticks, script) => {
+        const m = mk({}, null, (it, f, o, mm) => { it.defend = held; if (script) script(it, f, mm); });
+        const def = m.fighters[1]; def.defense = defense; self.place(m, 6);
+        const x0 = def.x, z0 = def.z; let stam0 = 0;
+        for (let i = 0; i < ticks; i++) { if (i === 3) { def.stam = def.maxStam * 0.7; def.noRegen = 0; stam0 = def.stam; } m.step(); }
+        return { def, gain: def.stam - stam0, moved: DMath.hypot(def.x - x0, def.z - z0), m };
+      };
+      const ready = run('sway', true, 20), idle = run('sway', false, 20), block = run('block', true, 20);
+      if (!ready.def.swayReady || idle.def.swayReady || block.def.swayReady) problems.push('ready flags ' + [ready.def.swayReady, idle.def.swayReady, block.def.swayReady]);
+      const share = ready.gain / idle.gain;
+      if (!(Math.abs(share - SWAY_READY_REGEN) < 0.02)) problems.push('the refill of a prepared fighter is ' + share.toFixed(3) + ' of an idle one, not ' + SWAY_READY_REGEN);
+      const walk = (held) => run('sway', held, 20, (it) => { it.fwd = 1; }).moved;
+      const slow = walk(true) / walk(false);
+      if (!(Math.abs(slow - BLOCK_FACTOR) < 0.03)) problems.push('a prepared fighter walks at ' + slow.toFixed(3) + ' of the pace, not ' + BLOCK_FACTOR);
+      for (let i = 0; i < 12; i++) { ready.m.step(); idle.m.step(); }
+      if (!(ready.def.pose[J.torsoLean] < idle.def.pose[J.torsoLean] - 0.01)) problems.push('the ready pose does not lean back: ' + ready.def.pose[J.torsoLean].toFixed(3) + ' against ' + idle.def.pose[J.torsoLean].toFixed(3));
+      const let_go = run('sway', true, 20, (it, f, mm) => { if (mm.matchTicks >= 10) it.defend = false; });
+      if (let_go.def.swayReady) problems.push('a fighter who let go is still prepared');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway hold (P18-62): a strike on a recovery tick of a held sway hits, a second strike on the same tick is slipped at its own cost, a grab is not dodged', () => {
+      const problems = [];
+      const prepared = () => {
+        const m = mk({}); self.place(m, 1.0);
+        const att = m.fighters[0], def = m.fighters[1];
+        def.defense = 'sway'; def.swayReady = true; def.readyAt = def.age - 30; def.readyFresh = true; def.stam = 50;
+        return { m, att, def };
+      };
+      // two strikes found by the same tick (two attackers are one attacker with two moves): the first starts the sway, the second meets its i-frames and pays its own price
+      const { m, att, def } = prepared();
+      att.startAttack(ATTACKS.jab); att.moveTick = att.mStartup + 1;
+      const first = Combat.evaluate(att, def);
+      att.startAttack(ATTACKS.hook); att.moveTick = att.mStartup + 1; att.hitList = [];
+      const second = Combat.evaluate(att, def);
+      if (!first || !second || first.type !== 'sway' || second.type !== 'sway' || !first.auto || !second.auto) problems.push('the two strikes are ' + [first && first.type, second && second.type]);
+      else {
+        Combat.apply(first, m); const ticks = def.stateTicks, stateAfter = def.state;
+        Combat.apply(second, m);
+        if (stateAfter !== S.SWAY || def.state !== S.SWAY || def.stateTicks !== ticks || Math.abs(50 - def.stam - (SWAY_COST_BY_TIER[0] + SWAY_COST_BY_TIER[2])) > 1e-6) problems.push('two strikes cost ' + (50 - def.stam) + ' and leave the fighter ' + def.state + ' tick ' + def.stateTicks);
+        // the sway is running: the strike on a recovery tick hits, on an i-frame tick it is slipped by the tap's rule
+        const probe = (ticks) => { att.startAttack(ATTACKS.jab); att.moveTick = att.mStartup + 1; att.hitList = []; def.stateTicks = ticks; const d = Combat.evaluate(att, def); return d && d.type + (d.auto ? ' auto' : ''); };
+        if (probe(SWAY_IFRAME_TICKS - 1) !== 'sway' || probe(SWAY_IFRAME_TICKS) !== 'strike' || probe(SWAY_TOTAL_TICKS - 1) !== 'strike') problems.push('the i-frames end wrong: ' + [probe(SWAY_IFRAME_TICKS - 1), probe(SWAY_IFRAME_TICKS), probe(SWAY_TOTAL_TICKS - 1)]);
+      }
+      const g = prepared();
+      g.att.startAttack(ATTACKS.grab); g.att.moveTick = g.att.mStartup + 1;
+      const grab = Combat.evaluate(g.att, g.def);
+      if (!grab || grab.type !== 'grab') problems.push('a grab on a prepared fighter is ' + (grab && grab.type));
+      // in a real run: a jab 40 ticks in is slipped, a second strike 16 ticks later (in the recovery of that sway) lands
+      const m2 = mk({}, (it, f) => { if (m2.matchTicks === HOLD_STRIKE_AT) f.startAttack(ATTACKS.jab); if (m2.matchTicks === HOLD_STRIKE_AT + 16) f.startAttack(ATTACKS.jab); }, (it) => { it.defend = true; });
+      m2.fighters[1].defense = 'sway'; self.place(m2, TIMING_GAP);
+      const log = watchTicks(m2, ['hit', 'block']);
+      self.run(m2, 100); log.stop();
+      if (log.map((ev) => ev.n).join() !== 'block,hit') problems.push('a second jab 16 ticks later: ' + log.map((ev) => ev.n).join());
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway hold (P18-62): Defend held on the keyboard, a gamepad button or the touch Defend button prepares the Sway the same way, and the stick at the dodge picks the lean (left or right slips sideways, movement relative to the opponent)', () => {
+      const problems = [];
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, keepMovement = Settings.v.movement;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      Settings.v.movement = 'opponent';   // left / right are the fighter's sides on every device
+      const press = {
+        keyboard: (on, lean) => { Input.kb[on ? 'add' : 'delete'](Keymap.bindings.defend[0]); if (lean) Input.kb[on ? 'add' : 'delete'](Keymap.bindings.left[0]); },
+        gamepad: (on, lean) => { pad.buttons[PAD_BUTTONS.defend[0]].pressed = on; pad.axes[0] = on && lean ? -1 : 0; },
+        touch: (on, lean) => { Input.touchSet('defend', on); if (lean) Input.touchStickSet(on ? -1 : 0, 0, on); },
+      };
+      try {
+        for (const kind of ['keyboard', 'gamepad', 'touch']) for (const lean of [false, true]) {
+          Input.reset(); Input.releaseAll(); Input.lastDevice = kind;
+          press[kind](true, lean);
+          let seen = 0;
+          const m = mk({}, (it, f) => { if (m.matchTicks === HOLD_STRIKE_AT) f.startAttack(ATTACKS.jab); }, (it, f, o) => { Input.update(); Input.fillIntent(it, f, o); if (it.defend && it.side !== 0) seen = Math.sign(it.side); });
+          m.fighters[1].defense = 'sway'; self.place(m, TIMING_GAP);
+          const log = watchTicks(m, ['hit', 'block']);
+          self.run(m, 70); log.stop();
+          press[kind](false, lean); Input.releaseAll(); Input.update();
+          const e = log.length === 1 && log[0].n === 'block' ? log[0].e : null, label = kind + (lean ? ' with the stick' : '');
+          if (!e || !e.auto || !e.sway || e.cost !== SWAY_COST_BY_TIER[0]) problems.push(label + ': ' + log.map((ev) => ev.n).join() + (e ? ' ' + [e.auto, e.cost] : ''));
+          else if (m.fighters[1].swayDir !== (lean ? seen : 0) || (lean && seen === 0)) problems.push(label + ': lean ' + m.fighters[1].swayDir + ', stick ' + seen);
+        }
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Settings.v.movement = keepMovement;
+        Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway hold (P18-62): the CPU plans the plain aim inside the shared cooldown with the same draws, plans nothing it cannot pay, and in P0-06 runs of a Sway fighter at all four difficulties it sways, never broke on stamina it lacked in more than a few dodges, and repeats exactly', () => {
+      const problems = [];
+      const ai = new AIController(ROSTER_BY_ID.mara, 'expert'), fighter = new Fighter(ROSTER_BY_ID.mara, 1);
+      ai.tickNo = 100; ai.d = Object.assign({}, ai.d, { swayAim: 1 });
+      const keepRng = api.get.simRng();
+      const plan = (age, lastBlockAt, stam, tier) => {
+        let draws = 0; api.set.simRng(() => { draws++; return 0.5; });
+        fighter.age = age; fighter.lastBlockAt = lastBlockAt; fighter.stam = stam;
+        const p = ai.swayResponse(fighter, { startup: 14, moveTick: 1, moveId: 1, mvTier: tier });
+        return { p, draws };
+      };
+      try {
+        const open = plan(200, 100, 50, 1), cool = plan(110, 100, 50, 1);
+        if (!open.p || open.p.until - open.p.at !== 3) problems.push('outside the cooldown the perfect aim is not planned: ' + JSON.stringify(open.p));
+        if (!cool.p || cool.p.until - cool.p.at !== 1 || (open.p.at - cool.p.at) !== AI_SWAY_AIM - AI_SWAY_AIM_PERFECT) problems.push('inside the cooldown the plain aim is not planned: ' + JSON.stringify(cool.p));
+        if (open.draws !== cool.draws || open.draws !== 1) problems.push('the draws differ: ' + [open.draws, cool.draws]);
+        if (plan(129, 100, 50, 1).p.until - plan(129, 100, 50, 1).p.at !== 1 || plan(130, 100, 50, 1).p.until - plan(130, 100, 50, 1).p.at !== 3) problems.push('the cooldown ends at 30 ticks');
+        for (const tier of [1, 2, 3]) {
+          const need = SWAY_COST_BY_TIER[tier - 1];
+          if (plan(200, 0, need, tier).p !== null || plan(200, 0, need + 0.9, tier).p !== null || !plan(200, 0, need + 1, tier).p) problems.push('tier ' + tier + ': the CPU does not keep 1 to spare over the price ' + need);
+        }
+      } finally { api.set.simRng(keepRng); }
+      let sways = 0, broke = 0;
+      for (const difficulty of ['easy', 'normal', 'hard', 'expert']) {
+        for (let seed = 1; seed <= 24; seed++) {
+          const run = () => {
+            let swayed = 0, failed = 0, hits = 0;
+            const r = SimRunner.run({ playerId: 'mara', opponentId: 'kai', seed, difficulty, timer: 20, winsNeeded: 1, listeners: { block: (e) => { if (e.sway && e.def.index === 0) { swayed++; if (e.broke) failed++; } }, hit: (e) => { if (e.def.index === 0) hits++; } } });
+            return JSON.stringify([r.error || r.winner, r.ticks, swayed, failed, hits]);
+          };
+          const a = run();
+          if (seed <= 3 && a !== run()) { problems.push(difficulty + ' seed ' + seed + ' differs between two runs'); break; }   // the first three seeds are run twice
+          const [, , swayed, failed] = JSON.parse(a);
+          sways += swayed; broke += failed;
+        }
+        if (problems.length > 5) break;
+      }
+      if (sways < 40) problems.push('the Sway CPU swayed only ' + sways + ' times');
+      if (broke * 10 > sways) problems.push(broke + ' of ' + sways + ' CPU dodges failed on an empty tank');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    }, 180000);
+    test('Sway hold (P18-62): Training reads a defence in its six forms and the Defence line shows ready or the cooldown left; the help texts are built from the constants', () => {
+      const problems = [];
+      const read = (e) => defenceReading(Object.assign({ perfect: false, age: 3 }, e));
+      const forms = [
+        [{ perfect: true, sway: true, age: 3, refund: 6 }, 'PERFECT, 3 ticks before the hit, +6 stamina'],
+        [{ sway: true, auto: true, age: 40, cost: 6 }, 'SWAY (held), -6 stamina'],
+        [{ age: 80, cost: 5.7 }, 'BLOCK, -6 stamina'],
+        [{ sway: true, age: 3, since: 14, cost: 5 }, 'TOO SOON (14 ticks since the last defence), -5 stamina'],
+        [{ sway: true, age: 10, cost: 5 }, 'EARLY 4 ticks, -5 stamina'],
+        [{ sway: true, broke: true, age: 30 }, 'SWAY FAILED - out of stamina'],
+        [{ perfect: true, sway: true, auto: true, age: 2, refund: 8, brk: true }, 'PERFECT (held), 2 ticks before the hit, +8 stamina - COMBO BREAK'],
+      ];
+      for (const [e, want] of forms) if (read(e) !== want) problems.push('"' + read(e) + '" for ' + want);
+      // the same strings from a real held dodge in Training's seat (fighter 1 is Player 1 there)
+      const m = mk({}, (it) => { it.defend = true; }, (it, f) => { if (m.matchTicks === HOLD_STRIKE_AT) f.startAttack(ATTACKS.cross); });
+      m.fighters[0].defense = 'sway'; self.place(m, TIMING_GAP); self.run(m, 70);
+      if (m.defRead !== 'SWAY (held), -' + SWAY_COST_BY_TIER[1] + ' stamina') problems.push('a held dodge reads "' + m.defRead + '"');
+      const lines = [[{ age: 100, lastBlockAt: 80 }, 'cooldown 10'], [{ age: 100, lastBlockAt: 70 }, 'ready'], [{ age: 100, lastBlockAt: 71 }, 'cooldown 1'], [{ age: 5, lastBlockAt: -PERFECT_BLOCK_COOLDOWN }, 'ready']];
+      for (const [f, want] of lines) if (defenceCooldownText(f) !== want) problems.push('the Defence line is "' + defenceCooldownText(f) + '", not ' + want);
+      const savedDom = UI.dom, savedCache = UI.cache;
+      try {
+        const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {}), panel = { innerHTML: '', hidden: false };
+        UI.dom = { training: panel }; UI.cache = {};
+        UI.trainingPanel(training);
+        if (!panel.innerHTML.includes('<b>DEFENCE</b> ready')) problems.push('the Training panel has no "DEFENCE ready" line');
+        training.fighters[0].lastBlockAt = training.fighters[0].age - 5;
+        UI.trainingPanel(training);
+        if (!panel.innerHTML.includes('<b>DEFENCE</b> cooldown 25')) problems.push('the Training panel does not show the cooldown left');
+      } finally { UI.dom = savedDom; UI.cache = savedCache; }
+      const help = DEFENSE_HELP.sway;
+      const cheap = SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina';
+      if (!help.includes(cheap) || !help.includes('keep it down') || !help.includes('tenth of a second') || !help.includes('perfect sway') || /It costs/.test(help)) problems.push('the Sway help: ' + help);
+      if (COMBO_HELP.includes('(Sway: tap just before)') || !COMBO_HELP.includes('a Sway fighter who keeps it held is ready the moment they are free')) problems.push('the combo help: ' + COMBO_HELP);
+      const moves = UI.screen_moves(styleProfile('boxer'), 'keyboard');
+      if (!moves.includes('keep it down') || !moves.includes(cheap)) problems.push('the Move list does not carry the Sway help');
+      return problems.length ? problems.join('; ') : true;
     });
     test('Training dummy (P18-03): a Sway dummy leans so a slow strike lands on tick 9 (a plain dodge) and a quick one on its start-up minus 1 (a perfect sway), whatever its speed', () => {
       const trial = (mv) => {
