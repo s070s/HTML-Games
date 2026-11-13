@@ -19470,9 +19470,8 @@ const SelfTest = {
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
-    /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
     /* P18-78 review: #onboard has z-index 2; without a stacking context on #hud that lifted the Controls card above the #touch layer (a later sibling) and the card covered the stick and buttons on a first touch fight. The real HUD markup, the real card, the real touch buttons. */
-    layoutTest('Layout (P18-69): with the Controls card shown on a first touch fight (Training) at 640 x 360, 667 x 375 and 360 x 640, every touch button the card overlaps is what is on top at its centre and at the middle of the overlap - the card never covers the controls', () => {
+    layoutTest('Layout (P18-69): with the Controls card shown on a first touch fight (Training) at 640 x 360, 667 x 375 and 360 x 640, every touch button the card overlaps is what is on top at its centre and at the point of the card nearest to it - the card never covers the controls', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
       const html = '<div id="hud" class="tt">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
@@ -19504,6 +19503,7 @@ const SelfTest = {
       if (!overlaps) bad.push('no touch button overlaps the Controls card at any of the three sizes: the test measures nothing');
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
+    /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
     layoutTest('Layout (P18-78): the level line - the longest line of each mode (Arcade with waves, Survival, Free Fight, Brawl, Co-op Brawl with Friendly fire and waves, a lineup, Versus with a session score, Training) keeps its glyphs (a Range on its text) clear of the health, stamina and Momentum bars, names, pips, item labels, timer, round label, combo counters, party row, pause button, controls card (also in a one-person Co-op and a Lineup with a person) and Training panel, and is never cut, at 1280 x 720, 1024 x 768, 844 x 390, 640 x 360 and 390 x 844, also at UI scale 0.8; the Training panel (the real UI.trainingPanel text) holds FRAME DATA, Startup, Result and Advantage inside its box at those sizes, its KEYS line is inside the panel (not at 640 x 360, where there is no room), and it is one line on a landscape phone', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●';

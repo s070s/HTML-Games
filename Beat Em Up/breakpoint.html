@@ -261,7 +261,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 #pauseBtn{position:absolute;right:.9em;bottom:1em;pointer-events:auto;font:inherit;font-weight:800;padding:.35em .9em;min-width:44px;min-height:44px;background:rgba(0,0,0,.6);color:#fff;border:2px solid #fff;border-radius:.4em;cursor:pointer;letter-spacing:.1em}
 /* name tags and damage pops use canvas coordinates: undo the HUD's safe-area inset */
 #tags{position:absolute;top:calc(-1*var(--sat));right:calc(-1*var(--sar));bottom:calc(-1*var(--sab));left:calc(-1*var(--sal));overflow:hidden} /* #tags comes before #training in the markup, so the Training panel is drawn over the fighter name tags and a tag never hides a line of it (P18-78) */
-#hud .pop,#hud .edge{z-index:1} /* damage pops, hit words and the off-screen arrows live in #tags too, but they must stay readable over the Training panel: above it (z-index auto) and under the Controls card (2); the name tags stay under the panel (P18-78) */
+#hud .pop,#hud .edge{z-index:1} /* damage pops, hit words and the off-screen arrows live in #tags too, but they must stay readable over the Training panel: above it (z-index auto) and under the Controls card (2); in every fight they also draw over the desktop pause button (looks only: pops take no clicks); the name tags stay under the panel (P18-78) */
 .tag{position:absolute;left:0;top:0;white-space:nowrap;font-size:.8em;letter-spacing:.1em;padding:.1em .5em;background:rgba(0,0,0,.6);border:1px solid #fff;transform:translate(-50%,-100%);will-change:transform}
 .tag.p1{border-color:var(--a1)}
 .tag.p2{border-color:var(--a2)}
