@@ -240,6 +240,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:10em;width:15em;max-height:calc(100% - 11.3em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{left:.9em;right:auto;width:min(21em,50%);max-height:min(10em,calc(100% - 10em - max(30vmin,130px) - 7vmin))} /* with touch controls the panel sits at the left under the health bars, 6 lines at most and above the stick; the buttons are on the right */
+@media (orientation:portrait){#training{top:15.2em;max-height:calc(100% - 16.5em - 52px)}} /* upright: the level line (#modeinfo) runs down to 11.4em of the HUD, the panel (font .8em) starts under it at 12.2em, with keyboard or gamepad too */
 @media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
 #hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
 @media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */
@@ -5417,10 +5418,11 @@ function frameAdvantage(mv, applied) {
    family      key of STYLE_FAMILY_LABEL.   strings   the 18 positions of the style's attack strings (STRING_POSITIONS).   aiw   the signature strikes the CPU favours (row@animation:weight).   legless   no leg moves.   grab   key of CLINCH_STRIKE_POSES.
    throws      key of THROW_SETS the style favours (every style can still use all three grips; STYLE_THROWS swaps single throws for its own).
    signature   [name, uses] pairs shown in the Move list and Training panel: uses = an ATTACKS id, 'knee' / 'elbow', 'throw:<grip>.<dir>' or 'hold'; the unique ones are attacks only that style plays.
-   submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway'). */
+   submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway').
+   inputNames  what the Punch / Kick input is called where the plain word is wrong because the moves on it are not punches or kicks ({ punch, kick }, short for a 73 px touch button; left out = Punch / Kick). */
 const MOVE_STYLE = {
-  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches. No kicks: the Kick button throws body punches.',
-    family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
+  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches. No kicks: the input other styles use for Kick throws hooks and body shots.',
+    family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, inputNames: { kick: 'Hook' }, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
     aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0',
@@ -5447,7 +5449,7 @@ const MOVE_STYLE = {
     punchHip: 1.35, punchPivot: 0.12, punchLean: 0.02, punchSnap: 1.45, kickChamber: 1.0, kickPivot: 0.45, kickLean: 0.12, kickSnap: 1.3,
     stride: 1.1, armSwing: 0.02, walkBounce: 0.006, react: 0.85, victory: 'bow' },
   wrestler: { label: 'Wrestling', desc: 'Low level, wide base, hands forward hunting for ties; short heavy steps, chest over the knees.',
-    family: 'throws', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'],
+    family: 'throws', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'], inputNames: { punch: 'Shove', kick: 'Trip' }, // Snap Down, Underhook Smash, Shoulder Charge and Bump are shoves; every Kick move is a trip
     signature: [['Shoulder Charge', 'heavy_front'], ['Underhook Lift', 'heavy_uppercut'], ['Ankle Trip', 'foot_sweep'], ['Fireman\'s Carry', 'throw:low.back'], ['Pin', 'hold']],
     strings: 'snap_down foot_sweep hook heavy_front heavy_uppercut sweep - - - - - - snap_down low_kick shoulder_bump sweep - -',
     aiw: 'snap_down@snapDown:0.8 hook@underhook:1.3 heavy_front@shoulder:1.3 heavy_uppercut@underhook:1.3 shoulder_bump@shoulder:1.0',
@@ -5456,7 +5458,7 @@ const MOVE_STYLE = {
     punchHip: 0.85, punchPivot: 0.1, punchLean: 0.1, punchSnap: 0.9, kickChamber: 0.35, kickPivot: 0.2, kickLean: 0.05, kickSnap: 0.85,
     stride: 0.75, armSwing: 0.02, walkBounce: 0.008, react: 0.8, victory: 'hips' },
   judoka: { label: 'Judo', desc: 'Upright and relaxed, hands at chest height reaching for the collar, smooth side-to-side weight shifts.',
-    family: 'throws', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'], hold: 'kesa',
+    family: 'throws', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'], hold: 'kesa', inputNames: { punch: 'Pull', kick: 'Sweep' }, // Collar Pull, Push-Out, Lift-Up, Sleeve Pull are grips; every Kick move is a foot sweep
     signature: [['Lift-Up', 'heavy_uppercut'], ['Push-Out', 'heavy_front'], ['Ura-Nage', 'throw:front.back'], ['Counter Sweep', 'counter_kick'], ['Hold-Down', 'hold']],
     strings: 'collar_snap foot_sweep heavy_front heavy_uppercut heavy_front sweep - - - - - - body_jab foot_sweep heavy_uppercut sweep - -',
     aiw: 'collar_snap@collar:1.8 foot_sweep@footSweep:0.5 heavy_front@pushout:1.0 heavy_uppercut@lift:1.0',
@@ -5520,7 +5522,7 @@ const MOVE_STYLE = {
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
     stride: 0.82, armSwing: 0.025, walkBounce: 0.008, react: 0.85, victory: 'flex' },
   bjj: { label: 'Brazilian Jiu-Jitsu', desc: 'Ground first: wins from the back with guards and sweeps, then pins, chokes and joint locks. Pulls guard rather than throwing.',
-    family: 'locks', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm',
+    family: 'locks', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm', inputNames: { punch: 'Shove' }, // Snap Down, Overhook Smash, Guard Push, Frame Shove and Frame Jab are pushes and frames; Kick keeps its name (Guard Kick first)
     signature: [['Guard Pull', 'throw:low.back'], ['Guard Kick', 'guard_kick'], ['Scissor Sweep', 'sweep'], ['Armbar', 'hold'], ['Single-Leg Takedown', 'throw:low.fwd']],
     strings: 'snap_down guard_kick hook heavy_front heavy_uppercut sweep - - - - - - body_jab foot_sweep heavy_uppercut sweep - -',
     aiw: 'foot_sweep@scissor:1.6 snap_down@snapDown:0.8 sweep@scissor:1.0 heavy_front@guard:1.3 hook@guard:1.3 guard_kick@guardKick:0.7',
@@ -5664,6 +5666,41 @@ function moveStyleFor(profile) {
   return DEFAULT_MOVE_STYLE;
 }
 
+/* What an attack input is called for a fighter (BP-P18-76): one source for the touch buttons, the Controls card and screen, the Move list, the clinch hint and the creator's Pose button.
+   The name is what the moves on that input are, by meaning: "Punch" and "Kick" unless the style row names the input itself (MOVE_STYLE inputNames: Boxing has no kicks, its Kick input throws hooks; Judo's Punch is grips and pushes and its Kick only foot sweeps; Wrestling's Punch is shoves and its Kick only trips).
+   low = the move with Duck held. armsFull = an item or a crate in the arms: Punch then swings the item (or does nothing), so it is a plain Punch, and a style without leg moves plays the default kick rows, so its Kick is a plain Kick. */
+const ATTACK_INPUT_PLAIN = { punch: 'Punch', kick: 'Kick' };
+function attackInputMove(profile, action, armsFull, low) {
+  const styleId = moveStyleFor(profile), kicksDefault = !!armsFull && !!MOVE_STYLE[styleId].legless;
+  const steps = stringsFor(styleId, kicksDefault)[low ? 'crouch' : 'stand'][action === 'kick' ? 'K' : 'P'];
+  return steps ? moveFor(kicksDefault ? '' : styleId, steps[0]) : null; // a style with no row on that input has none (every style has both today)
+}
+function attackInputName(profile, action, armsFull) {
+  const plain = ATTACK_INPUT_PLAIN[action], style = MOVE_STYLE[moveStyleFor(profile)], own = style.inputNames && style.inputNames[action];
+  if (!own) return plain;
+  const itemReplacesMoves = armsFull && (action === 'punch' || style.legless);
+  return itemReplacesMoves ? plain : own;
+}
+// The name with the move's own name after it where the two differ: "Hook (Bob and Weave Hook)"
+function attackInputFullName(profile, action, armsFull) {
+  const name = attackInputName(profile, action, armsFull), move = attackInputMove(profile, action, armsFull);
+  return move && name !== ATTACK_INPUT_PLAIN[action] ? name + ' (' + move.name + ')' : name;
+}
+// For a screen where no fighter is chosen yet (the rows say Punch and Kick): one sentence naming every style whose input is called something else, "Kick is Hook in Boxing, Sweep in Judo, ..."
+const joinWords = (words) => (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1] : words[0]); // ['Punch', 'Hook', 'Kick'] -> "Punch, Hook and Kick"
+function genericAttackNote() {
+  const sentences = Object.keys(ATTACK_INPUT_PLAIN).map((action) => {
+    const stylesByName = {};
+    for (const id of MOVE_STYLE_IDS) {
+      const name = attackInputName({ moveStyle: id }, action);
+      if (name !== ATTACK_INPUT_PLAIN[action]) (stylesByName[name] = stylesByName[name] || []).push(MOVE_STYLE[id].label);
+    }
+    return ATTACK_INPUT_PLAIN[action] + ' is ' + Object.keys(stylesByName).map((name) => name + ' in ' + joinWords(stylesByName[name])).join(', ');
+  });
+  return 'Some styles name these inputs by their moves: ' + sentences.join('; ') + '. In a fight this screen names your fighter\'s.';
+}
+// The word for what a clinch strike is called: "elbow", "knee", and a style's own ("body shot" for Boxing)
+const clinchStrikeWord = (styleId, strikeId) => clinchMoveName(styleId, strikeId).replace(/^Clinch /, '').toLowerCase();
 // Per-fighter motion profile, built once per fighter (no per-frame work or allocation)
 function makeMotion(profile, scale, build) {
   const styleId = moveStyleFor(profile);
@@ -12619,7 +12656,8 @@ const Showcase = {
     this.poseClock += dt;
     const pose = this.previewPose;
     if (pose === 'guard' || pose === 'victory') { f.state = pose === 'guard' ? S.IDLE : S.VICTORY; f.move = null; return; }
-    const mv = pose === 'punch' ? ATTACKS.cross : ATTACKS.roundhouse;
+    const named = attackInputName(f.profile, pose) !== ATTACK_INPUT_PLAIN[pose]; // a style whose Kick input is not a kick (Boxing) previews its own move, not a roundhouse it does not have
+    const mv = named ? attackInputMove(f.profile, pose, false) : pose === 'punch' ? ATTACKS.cross : ATTACKS.roundhouse;
     const length = mv.startup + mv.active + mv.recovery;
     const tick = Math.floor(this.poseClock * 60) % (length + 40); // 40 ticks of guard between repeats
     if (tick >= length) { f.state = S.IDLE; f.move = null; return; }
@@ -16171,10 +16209,10 @@ const UI = {
   setHtml(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.innerHTML = value; } },
   setTransform(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.style.transform = value; } },
   // The control for an action on the device the player (0 = P1, 1 = P2) used last
-  keyName(action, slot) {
+  keyName(action, slot, fighter) { // fighter: the one the button belongs to, so a touch attack button carries the name of its move
     const input = Inputs.players[slot || 0];
     if (input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
-    if (input.lastDevice === 'touch') return TOUCH_LABELS[action];
+    if (input.lastDevice === 'touch') return this.controlLabel('touch', action, null, fighter && fighter.profile, !!(fighter && fighter.item));
     return keyLabel(input.keymap ? input.keymap.bindings[action][0] : null);
   },
   // The controls card shows the on-screen buttons: touch was used, or touch is on and no key is held
@@ -16185,17 +16223,18 @@ const UI = {
   controlsCardHtml(kind) {
     const touch = kind === 'touch';
     // labels follow the card's input type, not the device used last
-    const label = (a) => this.controlLabel(kind, a);
+    const p1 = this.localFighterOf(Game.match); // the card opens with the fight, so it can name this fighter's defense and attack inputs
+    const label = (a) => this.controlLabel(kind, a, null, p1 && p1.profile, !!(p1 && p1.item));
     const k = (a) => '<kbd>' + esc(label(a)) + '</kbd>';
+    const attackName = (a) => (p1 ? attackInputName(p1.profile, a, !!p1.item) : ATTACK_INPUT_PLAIN[a]);
     const named = (label, action) => (touch ? '' : label + ' ') + k(action); // on-screen buttons carry their own names
     const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
-    const p1 = Game.match && Game.match.fighters[0]; // the card opens with the fight, so it can name this fighter's defense
     const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
     // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
-    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
+    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named(attackName('punch'), 'punch') + ' ' + named(attackName('kick'), 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
       '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)</div>' +
-      '<div>Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
+      '<div>Press ' + attackName('punch') + ' or ' + attackName('kick') + ' again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
   },
   // True when this fight starts with an input type that has not seen its card yet
   controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
@@ -16213,7 +16252,7 @@ const UI = {
   showVersusCard() {
     this.cardSession = Game.versus;
     const pause = 'Esc / ' + keyLabel(Keymap.bindings.pause[1]) + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
-    const [one, two, rest] = this.devicesGroups();
+    const [one, two, rest] = this.devicesGroups([0, 1].map((slot) => { const f = this.inputSeatFighter(slot); return f && f.profile; })); // the fighter each of the two people plays
     this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3><div>' + one + '</div><div>' + two + '</div><div>' + rest + '<br>Pause: <kbd>' + esc(pause) + '</kbd></div><small>Click or press any key to close</small>'; // groups: a landscape phone sets them in three columns
     this.dom.onboard.hidden = false;
     clearTimeout(this.onboardTimer);
@@ -16892,10 +16931,10 @@ const UI = {
       '<div class="row sticky"><button class="mi" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
   // Who plays on what, for the number of people
-  lineupDevicesText(people) {
+  lineupDevicesText(people, profiles = []) { // profiles: the fighters the people picked, in player order
     if (people === 0) return '<b>Watch only</b>: every fighter is a CPU. Any keyboard, gamepad or touch can pause, restart or quit; the fight does not count for records, grades or progress.';
-    if (people === 1) return '<b>Player 1</b>: ' + esc(this.layoutText(Keymap)) + ', a gamepad or the touch controls.';
-    if (people === 2) return this.devicesText();
+    if (people === 1) return '<b>Player 1</b>: ' + esc(this.layoutText(Keymap, profiles[0])) + ', a gamepad or the touch controls.';
+    if (people === 2) return this.devicesText(profiles);
     const devices = Inputs.autoDevices(people);
     if (!devices) return Inputs.missingText(people) + '.';
     return devices.map((device, k) => '<b>P' + (k + 1) + '</b>: ' + esc(this.deviceLabel(device))).join(' &middot; ') + '. Touch controls are for a single player.';
@@ -16926,7 +16965,8 @@ const UI = {
         (MatchLineup.plain(lineup) ? ' Plain one-on-one: rounds and the time limit are under More options.' : ' One fight, last team standing wins.');
     }
     const friends = lineup.slots.filter((slot) => slot.online).length;
-    return h + '<p class="hint">' + this.lineupDevicesText(plan.people - friends) + note + (friends ? ' Online slots are friends on other devices: Start fight opens the online lobby, where each one picks a fighter and says Ready.' : '') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
+    const playerProfiles = lineup.slots.filter((slot) => slot.human && !slot.online).map((slot) => ROSTER_BY_ID[slot.id]); // each person's keys name that person's fighter's inputs
+    return h + '<p class="hint">' + this.lineupDevicesText(plan.people - friends, playerProfiles) + note + (friends ? ' Online slots are friends on other devices: Start fight opens the online lobby, where each one picks a fighter and says Ready.' : '') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
   },
   // The adjustable rows of Players and teams and More options; true when it handled the name
   lineupLocal(name, dir) {
@@ -16993,15 +17033,16 @@ const UI = {
     return h;
   },
   // Versus device split: keyboard halves, then gamepads (a lone pad always plays P2)
-  devicesText() { return this.devicesGroups().join(' '); },
-  devicesGroups() { // P1, P2 and the rest: the Versus card sets them in three groups
-    return ['<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads.', '<b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad.',
+  devicesText(profiles) { return this.devicesGroups(profiles).join(' '); },
+  devicesGroups(profiles = []) { // P1, P2 and the rest: the Versus card sets them in three groups; profiles: the two fighters, each person's keys name that person's attack inputs
+    return ['<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap, profiles[0])) + ', or the first of two gamepads.', '<b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2, profiles[1])) + ', or a gamepad.',
       'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.'];
   },
   // "W A S D move, J K punch / kick, ..." for one player's keyboard layout
-  layoutText(keymap) {
+  layoutText(keymap, profile) { // profile: the person's fighter; without one (no fighter chosen yet) the plain names
     const keys = (actions) => actions.map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
-    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' punch / kick, ' + keys(['defend']) + ' defend, ' + keys(['grapple']) + ' grapple';
+    const attack = (a) => (profile ? attackInputName(profile, a) : ATTACK_INPUT_PLAIN[a]).toLowerCase(); // only the input word is lower-cased
+    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' ' + attack('punch') + ' / ' + attack('kick') + ', ' + keys(['defend']) + ' defend, ' + keys(['grapple']) + ' grapple';
   },
   screen_arena() {
     const sel = Game.selection;
@@ -17017,16 +17058,23 @@ const UI = {
   screen_controls() {
     const screenMode = Settings.v.movement === 'screen';
     const SCREEN_LABELS = { up: 'Move up the screen (away from camera)', down: 'Move down the screen (toward camera)', left: 'Move screen-left', right: 'Move screen-right' };
-    const label = (a) => (screenMode && SCREEN_LABELS[a]) || ACTION_LABELS[a];
+    // Opened from the pause menu, each column names the attack inputs of its own seat's fighter (not of whoever paused); from the main menu no fighter is chosen: the plain names and a note
+    const paused = Game.state === GS.PAUSED && Game.match, one = paused && this.inputSeatFighter(0) || this.moveFighter(), two = paused && this.inputSeatFighter(1) || one, touchFighter = paused ? this.localFighterOf(Game.match) : null;
+    const inputName = (a, fighter) => (fighter ? attackInputName(fighter.profile, a, !!fighter.item) : ATTACK_INPUT_PLAIN[a]);
+    const withInput = (a, name) => (name === ATTACK_INPUT_PLAIN[a] ? name : name + ' (' + ATTACK_INPUT_PLAIN[a] + ' input)'); // "Hook (Kick input)": the row is still the Kick binding
+    const attack = (a, fighter) => withInput(a, inputName(a, fighter));
+    const attackRow = (a) => (inputName(a, one) === inputName(a, two) ? attack(a, one) : 'P1: ' + inputName(a, one) + ' / P2: ' + inputName(a, two) + ' (' + ATTACK_INPUT_PLAIN[a] + ' input)'); // two people with different names: the row names both
+    const attackNames = Array.from(new Set(['punch', 'kick'].flatMap((a) => [inputName(a, one), inputName(a, two)]))); // "Punch and Kick", "Punch and Hook", "Punch, Hook and Kick"
+    const label = (a, fighter) => (screenMode && SCREEN_LABELS[a]) || (ATTACK_INPUT_PLAIN[a] ? attack(a, fighter) : ACTION_LABELS[a]);
     const moveText = screenMode
       ? 'Movement follows the screen: up = away from the camera, down = toward it, left / right = screen left / right. Double-tap the direction that points at your opponent and hold to run; double-tap sideways to sidestep.'
       : 'Movement is relative to your opponent: up = toward, down = away, left / right = circle. Double-tap left / right to sidestep, double-tap up and hold to run.';
     const keys = (keymap, a) => keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ');
-    const rebind = (act, a, who) => '<button class="mi rb" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + who + ' ' + esc(label(a)) + '">Rebind</button>';
-    const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td data-l="Keyboard">' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td data-l="P2 keyboard">' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td data-l="Gamepad">' + esc(GAMEPAD_LABELS[a]) + '</td><td data-l="Touch">' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
+    const rebind = (act, a, seat, fighter) => '<button class="mi rb" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + seat + ' ' + esc(label(a, fighter)) + '">Rebind</button>'; // the seat's own fighter names the input
+    const rows = ACTIONS.map((a) => '<tr><td>' + esc(ATTACK_INPUT_PLAIN[a] ? attackRow(a) : label(a)) + '</td><td data-l="Keyboard">' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1', one) + '</td><td data-l="P2 keyboard">' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2', two) + '</td><td data-l="Gamepad">' + esc(GAMEPAD_LABELS[a]) + '</td><td data-l="Touch">' + esc(this.controlLabel('touch', a, null, touchFighter && touchFighter.profile, !!(touchFighter && touchFighter.item))) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
-      '<table class="ctl stack"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (two players)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card); Guard assist in Settings makes Defend alone guard high and low. Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<table class="ctl stack"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (two players)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' + (one ? '' : '<p class="hint">' + genericAttackNote() + '</p>') +
+      '<p class="hint">' + joinWords(attackNames) + ' attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card); Guard assist in Settings makes Defend alone guard high and low. Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Two players: a key belongs to one player only. P1\'s spare arrow keys switch off with two players, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Three or four players (Free Fight): the game deals the devices itself, only gamepads when there are enough (P1 on the first), else keyboard 1 and the gamepads, and keyboard 2 only when still short; seats 3 and 4 are gamepad-only and touch is not used.</p>' +
       '<div class="row">' + BACK_BUTTON + '<button class="mi" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -17041,9 +17089,15 @@ const UI = {
     return by ? (by.lastDevice === 'gamepad' || by.lastDevice === 'touch' ? by.lastDevice : 'keyboard') : this.onboardKind();
   },
   // What one action is called on one input type; keys come from the given layout
-  controlLabel(kind, action, keymap) {
-    return kind === 'touch' ? TOUCH_LABELS[action] : kind === 'gamepad' ? GAMEPAD_LABELS[action] : keyLabel((keymap || Keymap).bindings[action][0]);
+  // profile (and armsFull): the fighter the button belongs to, so an on-screen attack button reads the name of its move (BP-P18-76)
+  controlLabel(kind, action, keymap, profile, armsFull) {
+    if (kind === 'touch') return profile && ATTACK_INPUT_PLAIN[action] ? attackInputName(profile, action, armsFull).toUpperCase() : TOUCH_LABELS[action];
+    return kind === 'gamepad' ? GAMEPAD_LABELS[action] : keyLabel((keymap || Keymap).bindings[action][0]);
   },
+  // The fighter this device's person controls in the current fight: the first fighter, or online the one of this device's seat
+  localFighterOf(match) { return match ? match.fighters[Game.localFighter()] || match.fighters[0] || null : null; },
+  // The fighter the person on input seat slot (0 = the P1 keyboard column, 1 = the P2 one) plays in the current fight, or null
+  inputSeatFighter(slot) { return Game.match ? Game.match.fighters.find((f) => Inputs.forFighter(f.index) === Inputs.players[slot]) || null : null; },
   // held: the id of the item in hand, whose Punch steps replace the style's
   screen_moves(profile, kind = this.moveKind(), held) {
     const who = profile ? null : this.moveFighter();
@@ -17051,7 +17105,8 @@ const UI = {
     const carry = !!held && WEAPONS[held].cls === 'carry'; // a crate in the arms: Punch plays nothing and the fighter cannot run, so no punch move, no lunge and no tackle
     const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], rowStyle = held && style.legless ? '' : styleId, own = held && !carry ? weaponTable(styleId, held) : stringsFor(styleId, !!held), defense = held === 'binlid' ? 'block' : defenseFor(profile); // the bin lid makes a Sway fighter block
     const keymap = Game.state === GS.PAUSED && Game.pausedBy && Game.pausedBy.keymap;
-    const label = (action) => this.controlLabel(kind, action, keymap);
+    const label = (action) => this.controlLabel(kind, action, keymap, profile, !!held);
+    const attackName = (action) => attackInputName(profile, action, !!held);
     const key = (action) => '<kbd>' + esc(label(action).split(' / ')[0]) + '</kbd>'; // a button with two faces shows the first
     const presses = (keys, low) => (low ? key('crouch') + ' + ' : '') + keys.split('').map((k) => key(k === 'P' ? 'punch' : 'kick')).join(' ');
     const first = carry ? 'K' : 'P', times = own.stand[first.repeat(3)] ? 'three times in a row' : own.stand[first + first] ? 'twice in a row' : 'once'; // the first string this fighter really has with these hands
@@ -17090,15 +17145,15 @@ const UI = {
       const t = throwFor(grip, dir, styleId);
       return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + t.stam + ' stam</td></tr>';
     })).join('');
-    const legend = [['Punch', 'punch'], [style.legless ? 'Body punches' : 'Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
+    const legend = [[attackInputFullName(profile, 'punch', !!held), 'punch'], [attackInputFullName(profile, 'kick', !!held), 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
       '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
-      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
+      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. ' + attackName('kick') + ' still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
         : held ? '<p class="hint">Use ' + key('use') + ' throws it; hold Use ' + key('use') + ' to put it down. You never need to crouch.</p>' : '') +
-      '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
+      '<h3>Attack strings</h3><p>Press ' + attackName('punch') + ' or ' + attackName('kick') + ' again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
       '<p>' + COMBO_HELP + ' Chain before a move is 60% recovered; later the next step comes slowly.</p>' +
@@ -17798,7 +17853,8 @@ const UI = {
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim, moveStyleFor(f.profile)), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    const strikeKeys = this.keyName('punch', this.seatOf(f)) + ' elbow / ' + this.keyName('kick', this.seatOf(f)) + ' knee';
+    const styleId = moveStyleFor(f.profile);
+    const strikeKeys = this.keyName('punch', this.seatOf(f), f) + ' ' + clinchStrikeWord(styleId, 'elbow') + ' / ' + this.keyName('kick', this.seatOf(f), f) + ' ' + clinchStrikeWord(styleId, 'knee');
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
     return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, ' + this.keyName('grapple', this.seatOf(f)) + ' throws' + strikes;
   },
@@ -17964,6 +18020,26 @@ const UI = {
     const me = m.fighters[Game.localFighter()] || m.fighters[0]; // touch plays P1: online, the fighter of this device's seat
     this.showTouchButton('use', touchUseVisible(me, m));
     this.showTouchButton('lock', touchLockVisible(me, m));
+    this.touchAttackLabels(me);
+  },
+  // PUNCH and KICK carry the names of the moves they play for the fighter on this device (BP-P18-76): a new fight, a rematch, a changed fighter or an item in the arms changes them
+  touchAttackLabels(fighter) {
+    if (!fighter || !fighter.profile) return;
+    const styleId = moveStyleFor(fighter.profile), itemId = fighter.item ? fighter.item.id : '';
+    for (const action in ATTACK_INPUT_PLAIN) {
+      const button = this.touchButtons[action];
+      if (!button || (button.namedStyle === styleId && button.namedItem === itemId)) continue; // only a changed style or item changes a name: no work on the other frames
+      button.namedStyle = styleId; button.namedItem = itemId;
+      button.el.textContent = this.controlLabel('touch', action, null, fighter.profile, !!itemId);
+      button.el.setAttribute('aria-label', this.touchAttackAria(fighter, action));
+    }
+  },
+  // What the button's screen-reader name says a press does, in the state the fighter is in: Duck changes the move, but not while an item replaces the Punch steps and not for a Punch that does nothing in the arms of a crate
+  touchAttackAria(fighter, action) {
+    const item = fighter.item ? WEAPONS[fighter.item.id] : null, name = attackInputName(fighter.profile, action, !!item);
+    if (action === 'punch' && item) return item.cls === 'carry' ? name + ' (does nothing while you carry the ' + item.name.toLowerCase() + ')' : name + ' (swings the ' + item.name.toLowerCase() + ', also with Duck)';
+    const low = attackInputMove(fighter.profile, action, !!item, true);
+    return name + ' (with Duck: ' + (low ? low.name : 'low ' + action) + ')';
   },
   showTouchButton(action, shown) {
     const button = this.touchButtons[action];
@@ -18030,6 +18106,7 @@ const CREATOR_TABS = [
 ];
 const PREVIEW_POSES = ['guard', 'punch', 'kick', 'victory'];
 const POSE_LABELS = { guard: 'Guard', punch: 'Punch', kick: 'Kick', victory: 'Victory' };
+const poseLabel = (pose, profile) => (profile && ATTACK_INPUT_PLAIN[pose] ? attackInputName(profile, pose) : POSE_LABELS[pose]); // the Punch and Kick poses are named like the inputs of the previewed fighter (Boxing: Hook)
 const ATTR_LABELS = { health: 'Health', stamina: 'Stamina', strength: 'Strength', speed: 'Speed', reach: 'Reach', defense: 'Defense', balance: 'Balance', recovery: 'Recovery' };
 const TURN_STEP = Math.PI / 6;
 const HUE_STEP = 6;
@@ -18132,7 +18209,7 @@ const CreatorUI = {
   cyclePose() {
     const i = PREVIEW_POSES.indexOf(Showcase.previewPose);
     Showcase.setPreviewPose(PREVIEW_POSES[(i + 1) % PREVIEW_POSES.length]);
-    UI.say('Preview pose: ' + POSE_LABELS[Showcase.previewPose]);
+    UI.say('Preview pose: ' + poseLabel(Showcase.previewPose, Showcase.previewFighter && Showcase.previewFighter.profile));
     UI.rerender(true);
   },
   onPointerDown(e) {
@@ -18602,7 +18679,7 @@ const CreatorUI = {
       h += '<button class="tab" role="tab" ' + (active ? 'data-nav data-default tabindex="0"' : 'tabindex="-1"') + ' data-act="crtab:' + t.id + '" aria-selected="' + active + '" aria-controls="crPanel">' + t.label + '</button>';
     }
     h += '</div><div class="cr-body" id="crPanel" role="tabpanel" aria-label="' + CREATOR_TABS.find((t) => t.id === this.tab).label + '">' + this['tab_' + this.tab]() + '</div>';
-    h += '<div class="cr-foot">' + this.footButton('crback', 'Back') + this.footButton('crpose', 'Pose: ' + POSE_LABELS[Showcase.previewPose]) + this.footButton('crrandom', 'Randomize') +
+    h += '<div class="cr-foot">' + this.footButton('crback', 'Back') + this.footButton('crpose', 'Pose: ' + poseLabel(Showcase.previewPose, Showcase.previewFighter && Showcase.previewFighter.profile)) + this.footButton('crrandom', 'Randomize') +
       this.footButton('crreset', 'Reset') + this.footButton('crsave', 'Save') + this.footButton('crfight', 'Fight preview') + '</div>';
     h += '<p class="hint cr-keys">Q / E switch tabs &middot; [ ] or drag to turn &middot; T changes pose &middot; Esc goes back</p>';
     return h + '</div></section>';
@@ -19758,7 +19835,7 @@ function testApi() {
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
-    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, ATTACK_INPUT_PLAIN, attackInputMove, attackInputName, attackInputFullName, genericAttackNote, clinchStrikeWord, poseLabel, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
     Fighter, GAMEPAD_LABELS, GRIP_POSES, GS, GUARD_ORTHO, Game, HAIR_CAP, HAIR_SWATCHES, HOLD_POSES, HUMAN_CONTROLLERS, IMPACT_SRC_BASE,
     ITEMS, Input, Input2, Input3, Input4, Inputs, J, JUGGLE_LIMIT, KEYMAPS, KEYS_REVISION, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM,
     KEY_PROGRESS, KEY_SETTINGS, KO_DELAY_TICKS, Keymap, Keymap2, LAYER, LEGACY_STYLE_MAP, LOCK_FLICK_TICKS, LOCK_RANGE,

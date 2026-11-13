@@ -7,7 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
-  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, ATTACK_INPUT_PLAIN, attackInputMove, attackInputName, attackInputFullName, genericAttackNote, clinchStrikeWord, poseLabel, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
@@ -4824,8 +4824,8 @@ const SelfTest = {
         for (const [name] of style.signature) { if (!html.includes(esc(name))) problems.push(id + ' Move list lacks ' + name); if (!line.includes(esc(name))) problems.push(id + ' Training lacks ' + name); }
         if (style.signature.length < 4 || style.signature.length > 5) problems.push(id + ' signature length ' + style.signature.length);
       }
-      if (!UI.screen_moves(styleProfile('boxer'), 'keyboard').includes('Body punches')) problems.push('Boxing Move list does not name the Kick slot');
-      if (UI.screen_moves(styleProfile('kickboxer'), 'keyboard').includes('Body punches')) problems.push('Kickboxing Move list names Body punches');
+      if (!UI.screen_moves(styleProfile('boxer'), 'keyboard').includes('Hook (Bob and Weave Hook)')) problems.push('Boxing Move list does not name the Kick slot');   // BP-P18-76: the slot reads Hook and the name of its move (was "Body punches")
+      if (UI.screen_moves(styleProfile('kickboxer'), 'keyboard').includes('Hook (')) problems.push('Kickboxing Move list names a Hook');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Styles (P17-10): the string steps of the Move list and of the Training frame note carry the style\'s own move names, the ones of its move table', () => {
@@ -6271,9 +6271,10 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Accessibility (P18-27): the Move list opens with Start here in the device\'s key names, and stars the signature moves of the style (the same data the Training panel lists)', () => {
-      const bad = [], faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      const bad = [], TOUCH_PUNCH = { wrestler: 'SHOVE', judoka: 'PULL', bjj: 'SHOVE' };   // BP-P18-76: the styles whose on-screen Punch button has another name
       for (const id of MOVE_STYLE_IDS) {
         const profile = styleProfile(id), style = MOVE_STYLE[id];
+        const faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => (a === 'punch' && TOUCH_PUNCH[id]) || TOUCH_LABELS[a] };
         for (const kind of ['keyboard', 'gamepad', 'touch']) {
           const html = UI.screen_moves(profile, kind), start = html.indexOf('<b>Start here:</b>');
           const block = start < 0 ? '' : html.slice(start, html.indexOf('</p>', start));
@@ -15508,6 +15509,32 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Training panel upright: in an upright window the Training panel starts under the level line, with touch, keyboard or gamepad (the level line wraps to 3 lines on a 390 px window and ran under FRAME DATA)', () => {
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (!sheets || !sheets.length) return 'skipped: no page stylesheet (a headless run); a browser self-test reads the rules';
+      const plain = {}, upright = {}, other = {};   // other: rules under any other media condition (a landscape-only or size rule), not read
+      const read = (rules, into) => {
+        for (const rule of Array.from(rules)) {
+          if (rule.media && rule.cssRules) { const condition = (rule.conditionText || rule.media.mediaText).trim(); read(rule.cssRules, /^\(orientation:\s*portrait\)$/.test(condition) ? upright : other); continue; }
+          if (!rule.style || !rule.selectorText) continue;
+          for (const selector of rule.selectorText.split(',').map((part) => part.trim())) {
+            const box = into[selector] || (into[selector] = {});
+            for (const key of ['top', 'max-height', 'font-size']) if (rule.style.getPropertyValue(key)) box[key] = rule.style.getPropertyValue(key);
+          }
+        }
+      };
+      for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules, plain); } catch (error) { /* a sheet from another origin */ } }
+      const em = (box, key) => parseFloat((box && box[key]) || 'NaN');
+      const infoSize = em(plain['#modeinfo'], 'font-size'), panelSize = em(plain['#training'], 'font-size');
+      const lineEnd = (em(upright['#modeinfo'], 'top') + em(upright['#modeinfo'], 'max-height')) * infoSize;   // in HUD em
+      const bad = [];
+      for (const selector of ['#training', '#training.touch']) {
+        const own = upright[selector] && upright[selector].top ? upright[selector] : plain[selector] && plain[selector].top ? plain[selector] : upright['#training'];   // the cascade: its own upright rule, its own plain rule (it outranks #training), then the plain upright #training
+        const start = em(own, 'top') * panelSize;
+        if (!(start >= lineEnd)) bad.push(selector + ' starts at ' + start.toFixed(2) + ' em, the level line ends at ' + lineEnd.toFixed(2) + ' em');
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Menu showcase (P30-16): the pair is aimed at the free strip beside the menu panel (nothing when the panel is centred or absent) and sits 15 % closer on a phone', () => withCamera(() => {
       const bad = [], keep = { dom: UI.dom, focus: Showcase.menuFocus, t: Showcase.t }, w = window.innerWidth;
       const panel = (left, right) => ({ screens: { querySelector: () => ({ getBoundingClientRect: () => ({ left: left * w, right: right * w }) }) } });
@@ -15645,8 +15672,10 @@ const SelfTest = {
     const moveListNames = (html) => [...html.matchAll(/<tr><td>([^<]*)<\/td>/g)].map((x) => x[1]).sort();   // the first cell of every row with a plain name (the string rows start with a key cap)
     test('Move list (P17-04): for every fighter it lists the moves of that fighter\'s style and the shared moves, nothing of another style, and the inputs of the device in use', () => {
       const bad = [], kinds = ['keyboard', 'gamepad', 'touch'];
-      const faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      const TOUCH_NAMES = { boxer: { kick: 'HOOK' }, wrestler: { punch: 'SHOVE', kick: 'TRIP' }, judoka: { punch: 'PULL', kick: 'SWEEP' }, bjj: { punch: 'SHOVE' } };   // BP-P18-76: the styles whose on-screen attack button is not PUNCH / KICK (literal, not read from the game)
+      const facesOf = (profile) => ({ keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => (TOUCH_NAMES[moveStyleFor(profile)] || {})[a] || TOUCH_LABELS[a] });
       for (const { name, profile } of moveListCases()) {
+        const faces = facesOf(profile);
         const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = stringsFor(styleId), mine = new Set(), htmls = [];
         for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
         const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
@@ -19160,31 +19189,33 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
-      const kinds = [['Training', 'tt'], ['Co-op', 'coop']];
-      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
+      const kinds = [['Training', 'tt'], ['Keyboard Training', ''], ['Co-op', 'coop']];   // Keyboard Training: no touch controls, the data panel on the right
+      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640], [600, 560]]) {   // 600 x 560: a near-square desktop window
         const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
         inLayoutFrame(width, height, '', (doc, win) => {
           const where = kind + ' HUD at ' + width + ' x ' + height + (scaled ? ' with UI scale 1.5' : '') + ': ';
           doc.getElementById('screens').innerHTML = '';
           doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
           for (const [id, text] of Object.entries(sample)) { const el = doc.getElementById(id); if (el) el.textContent = text; }
-          for (const id of ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '12 HITS<small>COMBO</small>'; el.classList.add('on'); }
+          for (const id of kind.endsWith('Training') ? ['combo'] : ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '99 HITS<small>999 DAMAGE</small>'; el.classList.add('on'); }
           const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), party = doc.getElementById('party');
           hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
           for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
-          if (kind === 'Training') { panel.hidden = false; panel.classList.add('touch'); panel.innerHTML = training; }
+          const keys = kind === 'Keyboard Training';
+          if (keys) doc.getElementById('touch').hidden = true;
+          if (kind.endsWith('Training')) { panel.hidden = false; if (!keys) panel.classList.add('touch'); panel.innerHTML = training; }
           else party.innerHTML = [1, 2, 3, 4].map((n) => '<div class="pc seat' + n + '"><div class="pn"><b>P' + n + '</b> FIGHTER' + n + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
           const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
-          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = [...doc.querySelectorAll('#touch .tb')];
-          if (kind === 'Training') for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
-          if (cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
+          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = keys ? [] : [...doc.querySelectorAll('#touch .tb')];
+          if (kind.endsWith('Training')) for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
+          if (!kind.endsWith('Training') && cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
-          for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
+          if (!keys) for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
           if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
         }, scaled ? uiScaleFor(1.5, width, height) : undefined);
       }
@@ -22250,6 +22281,139 @@ const SelfTest = {
         });
       }
       return bad.length ? 'inside scenery: ' + bad.join('; ') : true;
+    });
+
+    /* ---------- attack input labels follow the style (BP-P18-76) ---------- */
+    /* What each style's Punch and Kick inputs are called, by what the moves on them are: [Punch label, Kick label, first Punch move, first Kick move]. Literal on purpose: a changed string row or a new style must change this table by hand.
+       Boxing: arm moves only, no kicks, so its Kick input is Hook. Judo: its Punch is grips and pushes, its Kick only foot sweeps. Wrestling: its Punch is shoves, its Kick only trips. Brazilian Jiu-Jitsu: its Punch is pushes and frames; its Kick starts with a real Guard Kick. The others strike with the arm on Punch and the leg on Kick. */
+    const INPUT_LABELS = {
+      boxer: ['Punch', 'Hook', 'Jab', 'Bob and Weave Hook'], kickboxer: ['Punch', 'Kick', 'Jab', 'Teep'], karateka: ['Punch', 'Kick', 'Jab', 'Mae-geri'], wrestler: ['Shove', 'Trip', 'Snap Down', 'Ankle Trip'],
+      judoka: ['Pull', 'Sweep', 'Collar Pull', 'Foot Sweep'], brawler: ['Punch', 'Kick', 'Wild Jab', 'Stomp'], capoeira: ['Punch', 'Kick', 'Tapa', 'Bencao'], wingchun: ['Punch', 'Kick', 'Chain Punch', 'Thrust Kick'],
+      muaythai: ['Punch', 'Kick', 'Jab', 'Teep'], taekwondo: ['Punch', 'Kick', 'Jab', 'Ap Chagi'], sambo: ['Punch', 'Kick', 'Jab', 'Boot Kick'], bjj: ['Shove', 'Kick', 'Snap Down', 'Guard Kick'],
+      hapkido: ['Punch', 'Kick', 'Palm Strike', 'Low Front Kick'], kali: ['Punch', 'Kick', 'Thrust', 'Shin Kick (Kali)'], kravmaga: ['Punch', 'Kick', 'Jab', 'Groin Kick'], mma: ['Punch', 'Kick', 'Jab', 'Teep']
+    };
+    test('Input labels (BP-P18-76): for the 32 presets and every style, the label of each attack input is the one of the explicit table and the first move on it is the one the table names (standing and with Duck the helper agrees with a real press)', () => {
+      const problems = [];
+      let boxers = 0, judoka = 0, wrestlers = 0;
+      if (Object.keys(INPUT_LABELS).sort().join() !== MOVE_STYLE_IDS.slice().sort().join()) problems.push('the table and the styles differ: ' + Object.keys(INPUT_LABELS).join() + ' | ' + MOVE_STYLE_IDS.join());
+      for (const profile of ROSTER.concat(MOVE_STYLE_IDS.map((id) => styleProfile(id)))) {
+        const fighter = new Fighter(profile, 0), styleId = moveStyleFor(profile), expected = INPUT_LABELS[styleId];
+        if (!expected) { problems.push(profile.id + ' has no table row for ' + styleId); continue; }
+        boxers += styleId === 'boxer'; judoka += styleId === 'judoka'; wrestlers += styleId === 'wrestler';
+        ['punch', 'kick'].forEach((action, index) => {
+          for (const low of [false, true]) {
+            const played = fighter.pressMove(action, low), listed = attackInputMove(profile, action, false, low);
+            if (!listed || listed.name !== played.name) problems.push(profile.id + ' ' + action + (low ? ' + Duck' : '') + ' plays ' + played.name + ', the helper says ' + (listed && listed.name));
+          }
+          const first = fighter.pressMove(action, false).name, label = attackInputName(profile, action);
+          if (label !== expected[index]) problems.push(profile.id + ' (' + styleId + ') ' + action + ' reads ' + label + ', the table says ' + expected[index]);
+          if (first !== expected[index + 2]) problems.push(profile.id + ' (' + styleId + ') ' + action + ' plays ' + first + ', the table says ' + expected[index + 2]);
+        });
+      }
+      if (boxers < 3 || judoka < 2 || wrestlers < 2) problems.push('too few presets checked: ' + boxers + ' Boxing, ' + judoka + ' Judo, ' + wrestlers + ' Wrestling');
+      const crate = styleFighter('boxer'); crate.item = { id: 'crate', dur: 1 };   // the arms full: Boxing plays the default kick rows for its Kick presses, so the input is a Kick again
+      if (attackInputName(crate.profile, 'kick', true) !== 'Kick' || attackInputName(crate.profile, 'punch', true) !== 'Punch' || crate.pressMove('kick', false).limb[1] !== 'L') problems.push('Boxing with a crate: the Kick input reads ' + attackInputName(crate.profile, 'kick', true) + ' and plays ' + crate.pressMove('kick', false).name);
+      const bat = styleFighter('judoka'); bat.item = { id: 'bat', dur: 1 };   // an item replaces the Punch steps (a plain Punch swings it) and Judo's Kick is still the foot sweep
+      if (attackInputName(bat.profile, 'punch', true) !== 'Punch' || attackInputName(bat.profile, 'kick', true) !== 'Sweep' || bat.pressMove('kick', false).name !== 'Foot Sweep') problems.push('Judo with a bat: ' + attackInputName(bat.profile, 'punch', true) + ' / ' + attackInputName(bat.profile, 'kick', true) + ' and the Kick press plays ' + bat.pressMove('kick', false).name);
+      const wrestlerCrate = styleFighter('wrestler'); wrestlerCrate.item = { id: 'crate', dur: 1 };
+      if (attackInputName(wrestlerCrate.profile, 'punch', true) !== 'Punch' || attackInputName(wrestlerCrate.profile, 'kick', true) !== 'Trip' || wrestlerCrate.pressMove('kick', false).name !== 'Ankle Trip') problems.push('Wrestling with a crate: ' + attackInputName(wrestlerCrate.profile, 'punch', true) + ' / ' + attackInputName(wrestlerCrate.profile, 'kick', true));
+      const note = 'Some styles name these inputs by their moves: Punch is Shove in Wrestling and Brazilian Jiu-Jitsu, Pull in Judo; Kick is Hook in Boxing, Trip in Wrestling, Sweep in Judo. In a fight this screen names your fighter\'s.';
+      if (genericAttackNote() !== note) problems.push('generic note: ' + genericAttackNote());
+      if (clinchStrikeWord('boxer', 'knee') !== 'body shot' || clinchStrikeWord('kickboxer', 'knee') !== 'knee' || clinchStrikeWord('boxer', 'elbow') !== 'elbow') problems.push('clinch words');
+      return problems.length ? problems.length + ': ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Input labels (BP-P18-76): the touch PUNCH and KICK buttons carry the names of the fighter on this device, say what a press really does, change with the fighter, a rematch and an item in the arms, and are not rewritten on a frame where nothing changed', () => {
+      const problems = [], keep = UI.touchButtons;
+      const stub = () => ({ el: { hidden: false, textContent: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; } }, release() {} });
+      const buttons = { punch: stub(), kick: stub() }, foe = styleFighter('kickboxer');
+      const read = (fighter) => { UI.touchContextUpdate({ fighters: [fighter, foe] }); return [buttons.punch.el.textContent, buttons.kick.el.textContent, buttons.punch.el.attrs['aria-label'], buttons.kick.el.attrs['aria-label']].join(' | '); };
+      const expectRead = (what, fighter, text) => { const got = read(fighter); if (got !== text) problems.push(what + ': ' + got); };
+      UI.touchButtons = buttons;
+      try {
+        const boxer = styleFighter('boxer'), kicker = styleFighter('kickboxer'), capoeira = styleFighter('capoeira'), judoka = styleFighter('judoka'), wrestler = styleFighter('wrestler');
+        expectRead('Boxing', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        buttons.kick.el.textContent = 'KEPT';
+        UI.touchContextUpdate({ fighters: [boxer, foe] });
+        if (buttons.kick.el.textContent !== 'KEPT') problems.push('the label was rewritten on a frame where nothing changed');
+        expectRead('Kickboxing after Boxing', kicker, 'PUNCH | KICK | Punch (with Duck: Body Jab) | Kick (with Duck: Low Kick)');
+        expectRead('Boxing again after a rematch or a changed fighter', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        expectRead('Judo', judoka, 'PULL | SWEEP | Pull (with Duck: Low Sleeve Pull) | Sweep (with Duck: Foot Sweep)');
+        expectRead('Wrestling', wrestler, 'SHOVE | TRIP | Shove (with Duck: Snap Down) | Trip (with Duck: Leg Trip)');
+        expectRead('Capoeira', capoeira, 'PUNCH | KICK | Punch (with Duck: Rasteira) | Kick (with Duck: Bananeira)');   // Duck turns the Capoeira Punch into the Rasteira sweep: the aria-label says so
+        boxer.item = { id: 'crate', dur: 1 };
+        expectRead('Boxing with a crate', boxer, 'PUNCH | KICK | Punch (does nothing while you carry the crate) | Kick (with Duck: Low Kick)');   // Punch does nothing in the arms of a crate
+        boxer.item = { id: 'bat', dur: 1 };
+        expectRead('Boxing with a bat', boxer, 'PUNCH | KICK | Punch (swings the baseball bat, also with Duck) | Kick (with Duck: Low Kick)');   // Duck + Punch swings the item as well
+        judoka.item = { id: 'bat', dur: 1 };
+        expectRead('Judo with a bat', judoka, 'PUNCH | SWEEP | Punch (swings the baseball bat, also with Duck) | Sweep (with Duck: Foot Sweep)');
+        boxer.item = null; judoka.item = null;
+        expectRead('Boxing after the item is dropped', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        const reads = { fighters: [{ alive: true }, foe] };   // a fighter with no profile leaves the labels as they are
+        UI.touchContextUpdate(reads);
+        if (buttons.kick.el.textContent !== 'HOOK') problems.push('no-profile fighter changed the label');
+      } finally { UI.touchButtons = keep; }
+      if (TOUCH_BUTTONS.find((b) => b[0] === 'kick')[1] !== 'KICK') problems.push('the start label of the Kick button changed');   // before a fighter is known the button keeps the plain name
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Input labels (BP-P18-76): the Move list, the Controls card and screen, the Versus card, the clinch hint and the Pose button read the helper for the fighter in control; with no fighter chosen the Controls screen names both meanings', () => {
+      const problems = [], saved = { state: Game.state, match: Game.match, by: Game.pausedBy, versus: Inputs.versus, device: Input.lastDevice, device2: Input2.lastDevice, pose: Showcase.previewPose };
+      const boxer = styleProfile('boxer'), kicker = styleProfile('kickboxer');
+      try {
+        const lists = { boxer: UI.screen_moves(boxer, 'keyboard'), kicker: UI.screen_moves(kicker, 'keyboard') };
+        if (!lists.boxer.includes('Hook (Bob and Weave Hook)') || !lists.boxer.includes('Press Punch or Hook again') || /\bKick <kbd>/.test(lists.boxer)) problems.push('Boxing Move list names Kick');
+        if (!lists.kicker.includes('Kick <kbd>') || !lists.kicker.includes('Press Punch or Kick again') || lists.kicker.includes('Hook (')) problems.push('Kickboxing Move list changed');
+        if (!UI.screen_moves(boxer, 'touch').includes('<kbd>HOOK</kbd>') || UI.screen_moves(boxer, 'touch').includes('<kbd>KICK</kbd>') || !UI.screen_moves(kicker, 'touch').includes('<kbd>KICK</kbd>')) problems.push('Move list touch keys');
+        Game.state = GS.MENU; Game.match = null;
+        const generic = UI.screen_controls();
+        if (!generic.includes('<td>Kick</td>') || !generic.includes('<td>Punch</td>') || !generic.includes('<p class="hint">' + genericAttackNote() + '</p>') || !generic.includes('Kick is Hook in Boxing, Trip in Wrestling, Sweep in Judo')) problems.push('Controls screen with no fighter: ' + (generic.match(/<td>Kick[^<]*<\/td>/) || ['no Kick row']));   // the rows stay short for a 390 px screen; the styles that differ are named in the note under the table
+        const m = mk({ mode: 'free', playerId: 'yuki', opponentId: 'brutus' });
+        Game.match = m; Game.state = GS.PAUSED; Game.pausedBy = null;
+        const own = UI.screen_controls();
+        if (!own.includes('<td>Hook (Kick input)</td>') || own.includes('Some styles name') || !own.includes('<td data-l="Touch">HOOK</td>') || !own.includes('aria-label="Rebind P1 Hook (Kick input)"') || !own.includes('aria-label="Rebind P2 Hook (Kick input)"') || !own.includes('<p class="hint">Punch and Hook attack on every press.')) problems.push('Controls screen paused as Boxing, one person: ' + (own.match(/<td>[^<]*Kick[^<]*<\/td>/) || ['no Kick row']));
+        // two people, P1 Boxing and P2 a kicking style: each column names its own seat's fighter, whoever paused
+        Inputs.versus = true;
+        for (const by of [Input, Input2]) {
+          Game.pausedBy = by;
+          const two = UI.screen_controls();
+          if (!two.includes('<td>P1: Hook / P2: Kick (Kick input)</td>') || !two.includes('aria-label="Rebind P1 Hook (Kick input)"') || !two.includes('aria-label="Rebind P2 Kick"') || !two.includes('<td data-l="Touch">HOOK</td>') || !two.includes('<td>Punch</td>') || !two.includes('<p class="hint">Punch, Hook and Kick attack on every press.')) problems.push('Controls screen, Boxing P1 and Brawler P2, paused by ' + (by === Input ? 'P1' : 'P2') + ': ' + (two.match(/<td>[^<]*Kick[^<]*<\/td>|aria-label="Rebind P[12] [^"]*"/g) || ['no Kick row']).join(' '));
+        }
+        const swapped = mk({ mode: 'free', playerId: 'brutus', opponentId: 'yuki' });   // P1 Brawler, P2 Boxing
+        Game.match = swapped;
+        for (const by of [Input, Input2]) {
+          Game.pausedBy = by;
+          const two = UI.screen_controls();
+          if (!two.includes('<td>P1: Kick / P2: Hook (Kick input)</td>') || !two.includes('aria-label="Rebind P1 Kick"') || !two.includes('aria-label="Rebind P2 Hook (Kick input)"') || !two.includes('<td data-l="Touch">KICK</td>')) problems.push('Controls screen, Brawler P1 and Boxing P2, paused by ' + (by === Input ? 'P1' : 'P2') + ': ' + (two.match(/<td>[^<]*Kick[^<]*<\/td>|aria-label="Rebind P[12] [^"]*"/g) || ['no Kick row']).join(' '));
+        }
+        Game.match = m;
+        Inputs.versus = false; Game.state = GS.FIGHT; Game.pausedBy = null;
+        const card = UI.controlsCardHtml('keyboard'), touchCard = UI.controlsCardHtml('touch');
+        if (card.includes('Kick <kbd>') || !card.includes('Hook <kbd>') || !card.includes('Press Punch or Hook again') || !touchCard.includes('<kbd>HOOK</kbd>') || touchCard.includes('<kbd>KICK</kbd>')) problems.push('Controls card of a Boxing fighter');
+        Game.match = mk({ mode: 'free', playerId: 'brutus', opponentId: 'yuki' });
+        if (!UI.controlsCardHtml('keyboard').includes('Kick <kbd>') || UI.controlsCardHtml('keyboard').includes('Hook') || !UI.controlsCardHtml('touch').includes('<kbd>KICK</kbd>')) problems.push('Controls card after the fighter changed');
+        const [one, two] = UI.devicesGroups([boxer, kicker]), [plainOne] = UI.devicesGroups(), [judoOne, wrestlerTwo] = UI.devicesGroups([styleProfile('judoka'), styleProfile('wrestler')]);
+        if (!one.includes('punch / hook,') || !two.includes('punch / kick,') || two.includes('hook') || !plainOne.includes('punch / kick,') || plainOne.includes('boxing')) problems.push('Versus card: ' + one + ' | ' + two + ' | ' + plainOne);
+        if (!judoOne.includes('pull / sweep,') || !wrestlerTwo.includes('shove / trip,')) problems.push('Versus card, Judo and Wrestling: ' + judoOne + ' | ' + wrestlerTwo);
+        const lineupLine = UI.lineupDevicesText(2, [boxer, kicker]);   // the lineup screen names the fighters its two people picked
+        if (!lineupLine.includes('punch / hook,') || !lineupLine.includes('punch / kick,')) problems.push('lineup devices line: ' + lineupLine);
+        const a = m.fighters[0], b = m.fighters[1];
+        for (const f of [a, b]) { f.grip = 'front'; f.throwAim = 'fwd'; f.throwPending = null; f.clinchStrikes = 0; }
+        Input.lastDevice = 'keyboard';
+        const hint = UI.throwHint(a), hintB = UI.throwHint(b);
+        if (!hint.includes(UI.keyName('punch', 0) + ' elbow / ' + UI.keyName('kick', 0) + ' body shot (' + CLINCH_STRIKE_MAX + ' left)') || hint.includes('knee')) problems.push('Boxing clinch hint: ' + hint);
+        if (!hintB.includes(UI.keyName('punch', UI.seatOf(b)) + ' elbow / ' + UI.keyName('kick', UI.seatOf(b)) + ' knee (')) problems.push('Brawler clinch hint: ' + hintB);   // the second seat names its own keys
+        Input.lastDevice = Input2.lastDevice = 'touch';
+        if (!UI.throwHint(a).includes('PUNCH elbow / HOOK body shot') || !UI.throwHint(b).includes('PUNCH elbow / KICK knee')) problems.push('touch clinch hint of the two seats: ' + UI.throwHint(a) + ' | ' + UI.throwHint(b));
+        if (poseLabel('kick', boxer) !== 'Hook' || poseLabel('kick', kicker) !== 'Kick' || poseLabel('punch', boxer) !== 'Punch' || poseLabel('guard', boxer) !== 'Guard' || poseLabel('kick') !== 'Kick') problems.push('Pose labels');
+        Showcase.showPreview(boxer); Showcase.setPreviewPose('kick'); Showcase.drivePreview(Showcase.previewFighter, 1 / 60);
+        const previewed = Showcase.previewFighter.move;
+        if (!previewed || previewed.limb[1] === 'L') problems.push('the Boxing preview Kick pose plays ' + (previewed && previewed.name));
+        Showcase.showPreview(kicker); Showcase.setPreviewPose('kick'); Showcase.drivePreview(Showcase.previewFighter, 1 / 60);
+        if (Showcase.previewFighter.move !== ATTACKS.roundhouse) problems.push('the Kickboxing preview Kick pose changed');
+      } finally {
+        Showcase.endPreview(); Showcase.setPreviewPose(saved.pose);
+        Game.state = saved.state; Game.match = saved.match; Game.pausedBy = saved.by; Inputs.versus = saved.versus; Input.lastDevice = saved.device; Input2.lastDevice = saved.device2;
+      }
+      return problems.length ? problems.join('; ') : true;
     });
 
     /* ---------- P18-77: z-fighting, depth steps and pops in the levels (Appendix D "P18-77") ---------- */
