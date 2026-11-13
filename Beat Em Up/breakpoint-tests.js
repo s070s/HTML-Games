@@ -15511,11 +15511,11 @@ const SelfTest = {
     });
     test('Training panel upright: in an upright window the Training panel starts under the level line, with touch, keyboard or gamepad (the level line wraps to 3 lines on a 390 px window and ran under FRAME DATA)', () => {
       const sheets = typeof document !== 'undefined' && document.styleSheets;
-      if (!sheets || !sheets.length) return true;   // a headless run has no stylesheet; a browser run reads the rules
-      const plain = {}, upright = {};
+      if (!sheets || !sheets.length) return 'skipped: no page stylesheet (a headless run); a browser self-test reads the rules';
+      const plain = {}, upright = {}, other = {};   // other: rules under any other media condition (a landscape-only or size rule), not read
       const read = (rules, into) => {
         for (const rule of Array.from(rules)) {
-          if (rule.media && rule.cssRules) { read(rule.cssRules, /orientation:\s*portrait/.test(rule.conditionText || rule.media.mediaText) ? upright : into); continue; }
+          if (rule.media && rule.cssRules) { const condition = (rule.conditionText || rule.media.mediaText).trim(); read(rule.cssRules, /^\(orientation:\s*portrait\)$/.test(condition) ? upright : other); continue; }
           if (!rule.style || !rule.selectorText) continue;
           for (const selector of rule.selectorText.split(',').map((part) => part.trim())) {
             const box = into[selector] || (into[selector] = {});
@@ -15529,7 +15529,7 @@ const SelfTest = {
       const lineEnd = (em(upright['#modeinfo'], 'top') + em(upright['#modeinfo'], 'max-height')) * infoSize;   // in HUD em
       const bad = [];
       for (const selector of ['#training', '#training.touch']) {
-        const start = em(upright[selector], 'top') * panelSize;
+        const start = em(upright[selector] && upright[selector].top ? upright[selector] : upright['#training'], 'top') * panelSize;   // the touch panel may take its top from the plain upright rule
         if (!(start >= lineEnd)) bad.push(selector + ' starts at ' + start.toFixed(2) + ' em, the level line ends at ' + lineEnd.toFixed(2) + ' em');
       }
       return bad.length ? bad.join('; ') : true;
@@ -19188,12 +19188,12 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
-      const kinds = [['Training', 'tt'], ['Co-op', 'coop']];
+      const kinds = [['Training', 'tt'], ['Keyboard Training', 'tk'], ['Co-op', 'coop']];   // Keyboard Training: no touch controls, the data panel on the right
       for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
         const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
         inLayoutFrame(width, height, '', (doc, win) => {
@@ -19205,14 +19205,16 @@ const SelfTest = {
           const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), party = doc.getElementById('party');
           hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
           for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
-          if (kind === 'Training') { panel.hidden = false; panel.classList.add('touch'); panel.innerHTML = training; }
+          const keys = kind === 'Keyboard Training';
+          if (keys) doc.getElementById('touch').hidden = true;
+          if (kind.endsWith('Training')) { panel.hidden = false; if (!keys) panel.classList.add('touch'); panel.innerHTML = training; }
           else party.innerHTML = [1, 2, 3, 4].map((n) => '<div class="pc seat' + n + '"><div class="pn"><b>P' + n + '</b> FIGHTER' + n + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
           const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
-          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = [...doc.querySelectorAll('#touch .tb')];
-          if (kind === 'Training') for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
+          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = keys ? [] : [...doc.querySelectorAll('#touch .tb')];
+          if (kind.endsWith('Training')) for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
           if (cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
-          for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
+          if (!keys) for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
           if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
         }, scaled ? uiScaleFor(1.5, width, height) : undefined);
       }

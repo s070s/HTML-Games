@@ -243,6 +243,8 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 @media (orientation:portrait){#training{top:15.2em;max-height:calc(100% - 16.5em - 52px)}} /* upright: the level line (#modeinfo) runs down to 11.4em of the HUD, the panel (font .8em) starts under it at 12.2em, with keyboard or gamepad too */
 @media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
 #hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
+#hud.tk #combo2{right:calc(13.2*16px*var(--ui))} /* keyboard or gamepad Training: the data panel is on the right (to 12.72 em of the HUD), the dummy's combo counter sits left of it, not under it */
+@media (orientation:portrait){#hud.tk #combo2{left:1.2em;right:auto;text-align:left;top:10.5em}} /* upright: under the player's counter (it ends at 9.2 em of its own size), clear of the panel */
 @media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */
 #training b{color:var(--a1)}
 #modeinfo{position:absolute;top:5.1em;left:0;right:0;text-align:center;font-size:.85em;letter-spacing:.14em;color:var(--txt);text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000}
@@ -18072,7 +18074,8 @@ const UI = {
     this.dom.touch.hidden = hide;
     if (this.dom.pauseBtn) this.dom.pauseBtn.hidden = want;
     if (this.dom.training) this.dom.training.classList.toggle('touch', want && inMatch);
-    if (this.dom.hud) this.dom.hud.classList.toggle('tt', want && inMatch && !!(Game.match && Game.match.training)); // touch Training: see #hud.tt
+    const training = inMatch && !!(Game.match && Game.match.training);
+    if (this.dom.hud) { this.dom.hud.classList.toggle('tt', want && training); this.dom.hud.classList.toggle('tk', !want && training); } // touch Training / keyboard and gamepad Training: see #hud.tt, #hud.tk
     if (want && inMatch && Input.lastDevice === 'keyboard' && !Input.kb.size) Input.lastDevice = 'touch'; // hints name the on-screen buttons from the first fight
   },
 
