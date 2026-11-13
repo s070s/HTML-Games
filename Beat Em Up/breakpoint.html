@@ -244,6 +244,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:10em;width:15em;max-height:calc(100% - 11.3em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{left:.9em;right:auto;width:min(21em,50%);max-height:min(10em,calc(100% - 10em - max(30vmin,130px) - 7vmin))} /* with touch controls the panel sits at the left under the health bars, 6 lines at most and above the stick; the buttons are on the right */
+@media (orientation:portrait){#training{top:15.2em;max-height:calc(100% - 16.5em - 52px)}} /* upright: the level line (#modeinfo) runs down to 11.4em of the HUD, the panel (font .8em) starts under it at 12.2em, with keyboard or gamepad too */
 @media (orientation:portrait){#training.touch{top:15.2em;width:15em;max-height:min(10em,calc(100% - 15.2em - 12vh - 4.4*max(50px,15vw) - 2vw))}}
 #hud.tt #combo{left:calc(.9*16px*var(--ui) + min(16.8*16px*var(--ui),50%) + .5em)} /* touch Training: the player's combo counter sits right of the data panel, not under it */
 @media (orientation:portrait){#hud.tt #combo{left:1.2em;top:calc(26*12.8px*var(--ui))}} /* portrait: under the panel (it ends at 25.2 em of its own size), not beside it where it met the dummy's counter */
@@ -1153,7 +1154,7 @@ const Coach = {
     const pad = Inputs.players[0].lastDevice === 'gamepad';
     return COACH_TIPS.find((tip) => tip.key === key).text((action) => (pad && COACH_PAD[action]) || UI.keyName(action, 0).replace(/ \(.*/, '').split(' / ')[0]);
   },
-  eligible(m) { return !!m && !m.training && !m.cfg.benchmark && !m.cfg.replay && m.controllers[0].human && !(m.coop && m.partySize > 1) && !(m.setup && m.personFighters.length > 2); },
+  eligible(m) { return !!m && !m.training && !m.cfg.benchmark && !m.cfg.replay && m.hasPerson() && !(m.coop && m.partySize > 1) && !(m.setup && m.personFighters.length > 2); },
   ready(m) { // a live fight, no card open, no tip yet this round
     const card = UI.dom && UI.dom.onboard;
     return this.eligible(m) && m.phase === 'fight' && this.fights() < COACH_MAX_FIGHTS && !(card && !card.hidden) && !(this.last && this.last.m === m && this.last.round === m.round);
@@ -1659,7 +1660,7 @@ const Inputs = {
   party: [], // the seated players' inputs, in seat order (what active() returns in a co-op)
   lobbyHeld: {}, // join screen: the buttons each pad held on the last frame, so only a new press counts
   seatPadIds: [null, null, null, null], // the id string of the gamepad in each gamepad seat
-  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false }, // scratch for anyPadMenu
+  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false, start: false }, // scratch for anyPadMenu
   padSlots: [-1, -1], // Versus: pad index held by P1 / P2; a pad stays with its player until it disconnects
   enabled: false,
   attached: false,
@@ -1667,6 +1668,7 @@ const Inputs = {
   listeners: [],
   menuDir: { up: false, down: false, left: false, right: false },
   menuHeld: {},
+  menuStartPressed: false, // Start went down on this frame, on any pad that drives the menus (set by mergeMenuPads)
 
   init() {
     this.rebuildMaps();
@@ -1896,13 +1898,13 @@ const Inputs = {
   // The menu buttons held on any connected gamepad, seated or not
   anyPadMenu() {
     const out = this.anyPad;
-    out.up = out.down = out.left = out.right = out.ok = out.back = false;
+    out.up = out.down = out.left = out.right = out.ok = out.back = out.start = false;
     if (!navigator.getGamepads) return out;
     for (const pad of readPads()) {
       if (!pad || !pad.connected) continue;
       const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
       const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
-      out.ok = out.ok || down(0); out.back = out.back || down(1);
+      out.ok = out.ok || down(0); out.back = out.back || down(1); out.start = out.start || down(COOP_START_BUTTON);
       out.up = out.up || y < -PAD_DIGITAL || down(12); out.down = out.down || y > PAD_DIGITAL || down(13);
       out.left = out.left || x < -PAD_DIGITAL || down(14); out.right = out.right || x > PAD_DIGITAL || down(15);
     }
@@ -1938,8 +1940,18 @@ const Inputs = {
   // Menus answer to every active player's pad
   mergeMenuPads() {
     const players = this.active();
+    const startBefore = !!this.menuHeld.menuStart;
     for (const k in this.menuDir) this.menuDir[k] = players.some((p) => p.padDir[k]);
     for (const k of MENU_PAD_BUTTONS) this.menuHeld[k] = players.some((p) => !!p.padHeld[k]);
+    if (Game.watchOnly()) this.addAnyPadMenu(); // nobody plays: a pad without a seat (the third, the fourth) pauses and drives the menus too
+    this.menuStartPressed = !!this.menuHeld.menuStart && !startBefore;
+  },
+  addAnyPadMenu() {
+    const any = this.anyPadMenu();
+    for (const k in this.menuDir) this.menuDir[k] = this.menuDir[k] || any[k];
+    this.menuHeld.menuOk = !!this.menuHeld.menuOk || any.ok;
+    this.menuHeld.menuBack = !!this.menuHeld.menuBack || any.back;
+    this.menuHeld.menuStart = !!this.menuHeld.menuStart || any.start;
   },
 };
 
@@ -2836,6 +2848,7 @@ const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5,
   [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1], [0, 0.9, 0], [0, 0.9, 1], [0.5, 1.0, 1], [-0.5, 1.0, 1]]; // the steep ones: nearly straight down, for a player in a corner behind a long rack; the last two the same from either side with the aim on the players (P17-10: a thin screen with three enemies round it left no other pose)
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10; // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
 const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0; // m: a ceiling prop (its underside this high) fades out when the eye passes within this of it, so a light tube never fills the picture
+const CAMERA_NEAR = 0.5, CAMERA_FAR = 80; // m: the clip planes (P18-77). The fight cameras show surfaces from 0.75 m to 43 m away (all 8 levels, 1280x720, 844x390 and 390x844) and the eye reaches the 0.6 m wall margin only when it looks along or away from that wall, so the four corners of the near plane stay inside the room (at least 0.148 m clear, checked in "Arena bounds (P17-08)") and nothing is cut; a 24-bit depth step at 43 m is 0.22 mm (it was 0.36 mm with 0.3 and 120), which keeps a 0.002 m offset eight steps clear
 const CAMERA_AIM_REACH = 0.95; // share of the half size of the room the camera may aim out to
 const CAMERA_WALL_MARGIN = 0.6; // m: the eye stays this far inside the side and back walls of the room
 const CAMERA_EDGE_PAD = 30; // px: how far inside the screen edge the arrow for an off-screen attacker sits
@@ -2868,7 +2881,7 @@ const Camera = {
   // A brawl: frame the players and the enemies near them, looking along the line from the players to the threats' centre
   box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0, minY: 0, maxY: 0, sumX: 0, sumZ: 0, playerX: 0, playerZ: 0 },
   // Fills the box and key points with every living fighter of the lead's team (a knocked-out player sits out; with every player out the lead stays in)
-  frameFighters(fighters) {
+  frameFighters(fighters, everyone = false) { // everyone: a watch-only fight keeps every living fighter in view at any distance, as it does a person on another team
     const box = this.box, players = this.players, framed = this.framed, lead = fighters[0], team = lead.team;
     if (this.framedFor !== fighters) { this.framedFor = fighters; framed.fill(false); }
     let anyAlive = false;
@@ -2893,7 +2906,7 @@ const Camera = {
       for (let k = 0; k < playerCount; k++) { const dx = f.x - players[k].x, dz = f.z - players[k].z; sq = Math.min(sq, dx * dx + dz * dz); }
       if (sq < nearestSq) { nearestSq = sq; nearest = f; }
       const range = wasFramed ? CAMERA_THREAT_LEAVE : CAMERA_THREAT_RANGE;
-      if (sq <= range * range || f.person) { framed[i] = true; this.addThreat(f); threats++; } // a person on another team (a lineup) stays in view at any distance
+      if (sq <= range * range || f.person || everyone) { framed[i] = true; this.addThreat(f); threats++; } // a person on another team (a lineup) stays in view at any distance
     }
     for (let k = 0; k < playerCount; k++) {
       const locked = players[k].lockOn;
@@ -2917,9 +2930,9 @@ const Camera = {
     keys[n + 3] = f.x; keys[n + 4] = f.y + CAMERA_FIGHTER_HEIGHT * f.scale; keys[n + 5] = f.z;
     this.keyCount += 2;
   },
-  followGroup(dt, fighters, def) {
+  followGroup(dt, fighters, def, everyone = false) {
     if (this.snapNext) this.resetGroup();
-    const box = this.box, threats = this.frameFighters(fighters) - this.playerCount;
+    const box = this.box, threats = this.frameFighters(fighters, everyone) - this.playerCount;
     const extent = Math.hypot(box.maxX - box.minX, box.maxZ - box.minZ);
     const ax = threats > 0 ? box.sumX / threats - box.playerX / this.playerCount : 0, az = threats > 0 ? box.sumZ / threats - box.playerZ / this.playerCount : 0; // the camera axis: the players towards the average threat
     // frame() reads the fighter axis length as the separation
@@ -3110,7 +3123,7 @@ const Camera = {
     const w = R.cssW, h = R.cssH;
     this.aspect = w / h;
     this.fov = this.baseFov - this.fovPulse * 0.06;
-    M4.perspective(this.proj, this.fov, this.aspect, 0.3, 120);
+    M4.perspective(this.proj, this.fov, this.aspect, CAMERA_NEAR, CAMERA_FAR);
     M4.lookAt(this.view, this.pos[0] + this.jx, this.pos[1] + this.jy, this.pos[2] + this.jz, this.target[0], this.target[1], this.target[2]);
     R.setCamera(this.view, this.proj, this.pos);
   },
@@ -3118,6 +3131,7 @@ const Camera = {
 
 // === 04 WORLD - materials, arenas, destructible objects, debris pool, particles
 const STEP_HEIGHT = 0.3; // obstacles lower than this are walked over
+const STEP_LIP = 0.004; // m: how far a stair tread is drawn past its block on every side (drawing only)
 const OBJ_DAMAGE_SCALE = 1.4;
 const GRAVITY = 15;
 const STAGE_NAMES = ['Intact', 'Lightly damaged', 'Cracked', 'Critical', 'Destroyed'];
@@ -3435,6 +3449,7 @@ const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 
 
 // --- static decoration builders
 const swayLamp = (x, z, top) => ({ x, z, top, amp: 0, t0: 0 }); // a hanging light that can swing (P13-02): where it hangs, the height it hangs from, and the swing it was given (amp rad from Arena.time t0)
+const FLUSH_GAP = 0.01; // m: the step between two faces of different pieces that face the same way over the same area (a wall top and a pilaster top, a leg top and a deck top): never closer than this, or the depth buffer picks between them pixel by pixel (z-fighting, Appendix D P18-77); the self-test "Z-fighting" keeps every pair of different colour 0.002 m apart or more
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propSph(list, x, y, z, r, color, opts) { list.push(Object.assign({ m: MESH.SPHERE, x, y, z, sx: r * 2, sy: r * 2, sz: r * 2, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
 function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m: MESH.CYL, x, y, z, sx: d, sy: h, sz: d, c: C(color), l: LAYER.SOLID, e: 0, q: 0.6, cast: false, a: 1, ry: 0 }, opts || {})); }
@@ -3451,7 +3466,7 @@ function dressWalls(p, id) {
   if (!WALL_DRESS[id]) return; // a test level
   const [z, xs, top, light, dark, sign, more = {}] = WALL_DRESS[id], wide = xs || 11, high = more.duct || top - (top < 5 ? 0.4 : 0.8), mid = top * 0.55, rc = more.recess;
   const [doorL, doorR] = more.doors || [-7, 8.2], [winA, winB, winC, winD] = more.windows || [-2, 2, -4.9, 4.9], [ventL, ventR] = more.vents || [-3.3, 3.3];
-  const tall = top - DRESS_SKIRT, tallY = (top + DRESS_SKIRT) / 2; // pilasters and posts stand on the skirting
+  const tall = top - DRESS_SKIRT - 2 * FLUSH_GAP, tallY = (top + DRESS_SKIRT - 2 * FLUSH_GAP) / 2; // pilasters and posts stand on the skirting, 0.02 m under the wall top (the level's own pilasters, 0.01 m under it, stand there too: z-fighting of the tops)
   const back = (d, x, y, depth, w, h, color, e) => { // on the back wall; over the recess a box goes onto the set-back face (or is cut to the part outside it)
     let lo = x - w / 2, hi = x + w / 2, dz = 0;
     if (rc && hi > rc[0] && lo < rc[1]) {
@@ -3480,21 +3495,21 @@ function buildProps(id) {
   propBox(p, 0, -0.1, 0, 60, 0.2, 40, '#555555', { l: LAYER.GROUND });
   if (id === 'warehouse') {
     propBox(p, 0, 3.5, -6.8, 30, 7, 0.4, '#454a52');
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5, -6.67, 0.26, 7, 0.22, '#363a41');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5 - FLUSH_GAP / 2, -6.68, 0.26, 7 - FLUSH_GAP, 0.2, '#363a41'); // 0.01 m under the wall top, its face 0.02 m behind the posters (z-fighting)
     propBox(p, 1.5, 1.7, -6.62, 5, 3.4, 0.16, '#6b727c');
-    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 5, 0.04, 0.06, '#4b5159');
-    propBox(p, -11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 11.8, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
+    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.55, 4.96, 0.04, 0.06, '#4b5159'); // 0.02 m short at each end of the 5 m panel (z-fighting at the end faces)
+    propBox(p, -11.8, 3.5 - FLUSH_GAP, -0.4, 0.4, 7 - 2 * FLUSH_GAP, 15.2, '#3e434a'); propBox(p, 11.8, 3.5 - FLUSH_GAP, -0.4, 0.4, 7 - 2 * FLUSH_GAP, 15.2, '#3e434a'); // the side walls 0.02 m under the back wall and 0.01 m under its pilasters where they cross them (z-fighting of the tops)
     for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 7); propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222', { lamp }); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4, lamp }); }
     propBox(p, -11.57, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c'); // the loading-bay door above the dock
-    for (let i = 0; i < 9; i++) propBox(p, -11.525, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
+    for (let i = 0; i < 9; i++) propBox(p, -11.52, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.56, '#4b5159'); // 0.02 m short at each end, 0.005 m proud of the skirting (z-fighting)
   } else if (id === 'dojo') {
     propBox(p, 0, 3.0, -6.3, 24, 6, 0.4, '#d5dae0');
     propBox(p, 0, 0.5, -6.15, 24, 1.0, 0.3, '#2b3a4a');
-    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.085, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips
-    propBox(p, -10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.3, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
-    propBox(p, 0, 3.2, -6.05, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6');
+    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.09, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 }); // mirror strips, their face 0.005 m behind the posters (z-fighting)
+    propBox(p, -10.3, 3.0 - FLUSH_GAP / 2, -0.4, 0.4, 6 - FLUSH_GAP, 14, '#cfd4da'); propBox(p, 10.3, 3.0 - FLUSH_GAP / 2, -0.4, 0.4, 6 - FLUSH_GAP, 14, '#cfd4da'); // 0.01 m under the back wall where they cross it
+    propBox(p, 0, 3.2, -6.05, 1.64, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.02, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.02, 0.14, 1.2, 0.04, '#f4f0e6'); // the banner (0.02 m wider than the notice board in front of it, z-fighting of the end faces)
     for (const x of [-6, -2, 2, 6]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7, lamp }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent strips
-    for (const z of [-5.6, 4.8]) propBox(p, -10.1, 2.5, z, 0.2, 5, 0.45, '#9aa3ad');
+    for (const z of [-5.6, 4.8]) propBox(p, -10.09, 2.5, z, 0.2, 5, 0.45, '#9aa3ad'); // 0.01 m proud of the skirting (z-fighting)
   } else if (id === 'rooftop') {
     for (let i = 0; i < 16; i++) { // the city beyond the roof edge: dark towers with a few lit windows
       const h = 6 + (i * 7) % 9, x = -24 + i * 3.2, z = -13 - (i % 3) * 3.5;
@@ -3510,13 +3525,13 @@ function buildProps(id) {
     for (let i = 0; i < 5; i++) propSph(p, 5.6 + i * 0.8, 3.2, 4.8, 0.09, '#ffe3a0', { e: 2 }); // string lights over the lounge
   } else if (id === 'subway') {
     propBox(p, 0, 3.2, -6.8, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -6.56, 30, 0.9, 0.06, '#1f5f8f'); // the tiled wall behind the track and the blue station band
-    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -6.58, 0.05, 6.4, 0.05, '#aab2b8');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.19, -6.58, 0.05, 6.38, 0.05, '#aab2b8'); // a rib stops 0.02 m under the wall top: its top face no longer shares a plane with the wall's (z-fighting, P18-77)
     propBox(p, 12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.3, 3.0, 0, 0.4, 6, 17, '#cfd6da');
     propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507'); // the tunnel mouth in the east wall
     propBox(p, 3.0, 3.8, -6.5, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -6.47, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 }); // the station name board
     for (const x of [-8, -4, 0, 4, 8]) { const lamp = swayLamp(x, -1, 5.9); propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8, lamp }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222', { lamp }); } // fluorescent tubes
     for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 }); // red warning lamps along the platform edge
-    propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
+    propBox(p, -12.1, 1.3 - FLUSH_GAP / 2, 2.75, 0.2, 2.4 - FLUSH_GAP, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 }); // the ticket hall's wall under the sign
   } else if (id === 'garage') {
     propBox(p, 0, 2.2, -7.35, 30, 4.4, 0.5, '#6e716f'); propBox(p, -11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 11.85, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
     for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.05, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a'); // hazard stripes on the wall foot
@@ -3526,7 +3541,7 @@ function buildProps(id) {
     propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a'); // the ticket booth's counter
   } else if (id === 'construction') {
     propBox(p, 0, 3.5, -7.35, 30, 7, 0.5, '#6b6a66'); // the unfinished building behind the scaffold
-    for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5, -7.25, 0.5, 7, 0.4, '#8a8984');
+    for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5 - FLUSH_GAP / 2, -7.27, 0.5, 7 - FLUSH_GAP, 0.4, '#8a8984'); // 0.01 m under the wall top, the face 0.02 m behind the dressing (z-fighting)
     for (const y of [3.2, 6.4]) propBox(p, 0, y, -7.2, 30, 0.35, 0.8, '#8a8984');
     for (let i = 0; i < 12; i++) propCyl(p, -13 + i * 2.4, 7.2, -7.2, 0.05, 1.4, '#7a4a2a'); // rebar sticking out of the top
     propBox(p, -3.5, 4.0, -8.3, 0.6, 8, 0.6, '#e0a000'); propBox(p, -2.2, 8.2, -8.3, 8, 0.4, 0.4, '#e0a000'); // the crane's mast and jib behind the wall
@@ -3621,10 +3636,10 @@ const RING_APRON = 1.5; // m: with ring-out on, a 1v1's walls stand this far bey
    with x and z as shares of the half size (-1 to 1), y as a share of the height, and the size as shares of the full width, height and depth. */
 const LOOKS = {
   dumpster: [1, [0, 0, 1, 0, 1.06, 0.07, 1.08, '#1d2a21'], [0, 0, 0.5, 1.02, 0.92, 0.1, 0.03, '#d6b32a'], [0, -1.02, 0.5, 0, 0.03, 0.8, 0.9, '#2c3b30']],
-  vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.96, 1.01, 1.02, 0.08, 0.04, '#b32a2a']],
+  vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.95, 1.01, 1.02, 0.08, 0.04, '#b32a2a']], // the red band's top 0.01 of the height under the block's (it was level: z-fighting)
   speaker: [1, [0, 0, 0.3, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 0.72, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 1, 0, 1.04, 0.04, 1.04, '#202020']],
   table: [0, [0, 0, 0.96, 0, 1.12, 0.08, 1.2, '#a87846'], [0, -0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, -0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c']],
-  sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c']],
+  sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1.03, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1.03, '#66392c']], // the arms stand 3 % of the depth out of the seat's front and back faces (they were level: z-fighting)
   container: [1, [0, -0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, -0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 1, 0, 1.02, 0.03, 1.02, '#5a1f14']],
   lockers: [1, [0, -1.01, 0.5, -0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.5, 0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.62, -0.18, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.62, 0.48, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.9, 0, 0.03, 0.04, 0.9, '#20272e']],
   car: [0.55, [0, -0.1, 0.8, 0, 0.5, 0.42, 0.92, '#25323f'], [0, -0.1, 1, 0, 0.52, 0.05, 0.94, '#b9bec6'], [0, -0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, -0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'],
@@ -3637,6 +3652,7 @@ const LOOKS = {
 };
 const RUBBLE_MARGIN = 0.2; // m: a pile of concrete or brick rubble reaches this far beyond the footprint of what broke
 const DECK_PIECES_MAX = 16; // pieces a collapsing deck can throw at most
+const LOD_KEEP = 2; // ranks: the slack round the detail budget (Quality.limits.live) inside which an object keeps the look it has (Arena.updateLod)
 const SCAFFOLD_BAY = [2.0, 1.2], SCAFFOLD_TIER = 1.5, SCAFFOLD_WEAK = 3, SCAFFOLD_STANDARD_HP = 0.5, SCAFFOLD_STAIR_WIDTH = 1.0;
 const BUILT = {};
 function builtOf(def) {
@@ -4208,7 +4224,7 @@ const Arena = {
       if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) { // overhead: it fades as the eye comes near it (the hanging load does the same)
         const eye = Camera.pos, near = Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0));
         if (near < CAMERA_PROP_FADE) {
-          alpha = p.a * clamp((near - 0.3) / (CAMERA_PROP_FADE - 0.3), 0, 1) * 0.8;
+          alpha = p.a * clamp((near - CAMERA_NEAR) / (CAMERA_PROP_FADE - CAMERA_NEAR), 0, 1); // 1 at the edge of the fade (it was 0.8: a jump from solid to 0.8 as the eye crossed it), 0 at the near plane
           if (alpha < 0.02) continue;
           layer = LAYER.ALPHA;
         }
@@ -4305,7 +4321,7 @@ const Arena = {
     if (o.far) return;
     const dark = C(MATERIALS[o.mat].dark);
     this.put(LAYER.SOLID, MESH.CYL, x, 0.12, z, d * 1.25, 0.24, d * 1.25, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-    if (o.mat === 'concrete') this.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+    if (o.mat === 'concrete') this.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1 - FLUSH_GAP, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the collar's top 0.01 m under the column's (z-fighting of the two discs)
     if (st >= 3 && o.mat === 'concrete') for (let i = 0; i < 3; i++) this.put(LAYER.SOLID, MESH.CYL, x + (i - 1) * 0.12, hh + 0.12, z + (i % 2 ? 0.1 : -0.1), 0.04, 0.5, 0.04, 0.2 * (i - 1), 0, 0.15 * (i - 1), C('#7a4a2a'), 1, 0, 0.9, false, 0);
     const r = o.hx;
     for (let i = 0; i < o.cracks.length; i++) {
@@ -4392,7 +4408,7 @@ const Arena = {
     const h = o.h, hx = o.hx, hz = o.hz, col = this.tone(o), dark = C(MATERIALS[o.mat].dark), look = o.look;
     if (o.step) {
       this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z, hx * 2, h, hz * 2, 0, 0, 0, look === 'ramp' ? C('#7d8087') : dark, 1, 0, 0.85, false, 0);
-      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.03, z, hx * 2.02, 0.07, hz * 2.02, 0, 0, 0, col, 1, 0, 0.7, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.03, z, hx * 2 + 2 * STEP_LIP, 0.07, hz * 2 + 2 * STEP_LIP, 0, 0, 0, col, 1, 0, 0.7, true, 0); // the tread overhangs its block by a fixed 0.004 m (1 % of a 0.35 m run was 0.002 m: too near for the depth buffer)
       return;
     }
     const lip = C('#d6b32a');
@@ -4400,9 +4416,9 @@ const Arena = {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.04, z, hx * 2, 0.08, hz * 2, 0, 0, 0, col, 1, 0, 0.5, true, 0);
       this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.08) * 0.5, z, hx * 2 - 0.04, h - 0.08, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate: the collider is a block from the floor, and nothing can go under it
       if (!o.far) {
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), h * 0.5, z + sz * (hz - 0.08), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0);
-        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
-        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z - hz + 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), (h - 0.08) * 0.5, z + sz * (hz - 0.08), 0.12, h - 0.08, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0); // a leg ends under the plate, not level with its top (z-fighting)
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.16, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0); // the mesh stops under the plate (its end faces were level with the plate's)
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z - hz + 0.02, hx * 2, h - 0.16, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
         const slope = Math.atan2(h - 0.2, hx * 2), len = Math.hypot(h - 0.2, hx * 2);
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, slope, dark, 1, 0, 0.5, false, 0);
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, -slope, dark, 1, 0, 0.5, false, 0);
@@ -4411,9 +4427,9 @@ const Arena = {
       this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.05, z, hx * 2, 0.1, hz * 2, 0, 0, 0, col, 1, 0, 0.85, true, 0);
       this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.1) * 0.5, z, hx * 2 - 0.04, h - 0.1, hz * 2 - 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // the body under the plate (see the grate)
       if (!o.far) {
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), h * 0.5, z + sz * (hz - 0.06), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), (h - 0.1) * 0.5, z + sz * (hz - 0.06), 0.12, h - 0.1, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0); // a leg ends under the plate (z-fighting)
         this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.001, z, 0.03, 0.01, hz * 2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.005, z, 0.03, 0.008, hz * 2 - 2 * (FLUSH_GAP + 0.01), 0, 0, 0, dark, 1, 0, 0.9, false, 0); // board gaps lie 0.001 to 0.009 m over the plate, clear of its end faces; they stop 0.02 m short of each end, so their front end sits inside the lip (top h + 0.012, front FLUSH_GAP back from the edge) and ties with none of its faces
       }
     } else { // slab, stage
       const stage = look === 'stage';
@@ -4422,7 +4438,7 @@ const Arena = {
       if (!o.far && !stage) for (let i = 0; i < 3; i++) this.put(LAYER.ALPHA, MESH.CUBE, x - hx * 0.6 + i * hx * 0.6, h * 0.6, z + hz + 0.01, hx * 0.4, 0.7, 0.02, 0, 0, 0, C('#a8dcff'), 0.6, 0.1, 0.1, false, 0); // the windows of the office front
     }
     if (o.far) return;
-    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.005, z + hz - 0.05, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.006, z + hz - 0.05 - FLUSH_GAP, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0); // the lip stands on the plate (its front face no longer overlaps the plate's), FLUSH_GAP back from the edge: a box standing at the edge (the garage kerbs) has its face where the lip's was
     if (o.stage > 0) this.drawCracks(o, x, z, hx, hz);
   },
   // One scaffold bay: four standards, a ledger and a brace per tier
@@ -4478,7 +4494,15 @@ const Arena = {
       if (!o.destroyed) { o.d2 = (o.x - tx) * (o.x - tx) + (o.z - tz) * (o.z - tz); near.push(o); } else if (o.rubble) gone.push(o);
     }
     near.sort((p, q) => p.d2 - q.d2);
-    for (let i = 0; i < near.length; i++) near[i].far = i >= limits.live;
+    let full = 0;
+    for (let i = 0; i < near.length; i++) { // an object drawn in full keeps its look until it is LOD_KEEP ranks outside the budget, a plain one gets it back only that far inside: two objects trading ranks at the edge no longer swap looks every 20th draw (a pop)
+      const holds = near[i].far ? i < limits.live - LOD_KEEP : i < limits.live + LOD_KEEP;
+      near[i].far = !(holds && full < limits.live);
+      if (!near[i].far) full++;
+    }
+    for (let i = 0; i < near.length && i < limits.live + LOD_KEEP && full < limits.live; i++) { // a budget left unused (every near object was plain: the camera turned, or live is LOD_KEEP or less) goes to the nearest plain objects inside the slack; a full budget is not touched, so no swap
+      if (near[i].far) { near[i].far = false; full++; }
+    }
     gone.sort((p, q) => q.brokeAt - p.brokeAt);
     for (let i = 0; i < gone.length; i++) gone[i].hide = i >= limits.heaps;
   },
@@ -5411,10 +5435,11 @@ function frameAdvantage(mv, applied) {
    family      key of STYLE_FAMILY_LABEL.   strings   the 18 positions of the style's attack strings (STRING_POSITIONS).   aiw   the signature strikes the CPU favours (row@animation:weight).   legless   no leg moves.   grab   key of CLINCH_STRIKE_POSES.
    throws      key of THROW_SETS the style favours (every style can still use all three grips; STYLE_THROWS swaps single throws for its own).
    signature   [name, uses] pairs shown in the Move list and Training panel: uses = an ATTACKS id, 'knee' / 'elbow', 'throw:<grip>.<dir>' or 'hold'; the unique ones are attacks only that style plays.
-   submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway'). */
+   submit      holds the style can put on a downed foe ([] = none).   hold   key of HOLD_POSES, the holder's pose (left out = pin).   defense   default defense of a new fighter ('block' or 'sway').
+   inputNames  what the Punch / Kick input is called where the plain word is wrong because the moves on it are not punches or kicks ({ punch, kick }, short for a 73 px touch button; left out = Punch / Kick). */
 const MOVE_STYLE = {
-  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches. No kicks: the Kick button throws body punches.',
-    family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
+  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches. No kicks: the input other styles use for Kick throws hooks and body shots.',
+    family: 'hand', grab: 'boxing', throws: 'front', defense: 'sway', submit: [], legless: true, inputNames: { kick: 'Hook' }, // legless: no leg moves, so with an item or a crate in the arms the Kick presses play the default kick rows
     signature: [['Bob and Weave Hook', 'bob_hook'], ['Body Hook', 'body_hook'], ['Liver Shot', 'heavy_body_kick'], ['Clinch Shove', 'heavy_front'], ['Slip Counter', 'counter_strike']],
     strings: 'jab bob_hook cross heavy_body_kick jab body_hook hook heavy_front cross heavy_uppercut power_jab heavy_body_kick body_jab body_hook uppercut bob_hook gut_punch heavy_uppercut',
     aiw: 'bob_hook@bobHook:1.3 body_hook@bodyHook:1.3 heavy_body_kick@liver:1.0',
@@ -5441,7 +5466,7 @@ const MOVE_STYLE = {
     punchHip: 1.35, punchPivot: 0.12, punchLean: 0.02, punchSnap: 1.45, kickChamber: 1.0, kickPivot: 0.45, kickLean: 0.12, kickSnap: 1.3,
     stride: 1.1, armSwing: 0.02, walkBounce: 0.006, react: 0.85, victory: 'bow' },
   wrestler: { label: 'Wrestling', desc: 'Low level, wide base, hands forward hunting for ties; short heavy steps, chest over the knees.',
-    family: 'throws', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'],
+    family: 'throws', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'], inputNames: { punch: 'Shove', kick: 'Trip' }, // Snap Down, Underhook Smash, Shoulder Charge and Bump are shoves; every Kick move is a trip
     signature: [['Shoulder Charge', 'heavy_front'], ['Underhook Lift', 'heavy_uppercut'], ['Ankle Trip', 'foot_sweep'], ['Fireman\'s Carry', 'throw:low.back'], ['Pin', 'hold']],
     strings: 'snap_down foot_sweep hook heavy_front heavy_uppercut sweep - - - - - - snap_down low_kick shoulder_bump sweep - -',
     aiw: 'snap_down@snapDown:0.8 hook@underhook:1.3 heavy_front@shoulder:1.3 heavy_uppercut@underhook:1.3 shoulder_bump@shoulder:1.0',
@@ -5450,7 +5475,7 @@ const MOVE_STYLE = {
     punchHip: 0.85, punchPivot: 0.1, punchLean: 0.1, punchSnap: 0.9, kickChamber: 0.35, kickPivot: 0.2, kickLean: 0.05, kickSnap: 0.85,
     stride: 0.75, armSwing: 0.02, walkBounce: 0.008, react: 0.8, victory: 'hips' },
   judoka: { label: 'Judo', desc: 'Upright and relaxed, hands at chest height reaching for the collar, smooth side-to-side weight shifts.',
-    family: 'throws', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'], hold: 'kesa',
+    family: 'throws', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'], hold: 'kesa', inputNames: { punch: 'Pull', kick: 'Sweep' }, // Collar Pull, Push-Out, Lift-Up, Sleeve Pull are grips; every Kick move is a foot sweep
     signature: [['Lift-Up', 'heavy_uppercut'], ['Push-Out', 'heavy_front'], ['Ura-Nage', 'throw:front.back'], ['Counter Sweep', 'counter_kick'], ['Hold-Down', 'hold']],
     strings: 'collar_snap foot_sweep heavy_front heavy_uppercut heavy_front sweep - - - - - - body_jab foot_sweep heavy_uppercut sweep - -',
     aiw: 'collar_snap@collar:1.8 foot_sweep@footSweep:0.5 heavy_front@pushout:1.0 heavy_uppercut@lift:1.0',
@@ -5514,7 +5539,7 @@ const MOVE_STYLE = {
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
     stride: 0.82, armSwing: 0.025, walkBounce: 0.008, react: 0.85, victory: 'flex' },
   bjj: { label: 'Brazilian Jiu-Jitsu', desc: 'Ground first: wins from the back with guards and sweeps, then pins, chokes and joint locks. Pulls guard rather than throwing.',
-    family: 'locks', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm',
+    family: 'locks', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'], hold: 'arm', inputNames: { punch: 'Shove' }, // Snap Down, Overhook Smash, Guard Push, Frame Shove and Frame Jab are pushes and frames; Kick keeps its name (Guard Kick first)
     signature: [['Guard Pull', 'throw:low.back'], ['Guard Kick', 'guard_kick'], ['Scissor Sweep', 'sweep'], ['Armbar', 'hold'], ['Single-Leg Takedown', 'throw:low.fwd']],
     strings: 'snap_down guard_kick hook heavy_front heavy_uppercut sweep - - - - - - body_jab foot_sweep heavy_uppercut sweep - -',
     aiw: 'foot_sweep@scissor:1.6 snap_down@snapDown:0.8 sweep@scissor:1.0 heavy_front@guard:1.3 hook@guard:1.3 guard_kick@guardKick:0.7',
@@ -5658,6 +5683,41 @@ function moveStyleFor(profile) {
   return DEFAULT_MOVE_STYLE;
 }
 
+/* What an attack input is called for a fighter (BP-P18-76): one source for the touch buttons, the Controls card and screen, the Move list, the clinch hint and the creator's Pose button.
+   The name is what the moves on that input are, by meaning: "Punch" and "Kick" unless the style row names the input itself (MOVE_STYLE inputNames: Boxing has no kicks, its Kick input throws hooks; Judo's Punch is grips and pushes and its Kick only foot sweeps; Wrestling's Punch is shoves and its Kick only trips).
+   low = the move with Duck held. armsFull = an item or a crate in the arms: Punch then swings the item (or does nothing), so it is a plain Punch, and a style without leg moves plays the default kick rows, so its Kick is a plain Kick. */
+const ATTACK_INPUT_PLAIN = { punch: 'Punch', kick: 'Kick' };
+function attackInputMove(profile, action, armsFull, low) {
+  const styleId = moveStyleFor(profile), kicksDefault = !!armsFull && !!MOVE_STYLE[styleId].legless;
+  const steps = stringsFor(styleId, kicksDefault)[low ? 'crouch' : 'stand'][action === 'kick' ? 'K' : 'P'];
+  return steps ? moveFor(kicksDefault ? '' : styleId, steps[0]) : null; // a style with no row on that input has none (every style has both today)
+}
+function attackInputName(profile, action, armsFull) {
+  const plain = ATTACK_INPUT_PLAIN[action], style = MOVE_STYLE[moveStyleFor(profile)], own = style.inputNames && style.inputNames[action];
+  if (!own) return plain;
+  const itemReplacesMoves = armsFull && (action === 'punch' || style.legless);
+  return itemReplacesMoves ? plain : own;
+}
+// The name with the move's own name after it where the two differ: "Hook (Bob and Weave Hook)"
+function attackInputFullName(profile, action, armsFull) {
+  const name = attackInputName(profile, action, armsFull), move = attackInputMove(profile, action, armsFull);
+  return move && name !== ATTACK_INPUT_PLAIN[action] ? name + ' (' + move.name + ')' : name;
+}
+// For a screen where no fighter is chosen yet (the rows say Punch and Kick): one sentence naming every style whose input is called something else, "Kick is Hook in Boxing, Sweep in Judo, ..."
+const joinWords = (words) => (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1] : words[0]); // ['Punch', 'Hook', 'Kick'] -> "Punch, Hook and Kick"
+function genericAttackNote() {
+  const sentences = Object.keys(ATTACK_INPUT_PLAIN).map((action) => {
+    const stylesByName = {};
+    for (const id of MOVE_STYLE_IDS) {
+      const name = attackInputName({ moveStyle: id }, action);
+      if (name !== ATTACK_INPUT_PLAIN[action]) (stylesByName[name] = stylesByName[name] || []).push(MOVE_STYLE[id].label);
+    }
+    return ATTACK_INPUT_PLAIN[action] + ' is ' + Object.keys(stylesByName).map((name) => name + ' in ' + joinWords(stylesByName[name])).join(', ');
+  });
+  return 'Some styles name these inputs by their moves: ' + sentences.join('; ') + '. In a fight this screen names your fighter\'s.';
+}
+// The word for what a clinch strike is called: "elbow", "knee", and a style's own ("body shot" for Boxing)
+const clinchStrikeWord = (styleId, strikeId) => clinchMoveName(styleId, strikeId).replace(/^Clinch /, '').toLowerCase();
 // Per-fighter motion profile, built once per fighter (no per-frame work or allocation)
 function makeMotion(profile, scale, build) {
   const styleId = moveStyleFor(profile);
@@ -10478,7 +10538,7 @@ const LINEUP_HANDICAP = { // even-teams handicap: the factor on health and on da
 };
 const TEAM_TINTS = 8; // colours for teams: Team A to D keep their own, free-for-all slots take the others
 const MatchLineup = {
-  // Makes a lineup safe in place (2 to 8 known fighters, a crowd 1 to 4 people, slot 1 a person, at most 4 people, teams 0 to 4, a known clock); returns it
+  // Makes a lineup safe in place (2 to 8 known fighters, a crowd 1 to 4 people, at most 4 people, teams 0 to 4, a known clock); returns it. Any slot may be a CPU, slot 1 too: a lineup with no person is a watch-only fight
   fix(lineup) {
     if (!Array.isArray(lineup.slots)) lineup.slots = [];
     const crowd = lineup.crowd = lineup.crowd === true;
@@ -10488,10 +10548,11 @@ const MatchLineup = {
     for (let i = 0; i < lineup.slots.length; i++) {
       const slot = lineup.slots[i] || {};
       lineup.slots[i] = { id: ROSTER_BY_ID[slot.id] ? slot.id : 'kai', human: crowd || !!slot.human, team: !crowd && Number.isInteger(slot.team) && slot.team >= 0 && slot.team <= LINEUP_TEAMS ? slot.team : 0 };
-      if (lineup.net === true && i > 0 && slot.human && slot.online === true) lineup.slots[i].online = true; // a friend on another device: only a slot after the first, only where Online friends is on
+      const friend = lineup.net === true && i > 0 && slot.online === true;
+      if (friend && lineup.slots[0].human && slot.human) lineup.slots[i].online = true; // a friend on another device: only a slot after the first, only where Online friends is on and slot 1 is the person on this PC (the host)
+      else if (friend && !lineup.slots[0].human) lineup.slots[i].human = false; // the host sits out: the friend's slot is a CPU again, not a person at this PC
     }
-    while (lineup.slots.length < (crowd ? 1 : LINEUP_MIN)) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: crowd, team: 0 });
-    lineup.slots[0].human = true;
+    while (lineup.slots.length < (crowd ? 1 : LINEUP_MIN)) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: crowd || !lineup.slots.length, team: 0 }); // an empty lineup starts as a person against a CPU
     let people = 0;
     for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; delete slot.online; people--; }
     if (!LINEUP_TIMERS.includes(lineup.timer)) lineup.timer = 0;
@@ -10504,10 +10565,9 @@ const MatchLineup = {
   groupKeys(lineup) { return lineup.slots.map((slot, i) => (slot.team > 0 ? 't' + slot.team : 's' + i)); },
   // Whether the lineup can be played: { ok, msg }.
   check(lineup) {
-    const count = lineup.slots.length, people = this.people(lineup);
+    const count = lineup.slots.length; // no person is fine: a lineup of CPUs only is a watch-only fight
     if (lineup.crowd) return count >= 1 && count <= LINEUP_HUMANS_MAX ? { ok: true, msg: '' } : { ok: false, msg: 'A crowd fight needs 1 to ' + LINEUP_HUMANS_MAX + ' players' };
     if (count < LINEUP_MIN || count > LINEUP_MAX) return { ok: false, msg: 'A match needs 2 to ' + LINEUP_MAX + ' fighters' };
-    if (people < 1) return { ok: false, msg: 'A match needs a player' };
     if (new Set(this.groupKeys(lineup)).size < 2) return { ok: false, msg: 'Everyone is on one team: nobody to fight' };
     return { ok: true, msg: '' };
   },
@@ -10519,14 +10579,15 @@ const MatchLineup = {
   // The fight type the shape of the lineup has, or 'Custom'
   type(lineup) {
     if (lineup.crowd) return 'Co-op';
-    if (lineup.slots.length === 2) return this.people(lineup) === 1 ? 'Duel' : 'Versus';
+    if (lineup.slots.length === 2) return this.people(lineup) === 2 ? 'Versus' : 'Duel'; // a Duel with no person is two CPUs to watch
     return lineup.slots.length > 2 && lineup.deal === 'players' ? 'Brawl' : 'Custom';
   },
-  // Deals the teams of a quick layout: 'ffa' everyone alone, 'players' the people on Team A against the CPU on Team B, '2' / '3' / '4' the slots in turn onto that many teams
+  // Deals the teams of a quick layout: 'ffa' everyone alone, 'players' the people on Team A against the CPU on Team B (with no person: the slots in turn onto two teams, so the fight still has two sides), '2' / '3' / '4' the slots in turn onto that many teams
   deal(lineup, kind) {
+    const nobody = this.people(lineup) === 0;
     lineup.slots.forEach((slot, i) => {
       if (kind === 'ffa') slot.team = 0;
-      else if (kind === 'players') slot.team = slot.human ? 1 : 2;
+      else if (kind === 'players') slot.team = nobody ? 1 + (i % 2) : slot.human ? 1 : 2;
       else slot.team = 1 + (i % Number(kind));
     });
     lineup.deal = kind;
@@ -11027,6 +11088,8 @@ class MatchSim {
      Who may be picked ("valid"): a hostile of another team (never allies), alive, not knocked out or finished, not lying down (S.DOWN), within LOCK_RANGE, with a clear line of sight. A locked enemy that goes down stays locked; it is let go when out, beyond LOCK_RELEASE_RANGE, or no longer hostile (lockHolds).
      pickTarget: with the stick pushed, the valid enemy best in that direction (within LOCK_STICK_COS); otherwise the nearest valid enemy in front (LOCK_VIEW_COS). Ties to the lower index. */
   isHuman(f) { return this.fighters[f.index] === f && !!this.controllers[f.index].human; }
+  // Whether anybody plays this fight: false for a lineup of CPUs only (a watch-only fight: no fighter reads an input seat, nothing counts for records, grades or progress). The lead (fighters[0]) is the first person when there is one
+  hasPerson() { return this.setup ? this.personFighters.length > 0 : this.controllers.some((controller) => !!controller.human); } // a lineup knows its people from its slots; any other fight from its controllers
   // Whether the lock f has on `other` stays: hostile, still in the fight, and not past the release range. A downed enemy holds.
   lockHolds(f, other) {
     if (other.team === f.team || !other.alive || TERMINAL_STATES.includes(other.state)) return false;
@@ -11984,7 +12047,7 @@ class MatchSim {
         }
       } else if (h.type === 'drop') {
         hput(LAYER.ALPHA, MESH.CUBE, h.x, 0.015, h.z, h.hx * 2, 0.01, h.hz * 2, h.yaw, '#050505', 0.85, 0, 1);
-        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2, h.yaw, '#e0b100', 1, 0, 0.7);
+        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2 + 0.04, h.yaw, '#e0b100', 1, 0, 0.7); // the edge strips run 0.02 m past the dark pit at each end (their end faces were level with its)
       } else if (h.type === 'blaze' && on) { // R4: the flames on a burning object
         const o = h.of;
         for (let k = 0; k < 2; k++) this.drawFlames(o.x + (k - 0.5) * o.hx, o.base + o.h * 0.6, o.z, 0.5, 0.5 + o.h * 0.5, h.seq + k * 7);
@@ -12515,7 +12578,7 @@ const SimRunner = {
     if (opts.lineup) {
       const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check(lineup);
       if (!check.ok) return { error: check.msg };
-      lineup.slots.forEach((slot) => { slot.human = false; }); // fix() made slot 1 a person: here nobody is, so the handicap treats every team alike
+      lineup.slots.forEach((slot) => { slot.human = false; }); // a simulated lineup is CPUs only, whatever the caller's slots say, so the handicap treats every team alike
       const plan = MatchLineup.plan(lineup, cfg.difficulty);
       lineupCfg = { mode: 'brawl', slots: plan.slots.map((slot) => Object.assign({}, slot, { human: -1 })), teamNames: plan.teamNames, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)), playerId: plan.slots[0].id };
     }
@@ -12616,7 +12679,8 @@ const Showcase = {
     this.poseClock += dt;
     const pose = this.previewPose;
     if (pose === 'guard' || pose === 'victory') { f.state = pose === 'guard' ? S.IDLE : S.VICTORY; f.move = null; return; }
-    const mv = pose === 'punch' ? ATTACKS.cross : ATTACKS.roundhouse;
+    const named = attackInputName(f.profile, pose) !== ATTACK_INPUT_PLAIN[pose]; // a style whose Kick input is not a kick (Boxing) previews its own move, not a roundhouse it does not have
+    const mv = named ? attackInputMove(f.profile, pose, false) : pose === 'punch' ? ATTACKS.cross : ATTACKS.roundhouse;
     const length = mv.startup + mv.active + mv.recovery;
     const tick = Math.floor(this.poseClock * 60) % (length + 40); // 40 ticks of guard between repeats
     if (tick >= length) { f.state = S.IDLE; f.move = null; return; }
@@ -13468,11 +13532,17 @@ const Game = {
     if (!cfg || !LINEUP_LIVE_STATES.includes(this.state)) return 0;
     return cfg.slots ? cfg.humans : cfg.coop ? cfg.coop.length : 0;
   },
+  // True while a lineup of CPUs only is being fought (a watch-only fight; cfg.humans is the number of people it was planned with)
+  watchOnly() {
+    const cfg = this.config;
+    return !!cfg && Array.isArray(cfg.slots) && cfg.humans === 0 && LINEUP_LIVE_STATES.includes(this.state);
+  },
   // Who reads which device: 'solo', 'versus' (P1 and P2 share the keyboard and the pads) or 'coop' (one device per seat)
   inputPlan() {
     if (this.net || OnlinePlay.starting) return 'solo'; // an online match (its session, or its start): everyone plays with their own device as P1, the other seats come over the network. Not this.config.online: that stays set after the match and would take the coop seating from an offline Tournament or Versus
     const people = this.lineupPeople();
     if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
+    if (this.watchOnly()) return 'versus'; // nobody plays: both keyboard layouts and both pad seats can pause, restart or quit
     if (this.selection.mode === 'tournament') return !this.tournament || this.tournamentSeats ? 'coop' : this.tournamentTwoPlayers ? 'versus' : 'solo'; // the join screen seats the devices and a bracket that was drawn there keeps them
     const cfg = this.config;
     return this.selection.mode === 'free' && cfg && cfg.mode === 'versus' && LINEUP_LIVE_STATES.includes(this.state) ? 'versus' : 'solo'; // setup screens: solo
@@ -13882,7 +13952,7 @@ const Game = {
     const sel = this.selection, saved = Setups.d && Setups.d.v === 1 && Setups.d.freeFight && typeof Setups.d.freeFight === 'object' ? Setups.d.freeFight : {};
     const crowd = saved.crowd === true, open = (this.coopRoster()[0] || ROSTER[0]).id;
     const slots = (Array.isArray(saved.slots) ? saved.slots : []).slice(0, LINEUP_MAX).map((slot, i) => {
-      const entry = slot && typeof slot === 'object' ? slot : {}, human = i === 0 || crowd || entry.human === true;
+      const entry = slot && typeof slot === 'object' ? slot : {}, human = crowd || (i === 0 ? entry.human !== false : entry.human === true); // slot 1 may be a CPU only where the save says so: an old save (slot 1 always a person, saved as true) loads unchanged
       return { id: ROSTER_BY_ID[entry.id] && (!human || Progress.isUnlocked(entry.id)) ? entry.id : human ? open : 'mara', human, team: entry.team };
     });
     const fresh = slots.length === 0;
@@ -14115,7 +14185,8 @@ const Game = {
     const m = this.match;
     if (!m) return;
     const mine = this.seatFighter(m); // the fighter this device plays: 0 offline, a duel online is the seat's own fighter, -1 when it only watches
-    const playerWon = mine >= 0 && m.matchWinner === (this.net && !m.brawl && !m.setup ? mine : 0);
+    const watchOnly = !!m.setup && !m.hasPerson(); // a lineup of CPUs only: nobody won or lost, and nothing counts
+    const playerWon = !watchOnly && mine >= 0 && m.matchWinner === (this.net && !m.brawl && !m.setup ? mine : 0);
     const run = this.run;
     const data = m.results();
     if (mine !== 0 && !(run && run.mode === 'versus')) this.seatView(data, m, mine); // the Versus results are P1 against P2 for everyone
@@ -14124,6 +14195,7 @@ const Game = {
     data.buttons = [];
     const personWon = m.peopleWon(); // a lineup is won by a team; a person on it makes it a victory
     if (m.setup) data.draw = m.matchWinner < 0;
+    if (watchOnly) data.watching = true; // the results name the winning team and say the fight did not count; the game state below is the winners' one
     if (run && run.mode === 'arcade') {
       data.stage = run.stage + 1; data.stages = STORY_STAGES; data.continues = run.story.continues;
       if (playerWon) {
@@ -14161,7 +14233,7 @@ const Game = {
     if (run && run.mode === 'arcade') this.saveArcadeRun(!playerWon); // after the grade, which adds this stage's score; a win saves the next stage (or no run after the clear), a loss a retry spent
     this.resultsData = data;
     this.endTimer = 0;
-    this.go(playerWon || personWon || data.mode === 'versus' || data.twoPeople || data.watching ? GS.VICTORY : GS.DEFEAT); // Versus (and a bracket fight of two people) always has a winner to celebrate
+    this.go(playerWon || personWon || data.mode === 'versus' || data.twoPeople || (data.watching && !data.draw) ? GS.VICTORY : GS.DEFEAT); // Versus (and a bracket fight of two people) always has a winner to celebrate; a watched fight does too, unless it was a draw (then the DRAW banner of the other state)
   },
   // The fighter of a duel that this device plays: 0 offline (and in a brawl, where the party is team 0), online the seat's own fighter, -1 when the seat only watches
   seatFighter(m) { return this.net && !m.brawl && !m.setup ? this.net.fighterOf[this.net.seat] : 0; },
@@ -14285,8 +14357,9 @@ const Game = {
     const reset = Inputs.take('reset'); // gamepad: hold Select
     if (!this.match) return;
     if (reset && st === GS.FIGHT && this.match.training && !this.net) this.match.resetFighters();
-    const paused = st === GS.FIGHT || st === GS.COUNTDOWN ? Inputs.active().filter((p) => p.take('pause'))[0] : null; // every seat's press is taken; the first is who paused
-    if (paused) { this.pause(paused); return; }
+    const live = st === GS.FIGHT || st === GS.COUNTDOWN;
+    const paused = live ? Inputs.active().filter((p) => p.take('pause'))[0] : null; // every seat's press is taken; the first is who paused
+    if (paused || (live && this.watchOnly() && Inputs.menuStartPressed)) { this.pause(paused); return; } // a watched fight: Start on any pad pauses, also the third and fourth that no seat reads
     if (st !== GS.ROUND_END && st !== GS.VICTORY && st !== GS.DEFEAT) return;
     if (st === GS.ROUND_END && this.net) return; // online the skip is an input of the frame (LockstepSession.skipPressed): the presses stay with the device until the session reads them
     if (!Inputs.takeAny(SKIP_ACTIONS)) return;
@@ -14299,7 +14372,7 @@ const Game = {
     Camera.cutIn = this.cutWanted(m, scene);
     if (m && this.state !== GS.LOADING) {
       env = m.def.env;
-      if (!scene && m.brawl) Camera.followGroup(dt, m.fighters, m.def);
+      if (!scene && m.brawl) Camera.followGroup(dt, m.fighters, m.def, !!m.setup && !m.hasPerson());
       else if (!scene) Camera.follow(dt, m.fighters[0], m.fighters[1], m.def);
     } else env = Arena.def ? Arena.def.env : DEFAULT_ENV;
     R.begin(env);
@@ -14441,9 +14514,10 @@ const HIT_LAYER_VOICES = 12, HEART_BPM = 70, HEART_MUFFLE_HZ = 1200, HEART_HP = 
 const MIN_GAP = { hit: 0.02, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.25, objHit: 0.05, menu: 0.03, land: 0.08 }; // seconds; hit, whoosh, step and grunt count per fighter
 const SCALES = { minor: [0, 2, 3, 5, 7, 8, 10], pentatonic: [0, 2, 4, 7, 9], phrygian: [0, 1, 3, 5, 7, 8, 10] };
 const HEARD_TRIM_DB = 2.9; // master 0.8 x effects 0.9: the level plan below is what is heard at the default volumes
-const IMPACT_DB = [-10, -6, -4]; // E1: heard peak of a baked impact by tier; a weight band moves it by IMPACT_BAND_DB, a counter by +2, a kick by +1 (never over -2), an item hit by -2
+const IMPACT_DB = [-10, -6, -4]; // E1: heard peak of a baked impact by tier; a weight band moves it by IMPACT_BAND_DB, a counter by +2, a kick by +1 (never over -2), a tier-3 item hit by -3.5, and a bat or bottle hit of every tier by ITEM_HIT_TRIM_DB
 const IMPACT_BAND_DB = [-1, 0, 1];
 const IMPACT_TRIM_DB = [1, 2, 2.5]; // what the master compressor takes off the body of a baked impact by tier (measured offline): added so the peaks heard are the plan above
+const ITEM_HIT_TRIM_DB = { bat: -1.2, bottle: -1.5 }; // P18-74: a bat hit and a bottle hit with the louder of their baked variants (the impact plus the item's material layer) peaked 2.1 dB and 2.7 dB over the -5 dBFS plan (2 allowed); every variant of each is now inside it (Appendix D)
 const BAKE_RATE = 32000, BAKE_RATE_PREFIXED = 44100, BAKE_PER_STEP = 12, BAKE_SLOT = 0.45, BAKE_VARIANTS = 3, BAKE_TIMEOUT_MS = 500; // E1: 60 buffers (27 impacts, 9 materials, 24 footsteps) in 5 idle steps, mono, one 12-sound offline context per step; 32 kHz, but 44.1 kHz where only the prefixed webkitOfflineAudioContext exists (old Safari takes no rate under 44.1 kHz)
 const IMPACT_SECS = [0.2, 0.28, 0.4], MATERIAL_SECS = 0.3, MATERIAL_BAKE = ['wood', 'metal', 'glass'];
 const COMBO_LADDER_MAX = 6;
@@ -14819,7 +14893,7 @@ const Sound = {
   impact(e, kick) {
     if (!this.allow('hit' + e.def.index, MIN_GAP.hit)) return false;
     const tier = e.ko ? 3 : clamp(e.mv.tier || 1, 1, 3), band = weightBand(e.def.weight), item = e.mv.wpn && WEAPONS[e.mv.wpn];
-    let db = IMPACT_DB[tier - 1] + IMPACT_BAND_DB[band] + (e.counter ? 2 : 0) + (item && tier === 3 ? -3.5 : 0);
+    let db = IMPACT_DB[tier - 1] + IMPACT_BAND_DB[band] + (e.counter ? 2 : 0) + (item && tier === 3 ? -3.5 : 0) + (item && ITEM_HIT_TRIM_DB[e.mv.wpn] || 0);
     if (kick) db = Math.min(db + 1, tier === 3 ? -2 : 0);
     const ladder = clamp((e.combo || 1) - 1, 0, COMBO_LADDER_MAX), rate = (kick ? 0.82 : 1) * Math.pow(2, ladder / 12) * vary(1, 0.05);
     this.layer(this.playBuffer(this.bank.hit[tier - 1][band][this.pickVariant('h' + tier + band)], db + IMPACT_TRIM_DB[tier - 1] + 20 * Math.log10(vary(1, 0.12)), rate)); // +-1 dB
@@ -15085,7 +15159,12 @@ const Sound = {
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
     on('timeWarn', (e) => { const hz = e.seconds <= 1 ? 1320 : 990; this.tone('sine', hz, hz, 0.09, 0.25, 0, 0, this.uiBus); });
-    on('matchEnd', (e) => { this.fires = []; this.fanfare(e.match.setup ? e.match.peopleWon() : e.match.matchWinner === 0 || e.match.versus); });
+    on('matchEnd', (e) => {
+      const m = e.match;
+      this.fires = [];
+      if (m.setup && !m.hasPerson()) { if (m.matchWinner >= 0) this.fanfare(true); return; } // a watched fight: a team won, so the jingle; a draw has nobody to cheer or to lose, so no sound
+      this.fanfare(m.setup ? m.peopleWon() : m.matchWinner === 0 || m.versus);
+    });
     on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
     on('quickRise', (e) => { this.at(e.f.x, e.f.z); this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.15); this.grunt(e.f, 'effort'); });
     on('fall', (e) => { this.at(e.x, e.z); this.whistle(); });
@@ -16011,6 +16090,7 @@ const VERSUS_CARD_MS = 9000; // the Versus controls card holds both players' key
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina', '6: Opponent knocked down (practise a hold)'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'CARDBOARD', brick: 'BRICK', plastic: 'PLASTIC', tile: 'TILE', sheet: 'METAL' };
 
+const SAY_PENDING_MAX = 4; // announcements said within the same 30 ms that are read out together (the newest ones when more come)
 const UI = {
   screen_creator() { return CreatorUI.render(); },
   screen_online() { return OnlineUI.render('online'); },
@@ -16018,7 +16098,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -16124,7 +16204,14 @@ const UI = {
     this.popAt(e.x, 1.6, e.z, 'P' + seat + ' OUT', '#ff9a9a');
     this.say('Player ' + seat + ' is out');
   },
-  say(text) { this.dom.announce.textContent = ''; setTimeout(() => { this.dom.announce.textContent = text; }, 30); },
+  // One pending timer at most (P18-74: the self-tests made 76 000 of these timers, and the page was busy for minutes running them all): what is said while it waits is read out together when it fires, so two knock-outs on one tick are both announced
+  say(text) {
+    this.dom.announce.textContent = '';
+    if (!this.sayPending.includes(text)) this.sayPending.push(text);
+    if (this.sayPending.length > SAY_PENDING_MAX) this.sayPending.shift();
+    clearTimeout(this.sayTimer);
+    this.sayTimer = setTimeout(() => { this.dom.announce.textContent = this.sayPending.reduce((all, part) => all ? all + (/[.!?]$/.test(all) ? ' ' : '. ') + part : part, ''); this.sayPending = []; }, 30);   // a text that already ends in a stop is not given a second one
+  },
   // The online status line over a fight (P12-02): the text and its buttons, each [label, action]; empty text hides it
   netStatus(text, ...buttons) {
     const box = this.dom.netwait;
@@ -16137,17 +16224,18 @@ const UI = {
     const b = this.dom.banner, id = ++this.banners;
     b.innerHTML = esc(text) + (sub ? '<small>' + esc(sub) + '</small>' : '');
     b.classList.add('on');
-    setTimeout(() => { if (this.banners === id) b.classList.remove('on'); }, ms);
+    clearTimeout(this.bannerTimer); // an older banner's timer would do nothing (the id is not the latest), so it does not wait
+    this.bannerTimer = setTimeout(() => { if (this.banners === id) b.classList.remove('on'); }, ms);
     this.say(text + (sub ? '. ' + sub : ''));
   },
   setText(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.textContent = value; } },
   setHtml(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.innerHTML = value; } },
   setTransform(key, el, value) { if (this.cache[key] !== value) { this.cache[key] = value; el.style.transform = value; } },
   // The control for an action on the device the player (0 = P1, 1 = P2) used last
-  keyName(action, slot) {
+  keyName(action, slot, fighter) { // fighter: the one the button belongs to, so a touch attack button carries the name of its move
     const input = Inputs.players[slot || 0];
     if (input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
-    if (input.lastDevice === 'touch') return TOUCH_LABELS[action];
+    if (input.lastDevice === 'touch') return this.controlLabel('touch', action, null, fighter && fighter.profile, !!(fighter && fighter.item));
     return keyLabel(input.keymap ? input.keymap.bindings[action][0] : null);
   },
   // The controls card shows the on-screen buttons: touch was used, or touch is on and no key is held
@@ -16158,17 +16246,18 @@ const UI = {
   controlsCardHtml(kind) {
     const touch = kind === 'touch';
     // labels follow the card's input type, not the device used last
-    const label = (a) => this.controlLabel(kind, a);
+    const p1 = this.localFighterOf(Game.match); // the card opens with the fight, so it can name this fighter's defense and attack inputs
+    const label = (a) => this.controlLabel(kind, a, null, p1 && p1.profile, !!(p1 && p1.item));
     const k = (a) => '<kbd>' + esc(label(a)) + '</kbd>';
+    const attackName = (a) => (p1 ? attackInputName(p1.profile, a, !!p1.item) : ATTACK_INPUT_PLAIN[a]);
     const named = (label, action) => (touch ? '' : label + ' ') + k(action); // on-screen buttons carry their own names
     const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
-    const p1 = Game.match && Game.match.fighters[0]; // the card opens with the fight, so it can name this fighter's defense
     const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
     // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
-    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
+    return '<h3>CONTROLS</h3><div>' + move + '<br>' + named(attackName('punch'), 'punch') + ' ' + named(attackName('kick'), 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
       '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)</div>' +
-      '<div>Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
+      '<div>Press ' + attackName('punch') + ' or ' + attackName('kick') + ' again as a hit lands to chain a string; strong moves come from strings</div><small>' + close + '</small>';
   },
   // True when this fight starts with an input type that has not seen its card yet
   controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
@@ -16186,7 +16275,7 @@ const UI = {
   showVersusCard() {
     this.cardSession = Game.versus;
     const pause = 'Esc / ' + keyLabel(Keymap.bindings.pause[1]) + ' / ' + keyLabel(Keymap2.bindings.pause[0]) + ' / Start';
-    const [one, two, rest] = this.devicesGroups();
+    const [one, two, rest] = this.devicesGroups([0, 1].map((slot) => { const f = this.inputSeatFighter(slot); return f && f.profile; })); // the fighter each of the two people plays
     this.dom.onboard.innerHTML = '<h3>VERSUS CONTROLS</h3><div>' + one + '</div><div>' + two + '</div><div>' + rest + '<br>Pause: <kbd>' + esc(pause) + '</kbd></div><small>Click or press any key to close</small>'; // groups: a landscape phone sets them in three columns
     this.dom.onboard.hidden = false;
     clearTimeout(this.onboardTimer);
@@ -16233,7 +16322,7 @@ const UI = {
       case GS.PAUSED: this.showPause(); Sound.ui('pause'); break;
       case GS.ROUND_END: break;
       case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
-      case GS.DEFEAT: this.banner(Game.resultsData && Game.resultsData.draw ? 'DRAW' : 'DEFEAT', Game.resultsData && Game.resultsData.winnerName ? Game.resultsData.winnerName + ' wins' : '', 3000); Music.stop(); break;
+      case GS.DEFEAT: this.defeatBanner(); Music.stop(); break;
       case GS.RESULTS: this.stack = []; this.go('results'); this.guardUntil = performance.now() + RESULTS_GUARD_MS; break;
       case GS.ERROR: this.showFatal(e.error || 'Unknown error'); break;
       default: break;
@@ -16242,9 +16331,14 @@ const UI = {
   showPause() {
     this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; this.syncPadPrev(); // a pad button still down from the fight must be released before it can press Resume
   },
+  defeatBanner() {
+    const d = Game.resultsData;
+    this.banner(d && d.draw ? 'DRAW' : 'DEFEAT', d && d.winnerName ? d.winnerName + ' wins' : '', 3000);
+  },
   victoryBanner() {
     const d = Game.resultsData;
     if (d && d.mode === 'versus') this.banner('P' + (d.winner + 1) + ' WINS', d.winner === 0 ? d.player : d.opponent, 3000);
+    else if (d && d.watching) this.banner(String(d.winnerName).toUpperCase() + ' WINS', '', 3000); // nobody at this device won: the winner is named with no player wording
     else if (d && d.mode === 'coop') this.banner('VICTORY', 'The party wins', 3000);
     else if (d && (d.mode === 'lineup' || d.mode === 'tournament')) this.banner('VICTORY', d.winnerName + ' wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
@@ -16282,7 +16376,7 @@ const UI = {
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
     if (match.versus && !match.cfg.seats && !match.cfg.online && this.cardSession !== Game.versus) this.showVersusCard(); // a bracket fight on seats says nothing of the Versus keys
-    else if (!(match.coop && match.partySize > 1) && this.controlsCardDue(match)) this.showOnboarding(); // a crowd of several people was told its devices on Players and teams
+    else if (!(match.coop && match.partySize > 1) && !(match.setup && !match.hasPerson()) && this.controlsCardDue(match)) this.showOnboarding(); // a crowd of several people was told its devices on Players and teams
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
   },
@@ -16860,9 +16954,10 @@ const UI = {
       '<div class="row sticky"><button class="mi" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
   // Who plays on what, for the number of people
-  lineupDevicesText(people) {
-    if (people === 1) return '<b>Player 1</b>: ' + esc(this.layoutText(Keymap)) + ', a gamepad or the touch controls.';
-    if (people === 2) return this.devicesText();
+  lineupDevicesText(people, profiles = []) { // profiles: the fighters the people picked, in player order
+    if (people === 0) return '<b>Watch only</b>: every fighter is a CPU. Any keyboard, gamepad or touch can pause, restart or quit; the fight does not count for records, grades or progress.';
+    if (people === 1) return '<b>Player 1</b>: ' + esc(this.layoutText(Keymap, profiles[0])) + ', a gamepad or the touch controls.';
+    if (people === 2) return this.devicesText(profiles);
     const devices = Inputs.autoDevices(people);
     if (!devices) return Inputs.missingText(people) + '.';
     return devices.map((device, k) => '<b>P' + (k + 1) + '</b>: ' + esc(this.deviceLabel(device))).join(' &middot; ') + '. Touch controls are for a single player.';
@@ -16893,7 +16988,8 @@ const UI = {
         (MatchLineup.plain(lineup) ? ' Plain one-on-one: rounds and the time limit are under More options.' : ' One fight, last team standing wins.');
     }
     const friends = lineup.slots.filter((slot) => slot.online).length;
-    return h + '<p class="hint">' + this.lineupDevicesText(plan.people - friends) + note + (friends ? ' Online slots are friends on other devices: Start fight opens the online lobby, where each one picks a fighter and says Ready.' : '') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
+    const playerProfiles = lineup.slots.filter((slot) => slot.human && !slot.online).map((slot) => ROSTER_BY_ID[slot.id]); // each person's keys name that person's fighter's inputs
+    return h + '<p class="hint">' + this.lineupDevicesText(plan.people - friends, playerProfiles) + note + (friends ? ' Online slots are friends on other devices: Start fight opens the online lobby, where each one picks a fighter and says Ready.' : '') + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') + '<div class="row sticky">' + BACK_BUTTON + '</div></div></section>';
   },
   // The adjustable rows of Players and teams and More options; true when it handled the name
   lineupLocal(name, dir) {
@@ -16913,12 +17009,12 @@ const UI = {
       const pool = slots[i].human ? open : everyone; // a CPU may take a locked fighter
       slots[i].id = pool[(Math.max(0, pool.indexOf(slots[i].id)) + dir + pool.length) % pool.length];
     } else if (kind === 'lctl' && slots[i]) {
-      const slot = slots[i], states = lineup.net ? 3 : 2, here = slot.online ? 2 : slot.human ? 1 : 0, next = (here + (dir < 0 ? -1 : 1) + states) % states; // CPU, Player (a person at this device) and, where Online friends is on, Online (a friend on another device: P12-06)
-      if (i === 0) { Sound.ui('bad'); this.toast('Slot 1 is always a player', 'warn'); }
-      else if (next > 0 && !slot.human && MatchLineup.people(lineup) >= LINEUP_HUMANS_MAX) { Sound.ui('bad'); this.toast('At most ' + LINEUP_HUMANS_MAX + ' players', 'warn'); }
+      const slot = slots[i], states = lineup.net && slots[0].human && i > 0 ? 3 : 2, here = slot.online ? 2 : slot.human ? 1 : 0, next = (here + (dir < 0 ? -1 : 1) + states) % states; // CPU, Player (a person at this device) and, where Online friends is on and slot 1 plays on this PC, Online (a friend on another device: P12-06); slot 1 itself is CPU or Player only
+      if (next > 0 && !slot.human && MatchLineup.people(lineup) >= LINEUP_HUMANS_MAX) { Sound.ui('bad'); this.toast('At most ' + LINEUP_HUMANS_MAX + ' players', 'warn'); }
       else {
         slot.human = next > 0;
         if (next === 2) slot.online = true; else delete slot.online;
+        if (i === 0 && !slot.human) for (const other of slots) if (other.online) { other.human = false; delete other.online; } // the host sits out: the friends' slots go back to CPU (a friend needs the host's PC to play on)
         if (next === 1 && !Progress.isUnlocked(slot.id)) slot.id = open.find((id) => !slots.some((s) => s.id === id)) || open[0];
         if (lineup.deal === 'players') MatchLineup.deal(lineup, 'players');
       }
@@ -16940,7 +17036,7 @@ const UI = {
   },
   // The two HUD labels of a lineup: the lead's team on the left, everyone else on the right
   lineupHeading(m, lead) {
-    if (lead) return m.partySize === 1 ? '<b>P1</b> ' + esc(m.fighters[0].name) : '<b>' + esc(m.teamNames[0]) + '</b> ' + m.partySize + ' FIGHTERS';
+    if (lead) return m.partySize === 1 ? (m.hasPerson() ? '<b>P1</b> ' : this.sideTag('CPU')) + esc(m.fighters[0].name) : '<b>' + esc(m.teamNames[0]) + '</b> ' + m.partySize + ' FIGHTERS';
     const others = m.fighters.length - m.partySize;
     return others === 1 ? '<b>' + this.tagLabel(m, m.partySize) + '</b> ' + esc(m.fighters[m.partySize].name) : '<b>' + (m.teamCount === 2 ? esc(m.teamNames[1]) : 'RIVALS') + '</b> ' + others + ' FIGHTERS';
   },
@@ -16949,7 +17045,7 @@ const UI = {
     const row = (f) => '<tr class="tc' + f.tint + '"><td><span class="pcname">' + (f.seat >= 0 ? 'P' + (f.seat + 1) : 'CPU') + ' ' + esc(f.name) + '</span></td><td data-l="Team">' + (/^TEAM /.test(d.teamNames[f.team]) ? esc(d.teamNames[f.team].replace('TEAM ', 'Team ')) : 'Solo') + '</td><td data-l="Result">' +
       (f.team === d.winner ? 'winner' : f.alive ? 'standing' : 'knocked out') + '</td><td data-l="Damage">' + Math.round(f.stats.damage) + '</td><td data-l="Taken">' + Math.round(f.stats.taken) + '</td><td data-l="Hits">' + f.stats.hits + '</td><td data-l="KOs">' + f.stats.kos + '</td></tr>';
     return '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.draw ? 'Draw' : esc(d.winnerName) + ' wins') + '</div>' +
-      '<p class="sub">Free Fight &middot; ' + d.lineup.length + ' fighters &middot; ' + clockText(d.seconds) + '</p><table class="ctl stack"><tr><th>Fighter</th><th>Team</th><th>Result</th><th>Damage</th><th>Taken</th><th>Hits</th><th>KOs</th></tr>' + d.lineup.map(row).join('') + '</table>' + (d.grade ? this.gradeHtml(d) : '') + this.resultsNav(d);
+      '<p class="sub">Free Fight &middot; ' + d.lineup.length + ' fighters &middot; ' + clockText(d.seconds) + '</p>' + (d.watching ? '<p class="hint">Nobody played: this fight does not count.</p>' : '') + '<table class="ctl stack"><tr><th>Fighter</th><th>Team</th><th>Result</th><th>Damage</th><th>Taken</th><th>Hits</th><th>KOs</th></tr>' + d.lineup.map(row).join('') + '</table>' + (d.grade ? this.gradeHtml(d) : '') + this.resultsNav(d);
   },
   // Training: the sparring partner
   screen_setup() {
@@ -16960,15 +17056,16 @@ const UI = {
     return h;
   },
   // Versus device split: keyboard halves, then gamepads (a lone pad always plays P2)
-  devicesText() { return this.devicesGroups().join(' '); },
-  devicesGroups() { // P1, P2 and the rest: the Versus card sets them in three groups
-    return ['<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads.', '<b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad.',
+  devicesText(profiles) { return this.devicesGroups(profiles).join(' '); },
+  devicesGroups(profiles = []) { // P1, P2 and the rest: the Versus card sets them in three groups; profiles: the two fighters, each person's keys name that person's attack inputs
+    return ['<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap, profiles[0])) + ', or the first of two gamepads.', '<b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2, profiles[1])) + ', or a gamepad.',
       'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.'];
   },
   // "W A S D move, J K punch / kick, ..." for one player's keyboard layout
-  layoutText(keymap) {
+  layoutText(keymap, profile) { // profile: the person's fighter; without one (no fighter chosen yet) the plain names
     const keys = (actions) => actions.map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
-    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' punch / kick, ' + keys(['defend']) + ' defend, ' + keys(['grapple']) + ' grapple';
+    const attack = (a) => (profile ? attackInputName(profile, a) : ATTACK_INPUT_PLAIN[a]).toLowerCase(); // only the input word is lower-cased
+    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' ' + attack('punch') + ' / ' + attack('kick') + ', ' + keys(['defend']) + ' defend, ' + keys(['grapple']) + ' grapple';
   },
   screen_arena() {
     const sel = Game.selection;
@@ -16984,16 +17081,23 @@ const UI = {
   screen_controls() {
     const screenMode = Settings.v.movement === 'screen';
     const SCREEN_LABELS = { up: 'Move up the screen (away from camera)', down: 'Move down the screen (toward camera)', left: 'Move screen-left', right: 'Move screen-right' };
-    const label = (a) => (screenMode && SCREEN_LABELS[a]) || ACTION_LABELS[a];
+    // Opened from the pause menu, each column names the attack inputs of its own seat's fighter (not of whoever paused); from the main menu no fighter is chosen: the plain names and a note
+    const paused = Game.state === GS.PAUSED && Game.match, one = paused && this.inputSeatFighter(0) || this.moveFighter(), two = paused && this.inputSeatFighter(1) || one, touchFighter = paused ? this.localFighterOf(Game.match) : null;
+    const inputName = (a, fighter) => (fighter ? attackInputName(fighter.profile, a, !!fighter.item) : ATTACK_INPUT_PLAIN[a]);
+    const withInput = (a, name) => (name === ATTACK_INPUT_PLAIN[a] ? name : name + ' (' + ATTACK_INPUT_PLAIN[a] + ' input)'); // "Hook (Kick input)": the row is still the Kick binding
+    const attack = (a, fighter) => withInput(a, inputName(a, fighter));
+    const attackRow = (a) => (inputName(a, one) === inputName(a, two) ? attack(a, one) : 'P1: ' + inputName(a, one) + ' / P2: ' + inputName(a, two) + ' (' + ATTACK_INPUT_PLAIN[a] + ' input)'); // two people with different names: the row names both
+    const attackNames = Array.from(new Set(['punch', 'kick'].flatMap((a) => [inputName(a, one), inputName(a, two)]))); // "Punch and Kick", "Punch and Hook", "Punch, Hook and Kick"
+    const label = (a, fighter) => (screenMode && SCREEN_LABELS[a]) || (ATTACK_INPUT_PLAIN[a] ? attack(a, fighter) : ACTION_LABELS[a]);
     const moveText = screenMode
       ? 'Movement follows the screen: up = away from the camera, down = toward it, left / right = screen left / right. Double-tap the direction that points at your opponent and hold to run; double-tap sideways to sidestep.'
       : 'Movement is relative to your opponent: up = toward, down = away, left / right = circle. Double-tap left / right to sidestep, double-tap up and hold to run.';
     const keys = (keymap, a) => keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ');
-    const rebind = (act, a, who) => '<button class="mi rb" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + who + ' ' + esc(label(a)) + '">Rebind</button>';
-    const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td data-l="Keyboard">' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td data-l="P2 keyboard">' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td data-l="Gamepad">' + esc(GAMEPAD_LABELS[a]) + '</td><td data-l="Touch">' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
+    const rebind = (act, a, seat, fighter) => '<button class="mi rb" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + seat + ' ' + esc(label(a, fighter)) + '">Rebind</button>'; // the seat's own fighter names the input
+    const rows = ACTIONS.map((a) => '<tr><td>' + esc(ATTACK_INPUT_PLAIN[a] ? attackRow(a) : label(a)) + '</td><td data-l="Keyboard">' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1', one) + '</td><td data-l="P2 keyboard">' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2', two) + '</td><td data-l="Gamepad">' + esc(GAMEPAD_LABELS[a]) + '</td><td data-l="Touch">' + esc(this.controlLabel('touch', a, null, touchFighter && touchFighter.profile, !!(touchFighter && touchFighter.item))) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
-      '<table class="ctl stack"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (two players)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card); Guard assist in Settings makes Defend alone guard high and low. Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<table class="ctl stack"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (two players)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' + (one ? '' : '<p class="hint">' + genericAttackNote() + '</p>') +
+      '<p class="hint">' + joinWords(attackNames) + ' attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card); Guard assist in Settings makes Defend alone guard high and low. Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' ' + COMBO_HELP + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use picks up the item marked by the bright ring (the one in front of you, else the nearest within arm\'s reach on any side, from the floor, a table or a shelf; no crouching needed) and throws the one you hold; hold Use to put it down instead. Lock on picks the opponent in front of you, and pressing it again lets go (hold a direction as you press it to switch to the opponent that way). Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Two players: a key belongs to one player only. P1\'s spare arrow keys switch off with two players, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Three or four players (Free Fight): the game deals the devices itself, only gamepads when there are enough (P1 on the first), else keyboard 1 and the gamepads, and keyboard 2 only when still short; seats 3 and 4 are gamepad-only and touch is not used.</p>' +
       '<div class="row">' + BACK_BUTTON + '<button class="mi" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -17008,9 +17112,15 @@ const UI = {
     return by ? (by.lastDevice === 'gamepad' || by.lastDevice === 'touch' ? by.lastDevice : 'keyboard') : this.onboardKind();
   },
   // What one action is called on one input type; keys come from the given layout
-  controlLabel(kind, action, keymap) {
-    return kind === 'touch' ? TOUCH_LABELS[action] : kind === 'gamepad' ? GAMEPAD_LABELS[action] : keyLabel((keymap || Keymap).bindings[action][0]);
+  // profile (and armsFull): the fighter the button belongs to, so an on-screen attack button reads the name of its move (BP-P18-76)
+  controlLabel(kind, action, keymap, profile, armsFull) {
+    if (kind === 'touch') return profile && ATTACK_INPUT_PLAIN[action] ? attackInputName(profile, action, armsFull).toUpperCase() : TOUCH_LABELS[action];
+    return kind === 'gamepad' ? GAMEPAD_LABELS[action] : keyLabel((keymap || Keymap).bindings[action][0]);
   },
+  // The fighter this device's person controls in the current fight: the first fighter, or online the one of this device's seat
+  localFighterOf(match) { return match ? match.fighters[Game.localFighter()] || match.fighters[0] || null : null; },
+  // The fighter the person on input seat slot (0 = the P1 keyboard column, 1 = the P2 one) plays in the current fight, or null
+  inputSeatFighter(slot) { return Game.match ? Game.match.fighters.find((f) => Inputs.forFighter(f.index) === Inputs.players[slot]) || null : null; },
   // held: the id of the item in hand, whose Punch steps replace the style's
   screen_moves(profile, kind = this.moveKind(), held) {
     const who = profile ? null : this.moveFighter();
@@ -17018,7 +17128,8 @@ const UI = {
     const carry = !!held && WEAPONS[held].cls === 'carry'; // a crate in the arms: Punch plays nothing and the fighter cannot run, so no punch move, no lunge and no tackle
     const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], rowStyle = held && style.legless ? '' : styleId, own = held && !carry ? weaponTable(styleId, held) : stringsFor(styleId, !!held), defense = held === 'binlid' ? 'block' : defenseFor(profile); // the bin lid makes a Sway fighter block
     const keymap = Game.state === GS.PAUSED && Game.pausedBy && Game.pausedBy.keymap;
-    const label = (action) => this.controlLabel(kind, action, keymap);
+    const label = (action) => this.controlLabel(kind, action, keymap, profile, !!held);
+    const attackName = (action) => attackInputName(profile, action, !!held);
     const key = (action) => '<kbd>' + esc(label(action).split(' / ')[0]) + '</kbd>'; // a button with two faces shows the first
     const presses = (keys, low) => (low ? key('crouch') + ' + ' : '') + keys.split('').map((k) => key(k === 'P' ? 'punch' : 'kick')).join(' ');
     const first = carry ? 'K' : 'P', times = own.stand[first.repeat(3)] ? 'three times in a row' : own.stand[first + first] ? 'twice in a row' : 'once'; // the first string this fighter really has with these hands
@@ -17057,15 +17168,15 @@ const UI = {
       const t = throwFor(grip, dir, styleId);
       return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + stamPrice(t.stam) + ' stam</td></tr>';
     })).join('');
-    const legend = [['Punch', 'punch'], [style.legless ? 'Body punches' : 'Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
+    const legend = [[attackInputFullName(profile, 'punch', !!held), 'punch'], [attackInputFullName(profile, 'kick', !!held), 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
       '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Tap ' + key('defend') + ' just before a hit lands.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
-      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. Kick still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
+      (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. ' + attackName('kick') + ' still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
         : held ? '<p class="hint">Use ' + key('use') + ' throws it; hold Use ' + key('use') + ' to put it down. You never need to crouch.</p>' : '') +
-      '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
+      '<h3>Attack strings</h3><p>Press ' + attackName('punch') + ' or ' + attackName('kick') + ' again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
       '<p>' + COMBO_HELP + ' Chain before a move is 60% recovered; later the next step comes slowly.</p>' +
@@ -17394,7 +17505,7 @@ const UI = {
     if (!this.current) return;
     if (Inputs.captureCallback) { this.padCancelCapture(); return; }
     if (this.current === 'coop') { this.syncPadPrev(); return; } // A joins there and never confirms
-    const unpause = Inputs.take('pause'); // P / gamepad Start close the pause screen
+    const unpause = Inputs.take('pause') || (Game.watchOnly() && Inputs.menuStartPressed); // P / gamepad Start close the pause screen (a watched fight: Start on any pad)
     if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
     if (this.current === 'scene' && this.scenePoll(unpause)) return;
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
@@ -17599,7 +17710,8 @@ const UI = {
     this.setText('timer', this.dom.timer, tl === null ? (m.training ? '' : '∞') : String(tl));
     const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
     if (this.cache.lowTime !== lowTime) { this.cache.lowTime = lowTime; this.dom.timer.classList.toggle('low', lowTime); }
-    this.setText('item1', this.dom.item1, heldLabel(a));
+    const watching = !!m.setup && !m.hasPerson(); // a watch-only fight: nobody's combo, warning, hint or held item is shown in the player's place
+    this.setText('item1', this.dom.item1, watching ? '' : heldLabel(a));
     const duo = m.setup ? (m.personFighters.length === 2 ? m.personFighters[1] : null) : (m.versus ? b : null); // the second person's own combo, warning and hint, on the right
     this.setText('item2', this.dom.item2, duo ? heldLabel(duo) : '');
     const cfg = m.cfg;
@@ -17619,7 +17731,7 @@ const UI = {
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-6 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus
-    const lone = m.setup ? m.personFighters.length <= 2 : !m.coop || m.partySize === 1; // a co-op party of several has no room for one player's combo, warning and hint
+    const lone = m.setup ? !watching && m.personFighters.length <= 2 : !m.coop || m.partySize === 1; // a co-op party of several has no room for one player's combo, warning and hint
     this.comboBox('combo', this.dom.combo, a, lone);
     this.comboBox('combo2', this.dom.combo2, duo || b, !!duo);
     this.toggleOn('warn', this.dom.warn, lone && a.lowStamina && a.alive);
@@ -17675,7 +17787,7 @@ const UI = {
   edgeMarks(m) {
     const out = this.edgeOut, w = R.cssW, h = R.cssH;
     for (let k = 0; k < this.edgeEls.length; k++) {
-      const f = m.brawl ? m.fighters[m.partySize + k] : null, el = this.edgeEls[k];
+      const f = m.brawl && !(m.setup && !m.hasPerson()) ? m.fighters[m.partySize + k] : null, el = this.edgeEls[k]; // a watch-only fight has no player team to point the arrows for
       const show = !!f && m.isAttacker(f) && Camera.offscreenMark(f.x, f.y + 1.0 * f.scale, f.z, w, h, CAMERA_EDGE_PAD, out);
       if (this.cache['edge' + k] !== show) { this.cache['edge' + k] = show; el.style.display = show ? '' : 'none'; }
       if (show) this.setTransform('edgepos' + k, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) rotate(' + Math.round(out[2] * 180 / Math.PI) + 'deg)');
@@ -17773,7 +17885,8 @@ const UI = {
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim, moveStyleFor(f.profile)), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    const strikeKeys = this.keyName('punch', this.seatOf(f)) + ' elbow / ' + this.keyName('kick', this.seatOf(f)) + ' knee';
+    const styleId = moveStyleFor(f.profile);
+    const strikeKeys = this.keyName('punch', this.seatOf(f), f) + ' ' + clinchStrikeWord(styleId, 'elbow') + ' / ' + this.keyName('kick', this.seatOf(f), f) + ' ' + clinchStrikeWord(styleId, 'knee');
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
     return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, ' + this.keyName('grapple', this.seatOf(f)) + ' throws' + strikes;
   },
@@ -17940,6 +18053,26 @@ const UI = {
     const me = m.fighters[Game.localFighter()] || m.fighters[0]; // touch plays P1: online, the fighter of this device's seat
     this.showTouchButton('use', touchUseVisible(me, m));
     this.showTouchButton('lock', touchLockVisible(me, m));
+    this.touchAttackLabels(me);
+  },
+  // PUNCH and KICK carry the names of the moves they play for the fighter on this device (BP-P18-76): a new fight, a rematch, a changed fighter or an item in the arms changes them
+  touchAttackLabels(fighter) {
+    if (!fighter || !fighter.profile) return;
+    const styleId = moveStyleFor(fighter.profile), itemId = fighter.item ? fighter.item.id : '';
+    for (const action in ATTACK_INPUT_PLAIN) {
+      const button = this.touchButtons[action];
+      if (!button || (button.namedStyle === styleId && button.namedItem === itemId)) continue; // only a changed style or item changes a name: no work on the other frames
+      button.namedStyle = styleId; button.namedItem = itemId;
+      button.el.textContent = this.controlLabel('touch', action, null, fighter.profile, !!itemId);
+      button.el.setAttribute('aria-label', this.touchAttackAria(fighter, action));
+    }
+  },
+  // What the button's screen-reader name says a press does, in the state the fighter is in: Duck changes the move, but not while an item replaces the Punch steps and not for a Punch that does nothing in the arms of a crate
+  touchAttackAria(fighter, action) {
+    const item = fighter.item ? WEAPONS[fighter.item.id] : null, name = attackInputName(fighter.profile, action, !!item);
+    if (action === 'punch' && item) return item.cls === 'carry' ? name + ' (does nothing while you carry the ' + item.name.toLowerCase() + ')' : name + ' (swings the ' + item.name.toLowerCase() + ', also with Duck)';
+    const low = attackInputMove(fighter.profile, action, !!item, true);
+    return name + ' (with Duck: ' + (low ? low.name : 'low ' + action) + ')';
   },
   showTouchButton(action, shown) {
     const button = this.touchButtons[action];
@@ -17964,7 +18097,8 @@ const UI = {
     return false;
   },
   applyTouchVisibility() {
-    const want = this.touchWanted() && !Inputs.coop; // a co-op has keyboards and gamepads only
+    const watching = Game.watchOnly(); // nobody plays: no stick or fight buttons, the PAUSE button stays for touch
+    const want = this.touchWanted() && !Inputs.coop && !watching; // a co-op has keyboards and gamepads only
     const inMatch = [GS.COUNTDOWN, GS.FIGHT].includes(Game.state);
     const hide = !(want && inMatch);
     if (hide && !this.dom.touch.hidden) { Input.releaseTouch(); Events.emit('inputReleased'); } // pause or round end: a finger still down on a button or the stick never sends its release
@@ -18005,6 +18139,7 @@ const CREATOR_TABS = [
 ];
 const PREVIEW_POSES = ['guard', 'punch', 'kick', 'victory'];
 const POSE_LABELS = { guard: 'Guard', punch: 'Punch', kick: 'Kick', victory: 'Victory' };
+const poseLabel = (pose, profile) => (profile && ATTACK_INPUT_PLAIN[pose] ? attackInputName(profile, pose) : POSE_LABELS[pose]); // the Punch and Kick poses are named like the inputs of the previewed fighter (Boxing: Hook)
 const ATTR_LABELS = { health: 'Health', stamina: 'Stamina', strength: 'Strength', speed: 'Speed', reach: 'Reach', defense: 'Defense', balance: 'Balance', recovery: 'Recovery' };
 const TURN_STEP = Math.PI / 6;
 const HUE_STEP = 6;
@@ -18107,7 +18242,7 @@ const CreatorUI = {
   cyclePose() {
     const i = PREVIEW_POSES.indexOf(Showcase.previewPose);
     Showcase.setPreviewPose(PREVIEW_POSES[(i + 1) % PREVIEW_POSES.length]);
-    UI.say('Preview pose: ' + POSE_LABELS[Showcase.previewPose]);
+    UI.say('Preview pose: ' + poseLabel(Showcase.previewPose, Showcase.previewFighter && Showcase.previewFighter.profile));
     UI.rerender(true);
   },
   onPointerDown(e) {
@@ -18577,7 +18712,7 @@ const CreatorUI = {
       h += '<button class="tab" role="tab" ' + (active ? 'data-nav data-default tabindex="0"' : 'tabindex="-1"') + ' data-act="crtab:' + t.id + '" aria-selected="' + active + '" aria-controls="crPanel">' + t.label + '</button>';
     }
     h += '</div><div class="cr-body" id="crPanel" role="tabpanel" aria-label="' + CREATOR_TABS.find((t) => t.id === this.tab).label + '">' + this['tab_' + this.tab]() + '</div>';
-    h += '<div class="cr-foot">' + this.footButton('crback', 'Back') + this.footButton('crpose', 'Pose: ' + POSE_LABELS[Showcase.previewPose]) + this.footButton('crrandom', 'Randomize') +
+    h += '<div class="cr-foot">' + this.footButton('crback', 'Back') + this.footButton('crpose', 'Pose: ' + poseLabel(Showcase.previewPose, Showcase.previewFighter && Showcase.previewFighter.profile)) + this.footButton('crrandom', 'Randomize') +
       this.footButton('crreset', 'Reset') + this.footButton('crsave', 'Save') + this.footButton('crfight', 'Fight preview') + '</div>';
     h += '<p class="hint cr-keys">Q / E switch tabs &middot; [ ] or drag to turn &middot; T changes pose &middot; Esc goes back</p>';
     return h + '</div></section>';
@@ -19733,7 +19868,7 @@ function testApi() {
     COOP_REVIVE_HP, CUSTOM_SLOTS, CY, Camera, Combat, CreatorUI, CustomRoster, DEBRIS_MAX, DEFAULT_KEYS, DEFAULT_KEYS_P2,
     DEFAULT_UNLOCKED, DEFENSE_TYPES, DIFFICULTY, Debris, Diag, DummyController, ESCAPE_STAMINA, Events, FACE_CELL, FACE_EXPR, FACE_GRID,
     FACE_POOL_FIRST, FACE_ROWS, FALL_DAMAGE_FREE_DROP, FALL_DAMAGE_MAX, FALL_DAMAGE_PER_METER, FALL_STATE_DROP, FIXED_DT, FMS, FX, FaceTex,
-    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+    ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, ATTACK_INPUT_PLAIN, attackInputMove, attackInputName, attackInputFullName, genericAttackNote, clinchStrikeWord, poseLabel, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
     Fighter, GAMEPAD_LABELS, GRIP_POSES, GS, GUARD_ORTHO, Game, HAIR_CAP, HAIR_SWATCHES, HOLD_POSES, HUMAN_CONTROLLERS, IMPACT_SRC_BASE,
     ITEMS, Input, Input2, Input3, Input4, Inputs, J, JUGGLE_LIMIT, KEYMAPS, KEYS_REVISION, KEY_BINDINGS, KEY_BINDINGS_P2, KEY_CUSTOM,
     KEY_PROGRESS, KEY_SETTINGS, KO_DELAY_TICKS, Keymap, Keymap2, LAYER, LEGACY_STYLE_MAP, LOCK_FLICK_TICKS, LOCK_RANGE,
@@ -19771,7 +19906,7 @@ function testApi() {
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
     LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-    STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music, MESH,
+    STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
     Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
     TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,

@@ -7,7 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
-  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
+  ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, ATTACK_INPUT_PLAIN, attackInputMove, attackInputName, attackInputFullName, genericAttackNote, clinchStrikeWord, poseLabel, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
   ASSIST_GUARD, ASSIST_STRINGS, ASSIST_STRING_WINDOW, COACH_LOSS_FIGHTS, COACH_MAX_FIGHTS, COACH_PAD, COACH_PUNCH_TICKS, COACH_SHOW_TICKS, COACH_TIPS, Coach, HUD_NAME_LONG, MENU_PHONE_CLOSER, MENU_PHONE_PX, POP_KIND_MAX, POP_LIFT_EM, POP_BOX_EM, POP_GROW, POP_CHAR_EM, POP_RISE, POP_STEPS_DOWN, ATTACKS, ATTACK_STRING_TICKS, ATTR_KEYS, ATTR_KNEE, ATTR_MAX, ATTR_MIN, Arena, BINDABLE_CODE, BODY,
@@ -54,7 +54,7 @@ const {
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
-  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, Music, MESH,
+  STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
   TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -248,28 +248,45 @@ const SelfTest = {
     const isPattern = Object.prototype.toString.call(only) === '[object RegExp]'; // works for a RegExp made in another context too (the headless runner)
     const picked = (name) => (isPattern ? ((only.lastIndex = 0), only.test(name)) : !wanted.length || wanted.some((part) => name.toLowerCase().includes(part)));
     const ASYNC_TEST_LIMIT_MS = 10000;   // an async test that has not settled by then fails
-    const deferredTests = [];   // tests that pass a limitMs (they render audio offline): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
-    const pendingTests = [];   // tests that return a promise (P12-04: WebRTC needs the event loop); their results fill in after run_all returns, `results.settled` resolves when all have
+    const REAL_LINK_LIMIT_MS = 30000;   // the tests over real WebRTC connections (P18-74): their handshakes and the lockstep run at network speed; measured alone in headless Chromium: CSP 1.8 s, loopback 3.3 s, two peers 5.3 s, four peers 10.4 s
+    const AsyncFunction = (async () => {}).constructor;
+    const deferredTests = [];   // tests that pass a limitMs (they render audio offline) and every `async` test (P18-74): run one at a time after every other test, so no later test sees their half-swapped Sound state and the event loop is theirs
+    const syncPass = { endedAt: 0 };   // when the synchronous pass over the tests ended (performance.now); 0 while it runs
+    const NativeConnection = window.RTCPeerConnection;   // undefined in the headless stub
+    const alreadyWatched = Boolean(NativeConnection && NativeConnection.madeList);   // an overlapping run has wrapped it already: this run shares its list and leaves the restoring to that run
+    const madeConnections = alreadyWatched ? NativeConnection.madeList : [];   // every RTCPeerConnection made while the tests run (P18-74), so a test can check that none is left open
+    let WatchedConnection = null;
+    if (NativeConnection && !alreadyWatched) {
+      WatchedConnection = class extends NativeConnection { constructor(...args) { super(...args); madeConnections.push(this); } };
+      WatchedConnection.madeList = madeConnections;
+      window.RTCPeerConnection = WatchedConnection;
+    }
+    const stopWatching = () => { if (WatchedConnection && window.RTCPeerConnection === WatchedConnection) window.RTCPeerConnection = NativeConnection; };   // the real constructor is back when the deferred tests are done, or when one of them throws
     const record = (entry, r) => { const skipped = typeof r === 'string' && r.startsWith('skipped: '); Object.assign(entry, { pass: r === true || skipped, skipped, detail: r === true ? '' : String(r) }); };
-    const test = (name, fn, limitMs) => {   // limitMs (the async tests that render audio offline, and the layout tests with their many frames): defer the test, run it after every other test, and give it that long
+    const runInPass = (entry, fn) => {   // a plain test: its result is known when it returns; a promise is a mistake (see test)
+      try {
+        const r = fn();
+        if (r && typeof r.then === 'function') {
+          r.then(() => {}, () => {});   // nobody waits for it: its rejection is not left unhandled
+          Object.assign(entry, { pass: false, skipped: false, detail: 'it returned a promise but is not an async function: return a promise only from an async test (a plain function starts it inside the synchronous pass, with its clocks running and the event loop shut)' });
+        } else record(entry, r);
+      } catch (e) { Object.assign(entry, { pass: false, skipped: false, detail: 'exception: ' + String(e && e.message || e) }); }
+    };
+    const test = (name, fn, limitMs) => {   // limitMs (a deferred test that needs more than the 10 s of an async test: audio rendered offline, the layout tests with their many frames, real links): give it that long; an `async` function is deferred either way, a plain one runs in the pass and must return its result, never a promise
       if (!picked(name)) return;
       let m = null;
       const started = performance.now();
       const entry = { name, pass: false, detail: 'still running' };
       results.push(entry);
-      if (limitMs) { deferredTests.push({ entry, fn, limitMs }); return; }
-      try {
-        const r = fn();
-        if (r && typeof r.then === 'function') {
-          let timer = 0;
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + ASYNC_TEST_LIMIT_MS + ' ms')), ASYNC_TEST_LIMIT_MS); });
-          const settled = Promise.race([r, tooSlow]).then((value) => record(entry, value), (e) => { entry.detail = 'exception: ' + String(e && e.message || e); });
-          pendingTests.push(settled.then(() => { clearTimeout(timer); entry.ms = Math.round(performance.now() - started); }));
-        } else record(entry, r);
-      } catch (e) { entry.detail = 'exception: ' + String(e && e.message || e); }
+      /* An async test waits for timers, a real WebRTC connection or the audio thread, so it needs the event loop, which stays shut until this synchronous pass has run every other test (minutes in all).
+         Started inside the pass, its 10 s limit and its own waitFor / until clocks ran out before the first timer could fire: the online-link tests failed with "no result after 10000 ms", the sound bake with "did not finish" (P18-74). */
+      if (limitMs || fn instanceof AsyncFunction) { deferredTests.push({ entry, fn, limitMs: limitMs || ASYNC_TEST_LIMIT_MS }); return; }
+      runInPass(entry, fn);
       entry.ms = Math.round(performance.now() - started);
-      self.made.splice(0).forEach((made) => made.dispose());
-      if (Match.current) Match.current.dispose();
+      try {
+        self.made.splice(0).forEach((made) => made.dispose());
+        if (Match.current) Match.current.dispose();
+      } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }   // a failing dispose fails this test and does not end the pass
       void m;
     };
     const hasLayoutEngine = () => typeof document !== 'undefined' && 'contentDocument' in document.createElement('iframe');   // the headless stub has no frames and no layout engine; every real browser has both. A test may skip only when this is false
@@ -4807,8 +4824,8 @@ const SelfTest = {
         for (const [name] of style.signature) { if (!html.includes(esc(name))) problems.push(id + ' Move list lacks ' + name); if (!line.includes(esc(name))) problems.push(id + ' Training lacks ' + name); }
         if (style.signature.length < 4 || style.signature.length > 5) problems.push(id + ' signature length ' + style.signature.length);
       }
-      if (!UI.screen_moves(styleProfile('boxer'), 'keyboard').includes('Body punches')) problems.push('Boxing Move list does not name the Kick slot');
-      if (UI.screen_moves(styleProfile('kickboxer'), 'keyboard').includes('Body punches')) problems.push('Kickboxing Move list names Body punches');
+      if (!UI.screen_moves(styleProfile('boxer'), 'keyboard').includes('Hook (Bob and Weave Hook)')) problems.push('Boxing Move list does not name the Kick slot');   // BP-P18-76: the slot reads Hook and the name of its move (was "Body punches")
+      if (UI.screen_moves(styleProfile('kickboxer'), 'keyboard').includes('Hook (')) problems.push('Kickboxing Move list names a Hook');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Styles (P17-10): the string steps of the Move list and of the Training frame note carry the style\'s own move names, the ones of its move table', () => {
@@ -6254,9 +6271,10 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Accessibility (P18-27): the Move list opens with Start here in the device\'s key names, and stars the signature moves of the style (the same data the Training panel lists)', () => {
-      const bad = [], faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      const bad = [], TOUCH_PUNCH = { wrestler: 'SHOVE', judoka: 'PULL', bjj: 'SHOVE' };   // BP-P18-76: the styles whose on-screen Punch button has another name
       for (const id of MOVE_STYLE_IDS) {
         const profile = styleProfile(id), style = MOVE_STYLE[id];
+        const faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => (a === 'punch' && TOUCH_PUNCH[id]) || TOUCH_LABELS[a] };
         for (const kind of ['keyboard', 'gamepad', 'touch']) {
           const html = UI.screen_moves(profile, kind), start = html.indexOf('<b>Start here:</b>');
           const block = start < 0 ? '' : html.slice(start, html.indexOf('</p>', start));
@@ -7573,7 +7591,7 @@ const SelfTest = {
     const quietAll = (m) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
     const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
     const ROSTER_IDS = ROSTER.map((r) => r.id);
-    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id, i) => [id, 0, i === 0]));   // slot 1 is the person, as these tests meant when slot 1 could not be a CPU (an all-CPU lineup has its own tests above)
     test('Hit freeze (P18-53): a 1v1 freezes on every hit as before; with more than two fighters a CPU against CPU hit never freezes, the one person\'s own hits freeze at most CROWD_HITSTOP_MAX ticks, and with two or more people nothing freezes', () => {
       const bad = [];
       const solo = mk({});
@@ -7602,11 +7620,11 @@ const SelfTest = {
       if (two.hitStop !== 0) bad.push('two people froze ' + two.hitStop);
       return bad.length ? bad.join('; ') : true;
     });
-    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
+    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 as given (a CPU stays a CPU), at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
       const problems = [];
       const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));
       const fixed = MatchLineup.fix({ slots: raw, handicap: 0, timer: 5, deal: 'nonsense' });
-      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || !fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
+      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
       if (MatchLineup.people(fixed) !== LINEUP_HUMANS_MAX || fixed.timer !== 0 || fixed.handicap !== false || fixed.deal !== 'custom') problems.push('rest ' + JSON.stringify({ people: MatchLineup.people(fixed), timer: fixed.timer, handicap: fixed.handicap, deal: fixed.deal }));
       if (MatchLineup.fix({ slots: [] }).slots.length !== LINEUP_MIN || MatchLineup.fix({ slots: [{ id: 'mara', human: false, team: 1 }] }).slots[0].id !== 'mara') problems.push('padding');
       const same = lineupOf([['kai', 1, true], ['mara', 1, false]]);
@@ -7623,6 +7641,165 @@ const SelfTest = {
       for (const kind of LINEUP_DEALS) { MatchLineup.deal(dealt, kind); teams.push(dealt.slots.map((slot) => slot.team).join('')); }
       if (teams.join() !== '00000,12122,12121,12312,12341') problems.push('deals ' + teams.join());
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Watch-only Free Fight (BP-P18-75): slot 1 can be a CPU, so a lineup of CPUs only is fought with nobody at a device ----- */
+    test('Watch-only Free Fight (P18-75): MatchLineup keeps a lineup with no person (Duel, Brawl, every team deal, the even-teams rule between CPU teams), a crowd still needs its people, Online friends need a person in slot 1 (without one an Online slot is a CPU, not a local person), and a save loads slot 1 as a person unless it says CPU', () => {
+      const bad = [];
+      const cpus = (count, extra) => MatchLineup.fix(Object.assign({ slots: ROSTER_IDS.slice(0, count).map((id) => ({ id, human: false, team: 0 })) }, extra));
+      const duel = cpus(2), eight = cpus(8), four = cpus(4);
+      if (MatchLineup.people(duel) !== 0 || duel.slots[0].human || !MatchLineup.check(duel).ok || MatchLineup.type(duel) !== 'Duel') bad.push('an all-CPU duel: ' + JSON.stringify([MatchLineup.people(duel), MatchLineup.check(duel).msg, MatchLineup.type(duel)]));
+      if (MatchLineup.people(eight) !== 0 || eight.slots.length !== LINEUP_MAX || eight.slots.some((slot) => slot.human)) bad.push('eight CPUs were changed: ' + MatchLineup.people(eight));
+      for (const kind of LINEUP_DEALS) {
+        MatchLineup.deal(eight, kind);
+        const check = MatchLineup.check(eight);
+        if (!check.ok) bad.push('the ' + kind + ' deal of eight CPUs: ' + check.msg);
+        if (kind === 'players' && eight.slots.map((slot) => slot.team).join('') !== '12121212') bad.push('players deal with nobody: ' + eight.slots.map((slot) => slot.team).join(''));
+      }
+      MatchLineup.deal(four, 'players');
+      if (MatchLineup.type(four) !== 'Brawl' || !MatchLineup.check(four).ok || MatchLineup.plan(four).people !== 0) bad.push('an all-CPU Brawl: ' + MatchLineup.type(four));
+      const crowd = MatchLineup.fix({ crowd: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+      if (!crowd.slots.every((slot) => slot.human) || MatchLineup.people(crowd) !== 2) bad.push('a crowd of CPUs kept no people');
+      const withHost = (human) => MatchLineup.fix({ net: true, slots: [{ id: 'kai', human }, { id: 'mara', human: true, online: true }] });   // fix() rewrites the slots array it is given: a fresh one each time
+      if (withHost(false).slots.some((slot) => slot.online) || !withHost(true).slots[1].online) bad.push('Online friends with and without a person in slot 1');
+      const sitsOut = withHost(false).slots[1], local = MatchLineup.fix({ net: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: true }] }).slots[1];
+      if (sitsOut.human || sitsOut.online || !withHost(true).slots[1].human || !local.human) bad.push('an Online friend of a CPU in slot 1 became a local person (human ' + sitsOut.human + '), or a local person was lost (' + local.human + ')');
+      const uneven = cpus(3, { handicap: true });
+      uneven.slots[0].team = 1; uneven.slots[1].team = 2; uneven.slots[2].team = 2;
+      const plan = MatchLineup.plan(uneven, 'easy');
+      if (plan.people !== 0 || plan.slots[0].id !== 'kai' || plan.slots[0].hp !== MatchLineup.handicapFactor('easy', 2) || !(plan.slots[0].hp < 1) || plan.slots[1].hp !== 1) bad.push('the CPU-only handicap: ' + plan.slots.map((s) => s.hp.toFixed(2)).join());
+      const keep = { setups: Setups.d, lineups: Game.lineups, sel: Object.assign({}, Game.selection), raw: Store.get(KEY_SETUPS) };
+      try {
+        const load = (freeFight) => { Setups.d = { v: 1, freeFight }; Game.lineups = {}; return Game.lineupFor(); };
+        const old = load({ type: 'Duel', crowd: false, slots: [{ id: 'kai', human: true, team: 0 }, { id: 'mara', human: false, team: 0 }], deal: 'ffa', handicap: true, clock: 0, rounds: 2, roundTimer: 60, arena: 'warehouse', difficulty: 'normal', friendlyFire: false });
+        if (old.slots.map((slot) => [slot.id, slot.human, slot.team].join()).join(' ') !== 'kai,true,0 mara,false,0') bad.push('an old save changed: ' + JSON.stringify(old.slots));
+        if (!load({ slots: [{ id: 'kai' }, { id: 'mara' }] }).slots[0].human || !load({ slots: [null, { id: 'mara' }] }).slots[0].human) bad.push('a save with no control field for slot 1 is not a person');
+        const watch = load({ slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+        if (watch.slots[0].human || watch.slots[1].human) bad.push('a saved CPU slot 1 loaded as a person');
+        Game.saveSetup();
+        Game.lineups = {};
+        if (Setups.d.freeFight.slots[0].human !== false || Game.lineupFor().slots[0].human) bad.push('a CPU slot 1 was not saved and read back');
+      } finally {
+        Setups.d = keep.setups; Game.lineups = keep.lineups; Object.assign(Game.selection, keep.sel);
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const WATCH_MAX_TICKS = 60 * 60 * 3;   // a watched fight that has no result by then is a bug (the lineups below carry a 60 s clock)
+    const WATCH_DUEL = [['kai', 0, false], ['mara', 0, false]];
+    const WATCH_BRAWL = ROSTER_IDS.slice(0, 8).map((id, i) => [id, 1 + (i % 3), false]);
+    const watchMatch = (list, extra) => lineupMatch(lineupOf(list, { timer: 60 }), Object.assign({ timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }, extra));
+    const watchPlay = (list, extra) => {   // a lineup built the way the game builds it, played to its result with no input at all
+      const m = watchMatch(list, extra);
+      let ticks = 0;
+      while (m.phase !== 'matchEnd' && ticks < WATCH_MAX_TICKS) { m.step(); ticks++; }
+      return { m, ticks };
+    };
+    const watchSignature = ({ m, ticks }) => JSON.stringify([m.matchWinner, ticks, m.fighters.map((f) => [f.alive, Math.round(f.hp * 1000)]), m.stats.map((s) => Math.round(s.damage * 1000))]);
+    test('Watch-only Free Fight (P18-75): an all-CPU 1 vs 1 and an 8-fighter team brawl run to a result with no input, nothing counts (no grade, tips off, the Progress save byte for byte the same), the results say so, a win on the clock ends on "<TEAM> WINS" and a draw on "DRAW" (never "VICTORY"), the same seed plays the same fight twice, and a person in slot 2 is the lead that reads seat 1', () => {
+      const bad = [], saved = keepProgress(), keep = { match: Game.match, run: Game.run, data: Game.resultsData, go: Game.go, config: Game.config, state: Game.state, banner: UI.banner };
+      try {
+        let goneTo = null;
+        Game.go = (to) => { goneTo = to; return true; };   // the results record is checked, and the state the game goes to, but the state change itself does not happen
+        for (const [name, list] of [['1 vs 1', WATCH_DUEL], ['8-fighter team brawl', WATCH_BRAWL]]) {
+          const progressBefore = Store.get(KEY_PROGRESS), stateBefore = JSON.stringify(Progress.d);
+          const first = watchPlay(list), m = first.m;
+          if (m.phase !== 'matchEnd') { bad.push(name + ' had no result in ' + WATCH_MAX_TICKS + ' ticks'); continue; }
+          if (m.hasPerson() || !m.controllers.every((controller) => controller instanceof AIController) || m.fighters.some((f) => f.person || f.stats.edge !== STAMINA_EDGE_NONE)) bad.push(name + ' has a person, a controller that reads input or a CPU with the person\'s stamina edge');
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          if (m.fighters.some((f) => Inputs.forFighter(f.index))) bad.push(name + ': a fighter reads an input seat');
+          if (Coach.eligible(m)) bad.push(name + ' is eligible for tips and the loss streak');
+          Game.onMatchEnd();
+          const data = Game.resultsData, html = UI.screen_results();
+          if (data.mode !== 'lineup' || data.watching !== true || data.playerWon || data.grade || !html.includes('does not count') || /Victory|Defeat|gradebox/.test(html) || !html.includes(m.matchWinner < 0 ? 'Draw' : ' wins')) bad.push(name + ' results: ' + JSON.stringify([data.watching, data.playerWon, !!data.grade]));
+          if (Store.get(KEY_PROGRESS) !== progressBefore || JSON.stringify(Progress.d) !== stateBefore) bad.push(name + ' changed the Progress save');
+          if (watchSignature(watchPlay(list)) !== watchSignature(first)) bad.push(name + ' played differently with the same seed');
+        }
+        const banners = [];
+        UI.banner = (text, sub) => { banners.push(text + '/' + sub); };
+        const endOf = (m) => {   // the game's own end of a fight: the state it goes to and the banner that state puts up
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          goneTo = null; Game.onMatchEnd();
+          banners.length = 0; if (goneTo === GS.VICTORY) UI.victoryBanner(); else UI.defeatBanner();   // the two lines of UI.onGameState that put the banner up (the rest of it needs the page)
+          return { state: goneTo, banner: banners.join('|') };
+        };
+        const drawn = watchMatch(WATCH_DUEL), won = watchMatch(WATCH_DUEL);
+        quietAll(drawn); quietAll(won);
+        drawn.roundTicks = 2; self.run(drawn, 5);   // both at full health when the clock runs out: a draw
+        Combat.knockOut(won.fighters[1], won.fighters[0], null, won); self.run(won, KO_DELAY_TICKS + 20);
+        if (!drawn.matchOver || drawn.matchWinner !== -1 || !won.matchOver || won.matchWinner !== 0) bad.push('the two endings were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        const drawEnd = endOf(drawn), winEnd = endOf(won);
+        if (drawEnd.state !== GS.DEFEAT || drawEnd.banner !== 'DRAW/') bad.push('a watched draw ended on ' + drawEnd.state + ' "' + drawEnd.banner + '", not the DRAW banner');
+        if (winEnd.state !== GS.VICTORY || winEnd.banner !== won.teamNames[0].toUpperCase() + ' WINS/' || !won.teamNames[0]) bad.push('a watched win ended on ' + winEnd.state + ' "' + winEnd.banner + '", not "<TEAM> WINS"');
+        if (/VICTORY|DEFEAT/.test(drawEnd.banner + winEnd.banner)) bad.push('a watched fight shows player wording: ' + drawEnd.banner + ' ' + winEnd.banner);
+        const other = lineupMatch(lineupOf([['kai', 1, false], ['mara', 2, true]]), { timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }), watched = watchPlay(WATCH_DUEL).m;
+        Game.match = other;
+        if (!other.hasPerson() || other.fighters[0].id !== 'mara' || !other.fighters[0].person || Inputs.forFighter(0) !== Input || Inputs.forFighter(1) || other.fighters[0].stats.edge === STAMINA_EDGE_NONE || other.fighters[1].stats.edge !== STAMINA_EDGE_NONE || !Coach.eligible(other)) bad.push('a person in slot 2 is not the lead on seat 1, or the CPU in slot 1 was treated as a person');
+        if (!UI.lineupHeading(other, true).includes('<b>P1</b>') || UI.tagLabel(other, 0) !== '1P' || UI.tagLabel(other, 1) !== 'CPU') bad.push('the HUD does not follow the person in slot 2: ' + UI.lineupHeading(other, true));
+        if (UI.lineupHeading(watched, true).includes('P1') || !UI.lineupHeading(watched, true).includes('CPU') || UI.tagLabel(watched, 0) !== 'CPU') bad.push('the HUD of a watched fight has a you marker: ' + UI.lineupHeading(watched, true));
+        const wide = lineupMatch(lineupOf(['kai', 'mara', 'brutus', 'yuki'].map((id) => [id, 0, false])), {});
+        wide.fighters.forEach((f, k) => { f.x = f.prevX = k * 30; f.z = f.prevZ = 0; });
+        const nearOnly = Camera.frameFighters(wide.fighters), everyone = Camera.frameFighters(wide.fighters, true);
+        if (everyone !== 4 || nearOnly >= everyone) bad.push('the camera of a watched fight frames ' + everyone + ' of 4 (' + nearOnly + ' without the watch flag)');
+        Game.state = GS.FIGHT;
+        const planOf = (humans) => { Game.config = { slots: wide.fighters, humans }; return [Game.inputPlan(), Game.watchOnly()].join(); };
+        if (planOf(0) !== 'versus,true' || planOf(1) !== 'solo,false' || planOf(2) !== 'versus,false') bad.push('input plan with 0, 1 and 2 people: ' + [planOf(0), planOf(1), planOf(2)]);
+      } finally { Game.match = keep.match; Game.run = keep.run; Game.resultsData = keep.data; Game.go = keep.go; Game.config = keep.config; Game.state = keep.state; UI.banner = keep.banner; restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Watch-only Free Fight (P18-75): slot 1 set to CPU on Players and teams starts a fight no seat steers, both input seats and a third and a fourth gamepad (no seat) can pause and resume it, it plays to results that say it does not count, and the Progress save is untouched', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const bad = [], saved = keepProgress(), keep = { setups: Setups.d, lineups: Game.lineups, raw: Store.get(KEY_SETUPS), render: Game.render }, progressBefore = Store.get(KEY_PROGRESS);
+      try {
+        self.freshFree(); Game.chooseMode('free'); Game.applyType('Duel');
+        UI.lineupLocal('lctl:0', 1);
+        const lineup = Game.lineupFor();
+        lineup.timer = 60;   // the fight ends on the clock if the two CPUs do not finish it
+        if (lineup.slots[0].human || !UI.screen_lineup().includes('Slot 1 control: CPU') || !UI.screen_lineup().includes('Watch only')) bad.push('slot 1 did not show as a CPU on Players and teams');
+        Game.startFromSelection();
+        if (!Game.match || Game.match.hasPerson() || Game.inputPlan() !== 'versus' || Inputs.active().length !== 2) bad.push('the fight did not start with nobody and both seats free: ' + (Game.match && Game.match.hasPerson()));
+        Game.render = () => {};
+        let now = performance.now();
+        const frame = () => { now += 16.7; Game.frame(now); };
+        for (let i = 0; i < 400 && Game.state !== GS.FIGHT; i++) frame();
+        if (UI.dom.hn1.innerHTML.includes('P1') || UI.dom.hn1.innerHTML.includes('1P')) bad.push('the HUD shows a you marker: ' + UI.dom.hn1.innerHTML);
+        for (const seat of [Input2, Input]) {
+          seat.press('pause'); frame();
+          if (Game.state !== GS.PAUSED || Game.pausedBy !== seat) bad.push('a seat could not pause: ' + Game.state);
+          Game.resume();
+        }
+        const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), keepSlots = Inputs.padSlots.slice(), keepSeats = Inputs.players.map((p) => [p.lastDevice, p.padIndex]);
+        const pads = [0, 1, 2, 3].map((i) => fakePad('pad ' + i));   // four connected pads: only the first two have a seat, the third and fourth are read by nobody
+        Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+        try {
+          frame();
+          for (const index of [2, 3]) {
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.PAUSED || Game.pausedBy !== null) bad.push('Start on pad ' + (index + 1) + ' did not pause the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            UI.guardUntil = 0;   // the guard that keeps a press that paused from closing the screen, in real time
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.FIGHT) bad.push('Start on pad ' + (index + 1) + ' did not resume the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            if (Game.state !== GS.FIGHT) bad.push('pad ' + (index + 1) + ' released Start and the fight paused again: ' + Game.state);
+          }
+        } finally {
+          if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+          Inputs.padSlots = keepSlots;
+          Inputs.players.forEach((p, i) => { p.releaseAll(); p.reset(); [p.lastDevice, p.padIndex] = keepSeats[i]; });
+          if (Game.state === GS.PAUSED) Game.resume();
+        }
+        for (let i = 0; i < 9000 && Game.state !== GS.RESULTS; i++) frame();
+        const data = Game.resultsData;
+        if (Game.state !== GS.RESULTS || !data || !data.watching || data.playerWon || data.grade || !UI.screen_results().includes('does not count')) bad.push('no watch-only results: ' + Game.state);
+        if (Store.get(KEY_PROGRESS) !== progressBefore) bad.push('the fight changed the Progress save');
+      } finally {
+        Game.render = keep.render;
+        Game.quitToMenu();
+        Setups.d = keep.setups; Game.lineups = keep.lineups;
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+        restoreProgress(saved);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Lineup: the plan puts the lead\'s team first, people before CPU, one team per group, the colours of Team A to D fixed and the spare ones for free-for-all slots, and the handicap only on the smaller teams', () => {
       const problems = [];
@@ -7855,7 +8032,7 @@ const SelfTest = {
       if (levels !== 'expert,expert,easy') problems.push('difficulty by team ' + levels);
       return problems.length ? problems.join('; ') : true;
     });
-    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 always), cycle teams, the handicap and the clock', () => {
+    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 too), cycle teams, the handicap and the clock', () => {
       const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepToast = UI.toast, problems = [];
       try {
         UI.toast = () => {};
@@ -7871,9 +8048,11 @@ const SelfTest = {
         step('lopp', 1); step('lopp', 1);
         if (new Set(lineup.slots.map((s) => s.id)).size !== lineup.slots.length || lineup.slots.slice(1).some((s) => s.human || s.team !== 2)) problems.push('added slots ' + JSON.stringify(lineup.slots));
         UI.lineupLocal('lctl:0', 1);
-        if (!lineup.slots[0].human) problems.push('slot 1 lost its player');
+        if (lineup.slots[0].human || MatchLineup.people(lineup) !== 0) problems.push('slot 1 did not become a CPU');
+        UI.lineupLocal('lctl:0', 1);
+        if (!lineup.slots[0].human) problems.push('slot 1 did not become a player again');
         step('lopp', 1);
-        for (const i of [1, 2, 3, 4, 0]) UI.lineupLocal('lctl:' + i, 1);
+        for (const i of [1, 2, 3, 4]) UI.lineupLocal('lctl:' + i, 1);
         if (MatchLineup.people(lineup) !== LINEUP_HUMANS_MAX || lineup.slots[4].human || !lineup.slots[0].human) problems.push('players ' + MatchLineup.people(lineup));
         const before = lineup.slots[2].id;
         UI.lineupLocal('lfig:2', 1);
@@ -10748,8 +10927,13 @@ const SelfTest = {
               Camera.snapNext = true; Camera.resetGroup();
               for (let i = 0; i < 60; i++) { if (mode === 'duel') Camera.follow(1 / 60, f[0], f[1], def); else Camera.followGroup(1 / 60, f, def); }
               const tag = id + ' ' + mode + ' ' + w + 'x' + h + ' at ' + x.toFixed(1) + ',' + z.toFixed(1);
-              const clear = 0.3 * (1 + Math.tan(Camera.baseFov / 2) * w / h);   // the near plane (0.3 m) and how far its corners reach sideways
-              if (roomX - Math.abs(Camera.pos[0]) < clear || Camera.pos[2] + roomZ < clear) problems.push(tag + ': the eye is at ' + Camera.pos.map((v) => v.toFixed(2)) + ', less than ' + clear.toFixed(2) + ' m from the wall face');
+              Camera.apply();   // the four corners of the near plane must lie inside the drawn room: the eye reaches the wall margin only when it looks along or away from that wall, so the plane (0.5 m, P18-77) is not cut by it
+              const view = Camera.view, near = Camera.proj[14] / (Camera.proj[10] - 1), halfUp = near * Math.tan(Camera.fov / 2), halfRight = halfUp * Camera.aspect;
+              const eyeAt = [Camera.pos[0] + Camera.jx, Camera.pos[1] + Camera.jy, Camera.pos[2] + Camera.jz];
+              for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {   // each corner = eye - near * back + sx * halfRight * right + sy * halfUp * up (the view rows 0, 1 and 2 are right, up and back)
+                const corner = [0, 1, 2].map((k) => eyeAt[k] - near * view[4 * k + 2] + sx * halfRight * view[4 * k] + sy * halfUp * view[4 * k + 1]);
+                if (Math.abs(corner[0]) >= roomX || corner[2] <= -roomZ) { problems.push(tag + ': the eye is at ' + eyeAt.map((v) => v.toFixed(2)) + ' and a corner of the near plane at ' + corner.map((v) => v.toFixed(2)) + ' is outside the wall face'); break; }
+              }
               for (const fighter of f) {
                 if (fighter.index >= m.partySize + (mode === 'duel' ? 1 : 0)) continue;
                 if (Camera.offscreenMark(fighter.x, fighter.y + 1.0, fighter.z, w, h, 0, out) || Camera.offscreenMark(fighter.x, fighter.y + 0.1, fighter.z, w, h, 0, out)) problems.push(tag + ': fighter ' + fighter.index + ' is off screen');
@@ -14629,7 +14813,7 @@ const SelfTest = {
     });
     /* The sound design pass (P18-29, Appendix C "P18-29 built"). The helpers: a stand-in engine that records the sources a call asks for, and the audio state to put back after a test. */
     const SOUND_STATE = ['ctx', 'master', 'comp', 'limiter', 'musicBus', 'sfxBus', 'uiBus', 'lowpass', 'dry', 'wet', 'reverb', 'noiseBuf', 'thump', 'voices', 'last', 'layerQ', 'bank', 'bakeState', 'bakeError', 'bakeBytes', 'bakeMs', 'bakeWall', 'unsupported', 'spot', 'amb', 'ambKey', 'ready', 'allow', 'tone', 'noise', 'swell', 'grunt', 'playBuffer', 'lastVariant', 'heart', 'ducked'];
-    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once (levels) or four times (buses) at below real time on a loaded PC
+    const SOUND_RENDER_LIMIT_MS = 240000;   // the three audio tests are deferred (see test() in run_all) with this limit: the table is about 100 s of audio, rendered once with every baked variant combination as well (levels, about 250 s of audio) or four times (buses); measured in Chrome 2026-11-12 (three full runs): levels 8.6 to 8.9 s, buses 4.6 s, so the limit only matters on a PC that renders below real time
     const isolatedSound = () => Object.assign({}, Sound, { ctx: null, bank: null, bakeState: 'idle', bakeError: '', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeFrom: 0, unsupported: false, voices: 0, last: {}, layerQ: [], spot: null, wired: false, fires: [], amb: null, ambKey: -1, lastVariant: {} });   // a shallow copy of the engine for a test that must not touch the page's own
     const saveSound = () => Object.fromEntries(SOUND_STATE.map((key) => [key, Sound[key]]));
     const recordSound = (body) => {   // tone and noise calls come back as lists of numbers; the engine says yes to everything
@@ -14731,9 +14915,11 @@ const SelfTest = {
     });
     test('Sound bake (P18-29): the buffers exist after unlock, a failed bake plays the synthesis, there is no bake without OfflineAudioContext, and the bake is 60 buffers (27 impacts, 9 materials, 24 footsteps) of about 1.6 MB', async () => {
       const Sound = isolatedSound(), bad = [];   // a copy of the engine: the page's own Sound (its context, its bank, its bake in flight) is never touched, so nothing here can be heard or restored late
+      const heldIdle = window.requestIdleCallback;
+      window.requestIdleCallback = (run) => setTimeout(run, 0);   // P18-74: each bake step waits for an idle moment, which a page that is drawing never has, so every step ran after its 500 ms timeout and five steps came within a hair of the 4 s waits below; a prompt stand-in tests the bake, not the browser's idle scheduling
       try {
         MockOfflineContext.made.length = 0;
-        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the other async tests run side by side with this one
+        const withMocks = (fn) => { const held = { ac: window.AudioContext, oac: window.OfflineAudioContext, woac: window.webkitOfflineAudioContext }; Object.assign(window, { AudioContext: MockAudioContext, OfflineAudioContext: MockOfflineContext, webkitOfflineAudioContext: undefined }); try { return fn(); } finally { Object.assign(window, { AudioContext: held.ac, OfflineAudioContext: held.oac, webkitOfflineAudioContext: held.woac }); } };   // Sound reads these where it starts the bake, so they are only in place for that call: the deferred tests run one at a time (P18-74), but the page's own timers and frames run between the awaits of this one
         withMocks(() => Sound.unlock());
         if (!Sound.ctx || Sound.bakeState !== 'running') bad.push('no bake started by unlock: ' + Sound.bakeState);
         await waitFor(() => Sound.bakeState !== 'running', 4000);
@@ -14770,7 +14956,7 @@ const SelfTest = {
         if (Sound.bakeState !== 'none' || Sound.bank) bad.push('without OfflineAudioContext the state is ' + Sound.bakeState);
         Sound.bakeState = 'idle'; Sound.bank = null; withMocks(() => { window.OfflineAudioContext = undefined; window.webkitOfflineAudioContext = MockOfflineCallbackContext; Sound.bake(); });   // an old Safari has the prefixed name only, and its startRendering gives no promise
         if (Sound.bakeState !== 'running') bad.push('the prefixed OfflineAudioContext is not used'); else { await waitFor(() => Sound.bakeState !== 'running', 4000); if (Sound.bakeState !== 'done' || !Sound.bank) bad.push('a context that fires oncomplete (no promise) and refuses a rate under 44.1 kHz does not bake: ' + Sound.bakeState + ' ' + Sound.bakeError); else if (Sound.bank.hit[0][0][0].sampleRate !== 44100 || Sound.bank.step[0][0][0].length !== Math.round(0.12 * 44100)) bad.push('the prefixed context bakes at ' + Sound.bank.hit[0][0][0].sampleRate + ' Hz, not 44100'); }
-      } finally { Sound.ready = () => false; }   // the copy is thrown away
+      } finally { Sound.ready = () => false; window.requestIdleCallback = heldIdle; }   // the copy is thrown away
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
     test('Sound place (P18-29): a sound 14 m from the camera is 6 dB down, the pan follows the camera, and one panner serves every source of an event', () => {
@@ -14853,6 +15039,25 @@ const SelfTest = {
       } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Watch-only Free Fight (P18-75): the end jingle plays when a team won a fight nobody played, and a draw of CPUs plays nothing (no victory fanfare, no defeat tune); a fight with a person still plays its own win or loss', () => {
+      const bad = [], keep = saveSound(), keepFanfare = Sound.fanfare, fire = soundHandlers(), heard = [];
+      try {
+        Sound.ready = () => true; Sound.fanfare = (win) => { heard.push(win); };
+        const ended = (m) => { heard.length = 0; fire('matchEnd', { match: m }); return heard.join(); };
+        const watched = (finish) => { const m = watchMatch(WATCH_DUEL); quietAll(m); finish(m); return m; };
+        const drawn = watched((m) => { m.roundTicks = 2; self.run(m, 5); });
+        const won = watched((m) => { Combat.knockOut(m.fighters[1], m.fighters[0], null, m); self.run(m, KO_DELAY_TICKS + 20); });
+        if (drawn.matchWinner !== -1 || won.matchWinner !== 0) bad.push('the two fights were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        if (ended(won) !== 'true') bad.push('a watched win played ' + (ended(won) || 'nothing'));
+        if (ended(drawn) !== '') bad.push('a watched draw played ' + ended(drawn));
+        const person = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), lost = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]]));
+        quietAll(person); quietAll(lost);
+        Combat.knockOut(person.fighters[1], person.fighters[0], null, person); self.run(person, KO_DELAY_TICKS + 20);
+        Combat.knockOut(lost.fighters[0], lost.fighters[1], null, lost); self.run(lost, KO_DELAY_TICKS + 20);
+        if (ended(person) !== 'true' || ended(lost) !== 'false') bad.push('a fight with a person: win ' + ended(person) + ', loss ' + ended(lost));
+      } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     test('Sound fires (P18-29): a burning object crackles as long as its material burns (cardboard 3 s, wood 8 s), and the crackle clock runs only in a live fight: a pause does not shorten it, slow motion slows it', () => {
       const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { hazard: Sound.hazard, clock: Sound.clock, fires: Sound.fires, allow: Sound.allow, breathAt: Sound.breathAt, crackleAt: Sound.crackleAt }, fire = soundHandlers();
       try {
@@ -14930,7 +15135,8 @@ const SelfTest = {
       ];
     };
     // Plays the table into one OfflineAudioContext with the volumes master / effects / music (the default volumes when omitted), slot by slot; resolves { name: peak dBFS }. `gap`: seconds added after each sound's own length.
-    const renderSounds = async (volumes, gap, only, ctl) => {   // ctl: the deferred test's token, { cancelled }
+    // `codes` (optional, { name: how many baked variants the row picks }, from an earlier render's `picks`): only those rows are rendered, once for every combination of their variants (BAKE_VARIANTS to the power of the picks), the variants forced instead of drawn; `all[name]` lists the peak of each combination
+    const renderSounds = async (volumes, gap, only, ctl, codes) => {   // ctl: the deferred test's token, { cancelled }
       const SR = 44100, START = 0.4, v = Object.assign({ master: 0.8, sfx: 0.9, music: 0.5 }, volumes);
       const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
@@ -14945,10 +15151,25 @@ const SelfTest = {
       const fire = (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
       let table = soundTable(fire);
       if (only) table = table.filter((row) => only(row[0]));
-      const slots = []; let at = START;
-      for (const row of table) { slots.push({ name: row[0], from: at, play: row[3] }); at += row[2] + gap; }
+      if (codes) table = table.filter((row) => codes[row[0]] > 0);
+      const slots = [], picks = {}; let at = START;
+      table.forEach((row, rowIndex) => {
+        const combinations = codes ? Math.pow(BAKE_VARIANTS, codes[row[0]]) : 1;
+        for (let code = 0; code < combinations; code++) { slots.push({ name: row[0], row: rowIndex, code: codes ? code : undefined, from: at, play: row[3] }); at += row[2] + gap; }
+      });
+      // One play of a slot; `picks[name]` counts the baked variants it chose. With a code the variant of the n-th choice is the n-th digit of the code (base BAKE_VARIANTS), whatever the earlier plays left in `lastVariant`
+      const playSlot = (slot) => {
+        const keepPick = Sound.pickVariant; let calls = 0;
+        Sound.pickVariant = function (key) {
+          const call = calls++;
+          if (slot.code === undefined) return keepPick.call(this, key);
+          Math.random();   // the draw the real choice takes, so the random draws after it keep their order (the run is repeatable; the play-to-play jitter itself is not what this test checks)
+          return Math.floor(slot.code / Math.pow(BAKE_VARIANTS, call)) % BAKE_VARIANTS;
+        };
+        try { slot.play(); } finally { Sound.pickVariant = keepPick; picks[slot.name] = Math.max(picks[slot.name] || 0, calls); }
+      };
       const total = at + 1, oc = new OfflineAudioContext(2, Math.ceil(SR * total), SR);
-      const offline = { ctx: null };
+      const offline = { ctx: null, lastVariant: {} };   // P18-74: the render starts from no variant played yet; it used to share the page's own record, which the matches of the earlier tests had filled, so "bat hit" came out at -2.9 dBFS in a full run and -4.4 alone (target -5 within 2)
       inOffline(offline, () => {
         Sound.ctx = oc; Sound.build(); Sound.setReverb(1.7, 0.3);
         const setGain = (node, value) => { node.gain.cancelScheduledValues(0); node.gain.value = value; };
@@ -14959,26 +15180,31 @@ const SelfTest = {
       offline.bank = (await Sound.bakeRender(OfflineAudioContext, (length) => oc.createBuffer(1, length, 32000), offline.noiseBuf, seedBake)).bank;
       if (ctl && ctl.cancelled) throw new Error('cancelled');
       const failures = [];
-      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { slot.play(); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slots.indexOf(slot)); oc.resume(); });
+      for (const slot of slots) oc.suspend(slot.from).then(() => { if (!(ctl && ctl.cancelled)) inOffline(offline, () => { Sound.voices = 0; Sound.layerQ = []; try { playSlot(slot); } catch (e) { failures.push(slot.name + ': ' + e.message); } }, 20181029 + slot.row); oc.resume(); });
       const rendered = await oc.startRendering();
       if (ctl && ctl.cancelled) throw new Error('cancelled');
-      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {};
+      const left = rendered.getChannelData(0), right = rendered.getChannelData(1), peaks = {}, all = {};
       await new Promise((resolve) => setTimeout(resolve, 60)); Sound.voices = liveVoices;   // (the ended events of the offline sources come in after the render)
       slots.forEach((slot, i) => {
         const end = Math.floor((i + 1 < slots.length ? slots[i + 1].from : total) * SR); let peak = 0;
         for (let k = Math.floor(slot.from * SR); k < end; k++) peak = Math.max(peak, Math.abs(left[k] + right[k]) / 2);
-        peaks[slot.name] = 20 * Math.log10(Math.max(peak, 1e-9));
+        const level = 20 * Math.log10(Math.max(peak, 1e-9));
+        (all[slot.name] = all[slot.name] || []).push(level);
+        if (!(slot.name in peaks)) peaks[slot.name] = level;
       });
-      return { peaks, table, failures };
+      return { peaks, all, picks, table, failures };
     };
     test('Sound levels (P18-29): every sound of the table peaks within 2 dB of its target and under -1 dBFS (an offline render of the real engine at the default volumes; Chrome only)', async (ctl) => {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
-      const { peaks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      // P18-74: a sound that picks baked variants is measured with every combination of them (forced, so the result does not depend on which variants earlier tests played), and the loudest and quietest must be in range
+      const { peaks, picks, table, failures } = await renderSounds({}, 0.25, undefined, ctl), bad = failures.slice();
+      const varied = await renderSounds({}, 0.25, undefined, ctl, picks);
+      bad.push(...varied.failures);
       for (const [name, target] of table) {
-        const peak = peaks[name];
-        if (!(peak <= -1)) bad.push(name + ' peaks at ' + peak.toFixed(1) + ' dBFS (over -1)');
-        else if (target !== null && Math.abs(peak - target) > 2) bad.push(name + ' ' + peak.toFixed(1) + ' dBFS, target ' + target);
-        if (peak < -70) bad.push(name + ' is silent');
+        const levels = varied.all[name] || [peaks[name]], loudest = Math.max(...levels), quietest = Math.min(...levels), list = levels.map((level) => level.toFixed(1)).join(' / ');
+        if (!(loudest <= -1)) bad.push(name + ' peaks at ' + loudest.toFixed(1) + ' dBFS (over -1; variants ' + list + ')');
+        else if (target !== null && (Math.abs(loudest - target) > 2 || Math.abs(quietest - target) > 2)) bad.push(name + ' ' + list + ' dBFS, target ' + target);
+        if (quietest < -70) bad.push(name + ' is silent');
       }
       return bad.length ? bad.length + ' of ' + table.length + ' out: ' + bad.slice(0, 14).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
@@ -15293,6 +15519,32 @@ const SelfTest = {
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Training panel upright: in an upright window the Training panel starts under the level line, with touch, keyboard or gamepad (the level line wraps to 3 lines on a 390 px window and ran under FRAME DATA)', () => {
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (!sheets || !sheets.length) return 'skipped: no page stylesheet (a headless run); a browser self-test reads the rules';
+      const plain = {}, upright = {}, other = {};   // other: rules under any other media condition (a landscape-only or size rule), not read
+      const read = (rules, into) => {
+        for (const rule of Array.from(rules)) {
+          if (rule.media && rule.cssRules) { const condition = (rule.conditionText || rule.media.mediaText).trim(); read(rule.cssRules, /^\(orientation:\s*portrait\)$/.test(condition) ? upright : other); continue; }
+          if (!rule.style || !rule.selectorText) continue;
+          for (const selector of rule.selectorText.split(',').map((part) => part.trim())) {
+            const box = into[selector] || (into[selector] = {});
+            for (const key of ['top', 'max-height', 'font-size']) if (rule.style.getPropertyValue(key)) box[key] = rule.style.getPropertyValue(key);
+          }
+        }
+      };
+      for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules, plain); } catch (error) { /* a sheet from another origin */ } }
+      const em = (box, key) => parseFloat((box && box[key]) || 'NaN');
+      const infoSize = em(plain['#modeinfo'], 'font-size'), panelSize = em(plain['#training'], 'font-size');
+      const lineEnd = (em(upright['#modeinfo'], 'top') + em(upright['#modeinfo'], 'max-height')) * infoSize;   // in HUD em
+      const bad = [];
+      for (const selector of ['#training', '#training.touch']) {
+        const own = upright[selector] && upright[selector].top ? upright[selector] : plain[selector] && plain[selector].top ? plain[selector] : upright['#training'];   // the cascade: its own upright rule, its own plain rule (it outranks #training), then the plain upright #training
+        const start = em(own, 'top') * panelSize;
+        if (!(start >= lineEnd)) bad.push(selector + ' starts at ' + start.toFixed(2) + ' em, the level line ends at ' + lineEnd.toFixed(2) + ' em');
+      }
+      return bad.length ? bad.join('; ') : true;
+    });
     test('Menu showcase (P30-16): the pair is aimed at the free strip beside the menu panel (nothing when the panel is centred or absent) and sits 15 % closer on a phone', () => withCamera(() => {
       const bad = [], keep = { dom: UI.dom, focus: Showcase.menuFocus, t: Showcase.t }, w = window.innerWidth;
       const panel = (left, right) => ({ screens: { querySelector: () => ({ getBoundingClientRect: () => ({ left: left * w, right: right * w }) }) } });
@@ -15430,8 +15682,10 @@ const SelfTest = {
     const moveListNames = (html) => [...html.matchAll(/<tr><td>([^<]*)<\/td>/g)].map((x) => x[1]).sort();   // the first cell of every row with a plain name (the string rows start with a key cap)
     test('Move list (P17-04): for every fighter it lists the moves of that fighter\'s style and the shared moves, nothing of another style, and the inputs of the device in use', () => {
       const bad = [], kinds = ['keyboard', 'gamepad', 'touch'];
-      const faces = { keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => TOUCH_LABELS[a] };
+      const TOUCH_NAMES = { boxer: { kick: 'HOOK' }, wrestler: { punch: 'SHOVE', kick: 'TRIP' }, judoka: { punch: 'PULL', kick: 'SWEEP' }, bjj: { punch: 'SHOVE' } };   // BP-P18-76: the styles whose on-screen attack button is not PUNCH / KICK (literal, not read from the game)
+      const facesOf = (profile) => ({ keyboard: (a) => keyLabel(Keymap.bindings[a][0]), gamepad: (a) => GAMEPAD_LABELS[a].split(' / ')[0], touch: (a) => (TOUCH_NAMES[moveStyleFor(profile)] || {})[a] || TOUCH_LABELS[a] });
       for (const { name, profile } of moveListCases()) {
+        const faces = facesOf(profile);
         const styleId = moveStyleFor(profile), style = MOVE_STYLE[styleId], own = stringsFor(styleId), mine = new Set(), htmls = [];
         for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
         const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
@@ -17652,7 +17906,7 @@ const SelfTest = {
       } catch (error) { bad.push('threw ' + error.message); } finally { restoreProgress(saved); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 cannot be a CPU, and the crowd runs for 1 to 4 people', () => {
+    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 can be a CPU and a player again, and the crowd runs for 1 to 4 people', () => {
       const bad = [];
       {
         const ran = withFlow([fakePad('a'), fakePad('b'), fakePad('c')], (flow) => {
@@ -17663,7 +17917,9 @@ const SelfTest = {
           if (!Game.match || Game.match.fighters.length !== 6 || Game.match.partySize !== 1 || !Game.match.setup) flow.problems.push('1 against 5: ' + (Game.match && Game.match.fighters.length));
           Game.quitToMenu();
           UI.lineupLocal('lctl:0', 1);
-          if (!Game.lineupFor().slots[0].human || !flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 became a CPU');
+          if (Game.lineupFor().slots[0].human || flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 did not become a CPU');
+          UI.lineupLocal('lctl:0', 1);
+          if (!Game.lineupFor().slots[0].human) flow.problems.push('slot 1 did not come back as a player');
           for (const people of [1, 2, 3, 4]) {
             Game.chooseMode('free'); Game.applyType('Co-op');
             const lineup = Game.lineupFor();
@@ -19130,31 +19386,33 @@ const SelfTest = {
       return bad.concat(result).length ? bad.concat(result).slice(0, layoutShown()).join('; ') : true;
     });
     /* The HUD over a fight with touch controls: the live HUD and touch markup with sample text, at the sizes of the matrix. */
-    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375 and 360 x 640, also at UI scale 1.5 (capped) - the Training data panel overlaps no touch button, no health bar and neither combo counter, the two combo counters overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
+    layoutTest('Layout (P18-69): the fight HUD with touch controls at 390 x 844, 844 x 390, 768 x 1024, 1280 x 720, 667 x 375, 360 x 640 and 600 x 560, also at UI scale 1.5 (capped) - the Training data panel (with touch controls, and with keyboard or gamepad) overlaps no touch button, no health bar and not the combo counter of the player (Training never shows the second), the two combo counters of a Co-op overlap each other nowhere, the pause button overlaps no bar, and every touch button is at least 44 x 44', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, sample = { hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100', ht2: '100', timer: '60', roundlbl: 'ROUND 1', modeinfo: 'INDUSTRIAL WAREHOUSE - TRAINING' };
       const training = '<b>FRAME DATA</b> (60 fps)<br>Jab: startup 6 / active 3 / recovery 9<br><b>STYLE</b> Boxing<br><b>Dummy style</b> Boxing<br><b>COMBO</b> 0 hits / 0 dmg<br><b>LINK</b> -<br><b>DEFEND</b> -<br><b>Dummy:</b> Idle<br><b>Objects:</b> 12 intact, 0 damaged, 0 destroyed';
       const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
-      const kinds = [['Training', 'tt'], ['Co-op', 'coop']];
-      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640]]) {
+      const kinds = [['Training', 'tt'], ['Keyboard Training', ''], ['Co-op', 'coop']];   // Keyboard Training: no touch controls, the data panel on the right
+      for (const [kind, hudClass] of kinds) for (const scaled of [false, true]) for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1280, 720], [667, 375], [360, 640], [600, 560]]) {   // 600 x 560: a near-square desktop window
         const html = '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
         inLayoutFrame(width, height, '', (doc, win) => {
           const where = kind + ' HUD at ' + width + ' x ' + height + (scaled ? ' with UI scale 1.5' : '') + ': ';
           doc.getElementById('screens').innerHTML = '';
           doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
           for (const [id, text] of Object.entries(sample)) { const el = doc.getElementById(id); if (el) el.textContent = text; }
-          for (const id of ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '12 HITS<small>COMBO</small>'; el.classList.add('on'); }
+          for (const id of kind.endsWith('Training') ? ['combo'] : ['combo', 'combo2']) { const el = doc.getElementById(id); el.innerHTML = '99 HITS<small>999 DAMAGE</small>'; el.classList.add('on'); }
           const hud = doc.getElementById('hud'), panel = doc.getElementById('training'), party = doc.getElementById('party');
           hud.hidden = false; doc.getElementById('pauseBtn').hidden = true;
           for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
-          if (kind === 'Training') { panel.hidden = false; panel.classList.add('touch'); panel.innerHTML = training; }
+          const keys = kind === 'Keyboard Training';
+          if (keys) doc.getElementById('touch').hidden = true;
+          if (kind.endsWith('Training')) { panel.hidden = false; if (!keys) panel.classList.add('touch'); panel.innerHTML = training; }
           else party.innerHTML = [1, 2, 3, 4].map((n) => '<div class="pc seat' + n + '"><div class="pn"><b>P' + n + '</b> FIGHTER' + n + '</div><div class="ph"><i></i></div><div class="ps"><i></i></div></div>').join('');
           const rect = (el) => el.getBoundingClientRect(), cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
-          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = [...doc.querySelectorAll('#touch .tb')];
-          if (kind === 'Training') for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
-          if (cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
+          const bars = [...doc.querySelectorAll('#hud .bar')].filter((el) => rect(el).width > 0), touch = keys ? [] : [...doc.querySelectorAll('#touch .tb')];
+          if (kind.endsWith('Training')) for (const other of [...touch, ...bars, doc.getElementById('stickBase'), doc.getElementById('combo'), doc.getElementById('combo2')]) if (cross(rect(panel), rect(other))) bad.push(where + 'the data panel overlaps ' + (other.dataset.a ? 'the ' + other.dataset.a + ' button' : other.id || 'a health bar'));
+          if (!kind.endsWith('Training') && cross(rect(doc.getElementById('combo')), rect(doc.getElementById('combo2')))) bad.push(where + 'the two combo counters overlap');
           const pause = doc.querySelector('#touch .tb[data-a="pause"]');
-          for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
+          if (!keys) for (const bar of bars) if (cross(rect(pause), rect(bar))) bad.push(where + 'the pause button overlaps a bar');
           if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
         }, scaled ? uiScaleFor(1.5, width, height) : undefined);
       }
@@ -19163,8 +19421,8 @@ const SelfTest = {
     // the P12-04 test stays right before the other async test: a synchronous test registered after an async one delays it, and its 5 s limit and its ICE need the event loop
     /* ---------- online: the page's real Content-Security-Policy under WebRTC (P12-04) ---------- */
     /* Two RTCPeerConnections in this page, one data channel, one message each way, with no STUN server (the copy-paste connection of P12-01 needs none) and the page's policy
-       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see pendingTests). */
-    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', () => {
+       unchanged. A securitypolicyviolation event during the run fails the test. Async: the result fills in after run_all returns (see runDeferred). */
+    test('CSP under WebRTC (P12-04): with the page policy as it is (default-src and connect-src none) a loopback data channel opens and carries a message each way, with no CSP violation; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       const policy = policyTag ? policyTag.content : '';
@@ -19205,7 +19463,7 @@ const SelfTest = {
         document.removeEventListener('securitypolicyviolation', onViolation);
         connections.forEach((connection) => connection.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: signaling by copy-paste (P12-01) ---------- */
     /* Real data-channel SDPs from Chromium 156 and Firefox 157 (the engines with WebRTC on the dev PC), taken after ICE gathering with no ICE server: two mDNS host
        candidates each (Firefox also lists two TCP ones). Their packed codes are 140 to 160 characters. */
@@ -19644,7 +19902,7 @@ const SelfTest = {
       links.forEach((link) => link.close());
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', () => {
+    test('Online loopback (P12-01): two links in this page connect through the full copy-paste path (offer text, answer text, open channels, a message each way on both channels), no server; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });   // two gatherings of at most 1 s each leave the runner's 10 s limit plenty of room
       const heard = { host: [], guest: [] };
@@ -19679,7 +19937,7 @@ const SelfTest = {
         if (result === true && (host.state !== 'closed' || guest.state !== 'closed' || host.send('x') || guest.send('x'))) return 'close left a link open';
         return result;
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     test('Online UI (P12-01, P12-03): the Online screens follow the link state (the host has one block per guest), a long code shows no QR button, text is escaped, keys typed in a code box stay in it', () => {
       const bad = [];
       const kept = { link: OnlineUI.link, role: OnlineUI.role, offerCode: OnlineUI.offerCode, answerCode: OnlineUI.answerCode, note: OnlineUI.note, roundTrip: OnlineUI.roundTrip, guests: OnlineUI.guests, mode: OnlineUI.mode, arena: OnlineUI.arena };
@@ -20240,10 +20498,10 @@ const SelfTest = {
     });
     /* The production path: two real Online.createLink links in this page (the copy-paste handshake of P12-01, no server), wrapped by LockstepTransport.fromLink, carry a 1v1 lockstep; the strings P12-01's own tests put on the reliable
        channel (bp-ping: / bp-pong:) arrive in the middle of the match and are ignored. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-02): two Online.createLink links wrapped by LockstepTransport.fromLink carry a 1v1 with equal checksums, and the bp-ping: / bp-pong: strings on the reliable channel are ignored; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const host = Online.createLink('host', { gatherMs: 1000 }), guest = Online.createLink('guest', { gatherMs: 1000 });
-      const FRAMES = 120, TIMEOUT_MS = 8000;
+      const FRAMES = 120, TIMEOUT_MS = 20000;
       // no setTimeout for waiting: a long headless run (over 5 minutes) throttles the timers of a page it counts as hidden to one a minute
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });
       const opened = (link) => new Promise((resolve, reject) => {
@@ -20276,12 +20534,12 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         host.close(); guest.close();
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* Four real links (host and three guests, three copy-paste handshakes in this page, no server) wrapped by LockstepTransport.fromLink carry a short brawl of four people. Async: the result fills in after run_all returns. */
-    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', () => {
+    test('Lockstep over real links (P12-03): four peers, the host and three guests over three Online.createLink links (the copy-paste path), carry a short brawl with equal checksums; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const hosts = [2, 3, 4].map(() => Online.createLink('host', { gatherMs: 1000 })), guests = hosts.map(() => Online.createLink('guest', { gatherMs: 1000 }));
-      const FRAMES = 180, TIMEOUT_MS = 9000;
+      const FRAMES = 180, TIMEOUT_MS = 25000;
       const yieldNow = () => new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(0); });   // no setTimeout: see the two-link test
       const opened = (link) => new Promise((resolve, reject) => {
         link.onState((state) => { if (state === 'open') resolve(); else if (state === 'failed' || state === 'closed') reject(new Error(state + ': ' + (link.error ? link.error.message : ''))); });
@@ -20315,7 +20573,7 @@ const SelfTest = {
         if (game) game.peers.forEach((peer) => { peer.session.detach(); peer.match.dispose(); });
         hosts.concat(guests).forEach((link) => link.close());
       });
-    });
+    }, REAL_LINK_LIMIT_MS);
     /* ---------- online: the limits and every failure with its reason (P12-07) ---------- */
     test('Online failures (P12-07): every way a link can fail ends with a short plain reason and what to try: no network address, a code the browser refuses, ICE failure (a network that blocks direct connections), a timeout, the Firefox guest that is not answered in time, a lost connection; the screens show it', async () => {
       const bad = [], links = [];
@@ -22222,6 +22480,364 @@ const SelfTest = {
       return bad.length ? 'inside scenery: ' + bad.join('; ') : true;
     });
 
+    /* ---------- attack input labels follow the style (BP-P18-76) ---------- */
+    /* What each style's Punch and Kick inputs are called, by what the moves on them are: [Punch label, Kick label, first Punch move, first Kick move]. Literal on purpose: a changed string row or a new style must change this table by hand.
+       Boxing: arm moves only, no kicks, so its Kick input is Hook. Judo: its Punch is grips and pushes, its Kick only foot sweeps. Wrestling: its Punch is shoves, its Kick only trips. Brazilian Jiu-Jitsu: its Punch is pushes and frames; its Kick starts with a real Guard Kick. The others strike with the arm on Punch and the leg on Kick. */
+    const INPUT_LABELS = {
+      boxer: ['Punch', 'Hook', 'Jab', 'Bob and Weave Hook'], kickboxer: ['Punch', 'Kick', 'Jab', 'Teep'], karateka: ['Punch', 'Kick', 'Jab', 'Mae-geri'], wrestler: ['Shove', 'Trip', 'Snap Down', 'Ankle Trip'],
+      judoka: ['Pull', 'Sweep', 'Collar Pull', 'Foot Sweep'], brawler: ['Punch', 'Kick', 'Wild Jab', 'Stomp'], capoeira: ['Punch', 'Kick', 'Tapa', 'Bencao'], wingchun: ['Punch', 'Kick', 'Chain Punch', 'Thrust Kick'],
+      muaythai: ['Punch', 'Kick', 'Jab', 'Teep'], taekwondo: ['Punch', 'Kick', 'Jab', 'Ap Chagi'], sambo: ['Punch', 'Kick', 'Jab', 'Boot Kick'], bjj: ['Shove', 'Kick', 'Snap Down', 'Guard Kick'],
+      hapkido: ['Punch', 'Kick', 'Palm Strike', 'Low Front Kick'], kali: ['Punch', 'Kick', 'Thrust', 'Shin Kick (Kali)'], kravmaga: ['Punch', 'Kick', 'Jab', 'Groin Kick'], mma: ['Punch', 'Kick', 'Jab', 'Teep']
+    };
+    test('Input labels (BP-P18-76): for the 32 presets and every style, the label of each attack input is the one of the explicit table and the first move on it is the one the table names (standing and with Duck the helper agrees with a real press)', () => {
+      const problems = [];
+      let boxers = 0, judoka = 0, wrestlers = 0;
+      if (Object.keys(INPUT_LABELS).sort().join() !== MOVE_STYLE_IDS.slice().sort().join()) problems.push('the table and the styles differ: ' + Object.keys(INPUT_LABELS).join() + ' | ' + MOVE_STYLE_IDS.join());
+      for (const profile of ROSTER.concat(MOVE_STYLE_IDS.map((id) => styleProfile(id)))) {
+        const fighter = new Fighter(profile, 0), styleId = moveStyleFor(profile), expected = INPUT_LABELS[styleId];
+        if (!expected) { problems.push(profile.id + ' has no table row for ' + styleId); continue; }
+        boxers += styleId === 'boxer'; judoka += styleId === 'judoka'; wrestlers += styleId === 'wrestler';
+        ['punch', 'kick'].forEach((action, index) => {
+          for (const low of [false, true]) {
+            const played = fighter.pressMove(action, low), listed = attackInputMove(profile, action, false, low);
+            if (!listed || listed.name !== played.name) problems.push(profile.id + ' ' + action + (low ? ' + Duck' : '') + ' plays ' + played.name + ', the helper says ' + (listed && listed.name));
+          }
+          const first = fighter.pressMove(action, false).name, label = attackInputName(profile, action);
+          if (label !== expected[index]) problems.push(profile.id + ' (' + styleId + ') ' + action + ' reads ' + label + ', the table says ' + expected[index]);
+          if (first !== expected[index + 2]) problems.push(profile.id + ' (' + styleId + ') ' + action + ' plays ' + first + ', the table says ' + expected[index + 2]);
+        });
+      }
+      if (boxers < 3 || judoka < 2 || wrestlers < 2) problems.push('too few presets checked: ' + boxers + ' Boxing, ' + judoka + ' Judo, ' + wrestlers + ' Wrestling');
+      const crate = styleFighter('boxer'); crate.item = { id: 'crate', dur: 1 };   // the arms full: Boxing plays the default kick rows for its Kick presses, so the input is a Kick again
+      if (attackInputName(crate.profile, 'kick', true) !== 'Kick' || attackInputName(crate.profile, 'punch', true) !== 'Punch' || crate.pressMove('kick', false).limb[1] !== 'L') problems.push('Boxing with a crate: the Kick input reads ' + attackInputName(crate.profile, 'kick', true) + ' and plays ' + crate.pressMove('kick', false).name);
+      const bat = styleFighter('judoka'); bat.item = { id: 'bat', dur: 1 };   // an item replaces the Punch steps (a plain Punch swings it) and Judo's Kick is still the foot sweep
+      if (attackInputName(bat.profile, 'punch', true) !== 'Punch' || attackInputName(bat.profile, 'kick', true) !== 'Sweep' || bat.pressMove('kick', false).name !== 'Foot Sweep') problems.push('Judo with a bat: ' + attackInputName(bat.profile, 'punch', true) + ' / ' + attackInputName(bat.profile, 'kick', true) + ' and the Kick press plays ' + bat.pressMove('kick', false).name);
+      const wrestlerCrate = styleFighter('wrestler'); wrestlerCrate.item = { id: 'crate', dur: 1 };
+      if (attackInputName(wrestlerCrate.profile, 'punch', true) !== 'Punch' || attackInputName(wrestlerCrate.profile, 'kick', true) !== 'Trip' || wrestlerCrate.pressMove('kick', false).name !== 'Ankle Trip') problems.push('Wrestling with a crate: ' + attackInputName(wrestlerCrate.profile, 'punch', true) + ' / ' + attackInputName(wrestlerCrate.profile, 'kick', true));
+      const note = 'Some styles name these inputs by their moves: Punch is Shove in Wrestling and Brazilian Jiu-Jitsu, Pull in Judo; Kick is Hook in Boxing, Trip in Wrestling, Sweep in Judo. In a fight this screen names your fighter\'s.';
+      if (genericAttackNote() !== note) problems.push('generic note: ' + genericAttackNote());
+      if (clinchStrikeWord('boxer', 'knee') !== 'body shot' || clinchStrikeWord('kickboxer', 'knee') !== 'knee' || clinchStrikeWord('boxer', 'elbow') !== 'elbow') problems.push('clinch words');
+      return problems.length ? problems.length + ': ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Input labels (BP-P18-76): the touch PUNCH and KICK buttons carry the names of the fighter on this device, say what a press really does, change with the fighter, a rematch and an item in the arms, and are not rewritten on a frame where nothing changed', () => {
+      const problems = [], keep = UI.touchButtons;
+      const stub = () => ({ el: { hidden: false, textContent: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; } }, release() {} });
+      const buttons = { punch: stub(), kick: stub() }, foe = styleFighter('kickboxer');
+      const read = (fighter) => { UI.touchContextUpdate({ fighters: [fighter, foe] }); return [buttons.punch.el.textContent, buttons.kick.el.textContent, buttons.punch.el.attrs['aria-label'], buttons.kick.el.attrs['aria-label']].join(' | '); };
+      const expectRead = (what, fighter, text) => { const got = read(fighter); if (got !== text) problems.push(what + ': ' + got); };
+      UI.touchButtons = buttons;
+      try {
+        const boxer = styleFighter('boxer'), kicker = styleFighter('kickboxer'), capoeira = styleFighter('capoeira'), judoka = styleFighter('judoka'), wrestler = styleFighter('wrestler');
+        expectRead('Boxing', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        buttons.kick.el.textContent = 'KEPT';
+        UI.touchContextUpdate({ fighters: [boxer, foe] });
+        if (buttons.kick.el.textContent !== 'KEPT') problems.push('the label was rewritten on a frame where nothing changed');
+        expectRead('Kickboxing after Boxing', kicker, 'PUNCH | KICK | Punch (with Duck: Body Jab) | Kick (with Duck: Low Kick)');
+        expectRead('Boxing again after a rematch or a changed fighter', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        expectRead('Judo', judoka, 'PULL | SWEEP | Pull (with Duck: Low Sleeve Pull) | Sweep (with Duck: Foot Sweep)');
+        expectRead('Wrestling', wrestler, 'SHOVE | TRIP | Shove (with Duck: Snap Down) | Trip (with Duck: Leg Trip)');
+        expectRead('Capoeira', capoeira, 'PUNCH | KICK | Punch (with Duck: Rasteira) | Kick (with Duck: Bananeira)');   // Duck turns the Capoeira Punch into the Rasteira sweep: the aria-label says so
+        boxer.item = { id: 'crate', dur: 1 };
+        expectRead('Boxing with a crate', boxer, 'PUNCH | KICK | Punch (does nothing while you carry the crate) | Kick (with Duck: Low Kick)');   // Punch does nothing in the arms of a crate
+        boxer.item = { id: 'bat', dur: 1 };
+        expectRead('Boxing with a bat', boxer, 'PUNCH | KICK | Punch (swings the baseball bat, also with Duck) | Kick (with Duck: Low Kick)');   // Duck + Punch swings the item as well
+        judoka.item = { id: 'bat', dur: 1 };
+        expectRead('Judo with a bat', judoka, 'PUNCH | SWEEP | Punch (swings the baseball bat, also with Duck) | Sweep (with Duck: Foot Sweep)');
+        boxer.item = null; judoka.item = null;
+        expectRead('Boxing after the item is dropped', boxer, 'PUNCH | HOOK | Punch (with Duck: Body Jab) | Hook (with Duck: Body Hook)');
+        const reads = { fighters: [{ alive: true }, foe] };   // a fighter with no profile leaves the labels as they are
+        UI.touchContextUpdate(reads);
+        if (buttons.kick.el.textContent !== 'HOOK') problems.push('no-profile fighter changed the label');
+      } finally { UI.touchButtons = keep; }
+      if (TOUCH_BUTTONS.find((b) => b[0] === 'kick')[1] !== 'KICK') problems.push('the start label of the Kick button changed');   // before a fighter is known the button keeps the plain name
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Input labels (BP-P18-76): the Move list, the Controls card and screen, the Versus card, the clinch hint and the Pose button read the helper for the fighter in control; with no fighter chosen the Controls screen names both meanings', () => {
+      const problems = [], saved = { state: Game.state, match: Game.match, by: Game.pausedBy, versus: Inputs.versus, device: Input.lastDevice, device2: Input2.lastDevice, pose: Showcase.previewPose };
+      const boxer = styleProfile('boxer'), kicker = styleProfile('kickboxer');
+      try {
+        const lists = { boxer: UI.screen_moves(boxer, 'keyboard'), kicker: UI.screen_moves(kicker, 'keyboard') };
+        if (!lists.boxer.includes('Hook (Bob and Weave Hook)') || !lists.boxer.includes('Press Punch or Hook again') || /\bKick <kbd>/.test(lists.boxer)) problems.push('Boxing Move list names Kick');
+        if (!lists.kicker.includes('Kick <kbd>') || !lists.kicker.includes('Press Punch or Kick again') || lists.kicker.includes('Hook (')) problems.push('Kickboxing Move list changed');
+        if (!UI.screen_moves(boxer, 'touch').includes('<kbd>HOOK</kbd>') || UI.screen_moves(boxer, 'touch').includes('<kbd>KICK</kbd>') || !UI.screen_moves(kicker, 'touch').includes('<kbd>KICK</kbd>')) problems.push('Move list touch keys');
+        Game.state = GS.MENU; Game.match = null;
+        const generic = UI.screen_controls();
+        if (!generic.includes('<td>Kick</td>') || !generic.includes('<td>Punch</td>') || !generic.includes('<p class="hint">' + genericAttackNote() + '</p>') || !generic.includes('Kick is Hook in Boxing, Trip in Wrestling, Sweep in Judo')) problems.push('Controls screen with no fighter: ' + (generic.match(/<td>Kick[^<]*<\/td>/) || ['no Kick row']));   // the rows stay short for a 390 px screen; the styles that differ are named in the note under the table
+        const m = mk({ mode: 'free', playerId: 'yuki', opponentId: 'brutus' });
+        Game.match = m; Game.state = GS.PAUSED; Game.pausedBy = null;
+        const own = UI.screen_controls();
+        if (!own.includes('<td>Hook (Kick input)</td>') || own.includes('Some styles name') || !own.includes('<td data-l="Touch">HOOK</td>') || !own.includes('aria-label="Rebind P1 Hook (Kick input)"') || !own.includes('aria-label="Rebind P2 Hook (Kick input)"') || !own.includes('<p class="hint">Punch and Hook attack on every press.')) problems.push('Controls screen paused as Boxing, one person: ' + (own.match(/<td>[^<]*Kick[^<]*<\/td>/) || ['no Kick row']));
+        // two people, P1 Boxing and P2 a kicking style: each column names its own seat's fighter, whoever paused
+        Inputs.versus = true;
+        for (const by of [Input, Input2]) {
+          Game.pausedBy = by;
+          const two = UI.screen_controls();
+          if (!two.includes('<td>P1: Hook / P2: Kick (Kick input)</td>') || !two.includes('aria-label="Rebind P1 Hook (Kick input)"') || !two.includes('aria-label="Rebind P2 Kick"') || !two.includes('<td data-l="Touch">HOOK</td>') || !two.includes('<td>Punch</td>') || !two.includes('<p class="hint">Punch, Hook and Kick attack on every press.')) problems.push('Controls screen, Boxing P1 and Brawler P2, paused by ' + (by === Input ? 'P1' : 'P2') + ': ' + (two.match(/<td>[^<]*Kick[^<]*<\/td>|aria-label="Rebind P[12] [^"]*"/g) || ['no Kick row']).join(' '));
+        }
+        const swapped = mk({ mode: 'free', playerId: 'brutus', opponentId: 'yuki' });   // P1 Brawler, P2 Boxing
+        Game.match = swapped;
+        for (const by of [Input, Input2]) {
+          Game.pausedBy = by;
+          const two = UI.screen_controls();
+          if (!two.includes('<td>P1: Kick / P2: Hook (Kick input)</td>') || !two.includes('aria-label="Rebind P1 Kick"') || !two.includes('aria-label="Rebind P2 Hook (Kick input)"') || !two.includes('<td data-l="Touch">KICK</td>')) problems.push('Controls screen, Brawler P1 and Boxing P2, paused by ' + (by === Input ? 'P1' : 'P2') + ': ' + (two.match(/<td>[^<]*Kick[^<]*<\/td>|aria-label="Rebind P[12] [^"]*"/g) || ['no Kick row']).join(' '));
+        }
+        Game.match = m;
+        Inputs.versus = false; Game.state = GS.FIGHT; Game.pausedBy = null;
+        const card = UI.controlsCardHtml('keyboard'), touchCard = UI.controlsCardHtml('touch');
+        if (card.includes('Kick <kbd>') || !card.includes('Hook <kbd>') || !card.includes('Press Punch or Hook again') || !touchCard.includes('<kbd>HOOK</kbd>') || touchCard.includes('<kbd>KICK</kbd>')) problems.push('Controls card of a Boxing fighter');
+        Game.match = mk({ mode: 'free', playerId: 'brutus', opponentId: 'yuki' });
+        if (!UI.controlsCardHtml('keyboard').includes('Kick <kbd>') || UI.controlsCardHtml('keyboard').includes('Hook') || !UI.controlsCardHtml('touch').includes('<kbd>KICK</kbd>')) problems.push('Controls card after the fighter changed');
+        const [one, two] = UI.devicesGroups([boxer, kicker]), [plainOne] = UI.devicesGroups(), [judoOne, wrestlerTwo] = UI.devicesGroups([styleProfile('judoka'), styleProfile('wrestler')]);
+        if (!one.includes('punch / hook,') || !two.includes('punch / kick,') || two.includes('hook') || !plainOne.includes('punch / kick,') || plainOne.includes('boxing')) problems.push('Versus card: ' + one + ' | ' + two + ' | ' + plainOne);
+        if (!judoOne.includes('pull / sweep,') || !wrestlerTwo.includes('shove / trip,')) problems.push('Versus card, Judo and Wrestling: ' + judoOne + ' | ' + wrestlerTwo);
+        const lineupLine = UI.lineupDevicesText(2, [boxer, kicker]);   // the lineup screen names the fighters its two people picked
+        if (!lineupLine.includes('punch / hook,') || !lineupLine.includes('punch / kick,')) problems.push('lineup devices line: ' + lineupLine);
+        const a = m.fighters[0], b = m.fighters[1];
+        for (const f of [a, b]) { f.grip = 'front'; f.throwAim = 'fwd'; f.throwPending = null; f.clinchStrikes = 0; }
+        Input.lastDevice = 'keyboard';
+        const hint = UI.throwHint(a), hintB = UI.throwHint(b);
+        if (!hint.includes(UI.keyName('punch', 0) + ' elbow / ' + UI.keyName('kick', 0) + ' body shot (' + CLINCH_STRIKE_MAX + ' left)') || hint.includes('knee')) problems.push('Boxing clinch hint: ' + hint);
+        if (!hintB.includes(UI.keyName('punch', UI.seatOf(b)) + ' elbow / ' + UI.keyName('kick', UI.seatOf(b)) + ' knee (')) problems.push('Brawler clinch hint: ' + hintB);   // the second seat names its own keys
+        Input.lastDevice = Input2.lastDevice = 'touch';
+        if (!UI.throwHint(a).includes('PUNCH elbow / HOOK body shot') || !UI.throwHint(b).includes('PUNCH elbow / KICK knee')) problems.push('touch clinch hint of the two seats: ' + UI.throwHint(a) + ' | ' + UI.throwHint(b));
+        if (poseLabel('kick', boxer) !== 'Hook' || poseLabel('kick', kicker) !== 'Kick' || poseLabel('punch', boxer) !== 'Punch' || poseLabel('guard', boxer) !== 'Guard' || poseLabel('kick') !== 'Kick') problems.push('Pose labels');
+        Showcase.showPreview(boxer); Showcase.setPreviewPose('kick'); Showcase.drivePreview(Showcase.previewFighter, 1 / 60);
+        const previewed = Showcase.previewFighter.move;
+        if (!previewed || previewed.limb[1] === 'L') problems.push('the Boxing preview Kick pose plays ' + (previewed && previewed.name));
+        Showcase.showPreview(kicker); Showcase.setPreviewPose('kick'); Showcase.drivePreview(Showcase.previewFighter, 1 / 60);
+        if (Showcase.previewFighter.move !== ATTACKS.roundhouse) problems.push('the Kickboxing preview Kick pose changed');
+      } finally {
+        Showcase.endPreview(); Showcase.setPreviewPose(saved.pose);
+        Game.state = saved.state; Game.match = saved.match; Game.pausedBy = saved.by; Inputs.versus = saved.versus; Input.lastDevice = saved.device; Input2.lastDevice = saved.device2;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+
+    /* ---------- P18-77: z-fighting, depth steps and pops in the levels (Appendix D "P18-77") ---------- */
+    /* A face drawn at the depth of another that faces the same way, over the same area, is a coin toss per pixel (z-fighting). Every draw call of a level (props, objects, items, hazards) is recorded with R.push;
+       each box is six flat faces and each cylinder two (16-gon caps); two faces that face one way, lie within Z_FIGHT_GAP of each other, share more than Z_FIGHT_AREA (Z_FIGHT_AREA_ITEM for a parked weapon), differ in colour, layer or light, and both show to
+       some eye of the fight cameras (a ray from the eye to the shared area meets no opaque box first) are a pair. Same-coloured neighbours (the posts of a frame) cannot be told apart on screen and do not count. */
+    const Z_FIGHT_GAP = 0.002, Z_FIGHT_AREA = 0.0002, Z_FIGHT_AREA_ITEM = 0.004;   // m, m2 (0.0002 and not 0.0005: the board gaps of a deck end 0.03 x 0.008 = 0.00024 m2 against the lip, and a floor of 0.0005 let that tie through): the pieces of a parked weapon are a few centimetres each and sometimes share a face with a neighbour, so a pair that holds one needs more area to count
+    const zDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const zSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const zCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const zUnit = (a) => { const length = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / length, a[1] / length, a[2] / length]; };
+    const zMove = (m, p) => [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+    const zAreaOf = (points) => { let sum = 0; for (let i = 0; i < points.length; i++) { const a = points[i], b = points[(i + 1) % points.length]; sum += a[0] * b[1] - b[0] * a[1]; } return sum / 2; };
+    // The flat faces of one recorded instance: a box gives six quads, a cylinder two caps; each has its outward normal, the offset d of its plane along it, its corners and its centre
+    const zFacesOf = (rec) => {
+      const faces = [], body = zMove(rec.m, [0, 0, 0]);
+      const add = (local, corners) => {
+        const polygon = corners.map((corner) => zMove(rec.m, corner)), centre = zMove(rec.m, [local[0] * 0.5, local[1] * 0.5, local[2] * 0.5]);
+        let normal = zUnit(zCross(zSub(polygon[1], polygon[0]), zSub(polygon[2], polygon[1])));
+        if (zDot(normal, zSub(centre, body)) < 0) normal = [-normal[0], -normal[1], -normal[2]];
+        faces.push({ rec, normal, d: zDot(normal, centre), centre, polygon });
+      };
+      if (rec.mesh === MESH.CUBE) {
+        for (const local of [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]]) {
+          const across = local[1] ? [[1, 0, 0], [0, 0, 1]] : local[0] ? [[0, 1, 0], [0, 0, 1]] : [[1, 0, 0], [0, 1, 0]];
+          add(local, [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [0, 1, 2].map((k) => local[k] * 0.5 + 0.5 * (u * across[0][k] + v * across[1][k]))));
+        }
+      } else if (rec.mesh === MESH.CYL) {
+        for (const up of [1, -1]) add([0, up, 0], Array.from({ length: 16 }, (_, j) => [Math.cos(j / 16 * 2 * Math.PI) * 0.5, up * 0.5, Math.sin(j / 16 * 2 * Math.PI) * 0.5]));
+      }
+      return faces;
+    };
+    // The area two coplanar faces share and a few points inside it (3D), by clipping one polygon with the other in the plane's own 2D axes
+    const zShared = (f, g) => {
+      const n = f.normal, across = zUnit(zCross(Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], n)), up = zCross(n, across), flat = (p) => [zDot(p, across), zDot(p, up)];
+      const first = f.polygon.map(flat), second = g.polygon.map(flat);
+      if (zAreaOf(first) < 0) first.reverse();
+      if (zAreaOf(second) < 0) second.reverse();
+      let kept = first;
+      for (let i = 0; i < second.length && kept.length; i++) {
+        const a = second[i], b = second[(i + 1) % second.length], input = kept, inside = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= -1e-9;
+        const cut = (p, q) => { const t = ((p[0] - a[0]) * (a[1] - b[1]) - (p[1] - a[1]) * (a[0] - b[0])) / (((p[0] - q[0]) * (a[1] - b[1]) - (p[1] - q[1]) * (a[0] - b[0])) || 1e-12); return [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]; };
+        kept = [];
+        for (let j = 0; j < input.length; j++) {
+          const p = input[j], q = input[(j + 1) % input.length];
+          if (inside(p)) { kept.push(p); if (!inside(q)) kept.push(cut(p, q)); } else if (inside(q)) kept.push(cut(p, q));
+        }
+      }
+      if (kept.length < 3) return { area: 0, points: [] };
+      const mid = [kept.reduce((s, p) => s + p[0], 0) / kept.length, kept.reduce((s, p) => s + p[1], 0) / kept.length], base = zDot(n, f.centre);
+      const back = (p) => [0, 1, 2].map((k) => across[k] * p[0] + up[k] * p[1] + n[k] * base);
+      return { area: Math.abs(zAreaOf(kept)), points: [mid].concat(kept.map((p) => [mid[0] + (p[0] - mid[0]) * 0.8, mid[1] + (p[1] - mid[1]) * 0.8])).map(back) };
+    };
+    // Whether the segment from p to eye crosses an opaque box or cylinder (as its bounding box) other than those in `skip`
+    const zBlocked = (p, eye, boxes, skip) => {
+      const way = zSub(eye, p), length = Math.hypot(way[0], way[1], way[2]), dir = way.map((v) => v / length);
+      return boxes.some((box) => {
+        if (skip.includes(box.rec)) return false;
+        const from = zSub(p, box.at), start = [zDot(from, box.x) / box.sx, zDot(from, box.y) / box.sy, zDot(from, box.z) / box.sz], step = [zDot(dir, box.x) / box.sx, zDot(dir, box.y) / box.sy, zDot(dir, box.z) / box.sz];
+        let t0 = 0.0005, t1 = length - 0.0005;
+        for (let k = 0; k < 3; k++) {
+          if (Math.abs(step[k]) < 1e-12) { if (start[k] < -0.5 || start[k] > 0.5) return false; continue; }
+          const a = (-0.5 - start[k]) / step[k], b = (0.5 - start[k]) / step[k];
+          t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+        }
+        return t0 <= t1;
+      });
+    };
+    // Every pair of faces of the recorded instances (see above) that z-fight on a level with these bounds
+    const zFightPairs = (recs, bounds) => {
+      const faces = [].concat(...recs.map(zFacesOf)), boxes = recs.filter((r) => r.layer <= LAYER.SOLID && r.alpha >= 0.99 && (r.mesh === MESH.CUBE || r.mesh === MESH.CYL)).map((r) => {
+        const x = [r.m[0], r.m[1], r.m[2]], y = [r.m[4], r.m[5], r.m[6]], z = [r.m[8], r.m[9], r.m[10]];
+        return { rec: r, x, y, z, at: [r.m[12], r.m[13], r.m[14]], sx: zDot(x, x) || 1, sy: zDot(y, y) || 1, sz: zDot(z, z) || 1 };
+      });
+      const eyes = [], reach = Math.max(1, bounds.x - 0.6);   // the eye stays 0.6 m inside the side and back walls, up to 12 m in front of the front line, as high as a portrait phone lifts it
+      for (const fx of [-1, 0, 1]) for (const z of [-(bounds.z - 0.6), bounds.z, bounds.z + 12]) for (const y of [1.8, 5, 10, 17]) eyes.push([fx * reach, y, z]);
+      const pairs = [], round2 = (v) => Math.round(v * 100) / 100;
+      const describe = (f) => (f.rec.mesh === MESH.CUBE ? 'box ' : 'cylinder ') + [[0, 1, 2], [4, 5, 6], [8, 9, 10]].map((c) => Math.round(Math.hypot(f.rec.m[c[0]], f.rec.m[c[1]], f.rec.m[c[2]]) * 1000) / 1000).join('x') + ' at ' + f.rec.m.slice(12, 15).map(round2);   // the size and the centre of an instance
+      const groups = new Map();   // the faces by the way they face: only faces of one direction can fight, and within it only those whose planes lie near each other
+      for (const face of faces) { const key = face.normal.map((v) => Math.round(v * 1000) / 1000).join(','); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(face); }
+      for (const group of groups.values()) group.sort((p, q) => p.d - q.d);
+      for (const group of groups.values()) for (let a = 0; a < group.length; a++) for (let b = a + 1; b < group.length && group[b].d - group[a].d < Z_FIGHT_GAP; b++) {
+        const f = group[a], g = group[b], gap = group[b].d - group[a].d;
+        if (f.rec === g.rec) continue;
+        const p = f.rec, q = g.rec, colour = Math.abs(p.colour[0] - q.colour[0]) + Math.abs(p.colour[1] - q.colour[1]) + Math.abs(p.colour[2] - q.colour[2]);
+        if (colour <= 0.03 && p.layer === q.layer && Math.abs(p.alpha - q.alpha) <= 0.02 && Math.abs(p.glow - q.glow) <= 0.05 && Math.abs(p.rough - q.rough) <= 0.15) continue;
+        const shared = zShared(f, g);
+        if (shared.area < (p.item || q.item ? Z_FIGHT_AREA_ITEM : Z_FIGHT_AREA)) continue;
+        const seen = shared.points.slice(0, 5).some((point) => {
+          const lifted = [0, 1, 2].map((k) => point[k] + f.normal[k] * 0.002);
+          return eyes.some((eye) => zDot(f.normal, zSub(eye, lifted)) > 0.05 && !zBlocked(lifted, eye, boxes, [p, q]));
+        });
+        if (seen) pairs.push(describe(f) + ' and ' + describe(g) + ' share ' + shared.area.toFixed(4) + ' m2, ' + gap.toFixed(4) + ' m apart');
+      }
+      return pairs;
+    };
+    test('Z-fighting (P18-77): on every level, with the High and the Low preset (the plain looks), no two faces of different colour face the same way, lie within 0.002 m of each other, share more than 0.0002 m2 (0.004 m2 for a parked weapon) and both show to a fight camera (wall tops and pilasters, posters and wall strips, deck plates, legs, lips and meshes, column collars, sofa arms, stair treads, hazard strips)', () => {
+      const problems = [], push = R.push, limits = Quality.limits, eye = Camera.pos.slice();
+      try {
+        Camera.pos[0] = 0; Camera.pos[1] = 1.8; Camera.pos[2] = 40;   // far from every ceiling prop: none is faded
+        for (const [preset, lod] of [['high', false], ['low', true]]) {   // high: every dressing box is drawn; low: the plain looks of every destructible (set below; lodTick 1 keeps updateLod from running on this draw) and the least dressing
+          Quality.limits = QUALITY_PRESETS[preset];
+          for (const id of ARENA_ORDER) {
+            const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), recs = [];
+            let item = false;
+            R.push = (layer, mesh, matrix, colour, alpha, glow, rough) => { recs.push({ layer, mesh, m: Array.from(matrix), colour: Array.from(colour), alpha, glow: glow || 0, rough: rough || 0, item }); };
+            try { if (lod) for (const o of Arena.objects) if (!o.fixed) o.far = true; Arena.lodTick = 1; Arena.draw(); item = true; m.drawItems(); item = false; m.drawHazards(); } finally { R.push = push; }
+            if (recs.length < 100) problems.push(preset + ' ' + id + ' drew only ' + recs.length + ' pieces');
+            for (const pair of zFightPairs(recs, ARENAS[id].bounds)) problems.push(preset + ' ' + id + ': ' + pair);
+          }
+        }
+      } finally { R.push = push; Quality.limits = limits; Camera.pos[0] = eye[0]; Camera.pos[1] = eye[1]; Camera.pos[2] = eye[2]; Arena.build(ARENAS.warehouse); Debris.clear(); FX.clear(); }
+      return problems.length ? problems.length + ' pairs: ' + problems.slice(0, 4).join('; ') : true;
+    });
+    test('Depth precision (P18-77): the clip planes keep a 0.002 m offset eight depth steps wide of a 24-bit buffer at the farthest surface a fight camera shows (43 m, measured on all 8 levels at 1280x720, 844x390 and 390x844), and the far plane keeps every level whole (the near plane against the walls is checked by "Arena bounds (P17-08)": its four corners stay inside the room)', () => {
+      const bad = [], keep = [R.cssW, R.cssH];
+      try {
+        R.cssW = 1280; R.cssH = 720; Camera.apply();
+        const p = Camera.proj, near = p[14] / (p[10] - 1), far = p[14] / (p[10] + 1), farthest = 43, step = farthest * farthest * (far - near) / (far * near * 16777216);   // the size of one depth step at that distance (m)
+        if (8 * step > Z_FIGHT_GAP) bad.push('a depth step at ' + farthest + ' m is ' + (step * 1000).toFixed(3) + ' mm: ' + Z_FIGHT_GAP / step + ' steps in ' + Z_FIGHT_GAP + ' m, not 8 (near ' + near.toFixed(2) + ', far ' + far.toFixed(0) + ')');
+        if (far < 60) bad.push('the far plane at ' + far.toFixed(0) + ' m cuts a level (the farthest wall is 43 m away)');
+      } finally { R.cssW = keep[0]; R.cssH = keep[1]; Camera.apply(); }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Ceiling props (P18-77): a light tube fades with no jump as the eye comes up to it (0.05 of its opacity at most between two eyes 0.01 m apart), is whole 1.2 m away and gone before the eye is 0.3 m away', () => {
+      const bad = [], put = R.put, eye = Camera.pos.slice();
+      try {
+        Arena.build(ARENAS.garage);   // its tubes hang at 4.2 m: their undersides are over the 3 m ceiling line
+        const tube = Arena.props.find((q) => !q.d && q.sx >= 2 && q.y - q.sy * 0.5 >= 3);
+        if (!tube) return 'the Garage has no ceiling tube to test';
+        const opacity = (distance) => {   // the opacity the tube is drawn with when the eye is `distance` under it (0 when it is not drawn)
+          Camera.pos[0] = tube.x; Camera.pos[1] = tube.y - tube.sy * 0.5 - distance; Camera.pos[2] = tube.z;
+          let seen = 0;
+          R.put = (layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, colour, alpha) => { if (x === tube.x && z === tube.z && sx === tube.sx && sy === tube.sy) seen = layer === LAYER.ALPHA ? alpha : 1; };
+          Arena.lodTick = 1; Arena.draw();
+          return seen;
+        };
+        let last = opacity(0.2);
+        for (let d = 0.21; d <= 1.5; d += 0.01) {
+          const now = opacity(d);
+          if (Math.abs(now - last) > 0.05) { bad.push('the opacity jumps from ' + last.toFixed(2) + ' to ' + now.toFixed(2) + ' between eyes ' + (d - 0.01).toFixed(2) + ' and ' + d.toFixed(2) + ' m under it'); break; }
+          last = now;
+        }
+        if (opacity(1.2) !== 1) bad.push('the tube is not whole 1.2 m away');
+        if (opacity(0.3) !== 0) bad.push('the tube is still drawn with the eye 0.3 m away (' + opacity(0.3).toFixed(2) + ')');
+      } finally { R.put = put; Camera.pos[0] = eye[0]; Camera.pos[1] = eye[1]; Camera.pos[2] = eye[2]; Arena.build(ARENAS.warehouse); Debris.clear(); }
+      return bad.length ? bad.join('; ') : true;
+    });
+
+    test('Detail budget (P18-77): two objects trading places at the edge of the detail budget do not swap looks each time the budget is recounted (the straps and doors that popped on and off at low quality)', () => {
+      const keep = { objects: Arena.objects, limits: Quality.limits, aim: Camera.target.slice() };
+      try {
+        Quality.limits = Object.assign({}, QUALITY_PRESETS.low, { live: 5 });
+        Arena.objects = Array.from({ length: 20 }, (_, i) => ({ x: i, z: 0, fixed: false, destroyed: false, far: false, hide: false }));   // a row of intact objects, 1 m apart
+        let swaps = 0, last = '';
+        for (let k = 0; k < 12; k++) {
+          Camera.target[0] = 4.5 + (k % 2 ? 0.01 : -0.01); Camera.target[2] = 0;   // the aim crosses the line between the objects 4 and 5 on every call, so the 2nd and the 7th trade the last place in the budget
+          Arena.updateLod();
+          const now = Arena.objects.map((o) => o.far).join();
+          if (k && now !== last) swaps++;
+          last = now;
+        }
+        const full = Arena.objects.filter((o) => !o.far).length;
+        if (swaps > 0) return 'the set of objects drawn in full changed ' + swaps + ' times in 11 recounts with the aim moving 0.02 m';
+        if (full !== 5) return full + ' objects drawn in full, the budget is 5';
+      } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
+      return true;
+    });
+    test('Detail budget fill (P18-77): with every object plain (the camera turned to another part of the level), a budget of 0, 1, 2, 5 or 14 is filled in one recount and stays filled with the same objects, nearest first', () => {
+      const keep = { objects: Arena.objects, limits: Quality.limits, aim: Camera.target.slice() }, bad = [];
+      try {
+        Camera.target[0] = 0; Camera.target[2] = 0;
+        for (const live of [0, 1, 2, 5, 14]) {
+          Quality.limits = Object.assign({}, QUALITY_PRESETS.low, { live });
+          Arena.objects = Array.from({ length: 20 }, (_, i) => ({ x: i, z: 0, fixed: false, destroyed: false, far: true, hide: false }));   // a row of intact plain objects, nearest first
+          Arena.updateLod();
+          const first = Arena.objects.map((o) => o.far).join();
+          Arena.updateLod();
+          const drawn = Arena.objects.filter((o) => !o.far).map((o) => o.x);
+          if (drawn.length !== live) bad.push('budget ' + live + ': ' + drawn.length + ' drawn in full');
+          else if (drawn.some((x, k) => x !== k)) bad.push('budget ' + live + ': not the nearest (' + drawn.join(',') + ')');
+          if (Arena.objects.map((o) => o.far).join() !== first) bad.push('budget ' + live + ': changed on the second recount');
+        }
+      } finally { Arena.objects = keep.objects; Quality.limits = keep.limits; Camera.target[0] = keep.aim[0]; Camera.target[1] = keep.aim[1]; Camera.target[2] = keep.aim[2]; }
+      return bad.length ? bad.join('; ') : true;
+    });
+
+    /* ---------- the runner and what the tests leave open (P18-74) ---------- */
+    test('Test runner (P18-74): an async test starts only after the synchronous pass over the tests has ended, so its 10 s limit and its timers run on a free event loop (inside the pass the online-link tests failed with "no result after 10000 ms"); a plain test that returns a promise fails with a message saying so instead of starting inside the pass', async () => {
+      const bad = [];
+      if (!(syncPass.endedAt > 0)) bad.push('an async test started inside the synchronous pass');
+      const promised = { detail: '', pass: true }, plain = { detail: '', pass: false }, thrown = { detail: '', pass: true };
+      runInPass(promised, () => Promise.resolve(true));
+      runInPass(plain, () => true);
+      runInPass(thrown, () => { throw new Error('boom'); });
+      if (promised.pass || !promised.detail.includes('return a promise only from an async test')) bad.push('a plain test that returns a promise: pass ' + promised.pass + ', "' + promised.detail + '"');
+      if (!plain.pass || thrown.pass || thrown.detail !== 'exception: boom') bad.push('a plain test: pass ' + plain.pass + '; one that throws: pass ' + thrown.pass + ', "' + thrown.detail + '"');
+      if (!((async () => {}) instanceof AsyncFunction)) bad.push('an async function is not told apart from a plain one');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Announcer (P18-74): any number of banners and announcements leaves at most two timers waiting (the newest banner\'s and the newest announcement\'s); the self-tests used to leave 76 000 behind, and the page then spent minutes running them before any other timer could fire; announcements said in the same 30 ms are all read out, once each', () => {
+      const keep = { dom: UI.dom, set: window.setTimeout, clear: window.clearTimeout, banners: UI.banners, bannerTimer: UI.bannerTimer, sayTimer: UI.sayTimer, sayPending: UI.sayPending };
+      const waiting = new Map();   // timer id -> its callback
+      let nextId = 1;
+      UI.dom = { announce: { textContent: '' }, banner: { innerHTML: '', classList: { add() {}, remove() {} } } };
+      window.setTimeout = (callback) => { waiting.set(nextId, callback); return nextId++; };   // nothing is scheduled: the test only counts the timers asked for and not cancelled, and fires them itself
+      window.clearTimeout = (id) => { waiting.delete(id); };
+      try {
+        const bad = [];
+        for (let i = 0; i < 1000; i++) { UI.banner('ROUND ' + i, 'FIGHT', 1500); UI.say('Player ' + i + ' is out'); }
+        if (waiting.size > 2) bad.push(waiting.size + ' timers are waiting after 1000 banners and 1000 announcements');
+        waiting.clear(); UI.sayPending = [];
+        UI.say('K.O.!'); UI.say('Player 2 is out'); UI.say('Player 2 is out');   // two knock-outs on one tick, the second said twice
+        if (waiting.size !== 1) bad.push(waiting.size + ' timers are waiting after three announcements in one tick');
+        if (UI.dom.announce.textContent !== '') bad.push('the live region holds "' + UI.dom.announce.textContent + '" before the timer fires');
+        [...waiting.values()].forEach((callback) => callback());
+        if (UI.dom.announce.textContent !== 'K.O.! Player 2 is out') bad.push('the live region reads "' + UI.dom.announce.textContent + '", not both announcements once each');
+        if (UI.sayPending.length) bad.push('the announcements are still waiting after the timer fired');
+        return bad.length ? bad.join('; ') : true;
+      } finally { Object.assign(window, { setTimeout: keep.set, clearTimeout: keep.clear }); Object.assign(UI, { dom: keep.dom, banners: keep.banners, bannerTimer: keep.bannerTimer, sayTimer: keep.sayTimer, sayPending: keep.sayPending }); }
+    });
+    /* Deferred and registered after every other test, so the connections of the whole run are counted */
+    test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
+      const open = madeConnections.filter((connection) => connection.signalingState !== 'closed');
+      return open.length ? open.length + ' of ' + madeConnections.length + ' RTCPeerConnections are still open (' + open.map((connection) => connection.connectionState).join(', ') + ')' : true;
+    }, 1000);
+
     /* ---------- no skipped test in a real browser (P17-15) ---------- */
     /* Keep this the last test: it reads the results of all the others. A skip is allowed only in the headless stub (no layout engine); a real browser that skips a check, e.g. in a hidden pane, fails here. */
     test('Skipped tests (P17-15): no test is skipped where a real layout engine is present (a headless stub run skips the layout checks and says so)', () => {
@@ -22229,27 +22845,32 @@ const SelfTest = {
       const noWebRtc = typeof RTCPeerConnection === 'undefined';   // an engine without WebRTC (the Playwright WebKit on Windows) may skip the two WebRTC tests (P12-04, P12-01); every engine a player uses has it
       const skippedNames = results.filter((r) => r.skipped && !(noWebRtc && (r.name.startsWith('CSP under WebRTC') || r.name.startsWith('Online loopback') || r.name.startsWith('Lockstep over real links')))).map((r) => r.name);
       return skippedNames.length ? skippedNames.length + ' skipped in a real browser: ' + skippedNames.join(' | ') : true;
-    });
+    }, 1000); // deferred (P18-74): it runs after every other test, so the results it reads include the async tests (they used to be still running here)
     for (const id in OLD_ARENAS) delete ARENAS[id];
     results.filtered = isPattern || wanted.length > 0;   // the game says so on the results
     const runDeferred = async () => {
-      for (const { entry, fn, limitMs } of deferredTests) {
-        const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
-        try {
-          const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
-          work = Promise.resolve(fn(ctl));
-          record(entry, await Promise.race([work, tooSlow]));
-        } catch (e) {
-          entry.detail = 'exception: ' + String(e && e.message || e);
-          ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
-          if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
-        } finally { clearTimeout(timer); }
-        entry.ms = Math.round(performance.now() - started);
-        self.made.splice(0).forEach((made) => made.dispose());
-        if (Match.current) Match.current.dispose();
-      }
+      try {
+        for (const { entry, fn, limitMs } of deferredTests) {
+          const started = performance.now(), ctl = { cancelled: false }; let timer = 0, work = null;   // ctl.cancelled: told to stop when the time is up
+          try {
+            const tooSlow = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no result after ' + limitMs + ' ms')), limitMs); });
+            work = Promise.resolve(fn(ctl));
+            record(entry, await Promise.race([work, tooSlow]));
+          } catch (e) {
+            entry.detail = 'exception: ' + String(e && e.message || e);
+            ctl.cancelled = true;   // a test that ran out of time stops; the next one starts when it has (5 s at most), so its finally cannot restore over the next test's state
+            if (work) await Promise.race([work.then(() => {}, () => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+          } finally { clearTimeout(timer); }
+          entry.ms = Math.round(performance.now() - started);
+          try {
+            self.made.splice(0).forEach((made) => made.dispose());
+            if (Match.current) Match.current.dispose();
+          } catch (e) { Object.assign(entry, { pass: false, detail: 'exception while cleaning up: ' + String(e && e.message || e) }); }
+        }
+      } finally { stopWatching(); }
     };
-    results.settled = Promise.all(pendingTests).then(runDeferred);   // resolves when the async tests (P12-04) have filled in their results
+    syncPass.endedAt = performance.now();
+    results.settled = Promise.resolve().then(runDeferred);   // resolves when the deferred tests (every async one, P12-04) have filled in their results; they start after run_all has returned
     return results;
   },
 };
