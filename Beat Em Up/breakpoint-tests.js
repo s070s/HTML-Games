@@ -16075,6 +16075,7 @@ const SelfTest = {
       if (priceOf(3) !== 3.5 || priceOf(6) !== 6.9 || priceOf(9) !== 10.4 || weapons < 20) problems.push('weapon steps: ' + weapons + ' rows, ' + [priceOf(3), priceOf(6), priceOf(9)]);
       const m = mk({ evenDamage: true, difficulty: 'hard' }), a = m.fighters[0], d = m.fighters[1];
       self.place(m, 1.0);
+      self.run(m, 1);   // one tick, so the fighters have their targets (readIntents below needs them)
       const spend = (act) => { a.stam = 100; act(); return Math.round((100 - a.stam) * 1000) / 1000; };
       for (const grip of Object.keys(THROW_SETS)) for (const dir of THROW_DIRS) {   // every throw pays its P18-33 data price x 1.15
         a.grip = grip; a.partner = d;
@@ -16082,10 +16083,34 @@ const SelfTest = {
         if (got !== priceOf(data.stam)) problems.push('throw ' + grip + ' ' + dir + ' costs ' + got + ', not ' + priceOf(data.stam));
       }
       for (const [id, old] of [['knee', 4], ['elbow', 6]]) { const got = spend(() => Combat.clinchStrike(a, d, CLINCH_MOVES[id], m)); if (got !== priceOf(old)) problems.push('clinch ' + id + ' costs ' + got + ', not ' + priceOf(old)); }
-      const attack = (cpu, chain) => { a.setState(S.IDLE); a.cpu = cpu; if (chain) a.startAttack(ATTACKS.jab); return spend(() => a.startAttack(ATTACKS.jab)); };   // chain: a first attack is still running, so this one cancels into it
+      const moveList = UI.screen_moves(ROSTER_BY_ID.kai, 'keyboard'), listed = (pattern) => [...moveList.matchAll(pattern)].map((hit) => Number(hit[1])).join();   // the Move list prints what the fighter pays, not the P18-33 data
+      const kaiStyle = moveStyleFor(ROSTER_BY_ID.kai), clinchListed = listed(/ dmg, ([\d.]+) stam \(the foe stays held/g), clinchPaid = Object.keys(CLINCH_MOVES).map((id) => priceOf(CLINCH_MOVES[id].stam)).join();
+      const throwListed = listed(/escape until \d+, recovery \d+ frames, ([\d.]+) stam<\/td>/g), throwPaid = ['front', 'rear', 'low'].flatMap((grip) => THROW_DIRS.filter((dir) => dir !== 'left').map((dir) => priceOf(throwFor(grip, dir, kaiStyle).stam))).join();   // the rows run by grip, then direction, the mirror image left left out
+      if (!clinchListed || clinchListed !== clinchPaid) problems.push('the Move list shows the clinch strikes at ' + clinchListed + ' stam, they cost ' + clinchPaid);
+      if (!throwListed || throwListed !== throwPaid) problems.push('the Move list shows the throws at ' + throwListed + ' stam, they cost ' + throwPaid);
+      const attack = (cpu, chain) => { a.setState(S.IDLE); m.controllers[0] = cpu ? new AIController(a.profile, 'hard') : self.scripted(() => {}); m.readIntents(); if (chain) a.startAttack(ATTACKS.jab); return spend(() => a.startAttack(ATTACKS.jab)); };   // chain: a first attack is still running, so this one cancels into it; the CPU flag is set by the controller through the match's own readIntents, as in a tick
       const plain = attack(false, false), cancel = attack(false, true), cpuCancel = attack(true, true), pause = attack(false, false);
       if (plain !== 3.5 || cancel !== 6.3 || cpuCancel !== 3.5 || pause !== 3.5) problems.push('jab costs ' + plain + ' after a pause, ' + cancel + ' cancelled, ' + cpuCancel + ' cancelled by a CPU, ' + pause + ' after another pause');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Stamina (P18-52): a fighter is a CPU (no cancel surcharge) when an AIController steers it or a Training dummy in an AI mode does, and is not when a script, a person or a plain dummy does; the flag follows a swap of the controller', () => {
+      const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), [a, d] = m.fighters;
+      const cases = [   // [what steers the fighter, is it a CPU]
+        ['AIController', () => new AIController(a.profile, 'hard'), true],
+        ['scripted controller', () => self.scripted(() => {}), false],
+        ['AI-mode dummy (expert)', () => new DummyController(a.profile, 'expert'), true],
+        ['plain dummy (block)', () => new DummyController(a.profile, 'block'), false],
+        ['scripted controller after a CPU', () => self.scripted(() => {}), false],
+      ];
+      for (const [name, make, want] of cases) {
+        m.controllers[0] = make();
+        self.run(m, 1);
+        if (a.cpu !== want) problems.push(name + ': cpu ' + a.cpu + ', not ' + want);
+      }
+      m.controllers[1] = new DummyController(d.profile, 'normal');   // the dummy's seat is read the same way
+      self.run(m, 1);
+      if (!d.cpu) problems.push('the dummy on seat 1 in an AI mode is not a CPU');
+      return problems.length ? problems.join('; ') : true;
     });
     test('Stamina (P18-52): the refill - the share of every state, the waits (24 after an attack, 40 after a blocked hit, 24 after a sway, 20 after a run, 40 after a throw, 30 after a clinch strike), KAI at 28 a second at Hard and the refill factor of each band', () => {
       const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), f = m.fighters[0], d = m.fighters[1];
@@ -16169,6 +16194,13 @@ const SelfTest = {
           f.stam = f.maxStam * fraction; UI.staminaBand(0, f);
           const got = ['winded', 'low', 'spent'].filter((name) => classes.has(name)).join(' ');
           if (got !== want) problems.push(fraction * 100 + ' %: classes "' + got + '", not "' + want + '"');
+        }
+        const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {}), panel = { innerHTML: '', hidden: false };
+        UI.dom = { training: panel }; UI.cache = {};   // a stand-in for the panel element, so the test needs no screen
+        for (const [fraction, want] of [[0.9, 'Fresh<br>'], [0.4, 'Winded<br>'], [0.2, 'Tired (LOW STAMINA)<br>'], [0.05, 'Spent (LOW STAMINA)<br>']]) {   // the band name, and LOW STAMINA only under 25 %
+          training.fighters[0].stam = training.fighters[0].maxStam * fraction;
+          UI.trainingPanel(training);
+          if (!panel.innerHTML.includes('<b>STAMINA</b> ' + want)) problems.push('Training at ' + fraction * 100 + ' %: no "STAMINA ' + want.replace('<br>', '') + '" line');
         }
       } finally { UI.dom = savedDom; UI.cache = savedCache; }
       return problems.length ? problems.join('; ') : true;

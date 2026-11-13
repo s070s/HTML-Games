@@ -192,7 +192,7 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .bar.st i{background:#8dff7a}
 .bar.st.low i{background:repeating-linear-gradient(90deg,#ffb347 0 .35em,#7a3d00 .35em .7em)}
 .bar.st.low{border-style:dashed;border-color:#ffb347}
-.bar.st{background-image:linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.55) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(25% - .5px),rgba(255,255,255,.55) calc(25% - .5px) calc(25% + .5px),transparent calc(25% + .5px))} /* hairline ticks at 50 % and 25 % */
+.bar.st::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.55) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(25% - .5px),rgba(255,255,255,.55) calc(25% - .5px) calc(25% + .5px),transparent calc(25% + .5px))}.hs.r .bar.st::after{background-image:linear-gradient(90deg,transparent calc(50% - .5px),rgba(255,255,255,.55) calc(50% - .5px) calc(50% + .5px),transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(75% - .5px),rgba(255,255,255,.55) calc(75% - .5px) calc(75% + .5px),transparent calc(75% + .5px))} /* hairline ticks at 50 % and 25 % of the tank, over the fill; the right bar fills from the right, so its 25 % is 75 % from the left */
 .bar.st.winded i{background:#f2e45a}
 .bar.st.spent i{background:repeating-linear-gradient(90deg,#ff4a4a 0 .2em,#5a0f0f .2em .4em)}
 .bar.st.spent{border-color:#ff4a4a}
@@ -12213,7 +12213,8 @@ class MatchSim {
       const f = fighters[i];
       if (this.locked || !f.alive) { clearIntent(this.intents[i]); f.lockOn = null; f.stickMag = 0; } // the lock ends with the fight and with a knock-out
       else {
-        f.cpu = this.controllers[i] instanceof AIController; // whoever steers it now (a swapped-in script or person pays the chain price)
+        const controller = this.controllers[i];
+        f.cpu = controller instanceof AIController || controller.ai instanceof AIController; // whoever steers it now (a swapped-in script or person pays the chain price); a Training dummy in an AI mode steers through an inner AIController
         this.controllers[i].think(f, f.target, this, this.intents[i]);
         if (this.controllers[i].human) { this.updateLock(f, this.intents[i]); this.readAssist(this.intents[i]); }
       }
@@ -17048,13 +17049,13 @@ const UI = {
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
       const c = CLINCH_MOVES[id];
-      return '<tr><td>' + esc(clinchMoveName(styleId, id)) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + c.stam + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
+      return '<tr><td>' + esc(clinchMoveName(styleId, id)) + '</td><td>In a clinch: ' + key(id === 'elbow' ? 'punch' : 'kick') + '</td><td>Mid, 0 / 1 / ' + CLINCH_STRIKE_COOLDOWN + ' frames, ' + c.dmg + ' dmg, ' + stamPrice(c.stam) + ' stam (the foe stays held; ' + (c.drain ? 'drains ' + c.drain + ' stamina; ' : '') + 'up to ' + CLINCH_STRIKE_MAX + ' per clinch, ' + CLINCH_STRIKE_COOLDOWN + 'f apart)</td></tr>';
     }).join('');
     const tackleHit = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: 0, hitstun: Math.round(TACKLE_MOVE.hitstun * 1.15) }).onHit, tackleBlock = frameAdvantage(TACKLE_MOVE, { active: 1, recovery: TACKLE_STOP_LOCK, blockstun: TACKLE_BLOCK_STUN }).onBlock;
     const tackleRow = weightClass(profile) < TACKLE_MIN_GAP || carry ? '' : '<tr><td>' + esc(TACKLE_MOVE.name) + '</td><td>Run into a fighter at least ' + TACKLE_MIN_GAP + ' weight classes lighter</td><td>Mid, 0 / 1 / 0 frames, ' + TACKLE_MOVE.dmg + ' dmg, hit ' + adv(tackleHit) + ' / block ' + adv(tackleBlock) + ' (stagger; Block stops it with no damage, Sway or Sidestep dodges it)</td></tr>';
     const throwRows = ['front', 'rear', 'low'].flatMap((grip) => THROW_DIRS.filter((dir) => dir !== 'left').map((dir) => { // left and right are mirror images; the style's own throws replace some of the set
       const t = throwFor(grip, dir, styleId);
-      return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + t.stam + ' stam</td></tr>';
+      return '<tr><td>' + esc(t.name) + '</td><td>' + GRIP_LABEL[grip].toLowerCase() + ': hold ' + (dir === 'right' ? 'left / right' : DIR_WORD[dir]) + ', then ' + key('grapple') + '</td><td>' + t.dmg + ' dmg, starts at ' + t.startup + ', escape until ' + t.escapeUntil + ', recovery ' + t.recovery + ' frames, ' + stamPrice(t.stam) + ' stam</td></tr>';
     })).join('');
     const legend = [['Punch', 'punch'], [style.legless ? 'Body punches' : 'Kick', 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
