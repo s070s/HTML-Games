@@ -24,3 +24,6 @@ ClassTimeKiller/ClassTimeKiller.test.html
 # Finger Lickin Music test and online builds (tools/build.mjs writes them next to the game)
 Finger Lickin Music/FingerLickinMusic.test.html
 Finger Lickin Music/FingerLickinMusic.online.html
+
+# Breakpoint: the Owner's local revengin folder (not part of the game)
+Beat Em Up/revengin/
