@@ -5,5 +5,6 @@ Tasks, spec and resume point for each game live in the handoffs repo (`C:\Users\
 - IRON HORIZON (`Mech Flight Sim/`): `C:\Users\GS\Desktop\handoffs\IronHorizon\`
 - Class Time Killer (`ClassTimeKiller/`): `C:\Users\GS\Desktop\handoffs\ClassTimeKiller\`
 - Finger Lickin Music (`Finger Lickin Music/`): `C:\Users\GS\Desktop\handoffs\FingerLickinMusic\`
+- Mizamon (`Mizamon/`): `C:\Users\GS\Desktop\handoffs\Mizamon\`
 
 Decision and research logs stay here: `REFERENCE-*.md` next to each game. Repo rules: `.claude/project-profile.md`.
