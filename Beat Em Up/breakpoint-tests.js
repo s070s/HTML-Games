@@ -28,7 +28,7 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, STANCE_TICKS, STANCE_REARM_TICKS, STANCE_FADE_TICKS, STANCE_STREAK_EVERY, stanceText, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRAINING_KEYS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
@@ -17567,7 +17567,7 @@ const SelfTest = {
       return short.refused === 1 && short.broke === 1 && short.warned >= 1 && enough.refused === 0 && enough.broke === 0 && enough.dodged === 1 ? true : JSON.stringify({ short, enough });
     });
     /* ---------- Sway hold (P18-62): hold Defend to prepare; each strike that would land is slipped at the price of its tier (REFERENCE-breakpoint.md, Appendix C, P18-61 section 1) ---------- */
-    const HOLD_STRIKE_AT = 40;   // a hold trial's strike starts on this tick; the defender has been prepared since tick 1 (a round that starts with Defend down is a hold, not a press)
+    const HOLD_STRIKE_AT = 8;   // a hold trial's strike starts on this tick; the defender has been prepared since tick 1 (a round that starts with Defend down arms the stance there), so the strike is inside its STANCE_TICKS (P19-13: it was tick 40 while a hold had no end)
     /* A prepared Sway fighter (fighter 2: Defend held from tick 1, the stick at o.side / o.fwd) against one strike (o.mv) of fighter 1; o.wall stands the defender 0.4 m from the wall. got = the tank before the contact tick and what the contact event saw. */
     const holdRun = (o) => {
       const mv = o.mv || ATTACKS.jab, at = o.at || HOLD_STRIKE_AT;
@@ -17617,12 +17617,12 @@ const SelfTest = {
       }
       const late = trial(12, ATTACKS.heavy_roundhouse);   // startup 17: a press 12 ticks ahead is possible
       if (late.got || !late.log.some((ev) => ev.n === 'hit')) problems.push('lead 12 did not hit: ' + late.log.map((ev) => ev.n).join());
-      // a sway that ends with Defend still down leaves the fighter prepared: the next strike is slipped by the hold at its cost, and the cooldown was stamped once (by the press)
-      const m = mk({}, (it, f) => { if (m.matchTicks === 60) f.startAttack(ATTACKS.jab); }, (it) => { it.defend = m.matchTicks >= 3; });
+      // a sway that ends with Defend still down leaves the fighter prepared (the press armed the stance at tick 3, the tap used none of it): a strike inside it is slipped by the hold at its cost, and the cooldown was stamped once (by the press)
+      const m = mk({}, (it, f) => { if (m.matchTicks === 45) f.startAttack(ATTACKS.jab); }, (it) => { it.defend = m.matchTicks >= 3; });
       m.fighters[1].defense = 'sway'; self.place(m, TIMING_GAP);
       const log = watchTicks(m, ['hit', 'block']), def = m.fighters[1];
       let stampedAt = null;
-      for (let i = 0; i < 70; i++) { m.step(); if (m.matchTicks === 59) stampedAt = def.lastBlockAt; }
+      for (let i = 0; i < 70; i++) { m.step(); if (m.matchTicks === 44) stampedAt = def.lastBlockAt; }
       log.stop();
       const e = log.length === 1 && log[0].n === 'block' ? log[0].e : null;
       if (!e || !e.auto || e.perfect || e.cost !== SWAY_COST_BY_TIER[0] || stampedAt !== 3) problems.push('prepared after a sway: ' + JSON.stringify([log.length && log[0].n, e && e.auto, e && e.perfect, e && e.cost, stampedAt]));
@@ -17747,7 +17747,7 @@ const SelfTest = {
       g.att.startAttack(ATTACKS.grab); g.att.moveTick = g.att.mStartup + 1;
       const grab = Combat.evaluate(g.att, g.def);
       if (!grab || grab.type !== 'grab') problems.push('a grab on a prepared fighter is ' + (grab && grab.type));
-      // in a real run: a jab 40 ticks in is slipped, a second strike 16 ticks later (in the recovery of that sway) lands
+      // in a real run: a jab on tick HOLD_STRIKE_AT is slipped, a second strike 16 ticks later (in the recovery of that sway) lands
       const m2 = mk({}, (it, f) => { if (m2.matchTicks === HOLD_STRIKE_AT) f.startAttack(ATTACKS.jab); if (m2.matchTicks === HOLD_STRIKE_AT + 16) f.startAttack(ATTACKS.jab); }, (it) => { it.defend = true; });
       m2.fighters[1].defense = 'sway'; self.place(m2, TIMING_GAP);
       const log = watchTicks(m2, ['hit', 'block']);
@@ -17933,10 +17933,256 @@ const SelfTest = {
       } finally { UI.dom = savedDom; UI.cache = savedCache; }
       const help = DEFENSE_HELP.sway;
       const cheap = SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina';
-      if (!help.includes(cheap) || !help.includes('keep it down') || !help.includes('tenth of a second') || !help.includes('perfect sway') || /It costs/.test(help)) problems.push('the Sway help: ' + help);
-      if (COMBO_HELP.includes('(Sway: tap just before)') || !COMBO_HELP.includes('a Sway fighter who keeps it held is ready the moment they are free')) problems.push('the combo help: ' + COMBO_HELP);
+      if (!help.includes(cheap) || !help.includes('ready for ' + STANCE_TICKS / 60 + ' s') || !help.includes('tenth of a second') || !help.includes('perfect sway') || /It costs/.test(help)) problems.push('the Sway help: ' + help);
+      if (COMBO_HELP.includes('(Sway: tap just before)') || !COMBO_HELP.includes('a Sway fighter who pressed it a moment ago is ready the moment they are free')) problems.push('the combo help: ' + COMBO_HELP);
       const moves = UI.screen_moves(styleProfile('boxer'), 'keyboard');
-      if (!moves.includes('keep it down') || !moves.includes(cheap)) problems.push('the Move list does not carry the Sway help');
+      if (!moves.includes('stand ready for half a second') || !moves.includes(cheap)) problems.push('the Move list does not carry the Sway help');
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ---------- Sway stance (P19-13): a press gives STANCE_TICKS prepared ticks, then Defend does nothing more until it is let go and pressed again at least STANCE_REARM_TICKS after the last arming press (REFERENCE-breakpoint.md, Appendix C, P19-13) ---------- */
+    /* Fighter 2 (Sway unless o.defense) holds Defend on every tick where o.down(tick) is true; o.script(f, tick) runs first (puts it in a state); o.strikes: ticks on which fighter 1 starts a jab; o.fwd(tick): the stick forward.
+       One row per tick (after the step): the age, swayReady, readyLeft, readySpent, the state, rearmAt, readyAt. */
+    const stanceTrace = (o) => {
+      const rows = [], strikes = [].concat(o.strikes || []);
+      const m = mk(o.cfg || {}, (it, f) => { if (strikes.includes(m.matchTicks)) f.startAttack(ATTACKS.jab); }, (it, f) => {
+        if (o.script) o.script(f, m.matchTicks);
+        it.defend = o.down(m.matchTicks); it.fwd = o.fwd ? o.fwd(m.matchTicks) : 0; it.guardAssist = !!o.assist;
+      });
+      const def = m.fighters[1];
+      def.defense = o.defense || 'sway';
+      self.place(m, o.gap || TIMING_GAP);
+      const log = watchTicks(m, ['hit', 'block']);
+      for (let i = 0; i < (o.ticks || 120); i++) { m.step(); rows.push({ age: def.age, ready: def.swayReady, left: def.readyLeft, spent: def.readySpent, state: def.state, rearmAt: def.rearmAt, readyAt: def.readyAt }); }
+      log.stop();
+      return { m, def, rows, log };
+    };
+    const readyAges = (r) => [...new Set(r.rows.filter((row) => row.ready).map((row) => row.age))];   // a tick of hit-stop repeats the age
+    const stanceReach = () => windowTrial(ATTACKS.jab, 'block', null, 0).t - TIMING_START;   // ticks from a jab's start to its contact
+    test('Sway stance (P19-13): a press arms STANCE_TICKS prepared ticks that start after the tap\'s own sway; an attack and a stun use none of them; the strike on the last prepared tick is slipped, the next one hits', () => {
+      const problems = [], P = 3, reach = stanceReach();
+      const held = stanceTrace({ down: (t) => t >= P, ticks: 130 }), ages = readyAges(held), first = ages[0];
+      if (ages.length !== STANCE_TICKS || first !== P + SWAY_TOTAL_TICKS + 1 || ages[ages.length - 1] !== first + STANCE_TICKS - 1) problems.push('the stance is on for ' + ages.length + ' ticks from age ' + first + ' to ' + ages[ages.length - 1] + ', not ' + STANCE_TICKS + ' from ' + (P + SWAY_TOTAL_TICKS + 1) + ' (the first free tick after the sway)');
+      const lefts = held.rows.filter((row) => row.ready).map((row) => row.left).join();
+      if (lefts !== Array.from({ length: STANCE_TICKS }, (_, i) => STANCE_TICKS - 1 - i).join()) problems.push('readyLeft counts ' + lefts);
+      const after = held.rows.filter((row) => row.age >= first + STANCE_TICKS);
+      if (!after.length || after.some((row) => row.ready || !row.spent || row.left !== 0)) problems.push('after the stance a held Defend is still prepared or not spent');
+      for (const [offset, want] of [[STANCE_TICKS - 1, 'sway'], [STANCE_TICKS, 'hit']]) {
+        const r = stanceTrace({ down: (t) => t >= P, strikes: first + offset - reach, ticks: first + offset + 12 }), ev = r.log[0];
+        if (!ev || verdict(ev) !== want || (want === 'sway' && (!ev.e.auto || ev.e.perfect)) || ev.t !== first + offset) problems.push('the strike on prepared tick ' + (offset + 1) + ' is ' + (ev ? verdict(ev) + ' on ' + ev.t : 'nothing') + ', want ' + want + ' on ' + (first + offset));
+      }
+      // an attack of the fighter and a stun in the middle of the stance: the ticks they take are not counted, the stance goes on afterwards
+      const interrupted = stanceTrace({ down: (t) => t >= P, ticks: 260, gap: 2.5, script: (f, t) => { if (t === first + 8) f.startAttack(ATTACKS.jab); if (t === first + 40) { f.setState(S.STUN); f.reactDur = 10; } } });
+      const used = readyAges(interrupted), runs = used.filter((age, i) => i === 0 || age !== used[i - 1] + 1).length;
+      if (used.length !== STANCE_TICKS || runs < 2) problems.push('an attack and a stun left ' + used.length + ' prepared ticks in ' + runs + ' runs (want ' + STANCE_TICKS + ' in at least 2)');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): a spent stance is not prepared: walk at the full pace, refill at the full rate, no stance pose, readySpent true while Defend is held and cleared by one tick without it', () => {
+      const problems = [], P = 3, spentAt = P + SWAY_TOTAL_TICKS + STANCE_TICKS + 4, ticks = spentAt + 20;
+      const run = (down, fwd) => {
+        let x0 = 0, z0 = 0, stam0 = 0;
+        const r = stanceTrace({ down, ticks, gap: 6, fwd: fwd ? (t) => (t > spentAt ? 1 : 0) : null, script: (f, t) => { if (t === spentAt) { x0 = f.x; z0 = f.z; f.stam = f.maxStam * 0.7; f.noRegen = 0; stam0 = f.stam; } } });
+        return { r, moved: DMath.hypot(r.def.x - x0, r.def.z - z0), gain: r.def.stam - stam0 };
+      };
+      const hold = run((t) => t >= P, false), idle = run(() => false, false), holdWalk = run((t) => t >= P, true), idleWalk = run(() => false, true);
+      const last = hold.r.rows[hold.r.rows.length - 1];
+      if (last.ready || !last.spent) problems.push('after the stance: ready ' + last.ready + ', spent ' + last.spent);
+      if (!(Math.abs(hold.gain / idle.gain - 1) < 0.02)) problems.push('a spent hold refills at ' + (hold.gain / idle.gain).toFixed(3) + ' of the idle rate');
+      if (!(Math.abs(holdWalk.moved / idleWalk.moved - 1) < 0.03)) problems.push('a spent hold walks at ' + (holdWalk.moved / idleWalk.moved).toFixed(3) + ' of the pace');
+      if (!(Math.abs(hold.r.def.pose[J.torsoLean] - idle.r.def.pose[J.torsoLean]) < 0.01)) problems.push('a spent hold still leans: ' + hold.r.def.pose[J.torsoLean].toFixed(3) + ' against ' + idle.r.def.pose[J.torsoLean].toFixed(3));
+      const mid = stanceTrace({ down: (t) => t >= P, ticks: P + SWAY_TOTAL_TICKS + 10 }), still = stanceTrace({ down: () => false, ticks: P + SWAY_TOTAL_TICKS + 10 });
+      if (!(mid.def.pose[J.torsoLean] < still.def.pose[J.torsoLean] - 0.01)) problems.push('the stance does not lean back: ' + mid.def.pose[J.torsoLean].toFixed(3) + ' against ' + still.def.pose[J.torsoLean].toFixed(3));
+      const lift = stanceTrace({ down: (t) => t >= P && t !== spentAt, ticks: spentAt + 3 }), row = (age) => lift.rows.find((r) => r.age === age);
+      if (!row(spentAt - 1).spent || row(spentAt).spent || !row(spentAt + 1).spent || row(spentAt + 1).ready) problems.push('one tick without Defend: spent ' + [row(spentAt - 1).spent, row(spentAt).spent, row(spentAt + 1).spent] + ' (want true, false, true: the press 1 tick later is too soon for a stance)');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): a press at rearmAt - 1 taps and gets no stance, at rearmAt it gets one; a press before the stance has run out does not move rearmAt; a denied press is still the tap (perfect 0 to 6, plain 7 to 11, free)', () => {
+      const problems = [], P = 3, rearm = P + STANCE_REARM_TICKS, reach = stanceReach();
+      for (const [again, want] of [[rearm - 1, 0], [rearm, STANCE_TICKS]]) {
+        const r = stanceTrace({ down: (t) => (t >= P && t < 80) || t >= again, ticks: again + 80 }), after = readyAges(r).filter((age) => age >= again);
+        const pressRow = r.rows.find((row) => row.age === again);
+        if (after.length !== want || pressRow.state !== S.SWAY || r.rows[r.rows.length - 1].rearmAt !== (want ? again + STANCE_REARM_TICKS : rearm)) problems.push('a press at ' + again + ' (rearmAt ' + rearm + '): ' + after.length + ' prepared ticks, state ' + pressRow.state + ', rearmAt ' + r.rows[r.rows.length - 1].rearmAt);
+      }
+      // the Metro case: let go and press again before the stance has run out (or before it has begun)
+      for (const [release, again] of [[20, 40], [45, 46], [P + SWAY_TOTAL_TICKS + 10, P + SWAY_TOTAL_TICKS + 11]]) {
+        const r = stanceTrace({ down: (t) => (t >= P && t < release) || t >= again, ticks: again + 100 });
+        if (readyAges(r).filter((age) => age >= again).length !== 0 || r.rows.some((row) => row.rearmAt !== rearm && row.age >= again)) problems.push('let go at ' + release + ' and pressed at ' + again + ' gave a stance or moved rearmAt to ' + r.rows[r.rows.length - 1].rearmAt);
+      }
+      // a denied press (at 40, rearmAt is 93) is the tap: the strike 3 and 6 ticks after it is a perfect sway, 7 and 11 ticks a plain one, 12 hits
+      for (const [lead, want] of [[3, 'sway+'], [6, 'sway+'], [7, 'sway'], [11, 'sway'], [12, 'hit']]) {
+        const r = stanceTrace({ down: (t) => (t >= P && t < 20) || t >= 40, strikes: 40 + lead - reach, ticks: 80 }), ev = r.log[0];
+        if (!ev || verdict(ev) !== want || (want !== 'hit' && ev.e.auto)) problems.push('denied press, strike ' + lead + ' ticks later: ' + (ev ? verdict(ev) + (ev.e.auto ? ' (held)' : '') : 'nothing') + ', want ' + want);
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): a round that starts with Defend down arms the stance on tick 1 (rearmAt 91); without Defend it does not use the slot; a new round clears the stance and rearmAt', () => {
+      const problems = [];
+      const held = stanceTrace({ down: () => true, ticks: 100 }), ages = readyAges(held);
+      if (ages.length !== STANCE_TICKS || ages[0] !== 1 || held.rows[0].rearmAt !== 1 + STANCE_REARM_TICKS) problems.push('a round that starts held: ' + ages.length + ' prepared ticks from ' + ages[0] + ', rearmAt ' + held.rows[0].rearmAt);
+      const late = stanceTrace({ down: (t) => t >= 50, ticks: 150 }), lateAges = readyAges(late);
+      if (late.rows.filter((row) => row.age < 50).some((row) => row.rearmAt !== 0 || row.ready || row.spent) || lateAges.length !== STANCE_TICKS || late.rows[late.rows.length - 1].rearmAt !== 50 + STANCE_REARM_TICKS) problems.push('Defend down only from 50: the slot was used early or the press at 50 did not arm (' + lateAges.length + ' prepared ticks)');
+      held.def.reset(0, 0, 0);
+      if (held.def.readyLeft !== 0 || held.def.readySpent || held.def.rearmAt !== 0 || held.def.swayReady) problems.push('a new round keeps the stance: ' + [held.def.readyLeft, held.def.readySpent, held.def.rearmAt]);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): a press in a stun arms the stance and it is there on the free tick, a perfect from it needs 6 ticks or fewer since that tick; Defend held since before the stun and spent is not prepared after it', () => {
+      const problems = [], reach = stanceReach();
+      const stunScript = (f, t) => { if (t === 10) { f.setState(S.STUN); f.reactDur = 30; } };
+      const base = stanceTrace({ down: (t) => t >= 15, ticks: 120, script: stunScript }), ages = readyAges(base), first = ages[0];
+      if (ages.length !== STANCE_TICKS || !(first >= 10 + 30) || base.rows[base.rows.length - 1].rearmAt !== 15 + STANCE_REARM_TICKS || base.rows.find((row) => row.age === first).left !== STANCE_TICKS - 1 || base.rows.find((row) => row.age === first).readyAt !== first) problems.push('a press in a stun: ' + ages.length + ' prepared ticks from ' + first + ', readyAt ' + base.rows.find((row) => row.age === first).readyAt);
+      for (const [offset, want] of [[3, 'sway+'], [6, 'sway+'], [7, 'sway'], [20, 'sway']]) {
+        const r = stanceTrace({ down: (t) => t >= 15, ticks: first + offset + 8, script: stunScript, strikes: first + offset - reach }), ev = r.log[0];
+        if (!ev || verdict(ev) !== want || !ev.e.auto) problems.push('stance start + ' + offset + ': ' + (ev ? verdict(ev) + (ev.e.auto ? ' (held)' : '') : 'nothing') + ', want ' + want + ' (held)');
+      }
+      const tapped = stanceTrace({ down: (t) => t >= 3, ticks: 120 }), tappedFirst = readyAges(tapped)[0];
+      const plain = stanceTrace({ down: (t) => t >= 3, ticks: tappedFirst + 12, strikes: tappedFirst + 4 - reach }).log[0];
+      if (!plain || verdict(plain) !== 'sway' || !plain.e.auto) problems.push('a stance that follows a tap is never perfect: ' + (plain ? verdict(plain) : 'nothing'));
+      const spentThenStun = stanceTrace({ down: (t) => t >= 3, ticks: 150, script: (f, t) => { if (t === 80) { f.setState(S.STUN); f.reactDur = 20; } } });
+      if (spentThenStun.rows.some((row) => row.age >= 81 && row.ready) || !spentThenStun.rows[spentThenStun.rows.length - 1].spent) problems.push('a spent hold is prepared again after a stun');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): a Block fighter, Guard assist and a Sway fighter whose Defend is forced off never arm, count or spend a stance', () => {
+      const problems = [];
+      const untouched = (r, label) => { if (r.rows.some((row) => row.ready || row.left !== 0 || row.spent || row.rearmAt !== 0)) problems.push(label + ' arms, counts or spends a stance'); };
+      untouched(stanceTrace({ defense: 'block', down: () => true, ticks: 100 }), 'a Block fighter');
+      untouched(stanceTrace({ defense: 'block', assist: true, down: (t) => t >= 5, ticks: 100 }), 'a Block fighter with Guard assist');
+      untouched(stanceTrace({ down: () => false, ticks: 100 }), 'a Sway fighter without Defend');
+      const lid = stanceTrace({ down: () => true, ticks: 60, script: (f) => { f.item = { id: 'binlid', dur: 99, sprays: 0 }; } });
+      untouched(lid, 'a Sway fighter behind a bin lid');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): keyboard, gamepad and touch hold Defend, spend the stance and arm it again by a new press at rearmAt the same way', () => {
+      const problems = [];
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, keepMovement = Settings.v.movement;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      Settings.v.movement = 'opponent';
+      const press = {
+        keyboard: (on) => { Input.kb[on ? 'add' : 'delete'](Keymap.bindings.defend[0]); },
+        gamepad: (on) => { pad.buttons[PAD_BUTTONS.defend[0]].pressed = on; },
+        touch: (on) => { Input.touchSet('defend', on); },
+      };
+      const P = 3, again = P + STANCE_REARM_TICKS;
+      try {
+        for (const kind of ['keyboard', 'gamepad', 'touch']) {
+          Input.reset(); Input.releaseAll(); Input.lastDevice = kind;
+          const down = (t) => (t >= P && t < 80) || t >= again;
+          const m = mk({}, null, (it, f, o) => { press[kind](down(m.matchTicks)); Input.update(); Input.fillIntent(it, f, o); });
+          const def = m.fighters[1];
+          def.defense = 'sway'; self.place(m, TIMING_GAP);
+          let first = 0, second = 0, spentSeen = false;
+          for (let i = 0; i < again + 80; i++) { m.step(); if (def.swayReady) { if (def.age < again) first++; else second++; } if (def.age === 75 && def.readySpent) spentSeen = true; }
+          press[kind](false); Input.releaseAll(); Input.update();
+          if (first !== STANCE_TICKS || second !== STANCE_TICKS || !spentSeen || def.rearmAt !== again + STANCE_REARM_TICKS) problems.push(kind + ': ' + first + ' and ' + second + ' prepared ticks, spent before the lift ' + spentSeen + ', rearmAt ' + def.rearmAt);
+        }
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Settings.v.movement = keepMovement;
+        Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): the CPU never prepares (24 seeds x 4 levels, both fighters Sway) and the stance adds no draw of simRng', () => {
+      const problems = [];
+      let taps = 0;
+      const off = Events.on('block', (e) => { if (e.sway) taps++; });
+      try {
+        for (const difficulty of ['easy', 'normal', 'hard', 'expert']) for (let seed = 1; seed <= 24; seed++) {
+          const m = mk({ playerId: 'kai', opponentId: 'mara', seed, difficulty });
+          m.fighters.forEach((f, i) => { f.defense = 'sway'; m.controllers[i] = new AIController(f.profile, difficulty); });
+          let prepared = 0;
+          for (let i = 0; i < 400; i++) { m.step(); if (m.fighters[0].swayReady || m.fighters[1].swayReady) prepared++; }
+          if (prepared) { problems.push(difficulty + ' seed ' + seed + ': a CPU was prepared on ' + prepared + ' ticks'); break; }
+        }
+      } finally { off(); }
+      if (taps === 0) problems.push('no CPU Sway tap was seen: the check proves nothing');
+      // the stance has no draw: a Sway fighter that holds Defend for 150 ticks makes the draws of one that never does (counted on a simRng put in after the match is built)
+      const countDraws = (down) => {
+        const m = mk({}, null, (it) => { it.defend = down(m.matchTicks); });
+        m.fighters[1].defense = 'sway'; self.place(m, TIMING_GAP);
+        const keepRng = api.get.simRng(); let n = 0;
+        api.set.simRng(() => { n++; return 0.5; });
+        try { self.run(m, 150); } finally { api.set.simRng(keepRng); }
+        return n;
+      };
+      if (countDraws((t) => t >= 3) !== countDraws(() => false)) problems.push('the stance changes the draws of simRng');
+      return problems.length ? problems.join('; ') : true;
+    }, 60000);
+    test('Sway stance (P19-13): two runs of the same inputs give one matchChecksum, and readyLeft, readySpent and rearmAt each change it', () => {
+      const problems = [];
+      const sum = (change) => { const r = stanceTrace({ down: (t) => t >= 3, ticks: 50 }); if (change) change(r.def); return matchChecksum(r.m); };
+      const a = sum(), b = sum();
+      if (a !== b) problems.push('two runs differ: ' + a + ' and ' + b);
+      for (const [name, change] of [['readyLeft', (f) => { f.readyLeft += 1; }], ['readySpent', (f) => { f.readySpent = !f.readySpent; }], ['rearmAt', (f) => { f.rearmAt += 1; }]]) if (sum(change) === a) problems.push(name + ' does not change the checksum');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): Training shows the stance for a Sway fighter in its forms, and the help, the controls card and the Move list say the stance from the constants (ASCII only)', () => {
+      const problems = [], ascii = (text) => /^[\x20-\x7e]*$/.test(text);
+      const forms = [
+        [{ swayReady: true, readyLeft: 24, readySpent: false, prevDefend: true, rearmAt: 100, age: 50 }, 'up 24'],
+        [{ swayReady: false, readyLeft: 24, readySpent: false, prevDefend: true, rearmAt: 100, age: 50 }, 'armed 24'],
+        [{ swayReady: false, readyLeft: 0, readySpent: true, prevDefend: true, rearmAt: 130, age: 90 }, 'spent, new one in 40'],
+        [{ swayReady: false, readyLeft: 0, readySpent: true, prevDefend: true, rearmAt: 90, age: 90 }, 'spent, let go and press'],
+        [{ swayReady: false, readyLeft: 12, readySpent: false, prevDefend: false, rearmAt: 130, age: 90 }, 'off, new one in 40'],
+        [{ swayReady: false, readyLeft: 0, readySpent: false, prevDefend: false, rearmAt: 0, age: 90 }, 'off, press Defend'],
+      ];
+      for (const [f, want] of forms) if (stanceText(f) !== want || !ascii(stanceText(f))) problems.push('the stance line is "' + stanceText(f) + '", not ' + want);
+      const savedDom = UI.dom, savedCache = UI.cache;
+      try {
+        const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {}), panel = { innerHTML: '', hidden: false };
+        UI.dom = { training: panel }; UI.cache = {};
+        UI.trainingPanel(training);
+        if (panel.innerHTML.includes('<b>STANCE</b>')) problems.push('a Block fighter has a STANCE line');
+        training.fighters[0].defense = 'sway';
+        UI.trainingPanel(training);
+        if (!panel.innerHTML.includes('<br><b>DEFENCE</b> ready<br><b>STANCE</b> off, press Defend<br><b>STYLE</b>')) problems.push('the Sway fighter\'s lines: ' + panel.innerHTML.replace(/.*<b>DEFENCE<\/b>/, '').slice(0, 90));
+        training.fighters[0].swayReady = true; training.fighters[0].readyLeft = 24;
+        UI.trainingPanel(training);
+        if (!panel.innerHTML.includes('<b>STANCE</b> up 24')) problems.push('the Training panel does not show the stance up');
+      } finally { UI.dom = savedDom; UI.cache = savedCache; }
+      const help = DEFENSE_HELP.sway, seconds = (ticks) => +(ticks / 60).toFixed(2);
+      for (const part of ['you stand ready for ' + seconds(STANCE_TICKS) + ' s', 'a new stance needs ' + seconds(STANCE_REARM_TICKS) + ' s since the last one', 'let go of Defend and press again', 'a press at any time still leans out', SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina', 'unless a sway is already under way']) if (!help.includes(part)) problems.push('the Sway help lacks "' + part + '"');
+      if (/keep it (down|held)/.test(help) || !ascii(help) || !ascii(COMBO_HELP) || !COMBO_HELP.includes('(a Sway fighter who pressed it a moment ago is ready the moment they are free)')) problems.push('the Sway help or the combo help: ' + help.slice(0, 80));
+      const keepMatch = Game.match;
+      try {
+        Game.match = null;
+        if (!UI.controlsCardHtml('keyboard').includes('(Block: hold to guard. Sway: press, then ready for half a second)')) problems.push('the controls card with no fighter');
+        Game.match = mk({ mode: 'free', playerId: 'kai', opponentId: 'mara' });
+        Game.match.fighters[0].defense = 'sway';
+        if (!UI.controlsCardHtml('keyboard').includes('(you sway: press, then ready for half a second)')) problems.push('the controls card of a Sway fighter');
+        Game.match.fighters[0].defense = 'block';
+        if (!UI.controlsCardHtml('keyboard').includes('(you block: hold to guard)')) problems.push('the controls card of a Block fighter');
+      } finally { Game.match = keepMatch; }
+      const moves = UI.screen_moves(styleProfile('boxer'), 'keyboard');
+      if (!moves.includes('and stand ready for half a second to slip each strike. Let go and press again for the next.')) problems.push('the Move list lacks the Start here line');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Sway stance (P19-13): the draw: the stance leans back and weaves (not under Reduced motion); a streak pair every STANCE_STREAK_EVERY ticks, every second time in the last STANCE_FADE_TICKS; none under Reduced motion, Effects Low or Strike trails Off', () => {
+      const problems = [], keep = { reduced: Settings.v.reducedMotion, effects: Settings.v.effects, trails: Settings.v.trails }, keepSpawn = FX.spawn;
+      try {
+        const def = new Fighter(ROSTER_BY_ID.mara, 1), len = def.tp.length;
+        const posed = (reduced, left) => { Settings.v.reducedMotion = reduced; def.readyLeft = left; const p = new Float32Array(len); def.readyPose(p, 1.234); return p; };
+        const weaving = posed(false, STANCE_TICKS), still = posed(true, STANCE_TICKS), faded = posed(false, 0);
+        let weave = 0, fade = 0;
+        for (let i = 0; i < len; i++) { weave = Math.max(weave, Math.abs(weaving[i] - still[i])); fade = Math.max(fade, Math.abs(faded[i] - still[i])); }
+        if (!(still[J.torsoLean] < -0.01)) problems.push('the stance does not lean back: ' + still[J.torsoLean]);
+        if (!(weave > 0.001) || fade !== 0) problems.push('the weave adds ' + weave.toFixed(4) + ' with Reduced motion off and ' + fade + ' when faded out');
+        const streaks = (reduced, effects, trails) => {
+          Settings.v.reducedMotion = reduced; Settings.v.effects = effects; Settings.v.trails = trails;
+          const seen = []; let who = null;
+          FX.spawn = (...a) => { if (a[11] === CUE_COLOR.stance) seen.push({ age: who.age, y: a[3], size: a[9] }); };
+          stanceTrace({ down: () => true, ticks: STANCE_TICKS + 10, script: (f) => { who = f; } });
+          return seen;
+        };
+        const on = streaks(false, 'high', true), ticks = [], want = [];
+        for (const s of on) if (!ticks.includes(s.age)) ticks.push(s.age);
+        for (let age = 1; age <= STANCE_TICKS; age++) if (age % (STANCE_TICKS - age < STANCE_FADE_TICKS ? STANCE_STREAK_EVERY * 2 : STANCE_STREAK_EVERY) === 0) want.push(age);
+        if (ticks.join() !== want.join() || on.length !== want.length * 2 || on.some((s) => s.size !== 0.05) || want.length < 4) problems.push('streak ticks ' + ticks + ', want ' + want + ' (' + on.length + ' puffs)');
+        if (on.length >= 2 && Math.abs(Math.abs(on[1].y - on[0].y) - 0.4) > 1e-6) problems.push('the two puffs are ' + (on[1].y - on[0].y) + ' m apart in height, not 0.4');
+        for (const [label, reduced, effects, trails] of [['Reduced motion', true, 'high', true], ['Effects Low', false, 'low', true], ['Strike trails Off', false, 'high', false]]) {
+          const n = streaks(reduced, effects, trails).length;
+          if (n) problems.push(label + ' still draws ' + n + ' streaks');
+        }
+      } finally { Settings.v.reducedMotion = keep.reduced; Settings.v.effects = keep.effects; Settings.v.trails = keep.trails; FX.spawn = keepSpawn; }
       return problems.length ? problems.join('; ') : true;
     });
     test('Training dummy (P18-03): a Sway dummy leans so a slow strike lands on tick 9 (a plain dodge) and a quick one on its start-up minus 1 (a perfect sway), whatever its speed', () => {
