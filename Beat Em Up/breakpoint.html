@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="BREAKPOINT">
 <meta name="format-detection" content="telephone=no">
 <meta name="description" content="BREAKPOINT - a 3D fighting game with destructible arenas. Single self-contained HTML file.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src wss://0.peerjs.com wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884; base-uri 'none'; form-action 'none'">
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
@@ -308,6 +308,8 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .onrow .sno{grid-area:no;color:var(--pc);text-align:center}.onrow .onname{grid-area:name}.onrow .onst{grid-area:st;font-weight:700;white-space:nowrap}.onrow .onlat{grid-area:lat;color:var(--mut);font-size:.85em;white-space:nowrap}
 .onrow .onfig,.onrow .opt.cell{grid-area:fig;min-width:0;overflow-wrap:anywhere}.onrow .opt.cell{margin:0;padding:.35em .5em;justify-content:center;min-height:44px}
 .onrow button.mi{grid-area:rm;width:auto;margin:0;min-height:44px;padding:.3em .6em;font-size:.8em}
+.roombox{margin:.4em 0}.roomcode{font:800 clamp(2em,9vw,3.6em)/1.1 Consolas,monospace;letter-spacing:.22em;text-align:center;color:var(--a1);background:#0b1224;border:2px solid #2a3b66;border-radius:.4em;padding:.25em .2em .25em .45em;user-select:text;-webkit-user-select:text}
+.roomlink{overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.roomin{text-transform:uppercase;letter-spacing:.3em;font-size:1.4em;text-align:center}.roomcells{display:flex;gap:.4em;margin:.4em 0}.roomcells .opt.cell{flex:1 1 0;margin:0;padding:.3em;justify-content:center;min-height:44px}.roomcells .opt .v{min-width:0;text-align:center;font-size:1.4em}
 @media (max-width:520px){.onrow{grid-template-columns:2em 1fr auto;grid-template-areas:"no name st" "no fig fig" "no lat rm"}}
 .opt.dim{opacity:.5;cursor:default;pointer-events:none}
 .beat{display:block;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer;background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
@@ -15501,7 +15503,7 @@ const Song = {
   },
 };
 
-// === 09 Online - signaling by copy-paste, no server (P12-01): the code format, the QR encoder and the peer link (Appendix C, Online signaling)
+// === 09 Online - signaling by copy-paste (P12-01) or by a room code (P19-12): the code format, the QR encoder, the peer link and the room signalling (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
 const ONLINE_NET_VERSION = 4; // the match message protocol (raised when the messages or the simulation's bits change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start; 4 since P12-08, whose exact simulation maths gives other bits than the old build's); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
@@ -15518,6 +15520,9 @@ const ONLINE_UFRAG_RANGE = [4, 32]; // RFC 8839 ice-ufrag and ice-pwd lengths
 const ONLINE_PWD_RANGE = [22, 32];
 const ONLINE_CANDIDATE_TYPE = { MDNS: 0, IPV4: 1, IPV6: 2 };
 const ONLINE_ADDRESS_BYTES = [16, 4, 16];
+const ONLINE_CANDIDATE_PUBLIC = 16; // flag on a packed candidate's type byte: a server-reflexive candidate (the public address a STUN server saw), not a host one
+const ONLINE_PRIORITY_HOST = 126, ONLINE_PRIORITY_REFLEXIVE = 100; // the type preference in an ICE priority (RFC 8445): a host candidate is tried before a server-reflexive one
+const ONLINE_ICE_SERVERS =[{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }]; // free public STUN (P19-12, N01): each link learns its public address, so two networks can connect; no TURN (Owner step)
 const ONLINE_MDNS = /^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\.local$/i; // Chrome, Firefox and Safari hide a host address behind a UUID
 const ONLINE_SDP_MEDIA = 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
 const ONLINE_SDP_MEDIA_PATTERN = /^m=application \d+ UDP\/DTLS\/SCTP webrtc-datachannel$/; // with real addresses (no mDNS) a browser puts its first candidate's port here
@@ -15531,14 +15536,20 @@ const ONLINE_MESSAGES = {
   version: 'This code is from another version of the game. Everyone needs the same version.',
   seat: 'This answer is for another seat. Use the answer to the code you sent for this seat.',
   nonetwork: 'No network address was found. Connect to Wi-Fi or a router first (mobile data and some VPNs hide the address), then try again.',
-  ice: 'The devices could not connect. Some networks block direct connections: guest Wi-Fi, office or school networks, VPNs, some mobile data. Use the same home Wi-Fi, or a phone hotspot.',
-  timeout: 'The connection did not open in time. Make new codes and try again on the same Wi-Fi or a phone hotspot (some networks block direct connections).',
+  ice: 'The devices could not connect. Your networks block a direct link (guest Wi-Fi, office or school networks, VPNs, some mobile data). Try Wi-Fi on one side, or a phone hotspot.',
+  timeout: 'The connection did not open in time. Try again, or use Wi-Fi on one side or a phone hotspot (some networks block a direct link).',
   guestWait: 'The host did not answer in time (some browsers, like Firefox, wait only a few seconds). Ask for a new code and answer faster, try Firefox as the host, or send the first code yourself.',
   answerWait: 'Your friend did not enter your answer in time (some browsers, like Firefox, wait only a few seconds). Make a new code, and let the friend with Firefox send the first code.',
   lost: 'The connection was lost. Check the Wi-Fi, then join again.',
   sdp: 'This browser could not use the code. Ask the host for a new one.',
   unsupported: 'This browser cannot make an online connection (no WebRTC). Try the latest Chrome, Edge, Firefox or Safari.',
-  nobody: 'Connect at least one friend first: send the code, paste the answer, press Connect.',
+  nobody: 'Wait for at least one friend: they type your room code on Join a game.',
+  roomCode: 'A room code has 5 symbols: letters without vowels and the numbers 2 to 9.',
+  noService: 'Could not reach the free room service. Use codes instead (the same Wi-Fi is enough for them), or check the internet connection.',
+  noCrypto: 'Room codes need a secure page (https). Use codes instead.',
+  roomFull: 'This game is full (4 players). Ask the host for a free seat.',
+  roomVersion: 'This game runs another version of Breakpoint. Everyone needs the same version.',
+  roomLost: 'The room service dropped, so new friends cannot join with the code. Friends already in stay connected.',
   fightTwo: 'A 1 vs 1 needs exactly 2 players. Pick Brawl or Tournament for 3 or 4.',
   someoneLeft: 'A player left, so this fight cannot start again.',
   start: 'The host started a game this version cannot play. Everyone needs the same version of the game.',
@@ -15618,9 +15629,11 @@ const OnlineCode = {
         if (parts[2].toLowerCase() === 'tcp') continue; // the game uses UDP only
         const address = this.addressOf(parts[4]);
         const candidatePort = Number(parts[5]);
-        const plain = parts[2].toLowerCase() === 'udp' && parts[1] === '1' && parts[7] === 'host';
+        const plain = parts[2].toLowerCase() === 'udp' && parts[1] === '1' && (parts[7] === 'host' || parts[7] === 'srflx');
         if (!plain || !address || !Number.isInteger(candidatePort) || candidatePort < 1 || candidatePort > 65535) return null;
-        found.candidates.push({ type: address.type, bytes: address.bytes, port: candidatePort });
+        const reflexive = parts[7] === 'srflx'; // the public address STUN found (its raddr and rport are dropped: the other side needs only where to send)
+        if (reflexive && address.type === ONLINE_CANDIDATE_TYPE.MDNS) return null;
+        found.candidates.push({ type: address.type, bytes: address.bytes, port: candidatePort, reflexive });
       }
     }
     const lengthOk = (text, range) => text.length >= range[0] && text.length <= range[1] && ONLINE_ICE_CHARS.test(text);
@@ -15637,8 +15650,9 @@ const OnlineCode = {
       'a=fingerprint:sha-256 ' + found.fingerprint.map((byte) => byte.toString(16).toUpperCase().padStart(2, '0')).join(':'),
       'a=setup:' + (kind ? 'active' : 'actpass'), 'a=mid:0', 'a=sctp-port:5000', 'a=max-message-size:262144'];
     found.candidates.forEach((candidate, index) => {
-      const priority = (126 << 24) + ((65535 - index) << 8) + 255; // host type preference, earlier candidates first, component 1
-      lines.push('a=candidate:' + (index + 1) + ' 1 udp ' + priority + ' ' + this.addressText(candidate.type, candidate.bytes) + ' ' + candidate.port + ' typ host');
+      const priority = ((candidate.reflexive ? ONLINE_PRIORITY_REFLEXIVE : ONLINE_PRIORITY_HOST) << 24) + ((65535 - index) << 8) + 255; // type preference (host before server-reflexive), earlier candidates first, component 1
+      const kind = candidate.reflexive ? 'srflx raddr 0.0.0.0 rport 0' : 'host';
+      lines.push('a=candidate:' + (index + 1) + ' 1 udp ' + priority + ' ' + this.addressText(candidate.type, candidate.bytes) + ' ' + candidate.port + ' typ ' + kind);
     });
     lines.push('a=end-of-candidates');
     return lines.join('\r\n') + '\r\n';
@@ -15668,7 +15682,7 @@ const OnlineCode = {
     if (!found) return null;
     const bytes = this.header(kind, ONLINE_FORM.PACKED, seat);
     bytes.push(found.ufrag.length, ...Array.from(found.ufrag, (char) => char.charCodeAt(0)), found.pwd.length, ...Array.from(found.pwd, (char) => char.charCodeAt(0)), ...found.fingerprint, found.candidates.length);
-    for (const candidate of found.candidates) bytes.push(candidate.type, ...candidate.bytes, candidate.port >> 8, candidate.port & 255);
+    for (const candidate of found.candidates) bytes.push(candidate.type | (candidate.reflexive ? ONLINE_CANDIDATE_PUBLIC : 0), ...candidate.bytes, candidate.port >> 8, candidate.port & 255);
     return this.seal(kind, bytes);
   },
   // The code text for an SDP: the packed form, or the whole SDP deflated (where the browser has CompressionStream) or as it is
@@ -15732,11 +15746,11 @@ const OnlineCode = {
     const count = take(1)[0];
     if (count < 1 || count > ONLINE_CANDIDATES_MAX) throw onlineError('damaged');
     for (let i = 0; i < count; i++) {
-      const type = take(1)[0];
-      if (type >= ONLINE_ADDRESS_BYTES.length) throw onlineError('damaged');
+      const typeByte = take(1)[0], type = typeByte & ~ONLINE_CANDIDATE_PUBLIC, reflexive = (typeByte & ONLINE_CANDIDATE_PUBLIC) !== 0;
+      if (type >= ONLINE_ADDRESS_BYTES.length || (reflexive && type === ONLINE_CANDIDATE_TYPE.MDNS)) throw onlineError('damaged');
       const address = take(ONLINE_ADDRESS_BYTES[type]);
       const port = take(2);
-      found.candidates.push({ type, bytes: address, port: (port[0] << 8) | port[1] });
+      found.candidates.push({ type, bytes: address, port: (port[0] << 8) | port[1], reflexive });
     }
     if (at !== end) throw onlineError('damaged');
     return found;
@@ -15927,11 +15941,11 @@ const Qr = {
   },
 };
 
-/* The peer link: one RTCPeerConnection with two data channels, made and joined by codes (no signaling server, no ICE server).
+/* The peer link: one RTCPeerConnection with two data channels, made and joined by codes or through a room (OnlineRoom); public STUN servers only, no TURN.
    States: idle, gathering (making a code), waiting (the code is out, the other side's code is not in yet), connecting, open, failed, closed.
    Channels (negotiated, ids fixed, so neither side waits for ondatachannel): reliable = ordered, quick = unordered, no resend (the P12-02 inputs).
    API for the netcode: state, error, seat, send(data, quick), onMessage(fn), onState(fn), close(); each on* returns a function that removes the listener. */
-function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection), offerer: the self-tests set them
+function createOnlineLink(role, options = {}) { /// options: gatherMs, connectMs, guestWaitMs, connection (a stand-in for RTCPeerConnection), iceServers (the self-tests pass [] so none reaches the network), offerer: the self-tests set them
   const host = role === 'host';
   const offerer = options.offerer === undefined ? host : options.offerer === true; // who makes the first code: the host by default; a Firefox guest does (its ICE agent waits only about 5 s after it has an offer, the one that makes the first code waits for ever), P12-06
   const gatherMs = options.gatherMs ?? ONLINE_GATHER_MS, connectMs = options.connectMs ?? ONLINE_CONNECT_MS, guestWaitMs = options.guestWaitMs ?? ONLINE_GUEST_WAIT_MS;
@@ -15969,7 +15983,7 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
   const start = () => {
     const Connection = options.connection || (typeof RTCPeerConnection === 'undefined' ? null : RTCPeerConnection);
     if (!Connection) throw onlineError('unsupported');
-    connection = new Connection({ iceServers: [] });
+    connection = new Connection({ iceServers: options.iceServers || ONLINE_ICE_SERVERS });
     channels.reliable = connection.createDataChannel('bp-reliable', { negotiated: true, id: 0 });
     channels.quick = connection.createDataChannel('bp-quick', { negotiated: true, id: 1, ordered: false, maxRetransmits: 0 });
     for (const name of ['reliable', 'quick']) {
@@ -15991,12 +16005,17 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     limit = setTimeout(done, gatherMs);
     connection.addEventListener('icegatheringstatechange', onChange);
   });
-  // The local description with every candidate found so far, as a code
-  const localCode = async (kind) => {
+  // The local description with every candidate found so far
+  const localSdp = async () => {
     await gathered();
     if (state !== 'gathering') throw onlineError('state');
     const sdp = connection.localDescription ? connection.localDescription.sdp : '';
     if (!/^a=candidate:/m.test(sdp)) throw onlineError('nonetwork');
+    return sdp;
+  };
+  // ... as a code
+  const localCode = async (kind) => {
+    const sdp = await localSdp();
     const code = await OnlineCode.pack(kind, seat, sdp);
     form = (await OnlineCode.unpack(code)).form;
     return code;
@@ -16058,6 +16077,42 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
         await connection.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
       });
     },
+    /* The room flow (P19-12): no code text, the descriptions travel as plain SDP through the room services (OnlineRoom). The friend's link makes the offer (made with { offerer: true }),
+       the host's link (made with { offerer: false }) answers it at once and gives the friend its seat; both then connect, so a failed ICE is 'ice' on both sides. */
+    makeRoomOffer() {
+      if (!offerer || host || state !== 'idle') return Promise.reject(onlineError('state'));
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setLocalDescription(await connection.createOffer());
+        const sdp = await localSdp();
+        setState('waiting');
+        return sdp;
+      });
+    },
+    answerRoomOffer(offerSdp, seatNumber) {
+      if (offerer || !host || state !== 'idle' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+      seat = seatNumber;
+      return guard(async () => {
+        setState('gathering');
+        start();
+        await connection.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+        await connection.setLocalDescription(await connection.createAnswer());
+        const sdp = await localSdp();
+        setState('connecting');
+        arm(connectMs, 'timeout');
+        return sdp;
+      });
+    },
+    acceptRoomAnswer(answerSdp, seatNumber) {
+      if (!offerer || host || state !== 'waiting' || !(seatNumber >= ONLINE_SEAT_MIN && seatNumber <= ONLINE_SEAT_MAX)) return Promise.reject(onlineError('state'));
+      return guard(async () => {
+        seat = seatNumber;
+        setState('connecting'); // before the await: on a fast network the channels open before setRemoteDescription reports back
+        arm(connectMs, 'timeout');
+        await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      });
+    },
     // true when sent; false when the link is not open (nothing is queued)
     send(data, quick = false) {
       const channel = quick ? channels.quick : channels.reliable;
@@ -16075,10 +16130,390 @@ function createOnlineLink(role, options = {}) { // options: gatherMs, connectMs,
     },
   };
 }
+/* === 09b Online rooms (P19-12, Appendix C "BP-P19-11 online one-code design"): the host's room code of 5 symbols finds the host through free public signalling services (no account, no server of ours).
+   Only random ids, the hashed room id and the two SDP descriptions pass through them, never a name, a setting or an input (those travel on the data channel). Outside the simulation: nothing here touches a fight.
+   The PeerJS public server is the primary path and two public MQTT brokers (messages encrypted with a key from the code) run at the same time; the first path that delivers wins. Both are spoken directly over WebSocket, no library. */
+const ROOM_ALPHABET = 'BCDFGHJKMNPQRSTVWXZ23456789'; // 27 symbols: no vowels (so no words) and none of 0 O 1 I L; 27 ^ 5 = 14.3 million codes
+const ROOM_CODE_LENGTH = 5;
+const ROOM_PEERJS_URL = 'wss://0.peerjs.com/peerjs'; // the free PeerServer cloud of the open-source PeerJS project (MIT). Measured 2026-11-13 (Appendix D, "BP-P19-12 built"): it registers an id, but closes a client that sends any routed message (close 1000, nothing relayed), so today the brokers deliver; kept as the design's primary path, it costs one idle socket
+const ROOM_PEERJS_VERSION = '1.5.4';
+const ROOM_MQTT_URLS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt']; // public brokers for testing: the fallback only
+const ROOM_ID_PREFIX = { host: 'bp4h', guest: 'bp4g' };
+const ROOM_ID_PATTERN = /^bp4[hg][0-9a-f]{20}$/;
+const ROOM_NONCE_PATTERN = /^[0-9a-f]{16}$/;
+const ROOM_ID_HEX = 20, ROOM_TOPIC_HEX = 32, ROOM_NONCE_HEX = 16;
+const ROOM_HEARTBEAT_MS = 5000; // the PeerJS server drops a client silent for 90 s; its own client beats every 5 s
+const ROOM_MQTT_KEEPALIVE_S = 30, ROOM_MQTT_PING_MS = 20000;
+const ROOM_CLAIM_REFRESH_MS = 30000, ROOM_CLAIM_STALE_MS = 120000, ROOM_CLAIM_WAIT_MS = 1000; // a host's retained claim on a broker: refreshed, old after 2 minutes, and how long a new host listens for another claim of its code
+const ROOM_REACH_MS = 6000; // no service answered by then: "Could not reach the free room service"
+const ROOM_ANSWER_MS = 12000; // a friend's offer sent, no answer by then: "No game with code ..."
+const ROOM_CODE_TRIES = 3; // new codes made when the code is taken
+const ROOM_TEXT_MAX_CHARS = 20000; // the longest PeerJS message read
+const ROOM_MQTT_PACKET_MAX = 32768;
+const ROOM_KDF_ITERATIONS = 10000;
+const ROOM_SEEN_MAX = 40; // offers a host remembers having answered
+const ROOM_SDP_CANDIDATES_MAX = 40;
+
+const RoomCode = {
+  // 5 uniformly drawn symbols (a byte at or over 243 = 27 * 9 is thrown away, so no symbol is likelier than another)
+  make() {
+    const limit = 256 - (256 % ROOM_ALPHABET.length), symbols = [];
+    while (symbols.length < ROOM_CODE_LENGTH) {
+      const bytes = Array.from(crypto.getRandomValues(new Uint8Array(ROOM_CODE_LENGTH * 2))).filter((byte) => byte < limit);
+      for (const byte of bytes) if (symbols.length < ROOM_CODE_LENGTH) symbols.push(ROOM_ALPHABET[byte % ROOM_ALPHABET.length]);
+    }
+    return symbols.join('');
+  },
+  // Typed text -> the code (read case-blind, spaces and dashes ignored), or '' when it is not exactly 5 symbols of the alphabet
+  read(text) {
+    const clean = String(text || '').toUpperCase().replace(/[\s-]+/g, '');
+    return clean.length === ROOM_CODE_LENGTH && Array.from(clean).every((symbol) => ROOM_ALPHABET.includes(symbol)) ? clean : '';
+  },
+  // The 5 cells of the gamepad picker for a text: a symbol each, '' for an empty cell
+  cellsOf(text) { const clean = this.typed(text); return Array.from({ length: ROOM_CODE_LENGTH }, (_, index) => clean[index] || ''); },
+  // What a box keeps while the player types: the symbols of the alphabet only, at most 5 (a vowel or a look-alike is dropped)
+  typed(text) { return Array.from(String(text || '').toUpperCase()).filter((symbol) => ROOM_ALPHABET.includes(symbol)).slice(0, ROOM_CODE_LENGTH).join(''); },
+  // The code of a `?join=K7QX4` link (location.search), or ''
+  fromLink(search) {
+    const found = /[?&]join=([^&#]*)/.exec(String(search || ''));
+    if (!found) return '';
+    try { return this.read(decodeURIComponent(found[1])); } catch (error) { return ''; }
+  },
+  // The link a friend opens: this page's address without its query and hash, then ?join=CODE
+  linkFor(code, pageHref) { return String(pageHref || '').split(/[?#]/)[0] + '?join=' + code; },
+  // One symbol further (dir 1) or back (dir -1) in the alphabet, for the gamepad cells (an empty cell starts at the first symbol or the last)
+  step(symbol, dir) {
+    const at = symbol ? ROOM_ALPHABET.indexOf(symbol) : -1; // (indexOf of '' is 0: an empty cell must not read as the first symbol)
+    if (at < 0) return ROOM_ALPHABET[dir > 0 ? 0 : ROOM_ALPHABET.length - 1];
+    return ROOM_ALPHABET[(at + dir + ROOM_ALPHABET.length) % ROOM_ALPHABET.length];
+  },
+};
+
+const RoomCrypto = {
+  available() { return typeof crypto !== 'undefined' && !!crypto.subtle && typeof crypto.getRandomValues === 'function'; }, // WebCrypto needs a secure page (https, localhost)
+  async digestHex(text) { return OnlineCode.bytesHex(Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))))); },
+  randomHex(length) { return OnlineCode.bytesHex(Array.from(crypto.getRandomValues(new Uint8Array(length / 2)))); },
+  // The host's PeerJS id and the root of its MQTT topics: hashes, so the code itself never travels
+  async ids(code) {
+    const [room, topic] = await Promise.all([this.digestHex('breakpoint-room:' + code), this.digestHex('breakpoint-topic:' + code)]);
+    return { host: ROOM_ID_PREFIX.host + room.slice(0, ROOM_ID_HEX), topic: 'bp4/' + topic.slice(0, ROOM_TOPIC_HEX) };
+  },
+  // The AES-GCM key of a room, from PBKDF2-SHA-256 of the code: it keeps the descriptions from casual readers of a public broker, not from someone who knows the code
+  async key(code) {
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode('breakpoint-room-salt'), iterations: ROOM_KDF_ITERATIONS, hash: 'SHA-256' }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  },
+  // message -> bytes: a fresh 12-byte nonce, then the ciphertext
+  async seal(key, message) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(message))));
+    const out = new Uint8Array(iv.length + body.length);
+    out.set(iv); out.set(body, iv.length);
+    return out;
+  },
+  // bytes -> the message, or null for anything that does not decrypt with this key or is not JSON
+  async open(key, bytes) {
+    if (bytes.length < 12 + 16) return null;
+    try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12)))); } catch (error) { return null; }
+  },
+};
+
+// The messages of the room protocol, read strictly: a field of the wrong kind or any unknown shape is refused (null), whoever sent it
+const RoomMessage = {
+  // The SDP of a stranger's message, or '': printable text, one data-channel media section, a sane number of candidates
+  sdp(text) {
+    if (typeof text !== 'string' || text.length > ONLINE_SDP_MAX_BYTES || !text.startsWith('v=0') || !/^[\x20-\x7e\r\n]+$/.test(text)) return '';
+    const lines = text.split(/\r?\n/), media = lines.filter((line) => line.startsWith('m=')), candidates = lines.filter((line) => line.startsWith('a=candidate:'));
+    return media.length === 1 && ONLINE_SDP_MEDIA_PATTERN.test(media[0]) && candidates.length <= ROOM_SDP_CANDIDATES_MAX ? text : '';
+  },
+  // { t: 'offer', from, nonce, bp, sdp } from a friend; { t: 'answer', nonce, bp, sdp, seat } or { t: 'answer', nonce, bp, full: true } or { t: 'answer', nonce, bp, version } from the host
+  read(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.nonce !== 'string' || !ROOM_NONCE_PATTERN.test(value.nonce) || !Number.isInteger(value.bp)) return null;
+    const { nonce, bp } = value;
+    if (value.t === 'offer') {
+      const sdp = this.sdp(value.sdp);
+      return sdp && typeof value.from === 'string' && ROOM_ID_PATTERN.test(value.from) && value.from.startsWith(ROOM_ID_PREFIX.guest) ? { t: 'offer', from: value.from, nonce, bp, sdp } : null;
+    }
+    if (value.t !== 'answer') return null;
+    if (value.full === true) return { t: 'answer', nonce, bp, full: true };
+    if (Number.isInteger(value.version)) return { t: 'answer', nonce, bp, version: value.version };
+    const sdp = this.sdp(value.sdp);
+    return sdp && Number.isInteger(value.seat) && value.seat >= ONLINE_SEAT_MIN && value.seat <= ONLINE_SEAT_MAX ? { t: 'answer', nonce, bp, sdp, seat: value.seat } : null;
+  },
+  // A host's claim on a code (kept by a broker): { t: 'claim', nonce, time }
+  readClaim(value) {
+    return value && typeof value === 'object' && value.t === 'claim' && typeof value.nonce === 'string' && ROOM_NONCE_PATTERN.test(value.nonce) && Number.isFinite(value.time) ? { nonce: value.nonce, time: value.time } : null;
+  },
+};
+
+// The PeerJS server's protocol (peerjs-server: src/enums.ts, src/messageHandler), the few messages this game speaks
+const PeerWire = {
+  TYPES: ['OPEN', 'ID-TAKEN', 'ERROR', 'INVALID-KEY', 'INVALID-TOKEN', 'EXPIRE', 'OFFER', 'ANSWER', 'CANDIDATE', 'LEAVE'], // what the server may send
+  RELAYED: ['OFFER', 'ANSWER', 'CANDIDATE', 'LEAVE', 'EXPIRE'], // these carry the sender (or, for EXPIRE, the id that was not there) in src
+  url(id, token) { return ROOM_PEERJS_URL + '?key=peerjs&id=' + id + '&token=' + token + '&version=' + ROOM_PEERJS_VERSION; },
+  heartbeat: '{"type":"HEARTBEAT"}',
+  frame(type, dst, payload) { return JSON.stringify({ type, dst, payload }); },
+  // A message of the server as { type, src, message } (message: the room message of an OFFER or an ANSWER), or null for anything else
+  read(text) {
+    if (typeof text !== 'string' || text.length > ROOM_TEXT_MAX_CHARS) return null;
+    let data;
+    try { data = JSON.parse(text); } catch (error) { return null; }
+    if (!data || typeof data !== 'object' || Array.isArray(data) || !this.TYPES.includes(data.type)) return null;
+    const relayed = this.RELAYED.includes(data.type);
+    if (relayed && !(typeof data.src === 'string' && ROOM_ID_PATTERN.test(data.src))) return null;
+    const carries = data.type === 'OFFER' || data.type === 'ANSWER';
+    const message = carries ? RoomMessage.read(data.payload) : null;
+    if (carries && !message) return null;
+    if (data.type === 'OFFER' && message.t !== 'offer') return null;
+    if (data.type === 'ANSWER' && message.t !== 'answer') return null;
+    if (data.type === 'OFFER' && message.from !== data.src) return null; // the server names the sender: the friend's own claim of who it is must match
+    return { type: data.type, src: relayed ? data.src : '', message };
+  },
+};
+
+// MQTT 3.1.1 (OASIS), only what the room needs: CONNECT, SUBSCRIBE, PUBLISH at QoS 0 (retain for a claim), PINGREQ, DISCONNECT out; CONNACK, SUBACK, PUBLISH, PINGRESP in
+const MqttWire = {
+  text(value) { const bytes = new TextEncoder().encode(value); return [bytes.length >> 8, bytes.length & 255, ...bytes]; },
+  length(count) { // the remaining length: 7 bits a byte, the high bit says another byte follows
+    const bytes = [];
+    let rest = count;
+    do { let digit = rest % 128; rest = Math.floor(rest / 128); if (rest > 0) digit |= 128; bytes.push(digit); } while (rest > 0);
+    return bytes;
+  },
+  packet(firstByte, body) { return Uint8Array.from([firstByte, ...this.length(body.length), ...body]); },
+  connect(clientId) { return this.packet(0x10, [...this.text('MQTT'), 4, 2, ROOM_MQTT_KEEPALIVE_S >> 8, ROOM_MQTT_KEEPALIVE_S & 255, ...this.text(clientId)]); }, // protocol level 4, flags: clean session
+  subscribe(packetId, topic) { return this.packet(0x82, [packetId >> 8, packetId & 255, ...this.text(topic), 0]); }, // requested QoS 0
+  publish(topic, payload, retain = false) { return this.packet(0x30 | (retain ? 1 : 0), [...this.text(topic), ...payload]); },
+  PING: Uint8Array.from([0xc0, 0]),
+  DISCONNECT: Uint8Array.from([0xe0, 0]),
+  // One packet at the start of `buffer` as { used, packet }, or null while bytes are still missing; throws on anything this client never asks for (a QoS above 0, a packet type it does not know, a bad length)
+  take(buffer) {
+    if (buffer.length < 2) return null;
+    let count = 0, multiplier = 1, at = 1, digit = 0;
+    do {
+      if (at >= buffer.length) return null;
+      if (multiplier > 128 * 128 * 128) throw new Error('bad length');
+      digit = buffer[at++];
+      count += (digit & 127) * multiplier;
+      multiplier *= 128;
+    } while (digit & 128);
+    if (count > ROOM_MQTT_PACKET_MAX) throw new Error('too long');
+    if (buffer.length < at + count) return null;
+    return { used: at + count, packet: this.parse(buffer[0] >> 4, buffer[0] & 15, buffer.slice(at, at + count)) };
+  },
+  parse(type, flags, body) {
+    if (type === 2 && body.length === 2) return { type: 'connack', code: body[1] };
+    if (type === 9 && body.length >= 3) return { type: 'suback', id: (body[0] << 8) | body[1], codes: Array.from(body.slice(2)) };
+    if (type === 13 && body.length === 0) return { type: 'pingresp' };
+    if (type === 3 && (flags & 6) === 0 && body.length >= 2) { // QoS 0: no packet id
+      const topicLength = (body[0] << 8) | body[1];
+      if (body.length < 2 + topicLength) throw new Error('bad publish');
+      return { type: 'publish', retain: (flags & 1) === 1, topic: new TextDecoder().decode(body.slice(2, 2 + topicLength)), payload: body.slice(2 + topicLength) };
+    }
+    throw new Error('unexpected packet ' + type);
+  },
+  // A reader that takes the bytes of each WebSocket message and returns the packets complete so far (a packet may span messages, a message may hold several)
+  reader() {
+    let buffer = new Uint8Array(0);
+    return {
+      feed(chunk) {
+        const joined = new Uint8Array(buffer.length + chunk.length);
+        joined.set(buffer); joined.set(chunk, buffer.length);
+        buffer = joined;
+        const packets = [];
+        for (let taken = MqttWire.take(buffer); taken; taken = MqttWire.take(buffer)) { packets.push(taken.packet); buffer = buffer.slice(taken.used); }
+        return packets;
+      },
+    };
+  },
+};
+
+const roomSocket = (url, protocols) => new (Online.socketClass || WebSocket)(url, protocols); // Online.socketClass: the self-tests' stand-in, so no test reaches a real service
+
+// One signalling path. context: { host, ids, key, ownId, token, report(route, kind, data) }; kinds: ready, missing (a guest: nobody is there), down, taken, message. route.send(target, message), route.close()
+function createPeerRoute(context) {
+  const route = { name: 'peerjs', state: 'connecting', sent: false };
+  let socket = null, beat = 0, over = false;
+  const end = (kind) => { if (over) return; over = true; clearInterval(beat); try { socket.close(); } catch (error) { /* already closed */ } context.report(route, kind); };
+  route.open = () => {
+    try { socket = roomSocket(PeerWire.url(context.ownId, context.token)); } catch (error) { end('down'); return; }
+    socket.onmessage = (event) => {
+      const read = PeerWire.read(event.data);
+      if (!read) return; // anything the game does not expect is ignored
+      if (read.type === 'OPEN') { beat = setInterval(() => { try { socket.send(PeerWire.heartbeat); } catch (error) { /* closing */ } }, ROOM_HEARTBEAT_MS); context.report(route, 'ready'); }
+      else if (read.type === 'ID-TAKEN') end('taken');
+      else if (read.type === 'EXPIRE') context.report(route, 'missing');
+      else if (read.message) context.report(route, 'message', read.message);
+    };
+    socket.onerror = () => end('down');
+    socket.onclose = () => end('down');
+  };
+  route.send = (target, message) => {
+    try { socket.send(PeerWire.frame(message.t === 'offer' ? 'OFFER' : 'ANSWER', target === 'host' ? context.ids.host : target, message)); } catch (error) { /* closing: its close ends the route */ }
+  };
+  route.close = () => { over = true; clearInterval(beat); try { if (socket) socket.close(); } catch (error) { /* already closed */ } };
+  return route;
+}
+
+function createMqttRoute(context, url) {
+  const route = { name: 'mqtt', url, state: 'connecting', sent: false };
+  const root = context.ids.topic, own = context.host ? root + '/h' : root + '/g/' + context.ownId, claimTopic = root + '/claim';
+  const ownNonce = context.nonce, reader = MqttWire.reader(), timers = []; // clearTimeout also clears an interval (one shared list in the browser)
+  let socket = null, over = false, acknowledged = 0, claimed = false, claimSeen = false;
+  const stop = () => { over = true; timers.forEach((timer) => clearTimeout(timer)); };
+  const transmit = (bytes) => { try { socket.send(bytes); } catch (error) { /* closing: its close ends the route */ } };
+  const end = (kind) => { if (over) return; stop(); try { socket.close(); } catch (error) { /* already closed */ } context.report(route, kind); };
+  const publish = async (topic, message, retain = false) => {
+    const bytes = await RoomCrypto.seal(context.key, message);
+    if (!over) transmit(MqttWire.publish(topic, bytes, retain));
+  };
+  const claim = () => { claimed = true; publish(claimTopic, { t: 'claim', nonce: ownNonce, time: Date.now() }, true); };
+  const subscribed = () => { // both subscriptions are in; a retained claim of another host or a guest's host arrives within ROOM_CLAIM_WAIT_MS
+    timers.push(setTimeout(() => {
+      if (over) return;
+      if (context.host) { claim(); timers.push(setInterval(claim, ROOM_CLAIM_REFRESH_MS)); context.report(route, 'ready'); } else if (!claimSeen) context.report(route, 'missing');
+    }, ROOM_CLAIM_WAIT_MS));
+    if (!context.host) context.report(route, 'ready'); // a friend may send at once: the claim only tells it early that nobody is there
+  };
+  const heardClaim = (message) => {
+    const found = RoomMessage.readClaim(message);
+    if (!found || found.nonce === ownNonce) return;
+    if (context.host) { if (Date.now() - found.time < ROOM_CLAIM_STALE_MS) end('taken'); return; } // somebody else holds this code
+    claimSeen = true;
+    if (route.state === 'missing') context.report(route, 'ready');
+  };
+  const heard = async (packet) => {
+    if (!packet.payload.length) return; // an empty retained message clears a claim
+    const message = await RoomCrypto.open(context.key, packet.payload);
+    if (over || !message) return;
+    if (packet.topic === claimTopic) { heardClaim(message); return; }
+    const read = packet.topic === own ? RoomMessage.read(message) : null;
+    if (read) context.report(route, 'message', read);
+  };
+  const handle = (packet) => {
+    if (packet.type === 'connack') {
+      if (packet.code !== 0) { end('down'); return; }
+      timers.push(setInterval(() => transmit(MqttWire.PING), ROOM_MQTT_PING_MS));
+      transmit(MqttWire.subscribe(1, own)); transmit(MqttWire.subscribe(2, claimTopic));
+    } else if (packet.type === 'suback') {
+      if (packet.codes.includes(0x80)) end('down'); else if (++acknowledged === 2) subscribed();
+    } else if (packet.type === 'publish') heard(packet);
+  };
+  route.open = () => {
+    try { socket = roomSocket(url, 'mqtt'); } catch (error) { end('down'); return; }
+    socket.binaryType = 'arraybuffer';
+    socket.onopen = () => transmit(MqttWire.connect('bp4c' + RoomCrypto.randomHex(16)));
+    socket.onmessage = (event) => {
+      if (!(event.data instanceof ArrayBuffer)) { end('down'); return; } // a text frame is not MQTT
+      try { for (const packet of reader.feed(new Uint8Array(event.data))) handle(packet); } catch (error) { end('down'); }
+    };
+    socket.onerror = () => end('down');
+    socket.onclose = () => end('down');
+  };
+  route.send = (target, message) => { publish(target === 'host' ? root + '/h' : root + '/g/' + target, message); };
+  route.close = () => {
+    if (over) return;
+    stop();
+    if (!socket) return;
+    if (claimed) transmit(MqttWire.publish(claimTopic, new Uint8Array(0), true)); // the retained claim is cleared: the code is free
+    transmit(MqttWire.DISCONNECT);
+    try { socket.close(); } catch (error) { /* already closed */ }
+  };
+  return route;
+}
+
+/* The room of one code on every service at once. role: 'host' (registers the code and answers the offers that come) or 'guest' (sends one offer and takes the first answer).
+   handlers: onReady(path) the code is live on a path (the first), onTaken() another host holds the code, onUnreachable(wasLive) no service answers, onOffer(message, reply) a friend's offer (host),
+   onAnswer(message) the host's answer (guest), onMissing() nobody answers to this code (guest). options.reachMs / answerMs shorten the limits for the self-tests. */
+function createRoomHub(role, code, handlers, options = {}) {
+  const host = role === 'host';
+  const hub = { role, code, ownId: host ? '' : ROOM_ID_PREFIX.guest + RoomCrypto.randomHex(ROOM_ID_HEX), routes: [] };
+  const routes = hub.routes, seen = new Map(); // seen: a host's answered offers by nonce
+  let closed = false, everUsable = false, pending = null, answered = false, reachTimer = 0, answerTimer = 0;
+  const usable = (route) => route.state === 'ready' || route.state === 'missing';
+  const verdict = () => { // every path has had its say
+    if (closed || routes.some((route) => route.state === 'connecting' || route.state === 'ready')) return;
+    if (host || !pending) { handlers.onUnreachable(everUsable); return; }
+    if (routes.some((route) => route.state === 'missing')) handlers.onMissing(); else handlers.onUnreachable(everUsable);
+  };
+  const offer = (route, message) => {
+    const known = seen.get(message.nonce);
+    if (known) { known.routes.add(route); if (known.answer) route.send(known.from, known.answer); return; } // the same offer on another path: answered once, the answer goes there too
+    if (seen.size >= ROOM_SEEN_MAX) seen.delete(seen.keys().next().value);
+    const entry = { from: message.from, routes: new Set([route]), answer: null };
+    seen.set(message.nonce, entry);
+    handlers.onOffer(message, (answer) => { entry.answer = answer; for (const via of entry.routes) via.send(entry.from, answer); });
+  };
+  const heard = (route, message) => {
+    if (host) { if (message.t === 'offer') offer(route, message); return; }
+    if (message.t !== 'answer' || !pending || message.nonce !== pending.nonce || answered) return;
+    answered = true;
+    clearTimeout(answerTimer);
+    handlers.onAnswer(message);
+  };
+  const report = (route, kind, data) => {
+    if (closed) return;
+    if (kind === 'ready') {
+      route.state = 'ready';
+      if (!everUsable) { everUsable = true; clearTimeout(reachTimer); handlers.onReady(route.name); }
+      if (pending && !route.sent) { route.sent = true; route.send('host', pending); }
+    } else if (kind === 'missing') { route.state = 'missing'; verdict(); }
+    else if (kind === 'taken') { route.state = 'down'; handlers.onTaken(); }
+    else if (kind === 'down') { route.state = 'down'; verdict(); }
+    else if (kind === 'message') heard(route, data);
+  };
+  hub.start = async () => {
+    reachTimer = setTimeout(() => { if (!everUsable && !closed) handlers.onUnreachable(false); }, options.reachMs ?? ROOM_REACH_MS);
+    let ids = null, key = null;
+    try { [ids, key] = await Promise.all([RoomCrypto.ids(code), RoomCrypto.key(code)]); } catch (error) { if (!closed) handlers.onUnreachable(false); return; }
+    if (closed) return;
+    const context = { host, ids, key, ownId: host ? ids.host : hub.ownId, token: options.token || RoomCrypto.randomHex(10), nonce: options.nonce || RoomCrypto.randomHex(ROOM_NONCE_HEX), report }; // token: the PeerJS server lets the same token take its id back; nonce: the claim on a broker that is ours
+    if (host) hub.ownId = ids.host;
+    routes.push(createPeerRoute(context), ...ROOM_MQTT_URLS.map((url) => createMqttRoute(context, url)));
+    for (const route of routes) route.open();
+  };
+  // The friend's offer: sent on every path that is up now and on each that comes up later; nobody answering in time is "no game with this code"
+  hub.sendOffer = (message) => {
+    pending = message;
+    answerTimer = setTimeout(() => { if (!answered && !closed) handlers.onMissing(); }, options.answerMs ?? ROOM_ANSWER_MS);
+    for (const route of routes) if (usable(route) && !route.sent) { route.sent = true; route.send('host', message); }
+  };
+  hub.close = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(reachTimer); clearTimeout(answerTimer);
+    for (const route of routes) route.close();
+  };
+  return hub;
+}
+
+// The friend's side: a guest link (made with { offerer: true }) makes its offer, the room carries it, the host's answer goes into the link, and the link connects. Resolves when the answer is in
+// (the link then opens by itself); rejects with a coded error (noRoom, noService, roomFull, roomVersion, or the link's own). cancel() ends it and closes the room.
+function joinRoom(code, link, options = {}) {
+  let hub = null, finished = false, settle = null;
+  const done = new Promise((resolve, reject) => {
+    settle = (error) => { if (finished) return; finished = true; if (hub) hub.close(); if (error) reject(error); else resolve(); };
+  });
+  const accept = (answer) => {
+    if (answer.full) { settle(onlineError('roomFull')); return; }
+    if (answer.version) { settle(onlineError('roomVersion')); return; }
+    link.acceptRoomAnswer(answer.sdp, answer.seat).then(() => settle(), settle);
+  };
+  link.makeRoomOffer().then((sdp) => {
+    if (finished) return;
+    hub = createRoomHub('guest', code, { onReady() {}, onTaken() {}, onUnreachable: () => settle(onlineError('noService')), onMissing: () => settle(onlineError('noRoom', onlineNoRoom(code))), onAnswer: accept }, options);
+    hub.start();
+    hub.sendOffer({ t: 'offer', from: hub.ownId, nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX), bp: ONLINE_NET_VERSION, sdp });
+  }, (error) => settle(error));
+  return { done, cancel: () => settle(onlineError('state')), get hub() { return hub; } };
+}
+const onlineNoRoom = (code) => 'No game with code ' + code + '. Check the letters, or ask your friend for the code on their screen.';
+
 const Online = {
   code: OnlineCode,
   qr: Qr,
   createLink: createOnlineLink,
+  socketClass: null, // a stand-in for WebSocket that the self-tests put in, so none reaches a real room service (null: the browser's)
   supported() { return typeof RTCPeerConnection !== 'undefined'; },
   // QR scan only where the browser can read a QR code from a camera (in practice Chrome on Android); everywhere else the player pastes
   async canScan() {
@@ -16248,6 +16683,7 @@ const UI = {
     this.buildTouch();
     this.applyTouchVisibility();
     CreatorUI.init();
+    OnlineUI.init();
     this.announceControlsChange();
   },
   // One toast on the first load after saved controls were migrated
@@ -16837,7 +17273,7 @@ const UI = {
     const continueItem = saved ? '<button class="mi" data-nav data-default data-act="continueArcade">Continue Arcade<small>' + esc(ROSTER_BY_ID[saved.fighter].name) + ' &middot; stage ' + saved.stage + ' / ' + STORY_STAGES + '</small></button>' : '';
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' + continueItem +
       '<button class="mi" data-nav ' + (saved ? '' : 'data-default ') + 'data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Tournament</small></button>' +
-      '<button class="mi" data-nav data-act="online">Online<small>Up to 4 devices on the same network: lobby, Ready check, Free Fight lineup</small></button>' +
+      '<button class="mi" data-nav data-act="online">Online<small>Up to 4 players with a room code: lobby, Ready check, Free Fight lineup</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -17423,7 +17859,7 @@ const UI = {
       '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / ' + STORY_STAGES + '</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
       '<h3>Tips</h3><p>Arenas are destructible: crates splinter, concrete pillars crack and shed chunks, steel railings bend and collapse, glass and paper screens shatter. Throws and knockbacks into scenery cause extra damage and change where you can walk.</p>' +
       this.holdHelpHtml() +
-      '<h3>Compatibility &amp; limits</h3><p>Online play (up to 4 devices): ' + esc(ONLINE_LIMITS) + ' Firefox as the guest must answer within a few seconds: let it host, or scan the code.</p><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
+      '<h3>Compatibility &amp; limits</h3><p>Online play (up to 4 players): ' + esc(ONLINE_LIMITS) + ' With the two codes instead of a room code, Firefox as the guest must answer within a few seconds: let it host, or scan the code.</p><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
       '<div class="row sticky">' + BACK_BUTTON + '<button class="mi" data-nav data-act="selftest">Run self-test</button></div><pre id="selftestOut" style="white-space:pre-wrap;font-size:.8em;max-height:14em;overflow:auto"></pre></div></section>';
   },
   screen_pause() {
@@ -17591,12 +18027,15 @@ const UI = {
     if (this.current === 'scene' && this.scenePoll(unpause)) return;
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
     const ok = !!(ph.menuOk), back = !!(ph.menuBack);
-    if (pd.down && !p.down) this.moveFocus(1);
-    if (pd.up && !p.up) this.moveFocus(-1);
-    const el = document.activeElement;
-    if (pd.right && !p.right) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.classList.contains('card')) this.moveFocus(1); }
-    if (pd.left && !p.left) { if (el && el.classList.contains('opt')) this.adjust(el, -1); else if (el && el.classList.contains('card')) this.moveFocus(-1); }
-    if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1, true); else if (el && el.tagName === 'BUTTON') el.click(); }
+    const el = document.activeElement, cell = OnlineUI.cellOf(el); // a cell of the room code: up and down change its symbol, left and right move (P19-12)
+    if (cell >= 0) OnlineUI.padCell(cell, pd, p, ok && !p.ok && performance.now() > this.guardUntil);
+    else {
+      if (pd.down && !p.down) this.moveFocus(1);
+      if (pd.up && !p.up) this.moveFocus(-1);
+      if (pd.right && !p.right) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.classList.contains('card')) this.moveFocus(1); }
+      if (pd.left && !p.left) { if (el && el.classList.contains('opt')) this.adjust(el, -1); else if (el && el.classList.contains('card')) this.moveFocus(-1); }
+      if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1, true); else if (el && el.tagName === 'BUTTON') el.click(); }
+    }
     if (back && !p.back && performance.now() > this.guardUntil) this.back();
     const start = !!ph.menuStart;
     if (start && !this.startHeld && this.current === 'freefight' && performance.now() > this.guardUntil) this.act('start');
@@ -19235,7 +19674,9 @@ const OnlinePlay = {
   },
   // Lets go of everything: the links are closed (the others see it at once)
   leave() {
-    for (const { link } of this.handOff().links) link.close();
+    const { links } = this.handOff();
+    for (const { link } of links) link.close();
+    if (links.length) OnlineUI.heldRoom = null; // the host left the online game with its friends in it: the room code ends (a match that goes back to its lobby hands the links over first, so none are left here)
   },
   // Lets go of the links without closing them (the lobby takes them back, see toLobby): the listeners and transports come off and everything is forgotten; returns what was held
   handOff() {
@@ -19321,9 +19762,10 @@ function onlineReadLobby(data) {
 const ONLINE_QR_MAX_MODULE_PX = 10;
 const ONLINE_CODE_CHARS_PER_ROW = 32;
 const ONLINE_BACK_BUTTON = BACK_BUTTON.replace('data-nav ', 'data-nav data-default '); // the focus lands here when no code box is the better place (the first enabled data-default wins)
-const ONLINE_LIMITS = 'Works only when the devices are on the same Wi-Fi or router, or on one phone\'s hotspot. Networks that block direct connections (guest Wi-Fi, office or school networks, VPNs, mobile data) do not work. No server is used: the devices talk to each other.'; // P12-07; no browser rule since P12-08: a phone and a PC play together (Appendix D row J01)
+const ONLINE_LIMITS = 'Friends connect over the internet or the same Wi-Fi. A free public service passes the first message, then the devices talk straight to each other. Some networks block direct connections (guest Wi-Fi, office or school networks, VPNs, some mobile data): then try Wi-Fi on one side, or a phone hotspot.'; // P12-07, P19-12 (N23); no browser rule since P12-08: a phone and a PC play together (Appendix D row J01)
 const OnlineUI = {
   link: null, role: '', offerCode: '', answerCode: '', offerText: '', answerText: '', note: '', roundTrip: -1, qrOf: '', // the guest's single link and its fields; note also holds the host's start problem
+  room: null, heldRoom: null, // the room flow (P19-12): the room of this screen (the host's { info, hub, status, tries }, a guest's { cells, join, note }) and the room a started match keeps for its lobby; null = the two-code screens
   guests: [], mode: '', arena: ONLINE_ARENA_DEFAULT, // the host's one slot per guest: { seat, link, offerCode, answerText, note, roundTrip }; the picked mode ('' = by the number of players) and level
   scanOk: false, scanning: false, scanBusy: false, scanTicket: 0, scanSeat: 0, scanKind: '', answering: false, unlisten: [], stream: null, video: null, scanTimer: 0,
   hostFighter: '', lastFighter: '', mine: { fighter: '', ready: false }, view: null, first: false, firstCode: '', replyText: '', loop: 0, lineupSig: '', rev: 1, // the lobby (rev: the revision of the settings, raised whenever they change; a guest's Ready counts only for the revision it saw): the host's own pick; a guest's pick and Ready, the host's last list of players, "I send the first code" (a Firefox guest) with its two texts; the host's ping timer; the lineup as the guests last agreed to it
@@ -19336,6 +19778,7 @@ const OnlineUI = {
   },
   // Lets go of the links without closing them: the screen's own listeners (state, and the bp-ping / bp-pong test flow) come off and its fields are cleared
   forget() {
+    this.closeRoom();
     for (const stop of this.unlisten) stop();
     this.unlisten = [];
     this.link = null; this.role = ''; this.offerCode = ''; this.answerCode = ''; this.offerText = ''; this.answerText = ''; this.note = ''; this.roundTrip = -1; this.qrOf = ''; this.answering = false; this.guests = []; this.mode = ''; this.first = false; this.firstCode = ''; this.replyText = ''; this.view = null; this.mine = { fighter: '', ready: false }; this.lineupSig = ''; this.stopLoop();
@@ -19360,19 +19803,133 @@ const OnlineUI = {
     return open.map((guest) => ({ seat: guest.seat, link: guest.link, roundTrip: guest.roundTrip, samples: guest.samples || [], engine: guest.engine, fighter: guest.fighter }));
   },
   leave(screen) { if (screen === 'onlinehost' || screen === 'onlinejoin') this.reset(); },
-  open(role, mode = '') {
+  closeRoom() {
+    const room = this.room;
+    this.room = null;
+    if (room && room.hub) room.hub.close();
+    if (room && room.join) room.join.cancel();
+  },
+  /* --- the room flow (P19-12): one 5-symbol code; the friend types it and nothing goes back. The two-code screens stay behind "Use codes instead" / "Join with codes instead". */
+  // Host: a new room (a lobby that comes back after a match, resume, takes the same one); a guest: the Join screen, the code of a ?join= link joined at once
+  open(role, mode = '', code = '') {
+    this.heldRoom = null;
     this.reset();
     this.role = role;
     this.hostFighter = this.mine.fighter = this.pickToStart();
     if (role === 'host') { this.mode = mode; this.lineupSig = this.lineupSignature(); }
+    this.room = role === 'host' ? this.makingRoom() : { cells: RoomCode.cellsOf(code), join: null, note: '' }; // before the screen opens, so its first draw is the room's
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
-    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') { this.addGuest(); this.startLoop(); }
+    if (role === 'host') { this.startRoomHost(); this.startLoop(); return; }
+    if (code) this.joinTyped(); else this.redraw();
   },
+  makingRoom() { return { info: { code: '' }, hub: null, status: 'making', tries: 1 }; },
+  // Host: registers the code on the room services; a code that is taken is replaced by a new one (at most ROOM_CODE_TRIES)
+  startRoomHost(info = null, tries = 1) {
+    if (!RoomCrypto.available()) { this.room = { info: { code: '' }, hub: null, status: 'nocrypto', tries }; this.redraw(); return; }
+    if (!info) info = { code: RoomCode.make(), token: RoomCrypto.randomHex(10), nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX) }; // token and nonce stay with the code, so the same host comes back to it after a match without being refused as another host
+    const room = { info, hub: null, status: 'making', tries }, mine = () => this.room === room;
+    this.room = room;
+    room.hub = createRoomHub('host', info.code, {
+      onReady: () => { if (mine()) { room.status = 'live'; this.redraw(); } },
+      onTaken: () => { if (mine()) this.retakeRoom(room); },
+      onUnreachable: (wasLive) => { if (mine()) { room.status = wasLive ? 'lost' : 'down'; this.redraw(); } },
+      onOffer: (message, reply) => { if (mine()) this.roomOffer(message, reply); },
+    }, { token: info.token, nonce: info.nonce });
+    room.hub.start();
+    this.redraw();
+  },
+  retakeRoom(room) {
+    room.hub.close();
+    if (room.tries < ROOM_CODE_TRIES) { this.startRoomHost(null, room.tries + 1); return; }
+    room.status = 'down';
+    this.redraw();
+  },
+  // Host: a friend's offer. A friend of another version, or with no seat left, is told so; otherwise it gets the next seat and the answer goes back at once (one code serves every seat)
+  roomOffer(message, reply) {
+    const answer = (extra) => reply(Object.assign({ t: 'answer', nonce: message.nonce, bp: ONLINE_NET_VERSION }, extra));
+    if (message.bp !== ONLINE_NET_VERSION) { answer({ version: ONLINE_NET_VERSION }); return; }
+    const seat = this.freeSeat();
+    if (seat > ONLINE_SEAT_MAX) { answer({ full: true }); return; }
+    const link = Online.createLink('host', { offerer: false }), slot = { seat, link, offerCode: '', answerText: '', theirs: '', answerCode: '', answering: false, note: '', roundTrip: -1, ready: false, samples: [], missed: 0, removed: false, reverse: false, room: true };
+    this.guests.push(slot);
+    this.listen(link);
+    this.step(link, link.answerRoomOffer(message.sdp, seat), (sdp) => { answer({ sdp, seat }); this.redraw(); }, (error) => this.freeRoomSlot(slot, link, error));
+    this.redraw();
+  },
+  // Host: a room friend that never connected, failed or left: the seat is simply free again (the room code is still good), and the host is told why
+  freeRoomSlot(slot, link, error = link.error) {
+    this.guests = this.guests.filter((guest) => guest !== slot);
+    if (error && slot.openedAt === undefined && !slot.removed) UI.toast('A friend could not connect. ' + error.message, 'warn');
+    link.close();
+    this.redraw();
+  },
+  // Host: the two-code screens instead of the room (the friends already connected stay)
+  useCodesHost() {
+    this.heldRoom = null;
+    this.closeRoom();
+    for (const slot of this.guests.filter((guest) => guest.room && !this.isOpen(guest))) { slot.link.close(); this.guests = this.guests.filter((guest) => guest !== slot); }
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === 'host') this.redraw(); });
+    if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); else this.redraw();
+  },
+  // Guest: the two-code screens instead of the room
+  useCodesGuest() {
+    this.closeRoom();
+    if (this.link) { this.forgetLobby(); this.link.close(); this.link = null; }
+    this.note = '';
+    Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === 'guest') this.redraw(); });
+    this.redraw();
+  },
+  // Guest: the typed code -> a link that makes its offer, the room carries it, the link connects and opens as usual (the lobby then takes over)
+  joinTyped() {
+    const room = this.room, code = room && room.cells ? RoomCode.read(room.cells.join('')) : '';
+    if (!room || !room.cells || this.joinBusy()) return;
+    room.note = '';
+    if (!code) { room.note = ONLINE_MESSAGES.roomCode; Sound.ui('bad'); this.redraw(); return; }
+    if (!RoomCrypto.available()) { room.note = ONLINE_MESSAGES.noCrypto; Sound.ui('bad'); this.redraw(); return; }
+    const link = this.makeLink({ offerer: true });
+    room.join = joinRoom(code, link);
+    this.step(link, room.join.done, () => this.redraw(), (error) => { room.note = error.message; Sound.ui('bad'); link.close(); this.redraw(); });
+    this.redraw();
+  },
+  joinBusy() { return !!this.link && ['gathering', 'waiting', 'connecting'].includes(this.link.state); },
+  // Guest: a symbol of the pad's cells one step on (the keyboard and touch type into the box; a tap on a cell steps it too)
+  stepCell(index, dir) {
+    if (!this.room || !this.room.cells || this.joinBusy()) return;
+    this.room.cells[index] = RoomCode.step(this.room.cells[index], dir);
+    this.room.note = '';
+    this.redraw();
+  },
+  // The box of the Join screen was typed in: it keeps symbols of the alphabet only, the cells follow, and the fifth symbol joins by itself
+  onInput(e) {
+    const box = e.target;
+    if (!this.room || !this.room.cells || !box || box.id !== 'onRoom') return;
+    const clean = RoomCode.typed(RoomCode.fromLink(box.value) || box.value);
+    if (clean !== box.value) box.value = clean;
+    this.room.cells = RoomCode.cellsOf(clean);
+    this.room.note = '';
+    this.room.cells.forEach((symbol, index) => { // the cells of the pad follow the box in place (a redraw would take the focus out of it)
+      const cell = $('onCell' + index), face = cell && cell.querySelector('.v');
+      if (face) { face.textContent = symbol || '_'; cell.setAttribute('aria-valuetext', symbol || 'empty'); }
+    });
+    if (clean.length === ROOM_CODE_LENGTH) this.joinTyped();
+  },
+  init() { UI.dom.screens.addEventListener('input', (e) => this.onInput(e)); },
+  // The gamepad on a cell of the code: up and down change the symbol, left and right move to the next cell (the cells are neighbours in the menu order, so past the ends the focus goes on), A moves on and joins on the last
+  padCell(cell, pad, before, pressed) {
+    if (pad.up && !before.up) this.stepCell(cell, 1);
+    if (pad.down && !before.down) this.stepCell(cell, -1);
+    if (pad.right && !before.right) UI.moveFocus(1);
+    if (pad.left && !before.left) UI.moveFocus(-1);
+    if (pressed) { if (cell === ROOM_CODE_LENGTH - 1 || this.room.cells.every(Boolean)) this.joinTyped(); else UI.moveFocus(1); }
+  },
+  // The index of the room cell that has the focus, or -1
+  cellOf(el) { const found = el && el.id ? /^onCell([0-4])$/.exec(el.id) : null; return found && this.room && this.room.cells ? Number(found[1]) : -1; },
   // The pick a lobby starts with: the one of the last lobby, else the selected fighter
   pickToStart() { return onlineFighter(this.lastFighter) && Progress.isUnlocked(this.lastFighter) ? this.lastFighter : onlineDefaultFighter(); },
   // The links of a finished match come back to the lobby (OnlinePlay.toLobby): the lobby owns them again. The host gets its guests back, not yet Ready, and a block for the next friend; a guest gets its one link
   resume(role, entries, info = {}) {
+    const held = this.heldRoom; // the room of the match that just ended (a room lobby comes back with the same code)
+    this.heldRoom = null;
     this.reset();
     this.role = role;
     this.hostFighter = this.mine.fighter = onlineFighter(info.fighter) ? info.fighter : this.pickToStart();
@@ -19383,10 +19940,11 @@ const OnlineUI = {
       for (const guest of this.guests) this.listen(guest.link);
       this.lineupSig = this.lineupSignature();
     } else { this.link = entries[0].link; this.listen(this.link); }
+    if (role === 'host' && held) this.room = this.makingRoom();
     UI.push('online');
     UI.push(role === 'host' ? 'onlinehost' : 'onlinejoin');
     Online.canScan().then((ok) => { this.scanOk = ok; if (ok && this.role === role) this.redraw(); });
-    if (role === 'host') { if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); this.startLoop(); } else this.sendMe();
+    if (role === 'host') { if (held) this.startRoomHost(held); else if (this.guests.length < ONLINE_SEAT_MAX - 1) this.addGuest(); this.startLoop(); } else this.sendMe();
   },
   // Every second while the host's lobby is up: ping each connected guest (the round trips fill the latency list and decide the first input delay), notice a changed lineup, tell the guests the list
   startLoop() { this.stopLoop(); this.loop = setInterval(() => this.tick(), ONLINE_PING_MS); },
@@ -19413,10 +19971,10 @@ const OnlineUI = {
   // A guest's own Ready and the host's last list belong to one connection
   forgetLobby() { this.mine.ready = false; this.view = null; },
   // The guest's link (the first one, or after the last one failed or closed)
-  makeLink() {
+  makeLink(options = this.first ? { offerer: true } : {}) {
     const old = this.link;
     this.forgetLobby(); // what the last connection showed and agreed to is not true of the next one
-    const link = Online.createLink(this.role, this.first ? { offerer: true } : {});
+    const link = Online.createLink(this.role, options);
     this.link = link;
     if (old) old.close();
     this.listen(link);
@@ -19468,6 +20026,7 @@ const OnlineUI = {
     } else if (this.role === 'host' && (state === 'closed' || state === 'failed')) {
       const slot = this.guestOf(link);
       if (slot && slot.openedAt !== undefined && link.error && !slot.removed) UI.toast('Player ' + slot.seat + ' left.', 'warn'); // a connected guest that went away (a guest that was removed or never connected has no error)
+      if (slot && slot.room) this.freeRoomSlot(slot, link);
       this.pushLobby();
     }
     this.redraw();
@@ -19565,6 +20124,7 @@ const OnlineUI = {
     if (name === 'fighter') this.cycleFighter(dir);
     else if (name === 'mode') this.cycleMode(dir);
     else if (name === 'arena') this.cycleArena(dir);
+    else if (name.startsWith('cell:')) this.stepCell(Number(name.slice(5)), dir);
   },
   cycleFighter(dir = 1) {
     const pool = onlinePool(), now = this.role === 'host' ? this.hostFighter : this.mine.fighter;
@@ -19658,10 +20218,10 @@ const OnlineUI = {
   renderChoice() {
     const off = Online.supported() ? '' : ' disabled';
     return '<section class="screen on" aria-label="Play online"><div class="panel"><h2>Play online</h2>' +
-      '<p class="hint" style="margin-top:0">Up to 4 devices on the same Wi-Fi or network. The host sends each friend a short code, the friend sends one back (copy and paste, or a QR code).' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p>' +
+      '<p class="hint" style="margin-top:0">Up to 4 players. The host gets a room code of 5 symbols and each friend types it on Join a game (or opens the link the host shares). Nothing goes back.' + (Online.supported() ? '' : ' This browser has no WebRTC, so online play is not possible here.') + '</p>' +
       '<p class="hint">' + ONLINE_LIMITS + '</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Make a code for each friend and start the game</small></button>' +
-      '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Paste the host\'s code and send back the answer</small></button>' + BACK_BUTTON + '</nav></div></section>';
+      '<button class="mi" data-nav data-default data-act="onhost"' + off + '>Host a game<small>Get a room code to give your friends</small></button>' +
+      '<button class="mi" data-nav data-act="onjoin"' + off + '>Join a game<small>Type the room code from your friend</small></button>' + BACK_BUTTON + '</nav></div></section>';
   },
   // One guest of the host screen: its code to send, the box for its answer, Connect, and its own status
   renderGuest(guest) {
@@ -19710,18 +20270,46 @@ const OnlineUI = {
     return waiting ? 'Waiting for player ' + waiting.seat + ' to press Ready.' : '';
   },
   renderHost() {
+    if (this.room) return this.renderRoomHost();
     this.syncLineup();
     const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startProblem();
     return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' +
       '<h3>Players (' + people + ' of ' + ONLINE_SEAT_MAX + ')</h3>' + this.playerList(this.hostRows(), 0) +
       this.guests.filter((guest) => !this.isOpen(guest)).map((guest) => this.renderGuest(guest)).join('') +
       (this.guests.length < ONLINE_SEAT_MAX - 1 ? '<div class="row cr-actions"><button class="mi" data-nav data-act="onadd">Add another player</button></div>' : '') +
-      '<h3>Game</h3>' + UI.optRow('Mode', ONLINE_MODE_LABEL[mode], 'data-local="olb:mode"', '') +
+      this.hostGame(mode, problem) + this.hostFoot();
+  },
+  // The Mode, Level and Lineup rows, the hint, the start problem and Start (the same on the room screen and the two-code screen)
+  hostGame(mode, problem) {
+    return '<h3>Game</h3>' + UI.optRow('Mode', ONLINE_MODE_LABEL[mode], 'data-local="olb:mode"', '') +
       (mode === 'tournament' ? '' : UI.optRow('Level', ARENAS[this.arena].name, 'data-local="olb:arena"', '')) +
       (mode === 'free' ? '<button class="mi" data-nav data-act="onlineup">Lineup<small>' + esc(OnlinePlay.lineupText()) + '</small></button>' : '') +
       '<p class="hint">' + ONLINE_MODE_HINT[mode] + '</p>' + (problem ? '<p class="hint warnline">' + esc(problem) + '</p>' : '') +
-      '<div class="row cr-actions"><button class="mi" data-nav' + (problem ? '' : ' data-default') + ' data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button></div>' +
-      (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+      '<div class="row cr-actions"><button class="mi" data-nav' + (problem ? '' : ' data-default') + ' data-act="onstart"' + (problem ? ' disabled' : '') + '>Start</button></div>';
+  },
+  hostFoot() { return (this.note ? this.statusLine(this.note, true, 'onNote') : '') + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>'; },
+  // The room screen of the host: the code to read out or share, who is in, the game rows. A friend that is still connecting has a line; one that fails or leaves is gone and its seat is free (the code stays good)
+  renderRoomHost() {
+    this.syncLineup();
+    const people = this.openCount() + 1, mode = this.modeNow(people), problem = this.startProblem();
+    const joining = this.guests.filter((guest) => guest.room && !this.isOpen(guest));
+    return '<section class="screen on" aria-label="Host a game"><div class="panel wide"><h2>Host a game</h2>' + this.roomCodeBlock(this.room) +
+      '<h3>Players (' + people + ' of ' + ONLINE_SEAT_MAX + ')</h3>' + this.playerList(this.hostRows(), 0) +
+      joining.map((guest) => '<p class="hint">Player ' + guest.seat + ' is joining...</p>').join('') +
+      this.hostGame(mode, problem) + this.hostFoot();
+  },
+  roomCodeBlock(room) {
+    const code = room.info.code, shown = (room.status === 'live' || room.status === 'lost') && !!code, share = this.openCount() === 0 ? ' data-default' : ''; // Share has the focus until a friend is in: then Start is the default
+    const link = shown && !this.framed() ? RoomCode.linkFor(code, location.href) : ''; // the link a friend can open instead of typing (not inside a frame)
+    const codeBox = shown ? '<p class="hint" style="margin-top:0">Your friends type this code on Join a game.</p><div id="onRoomCode" class="roomcode" role="img" aria-label="Room code ' + esc(code.split('').join(' ')) + '">' + esc(code) + '</div>' + (link ? '<p class="hint roomlink">Or they open this link: <span id="onRoomLink">' + esc(link) + '</span></p>' : '') : '';
+    const actions = (shown ? '<button class="mi" data-nav' + share + ' data-act="onshare">Share</button>' : '') + '<button class="mi" data-nav' + (shown ? '' : ' data-default') + ' data-act="onmanual">Use codes instead</button>';
+    return '<div class="roombox">' + codeBox + '<div class="row cr-actions">' + actions + '</div>' + this.statusLine(this.roomStatusText(room), room.status !== 'live' && room.status !== 'making', 'onRoomStatus') + '</div>';
+  },
+  roomStatusText(room) {
+    if (room.status === 'making') return 'Making your room code...';
+    if (room.status === 'live') return this.openCount() ? 'Code ready. More friends can join with it.' : 'Code ready. Waiting for your friends.';
+    if (room.status === 'nocrypto') return ONLINE_MESSAGES.noCrypto;
+    return room.status === 'lost' ? ONLINE_MESSAGES.roomLost : ONLINE_MESSAGES.noService;
   },
   // The guest once its link is open: the players, the host's settings, its own pick and Ready
   renderGuestLobby() {
@@ -19734,6 +20322,7 @@ const OnlineUI = {
   },
   renderJoin() {
     if (this.link && this.link.state === 'open') return this.renderGuestLobby();
+    if (this.room) return this.renderRoomJoin();
     if (this.first) return this.renderJoinFirst();
     const code = this.answerCode;
     const idle = !this.link || ['idle', 'failed', 'closed'].includes(this.link.state); // after a failure the player may try again: answer() then makes a fresh link
@@ -19744,6 +20333,27 @@ const OnlineUI = {
       (code ? '<h3>2. Send this answer to the host</h3>' + this.codeBox('onCode', 'Your answer code for the host', code, '') + this.codeButtons(code, 'answer') : '') +
       this.statusLine(this.statusText(), this.statusIsProblem()) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
   },
+  // The Join screen of the room flow: the code typed into one box (keyboard, touch), the pad's 5 cells when a gamepad is in use, Join, and the way to the two codes
+  renderRoomJoin() {
+    const room = this.room, busy = this.joinBusy(), typed = room.cells.join('');
+    const cells = room.cells.map((symbol, index) => '<div id="onCell' + index + '" class="opt cell" role="spinbutton" tabindex="0" aria-label="Symbol ' + (index + 1) + ' of the room code" aria-valuetext="' + (symbol || 'empty') + '" data-nav data-local="olb:cell:' + index + '"><span class="v">' + (symbol || '_') + '</span></div>').join('');
+    return '<section class="screen on" aria-label="Join a game"><div class="panel wide"><h2>Join a game</h2><h3>Type the room code from the host\'s screen</h3>' +
+      '<input id="onRoom" class="crin roomin" data-nav data-default type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="60" placeholder="K7QX4" aria-label="Room code of 5 symbols" value="' + esc(typed) + '"' + (busy ? ' readonly' : '') + '>' +
+      (this.padWanted() ? '<p class="hint">Gamepad: up and down change a symbol, left and right move on, A joins.</p><div class="roomcells" role="group" aria-label="Room code symbols">' + cells + '</div>' : '') +
+      '<div class="row cr-actions"><button class="mi" data-nav data-act="onroomjoin"' + (busy ? ' disabled' : '') + '>Join</button><button class="mi" data-nav data-act="onmanualjoin">Join with codes instead</button></div>' +
+      this.statusLine(this.roomJoinText(room), !!room.note || (!!this.link && !!this.link.error)) + '<p class="hint">' + ONLINE_LIMITS + '</p><div class="row sticky">' + ONLINE_BACK_BUTTON + '</div></div></section>';
+  },
+  roomJoinText(room) {
+    const link = this.link, state = link ? link.state : 'idle';
+    if (room.note) return room.note;
+    if (state === 'failed' || state === 'closed') return link.error ? link.error.message : 'Disconnected.';
+    if (state === 'gathering') return 'Preparing the connection (about 2 seconds)...';
+    if (state === 'waiting') return 'Looking for the game with code ' + room.cells.join('') + '...';
+    if (state === 'connecting') return 'Found it. Connecting...';
+    return 'Type the 5 symbols of the code: letters without vowels, and the numbers 2 to 9.';
+  },
+  // A gamepad is in use: the pad's cells are shown (nothing else on this screen needs a keyboard)
+  padWanted() { return Inputs.players[0].lastDevice === 'gamepad' || (typeof navigator.getGamepads === 'function' && Array.from(navigator.getGamepads()).some(Boolean)); },
   // The guest sends the first code (a Firefox guest gives up a few seconds after it gets an offer, so the host must answer, not the other way round)
   renderJoinFirst() {
     const link = this.link, state = link ? link.state : 'idle', ended = state === 'failed' || state === 'closed', waiting = state === 'waiting';
@@ -19812,6 +20422,10 @@ const OnlineUI = {
     const handlers = {
       onhost: () => this.open('host'),
       onjoin: () => this.open('guest'),
+      onshare: () => this.share(),
+      onmanual: () => this.useCodesHost(),
+      onmanualjoin: () => this.useCodesGuest(),
+      onroomjoin: () => this.joinTyped(),
       oncopy: () => this.copy(this.codeOf(String(arg)), this.boxOf(String(arg))),
       onqr: () => { this.saveFields(); this.stopScan(); this.qrOf = arg; UI.push('onlineqr'); },
       onscan: () => this.startScan(Number(arg) || 0),
@@ -19838,6 +20452,17 @@ const OnlineUI = {
     if (fn) fn();
   },
   qrCodeOf(seat) { const guest = this.slotOf(seat); return guest ? guest.offerCode : ''; },
+  // Host: the room code to a friend: a link outside a frame, else the code and the page address (inside itch.io's frame the game cannot read its page's address), through the share sheet where there is one
+  framed() { return !!window.top && window.top !== window; }, // inside a frame (itch.io) the page cannot read the address of the page around it
+  share(framed = this.framed()) {
+    const code = this.room && this.room.info ? this.room.info.code : '';
+    if (!code) return;
+    const link = framed ? '' : RoomCode.linkFor(code, location.href);
+    const text = 'Join my Breakpoint game: code ' + code + (!link && document.referrer ? ' ' + document.referrer : '');
+    const tellCode = () => UI.toast('Tell your friends the code ' + code, 'warn');
+    if (typeof navigator.share === 'function') { navigator.share(link ? { text, url: link } : { text }).catch(() => {}); return; } // a closed share sheet is no error
+    try { navigator.clipboard.writeText(link || text).then(() => UI.toast('Copied. Send it to your friends.'), tellCode); } catch (error) { tellCode(); }
+  },
   copy(code, boxId) {
     const box = $(boxId);
     const manual = () => { if (box) { box.focus(); box.select(); } UI.toast('Select the code and copy it (Ctrl+C)', 'warn'); };
@@ -19854,8 +20479,9 @@ const OnlineUI = {
   startGame() {
     const problem = this.startProblem();
     if (problem) { this.note = problem; Sound.ui('bad'); this.redraw(); return; }
-    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, hostFighter = this.hostFighter, entries = this.releaseGuests();
+    const mode = this.modeNow(this.openCount() + 1), arena = this.arena, hostFighter = this.hostFighter, held = this.room ? this.room.info : null, entries = this.releaseGuests(); // releaseGuests closes the room: its code is kept for the lobby that comes back after the match
     OnlinePlay.hostOpen(entries, hostFighter);
+    this.heldRoom = held;
     const failure = OnlinePlay.start({ mode, arena });
     if (failure) { OnlinePlay.leave(); UI.toast(failure, 'warn'); UI.hideScreen(); }
   },
@@ -19927,8 +20553,9 @@ const OnlineUI = {
   },
   // true when the key was typed into a box the player can write in; a code box that is only for reading (Copy) leaves Esc, Backspace and the arrows to the menu
   onKey(e, el = document.activeElement) {
-    if (!el || el.tagName !== 'TEXTAREA' || el.readOnly) return false;
-    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
+    if (!el || (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') || el.readOnly) return false;
+    if (e.code === 'Enter' && el.id === 'onRoom') { e.preventDefault(); this.joinTyped(); return true; }
+    if (e.code === 'Escape') { e.preventDefault(); el.blur(); const first = UI.navItems().find((item) => item !== el && item.tagName !== 'TEXTAREA'); if (first) first.focus(); return true; }
     if (e.code === 'ArrowUp' || e.code === 'ArrowDown') { e.preventDefault(); UI.moveFocus(e.code === 'ArrowUp' ? -1 : 1); return true; }
     return true; // every other key types, selects or pastes normally (Backspace must not go back)
   },
@@ -19986,7 +20613,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, PeerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_PEERJS_URL, ROOM_MQTT_URLS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -20457,6 +21084,8 @@ async function boot() {
     Game.go(GS.MENU);
     Game.start();
     Diag.log('info', 'Started in ' + Math.round(Diag.startupMs) + ' ms');
+    const joinCode = Online.supported() ? RoomCode.fromLink(location.search) : ''; // a friend's link ?join=K7QX4 (P19-12): the card comes down, the Join screen is up with the code in and joins at once
+    if (joinCode) { Intro.skip(); UI.push('online'); OnlineUI.open('guest', '', joinCode); try { history.replaceState(null, '', location.pathname); } catch (error) { /* a page that may not change its address keeps the link */ } }
     const brawlFlag = /[?&#]brawl(?:=(\d+))?(?![\w])/.exec(location.search + location.hash); // debug flag: ?brawl=6 starts a brawl with that many enemies
     if (brawlFlag) UI.runBrawl(brawlFlag[1] ? Number(brawlFlag[1]) : BRAWL_DEFAULT_ENEMIES);
   } catch (e) {
