@@ -7590,7 +7590,7 @@ const SelfTest = {
     const quietAll = (m) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
     const aiAll = (m, level) => { for (let k = 0; k < m.fighters.length; k++) m.controllers[k] = new AIController(m.fighters[k].profile, level); };
     const ROSTER_IDS = ROSTER.map((r) => r.id);
-    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id) => [id, 0, false]));
+    const ffaOf = (count) => lineupOf(ROSTER_IDS.slice(0, count).map((id, i) => [id, 0, i === 0]));   // slot 1 is the person, as these tests meant when slot 1 could not be a CPU (an all-CPU lineup has its own tests above)
     test('Hit freeze (P18-53): a 1v1 freezes on every hit as before; with more than two fighters a CPU against CPU hit never freezes, the one person\'s own hits freeze at most CROWD_HITSTOP_MAX ticks, and with two or more people nothing freezes', () => {
       const bad = [];
       const solo = mk({});
@@ -7619,11 +7619,11 @@ const SelfTest = {
       if (two.hitStop !== 0) bad.push('two people froze ' + two.hitStop);
       return bad.length ? bad.join('; ') : true;
     });
-    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 a player, at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
+    test('Lineup: a lineup is made safe and checked (known fighters only, 2 to 8 slots, slot 1 as given (a CPU stays a CPU), at most 4 players, teams 0 to 4, handicap 0 is off, nobody to fight, a crowd of 1 to 4 people)', () => {
       const problems = [];
       const raw = [{ id: 'toString', human: false, team: 9 }, { id: 'constructor', human: true, team: -1 }].concat(Array.from({ length: 9 }, () => ({ id: 'mara', human: true, team: 2 })));
       const fixed = MatchLineup.fix({ slots: raw, handicap: 0, timer: 5, deal: 'nonsense' });
-      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || !fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
+      if (fixed.slots.length !== LINEUP_MAX || fixed.slots[0].id !== 'kai' || fixed.slots[1].id !== 'kai' || fixed.slots[0].human || fixed.slots[0].team !== 0 || fixed.slots[1].team !== 0) problems.push('slots ' + JSON.stringify(fixed.slots.slice(0, 2)));
       if (MatchLineup.people(fixed) !== LINEUP_HUMANS_MAX || fixed.timer !== 0 || fixed.handicap !== false || fixed.deal !== 'custom') problems.push('rest ' + JSON.stringify({ people: MatchLineup.people(fixed), timer: fixed.timer, handicap: fixed.handicap, deal: fixed.deal }));
       if (MatchLineup.fix({ slots: [] }).slots.length !== LINEUP_MIN || MatchLineup.fix({ slots: [{ id: 'mara', human: false, team: 1 }] }).slots[0].id !== 'mara') problems.push('padding');
       const same = lineupOf([['kai', 1, true], ['mara', 1, false]]);
@@ -7640,6 +7640,165 @@ const SelfTest = {
       for (const kind of LINEUP_DEALS) { MatchLineup.deal(dealt, kind); teams.push(dealt.slots.map((slot) => slot.team).join('')); }
       if (teams.join() !== '00000,12122,12121,12312,12341') problems.push('deals ' + teams.join());
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Watch-only Free Fight (BP-P18-75): slot 1 can be a CPU, so a lineup of CPUs only is fought with nobody at a device ----- */
+    test('Watch-only Free Fight (P18-75): MatchLineup keeps a lineup with no person (Duel, Brawl, every team deal, the even-teams rule between CPU teams), a crowd still needs its people, Online friends need a person in slot 1 (without one an Online slot is a CPU, not a local person), and a save loads slot 1 as a person unless it says CPU', () => {
+      const bad = [];
+      const cpus = (count, extra) => MatchLineup.fix(Object.assign({ slots: ROSTER_IDS.slice(0, count).map((id) => ({ id, human: false, team: 0 })) }, extra));
+      const duel = cpus(2), eight = cpus(8), four = cpus(4);
+      if (MatchLineup.people(duel) !== 0 || duel.slots[0].human || !MatchLineup.check(duel).ok || MatchLineup.type(duel) !== 'Duel') bad.push('an all-CPU duel: ' + JSON.stringify([MatchLineup.people(duel), MatchLineup.check(duel).msg, MatchLineup.type(duel)]));
+      if (MatchLineup.people(eight) !== 0 || eight.slots.length !== LINEUP_MAX || eight.slots.some((slot) => slot.human)) bad.push('eight CPUs were changed: ' + MatchLineup.people(eight));
+      for (const kind of LINEUP_DEALS) {
+        MatchLineup.deal(eight, kind);
+        const check = MatchLineup.check(eight);
+        if (!check.ok) bad.push('the ' + kind + ' deal of eight CPUs: ' + check.msg);
+        if (kind === 'players' && eight.slots.map((slot) => slot.team).join('') !== '12121212') bad.push('players deal with nobody: ' + eight.slots.map((slot) => slot.team).join(''));
+      }
+      MatchLineup.deal(four, 'players');
+      if (MatchLineup.type(four) !== 'Brawl' || !MatchLineup.check(four).ok || MatchLineup.plan(four).people !== 0) bad.push('an all-CPU Brawl: ' + MatchLineup.type(four));
+      const crowd = MatchLineup.fix({ crowd: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+      if (!crowd.slots.every((slot) => slot.human) || MatchLineup.people(crowd) !== 2) bad.push('a crowd of CPUs kept no people');
+      const withHost = (human) => MatchLineup.fix({ net: true, slots: [{ id: 'kai', human }, { id: 'mara', human: true, online: true }] });   // fix() rewrites the slots array it is given: a fresh one each time
+      if (withHost(false).slots.some((slot) => slot.online) || !withHost(true).slots[1].online) bad.push('Online friends with and without a person in slot 1');
+      const sitsOut = withHost(false).slots[1], local = MatchLineup.fix({ net: true, slots: [{ id: 'kai', human: false }, { id: 'mara', human: true }] }).slots[1];
+      if (sitsOut.human || sitsOut.online || !withHost(true).slots[1].human || !local.human) bad.push('an Online friend of a CPU in slot 1 became a local person (human ' + sitsOut.human + '), or a local person was lost (' + local.human + ')');
+      const uneven = cpus(3, { handicap: true });
+      uneven.slots[0].team = 1; uneven.slots[1].team = 2; uneven.slots[2].team = 2;
+      const plan = MatchLineup.plan(uneven, 'easy');
+      if (plan.people !== 0 || plan.slots[0].id !== 'kai' || plan.slots[0].hp !== MatchLineup.handicapFactor('easy', 2) || !(plan.slots[0].hp < 1) || plan.slots[1].hp !== 1) bad.push('the CPU-only handicap: ' + plan.slots.map((s) => s.hp.toFixed(2)).join());
+      const keep = { setups: Setups.d, lineups: Game.lineups, sel: Object.assign({}, Game.selection), raw: Store.get(KEY_SETUPS) };
+      try {
+        const load = (freeFight) => { Setups.d = { v: 1, freeFight }; Game.lineups = {}; return Game.lineupFor(); };
+        const old = load({ type: 'Duel', crowd: false, slots: [{ id: 'kai', human: true, team: 0 }, { id: 'mara', human: false, team: 0 }], deal: 'ffa', handicap: true, clock: 0, rounds: 2, roundTimer: 60, arena: 'warehouse', difficulty: 'normal', friendlyFire: false });
+        if (old.slots.map((slot) => [slot.id, slot.human, slot.team].join()).join(' ') !== 'kai,true,0 mara,false,0') bad.push('an old save changed: ' + JSON.stringify(old.slots));
+        if (!load({ slots: [{ id: 'kai' }, { id: 'mara' }] }).slots[0].human || !load({ slots: [null, { id: 'mara' }] }).slots[0].human) bad.push('a save with no control field for slot 1 is not a person');
+        const watch = load({ slots: [{ id: 'kai', human: false }, { id: 'mara', human: false }] });
+        if (watch.slots[0].human || watch.slots[1].human) bad.push('a saved CPU slot 1 loaded as a person');
+        Game.saveSetup();
+        Game.lineups = {};
+        if (Setups.d.freeFight.slots[0].human !== false || Game.lineupFor().slots[0].human) bad.push('a CPU slot 1 was not saved and read back');
+      } finally {
+        Setups.d = keep.setups; Game.lineups = keep.lineups; Object.assign(Game.selection, keep.sel);
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    const WATCH_MAX_TICKS = 60 * 60 * 3;   // a watched fight that has no result by then is a bug (the lineups below carry a 60 s clock)
+    const WATCH_DUEL = [['kai', 0, false], ['mara', 0, false]];
+    const WATCH_BRAWL = ROSTER_IDS.slice(0, 8).map((id, i) => [id, 1 + (i % 3), false]);
+    const watchMatch = (list, extra) => lineupMatch(lineupOf(list, { timer: 60 }), Object.assign({ timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }, extra));
+    const watchPlay = (list, extra) => {   // a lineup built the way the game builds it, played to its result with no input at all
+      const m = watchMatch(list, extra);
+      let ticks = 0;
+      while (m.phase !== 'matchEnd' && ticks < WATCH_MAX_TICKS) { m.step(); ticks++; }
+      return { m, ticks };
+    };
+    const watchSignature = ({ m, ticks }) => JSON.stringify([m.matchWinner, ticks, m.fighters.map((f) => [f.alive, Math.round(f.hp * 1000)]), m.stats.map((s) => Math.round(s.damage * 1000))]);
+    test('Watch-only Free Fight (P18-75): an all-CPU 1 vs 1 and an 8-fighter team brawl run to a result with no input, nothing counts (no grade, tips off, the Progress save byte for byte the same), the results say so, a win on the clock ends on "<TEAM> WINS" and a draw on "DRAW" (never "VICTORY"), the same seed plays the same fight twice, and a person in slot 2 is the lead that reads seat 1', () => {
+      const bad = [], saved = keepProgress(), keep = { match: Game.match, run: Game.run, data: Game.resultsData, go: Game.go, config: Game.config, state: Game.state, banner: UI.banner };
+      try {
+        let goneTo = null;
+        Game.go = (to) => { goneTo = to; return true; };   // the results record is checked, and the state the game goes to, but the state change itself does not happen
+        for (const [name, list] of [['1 vs 1', WATCH_DUEL], ['8-fighter team brawl', WATCH_BRAWL]]) {
+          const progressBefore = Store.get(KEY_PROGRESS), stateBefore = JSON.stringify(Progress.d);
+          const first = watchPlay(list), m = first.m;
+          if (m.phase !== 'matchEnd') { bad.push(name + ' had no result in ' + WATCH_MAX_TICKS + ' ticks'); continue; }
+          if (m.hasPerson() || !m.controllers.every((controller) => controller instanceof AIController) || m.fighters.some((f) => f.person || f.stats.edge !== STAMINA_EDGE_NONE)) bad.push(name + ' has a person, a controller that reads input or a CPU with the person\'s stamina edge');
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          if (m.fighters.some((f) => Inputs.forFighter(f.index))) bad.push(name + ': a fighter reads an input seat');
+          if (Coach.eligible(m)) bad.push(name + ' is eligible for tips and the loss streak');
+          Game.onMatchEnd();
+          const data = Game.resultsData, html = UI.screen_results();
+          if (data.mode !== 'lineup' || data.watching !== true || data.playerWon || data.grade || !html.includes('does not count') || /Victory|Defeat|gradebox/.test(html) || !html.includes(m.matchWinner < 0 ? 'Draw' : ' wins')) bad.push(name + ' results: ' + JSON.stringify([data.watching, data.playerWon, !!data.grade]));
+          if (Store.get(KEY_PROGRESS) !== progressBefore || JSON.stringify(Progress.d) !== stateBefore) bad.push(name + ' changed the Progress save');
+          if (watchSignature(watchPlay(list)) !== watchSignature(first)) bad.push(name + ' played differently with the same seed');
+        }
+        const banners = [];
+        UI.banner = (text, sub) => { banners.push(text + '/' + sub); };
+        const endOf = (m) => {   // the game's own end of a fight: the state it goes to and the banner that state puts up
+          Game.match = m; Game.run = { mode: 'lineup', player: m.fighters[0].id };
+          goneTo = null; Game.onMatchEnd();
+          banners.length = 0; if (goneTo === GS.VICTORY) UI.victoryBanner(); else UI.defeatBanner();   // the two lines of UI.onGameState that put the banner up (the rest of it needs the page)
+          return { state: goneTo, banner: banners.join('|') };
+        };
+        const drawn = watchMatch(WATCH_DUEL), won = watchMatch(WATCH_DUEL);
+        quietAll(drawn); quietAll(won);
+        drawn.roundTicks = 2; self.run(drawn, 5);   // both at full health when the clock runs out: a draw
+        Combat.knockOut(won.fighters[1], won.fighters[0], null, won); self.run(won, KO_DELAY_TICKS + 20);
+        if (!drawn.matchOver || drawn.matchWinner !== -1 || !won.matchOver || won.matchWinner !== 0) bad.push('the two endings were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        const drawEnd = endOf(drawn), winEnd = endOf(won);
+        if (drawEnd.state !== GS.DEFEAT || drawEnd.banner !== 'DRAW/') bad.push('a watched draw ended on ' + drawEnd.state + ' "' + drawEnd.banner + '", not the DRAW banner');
+        if (winEnd.state !== GS.VICTORY || winEnd.banner !== won.teamNames[0].toUpperCase() + ' WINS/' || !won.teamNames[0]) bad.push('a watched win ended on ' + winEnd.state + ' "' + winEnd.banner + '", not "<TEAM> WINS"');
+        if (/VICTORY|DEFEAT/.test(drawEnd.banner + winEnd.banner)) bad.push('a watched fight shows player wording: ' + drawEnd.banner + ' ' + winEnd.banner);
+        const other = lineupMatch(lineupOf([['kai', 1, false], ['mara', 2, true]]), { timer: 60, setupMode: 'free', evenDamage: false, difficulty: 'easy' }), watched = watchPlay(WATCH_DUEL).m;
+        Game.match = other;
+        if (!other.hasPerson() || other.fighters[0].id !== 'mara' || !other.fighters[0].person || Inputs.forFighter(0) !== Input || Inputs.forFighter(1) || other.fighters[0].stats.edge === STAMINA_EDGE_NONE || other.fighters[1].stats.edge !== STAMINA_EDGE_NONE || !Coach.eligible(other)) bad.push('a person in slot 2 is not the lead on seat 1, or the CPU in slot 1 was treated as a person');
+        if (!UI.lineupHeading(other, true).includes('<b>P1</b>') || UI.tagLabel(other, 0) !== '1P' || UI.tagLabel(other, 1) !== 'CPU') bad.push('the HUD does not follow the person in slot 2: ' + UI.lineupHeading(other, true));
+        if (UI.lineupHeading(watched, true).includes('P1') || !UI.lineupHeading(watched, true).includes('CPU') || UI.tagLabel(watched, 0) !== 'CPU') bad.push('the HUD of a watched fight has a you marker: ' + UI.lineupHeading(watched, true));
+        const wide = lineupMatch(lineupOf(['kai', 'mara', 'brutus', 'yuki'].map((id) => [id, 0, false])), {});
+        wide.fighters.forEach((f, k) => { f.x = f.prevX = k * 30; f.z = f.prevZ = 0; });
+        const nearOnly = Camera.frameFighters(wide.fighters), everyone = Camera.frameFighters(wide.fighters, true);
+        if (everyone !== 4 || nearOnly >= everyone) bad.push('the camera of a watched fight frames ' + everyone + ' of 4 (' + nearOnly + ' without the watch flag)');
+        Game.state = GS.FIGHT;
+        const planOf = (humans) => { Game.config = { slots: wide.fighters, humans }; return [Game.inputPlan(), Game.watchOnly()].join(); };
+        if (planOf(0) !== 'versus,true' || planOf(1) !== 'solo,false' || planOf(2) !== 'versus,false') bad.push('input plan with 0, 1 and 2 people: ' + [planOf(0), planOf(1), planOf(2)]);
+      } finally { Game.match = keep.match; Game.run = keep.run; Game.resultsData = keep.data; Game.go = keep.go; Game.config = keep.config; Game.state = keep.state; UI.banner = keep.banner; restoreProgress(saved); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Watch-only Free Fight (P18-75): slot 1 set to CPU on Players and teams starts a fight no seat steers, both input seats and a third and a fourth gamepad (no seat) can pause and resume it, it plays to results that say it does not count, and the Progress save is untouched', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const bad = [], saved = keepProgress(), keep = { setups: Setups.d, lineups: Game.lineups, raw: Store.get(KEY_SETUPS), render: Game.render }, progressBefore = Store.get(KEY_PROGRESS);
+      try {
+        self.freshFree(); Game.chooseMode('free'); Game.applyType('Duel');
+        UI.lineupLocal('lctl:0', 1);
+        const lineup = Game.lineupFor();
+        lineup.timer = 60;   // the fight ends on the clock if the two CPUs do not finish it
+        if (lineup.slots[0].human || !UI.screen_lineup().includes('Slot 1 control: CPU') || !UI.screen_lineup().includes('Watch only')) bad.push('slot 1 did not show as a CPU on Players and teams');
+        Game.startFromSelection();
+        if (!Game.match || Game.match.hasPerson() || Game.inputPlan() !== 'versus' || Inputs.active().length !== 2) bad.push('the fight did not start with nobody and both seats free: ' + (Game.match && Game.match.hasPerson()));
+        Game.render = () => {};
+        let now = performance.now();
+        const frame = () => { now += 16.7; Game.frame(now); };
+        for (let i = 0; i < 400 && Game.state !== GS.FIGHT; i++) frame();
+        if (UI.dom.hn1.innerHTML.includes('P1') || UI.dom.hn1.innerHTML.includes('1P')) bad.push('the HUD shows a you marker: ' + UI.dom.hn1.innerHTML);
+        for (const seat of [Input2, Input]) {
+          seat.press('pause'); frame();
+          if (Game.state !== GS.PAUSED || Game.pausedBy !== seat) bad.push('a seat could not pause: ' + Game.state);
+          Game.resume();
+        }
+        const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), keepSlots = Inputs.padSlots.slice(), keepSeats = Inputs.players.map((p) => [p.lastDevice, p.padIndex]);
+        const pads = [0, 1, 2, 3].map((i) => fakePad('pad ' + i));   // four connected pads: only the first two have a seat, the third and fourth are read by nobody
+        Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+        try {
+          frame();
+          for (const index of [2, 3]) {
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.PAUSED || Game.pausedBy !== null) bad.push('Start on pad ' + (index + 1) + ' did not pause the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            UI.guardUntil = 0;   // the guard that keeps a press that paused from closing the screen, in real time
+            padButton(pads[index], PAD_BUTTONS.pause[0], true); frame();
+            if (Game.state !== GS.FIGHT) bad.push('Start on pad ' + (index + 1) + ' did not resume the watched fight: ' + Game.state);
+            padButton(pads[index], PAD_BUTTONS.pause[0], false); frame();
+            if (Game.state !== GS.FIGHT) bad.push('pad ' + (index + 1) + ' released Start and the fight paused again: ' + Game.state);
+          }
+        } finally {
+          if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+          Inputs.padSlots = keepSlots;
+          Inputs.players.forEach((p, i) => { p.releaseAll(); p.reset(); [p.lastDevice, p.padIndex] = keepSeats[i]; });
+          if (Game.state === GS.PAUSED) Game.resume();
+        }
+        for (let i = 0; i < 9000 && Game.state !== GS.RESULTS; i++) frame();
+        const data = Game.resultsData;
+        if (Game.state !== GS.RESULTS || !data || !data.watching || data.playerWon || data.grade || !UI.screen_results().includes('does not count')) bad.push('no watch-only results: ' + Game.state);
+        if (Store.get(KEY_PROGRESS) !== progressBefore) bad.push('the fight changed the Progress save');
+      } finally {
+        Game.render = keep.render;
+        Game.quitToMenu();
+        Setups.d = keep.setups; Game.lineups = keep.lineups;
+        if (keep.raw === null) Store.remove(KEY_SETUPS); else Store.set(KEY_SETUPS, keep.raw);
+        restoreProgress(saved);
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Lineup: the plan puts the lead\'s team first, people before CPU, one team per group, the colours of Team A to D fixed and the spare ones for free-for-all slots, and the handicap only on the smaller teams', () => {
       const problems = [];
@@ -7872,7 +8031,7 @@ const SelfTest = {
       if (levels !== 'expert,expert,easy') problems.push('difficulty by team ' + levels);
       return problems.length ? problems.join('; ') : true;
     });
-    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 always), cycle teams, the handicap and the clock', () => {
+    test('Lineup: the lineup screen shows a row per slot with fighter, control and team, and its rows add and remove opponents (2 to 8, wrapping), deal teams, cycle fighters, make players (at most 4, slot 1 too), cycle teams, the handicap and the clock', () => {
       const keepSel = Object.assign({}, Game.selection), keepLineups = Game.lineups, keepToast = UI.toast, problems = [];
       try {
         UI.toast = () => {};
@@ -7888,9 +8047,11 @@ const SelfTest = {
         step('lopp', 1); step('lopp', 1);
         if (new Set(lineup.slots.map((s) => s.id)).size !== lineup.slots.length || lineup.slots.slice(1).some((s) => s.human || s.team !== 2)) problems.push('added slots ' + JSON.stringify(lineup.slots));
         UI.lineupLocal('lctl:0', 1);
-        if (!lineup.slots[0].human) problems.push('slot 1 lost its player');
+        if (lineup.slots[0].human || MatchLineup.people(lineup) !== 0) problems.push('slot 1 did not become a CPU');
+        UI.lineupLocal('lctl:0', 1);
+        if (!lineup.slots[0].human) problems.push('slot 1 did not become a player again');
         step('lopp', 1);
-        for (const i of [1, 2, 3, 4, 0]) UI.lineupLocal('lctl:' + i, 1);
+        for (const i of [1, 2, 3, 4]) UI.lineupLocal('lctl:' + i, 1);
         if (MatchLineup.people(lineup) !== LINEUP_HUMANS_MAX || lineup.slots[4].human || !lineup.slots[0].human) problems.push('players ' + MatchLineup.people(lineup));
         const before = lineup.slots[2].id;
         UI.lineupLocal('lfig:2', 1);
@@ -14862,6 +15023,25 @@ const SelfTest = {
       } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; Sound.fires = []; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Watch-only Free Fight (P18-75): the end jingle plays when a team won a fight nobody played, and a draw of CPUs plays nothing (no victory fanfare, no defeat tune); a fight with a person still plays its own win or loss', () => {
+      const bad = [], keep = saveSound(), keepFanfare = Sound.fanfare, fire = soundHandlers(), heard = [];
+      try {
+        Sound.ready = () => true; Sound.fanfare = (win) => { heard.push(win); };
+        const ended = (m) => { heard.length = 0; fire('matchEnd', { match: m }); return heard.join(); };
+        const watched = (finish) => { const m = watchMatch(WATCH_DUEL); quietAll(m); finish(m); return m; };
+        const drawn = watched((m) => { m.roundTicks = 2; self.run(m, 5); });
+        const won = watched((m) => { Combat.knockOut(m.fighters[1], m.fighters[0], null, m); self.run(m, KO_DELAY_TICKS + 20); });
+        if (drawn.matchWinner !== -1 || won.matchWinner !== 0) bad.push('the two fights were not a draw and a win: ' + [drawn.matchWinner, won.matchWinner]);
+        if (ended(won) !== 'true') bad.push('a watched win played ' + (ended(won) || 'nothing'));
+        if (ended(drawn) !== '') bad.push('a watched draw played ' + ended(drawn));
+        const person = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]])), lost = lineupMatch(lineupOf([['kai', 1, true], ['mara', 2, false]]));
+        quietAll(person); quietAll(lost);
+        Combat.knockOut(person.fighters[1], person.fighters[0], null, person); self.run(person, KO_DELAY_TICKS + 20);
+        Combat.knockOut(lost.fighters[0], lost.fighters[1], null, lost); self.run(lost, KO_DELAY_TICKS + 20);
+        if (ended(person) !== 'true' || ended(lost) !== 'false') bad.push('a fight with a person: win ' + ended(person) + ', loss ' + ended(lost));
+      } finally { Object.assign(Sound, keep); Sound.fanfare = keepFanfare; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
     test('Sound fires (P18-29): a burning object crackles as long as its material burns (cardboard 3 s, wood 8 s), and the crackle clock runs only in a live fight: a pause does not shorten it, slow motion slows it', () => {
       const bad = [], keep = saveSound(), keepGame = { match: Game.match, state: Game.state }, keepOwn = { hazard: Sound.hazard, clock: Sound.clock, fires: Sound.fires, allow: Sound.allow, breathAt: Sound.breathAt, crackleAt: Sound.crackleAt }, fire = soundHandlers();
       try {
@@ -17495,7 +17675,7 @@ const SelfTest = {
       } catch (error) { bad.push('threw ' + error.message); } finally { restoreProgress(saved); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 cannot be a CPU, and the crowd runs for 1 to 4 people', () => {
+    test('Free Fight merge (P18-19): the edge cases - 1 against 5 starts with 6 fighters, 4 people with no CPU is a free-for-all and is refused with too few gamepads, everyone on one team is refused, slot 1 can be a CPU and a player again, and the crowd runs for 1 to 4 people', () => {
       const bad = [];
       {
         const ran = withFlow([fakePad('a'), fakePad('b'), fakePad('c')], (flow) => {
@@ -17506,7 +17686,9 @@ const SelfTest = {
           if (!Game.match || Game.match.fighters.length !== 6 || Game.match.partySize !== 1 || !Game.match.setup) flow.problems.push('1 against 5: ' + (Game.match && Game.match.fighters.length));
           Game.quitToMenu();
           UI.lineupLocal('lctl:0', 1);
-          if (!Game.lineupFor().slots[0].human || !flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 became a CPU');
+          if (Game.lineupFor().slots[0].human || flow.toasts.some((msg) => msg.includes('Slot 1 is always a player'))) flow.problems.push('slot 1 did not become a CPU');
+          UI.lineupLocal('lctl:0', 1);
+          if (!Game.lineupFor().slots[0].human) flow.problems.push('slot 1 did not come back as a player');
           for (const people of [1, 2, 3, 4]) {
             Game.chooseMode('free'); Game.applyType('Co-op');
             const lineup = Game.lineupFor();
