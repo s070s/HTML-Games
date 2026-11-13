@@ -20975,11 +20975,11 @@ const SelfTest = {
         Game.net = host.session; Game.netNote = { waiting: '', final: '', rematch: null, onLeave: null, leave: false }; Game.state = GS.FIGHT;
         Game.pause(null, true); Game.pause(null, true);
         if (Game.netNote.leave || shown.length) problems.push('a blur opened the question (N15)');
-        window.dispatchEvent(new Event('blur'));   // the page's own handler
+        if (typeof Event === 'function') window.dispatchEvent(new Event('blur'));   // the page's own handler (the headless stub has no Event)
         if (Game.netNote.leave || shown.length) problems.push('the window blur of the page opened the question (N15)');
         Game.pause();
         if (!Game.netNote.leave || shown[shown.length - 1] !== 'Leave the match?') problems.push('the pause key did not open the question');
-        Game.pause(null, true); window.dispatchEvent(new Event('blur'));
+        Game.pause(null, true); if (typeof Event === 'function') window.dispatchEvent(new Event('blur'));
         if (!Game.netNote.leave) problems.push('a blur closed the question the key had opened');
         Game.pause();
         if (Game.netNote.leave) problems.push('the pause key did not close the question');
@@ -21393,7 +21393,7 @@ const SelfTest = {
         ['not JSON', 'x'], ['an array', '[]'], ['null', 'null'], ['a number', '5'], ['no action', JSON.stringify({ info_hash: swarm, complete: 1 })], ['another action', wire({ action: 'scrape', complete: 1 })],
         ['another room', JSON.stringify({ action: 'announce', info_hash: 'x'.repeat(20), complete: 1 })], ['no room', JSON.stringify({ action: 'announce', complete: 1 })], ['a failure', wire({ 'failure reason': 'no' })],
         ['a negative count', wire({ complete: -1 })], ['a count that is a string', wire({ complete: '1' })], ['a count with a fraction', wire({ complete: 1.5 })], ['an empty message', wire()],
-        ['a peer id of 19 characters', wire({ peer_id: peer.slice(1), offer_id: offerId, offer: wrapped('offer', offer) })], ['a peer id with a character over 255', wire({ peer_id: peer.slice(1) + 'Ā', offer_id: offerId, offer: wrapped('offer', offer) })],
+        ['a peer id of 19 characters', wire({ peer_id: peer.slice(1), offer_id: offerId, offer: wrapped('offer', offer) })], ['a peer id with a character over 255', wire({ peer_id: peer.slice(1) + '\u0100', offer_id: offerId, offer: wrapped('offer', offer) })],
         ['an offer id of the wrong length', wire({ peer_id: peer, offer_id: 'o', offer: wrapped('offer', offer) })], ['an offer id that is a number', wire({ peer_id: peer, offer_id: 5, offer: wrapped('offer', offer) })],
         ['an offer that is not an offer', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('answer', offer) })], ['an offer whose sdp is not JSON', wire({ peer_id: peer, offer_id: offerId, offer: { type: 'offer', sdp: OFFER } })],
         ['an offer that is a string', wire({ peer_id: peer, offer_id: offerId, offer: 'x' })], ['an offer holding an answer', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', answer) })],
@@ -21403,7 +21403,7 @@ const SelfTest = {
         ['seat 1', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, seat: 1 }) })], ['seat 5', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, seat: 5 }) })],
         ['an answer with no sdp and no refusal', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { t: 'answer', nonce, bp: 4 }) })],
         ['an SDP with two media sections', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' }) })],
-        ['an SDP that is not text of printable characters', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'é' }) })],
+        ['an SDP that is not text of printable characters', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + '\u00e9' }) })],
         ['an SDP that is too long', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'a=x:' + 'y'.repeat(ONLINE_SDP_MAX_BYTES) + '\r\n' }) })],
         ['an SDP with 41 candidates', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, sdp: ANSWER + 'a=candidate:1 1 udp 1 10.0.0.1 1 typ host\r\n'.repeat(41) }) })],
         ['a message over the length limit', JSON.stringify({ action: 'announce', info_hash: swarm, complete: 1, pad: 'x'.repeat(20001) })], ['a message that is not text', 5],
@@ -21466,7 +21466,7 @@ const SelfTest = {
       if (await RoomCrypto.open(key, flipped) !== null || await RoomCrypto.open(key, headed) !== null) bad.push('a changed byte was accepted (AES-GCM must refuse it)');
       if (await RoomCrypto.open(key, sealed.slice(0, 20)) !== null || await RoomCrypto.open(key, new Uint8Array(0)) !== null || await RoomCrypto.open(key, new Uint8Array(64)) !== null) bad.push('short or empty bytes');
       const ids = await RoomCrypto.ids('K7QX4'), more = await RoomCrypto.ids('K7QX5');
-      if (ids.swarm.length !== 20 || !/^[\u0000-ÿ]{20}$/.test(ids.swarm) || !/^bp4\/[0-9a-f]{32}$/.test(ids.topic) || ids.swarm === more.swarm || ids.topic === more.topic || (await RoomCrypto.ids('K7QX4')).swarm !== ids.swarm) bad.push('ids ' + JSON.stringify(ids));
+      if (ids.swarm.length !== 20 || !/^[\u0000-\u00ff]{20}$/.test(ids.swarm) || !/^bp4\/[0-9a-f]{32}$/.test(ids.topic) || ids.swarm === more.swarm || ids.topic === more.topic || (await RoomCrypto.ids('K7QX4')).swarm !== ids.swarm) bad.push('ids ' + JSON.stringify(ids));
       const sha1 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode('breakpoint-swarm:K7QX4')))); // the info hash is the SHA-1 of a namespaced string, one character per byte
       if (ids.swarm !== String.fromCharCode(...sha1) || ids.topic.toLowerCase().includes('k7qx4')) bad.push('the info hash is not the SHA-1 of the namespaced room, or the code is in an id');
       if (RoomCrypto.randomBinary().length !== 20 || RoomCrypto.randomBinary() === RoomCrypto.randomBinary()) bad.push('randomBinary');
@@ -22257,9 +22257,10 @@ const SelfTest = {
         // the clipboard is refused (a permissions policy): the code is selected and the toast fits the device
         Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new DOMException('blocked because of a permissions policy', 'NotAllowedError')) }, configurable: true });
         holder.innerHTML = '<textarea id="onCode2" readonly>BPO-abc</textarea>'; document.body.appendChild(holder);
-        const field = holder.firstChild;
-        for (const [touch, want] of [[true, /Press and hold the code, then choose Copy/], [false, /press Ctrl\+C/]]) {
-          OnlineUI.touchPrimary = () => touch; kit.toasts.length = 0; field.blur(); field.setSelectionRange(0, 0);
+        const field = hasLayoutEngine() ? holder.firstChild : null;   // the headless stub has no real text field (no select()): the refused Copy is checked in Chrome
+        if (field) for (const [touch, want] of [[true, /Press and hold the code, then choose Copy/], [false, /press Ctrl\+C/]]) {
+          OnlineUI.touchPrimary = () => touch; kit.toasts.length = 0;
+          field.blur(); field.setSelectionRange(0, 0);
           OnlineUI.copy('BPO-abc', 'onCode2');
           await new Promise((resolve) => setTimeout(resolve, 30));
           if (kit.toasts.length !== 1 || !want.test(kit.toasts[0]) || (touch && /Ctrl/.test(kit.toasts[0]))) bad.push((touch ? 'touch' : 'keyboard') + ' toast: ' + kit.toasts.join('|'));
@@ -22276,6 +22277,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Online findings (P19-12, N05): the two-code fallback starts with the friend\'s code - the host\'s seat waits for a pasted code, "Join with codes instead" makes the friend\'s code at once, and the exchange runs friend, host, friend; the other order is one press away', async () => {
+      if (!hasLayoutEngine()) return 'skipped: the headless stub answers every lookup of a code box, so it would overwrite the pasted codes; the Chrome run covers it';
       const kit = roomUiKit(), bad = [];
       try {
         Online.supported = () => true; Online.createLink = fakedCreateLink(kit.keep.createLink);
