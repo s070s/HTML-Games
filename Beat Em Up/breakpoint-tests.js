@@ -28,7 +28,7 @@ const {
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
   STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_THROWS,
-  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
+  SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUPPORT_BASE_SLACK, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, SWAY_IFRAME_TICKS, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP,
   SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
   TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI, UNLOCK_RULES, VETERAN_BUDGET,
@@ -5361,15 +5361,24 @@ const SelfTest = {
       const plain = (() => { const l = self.capture(['block']); const m2 = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.roundhouse); }, swayAt(9)); self.place(m2, 1.2); self.run(m2, 60); l.stop(); const r = m2.fighters[1].counterWindow === 0 && l.block.length === 1 && !l.block[0].perfect; m2.dispose(); return r; })();
       return perfect && moves === 'counter_strike' && stats && plain ? true : JSON.stringify({ perfect, moves, stats, plain });
     });
-    test('Sway costs 10 stamina; below 10 the press does nothing', () => {
-      const attempt = (stamina) => {
-        let before = 0;
-        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 3) { it.defend = true; before = f.stam; } }); self.place(m, 3);
+    test('Sway costs per strike dodged (P18-62: was 10 at the press): the press is free at any tank, a jab / cross / hook costs 5 / 6 / 8, a tank that cannot pay fails the dodge', () => {
+      const press = (stamina) => {   // a press with nothing coming: it sways and costs nothing
+        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 3) it.defend = true; }); self.place(m, 3);
         m.fighters[1].stam = stamina; self.run(m, 4);
-        const f = m.fighters[1], r = { swaying: f.state === S.SWAY, spent: before - f.stam }; m.dispose(); return r;
+        const f = m.fighters[1], r = { swaying: f.state === S.SWAY, spent: Math.max(0, stamina - f.stam) }; m.dispose(); return r;   // the refill may add a little
       };
-      const enough = attempt(20), short = attempt(8);
-      return SWAY_COST === 10 && enough.swaying && Math.abs(enough.spent - 10) < 1 && !short.swaying && Math.abs(short.spent) < 1 ? true : JSON.stringify({ enough, short });
+      const strike = (mv, stamina) => {   // one strike met by a sway that has run 9 ticks (a plain dodge)
+        const m = mk({}); self.place(m, 1.0); const att = m.fighters[0], def = m.fighters[1];
+        att.startAttack(mv); att.moveTick = att.mStartup + 1; def.setState(S.SWAY); def.stateTicks = 9; def.stam = stamina;
+        const d = Combat.evaluate(att, def); Combat.apply(d, m);
+        const r = { type: d.type, spent: stamina - def.stam, state: def.state }; m.dispose(); return r;
+      };
+      const free = [press(100), press(8), press(0)];
+      const costs = [ATTACKS.jab, ATTACKS.cross, ATTACKS.hook].map((mv) => strike(mv, 40).spent);
+      const broke = strike(ATTACKS.cross, SWAY_COST_BY_TIER[1]);   // exactly the price: the test is stam - cost <= 0
+      const rich = strike(ATTACKS.cross, SWAY_COST_BY_TIER[1] + 1);
+      const ok = free.every((r) => r.swaying && r.spent === 0) && costs.join() === '5,6,8' && SWAY_COST_BY_TIER.join() === '5,6,8' && broke.state === S.STUN && broke.spent === 6 && rich.state === S.SWAY && rich.spent === 6;
+      return ok ? true : JSON.stringify({ free, costs, broke, rich });
     });
     test('Sway: a held Defend sways once, a new press sways again; the lean follows the stick (back, left, right)', () => {
       const count = (script) => {
@@ -16248,11 +16257,11 @@ const SelfTest = {
       return { fight: sum.fight, low: sum.low / Math.max(1, sum.fight), empty: sum.empty / Math.max(1, sum.fight), dps: sum.damage / Math.max(1, sum.fight / 60) };
     };
     test('Stamina (P18-33): the stamina numbers are the decided ones (the edge of the human side by difficulty, the plain regeneration and its delays, the attack tokens, grant gaps and rests of the CPU group)', () => {
-      const got = JSON.stringify([ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, SWAY_COST, SIDESTEP_COST, JUMP_COST, RUN_DRAIN, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP]);
+      const got = JSON.stringify([ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, SWAY_COST_BY_TIER, SIDESTEP_COST, JUMP_COST, RUN_DRAIN, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP]);
       const none = { regen: 1, delay: 1, attackShare: 0, perfect: 6 };   // P18-52: the two perfect fields became one, the waits are 24 and 40 (were 36 and 50), the edge of Easy and Normal is lower
       const want = JSON.stringify([24, 40, none, {
         easy: { regen: 1.3, delay: 0.85, attackShare: 0.1, perfect: 8 },
-        normal: { regen: 1.15, delay: 0.9, attackShare: 0.1, perfect: 7 }, hard: none, expert: none }, 0.25, 10, 6, 4, 7,
+        normal: { regen: 1.15, delay: 0.9, attackShare: 0.1, perfect: 7 }, hard: none, expert: none }, 0.25, [5, 6, 8], 6, 4, 7,
       { easy: 1, normal: 2, hard: 2, expert: 3 }, { easy: 120, normal: 90, hard: 200, expert: 200 }, { easy: 200, normal: 150, hard: 300, expert: 300 },
       1.15, 1.8, 1.3, { idle: 1, walk: 0.6, guard: 0.4, guardStun: 0.1, down: 0.4, getUp: 0.4, air: 0.2, hit: 0.15 },
       [{ from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1 }, { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1 }, { from: 0.1, name: 'Tired', dmg: 0.6, slow: 1.4, walk: 0.9, regen: 0.85 }, { from: 0, name: 'Spent', dmg: 0.4, slow: 1.6, walk: 0.85, regen: 0.75 }],
@@ -16291,7 +16300,7 @@ const SelfTest = {
       for (const name in want) if (seen[name] !== want[name]) problems.push(name + ': ' + seen[name] + ' not ' + want[name]);
       return problems.length ? problems.join('; ') : true;
     });
-    test('Stamina (P18-33): the edge shortens the wait after an attack and a blocked hit, gives a share of the rate while attacking and gives stamina back on a perfect block and a perfect sway; a plain fighter keeps 24 and 40 ticks, no regeneration while attacking and 6 for a perfect block and a perfect sway (P18-52: was 36 and 50 ticks, a perfect sway gave back nothing)', () => {
+    test('Stamina (P18-33): the edge shortens the wait after an attack and a blocked hit, gives a share of the rate while attacking and gives stamina back on a perfect block and a perfect sway; a plain fighter keeps 24 and 40 ticks, no regeneration while attacking and 6 for a perfect block and a perfect sway (P18-52: was 36 and 50 ticks, a perfect sway gave back nothing; P18-62: a plain sway pays its strike, 5 for a jab)', () => {
       const problems = [];
       const trial = (edge) => {
         const m = mk({}, null, null), a = m.fighters[0], d = m.fighters[1];
@@ -16311,10 +16320,10 @@ const SelfTest = {
         return { delay, share: Math.round(share * 1000) / 1000, plain, sway, block, guard: d.noRegen, attacking };
       };
       const none = trial(STAMINA_EDGE_NONE);
-      if (JSON.stringify(none) !== JSON.stringify({ delay: 24, share: 0, plain: 40, sway: 6, block: 6, guard: 40, attacking: true })) problems.push('plain ' + JSON.stringify(none));
+      if (JSON.stringify(none) !== JSON.stringify({ delay: 24, share: 0, plain: 40 - swayCost(ATTACKS.jab), sway: 6, block: 6, guard: 40, attacking: true })) problems.push('plain ' + JSON.stringify(none));
       for (const id of ['easy', 'normal']) {
         const e = PLAYER_STAMINA_EDGE[id], r = trial(e);
-        if (r.delay !== Math.round(24 * e.delay) || r.guard !== Math.round(40 * e.delay) || Math.abs(r.share - e.attackShare) > 0.001 || r.plain !== 40 || r.sway !== e.perfect || r.block !== e.perfect) problems.push(id + ' ' + JSON.stringify(r));
+        if (r.delay !== Math.round(24 * e.delay) || r.guard !== Math.round(40 * e.delay) || Math.abs(r.share - e.attackShare) > 0.001 || r.plain !== 40 - swayCost(ATTACKS.jab) || r.sway !== e.perfect || r.block !== e.perfect) problems.push(id + ' ' + JSON.stringify(r));
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -17514,15 +17523,15 @@ const SelfTest = {
       if (late(2, true) !== 0) problems.push('the attacker staggered by a perfect block reads LATE');
       return problems.length ? problems.join('; ') : true;
     });
-    test('Cues (P18-04): a refused Sway press (under 10 stamina) says so with a refused low-stamina event and does not sway', () => {
+    test('Cues (P18-04): a Sway press with a short tank is no longer refused (P18-62): it sways, nothing is refused, and the dodge it cannot pay is a guard break with the low-stamina warning kept', () => {
       const attempt = (stamina) => {
-        const log = self.capture(['lowStamina']);
-        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 3) it.defend = true; });
-        m.fighters[1].defense = 'sway'; m.fighters[1].stam = stamina; self.place(m, 3); self.run(m, 6); log.stop();
-        return { refused: log.lowStamina.filter((e) => e.refused).length, swaying: m.fighters[1].state === S.SWAY };
+        const log = self.capture(['lowStamina', 'block']);
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.roundhouse); }, (it, f, o, mm) => { if (f.state !== S.SWAY) f.stam = stamina; swayAt(9)(it, f, o, mm); });   // a plain dodge (lead 9): a tier 2 strike; the tank is held at its level until the press
+        m.fighters[1].defense = 'sway'; self.place(m, 1.2); self.run(m, 30); log.stop();
+        return { refused: log.lowStamina.filter((e) => e.refused).length, warned: log.lowStamina.filter((e) => !e.refused).length, broke: log.block.filter((e) => e.sway && e.broke).length, dodged: log.block.filter((e) => e.sway && !e.broke).length };
       };
-      const short = attempt(SWAY_COST - 5), enough = attempt(SWAY_COST + 10);   // P18-52: 5 below the price, not 2 (the refill is 1.3 times quicker, so 8 stamina grew past 10 in the 4 ticks before the press)
-      return short.refused === 1 && !short.swaying && enough.refused === 0 && enough.swaying ? true : JSON.stringify({ short, enough });
+      const short = attempt(SWAY_COST_BY_TIER[1] - 1), enough = attempt(SWAY_COST_BY_TIER[1] + 40);
+      return short.refused === 0 && short.broke === 1 && short.warned >= 1 && enough.refused === 0 && enough.broke === 0 && enough.dodged === 1 ? true : JSON.stringify({ short, enough });
     });
     test('Training dummy (P18-03): a Sway dummy leans so a slow strike lands on tick 9 (a plain dodge) and a quick one on its start-up minus 1 (a perfect sway), whatever its speed', () => {
       const trial = (mv) => {
