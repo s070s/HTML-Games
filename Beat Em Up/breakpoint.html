@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="BREAKPOINT">
 <meta name="format-detection" content="telephone=no">
 <meta name="description" content="BREAKPOINT - a 3D fighting game with destructible arenas. Single self-contained HTML file.">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src wss://0.peerjs.com wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; connect-src wss://tracker.openwebtorrent.com wss://tracker.webtorrent.dev wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884; base-uri 'none'; form-action 'none'">
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
@@ -15545,7 +15545,7 @@ const ONLINE_MESSAGES = {
   unsupported: 'This browser cannot make an online connection (no WebRTC). Try the latest Chrome, Edge, Firefox or Safari.',
   nobody: 'Wait for at least one friend: they type your room code on Join a game.',
   roomCode: 'A room code has 5 symbols: letters without vowels and the numbers 2 to 9.',
-  noService: 'Could not reach the free room service. Use codes instead (the same Wi-Fi is enough for them), or check the internet connection.',
+  noService: 'Can\'t reach the free join service from here. Use codes instead (the same Wi-Fi is enough for them), or check the internet connection.',
   noCrypto: 'Room codes need a secure page (https). Use codes instead.',
   roomFull: 'This game is full (4 players). Ask the host for a free seat.',
   roomVersion: 'This game runs another version of Breakpoint. Everyone needs the same version.',
@@ -16132,23 +16132,27 @@ function createOnlineLink(role, options = {}) { /// options: gatherMs, connectMs
 }
 /* === 09b Online rooms (P19-12, Appendix C "BP-P19-11 online one-code design"): the host's room code of 5 symbols finds the host through free public signalling services (no account, no server of ours).
    Only random ids, the hashed room id and the two SDP descriptions pass through them, never a name, a setting or an input (those travel on the data channel). Outside the simulation: nothing here touches a fight.
-   The PeerJS public server is the primary path and two public MQTT brokers (messages encrypted with a key from the code) run at the same time; the first path that delivers wins. Both are spoken directly over WebSocket, no library. */
+   Two public WebTorrent trackers (the announce / offer / answer protocol of the open-source trystero and WebTorrent projects, over WSS on port 443) and two public MQTT brokers (messages encrypted with a key from the code) run at the same time; the first path that delivers wins.
+   A host's code is live only when a path has really carried a message back to it (the echo of a probe through that path); both protocols are spoken directly over WebSocket, no library. */
 const ROOM_ALPHABET = 'BCDFGHJKMNPQRSTVWXZ23456789'; // 27 symbols: no vowels (so no words) and none of 0 O 1 I L; 27 ^ 5 = 14.3 million codes
 const ROOM_CODE_LENGTH = 5;
-const ROOM_PEERJS_URL = 'wss://0.peerjs.com/peerjs'; // the free PeerServer cloud of the open-source PeerJS project (MIT). Measured 2026-11-13 (Appendix D, "BP-P19-12 built"): it registers an id, but closes a client that sends any routed message (close 1000, nothing relayed), so today the brokers deliver; kept as the design's primary path, it costs one idle socket
-const ROOM_PEERJS_VERSION = '1.5.4';
+const ROOM_TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev']; // public WebTorrent trackers (no account): each relays a friend's offer to the peers of the same info_hash and an answer back (measured 2026-11-13, Appendix D "BP-P19-12 built (part B)"). The PeerJS public server registers a client but relays nothing, so it is gone
 const ROOM_MQTT_URLS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt']; // public brokers for testing: the fallback only
-const ROOM_ID_PREFIX = { host: 'bp4h', guest: 'bp4g' };
-const ROOM_ID_PATTERN = /^bp4[hg][0-9a-f]{20}$/;
+const ROOM_ID_PREFIX = { guest: 'bp4g' }; // only a friend has an id (the host is found by its hashed room, never by an id)
+const ROOM_ID_PATTERN = /^bp4g[0-9a-f]{20}$/;
 const ROOM_NONCE_PATTERN = /^[0-9a-f]{16}$/;
 const ROOM_ID_HEX = 20, ROOM_TOPIC_HEX = 32, ROOM_NONCE_HEX = 16;
-const ROOM_HEARTBEAT_MS = 5000; // the PeerJS server drops a client silent for 90 s; its own client beats every 5 s
+const ROOM_TRACKER_ANNOUNCE_MS = 30000; // a host says again that it is there (a tracker keeps a peer about 2 minutes: its announce interval)
+const ROOM_TRACKER_RESEND_MS = 4000; // a friend repeats its offers: the tracker hands them to random peers of the room, which may be another friend
+const ROOM_TRACKER_OFFERS = 3; // offers in one announce: with at most 3 friends and the host in the room, one of them always reaches the host
+const ROOM_PEER_BYTES = 20; // the length of a tracker's peer id, offer id and info hash
+const ROOM_ECHO_MS = 4000; // a host's probe must come back through a path within this long, else that path cannot relay
 const ROOM_MQTT_KEEPALIVE_S = 30, ROOM_MQTT_PING_MS = 20000;
 const ROOM_CLAIM_REFRESH_MS = 30000, ROOM_CLAIM_STALE_MS = 120000, ROOM_CLAIM_WAIT_MS = 1000; // a host's retained claim on a broker: refreshed, old after 2 minutes, and how long a new host listens for another claim of its code
-const ROOM_REACH_MS = 6000; // no service answered by then: "Could not reach the free room service"
+const ROOM_REACH_MS = 8000; // no path has carried a probe back to the host by then: "Can't reach the free join service"
 const ROOM_ANSWER_MS = 12000; // a friend's offer sent, no answer by then: "No game with code ..."
 const ROOM_CODE_TRIES = 3; // new codes made when the code is taken
-const ROOM_TEXT_MAX_CHARS = 20000; // the longest PeerJS message read
+const ROOM_TEXT_MAX_CHARS = 20000; // the longest tracker message read
 const ROOM_MQTT_PACKET_MAX = 32768;
 const ROOM_KDF_ITERATIONS = 10000;
 const ROOM_SEEN_MAX = 40; // offers a host remembers having answered
@@ -16191,12 +16195,15 @@ const RoomCode = {
 
 const RoomCrypto = {
   available() { return typeof crypto !== 'undefined' && !!crypto.subtle && typeof crypto.getRandomValues === 'function'; }, // WebCrypto needs a secure page (https, localhost)
-  async digestHex(text) { return OnlineCode.bytesHex(Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))))); },
+  async digest(algorithm, text) { return Array.from(new Uint8Array(await crypto.subtle.digest(algorithm, new TextEncoder().encode(text)))); },
+  async digestHex(text) { return OnlineCode.bytesHex(await this.digest('SHA-256', text)); },
   randomHex(length) { return OnlineCode.bytesHex(Array.from(crypto.getRandomValues(new Uint8Array(length / 2)))); },
-  // The host's PeerJS id and the root of its MQTT topics: hashes, so the code itself never travels
+  // A tracker's peer id or offer id: 20 random bytes as a binary string (one character per byte, as the tracker protocol writes them)
+  randomBinary() { return String.fromCharCode(...crypto.getRandomValues(new Uint8Array(ROOM_PEER_BYTES))); },
+  // The room's info hash on a tracker (the SHA-1 of a namespaced string, as a binary string of 20 characters) and the root of its MQTT topics: hashes, so the code itself never travels
   async ids(code) {
-    const [room, topic] = await Promise.all([this.digestHex('breakpoint-room:' + code), this.digestHex('breakpoint-topic:' + code)]);
-    return { host: ROOM_ID_PREFIX.host + room.slice(0, ROOM_ID_HEX), topic: 'bp4/' + topic.slice(0, ROOM_TOPIC_HEX) };
+    const [swarm, topic] = await Promise.all([this.digest('SHA-1', 'breakpoint-swarm:' + code), this.digestHex('breakpoint-topic:' + code)]);
+    return { swarm: String.fromCharCode(...swarm), topic: 'bp4/' + topic.slice(0, ROOM_TOPIC_HEX) };
   },
   // The AES-GCM key of a room, from PBKDF2-SHA-256 of the code: it keeps the descriptions from casual readers of a public broker, not from someone who knows the code
   async key(code) {
@@ -16232,7 +16239,7 @@ const RoomMessage = {
     const { nonce, bp } = value;
     if (value.t === 'offer') {
       const sdp = this.sdp(value.sdp);
-      return sdp && typeof value.from === 'string' && ROOM_ID_PATTERN.test(value.from) && value.from.startsWith(ROOM_ID_PREFIX.guest) ? { t: 'offer', from: value.from, nonce, bp, sdp } : null;
+      return sdp && typeof value.from === 'string' && ROOM_ID_PATTERN.test(value.from) ? { t: 'offer', from: value.from, nonce, bp, sdp } : null;
     }
     if (value.t !== 'answer') return null;
     if (value.full === true) return { t: 'answer', nonce, bp, full: true };
@@ -16240,34 +16247,45 @@ const RoomMessage = {
     const sdp = this.sdp(value.sdp);
     return sdp && Number.isInteger(value.seat) && value.seat >= ONLINE_SEAT_MIN && value.seat <= ONLINE_SEAT_MAX ? { t: 'answer', nonce, bp, sdp, seat: value.seat } : null;
   },
+  // A host's probe to itself (sent through a path to see that the path relays): { t: 'probe', nonce }
+  readProbe(value) { return value && typeof value === 'object' && value.t === 'probe' && typeof value.nonce === 'string' && ROOM_NONCE_PATTERN.test(value.nonce) ? { t: 'probe', nonce: value.nonce } : null; },
   // A host's claim on a code (kept by a broker): { t: 'claim', nonce, time }
   readClaim(value) {
     return value && typeof value === 'object' && value.t === 'claim' && typeof value.nonce === 'string' && ROOM_NONCE_PATTERN.test(value.nonce) && Number.isFinite(value.time) ? { nonce: value.nonce, time: value.time } : null;
   },
 };
 
-// The PeerJS server's protocol (peerjs-server: src/enums.ts, src/messageHandler), the few messages this game speaks
-const PeerWire = {
-  TYPES: ['OPEN', 'ID-TAKEN', 'ERROR', 'INVALID-KEY', 'INVALID-TOKEN', 'EXPIRE', 'OFFER', 'ANSWER', 'CANDIDATE', 'LEAVE'], // what the server may send
-  RELAYED: ['OFFER', 'ANSWER', 'CANDIDATE', 'LEAVE', 'EXPIRE'], // these carry the sender (or, for EXPIRE, the id that was not there) in src
-  url(id, token) { return ROOM_PEERJS_URL + '?key=peerjs&id=' + id + '&token=' + token + '&version=' + ROOM_PEERJS_VERSION; },
-  heartbeat: '{"type":"HEARTBEAT"}',
-  frame(type, dst, payload) { return JSON.stringify({ type, dst, payload }); },
-  // A message of the server as { type, src, message } (message: the room message of an OFFER or an ANSWER), or null for anything else
-  read(text) {
+// The WebTorrent tracker protocol over WebSocket (bittorrent-tracker; trystero's torrent strategy speaks it too), the few messages this game speaks. Peer ids, offer ids and the info hash are binary strings of 20 characters (one character per byte).
+// A tracker passes only the `type` and the `sdp` of an offer or answer on and drops every other field, so the room message travels as JSON text inside `sdp`.
+const TrackerWire = {
+  announce(swarm, peerId, fields) { return JSON.stringify(Object.assign({ action: 'announce', info_hash: swarm, peer_id: peerId }, fields)); },
+  // A host is a seeder (left 0) that asks for nobody (numwant 0): the tracker counts it in `complete`, which tells a friend that somebody hosts this room. event: 'started', 'stopped' or nothing (a repeat)
+  presence(swarm, peerId, event) { return this.announce(swarm, peerId, { numwant: 0, left: 0, uploaded: 0, downloaded: 0, event }); },
+  // A friend's offers (or a probe): the tracker hands each one to another peer of the room, up to numwant
+  offers(swarm, peerId, offerIds, message) { return this.announce(swarm, peerId, { numwant: offerIds.length, offers: offerIds.map((id) => ({ offer_id: id, offer: { type: 'offer', sdp: JSON.stringify(message) } })) }); },
+  answer(swarm, peerId, toPeerId, offerId, message) { return this.announce(swarm, peerId, { to_peer_id: toPeerId, offer_id: offerId, left: 0, answer: { type: 'answer', sdp: JSON.stringify(message) } }); },
+  binary(value) { return typeof value === 'string' && value.length === ROOM_PEER_BYTES && /^[\u0000-ÿ]+$/.test(value); },
+  // The room message that a tracker carried in `sdp` (a string of JSON), or null
+  inner(wrapper, type) {
+    if (!wrapper || typeof wrapper !== 'object' || wrapper.type !== type || typeof wrapper.sdp !== 'string' || wrapper.sdp.length > ROOM_TEXT_MAX_CHARS) return null;
+    try { return JSON.parse(wrapper.sdp); } catch (error) { return null; }
+  },
+  // A message of the tracker for this room (info_hash = swarm) as { kind: 'ack', complete } (the answer to our own announce: how many hosts the room has), { kind: 'offer', peerId, offerId, message } (message: a friend's offer or a host's probe)
+  // or { kind: 'answer', offerId, message }, or null for anything else (a failure, another room, a wrong shape)
+  read(text, swarm) {
     if (typeof text !== 'string' || text.length > ROOM_TEXT_MAX_CHARS) return null;
     let data;
     try { data = JSON.parse(text); } catch (error) { return null; }
-    if (!data || typeof data !== 'object' || Array.isArray(data) || !this.TYPES.includes(data.type)) return null;
-    const relayed = this.RELAYED.includes(data.type);
-    if (relayed && !(typeof data.src === 'string' && ROOM_ID_PATTERN.test(data.src))) return null;
-    const carries = data.type === 'OFFER' || data.type === 'ANSWER';
-    const message = carries ? RoomMessage.read(data.payload) : null;
-    if (carries && !message) return null;
-    if (data.type === 'OFFER' && message.t !== 'offer') return null;
-    if (data.type === 'ANSWER' && message.t !== 'answer') return null;
-    if (data.type === 'OFFER' && message.from !== data.src) return null; // the server names the sender: the friend's own claim of who it is must match
-    return { type: data.type, src: relayed ? data.src : '', message };
+    if (!data || typeof data !== 'object' || Array.isArray(data) || data.action !== 'announce' || data.info_hash !== swarm) return null;
+    if (data.offer !== undefined) {
+      const inner = this.inner(data.offer, 'offer'), message = inner && (inner.t === 'probe' ? RoomMessage.readProbe(inner) : RoomMessage.read(inner));
+      return message && (message.t === 'probe' || message.t === 'offer') && this.binary(data.peer_id) && this.binary(data.offer_id) ? { kind: 'offer', peerId: data.peer_id, offerId: data.offer_id, message } : null;
+    }
+    if (data.answer !== undefined) {
+      const message = RoomMessage.read(this.inner(data.answer, 'answer'));
+      return message && message.t === 'answer' && this.binary(data.offer_id) ? { kind: 'answer', offerId: data.offer_id, message } : null;
+    }
+    return Number.isInteger(data.complete) && data.complete >= 0 ? { kind: 'ack', complete: data.complete } : null;
   },
 };
 
@@ -16330,28 +16348,71 @@ const MqttWire = {
 
 const roomSocket = (url, protocols) => new (Online.socketClass || WebSocket)(url, protocols); // Online.socketClass: the self-tests' stand-in, so no test reaches a real service
 
-// One signalling path. context: { host, ids, key, ownId, token, report(route, kind, data) }; kinds: ready, missing (a guest: nobody is there), down, taken, message. route.send(target, message), route.close()
-function createPeerRoute(context) {
-  const route = { name: 'peerjs', state: 'connecting', sent: false };
-  let socket = null, beat = 0, over = false;
-  const end = (kind) => { if (over) return; over = true; clearInterval(beat); try { socket.close(); } catch (error) { /* already closed */ } context.report(route, kind); };
+// One signalling path. context: { host, ids, key, nonce, report(route, kind, data) }; kinds: ready (a host: a probe has come back through this path; a friend: the path is open), missing (a friend: nobody is there), down, taken, message. route.send(target, message), route.close()
+// A WebTorrent tracker: the host registers as a seeder of the room's info hash and proves the path with a probe from a second socket; a friend sends its offer (repeated, to random peers of the room) and takes the answer the host returns
+function createTrackerRoute(context, url) {
+  const route = { name: 'tracker', url, state: 'connecting', sent: false };
+  const swarm = context.ids.swarm, peerId = RoomCrypto.randomBinary(), replyTo = new Map(), timers = []; // replyTo: a friend's offer nonce -> the tracker's peer id and offer id to answer it by
+  let socket = null, prober = null, over = false, confirmed = false, asked = false, offerIds = [];
+  const transmit = (target, text) => { try { target.send(text); } catch (error) { /* closing: its close ends the route */ } };
+  const letGo = (target) => { try { if (target) target.close(); } catch (error) { /* already closed */ } };
+  const stop = () => { over = true; timers.forEach((timer) => clearTimeout(timer)); letGo(prober); prober = null; }; // clearTimeout also clears an interval (one shared list in the browser)
+  const end = (kind) => { if (over) return; stop(); letGo(socket); context.report(route, kind); };
+  const presence = (event) => transmit(socket, TrackerWire.presence(swarm, peerId, event));
+  // The host's probe: its own offer sent from a second socket, which the tracker hands to the host's first one. Back within ROOM_ECHO_MS = this tracker really relays (the PeerJS server did not)
+  const probe = () => {
+    try { prober = roomSocket(url); } catch (error) { end('down'); return; }
+    const probeId = RoomCrypto.randomBinary(), offerId = RoomCrypto.randomBinary();
+    prober.onopen = () => transmit(prober, TrackerWire.offers(swarm, probeId, [offerId], { t: 'probe', nonce: context.nonce }));
+    timers.push(setTimeout(() => { if (!confirmed) end('down'); }, context.echoMs));
+  };
+  const heardAsHost = (read) => {
+    if (read.kind === 'ack') { if (!asked) { asked = true; probe(); } return; } // the tracker has registered the host: now the probe
+    if (read.kind !== 'offer') return;
+    if (read.message.t === 'probe') {
+      if (read.message.nonce === context.nonce && !confirmed) { confirmed = true; letGo(prober); prober = null; context.report(route, 'ready'); }
+      return;
+    }
+    replyTo.set(read.message.nonce, { peerId: read.peerId, offerId: read.offerId });
+    if (replyTo.size > ROOM_SEEN_MAX) replyTo.delete(replyTo.keys().next().value);
+    context.report(route, 'message', read.message);
+  };
+  const heardAsFriend = (read) => {
+    if (read.kind === 'ack') { if (read.complete === 0) context.report(route, 'missing'); else if (route.state === 'missing') context.report(route, 'ready'); return; } // `complete` counts the hosts of the room
+    if (read.kind === 'answer' && offerIds.includes(read.offerId)) context.report(route, 'message', read.message);
+  };
   route.open = () => {
-    try { socket = roomSocket(PeerWire.url(context.ownId, context.token)); } catch (error) { end('down'); return; }
+    try { socket = roomSocket(url); } catch (error) { end('down'); return; }
+    socket.onopen = () => {
+      if (!context.host) { context.report(route, 'ready'); return; }
+      presence('started');
+      timers.push(setInterval(() => presence(), ROOM_TRACKER_ANNOUNCE_MS));
+    };
     socket.onmessage = (event) => {
-      const read = PeerWire.read(event.data);
+      const read = TrackerWire.read(event.data, swarm);
       if (!read) return; // anything the game does not expect is ignored
-      if (read.type === 'OPEN') { beat = setInterval(() => { try { socket.send(PeerWire.heartbeat); } catch (error) { /* closing */ } }, ROOM_HEARTBEAT_MS); context.report(route, 'ready'); }
-      else if (read.type === 'ID-TAKEN') end('taken');
-      else if (read.type === 'EXPIRE') context.report(route, 'missing');
-      else if (read.message) context.report(route, 'message', read.message);
+      if (context.host) heardAsHost(read); else heardAsFriend(read);
     };
     socket.onerror = () => end('down');
     socket.onclose = () => end('down');
   };
   route.send = (target, message) => {
-    try { socket.send(PeerWire.frame(message.t === 'offer' ? 'OFFER' : 'ANSWER', target === 'host' ? context.ids.host : target, message)); } catch (error) { /* closing: its close ends the route */ }
+    if (target === 'host') { // the tracker hands an offer to a random peer of the room, which may be another friend: several offers per announce, and the announce again every few seconds
+      offerIds = Array.from({ length: ROOM_TRACKER_OFFERS }, () => RoomCrypto.randomBinary());
+      const text = TrackerWire.offers(swarm, peerId, offerIds, message);
+      transmit(socket, text);
+      timers.push(setInterval(() => transmit(socket, text), context.resendMs));
+      return;
+    }
+    const reply = replyTo.get(message.nonce);
+    if (reply) transmit(socket, TrackerWire.answer(swarm, peerId, reply.peerId, reply.offerId, message));
   };
-  route.close = () => { over = true; clearInterval(beat); try { if (socket) socket.close(); } catch (error) { /* already closed */ } };
+  route.close = () => {
+    if (over) return;
+    if (context.host && socket) presence('stopped'); // the tracker forgets the host at once
+    stop();
+    letGo(socket);
+  };
   return route;
 }
 
@@ -16359,7 +16420,7 @@ function createMqttRoute(context, url) {
   const route = { name: 'mqtt', url, state: 'connecting', sent: false };
   const root = context.ids.topic, own = context.host ? root + '/h' : root + '/g/' + context.ownId, claimTopic = root + '/claim';
   const ownNonce = context.nonce, reader = MqttWire.reader(), timers = []; // clearTimeout also clears an interval (one shared list in the browser)
-  let socket = null, over = false, acknowledged = 0, claimed = false, claimSeen = false;
+  let socket = null, over = false, acknowledged = 0, claimed = false, claimSeen = false, confirmed = false;
   const stop = () => { over = true; timers.forEach((timer) => clearTimeout(timer)); };
   const transmit = (bytes) => { try { socket.send(bytes); } catch (error) { /* closing: its close ends the route */ } };
   const end = (kind) => { if (over) return; stop(); try { socket.close(); } catch (error) { /* already closed */ } context.report(route, kind); };
@@ -16368,10 +16429,14 @@ function createMqttRoute(context, url) {
     if (!over) transmit(MqttWire.publish(topic, bytes, retain));
   };
   const claim = () => { claimed = true; publish(claimTopic, { t: 'claim', nonce: ownNonce, time: Date.now() }, true); };
+  const echo = () => { // the host's probe to its own topic: a broker that delivers it back relays; one that does not, within ROOM_ECHO_MS, is not a path
+    publish(own, { t: 'probe', nonce: ownNonce });
+    timers.push(setTimeout(() => { if (!confirmed) end('down'); }, context.echoMs));
+  };
   const subscribed = () => { // both subscriptions are in; a retained claim of another host or a guest's host arrives within ROOM_CLAIM_WAIT_MS
     timers.push(setTimeout(() => {
       if (over) return;
-      if (context.host) { claim(); timers.push(setInterval(claim, ROOM_CLAIM_REFRESH_MS)); context.report(route, 'ready'); } else if (!claimSeen) context.report(route, 'missing');
+      if (context.host) { claim(); timers.push(setInterval(claim, ROOM_CLAIM_REFRESH_MS)); echo(); } else if (!claimSeen) context.report(route, 'missing');
     }, ROOM_CLAIM_WAIT_MS));
     if (!context.host) context.report(route, 'ready'); // a friend may send at once: the claim only tells it early that nobody is there
   };
@@ -16387,7 +16452,10 @@ function createMqttRoute(context, url) {
     const message = await RoomCrypto.open(context.key, packet.payload);
     if (over || !message) return;
     if (packet.topic === claimTopic) { heardClaim(message); return; }
-    const read = packet.topic === own ? RoomMessage.read(message) : null;
+    if (packet.topic !== own) return;
+    const probe = context.host ? RoomMessage.readProbe(message) : null;
+    if (probe) { if (probe.nonce === ownNonce && !confirmed) { confirmed = true; context.report(route, 'ready'); } return; }
+    const read = RoomMessage.read(message);
     if (read) context.report(route, 'message', read);
   };
   const handle = (packet) => {
@@ -16423,11 +16491,11 @@ function createMqttRoute(context, url) {
 }
 
 /* The room of one code on every service at once. role: 'host' (registers the code and answers the offers that come) or 'guest' (sends one offer and takes the first answer).
-   handlers: onReady(path) the code is live on a path (the first), onTaken() another host holds the code, onUnreachable(wasLive) no service answers, onOffer(message, reply) a friend's offer (host),
-   onAnswer(message) the host's answer (guest), onMissing() nobody answers to this code (guest). options.reachMs / answerMs shorten the limits for the self-tests. */
+   handlers: onReady(path) the code is live: a probe of the host has come back through that path (the first), onTaken() another host holds the code, onUnreachable(wasLive) no service answers, onOffer(message, reply) a friend's offer (host),
+   onAnswer(message) the host's answer (guest), onMissing() nobody answers to this code (guest). options.reachMs / answerMs / echoMs / resendMs shorten the limits for the self-tests. */
 function createRoomHub(role, code, handlers, options = {}) {
   const host = role === 'host';
-  const hub = { role, code, ownId: host ? '' : ROOM_ID_PREFIX.guest + RoomCrypto.randomHex(ROOM_ID_HEX), routes: [] };
+  const hub = { role, code, ownId: host ? '' : ROOM_ID_PREFIX.guest + RoomCrypto.randomHex(ROOM_ID_HEX), routes: [] }; // ownId: a friend's id in its offer
   const routes = hub.routes, seen = new Map(); // seen: a host's answered offers by nonce
   let closed = false, everUsable = false, pending = null, answered = false, reachTimer = 0, answerTimer = 0;
   const usable = (route) => route.state === 'ready' || route.state === 'missing';
@@ -16467,9 +16535,8 @@ function createRoomHub(role, code, handlers, options = {}) {
     let ids = null, key = null;
     try { [ids, key] = await Promise.all([RoomCrypto.ids(code), RoomCrypto.key(code)]); } catch (error) { if (!closed) handlers.onUnreachable(false); return; }
     if (closed) return;
-    const context = { host, ids, key, ownId: host ? ids.host : hub.ownId, token: options.token || RoomCrypto.randomHex(10), nonce: options.nonce || RoomCrypto.randomHex(ROOM_NONCE_HEX), report }; // token: the PeerJS server lets the same token take its id back; nonce: the claim on a broker that is ours
-    if (host) hub.ownId = ids.host;
-    routes.push(createPeerRoute(context), ...ROOM_MQTT_URLS.map((url) => createMqttRoute(context, url)));
+    const context = { host, ids, key, ownId: hub.ownId, nonce: options.nonce || RoomCrypto.randomHex(ROOM_NONCE_HEX), echoMs: options.echoMs ?? ROOM_ECHO_MS, resendMs: options.resendMs ?? ROOM_TRACKER_RESEND_MS, report }; // nonce: the claim on a broker that is ours, and the host's probe
+    routes.push(...ROOM_TRACKER_URLS.map((url) => createTrackerRoute(context, url)), ...ROOM_MQTT_URLS.map((url) => createMqttRoute(context, url)));
     for (const route of routes) route.open();
   };
   // The friend's offer: sent on every path that is up now and on each that comes up later; nobody answering in time is "no game with this code"
@@ -19826,7 +19893,7 @@ const OnlineUI = {
   // Host: registers the code on the room services; a code that is taken is replaced by a new one (at most ROOM_CODE_TRIES)
   startRoomHost(info = null, tries = 1) {
     if (!RoomCrypto.available()) { this.room = { info: { code: '' }, hub: null, status: 'nocrypto', tries }; this.redraw(); return; }
-    if (!info) info = { code: RoomCode.make(), token: RoomCrypto.randomHex(10), nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX) }; // token and nonce stay with the code, so the same host comes back to it after a match without being refused as another host
+    if (!info) info = { code: RoomCode.make(), nonce: RoomCrypto.randomHex(ROOM_NONCE_HEX) }; // the nonce stays with the code, so the same host comes back to it after a match without being refused as another host
     const room = { info, hub: null, status: 'making', tries }, mine = () => this.room === room;
     this.room = room;
     room.hub = createRoomHub('host', info.code, {
@@ -19834,7 +19901,7 @@ const OnlineUI = {
       onTaken: () => { if (mine()) this.retakeRoom(room); },
       onUnreachable: (wasLive) => { if (mine()) { room.status = wasLive ? 'lost' : 'down'; this.redraw(); } },
       onOffer: (message, reply) => { if (mine()) this.roomOffer(message, reply); },
-    }, { token: info.token, nonce: info.nonce });
+    }, { nonce: info.nonce });
     room.hub.start();
     this.redraw();
   },
@@ -20613,7 +20680,7 @@ function testApi() {
     CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
     Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
     fightGrade, gradeInputs, gradeLetter,
-    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, PeerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_PEERJS_URL, ROOM_MQTT_URLS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+    Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
     TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
     REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
     KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,

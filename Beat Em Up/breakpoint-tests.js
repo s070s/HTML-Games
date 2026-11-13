@@ -48,7 +48,7 @@ const {
   CUSTOM_STORE_VERSION, KEY_CUSTOM_BACKUP, makeObject, SHARE_FIELD_COUNT_STORY, SHARE_VERSION, STORY_SKIP_AFTER, parseStoryRow,
   Cutscene, INTRO_EMOTE_SECONDS, SCENE_CHOICES, SCENE_COLOURS, STORY_POSES, SCENE_AUTO_SECONDS, SCENE_AUTO_PER_CHARACTER, SCENE_AUTO_MAX_SECONDS,
   fightGrade, gradeInputs, gradeLetter,
-  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, PeerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_PEERJS_URL, ROOM_MQTT_URLS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
+  Online, OnlineCode, Qr, OnlineUI, OnlinePlay, RoomCode, RoomCrypto, RoomMessage, TrackerWire, MqttWire, createRoomHub, joinRoom, onlineNoRoom, ROOM_ALPHABET, ROOM_CODE_LENGTH, ROOM_TRACKER_URLS, ROOM_MQTT_URLS, ROOM_TRACKER_OFFERS, ROOM_TRACKER_RESEND_MS, ROOM_ECHO_MS, ROOM_ANSWER_MS, ROOM_REACH_MS, ROOM_CODE_TRIES, ROOM_ID_PREFIX, ROOM_SEEN_MAX, ROOM_CLAIM_WAIT_MS, ROOM_CLAIM_STALE_MS, ONLINE_SDP_MAX_BYTES, ONLINE_CANDIDATE_TYPE, ONLINE_ICE_SERVERS, ONLINE_CANDIDATE_PUBLIC, onlineEngine, onlineFighter, onlineFighterOr, onlineDefaultFighter, onlinePool, onlineMedianOf, onlineLatencyText, onlineDelayFor, onlineReadMe, onlineReadLobby, ONLINE_PING_MS, ONLINE_SAMPLES, ONLINE_SAMPLES_MIN, ONLINE_JITTER_MS, ONLINE_ME, ONLINE_LOBBY, ONLINE_LATENCY_GOOD_MS, ONLINE_LATENCY_FAIR_MS, ONLINE_NO_REPLY, ONLINE_MISSED_PINGS, ONLINE_REMOVED, ONLINE_REMOVE_CLOSE_MS, ONLINE_PING, ONLINE_PONG, ONLINE_ENGINES, ONLINE_HELLO, ONLINE_HELLO_WAIT_MS, ONLINE_MODES, ONLINE_LIMITS, ONLINE_START, ONLINE_ARENA_DEFAULT, ONLINE_BRACKET_SIZE, ONLINE_FIGHT_ROUNDS, ONLINE_CODE_VERSION, ONLINE_NET_VERSION, ONLINE_PREFIX, ONLINE_FORM, ONLINE_MESSAGES, ONLINE_CANDIDATES_MAX, ONLINE_SEAT_MIN, ONLINE_SEAT_MAX,
   TOURNAMENT_SIZES, TOURNAMENT_MAX_WINS, TOURNAMENT_NAME_MAX, TOURNAMENT_STAGES, TOURNAMENT_FINAL_WINS, TOURNAMENT_TIMER, Tournament,
   REDUCED_MOTION_ROWS, FLASH_REDUCED_ALPHA, FLASH_REDUCED_TINT, RUMBLE_REDUCED_SCALE, RUMBLE_REDUCED_MS, ITEM_RADIUS,
   KO_SLOW_TICKS, KO_FINISH_TICKS, KO_SLOW_SCALE, CAMERA_CUT_IN, CAMERA_CUT_LOW,
@@ -20011,7 +20011,7 @@ const SelfTest = {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       const policyTag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       const policy = policyTag ? policyTag.content : '';
-      if (!policy.includes("default-src 'none'") || !/connect-src wss:\/\/0\.peerjs\.com wss:\/\/broker\.emqx\.io:8084 wss:\/\/broker\.hivemq\.com:8884;/.test(policy)) return 'the page policy changed: ' + policy; // the exact list is pinned by "Online rooms (P19-12): the page policy"
+      if (!policy.includes("default-src 'none'") || !/connect-src wss:\/\/tracker\.openwebtorrent\.com wss:\/\/tracker\.webtorrent\.dev wss:\/\/broker\.emqx\.io:8084 wss:\/\/broker\.hivemq\.com:8884;/.test(policy)) return 'the page policy changed: ' + policy; // the exact list is pinned by "Online rooms (P19-12): the page policy"
       const connections = [new RTCPeerConnection(), new RTCPeerConnection()];
       const [offerer, answerer] = connections;
       const violations = [];
@@ -21238,37 +21238,55 @@ const SelfTest = {
       const poll = () => { if (check()) resolve(); else if (performance.now() - started > limitMs) reject(new Error('no ' + what + ' in ' + limitMs + ' ms')); else setTimeout(poll, 15); };
       poll();
     });
-    const roomUp = (hub) => hub.routes.length === 3 && hub.routes.every((route) => route.state === 'ready');   // the PeerJS route and both brokers are up (a hub has no routes until its ids are made)
-    /* The services of the room in memory: a PeerJS-protocol server (OPEN, ID-TAKEN for another token, OFFER and ANSWER relayed with src, EXPIRE after net.expireMs for an absent id, HEARTBEAT counted) and two MQTT 3.1.1 brokers (CONNACK, SUBACK,
-       retained messages, PUBLISH delivered to the subscribers of a topic). The brokers read the client's packets with their own small reader, not the game's. net.block lists the services that refuse the connection: 'peerjs', 'mqtt0', 'mqtt1'. */
-    const fakeRoomNet = (block = []) => {
-      const net = { block: new Set(block), expireMs: 40, peers: new Map(), retained: [new Map(), new Map()], subscribers: [new Map(), new Map()], published: [], relayed: [], heartbeats: 0, sockets: [] };
+    const roomUp = (hub) => hub.routes.length === 4 && hub.routes.every((route) => route.state === 'ready');   // both trackers and both brokers are up (a hub has no routes until its ids are made)
+    /* The services of the room in memory: two WebTorrent trackers (announce: the answer to the announcer with the seeder count `complete`, an offer handed to the other peers of the same info hash, an answer to `to_peer_id`;
+       like the real trackers they pass on only the type and the sdp of an offer or an answer, and a stopped or closed peer is forgotten) and two MQTT 3.1.1 brokers (CONNACK, SUBACK, retained messages, PUBLISH delivered to the subscribers
+       of a topic, the publisher's own included). The brokers read the client's packets with their own small reader, not the game's. net.block lists the services that refuse the connection: 'tracker0', 'tracker1', 'mqtt0', 'mqtt1';
+       net.mute lists those that accept the connection and relay nothing (what the PeerJS public server did, measured in part A). net.friendsFirst puts the seeders last when a tracker picks the peers an offer goes to. */
+    const fakeRoomNet = (block = [], mute = []) => {
+      const net = { block: new Set(block), mute: new Set(mute), friendsFirst: false, dropOffers: 0, swarms: [new Map(), new Map()], retained: [new Map(), new Map()], subscribers: [new Map(), new Map()], published: [], relayed: [], announces: [], sockets: [] };
       const later = (fn, ms = 0) => setTimeout(fn, ms);
       const lengthAt = (bytes, from) => { let count = 0, multiplier = 1, at = from, digit = 0; do { digit = bytes[at++]; count += (digit & 127) * multiplier; multiplier *= 128; } while (digit & 128); return [count, at]; };
       const topicAt = (bytes, at) => { const length = (bytes[at] << 8) | bytes[at + 1]; return [String.fromCharCode(...bytes.slice(at + 2, at + 2 + length)), at + 2 + length]; };
       const packetOf = (first, body) => { const length = []; let rest = body.length; do { const digit = rest % 128; rest = Math.floor(rest / 128); length.push(rest ? digit | 128 : digit); } while (rest); return new Uint8Array([first, ...length, ...body]).buffer; };
-      class PeerSocket {
+      class TrackerSocket {
         constructor(url) {
-          const query = new URLSearchParams(url.split('?')[1]);
-          this.id = query.get('id'); this.token = query.get('token'); this.readyState = 0; net.sockets.push(this);
-          later(() => {
-            if (net.block.has('peerjs')) { this.fail(); return; }
-            const other = net.peers.get(this.id);
-            if (other && other.token !== this.token) { this.deliver({ type: 'ID-TAKEN', payload: { msg: 'ID is taken' } }); this.close(); return; }
-            net.peers.set(this.id, this); this.readyState = 1; this.deliver({ type: 'OPEN' });
-          });
+          this.which = url.includes('openwebtorrent') ? 0 : 1; this.readyState = 0; net.sockets.push(this);
+          later(() => { if (net.block.has('tracker' + this.which)) { this.fail(); return; } this.readyState = 1; if (this.onopen) this.onopen({}); });
         }
-        deliver(data) { if (this.readyState !== 3 && this.onmessage) this.onmessage({ data: JSON.stringify(data) }); }
+        deliver(data) { later(() => { if (this.readyState === 1 && this.onmessage) this.onmessage({ data: JSON.stringify(data) }); }); }
         fail() { this.readyState = 3; if (this.onerror) this.onerror({}); if (this.onclose) this.onclose({}); }
+        forget(peerId) { const swarm = net.swarms[this.which].get(this.hash); if (swarm && swarm.get(peerId) && swarm.get(peerId).socket === this) swarm.delete(peerId); }
         send(text) {
+          if (this.readyState !== 1) throw new Error('not open');
           const message = JSON.parse(text);
-          if (message.type === 'HEARTBEAT') { net.heartbeats++; return; }
-          net.relayed.push(message.type);
-          const target = net.peers.get(message.dst);
-          if (target) target.deliver({ type: message.type, src: this.id, dst: message.dst, payload: message.payload });
-          else later(() => this.deliver({ type: 'EXPIRE', src: message.dst }), net.expireMs);
+          if (message.action !== 'announce' || typeof message.info_hash !== 'string' || message.info_hash.length !== 20 || typeof message.peer_id !== 'string' || message.peer_id.length !== 20) return; // a real tracker answers an error; the game never sends one
+          this.hash = message.info_hash; this.ownPeers = (this.ownPeers || new Set()).add(message.peer_id);
+          net.announces.push(message);
+          if (!net.swarms[this.which].has(message.info_hash)) net.swarms[this.which].set(message.info_hash, new Map());
+          const swarm = net.swarms[this.which].get(message.info_hash);
+          if (message.event === 'stopped') { this.forget(message.peer_id); return; }
+          swarm.set(message.peer_id, { socket: this, left: message.left === undefined ? Infinity : message.left });
+          const seeders = Array.from(swarm.values()).filter((peer) => peer.left === 0).length;
+          this.deliver({ action: 'announce', info_hash: message.info_hash, complete: seeders, incomplete: swarm.size - seeders, interval: 120 });
+          if (net.mute.has('tracker' + this.which)) return;
+          if (Array.isArray(message.offers) && net.dropOffers > 0 && message.offers[0].offer.sdp.includes('"t":"offer"')) net.dropOffers--;   // the tracker loses this ask
+          else if (Array.isArray(message.offers)) {
+            const others = Array.from(swarm).filter(([peerId]) => peerId !== message.peer_id).sort((a, b) => (net.friendsFirst ? Number(a[1].left === 0) - Number(b[1].left === 0) : 0));
+            message.offers.slice(0, message.numwant).forEach((entry, index) => {
+              const target = others[index];
+              if (!target) return;
+              net.relayed.push('offer');
+              target[1].socket.deliver({ action: 'announce', info_hash: message.info_hash, peer_id: message.peer_id, offer_id: entry.offer_id, offer: { type: entry.offer.type, sdp: entry.offer.sdp } });
+            });
+          }
+          if (message.answer) {
+            const target = swarm.get(message.to_peer_id);
+            net.relayed.push('answer');
+            if (target) target.socket.deliver({ action: 'announce', info_hash: message.info_hash, peer_id: message.peer_id, offer_id: message.offer_id, answer: { type: message.answer.type, sdp: message.answer.sdp } });
+          }
         }
-        close() { if (net.peers.get(this.id) === this) net.peers.delete(this.id); this.readyState = 3; later(() => { if (this.onclose) this.onclose({}); }); }
+        close() { for (const peerId of this.ownPeers || []) this.forget(peerId); this.readyState = 3; later(() => { if (this.onclose) this.onclose({}); }); }
       }
       class BrokerSocket {
         constructor(url, protocol) {
@@ -21291,14 +21309,16 @@ const SelfTest = {
             const [topic, next] = topicAt(bytes, at), payload = Array.from(bytes.slice(next));
             net.published.push({ broker: this.broker, topic, payload, retain: (bytes[0] & 1) === 1 });
             if (bytes[0] & 1) { if (payload.length) retained.set(topic, payload); else retained.delete(topic); }
+            if (net.mute.has('mqtt' + this.broker) && !(bytes[0] & 1)) return; // a muted broker keeps retained claims (they are state, not delivery) and delivers nothing
             for (const socket of subscribers.get(topic) || []) socket.give(topic, payload, false);
           }
         }
         close() { this.readyState = 3; for (const set of net.subscribers[this.broker].values()) set.delete(this); later(() => { if (this.onclose) this.onclose({}); }); }
       }
-      class RoutedSocket { constructor(url, protocol) { return url.includes('peerjs') ? new PeerSocket(url) : new BrokerSocket(url, protocol); } }
+      class RoutedSocket { constructor(url, protocol) { return url.includes('tracker') ? new TrackerSocket(url) : new BrokerSocket(url, protocol); } }
       net.install = () => { const before = Online.socketClass; Online.socketClass = RoutedSocket; return () => { Online.socketClass = before; net.sockets.forEach((socket) => { try { socket.close(); } catch (error) { /* already closed */ } }); }; };
       net.plain = () => net.published.map((entry) => entry.topic + ' ' + String.fromCharCode(...entry.payload)).join('\n'); // every topic and payload the brokers saw, as text
+      net.seeders = (code, which = 0) => { const swarm = net.swarms[which].get(code); return swarm ? Array.from(swarm.values()).filter((peer) => peer.left === 0).length : 0; };   // the hosts of a room on a tracker (code: the room's info hash)
       return net;
     };
     // A link over a stand-in connection that opens when told, and the host's answer to a friend's offer for the room tests (seats 2 to 4 in turn, then "full")
@@ -21338,34 +21358,54 @@ const SelfTest = {
       if (RoomCode.linkFor('K7QX4', 'https://example.test/play/breakpoint.html?nointro#x') !== 'https://example.test/play/breakpoint.html?join=K7QX4') bad.push('linkFor(): ' + RoomCode.linkFor('K7QX4', 'https://example.test/play/breakpoint.html?nointro#x'));
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Online rooms (P19-12): the PeerJS messages are read strictly - the server\'s own types come through, every other text, type, field and sender is refused, and a friend cannot claim to be someone else', () => {
+    test('Online rooms (P19-12): the tracker messages are read strictly - what a tracker answers comes through (its answer to an announce, a friend\'s offer, a probe, the host\'s answer), every other text, shape, room and sender is refused, and what the game sends is what a tracker expects', () => {
       const bad = [], nonce = '0123456789abcdef', friend = 'bp4g' + '1'.repeat(20), host = 'bp4h' + '2'.repeat(20);
-      const offer = { t: 'offer', from: friend, nonce, bp: ONLINE_NET_VERSION, sdp: OFFER }, answer = { t: 'answer', nonce, bp: ONLINE_NET_VERSION, sdp: ANSWER, seat: 3 };
-      const wire = (type, extra = {}) => JSON.stringify({ type, ...extra });
-      const url = PeerWire.url(host, 'abc123');
-      if (url !== 'wss://0.peerjs.com/peerjs?key=peerjs&id=' + host + '&token=abc123&version=1.5.4') bad.push('url ' + url);
-      if (PeerWire.heartbeat !== '{"type":"HEARTBEAT"}' || JSON.parse(PeerWire.frame('OFFER', host, offer)).dst !== host) bad.push('heartbeat or frame');
-      const good = [['OPEN', wire('OPEN')], ['ID-TAKEN', wire('ID-TAKEN', { payload: { msg: 'ID is taken' } })], ['EXPIRE', wire('EXPIRE', { src: host })], ['OFFER', wire('OFFER', { src: friend, dst: host, payload: offer })], ['ANSWER', wire('ANSWER', { src: host, dst: friend, payload: answer })],
-        ['ANSWER', wire('ANSWER', { src: host, payload: { t: 'answer', nonce, bp: 4, full: true } })], ['ANSWER', wire('ANSWER', { src: host, payload: { t: 'answer', nonce, bp: 4, version: 5 } })]];
-      for (const [type, text] of good) { const read = PeerWire.read(text); if (!read || read.type !== type) bad.push('refused a ' + type + ': ' + text.slice(0, 60)); }
-      const read = PeerWire.read(wire('ANSWER', { src: host, payload: answer }));
-      if (!read || read.src !== host || read.message.seat !== 3 || read.message.sdp !== ANSWER || read.message.t !== 'answer') bad.push('an answer was not read back whole');
+      const swarm = String.fromCharCode(...Array.from({ length: 20 }, (_, index) => 200 + index)), peer = String.fromCharCode(...Array.from({ length: 20 }, (_, index) => 255 - index)), offerId = 'o'.repeat(20);
+      const offer = { t: 'offer', from: friend, nonce, bp: ONLINE_NET_VERSION, sdp: OFFER }, answer = { t: 'answer', nonce, bp: ONLINE_NET_VERSION, sdp: ANSWER, seat: 3 }, probe = { t: 'probe', nonce };
+      const wire = (extra = {}) => JSON.stringify({ action: 'announce', info_hash: swarm, ...extra });
+      const wrapped = (type, message) => ({ type, sdp: JSON.stringify(message) });
+      // what the game sends
+      const presence = JSON.parse(TrackerWire.presence(swarm, peer, 'started'));
+      if (presence.action !== 'announce' || presence.info_hash !== swarm || presence.peer_id !== peer || presence.left !== 0 || presence.numwant !== 0 || presence.event !== 'started') bad.push('presence: ' + JSON.stringify(presence));
+      if ('event' in JSON.parse(TrackerWire.presence(swarm, peer))) bad.push('a repeat of the presence names no event');
+      const offers = JSON.parse(TrackerWire.offers(swarm, peer, ['a'.repeat(20), 'b'.repeat(20)], offer));
+      if (offers.numwant !== 2 || offers.offers.length !== 2 || Object.keys(offers.offers[0].offer).sort().join() !== 'sdp,type' || offers.offers[0].offer.type !== 'offer' || JSON.parse(offers.offers[0].offer.sdp).sdp !== OFFER) bad.push('offers: ' + JSON.stringify(offers).slice(0, 80));
+      const reply = JSON.parse(TrackerWire.answer(swarm, peer, 'p'.repeat(20), offerId, answer));
+      if (reply.to_peer_id !== 'p'.repeat(20) || reply.offer_id !== offerId || reply.left !== 0 || reply.answer.type !== 'answer' || JSON.parse(reply.answer.sdp).seat !== 3) bad.push('answer: ' + JSON.stringify(reply).slice(0, 80));
+      // what comes back
+      const ack = TrackerWire.read(wire({ complete: 1, incomplete: 2, interval: 120 }), swarm), none = TrackerWire.read(wire({ complete: 0 }), swarm);
+      if (!ack || ack.kind !== 'ack' || ack.complete !== 1 || !none || none.complete !== 0) bad.push('the answer to an announce');
+      const heardOffer = TrackerWire.read(wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', offer) }), swarm);
+      if (!heardOffer || heardOffer.kind !== 'offer' || heardOffer.peerId !== peer || heardOffer.offerId !== offerId || heardOffer.message.t !== 'offer' || heardOffer.message.sdp !== OFFER || heardOffer.message.from !== friend) bad.push('an offer was not read back whole');
+      const heardProbe = TrackerWire.read(wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', probe) }), swarm);
+      if (!heardProbe || heardProbe.message.t !== 'probe' || heardProbe.message.nonce !== nonce) bad.push('a probe');
+      const heardAnswer = TrackerWire.read(wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', answer) }), swarm);
+      if (!heardAnswer || heardAnswer.kind !== 'answer' || heardAnswer.offerId !== offerId || heardAnswer.message.seat !== 3 || heardAnswer.message.sdp !== ANSWER) bad.push('an answer was not read back whole');
+      for (const extra of [{ full: true }, { version: 5 }]) { const read = TrackerWire.read(wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { t: 'answer', nonce, bp: 4, ...extra }) }), swarm); if (!read || read.kind !== 'answer') bad.push('refused an answer of ' + Object.keys(extra)[0]); }
       const refused = [
-        ['not JSON', 'OPEN'], ['an array', '["OPEN"]'], ['null', 'null'], ['a number', '5'], ['no type', '{}'], ['an unknown type', wire('HEARTBEAT')], ['another unknown type', wire('PORT')], ['a lower-case type', wire('open')],
-        ['a relayed type without src', wire('OFFER', { payload: offer })], ['a src that is not an id', wire('OFFER', { src: '../x', payload: offer })], ['a host id as the friend', wire('OFFER', { src: host, payload: { ...offer, from: host } })],
-        ['an offer from another id than src', wire('OFFER', { src: 'bp4g' + '3'.repeat(20), payload: offer })], ['an offer with an answer inside', wire('OFFER', { src: friend, payload: answer })], ['an answer with an offer inside', wire('ANSWER', { src: host, payload: offer })],
-        ['no payload', wire('OFFER', { src: friend })], ['a payload that is a string', wire('OFFER', { src: friend, payload: 'x' })], ['a nonce of the wrong shape', wire('ANSWER', { src: host, payload: { ...answer, nonce: 'abc' } })],
-        ['a bp that is not a whole number', wire('ANSWER', { src: host, payload: { ...answer, bp: '4' } })], ['seat 1', wire('ANSWER', { src: host, payload: { ...answer, seat: 1 } })], ['seat 5', wire('ANSWER', { src: host, payload: { ...answer, seat: 5 } })],
-        ['a seat that is a string', wire('ANSWER', { src: host, payload: { ...answer, seat: '3' } })], ['an answer with no sdp and no refusal', wire('ANSWER', { src: host, payload: { t: 'answer', nonce, bp: 4 } })],
-        ['an SDP with two media sections', wire('ANSWER', { src: host, payload: { ...answer, sdp: ANSWER + 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' } })], ['an SDP with a video section only', wire('ANSWER', { src: host, payload: { ...answer, sdp: ANSWER.replace(/m=application.*\r\n/, 'm=video 9 UDP/TLS/RTP/SAVPF 96\r\n') } })],
-        ['an SDP that is not text of printable characters', wire('ANSWER', { src: host, payload: { ...answer, sdp: ANSWER + 'é' } })], ['an SDP that does not start with v=0', wire('ANSWER', { src: host, payload: { ...answer, sdp: 'x' + ANSWER } })],
-        ['an SDP that is too long', wire('ANSWER', { src: host, payload: { ...answer, sdp: ANSWER + 'a=x:' + 'y'.repeat(ONLINE_SDP_MAX_BYTES) + '\r\n' } })],
-        ['an SDP with 41 candidates', wire('ANSWER', { src: host, payload: { ...answer, sdp: ANSWER + 'a=candidate:1 1 udp 1 10.0.0.1 1 typ host\r\n'.repeat(41) } })],
-        ['a message over the length limit', JSON.stringify({ type: 'OPEN', pad: 'x'.repeat(20001) })], ['a message that is not text', 5],
+        ['not JSON', 'x'], ['an array', '[]'], ['null', 'null'], ['a number', '5'], ['no action', JSON.stringify({ info_hash: swarm, complete: 1 })], ['another action', wire({ action: 'scrape', complete: 1 })],
+        ['another room', JSON.stringify({ action: 'announce', info_hash: 'x'.repeat(20), complete: 1 })], ['no room', JSON.stringify({ action: 'announce', complete: 1 })], ['a failure', wire({ 'failure reason': 'no' })],
+        ['a negative count', wire({ complete: -1 })], ['a count that is a string', wire({ complete: '1' })], ['a count with a fraction', wire({ complete: 1.5 })], ['an empty message', wire()],
+        ['a peer id of 19 characters', wire({ peer_id: peer.slice(1), offer_id: offerId, offer: wrapped('offer', offer) })], ['a peer id with a character over 255', wire({ peer_id: peer.slice(1) + 'Ā', offer_id: offerId, offer: wrapped('offer', offer) })],
+        ['an offer id of the wrong length', wire({ peer_id: peer, offer_id: 'o', offer: wrapped('offer', offer) })], ['an offer id that is a number', wire({ peer_id: peer, offer_id: 5, offer: wrapped('offer', offer) })],
+        ['an offer that is not an offer', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('answer', offer) })], ['an offer whose sdp is not JSON', wire({ peer_id: peer, offer_id: offerId, offer: { type: 'offer', sdp: OFFER } })],
+        ['an offer that is a string', wire({ peer_id: peer, offer_id: offerId, offer: 'x' })], ['an offer holding an answer', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', answer) })],
+        ['an answer holding an offer', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', offer) })], ['an answer holding a probe', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', probe) })],
+        ['a host id as the friend', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, from: host }) })], ['a probe with a nonce of the wrong shape', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { t: 'probe', nonce: 'abc' }) })],
+        ['a nonce of the wrong shape', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, nonce: 'abc' }) })], ['a bp that is not a whole number', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, bp: '4' }) })],
+        ['seat 1', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, seat: 1 }) })], ['seat 5', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, seat: 5 }) })],
+        ['an answer with no sdp and no refusal', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { t: 'answer', nonce, bp: 4 }) })],
+        ['an SDP with two media sections', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' }) })],
+        ['an SDP that is not text of printable characters', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'é' }) })],
+        ['an SDP that is too long', wire({ peer_id: peer, offer_id: offerId, offer: wrapped('offer', { ...offer, sdp: OFFER + 'a=x:' + 'y'.repeat(ONLINE_SDP_MAX_BYTES) + '\r\n' }) })],
+        ['an SDP with 41 candidates', wire({ peer_id: peer, offer_id: offerId, answer: wrapped('answer', { ...answer, sdp: ANSWER + 'a=candidate:1 1 udp 1 10.0.0.1 1 typ host\r\n'.repeat(41) }) })],
+        ['a message over the length limit', JSON.stringify({ action: 'announce', info_hash: swarm, complete: 1, pad: 'x'.repeat(20001) })], ['a message that is not text', 5],
       ];
-      for (const [name, text] of refused) if (PeerWire.read(text) !== null) bad.push('accepted ' + name);
+      for (const [name, text] of refused) if (TrackerWire.read(text, swarm) !== null) bad.push('accepted ' + name);
+      if (TrackerWire.read(wire({ complete: 1 }), swarm.slice(1) + 'x') !== null) bad.push('a message of this room read in another');
       if (RoomMessage.read({ ...offer, from: 'bp4g' + 'G'.repeat(20) }) !== null || RoomMessage.read({ ...offer, t: 'candidate' }) !== null || RoomMessage.read({ ...answer, full: false, seat: undefined, sdp: undefined }) !== null) bad.push('a room message of the wrong shape was read');
       if (RoomMessage.readClaim({ t: 'claim', nonce, time: 5 }) === null || RoomMessage.readClaim({ t: 'claim', nonce, time: '5' }) !== null || RoomMessage.readClaim({ t: 'claim', nonce: 'x', time: 5 }) !== null || RoomMessage.readClaim(null) !== null) bad.push('claims');
+      if (RoomMessage.readProbe({ t: 'probe', nonce }) === null || RoomMessage.readProbe({ t: 'probe', nonce: 5 }) !== null || RoomMessage.readProbe({ t: 'offer', nonce }) !== null || RoomMessage.readProbe(null) !== null) bad.push('probes');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Online rooms (P19-12): the MQTT 3.1.1 packets - the five packets the game writes match the standard\'s bytes, the remaining length uses 1 to 4 bytes, the reader joins packets split over frames and splits frames holding several, and a packet it never asks for ends the connection', () => {
@@ -21419,25 +21459,28 @@ const SelfTest = {
       if (await RoomCrypto.open(key, flipped) !== null || await RoomCrypto.open(key, headed) !== null) bad.push('a changed byte was accepted (AES-GCM must refuse it)');
       if (await RoomCrypto.open(key, sealed.slice(0, 20)) !== null || await RoomCrypto.open(key, new Uint8Array(0)) !== null || await RoomCrypto.open(key, new Uint8Array(64)) !== null) bad.push('short or empty bytes');
       const ids = await RoomCrypto.ids('K7QX4'), more = await RoomCrypto.ids('K7QX5');
-      if (!/^bp4h[0-9a-f]{20}$/.test(ids.host) || !/^bp4\/[0-9a-f]{32}$/.test(ids.topic) || ids.host === more.host || ids.topic === more.topic || (await RoomCrypto.ids('K7QX4')).host !== ids.host) bad.push('ids ' + JSON.stringify(ids));
-      if (ids.host.toLowerCase().includes('k7qx4') || ids.topic.toLowerCase().includes('k7qx4')) bad.push('the code is in an id');
+      if (ids.swarm.length !== 20 || !/^[\u0000-ÿ]{20}$/.test(ids.swarm) || !/^bp4\/[0-9a-f]{32}$/.test(ids.topic) || ids.swarm === more.swarm || ids.topic === more.topic || (await RoomCrypto.ids('K7QX4')).swarm !== ids.swarm) bad.push('ids ' + JSON.stringify(ids));
+      const sha1 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode('breakpoint-swarm:K7QX4')))); // the info hash is the SHA-1 of a namespaced string, one character per byte
+      if (ids.swarm !== String.fromCharCode(...sha1) || ids.topic.toLowerCase().includes('k7qx4')) bad.push('the info hash is not the SHA-1 of the namespaced room, or the code is in an id');
+      if (RoomCrypto.randomBinary().length !== 20 || RoomCrypto.randomBinary() === RoomCrypto.randomBinary()) bad.push('randomBinary');
       if (!/^[0-9a-f]{16}$/.test(RoomCrypto.randomHex(16)) || RoomCrypto.randomHex(16) === RoomCrypto.randomHex(16)) bad.push('randomHex');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
-    test('Online rooms (P19-12): the page policy opens exactly the three WebSocket addresses of the room services - the list is pinned, matches the addresses the game connects to, and allows nothing else on the network', () => {
+    test('Online rooms (P19-12): the page policy opens exactly the four WebSocket addresses of the room services - the list is pinned, matches the addresses the game connects to, and allows nothing else on the network', () => {
       const tag = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       if (!tag) return 'skipped: no page policy in the headless stub';
       const policy = tag.content, directive = (name) => { const found = new RegExp('(?:^|; )' + name + ' ([^;]*)').exec(policy); return found ? found[1] : null; };
       const bad = [];
-      if (directive('connect-src') !== 'wss://0.peerjs.com wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884') bad.push('connect-src is ' + directive('connect-src'));
-      const origins = [ROOM_PEERJS_URL, ...ROOM_MQTT_URLS].map((url) => { const parsed = new URL(url.replace('wss:', 'https:')); return 'wss://' + parsed.host; });
+      if (directive('connect-src') !== 'wss://tracker.openwebtorrent.com wss://tracker.webtorrent.dev wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884') bad.push('connect-src is ' + directive('connect-src'));
+      if (/peerjs/.test(policy) || ROOM_TRACKER_URLS.some((url) => new URL(url.replace('wss:', 'https:')).port)) bad.push('the PeerJS server is back, or a tracker is not on port 443');
+      const origins = [...ROOM_TRACKER_URLS, ...ROOM_MQTT_URLS].map((url) => { const parsed = new URL(url.replace('wss:', 'https:')); return 'wss://' + parsed.host; });
       if (directive('connect-src') !== origins.join(' ')) bad.push('connect-src does not match the addresses of the room code: ' + origins.join(' '));
       if (directive('default-src') !== "'none'" || directive('script-src') !== "'self' 'unsafe-inline'" || directive('img-src') !== 'data:' || directive('media-src') !== 'data:' || directive('form-action') !== "'none'" || directive('base-uri') !== "'none'") bad.push('another directive changed: ' + policy);
       if (/ws:\/\/|https?:|\*/.test(directive('connect-src'))) bad.push('connect-src holds a plain or wildcard address');
       return bad.length ? bad.join('; ') : true;
     });
     test('Online rooms (P19-12): a test run has no real WebSocket - the room code\'s socket is the runner\'s stand-in that never connects (N04 opens the page policy, so a test must not reach a real service)', () => {
-      const made = typeof Online.socketClass === 'function' ? new Online.socketClass('wss://0.peerjs.com/peerjs?key=peerjs&id=x') : null;
+      const made = typeof Online.socketClass === 'function' ? new Online.socketClass('wss://tracker.openwebtorrent.com') : null;
       if (!made) return 'the runner put no stand-in socket in: ' + typeof Online.socketClass;
       try { made.send('x'); made.close(); } catch (error) { return 'the stand-in threw: ' + error.message; }
       return made.readyState === 3 && made.onopen === undefined ? true : 'the stand-in connected: readyState ' + made.readyState;
@@ -21512,17 +21555,19 @@ const SelfTest = {
       } finally { links.forEach((link) => link.close()); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Online rooms (P19-12): friends join one room code through a fake PeerJS server and two fake brokers - up to the seat limit, each its own seat, the same offer on three paths answered once, nothing readable on the brokers, and the claim on the code is cleared when the host leaves', async () => {
+    test('Online rooms (P19-12): friends join one room code through two fake trackers and two fake brokers - the code is live when a probe has come back, up to the seat limit, each its own seat, the same offer on four paths answered once, nothing readable on the brokers, and the claim and the seeder are gone when the host leaves', async () => {
       if (!roomCrypto) return NO_CRYPTO;
       const bad = [], net = fakeRoomNet(), restore = net.install(), log = roomLog(), hubs = [];
       try {
-        const host = createRoomHub('host', 'K7QX4', roomHostHandlers(log), { token: 'abcdef0123456789abcd', nonce: '0123456789abcdef' });
+        const host = createRoomHub('host', 'K7QX4', roomHostHandlers(log), { nonce: '0123456789abcdef' });
         hubs.push(host);
         host.start();
-        await roomWait(() => host.routes.length === 3 && host.routes.every((route) => route.state === 'ready'), 'all three paths up', 3000);   // the brokers answer after the claim wait
-        if (log.ready.length !== 1 || log.ready[0] !== 'peerjs') bad.push('the code is live on the first path that answers, once: ' + log.ready.join());
-        if (host.ownId !== (await RoomCrypto.ids('K7QX4')).host || !net.peers.has(host.ownId)) bad.push('the host is not on the PeerJS server with its hashed id');
-        const roomRoot = (await RoomCrypto.ids('K7QX4')).topic;
+        await roomWait(() => roomUp(host), 'all four paths up', 3000);   // the brokers answer after the claim wait
+        if (log.ready.length !== 1 || log.ready[0] !== 'tracker') bad.push('the code is live on the first path that answers, once: ' + log.ready.join());
+        const ids = await RoomCrypto.ids('K7QX4'), roomRoot = ids.topic;
+        if (net.seeders(ids.swarm, 0) !== 1 || net.seeders(ids.swarm, 1) !== 1) bad.push('the host is not a seeder of its room on both trackers');
+        const probes = net.announces.filter((message) => Array.isArray(message.offers) && JSON.parse(message.offers[0].offer.sdp).t === 'probe');
+        if (probes.length !== 2 || probes.some((message) => message.peer_id === net.announces[0].peer_id)) bad.push('each tracker is proved by a probe from a second socket: ' + probes.length);
         if (!net.retained.every((claims) => claims.has(roomRoot + '/claim'))) bad.push('the claim is not kept on both brokers');
         const friends = [];
         for (let n = 0; n < 3; n++) {
@@ -21530,7 +21575,7 @@ const SelfTest = {
           friends.push({ friend, join });
           await join.done;
           if (friend.seat !== 2 + n || friend.state !== 'connecting' || log.links[n].seat !== 2 + n) bad.push('friend ' + (n + 1) + ': seat ' + friend.seat + '/' + (log.links[n] && log.links[n].seat) + ' ' + friend.state);
-          if (!join.hub || net.peers.has(join.hub.ownId)) bad.push('the friend\'s paths stayed open after the answer');
+          if (!join.hub || net.swarms.some((swarms) => swarms.get(ids.swarm).size !== 1)) bad.push('the friend\'s paths stayed open after the answer');
         }
         if (log.offers !== 3) bad.push('each friend\'s offer is answered once, not once per path: ' + log.offers);
         friends.forEach(({ friend }, n) => { friend.fake.made[0].open(); log.links[n].fake.made[0].open(); });
@@ -21540,33 +21585,94 @@ const SelfTest = {
         const plain = net.plain();
         if (!net.published.length || /v=0|candidate|ufrag|K7QX4|k7qx4/.test(plain.replace(/bp4\/[0-9a-f]{32}/g, ''))) bad.push('a broker saw the SDP or the code in the clear');
         if (net.published.some((entry) => !/^bp4\/[0-9a-f]{32}\/(h|claim|g\/bp4g[0-9a-f]{20})$/.test(entry.topic))) bad.push('a topic is not a hashed one: ' + net.published.map((entry) => entry.topic)[0]);
-        if (!net.relayed.includes('OFFER') || !net.relayed.includes('ANSWER')) bad.push('nothing went through the PeerJS server');
+        if (net.announces.some((message) => /K7QX4|k7qx4/.test(JSON.stringify(message)))) bad.push('a tracker saw the code');
+        if (!net.relayed.includes('offer') || !net.relayed.includes('answer')) bad.push('nothing went through the trackers');
         host.close();
-        await roomWait(() => net.retained.every((claims) => !claims.has(roomRoot + '/claim')) && !net.peers.has(host.ownId), 'the claim cleared and the id freed', 1500).catch(() => bad.push('after the host left the claim or the id is still there'));
+        await roomWait(() => net.retained.every((claims) => !claims.has(roomRoot + '/claim')) && net.seeders(ids.swarm, 0) + net.seeders(ids.swarm, 1) === 0, 'the claim cleared and the seeders gone', 1500).catch(() => bad.push('after the host left the claim or a seeder is still there'));
       } finally { hubs.forEach((hub) => hub.close()); roomClean(); restore(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Online rooms (P19-12): with PeerJS blocked the friend still joins through the MQTT brokers, with one broker down too, and a friend cannot find a host that left - the first path that delivers wins', async () => {
+    test('Online rooms (P19-12): each kind of service alone is enough - trackers only, brokers only, one tracker, one broker - the code is live on that path, a friend joins by it, and a friend cannot find a host that left', async () => {
       if (!roomCrypto) return NO_CRYPTO;
       const bad = [];
-      for (const block of [['peerjs'], ['peerjs', 'mqtt0'], ['peerjs', 'mqtt1']]) {
+      for (const [name, block, want] of [['trackers only', ['mqtt0', 'mqtt1'], 'tracker'], ['brokers only', ['tracker0', 'tracker1'], 'mqtt'], ['the second tracker alone', ['tracker0', 'mqtt0', 'mqtt1'], 'tracker'], ['one broker alone', ['tracker0', 'tracker1', 'mqtt0'], 'mqtt'], ['the other broker alone', ['tracker0', 'tracker1', 'mqtt1'], 'mqtt']]) {
         const net = fakeRoomNet(block), restore = net.install(), log = roomLog();
         let host = null;
         try {
           host = createRoomHub('host', 'MG2H9', roomHostHandlers(log));
           host.start();
           await roomWait(() => log.ready.length === 1, 'the code live', 3000);
-          if (log.ready[0] !== 'mqtt') bad.push(block.join('+') + ': live on ' + log.ready[0]);
+          if (log.ready[0] !== want) bad.push(name + ': live on ' + log.ready[0]);
           const friend = roomLink('guest', { offerer: true }), join = joinRoom('MG2H9', friend);
           await join.done;
-          if (friend.seat !== 2 || friend.state !== 'connecting' || log.links.length !== 1 || net.relayed.length) bad.push(block.join('+') + ': the friend did not get the seat over MQTT (' + friend.state + ', PeerJS traffic ' + net.relayed.length + ')');
+          if (friend.seat !== 2 || friend.state !== 'connecting' || log.links.length !== 1 || (want === 'mqtt' && net.relayed.length) || (want === 'tracker' && net.published.some((entry) => !entry.retain))) bad.push(name + ': the friend did not get the seat by ' + want + ' (' + friend.state + ', tracker traffic ' + net.relayed.length + ')');
           host.close();
-          const late = roomLink('guest', { offerer: true }), missed = await joinRoom('MG2H9', late, { answerMs: 3000 }).done.then(() => 'joined', (error) => error.code);
-          if (missed !== 'noRoom') bad.push(block.join('+') + ': a host that left: ' + missed);
+          const late = roomLink('guest', { offerer: true }), started = performance.now(), missed = await joinRoom('MG2H9', late, { answerMs: 3000 }).done.then(() => 'joined', (error) => error.code);
+          if (missed !== 'noRoom') bad.push(name + ': a host that left: ' + missed);
+          else if (want === 'tracker' && performance.now() - started > 1500) bad.push(name + ': a tracker that counts no host should say so at once, not after the answer limit (' + Math.round(performance.now() - started) + ' ms)');
         } finally { if (host) host.close(); roomClean(); restore(); }
       }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
+    test('Online rooms (P19-12): a tracker hands an offer to a random peer of the room, which may be another friend - two friends that ask at once are both answered by the host, each with its own seat', async () => {
+      if (!roomCrypto) return NO_CRYPTO;
+      const bad = [], net = fakeRoomNet(['tracker1', 'mqtt0', 'mqtt1']), restore = net.install(), log = roomLog();
+      net.friendsFirst = true;   // the tracker puts the other friend before the host when it picks the peers
+      let host = null;
+      try {
+        host = createRoomHub('host', 'FR3ND', roomHostHandlers(log));
+        host.start();
+        await roomWait(() => log.ready.length === 1, 'the code live', 3000);
+        const first = roomLink('guest', { offerer: true }), second = roomLink('guest', { offerer: true });
+        await Promise.all([joinRoom('FR3ND', first).done, joinRoom('FR3ND', second).done]);
+        const seats = [first.seat, second.seat].sort();
+        if (seats.join() !== '2,3' || log.offers !== 2 || log.links.length !== 2) bad.push('seats ' + seats.join() + ', offers ' + log.offers);
+        if (!net.announces.some((message) => Array.isArray(message.offers) && message.offers.length === ROOM_TRACKER_OFFERS)) bad.push('a friend asks with ' + ROOM_TRACKER_OFFERS + ' offers in one announce');
+      } finally { if (host) host.close(); roomClean(); restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Online rooms (P19-12): a friend repeats its offers - an ask that a tracker lost (or handed to nobody) is repeated and the host still answers, and a host that is not on the tracker is "No game with code" at once', async () => {
+      if (!roomCrypto) return NO_CRYPTO;
+      const bad = [], net = fakeRoomNet(['tracker1', 'mqtt0', 'mqtt1']), restore = net.install(), log = roomLog();
+      let host = null;
+      try {
+        const started = performance.now(), nobody = await joinRoom('LT3R5', roomLink('guest', { offerer: true }), { answerMs: 6000 }).done.then(() => 'joined', (error) => error.code);
+        if (nobody !== 'noRoom' || performance.now() - started > 1500) bad.push('a tracker that counts no host: ' + nobody + ' after ' + Math.round(performance.now() - started) + ' ms');
+        host = createRoomHub('host', 'LT3R6', roomHostHandlers(log));
+        host.start();
+        await roomWait(() => log.ready.length === 1, 'the code live', 3000);
+        net.dropOffers = 1;   // the tracker loses the first ask
+        const friend = roomLink('guest', { offerer: true }), result = await joinRoom('LT3R6', friend, { resendMs: 300, answerMs: 6000 }).done.then(() => 'joined', (error) => error.code);
+        if (result !== 'joined' || friend.seat !== 2 || log.offers !== 1) bad.push('a lost ask: ' + result + ', seat ' + friend.seat + ', offers ' + log.offers);
+        if (net.announces.filter((message) => Array.isArray(message.offers) && JSON.parse(message.offers[0].offer.sdp).t === 'offer').length < 2) bad.push('the friend did not repeat its ask');
+      } finally { if (host) host.close(); roomClean(); restore(); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, 20000);
+    test('Online rooms (P19-12): a code is live only when a path really relays - a service that accepts the connection and relays nothing is no path, the host is ready through the paths that do, and with none it says it cannot reach the join service', async () => {
+      if (!roomCrypto) return NO_CRYPTO;
+      const bad = [], fast = { echoMs: 250, reachMs: 3000 };
+      for (const [name, mute, want] of [['no service relays', ['tracker0', 'tracker1', 'mqtt0', 'mqtt1'], ''], ['only the brokers relay', ['tracker0', 'tracker1'], 'mqtt'], ['only the trackers relay', ['mqtt0', 'mqtt1'], 'tracker'], ['one tracker relays', ['tracker0', 'mqtt0', 'mqtt1'], 'tracker']]) {
+        const net = fakeRoomNet([], mute), restore = net.install(), log = roomLog();
+        let host = null;
+        try {
+          host = createRoomHub('host', 'EC4H6', roomHostHandlers(log), fast);
+          host.start();
+          if (want) {
+            await roomWait(() => log.ready.length === 1, 'the code live', 3000);
+            if (log.ready[0] !== want) bad.push(name + ': live on ' + log.ready[0]);
+            await new Promise((resolve) => setTimeout(resolve, 1300));   // past the echo limit (and the broker's claim wait): a path that relays nothing is down, the others stay up
+            const up = host.routes.filter((route) => route.state === 'ready').map((route) => route.name);
+            if (up.length === 0 || up.some((kind) => kind !== want)) bad.push(name + ': paths up ' + up.join());
+            if (log.down.length) bad.push(name + ': told nothing is reachable although a path relays');
+          } else {
+            await roomWait(() => log.down.length > 0, 'the host told nothing relays', 3000);
+            if (log.ready.length || log.down[0] !== false) bad.push(name + ': ready ' + log.ready.join() + ', down ' + JSON.stringify(log.down));
+            if (host.routes.some((route) => route.state === 'ready')) bad.push(name + ': a path that relays nothing counted as up');
+          }
+        } finally { if (host) host.close(); roomClean(); restore(); }
+      }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }, 20000);
     test('Online rooms (P19-12): what goes wrong says so - no host with that code is "No game with code ...", no service at all is the free-service message, a taken code is refused (a stale claim is not), the same host takes its code back, and a hostile offer is dropped', async () => {
       if (!roomCrypto) return NO_CRYPTO;
       const bad = [];
@@ -21585,17 +21691,17 @@ const SelfTest = {
         silent.close();
         // a code that is taken
         const aLog = roomLog(), bLog = roomLog();
-        const a = createRoomHub('host', 'TK4N6', roomHostHandlers(aLog), { token: '11111111111111111111', nonce: 'aaaaaaaaaaaaaaaa' });
+        const a = createRoomHub('host', 'TK4N6', roomHostHandlers(aLog), { nonce: 'aaaaaaaaaaaaaaaa' });
         a.start();
         await roomWait(() => roomUp(a), 'the first host up', 3000);
-        const b = createRoomHub('host', 'TK4N6', roomHostHandlers(bLog), { token: '22222222222222222222', nonce: 'bbbbbbbbbbbbbbbb' });
+        const b = createRoomHub('host', 'TK4N6', roomHostHandlers(bLog), { nonce: 'bbbbbbbbbbbbbbbb' });
         b.start();
         await roomWait(() => bLog.taken > 0, 'the second host refused', 3000).catch(() => bad.push('a second host got the code that was taken'));
         if (aLog.taken !== 0) bad.push('the first host was refused');
         b.close();
-        // the same host (same token and nonce) comes back to its code after leaving it, as after a match
+        // the same host (same nonce) comes back to its code after leaving it, as after a match
         a.close();
-        const back = roomLog(), again = createRoomHub('host', 'TK4N6', roomHostHandlers(back), { token: '11111111111111111111', nonce: 'aaaaaaaaaaaaaaaa' });
+        const back = roomLog(), again = createRoomHub('host', 'TK4N6', roomHostHandlers(back), { nonce: 'aaaaaaaaaaaaaaaa' });
         again.start();
         await roomWait(() => roomUp(again), 'the same host back', 3000).catch(() => bad.push('the same host could not take its code back: ' + again.routes.map((route) => route.name + ':' + route.state).join()));
         if (back.taken) bad.push('the same host was taken for another');
@@ -21617,9 +21723,11 @@ const SelfTest = {
         const hostileLog = roomLog(), hostile = createRoomHub('host', 'HS5T2', roomHostHandlers(hostileLog), {});
         hostile.start();
         await roomWait(() => roomUp(hostile), 'the host up', 3000);
-        const hostIds = await RoomCrypto.ids('HS5T2'), peer = new Online.socketClass('wss://0.peerjs.com/peerjs?key=peerjs&id=bp4g' + 'e'.repeat(20) + '&token=t');
-        await roomWait(() => peer.readyState === 1, 'the stranger on the server', 1000);
-        for (const payload of ['not an object', { t: 'offer' }, { t: 'offer', from: 'bp4g' + 'e'.repeat(20), nonce: '0123456789abcdef', bp: 4, sdp: 'v=0\r\nm=audio 9 RTP 0\r\n' }, { t: 'offer', from: 'bp4h' + 'e'.repeat(20), nonce: '0123456789abcdef', bp: 4, sdp: OFFER }]) peer.send(JSON.stringify({ type: 'OFFER', dst: hostIds.host, payload }));
+        const hostIds = await RoomCrypto.ids('HS5T2'), peer = new Online.socketClass('wss://tracker.openwebtorrent.com');
+        await roomWait(() => peer.readyState === 1, 'the stranger on the tracker', 1000);
+        for (const payload of ['not an object', { t: 'offer' }, { t: 'offer', from: 'bp4g' + 'e'.repeat(20), nonce: '0123456789abcdef', bp: 4, sdp: 'v=0\r\nm=audio 9 RTP 0\r\n' }, { t: 'offer', from: 'bp4h' + 'e'.repeat(20), nonce: '0123456789abcdef', bp: 4, sdp: OFFER }]) {
+          peer.send(JSON.stringify({ action: 'announce', info_hash: hostIds.swarm, peer_id: 'e'.repeat(20), numwant: 1, offers: [{ offer_id: 'f'.repeat(20), offer: { type: 'offer', sdp: typeof payload === 'string' ? payload : JSON.stringify(payload) } }] }));
+        }
         const stranger = new Online.socketClass('wss://broker.emqx.io:8084/mqtt', 'mqtt');
         await roomWait(() => stranger.readyState === 1, 'the stranger on the broker', 1000);
         stranger.send(MqttWire.publish(hostIds.topic + '/h', new Array(60).fill(9)));
@@ -21628,7 +21736,7 @@ const SelfTest = {
         hostile.close();
       } catch (error) { bad.push('threw ' + error.message); } finally { roomClean(); restore(); }
       // no service at all
-      net = fakeRoomNet(['peerjs', 'mqtt0', 'mqtt1']); restore = net.install();
+      net = fakeRoomNet(['tracker0', 'tracker1', 'mqtt0', 'mqtt1']); restore = net.install();
       try {
         const link = roomLink('guest', { offerer: true }), nothing = await joinRoom('NS6P3', link).done.then(() => null, (error) => error);
         if (!nothing || nothing.code !== 'noService' || nothing.message !== ONLINE_MESSAGES.noService || !/Use codes instead/.test(nothing.message)) bad.push('no service: ' + (nothing && nothing.code));
@@ -21640,7 +21748,7 @@ const SelfTest = {
       } finally { roomClean(); restore(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, 20000);
-    test('Online rooms (P19-12): two real links connect through the fake PeerJS server - the friend types the code, the host answers with a seat, the data channels open and carry a message each way on both channels; skipped where the browser has no WebRTC', async () => {
+    test('Online rooms (P19-12): two real links connect through a fake tracker - the friend types the code, the host answers with a seat, the data channels open and carry a message each way on both channels; skipped where the browser has no WebRTC', async () => {
       if (typeof RTCPeerConnection === 'undefined') return 'skipped: this browser has no WebRTC (the headless stub, or an engine without it)';
       if (!roomCrypto) return NO_CRYPTO;
       const net = fakeRoomNet(['mqtt0', 'mqtt1']), restore = net.install(), hubs = [], links = [];
@@ -21694,7 +21802,7 @@ const SelfTest = {
       const slot = (seat, state, extra = {}) => Object.assign({ seat, link: { state, error: null, seat, send() { return true; }, close() {} }, offerCode: '', answerText: '', note: '', roundTrip: 5, ready: true, samples: [5, 5, 5], fighter: 'kai', room: true }, extra);
       try {
         OnlineUI.role = 'host'; OnlineUI.note = ''; OnlineUI.mode = ''; OnlineUI.arena = ONLINE_ARENA_DEFAULT; OnlineUI.guests = []; OnlineUI.link = null;
-        OnlineUI.room = { info: { code: 'K7QX4', token: 't', nonce: 'n' }, hub: null, status: 'live', tries: 1 };
+        OnlineUI.room = { info: { code: 'K7QX4', nonce: 'n' }, hub: null, status: 'live', tries: 1 };
         let screen = UI.screen_onlinehost();
         if (!screen.includes('id="onRoomCode"') || !screen.includes('>K7QX4<') || !screen.includes('aria-label="Room code K 7 Q X 4"') || !screen.includes('Waiting for your friends')) bad.push('the code and the waiting line');
         if (OnlineUI.framed() ? screen.includes('id="onRoomLink"') : !screen.includes('<span id="onRoomLink">' + esc(RoomCode.linkFor('K7QX4', location.href)) + '</span>')) bad.push('the link a friend can open instead of the code is on the screen (outside a frame only)');
@@ -21824,7 +21932,7 @@ const SelfTest = {
     test('Online rooms (P19-12): Share - the link (this page\'s address with ?join=) and the code through the share sheet, or in a frame the code and no link, or the clipboard, or just the code on a toast', async () => {
       const kit = roomUiKit(), bad = [];
       try {
-        OnlineUI.room = { info: { code: 'K7QX4', token: 't', nonce: 'n' }, hub: null, status: 'live', tries: 1 };
+        OnlineUI.room = { info: { code: 'K7QX4', nonce: 'n' }, hub: null, status: 'live', tries: 1 };
         const shared = [];
         navigator.share = (data) => { shared.push(data); return Promise.resolve(); };
         OnlineUI.share(false);
@@ -21850,11 +21958,11 @@ const SelfTest = {
       } finally { kit.restore(); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
-    test('Online rooms (P19-12): Start closes the room and keeps its code, the lobby that comes back after the match opens the same code with the same token, leaving the online game ends it, and Use codes instead drops it for good', () => {
+    test('Online rooms (P19-12): Start closes the room and keeps its code, the lobby that comes back after the match opens the same code with the same nonce, leaving the online game ends it, and Use codes instead drops it for good', () => {
       if (!roomCrypto) return NO_CRYPTO;
       const kit = roomUiKit(), bad = [], keep = { hostOpen: OnlinePlay.hostOpen, start: OnlinePlay.start, hideScreen: UI.hideScreen, push: UI.push, current: UI.current };
       try {
-        const info = { code: 'K7QX4', token: 'tttttttttttttttttttt', nonce: 'nnnnnnnnnnnnnnnn' };
+        const info = { code: 'K7QX4', nonce: 'nnnnnnnnnnnnnnnn' };
         let closed = 0;
         const slot = { seat: 2, link: { state: 'open', error: null, seat: 2, send() { return true; }, close() {}, onState: () => () => {}, onMessage: () => () => {} }, offerCode: '', answerText: '', note: '', roundTrip: 5, ready: true, samples: [5, 5, 5], fighter: 'kai', room: true };
         OnlineUI.reset(); OnlineUI.role = 'host'; OnlineUI.guests = [slot]; OnlineUI.mode = ''; OnlineUI.lineupSig = OnlineUI.lineupSignature();
@@ -21863,12 +21971,12 @@ const SelfTest = {
         OnlineUI.startGame();
         if (closed !== 1 || OnlineUI.room !== null || OnlineUI.heldRoom !== info) bad.push('Start: room closed ' + closed + ' times, held ' + (OnlineUI.heldRoom && OnlineUI.heldRoom.code));
         OnlinePlay.hostOpen = keep.hostOpen; OnlinePlay.start = keep.start; UI.hideScreen = keep.hideScreen;
-        // the same lobby comes back after the match: the same code, the same token and nonce, and nothing held any more
+        // the same lobby comes back after the match: the same code and nonce, and nothing held any more
         UI.push = () => {};
         const [hostSide] = makeStandInLinks(); hostSide.seat = 2;
         OnlineUI.resume('host', [{ seat: 2, link: hostSide, engine: 'blink', fighter: 'kai' }], { fighter: 'kai', mode: 'fight', arena: ONLINE_ARENA_DEFAULT });
         const room = OnlineUI.room;
-        if (!room || room.info.code !== 'K7QX4' || room.info.token !== info.token || room.info.nonce !== info.nonce || room.status !== 'making' || OnlineUI.heldRoom !== null || OnlineUI.guests.length !== 1) bad.push('resume: ' + (room && room.info.code) + ' ' + (room && room.status));
+        if (!room || room.info.code !== 'K7QX4' || room.info.nonce !== info.nonce || room.status !== 'making' || OnlineUI.heldRoom !== null || OnlineUI.guests.length !== 1) bad.push('resume: ' + (room && room.info.code) + ' ' + (room && room.status));
         OnlineUI.reset();
         if (OnlineUI.room !== null) bad.push('leaving the screen closes the room');
         // leaving the online game with friends in it ends the code; a lobby that comes back hands the links over first, so none are left
