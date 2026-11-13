@@ -16498,6 +16498,8 @@ const SelfTest = {
     });
     test('Stamina (P18-52): the stamina bar gets the winded (25 to 50 %), low (under 25 %) and spent (under 10 %) classes by band, and Training names the band', () => {
       const problems = [], f = mk({}).fighters[0], classes = new Set(), el = { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } };
+      // The Training match is built before the stand-ins go in: building it fires the real round and fight handlers, which need the real screen.
+      const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {}), panel = { innerHTML: '', hidden: false };
       const savedDom = UI.dom, savedCache = UI.cache;
       UI.dom = { stb1: el }; UI.cache = {};
       try {
@@ -16506,7 +16508,6 @@ const SelfTest = {
           const got = ['winded', 'low', 'spent'].filter((name) => classes.has(name)).join(' ');
           if (got !== want) problems.push(fraction * 100 + ' %: classes "' + got + '", not "' + want + '"');
         }
-        const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {}), panel = { innerHTML: '', hidden: false };
         UI.dom = { training: panel }; UI.cache = {};   // a stand-in for the panel element, so the test needs no screen
         for (const [fraction, want] of [[0.9, 'Fresh<br>'], [0.4, 'Winded<br>'], [0.2, 'Tired (LOW STAMINA)<br>'], [0.05, 'Spent (LOW STAMINA)<br>']]) {   // the band name, and LOW STAMINA only under 25 %
           training.fighters[0].stam = training.fighters[0].maxStam * fraction;
