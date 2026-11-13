@@ -5159,11 +5159,18 @@ const LATE_DEFEND_TICKS = 12;
 const COMBO_BROKEN_TICKS = 36;
 const COUNTER_WINDOW_PERFECT = 50; // only a perfect block (or perfect sway) opens a counter, and only for one move
 /* Sway: a fresh Defend press leans out of the way. Strikes miss during the first SWAY_IFRAME_TICKS (grabs still connect); one that would have hit on sway ticks 0 to PERFECT_BLOCK_TICKS is a perfect sway and opens a counter.
-   Hittable for the next SWAY_RECOVERY_TICKS. A held Defend (P18-62) prepares the sway: each strike that would land, a heavy charge included, starts it by itself and pays swayCost; thrown items still hit a holder. */
+   Hittable for the next SWAY_RECOVERY_TICKS. A held Defend (P18-62) prepares the sway for STANCE_TICKS ticks after a press (P19-13): each strike that would land, a heavy charge included, starts it by itself and pays swayCost; thrown items still hit a holder. */
 const SWAY_COST_BY_TIER = [5, 6, 8]; // P18-62: stamina each strike costs a sway that dodges it (jab / cross / hook tier); the press itself is free
 const swayCost = (mv) => SWAY_COST_BY_TIER[Math.min(SWAY_COST_BY_TIER.length, Math.max(1, mv.tier || 1)) - 1];
 const SWAY_READY_REGEN = 0.3; // a prepared Sway fighter (Defend held, free) refills at this share of the rate: holding must not be a safer rest than a guard (0.4)
 const READY_POSE_SHARE = 0.25; // the ready pose is this share of the lay-back pose (visual only)
+const STANCE_TICKS = 30; // P19-13: a press gives a Sway fighter this many prepared ticks (0.5 s), then Defend does nothing more until it is let go and pressed again
+const STANCE_REARM_TICKS = 90; // a press brings a new stance only this many ticks after the press that brought the last one (1.5 s); a press that brings none is still the tap
+const STANCE_FADE_TICKS = 12; // visual only: the weave dies away over the last of the stance and the streaks come half as often
+const STANCE_WEAVE_RATE = 2; // visual only: the stance weave is the idle rhythm at this speed
+const STANCE_STREAK_EVERY = 4; // visual only: a streak pair every this many ticks (twice that in the fade)
+const STANCE_STREAKS = [{ up: 0.9, back: 0.25 }, { up: 1.3, back: 0.4 }]; // visual only: the hip puff and the shoulder puff (metres up, metres behind the facing)
+const STANCE_STREAK_SIZE = 0.05;
 const SWAY_IFRAME_TICKS = 12; // 0.2 s
 const SWAY_PERFECT_FREE_TICK = 21;
 const SWAY_RECOVERY_TICKS = 15; // 0.25 s
@@ -5667,9 +5674,9 @@ const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
 // What Defend does, in plain words
 const DEFENSE_HELP = {
   block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter.',
-  sway: 'Press Defend before the fight reaches you and keep it down: the press leans out at once, and then each strike that would hit you slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina; grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter. A heavy charge is slipped like a strike, but a thrown item still hits you while you only hold Defend (only a sway already under way dodges it).',
+  sway: 'Press Defend before the fight reaches you: the press leans out at once, and then you stand ready for ' + swaySeconds(STANCE_TICKS) + ' s (you weave and faint streaks show it): each strike that would hit you in that time slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina. When the stance drops, let go of Defend and press again: a new stance needs ' + swaySeconds(STANCE_REARM_TICKS) + ' s since the last one, and a press at any time still leans out. Grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter. A heavy charge is slipped like a strike, but a thrown item still hits you unless a sway is already under way.',
 };
-const COMBO_HELP = 'While you are hit you cannot act, and a hit that lands while you are still stunned cannot be stopped. Once you are free, Defend can: keep it held and your guard starts the moment you are free, so a hit right then is a perfect block that breaks the combo (a Sway fighter who keeps it held is ready the moment they are free). A guard raised in the last half second cannot be perfect.';
+const COMBO_HELP = 'While you are hit you cannot act, and a hit that lands while you are still stunned cannot be stopped. Once you are free, Defend can: keep it held and your guard starts the moment you are free, so a hit right then is a perfect block that breaks the combo (a Sway fighter who pressed it a moment ago is ready the moment they are free). A guard raised in the last half second cannot be perfect.';
 // Move styles whose fighters may hold a downed opponent: every style whose row lists holds in submit
 const SUBMISSION_STYLES = new Set(MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0));
 const styleCanSubmit = (profile) => SUBMISSION_STYLES.has(moveStyleFor(profile));
@@ -6492,7 +6499,7 @@ class Fighter {
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
     this.bodyBy = null; this.bodyFlight = 0; this.bodyHits = []; // a thrown body: who threw it, the flight (flightId) it is valid for and the fighters it has met on that flight
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
-    this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.swayReady = false; this.readyPrev = false; this.readyAt = -99; this.readyGap = PERFECT_BLOCK_COOLDOWN; this.readyFresh = true; this.swayAuto = false; this.stickSide = 0; this.stickFwd = 0; this.assist = false; this.swayEnd = SWAY_TOTAL_TICKS; this.hitAt = -99; this.freedAt = -99; this.guardHeld = false; this.comboBroke = 0;
+    this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.swayReady = false; this.readyPrev = false; this.readyLeft = 0; this.readySpent = false; this.rearmAt = 0; this.readyAt = -99; this.readyGap = PERFECT_BLOCK_COOLDOWN; this.readyFresh = true; this.swayAuto = false; this.stickSide = 0; this.stickFwd = 0; this.assist = false; this.swayEnd = SWAY_TOTAL_TICKS; this.hitAt = -99; this.freedAt = -99; this.guardHeld = false; this.comboBroke = 0;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.poseId = ''; this.poseT0 = 0; this.poseEnd = 0; this.expr = -1; this.reach = 0; // a non-combat pose being played (setPose), when it began and ended (animT; 0 = no end), the face it forces (-1 = none) and how far a scene raised the right arm to meet a hand (rad); visual only
     this.item = null; this.blind = 0; this.burn = 0; this.stay = 0; this.fireTick = -1; this.burnBy = null; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useDrop = false; // useBuffer / useDrop = a Use press waiting to be used and whether it puts the held item down (a hold) instead of throwing it; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
@@ -6923,12 +6930,24 @@ class Fighter {
     if (t >= 18) { this.vx = this.vz = 0; this.setState(S.IDLE); }
   }
   // A prepared Sway (P18-62): Sway guard mode, Defend held, free, no press waiting to start a sway. Each strike that would land then starts the sway itself (Combat.evaluate and apply).
+  // P19-13: the stance lasts STANCE_TICKS prepared ticks after a press that armed it; when they are used up it stays off until Defend is let go (readySpent).
   updateReady(it) {
+    if (!it.defend) this.readySpent = false;
+    if (this.guardMode === 'sway' && (this.defendPressed || (this.age === 1 && it.defend))) this.armStance(); // a press in any state, or a round that starts with Defend down
     const free = this.state === S.IDLE || this.state === S.WALK || this.state === S.CROUCH;
-    const ready = this.guardMode === 'sway' && it.defend && free && !this.airborne && this.swayBuffer === 0;
-    if (ready && !this.readyPrev) this.markDefenceStart(); // Defend was already down on the first free tick
-    this.readyPrev = ready || (this.state === S.SWAY && it.defend); // a sway that ends with Defend still down is the same hold going on, not a new start
+    let ready = this.guardMode === 'sway' && it.defend && free && !this.airborne && this.swayBuffer === 0 && !this.readySpent;
+    if (ready) { // only ticks stood prepared count: the tap's own sway, a stun, an attack and a get-up use none of the stance
+      if (this.readyLeft > 0) this.readyLeft--;
+      else { ready = false; this.readySpent = true; }
+    }
+    if (ready && !this.readyPrev) this.markDefenceStart(); // Defend was already down on the first free tick; after the count, so a hold that gives no stance never stamps the shared cooldown
+    this.readyPrev = ready || (this.state === S.SWAY && it.defend) || this.readySpent; // a sway that ends with Defend still down is the same hold going on; a spent hold is not a new start
     this.swayReady = ready;
+  }
+  // A press gets a stance only STANCE_REARM_TICKS after the press that got the last one; a denied press is still the plain tap (the sway starts from swayBuffer either way)
+  armStance() {
+    if (this.age >= this.rearmAt) { this.readyLeft = STANCE_TICKS; this.readySpent = false; this.rearmAt = this.age + STANCE_REARM_TICKS; }
+    else { this.readyLeft = 0; this.readySpent = true; }
   }
   // A defence starts (a Sway press, or the free tick with Defend already down): the shared cooldown with Block runs from here and decides whether this defence can be perfect
   markDefenceStart() {
@@ -7257,6 +7276,9 @@ class Fighter {
         if (this.move.cat === 'heavy') FX.trail(this.pts[ix * 3], this.pts[ix * 3 + 1], this.pts[ix * 3 + 2], '#dcdcdc', 0.16); // a faint grey smear on heavy strikes only
       }
     }
+    if (this.swayReady && dt > 0 && !Settings.v.reducedMotion && Settings.v.effects !== 'low' && this.age % (this.readyLeft < STANCE_FADE_TICKS ? STANCE_STREAK_EVERY * 2 : STANCE_STREAK_EVERY) === 0) { // P19-13: faint streaks behind a fighter in the stance (momentum lines), fewer as it runs out
+      for (const streak of STANCE_STREAKS) FX.trail(this.x - this.fwdX * streak.back, this.y + streak.up, this.z - this.fwdZ * streak.back, CUE_COLOR.stance, STANCE_STREAK_SIZE);
+    }
   }
   // Crouching or guarding while the stick moves the fighter: the legs step instead of sliding
   guardWalking() {
@@ -7430,7 +7452,7 @@ class Fighter {
     if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } } // the arm is at the release point on the tick of the release, so it skips the usual easing
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     if (TIRED_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.tiredPose(p, t);
-    if (this.swayReady && !this.poseId && !this.throwFollow) this.readyPose(p);
+    if (this.swayReady && !this.poseId && !this.throwFollow) this.readyPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]); // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
     k = this.state === S.SWAY ? SWAY_POSE_BLEND : Math.min(0.9, k * m.blend); // the sway pose has to be there on the first i-frame tick, so it ignores the fighter's speed
@@ -7493,11 +7515,12 @@ class Fighter {
   }
   /* Breathing and hurt posture (P13-02), on the calm idle and walk pose; drawn only. The sim reads the move rows for every hit volume and no pose, and attackPose never comes here, so the hit check of P17-02 and
      the joint limits of the Calm poses test are untouched. Under 35 % stamina or while exhausted the chest heaves in quick breaths, shoulders up and chin down; under 25 % health the body leans on and the left hand holds the zone hit most. */
-  // The held Sway (P18-62): a quarter of the lay-back pose while the fighter is prepared; drawn only
-  readyPose(p) {
+  // The held Sway (P18-62): a quarter of the lay-back pose while the fighter is prepared; drawn only. P19-13: with Reduced motion off, the idle rhythm is added at double speed, fading out over the last STANCE_FADE_TICKS
+  readyPose(p, t) {
     const sw = SWAY_POSE.back, g = this.motion.guard, rear = g[J.hipRx] < g[J.hipLx] ? J.knR : J.knL;
     p[J.torsoLean] -= sw.lean * READY_POSE_SHARE; p[J.headX] += sw.tuck * READY_POSE_SHARE; p[rear] += sw.rear * READY_POSE_SHARE;
     sink(p, sw.knees * READY_POSE_SHARE);
+    if (!Settings.v.reducedMotion) this.styleRhythm(p, t * STANCE_WEAVE_RATE, Math.min(1, this.readyLeft / STANCE_FADE_TICKS));
   }
   tiredPose(p, t) {
     const calm = Settings.v.reducedMotion ? 0.4 : 1, tired = this.exhaust > 0 || this.stam < this.maxStam * TIRED_STAMINA;
@@ -10534,6 +10557,14 @@ function defenceReading(e) {
 }
 // Training's line under it: whether a defence started now could be perfect (the cooldown that Block and Sway share, ticks left of the 30)
 const defenceCooldownText = (f) => { const left = PERFECT_BLOCK_COOLDOWN - (f.age - f.lastBlockAt); return left > 0 ? 'cooldown ' + left : 'ready'; };
+// Training's stance line for a Sway fighter (P19-13): up (ticks left), armed (a press made it, not free yet), spent (used up, Defend still down), off (Defend up); the wait is the ticks until a press can bring a new one
+const stanceText = (f) => {
+  const wait = f.rearmAt - f.age, waitText = wait > 0 ? ', new one in ' + wait : '';
+  if (f.swayReady) return 'up ' + f.readyLeft;
+  if (f.readySpent) return 'spent' + (wait > 0 ? waitText : ', let go and press');
+  if (f.prevDefend && f.readyLeft > 0) return 'armed ' + f.readyLeft;
+  return 'off' + (wait > 0 ? waitText : ', press Defend');
+};
 const DUMMY_AI_MODES = ['easy', 'normal', 'hard', 'expert'];
 const DUMMY_ATTACK_EVERY = 75; // ticks between dummy attacks: time to practise blocking and punishing
 const DUMMY_ATTACK_RANGE = 1.3; // the attacking dummy walks in until it is this close
@@ -13264,7 +13295,7 @@ function matchChecksum(match) {
   const parts = [match.tick, match.phase, match.phaseTicks, match.round, match.roundTicks, match.matchTicks, match.hitStop, match.slowTicks, match.endTimer, match.locked, match.wins.join('/'), Combat.attackCounter, Combat.flightCounter, simRng.state()];
   const index = (other) => (other ? other.index : -1);
   for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '',
-    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target));
+    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt);
   for (const controller of match.controllers) if (controller.tickNo !== undefined) parts.push(controller.tickNo); // the CPU's own clock
   for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
   for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
@@ -14482,7 +14513,7 @@ const Game = {
 // === 07b EFFECTS - maps combat / environment events to particles and restrained camera impact
 const COUNTER_COLOR = '#ffd24a';
 // ring colours and notes (Hz) per defence outcome
-const CUE_COLOR = { perfect: '#bfeaff', brk: '#ffc933', late: '#9a9a9a', free: '#ffffff' };
+const CUE_COLOR = { perfect: '#bfeaff', brk: '#ffc933', late: '#9a9a9a', free: '#ffffff', stance: '#cfe8ff' }; // stance: the faint streaks of a Sway fighter's ready stance (P19-13)
 const CUE_NOTES = { perfect: [1320, 1980], brk: [880, 1320, 1760], ting: [2093, 2637], late: [220], free: [1000], count: [330, 392, 440], fight: [660, 990, 1320], hits3: [740, 932], hits5: [932, 1245], hits8: [1245, 1661] }; // the last five (P18-29): the countdown, the FIGHT chord and the combo milestones at 3, 5 and 8 hits
 const freeTickCue = (f) => f.comboFoe && f.comboFoe.state === S.ATTACK && (Inputs.forFighter(f.index) || (Game.match && Game.match.training));
 const RUMBLE_HIT_MS = 110;
@@ -16966,7 +16997,7 @@ const UI = {
     const named = (label, action) => (touch ? '' : label + ' ') + k(action); // on-screen buttons carry their own names
     const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
-    const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: hold to slip each strike)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: hold to slip each strike)';
+    const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: press, then ready for half a second)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: press, then ready for half a second)';
     // three groups: the landscape card sets them in three columns and a group is never split between two (break-inside: avoid)
     return '<h3>CONTROLS</h3><div>' + move + '<br>' + named(attackName('punch'), 'punch') + ' ' + named(attackName('kick'), 'kick') + '<br>' + named('Grab / escape', 'grapple') + '</div>' +
       '<div>' + named('Defend', 'defend') + ' ' + defendHow + '<br>' + named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)</div>' +
@@ -17884,7 +17915,7 @@ const UI = {
     const legend = [[attackInputFullName(profile, 'punch', !!held), 'punch'], [attackInputFullName(profile, 'kick', !!held), 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
-      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Press ' + key('defend') + ' as the foe comes in and keep it down: you slip each strike.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
+      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Press ' + key('defend') + ' as the foe comes in: you lean out and stand ready for half a second to slip each strike. Let go and press again for the next.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
       (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. ' + attackName('kick') + ' still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
@@ -18700,6 +18731,7 @@ const UI = {
     const a = m.fighters[0];
     h += '<br><b>STAMINA</b> ' + a.band.name + (a.lowStamina ? ' (LOW STAMINA)' : '');
     h += '<br><b>DEFENCE</b> ' + defenceCooldownText(a); // P18-62: ready, or the ticks left of the cooldown Block and Sway share
+    if (a.defense === 'sway') h += '<br><b>STANCE</b> ' + stanceText(a); // P19-13: up / armed / spent / off
     h += '<br><b>STYLE</b> ' + this.styleLine(a) + '<br><b>Dummy style</b> ' + this.styleLine(m.fighters[1]);
     h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>LINK</b> ' + (m.linkRead || '-') + '<br><b>DEFEND</b> ' + (m.defRead || '-') + '<br><b>Dummy:</b> ' + dummyLabel(m);
     if (m.scenarioNo === 6) h += '<br><b>HOLD PRACTICE</b> ' + (styleCanSubmit(a.profile) ? 'Step to the dummy and press Grapple, then tap Grapple. The dummy stays down; set it to Easy to Expert and it taps Defend to escape.' : 'Your style has no holds (see the Move list). Pick ' + esc(submissionStyleText()) + ' to try one.');
@@ -20899,7 +20931,7 @@ function testApi() {
     SETTINGS_REVISION, SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE,
     SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES,
     SKIP_ARM_TICKS, SP, STEP_HEIGHT, SUPPORT_BASE_SLACK, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRIKE_PROBE, STRIKE_ROOM, STRIKE_STEP_CLEAR, STRIKE_STEP_HIP, STRIKE_STRIDE_MAX, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL,
-    STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS,
+    STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, GOON_LEADER, GOON_SCALE, GOON_VARIANTS, SURVIVAL_GROUP, SURVIVAL_TYPES, goonProfile, goonRecord, SWAY_COST_BY_TIER, swayCost, SWAY_READY_REGEN, STANCE_TICKS, STANCE_REARM_TICKS, STANCE_FADE_TICKS, STANCE_STREAK_EVERY, stanceText, defenceCooldownText, BLOCK_FACTOR, COUNTER_WINDOW_PERFECT, AI_SWAY_AIM, SWAY_IFRAME_TICKS,
     Effects, Sound, DEFENSE_HELP, CUE_COLOR, CUE_NOTES, defenceReading, COMBO_HELP, SWAY_PERFECT_FREE_TICK, PERFECT_BLOCK_TICKS, PERFECT_BLOCK_COOLDOWN, LATE_DEFEND_TICKS, COMBO_BROKEN_TICKS, AI_SWAY_AIM_PERFECT, AI_SWAY_PLAIN_ETA, SWAY_POSE, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
     TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRAINING_KEYS, TRANSITIONS, UI,
