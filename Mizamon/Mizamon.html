@@ -240,7 +240,7 @@ const SPECIES = {
     base: [38, 44, 34, 46, 38, 52], learn: [[1, 'offshore'], [1, 'apolyseis'], [6, 'lobbying'], [9, 'yperkostol']] },
   fakelarchis: { n: 'Φακελάρχης', t: 'biz', ab: 'afo', g: 'm', rec: 25, xp: 70,
     base: [62, 62, 52, 66, 56, 62], learn: [[1, 'offshore'], [1, 'apolyseis'], [1, 'lobbying'], [1, 'yperkostol'], [12, 'frapes']] },
-  laikatzis: { n: 'Λαϊκατζής', t: 'cel', ab: 'pal', g: 'm', rec: 45, xp: 45,
+  laikatzis: { n: 'Λαϊκατζής', t: 'cel', ab: 'pal', g: 'm', rec: 45, xp: 45, evo: { to: 'star90', lv: 27 },
     base: [44, 38, 36, 56, 40, 54], learn: [[1, 'proinadiko'], [1, 'reunion'], [5, 'kavgas'], [9, 'souxe'], [12, 'autobio']] },
   storoula: { n: 'Story-ούλα', t: 'inf', ab: 'vir', g: 'f', rec: 45, xp: 45, evo: { to: 'influenza', lv: 22 },
     base: [38, 34, 34, 58, 40, 62], learn: [[1, 'story'], [1, 'hashtag'], [5, 'bluetick'], [9, 'cancel']] },
@@ -254,16 +254,16 @@ const SPECIES = {
     base: [66, 46, 58, 40, 50, 20], learn: [[1, 'frapes'], [1, 'tzampa'], [6, 'ellada'], [11, 'thios']] },
   giagiaka: { n: 'Γιαγιάκα', t: 'mem', ab: 'kou', g: 'f', rec: 30, xp: 50,
     base: [50, 56, 44, 36, 50, 44], learn: [[1, 'giagia'], [1, 'ellada'], [7, 'frapes'], [10, 'thios']] },
-  efoplistakos: { n: 'Εφοπλιστάκος', t: 'biz', ab: 'afo', g: 'm', rec: 25, xp: 55,
+  efoplistakos: { n: 'Εφοπλιστάκος', t: 'biz', ab: 'afo', g: 'm', rec: 25, xp: 55, evo: { to: 'giotarchis', lv: 30 },
     base: [58, 46, 52, 60, 54, 40], learn: [[1, 'offshore'], [1, 'lobbying'], [8, 'apolyseis'], [12, 'yperkostol']] },
   // MZ-WORLD-02b (Νότια): the café regular, and the middle forms of the three starters (evolution level 16, section 11.3).
   kafenovios: { n: 'Καφενόβιος', t: 'mem', ab: 'bur', g: 'm', rec: 28, xp: 60,
     base: [64, 52, 56, 46, 54, 36], learn: [[1, 'ellada'], [1, 'tzampa'], [7, 'frapes'], [12, 'giagia'], [17, 'thios']] },
-  vouleftakos: { n: 'Βουλευτάκος', t: 'pol', ab: 'asy', g: 'm', rec: 0, xp: 80,
+  vouleftakos: { n: 'Βουλευτάκος', t: 'pol', ab: 'asy', g: 'm', rec: 0, xp: 80, evo: { to: 'yperypourgos', lv: 32 },
     base: [60, 50, 58, 74, 64, 60], learn: [[1, 'psifodeltio'], [1, 'promise'], [5, 'exetastiki'], [8, 'tropologia'], [11, 'thios'], [18, 'diaggelma']] },
-  batsonos: { n: 'Μπατσόνος', t: 'asf', ab: 'syn', g: 'm', rec: 0, xp: 80,
+  batsonos: { n: 'Μπατσόνος', t: 'asf', ab: 'syn', g: 'm', rec: 0, xp: 80, evo: { to: 'matanthropos', lv: 32 },
     base: [68, 74, 70, 44, 56, 54], learn: [[1, 'globos'], [1, 'enisxuseis'], [6, 'chimika'], [10, 'taftotita'], [13, 'parelasi']] },
-  diakosdisko: { n: 'Διάκος Ντίσκο', t: 'ekk', ab: 'gra', g: 'm', rec: 0, xp: 80,
+  diakosdisko: { n: 'Διάκος Ντίσκο', t: 'ekk', ab: 'gra', g: 'm', rec: 0, xp: 80, evo: { to: 'despotakis', lv: 32 },
     base: [64, 46, 60, 70, 76, 50], learn: [[1, 'agiasmos'], [1, 'thymiama'], [6, 'aforismos'], [10, 'litaneia'], [13, 'akinito']] },
   // MZ-WORLD-02c (Ανατολικά): the pilgrim's novice, two evolved forms (Δημοσιοϋπαλληλάκι at 20, Story-ούλα at 22) and the crypto line (evolution at 26, section 11.3).
   monastiriaki: { n: 'Μοναστηριάκι', t: 'ekk', ab: 'afo', g: 'n', rec: 30, xp: 60,
@@ -276,6 +276,21 @@ const SPECIES = {
     base: [37, 39, 29, 64, 35, 53], learn: [[1, 'hashtag'], [1, 'offshore'], [7, 'bluetick'], [12, 'cancel'], [20, 'lobbying']] },
   nftarchis: { n: 'NFT-άρχης', t: 'biz', ab: 'rou', g: 'm', rec: 20, xp: 75,
     base: [45, 43, 37, 76, 43, 56], learn: [[1, 'hashtag'], [1, 'offshore'], [7, 'bluetick'], [12, 'cancel'], [20, 'lobbying']] },
+  // MZ-WORLD-02d (Βόρεια): two evolved forms (Λαϊκατζής at 27, Εφοπλιστάκος at 30), the reality star and the lobbyist, and the last form of each starter (evolution at 32, section 11.3).
+  star90: { n: 'Σταρ των 90ς', t: 'cel', ab: 'pal', g: 'm', rec: 28, xp: 70,
+    base: [57, 60, 44, 96, 53, 58], learn: [[1, 'proinadiko'], [1, 'reunion'], [5, 'kavgas'], [9, 'souxe'], [12, 'autobio']] },
+  rialito: { n: 'Ριάλιτο-Νταής', t: 'cel', ab: 'pal', g: 'm', rec: 30, xp: 65,
+    base: [61, 91, 49, 53, 44, 58], learn: [[1, 'kavgas'], [1, 'reunion'], [8, 'proinadiko'], [14, 'souxe'], [18, 'autobio']] },
+  lobbylykaina: { n: 'Lobby-Λύκαινα', t: 'pol', ab: 'bur', g: 'f', rec: 25, xp: 70,
+    base: [63, 58, 55, 89, 59, 56], learn: [[1, 'psifodeltio'], [1, 'lobbying'], [8, 'tropologia'], [14, 'diaggelma'], [20, 'exetastiki']] },
+  giotarchis: { n: 'Γιοτάρχης', t: 'biz', ab: 'afo', g: 'm', rec: 18, xp: 80,
+    base: [76, 56, 66, 76, 66, 46], learn: [[1, 'offshore'], [1, 'lobbying'], [8, 'apolyseis'], [12, 'yperkostol']] },
+  yperypourgos: { n: 'Υπερυπουργός', t: 'pol', ab: 'asy', g: 'm', rec: 0, xp: 100,
+    base: [74, 62, 70, 92, 80, 72], learn: [[1, 'psifodeltio'], [1, 'promise'], [5, 'exetastiki'], [8, 'tropologia'], [11, 'thios'], [18, 'diaggelma']] },
+  matanthropos: { n: 'ΜΑΤάνθρωπος', t: 'asf', ab: 'syn', g: 'm', rec: 0, xp: 100,
+    base: [84, 92, 86, 56, 68, 64], learn: [[1, 'globos'], [1, 'enisxuseis'], [6, 'chimika'], [10, 'taftotita'], [13, 'parelasi']] },
+  despotakis: { n: 'Δεσποτάκης', t: 'ekk', ab: 'gra', g: 'm', rec: 0, xp: 100,
+    base: [78, 56, 74, 86, 94, 60], learn: [[1, 'agiasmos'], [1, 'thymiama'], [6, 'aforismos'], [10, 'litaneia'], [13, 'akinito']] },
   // Parody characters (CONTENT-SEED section 11): recruitable only in the television battle.
   spyradonis: { n: 'Σπυράδωνις', t: 'pol', ab: 'des', g: 'm', rec: 24, xp: 80, parody: true,
     base: [60, 55, 50, 76, 55, 55], learn: [[1, 'fonipanel'], [1, 'tilepolisi'], [1, 'tweet'], [1, 'denmilas']] },
@@ -284,7 +299,8 @@ const SPECIES = {
 };
 const DEX_ORDER = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'fakelarchis', 'laikatzis', 'storoula', 'trolosavros',
   'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'efoplistakos', 'kafenovios', 'vouleftakos', 'batsonos', 'diakosdisko',
-  'monastiriaki', 'monimos', 'influenza', 'kryptomakis', 'nftarchis', 'spyradonis', 'mizotakis'];
+  'monastiriaki', 'monimos', 'influenza', 'kryptomakis', 'nftarchis',
+  'star90', 'rialito', 'lobbylykaina', 'giotarchis', 'yperypourgos', 'matanthropos', 'despotakis', 'spyradonis', 'mizotakis'];
 const STARTERS = ['komma', 'koulourak', 'psaltak'];
 // The rival copies the starter that does not threaten the player's pick (a fair first fight).
 const RIVAL_STARTER = { komma: 'psaltak', psaltak: 'komma', koulourak: 'koulourak' };
@@ -300,10 +316,13 @@ const ITEMS = {
   // MZ-WORLD-02b (Νότια): two heal items that also clear a status (cures: true). Only the kiosks of Νότια and later districts sell them.
   dikigoros: { kind: 'heal', amount: 80, cures: true, price: 150 },
   gemista: { kind: 'heal', amount: 9999, cures: true, price: 300 },
+  // MZ-WORLD-02d (Βόρεια): the thick envelope, a recruit item stronger than the Φάκελος. Only the kiosks of Βόρεια and later districts sell it.
+  chontros: { kind: 'recruit', mult: 2.5, price: 600 },
 };
-const ITEM_IDS = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro', 'dikigoros', 'gemista'];
+const ITEM_IDS = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro', 'dikigoros', 'gemista', 'chontros'];
 const SHOP_STOCK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
 const SHOP_STOCK_NOTIA = SHOP_STOCK.concat(['dikigoros', 'gemista']);
+const SHOP_STOCK_VOREIA = SHOP_STOCK_NOTIA.concat(['chontros']);
 // The stock of the kiosk on a map: its own list (map.stock) or the New Piraeus one.
 function shopStockOf(map) { return map && map.stock ? map.stock : SHOP_STOCK; }
 const START_BAG = { fakelaki: 5, koulouri: 3 };
@@ -1113,6 +1132,17 @@ const TRAINERS = {
   faia: { name: 'Η @influencεr_Φαίη', look: 'faia', boss: true, bonus: 200,
     victory: { flag: 'badge_anatolika', win2: 'boss.faia.win2', title: 'badge.anatolika.title', sub: 'badge.anatolika.sub', win3: 'boss.faia.win3', ribbon: '#a8449a' },
     team: [{ sp: 'kryptomakis', lv: 23 }, { sp: 'influenza', lv: 24 }, { sp: 'monimos', lv: 24 }, { sp: 'trolosavros', lv: 25 }, { sp: 'nftarchis', lv: 26 }], items: ['gemista'] },
+  // Route 7, route 8 and Μαρούσι (MZ-WORLD-02d). Levels 27-31; wild levels are 26-29 on route 7 and 29-31 on route 8. The rival's fourth fight is the boss' top level minus 2 (30).
+  oldstar: { name: 'Ο Αοιδός Φιλήμων', look: 'oldstar', team: [{ sp: 'star90', lv: 27 }, { sp: 'trolosavros', lv: 27 }], items: [] },
+  gardener: { name: 'Ο Κηπουρός Θεόφραστος', look: 'gardener', team: [{ sp: 'fakelarchis', lv: 27 }, { sp: 'efoplistakos', lv: 27 }], items: [] },
+  tennis: { name: 'Η Τενίστρια Ασπασία', look: 'tennis', team: [{ sp: 'influenza', lv: 28 }, { sp: 'star90', lv: 29 }], items: [] },
+  contestant: { name: 'Η Παίκτρια Ευρυδίκη', look: 'contestant', team: [{ sp: 'rialito', lv: 28 }, { sp: 'influenza', lv: 28 }, { sp: 'trolosavros', lv: 28 }], items: [] },
+  lobbyist: { name: 'Ο Λομπίστας Ερμόλαος', look: 'lobbyist', team: [{ sp: 'lobbylykaina', lv: 29 }, { sp: 'nftarchis', lv: 29 }], items: [] },
+  rival4: { name: 'Ο Μπέμπης', look: 'rival', team: [{ sp: 'influenza', lv: 28 }, { sp: '$rivalEvo', lv: 30 }], items: ['souvlaki'] },
+  usher: { name: 'Ο Ταξιθέτης Αγάπιος', look: 'usher', team: [{ sp: 'rialito', lv: 28 }, { sp: 'lobbylykaina', lv: 28 }, { sp: 'star90', lv: 28 }], items: [] },
+  amartia: { name: 'DJ Αμαρτία', look: 'amartia', boss: true, bonus: 200,
+    victory: { flag: 'badge_voreia', win2: 'boss.amartia.win2', title: 'badge.voreia.title', sub: 'badge.voreia.sub', win3: 'boss.amartia.win3', ribbon: '#3f9a52' },
+    team: [{ sp: 'rialito', lv: 29 }, { sp: 'influenza', lv: 30 }, { sp: 'fakelarchis', lv: 32 }, { sp: 'lobbylykaina', lv: 32 }, { sp: 'star90', lv: 32 }], items: ['gemista'] },
   host: { name: 'Ο Παρουσιαστής Ρεκλαμάκης', look: 'host', recruitable: true, recruitOnly: 'fakelos', bonus: 400,
     team: [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }], items: ['souvlaki'] },
 };
@@ -1153,6 +1183,10 @@ const TILE_DEFS = {
   // fountain '7', terminal glass front 'x', terminal sliding door '8' (walkable), control tower '9', parked plane '0'.
   'R': { solid: true }, 'v': { solid: true }, 'I': { solid: true }, 'J': { solid: true }, 'O': { solid: true }, 'z': { solid: false },
   '7': { solid: true }, 'x': { solid: true }, '8': { solid: false }, '9': { solid: true }, '0': { solid: true },
+  // North decor (MZ-WORLD-02d): marble block '%', white marble steps '&' (walkable), hedge '=', shop window '>', roundabout island '?', arena roof '^',
+  // scaffolding '_', stage boards ';' (walkable), speaker stack ':', tennis court '!' (walkable).
+  '%': { solid: true }, '&': { solid: false }, '=': { solid: true }, '>': { solid: true }, '?': { solid: true },
+  '^': { solid: true }, '_': { solid: true }, ';': { solid: false }, ':': { solid: true }, '!': { solid: false },
   // Hospital outside: teal roof '6', roof with the blue Η sign 'H', mint walls 'M', window 'N', green cross 'P', sliding glass door 'E'.
   '6': { solid: true }, 'H': { solid: true }, 'M': { solid: true }, 'N': { solid: true }, 'P': { solid: true }, 'E': { solid: false },
   // Hospital inside: wall 'i', floor 'L', corridor cot (ράντζο) 'B', vending machine 'V', TV 'Y', archive terminal 'A', reception counter 'C'.
@@ -1287,6 +1321,11 @@ const GLYFADA_ROWS = paintMap(28, 18, 'T', [
   ['px', 'y', 3, 15], ['px', 'y', 6, 14], ['px', 'y', 9, 16], ['px', 'y', 16, 15], ['px', 'y', 19, 14], ['px', 'y', 22, 16], ['px', 'y', 24, 15],
 ]));
 
+// A shop front of the boulevard (MZ-WORLD-02d): a roof row, a row of shop windows with a grey door in the middle.
+function shopFront(x, y, width, roof) {
+  return [['rect', roof, x, y, width, 1], ['rect', '>', x, y + 1, width, 1], ['px', 'd', x + Math.floor(width / 2), y + 1]];
+}
+
 // Route 5, Υμηττός (36 x 16): the Hymettus pass. A road that switches back three times up the ridge (bottom, middle, top), grass between the legs, rocks and pines, a monastery wall at the lower turn.
 const ROUTE5_ROWS = paintMap(36, 16, 'I', [
   ['rect', 's', 1, 1, 34, 14], ['rect', 'R', 1, 1, 34, 2],
@@ -1318,13 +1357,58 @@ const ROUTE6_ROWS = paintMap(40, 16, 'T', [
 ]);
 // Σπάτα (28 x 18): the airport town. The buildings on top (hospital, kiosk, the terminal with a glass front and a tower), the street, a fence with a gate and the apron with parked planes below.
 const SPATA_ROWS = paintMap(28, 18, 'T', [
-  ['rect', ',', 1, 1, 26, 9], ['rect', '.', 0, 9, 26, 1], ['rect', 'o', 1, 11, 26, 5],
+  ['rect', ',', 1, 1, 26, 9], ['rect', '.', 0, 9, 28, 1], ['rect', 'o', 1, 11, 26, 5], // MZ-WORLD-02d: the street runs on to the east edge (27, 9), the gate to Βόρεια
   ['rect', 'F', 1, 10, 8, 1], ['rect', ',', 9, 10, 3, 1], ['rect', 'F', 12, 10, 15, 1],
 ].concat(hospitalFront(2, 2), kioskFront(9, 2), [
   ['rect', '2', 14, 2, 12, 2], ['rect', 'x', 14, 4, 12, 2], ['px', '8', 19, 5], ['px', '9', 26, 3],
   ['px', '0', 5, 13], ['px', '0', 13, 14], ['px', '0', 21, 12],
-  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 17, 6], ['px', 'S', 26, 9], ['px', 'U', 5, 8],
+  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 17, 6], ['px', 'S', 27, 8], ['px', 'U', 5, 8],
   ['px', 'T', 1, 7], ['px', 'T', 24, 7], ['px', 'T', 8, 8],
+]));
+
+// Route 7, Πεντέλη (32 x 18): the marble mountain. Three road legs joined by white marble steps (bottom, middle, top), quarry blocks and two cranes on top, grass between the legs.
+// It runs right to left: the arrival from Σπάτα is on the right edge, the way on to Κηφισιά on the left edge.
+const ROUTE7_ROWS = paintMap(32, 18, 'T', [
+  ['rect', 's', 1, 1, 30, 16], ['rect', '%', 1, 1, 28, 2], ['px', 'q', 13, 2], ['px', 'q', 24, 2],
+  ['rect', '.', 6, 14, 26, 2], ['rect', '&', 6, 10, 2, 4], ['rect', '.', 6, 8, 22, 2], ['rect', '&', 26, 5, 2, 3], ['rect', '.', 0, 3, 28, 2],
+  ['rect', 'g', 2, 5, 22, 3], ['rect', 'g', 9, 10, 20, 4],
+  ['px', 'R', 10, 6], ['px', 'R', 20, 6], ['px', 'R', 14, 12], ['px', 'R', 27, 11], ['px', 'R', 3, 12], ['px', 'R', 5, 15],
+  ['px', 'I', 4, 6], ['px', 'I', 18, 7], ['px', 'I', 11, 11], ['px', 'I', 22, 12], ['px', 'I', 29, 6], ['px', 'I', 2, 14], ['px', 'I', 16, 6],
+  ['px', 'Z', 29, 13], ['px', 'Z', 12, 7], ['px', 'Z', 2, 5],
+]);
+// Κηφισιά (26 x 18): the leafy town. The buildings on top (hospital, kiosk, café, a villa), clipped hedges, a plane-tree square with a fountain, villas below and
+// the terminus station of the metro. The roads to the east (route 7) and to the west (route 8) meet in the street.
+const KIFISIA_ROWS = paintMap(26, 18, 'T', [
+  ['rect', ',', 1, 1, 24, 15], ['rect', '.', 0, 9, 26, 1],
+].concat(hospitalFront(2, 2), kioskFront(9, 2), houseFront(15, 2, 5, '5', 17, 'D'), houseFront(21, 2, 4, '2', 22, 'd'), [
+  ['rect', '=', 1, 7, 4, 1], ['rect', '=', 20, 7, 5, 1],
+], houseFront(2, 11, 6, '1', 4, 'd'), houseFront(19, 11, 6, '3', 22, 'd'), [
+  ['rect', '=', 1, 15, 8, 1], ['rect', '=', 18, 15, 7, 1],
+  ['px', '7', 13, 12], ['px', 'T', 11, 11], ['px', 'T', 15, 11], ['px', 'T', 11, 13], ['px', 'T', 15, 13], ['px', 'T', 9, 12], ['px', 'T', 17, 12],
+  ['px', 'j', 17, 14], ['px', 'U', 23, 8],
+  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 20, 5], ['px', 'S', 8, 8],
+]));
+// Route 8, Λεωφόρος Κηφισίας (44 x 14): a long boulevard. Shop fronts on the north side, a two-lane road, a roundabout in the middle, grass strips and trees on both sides.
+// It runs right to left like route 7.
+const ROUTE8_ROWS = paintMap(44, 14, 'T', [
+  ['rect', ',', 1, 1, 42, 12], ['rect', '.', 0, 5, 44, 2], ['rect', '.', 19, 3, 8, 8], ['rect', '?', 21, 5, 4, 4], ['px', 'T', 22, 6], ['px', 'T', 23, 7],
+  ['rect', 'g', 3, 3, 12, 2], ['rect', 'g', 30, 3, 11, 2], ['rect', 'g', 2, 8, 15, 4], ['rect', 'g', 29, 8, 13, 4],
+].concat(shopFront(1, 1, 7, '1'), shopFront(9, 1, 7, '2'), shopFront(17, 1, 7, '3'), shopFront(25, 1, 8, '5'), shopFront(34, 1, 8, '1'), [
+  ['px', 'T', 4, 7], ['px', 'T', 10, 7], ['px', 'T', 16, 7], ['px', 'T', 30, 7], ['px', 'T', 36, 7], ['px', 'T', 41, 7],
+  ['px', 'T', 7, 9], ['px', 'T', 13, 10], ['px', 'T', 33, 9], ['px', 'T', 38, 10],
+  ['px', 'S', 41, 4], ['px', 'S', 17, 7], ['px', 'S', 3, 4],
+]));
+// Μαρούσι (28 x 18): the arena complex. The hospital and the kiosk on the left, the stadium (an arched roof with scaffolding on it) on the right, the street, a fenced
+// tennis court below on the left and houses on the right. The road from route 8 comes in on the east edge; the west end of the street is the road to Δυτικά (a sign for now).
+const MAROUSI_ROWS = paintMap(28, 18, 'T', [
+  ['rect', ',', 1, 1, 26, 15], ['rect', '.', 2, 9, 26, 1],
+].concat(hospitalFront(2, 2), kioskFront(9, 2), [
+  ['rect', '^', 14, 1, 13, 2], ['rect', '_', 16, 1, 4, 2], ['rect', '_', 23, 1, 2, 2], ['rect', '#', 14, 3, 13, 2],
+  ['px', 'W', 14, 4], ['px', 'W', 17, 4], ['px', 'D', 20, 4], ['px', 'W', 23, 4], ['px', 'W', 26, 4],
+  ['rect', 'F', 1, 10, 10, 6], ['rect', '!', 2, 11, 8, 4], ['px', ',', 5, 10],
+], houseFront(14, 11, 5, '4', 16, 'd'), houseFront(21, 11, 5, '2', 22, 'd'), [
+  ['px', 'T', 12, 11], ['px', 'T', 20, 12], ['px', 'T', 27, 14], ['px', 'T', 12, 14], ['px', 'T', 20, 14],
+  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 17, 5], ['px', 'S', 7, 8], ['px', 'S', 1, 9], ['px', 'U', 12, 8],
 ]));
 
 const MAPS = {
@@ -1827,8 +1911,9 @@ MAPS.spata = {
     { x: 4, y: 5, to: 'spata_hospital', tx: 5, ty: 7 },
     { x: 10, y: 5, to: 'spata_shop', tx: 3, ty: 4 },
     { x: 19, y: 5, to: 'spata_boss', tx: 6, ty: 8 },
+    { x: 27, y: 9, to: 'route7', tx: 30, ty: 14, needFlag: 'badge_anatolika', lockedText: 'warp.route7' }, // MZ-WORLD-02d: the road to Βόρεια opens with the Boarding Medal
   ],
-  signs: { '7,5': 'sign.spata.hospital', '13,5': 'sign.shop', '17,6': 'sign.spata.terminal', '26,9': 'sign.spata.north', '5,8': 'sign.ktel' },
+  signs: { '7,5': 'sign.spata.hospital', '13,5': 'sign.shop', '17,6': 'sign.spata.terminal', '27,8': 'sign.spata.north', '5,8': 'sign.ktel' },
   npcs: [
     { id: 'checkin', x: 21, y: 7, face: 'left', look: 'checkin', kind: 'trainer', trainer: 'checkin', sight: 3 },
     { id: 'queue1', x: 15, y: 6, face: 'right', look: 'tourist', kind: 'talk', text: 'npc.spata.queue1' },
@@ -1873,6 +1958,162 @@ MAPS.spata_boss = {
     { id: 'tcust2', x: 11, y: 6, face: 'left', look: 'clerk', kind: 'talk', text: 'npc.spata.cust2' },
   ],
 };
+// MZ-WORLD-02d: the district Βόρεια. The gate is the east end of the Σπάτα street (the flag badge_anatolika, defined with the Σπάτα warps).
+MAPS.route7 = {
+  name: 'map.route7', w: 32, h: 18, music: 'route',
+  rows: ROUTE7_ROWS,
+  warps: [
+    { x: 31, y: 14, to: 'spata', tx: 26, ty: 9 },
+    { x: 0, y: 3, to: 'kifisia', tx: 24, ty: 9 },
+  ],
+  signs: { '29,13': 'sign.route7', '12,7': 'sign.quarry', '2,5': 'sign.kifisia' },
+  npcs: [
+    { id: 'oldstar', x: 22, y: 13, face: 'down', look: 'oldstar', kind: 'trainer', trainer: 'oldstar', sight: 2 },
+    { id: 'gardener', x: 14, y: 7, face: 'down', look: 'gardener', kind: 'trainer', trainer: 'gardener', sight: 2 },
+    { id: 'contestant', x: 8, y: 5, face: 'down', look: 'contestant', kind: 'trainer', trainer: 'contestant', sight: 3 },
+    { id: 'quarryman', x: 18, y: 3, face: 'down', look: 'oldman', kind: 'talk', text: 'npc.quarryman' },
+    { id: 'stonecutter', x: 10, y: 9, face: 'up', look: 'oldman2', kind: 'talk', text: 'npc.stonecutter' },
+  ],
+  zones: [
+    { x0: 0, x1: 15, table: [
+      { sp: 'star90', w: 22, min: 27, max: 29 }, { sp: 'fakelarchis', w: 20, min: 27, max: 29 }, { sp: 'efoplistakos', w: 16, min: 27, max: 29 },
+      { sp: 'influenza', w: 20, min: 27, max: 29 }, { sp: 'trolosavros', w: 16, min: 27, max: 29 }, { sp: 'nftarchis', w: 10, min: 27, max: 29 }, { sp: 'rialito', w: 6, min: 28, max: 29 }] },
+    { x0: 16, x1: 99, table: [
+      { sp: 'star90', w: 22, min: 27, max: 28 }, { sp: 'fakelarchis', w: 20, min: 26, max: 28 }, { sp: 'efoplistakos', w: 16, min: 26, max: 28 },
+      { sp: 'influenza', w: 20, min: 26, max: 28 }, { sp: 'trolosavros', w: 16, min: 26, max: 28 }, { sp: 'nftarchis', w: 10, min: 26, max: 28 }] },
+  ],
+};
+MAPS.kifisia = {
+  name: 'map.kifisia', w: 26, h: 18, music: 'town',
+  rows: KIFISIA_ROWS,
+  warps: [
+    { x: 25, y: 9, to: 'route7', tx: 1, ty: 3 },
+    { x: 0, y: 9, to: 'route8', tx: 42, ty: 6 },
+    { x: 4, y: 5, to: 'kifisia_hospital', tx: 5, ty: 7 },
+    { x: 10, y: 5, to: 'kifisia_shop', tx: 3, ty: 4 },
+    { x: 17, y: 5, to: 'kifisia_cafe', tx: 4, ty: 6 },
+  ],
+  signs: { '7,5': 'sign.kifisia.hospital', '13,5': 'sign.shop', '20,5': 'sign.kifisia.cafe', '8,8': 'sign.kifisia.town', '23,8': 'sign.ktel', '17,14': 'sign.kifisia.metro' },
+  npcs: [
+    { id: 'kfwatcher', x: 12, y: 8, face: 'down', look: 'oldwoman', kind: 'talk', text: 'npc.kifisia1' },
+    { id: 'kfhedge', x: 9, y: 10, face: 'right', look: 'student', kind: 'talk', text: 'npc.kifisia2' },
+    { id: 'kfrich', x: 21, y: 10, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.kifisia3' },
+  ],
+};
+MAPS.kifisia_hospital = {
+  name: 'map.kifisia.hospital', w: 12, h: 9, music: 'indoor',
+  rows: MAPS.hospital.rows,
+  warps: [{ x: 5, y: 8, to: 'kifisia', tx: 4, ty: 6 }, { x: 6, y: 8, to: 'kifisia', tx: 4, ty: 6 }],
+  signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+  actions: { '1,3': 'archive' },
+  npcs: [
+    { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
+    { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.kifisia.doctor' },
+    { id: 'hospwait1', x: 3, y: 4, face: 'down', look: 'oldwoman', kind: 'talk', text: 'npc.kifisia.wait1' },
+    { id: 'hospwait2', x: 8, y: 5, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.hosp.wait2' },
+  ],
+};
+MAPS.kifisia_shop = {
+  name: 'map.kifisia.shop', w: 8, h: 6, music: 'indoor',
+  rows: MAPS.shop.rows,
+  stock: SHOP_STOCK_VOREIA,
+  warps: [{ x: 3, y: 5, to: 'kifisia', tx: 10, ty: 6 }, { x: 4, y: 5, to: 'kifisia', tx: 10, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'shopkeeper', x: 3, y: 1, face: 'down', look: 'kiosk', kind: 'shop' },
+    { id: 'customer', x: 5, y: 4, face: 'up', look: 'oldwoman', kind: 'talk', text: 'npc.kifisia.customer' },
+  ],
+};
+// The first Καφενείο of Βόρεια («Ο Πλάτανος»): the save point, with its own greeting (cafeHello).
+MAPS.kifisia_cafe = {
+  name: 'map.kifisia.cafe', w: 10, h: 8, music: 'indoor',
+  rows: MAPS.cafe.rows,
+  cafeHello: 'cafe.hello.kifisia',
+  warps: [{ x: 4, y: 7, to: 'kifisia', tx: 17, ty: 6 }, { x: 5, y: 7, to: 'kifisia', tx: 17, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'cafeowner', x: 3, y: 1, face: 'down', look: 'cafeowner', kind: 'save' },
+    { id: 'kfcafe1', x: 2, y: 4, face: 'right', look: 'oldwoman', kind: 'talk', text: 'npc.kfcafe1' },
+    { id: 'kfcafe2', x: 7, y: 6, face: 'up', look: 'student', kind: 'talk', text: 'npc.kfcafe2' },
+  ],
+};
+MAPS.route8 = {
+  name: 'map.route8', w: 44, h: 14, music: 'route',
+  rows: ROUTE8_ROWS,
+  warps: [
+    { x: 43, y: 6, to: 'kifisia', tx: 1, ty: 9 },
+    { x: 0, y: 6, to: 'marousi', tx: 26, ty: 9 },
+  ],
+  signs: { '41,4': 'sign.route8', '17,7': 'sign.roundabout', '3,4': 'sign.marousi.road' },
+  npcs: [
+    { id: 'rival4', x: 34, y: 7, face: 'up', look: 'rival', kind: 'trainer', trainer: 'rival4', sight: 2 },
+    { id: 'lobbyist', x: 13, y: 7, face: 'up', look: 'lobbyist', kind: 'trainer', trainer: 'lobbyist', sight: 2 },
+    { id: 'tennis', x: 8, y: 9, face: 'up', look: 'tennis', kind: 'trainer', trainer: 'tennis', sight: 3 },
+    { id: 'shopper', x: 28, y: 4, face: 'down', look: 'tourist', kind: 'talk', text: 'npc.shopper' },
+    { id: 'driver', x: 24, y: 10, face: 'up', look: 'oldman', kind: 'talk', text: 'npc.driver' },
+  ],
+  zones: [
+    { x0: 22, x1: 99, table: [
+      { sp: 'star90', w: 22, min: 29, max: 30 }, { sp: 'rialito', w: 20, min: 29, max: 30 }, { sp: 'lobbylykaina', w: 18, min: 29, max: 30 }, { sp: 'influenza', w: 20, min: 29, max: 30 },
+      { sp: 'fakelarchis', w: 14, min: 29, max: 29 }, { sp: 'trolosavros', w: 12, min: 29, max: 29 }, { sp: 'nftarchis', w: 8, min: 29, max: 29 }, { sp: 'efoplistakos', w: 8, min: 29, max: 29 }] },
+    { x0: 0, x1: 21, table: [
+      { sp: 'star90', w: 22, min: 30, max: 31 }, { sp: 'rialito', w: 20, min: 30, max: 31 }, { sp: 'lobbylykaina', w: 20, min: 30, max: 31 }, { sp: 'influenza', w: 20, min: 30, max: 31 },
+      { sp: 'giotarchis', w: 6, min: 30, max: 31 }] },
+  ],
+};
+MAPS.marousi = {
+  name: 'map.marousi', w: 28, h: 18, music: 'town',
+  rows: MAROUSI_ROWS,
+  warps: [
+    { x: 27, y: 9, to: 'route8', tx: 1, ty: 6 },
+    { x: 4, y: 5, to: 'marousi_hospital', tx: 5, ty: 7 },
+    { x: 10, y: 5, to: 'marousi_shop', tx: 3, ty: 4 },
+    { x: 20, y: 4, to: 'marousi_boss', tx: 6, ty: 8 },
+  ],
+  signs: { '7,5': 'sign.marousi.hospital', '13,5': 'sign.shop', '17,5': 'sign.marousi.stadium', '7,8': 'sign.marousi.tennis', '1,9': 'sign.marousi.west', '12,8': 'sign.ktel' },
+  npcs: [
+    { id: 'usher', x: 20, y: 7, face: 'up', look: 'usher', kind: 'trainer', trainer: 'usher', sight: 3 },
+    { id: 'mrwatcher', x: 24, y: 6, face: 'left', look: 'oldman2', kind: 'talk', text: 'npc.marousi1' },
+    { id: 'mrfan', x: 16, y: 8, face: 'right', look: 'kid', kind: 'talk', text: 'npc.marousi2' },
+    { id: 'mrticket', x: 6, y: 7, face: 'down', look: 'student', kind: 'talk', text: 'npc.marousi3' },
+  ],
+};
+MAPS.marousi_hospital = {
+  name: 'map.marousi.hospital', w: 12, h: 9, music: 'indoor',
+  rows: MAPS.hospital.rows,
+  warps: [{ x: 5, y: 8, to: 'marousi', tx: 4, ty: 6 }, { x: 6, y: 8, to: 'marousi', tx: 4, ty: 6 }],
+  signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+  actions: { '1,3': 'archive' },
+  npcs: [
+    { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
+    { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.marousi.doctor' },
+    { id: 'hospwait1', x: 3, y: 4, face: 'down', look: 'kid', kind: 'talk', text: 'npc.marousi.wait1' },
+    { id: 'hospwait2', x: 8, y: 5, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.hosp.wait3' },
+  ],
+};
+MAPS.marousi_shop = {
+  name: 'map.marousi.shop', w: 8, h: 6, music: 'indoor',
+  rows: MAPS.shop.rows,
+  stock: SHOP_STOCK_VOREIA,
+  warps: [{ x: 3, y: 5, to: 'marousi', tx: 10, ty: 6 }, { x: 4, y: 5, to: 'marousi', tx: 10, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'shopkeeper', x: 3, y: 1, face: 'down', look: 'kiosk', kind: 'shop' },
+    { id: 'customer', x: 5, y: 4, face: 'up', look: 'student', kind: 'talk', text: 'npc.marousi.customer' },
+  ],
+};
+// «Στάδιο Συναυλιών 3000»: a stage with speaker stacks, the DJ booth in front of it and the boss on the stage (the Port Office layout).
+MAPS.marousi_boss = {
+  name: 'map.marousi.boss', w: 14, h: 10, music: 'boss',
+  rows: ['wwwwwwwwwwwwww', 'w:;;;;;;;;;;:w', 'w:;;;;;;;;;;:w', 'wfffccccccfffw', 'wffffffffffffw', 'wfrrffffffrrfw', 'wffffffffffffw', 'wfttffffffttfw', 'wffffffffffffw', 'wwwwwwmmwwwwww'],
+  warps: [{ x: 6, y: 9, to: 'marousi', tx: 20, ty: 5 }, { x: 7, y: 9, to: 'marousi', tx: 20, ty: 5 }],
+  signs: {},
+  npcs: [
+    { id: 'amartia', x: 6, y: 2, face: 'down', look: 'amartia', kind: 'boss', trainer: 'amartia' },
+    { id: 'scust1', x: 2, y: 6, face: 'right', look: 'oldwoman', kind: 'talk', text: 'npc.marousi.cust1' },
+    { id: 'scust2', x: 11, y: 6, face: 'left', look: 'student', kind: 'talk', text: 'npc.marousi.cust2' },
+  ],
+};
 const START_MAP = { map: 'lab', x: 4, y: 6, dir: 'up' };
 const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' }; // just inside the hospital door
 const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out spot before any heal (after one, save.lastHeal: the last hospital that healed you)
@@ -1887,6 +2128,7 @@ function npcVisible(npc, flags) {
   if (npc.hideFlag && flags[npc.hideFlag]) return false;
   if (npc.kind === 'trainer' && npc.trainer === 'rival2' && flags.t_rival2) return false; // he leaves after the second fight
   if (npc.kind === 'trainer' && npc.trainer === 'rival3' && flags.t_rival3) return false; // and after the third
+  if (npc.kind === 'trainer' && npc.trainer === 'rival4' && flags.t_rival4) return false; // and after the fourth
   return true;
 }
 function findWarp(map, x, y) {
@@ -1962,7 +2204,7 @@ function npcTalkable(mapId, npc, reached) {
 // routes between them. Pure data plus small pure functions, so the headless tests, tools/world-map.mjs and the map screen read the
 // same numbers. Grid letters: upper case = a district, lower case = a hill of that district, '~' = sea, '#' = mainland outside
 // the six districts. Cells are [x, y]; a route path is a list of cell centres from the route's first end (a) to its second (b).
-// Πειραιάς, Νότια and Ανατολικά are built; the other districts are drawn locked ("soon") until their own task builds them (built: false).
+// Πειραιάς, Νότια, Ανατολικά and Βόρεια are built; the other districts are drawn locked ("soon") until their own task builds them (built: false).
 const WORLD_BADGE_COUNT = 6;
 const WORLD = {
   cols: 30, rows: 15,
@@ -1988,7 +2230,7 @@ const WORLD = {
     peiraias: { letter: 'P', order: 1, bossTrainer: 'kotsos', badgeFlag: 'badge', nameKey: 'world.d.peiraias', levels: [2, 13], color: '#e9b872', label: [4.5, 8.5], built: true },
     notia: { letter: 'N', order: 2, bossTrainer: 'bougatsas', badgeFlag: 'badge_notia', nameKey: 'world.d.notia', levels: [13, 20], color: '#8fd0c8', label: [13.5, 12.5], built: true },
     anatolika: { letter: 'E', order: 3, bossTrainer: 'faia', badgeFlag: 'badge_anatolika', nameKey: 'world.d.anatolika', levels: [19, 26], color: '#d9a0c4', label: [25.5, 3.5], built: true },
-    voreia: { letter: 'V', order: 4, bossTrainer: 'amartia', badgeFlag: 'badge_voreia', nameKey: 'world.d.voreia', levels: [26, 32], color: '#9fcb7b', label: [13.5, 1], built: false },
+    voreia: { letter: 'V', order: 4, bossTrainer: 'amartia', badgeFlag: 'badge_voreia', nameKey: 'world.d.voreia', levels: [26, 32], color: '#9fcb7b', label: [13.5, 1], built: true },
     dytika: { letter: 'D', order: 5, bossTrainer: 'plousiakis', badgeFlag: 'badge_dytika', nameKey: 'world.d.dytika', levels: [32, 38], color: '#e6d26a', label: [5.5, 3.5], built: false },
     athina: { letter: 'A', order: 6, bossTrainer: 'baboulas', badgeFlag: 'badge_athina', nameKey: 'world.d.athina', levels: [38, 44], color: '#c9b6e8', label: [12.5, 6.5], built: false },
   },
@@ -2002,8 +2244,8 @@ const WORLD = {
     glyfada: { district: 'notia', kind: 'town', cell: [15, 12], maps: ['glyfada', 'glyfada_hospital', 'glyfada_shop', 'glyfada_boss'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
     koropi: { district: 'anatolika', kind: 'town', cell: [21, 12], maps: ['koropi', 'koropi_hospital', 'koropi_shop', 'koropi_cafe'], stop: true, built: true, has: ['hospital', 'shop', 'cafe'] },
     spata: { district: 'anatolika', kind: 'town', cell: [24, 9], maps: ['spata', 'spata_hospital', 'spata_shop', 'spata_boss'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
-    kifisia: { district: 'voreia', kind: 'town', cell: [17, 2], maps: [], stop: true, built: false },
-    marousi: { district: 'voreia', kind: 'town', cell: [15, 4], maps: [], boss: true, stop: true, built: false },
+    kifisia: { district: 'voreia', kind: 'town', cell: [17, 2], maps: ['kifisia', 'kifisia_hospital', 'kifisia_shop', 'kifisia_cafe'], stop: true, built: true, has: ['hospital', 'shop', 'cafe'] },
+    marousi: { district: 'voreia', kind: 'town', cell: [15, 4], maps: ['marousi', 'marousi_hospital', 'marousi_shop', 'marousi_boss'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
     peristeri: { district: 'dytika', kind: 'town', cell: [7, 5], maps: [], stop: true, built: false },
     chaidari: { district: 'dytika', kind: 'town', cell: [4, 6], maps: [], boss: true, stop: true, built: false },
     monastiraki: { district: 'athina', kind: 'town', cell: [10, 9], maps: [], stop: true, built: false },
@@ -2018,8 +2260,8 @@ const WORLD = {
     route4: { district: 'notia', a: 'faliro', b: 'glyfada', map: 'route4', path: [[10, 12], [12, 12], [15, 12]], progress: 'x', built: true },
     route5: { district: 'anatolika', a: 'glyfada', b: 'koropi', map: 'route5', path: [[15, 12], [18, 12], [21, 12]], progress: 'x', built: true },
     route6: { district: 'anatolika', a: 'koropi', b: 'spata', map: 'route6', path: [[21, 12], [22, 10], [24, 9]], progress: 'x', built: true },
-    route7: { district: 'voreia', a: 'spata', b: 'kifisia', map: 'route7', path: [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]], progress: '-x', built: false },
-    route8: { district: 'voreia', a: 'kifisia', b: 'marousi', map: 'route8', path: [[17, 2], [17, 4], [15, 4]], progress: '-x', built: false },
+    route7: { district: 'voreia', a: 'spata', b: 'kifisia', map: 'route7', path: [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]], progress: '-x', built: true },
+    route8: { district: 'voreia', a: 'kifisia', b: 'marousi', map: 'route8', path: [[17, 2], [17, 4], [15, 4]], progress: '-x', built: true },
     route9: { district: 'dytika', a: 'marousi', b: 'peristeri', map: 'route9', path: [[15, 4], [13, 2], [10, 2], [9, 3], [8, 4], [7, 5]], progress: '-x', built: false },
     route10: { district: 'dytika', a: 'peristeri', b: 'chaidari', map: 'route10', path: [[7, 5], [5, 5], [4, 6]], progress: '-x', built: false },
     route11: { district: 'athina', a: 'chaidari', b: 'monastiraki', map: 'route11', path: [[4, 6], [6, 7], [8, 7], [9, 8], [10, 9]], progress: 'x', built: false },
@@ -2284,7 +2526,7 @@ const STRINGS = {
   'world.monastiraki': ['Μοναστηράκι', 'Monastiraki'], 'world.syntagma': ['Σύνταγμα', 'Syntagma'], 'world.parliament': ['Βουλή', 'Parliament'],
   'world.route1': ['Παραλιακή', 'The Waterfront'], 'world.route2': ['Ακτή Θεμιστοκλέους', 'The Quay Road'], 'world.route3': ['Λεωφόρος Ποσειδώνος', 'Poseidon Avenue'],
   'world.route4': ['Ελληνικό', 'The Old Airfield'], 'world.route5': ['Υμηττός', 'The Hymettus Pass'], 'world.route6': ['Μεσόγεια', 'The Plain'],
-  'world.route7': ['Πεντέλη', 'The Marble Mountain'], 'world.route8': ['Λεωφόρος Κηφισίας', 'Kifisia Avenue'], 'world.route9': ['Αττική Οδός', 'The Ring Road'],
+  'world.route7': ['Πεντέλη', 'The Marble Mountain'], 'world.route8': ['Λεωφόρος Κηφισίας', 'Kifisia Avenue'], 'world.route9': ['Ο Αυτοκινητόδρομος', 'The Ring Road'],
   'world.route10': ['Λεωφόρος Θηβών', 'Thivon Avenue'], 'world.route11': ['Ιερά Οδός', 'The Sacred Way'], 'world.route12': ['Λεωφόρος Πανεπιστημίου', 'University Avenue'],
   'world.d.peiraias': ['Πειραιάς', 'Piraeus'], 'world.d.notia': ['Νότια', 'South'], 'world.d.anatolika': ['Ανατολικά', 'East'],
   'world.d.voreia': ['Βόρεια', 'North'], 'world.d.dytika': ['Δυτικά', 'West'], 'world.d.athina': ['Αθήνα', 'Athens'],
@@ -2503,6 +2745,8 @@ const STRINGS = {
   'npc.boss.cust2': ['Η συζήτηση ξεκίνησε για την οικονομία. Τελείωσε στο γέμισμα. Πάντα τελειώνει εκεί.', 'The talk started with the economy. It ended at the filling. It always ends there.'],
   'item.dikigoros': ['Δικηγόρος', 'Δικηγόρος (lawyer)'], 'item.gemista': ['Γεμιστά της Μάνας', "Mum's Γεμιστά"],
   'itemd.dikigoros': ['Γιατρεύει 80 ΥΓ και κλείνει κάθε υπόθεση: καμία κατάσταση δεν επιζεί. Με αμοιβή.', 'Heals 80 HP and closes every case: no status survives. Fees apply.'],
+  'item.chontros': ['Χοντρός Φάκελος', 'Thick Φάκελος'],
+  'itemd.chontros': ['Πολύ χοντρός (x2,5). Οι πόρτες ανοίγουν μόνες τους.', 'Very thick (x2.5). Doors open by themselves.'],
   'itemd.gemista': ['Γιατρεύει πλήρως και σβήνει κάθε κατάσταση. Με τη Μάνα δεν διαφωνεί κανείς.', 'Full heal and clears every status. Nobody argues with Mum.'],
   'tr.lifeguard.intro': ['Η παραλία είναι δωρεάν! Μόνο η σκιά χρεώνεται. Έλα να τα πούμε.', 'The beach is free! Only the shade is charged. Come, let us talk.'],
   'tr.lifeguard.win': ['Έχασα. Θα γράψω στην αναφορά ότι έσωσα εγώ εσένα.', 'I lost. I will write in the report that I saved you.'],
@@ -2548,7 +2792,7 @@ const STRINGS = {
   'sign.spata': ['Σπάτα. Αεροδρόμιο. Η πινακίδα εξόδου χορηγείται από την είσοδο.', 'Spata. Airport. The exit sign is sponsored by the entrance.'],
   'sign.spata.hospital': ['Νοσοκομείο Σπάτων 3000. Πύλη Β12, ισόγειο.', 'Spata Hospital 3000. Gate Β12, ground floor.'],
   'sign.spata.terminal': ['Διαστημολιμένας. Πτήσεις προς τα θέρετρα της τροχιάς. Όλες από την Πύλη Β12.', 'Spaceport. Flights to the orbital resorts. All from Gate Β12.'],
-  'sign.spata.north': ['Προς τα Βόρεια: Πεντέλη. Η έξοδος χορηγείται από τον Διαστημολιμένα. Τα έργα τελειώνουν του χρόνου.', 'To the North: Penteli. The exit is sponsored by the Spaceport. The works finish next year.'],
+  'sign.spata.north': ['Προς τα Βόρεια: Πεντέλη. Η έξοδος χορηγείται από τον Διαστημολιμένα. Το μάρμαρο, από το λατομείο.', 'To the North: Penteli. The exit is sponsored by the Spaceport. The marble, by the quarry.'],
   'npc.hiker': ['Κάθε στροφή λέει «η κορυφή είναι εδώ». Είναι ψέμα. Αλλά με χορηγό.', 'Every bend says "the top is here". It is a lie. But sponsored.'],
   'npc.wallkeeper': ['Ο τοίχος στέκει από πάντα. Η πινακίδα του, όχι. Η πινακίδα έχει χορηγό.', 'The wall has stood forever. Its sign has not. The sign has a sponsor.'],
   'npc.koropi1': ['Εδώ όλα έχουν χορηγό. Το σιντριβάνι, ο πάγκος, ακόμα και ο πεζόδρομος.', 'Everything here has a sponsor. The fountain, the bench, even the pavement.'],
@@ -2596,13 +2840,89 @@ const STRINGS = {
   'tr.faia.win': ['Έχασα το live! Θα πω ότι ήταν δοκιμαστική μετάδοση.', 'I lost the live! I will say it was a test broadcast.'],
   'tr.faia.after': ['Η μετάδοση συνεχίζεται. Η πύλη μου είναι η Β12. Δεν την έχεις δει;', 'The broadcast goes on. My gate is Β12. Have you not seen it?'],
   'boss.faia.win2': ['Κέρδισες. Το Παράσημο Επιβίβασης είναι δικό σου, με τον όρο να με ακολουθήσεις.', 'You won. The Boarding Medal is yours, on the condition that you follow me.'],
-  'boss.faia.win3': ['Πήρες το Παράσημο Επιβίβασης! Ο δρόμος προς τα Βόρεια είναι ακόμα υπό έργα.', 'You got the Boarding Medal! The road to the North is still under works.'],
+  'boss.faia.win3': ['Πήρες το Παράσημο Επιβίβασης! Ο δρόμος προς τα Βόρεια άνοιξε. Η πτήση, όμως, καθυστερεί.', 'You got the Boarding Medal! The road to the North is open. The flight, however, is delayed.'],
   'badge.anatolika.title': ['ΠΑΡΑΣΗΜΟ ΕΠΙΒΙΒΑΣΗΣ', 'BOARDING MEDAL'], 'badge.anatolika.sub': ['Η πτήση καθυστερεί.', 'The flight is delayed.'],
   'sp.monastiriaki': ['Γνωστό για: τοίχους με θέα, ησυχία με χρέωση και ακίνητα που δεν φορολογούνται. Ποτέ δεν καταδικάστηκε.', 'Μοναστηριάκι = "Little Monastery". Known for: walls with a view, silence for a fee and property that is not taxed. Never convicted.'],
   'sp.monimos': ['Γνωστός για: μια θέση που δεν χάνεται ούτε με μετάθεση ούτε με μετάνοια. Ποτέ δεν καταδικάστηκε.', 'Μόνιμος = "Permanent". Known for: a post that is lost neither by transfer nor by regret. Never convicted.'],
   'sp.influenza': ['Γνωστή για: μια ανάρτηση που κολλάει σαν γρίπη και ένα φίλτρο για κάθε δάκρυ. Ποτέ δεν καταδικάστηκε.', 'Influεnζα = "Influenza". Known for: a post that spreads like a flu and a filter for every tear. Never convicted.'],
   'sp.kryptomakis': ['Γνωστός για: μια ευκαιρία που αξίζει πολλά και ένα πορτοφόλι που δεν βρέθηκε ποτέ. Ποτέ δεν καταδικάστηκε.', 'Κρυπτο-Μάκης = "Crypto-Maki". Known for: an opportunity worth a lot and a wallet that was never found. Never convicted.'],
   'sp.nftarchis': ['Γνωστός για: εικόνες που κοστίζουν ένα σπίτι και δεν κρεμιούνται πουθενά. Ποτέ δεν καταδικάστηκε.', 'NFT-άρχης = "NFT-arch". Known for: pictures that cost a house and hang nowhere. Never convicted.'],
+  // Βόρεια (MZ-WORLD-02d): places, signs, people, the boss and its badge, the seven new creatures. Running joke: the old stars are on a permanent comeback tour, the stadium is always being renovated.
+  'map.route7': ['Διαδρομή 7: Πεντέλη', 'Route 7: The Marble Mountain'], 'map.kifisia': ['Κηφισιά', 'Kifisia'],
+  'map.kifisia.hospital': ['Νοσοκομείο Κηφισιάς 3000', 'Kifisia Hospital 3000'], 'map.kifisia.shop': ['Περίπτερο Κηφισιάς', 'Kifisia Kiosk'],
+  'map.kifisia.cafe': ['Καφενείο «Ο Πλάτανος»', 'Cafe "The Plane Tree"'], 'map.route8': ['Διαδρομή 8: Λεωφόρος Κηφισίας', 'Route 8: Kifisia Avenue'],
+  'map.marousi': ['Μαρούσι', 'Marousi'], 'map.marousi.hospital': ['Νοσοκομείο Αμαρουσίου 3000', 'Marousi Hospital 3000'],
+  'map.marousi.shop': ['Περίπτερο Αμαρουσίου', 'Marousi Kiosk'], 'map.marousi.boss': ['Στάδιο Συναυλιών 3000', 'Concert Stadium 3000'],
+  'warp.route7': ['Ο δρόμος προς τα Βόρεια είναι κλειστός. Πρώτα το Παράσημο Επιβίβασης.', 'The road to the North is closed. The Boarding Medal first.'],
+  'sign.route7': ['Διαδρομή 7: Πεντέλη. Το μάρμαρο είναι λευκό, τα χαρτιά όχι. Προσοχή, πέφτουν πέτρες.', 'Route 7: Penteli. The marble is white, the paperwork is not. Mind the falling stones.'],
+  'sign.quarry': ['Λατομείο. Ο γερανός στέκει εδώ από το 2961. Η δουλειά, όχι.', 'Quarry. The crane has stood here since 2961. The work has not.'],
+  'sign.kifisia': ['Κηφισιά. Τέρμα του μετρό. Και αρχή του λογαριασμού.', 'Kifisia. The end of the metro line. And the start of the bill.'],
+  'sign.kifisia.town': ['Πλατεία Πλατάνων. Οι πλάτανοι είναι προστατευόμενοι. Οι ένοικοι, λιγότερο.', 'Plane Tree Square. The plane trees are protected. The residents, less so.'],
+  'sign.kifisia.hospital': ['Νοσοκομείο Κηφισιάς 3000. Η αναμονή γίνεται στον κήπο. Δεν τελειώνει ούτε εκεί.', 'Kifisia Hospital 3000. The waiting is done in the garden. It does not end there either.'],
+  'sign.kifisia.cafe': ['Καφενείο «Ο Πλάτανος». Ο καφές κοστίζει όσο ένα δέντρο.', 'Cafe "The Plane Tree". The coffee costs as much as a tree.'],
+  'sign.kifisia.metro': ['Μετρό 3000. Τέρμα Κηφισιά. Το τέρμα κοστίζει περισσότερο από τη διαδρομή.', 'Metro 3000. Terminus Kifisia. The end of the line costs more than the line.'],
+  'sign.route8': ['Διαδρομή 8: Λεωφόρος Κηφισίας. Δέκα χιλιόμετρα βιτρίνες. Ένας δρόμος.', 'Route 8: Kifisia Avenue. Ten kilometres of shop windows. One road.'],
+  'sign.roundabout': ['Κυκλικός κόμβος. Έξι έξοδοι. Η σωστή είναι πάντα η επόμενη.', 'Roundabout. Six exits. The right one is always the next.'],
+  'sign.marousi.road': ['Μαρούσι. Το στάδιο είναι σε ανακαίνιση. Από το 2961.', 'Marousi. The stadium is under renovation. Since 2961.'],
+  'sign.marousi.hospital': ['Νοσοκομείο Αμαρουσίου 3000. Η ανακαίνιση τελειώνει του χρόνου.', 'Marousi Hospital 3000. The renovation finishes next year.'],
+  'sign.marousi.stadium': ['Στάδιο Συναυλιών 3000. Σε ανακαίνιση. Η στέγη κόστισε τρεις φορές τον προϋπολογισμό.', 'Concert Stadium 3000. Under renovation. The roof cost three times the plan.'],
+  'sign.marousi.tennis': ['Όμιλος Αντισφαίρισης. Μόνο για μέλη. Η αναμονή για να γίνεις μέλος: δέκα χρόνια.', 'Tennis Club. Members only. The wait to become a member: ten years.'],
+  'sign.marousi.west': ['Προς τα Δυτικά: ο αυτοκινητόδρομος. Τα διόδια θα τα πληρώσεις και στον γυρισμό. Τα έργα τελειώνουν του χρόνου.', 'To the West: the Ring Road. You will pay the toll on the way back too. The works finish next year.'],
+  'npc.quarryman': ['Κόβουμε μάρμαρο για το ίδιο γήπεδο εδώ και χρόνια. Το γήπεδο μεγαλώνει πιο γρήγορα από το λατομείο.', 'We have cut marble for the same stadium for years. The stadium grows faster than the quarry.'],
+  'npc.stonecutter': ['Το μάρμαρο είναι αιώνιο. Η προθεσμία, όχι.', 'Marble is eternal. The deadline is not.'],
+  'npc.kifisia1': ['Το μετρό φτάνει ως εδώ. Το ενοίκιο, πιο πέρα.', 'The metro comes this far. The rent goes further.'],
+  'npc.kifisia2': ['Κάθε βίλα έχει φράχτη. Κάθε φράχτης έχει δικό του φράχτη.', 'Every villa has a hedge. Every hedge has a hedge of its own.'],
+  'npc.kifisia3': ['Ο κήπος μου είναι τόσο μεγάλος που έχει δική του στάση λεωφορείου. Το λεωφορείο δεν έρχεται ποτέ.', 'My garden is so big it has its own bus stop. The bus never comes.'],
+  'npc.kifisia.doctor': ['Εδώ οι ασθενείς περιμένουν στον κήπο. Με τσάι. Και με λογαριασμό.', 'Here the patients wait in the garden. With tea. And with a bill.'],
+  'npc.kifisia.wait1': ['Περιμένω σειρά. Στο ιδιωτικό η αναμονή είναι πιο πολυτελής.', 'I am waiting my turn. In the private one the waiting is more luxurious.'],
+  'npc.kifisia.customer': ['Πήρα νερό. Το μπουκάλι είχε ιστορία. Και ΦΠΑ.', 'I bought water. The bottle had a history. And VAT.'],
+  'cafe.hello.kifisia': ['Καφενείο «Ο Πλάτανος». Ο καφές ψήνεται στον ίσκιο. Ο λογαριασμός, στον ήλιο.', 'Cafe "The Plane Tree". The coffee roasts in the shade. The bill, in the sun.'],
+  'npc.kfcafe1': ['Μία ώρα για έναν εσπρέσο. Η δεύτερη ώρα, για τον κήπο.', 'One hour for one espresso. The second hour, for the garden.'],
+  'npc.kfcafe2': ['Στον Πλάτανο όλοι έχουν γνώμη. Κανείς δεν έχει ρέστα.', 'At the Plane Tree everyone has an opinion. Nobody has change.'],
+  'npc.shopper': ['Μπήκα για μία βιτρίνα. Βγήκα με δέκα. Τις είδα όλες.', 'I went in for one window. I came out with ten. I saw them all.'],
+  'npc.driver': ['Ο κυκλικός κόμβος έχει έξι εξόδους. Η μία πηγαίνει κάπου.', 'The roundabout has six exits. One of them goes somewhere.'],
+  'npc.marousi1': ['Το στάδιο είναι σε ανακαίνιση από το 2961. Η στέγη κόστισε τρεις φορές. Δεν είπαν ποιος πλήρωσε.', 'The stadium has been under renovation since 2961. The roof cost three times. They did not say who paid.'],
+  'npc.marousi2': ['Εδώ οι σταρ γυρνούν πίσω κάθε χρόνο, με «περιοδεία επανόδου».', 'The stars return here every year, on a "comeback tour".'],
+  'npc.marousi3': ['Έχω εισιτήριο για την πρώτη σειρά. Η πρώτη σειρά είναι στο βάθος.', 'I have a ticket for the first row. The first row is at the back.'],
+  'npc.marousi.doctor': ['Οι περισσότεροι ασθενείς έρχονται από συναυλία. Η πρώτη σειρά ακούει περισσότερο.', 'Most patients come from a concert. The first row hears the most.'],
+  'npc.marousi.wait1': ['Πήγα στη συναυλία για να δω. Άκουσα. Τώρα βλέπω μόνο ηχώ.', 'I went to the concert to see. I heard. Now I only see an echo.'],
+  'npc.marousi.customer': ['Πήρα ωτοασπίδες. Η συναυλία είναι σε τρία χρόνια. Προληπτικά.', 'I bought earplugs. The concert is in three years. Just in case.'],
+  'npc.marousi.cust1': ['Περιμένω την περιοδεία επανόδου. Είναι η δέκατη φορά. Η τελευταία, λένε.', 'I am waiting for the comeback tour. It is the tenth time. The last one, they say.'],
+  'npc.marousi.cust2': ['Ο DJ παίζει ένα και μόνο κομμάτι. Το λέει «μίξη».', 'The DJ plays one single track. He calls it a "mix".'],
+  'tr.oldstar.intro': ['Δεν σταμάτησα ποτέ! Απλώς έκανα μια παύση είκοσι ετών. Έλα στην περιοδεία επανόδου!', 'I never stopped! I just took a pause of twenty years. Come to the comeback tour!'],
+  'tr.oldstar.win': ['Το κοινό δεν χειροκρότησε. Ήταν σε διάλειμμα.', 'The audience did not clap. It was on a break.'],
+  'tr.oldstar.after': ['Η περιοδεία συνεχίζεται. Η επόμενη στάση είναι πάντα του χρόνου.', 'The tour goes on. The next stop is always next year.'],
+  'tr.gardener.intro': ['Φροντίζω έναν κήπο. Τον ιδιοκτήτη δεν τον έχω δει ποτέ. Μια μάχη για το μεροκάματο;', 'I tend a garden. I have never seen the owner. A battle for the day wage?'],
+  'tr.gardener.win': ['Έχασα. Ο φράχτης θα μείνει άκοπος. Και ο ιδιοκτήτης αόρατος.', 'I lost. The hedge stays unclipped. And the owner stays unseen.'],
+  'tr.gardener.after': ['Ο κήπος θέλει νερό. Το νερό θέλει λογαριασμό. Ο λογαριασμός θέλει εμένα.', 'The garden wants water. The water wants a bill. The bill wants me.'],
+  'tr.contestant.intro': ['Είμαι σε ριάλιτι! Οι κάμερες είναι παντού! Δώσε μου σκηνή: μια μάχη!', 'I am on a reality show! The cameras are everywhere! Give me a scene: a battle!'],
+  'tr.contestant.win': ['Με έβγαλαν από το παιχνίδι. Θα το πω «ψηφοφορία».', 'They voted me out of the game. I will call it "a vote".'],
+  'tr.contestant.after': ['Έχω δικό μου επεισόδιο. Δεν ξέρω ποιος το βλέπει.', 'I have an episode of my own. I do not know who watches it.'],
+  'tr.lobbyist.intro': ['Μια χάρη, ένας φάκελος, μια μάχη. Με αυτή τη σειρά. Ποτέ το αντίθετο.', 'A favour, an envelope, a battle. In that order. Never the opposite.'],
+  'tr.lobbyist.win': ['Έχασα τη μάχη. Θα μιλήσω σε κάποιον να αλλάξει το αποτέλεσμα.', 'I lost the battle. I will speak to someone to change the result.'],
+  'tr.lobbyist.after': ['Δεν έχασα. Έκανα επένδυση στην ήττα.', 'I did not lose. I invested in the defeat.'],
+  'tr.tennis.intro': ['Μόνο για μέλη! Αλλά για μια μάχη κάνω εξαίρεση. Πλήρωσες τη συνδρομή;', 'Members only! But I make an exception for a battle. Have you paid the fee?'],
+  'tr.tennis.win': ['Έχασα! Αυτό δεν υπάρχει στον κανονισμό του ομίλου.', 'I lost! That is not in the rules of the club.'],
+  'tr.tennis.after': ['Η ρακέτα μου έσπασε. Ο όμιλος θα την αλλάξει. Σε δέκα χρόνια.', 'My racket broke. The club will replace it. In ten years.'],
+  'tr.rival4.intro': ['Ακόμα εδώ; Ο θείος μου κανόνισε την πρώτη σειρά. Εσύ έχεις εισιτήριο;', 'Still here? My uncle arranged the first row. Do you have a ticket?'],
+  'tr.rival4.win': ['Θα τηλεφωνήσω στον διευθυντή του σταδίου. Δεν χρειάζεται να ξέρεις γιατί.', 'I will call the director of the stadium. You do not need to know why.'],
+  'tr.rival4.after': ['Ο Μπέμπης έφυγε. Πήρε το ταξί του θείου του. Πλήρωσε ο θείος.', "Bebis left. He took his uncle's taxi. The uncle paid."],
+  'tr.usher.intro': ['Το εισιτήριό σου! Και η θέση σου! Και η μάχη σου!', 'Your ticket! And your seat! And your battle!'],
+  'tr.usher.win': ['Περάστε. Η θέση σας είναι... κάπου. Μην ρωτήσετε πού.', 'Go ahead. Your seat is... somewhere. Do not ask where.'],
+  'tr.usher.after': ['Η θέση 1Α είναι πίσω από την 40Ζ. Έτσι χτίστηκε το στάδιο.', 'Seat 1A is behind 40Z. That is how the stadium was built.'],
+  'tr.amartia.intro': ['Καλώς ήρθες στο Στάδιο Συναυλιών 3000, {φίλε|φίλη}! Το σόου ξεκινά όταν πάρω εγώ το μικρόφωνο. Και πάντα το παίρνω.', 'Welcome to Concert Stadium 3000, friend! The show starts when I take the mic. And I always take the mic.'],
+  'tr.amartia.win': ['Ο ήχος έσπασε. Θα πω ότι ήταν η ηχητική δοκιμή.', 'The sound broke. I will say it was the sound check.'],
+  'tr.amartia.after': ['Η συναυλία συνεχίζεται. Το μόνο κομμάτι που ξέρω είναι αυτό. Το παίζω ξανά.', 'The concert goes on. The only track I know is this one. I am playing it again.'],
+  'boss.amartia.win2': ['Κέρδισες. Το Παράσημο Πρώτης Σειράς είναι δικό σου, με τον όρο να πας στην τελευταία σειρά.', 'You won. The First Row Medal is yours, on the condition that you go to the last row.'],
+  'boss.amartia.win3': ['Πήρες το Παράσημο Πρώτης Σειράς! Ο δρόμος προς τα Δυτικά είναι ακόμα υπό έργα.', 'You got the First Row Medal! The road to the West is still under works.'],
+  'badge.voreia.title': ['ΠΑΡΑΣΗΜΟ ΠΡΩΤΗΣ ΣΕΙΡΑΣ', 'FIRST ROW MEDAL'], 'badge.voreia.sub': ['Η θέση είναι πίσω.', 'The seat is at the back.'],
+  'sp.star90': ['Γνωστός για: ένα τραγούδι που παίζεται ακόμα και μια περιοδεία επανόδου που δεν τελειώνει. Ποτέ δεν καταδικάστηκε.', 'Σταρ των 90ς = "Star of the 90s". Known for: one song that is still played and a comeback tour that never ends. Never convicted.'],
+  'sp.rialito': ['Γνωστός για: μυς, κάμερα και ένα ψηφοδέλτιο που αποφασίζει ποιος μένει στο σπίτι. Ποτέ δεν καταδικάστηκε.', 'Ριάλιτο-Νταής = "Reality-Bruiser". Known for: muscles, a camera and a ballot that decides who stays in the house. Never convicted.'],
+  'sp.lobbylykaina': ['Γνωστή για: μια χάρη που κοστίζει δύο φακέλους και ένα τηλεφώνημα που δεν έγινε ποτέ. Ποτέ δεν καταδικάστηκε.', 'Lobby-Λύκαινα = "Lobby-She-Wolf". Known for: a favour that costs two envelopes and a phone call that was never made. Never convicted.'],
+  'sp.giotarchis': ['Γνωστός για: ένα γιοτ που είναι πάντα αγκυροβολημένο κάπου αλλού και μια εταιρεία με έδρα το πουθενά. Ποτέ δεν καταδικάστηκε.', 'Γιοτάρχης = "Yacht-arch". Known for: a yacht that is always moored somewhere else and a company based nowhere. Never convicted.'],
+  'sp.yperypourgos': ['Γνωστός για: δεκατέσσερα υπουργεία, καμία παρουσία και μια κόκκινη κάπα για τις επίσημες ώρες. Ποτέ δεν καταδικάστηκε.', 'Υπερυπουργός = "Super-Minister". Known for: fourteen ministries, no attendance and a red cape for official hours. Never convicted.'],
+  'sp.matanthropos': ['Γνωστός για: πανοπλία, ασπίδα και μια βαθιά πίστη στη «διαδικασία». Ποτέ δεν καταδικάστηκε.', 'ΜΑΤάνθρωπος = "Riot-man". Known for: armour, a shield and a deep faith in "procedure". Never convicted.'],
+  'sp.despotakis': ['Γνωστός για: χρυσό ραβδί με μπάλα ντίσκο, μεγάλα κτήματα και ευλογία με χρέωση. Ποτέ δεν καταδικάστηκε.', 'Δεσποτάκης = "Little Bishop". Known for: a golden staff with a disco ball, large estates and blessings with a fee. Never convicted.'],
   'sp.kafenovios': ['Γνωστός για: ένα φλιτζάνι που κρατά από το πρωί ως το βράδυ και πολιτική ανάλυση χωρίς λογαριασμό. Ποτέ δεν καταδικάστηκε.', 'Καφενόβιος = "Cafe-dweller". Known for: one small cup that lasts from morning to night and political analysis with no bill. Never convicted.'],
   'sp.vouleftakos': ['Γνωστός για: ψήφους που αλλάζουν με τον καιρό και την έδρα. Ποτέ δεν καταδικάστηκε.', 'Βουλευτάκος = "Little MP". Known for: votes that change with the weather and the seat. Never convicted.'],
   'sp.batsonos': ['Γνωστός για: σφυρίχτρα, γκλομπ και βαθιά πίστη στη «διαδικασία». Ποτέ δεν καταδικάστηκε.', 'Μπατσόνος = "Big Cop". Known for: a whistle, a baton and deep faith in "procedure". Never convicted.'],
@@ -2763,7 +3083,7 @@ const RULES = {
   SAVE_VERSION, SAVE_KEY, OPTIONS_KEY, MAX_LEVEL, PARTY_MAX, ARCHIVE_MAX, MOVES_MAX, NAME_MAX, STAT_KEYS, STAGE_KEYS, START_MONEY, START_BAG,
   DAMAGE_DIVISOR, CRIT_CHANCE, OVERTIME_TURN, USELESS_MOVE_SCORE, ENCOUNTER_CHANCE, BLACKOUT_MONEY_KEEP, XP_DIVISOR, TRAINER_XP_BONUS, XP_SCALE_FROM,
   makeRng, randInt, pickOne, pickWeighted, hashString,
-  TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK, SHOP_STOCK_NOTIA, shopStockOf,
+  TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK, SHOP_STOCK_NOTIA, SHOP_STOCK_VOREIA, shopStockOf,
   STRINGS, formatText, lookupString, monLabel, eventText,
   statOf, maxHp, xpForLevel, levelFromXp, movesAtLevel, makeMon, cloneMon, healMon, monIsAlive, partyHasAlive, hospitalHeal, canDeposit, depositMon, canWithdraw, withdrawMon, gainXp, evolutionFor, evolveMon,
   abilityOf, effectiveStat, computeDamage, recruitChance, xpReward, canUseItemOn, applyItemToMon,
@@ -3208,6 +3528,56 @@ function buildTileSprites() {
     p.tri(1, 4, 5, 8, 1, 8, '#2a78c8'); p.ell(9, 9, 7, 3, '#f4f4f4'); p.rect(4, 11, 10, 1, '#c8ccd8'); p.rect(2, 9, 13, 1, '#2a78c8');
     for (let x = 6; x < 14; x += 2) p.px(x, 8, '#2a3550'); p.rect(7, 11, 5, 2, '#a8acb8'); p.rect(14, 8, 2, 2, '#8fd0f0');
   });
+  // North decor (MZ-WORLD-02d): the marble mountain, the boulevard and the arena. No cross, no religious icon, no brand on any shop window.
+  make('%', function (p) { // a block of white marble on rock ground, with grey veins
+    drawGrassTexture(p, '#9a9684', 57);
+    p.rect(1, 3, 14, 11, '#5e5a4e'); p.rect(1, 2, 14, 11, '#eceae4'); p.rect(1, 2, 14, 2, '#fafaf6'); p.rect(1, 11, 14, 2, '#cfccc2');
+    p.line(3, 5, 8, 9, '#b8b4aa'); p.line(8, 9, 12, 7, '#b8b4aa'); p.px(5, 4, '#ffffff'); p.px(11, 10, '#a8a49a');
+  });
+  make('&', function (p) { // white marble steps
+    p.rect(0, 0, 16, 16, '#e8e6de');
+    for (let y = 0; y < 16; y += 4) { p.rect(0, y, 16, 1, '#faf8f2'); p.rect(0, y + 3, 16, 1, '#b8b4a8'); }
+    p.px(3, 5, '#cfccc0'); p.px(11, 10, '#cfccc0'); p.px(7, 14, '#cfccc0');
+  });
+  make('=', function (p) { // a clipped hedge on grass
+    drawGrassTexture(p, '#5fa650', 3);
+    p.rect(0, 3, 16, 11, '#1f5a2a'); p.rect(0, 3, 16, 3, '#2d7a3a'); p.rect(0, 11, 16, 3, '#174a22');
+    for (let x = 1; x < 16; x += 4) { p.px(x, 6, '#3f9a4c'); p.px(x + 2, 9, '#2a6a34'); }
+  });
+  make('>', function (p) { // a shop window: a striped awning over a glass display with a mannequin (no brand, no writing)
+    drawWallTile(p, false);
+    p.rect(0, 0, 16, 4, '#f2f2f2'); for (let x = 0; x < 16; x += 4) p.rect(x, 0, 2, 4, '#d8452f'); p.rect(0, 4, 16, 1, '#9a2f20');
+    p.rect(1, 6, 14, 9, '#34445e'); p.rect(2, 7, 12, 7, '#a8dcee'); p.rect(2, 7, 12, 2, '#d4f0f8');
+    p.rect(7, 8, 2, 2, '#f0c8a0'); p.rect(6, 10, 4, 4, '#e04f8a'); p.rect(3, 11, 2, 3, '#f4c430'); p.rect(11, 11, 2, 3, '#3a6ea5');
+  });
+  make('?', function (p) { // the island of a roundabout: a lawn with a stone kerb and a few flowers
+    drawGrassTexture(p, '#5fa650', 11);
+    p.rect(0, 0, 16, 1, '#c8c8d0'); p.rect(0, 15, 16, 1, '#c8c8d0'); p.rect(0, 0, 1, 16, '#c8c8d0'); p.rect(15, 0, 1, 16, '#c8c8d0');
+    p.px(4, 5, '#f4c430'); p.px(10, 9, '#e04f8a'); p.px(6, 12, '#f4f4f4'); p.px(12, 4, '#f4f4f4');
+  });
+  make('^', function (p) { // the arched roof of the arena: a pale curved cover with steel ribs
+    p.rect(0, 0, 16, 16, '#c6ccd8'); p.rect(0, 0, 16, 3, '#e4e8f0'); p.rect(0, 13, 16, 3, '#8a92a6');
+    for (let x = 2; x < 16; x += 5) p.rect(x, 0, 1, 16, '#7a849a');
+    p.rect(0, 7, 16, 1, '#a8b0c2');
+  });
+  make('_', function (p) { // scaffolding over the roof: poles, planks and cross bars
+    p.rect(0, 0, 16, 16, '#c6ccd8');
+    p.rect(1, 0, 2, 16, '#b0804a'); p.rect(13, 0, 2, 16, '#b0804a'); p.rect(0, 3, 16, 2, '#8a5a32'); p.rect(0, 10, 16, 2, '#8a5a32');
+    p.line(3, 5, 13, 10, '#6b4a2a'); p.line(13, 5, 3, 10, '#6b4a2a');
+  });
+  make(';', function (p) { // stage boards: dark wood with tape marks
+    p.rect(0, 0, 16, 16, '#3a2a46');
+    for (let x = 0; x < 16; x += 4) p.rect(x, 0, 1, 16, '#2a1c34');
+    p.rect(0, 0, 16, 1, '#5a4668'); p.px(5, 6, '#f4c430'); p.px(10, 11, '#ff4fa8'); p.px(12, 3, '#3fe0e8');
+  });
+  make(':', function (p) { // a speaker stack: two black cabinets with cones
+    p.rect(0, 0, 16, 16, '#3a2a46'); p.rect(2, 0, 12, 16, '#15151f'); p.rect(2, 0, 12, 1, '#4a4a5e');
+    p.ell(8, 5, 3, 3, '#33333f'); p.ell(8, 5, 1, 1, '#8a8a9a'); p.ell(8, 12, 3, 3, '#33333f'); p.ell(8, 12, 1, 1, '#8a8a9a');
+  });
+  make('!', function (p) { // a tennis court: red clay with white lines
+    p.rect(0, 0, 16, 16, '#c0583a'); p.px(3, 4, '#b04a30'); p.px(11, 11, '#b04a30'); p.px(8, 8, '#d06a48');
+    p.rect(0, 0, 16, 1, '#f4f4f4'); p.rect(0, 15, 16, 1, '#f4f4f4');
+  });
   buildHospitalTiles(make);
   make('~', function () {});
   waterFrames = [];
@@ -3261,6 +3631,14 @@ const LOOKS = {
   cryptoseller: { skin: '#f0c08a', hair: '#2a2a2a', top: '#3a3a58', pants: '#2a2a3a', style: 'pomp', glasses: true, phone: true, stripes: '#3fe0e8' },
   spotter: { skin: '#e8b88a', hair: '#4a3a2a', top: '#6a8a3a', pants: '#5a5a4a', style: 'short', hat: '#6a8a3a', glasses: true, phone: true },
   checkin: { skin: '#e8b88a', hair: '#4a3a2a', top: '#2a4a8a', pants: '#2a3a5a', style: 'bun', glasses: true, tie: '#f4c430' },
+  // Βόρεια (MZ-WORLD-02d): the people of the mountain road, the boulevard and the arena.
+  oldstar: { skin: '#e0a878', hair: '#cccccc', top: '#d8b030', pants: '#2a2a3a', style: 'pomp', glasses: true, mic: true, stripes: '#f4f4f4' },
+  gardener: { skin: '#d8a070', hair: '#8a8a8a', top: '#4a7a3a', pants: '#5a4a3a', style: 'short', hat: '#c8b070', brim: '#a89050', apron: '#6a4a2a' },
+  tennis: { skin: '#f0c08a', hair: '#e8c060', top: '#f4f4f4', pants: '#f4f4f4', style: 'long', hat: '#3fa850', brim: '#2a7a3a', skirt: true },
+  contestant: { skin: '#e8b88a', hair: '#c0408a', top: '#f08a30', pants: '#2a2a3a', style: 'long', phone: true, stripes: '#f4c430' },
+  lobbyist: { skin: '#e8b88a', hair: '#3a3a3a', top: '#2a3a5a', pants: '#1a1a2a', style: 'short', tie: '#c0392b', glasses: true, envelope: true },
+  usher: { skin: '#d8a070', hair: '#4a3a2a', top: '#8a1a3a', pants: '#1a1a2a', style: 'short', hat: '#8a1a3a', brim: '#f4c430', bowtie: '#f4c430' },
+  amartia: { skin: '#e8b88a', hair: '#40e0d0', top: '#15151f', pants: '#3a2a5a', style: 'pomp', glasses: true, hat: '#15151f', brim: '#ff4fa8', stripes: '#ff4fa8' },
   faia: { skin: '#f0c08a', hair: '#e050c0', top: '#f4f4f4', pants: '#40c8e0', style: 'long', phone: true, glasses: true, skirt: true, stripes: '#c040a0' },
 };
 function drawCharFrame(p, ox, oy, look, dir, frame) {
@@ -3543,6 +3921,62 @@ const creatureDrawers = {
     p.rect(11, 16, 10, 2, '#f4c430'); p.rect(11, 18, 2, 4, '#f4c430'); p.rect(19, 18, 2, 4, '#f4c430'); p.ell(16, 23, 3, 3, '#f4c430'); p.ell(16, 23, 2, 2, '#fff2a0'); // a heavy chain with a medallion
     p.rect(0, 11, 10, 12, '#f4c430'); p.rect(1, 12, 8, 10, '#2a2a3e'); // the frame
     p.rect(2, 13, 2, 2, '#3fe0e8'); p.rect(4, 13, 2, 2, '#ff4fa8'); p.rect(6, 13, 2, 2, '#3fe0e8'); p.rect(2, 15, 6, 2, '#ff4fa8'); p.rect(2, 17, 2, 2, '#f4c430'); p.rect(6, 17, 2, 2, '#3fe0e8'); p.rect(3, 19, 4, 2, '#3fe0e8'); // pixel art
+  },
+  star90: function (p) { // a star of the 90s: a huge permed blonde mane, a magenta jacket with shoulder pads and a microphone
+    humanoid(p, { suit: '#c04aa8', shirt: '#f4f4f4', cheeks: '#f0808a', pants: '#2a2a4a' });
+    p.rect(5, 15, 5, 4, '#c04aa8'); p.rect(22, 15, 5, 4, '#c04aa8'); p.rect(5, 15, 5, 1, '#f4c430'); p.rect(22, 15, 5, 1, '#f4c430'); // shoulder pads
+    p.ell(16, 3, 10, 5, '#f0c860'); p.rect(6, 3, 20, 5, '#f0c860'); p.rect(5, 5, 4, 12, '#f0c860'); p.rect(23, 5, 4, 12, '#f0c860'); // the mane
+    p.rect(9, 8, 6, 3, '#15151f'); p.rect(17, 8, 6, 3, '#15151f'); p.rect(15, 9, 2, 1, '#15151f'); p.rect(14, 13, 4, 1, '#d03060'); // sunglasses and lips
+    p.rect(11, 18, 10, 2, '#f4c430'); p.px(13, 19, '#fff2a0'); p.px(18, 19, '#fff2a0'); // sequins
+    p.rect(26, 12, 2, 10, '#555566'); p.ell(27, 10, 3, 3, '#aaaab8'); p.px(26, 9, '#e8e8f0'); // the microphone
+  },
+  rialito: function (p) { // a reality-show bruiser: sleeveless top, a red headband, huge arms, a camera light on the shoulder
+    humanoid(p, { suit: '#34445e', cheeks: '#e8887a', pants: '#2a2a3a' });
+    p.rect(3, 16, 5, 10, '#e0a878'); p.rect(24, 16, 5, 10, '#e0a878'); p.rect(3, 16, 5, 2, '#34445e'); p.rect(24, 16, 5, 2, '#34445e'); // bare muscular arms
+    p.rect(10, 3, 12, 4, '#2a1c14'); p.rect(9, 6, 14, 2, '#c0392b'); p.rect(22, 6, 4, 2, '#c0392b'); p.rect(24, 8, 2, 3, '#c0392b'); // hair and the red headband
+    eyes(p, 9); p.rect(14, 13, 4, 1, '#7a2a2a'); p.rect(11, 8, 3, 1, '#2a1c14'); p.rect(18, 8, 3, 1, '#2a1c14');
+    p.rect(22, 9, 8, 6, '#15151f'); p.rect(28, 10, 3, 4, '#3a3a4a'); p.px(23, 10, '#e0483e'); p.px(24, 10, '#e0483e'); // the shoulder camera with its red light
+    p.rect(12, 18, 8, 4, '#4a5a7a'); p.rect(14, 19, 4, 2, '#f4f4f4'); // a number patch
+  },
+  lobbylykaina: function (p) { // a lobbyist: sharp grey suit, grey hair in two wolf-ear tufts, a briefcase with a banknote sticking out
+    humanoid(p, { suit: '#5a6a80', shirt: '#f4f4f4', tie: '#c0392b', cheeks: '#e8887a', pants: '#2a2a3a' });
+    p.rect(9, 2, 14, 5, '#9a9aa6'); p.tri(9, 3, 8, 0, 12, 3, '#9a9aa6'); p.tri(23, 3, 24, 0, 20, 3, '#9a9aa6'); p.rect(7, 5, 3, 10, '#9a9aa6'); p.rect(22, 5, 3, 10, '#9a9aa6'); // hair and the two tufts
+    p.rect(10, 8, 5, 3, '#222'); p.rect(17, 8, 5, 3, '#222'); p.rect(11, 9, 3, 1, '#d0e8f4'); p.rect(18, 9, 3, 1, '#d0e8f4'); p.rect(15, 9, 2, 1, '#222'); // glasses
+    p.rect(14, 13, 4, 1, '#a02030'); p.px(13, 12, '#a02030'); p.px(18, 12, '#a02030');
+    p.rect(21, 20, 10, 8, '#4a3a2a'); p.rect(21, 20, 10, 1, '#6a5a4a'); p.rect(24, 18, 4, 2, '#4a3a2a'); p.rect(23, 17, 6, 3, '#6ab86a'); p.px(26, 18, '#2a6a2a'); // briefcase, banknote
+  },
+  giotarchis: function (p) { // a yacht owner: a white captain's jacket with gold buttons, a white cap, a ship's wheel
+    humanoid(p, { suit: '#f4f4f4', shirt: '#2a3a6a', cheeks: '#e8887a', pants: '#d8d0b8' });
+    p.rect(8, 16, 16, 2, '#2a3a6a'); p.rect(8, 20, 16, 1, '#2a3a6a'); p.px(13, 22, '#f4c430'); p.px(18, 22, '#f4c430'); p.px(13, 24, '#f4c430'); p.px(18, 24, '#f4c430'); // stripes and buttons
+    p.rect(9, 0, 14, 5, '#f4f4f4'); p.rect(7, 4, 18, 2, '#1a2a5a'); p.ell(16, 2, 2, 2, '#f4c430'); // the cap
+    p.rect(10, 8, 12, 3, '#222'); p.rect(11, 9, 4, 1, '#9fd4ff'); p.rect(17, 9, 4, 1, '#9fd4ff'); p.rect(14, 13, 4, 1, '#7a2a2a'); p.rect(12, 12, 8, 1, '#d8d8d8'); // shades, moustache
+    p.ell(26, 16, 5, 5, '#8a5a32'); p.ell(26, 16, 3, 3, '#e8f4ff'); p.rect(25, 9, 2, 14, '#8a5a32'); p.rect(19, 15, 14, 2, '#8a5a32'); // the ship's wheel
+  },
+  yperypourgos: function (p) { // the super-minister: a red cape, a navy suit with the sash of many offices, fourteen small badges in rows, a briefcase
+    humanoid(p, { suit: '#1d3278', shirt: '#ffffff', tie: '#d03030', cheeks: '#e8887a' });
+    p.rect(5, 15, 3, 14, '#c0392b'); p.rect(24, 15, 3, 14, '#c0392b'); p.rect(4, 26, 5, 3, '#a02a20'); p.rect(23, 26, 5, 3, '#a02a20'); // the cape behind the shoulders
+    p.ell(16, 4, 7, 3, '#4a2a1a'); p.rect(9, 4, 14, 3, '#4a2a1a'); p.rect(9, 6, 2, 3, '#bdbdc4'); p.rect(21, 6, 2, 3, '#bdbdc4');
+    eyes(p, 8); p.rect(14, 13, 4, 1, '#7a2a2a'); p.px(13, 12, '#7a2a2a'); p.px(18, 12, '#7a2a2a');
+    p.line(11, 17, 20, 25, '#f4c430'); p.line(12, 17, 21, 25, '#f4c430'); // sash
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 5; col++) p.px(12 + col * 2, 19 + row * 2, (row + col) % 2 ? '#f4c430' : '#e8e8f0'); // the badges
+    p.rect(1, 22, 9, 7, '#6a4a2a'); p.rect(3, 20, 5, 2, '#6a4a2a'); p.rect(1, 22, 9, 1, '#8a6a4a'); p.px(5, 25, '#f4c430'); // briefcase
+  },
+  matanthropos: function (p) { // the riot-police man in full armour: a visor helmet, chest plate, a tall shield, a baton
+    humanoid(p, { suit: '#1a2238', shirt: '#2a3452', cheeks: '#e8887a', pants: '#1a2238' });
+    p.rect(5, 15, 6, 6, '#2a3452'); p.rect(21, 15, 6, 6, '#2a3452'); p.rect(11, 16, 10, 8, '#3a4666'); p.rect(11, 16, 10, 1, '#5a6686'); p.rect(15, 17, 2, 6, '#2a3452'); // armour plate
+    p.rect(8, 0, 16, 9, '#222a44'); p.rect(7, 4, 18, 3, '#222a44'); p.rect(9, 6, 14, 3, '#5a8ab0'); p.rect(9, 6, 14, 1, '#8ac0e8'); p.rect(15, 7, 2, 4, '#222a44'); // helmet and visor
+    p.rect(12, 12, 8, 3, '#222a44'); p.rect(14, 13, 4, 1, '#7a2a2a');
+    p.rect(0, 10, 8, 20, '#2a3452'); p.rect(1, 11, 6, 18, '#9fd4ff'); p.line(2, 13, 5, 22, '#e8f8ff'); p.rect(0, 10, 8, 1, '#5a6686'); p.rect(0, 29, 8, 1, '#5a6686'); // the tall shield
+    p.rect(25, 6, 3, 22, '#222'); p.rect(26, 6, 1, 22, '#4a4a5a'); p.rect(25, 24, 3, 4, '#555566'); // the baton
+  },
+  despotakis: function (p) { // the little bishop: a black robe, a tall black hat with a veil, a white beard, mirrored shades, a golden staff with a disco ball (no cross)
+    humanoid(p, { suit: '#241c34', longRobe: true, shirt: '#f4f4f4', cheeks: '#e8887a' });
+    p.rect(10, 15, 12, 2, '#f4f4f4'); p.rect(13, 17, 6, 13, '#e0b020'); p.rect(14, 18, 4, 11, '#f4d86a'); p.rect(13, 22, 6, 1, '#a07810'); // collar and a broad golden stole
+    p.rect(10, 0, 12, 6, '#15151f'); p.rect(8, 5, 16, 2, '#15151f'); p.rect(8, 6, 3, 8, '#15151f'); p.rect(21, 6, 3, 8, '#15151f'); // the tall hat with its veil
+    p.rect(10, 8, 12, 3, '#3a3a5a'); p.rect(11, 8, 4, 1, '#9fe8ff'); p.rect(17, 8, 4, 1, '#ff9fe8'); // mirrored shades
+    p.rect(12, 12, 8, 7, '#e8e8f0'); p.rect(14, 13, 4, 1, '#8a8a96'); p.rect(13, 16, 6, 2, '#cfcfda'); // the long white beard
+    p.rect(27, 8, 2, 22, '#e0b020'); p.rect(27, 8, 1, 22, '#f4d86a'); p.ell(28, 5, 4, 4, '#d8d8e8'); p.px(26, 4, '#8a8aa0'); p.px(28, 3, '#8a8aa0'); p.px(30, 5, '#8a8aa0'); p.px(27, 7, '#8a8aa0'); // the staff and its disco ball
+    p.px(2, 6, '#ffffff'); p.px(3, 12, '#ff9fe8'); p.px(2, 20, '#9fe8ff'); // sparkles
   },
   spyradonis: function (p) {
     humanoid(p, { suit: '#202026', shirt: '#ffffff', tie: '#f4c430', skin: '#e0805a' });
@@ -5614,13 +6048,13 @@ ShopLayer.prototype.draw = function () {
   ctx.font = FONT;
   drawText(T('shop.title'), 8, 4, COLOR.white);
   drawText(this.moneyText, 232, 4, COLOR.gold, 'right');
-  drawPanel(4, 16, 232, 100); // room for eight items (the Νότια kiosks)
+  drawPanel(4, 16, 232, 103); // room for nine items (the Βόρεια kiosks), 11 px a row
   for (let i = 0; i < this.stock.length; i++) {
     const id = this.stock[i];
-    if (i === this.cursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(10, 24 + i * 12, 3, 6); }
-    drawText(T('item.' + id), 18, 22 + i * 12, COLOR.ink);
-    drawText('x' + (G.bag[id] || 0), 150, 22 + i * 12, COLOR.gray, 'right');
-    drawText(String(ITEMS[id].price), 226, 22 + i * 12, COLOR.ink, 'right');
+    if (i === this.cursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(10, 24 + i * 11, 3, 6); }
+    drawText(T('item.' + id), 18, 22 + i * 11, COLOR.ink);
+    drawText('x' + (G.bag[id] || 0), 150, 22 + i * 11, COLOR.gray, 'right');
+    drawText(String(ITEMS[id].price), 226, 22 + i * 11, COLOR.ink, 'right');
   }
   drawPanel(4, 120, 232, 36);
   for (let i = 0; i < this.descLines.length; i++) drawText(this.descLines[i], 10, 125 + i * 9, COLOR.ink);
@@ -6935,6 +7369,167 @@ async function selfTest() {
         if (G.party[0].sp !== to || G.dex.got[to] !== true) evolved.push(from + '>' + G.party[0].sp);
       }
       check('the three evolutions of 11.3 happen through the game (Δημοσιοϋπαλληλάκι 20, Story-ούλα 22, Κρυπτο-Μάκης 26) and the dossier knows the new forms', evolved.length === 0, evolved.join(','));
+    });
+    await guard('voreia', async function () {
+      if (!G) throw new Error('no game');
+      const world = layers.find(function (l) { return l instanceof OverworldLayer; });
+      const topLayer = function () { return layers[layers.length - 1]; };
+      const settle = function () { return pumpUntil(function () { return !world.busy && topLayer() === world; }, 600, null, 1); };
+      const arrive = function (mapId, x, y) { return pumpUntil(function () { return world.mapId === mapId && world.px === x && world.py === y && Fade.alpha === 0 && !world.busy; }, 400, null, 1); };
+      // The gate: the east end of the Σπάτα street is shut without the Boarding Medal and leads to route 7 with it.
+      delete G.flags.badge_anatolika;
+      world.loadMap('spata', 26, 9, 'right');
+      await settle();
+      Input.inject('right', 12);
+      await pumpFrames(24);
+      check('Σπάτα: the road to Βόρεια is shut without the Boarding Medal', world.mapId === 'spata' && world.px === 26, world.mapId + ' ' + world.px);
+      G.flags.badge_anatolika = true;
+      Input.inject('right', 12);
+      check('Σπάτα: with the Boarding Medal the street leads to route 7 (the marble mountain)', await arrive('route7', 30, 14), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('right', 12);
+      check('route 7 leads back to the east end of Σπάτα', await arrive('spata', 26, 9), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('route7', 1, 3, 'left');
+      await settle();
+      Input.inject('left', 12);
+      check('route 7 leads into Κηφισιά', await arrive('kifisia', 24, 9), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('right', 12);
+      check('Κηφισιά leads back to route 7', await arrive('route7', 1, 3), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('kifisia', 1, 9, 'left');
+      await settle();
+      Input.inject('left', 12);
+      check('Κηφισιά leads on to route 8 (the boulevard)', await arrive('route8', 42, 6), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('route8', 1, 6, 'left');
+      await settle();
+      Input.inject('left', 12);
+      check('route 8 leads into Μαρούσι', await arrive('marousi', 26, 9), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('right', 12);
+      check('Μαρούσι leads back to route 8', await arrive('route8', 1, 6), world.mapId + ' ' + world.px + ',' + world.py);
+      // Every new map paints the screen, and every new species has a sprite.
+      const paintsScreen = function () {
+        renderFrame();
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let lit = 0;
+        for (let i = 0; i < pixels.length; i += 16) if (pixels[i] !== 0 || pixels[i + 1] !== 0 || pixels[i + 2] !== 0) lit++;
+        return lit > pixels.length / 16 * 0.25;
+      };
+      const painted = [];
+      for (const [mapId, x, y] of [['route7', 18, 14], ['kifisia', 12, 9], ['kifisia_hospital', 5, 5], ['kifisia_shop', 3, 3], ['kifisia_cafe', 4, 5], ['route8', 10, 6], ['marousi', 12, 9], ['marousi_hospital', 5, 5], ['marousi_shop', 3, 3], ['marousi_boss', 6, 6]]) {
+        world.loadMap(mapId, x, y, 'up');
+        await settle();
+        await pumpFrames(2);
+        if (!paintsScreen()) painted.push(mapId);
+      }
+      check('the ten new maps paint the screen', painted.length === 0, painted.join(','));
+      const newSpecies = ['star90', 'rialito', 'lobbylykaina', 'giotarchis', 'yperypourgos', 'matanthropos', 'despotakis'];
+      const noSprite = newSpecies.filter(function (id) { const sprite = creatureSprite(id); return !sprite || sprite.width < 16; });
+      check('the seven new creatures have a sprite', noSprite.length === 0, noSprite.join(','));
+      // Κηφισιά: the hospital heals and becomes the return point; the café saves. Μαρούσι: its hospital heals; the kiosk opens with the nine items and sells the new one.
+      world.loadMap('kifisia_hospital', 4, 3, 'up');
+      await settle();
+      const lead = G.party[0];
+      lead.hp = 1; G.bag.fakelaki = 0;
+      G.lastHeal = { map: 'hospital', x: 5, y: 7, dir: 'up' };
+      Input.inject('a', 2);
+      const healed = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('Κηφισιά: the hospital heals the team and becomes the black-out spot', healed && G.lastHeal.map === 'kifisia_hospital', JSON.stringify(G.lastHeal));
+      world.loadMap('kifisia_cafe', 3, 3, 'up');
+      await settle();
+      delete Store.memory[SAVE_KEY];
+      Input.inject('a', 2);
+      const savedAtCafe = await pumpUntil(function () { return !world.busy && Store.memory[SAVE_KEY] !== undefined; }, 1800, 'a', 6);
+      check('Κηφισιά: the café «Ο Πλάτανος» saves the game', savedAtCafe && migrateSave(JSON.parse(Store.memory[SAVE_KEY])).player.map === 'kifisia_cafe', String(savedAtCafe));
+      world.loadMap('marousi_hospital', 4, 3, 'up');
+      await settle();
+      lead.hp = 1;
+      Input.inject('a', 2);
+      const healedTwo = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('Μαρούσι: the hospital heals the team and becomes the black-out spot', healedTwo && G.lastHeal.map === 'marousi_hospital', JSON.stringify(G.lastHeal));
+      world.loadMap('marousi_shop', 3, 3, 'up');
+      await settle();
+      Input.inject('a', 2);
+      await pumpUntil(function () { return topLayer() instanceof ShopLayer; }, 600, 'a', 6);
+      const shopLayer = topLayer();
+      check('the Μαρούσι kiosk opens with nine items, the Χοντρός Φάκελος last', shopLayer instanceof ShopLayer && shopLayer.stock.length === 9 && shopLayer.stock[8] === 'chontros' && shopStockOf(MAPS.kifisia_shop).length === 9, shopLayer.stock ? shopLayer.stock.length : 'no shop');
+      G.money = 1000; G.bag.chontros = 0;
+      for (let i = 0; i < 8; i++) { Input.inject('down', 2); await pumpFrames(6); }
+      Input.inject('a', 2);
+      await pumpFrames(6);
+      check('buying the Χοντρός Φάκελος (600) takes the money and fills the bag', G.bag.chontros === 1 && G.money === 400, G.bag.chontros + ' ' + G.money);
+      Input.inject('b', 2);
+      await pumpUntil(function () { return !world.busy && topLayer() === world; }, 600, 'a', 6);
+      // The boss: a won fight through the real code gives the prize, the First Row Medal, no chapter card and no credits roll; the boost mark shows for no creature of hers.
+      world.loadMap('marousi_boss', 6, 4, 'up');
+      await settle();
+      G.party.length = 1;
+      G.party[0] = makeMon('despotakis', 50);
+      G.starter = 'psaltak';
+      G.money = 0; delete G.flags.badge_voreia; delete G.flags.t_amartia; G.flags.badge = true; G.flags.badge_notia = true; G.flags.badge_anatolika = true; delete G.flags.credits;
+      const boss = world.visibleNpcs().find(function (npc) { return npc.def.id === 'amartia'; });
+      let sawBadge = false; let sawCard = false; let sawCredits = false; let finished = false; let sawMark = false; let markOnPlayer = false;
+      world.busy = true; // as the game does while a scene runs: the A presses of this test do not start a second talk
+      world.challenge(boss, false).then(function () { world.busy = false; finished = true; });
+      await pumpUntil(function () {
+        sawBadge = sawBadge || layers.some(function (l) { return l instanceof BadgeLayer; });
+        sawCard = sawCard || layers.some(function (l) { return l instanceof ChapterLayer; });
+        sawCredits = sawCredits || layers.some(function (l) { return l instanceof CreditsLayer; });
+        sawMark = sawMark || layers.some(function (l) { return l instanceof BattleLayer && l.views[1].boostMark > 0; });
+        markOnPlayer = markOnPlayer || layers.some(function (l) { return l instanceof BattleLayer && l.views[0].boostMark > 0; });
+        return finished;
+      }, 12000, 'a', 6);
+      const markFoes = [];
+      for (const trainerId of Object.keys(TRAINERS)) {
+        const marked = buildTrainerTeam(trainerId, 'komma').some(function (mon) { return boostMarkOffset(mon, 'Lv 20') > 0; });
+        if (marked !== !!TRAINERS[trainerId].boost) markFoes.push(trainerId);
+      }
+      check('the boost mark shows beside the level of the creatures of a boosted boss only (not the player\'s, not any other trainer\'s) and the boss fight showed it when he has one', !markOnPlayer && markFoes.length === 0 && sawMark === !!TRAINERS.amartia.boost, [sawMark, markOnPlayer, markFoes.join(',')].join(' '));
+      check('the boss fight is won through the UI: prize 32 x 30 + 200, the flag badge_voreia, the badge card, no chapter card, no credits roll', finished && G.flags.t_amartia === true && G.flags.badge_voreia === true && sawBadge && !sawCard && !sawCredits && !G.flags.credits && G.money === 1160,
+        [finished, G.flags.t_amartia, G.flags.badge_voreia, sawBadge, sawCard, sawCredits, G.flags.credits, G.money].join(' '));
+      // The map shows Βόρεια: both routes as lines with the marker, the towns told about and visited, the district cleared.
+      const openMap = async function () { MIZAMON.press('map', 2); await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1); await pumpFrames(3); return topLayer(); };
+      const closeMap = async function () { Input.inject('b', 2); await settle(); };
+      G.world.visited = {}; G.world.routes = {}; G.world.seen = {}; G.world.stops = {};
+      world.loadMap('route7', 18, 14, 'left');
+      await settle();
+      let screen = await openMap();
+      check('on route 7 the marker is on its line (right to left), the route is walked, Κηφισιά is told about', screen.marker.onRoute && screen.marker.id === 'route7' && Math.abs(screen.marker.fraction - (1 - 18.5 / 32)) < 1e-9 && G.world.routes.route7 === 1 && placeState(G.world, 'kifisia') === 'seen', JSON.stringify(screen.marker));
+      await closeMap();
+      world.loadMap('route8', 20, 6, 'left');
+      await settle();
+      screen = await openMap();
+      check('on route 8 the marker is on its line and Μαρούσι is told about', screen.marker.onRoute && screen.marker.id === 'route8' && Math.abs(screen.marker.fraction - (1 - 20.5 / 44)) < 1e-9 && placeState(G.world, 'marousi') === 'seen', JSON.stringify(screen.marker));
+      await closeMap();
+      world.loadMap('kifisia', 12, 9, 'right');
+      await settle();
+      screen = await openMap();
+      check('in Κηφισιά the marker stands on the town and the town is visited', screen.marker.id === 'kifisia' && placeState(G.world, 'kifisia') === 'visited' && worldCandidates(G.world).includes('kifisia'), JSON.stringify(screen.marker));
+      await closeMap();
+      world.loadMap('marousi', 12, 9, 'right');
+      await settle();
+      screen = await openMap();
+      for (let i = 0; i < 10 && screen.cursor !== 'marousi'; i++) { Input.inject('left', 2); await pumpFrames(3); }
+      check('Μαρούσι is visited, its cursor can be reached, and the district shows as cleared with the First Row Medal', screen.marker.id === 'marousi' && placeState(G.world, 'marousi') === 'visited' && screen.cursor === 'marousi' && districtState(G.world, 'voreia') === 'cleared' && G.world.badges.voreia === 1, screen.cursor + ' ' + districtState(G.world, 'voreia'));
+      await closeMap();
+      // The texts fit, every item name fits the shop column, and the evolutions of 11.3 work: Λαϊκατζής at 27, Εφοπλιστάκος at 30, the starters' middle forms at 32.
+      const language = OPT.lang;
+      const tooWide = [], noName = [];
+      ctx.font = FONT;
+      for (const lang of ['el', 'en']) {
+        for (const key of ['badge.voreia.title', 'badge.voreia.sub']) if (ctx.measureText(lookupString(key, lang)).width > 232) tooWide.push(lang + ' ' + key);
+        for (const mapId of Object.keys(MAPS)) if (/^(route7|route8|kifisia|marousi)/.test(mapId) && ctx.measureText(lookupString(MAPS[mapId].name, lang)).width > 232) tooWide.push(lang + ' ' + mapId);
+        for (const id of ITEM_IDS) if (ctx.measureText(lookupString('item.' + id, lang)).width > SHOP_NAME_MAX_W) tooWide.push(lang + ' item ' + id);
+        for (const id of newSpecies) if (ctx.measureText(lookupString('sp.' + id, lang)).width < 1) noName.push(lang + ' ' + id);
+      }
+      OPT.lang = language;
+      check('the First Row Medal texts, the names of the new maps and every item name (116 px) fit in both languages', tooWide.length === 0, tooWide.join(','));
+      check('the seven new creatures have a dossier text in both languages', noName.length === 0, noName.join(','));
+      const evolved = [];
+      for (const [from, level, to] of [['laikatzis', 27, 'star90'], ['efoplistakos', 30, 'giotarchis'], ['vouleftakos', 32, 'yperypourgos'], ['batsonos', 32, 'matanthropos'], ['diakosdisko', 32, 'despotakis']]) {
+        G.party[0] = makeMon(from, level);
+        runEvolutions();
+        await pumpUntil(function () { return G.party[0].sp === to && topLayer() === world; }, 600, null, 1);
+        if (G.party[0].sp !== to || G.dex.got[to] !== true) evolved.push(from + '>' + G.party[0].sp);
+      }
+      check('the five evolutions of 11.3 happen through the game (Λαϊκατζής 27, Εφοπλιστάκος 30, the three starters 32) and the dossier knows the new forms', evolved.length === 0, evolved.join(','));
     });
     await guard('map touch button', async function () {
       // The ΧΑΡΤΗΣ pill: shown, inside the window, off the game picture and clear of every other button (checked in the layout this window has).
