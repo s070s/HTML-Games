@@ -16633,11 +16633,11 @@ const SelfTest = {
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     /* (5) and (6) play the P18-61 duels on the Press and Mash scripts (staminaFight above); the seeds are fixed, so the numbers are the same on every run. */
-    test('Stamina feel (P19-16): (5) the CPU still rests when low - in the long duel at Hard (Health Double, the Press script, seeds 1 to 12) its foe is under 25 % of the tank for 15 to 40 % of the fight (21.9 % over 200 seeds in the P19-16 probe)', () => {
+    test('Stamina feel (P19-16): (5) the CPU still rests when low - in the long duel at Hard (Health Double, the Press script, seeds 1 to 12) its foe is under 25 % of the tank for 29 to 39 % of the fight (33.9 % measured here; 21.9 % over 200 seeds in the P19-16 probe)', () => {
       const sum = { fight: 0, foeLow: 0 };
-      for (let seed = 1; seed <= 12; seed++) { const r = staminaFight(pressScript(seed), 'hard', 'F1', seed); sum.fight += r.fight; sum.foeLow += r.foeLow; }   // one seed alone varies from 15 to 50 %, so a dozen seeds and a wide band: a CPU that stopped resting would sit far above it
+      for (let seed = 1; seed <= 12; seed++) { const r = staminaFight(pressScript(seed), 'hard', 'F1', seed); sum.fight += r.fight; sum.foeLow += r.foeLow; }   // one seed alone varies from 15 to 50 %, so a dozen seeds; the seeds are fixed, so the value is the same on every run
       const share = sum.foeLow / Math.max(1, sum.fight) * 100;
-      return sum.fight > 3000 && share >= 15 && share <= 40 ? true : 'the CPU foe is under 25 % for ' + share.toFixed(1) + ' % of ' + sum.fight + ' ticks, not 15 to 40 %';
+      return sum.fight > 3000 && share >= 29 && share <= 39 ? true : 'the CPU foe is under 25 % for ' + share.toFixed(1) + ' % of ' + sum.fight + ' ticks, not 29 to 39 %';   // measured 33.9 % over seeds 1 to 12 (2026-11-14), the band is that plus or minus 5 points
     });
     test('Stamina feel (P19-16): (6) the scripts - the Press script is under 25 % of its tank for 8 to 20 % of the long duel at Easy, Normal and Hard (seeds 1 to 8), and the Mash script wins no more than 30 % of the Easy long duel (24 seeds)', () => {
       const problems = [];
