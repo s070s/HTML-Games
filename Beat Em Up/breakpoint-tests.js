@@ -16741,12 +16741,18 @@ const SelfTest = {
       const sheets = typeof document !== 'undefined' && document.styleSheets;
       if (sheets && sheets.length) {   // a headless run has no stylesheet; a browser run reads the rules
         const text = [];
-        const read = (rules) => { for (const rule of Array.from(rules)) { text.push(rule.cssText); if (rule.cssRules) read(rule.cssRules); } };
+        let reducedStopsAnimation = false;
+        // Chrome writes "animation: none" back as the long form ("auto ease 0s 1 normal none running none"), so the .reduced rule is read through its style, not its text
+        const read = (rules) => { for (const rule of Array.from(rules)) {
+          text.push(rule.cssText);
+          if (rule.selectorText === '.reduced *' && rule.style && rule.style.getPropertyValue('animation-name').trim() === 'none' && rule.style.getPropertyPriority('animation-name') === 'important') reducedStopsAnimation = true;
+          if (rule.cssRules) read(rule.cssRules);
+        } };
         for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules); } catch (error) { /* a sheet from another origin */ } }
         const css = text.join(' ');
         if (!/@keyframes stPulse\b/.test(css) || !/@keyframes stPulseFast\b/.test(css)) problems.push('a pulse keyframe is missing');
         if (!/\.bar\.st\.low\s*\{[^}]*stPulse\b/.test(css) || !/\.bar\.st\.spent\s*\{[^}]*stPulseFast\b/.test(css)) problems.push('the low and spent bars do not pulse');
-        if (!/\.reduced \*\s*\{[^}]*animation:\s*none\s*!important/.test(css)) problems.push('.reduced does not stop animations');
+        if (!reducedStopsAnimation) problems.push('.reduced does not stop animations');
       }
       return problems.length ? problems.join('; ') : true;
     });
