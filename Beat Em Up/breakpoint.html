@@ -5426,7 +5426,7 @@ const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part
    HIT_TIER_AMP scales a row by the tier (1, 2, 3), Reduced motion halves it. The hold is the launch's first HIT_HOLD_TICKS[tier - 1] ticks: the flight's limbs wait and the brace shows, and the launch itself is the simulation's, on its own tick. */
 const LOOK = { SNAP: 0, FOLD: 1, BUCKLE: 2, ARCH: 3, STUMBLE: 4, WALL: 5, HOLD: 6, FACE_DOWN: 7, FACE_UP: 8, CRUMPLE: 9 };
 const LOOK_FRONT = 0, LOOK_BACK = 1, LOOK_SIDE = 2, LOOK_FRONT_DOT = 0.5; // where a blow came from, by the dot of its travel with the way the fighter faces (-1 = straight at the face)
-const HIT_TIER_AMP = [0.5, 1, 1.5], HIT_HOLD_TICKS = [0, 4, 6], LOOK_IN_TICKS = 2, LOOK_FLIGHT_IN = 4, LOOK_WALL_TICKS = 12;
+const HIT_TIER_AMP = [0.5, 1, 1.5], HIT_HOLD_TICKS = [0, 0, 6], LOOK_IN_TICKS = 2, LOOK_FLIGHT_IN = 4, LOOK_WALL_TICKS = 12, LOOK_LAND_FADE = 0.5; // LOOK_LAND_FADE (m): in a flight the fall's look and the wall pose are at full strength from this height above the footing up and fade to nothing at the footing
 const lookRow = (plain, side) => { const row = { joints: [], offsets: [], sideJoints: [], sideOffsets: [] }; for (const name in plain) { row.joints.push(J[name]); row.offsets.push(plain[name]); } for (const name in side) { row.sideJoints.push(J[name]); row.sideOffsets.push(side[name]); } return row; };
 const HIT_LOOK_ROWS = [
   lookRow({ headX: -0.5, torsoLean: -0.1, shLx: 0.12, shRx: 0.12 }, { headY: 0.45, torsoRoll: 0.08 }), // head snap
@@ -7901,8 +7901,9 @@ class Fighter {
     if (this.lookId >= 0) { const id = HIT_LOOK_GROUND[this.lookId]; this.addLook(p, id < 0 ? this.lookZone : id, a * Math.min(1, (this.stateTicks + 1) / LOOK_IN_TICKS)); }
     if (this.wallVis > 0) this.addLook(p, LOOK.WALL, this.wallVis);
   }
-  // The look of a flight (THROWN): a launch whose cell says hold keeps its brace for the first HIT_HOLD_TICKS[tier - 1] ticks (the flight's limbs come in as the hold fades; the flight itself is the simulation's and starts on its own tick), then the fall's row: face down from behind, face up from the front and the side, or the cell's own fall or crumple
+  // The look of a flight (THROWN): a launch whose cell says hold keeps its brace for the first HIT_HOLD_TICKS[tier - 1] ticks (the flight's limbs come in as the hold fades; the flight itself is the simulation's and starts on its own tick), then the fall's row: face down from behind, face up from the front and the side, or the cell's own fall or crumple. The fall and the wall pose fade out over the last LOOK_LAND_FADE m above the footing, so the body does not land with a limb through the floor
   flightLook(p, st) {
+    const clearance = clamp((this.y - this.groundY) / LOOK_LAND_FADE, 0, 1); // the fall's look and the wall pose fade out over the last LOOK_LAND_FADE m of the descent, so a limb they bend is never drawn into the floor as the body lands
     if (this.lookId >= 0) {
       const g = this.motion.guard, hold = this.lookId === LOOK.HOLD ? HIT_HOLD_TICKS[this.lookTier - 1] : 0, wait = st < hold ? 1 - st / hold : 0;
       if (wait > 0) {
@@ -7910,9 +7911,9 @@ class Fighter {
         this.addLook(p, LOOK.HOLD, wait);
       }
       const fall = this.lookId === LOOK.FACE_DOWN || this.lookId === LOOK.FACE_UP || this.lookId === LOOK.CRUMPLE ? this.lookId : this.lookDir === LOOK_BACK ? LOOK.FACE_DOWN : LOOK.FACE_UP;
-      this.addLook(p, fall, smoothstep(clamp((st + 1) / LOOK_FLIGHT_IN, 0, 1)));
+      this.addLook(p, fall, smoothstep(clamp((st + 1) / LOOK_FLIGHT_IN, 0, 1)) * clearance);
     }
-    if (this.wallVis > 0) this.addLook(p, LOOK.WALL, this.wallVis);
+    if (this.wallVis > 0) this.addLook(p, LOOK.WALL, this.wallVis * clearance);
   }
   // Once a frame, before the pose: holdVis (a chargeable press still held past the lowest point of its wind-up stays there; let go, a tap's pose catches up over CHARGE_POSE_BLEND ticks) and pauseVis (the pause pose)
   updateCueBlend(dt) {
@@ -8463,7 +8464,7 @@ const Combat = {
     const dir = dot < -LOOK_FRONT_DOT ? LOOK_FRONT : dot > LOOK_FRONT_DOT ? LOOK_BACK : LOOK_SIDE, level = clamp(tier || 1, 1, 3);
     def.lookId = pickLook(zone, level, dir, air, kind, def.wallHit);
     def.lookZone = zone; def.lookTier = level; def.lookDir = dir; def.lookSign = side < 0 ? -1 : 1;
-    if (def.state === S.KO || (def.state === S.THROWN && !air)) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on
+    if (!air && (def.state === S.KO || def.state === S.THROWN)) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on
   },
 
   // Whether att may strike or hit def with a thrown item at all, whatever the move: not while def is invulnerable, out, held in a submission by somebody else, in its wake-up grace, in a clinch or grapple, or flying in a knockdown (a juggle excepted)
@@ -21660,7 +21661,7 @@ function testApi() {
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
     ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
-    LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
+    LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_FADE, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
