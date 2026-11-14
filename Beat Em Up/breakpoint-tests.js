@@ -26714,10 +26714,11 @@ const SelfTest = {
         Input.rumble = keepRumble;
       } finally { Input.rumble = keepRumble; Input.lastDevice = keepDevice; Object.assign(Settings.v, keepV); if (keepVibrate) Object.defineProperty(navigator, 'vibrate', keepVibrate); else delete navigator.vibrate; }
       // the sounds, through the existing limiters (the wired handlers called with a ready sound and recording stand-ins)
-      const keepSound = {}, calls = [], keepForFighter = Inputs.forFighter;
+      const keepSound = {}, calls = [], keepForFighter = Inputs.forFighter, wiredBefore = Sound.wired, wiredOffs = [], realOn = Events.on;
       for (const name of ['ready', 'allow', 'at', 'tone', 'grunt', 'block', 'whoosh']) keepSound[name] = Sound[name];
       try {
-        Sound.wire(); Sound.ready = () => true; Sound.allow = () => true; Sound.at = () => {};
+        Sound.wired = false; Events.on = (name, fn) => { const off = realOn.call(Events, name, fn); wiredOffs.push(off); return off; }; Sound.wire(); Events.on = realOn;   // the handlers Sound.wire adds are taken off again after the test
+        Sound.ready = () => true; Sound.allow = () => true; Sound.at = () => {};
         Sound.tone = (...a) => calls.push(['tone', ...a]); Sound.grunt = (...a) => calls.push(['grunt', a[1], a[2]]); Sound.block = (...a) => calls.push(['block']); Sound.whoosh = (...a) => calls.push(['whoosh', a[4]]);
         Inputs.forFighter = (index) => (index === 0 ? Input : null);
         Events.emit('chargeStart', { f }); Events.emit('chargeLevel', { f, level: 1 }); Events.emit('chargeLevel', { f, level: 2 }); Events.emit('chargeCancel', { f });
@@ -26729,7 +26730,7 @@ const SelfTest = {
         if (calls.map((c) => c[1]).join() !== CHARGE_WHOOSH_BOOST_1914 + ',1') problems.push('the whoosh of a charged strike is not louder: ' + JSON.stringify(calls));
         calls.length = 0; Events.emit('pauseOpen', { f }); Events.emit('pauseOpen', { f: new Fighter(ROSTER_BY_ID.mara, 1) });
         if (calls.length !== 1 || calls[0][0] !== 'tone') problems.push('the pause tick is not for the person\'s own fighter only: ' + JSON.stringify(calls));
-      } finally { for (const name in keepSound) Sound[name] = keepSound[name]; Inputs.forFighter = keepForFighter; }
+      } finally { Events.on = realOn; wiredOffs.forEach((off) => off()); Sound.wired = wiredBefore; for (const name in keepSound) Sound[name] = keepSound[name]; Inputs.forFighter = keepForFighter; }
       // the ring: dots only while charging, white up to level 1 then the accent colour, a brighter dot at the edge for a few ticks at each level, none of that under Effects Low or Reduced motion
       { const keepPut = R.put, keepRing = f.drawChargeRing, v = Object.assign({}, Settings.v), puts = [];
         try {
