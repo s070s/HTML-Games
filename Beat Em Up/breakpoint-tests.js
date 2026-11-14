@@ -66,6 +66,7 @@ const {
   encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
   ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
   ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
+  LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -27641,6 +27642,270 @@ const SelfTest = {
       if (STANCE_TICKS !== 30 || STANCE_REARM_TICKS !== 90 || STAMINA_PRICE_K !== 1.15 || CHAIN_PRICE_K !== 1.8 || ATTACK_STRING_TICKS !== 48 || LOW_STAMINA !== 0.25) problems.push('a constant of the stamina, Sway or string rules moved');
       return problems.length ? problems.slice(0, 4).join('; ') : true;
     }, 120000);
+    /* ---------- Hit looks (P19-03) ----------
+       REFERENCE-breakpoint.md, Appendix C, "P19-03 decided" and "P19-03 built". Drawing only: the simulation reads none of it. Direct calls of Combat.look for the table, real hits for the zone, scripted launches and AI duels for the simulation. */
+    const LOOK_TABLE_DECIDED = '003300' + '083708' + '687768' + '113311' + '183748' + '687768' + '222222' + '299929' + '989798';   // zone (head, body, legs) x tier 1 to 3 x front, back, side x ground, air: the decided table, written out again here
+    const LOOK_DIRS = [[0, -1], [0, 1], [1, 0]];   // the travel of a blow that comes from the front, the back and the side of a fighter who faces +z
+    const LOOK_JOINT_LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.2], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 1.3]];   // the Calm poses' limits, except the lean of the torso and the nod of the head, which a blow takes further (the plain reaction already leans 0.69 and nods 0.6)
+    const lookFighter = (id = 'kai') => { const f = new Fighter(ROSTER_BY_ID[id], 0); f.x = f.z = 0; f.yaw = f.prevYaw = 0; return f; };
+    const lookTarget = (f, state, ticks) => { f.state = state; f.stateTicks = ticks; f.reactDur = 20; f.hitKind = 'mid'; f.animT = 0; f.computePose(); return Float32Array.from(f.tp); };   // the pose the joints blend toward, `ticks` into the reaction
+    const lookDistance = (a, b, p) => { const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]], t = clamp((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / (ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]), 0, 1); return Math.hypot(ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]); };   // from the point p to the segment a-b
+    test('Hit looks (P19-03): (1) the table: 54 cells (3 zones x 3 tiers x front/back/side x ground/air: the 36 of the task was a miscount) in the decided order, every one resolves to one of the ten poses and a hit with that data draws a pose of its own; a stagger stumbles and a cornered fighter shows the wall', () => {
+      const bad = [];
+      if (HIT_LOOK_TABLE !== LOOK_TABLE_DECIDED) bad.push('the table is not the decided one: ' + HIT_LOOK_TABLE);
+      if (HIT_LOOK_ROWS.length !== 10 || Object.keys(LOOK).length !== 10) bad.push('not ten poses');
+      HIT_LOOK_ROWS.forEach((row, id) => { if (row.joints.length < 4 || row.joints.length !== row.offsets.length || row.sideJoints.length !== row.sideOffsets.length || ![...row.offsets, ...row.sideOffsets].every(Number.isFinite)) bad.push('row ' + id + ' is not well formed'); });
+      const seen = new Set(), f = lookFighter();
+      let cells = 0;
+      for (let zone = 0; zone < 3; zone++) for (let tier = 1; tier <= 3; tier++) for (let dir = 0; dir < 3; dir++) for (let air = 0; air < 2; air++) {
+        if (lookIndex(zone, tier, dir, air) !== cells) bad.push('cell ' + cells + ' is at ' + lookIndex(zone, tier, dir, air));
+        const id = pickLook(zone, tier, dir, air, 'hit', false);
+        if (!Number.isInteger(id) || id < 0 || id > 9 || !HIT_LOOK_ROWS[id] || id !== HIT_LOOK_TABLE.charCodeAt(cells) - 48) { bad.push('cell ' + cells + ' resolves to ' + id); cells++; continue; }
+        seen.add(id);
+        f.lookId = -1; f.wallHit = false; f.state = S.IDLE; f.y = f.groundY = 0;
+        Combat.look(f, zone, tier, LOOK_DIRS[dir][0], LOOK_DIRS[dir][1], 'hit', air);   // the data of a blow
+        if (f.lookId !== id || f.lookDir !== dir || f.lookZone !== zone || f.lookTier !== tier) bad.push('cell ' + cells + ': Combat.look stored ' + [f.lookId, f.lookDir, f.lookZone, f.lookTier].join('/'));
+        const state = air || (id >= LOOK.HOLD && id <= LOOK.FACE_UP) ? S.THROWN : S.HIT;
+        const looked = lookTarget(f, state, 2); f.lookId = -1; const plain = lookTarget(f, state, 2);
+        let most = 0; for (let i = 0; i < NP; i++) most = Math.max(most, Math.abs(looked[i] - plain[i]));
+        if (!(most > 0.05)) bad.push('cell ' + cells + ' (pose ' + id + ') draws no look: ' + most.toFixed(3));
+        cells++;
+      }
+      if (cells !== 54) bad.push(cells + ' cells');
+      if (seen.size !== 9 || seen.has(LOOK.WALL)) bad.push('the table holds ' + [...seen].sort().join('') + ': nine poses and not the wall (it comes from the blow)');
+      if (pickLook(1, 2, LOOK_FRONT, 0, 'stagger', false) !== LOOK.STUMBLE || pickLook(2, 3, LOOK_FRONT, 0, 'stagger', false) !== LOOK.CRUMPLE || pickLook(0, 1, LOOK_FRONT, 0, 'stagger', false) !== LOOK.STUMBLE) bad.push('a stagger does not stumble (a crumple stays)');
+      if (pickLook(1, 2, LOOK_FRONT, 0, 'hit', true) !== LOOK.WALL || pickLook(1, 1, LOOK_FRONT, 0, 'hit', true) === LOOK.WALL || pickLook(1, 2, LOOK_FRONT, 1, 'hit', true) === LOOK.WALL) bad.push('the wall look: tier 2 or more, on the ground only');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Hit looks (P19-03): (2) the amplitude: the tier scales a pose (a tier 3 head snap is 3 times a tier 1 one, at least the 2 times asked), Reduced motion halves every joint of every pose, and a real head hit of tier 1 and of tier 3 shows the same', () => {
+      const bad = [], keep = Settings.v.reducedMotion;
+      try {
+        for (let id = 0; id < 10; id++) {
+          const offsets = (tier, reduced) => { Settings.v.reducedMotion = reduced; const f = lookFighter(); f.lookTier = tier; f.lookSign = 1; const p = new Float32Array(NP); f.addLook(p, id, 1); return p; };
+          const t1 = offsets(1, false), t3 = offsets(3, false), halved = offsets(2, true), full = offsets(2, false);
+          for (let i = 0; i < NP; i++) {
+            if (Math.abs(t3[i] - t1[i] * 3) > 1e-6) bad.push('pose ' + id + ' joint ' + i + ': tier 3 is ' + t3[i].toFixed(3) + ', tier 1 ' + t1[i].toFixed(3));
+            if (Math.abs(halved[i] - full[i] / 2) > 1e-6) bad.push('pose ' + id + ' joint ' + i + ': Reduced motion gives ' + halved[i].toFixed(3) + ', full ' + full[i].toFixed(3));
+          }
+        }
+        Settings.v.reducedMotion = false;
+        const fT1 = lookFighter(), fT3 = lookFighter(), plainF = lookFighter();
+        const head = (tier, f) => { f.lookId = LOOK.SNAP; f.lookTier = tier; f.lookZone = 0; f.lookDir = LOOK_FRONT; f.lookSign = 1; return lookTarget(f, S.HIT, 2)[J.headX]; };
+        plainF.lookId = -1; const base = lookTarget(plainF, S.HIT, 2)[J.headX];
+        const one = Math.abs(head(1, fT1) - base), three = Math.abs(head(3, fT3) - base);
+        if (!(one > 0.1) || !(three >= 2 * one)) bad.push('a tier 3 head snap moves the head ' + three.toFixed(3) + ' rad, tier 1 ' + one.toFixed(3));
+        // the real blow: a plain tier 1 and a plain tier 3 strike to the head, through Combat.landHit (the tier 3 is not a stagger or a launch, so the head snap shows on the feet)
+        const m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+        const real = (tier) => { zoneClear(d); d.hitKind = 'mid'; const mv = Object.assign({}, ATTACKS.jab, { tier, kind: 'hit', hitstun: 20, cv: 1.2 }); Combat.landHit(zoneStrike(a, d, mv), m); const id = d.lookId; const looked = lookTarget(d, S.HIT, 2)[J.headX]; d.lookId = -1; return { id, move: Math.abs(looked - lookTarget(d, S.HIT, 2)[J.headX]) }; };
+        const r1 = real(1), r3 = real(3);
+        if (r1.id !== LOOK.SNAP || r3.id !== LOOK.HOLD) bad.push('the real head hits pick ' + r1.id + ' and ' + r3.id + ', not the snap and the hold');
+        if (!(r3.move >= 2 * r1.move) || !(r1.move > 0.1)) bad.push('the real head hits move the head ' + r1.move.toFixed(3) + ' and ' + r3.move.toFixed(3));
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    // a scripted launch: the attacker throws `row` at the foe, who faces front, back or side to it; `stub` plays the game as it was before the looks (Combat.look does nothing, nothing is drawn); `draw` animates every fighter on every tick
+    const lookLaunch = (seed, row, stub) => {
+      const keepLook = Combat.look;
+      const m = mk({ playerId: 'kai', opponentId: 'mara', seed, evenDamage: true }), a = m.fighters[0], b = m.fighters[1];
+      const gap = 0.95 + 0.03 * (seed % 5), facing = [-Math.PI / 2, Math.PI / 2, 0][seed % 3];
+      a.x = a.prevX = -gap / 2; b.x = b.prevX = gap / 2; a.z = b.z = a.prevZ = b.prevZ = 0; a.yaw = a.prevYaw = Math.PI / 2; b.yaw = b.prevYaw = facing;
+      b.hp = b.maxHp = 9999;
+      const sums = [], held = []; let flight = -1;
+      if (stub) Combat.look = () => {};
+      try {
+        a.startAttack(ATTACKS[row]);
+        for (let t = 0; t < 70; t++) {
+          m.step();
+          if (!stub) m.fighters.forEach((f) => f.animate(1 / 60));
+          sums.push(matchChecksum(m));
+          if (flight < 0 && b.state === S.THROWN) flight = t;
+          if (b.state === S.THROWN && b.lookId === LOOK.HOLD && b.stateTicks < HIT_HOLD_TICKS[b.lookTier - 1]) held.push(b.stateTicks);
+        }
+      } finally { Combat.look = keepLook; }
+      return { sums, flight, held, look: b.lookId, lie: b.lieSign };
+    };
+    const LAUNCH_FLIGHTS = [10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16], LAUNCH_DIGESTS = [1322092143, 3999879970, 4169237130, 3224445399, 3954515623, 709060578, 1072663213, 3698127684, 1282502776, 3278585821, 832169909, 2016339234, 82717504, 3483591035, 783990641, 1353372134, 1598303249, 2333285930, 4196523008, 177821893];   // recorded from the build of e6dcae0 (before P19-03): the tick the flight starts and the digest of the matchChecksum of every tick, for the 20 seeded launches of lookLaunch
+    test('Hit looks (P19-03): (3) the delayed-launch hold lasts at most 6 ticks (4 at tier 2, none at tier 1) and never moves the launch: on 20 seeded launches (four moves, a foe who faces it, turns its back or stands sideways) the tick the flight starts, and the matchChecksum on every tick, are the same with the looks and without', () => {
+      const bad = [], ROWS = ['heavy_uppercut', 'uppercut', 'sweep', 'heavy_roundhouse'];
+      if (HIT_HOLD_TICKS.join() !== '0,4,6' || Math.max(...HIT_HOLD_TICKS) > 6) bad.push('the hold ticks are ' + HIT_HOLD_TICKS.join());
+      // the pose: the hold shows for its ticks and not one more (a hold of tier 3 against the fall's own look)
+      const f = lookFighter();
+      for (const tier of [2, 3]) for (const dir of [LOOK_FRONT, LOOK_SIDE]) {
+        for (let st = 0; st <= 12; st++) {
+          f.lookTier = tier; f.lookDir = dir; f.lookSign = 1; f.lookZone = 1; f.wallVis = 0;
+          f.lookId = LOOK.HOLD; const held = lookTarget(f, S.THROWN, st); f.lookId = LOOK.FACE_UP; const fall = lookTarget(f, S.THROWN, st);
+          let most = 0; for (let i = 0; i < NP; i++) most = Math.max(most, Math.abs(held[i] - fall[i]));
+          const showing = most > 1e-6;
+          if (showing !== st < HIT_HOLD_TICKS[tier - 1]) bad.push('tier ' + tier + ' the hold ' + (showing ? 'shows' : 'does not show') + ' at tick ' + st);
+        }
+      }
+      lookLaunch(0, 'uppercut', true);   // a warm-up: the first match after other tests starts from counters they left (matchChecksum holds Combat's counters), the later ones agree with each other
+      let launches = 0, flights = 0, heldMax = 0;
+      const gotFlights = [], gotDigests = [];
+      for (let seed = 1; seed <= 20; seed++) {
+        const row = ROWS[seed % ROWS.length], live = lookLaunch(seed, row, false), old = lookLaunch(seed, row, true);
+        launches++; gotFlights.push(live.flight); gotDigests.push(textDigest(live.sums.join()));
+        if (live.flight !== LAUNCH_FLIGHTS[seed - 1] || textDigest(live.sums.join()) !== LAUNCH_DIGESTS[seed - 1]) bad.push('seed ' + seed + ' ' + row + ': flight tick ' + live.flight + ', digest ' + textDigest(live.sums.join()) + '; the build of e6dcae0 (before the looks) had ' + LAUNCH_FLIGHTS[seed - 1] + ' and ' + LAUNCH_DIGESTS[seed - 1]);
+        if (live.flight !== old.flight) bad.push('seed ' + seed + ' ' + row + ': the flight starts on tick ' + live.flight + ', it was ' + old.flight);
+        if (live.sums.join() !== old.sums.join()) bad.push('seed ' + seed + ' ' + row + ': the matchChecksum differs from the build without looks');
+        if (live.flight >= 0) flights++;
+        heldMax = Math.max(heldMax, live.held.length ? Math.max(...live.held) + 1 : 0);
+      }
+      if (flights < 16) bad.push('only ' + flights + ' of ' + launches + ' scripted blows launched');
+      if (heldMax > 6) bad.push('a hold drew for ' + heldMax + ' ticks');
+      if (bad.length) bad.unshift('actual: [' + gotFlights.join() + '] [' + gotDigests.join() + ']');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    const lookAiRun = (seed, ids, stub) => {
+      const keepLook = Combat.look, keepHandlers = Events.handlers;
+      Events.handlers = {};
+      const m = mk({ playerId: ids[0], opponentId: ids[1], seed, evenDamage: true, timer: 30, winsNeeded: 1 });
+      const sums = []; let looked = 0, walled = 0;
+      if (stub) Combat.look = () => {};
+      try {
+        m.fighters.forEach((f, i) => { m.controllers[i] = new AIController(f.profile, 'hard'); });
+        while (m.phase !== 'matchEnd' && m.tick < 1500) {
+          m.step();
+          if (m.phase === 'waiting') { m.startRound(); continue; }
+          if (!stub) m.fighters.forEach((f) => { f.animate(1 / 60); if (f.lookId >= 0) looked++; if (f.wallVis > 0) walled++; });
+          sums.push(matchChecksum(m));
+        }
+      } finally { Combat.look = keepLook; Events.handlers = keepHandlers; }
+      return { sums, looked, walled, ticks: m.tick };
+    };
+    const DUEL_DIGESTS = [2343914104, 2585446417, 30721506, 4131735585, 1292059153, 2572673044, 3592502570, 3937864817];   // recorded from the build of e6dcae0 (before P19-03): the digest of the matchChecksum of every tick of the eight duels of lookAiRun
+    test('Hit looks (P19-03): (4) nothing the simulation reads changed: eight seeded AI duels (every tick drawn) have the same matchChecksum on every tick as the same duels without the looks; the new functions use no sine-type call and no random draw, and matchChecksum reads no look field (a simulation that read one would differ between the two runs)', () => {
+      const bad = [], DUELS = [[1, 'kai', 'mara'], [2, 'brutus', 'yuki'], [3, 'dmitri', 'zero'], [4, 'kai', 'brutus'], [5, 'mara', 'yuki'], [6, 'zero', 'kai'], [7, 'yuki', 'dmitri'], [8, 'brutus', 'mara']];
+      lookAiRun(0, ['kai', 'mara'], true);   // the same warm-up
+      let looked = 0, ticks = 0;
+      const gotDuels = [];
+      for (const [seed, a, b] of DUELS) {
+        const live = lookAiRun(seed, [a, b], false), old = lookAiRun(seed, [a, b], true);
+        gotDuels.push(textDigest(live.sums.join()));
+        if (gotDuels[gotDuels.length - 1] !== DUEL_DIGESTS[seed - 1]) bad.push('duel ' + seed + ' ' + a + ' / ' + b + ' is ' + gotDuels[gotDuels.length - 1] + ', the build of e6dcae0 had ' + DUEL_DIGESTS[seed - 1]);
+        if (live.sums.join() !== old.sums.join()) bad.push('duel ' + seed + ' ' + a + ' / ' + b + ': the matchChecksum differs from the build without looks');
+        looked += live.looked; ticks += live.sums.length;
+      }
+      if (bad.length) bad.unshift('actual: [' + gotDuels.join() + ']');
+      if (looked < 200 || ticks < 4000) bad.push('the duels were too thin: ' + looked + ' fighter-ticks with a look in ' + ticks + ' ticks');
+      const code = [Combat.look, Fighter.prototype.addLook, Fighter.prototype.standLook, Fighter.prototype.flightLook, pickLook, lookIndex].map(String).join('\n').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      if (/Math\s*\.\s*(sin|cos|tan|atan|atan2|asin|acos|exp|log|pow|hypot|random)\b|\*\*/.test(code)) bad.push('a new function calls a sine-type function, pow or Math.random');
+      const sum = String(matchChecksum);
+      if (/look|wallVis/i.test(sum)) bad.push('matchChecksum reads a look field');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }, 240000);
+    test('Hit looks (P19-03): (5) the ten poses (the hold and the three falls in the flight, the rest on the feet), tier 1 and tier 3, both sides, all 32 bodies: every joint inside the Calm limits, no hand or elbow inside the body (at least 0.15 m from the spine), and no part more than 0.105 m under the floor once drawn (a flight is in the air: the floor rule is for the reactions on the feet, and a look lowers the lowest part of a flight by at most 0.07 m)', () => {
+      const bad = [];
+      let checked = 0;
+      for (const r of ROSTER) {
+        const f = new Fighter(r, 0); f.x = f.z = 0; f.yaw = 0;
+        for (let id = 0; id < 10; id++) for (const tier of [1, 3]) for (const sign of [1, -1]) {
+          const flight = id >= LOOK.HOLD && id <= LOOK.FACE_UP, ticks = id === LOOK.HOLD ? 1 : 8;
+          const setup = (lookId) => { f.pose.set(f.motion.guard); f.plantOn = false; f.plantShift = 0; f.sinkLift = 0; f.lookId = lookId; f.lookTier = tier; f.lookSign = sign; f.lookZone = 1; f.lookDir = id === LOOK.FACE_DOWN ? LOOK_BACK : LOOK_FRONT; f.wallVis = 0; f.state = flight ? S.THROWN : S.HIT; f.stateTicks = ticks; f.reactDur = 20; f.hitKind = 'mid'; f.y = 0; };
+          const settle = () => { for (let i = 0; i < 40; i++) f.animate(1 / 60); };   // the pose blends toward its target over a few frames; the lift of the floor rule runs in animate
+          setup(id); settle();
+          const lowest = f.lowestPart() + f.sinkLift + f.plantShift;
+          for (const [joint, limit] of LOOK_JOINT_LIMITS) if (Math.abs(f.pose[joint]) > limit + 0.005) bad.push(r.id + ' pose ' + id + ' tier ' + tier + ' joint ' + joint + ' ' + f.pose[joint].toFixed(2));
+          const q = f.pts, root = [q[0], q[1], q[2]], chest = [q[3], q[4], q[5]];
+          for (const i of [9, 12, 30, 33]) { const d = lookDistance(root, chest, [q[i], q[i + 1], q[i + 2]]); if (d < 0.15) bad.push(r.id + ' pose ' + id + ' tier ' + tier + ': a hand or elbow is ' + d.toFixed(2) + ' m from the spine'); }
+          if (!flight && lowest < -(SINK_MAX + 0.005)) bad.push(r.id + ' pose ' + id + ' tier ' + tier + ' draws ' + (-lowest).toFixed(3) + ' m under the floor');
+          if (flight) { setup(-1); settle(); const plain = f.lowestPart(); setup(id); settle(); if (f.lowestPart() < plain - 0.07) bad.push(r.id + ' pose ' + id + ' tier ' + tier + ' lowers a flight by ' + (plain - f.lowestPart()).toFixed(3) + ' m'); }
+          checked++;
+        }
+      }
+      if (checked !== ROSTER.length * 40) bad.push('checked ' + checked + ' poses');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }, 120000);
+    test('Hit looks (P19-03): (6) the blow picks the look: the zone is the strain\'s zone (a thrown brick at head height, a crate, a trip item, a thrown body, the three heights of a strike), from the front, the back and the side (the facing and the side it pushes to), in the air or on the ground; a body struck from behind that goes down or out goes down on its face', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      const rows = [
+        ['a High strike', () => Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m)],
+        ['a Mid strike', () => Combat.landHit(zoneStrike(a, d, ATTACKS.body_jab), m)],
+        ['a Low strike', () => Combat.landHit(zoneStrike(a, d, ATTACKS.low_kick), m)],
+        ['a brick at head height', () => Combat.itemHit(zoneItem('brick', a, d, 1.5), d, m)],
+        ['a brick below head height', () => Combat.itemHit(zoneItem('brick', a, d, 0.5), d, m)],
+        ['a crate', () => Combat.itemHit(zoneItem('crate', a, d, 0.5), d, m)],
+        ['the trip item', () => Combat.itemHit(zoneItem('skateboard', a, d, 0.3), d, m)],
+        ['a thrown body', () => Combat.bodyHit(zoneThrownBody(a, d), d, m)],
+      ];
+      for (const [label, play] of rows) {
+        zoneClear(d); d.lookId = -1; d.wallHit = false; d.yaw = -Math.PI / 2;   // the blow travels +x (the attacker faces the foe): from the foe's front when it faces -x
+        const log = self.capture(['hit']);
+        try { play(); } finally { log.stop(); }
+        if (!log.hit.length) { bad.push(label + ': no hit'); continue; }
+        const e = log.hit[0];
+        if (d.lookId < 0) { bad.push(label + ': no look'); continue; }
+        if (d.lookZone !== d.zoneLastZone || e.zone !== undefined && e.zone !== d.lookZone) bad.push(label + ': the look is for zone ' + d.lookZone + ', the strain went to ' + d.zoneLastZone);
+        const want = pickLook(d.lookZone, d.lookTier, d.lookDir, 0, e.mv.kind, false);
+        if (d.lookId !== want || d.lookDir !== LOOK_FRONT) bad.push(label + ': the look is ' + d.lookId + ' from side ' + d.lookDir + ', the table says ' + want + ' from the front');
+      }
+      // the three heights give three different grounded looks at tier 2 (head snap, gut fold, leg buckle)
+      const tier2 = [0, 1, 2].map((zone) => pickLook(zone, 2, LOOK_FRONT, 0, 'hit', false));
+      if (tier2.join() !== '0,1,2') bad.push('the tier 2 looks from the front are ' + tier2.join());
+      // the facing: from the front, the back, the side (and the sign of the side)
+      const probe = lookFighter();
+      for (const [dir, [dx, dz]] of LOOK_DIRS.entries()) { Combat.look(probe, 1, 2, dx, dz, 'hit', 0); if (probe.lookDir !== dir) bad.push('a blow travelling ' + dx + ',' + dz + ' is read as side ' + probe.lookDir); }
+      Combat.look(probe, 1, 2, 1, 0, 'hit', 0); const right = probe.lookSign; Combat.look(probe, 1, 2, -1, 0, 'hit', 0);
+      if (right === probe.lookSign) bad.push('the two sides of a side blow push the same way');
+      // in the air before the blow: a juggled fighter is read as in the air
+      zoneClear(d); d.state = S.THROWN; d.juggle = true; d.y = 1; d.vy = 1; d.yaw = -Math.PI / 2; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
+      if (d.lookId !== HIT_LOOK_TABLE.charCodeAt(lookIndex(0, 1, LOOK_FRONT, 1)) - 48) bad.push('a juggled fighter is read as on the ground: ' + d.lookId);
+      // face down: a back blow that launches, knocks down or knocks out; face up from the front; the stored flag only on the flights
+      for (const [facing, want, label] of [[Math.PI / 2, -1, 'from behind'], [-Math.PI / 2, 1, 'from the front'], [0, 1, 'from the side']]) {
+        zoneClear(d); d.yaw = facing; d.lieSign = 1; d.groundY = 0;
+        Combat.landHit(zoneStrike(a, d, ATTACKS.heavy_uppercut), m);
+        if (d.state !== S.THROWN || d.lieSign !== want) bad.push('a launch ' + label + ': state ' + S[d.state] + ', lieSign ' + d.lieSign);
+      }
+      zoneClear(d); d.yaw = Math.PI / 2; d.lieSign = 1; d.hp = 1; Combat.landHit(zoneStrike(a, d, ATTACKS.power_jab), m);
+      if (d.alive || d.lieSign !== -1) bad.push('a knock-out from behind: lieSign ' + d.lieSign);
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Hit looks (P19-03): (7) the wall and the reset: a wall slam sets wallVis, which fades over LOOK_WALL_TICKS and adds the wall pose for a reaction and a flight; a cornered tier 2 blow picks the wall; a new reaction that no blow caused has no look', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      zoneClear(d); d.yaw = -Math.PI / 2; d.wallHit = true; d.lookId = -1;
+      Combat.landHit(zoneStrike(a, d, ATTACKS.cross), m);
+      if (d.lookId !== LOOK.WALL) bad.push('a cornered cross picks ' + d.lookId);
+      zoneClear(d); d.yaw = -Math.PI / 2; d.wallHit = true; d.lookId = -1;
+      const log = self.capture(['hit']); Combat.landHit(zoneStrike(a, d, ATTACKS.cross), m); log.stop();
+      if (!log.hit[0] || log.hit[0].wall !== true) bad.push('the hit event does not say wall');
+      zoneClear(d); d.wallHit = false; d.lookId = -1; const plain = self.capture(['hit']); Combat.landHit(zoneStrike(a, d, ATTACKS.cross), m); plain.stop();
+      if (plain.hit[0].wall !== false) bad.push('a hit away from a wall says wall');
+      // the slam
+      const f = lookFighter(); f.wallVis = 0;
+      const wall = self.capture(['wallSlam']);
+      zoneClear(d); d.state = S.THROWN; d.kx = 6; d.kz = 0; d.wallHit = true; d.lastImpactTick = -99; d.obstacleHit = null; d.hazardTouch = null; d.x = Arena.def.bounds.x - d.radius;
+      Combat.impactCheck(d, m); wall.stop();
+      if (!wall.wallSlam.length || d.wallVis !== 1) bad.push('a wall slam leaves wallVis ' + d.wallVis);
+      d.wallVis = 1; let frames = 0; while (d.wallVis > 0 && frames < 100) { d.updateCueBlend(1 / 60); frames++; }
+      if (frames < LOOK_WALL_TICKS || frames > LOOK_WALL_TICKS + 1) bad.push('the wall pose fades in ' + frames + ' frames, not ' + LOOK_WALL_TICKS);
+      for (const state of [S.HIT, S.THROWN]) {
+        f.lookId = -1; f.lookTier = 2; f.wallVis = 0; const without = lookTarget(f, state, 4); f.wallVis = 1; const withWall = lookTarget(f, state, 4), share = f.wallVis;   // the frame's own decay is taken before the pose
+        const row = HIT_LOOK_ROWS[LOOK.WALL];
+        if (!(share > 0.9) || Math.abs(withWall[row.joints[0]] - without[row.joints[0]] - row.offsets[0] * HIT_TIER_AMP[1] * share * (Settings.v.reducedMotion ? 0.5 : 1)) > 1e-6) bad.push('the wall pose is not added in ' + S[state]);
+      }
+      // a reaction no blow caused (a hazard's flinch, a fall's landing) has no look
+      const g = lookFighter(); g.lookId = LOOK.ARCH; g.setState(S.HIT);
+      if (g.lookId !== -1) bad.push('a new reaction keeps the last look ' + g.lookId);
+      g.lookId = LOOK.ARCH; g.setState(S.IDLE); if (g.lookId !== LOOK.ARCH) bad.push('a free fighter lost its look (harmless, but the reset is for reactions)');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Hit looks (P19-03): (8) the two sound variants (a head blow and a blow with the back to the wall; P18-29 baked neither: it baked impacts by tier and weight, materials and steps): the head adds a crack (one noise, one tone), the wall a thump and a scrape, other hits and the baked bank are untouched, and a real head hit carries the zone', () => {
+      const bad = [], kinds = [];
+      recordSound((heard) => {
+        const queued = Sound.layerQ.length;
+        const at = (e) => { heard.length = 0; Sound.lookCue(Object.assign({ def: { index: 1 } }, e)); return heard.map((row) => row[0]).join(); };
+        const head = at({ zone: 0 }), body = at({ zone: 1 }), legs = at({ zone: 2 }), wall = at({ zone: 1, wall: true }), both = at({ zone: 0, wall: true }), plain = at({});
+        kinds.push(head, body, legs, wall, both, plain);
+        if (head !== 'noise,tone' || body !== '' || legs !== '' || wall !== 'tone,noise' || both !== 'noise,tone,tone,noise' || plain !== '') bad.push('the cues are ' + kinds.join(' | '));
+        heard.length = 0; Sound.lookCue({ zone: 0, def: { index: 1 } }); if (!(heard.every((row) => row[row.length - 1] === LOOK_HEAD_GAIN))) bad.push('the head gain');
+        Sound.allow = () => false; heard.length = 0; Sound.lookCue({ zone: 0, wall: true, def: { index: 1 } }); if (heard.length) bad.push('the cue ignores the limiter');
+        Sound.layerQ.length = queued;
+      });
+      if (!(LOOK_HEAD_GAIN > 0 && LOOK_WALL_GAIN > LOOK_HEAD_GAIN)) bad.push('the gains');
+      const m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      for (const [mv, zone] of [[ATTACKS.jab, 0], [ATTACKS.body_jab, 1], [ATTACKS.low_kick, 2]]) { zoneClear(d); const log = self.capture(['hit']); Combat.landHit(zoneStrike(a, d, mv), m); log.stop(); if (log.hit[0].zone !== zone) bad.push(mv.id + ' carries zone ' + log.hit[0].zone); }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
     /* Deferred and registered after every other test, so the connections of the whole run are counted */
     test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
       const open = madeConnections.filter((connection) => connection.signalingState !== 'closed');
