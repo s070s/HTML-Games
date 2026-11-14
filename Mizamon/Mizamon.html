@@ -11,6 +11,9 @@
   body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; font-family: "Segoe UI", Verdana, sans-serif; }
   #stage { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   #screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+  /* Large text (Options, Accessibility): the text being read in big letters under the picture. Size and font are set by the script. */
+  #caption { display: none; flex: none; box-sizing: border-box; margin: 0; padding: 4px 10px; overflow: hidden; background: #0b0e1c; color: #ffffff;
+    border-top: 2px solid #f4b942; font-weight: 700; line-height: 1.25; text-align: left; overflow-wrap: anywhere; }
   #touch { position: fixed; left: 0; right: 0; bottom: 0; display: none; pointer-events: none; }
   #touch .btn { position: absolute; display: flex; align-items: center; justify-content: center; box-sizing: border-box; pointer-events: auto;
     touch-action: none; color: #f6efdc; font-weight: 700; background: rgba(40, 48, 90, 0.72); border: 2px solid rgba(246, 239, 220, 0.55);
@@ -26,6 +29,18 @@
   #touch.portrait [data-btn="b"] { right: 104px; bottom: 26px; width: 66px; height: 66px; border-radius: 50%; }
   #touch.portrait [data-btn="menu"] { right: 16px; bottom: 14px; width: 76px; height: 38px; font-size: 14px; border-radius: 19px; }
   #touch.portrait [data-btn="map"] { right: 18px; bottom: 180px; width: 76px; height: 34px; font-size: 12px; border-radius: 17px; }
+  /* Phones narrower than 384 px: smaller buttons, so that the d-pad, B and A do not cross each other (the full size needs 384 px). */
+  @media (max-width: 383px) {
+    #touch.portrait .btn { width: 52px; height: 52px; font-size: 22px; }
+    #touch.portrait [data-btn="up"] { left: 62px; bottom: 132px; }
+    #touch.portrait [data-btn="down"] { left: 62px; bottom: 14px; }
+    #touch.portrait [data-btn="left"] { left: 6px; bottom: 73px; }
+    #touch.portrait [data-btn="right"] { left: 118px; bottom: 73px; }
+    #touch.portrait [data-btn="a"] { right: 8px; bottom: 90px; width: 70px; height: 70px; font-size: 26px; }
+    #touch.portrait [data-btn="b"] { right: 92px; bottom: 26px; width: 54px; height: 54px; }
+    #touch.portrait [data-btn="menu"] { right: 8px; bottom: 14px; width: 76px; height: 38px; font-size: 14px; }
+    #touch.portrait [data-btn="map"] { right: 8px; bottom: 170px; width: 76px; height: 34px; font-size: 12px; }
+  }
   #touch.landscape [data-btn="up"] { left: 54px; bottom: 112px; }
   #touch.landscape [data-btn="down"] { left: 54px; bottom: 10px; }
   #touch.landscape [data-btn="left"] { left: 6px; bottom: 61px; }
@@ -43,7 +58,7 @@
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="screen" width="240" height="160" aria-label="Mizamon"></canvas></div>
+<div id="stage"><canvas id="screen" width="240" height="160" aria-label="Mizamon"></canvas><div id="caption" role="status" aria-live="polite"></div></div>
 <div id="touch" aria-hidden="true">
   <div class="btn" data-btn="up"><span class="arrow"></span></div>
   <div class="btn" data-btn="down"><span class="arrow"></span></div>
@@ -3045,7 +3060,14 @@ function districtSpecies(districtId) {
 }
 
 // ---- Save data ------------------------------------------------------------------------------
-function defaultOptions() { return { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }; }
+function defaultOptions() {
+  return {
+    lang: 'el', sound: true, textSpeed: 1, reduceMotion: false,
+    largeText: 0, typeMarks: true, flashesOff: false, holdRepeat: HOLD_REPEAT_DEFAULT, touchHand: 0, // the accessibility options (MZ-A11Y-01)
+  };
+}
+// A whole number from 0 to count - 1, else the fallback (an old save has none of the accessibility options: they load at their defaults).
+function optionLevel(value, count, fallback) { return Number.isInteger(value) && value >= 0 && value < count ? value : fallback; }
 function normalizeOptions(raw) {
   const base = defaultOptions();
   if (!raw || typeof raw !== 'object') return base;
@@ -3053,7 +3075,123 @@ function normalizeOptions(raw) {
   if (typeof raw.sound === 'boolean') base.sound = raw.sound;
   if (raw.textSpeed === 0 || raw.textSpeed === 1 || raw.textSpeed === 2) base.textSpeed = raw.textSpeed;
   if (typeof raw.reduceMotion === 'boolean') base.reduceMotion = raw.reduceMotion;
+  base.largeText = optionLevel(raw.largeText, LARGE_TEXT_FACTORS.length, base.largeText);
+  if (typeof raw.typeMarks === 'boolean') base.typeMarks = raw.typeMarks;
+  if (typeof raw.flashesOff === 'boolean') base.flashesOff = raw.flashesOff;
+  base.holdRepeat = optionLevel(raw.holdRepeat, HOLD_REPEAT_LEVELS.length, base.holdRepeat);
+  base.touchHand = optionLevel(raw.touchHand, TOUCH_HANDS, base.touchHand);
   return base;
+}
+
+// ---- Accessibility options (MZ-A11Y-01; reference section 12) ------------------------------------------------------------
+const SCREEN_W = 240;
+const SCREEN_H = 160;
+const TOUCH_SIDE_WIDTH = 160; // CSS px a landscape button pad needs (the d-pad is 152 px wide)
+// Large text: 0 off, 1 large, 2 largest. The text being read is shown again in big letters in a bar under the picture; the factor is
+// the size of that text against the text of the picture itself (8 logical px times the picture scale).
+const LARGE_TEXT_FACTORS = [0, 1.4, 1.9];
+const CAPTION_MIN_FONT = 12; // CSS px
+const CAPTION_MIN_HEIGHT = 56; // CSS px
+const CAPTION_MAX_HEIGHT = 260;
+// The room the bar needs so that the longest page of text (a dialog page is three lines of about 40 characters) fits at the smallest letters:
+// the letters are taken as 0.6 em wide on average and the lines are 1.25 em apart (the style sheet), with 10 px of padding and border.
+const CAPTION_LONGEST_PAGE = 130; // characters
+function captionHeightFor(cssW) {
+  const perLine = Math.max(1, Math.floor((cssW - 20) / (0.6 * CAPTION_MIN_FONT)));
+  const lines = Math.ceil(CAPTION_LONGEST_PAGE / perLine);
+  return Math.min(CAPTION_MAX_HEIGHT, Math.max(CAPTION_MIN_HEIGHT, Math.ceil(lines * CAPTION_MIN_FONT * 1.25 + 10)));
+}
+// Hold to repeat in menus: level 0 off (one step per press), 1 slow, 2 normal (the values the game had before this option), 3 fast. Frames at 60 per second.
+const HOLD_REPEAT_LEVELS = [null, { delay: 36, every: 12 }, { delay: 20, every: 5 }, { delay: 12, every: 3 }];
+const HOLD_REPEAT_DEFAULT = 2;
+// Touch controls: 0 both hands (a pad on each side), 1 one hand on the right side, 2 one hand on the left side.
+const TOUCH_HANDS = 3;
+const ONE_HAND_PAD_HEIGHT = 284; // the tallest one-hand layout in portrait (CSS px); the picture leaves this much room under it
+const HIT_STEADY_ALPHA = 0.6;
+// True on the frames when a held button repeats (the press itself is not counted: it is a press).
+function repeatFires(level, heldFrames) {
+  const timing = HOLD_REPEAT_LEVELS[level];
+  if (!timing) return false;
+  return heldFrames > timing.delay && (heldFrames - timing.delay) % timing.every === 0;
+}
+// A creature that is hit, frame t of its animation: how far it is pushed sideways and how see-through it is. Normally it shakes and blinks (15 times a
+// second); Flashes off keeps it still and dims it steadily; Reduced motion leaves it alone.
+function hitLook(t, flashesOff, reduceMotion) {
+  if (reduceMotion) return { dx: 0, alpha: 1 };
+  if (flashesOff) return { dx: 0, alpha: HIT_STEADY_ALPHA };
+  const first = (t >> 1) % 2 === 0;
+  return { dx: first ? 3 : -3, alpha: first ? 0.4 : 1 };
+}
+// The evolution screen draws the creature as a white shape from frame 30 to 79: blinking normally, steady with Flashes off, not at all with Reduced motion.
+function evolveGlows(frame, flashesOff, reduceMotion) {
+  if (reduceMotion || frame <= 30 || frame >= 80) return false;
+  return flashesOff ? true : (frame >> 2) % 2 === 0;
+}
+// A blinking mark is shown on the first half of every 2^(shift+1) frames, or always when steady.
+function blinkShows(frame, shift, steady) { return steady || (frame >> shift) % 2 === 0; }
+// One 5 x 5 shape for every type, drawn beside its colour. Not one of them is a cross or any other sign of a faith.
+const TYPE_MARK_SIZE = 5;
+const TYPE_MARKS = {
+  pol: ['..#..', '.###.', '#####', '.###.', '..#..'], // diamond
+  asf: ['#####', '#####', '#####', '#####', '#####'], // square
+  ekk: ['.###.', '#...#', '#...#', '#...#', '.###.'], // ring
+  cel: ['..#..', '.###.', '.###.', '#####', '#####'], // triangle
+  inf: ['.###.', '#####', '#####', '#####', '.###.'], // disc
+  biz: ['#####', '.....', '#####', '.....', '#####'], // three bars
+  mem: ['#####', '.###.', '.###.', '..#..', '..#..'], // triangle pointing down
+};
+// Where the picture, the large-text bar and the touch pads go in a window of viewW x viewH CSS pixels (touch: the button pads are shown).
+function screenLayout(viewW, viewH, touch, largeText, touchHand) {
+  const portrait = viewH > viewW;
+  const captionOn = largeText > 0;
+  const padNeed = touch && portrait && touchHand > 0 ? ONE_HAND_PAD_HEIGHT : 0;
+  const reservedBottom = touch && portrait ? Math.min(Math.max(Math.round(viewH * 0.4), padNeed), 300) : 0;
+  // Landscape with touch: the two button pads stand beside the game, never over it.
+  const reservedSides = touch && !portrait ? 2 * TOUCH_SIDE_WIDTH : 0;
+  const fit = function (spare) {
+    const wanted = Math.min((viewW - reservedSides) / SCREEN_W, (viewH - reservedBottom - spare) / SCREEN_H);
+    const scale = Math.max(wanted, 0.5); // a tiny window must still give a drawable canvas
+    return scale >= 2 ? Math.floor(scale) : scale; // whole-number scaling when there is room (crisp pixels)
+  };
+  let scale = fit(captionOn ? CAPTION_MIN_HEIGHT : 0);
+  let bar = 0;
+  if (captionOn) { // a narrow picture means a narrow bar: more lines, more height, and a bar that grows makes the picture smaller: three rounds settle it
+    for (let round = 0; round < 3; round++) {
+      bar = captionHeightFor(Math.floor(SCREEN_W * scale));
+      const next = fit(bar);
+      if (next === scale) break;
+      scale = next;
+    }
+  }
+  const cssW = Math.floor(SCREEN_W * scale);
+  const cssH = Math.floor(SCREEN_H * scale);
+  const captionHeight = captionOn ? Math.max(bar, Math.min(CAPTION_MAX_HEIGHT, viewH - reservedBottom - cssH)) : 0;
+  const captionFont = captionOn ? Math.max(CAPTION_MIN_FONT, Math.round(8 * scale * LARGE_TEXT_FACTORS[largeText])) : 0;
+  return { portrait: portrait, scale: scale, cssW: cssW, cssH: cssH, reservedBottom: reservedBottom, reservedSides: reservedSides, captionHeight: captionHeight, captionFont: captionFont, padHeight: portrait ? viewH - cssH : viewH };
+}
+// The one-hand touch layouts: every button within the reach of one thumb. x is the distance from the chosen side of the window to the near edge of
+// the button, y the distance from the bottom of the pad, w and h the size (CSS px); font is the size of the letters.
+const ONE_HAND_BUTTONS = {
+  portrait: {
+    right: { x: 8, y: 74, w: 60, h: 60, font: 24 }, down: { x: 72, y: 10, w: 60, h: 60, font: 24 }, up: { x: 72, y: 138, w: 60, h: 60, font: 24 }, left: { x: 136, y: 74, w: 60, h: 60, font: 24 },
+    a: { x: 8, y: 206, w: 60, h: 60, font: 26 }, b: { x: 72, y: 206, w: 60, h: 60, font: 24 },
+    menu: { x: 140, y: 206, w: 64, h: 34, font: 13 }, map: { x: 140, y: 244, w: 64, h: 34, font: 11 },
+  },
+  landscape: {
+    right: { x: 8, y: 57, w: 46, h: 46, font: 18 }, down: { x: 57, y: 8, w: 46, h: 46, font: 18 }, up: { x: 57, y: 106, w: 46, h: 46, font: 18 }, left: { x: 106, y: 57, w: 46, h: 46, font: 18 },
+    a: { x: 8, y: 162, w: 50, h: 50, font: 20 }, b: { x: 62, y: 162, w: 46, h: 46, font: 18 },
+    menu: { x: 8, y: 218, w: 70, h: 28, font: 12 }, map: { x: 82, y: 218, w: 70, h: 28, font: 10 },
+  },
+};
+// The rectangles of the one-hand layout (hand 1 right, 2 left) as left/bottom/width/height inside a pad of padWidth CSS px.
+function oneHandRects(portrait, hand, padWidth) {
+  const specs = ONE_HAND_BUTTONS[portrait ? 'portrait' : 'landscape'];
+  const rects = {};
+  for (const name of Object.keys(specs)) {
+    const spec = specs[name];
+    rects[name] = { left: hand === 1 ? padWidth - spec.x - spec.w : spec.x, bottom: spec.y, width: spec.w, height: spec.h };
+  }
+  return rects;
 }
 function serializeMon(mon) {
   return { sp: mon.sp, lv: mon.lv, xp: mon.xp, hp: mon.hp, moves: mon.moves.slice(), pend: mon.pend.slice() };
@@ -3203,6 +3341,17 @@ const STRINGS = {
   'opt.lang': ['Γλώσσα', 'Language'], 'opt.sound': ['Ήχος', 'Sound'], 'opt.speed': ['Ταχύτητα κειμένου', 'Text speed'], 'opt.motion': ['Μείωση κίνησης', 'Reduce motion'],
   'opt.speed0': ['Αργή', 'Slow'], 'opt.speed1': ['Κανονική', 'Normal'], 'opt.speed2': ['Γρήγορη', 'Fast'],
   'opt.hint': ['Αριστερά/Δεξιά: αλλαγή · X: πίσω', 'Left/Right: change · X: back'],
+  // Accessibility (MZ-A11Y-01): its own screen, opened from Options
+  'opt.access': ['Προσβασιμότητα', 'Accessibility'], 'acc.title': ['Προσβασιμότητα', 'Accessibility'],
+  'acc.largeText': ['Μεγάλο κείμενο', 'Large text'], 'acc.large0': ['Όχι', 'Off'], 'acc.large1': ['Μεγάλο', 'Large'], 'acc.large2': ['Μεγαλύτερο', 'Largest'],
+  'acc.marks': ['Σήματα τύπων', 'Type marks'], 'acc.flashes': ['Χωρίς αναβοσβήσιμο', 'Flashes off'],
+  'acc.repeat': ['Επανάληψη κρατώντας', 'Hold to repeat'], 'acc.repeat0': ['Όχι', 'Off'], 'acc.repeat1': ['Αργή', 'Slow'], 'acc.repeat2': ['Κανονική', 'Normal'], 'acc.repeat3': ['Γρήγορη', 'Fast'],
+  'acc.hand': ['Χειριστήρια αφής', 'Touch controls'], 'acc.hand0': ['Δύο χέρια', 'Two hands'], 'acc.hand1': ['Ένα χέρι: δεξιά', 'One hand: right'], 'acc.hand2': ['Ένα χέρι: αριστερά', 'One hand: left'],
+  'acc.d.largeText': ['Το κείμενο που διαβάζεις εμφανίζεται ξανά με μεγάλα γράμματα, σε μια μπάρα κάτω από την εικόνα.', 'The text being read shows again in big letters, in a bar under the picture.'],
+  'acc.d.typeMarks': ['Ένα μικρό σχήμα δίπλα σε κάθε χρώμα τύπου, ώστε οι τύποι να ξεχωρίζουν και χωρίς χρώμα.', 'A small shape beside every type colour, so the types can be told apart without colour.'],
+  'acc.d.flashesOff': ['Χωρίς αναβοσβήσιμο και τρέμουλο στις μάχες και στην εξέλιξη. Η εικόνα μένει σταθερή.', 'No flashing and no shaking in battles and evolutions. The picture stays steady.'],
+  'acc.d.holdRepeat': ['Στα μενού, όσο κρατάς ένα βέλος, ο δρομέας συνεχίζει να προχωρά. Όχι = ένα βήμα ανά πάτημα.', 'In menus, holding an arrow keeps the cursor moving. Off = one step per press.'],
+  'acc.d.touchHand': ['Για οθόνη αφής: όλα τα κουμπιά στη μία πλευρά, ώστε να παίζεται με έναν αντίχειρα.', 'For touch screens: all the buttons on one side, so the game plays with one thumb.'],
   'bag.empty': ['Η τσάντα είναι άδεια. Όπως και το πορτοφόλι.', 'The bag is empty. Like the wallet.'],
   'bag.battleOnly': ['Αυτό χρησιμοποιείται μόνο σε μάχη. Όχι μπροστά σε κόσμο.', 'This is used in battle only. Not in public.'],
   'bag.used': ['Χρησιμοποίησες: {item}. Ο παραλήπτης ({mon}) νιώθει καλύτερα.', 'Used {item}. {mon} feels better.'],
@@ -3987,6 +4136,8 @@ const RULES = {
   createBattle, playTurn, playForcedSwitch, chooseAction, chooseReplacement, scoreMove, legalSwitchIndexes, endBattle, prizeFor, simulateBattle, activeMon,
   TRAINERS, buildTrainerTeam, TILE_DEFS, MAPS, START_MAP, HOSPITAL_SPOT, DEFAULT_HEAL_SPOT, tileAt, tileDef, npcVisible, npcAtTile, findWarp, tileWalkable, zoneAt, rollEncounter,
   reachableTiles, npcTalkable, defaultOptions, normalizeOptions, serializeMon, restoreMon, migrateSave,
+  SCREEN_W, SCREEN_H, TOUCH_SIDE_WIDTH, LARGE_TEXT_FACTORS, CAPTION_MIN_FONT, CAPTION_MIN_HEIGHT, CAPTION_MAX_HEIGHT, CAPTION_LONGEST_PAGE, captionHeightFor, HOLD_REPEAT_LEVELS, HOLD_REPEAT_DEFAULT, TOUCH_HANDS,
+  ONE_HAND_PAD_HEIGHT, ONE_HAND_BUTTONS, HIT_STEADY_ALPHA, TYPE_MARK_SIZE, TYPE_MARKS, repeatFires, hitLook, evolveGlows, blinkShows, screenLayout, oneHandRects,
   WORLD, WORLD_BADGE_COUNT, mapNode, worldIsRoute, routeMarkerFraction, pointAlongPath, worldMarker, newWorldState, worldVisit, normalizeWorld,
   worldFromOldSave, districtState, placeState, worldCandidates, districtSpecies,
 };
@@ -3996,9 +4147,7 @@ const RULES = {
 // ENGINE: everything below uses the browser (canvas, audio, input).
 // =============================================================================
 
-// ---- Screen constants ---------------------------------------------------------------
-const SCREEN_W = 240;
-const SCREEN_H = 160;
+// ---- Screen constants (SCREEN_W and SCREEN_H are in the rules block, with the screen layout) ------------------------
 const TILE = 16;
 const FONT = 'bold 8px "Segoe UI", "Trebuchet MS", Verdana, Arial, sans-serif';
 const FONT_SMALL = 'bold 7px "Segoe UI", "Trebuchet MS", Verdana, Arial, sans-serif';
@@ -5210,35 +5359,86 @@ const touchPad = document.getElementById('touch');
 let viewScale = 1;
 let touchVisible = false;
 let touchForced = null;
-const TOUCH_SIDE_WIDTH = 160; // CSS px a landscape button pad needs (the d-pad is 152 px wide)
+const touchButtons = Array.prototype.slice.call(touchPad.querySelectorAll('[data-btn]'));
 function detectTouch() {
   if (touchForced !== null) return touchForced;
   return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
 }
+// The sizes come from screenLayout() in the rules block (tested without a browser).
 function resizeScreen() {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  const viewW = window.innerWidth;
-  const viewH = window.innerHeight;
   touchVisible = detectTouch();
-  const portrait = viewH > viewW;
-  const reservedBottom = touchVisible && portrait ? Math.min(Math.round(viewH * 0.4), 300) : 0;
-  // Landscape with touch: the two button pads stand beside the game, never over it.
-  const reservedSides = touchVisible && !portrait ? 2 * TOUCH_SIDE_WIDTH : 0;
-  let scale = Math.min((viewW - reservedSides) / SCREEN_W, (viewH - reservedBottom) / SCREEN_H);
-  scale = Math.max(scale, 0.5); // a tiny window must still give a drawable canvas
-  if (scale >= 2) scale = Math.floor(scale); // whole-number scaling when there is room (crisp pixels)
-  const cssW = Math.floor(SCREEN_W * scale);
-  const cssH = Math.floor(SCREEN_H * scale);
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
+  const layout = screenLayout(window.innerWidth, window.innerHeight, touchVisible, OPT.largeText, OPT.touchHand);
+  canvas.style.width = layout.cssW + 'px';
+  canvas.style.height = layout.cssH + 'px';
+  canvas.width = Math.round(layout.cssW * dpr);
+  canvas.height = Math.round(layout.cssH * dpr);
   viewScale = canvas.width / SCREEN_W;
-  stage.style.justifyContent = touchVisible && portrait ? 'flex-start' : 'center';
+  stage.style.justifyContent = touchVisible && layout.portrait ? 'flex-start' : 'center';
   touchPad.style.display = touchVisible ? 'block' : 'none';
-  touchPad.className = portrait ? 'portrait' : 'landscape';
-  touchPad.style.height = portrait ? (viewH - cssH) + 'px' : '100%';
+  touchPad.className = layout.portrait ? 'portrait' : 'landscape';
+  touchPad.style.height = layout.portrait ? layout.padHeight + 'px' : '100%';
+  applyTouchHand(layout.portrait);
+  Caption.apply(layout);
 }
+// One-hand touch controls: every button gets an inline place from oneHandRects(); with both hands the style sheet places them.
+function applyTouchHand(portrait) {
+  const rects = OPT.touchHand > 0 ? oneHandRects(portrait, OPT.touchHand, window.innerWidth) : null;
+  const specs = ONE_HAND_BUTTONS[portrait ? 'portrait' : 'landscape'];
+  for (const element of touchButtons) {
+    if (!rects) { element.removeAttribute('style'); continue; }
+    const name = element.getAttribute('data-btn');
+    const style = element.style;
+    style.left = rects[name].left + 'px';
+    style.right = 'auto';
+    style.top = 'auto';
+    style.bottom = rects[name].bottom + 'px';
+    style.width = rects[name].width + 'px';
+    style.height = rects[name].height + 'px';
+    style.fontSize = specs[name].font + 'px';
+    style.borderRadius = name === 'a' || name === 'b' ? '50%' : (name === 'menu' || name === 'map' ? Math.round(rects[name].height / 2) + 'px' : '12px');
+  }
+}
+// ---- Large text: the text being read, again in big letters in a bar under the picture ---------------------------------------------
+// Every screen can say what is being read (caption(): the page of a dialog, the chosen menu row, the line of the battle ticker); the bar
+// shows it. The bar is always inside the window: screenLayout() leaves its room, and the letters shrink until the text fits (never below 14 px).
+const Caption = {
+  element: document.getElementById('caption'), text: null, baseFont: 0, ticks: 0,
+  apply: function (layout) {
+    const style = this.element.style;
+    this.text = null; // the next sync() writes the text again
+    if (layout.captionHeight === 0) { style.display = 'none'; this.element.textContent = ''; return; }
+    style.display = 'block';
+    style.width = layout.cssW + 'px';
+    style.height = layout.captionHeight + 'px';
+    this.baseFont = layout.captionFont;
+    this.fit();
+  },
+  // The biggest font from the minimum up to the base size at which the text fits the bar (a binary search: a fit costs one reflow per step).
+  fit: function () {
+    const element = this.element;
+    let low = CAPTION_MIN_FONT;
+    let high = Math.max(low, this.baseFont);
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      element.style.fontSize = middle + 'px';
+      if (element.scrollHeight <= element.clientHeight) low = middle; else high = middle - 1;
+    }
+    element.style.fontSize = low + 'px';
+  },
+  // Reads the top screen four times a second; force reads it now.
+  sync: function (force) {
+    if (OPT.largeText === 0) return;
+    this.ticks++;
+    if (!force && this.ticks % 15 !== 0) return;
+    const top = layers[layers.length - 1];
+    const text = top && top.caption ? top.caption() : null;
+    if (text === null || text === this.text) return;
+    this.text = text;
+    this.element.textContent = text;
+    this.fit();
+  },
+};
 
 // ---- Drawing helpers ------------------------------------------------------------------------------------
 function drawText(text, x, y, color, align) {
@@ -5266,13 +5466,23 @@ function drawSprite(image, x, y, scale, flip) {
     ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(image, 0, 0, w, h); ctx.restore();
   } else ctx.drawImage(image, x, y, w, h);
 }
+// The shape of a type (Type marks option), one pixel at a time; left and top are whole pixels.
+function drawTypeMark(typeId, left, top, color) {
+  const mask = TYPE_MARKS[typeId];
+  ctx.fillStyle = color;
+  for (let row = 0; row < TYPE_MARK_SIZE; row++) {
+    for (let column = 0; column < TYPE_MARK_SIZE; column++) if (mask[row][column] === '#') ctx.fillRect(left + column, top + row, 1, 1);
+  }
+}
 function drawTypeTag(typeId, x, y) {
   ctx.font = FONT_SMALL;
   const label = T('type.' + typeId);
-  const width = Math.ceil(ctx.measureText(label).width) + 6;
+  const markSpace = OPT.typeMarks ? TYPE_MARK_SIZE + 2 : 0;
+  const width = Math.ceil(ctx.measureText(label).width) + 6 + markSpace;
   ctx.fillStyle = COLOR.border; ctx.fillRect(x, y, width, 10);
   ctx.fillStyle = TYPE_COLORS[typeId]; ctx.fillRect(x + 1, y + 1, width - 2, 8);
-  drawText(label, x + 3, y + 1, '#ffffff');
+  if (OPT.typeMarks) drawTypeMark(typeId, x + 3, y + 2, '#ffffff');
+  drawText(label, x + 3 + markSpace, y + 1, '#ffffff');
   ctx.font = FONT;
   return width;
 }
@@ -5307,7 +5517,7 @@ const Input = {
       const current = !!(this.keys[name] || this.pad[name] || this.touch[name] || this.injected[name] > 0);
       this.pressed[name] = current && !this.previous[name];
       this.heldFrames[name] = current ? (this.heldFrames[name] || 0) + 1 : 0;
-      this.repeat[name] = this.pressed[name] || (this.heldFrames[name] > 20 && (this.heldFrames[name] - 20) % 5 === 0);
+      this.repeat[name] = this.pressed[name] || repeatFires(OPT.holdRepeat, this.heldFrames[name]);
       this.down[name] = current;
       this.previous[name] = current;
       if (this.injected[name] > 0) this.injected[name]--;
@@ -5546,6 +5756,11 @@ TextBox.prototype.beginPage = function () {
   this.typed = 0;
 };
 TextBox.prototype.isTyping = function () { return this.typed < this.total; };
+// The whole text of the page being shown (the large-text bar reads it).
+TextBox.prototype.pageText = function () {
+  const start = this.page * this.linesPerPage;
+  return this.lines.slice(start, start + this.linesPerPage).join(' ');
+};
 TextBox.prototype.hasMorePages = function () { return (this.page + 1) * this.linesPerPage < this.lines.length; };
 TextBox.prototype.update = function () {
   if (this.typed < this.total) this.typed = Math.min(this.total, this.typed + TEXT_SPEEDS[OPT.textSpeed]);
@@ -5587,7 +5802,7 @@ DialogLayer.prototype.draw = function () {
   drawPanel(DIALOG_BOX.x, DIALOG_BOX.y, DIALOG_BOX.w, DIALOG_BOX.h);
   ctx.font = FONT;
   this.box.draw(DIALOG_BOX.x + 10, DIALOG_BOX.y + 7, 11, COLOR.ink);
-  if (!this.box.isTyping() && (this.blink >> 4) % 2 === 0) {
+  if (!this.box.isTyping() && blinkShows(this.blink, 4, OPT.flashesOff)) {
     ctx.fillStyle = COLOR.red;
     ctx.fillRect(DIALOG_BOX.x + DIALOG_BOX.w - 14, DIALOG_BOX.y + DIALOG_BOX.h - 12, 6, 2);
     ctx.fillRect(DIALOG_BOX.x + DIALOG_BOX.w - 13, DIALOG_BOX.y + DIALOG_BOX.h - 10, 4, 2);
@@ -6146,7 +6361,7 @@ MonitorLayer.prototype.draw = function () {
   const still = OPT.reduceMotion;
   const scroll = still ? 0 : this.frame * 2;
   const reach = still ? MONITOR_BOX.w : Math.min(MONITOR_BOX.w, Math.round(this.frame / MONITOR_FRAMES * MONITOR_BOX.w * 1.2));
-  ctx.fillStyle = still || (this.frame >> 3) % 2 === 0 ? '#4fe08a' : '#b8ffd0';
+  ctx.fillStyle = blinkShows(this.frame, 3, still || OPT.flashesOff) ? '#4fe08a' : '#b8ffd0'; // the line changes colour four times a second, unless Flashes off
   const middle = MONITOR_BOX.y + MONITOR_BOX.h / 2;
   let previousY = middle;
   for (let x = 0; x < reach; x++) {
@@ -6266,7 +6481,7 @@ NoticeLayer.prototype.draw = function () {
   for (const line of this.greek) { drawText(line, 120, y, COLOR.white, 'center'); y += 12; }
   y += 10;
   for (const line of this.english) { drawText(line, 120, y, '#b8c4e8', 'center'); y += 12; }
-  if ((this.frame >> 5) % 2 === 0 && this.frame > 20) drawText(T('ui.pressA'), 120, 142, COLOR.gold, 'center');
+  if (blinkShows(this.frame, 5, OPT.flashesOff) && this.frame > 20) drawText(T('ui.pressA'), 120, 142, COLOR.gold, 'center');
 };
 function TitleLayer() { this.opaque = true; this.frame = 0; }
 TitleLayer.prototype.update = function () { this.frame++; };
@@ -6370,7 +6585,7 @@ NameLayer.prototype.draw = function () {
   drawText(T('name.title'), 120, 8, COLOR.white, 'center');
   drawPanel(60, 22, 120, 20);
   ctx.font = 'bold 12px "Segoe UI", Verdana, sans-serif';
-  drawText(this.name + ((this.frame >> 4) % 2 === 0 && this.name.length < NAME_MAX ? '_' : ''), 120, 26, COLOR.ink, 'center');
+  drawText(this.name + (blinkShows(this.frame, 4, OPT.flashesOff) && this.name.length < NAME_MAX ? '_' : ''), 120, 26, COLOR.ink, 'center');
   ctx.font = FONT;
   const page = NAME_PAGES[this.page];
   for (let r = 0; r < page.length; r++) {
@@ -6410,8 +6625,8 @@ StarterLayer.prototype.refreshInfo = function () {
 };
 StarterLayer.prototype.update = function () {
   this.frame++;
-  if (Input.pressed.left) { this.cursor = (this.cursor + 2) % 3; Sound.sfx('move'); this.refreshInfo(); }
-  if (Input.pressed.right) { this.cursor = (this.cursor + 1) % 3; Sound.sfx('move'); this.refreshInfo(); }
+  if (Input.repeat.left) { this.cursor = (this.cursor + 2) % 3; Sound.sfx('move'); this.refreshInfo(); }
+  if (Input.repeat.right) { this.cursor = (this.cursor + 1) % 3; Sound.sfx('move'); this.refreshInfo(); }
   if (Input.pressed.a) { Sound.sfx('confirm'); closeLayer(this, STARTERS[this.cursor]); }
 };
 StarterLayer.prototype.draw = function () {
@@ -6721,7 +6936,7 @@ MapLayer.prototype.update = function () {
   if (Input.pressed.b || Input.pressed.map || Input.pressed.menu) { Sound.sfx('back'); closeLayer(this); return; }
   if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; this.refreshInfo(); Sound.sfx('confirm'); return; }
   if (this.sheet) return;
-  for (const name of ['up', 'down', 'left', 'right']) if (Input.pressed[name]) this.moveCursor(name);
+  for (const name of ['up', 'down', 'left', 'right']) if (Input.repeat[name]) this.moveCursor(name);
 };
 MapLayer.prototype.draw = function () {
   ctx.font = FONT;
@@ -6876,8 +7091,8 @@ ArchiveLayer.prototype.update = function () {
   const count = G.archive.length;
   if (Input.repeat.up) this.moveCursor((this.cursor + count - 1) % count);
   if (Input.repeat.down) this.moveCursor((this.cursor + 1) % count);
-  if (Input.pressed.left) this.moveCursor(Math.max(0, this.cursor - ARCHIVE_ROWS));
-  if (Input.pressed.right) this.moveCursor(Math.min(count - 1, this.cursor + ARCHIVE_ROWS));
+  if (Input.repeat.left) this.moveCursor(Math.max(0, this.cursor - ARCHIVE_ROWS));
+  if (Input.repeat.right) this.moveCursor(Math.min(count - 1, this.cursor + ARCHIVE_ROWS));
   if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this, -1); return; }
   if (Input.pressed.a && this.mode === 'withdraw') { Sound.sfx('confirm'); closeLayer(this, this.cursor); }
 };
@@ -6927,8 +7142,8 @@ SummaryLayer.prototype.update = function () {
   if (Input.pressed.b || Input.pressed.a) { Sound.sfx('back'); closeLayer(this); return; }
   if (Input.repeat.up) { this.moveCursor = (this.moveCursor + this.mon.moves.length - 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx('move'); }
   if (Input.repeat.down) { this.moveCursor = (this.moveCursor + 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx('move'); }
-  if (Input.pressed.left) { this.index = (this.index + G.party.length - 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
-  if (Input.pressed.right) { this.index = (this.index + 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
+  if (Input.repeat.left) { this.index = (this.index + G.party.length - 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
+  if (Input.repeat.right) { this.index = (this.index + 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
 };
 SummaryLayer.prototype.draw = function () {
   const mon = this.mon;
@@ -6963,6 +7178,7 @@ SummaryLayer.prototype.draw = function () {
     if (i === this.moveCursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(112, 78 + i * 10, 3, 6); }
     drawText(move.n, 118, 76 + i * 10, COLOR.ink);
     ctx.fillStyle = TYPE_COLORS[move.t]; ctx.fillRect(226, 77 + i * 10, 6, 6);
+    if (OPT.typeMarks) drawTypeMark(move.t, 226, 77 + i * 10, '#ffffff');
   }
   ctx.fillStyle = COLOR.paperDark; ctx.fillRect(112, 118, 120, 1);
   ctx.font = FONT_SMALL;
@@ -7113,6 +7329,8 @@ DossierLayer.prototype.draw = function () {
 };
 
 // ---- Options ------------------------------------------------------------------------------------------------------------------------------
+const OPTIONS_ROWS = ['opt.lang', 'opt.sound', 'opt.speed', 'opt.motion', 'opt.access', 'ui.back']; // the label of every row; the last one closes the screen
+const OPTIONS_ACCESS_ROW = 4; // opens the Accessibility screen
 function OptionsLayer() { this.opaque = true; this.cursor = 0; }
 OptionsLayer.prototype.rowValue = function (index) {
   if (index === 0) return OPT.lang === 'el' ? 'Ελληνικά' : 'English';
@@ -7132,25 +7350,86 @@ OptionsLayer.prototype.change = function (direction) {
 };
 OptionsLayer.prototype.update = function () {
   if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.repeat.up) { this.cursor = (this.cursor + 4) % 5; Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % 5; Sound.sfx('move'); }
+  const rows = OPTIONS_ROWS.length;
+  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; Sound.sfx('move'); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; Sound.sfx('move'); }
   if (Input.pressed.left) this.change(-1);
   if (Input.pressed.right) this.change(1);
-  if (Input.pressed.a) { if (this.cursor === 4) { Sound.sfx('back'); closeLayer(this); } else this.change(1); }
+  if (!Input.pressed.a) return;
+  if (this.cursor === rows - 1) { Sound.sfx('back'); closeLayer(this); }
+  else if (this.cursor === OPTIONS_ACCESS_ROW) { Sound.sfx('confirm'); pushLayer(new AccessibilityLayer()); }
+  else this.change(1);
 };
+
 OptionsLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.font = FONT;
   drawText(T('menu.options'), 8, 6, COLOR.white);
   drawPanel(8, 20, 224, 100);
-  const labels = ['opt.lang', 'opt.sound', 'opt.speed', 'opt.motion', 'ui.back'];
-  for (let i = 0; i < 5; i++) {
-    const y = 28 + i * 18;
+  for (let i = 0; i < OPTIONS_ROWS.length; i++) {
+    const y = 26 + i * 15;
     if (i === this.cursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(14, y + 1, 3, 6); }
-    drawText(T(labels[i]), 22, y, COLOR.ink);
-    if (i < 4) drawText('< ' + this.rowValue(i) + ' >', 224, y, COLOR.blue, 'right');
+    drawText(T(OPTIONS_ROWS[i]), 22, y, COLOR.ink);
+    if (i < OPTIONS_ACCESS_ROW) drawText('< ' + this.rowValue(i) + ' >', 224, y, COLOR.blue, 'right');
+    else if (i === OPTIONS_ACCESS_ROW) drawText('>', 224, y, COLOR.blue, 'right');
   }
   drawText(T('opt.hint'), 120, 130, '#b8c4e8', 'center');
+};
+
+// ---- Accessibility (MZ-A11Y-01): large text, type marks, flashes off, hold to repeat, one-hand touch controls ------------------------------------
+// Each row: the option it changes, its label, the strings of its values (a flag is On/Off). The description of the chosen row is 'acc.d.' + option.
+const ACCESS_ROWS = [
+  { option: 'largeText', label: 'acc.largeText', values: 'acc.large', count: LARGE_TEXT_FACTORS.length },
+  { option: 'typeMarks', label: 'acc.marks' },
+  { option: 'flashesOff', label: 'acc.flashes' },
+  { option: 'holdRepeat', label: 'acc.repeat', values: 'acc.repeat', count: HOLD_REPEAT_LEVELS.length },
+  { option: 'touchHand', label: 'acc.hand', values: 'acc.hand', count: TOUCH_HANDS },
+];
+function AccessibilityLayer() { this.opaque = true; this.cursor = 0; this.refresh(); }
+AccessibilityLayer.prototype.refresh = function () {
+  const row = ACCESS_ROWS[this.cursor];
+  this.descLines = row ? wrapText(T('acc.d.' + row.option), 214, FONT_SMALL) : [];
+};
+AccessibilityLayer.prototype.rowValue = function (row) {
+  const value = OPT[row.option];
+  return row.values ? T(row.values + value) : T(value ? 'ui.on' : 'ui.off');
+};
+AccessibilityLayer.prototype.change = function (direction) {
+  const row = ACCESS_ROWS[this.cursor];
+  if (!row) return;
+  OPT[row.option] = row.values ? (OPT[row.option] + row.count + direction) % row.count : !OPT[row.option];
+  saveOptions();
+  if (row.option === 'largeText' || row.option === 'touchHand') resizeScreen(); // the bar and the buttons change the layout
+  Sound.sfx('move');
+};
+AccessibilityLayer.prototype.update = function () {
+  const rows = ACCESS_ROWS.length + 1; // the options and Back
+  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
+  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; this.refresh(); Sound.sfx('move'); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; this.refresh(); Sound.sfx('move'); }
+  if (Input.pressed.left) this.change(-1);
+  if (Input.pressed.right) this.change(1);
+  if (Input.pressed.a) { if (this.cursor === ACCESS_ROWS.length) { Sound.sfx('back'); closeLayer(this); } else this.change(1); }
+};
+AccessibilityLayer.prototype.draw = function () {
+  ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  ctx.font = FONT;
+  drawText(T('acc.title'), 8, 5, COLOR.white);
+  ctx.font = FONT_SMALL;
+  drawText(T('opt.hint'), 232, 6, '#b8c4e8', 'right');
+  ctx.font = FONT;
+  drawPanel(4, 17, 232, 94);
+  for (let i = 0; i <= ACCESS_ROWS.length; i++) {
+    const y = 23 + i * 15;
+    if (i === this.cursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(10, y + 1, 3, 6); }
+    if (i === ACCESS_ROWS.length) { drawText(T('ui.back'), 18, y, COLOR.ink); continue; }
+    drawText(T(ACCESS_ROWS[i].label), 18, y, COLOR.ink);
+    drawText('< ' + this.rowValue(ACCESS_ROWS[i]) + ' >', 228, y, COLOR.blue, 'right');
+  }
+  drawPanel(4, 114, 232, 42);
+  ctx.font = FONT_SMALL;
+  for (let i = 0; i < Math.min(3, this.descLines.length); i++) drawText(this.descLines[i], 10, 120 + i * 10, COLOR.ink);
+  ctx.font = FONT;
 };
 
 // ---- Shop -----------------------------------------------------------------------------------------------------------------------------------
@@ -7202,7 +7481,7 @@ EvolveLayer.prototype.update = function () {
 EvolveLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   const showNew = this.frame > 80;
-  const flash = this.frame > 30 && this.frame < 80 && !OPT.reduceMotion && (this.frame >> 2) % 2 === 0;
+  const flash = evolveGlows(this.frame, OPT.flashesOff, OPT.reduceMotion);
   const image = creatureSprite(showNew ? this.targetId : this.fromId);
   if (flash) {
     ctx.save(); ctx.filter = 'brightness(0) invert(1)'; drawSprite(image, 88, 40, 2, false); ctx.restore();
@@ -7343,8 +7622,9 @@ BattleLayer.prototype.applyFx = function () {
   const progress = fx.t / fx.dur;
   if (fx.kind === 'attack') view.dx = OPT.reduceMotion ? 0 : Math.sin(progress * Math.PI) * 12 * (fx.side === 0 ? 1 : -1);
   else if (fx.kind === 'hit') {
-    view.dx = OPT.reduceMotion ? 0 : ((fx.t >> 1) % 2 === 0 ? 3 : -3);
-    view.alpha = OPT.reduceMotion ? 1 : ((fx.t >> 1) % 2 === 0 ? 0.4 : 1);
+    const look = hitLook(fx.t, OPT.flashesOff, OPT.reduceMotion);
+    view.dx = look.dx;
+    view.alpha = look.alpha;
   } else if (fx.kind === 'faint') {
     view.dy = OPT.reduceMotion ? 0 : progress * 36;
     view.alpha = OPT.reduceMotion ? 1 : 1 - progress;
@@ -7364,7 +7644,7 @@ BattleLayer.prototype.waitUntil = async function (condition, maxFrames) {
 // ---- menus ----
 BattleLayer.prototype.updateRoot = function () {
   // The four tabs sit in one row: left/up goes to the previous tab, right/down to the next (wrapping).
-  const step = (Input.pressed.right || Input.pressed.down ? 1 : 0) - (Input.pressed.left || Input.pressed.up ? 1 : 0);
+  const step = (Input.repeat.right || Input.repeat.down ? 1 : 0) - (Input.repeat.left || Input.repeat.up ? 1 : 0);
   if (step !== 0) { this.rootCursor = (this.rootCursor + step + ROOT_LABELS.length) % ROOT_LABELS.length; Sound.sfx('move'); }
   if (Input.pressed.a) { Sound.sfx('confirm'); const resolve = this.menuResolve; this.mode = 'idle'; this.menuResolve = null; resolve(this.rootCursor); }
 };
@@ -7372,8 +7652,8 @@ BattleLayer.prototype.updateMoves = function () {
   const mon = activeMon(this.battle, 0);
   const count = mon.moves.length;
   let cursor = this.moveCursor; // the moves are a vertical list in the ticker strip
-  if (Input.pressed.up && cursor > 0) cursor--;
-  if (Input.pressed.down && cursor + 1 < count) cursor++;
+  if (Input.repeat.up && cursor > 0) cursor--;
+  if (Input.repeat.down && cursor + 1 < count) cursor++;
   if (cursor !== this.moveCursor) { this.moveCursor = cursor; Sound.sfx('move'); this.refreshMoveInfo(); }
   if (Input.pressed.a || Input.pressed.b) {
     const resolve = this.menuResolve;
@@ -7505,7 +7785,7 @@ BattleLayer.prototype.playRecruit = async function (ev) {
   foeView.hidden = true;
   for (let i = 0; i < ev.shakes; i++) {
     Sound.sfx('shake');
-    for (let t = 0; t < 22; t++) { this.thrown.wobble = OPT.reduceMotion ? 0 : Math.sin(t / 22 * Math.PI * 4) * 3; await nextFrame(); }
+    for (let t = 0; t < 22; t++) { this.thrown.wobble = OPT.reduceMotion || OPT.flashesOff ? 0 : Math.sin(t / 22 * Math.PI * 4) * 3; await nextFrame(); }
     this.thrown.wobble = 0;
     await waitFrames(8);
   }
@@ -7720,6 +8000,7 @@ function stepGame() {
   Input.poll();
   updateLayers();
   Fade.update();
+  Caption.sync(false);
   releaseFrameWaiters();
 }
 function renderFrame() {
@@ -7752,6 +8033,88 @@ function boot() {
   titleFlow();
   requestAnimationFrame(frameLoop);
 }
+
+// ---- Captions: what every screen says to the large-text bar ---------------------------------------------------------------------
+// caption() returns the text being read on the screen (null: nothing new, the bar keeps what it shows). The bar reads the top screen.
+// Never a second place that holds a text: every caption is built from the same strings and values the screen draws.
+function joinCaption(parts) { return parts.filter(function (part) { return part; }).join('. '); }
+DialogLayer.prototype.caption = function () { return this.box.pageText(); };
+ChoiceLayer.prototype.caption = function () {
+  const below = layers[layers.indexOf(this) - 1];
+  const question = below instanceof DialogLayer ? below.box.pageText() : (this.title || ''); // a yes or no question: the question first
+  return (question ? question + ' ' : '') + this.items[this.cursor].label;
+};
+OverworldLayer.prototype.caption = function () { return T(this.map.name); };
+TicketLayer.prototype.caption = function () { return joinCaption([T('kep.sign'), T('kep.yourNumber') + ' 9.999']); };
+MonitorLayer.prototype.caption = function () { return T('hosp.monitor'); };
+BadgeLayer.prototype.caption = function () { return joinCaption([T(this.titleKey), T(this.subKey)]); };
+ChapterLayer.prototype.caption = function () { return joinCaption([T('chapter.title'), T('chapter.sub')]); };
+CreditsLayer.prototype.caption = function () {
+  const shown = [];
+  if (this.lines) for (let i = 0; i < this.lines.length; i++) { const y = creditsLineY(this.frame, i); if (y >= 30 && y <= 110 && this.lines[i]) shown.push(this.lines[i]); }
+  return shown.length > 0 ? shown.join(' ') : null;
+};
+NoticeLayer.prototype.caption = function () { return lookupString('notice.line1', 'el') + ' ' + lookupString('notice.line2', 'en'); };
+TitleLayer.prototype.caption = function () { return joinCaption(['MIZAMON', T('title.sub')]); };
+GenderLayer.prototype.caption = function () { return T('gender.title') + ' ' + T(this.cursor === 0 ? 'gender.m' : 'gender.f'); };
+NameLayer.prototype.caption = function () {
+  const pageRows = NAME_PAGES[this.page].length;
+  const key = this.row < pageRows ? (NAME_PAGES[this.page][this.row][this.col] || '') : [T('name.switch'), T('name.del'), T('name.ok')][this.col];
+  return T('name.title') + ' ' + this.name + (key ? ' [' + key + ']' : '');
+};
+BackdropLayer.prototype.caption = function () { return null; };
+StarterLayer.prototype.caption = function () {
+  const species = SPECIES[STARTERS[this.cursor]];
+  return joinCaption([species.n, T('type.' + species.t), this.abilityName + ': ' + this.abilityLines.join(' ')]);
+};
+MapLayer.prototype.caption = function () {
+  if (!this.lines) return T('map.title');
+  return (this.sheet ? this.lines : this.lines.slice(0, 2)).join('. '); // the last line of the plain view is the key hint
+};
+PartyLayer.prototype.caption = function () {
+  const mon = G.party[this.cursor];
+  const row = this.rows[this.cursor];
+  return joinCaption([this.title, row.name, row.level, row.hp, mon.status ? statusLabel(mon.status.id) : '', this.cursor === this.activeIndex ? T('party.active') : '']);
+};
+ArchiveLayer.prototype.caption = function () {
+  const row = this.rows[this.cursor];
+  return row ? joinCaption([this.title, row.name, row.level, row.hp, T('type.' + row.type)]) : this.title;
+};
+SummaryLayer.prototype.caption = function () {
+  const mon = this.mon;
+  return joinCaption([speciesName(mon.sp), T('ui.lv') + mon.lv, T('type.' + SPECIES[mon.sp].t), this.hpText, MOVES[mon.moves[this.moveCursor]].n + ': ' + this.moveInfo, this.moveDescription.join(' ')]);
+};
+BagLayer.prototype.caption = function () {
+  if (this.entries.length === 0) return T('bag.empty');
+  const id = this.entries[this.cursor];
+  return T('item.' + id) + ' x' + G.bag[id] + '. ' + this.descLines.join(' ');
+};
+DossierLayer.prototype.caption = function () {
+  if (!this.seen) return joinCaption([this.caseText, T('dossier.unknown')]);
+  return joinCaption([this.caseText, SPECIES[this.id].n, T(this.got ? 'dossier.got' : 'dossier.seen'), T('sp.' + this.id)]);
+};
+OptionsLayer.prototype.caption = function () {
+  const label = T(OPTIONS_ROWS[this.cursor]);
+  return this.cursor < OPTIONS_ACCESS_ROW ? label + ': ' + this.rowValue(this.cursor) : label;
+};
+AccessibilityLayer.prototype.caption = function () {
+  const row = ACCESS_ROWS[this.cursor];
+  if (!row) return T('ui.back');
+  return T(row.label) + ': ' + this.rowValue(row) + '. ' + this.descLines.join(' ');
+};
+ShopLayer.prototype.caption = function () {
+  const id = this.stock[this.cursor];
+  return joinCaption([T('item.' + id) + ' ' + ITEMS[id].price, this.descLines.join(' '), this.message]);
+};
+EvolveLayer.prototype.caption = function () {
+  return T(this.frame > 80 ? 'evolve.done' : 'evolve.start', { from: speciesName(this.fromId), to: speciesName(this.targetId) });
+};
+BattleLayer.prototype.caption = function () {
+  if (this.mode === 'text') return this.box.pageText();
+  if (this.mode === 'root') return this.rootPrompt.join(' ') + ' ' + T(ROOT_LABELS[this.rootCursor]);
+  if (this.mode === 'moves') return MOVES[activeMon(this.battle, 0).moves[this.moveCursor]].n + ': ' + T('type.' + this.moveType) + ', ' + this.moveInfo;
+  return null;
+};
 
 // ---- Self test (run it in the browser: await MIZAMON.selfTest()) ----------------------------------------------------------------
 function yieldToBrowser() { return new Promise(function (resolve) { const channel = new MessageChannel(); channel.port1.onmessage = function () { resolve(); }; channel.port2.postMessage(0); }); }
@@ -9251,6 +9614,7 @@ async function selfTest() {
       check('the map touch button is reachable and clear of the other buttons (' + window.innerWidth + 'x' + window.innerHeight + ')', inside && !onGame && overlaps.length === 0 && pressed && released,
         'inside ' + inside + ' onGame ' + onGame + ' overlaps ' + overlaps.join(',') + ' pressed ' + pressed + ' released ' + released);
     });
+    await guard('accessibility', async function () { await accessibilityChecks(check); });
   } finally {
     layers.length = 0;
     for (const layer of snapshot.layers) layers.push(layer);
@@ -9265,6 +9629,393 @@ async function selfTest() {
     loopPaused = snapshot.loopPaused;
   }
   return results;
+}
+
+// ---- In-page checks of the accessibility options (MZ-A11Y-01) ------------------------------------------------------------------------
+// Run by selfTest() in the window it is in: the review runs it at 390x844, 844x390 and 1280x720. Nothing here is sized for one window: every
+// number comes from the window, the layout and the screens themselves. The checks change OPT and the layout; selfTest puts both back.
+const A11Y_BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
+function a11yFreshGame() {
+  G = newGameState('ΝΙΚΟΣ', 'm', 'komma');
+  G.rng = makeRng(99);
+  G.party.push(makeMon('fakelakis', 5), makeMon('psaltak', 6));
+  for (let i = 0; i < 12; i++) G.archive.push(makeMon(i % 2 === 0 ? 'koulourak' : 'fakelakis', 3 + i));
+  for (const id of ITEM_IDS.slice(0, 4)) G.bag[id] = 3;
+  for (const id of DEX_ORDER.slice(0, 10)) G.dex.seen[id] = true;
+  G.money = 1234;
+  Fade.alpha = 0; Fade.frames = 0;
+}
+function a11yBattle(mode) {
+  const battle = createBattle(G.party, [makeMon('fakelakis', 3)], G.rng, { kind: 'wild', trainerId: undefined, foeItems: [], foeName: '', bag: G.bag, archive: G.archive, sunday: false, recruitable: false, recruitOnly: null });
+  const layer = new BattleLayer(battle, null, 'grass');
+  for (const side of [0, 1]) {
+    const view = layer.views[side];
+    const mon = activeMon(battle, side);
+    view.sp = mon.sp; view.name = speciesName(mon.sp); view.max = maxHp(mon); view.shown = mon.hp; view.target = mon.hp; view.lastShown = view.max; view.hpText = mon.hp + '/' + view.max;
+    view.lvText = T('ui.lv') + mon.lv; view.visible = true;
+  }
+  layer.menuResolve = function () {};
+  if (mode === 'root') { layer.rootPrompt = wrapText(T('battle.prompt', { name: speciesName(activeMon(battle, 0).sp) }), TICKER.textW); layer.mode = 'root'; }
+  else if (mode === 'moves') { layer.moveCursor = 0; layer.refreshMoveInfo(); layer.mode = 'moves'; }
+  else if (mode === 'text') { layer.box.setText(T('b.run.trainer')); layer.box.typed = layer.box.total; layer.mode = 'text'; }
+  return layer;
+}
+// Every screen of the game, as a function that makes one in a state where it has something to say. [name, make, bounds]: bounds is 'all' to check all its text.
+function a11yScreens() {
+  return [
+    ['dialog', function () { const layer = new DialogLayer(T('intro.4', { name: 'ΝΙΚΟΣ' })); layer.box.typed = layer.box.total; return layer; }],
+    ['choice', function () { return new ChoiceLayer([T('ui.yes'), T('ui.no')], { title: T('ui.money', { n: 5 }) }); }],
+    ['overworld', function () { const layer = new OverworldLayer(); const play = Sound.play; Sound.play = function () {}; try { layer.onEnter(); } finally { Sound.play = play; } layer.popup = 60; return layer; }], // the place name shows for a second after a map is entered
+    ['ticket', function () { return new TicketLayer(); }],
+    ['monitor', function () { return new MonitorLayer(); }],
+    ['badge', function () { return new BadgeLayer(); }],
+    ['chapter', function () { return new ChapterLayer(); }],
+    ['credits', function () { const layer = new CreditsLayer(); layer.lines = T('credits.text').split('\n'); layer.frame = 400; return layer; }],
+    ['notice', function () { const layer = new NoticeLayer(); layer.greek = wrapText(lookupString('notice.line1', 'el'), 200); layer.english = wrapText(lookupString('notice.line2', 'en'), 200); layer.frame = 40; return layer; }],
+    ['title', function () { return new TitleLayer(); }],
+    ['gender', function () { return new GenderLayer(); }],
+    ['name', function () { return new NameLayer('ΝΙΚΟΣ'); }],
+    ['starter', function () { return new StarterLayer(); }],
+    ['map', function () { return new MapLayer(); }],
+    ['party', function () { return new PartyLayer({ mode: 'view' }); }],
+    ['archive', function () { return new ArchiveLayer({ mode: 'view' }); }],
+    ['summary', function () { return new SummaryLayer(0); }],
+    ['bag', function () { const layer = new BagLayer({ battle: false }); layer.update(); return layer; }],
+    ['dossier', function () { return new DossierLayer(); }],
+    ['options', function () { return new OptionsLayer(); }],
+    ['accessibility', function () { return new AccessibilityLayer(); }],
+    ['shop', function () { const layer = new ShopLayer(); layer.update(); return layer; }],
+    ['evolve', function () { const layer = new EvolveLayer(G.party[0], SPECIES[G.party[0].sp].evo.to); layer.frame = 40; return layer; }],
+    ['battle: command tabs', function () { return a11yBattle('root'); }],
+    ['battle: moves', function () { return a11yBattle('moves'); }],
+    ['battle: ticker text', function () { return a11yBattle('text'); }],
+  ];
+}
+function a11yShow(layer) {
+  layers.length = 0;
+  layers.push(layer);
+  Fade.alpha = 0; Fade.frames = 0;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height); // a screen that does not cover the picture is drawn on black, not on the last frame
+  renderFrame();
+}
+// The box of every text a screen draws, in logical pixels (the picture is 240 x 160), from the real glyph boxes of the browser.
+function a11yTextBoxes(layer) {
+  const found = [];
+  ctx.fillText = function (text, x, y) {
+    if (String(text).trim() !== '') {
+      const metrics = ctx.measureText(text);
+      const matrix = ctx.getTransform();
+      const corners = [
+        [x - metrics.actualBoundingBoxLeft, y - metrics.actualBoundingBoxAscent], [x + metrics.actualBoundingBoxRight, y - metrics.actualBoundingBoxAscent],
+        [x - metrics.actualBoundingBoxLeft, y + metrics.actualBoundingBoxDescent], [x + metrics.actualBoundingBoxRight, y + metrics.actualBoundingBoxDescent],
+      ];
+      const box = { text: String(text), left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+      for (const corner of corners) {
+        const px = (matrix.a * corner[0] + matrix.c * corner[1] + matrix.e) / viewScale;
+        const py = (matrix.b * corner[0] + matrix.d * corner[1] + matrix.f) / viewScale;
+        box.left = Math.min(box.left, px); box.right = Math.max(box.right, px); box.top = Math.min(box.top, py); box.bottom = Math.max(box.bottom, py);
+      }
+      found.push(box);
+    }
+    return CanvasRenderingContext2D.prototype.fillText.apply(ctx, arguments);
+  };
+  try { a11yShow(layer); } finally { delete ctx.fillText; }
+  return found;
+}
+function a11ySignature(region) { // a number that changes when any pixel of the region (logical pixels: x, y, w, h; none = the whole picture) changes
+  const r = region || [0, 0, SCREEN_W, SCREEN_H];
+  const data = ctx.getImageData(Math.floor(r[0] * viewScale), Math.floor(r[1] * viewScale), Math.max(1, Math.floor(r[2] * viewScale)), Math.max(1, Math.floor(r[3] * viewScale))).data;
+  let hash = 0;
+  for (let i = 0; i < data.length; i++) hash = (Math.imul(hash, 31) + data[i]) | 0;
+  return hash;
+}
+function a11yRect(element) { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }; }
+function a11yInside(rect) { return rect.left >= -0.5 && rect.top >= -0.5 && rect.right <= window.innerWidth + 0.5 && rect.bottom <= window.innerHeight + 0.5; }
+function a11yOverlap(a, b) { return a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5; }
+// Presses a button for frames frames on a screen (alone on the stack) and counts the cursor steps (the 'move' blips).
+function a11yHold(layer, button, frames) {
+  layers.length = 0;
+  layers.push(layer);
+  Input.clear();
+  let steps = 0;
+  const original = Sound.sfx;
+  Sound.sfx = function (name) { if (name === 'move') steps++; };
+  try {
+    Input.keys[button] = true;
+    for (let i = 0; i < frames; i++) stepGame();
+    Input.keys[button] = false;
+    stepGame();
+  } finally { Sound.sfx = original; Input.clear(); }
+  return steps;
+}
+async function accessibilityChecks(check) {
+  const where = ' (' + window.innerWidth + 'x' + window.innerHeight + ')';
+  const keepOptions = Object.assign({}, OPT);
+  const keepTouch = touchForced;
+  const screens = a11yScreens();
+  try {
+    OPT = Object.assign({}, defaultOptions(), { lang: 'el', reduceMotion: false });
+    a11yFreshGame();
+    resetTextCache();
+
+    // 1. Large text: every screen says what is read; the bar is off when the option is off.
+    for (const screen of screens) {
+      const layer = screen[1]();
+      layers.length = 0; layers.push(layer);
+      OPT.largeText = 0; resizeScreen(); Caption.sync(true);
+      const hiddenWhenOff = Caption.element.style.display === 'none' && Caption.element.textContent === '';
+      OPT.largeText = 2; resizeScreen(); Caption.sync(true);
+      const said = layer.caption ? layer.caption() : null;
+      const shown = Caption.element.textContent;
+      check('large text: ' + screen[0] + ' says what is read in the bar, and the bar is empty and hidden when the option is off' + where,
+        hiddenWhenOff && typeof said === 'string' && said.length > 0 && shown === said && Caption.element.style.display === 'block', 'said "' + said + '" shown "' + shown + '" hidden when off ' + hiddenWhenOff);
+    }
+    // The bar follows the screen when the text changes (a menu row), and the language.
+    OPT.largeText = 1; resizeScreen();
+    const choice = new ChoiceLayer(['AAA', 'BBB', 'CCC'], {});
+    layers.length = 0; layers.push(choice);
+    Caption.sync(true);
+    const first = Caption.element.textContent;
+    choice.cursor = 2; Caption.sync(true);
+    check('large text: the bar follows the chosen row', first === 'AAA' && Caption.element.textContent === 'CCC', first + ' -> ' + Caption.element.textContent);
+    OPT.lang = 'en'; resetTextCache();
+    const optionsScreen = new OptionsLayer();
+    layers.length = 0; layers.push(optionsScreen);
+    Caption.sync(true);
+    const english = Caption.element.textContent;
+    OPT.lang = 'el'; resetTextCache(); Caption.sync(true);
+    check('large text: the bar follows the language', english === 'Language: English' && Caption.element.textContent === 'Γλώσσα: Ελληνικά', english + ' / ' + Caption.element.textContent);
+
+    // 2. No text leaves the picture (every screen, every text), and no text leaves the screen (the bar and the buttons) at the largest scale.
+    OPT.largeText = 2; resizeScreen();
+    for (const screen of screens) {
+      const layer = screen[1]();
+      const boxes = a11yTextBoxes(layer);
+      let wanted = boxes;
+      if (screen[0] === 'credits') wanted = boxes.filter(function (box) { return box.top >= 0 && box.bottom <= SCREEN_H; }); // the roll slides in and out on purpose
+      const outside = wanted.filter(function (box) { return box.left < -0.5 || box.right > SCREEN_W + 0.5 || box.top < -0.5 || box.bottom > SCREEN_H + 0.5; });
+      check('no text leaves the ' + SCREEN_W + 'x' + SCREEN_H + ' picture: ' + screen[0] + ' (' + wanted.length + ' texts)' + where, wanted.length > 0 && outside.length === 0,
+        outside.slice(0, 3).map(function (box) { return '"' + box.text + '" ' + Math.round(box.left) + ',' + Math.round(box.top) + ' to ' + Math.round(box.right) + ',' + Math.round(box.bottom); }).join(' | '));
+    }
+    // The longest pages of any dialog or ticker text, in both languages, fit the bar at the largest scale and at the smallest bar letters.
+    const pages = [];
+    for (const key of Object.keys(STRINGS)) {
+      for (const language of ['el', 'en']) {
+        const text = lookupString(key, language);
+        if (text.length < 80) continue;
+        const lines = wrapText(text, DIALOG_BOX.w - 20);
+        for (let i = 0; i < lines.length; i += 3) pages.push(lines.slice(i, i + 3).join(' '));
+      }
+    }
+    pages.sort(function (a, b) { return b.length - a.length; });
+    const longest = pages.slice(0, 12);
+    for (const touch of [false, true]) {
+      for (const hand of [0, 1, 2]) {
+        for (const level of [1, 2]) {
+          touchForced = touch; OPT.touchHand = hand; OPT.largeText = level; resizeScreen();
+          const name = 'touch ' + touch + ', hand ' + hand + ', large text ' + level + where;
+          const canvasBox = a11yRect(canvas);
+          const barBox = a11yRect(Caption.element);
+          check('the picture and the large-text bar are inside the screen, the bar under the picture (' + name + ')', a11yInside(canvasBox) && a11yInside(barBox) && barBox.top >= canvasBox.bottom - 1 && !a11yOverlap(canvasBox, barBox),
+            'picture ' + JSON.stringify(canvasBox) + ' bar ' + JSON.stringify(barBox));
+          let clipped = 0;
+          let worst = '';
+          for (const page of longest) {
+            Caption.element.textContent = page; Caption.fit();
+            const size = parseFloat(Caption.element.style.fontSize);
+            if (Caption.element.scrollHeight > Caption.element.clientHeight + 1 || size < CAPTION_MIN_FONT) { clipped++; worst = page.slice(0, 40) + ' at ' + size + ' px'; }
+          }
+          check('the longest dialog pages (' + longest.length + ', both languages) fit the large-text bar without clipping (' + name + ')', clipped === 0, clipped + ' clipped ' + worst);
+          if (touch) {
+            const boxes = A11Y_BUTTONS.map(function (button) { return [button, a11yRect(touchPad.querySelector('[data-btn="' + button + '"]'))]; });
+            const lost = boxes.filter(function (pair) { return !a11yInside(pair[1]); }).map(function (pair) { return pair[0]; });
+            const covering = boxes.filter(function (pair) { return a11yOverlap(pair[1], canvasBox) || a11yOverlap(pair[1], barBox); }).map(function (pair) { return pair[0]; });
+            const crossing = [];
+            for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) if (a11yOverlap(boxes[i][1], boxes[j][1])) crossing.push(boxes[i][0] + '/' + boxes[j][0]);
+            let reach = true;
+            if (hand !== 0) {
+              const portrait = window.innerHeight > window.innerWidth;
+              for (const pair of boxes) {
+                const centre = (pair[1].left + pair[1].right) / 2;
+                const near = portrait ? window.innerWidth / 3 : TOUCH_SIDE_WIDTH;
+                if (hand === 1 && centre < (portrait ? near : window.innerWidth - near)) reach = false;
+                if (hand === 2 && centre > (portrait ? window.innerWidth - near : near)) reach = false;
+              }
+            }
+            check('the eight touch buttons are inside the screen, apart from each other, the picture and the bar, and within one thumb of the chosen side (' + name + ')', lost.length === 0 && covering.length === 0 && crossing.length === 0 && reach,
+              'outside ' + lost.join(',') + ' over picture or bar ' + covering.join(',') + ' crossing ' + crossing.join(',') + ' reach ' + reach);
+          }
+        }
+      }
+    }
+    // One finger at a time: every touch button is pressed and released by its own pointer, and presses nothing else.
+    touchForced = true; OPT.touchHand = 0; OPT.largeText = 0; resizeScreen();
+    const stray = [];
+    for (const button of A11Y_BUTTONS) {
+      const element = touchPad.querySelector('[data-btn="' + button + '"]');
+      Input.clear();
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const down = A11Y_BUTTONS.filter(function (other) { return Input.touch[other]; });
+      element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      const after = A11Y_BUTTONS.filter(function (other) { return Input.touch[other]; });
+      if (down.length !== 1 || down[0] !== button || after.length !== 0) stray.push(button + ' -> ' + down.join('+') + ' / ' + after.join('+'));
+    }
+    check('every touch button works with one finger alone and releases cleanly' + where, stray.length === 0, stray.join(' | '));
+
+    // 3. Flashes off: a still picture where the game shook or blinked, on every screen that does either.
+    touchForced = null; OPT.largeText = 0; OPT.touchHand = 0; resizeScreen();
+    const frames = function (from, to) { const list = []; for (let n = from; n <= to; n++) list.push(n); return list; };
+    const distinct = function (list) { return new Set(list).size; };
+    const hitSignatures = function (flashesOff) {
+      OPT.flashesOff = flashesOff; OPT.reduceMotion = false;
+      const layer = a11yBattle('idle');
+      return frames(0, 15).map(function (t) {
+        layer.fx = { kind: 'hit', side: 1, t: t, dur: 16, resolve: null };
+        layer.applyFx();
+        a11yShow(layer);
+        return a11ySignature();
+      });
+    };
+    const idleBattle = a11yBattle('idle'); a11yShow(idleBattle);
+    const idleSignature = a11ySignature();
+    const hitsBlinking = hitSignatures(false);
+    const hitsSteady = hitSignatures(true);
+    check('flashes off: a creature that is hit blinks and shakes by default' + where, distinct(hitsBlinking) >= 2, distinct(hitsBlinking) + ' different pictures in 16 frames');
+    check('flashes off: a creature that is hit stays steady (one picture, not the resting one: the hit is still shown)' + where, distinct(hitsSteady) === 1 && hitsSteady[0] !== idleSignature, distinct(hitsSteady) + ' pictures');
+    const evolveSignatures = function (flashesOff, from, to) {
+      OPT.flashesOff = flashesOff;
+      const layer = new EvolveLayer(G.party[0], SPECIES[G.party[0].sp].evo.to);
+      return frames(from, to).map(function (n) { layer.frame = n; a11yShow(layer); return a11ySignature([88, 40, 64, 64]); });
+    };
+    check('flashes off: the evolution flashes white by default' + where, distinct(evolveSignatures(false, 32, 39)) >= 2);
+    check('flashes off: the evolution glows steadily (one picture from frame 31 to 79)' + where, distinct(evolveSignatures(true, 31, 79)) === 1);
+    const blinkSignatures = function (make, flashesOff, from, to, prepare, region) {
+      OPT.flashesOff = flashesOff;
+      const layer = make();
+      return frames(from, to).map(function (n) { prepare(layer, n); a11yShow(layer); return a11ySignature(region); });
+    };
+    const blinkers = [
+      ['the arrow of a dialog', function () { const layer = new DialogLayer(T('ui.yes')); layer.box.typed = layer.box.total; return layer; }, function (layer, n) { layer.blink = n; }, null],
+      ['the cursor of the name screen', function () { return new NameLayer('ΝΙΚΟΣ'); }, function (layer, n) { layer.frame = n; }, [60, 22, 120, 20]],
+      ['the press-A line of the notice', function () { const layer = new NoticeLayer(); layer.greek = ['x']; layer.english = ['y']; return layer; }, function (layer, n) { layer.frame = 21 + n; }, [0, 130, SCREEN_W, 20]],
+    ];
+    for (const blinker of blinkers) {
+      check('flashes off: ' + blinker[0] + ' blinks by default' + where, distinct(blinkSignatures(blinker[1], false, 0, 80, blinker[2], blinker[3])) >= 2);
+      check('flashes off: ' + blinker[0] + ' stays steady' + where, distinct(blinkSignatures(blinker[1], true, 0, 80, blinker[2], blinker[3])) === 1);
+    }
+    const monitorLight = function (flashesOff) { // does the heart line ever turn light green
+      OPT.flashesOff = flashesOff;
+      const layer = new MonitorLayer();
+      let light = false;
+      for (const n of frames(0, 40)) {
+        layer.frame = n; a11yShow(layer);
+        const box = MONITOR_BOX;
+        const data = ctx.getImageData(Math.floor(box.x * viewScale), Math.floor(box.y * viewScale), Math.floor(box.w * viewScale), Math.floor(box.h * viewScale)).data;
+        for (let i = 0; i < data.length; i += 4) if (data[i] > 160 && data[i + 1] > 240 && data[i + 2] > 190 && data[i + 2] < 230) { light = true; break; }
+      }
+      return light;
+    };
+    check('flashes off: the heart line changes colour by default and keeps one colour with the option' + where, monitorLight(false) === true && monitorLight(true) === false);
+    OPT.flashesOff = false;
+
+    // 4. Type marks: the picture changes where a type colour is shown, and the seven marks are seven different shapes drawn on the picture.
+    const markScreens = [
+      ['the starter screen', function () { return new StarterLayer(); }],
+      ['the archive list', function () { return new ArchiveLayer({ mode: 'view' }); }],
+      ['the summary', function () { return new SummaryLayer(0); }],
+      ['the case file', function () { const layer = new DossierLayer(); return layer; }],
+      ['the moves of a battle', function () { return a11yBattle('moves'); }],
+    ];
+    for (const screen of markScreens) {
+      OPT.typeMarks = true; const withMarks = (function () { a11yShow(screen[1]()); return a11ySignature(); })();
+      OPT.typeMarks = false; const without = (function () { a11yShow(screen[1]()); return a11ySignature(); })();
+      check('type marks: ' + screen[0] + ' looks different with and without the marks' + where, withMarks !== without);
+    }
+    OPT.typeMarks = true;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // one logical pixel is one device pixel here, so the pixels can be read exactly
+    const drawn = {};
+    for (const typeId of TYPE_IDS) {
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 40, 30);
+      drawTypeTag(typeId, 10, 10);
+      let picture = '';
+      for (let row = 0; row < TYPE_MARK_SIZE; row++) {
+        for (let column = 0; column < TYPE_MARK_SIZE; column++) {
+          const pixel = ctx.getImageData(13 + column, 12 + row, 1, 1).data;
+          picture += pixel[0] > 200 && pixel[1] > 200 && pixel[2] > 200 ? '#' : '.';
+        }
+      }
+      drawn[typeId] = picture;
+    }
+    const expected = TYPE_IDS.map(function (typeId) { return TYPE_MARKS[typeId].join(''); });
+    check('type marks: the seven tags show seven different shapes in white, the shapes of the table' + where, distinct(Object.values(drawn)) === 7 && TYPE_IDS.every(function (typeId, i) { return drawn[typeId] === expected[i]; }), JSON.stringify(drawn));
+    OPT.typeMarks = true;
+    const widthWith = drawTypeTag('biz', 10, 10);
+    OPT.typeMarks = false;
+    const widthWithout = drawTypeTag('biz', 10, 10);
+    check('type marks: with the option on every tag is wider by the room of the mark (' + (TYPE_MARK_SIZE + 2) + ' px), with it off the tag is colour and text only' + where, widthWith - widthWithout === TYPE_MARK_SIZE + 2, widthWith + ' / ' + widthWithout);
+    OPT.typeMarks = true;
+
+    // 5. Hold to repeat: a held arrow moves the cursor by the level of the option, on every menu that moves one.
+    const holdScreens = [
+      ['a choice list', function () { return new ChoiceLayer(['a', 'b', 'c', 'd', 'e', 'f'], {}); }, 'down'],
+      ['the team', function () { return new PartyLayer({ mode: 'view' }); }, 'down'],
+      ['the bag', function () { return new BagLayer({ battle: false }); }, 'down'],
+      ['the case files', function () { return new DossierLayer(); }, 'down'],
+      ['the shop', function () { return new ShopLayer(); }, 'down'],
+      ['the archive (down)', function () { return new ArchiveLayer({ mode: 'view' }); }, 'down'],
+      ['the archive (pages)', function () { return new ArchiveLayer({ mode: 'view' }); }, 'right'],
+      ['the summary (moves)', function () { return new SummaryLayer(0); }, 'down'],
+      ['the summary (creatures)', function () { return new SummaryLayer(0); }, 'right'],
+      ['the starter screen', function () { return new StarterLayer(); }, 'right'],
+      ['the name screen', function () { return new NameLayer('ΝΙΚΟΣ'); }, 'right'],
+      ['the accessibility screen', function () { return new AccessibilityLayer(); }, 'down'],
+      ['the options screen', function () { return new OptionsLayer(); }, 'down'],
+      ['the battle command tabs', function () { return a11yBattle('root'); }, 'right'],
+      ['the battle moves', function () { const layer = a11yBattle('moves'); layer.battle.sides[0].party[layer.battle.sides[0].active].moves = G.party[0].moves.concat(G.party[0].moves).slice(0, 4); layer.refreshMoveInfo(); return layer; }, 'down'],
+    ];
+    for (const screen of holdScreens) {
+      const counts = [0, 1, 2, 3].map(function (level) { OPT.holdRepeat = level; return a11yHold(screen[1](), screen[2], 120); });
+      check('hold to repeat: ' + screen[0] + ' (' + screen[2] + ' held for 2 seconds): off steps once, normal steps more, the levels never get fewer' + where,
+        counts[0] === 1 && counts[2] > counts[0] && counts[1] >= counts[0] && counts[1] <= counts[2] && counts[2] <= counts[3], 'steps by level ' + counts.join(','));
+    }
+    OPT.holdRepeat = HOLD_REPEAT_DEFAULT;
+
+    // 6. The options are changed from the screens, saved, and an old saved set loads with the defaults.
+    OPT = Object.assign({}, defaultOptions(), { lang: 'el', reduceMotion: false });
+    const access = new AccessibilityLayer();
+    layers.length = 0; layers.push(access);
+    const press = async function (button) { Input.inject(button, 2); await pumpFrames(4); };
+    await press('right'); // large text -> Large
+    await press('down'); await press('right'); // type marks off
+    await press('down'); await press('right'); // flashes off on
+    await press('down'); await press('right'); // hold to repeat -> Fast
+    await press('down'); await press('right'); // touch controls -> one hand right
+    const changed = OPT.largeText === 1 && OPT.typeMarks === false && OPT.flashesOff === true && OPT.holdRepeat === 3 && OPT.touchHand === 1;
+    check('accessibility screen: one press on each row changes its option' + where, changed, JSON.stringify(OPT));
+    const stored = JSON.parse(Store.get(OPTIONS_KEY) || 'null');
+    check('accessibility screen: the changes are saved in the options key' + where, !!stored && stored.largeText === 1 && stored.typeMarks === false && stored.flashesOff === true && stored.holdRepeat === 3 && stored.touchHand === 1, JSON.stringify(stored));
+    loadOptions();
+    check('the saved accessibility options load again' + where, OPT.largeText === 1 && OPT.typeMarks === false && OPT.flashesOff === true && OPT.holdRepeat === 3 && OPT.touchHand === 1, JSON.stringify(OPT));
+    Store.set(OPTIONS_KEY, JSON.stringify({ lang: 'en', sound: false, textSpeed: 2, reduceMotion: true }));
+    loadOptions();
+    check('options saved before the accessibility options exist load with the old choices and the new ones at their defaults' + where,
+      OPT.lang === 'en' && OPT.sound === false && OPT.textSpeed === 2 && OPT.reduceMotion === true && OPT.largeText === 0 && OPT.typeMarks === true && OPT.flashesOff === false && OPT.holdRepeat === HOLD_REPEAT_DEFAULT && OPT.touchHand === 0, JSON.stringify(OPT));
+    OPT = Object.assign({}, defaultOptions(), { reduceMotion: false });
+    const options = new OptionsLayer();
+    layers.length = 0; layers.push(options);
+    for (let i = 0; i < OPTIONS_ACCESS_ROW; i++) await press('down');
+    await press('a');
+    await pumpFrames(2);
+    check('the Options screen opens the Accessibility screen from its own row' + where, layers[layers.length - 1] instanceof AccessibilityLayer, layers.map(function (layer) { return layer.constructor.name; }).join(','));
+  } finally {
+    delete ctx.fillText;
+    OPT = keepOptions;
+    touchForced = keepTouch;
+    resizeScreen();
+    Input.clear();
+  }
 }
 
 // ---- Public handle for the tests and for quick starts -----------------------------------------------------------------------------------
