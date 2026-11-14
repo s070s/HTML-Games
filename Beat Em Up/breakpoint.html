@@ -196,6 +196,10 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .bar.st.winded i{background:#f2e45a}
 .bar.st.spent i{background:repeating-linear-gradient(90deg,#ff4a4a 0 .2em,#5a0f0f .2em .4em)}
 .bar.st.spent{border-color:#ff4a4a}
+@keyframes stPulse{0%,100%{opacity:.75}50%{opacity:1}}
+@keyframes stPulseFast{0%,100%{opacity:.7}50%{opacity:1}}
+.bar.st.low{animation:stPulse 1.2s ease-in-out infinite} /* P19-16: the tired bar breathes slowly, the spent one quickly; .reduced * switches both off */
+.bar.st.spent{animation:stPulseFast .7s ease-in-out infinite}
 .bar.mo{height:.4em;margin-top:.2em;border-width:1px;width:70%}
 .hs.r .bar.mo{margin-left:30%}
 .bar.mo i,.hs.r .bar.mo i{background:#c9b88a}
@@ -4740,19 +4744,20 @@ function canTransition(from, to) {
 const ATTR_KEYS = ['health', 'stamina', 'strength', 'speed', 'reach', 'defense', 'balance', 'recovery'];
 /* Stamina (P18-61 section 4). Move costs are in ATTACKS and WEAPON_MOVES, scaled once by STAMINA_PRICE_K (stamPrice); a string step started from the ATTACK state costs CHAIN_PRICE_K times that, except for a CPU fighter; SWAY_COST_BY_TIER (paid per strike dodged, in swayHit), SIDESTEP_COST, JUMP_COST and RUN_DRAIN are with the other movement.
    Regeneration: the fighter's rate x STAMINA_REGEN_K x the share of its state (REGEN_SHARE) x the refill factor of its band; it starts ATTACK_NO_REGEN ticks after an attack, GUARD_NO_REGEN after a blocked hit.
-   STAMINA_BANDS (the fraction of the tank, highest first; the first row the tank reaches): damage dealt, startup and recovery time, walk speed and refill all scale with it. A move the tank cannot pay does at most EMPTY_MOVE_DAMAGE and starts EMPTY_MOVE_STARTUP ticks later.
+   STAMINA_BANDS (the fraction of the tank, highest first; the first row the tank reaches): damage dealt, startup and recovery time, walk speed and refill all scale with it. A move the tank cannot pay does at most EMPTY_MOVE_DAMAGE, starts EMPTY_MOVE_STARTUP ticks later and stumbles STUMBLE_RECOVERY ticks after its recovery (P19-16).
    The people's side of a match at the CPU levels (not Versus, Training or an even-damage run, and not people alone; a lineup gives it to its people only) gets the edge of the difficulty: regen = times the fighter's rate; delay = times the wait before regeneration starts after an attack or a blocked hit; attackShare = share of the rate while still attacking; perfect = stamina a perfect block or sway gives back. Hard, Expert and every CPU fighter keep the plain rules (STAMINA_EDGE_NONE). */
 const STAMINA_PRICE_K = 1.15, CHAIN_PRICE_K = 1.8, STAMINA_REGEN_K = 1.3; // CHAIN_PRICE_K 1.8, not the decided 1.6: with 1.6 the Mash script was exhausted 47.5 % of the long duel at Expert (target 50), see Appendix C "BP-P18-52 as built"
 const stamPrice = (base) => Math.round(base * STAMINA_PRICE_K * 10) / 10;
 const ATTACK_NO_REGEN = 24, GUARD_NO_REGEN = 40;
 const REGEN_SHARE = { idle: 1, walk: 0.6, guard: 0.4, guardStun: 0.1, down: 0.4, getUp: 0.4, air: 0.2, hit: 0.15 };
 const STAMINA_BANDS = [
-  { from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1 },
-  { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1 },
-  { from: 0.1, name: 'Tired', dmg: 0.6, slow: 1.4, walk: 0.9, regen: 0.85 },
-  { from: 0, name: 'Spent', dmg: 0.4, slow: 1.6, walk: 0.85, regen: 0.75 },
+  { from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1, guard: 1, stun: 1 },
+  { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1, guard: 1, stun: 1 },
+  { from: 0.1, name: 'Tired', dmg: 0.5, slow: 1.5, walk: 0.88, regen: 0.8, guard: 1.15, stun: 1.15 },
+  { from: 0, name: 'Spent', dmg: 0.3, slow: 1.7, walk: 0.82, regen: 0.65, guard: 1.35, stun: 1.3 },
 ];
-const EMPTY_MOVE_DAMAGE = 0.35, EMPTY_MOVE_STARTUP = 4;
+const EMPTY_MOVE_DAMAGE = 0.3, EMPTY_MOVE_STARTUP = 6, STUMBLE_RECOVERY = 8; // P19-16: guard = the multiplier of a blocked hit's stamina cost, stun = of the hit stun and stagger a hit that lands gives; an unpaid move also holds its fighter STUMBLE_RECOVERY ticks after its recovery (Fighter.stumbleExtra, outside the chain window)
+const STUMBLE_CUE_GAP = 60; // ticks: an unpaid move sends the "refused" cue (bar flash and warning tone) at most once a second per fighter, so a masher gets a steady cue, not a strobe
 const STAMINA_EDGE_NONE = { regen: 1, delay: 1, attackShare: 0, perfect: 6 };
 const PLAYER_STAMINA_EDGE = {
   easy: { regen: 1.3, delay: 0.85, attackShare: 0.1, perfect: 8 },
@@ -5250,6 +5255,14 @@ const BOOST_DAMAGE_MULT = 1.15; // small and readable: the boost rewards a good 
 const BOOST_BREATH_HZ = 2.4; // visual: chest rise during the boost
 const TIRED_POSE_STATES = [S.IDLE, S.WALK]; // P13-02: the calm states that show panting and a hurt body
 const PANT_HZ = 1.4, PANT_SHOULDER = 0.08, PANT_LEAN = 0.12, PANT_CHIN = 0.08; // rad and Hz: the quick breaths of a tired fighter (shoulders up, bent forward, chin down)
+/* P19-16 felt stamina, drawing and sound only (the simulation reads none of it). Per band (Fresh, Winded, Tired, Spent): the slump of the guard and stance (hands sag, back rounds, chin down; held, so it stays under Reduced motion),
+   the speed of the pant (the heave of tiredPose and the breath sound), the loudness of the breath, and the exhale grunt on every second breath of a Spent fighter. The stumble after an unpaid move (Fighter.stumbleExtra ticks) leans the torso and gives the knees,
+   blended in and out over STUMBLE_BLEND ticks and halved under Reduced motion. */
+const SLUMP_POSE_STATES = [S.IDLE, S.WALK, S.BLOCK_H, S.BLOCK_L]; // the states that show the slump: the calm ones and both guards
+const SLUMP_HANDS = 0.10, SLUMP_LEAN = 0.10, SLUMP_CHIN = 0.08, SLUMP_SINK = 0.06; // rad (sink: the depth of sink(), 3.4 rad of knee per unit) at slump 1; the hands drop (the elbows open: the shoulders stay up with the pant, P13-02), the back rounds, the head goes down
+const SLUMP_BY_BAND = [0, 0, 1, 1.6], PANT_RATE_BY_BAND = [1, 1, 1.15, 1.4], BREATH_GAIN_BY_BAND = [1, 1, 1.15, 1.4]; // by Fresh, Winded, Tired, Spent
+const EXHALE_GAIN = 0.5, STUMBLE_VOICE_GAIN = 0.6, STUMBLE_VOICE_PITCH = 0.88, STUMBLE_FOOT_GAIN = 0.6; // the exhale of a Spent breath and the stumble's scuff and grunt, against the sounds they borrow
+const STUMBLE_LEAN = 0.30, STUMBLE_KNEES = 0.25, STUMBLE_BLEND = 3; // rad at the full stumble, and the ticks it blends in and out over
 const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // under this share of health the body leans on (rad; more for a hurt leg) and a hand holds the zone hit most
 const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
 const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY]; // calm states that show the boost; strikes, reactions and holds keep their own poses
@@ -6489,7 +6502,7 @@ class Fighter {
     this.lock = 0; this.invuln = 0; this.strikeGrace = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockRead = null; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
     this.buffer = null; this.bufferNext = null; this.throwPressed = false;
     this.resetString();
-    this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
+    this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.stumbleExtra = 0; this.stumbleCueAt = -STUMBLE_CUE_GAP; this.chainCount = 0; this.exhaustedMove = false;
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.gotDamage = 0; this.comboFoe = null; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0; // gotHits / gotDamage / comboFoe: the combo this fighter is taking and whose it is (per attacker)
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
@@ -6557,7 +6570,8 @@ class Fighter {
   get guardMode() { return this.item && this.item.id === 'binlid' ? 'block' : this.defense; } // the bin lid is a shield: a Sway fighter holding it blocks
   get maxSteps() { return this.item && this.item.id === 'stick' && moveStyleFor(this.profile) === 'kali' ? STRING_MAX_STEPS + 1 : STRING_MAX_STEPS; }
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
-  get band() { for (const row of STAMINA_BANDS) if (this.stam >= this.maxStam * row.from) return row; return STAMINA_BANDS[STAMINA_BANDS.length - 1]; } // the first row the tank reaches; a tank below 0 is Spent
+  get bandIndex() { for (let i = 0; i < STAMINA_BANDS.length; i++) if (this.stam >= this.maxStam * STAMINA_BANDS[i].from) return i; return STAMINA_BANDS.length - 1; } // the index of the first row the tank reaches (0 Fresh, 1 Winded, 2 Tired, 3 Spent); a tank below 0 is Spent. A number: the view code reads it every frame without allocating
+  get band() { return STAMINA_BANDS[this.bandIndex]; }
   get airborne() { return this.y > this.groundY + 0.05; }
   get fwdX() { return DMath.sin(this.yaw); }
   get fwdZ() { return DMath.cos(this.yaw); }
@@ -6706,6 +6720,8 @@ class Fighter {
     this.hitList.length = 0;
     this.moveConnected = false;
     this.whiffExtra = 0;
+    this.stumbleExtra = this.exhaustedMove ? STUMBLE_RECOVERY : 0; // a move the tank could not pay leaves the fighter stumbling after its recovery (P19-16); a move paid to the last point is not one
+    if (this.exhaustedMove && this.age - this.stumbleCueAt >= STUMBLE_CUE_GAP) { this.stumbleCueAt = this.age; Events.emit('lowStamina', { f: this, refused: true }); } // the bar and the warning tone say "refused", at most once a second
     this.mStartup = Math.max(2, Math.round(mv.startup * sp) + (this.exhaustedMove ? EMPTY_MOVE_STARTUP : 0));
     this.mActive = mv.active;
     this.mRecovery = Math.max(3, Math.round(mv.recovery * sp));
@@ -6732,8 +6748,9 @@ class Fighter {
       else Events.emit('attackActive', { f: this, mv });
       if (mv.sp === 'spray' && match) match.spray(this);
     }
-    const total = this.mStartup + this.mActive + this.mRecovery + this.whiffExtra;
+    const total = this.mStartup + this.mActive + this.mRecovery + this.whiffExtra + this.stumbleExtra; // the stumble holds the fighter after the recovery; the chain window below reads mRecovery alone
     if (t === this.mStartup + this.mActive + 1 && !this.moveConnected && mv.tier === 3 && mv.type === 'strike') this.whiffExtra = 8; // recovery risk of strong moves
+    if (this.stumbleExtra > 0 && t === total - this.stumbleExtra + 1) Events.emit('stumble', { f: this }); // the first tick of the stumble after the recovery: only the sound listens (a chained press cancels the rest of the move and so the stumble)
     // chain into the next legal attack once this one connected
     if (this.buffer && this.moveConnected && t > this.mStartup + 1 && t <= this.mStartup + this.mActive + Math.floor(this.mRecovery * 0.6)) {
       const next = this.resolveMove(this.buffer);
@@ -7452,6 +7469,7 @@ class Fighter {
     if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } } // the arm is at the release point on the tick of the release, so it skips the usual easing
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     if (TIRED_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.tiredPose(p, t);
+    if (SLUMP_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.slumpPose(p);
     if (this.swayReady && !this.poseId && !this.throwFollow) this.readyPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]); // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
@@ -7525,7 +7543,7 @@ class Fighter {
   tiredPose(p, t) {
     const calm = Settings.v.reducedMotion ? 0.4 : 1, tired = this.exhaust > 0 || this.stam < this.maxStam * TIRED_STAMINA;
     if (tired) {
-      const breath = Math.sin(t * PANT_HZ * TAU + this.motion.phase) * calm;
+      const breath = Math.sin(t * PANT_HZ * PANT_RATE_BY_BAND[this.bandIndex] * TAU + this.motion.phase) * calm; // quicker in Tired and Spent (P19-16)
       p[J.shLx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.shRx] += PANT_SHOULDER * (1 + 0.5 * breath); p[J.torsoLean] += PANT_LEAN * (1 + 0.4 * breath); p[J.headX] += PANT_CHIN;
       p[J.knL] += 0.03 * (0.5 + 0.5 * breath); p[J.knR] += 0.03 * (0.5 + 0.5 * breath);
     }
@@ -7536,6 +7554,21 @@ class Fighter {
     if (this.item) return; // an item in hand keeps its hands
     const hand = HURT_HAND[zone];
     p[J.shLx] = lerp(p[J.shLx], hand[0], hurt); p[J.elL] = lerp(p[J.elL], hand[1], hurt); p[J.shLy] = lerp(p[J.shLy], hand[2], hurt); p[J.shLz] = lerp(p[J.shLz], hand[3], hurt);
+  }
+  // P19-16: a Tired fighter's guard and stance sag and a Spent one's sag more (SLUMP_BY_BAND: 0, 0, 1, 1.6): the arms hang lower, the back rounds, the head goes down and, Spent, the knees give. Held, not animated: it stays under Reduced motion. Never applied to an attack pose
+  slumpPose(p) {
+    const slump = SLUMP_BY_BAND[this.bandIndex];
+    if (slump === 0 || !this.alive) return;
+    if (!this.item) { p[J.elL] -= SLUMP_HANDS * slump; p[J.elR] -= SLUMP_HANDS * slump; } // an item in hand keeps its hands
+    p[J.torsoLean] += SLUMP_LEAN * slump; p[J.headX] += SLUMP_CHIN * slump;
+    if (slump > 1) sink(p, SLUMP_SINK); // Spent only
+  }
+  // P19-16: the stumble after a move the tank could not pay, drawn only in the stumbleExtra ticks after the recovery (the move's own poses end before it): the torso leans on and the knees give, blended in and out over STUMBLE_BLEND ticks, half under Reduced motion. Reads the sim's fields and changes none
+  stumblePose(p) {
+    const into = this.moveTick - (this.mStartup + this.mActive + this.mRecovery + this.whiffExtra);
+    if (this.stumbleExtra <= 0 || into <= 0) return;
+    const blend = smoothstep(clamp(into / STUMBLE_BLEND, 0, 1)) * smoothstep(clamp((this.stumbleExtra - into + 1) / STUMBLE_BLEND, 0, 1)), share = blend * (Settings.v.reducedMotion ? 0.5 : 1);
+    p[J.torsoLean] += STUMBLE_LEAN * share; p[J.knL] += STUMBLE_KNEES * share; p[J.knR] += STUMBLE_KNEES * share;
   }
   // An item in hand: one hand on a one-handed item, both on a two-handed one, a crate held out in front
   heldPose(p) {
@@ -7619,7 +7652,7 @@ class Fighter {
   }
   // The swing of an item: base -> wind-up -> contact -> follow-through -> base, in joint space. Visual only.
   weaponAttackPose(mv) {
-    const pose = this.pose, keys = this.swingKeys(mv), t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
+    const pose = this.pose, keys = this.swingKeys(mv), t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra + this.stumbleExtra;
     const wind = keys.poses[0], hit = keys.poses[1], follow = keys.poses[2];
     let from, to, u, bend;
     if (t <= startup) {
@@ -7690,7 +7723,7 @@ class Fighter {
   attackPose() {
     this.strikePose(0);
     const mv = this.move;
-    if (!mv || this.fitShare >= 1) return;
+    if (!mv || this.fitShare >= 1) { if (mv) this.stumblePose(this.pose); return; } // P19-16: the stumble is added after the strike pose is fitted, so it never changes the reach fit
     const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb], want = this.fitAim(mv) + STRIKE_PAST, moved = this.fitMoved; // the step does not depend on the share: it is looked for once
     for (let pass = 0; pass < 5; pass++) { // the limb does not extend in a straight line with the share: measure where the tip is and fit it
       this.walkSkeleton(0, 0, 0, 0, false);
@@ -7698,6 +7731,7 @@ class Fighter {
       if (got <= want + STRIKE_FIT || got <= this.fitMoved) break;
       this.strikePose(clamp(this.fitShare * (want - moved) / (got - moved), STRIKE_REACH_MIN, 1), moved);
     }
+    this.stumblePose(this.pose);
   }
   // The strike pose with the limb given `share` of its extension (0: the share strikeReach asks for)
   strikePose(share, stepped) {
@@ -7709,7 +7743,7 @@ class Fighter {
     const step = stepped !== undefined ? 0 : this.strikeStride(mv); // first: measuring it draws the pose (attackPose has measured the step already and gives it as `stepped`)
     const strike = styledStrikePose(mv, m);
     const kick = isKickAnim(mv.anim);
-    const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
+    const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra + this.stumbleExtra;
     const spec = !m.noTech && STYLE_TECH[m.styleId] && (kick ? STYLE_TECH[m.styleId].kick : STYLE_TECH[m.styleId].punch);
     const windup = (mv.tier === 3 ? 0.45 : 0.28) * ((spec && spec.wind) || 1), snap = kick ? m.kickSnap : m.punchSnap;
     const ext = strikeExtension(t, startup, active, recovery, windup, snap);
@@ -8112,7 +8146,7 @@ const Combat = {
     def.counterWindow = 0;
     def.hitKind = mv.h === 'H' ? 'high' : mv.h === 'L' ? 'low' : 'mid';
     const dirx = att.fwdX, dirz = att.fwdZ;
-    const stun = Math.round(mv.hitstun * def.stats.stun * (counter ? 1.3 : 1) * Math.max(0.6, 1 - 0.07 * (def.gotHits - 1)));
+    const stun = Math.round(mv.hitstun * def.stats.stun * def.band.stun * (counter ? 1.3 : 1) * Math.max(0.6, 1 - 0.07 * (def.gotHits - 1)));
     const v0 = mv.push * KNOCK_DAMP;
     const pos = this.hitPoint(att, def, mv);
     let hs = mv.hitStop + (counter ? 2 : 0);
@@ -8288,7 +8322,7 @@ const Combat = {
       match.addHitStop(8, att, def);
     } else {
       const shield = !!def.item && def.item.id === 'binlid'; // a held bin lid takes the stamina cost of a block in front on itself, and 1 durability
-      cost = shield ? 0 : mv.dmg * mv.gdm * 0.9 * (1 + 0.15 * def.guardPressure) * (mv.gb ? 2.2 : 1) * def.stats.taken * def.stats.guard * (mv.wpn ? WEAPON_BLOCK_COST : 1);
+      cost = shield ? 0 : mv.dmg * mv.gdm * 0.9 * (1 + 0.15 * def.guardPressure) * (mv.gb ? 2.2 : 1) * def.stats.taken * def.stats.guard * (mv.wpn ? WEAPON_BLOCK_COST : 1) * def.band.guard; // a tired guard pays more per blocked hit (P19-16: the band the tank is in when the hit lands)
       if (shield && --def.item.dur <= 0) match.breakHeld(def);
       def.stam = Math.max(0, def.stam - cost);
       def.guardPressure++;
@@ -9969,7 +10003,7 @@ class AIController {
     s.dist = DMath.hypot(opp.x - f.x, opp.z - f.z);
     s.state = opp.state; s.moveId = opp.moveId; s.y = opp.y - f.groundY; // the foe's feet above the CPU's own footing
     s.mvType = mv ? mv.type : ''; s.mvH = mv ? mv.h : ''; s.mvReach = mv ? mv.reach * opp.stats.reach : 0; s.mvWidth = mv ? mv.width : 0; s.mvTier = mv ? mv.tier : 1;
-    s.moveTick = opp.moveTick; s.startup = opp.mStartup; s.active = opp.mActive; s.total = opp.mStartup + opp.mActive + opp.mRecovery + opp.whiffExtra;
+    s.moveTick = opp.moveTick; s.startup = opp.mStartup; s.active = opp.mActive; s.total = opp.mStartup + opp.mActive + opp.mRecovery + opp.whiffExtra + opp.stumbleExtra;
     s.hp = opp.hp / opp.maxHp; s.stam = opp.stam / opp.maxStam;
     this.head = (this.head + 1) % AI_HISTORY;
     this.count++;
@@ -14753,7 +14787,7 @@ const Sound = {
   voices: 0, last: {}, unsupported: false, wired: false, lowpass: null, ducked: false, heart: false, layerQ: [], // layerQ: the sources of the layered impacts that still sound, oldest first (P13-02)
   spot: null, // E5: where the event being played sounds: { gain, pan, node }
   bank: null, bakeState: 'idle', bakeMs: 0, bakeBytes: 0, bakeWall: 0, bakeError: '', bakeFrom: 0, lastVariant: {}, // E1: the baked buffers once the bake has finished, and what it cost
-  amb: null, ambKey: -1, clock: 0, breathAt: 0, fires: [], crackleAt: 0, // E7 ambience, the clock of the frame events, the next breath, the burning things and the next crackle
+  amb: null, ambKey: -1, clock: 0, breathAt: 0, breathCount: 0, fires: [], crackleAt: 0, // E7 ambience, the clock of the frame events, the next breath, the burning things and the next crackle
 
   // Called on any user gesture; safe to call repeatedly
   unlock() {
@@ -15084,13 +15118,21 @@ const Sound = {
     this.footfall(s, s.gain * 3 * k, vary(1, 0.06), 1.4);
   },
   whistle() { this.tone('sine', vary(900, 0.05), 200, 0.6, 0.2); }, // a fall off a ledge or a ring-out
-  grunt(f, kind) { // M12: one voice per body: the pitch from the weight class, higher for a female look, the formant from the build
+  grunt(f, kind, level, pitch) { // M12: one voice per body: the pitch from the weight class, higher for a female look, the formant from the build; level and pitch (P19-16) scale the gain and the pitch of the stumble and the exhale
     if (!this.allow('grunt' + f.index, MIN_GAP.grunt, 1)) return;
     const v = VOICE_KINDS[kind] || VOICE_KINDS.hurt, look = f.look || {}, weight = f.weight || 0;
-    const base = (170 - weight * 20) * (look.gender === 'F' ? 1.35 : 1) * vary(1, 0.08), formant = clamp(1000 - 130 * ((look.build || 1) - 0.5) * 2, 600, 1000);
-    this.voiced('sawtooth', base * v.from, base * v.to, v.dur, 0.6 * v.gain, 'bandpass', formant, 3.5);
+    const base = (170 - weight * 20) * (look.gender === 'F' ? 1.35 : 1) * vary(1, 0.08) * (pitch || 1), formant = clamp(1000 - 130 * ((look.build || 1) - 0.5) * 2, 600, 1000);
+    this.voiced('sawtooth', base * v.from, base * v.to, v.dur, 0.6 * v.gain * (level || 1), 'bandpass', formant, 3.5);
   },
-  breath(exhausted) { this.swellNoise(exhausted ? 900 : 1200, 0.6, 0.18, exhausted ? 0.55 : 0.35, exhausted ? 0.085 : 0.075); }, // M11
+  breath(exhausted, level) { this.swellNoise(exhausted ? 900 : 1200, 0.6, 0.18, exhausted ? 0.55 : 0.35, (exhausted ? 0.085 : 0.075) * (level || 1)); }, // M11; level (P19-16): louder in Tired and Spent
+  // P19-16: the first tick of the stumble after an unpaid move: a low scuff of the foot and a short grunt, softer and lower than an effort grunt (a person's fighter only; one limiter per fighter)
+  stumble(f) {
+    if (!this.allow('stumble' + f.index, 0.5, 2)) return;
+    const s = this.surface();
+    this.at(f.x, f.z);
+    this.footfall(s, s.gain * STUMBLE_FOOT_GAIN, vary(1, 0.06), 1.2);
+    this.grunt(f, 'effort', STUMBLE_VOICE_GAIN, STUMBLE_VOICE_PITCH);
+  },
   material(kind, big, x, size) {
     if (!this.allow('objHit' + (big ? 'B' : ''), big ? 0.12 : MIN_GAP.objHit, big ? 0 : 1)) return;
     for (const part of materialParts(kind, big, size || 1)) this.play(part);
@@ -15290,6 +15332,7 @@ const Sound = {
       this.fanfare(m.setup ? m.peopleWon() : m.matchWinner === 0 || m.versus);
     });
     on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.lowStamina(); });
+    on('stumble', (e) => { if (Inputs.forFighter(e.f.index)) this.stumble(e.f); }); // P19-16: the scuff and grunt of a move the tank could not pay
     on('quickRise', (e) => { this.at(e.f.x, e.f.z); this.noise('highpass', 3000, 3000, 0.7, 0.08, 0.15); this.grunt(e.f, 'effort'); });
     on('fall', (e) => { this.at(e.x, e.z); this.whistle(); });
     on('ringOut', (e) => { this.at(e.x, e.z); this.whistle(); });
@@ -15313,9 +15356,18 @@ const Sound = {
     if (this.clock < this.breathAt) return;
     this.breathAt = this.clock + 1 / PANT_HZ;
     for (const f of m.fighters) {
-      if (!f.alive || !TIRED_POSE_STATES.includes(f.state) || !Inputs.forFighter(f.index)) continue;
+      if (!f.alive || !Inputs.forFighter(f.index)) continue;
+      const band = f.bandIndex; // P19-16: a Tired or Spent fighter breathes quicker and louder, also while guarding, and a Spent one exhales on every second breath
+      if (!TIRED_POSE_STATES.includes(f.state) && !(band >= 2 && SLUMP_POSE_STATES.includes(f.state))) continue;
       const exhausted = f.exhaust > 0;
-      if (exhausted || f.stam < f.maxStam * TIRED_STAMINA) { if (this.allow('breath', 0.5, 2)) this.breath(exhausted); break; }
+      if (exhausted || f.stam < f.maxStam * TIRED_STAMINA) {
+        this.breathAt = this.clock + 1 / (PANT_HZ * PANT_RATE_BY_BAND[band]);
+        if (this.allow('breath', 0.5, 2)) {
+          this.breath(exhausted, BREATH_GAIN_BY_BAND[band]);
+          if (band === 3 && (++this.breathCount & 1) === 0) this.grunt(f, 'effort', EXHALE_GAIN);
+        }
+        break;
+      }
     }
   },
 };
@@ -16850,7 +16902,7 @@ const UI = {
     Events.on('hit', (e) => this.onHit(e));
     Events.on('block', (e) => this.onBlock(e));
     Events.on('lateDefend', (e) => { if (Inputs.forFighter(e.f.index)) this.popAt(e.f.x, e.f.y + 1.2, e.f.z, 'LATE', CUE_COLOR.late); });
-    Events.on('lowStamina', (e) => { const cell = Game.match && (Game.match.coop || Game.match.setup) && this.partyEls[e.f.index], bar = e.refused && (cell ? cell.root.children[2] : this.dom['stb' + (e.f.index + 1)]); if (bar) { bar.style.background = '#a33'; setTimeout(() => { bar.style.background = ''; }, 400); } });
+    Events.on('lowStamina', (e) => this.flashRefused(e));
     Events.on('throw', (e) => this.popAt(e.x, 1.2, e.z, e.name.toUpperCase() + ' ' + Math.round(e.dmg), '#ffd24a'));
     Events.on('escape', (e) => this.popAt(e.x, 1.4, e.z, 'ESCAPE!', '#9cf4ff'));
     Events.on('submission', (e) => { this.popAt(e.x, 0.9, e.z, 'HOLD', '#ffffff'); this.firstHoldTip(e); });
@@ -16868,7 +16920,7 @@ const UI = {
     Events.on('ko', (e) => { if (koEndsFight(e.def)) this.banner('K.O.!', '', 1600); else this.onPartyKo(e); });
     Events.on('lobby', (e) => this.onLobby(e));
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
-    Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
+    Events.on('lowStamina', (e) => this.sayLowStamina(e));
     Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
     Events.on('glLost', () => { Game.pause(null, true); this.toast('Graphics context lost. Waiting for the browser to restore it...', 'warn'); });
     Events.on('glRestored', () => this.toast('Graphics restored'));
@@ -16898,6 +16950,16 @@ const UI = {
     while (this.dom.toast.children.length > 3) this.dom.toast.removeChild(this.dom.toast.firstChild);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, ms || 3200);
   },
+  // The stamina bar turns red for 0.4 s when a move or a Sway could not be paid (a `refused` lowStamina event). P19-16: the flash is a timed background that .reduced does not stop, so Reduced motion and Flashes Off skip it (the bar's band class and the warning tone still tell the player)
+  flashRefused(e) {
+    if (!e.refused || Settings.v.reducedMotion || Settings.v.flashes === 'off') return;
+    const cell = Game.match && (Game.match.coop || Game.match.setup) && this.partyEls[e.f.index], bar = cell ? cell.root.children[2] : this.dom['stb' + (e.f.index + 1)];
+    if (!bar) return;
+    bar.style.background = '#a33';
+    setTimeout(() => { bar.style.background = ''; }, 400);
+  },
+  // The screen-reader line when the tank crosses under 25 %. P19-16: a refused move or Sway (an event up to once a second for a masher) is not announced
+  sayLowStamina(e) { if (!e.refused && Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); },
   speaker(index) { // Versus and co-op announcements say whose they are
     const m = Game.match;
     if (m && m.coop) return m.partySize > 1 && m.coop[index] ? 'P' + (m.coop[index].slot + 1) + ': ' : '';
@@ -20959,10 +21021,10 @@ function testApi() {
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
     Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
-    TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+    TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
-    ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
+    ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY, STUMBLE_CUE_GAP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
