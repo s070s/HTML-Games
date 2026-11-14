@@ -5329,21 +5329,21 @@ const CHARGE_CREAK_GAIN = 0.35, CHARGE_LEVEL_GAIN = 0.3, CHARGE_LEVEL_GAP = 0.1,
 const CHARGE_BUZZ_GAP_MS = 40, CHARGE_RUMBLE = 0.35, CHARGE_RUMBLE_MS = 60; // a phone's buzz (TOUCH_BUZZ_MIN ms, twice at level 2 with this gap) and a pad's pulse
 // The coil of a family or style, in the spec language of ANIM_SPECS (applyTech), added to the wind-up at full share; the striking side is the move's limb. A style with its own entry uses it, otherwise its family's.
 const CHARGE_COIL_FAMILY = {
-  hand: { rdrop: 0.06, twist: 0.35, lean: 0.10, arm: [-0.55, 0, 0.5], front: [0, 0, 0.15], rear: [0, 0, 0.15], head: 0.05 },
+  hand: { rdrop: 0.06, twist: 0.35, lean: 0.10, arm: [-0.55, 0, -0.1], front: [0, 0, 0.15], rear: [0, 0, 0.15], head: 0.05 }, // fitted to the Calm limits: the elbow of the decision (+0.5) went past 2.63 rad
   clinch: { leg: [0.9, 0, 1.2], base: [0, 0, 0.2], lean: -0.10, arm: [0, 0.3, 0], off: [0, 0.3, 0] },
-  kicking: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25], twist: 0.3 },
+  kicking: { leg: [1.0, 0, 1.1], base: [0, 0, 0.25], twist: 0.3, front: [0, 0, -0.2] }, // the chambered knee of the decision (+1.3) went past 1.8 rad
   throws: { rdrop: 0.10, lean: 0.35, arm: [-0.3, 0, -0.65], off: [-0.3, 0, -0.65], front: [0, 0, 0.35], rear: [0, 0, 0.35] },
   locks: { rdrop: 0.10, lean: 0.35, arm: [-0.3, 0, -0.65], off: [-0.3, 0, -0.65], front: [0, 0.10, 0.35], rear: [0, 0.10, 0.35], head: -0.05 },
-  weapon: { arm: [1.2, 0, -0.7], twist: 0.5, rear: [0, 0, 0.3] },
+  weapon: { arm: [1.0, 0, -0.7], twist: 0.5, rear: [0, 0, 0.3] },
   hybrid: { rdrop: 0.10, twist: 0.4, arm: [-0.4, 0, 0.3] },
 };
 const CHARGE_COIL_STYLE = {
-  capoeira: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25], twist: 0.3, arm: [-0.8, 0, 0], off: [-0.8, 0, 0], pitch: 0.5, rdrop: 0.12 },
-  muaythai: { leg: [1.0, 0, 1.4], base: [0, 0, 0.2], lean: -0.10, arm: [0, 0.3, 0], off: [0, 0.3, 0] },
+  capoeira: { leg: [1.0, 0, 1.1], base: [0, 0, 0.25], twist: 0.3, arm: [-0.8, 0, 0], off: [-0.8, 0, 0], pitch: 0.5, rdrop: 0.12 },
+  muaythai: { leg: [1.0, 0, 1.4], base: [0, 0, 0.2], lean: -0.10, arm: [0, 0.3, -0.6], off: [0, 0.3, 0] },
   hapkido: { rdrop: 0.10, lean: 0.35, arm: [0.1, 0, -0.35], off: [0.25, 0, -0.35], front: [0, 0.10, 0.35], rear: [0, 0.10, 0.35], head: -0.05 },
-  brawler: { rdrop: 0.12, twist: 0.6, arm: [-0.6, 0, 0.5] },
+  brawler: { rdrop: 0.12, twist: 0.6, arm: [-0.6, 0, -0.1] },
   kravmaga: { arm: [0.1, 0, -0.2], off: [0.1, 0, -0.2], lean: 0.2 },
-  mma: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25] },
+  mma: { leg: [1.0, 0, 1.1], base: [0, 0, 0.25], front: [0, 0, -0.2] },
 };
 const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // under this share of health the body leans on (rad; more for a hurt leg) and a hand holds the zone hit most
 const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
@@ -5947,38 +5947,38 @@ const ANIM_SPECS = {
   tornado: ['airKick', { yaw: 1.2, leg: [0.15, 0.45, -0.4], rear: [0, 0.1, -0.4] }],
   airKnee: ['airKick', { leg: [0.05, 0, 0.9], lean: 0.1, drop: -0.35, fwd: 0.5, pitch: -0.05 }],
   // P19-15 charged attacks (the strike after the release; the coil before it is chargePose) and delayed strings: starting values of Appendix C "P19-14 ... decided" section 6, fitted by the hit check, the Calm limits, the floor rule and the Sway clearance of the 'Moves (P19-14)' tests
-  sunday: ['hook', { arm: [-0.1, 0.15, 0.4], drop: 0.3, lean: 0.4, twist: 0.5, roll: -0.3, fwd: 0.6, front: [0.2, 0, -0.1], head: -0.05 }],
-  cannon: ['teep', { leg: [0.2, 0, 0], lean: -0.25, fwd: 0.8, drop: 0.1, base: [0.15, 0, 0] }],
-  kime: ['mae', { leg: [0.1, 0.1, 0], lean: -0.15, fwd: 0.9, base: [0.2, 0.1, -0.1], yaw: 0.3 }],
-  spear: ['shoulder:heavy_front', { arm: [0.2, -0.1, 0.4], lean: 0.55, twist: 0.3, fwd: 0.9, drop: 0.25, front: [0, -0.3, -0.4], pitch: 0.2 }],
-  osoto: ['pushout', { arm: [0.1, 0.2, 0.4], lean: 0.3, twist: 0.45, fwd: 0.6, drop: 0.15, front: [0.1, 0, -0.25], leg: [0.15, 0.1, 0] }],
-  sledge: ['haymaker:hook', { arm: [-0.2, 0.3, 0.6], drop: 0.4, lean: 0.5, twist: 0.6, roll: -0.4, fwd: 0.5, rdrop: 0.2 }],
-  compasso: ['crescent', { yaw: 1.0, pitch: 1.2, leg: [-0.5, 0.4, 0], front: [-0.3, 0, 0], drop: 0.5, lean: 0.2 }],
-  pressing: ['thrust:M', { leg: [0.1, 0, 0], lean: -0.1, fwd: 0.9, arm: [0, 0, 0.3], front: [0.1, 0, -0.1] }],
-  khaoDot: ['knee', { leg: [1.3, 0, 0.2], lean: 0.3, arm: [0.2, 0, 0.5], fwd: 0.5, rdrop: -0.15, pitch: 0.1 }],
-  hookHeel: ['spinBack', { leg: [0.3, -0.4, 0], yaw: 0.8, lean: -0.15, pivot: 0.5 }],
-  crushBoot: ['boot:heavy_front', { leg: [-0.1, -0.5, 0], drop: 0.2, lean: 0.1, fwd: 0.7 }],
-  hipBump: ['guard:heavy_front', { arm: [0.1, 0, 0.6], drop: 0.4, lean: 0.3, fwd: 0.9, base: [-0.2, 0, 0], roll: 0.2 }],
-  doublePalm: ['palm:hook', { arm: [0, 0.2, 0.6], sw: [0.2, -0.2, 0.3], lean: 0.25, twist: 0.3, fwd: 0.6 }],
-  crossRedonda: ['redonda', { arm: [-0.1, 0.3, 0.4], twist: 0.6, lean: 0.3, fwd: 0.5, roll: -0.2 }],
-  hammerSlam: ['hammer', { arm: [0.2, 0.1, 0.7], lean: 0.45, drop: 0.3, fwd: 0.55, head: 0.1 }],
-  piston: ['oblique', { leg: [0, -0.2, 0], fwd: 0.8, lean: -0.3, base: [0.3, 0, 0], drop: 0.1 }],
-  checkHook: ['hook', { arm: [-0.2, 0, 0.2], drop: 0.2, lean: 0.2, front: [0.15, 0, 0], fwd: 0.4, twist: 0.2, head: -0.05 }],
-  rhythm: ['mawashi', { leg: [0.1, 0, 0], lean: -0.1, twist: 0.1, fwd: 0.3 }],
-  ura: ['mawashi', { leg: [0.3, -0.6, 0], twist: -0.3, lean: -0.1 }],
-  duckUnder: ['trip', { drop: 0.5, lean: 0.6, arm: [0.2, 0, 0.6], fwd: 0.8, front: [0, 0, -0.4], pitch: 0.1 }],
-  sleeveDrag: ['collar:H', { arm: [0, 0.2, 0.3], twist: 0.4, fwd: -0.2, roll: 0.2 }],
-  sucker: ['haymaker:cross', { arm: [0.1, 0.3, 0.4], lean: 0.2, drop: 0.1, twist: 0.3 }],
-  rabo: ['rasteira:low_kick', { yaw: 1.2, drop: 0.4, leg: [-0.3, 0.2, 0], base: [-0.3, 0, 0.2] }],
-  lapSau: ['chain', { arm: [0, 0.15, 0.4], twist: 0.15, off: [0.1, 0, -0.1] }],
-  spinElbow: ['elbowH', { twist: 0.9, roll: 0.3, yaw: 0.6, arm: [0, 0.2, 0.2], wind: 1.3 }],
-  bandal: ['roundTkd', { leg: [0.1, 0.2, 0], lean: -0.1 }],
-  lapel: ['collar:M', { arm: [0, 0.1, 0.3], twist: 0.3 }],
-  collarDrag: ['collar:H', { drop: 0.3, lean: 0.25, arm: [0.1, 0, 0.5], fwd: 0.3 }],
-  whip: ['palm:M', { arm: [0, 0.4, 0.2], twist: -0.3, roll: 0.3 }],
-  abanico: ['angle', { arm: [0, 0.4, 0.2], twist: 0.5, roll: 0.3, wind: 1.3 }],
-  palmHeel: ['parry', { lean: 0.15, arm: [0, 0, 0.4] }],
-  switchKnee: ['knee', { leg: [0.6, 0, 0], lean: 0.1, fwd: 0.4 }],
+  sunday: ['hook', { arm: [-0.3, 0.15, 0.2], drop: 0.5, lean: 0.6, twist: 0.5, roll: -0.1, fwd: 0.6, front: [0.4, 0, -0.1], head: -0.05 }],
+  cannon: ['teep', { leg: [0, -0.2, 0.2], lean: -0.25, fwd: 0.8, drop: 0.1, base: [0.15, 0, 0] }],
+  kime: ['mae', { leg: [-0.1, 0.3, -0.2], lean: -0.15, fwd: 0.7, base: [0.2, 0.1, -0.1], yaw: 0.3 }],
+  spear: ['shoulder:heavy_front', { arm: [-0.4, 0.4, 1], lean: 0.05, twist: 0.8, fwd: 0.4, drop: 0.55, front: [0.1, 0.1, -0.2] }],
+  osoto: ['pushout', { arm: [-0.1, 0, 0.2], lean: 0.4, twist: 0.35, fwd: 0.5, drop: 0.15, front: [0.1, 0, -0.25], leg: [0.15, 0.1, 0] }],
+  sledge: ['haymaker:hook', { arm: [-0.2, 0.3, 1], drop: 0.4, lean: 0.5, twist: 0.6, roll: -0.4, fwd: 0.3, rdrop: 0.2 }],
+  compasso: ['crescent', { yaw: 0.6, pitch: 0.4, leg: [0.1, 0.2, -0.8], front: [-0.1, -0.2, -0.2], drop: -0.1, fwd: 0.2, lean: 0.2 }],
+  pressing: ['thrust:M', { leg: [-0.1, 0, 0.2], lean: -0.1, fwd: 0.9, arm: [0, 0, 0.1], front: [0.1, 0, -0.1] }],
+  khaoDot: ['knee', { leg: [0.7, 0.4, -0.4], lean: 0.3, arm: [0.2, 0, 0.5], fwd: 0.3, rdrop: 0.05, pitch: -0.3, drop: -0.6 }],
+  hookHeel: ['spinBack', { leg: [0.1, 0, -0.2], yaw: 0.8, lean: -0.15, pivot: 0.5, fwd: 1.6 }],
+  crushBoot: ['boot:heavy_front', { leg: [-0.3, -0.5, 0], drop: 0.2, lean: 0.1, fwd: 0.7 }],
+  hipBump: ['straightLow', { arm: [-0.1, -0.2, 0.5], drop: 0.4, lean: 0.3, fwd: 0.9, base: [-0.2, 0, 0], sw: [0, 0.3, 0.1], leg: [0.1, 0, 0], roll: 0.1 }],
+  doublePalm: ['palm:hook', { arm: [-0.2, 0.4, 0.2], sw: [-0.2, -0.2, -0.1], lean: 0.45, twist: 0.5, fwd: 0.6, drop: 0.2 }],
+  crossRedonda: ['redonda', { arm: [-0.4, -0.3, 0.4], twist: 0.4, lean: 0.3, fwd: 0.5, roll: -0.2 }],
+  hammerSlam: ['hammer', { arm: [-0.2, 0.1, 0.7], lean: 0.25, drop: 0.5, fwd: 0.55, head: 0.1 }],
+  piston: ['oblique', { leg: [0, -0.4, -0.2], fwd: 0.8, lean: -0.3, base: [0.3, 0, 0], drop: 0.1 }],
+  checkHook: ['hook', { arm: [-0.35, -0.034, 0.173], front: [0.57, -0.325, -0.386], fwd: 0.325, twist: 0.492, off: [0.023, -0.04, 0.107], sw: [-0.186, 0.031, 0.007], leg: [0, 0.134, 0.086], base: [0.058, 0, -0.21], rear: [-0.039, -0.139, 0.057], lean: 0.12, drop: 0.287, head: -0.266, rdrop: 0.017, pitch: 0.122, yaw: 0.027, brol: -0.213, roll: 0.016 }],
+  rhythm: ['mawashi', { leg: [-0.1, 0, -0.1], lean: -0.1, twist: 0.1, fwd: 0.7, drop: -0.4 }],
+  ura: ['mawashi', { leg: [0.3, 0, 0.2], twist: -0.3, lean: -0.1, drop: -0.4 }],
+  duckUnder: ['trip', { drop: 0.5, lean: 0.4, arm: [0.2, 0, 0.6], fwd: 0.8, front: [0, 0, -0.4], pitch: 0.1 }],
+  sleeveDrag: ['collar:H', { arm: [-0.4, 0, 0.1], twist: 0.2 }],
+  sucker: ['haymaker:cross', { arm: [-0.053, -0.05, 0.483], drop: -0.048, lean: 0.154, twist: -0.098, fwd: 0.001 }],
+  rabo: ['rasteira:low_kick', { yaw: 0.8, drop: 0.8, leg: [0.1, -0.2, 0.4], base: [-0.3, 0, 0.2], fwd: 0.2 }],
+  lapSau: ['chain', { arm: [-0.2, -0.05, 0.4], twist: 0.35, off: [0.1, 0, -0.1], fwd: -0.2 }],
+  spinElbow: ['elbowH', { twist: 0.1, roll: 0.5, yaw: 0.6, arm: [0, 0.4, 0.2], wind: 1.3 }],
+  bandal: ['roundTkd', { leg: [0.1, 0.6, 0.2], lean: 0.1, fwd: 0.2, drop: -0.2 }],
+  lapel: ['collar:M', { arm: [0.2, -0.3, 0.7], twist: 0.5, drop: 0.4 }],
+  collarDrag: ['collar:H', { drop: -0.3, lean: 0.25, arm: [0.1, -0.4, 1.1], fwd: 0.3 }],
+  whip: ['palm:M', { arm: [0, 0.2, 0.4], twist: -0.3, roll: 0.3, lean: -0.2 }],
+  abanico: ['angle', { arm: [-0.4, 0.6, 0], twist: 0.3, roll: 0.3, wind: 1.3, lean: 0.2 }],
+  palmHeel: ['parry', { lean: 0.15, arm: [0.2, 0.4, 0.8], sw: [0.2, 0, 0.2], base: [0.2, 0, -0.15], rdrop: -0.2 }],
+  switchKnee: ['knee', { leg: [0.2, -0.2, 0.2], lean: 0.1, fwd: 0.4 }],
 };
 const ANIM_BASE = {};
 for (const name in ANIM_SPECS) {
@@ -6814,7 +6814,8 @@ class Fighter {
     const row = stillLow ? table.crouch[this.stringKeys + letter] : table.stand[this.stringKeys + letter];
     if (open && row) { keys = this.stringKeys + letter; low = stillLow; }
     let mv = null, charge = null;
-    const style = this.item || low ? null : MOVE_STYLE[this.rowStyle]; // P19-15: never with an item in hand, never on a crouch row
+    const crouchHeld = low || (buf.height && !this.cpu); // a person's press with Crouch held (or the touch automatic height against a crouched foe) never charges or pauses; the CPU asks with height true to list its crouch picks, and those previews stay as the probes of the decision measured them (a Hard CPU plays today's game)
+    const style = this.item || crouchHeld ? null : MOVE_STYLE[this.rowStyle]; // P19-15: never with an item in hand, never on a crouch press
     if (style) {
       const stillTicks = this.state === S.IDLE ? this.stateTicks : -1; // a pause is standing still: a press that chains out of a move, or is made walking, running, crouching or guarding, is never one
       if (open && !this.noPause && keys === style.delay.at && stillTicks >= PAUSE_STILL_TICKS) mv = style.delay.row;
@@ -11708,7 +11709,7 @@ class MatchSim {
     });
     on('chargeRelease', (e) => { // P19-15: the released charge is a new strike with its own frame data (the extra stamina is in its note)
       if (e.f.index !== 0) return;
-      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: 'charged: level ' + e.level, note: 'level ' + e.level + ' charge, +' + e.mv.xstam + ' stamina' });
+      note({ mv: e.mv, startup: e.mv.release, active: e.f.mActive, recovery: e.f.mRecovery, string: 'charged: level ' + e.level, note: 'level ' + e.level + ' charge, +' + e.mv.xstam + ' stamina' }); // startup = the ticks from the release to the strike
     });
   }
   dispose() {
