@@ -1,8 +1,8 @@
-// Balance script: simulates the port boss fight (Ο Λιμενάρχης Κώτσος) with an AI-played player team.
+// Balance script: simulates the port boss fight (Ο Λιμενάρχης Κώτσος) with an AI-played player team, then the Πειραιάς XP band and route 2, then Νότια.
 // Usage: node Mizamon/tools/balance.mjs [runs]   (default 500 runs per row)
 // The player team is one random starter plus five random route creatures, all at the same level
 // (or lagging two levels behind), played by the same AI as the opponent, with two Σουβλάκι to use.
-import { loadRules, xpBand } from './run-tests.mjs';
+import { loadRules, xpBand, notiaTeam, bossWinRate, NOTIA_BOSS_BANDS } from './run-tests.mjs';
 
 const R = loadRules();
 const runs = Number(process.argv[2]) || 500;
@@ -81,4 +81,46 @@ for (const level of [12, 13]) {
   let wins = 0;
   for (let i = 0; i < runs; i++) wins += R.simulateBattle([R.makeMon(R.pickOne(wildRng, R.STARTERS), level)], [R.makeMon('efoplistakos', level)], wildRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
   console.log('Wild Εφοπλιστάκος L' + level + ' against one starter at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
+}
+
+// ---- Νότια (MZ-WORLD-02b): the XP band, the boss Ο Κύριος Μπουγάτσας, the seven trainers, the wild Καφενόβιος ----
+console.log('');
+const notiaBand = xpBand(R, 'notia');
+console.log('Νότια XP band (section 11.4): boss top level ' + notiaBand.top + ', XP needed for three creatures ' + notiaBand.need + ', XP of the ' + notiaBand.trainerIds.length + ' trainers ' + notiaBand.trainerXp +
+  ' (' + (100 * notiaBand.trainerShare).toFixed(0) + '% of the need), a route 4 wild fight pays ' + notiaBand.wildXp.toFixed(0) + ' on average, wild fights still needed ' + notiaBand.wildFights + ' (limit 10)');
+const notiaBoss = R.TRAINERS.bougatsas;
+console.log('Boss fight Νότια, ' + runs + ' runs per row. Boss team: ' + notiaBoss.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ' (stat boost x' + notiaBoss.boost + ', one Σουβλάκι). Player: a starter in its middle form plus creatures of Νότια, all at the level shown, two Σουβλάκι');
+console.log('level | team                       | win rate | band of the test');
+const notiaTop = notiaBoss.team[notiaBoss.team.length - 1].lv;
+for (const [label, offset, size, items, low, high] of NOTIA_BOSS_BANDS) {
+  const rate = bossWinRate(R, 'bougatsas', notiaTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000);
+  console.log(String(notiaTop + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + (100 * rate).toFixed(1).padStart(7) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0) + '%');
+}
+console.log('Same fight at the exact offsets of 11.7 (the level scale of 11.12 explains the difference):');
+for (const [label, offset, size, items] of [['top plus 1, six creatures', 1, 6, 2], ['top minus 1, six creatures', -1, 6, 2], ['top minus 3, six creatures', -3, 6, 2], ['top minus 1, three creatures, no items', -1, 3, 0]]) {
+  console.log(String(notiaTop + offset).padStart(5) + ' | ' + label.padEnd(38) + ' | ' + (100 * bossWinRate(R, 'bougatsas', notiaTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000)).toFixed(1).padStart(5) + '%');
+}
+console.log('Νότια trainer fights, ' + runs + ' runs per cell (player: a middle-form starter plus creatures of Νότια, all at the level shown, no items)');
+console.log('trainer (team)                                                       | level | 6 creatures | 3 creatures');
+for (const trainerId of notiaBand.trainerIds) {
+  const label = R.TRAINERS[trainerId].name + ' (' + R.buildTrainerTeam(trainerId, 'komma').map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ')';
+  for (const level of [16, 17, 18]) {
+    const cell = (size) => {
+      const rng = R.makeRng(6000 + level * 10 + size);
+      let wins = 0;
+      for (let i = 0; i < runs; i++) if (R.simulateBattle(notiaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { foeItems: R.TRAINERS[trainerId].items, playerItems: [] }).winner === 0) wins++;
+      return (100 * wins / runs).toFixed(1) + '%';
+    };
+    console.log(label.padEnd(68) + ' | ' + String(level).padStart(5) + ' | ' + cell(6).padStart(11) + ' | ' + cell(3).padStart(11));
+  }
+}
+const kafenoviosRng = R.makeRng(21);
+for (const level of [17, 19]) {
+  let wins = 0;
+  for (let i = 0; i < runs; i++) {
+    const starter = R.makeMon(R.pickOne(kafenoviosRng, R.STARTERS), level);
+    R.evolveMon(starter);
+    wins += R.simulateBattle([starter], [R.makeMon('kafenovios', level)], kafenoviosRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
+  }
+  console.log('Wild Καφενόβιος L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
 }
