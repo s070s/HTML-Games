@@ -55,7 +55,7 @@ const {
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
-  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
+  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_LOOSEN_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
   TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -24738,6 +24738,10 @@ const SelfTest = {
       const hit = picture(full, at);
       if (!hit.some((call) => call[0] === 'scale' && call[1] > 1.5)) bad.push('the first word does not land big');
       if (!set(hit, 'fillStyle', '#ffffff') || !(introKitFor(844, 390, 1).dust.x.length > 0)) bad.push('a landing has no flash or no dust');
+      if (introCanBake()) { // a real canvas: the dust of the landing is drawn with motion, and not on Reduced motion
+        const puff = introKitFor(844, 390, 1).puff, puffs = (look) => picture(look, at + 0.12).filter((call) => call[0] === 'drawImage' && call[1] === puff).length;
+        if (!(puffs(full) > puffs({ reduced: true, shake: 1, flash: 1 }))) bad.push('a landing draws no dust');
+      }
       for (const [label, look] of [['Reduced motion', { reduced: true, shake: 1, flash: 1 }], ['Flashes Off', { reduced: false, shake: 1, flash: 0 }]]) {
         const calls = picture(look, at);
         if (set(calls, 'fillStyle', '#ffffff')) bad.push(label + ' still flashes');
@@ -24853,7 +24857,7 @@ const SelfTest = {
     }));
     /* ---------- the intro rework (P19-17, Appendix C "P19-17 intro, decided and built"): the underground fight floor, the cracks, the brawling silhouettes, the shatter ---------- */
     const introDrumSteps = () => new Set(songEvents().filter((e) => e.voice === 0 && (e.mask & INTRO_DRUMS)).map((e) => e.step));
-    const introPointIn = (poly, x, y) => { let inside = false; for (let i = 0, j = 14; i < 16; j = i, i += 2) if ((poly[i + 1] > y) !== (poly[j + 1] > y) && x < (poly[j] - poly[i]) * (y - poly[i + 1]) / (poly[j + 1] - poly[i + 1]) + poly[i]) inside = !inside; return inside; };
+    const introPointIn = (poly, x, y) => { let inside = false; for (let i = 0, j = poly.length - 2; i < poly.length; j = i, i += 2) if ((poly[i + 1] > y) !== (poly[j + 1] > y) && x < (poly[j] - poly[i]) * (y - poly[i + 1]) / (poly[j + 1] - poly[i + 1]) + poly[i]) inside = !inside; return inside; };
     const introPaint = (w, h) => { const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; return canvas.getContext('2d'); }; // a real canvas (Chrome and the other browsers; the headless stub has none)
     const introPicture = (g, w, h, p, look) => { introFrame(g, w, h, p, Object.assign({ seed: 5 }, look)); return g.getImageData(0, 0, w, h).data; };
     test('Intro cracks (P19-17): the same seed builds the same cracks, chips, groups and moves and another seed builds others; the main fractures snap open in 0.05 s, every fracture has spread by 0.3 s and tapers to a point; each landing of the table has its own place on the floor; every move lands on a drum hit', () => {
@@ -24976,6 +24980,12 @@ const SelfTest = {
       if (!(only(calls(still, at + 0.01), 'lineTo').length > only(calls(moving, at + 0.01), 'lineTo').length)) bad.push('the cracks are not all there at once on Reduced motion');
       const fades = calls(still, at + 0.1).filter((call) => call[0] === 'set globalAlpha' && call[1] > 0.2 && call[1] < 0.3).length, whole = calls(still, at + 0.5).filter((call) => call[0] === 'set globalAlpha' && call[1] > 0.2 && call[1] < 0.3).length;
       if (!fades || whole) bad.push('the cracks do not fade in on Reduced motion');
+      if (introCanBake()) { // a real canvas: Reduced motion draws no dust whatever the Effects setting says, and motion draws more
+        const puff = introKitFor(844, 390, 9).puff, puffs = (look) => calls(look, at + 0.12).filter((call) => call[0] === 'drawImage' && call[1] === puff).length;
+        const quiet = puffs(Object.assign({ effects: 1 }, still)), none = puffs(Object.assign({ effects: 0 }, still)), loud = puffs(Object.assign({ effects: 1 }, moving));
+        if (quiet !== none) bad.push('Reduced motion draws dust (' + quiet + ' puffs with Effects High, ' + none + ' with Low)');
+        if (!(loud > quiet)) bad.push('motion draws no more dust than Reduced motion (' + loud + ' against ' + quiet + ')');
+      }
       for (const p of [at, 3, 5.5]) if (calls(still, p).some((call) => call[0] === 'translate' && call[1] !== 422)) bad.push('a jolt on Reduced motion at ' + p);
       if (!calls(moving, at + 0.03).some((call) => call[0] === 'translate' && call[1] !== 422)) bad.push('no jolt with motion');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
@@ -25005,17 +25015,19 @@ const SelfTest = {
       } finally { Settings.v.effects = keep.effects; Object.assign(Intro, keep); }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
-    test('Intro cracks in the browser (P19-17): the damage builds up landing by landing (more dark gaps after every landing of the table), the picture is the same for the same time in any order of asking, and the Flashes setting scales the light of a hit', () => {
+    test('Intro cracks in the browser (P19-17): the damage builds up landing by landing (more dark gaps after every landing of the table), the picture is the same for the same time in any order of asking, the Flashes setting scales the light of a hit, and with Flashes Off a hit lights nothing (the steady picture shows the damage)', () => {
       if (!introCanBake()) return 'skipped: no real canvas in the headless stub; a browser self-test draws the pictures';
-      const bad = [], w = 320, h = 180, g = introPaint(w, h), look = { reduced: true, shake: 1, flash: 1 };
-      const gaps = (p) => { const data = introPicture(g, w, h, p, look); let n = 0; for (let y = 100; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (data[i] + data[i + 1] + data[i + 2] < 15) n++; } return n; }; // the colour of a gap is darker than anything else on the floor
+      const bad = [], w = 480, h = 270, g = introPaint(w, h), look = { reduced: true, shake: 1, flash: 1 };
+      const gaps = (p) => { const data = introPicture(g, w, h, p, look); let n = 0; for (let y = 150; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (data[i] + data[i + 1] + data[i + 2] < 24) n++; } return n; }; // the colour of a gap is darker than anything else on the floor
       const steps = [...new Set(INTRO_CRACKS.map((crack) => crack[0]))].filter((step) => step * SONG_STEP_SECS + 0.45 < INTRO_SHATTER_AT - 0.02), counts = steps.map((step) => gaps(step * SONG_STEP_SECS + 0.45)); // the landing of the last hit before the shatter is left out: it is still fading in when the picture breaks
       for (let i = 1; i < counts.length; i++) if (!(counts[i] > counts[i - 1])) bad.push('landing ' + steps[i] + ' adds no damage (' + counts.join(' ') + ')');
       const backwards = steps.slice().reverse().map((step) => gaps(step * SONG_STEP_SECS + 0.45)).reverse();
       if (JSON.stringify(backwards) !== JSON.stringify(counts) || gaps(steps[3] * SONG_STEP_SECS + 0.45) !== counts[3]) bad.push('the same time gives another picture after going back');
-      const bright = (flash) => { const data = introPicture(g, w, h, 32 * SONG_STEP_SECS + 0.02, { reduced: false, shake: 0, flash }); let sum = 0; for (let i = 0; i < data.length; i += 4) sum += data[i] + data[i + 1] + data[i + 2]; return sum; };
-      const full = bright(1), capped = bright(FLASH_REDUCED_ALPHA), off = bright(0);
-      if (!(full > capped && capped > off)) bad.push('the Flashes setting does not scale the light of a hit (' + [full, capped, off].join(' > ') + ')');
+      const wall = (flash, p) => { const data = introPicture(g, w, h, p, { reduced: false, shake: 0, flash }); let sum = 0; for (let y = 0; y < 18; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; sum += data[i] + data[i + 1] + data[i + 2]; } return sum; }; // the top of the back wall: no fighter, no title and no crack reaches it, so only the light of a hit and the white flash change it
+      const hit = 32 * SONG_STEP_SECS + 0.02, full = wall(1, hit), capped = wall(FLASH_REDUCED_ALPHA, hit), off = wall(0, hit);
+      if (!(full > capped)) bad.push('the Flashes setting does not scale the light of a hit (' + [full, capped, off].join(' > ') + ')');
+      if (!(capped > wall(FLASH_REDUCED_ALPHA, 0.1))) bad.push('Flashes Reduced shows no light of a hit');
+      if (off !== wall(0, 0.1) || off !== wall(0, hit + 0.5)) bad.push('Flashes Off still lights the picture at a hit (' + off + ' against ' + wall(0, 0.1) + ' with no hit)');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Intro frames build nothing (P19-17): the cracks, chips, pieces, groups and pictures are built once for a size and a seed and kept; a frame only draws (the same kit and the same arrays after hundreds of frames); the real draw hands the play\'s seed on', () => withSongAudio(() => {
@@ -25031,6 +25043,54 @@ const SelfTest = {
         Intro.draw(2);
         if (introKitFor(844, 390, 77) !== first) bad.push('the real draw did not use the seed of the play');
       } finally { Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro shatter edges (P19-17 review): every edge of a piece is broken at three points that are pushed off the straight line, so a gap is a jagged fracture; each piece is outlined with a light edge under a dark line, and comes loose before it falls (a step away from the hit)', () => {
+      const bad = [], kit = introKitFor(844, 390, 3), { pieces } = kit.shards;
+      let straight = 0, edges = 0;
+      for (const piece of pieces) {
+        if (piece.poly.length !== 32) { bad.push('a piece has ' + piece.poly.length / 2 + ' points, not 16'); break; }
+        for (let side = 0; side < 4; side++) { // corner, three broken points, then the next corner
+          const q = piece.poly, from = side * 4, to = ((side + 1) * 4) % 16, ax = q[from * 2], ay = q[from * 2 + 1], dx = q[to * 2] - ax, dy = q[to * 2 + 1] - ay, length = Math.hypot(dx, dy);
+          if (length < 20) continue; // an edge that has shrunk to nothing at the centre
+          edges++;
+          for (let n = 1; n <= 3; n++) if (Math.abs((q[(from + n) * 2] - ax) * dy - (q[(from + n) * 2 + 1] - ay) * dx) / length < 0.05) { straight++; break; }
+        }
+        if (!(piece.nudge >= 1 && piece.nudge <= 2 * Math.max(1, kit.unit / 600) + 1e-9)) bad.push('a piece steps ' + piece.nudge + ' px away');
+      }
+      if (!(edges > 100) || straight > edges * 0.1) bad.push(straight + ' of ' + edges + ' edges have a straight run');
+      if (!introCanBake() || !hasLayoutEngine()) return bad.length ? bad.slice(0, 4).join('; ') : true; // the drawing needs a real canvas (a browser self-test checks it)
+      const early = Math.min(...pieces.map((piece) => piece.delay)), rotates = (t) => { const { g, calls } = introRecorder(); introFrame(g, 844, 390, INTRO_SHATTER_AT + t, { reduced: false, shake: 1, flash: 1, seed: 3 }); return calls; };
+      if (rotates(0.001).some((call) => call[0] === 'rotate')) bad.push('a piece moves in the first frame');
+      if (!rotates(early - INTRO_LOOSEN_SECS / 2).some((call) => call[0] === 'rotate')) bad.push('no piece comes loose before the first one falls');
+      const calls = rotates(early + 0.05), set = (name, value) => calls.findIndex((call) => call[0] === 'set ' + name && call[1] === value);
+      const light = set('strokeStyle', 'rgba(205,214,226,0.35)'), dark = set('strokeStyle', 'rgba(2,3,5,0.9)'), shifted = calls.findIndex((call) => call[0] === 'translate' && call[1] < 0 && call[1] === call[2]);
+      if (!(light >= 0 && dark > light && shifted >= 0 && shifted < dark)) bad.push('the light edge is not drawn under the dark line, up and to the left');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro held picture (P19-17 review): the test hook BREAKPOINT.introAt puts the picture up with its listeners, and any press takes it down again (it is not a play that locks keys for good); a test bench draws on its own kit and leaves the picture on screen alone; the overlay gives its canvas back at the end', () => withSongAudio(() => {
+      const bad = [], listened = [], keep = { build: Intro.build, draw: Intro.draw, lock: Intro.lock, listen: Intro.listen };
+      try {
+        Intro.build = function () { this.el = introElement(); this.canvas = { width: 8, height: 8 }; this.g = {}; };
+        Intro.draw = () => {}; Intro.lock = () => {}; Intro.listen = function () { listened.push(this.phase); };
+        Intro.hold(2);
+        const el = Intro.el;
+        if (Intro.phase !== 'hold' || listened.length !== 1) bad.push('the held picture has no listeners');
+        if (!Intro.press() || Intro.phase !== 'off' || !el.classes.has('out')) bad.push('a press does not take a held picture down');
+        if (Intro.canvas !== null || Intro.g !== null) { Intro.letGo(); if (Intro.canvas !== null || Intro.g !== null) bad.push('the overlay keeps its canvas after the intro'); }
+        const canvas = { width: 9, height: 9 };
+        Object.assign(Intro, { phase: 'off', outro: null, el: {}, canvas, g: {}, kit: null });
+        Intro.letGo();
+        if (canvas.width !== 9) bad.push('a canvas still on screen was given back');
+        Object.assign(Intro, { el: null });
+        Intro.letGo();
+        if (canvas.width !== 0 || Intro.canvas !== null) bad.push('the canvas was not given back');
+      } finally { Object.assign(Intro, keep); }
+      if (introCanBake() && hasLayoutEngine()) {
+        const kit = introKitFor(320, 180, 8), times = Intro.bench(64, 36, { readback: false });
+        if (introKitFor(320, 180, 8) !== kit || !(kit.lit.width > 0)) bad.push('the bench replaced the kit of the picture on screen');
+        if (times.length !== INTRO_SECS * 60 + 1 || times.some((ms) => !(ms >= 0))) bad.push('the bench does not time every frame');
+      }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     /* ---------- Collisions, hitboxes and hurtboxes (P18-65): the findings K01 to K10 of the P18-64 audit (Appendix D). Each test was written first and run on the game before its fix, where it failed ---------- */

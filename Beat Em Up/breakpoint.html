@@ -21023,7 +21023,7 @@ function testApi() {
     LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
-    Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
+    Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_LOOSEN_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
     TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -21205,6 +21205,7 @@ const INTRO_WORDS = [['BREAK', 16], ['POINT', 24]]; // the halves of the title a
 const INTRO_CRACKS = [[16, 0.36, 0.76, 0.34], [24, 0.67, 0.86, 0.38], [32, 0.50, 0.62, 0.70], [40, 0.16, 0.88, 0.30], [48, 0.28, 0.52, 0.30], [48, 0.82, 0.74, 0.34], [56, 0.72, 0.46, 0.26], [64, 0.38, 0.95, 0.34], [68, 0.58, 0.36, 0.30]]; // the damage: [step of the song, x (fraction of the width), depth on the floor (0 horizon, 1 the bottom edge), reach (fraction of the short side)]; one site per landing, in time order
 const INTRO_SHATTER_STEP = 70; // the last, biggest hit: the whole picture breaks
 const INTRO_SHATTER_AT = INTRO_SHATTER_STEP * SONG_STEP_SECS;
+const INTRO_LOOSEN_SECS = 0.05; // a piece comes loose this long before it falls and steps a pixel or two away from the hit
 const INTRO_FALL_SECS = 1.1; // the pieces take this long to fall out of the picture (the menu is open under them from the end of the reveal on)
 const INTRO_FADE_SECS = 0.5; // Reduced motion: the picture fades out over this instead
 const INTRO_SNAP_SECS = 0.05, INTRO_SPREAD_SECS = 0.3; // a main fracture snaps open in this long, the branches have spread by the second time
@@ -21213,7 +21214,7 @@ const INTRO_PULSE_RATE = 12; // how fast an impact dies away (per second)
 const INTRO_LIGHT_RATE = 9; // how fast the light of a hit dies away
 const INTRO_JOLT_RATE = 20, INTRO_JOLT_UNIT = 0.011; // the camera jolt of a hit: this fast gone, this far (fraction of the short side) at the biggest
 const INTRO_AMBIENT = 0.3, INTRO_AMBIENT_STILL = 0.52; // how much of the lit floor shows with no hit: the dark space, and the steady picture of Reduced motion
-const INTRO_CRACK_WIDTH = 0.022; // half width of a main fracture where it starts, as a fraction of its reach
+const INTRO_CRACK_WIDTH = 0.014; // half width of a main fracture where it starts, as a fraction of its reach
 const INTRO_PIECES = [11, 4]; // the shatter: 11 rays and 4 rings = 44 pieces
 const INTRO_GRAVITY = 6; // the pieces fall with this pull (picture heights per second squared)
 // How hard the picture is hit at time p (seconds into the song): the impacts of the table, each dying away. Drives the shake, the flash, the lights and the dust
@@ -21255,7 +21256,7 @@ const INTRO_MOVES = [[1, 2, 15], [3, 4, 15], [5, 6, 15], [7, 8, 16], [9, 10, 16]
 const INTRO_ATTACK = [[-3, -1, 0, 1, 4], [0, 1, 2, 2, 0]]; // keyframes: times, then the poses (0 = guard, 1 = draw back, 2 = strike); the pose of the move replaces 1 and 2
 const INTRO_REACT = [[0, 0.35, 2, 4], [0, 1, 1, 0]]; // a hit, block or slip: guard, the reaction, held, guard
 const INTRO_DOWN = [[0, 1, 2.5, 3.5, 9, 11, 13.5], [0, 18, 19, 20, 20, 21, 0]]; // knocked down: stagger, fall, lie, get up (poses by number)
-const INTRO_HIT_SECS = 4, INTRO_DOWN_STEPS = 13.5;
+const INTRO_HIT_STEPS = 4, INTRO_DOWN_STEPS = 13.5; // how long a fighter that is hit, and one that is knocked down, stays in the reaction (in steps of the song)
 const INTRO_DRUMS = 1 | 2 | 8; // the drums a move lands on: kick, snare, tom
 const INTRO_LIMB = { thigh: 0.245, shin: 0.245, torso: 0.31, head: 0.11, upper: 0.165, fore: 0.16, foot: 0.07 }; // lengths as fractions of the height of a fighter
 const INTRO_CRACKS_LIGHT = [-0.45, -0.89]; // the way to the light, for the lit edge of a fracture (up and left on screen)
@@ -21313,7 +21314,7 @@ function introSite(kit, pts, list, rng, index, [step, fx, depth, reach]) {
     }
     spare.push(main);
   }
-  for (let k = 0; k < 4; k++) { // hairlines
+  for (let k = 0; k < 1; k++) { // a hairline
     const main = list[spare[Math.floor(rng() * spare.length)]];
     if (!main) continue;
     const from = main.first + 1 + Math.floor(rng() * Math.max(1, main.count - 2)), delay = 0.06 + rng() * 0.12;
@@ -21355,28 +21356,35 @@ function introDebris(kit, rng) {
   kit.chips = chips; kit.dust = dust;
 }
 
-// The pieces of the final shatter: rays from the last hit and rings around it, edges broken at the middle
+// The pieces of the final shatter: rays from the last hit and rings around it; every edge is broken at three points that are pushed aside, so an edge is a jagged fracture and two pieces share it exactly
 function introShards(kit, rng) {
   const [rays, rings] = INTRO_PIECES, cx = kit.w * 0.5, cy = kit.hy + kit.floor * 0.3, far = Math.hypot(Math.max(cx, kit.w - cx), Math.max(cy, kit.h - cy)) * 1.08, radii = [0, 0.15, 0.34, 0.6, 1.0];
-  const corner = [], ray = [], ring = [], spin = rng() * TAU;
+  const corner = [], ray = [], ring = [], spin = rng() * TAU, size = Math.max(4, far * 0.03);
   for (let j = 0; j < rays; j++) for (let k = 0; k <= rings; k++) {
     const angle = spin + (j + (k && k < rings ? (rng() - 0.5) * 0.35 : 0)) / rays * TAU, radius = far * radii[k] * (k && k < rings ? 0.88 + rng() * 0.24 : 1);
     corner.push(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
   }
   const at = (j, k) => ((j + rays) % rays) * (rings + 1) + k;
-  for (let j = 0; j < rays; j++) for (let k = 0; k <= rings; k++) { // the middle of the edge along the ray j and of the edge around the ring k (to the next ray): pushed aside a little
-    const a = at(j, k), b = at(j, Math.min(rings, k + 1)), c = at(j + 1, k), size = Math.max(4, far * 0.04);
-    ray.push((corner[a * 2] + corner[b * 2]) / 2 + (rng() - 0.5) * size, (corner[a * 2 + 1] + corner[b * 2 + 1]) / 2 + (rng() - 0.5) * size);
-    ring.push((corner[a * 2] + corner[c * 2]) / 2 + (rng() - 0.5) * size, (corner[a * 2 + 1] + corner[c * 2 + 1]) / 2 + (rng() - 0.5) * size);
+  const broken = (out, from, to) => { // three points between corner `from` and corner `to` (in that order), each pushed aside and along a little
+    const ax = corner[from * 2], ay = corner[from * 2 + 1], dx = corner[to * 2] - ax, dy = corner[to * 2 + 1] - ay, length = Math.hypot(dx, dy) || 1;
+    for (let n = 1; n <= 3; n++) { const along = n / 4 + (rng() - 0.5) * 0.1, aside = (rng() - 0.5) * size; out.push(ax + dx * along - dy / length * aside, ay + dy * along + dx / length * aside); }
+  };
+  for (let j = 0; j < rays; j++) for (let k = 0; k <= rings; k++) { // the edge along the ray j from ring k to k + 1 and the edge around ring k from ray j to the next
+    broken(ray, at(j, k), at(j, Math.min(rings, k + 1)));
+    broken(ring, at(j, k), at(j + 1, k));
   }
-  const pieces = [];
+  const pieces = [], thick = () => { let mask = 0; for (let i = 0; i < 16; i++) if (rng() < 0.4) mask |= 1 << i; return mask; }; // which of the 16 edges of a piece are drawn wide
   for (let j = 0; j < rays; j++) for (let k = 0; k < rings; k++) {
-    const a = at(j, k), b = at(j + 1, k), c = at(j + 1, k + 1), d = at(j, k + 1);
-    const polygon = [corner[a * 2], corner[a * 2 + 1], ring[a * 2], ring[a * 2 + 1], corner[b * 2], corner[b * 2 + 1], ray[b * 2], ray[b * 2 + 1], corner[c * 2], corner[c * 2 + 1], ring[d * 2], ring[d * 2 + 1], corner[d * 2], corner[d * 2 + 1], ray[a * 2], ray[a * 2 + 1]];
+    const a = at(j, k), b = at(j + 1, k), c = at(j + 1, k + 1), d = at(j, k + 1), polygon = [];
+    const add = (list, index, backwards) => { for (let n = 0; n < 3; n++) { const m = backwards ? 2 - n : n; polygon.push(list[index * 6 + m * 2], list[index * 6 + m * 2 + 1]); } };
+    polygon.push(corner[a * 2], corner[a * 2 + 1]); add(ring, a, false); // a to b along the ring
+    polygon.push(corner[b * 2], corner[b * 2 + 1]); add(ray, b, false); // b to c along the ray
+    polygon.push(corner[c * 2], corner[c * 2 + 1]); add(ring, d, true); // c to d back along the next ring
+    polygon.push(corner[d * 2], corner[d * 2 + 1]); add(ray, a, true); // d to a back along the ray
     let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity, mx = 0, my = 0;
-    for (let i = 0; i < 16; i += 2) { left = Math.min(left, polygon[i]); right = Math.max(right, polygon[i]); top = Math.min(top, polygon[i + 1]); bottom = Math.max(bottom, polygon[i + 1]); mx += polygon[i] / 8; my += polygon[i + 1] / 8; }
+    for (let i = 0; i < polygon.length; i += 2) { left = Math.min(left, polygon[i]); right = Math.max(right, polygon[i]); top = Math.min(top, polygon[i + 1]); bottom = Math.max(bottom, polygon[i + 1]); mx += polygon[i] / 16; my += polygon[i + 1] / 16; }
     const away = Math.hypot(mx - cx, my - cy) || 1, speed = kit.unit * (0.2 + 0.5 / (k + 1)) * (0.7 + rng() * 0.6);
-    pieces.push({ poly: Float32Array.from(polygon), left: Math.floor(left) - 2, top: Math.floor(top) - 2, right: Math.ceil(right) + 2, bottom: Math.ceil(bottom) + 2, mx, my, vx: (mx - cx) / away * speed, vy: (my - cy) / away * speed - kit.unit * 0.15, spin: (rng() - 0.5) * 2.6, delay: 0.07 + k * 0.04 + rng() * 0.05 });
+    pieces.push({ poly: Float32Array.from(polygon), left: Math.floor(left) - 2, top: Math.floor(top) - 2, right: Math.ceil(right) + 2, bottom: Math.ceil(bottom) + 2, mx, my, ux: (mx - cx) / away, uy: (my - cy) / away, vx: (mx - cx) / away * speed, vy: (my - cy) / away * speed - kit.unit * 0.15, spin: (rng() - 0.5) * 2.6, delay: 0.07 + k * 0.04 + rng() * 0.05, nudge: (1 + rng()) * Math.max(1, kit.unit / 600), thick: thick() });
   }
   kit.shards = { cx, cy, far, pieces };
 }
@@ -21439,7 +21447,10 @@ function introBakeLit(kit) {
     stamp(i % 3 ? dark : pale, rnd() * w, y, rx, rx * introRatio(y, hy, h) * 0.9);
   }
   grain(wide ? 22000 : 14000, '#14171c', 0.3, unit * 0.0016, 0, 1);
-  grain(wide ? 14000 : 9000, '#c9ced6', 0.2, unit * 0.0014, 0, 1);
+  grain(wide ? 4700 : 3000, '#c9ced6', 0.2, unit * 0.0014, 0, 1);
+  g.globalAlpha = 0.4; // large, soft, low-contrast patches: the concrete was poured in sections and has aged unevenly
+  for (let i = 0; i < 18; i++) { const y = rowY(0.05 + rnd() * 0.95), v = (y - hy) / floor, rx = (2 + rnd() * 4) * ppm * v; stamp(i % 2 ? dark : pale, rnd() * w, y, rx, rx * introRatio(y, hy, h) * 0.9); }
+  g.globalAlpha = 1;
   grain(wide ? 1500 : 900, '#0a0c10', 0.4, unit * 0.0032, 0, 1);
   // expansion joints and saw cuts in the floor's perspective
   g.lineCap = 'round';
@@ -21500,8 +21511,9 @@ function introBakeLit(kit) {
     water.addColorStop(0, 'rgba(44,56,72,0.85)'); water.addColorStop(0.5, 'rgba(18,23,31,0.9)'); water.addColorStop(1, 'rgba(8,10,14,0.92)');
     g.fillStyle = water; g.fill();
     g.save(); g.clip();
-    for (const lamp of kit.lamps) stamp(glint, clamp(lamp, x - rx * 0.7, x + rx * 0.7), y - ry * 0.1, rx * 0.1, ry * 1.2); // the tubes of the ceiling lamps, upside down in the water
-    g.restore();
+    g.globalAlpha = 0.3;
+    for (const lamp of kit.lamps) stamp(glint, clamp(lamp, x - rx * 0.7, x + rx * 0.7), y - ry * 0.1, rx * 0.4, ry * 0.25); // the sheen of the ceiling lamps on the water: a wide, flat, soft streak
+    g.globalAlpha = 1; g.restore();
   }
   // the dark corners
   const corners = g.createRadialGradient(w / 2, h / 2, unit * 0.3, w / 2, h / 2, Math.hypot(w, h) * 0.62);
@@ -21553,7 +21565,7 @@ function introSprite(size, stops) {
 
 // Builds everything the picture needs for this size and seed; the same seed gives the same shapes
 function introMake(w, h, seed) {
-  const unit = Math.min(w, h), hy = h * 0.56, kit = { key: w + 'x' + h + ':' + seed, w, h, seed, unit, hy, floor: h - hy, margin: Math.ceil(unit * 0.05), ppm: 0.24 * Math.sqrt(w * h), ambient: [null, null], lit: null, flash: null, hot: null, damage: null, damageContext: null, baked: 0, bakedStill: false, bakedEffects: 1, ox: 0, oy: 0, jx: 0, jy: 0, puff: null, dent: null, snap: null, snapKey: '', lamps: [], glow: 0 };
+  const unit = Math.min(w, h), hy = h * 0.56, kit = { key: w + 'x' + h + ':' + seed, w, h, seed, unit, hy, floor: h - hy, margin: Math.ceil(unit * 0.05), ppm: 0.24 * Math.sqrt(w * h), ambient: [null, null], lit: null, flash: null, hot: null, damage: null, damageContext: null, baked: 0, bakedStill: false, bakedEffects: 1, ox: 0, oy: 0, jx: 0, jy: 0, puff: null, dent: null, snap: null, snapReduced: null, snapFlash: -1, snapEffects: -1, lamps: [], glow: 0 };
   const rng = makeRng(seed ^ 0x2545f491), pts = { x: [], y: [], a: [], nx: [], ny: [], hw: [] }, list = [];
   kit.sites = INTRO_CRACKS.map((row, index) => introSite(kit, pts, list, rng, index, row));
   kit.cracks = list; kit.px = Float32Array.from(pts.x); kit.py = Float32Array.from(pts.y); kit.pnx = Float32Array.from(pts.nx); kit.pny = Float32Array.from(pts.ny); kit.phw = Float32Array.from(pts.hw);
@@ -21588,13 +21600,17 @@ const INTRO_FORMATIONS = [null, null, [[-0.31, 1], [0.31, -1]], [[-0.6, 1], [0.0
 const INTRO_DUELS = [null, null, [[0, 1], [1, 0]], [[0, 1], [1, 0], [2, 1]], [[0, 1], [1, 0], [2, 3], [3, 2]]]; // who may hit whom
 
 function introCrowd(kit, rng) {
-  const wide = kit.w / kit.unit > 1.4, slots = wide ? [0.15, 0.5, 0.85] : [0.27, 0.73], drums = [];
+  const wide = kit.w / kit.unit > 1.4, slots = wide ? [0.16, 0.84] : [0.27, 0.73], drums = [];
   for (const event of songEvents()) if (event.voice === 0 && (event.mask & INTRO_DRUMS) && event.step >= 8 && event.step < INTRO_SHATTER_STEP) drums.push(event);
   kit.pose = new Float32Array(12); kit.joints = new Float32Array(26);
   kit.groups = slots.map((slot, index) => {
-    const size = 2 + Math.floor(rng() * 3), v = (wide && index === 1 ? 0.17 : 0.25) + rng() * 0.15, formation = INTRO_FORMATIONS[size], duels = INTRO_DUELS[size];
-    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.27 : 0.5) / (span * base)), centre = kit.w * (slot + (rng() - 0.5) * 0.04);
-    const fighters = formation.map(([offset, dir], i) => ({ x: centre + offset * base * fit, feet: kit.hy + kit.floor * (v + (rng() - 0.5) * 0.03 + (size === 4 && i > 1 ? -0.015 : 0)), height: base * fit * (0.94 + rng() * 0.12), dir, phase: rng() * TAU, events: [] }));
+    const size = 2 + Math.floor(rng() * 3), v = 0.25 + rng() * 0.15, formation = INTRO_FORMATIONS[size], duels = INTRO_DUELS[size];
+    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.3 : 0.5) / (span * base)), centre = kit.w * (slot + (rng() - 0.5) * 0.04);
+    const fighters = formation.map(([offset, dir], i) => { // each fighter stands a little nearer or further than the others (nearer = lower on the screen and bigger) and has its own build
+      const depth = v + (rng() - 0.5) * 0.07 + (size === 4 && i > 1 ? -0.02 : 0);
+      return { x: centre + offset * base * fit, feet: kit.hy + kit.floor * depth, height: base * fit * (0.94 + rng() * 0.12) * (0.88 + 0.12 * depth / v), build: 0.85 + rng() * 0.35, dir, phase: rng() * TAU, events: [] };
+    });
+    const order = fighters.map((fighter, i) => i).sort((a, b) => fighters[a].feet - fighters[b].feet); // far ones are drawn first
     const busy = new Float32Array(size).fill(-99), events = [];
     for (const drum of drums) {
       if (rng() > (0.4 + 0.6 * drum.step / INTRO_SHATTER_STEP) * (drum.mask & 2 ? 1 : 0.75)) continue;
@@ -21604,14 +21620,14 @@ function introCrowd(kit, rng) {
         const move = Math.floor(rng() * INTRO_MOVES.length), roll = rng(), down = (move === 5 && roll < 0.5) || (move === 3 && roll < 0.22), kind = down ? 2 : roll < 0.62 ? 0 : roll < 0.82 ? 1 : 3; // hit, block, knocked down, slipped
         const [windUp, strike, hit] = INTRO_MOVES[move], response = kind === 1 ? 17 : kind === 3 ? 22 : hit;
         fighters[attacker].events.push({ step: drum.step, span: 4, keys: INTRO_ATTACK[0], ids: [0, windUp, strike, strike, 0] });
-        fighters[defender].events.push({ step: drum.step, span: down ? INTRO_DOWN_STEPS : INTRO_HIT_SECS, keys: down ? INTRO_DOWN[0] : INTRO_REACT[0], ids: down ? INTRO_DOWN[1] : [0, response, response, 0] });
+        fighters[defender].events.push({ step: drum.step, span: down ? INTRO_DOWN_STEPS : INTRO_HIT_STEPS, keys: down ? INTRO_DOWN[0] : INTRO_REACT[0], ids: down ? INTRO_DOWN[1] : [0, response, response, 0] });
         busy[attacker] = drum.step + 4; busy[defender] = drum.step + (down ? INTRO_DOWN_STEPS : 3);
         events.push({ step: drum.step, attacker, defender, move, kind });
         break;
       }
     }
     const pick = events.filter((event) => event.step >= 28 && event.step <= 56);
-    return { fighters, events, show: (pick.length ? pick[Math.floor(rng() * pick.length)] : events[0] || { step: 40 }).step };
+    return { fighters, order, events, show: (pick.length ? pick[Math.floor(rng() * pick.length)] : events[0] || { step: 40 }).step };
   });
 }
 
@@ -21656,25 +21672,31 @@ function introLimbs(g, J, pairs, width, ox, oy) {
   for (let i = 0; i < pairs.length; i += 2) { g.moveTo(J[pairs[i] * 2] + ox, J[pairs[i] * 2 + 1] + oy); g.lineTo(J[pairs[i + 1] * 2] + ox, J[pairs[i + 1] * 2 + 1] + oy); }
   g.stroke();
 }
-function introBody(g, J, height, ox, oy) {
-  const S = INTRO_SHAPES;
-  introLimbs(g, J, S.torso, height * 0.15, ox, oy); introLimbs(g, J, S.thighs, height * 0.095, ox, oy); introLimbs(g, J, S.shins, height * 0.07, ox, oy);
-  introLimbs(g, J, S.feet, height * 0.045, ox, oy); introLimbs(g, J, S.uppers, height * 0.06, ox, oy); introLimbs(g, J, S.fores, height * 0.05, ox, oy);
-  g.beginPath(); g.arc(J[4] + ox, J[5] + oy, height * 0.064, 0, TAU);
+// The torso: wide at the shoulders, narrow at the waist (a trapezoid with rounded corners); `width` is the half width at the shoulders
+function introTorso(g, J, width, ox, oy) {
+  const hx = J[0] + ox, hy = J[1] + oy, sx = J[2] + ox, sy = J[3] + oy, length = Math.hypot(sx - hx, sy - hy) || 1, nx = -(sy - hy) / length, ny = (sx - hx) / length, waist = width * 0.62;
+  g.beginPath(); g.moveTo(hx + nx * waist, hy + ny * waist); g.lineTo(sx + nx * width, sy + ny * width); g.lineTo(sx - nx * width, sy - ny * width); g.lineTo(hx - nx * waist, hy - ny * waist); g.closePath();
+  g.lineWidth = width * 0.5; g.fill(); g.stroke();
+}
+function introBody(g, J, height, ox, oy, build) {
+  const S = INTRO_SHAPES, b = build;
+  introTorso(g, J, height * 0.07 * b, ox, oy); introLimbs(g, J, S.thighs, height * 0.095 * b, ox, oy); introLimbs(g, J, S.shins, height * 0.07 * b, ox, oy);
+  introLimbs(g, J, S.feet, height * 0.045, ox, oy); introLimbs(g, J, S.uppers, height * 0.06 * b, ox, oy); introLimbs(g, J, S.fores, height * 0.05 * b, ox, oy);
+  g.beginPath(); g.arc(J[4] + ox, J[5] + oy, height * 0.064 * (0.92 + 0.08 * b), 0, TAU);
   for (const wrist of [4, 6]) { g.moveTo(J[wrist * 2] + ox + height * 0.034, J[wrist * 2 + 1] + oy); g.arc(J[wrist * 2] + ox, J[wrist * 2 + 1] + oy, height * 0.034, 0, TAU); }
   g.fill();
 }
 function introCrowdDraw(g, kit, step, reduced, light) {
   const rim = reduced ? 0.3 : clamp(0.1 + 0.6 * light, 0, 0.9), J = kit.joints, pose = kit.pose;
   g.lineCap = 'round'; g.lineJoin = 'round';
-  for (let gi = 0; gi < kit.groups.length; gi++) for (let fi = 0; fi < kit.groups[gi].fighters.length; fi++) {
-    const group = kit.groups[gi], fighter = group.fighters[fi];
+  for (let gi = 0; gi < kit.groups.length; gi++) for (let oi = 0; oi < kit.groups[gi].order.length; oi++) {
+    const group = kit.groups[gi], fighter = group.fighters[group.order[oi]];
     introPose(pose, fighter, reduced ? group.show + 0.6 : step, reduced);
     introSkeleton(J, pose, fighter.height, fighter.x, fighter.feet, fighter.dir);
     const offset = Math.max(1, fighter.height * 0.011);
     g.globalAlpha = 0.5; g.fillStyle = '#000'; g.beginPath(); g.ellipse(fighter.x, fighter.feet + fighter.height * 0.012, fighter.height * 0.34, fighter.height * 0.05, 0, 0, TAU); g.fill();
-    if (rim > 0.25) { g.globalAlpha = rim; g.strokeStyle = g.fillStyle = '#9db4d0'; introBody(g, J, fighter.height, -offset, -offset); } // the edge that catches the light, up and to the left
-    g.globalAlpha = 1; g.strokeStyle = g.fillStyle = '#05070a'; introBody(g, J, fighter.height, 0, 0);
+    if (rim > 0.25) { g.globalAlpha = rim; g.strokeStyle = g.fillStyle = '#9db4d0'; introBody(g, J, fighter.height, -offset, -offset, fighter.build); } // the edge that catches the light, up and to the left
+    g.globalAlpha = 1; g.strokeStyle = g.fillStyle = '#05070a'; introBody(g, J, fighter.height, 0, 0, fighter.build);
   }
   g.globalAlpha = 1;
 }
@@ -21682,7 +21704,7 @@ function introCrowdDraw(g, kit, step, reduced, light) {
 // --- the light of the hits, the damage, the dust
 // A hit lights the picture for a moment, like a camera flash: the picture lit (brighter nearer the camera) is added to the dark one, with a hot spot at the place of the hit. Returns how bright the brightest light is
 function introLights(g, kit, p, look, ox, oy) {
-  const m = kit.margin, factor = 0.2 + 0.8 * look.flash;
+  const m = kit.margin, factor = look.flash; // the Flashes setting scales the light of a hit (Reduced 0.3, the game's cap; Off none, the steady picture shows the damage instead)
   let total = 0, strongest = 0;
   for (let i = 0; i < INTRO_IMPACTS.length; i++) {
     const age = p - INTRO_IMPACTS[i][0] * SONG_STEP_SECS;
@@ -21734,13 +21756,13 @@ function introSiteDraw(g, kit, s, age, reduced, light, effects) {
     for (let c = site.c0; c < site.c1; c++) {
       const crack = kit.cracks[c], f = reduced ? 1 : 1 - Math.pow(1 - clamp((age - crack.delay) / crack.grow, 0, 1), 3);
       if (f <= 0 || (pass !== 1 && crack.depth > 1)) continue;
-      if (pass === 2) introEdge(g, kit, c, f, 1); else introTrace(g, kit, c, f, pass ? 1 : 2.4);
+      if (pass === 2) introEdge(g, kit, c, f, 1); else introTrace(g, kit, c, f, pass ? 1 : 1.3);
     }
-    if (pass === 2) { g.strokeStyle = 'rgb(205,216,228)'; g.globalAlpha = fade * clamp(0.1 + 0.5 * light, 0, 0.7); g.lineWidth = Math.max(0.8, kit.unit * 0.0013); g.stroke(); } else { g.fillStyle = pass ? '#030406' : 'rgba(0,0,0,0.3)'; g.fill(); }
+    if (pass === 2) { g.strokeStyle = 'rgb(205,216,228)'; g.globalAlpha = fade * clamp(0.1 + 0.5 * light, 0, 0.7); g.lineWidth = Math.max(0.8, kit.unit * 0.0013); g.stroke(); } else { g.fillStyle = pass ? '#030406' : 'rgba(0,0,0,0.12)'; g.fill(); }
     g.globalAlpha = fade;
   }
   for (let kind = 0; kind < 2; kind++) { // the chips: lying beside the gaps, and thrown out by the hit
-    g.fillStyle = kind ? '#1a1c20' : '#aab2bc'; g.globalAlpha = fade * (kind ? 0.9 : 0.55 + 0.4 * clamp(light, 0, 1)); g.beginPath();
+    g.fillStyle = kind ? '#1a1c20' : '#5e6670'; g.globalAlpha = fade * (kind ? 0.9 : 0.55 + 0.4 * clamp(light, 0, 1)); g.beginPath();
     for (let i = site.chip0; i < site.chip1; i++) {
       if (chips.kind[i] !== kind || (i >= site.fly0 && i - site.fly0 >= (site.chip1 - site.fly0) * effects)) continue; // the Effects setting thins out the chips thrown by the hit
       const t = reduced ? 1 : age - chips.at[i];
@@ -21801,9 +21823,9 @@ function introScene(g, kit, p, look, live) {
   g.save();
   kit.ox = 0; kit.oy = 0;
   if (live && look.shake > 0 && !reduced) { introJolt(g, kit, p, look.shake); kit.ox = Math.round(kit.jx) - kit.jx; kit.oy = Math.round(kit.jy) - kit.jy; } // the dark picture is drawn on whole pixels (a fraction of a pixel makes the browser filter all of it)
-  const dim = kit.lit ? introAmbient(kit, reduced ? INTRO_AMBIENT_STILL : INTRO_AMBIENT) : null;
+  const dim = kit.lit ? introAmbient(kit, reduced || look.flash === 0 ? INTRO_AMBIENT_STILL : INTRO_AMBIENT) : null; // with no light of the hits (Reduced motion, Flashes Off) the picture is a steady one, lit enough to show the damage
   if (dim) g.drawImage(dim, -margin + kit.ox, -margin + kit.oy); else { g.fillStyle = '#080b10'; g.fillRect(-margin, -margin, w + 2 * margin, h + 2 * margin); }
-  const light = kit.lit && !reduced ? introLights(g, kit, p, look, kit.ox, kit.oy) : 0;
+  const light = kit.lit && !reduced && look.flash > 0 ? introLights(g, kit, p, look, kit.ox, kit.oy) : 0;
   const effects = look.effects === undefined ? 1 : look.effects;
   introDamage(g, kit, p, look, light, kit.ox, kit.oy, effects);
   introCrowdDraw(g, kit, p / SONG_STEP_SECS, reduced, light);
@@ -21828,32 +21850,57 @@ function introScene(g, kit, p, look, live) {
   g.globalAlpha = 1;
 }
 
-// The last hit: cracks run out from it across the whole picture, then the pieces fall away (Reduced motion: the picture fades out instead)
+// One piece of the shatter as a path, or (wideOnly) only its edges that are drawn wide (a module-level function: a frame makes no closure)
+function introPiecePath(g, piece, wideOnly) {
+  const q = piece.poly, count = q.length / 2;
+  if (wideOnly) {
+    for (let i = 0; i < count; i++) if (piece.thick & (1 << i)) { const next = (i + 1) % count; g.moveTo(q[i * 2], q[i * 2 + 1]); g.lineTo(q[next * 2], q[next * 2 + 1]); }
+    return;
+  }
+  g.moveTo(q[0], q[1]);
+  for (let i = 2; i < q.length; i += 2) g.lineTo(q[i], q[i + 1]);
+  g.closePath();
+}
+// The last hit: cracks run out from it across the whole picture, then the pieces fall away (Reduced motion: the picture fades out instead). A fracture is a dark gap with a thin light edge up and to the left; a piece comes loose a moment before it falls and steps a pixel or two away from the hit
 function introShatter(g, kit, p, look) {
-  const { w, h } = kit, t = p - INTRO_SHATTER_AT, key = (look.reduced ? 'r' : 'n') + look.flash.toFixed(2) + (look.effects === undefined ? 1 : look.effects);
-  if (kit.snap && kit.snapKey !== key) { const s = kit.snap.getContext('2d'); s.save(); s.translate(kit.margin, kit.margin); introScene(s, kit, INTRO_SHATTER_AT, look, false); s.restore(); kit.snapKey = key; } // the whole picture at the last hit, with a margin the jolt can move into view
+  const { w, h } = kit, t = p - INTRO_SHATTER_AT, effects = look.effects === undefined ? 1 : look.effects;
+  if (kit.snap && (kit.snapReduced !== look.reduced || kit.snapFlash !== look.flash || kit.snapEffects !== effects)) { const s = kit.snap.getContext('2d'); s.save(); s.translate(kit.margin, kit.margin); introScene(s, kit, INTRO_SHATTER_AT, look, false); s.restore(); kit.snapReduced = look.reduced; kit.snapFlash = look.flash; kit.snapEffects = effects; } // the whole picture at the last hit, with a margin the jolt can move into view
   g.clearRect(0, 0, w, h);
   if (!kit.snap) return;
   if (look.reduced) { g.globalAlpha = 1 - clamp(t / INTRO_FADE_SECS, 0, 1); g.drawImage(kit.snap, -kit.margin, -kit.margin); g.globalAlpha = 1; return; }
   g.save();
   if (look.shake > 0) introJolt(g, kit, p, look.shake);
-  const { pieces, cx, cy, far } = kit.shards, trace = (piece) => { const q = piece.poly; g.moveTo(q[0], q[1]); for (let i = 2; i < 16; i += 2) g.lineTo(q[i], q[i + 1]); g.closePath(); };
+  const { pieces, cx, cy, far } = kit.shards, comes = t + INTRO_LOOSEN_SECS, thin = Math.max(1.5, kit.unit * 0.003), shift = Math.max(1.2, kit.unit * 0.0022);
   g.save(); g.beginPath();
-  for (const piece of pieces) if (t < piece.delay) trace(piece);
+  for (let i = 0; i < pieces.length; i++) if (comes < pieces[i].delay) introPiecePath(g, pieces[i]);
   g.clip(); g.drawImage(kit.snap, -kit.margin, -kit.margin); // the pieces still in place are one picture, so no seam shows
   g.beginPath(); g.arc(cx, cy, far * clamp(t / 0.06, 0, 1.05), 0, TAU); g.clip(); // the cracks run out from the hit
-  g.beginPath(); for (const piece of pieces) if (t < piece.delay) trace(piece);
-  g.lineWidth = Math.max(2, kit.unit * 0.004); g.strokeStyle = 'rgba(2,3,5,0.9)'; g.stroke();
-  g.restore();
-  for (const piece of pieces) {
-    const fall = t - piece.delay;
-    if (fall < 0) continue;
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  for (let pass = 0; pass < 3; pass++) { // a soft dark halo along some stretches (crushed edge), the light edge (offset up and left), the dark gap
     g.save();
-    g.translate(piece.mx + piece.vx * fall, piece.my + piece.vy * fall + 0.5 * kit.h * INTRO_GRAVITY * fall * fall); g.rotate(piece.spin * fall); g.translate(-piece.mx, -piece.my);
-    g.beginPath(); trace(piece); g.clip();
+    if (pass === 1) g.translate(-shift, -shift);
+    g.beginPath();
+    for (let i = 0; i < pieces.length; i++) if (comes < pieces[i].delay) introPiecePath(g, pieces[i], pass === 0);
+    g.lineWidth = pass === 0 ? thin * 3 : pass === 1 ? Math.max(1, kit.unit * 0.0016) : thin;
+    g.strokeStyle = pass === 0 ? 'rgba(2,3,5,0.3)' : pass === 1 ? 'rgba(205,214,226,0.35)' : 'rgba(2,3,5,0.9)';
+    g.stroke();
+    g.restore();
+  }
+  g.restore();
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i], fall = t - piece.delay;
+    if (fall < -INTRO_LOOSEN_SECS) continue;
+    const moved = Math.max(0, fall);
+    g.save();
+    g.translate(piece.mx + piece.ux * piece.nudge + piece.vx * moved, piece.my + piece.uy * piece.nudge + piece.vy * moved + 0.5 * kit.h * INTRO_GRAVITY * moved * moved); g.rotate(piece.spin * moved); g.translate(-piece.mx, -piece.my);
+    g.save(); g.beginPath(); introPiecePath(g, piece); g.clip();
     g.drawImage(kit.snap, piece.left + kit.margin, piece.top + kit.margin, piece.right - piece.left, piece.bottom - piece.top, piece.left, piece.top, piece.right - piece.left, piece.bottom - piece.top);
-    g.fillStyle = 'rgba(0,0,0,' + Math.min(0.55, fall * 1.4).toFixed(3) + ')'; g.fill();
-    g.lineWidth = Math.max(2, kit.unit * 0.005); g.strokeStyle = 'rgba(2,3,5,0.85)'; g.stroke();
+    g.fillStyle = '#000'; g.globalAlpha = Math.min(0.55, moved * 1.4); g.fill(); g.globalAlpha = 1;
+    g.restore();
+    g.beginPath(); introPiecePath(g, piece, true); g.lineWidth = thin * 3; g.strokeStyle = 'rgba(2,3,5,0.3)'; g.stroke();
+    g.save(); g.translate(-shift, -shift); g.beginPath(); introPiecePath(g, piece); g.lineWidth = Math.max(1, kit.unit * 0.0016); g.strokeStyle = 'rgba(205,214,226,0.35)'; g.stroke(); g.restore();
+    g.beginPath(); introPiecePath(g, piece); g.lineWidth = thin; g.strokeStyle = 'rgba(2,3,5,0.85)'; g.stroke();
     g.restore();
   }
   g.restore();
@@ -21868,7 +21915,7 @@ function introFrame(g, w, h, p, look) {
   const kit = introKitFor(w, h, look.seed === undefined ? 1 : look.seed);
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   if (p >= INTRO_SHATTER_AT) {
-    if (kit.lit && !kit.snap) { kit.snap = introLayer(w + 2 * kit.margin, h + 2 * kit.margin); kit.snapKey = ''; }
+    if (kit.lit && !kit.snap) { kit.snap = introLayer(w + 2 * kit.margin, h + 2 * kit.margin); kit.snapFlash = -1; }
     introShatter(g, kit, p, look);
     return;
   }
@@ -21923,7 +21970,7 @@ const Intro = {
       this.arm();
       return true;
     }
-    if (this.phase === 'play' && performance.now() - this.startedAt >= INTRO_SKIP_GUARD_MS) { this.skip(); return true; }
+    if (this.phase === 'hold' || (this.phase === 'play' && performance.now() - this.startedAt >= INTRO_SKIP_GUARD_MS)) { this.skip(); return true; } // a held picture (the test hook) is taken down by any press
     return false;
   },
   // Begins once the audio runs (the song from its first step), or without sound when it cannot
@@ -21980,7 +22027,9 @@ const Intro = {
     if (outro) { outro.el.remove(); this.letGo(); }
   },
   letGo() { // the intro is over and nothing of it is on screen: its pictures are given back
-    if (this.kit && this.phase === 'off' && !this.outro) { introRelease(this.kit); this.kit = null; }
+    if (this.phase !== 'off' || this.outro) return;
+    if (this.kit) { introRelease(this.kit); this.kit = null; }
+    if (!this.el && this.canvas) { this.canvas.width = 0; this.canvas = this.g = null; } // the overlay's own canvas too
   },
   pollPad() { // a rising edge of any button of any pad
     const now = this.padState(), held = this.padHeld;
@@ -21989,19 +22038,26 @@ const Intro = {
   },
   padState() { return Array.from(readPads()).map((pad) => (pad && pad.connected ? Array.from(pad.buttons, (button) => button.pressed) : [])); },
   hold(p, over) { // a test hook (the stills of the design log, the self-tests): the picture at time p, frozen; `over` replaces parts of the look ({ reduced, shake, flash, seed })
-    if (this.phase === 'off' && !this.el) { this.build(); this.lock(true); }
+    if (this.phase === 'off' && !this.el) { this.build(); this.lock(true); this.listen(window); } // with its listeners, so a press ends it
     this.phase = 'hold'; this.el.classList.add('go'); this.still = '';
     this.draw(p, over);
   },
   bench(w, h, over) { // a test hook (P19-17): how long introFrame takes, in ms, at every 60th of a second of the reveal on a w x h picture; each frame is read back so the drawing itself is counted (over.readback false: only the time to issue the drawing)
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
-    const g = canvas.getContext('2d'), look = Object.assign({ reduced: false, shake: 1, flash: 1 }, over), times = [];
-    for (let i = 0; i <= INTRO_SECS * 60; i++) {
-      const start = performance.now();
-      introFrame(g, w, h, i / 60, look);
-      if (look.readback !== false) g.getImageData(0, 0, 1, 1);
-      times.push(performance.now() - start);
+    const g = canvas.getContext('2d'), look = Object.assign({ reduced: false, shake: 1, flash: 1 }, over), times = [], keep = introKit;
+    introKit = null; // the bench builds its own kit (the first frame counts the build) and gives it back, so a picture that is on screen keeps its own
+    try {
+      for (let i = 0; i <= INTRO_SECS * 60; i++) {
+        const start = performance.now();
+        introFrame(g, w, h, i / 60, look);
+        if (look.readback !== false) g.getImageData(0, 0, 1, 1);
+        times.push(performance.now() - start);
+      }
+    } finally {
+      if (introKit) introRelease(introKit);
+      introKit = keep;
+      canvas.width = 0;
     }
     return times;
   },
