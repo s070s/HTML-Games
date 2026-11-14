@@ -3206,7 +3206,7 @@ const ARENAS = {
     bounds: { x: 11.5, z: 6.5 }, spawn: 2.6, ring: [0, 0, 6, 4, 0], camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
     env: { clear: [0.05, 0.06, 0.08], sky: [0.5, 0.55, 0.64], ground: [0.24, 0.23, 0.22], lightTo: [0.35, 0.85, 0.5], lightCol: [1.0, 0.92, 0.78], fogCol: [0.09, 0.1, 0.13], fog: 0.022, rim: [0.25, 0.35, 0.55], floor: 1,
       pl: [{ pos: [-5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }, { pos: [5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }] },
-    audio: { reverb: 1.7, wet: 0.3, bpm: 118, root: 55, mode: 'minor', hum: 60 },
+    audio: { reverb: 1.7, wet: 0.3, hum: 60 },
     objects: [
       { id: 'crateA', type: 'box', look: 'crate', mat: 'wood', x: -5.4, z: -2.6, hx: 0.55, hz: 0.55, h: 0.95 },
       { id: 'crateB', type: 'box', look: 'crate', mat: 'wood', x: 5.6, z: 2.3, hx: 0.55, hz: 0.55, h: 0.95 },
@@ -3241,7 +3241,7 @@ const ARENAS = {
     bounds: { x: 10, z: 6 }, spawn: 2.4, ring: [1, 0.5, 4, 3.5, 1], camera: { minDist: 6.2, maxDist: 13, elev: 0.46 },
     env: { clear: [0.06, 0.07, 0.1], sky: [0.51, 0.56, 0.65], ground: [0.3, 0.32, 0.36], lightTo: [0.25, 0.9, 0.4], lightCol: [0.8, 0.82, 0.85], fogCol: [0.16, 0.18, 0.22], fog: 0.018, rim: [0.35, 0.45, 0.6], floor: 2,
       pl: [{ pos: [-5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }, { pos: [5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }] },
-    audio: { reverb: 0.5, wet: 0.12, bpm: 96, root: 73.4, mode: 'pentatonic', hum: 0 },
+    audio: { reverb: 0.5, wet: 0.12, hum: 0 },
     objects: [
       { id: 'benchL', type: 'box', look: 'bench', mat: 'wood', x: -1.5, z: 5.75, hx: 0.75, hz: 0.25, h: 0.5 },
       { id: 'benchR', type: 'box', look: 'bench', mat: 'wood', x: 3.2, z: 5.75, hx: 0.75, hz: 0.25, h: 0.5 },
@@ -3276,7 +3276,7 @@ const ARENAS = {
     bounds: { x: 10, z: 6.5 }, spawn: 2.4, ring: [0, 0, 4.5, 3.5, 0], camera: { minDist: 6.2, maxDist: 13.5, elev: 0.55 },
     env: { clear: [0.02, 0.02, 0.03], sky: [0.26, 0.28, 0.38], ground: [0.12, 0.1, 0.1], lightTo: [0.2, 0.95, 0.3], lightCol: [0.9, 0.9, 1.0], fogCol: [0.03, 0.03, 0.05], fog: 0.032, rim: [0.8, 0.35, 0.15], floor: 3,
       pl: [{ pos: [-8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }, { pos: [8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }] },
-    audio: { reverb: 1.1, wet: 0.24, bpm: 104, root: 49, mode: 'phrygian', hum: 40 },
+    audio: { reverb: 1.1, wet: 0.24, hum: 40 },
     objects: [
       { id: 'barrierA', type: 'box', look: 'barrier', mat: 'concrete', x: -2.4, z: -4.0, hx: 1.0, hz: 0.3, h: 0.85 },
       { id: 'barrierB', type: 'box', look: 'barrier', mat: 'concrete', x: -3.4, z: 3.7, hx: 0.9, hz: 0.3, h: 0.85 },
@@ -3307,7 +3307,7 @@ const ARENAS = {
     bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [1, 0, 4, 4, 1], camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
     env: { clear: [0.02, 0.03, 0.07], sky: [0.3, 0.38, 0.6], ground: [0.16, 0.17, 0.22], lightTo: [0.3, 0.9, 0.45], lightCol: [0.95, 0.86, 0.82], fogCol: [0.06, 0.09, 0.18], fog: 0.016, rim: [0.12, 0.27, 0.54], floor: 4,
       pl: [{ pos: [-6, 4.5, -5], r: 13, col: [1.0, 0.8, 0.45] }, { pos: [8, 2.4, 4], r: 11, col: [1.0, 0.7, 0.4] }] },
-    audio: { reverb: 0.4, wet: 0.1, bpm: 110, root: 61.7, mode: 'minor', hum: 0 },
+    audio: { reverb: 0.4, wet: 0.1, hum: 0 },
     objects: [
       { id: 'tank', type: 'deck', look: 'grate', mat: 'metal', fixed: 1, x: -9, z: -5.25, hx: 2, hz: 1.75, h: 2.0 },
       { id: 'catwalk', type: 'deck', look: 'grate', mat: 'sheet', weak: 2, x: -5.25, z: -6.45, hx: 1.75, hz: 0.55, h: 2.0 },
@@ -3343,7 +3343,7 @@ const ARENAS = {
     bounds: { x: 12, z: 6.5 }, spawn: 2.6, ring: [0, -1.3, 6, 4.6, 0], camera: { minDist: 6.6, maxDist: 15.5, elev: 0.48 },
     env: { clear: [0.04, 0.05, 0.07], sky: [0.53, 0.58, 0.63], ground: [0.35, 0.36, 0.38], lightTo: [0.2, 0.95, 0.3], lightCol: [0.78, 0.82, 0.85], fogCol: [0.14, 0.16, 0.19], fog: 0.02, rim: [0.5, 0.6, 0.7], floor: 5,
       pl: [{ pos: [-6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }, { pos: [6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }] },
-    audio: { reverb: 2.1, wet: 0.34, bpm: 98, root: 49, mode: 'minor', hum: 55 },
+    audio: { reverb: 2.1, wet: 0.34, hum: 55 },
     objects: [
       { id: 'mezz', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: -10, z: 2.75, hx: 2, hz: 3.75, h: 2.5 },
       { id: 'pillarA', type: 'column', mat: 'tile', x: -5, z: -2.6, hx: 0.4, hz: 0.4, h: 3.2 },
@@ -3374,7 +3374,7 @@ const ARENAS = {
     bounds: { x: 11.5, z: 7 }, spawn: 2.6, ring: [1, 1.5, 6, 4, 0], camera: { minDist: 6.2, maxDist: 14, elev: 0.5 },
     env: { clear: [0.04, 0.05, 0.05], sky: [0.55, 0.62, 0.58], ground: [0.3, 0.32, 0.3], lightTo: [0.2, 0.95, 0.3], lightCol: [0.88, 1.0, 0.92], fogCol: [0.1, 0.13, 0.11], fog: 0.022, rim: [0.35, 0.55, 0.45], floor: 6,
       pl: [{ pos: [-4, 3.6, 0], r: 14, col: [0.7, 1.0, 0.8] }, { pos: [6, 3.6, 2], r: 14, col: [0.7, 1.0, 0.8] }] },
-    audio: { reverb: 2.4, wet: 0.36, bpm: 100, root: 55, mode: 'phrygian', hum: 50 },
+    audio: { reverb: 2.4, wet: 0.36, hum: 50 },
     objects: [
       { id: 'upper', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: -4.75, z: -5.75, hx: 6.75, hz: 1.25, h: 2.0 },
       { id: 'rampRail', type: 'rail', mat: 'metal', fixed: 1, axis: 'z', x: -9.85, z: -1.5, hx: 0.05, hz: 3.0, h: 1.05 },
@@ -3409,7 +3409,7 @@ const ARENAS = {
     bounds: { x: 12, z: 7 }, spawn: 2.8, ring: [-1, 1, 5.5, 4, 1], camera: { minDist: 6.6, maxDist: 15, elev: 0.5 },
     env: { clear: [0.1, 0.06, 0.07], sky: [0.78, 0.52, 0.4], ground: [0.34, 0.3, 0.28], lightTo: [0.6, 0.45, 0.35], lightCol: [1.0, 0.78, 0.55], fogCol: [0.3, 0.22, 0.2], fog: 0.014, rim: [0.9, 0.5, 0.3], floor: 7,
       pl: [{ pos: [-3, 5.5, -5.5], r: 13, col: [1.0, 1.0, 0.9] }, { pos: [5, 4.8, -3], r: 12, col: [1.0, 0.7, 0.4] }] },
-    audio: { reverb: 0.7, wet: 0.16, bpm: 108, root: 55, mode: 'pentatonic', hum: 0 },
+    audio: { reverb: 0.7, wet: 0.16, hum: 0 },
     objects: [
       { id: 'container', type: 'box', look: 'container', mat: 'sheet', color: '#2d5a8c', x: -10.4, z: -6.3, hx: 1.6, hz: 0.7, h: 2.6 },
       { id: 'cwindow', type: 'panel', mat: 'glass', axis: 'x', y: 1.1, x: -10.4, z: -5.54, hx: 0.7, hz: 0.06, h: 0.9 },
@@ -3435,7 +3435,7 @@ const ARENAS = {
     bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [0, 1.2, 4.5, 3.5, 1], camera: { minDist: 6.2, maxDist: 14, elev: 0.5 },
     env: { clear: [0.02, 0.01, 0.04], sky: [0.22, 0.16, 0.26], ground: [0.1, 0.08, 0.14], lightTo: [0.2, 0.9, 0.3], lightCol: [1.0, 0.78, 0.76], fogCol: [0.05, 0.03, 0.09], fog: 0.026, rim: [0.48, 0.12, 0.48], floor: 8,
       pl: [{ pos: [-4, 4.6, 0], r: 14, col: [1.0, 0.2, 0.7] }, { pos: [4, 4.6, 2], r: 14, col: [0.2, 0.5, 1.0] }] },
-    audio: { reverb: 0.8, wet: 0.2, bpm: 124, root: 55, mode: 'minor', hum: 0 },
+    audio: { reverb: 0.8, wet: 0.2, hum: 0 },
     objects: [
       { id: 'stage', type: 'deck', look: 'stage', mat: 'wood', hpMul: 3, weak: 4, x: 0, z: -5.8, hx: 5, hz: 1.2, h: 1.0 },
       { id: 'speakerA', type: 'box', look: 'speaker', mat: 'wood', y: 1.0, on: 'stage', x: -4.0, z: -5.9, hx: 0.45, hz: 0.45, h: 1.6 },
@@ -14673,7 +14673,6 @@ const MAX_VOICES = 30;
 const PRIORITY_CAP = [MAX_VOICES, 24, 16]; // E3: the live sources from which a priority 0 (impacts, cues), 1 (whoosh, voices, blocks, items) or 2 (steps, debris, ambience) sound is refused
 const HIT_LAYER_VOICES = 12, HEART_BPM = 70, HEART_MUFFLE_HZ = 1200, HEART_HP = 0.2; // P13-02: layered impact sources sounding at once, the heartbeat's rate, the music's low-pass while it beats, and the health share under which a lone person's heart beats
 const MIN_GAP = { hit: 0.02, block: 0.04, whoosh: 0.05, step: 0.09, debris: 0.045, grunt: 0.25, objHit: 0.05, menu: 0.03, land: 0.08 }; // seconds; hit, whoosh, step and grunt count per fighter
-const SCALES = { minor: [0, 2, 3, 5, 7, 8, 10], pentatonic: [0, 2, 4, 7, 9], phrygian: [0, 1, 3, 5, 7, 8, 10] };
 const HEARD_TRIM_DB = 2.9; // master 0.8 x effects 0.9: the level plan below is what is heard at the default volumes
 const IMPACT_DB = [-10, -6, -4]; // E1: heard peak of a baked impact by tier; a weight band moves it by IMPACT_BAND_DB, a counter by +2, a kick by +1 (never over -2), a tier-3 item hit by -3.5, and a bat or bottle hit of every tier by ITEM_HIT_TRIM_DB
 const IMPACT_BAND_DB = [-1, 0, 1];
@@ -14693,8 +14692,6 @@ const STEP_SURFACES = [ // M1: six footstep recipes
 ];
 const FLOOR_SURFACE = [0, 0, 1, 0, 2, 3, 0, 4, 5]; // by the `env.floor` of a level (1 Warehouse to 8 Club; 0 = no level): the index in STEP_SURFACES
 const AMBIENCE_HZ = [0, 400, 500, 250, 700, 350, 300, 600, 200]; // E7: the low-pass of the noise bed by `env.floor`: boiler, wind, tunnel and so on
-const DRUM_KITS = [{ kick: [0, 4, 8, 10, 12], snare: [4, 12], hat: 2 }, { kick: [0, 3, 8, 11], snare: [4, 12], hat: 2 }, { kick: [0, 6, 8, 14], snare: [4, 10, 12], hat: 1 }]; // E8: three drum patterns (steps of 16) and three bass lines by level
-const BASS_LINES = [[0, 0, 3, 0, 5, 0, 3, 2], [0, 3, 0, 5, 0, 2, 4, 2], [0, 0, 5, 3, 0, 0, 7, 5]];
 const VOICE_KINDS = { hurt: { dur: 0.2, from: 1.25, to: 0.7, gain: 1 }, hurtBig: { dur: 0.34, from: 1.2, to: 0.6, gain: 1.1 }, effort: { dur: 0.16, from: 0.9, to: 1.15, gain: 1.15 }, ko: { dur: 0.5, from: 1.2, to: 0.5, gain: 1.1 }, exhale: { dur: 0.25, from: 1, to: 0.8, gain: 0.7 } }; // M12
 const MATERIAL_DEBRIS = { wood: 'wood', plastic: 'wood', paper: 'wood', concrete: 'concrete', brick: 'concrete', metal: 'metal', sheet: 'metal', glass: 'glass', tile: 'glass' };
 const vary = (value, spread) => value * (1 + (Math.random() * 2 - 1) * spread); // E2: uniform +-spread from Math.random, never the simulation's random numbers
@@ -15380,80 +15377,109 @@ function matchEndsOnKo() {
   return !m || !m.wins || m.endsMatch();
 }
 
-// --- procedural music: bass + drums + arpeggio, tempo, scale and (E8) the drum and bass patterns come from the arena
+// --- music: the stage soundtrack (BP-P19-18). The fight music is one of the owner's MIDI loops (STAGE_TRACKS, section 08c), one per match in a rotation that never starts a match with the last match's loop (stageTrackIndex). The synth is the old bed's: oscillators and filtered noise
 const MUSIC_FIGHT = 1; // music intensity tiers: 0 menu (silent: the title song plays there once, P18-60), 1 fight, 2 tense fight
 const MUSIC_TENSE = 2;
 const TENSE_HP_FRACTION = 0.25; // a fighter below this share of health makes the music tense
-const FIGHT_GAIN = 1.15, TENSE_LIFT = 1.26; // the fight bed level; the tense layer is +2 dB over it
-const TENSE_TEMPO = 0.96; // the tense layer's step is 4 % shorter
+const FIGHT_GAIN = 1.15, TENSE_LIFT = 1.26; // the fight level (the level the bed had); the tense layer is +2 dB over it
+const TENSE_TEMPO = 0.96; // the tense layer is the same loop with a step 4 % shorter
+const MUSIC_RELEASE_SECS = 0.06; // a loop note rings this long after its length
+const MUSIC_FADE_SECS = 0.25; // a match ending, or the next one starting, fades the loop out over this (a long chord of a loop would ring on)
+const LOOP_VELOCITY = 76; // a note of this velocity (the DAW's default) plays at the gain of its LOOP_VOICES row; another velocity scales it
+const LOOP_VOICES = { // the instrument of each role of a loop file (the names in tools/midi-to-song.js): oscillator, low-pass Hz, gain of a note at LOOP_VELOCITY; the bass also plays the octave above (a small speaker needs a body to hear)
+  lead: { type: 'sawtooth', filter: 2600, gain: 0.09 },
+  chords: { type: 'sawtooth', filter: 1600, gain: 0.04 },
+  bass: { type: 'sawtooth', filter: 380, gain: 0.11, octave: { type: 'square', filter: 1100, gain: 0.07 } },
+};
 const Music = {
   active: false, track: null, nextTime: 0, step: 0, intensity: 0,
+  lastLoop: -1, match: null, // the index in STAGE_TRACKS of the loop the last match played, and the match that has it: presentation only (not in the simulation, not saved)
+  out: null, outCtx: null, // the playing loop's one gain node, on the music bus
   start(track, intensity) {
+    this.retire();
     this.track = track; this.intensity = intensity; this.active = true; this.step = 0; this.nextTime = 0;
+    if (!intensity) this.match = null;
     if (intensity > 0) { Song.stop(SONG_FIGHT_FADE_SECS); Intro.skip(); } // a fight takes over from the title song (and from an intro still running)
   },
-  stop() { this.active = false; Sound.syncAmbience(null); },
+  stop() { this.active = false; this.match = null; this.retire(); Sound.syncAmbience(null); },
   setIntensity(v) { this.intensity = v; },
   update() {
     if (!Sound.ready()) return;
     Song.pump(); // the title song is handed to the audio clock from here once the intro has started it
     if (!this.active) return;
     Sound.syncAmbience(this.intensity > 0 ? this.track : null);
-    if (this.intensity === 0) return; // the menu has no code-made theme (P18-60)
-    const c = Sound.ctx;
+    if (this.intensity === 0 || !this.track.loop) return; // the menu has no code-made theme (P18-60)
+    const c = Sound.ctx, loop = this.track.loop;
     if (this.nextTime < c.currentTime) this.nextTime = c.currentTime + 0.05;
-    const tr = this.track, stepDur = 60 / tr.bpm / 4 * (this.intensity >= MUSIC_TENSE ? TENSE_TEMPO : 1);
+    const stepDur = 60 / loop.bpm / 4 * (this.intensity >= MUSIC_TENSE ? TENSE_TEMPO : 1);
     while (this.nextTime < c.currentTime + 0.25) {
       this.schedule(this.nextTime, this.step, stepDur);
       this.nextTime += stepDur;
-      this.step++;
+      this.step = (this.step + 1) % loop.steps; // the last step is followed by the first on the next beat of the audio clock: no gap and no overlap
     }
   },
-  note(root, scale, degree, octave) {
-    const len = scale.length;
-    const d = ((degree % len) + len) % len;
-    const oct = octave + Math.floor(degree / len);
-    return root * Math.pow(2, (scale[d] + 12 * oct) / 12);
+  // The one gain node of the playing loop: every note goes through it to the music bus (the Music volume, the low-health muffle and the pause duck act on the bus; a stop fades this node)
+  destination() {
+    if (!this.out || this.outCtx !== Sound.ctx) { this.outCtx = Sound.ctx; this.out = Sound.ctx.createGain(); this.out.connect(Sound.musicBus); }
+    return this.out;
   },
+  // Fades the playing loop out (notes already handed to the audio clock fade with it) and lets its node go
+  retire() {
+    const out = this.out;
+    this.out = null;
+    if (!out) return;
+    const now = this.outCtx.currentTime;
+    out.gain.cancelScheduledValues(now); out.gain.setTargetAtTime(0, now, MUSIC_FADE_SECS / 3);
+    setTimeout(() => { try { out.disconnect(); } catch (err) { /* already gone */ } }, (MUSIC_FADE_SECS + 0.3) * 1000);
+  },
+  // One sixteenth of the loop at time t: its drum hit and every note that begins on it; a tense moment is the same loop, louder (TENSE_LIFT) and a step shorter (TENSE_TEMPO)
   schedule(t, step, stepDur) {
-    const tr = this.track, c = Sound.ctx;
-    const s = step % 16, bar = Math.floor(step / 16) % 4;
-    const scale = SCALES[tr.mode] || SCALES.minor;
-    const dest = Sound.musicBus, lift = (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN; // the fight bed has its own level, the tense layer is louder as a whole (E8: about +2 dB over the bed)
-    const voice = (type, f, dur, gain, filt) => {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = type; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      let node = o;
-      if (filt) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = filt; o.connect(fl); node = fl; }
-      node.connect(g); g.connect(dest);
-      o.onended = () => g.disconnect();
-      o.start(t); o.stop(t + dur + 0.03);
-    };
-    const hit = (kind, gain, dur) => {
-      const sBuf = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
-      sBuf.buffer = Sound.noiseBuf; sBuf.loop = true; fl.type = kind === 'hat' || kind === 'sweep' ? 'highpass' : 'bandpass'; fl.frequency.value = kind === 'hat' ? 7000 : kind === 'sweep' ? 2000 : 1800; fl.Q.value = 0.8;
-      if (kind === 'sweep') { fl.frequency.setValueAtTime(800, t); fl.frequency.exponentialRampToValueAtTime(6000, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain * lift, t + dur * 0.9); g.gain.linearRampToValueAtTime(0.0001, t + dur); }
-      else { g.gain.setValueAtTime(gain * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
-      sBuf.connect(fl); fl.connect(g); g.connect(dest); sBuf.onended = () => g.disconnect(); sBuf.start(t, Math.random()); sBuf.stop(t + dur + 0.02);
-    };
-    const lowK = clamp(Math.pow(tr.root / 55, 2), 0.7, 1.4), // a low root gets less bass and kick and a high one more, so every level has about the same share under 150 Hz
-      floor = tr.floor || 0, kit = DRUM_KITS[floor % 3], line = BASS_LINES[Math.floor(floor / 3) % 3];
-    // drums
-    if (kit.kick.includes(s)) { voice('sine', 120, 0.18, 0.34 * lowK, 0); const o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.14); g.gain.setValueAtTime(0.34 * lowK * lift, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.connect(g); g.connect(dest); o.onended = () => g.disconnect(); o.start(t); o.stop(t + 0.2); }
-    if (kit.snare.includes(s)) hit('snare', 0.32, 0.14);
-    if (s % kit.hat === 0) hit('hat', 0.085, 0.04);
-    // bass, with its octave above (a square through a 900 Hz low-pass at half the level) so a small speaker has a body to hear
-    if (s % 2 === 0) { const deg = line[(s / 2 + bar * 2) % 8]; voice('sawtooth', this.note(tr.root, scale, deg, 0), stepDur * 1.8, 0.13 * lowK, 380); voice('square', this.note(tr.root, scale, deg, 1), stepDur * 1.8, 0.17, 1100); }
-    if (s === 0) voice('triangle', this.note(tr.root, scale, line[bar * 2 % 8] + 2, 2), stepDur * 16, 0.09, 1400); // a pad on the third, in the mids
-    // arpeggio lead (+8 dB)
-    if (this.intensity > 0.5 && (s % 4 === 1 || s % 8 === 6)) voice('square', this.note(tr.root * 2, scale, [0, 2, 4, 6, 4, 2][(step >> 1) % 6] + (bar % 2) * 2, 1), stepDur * 1.5, 0.14, 1800);
-    // tense layer: off-beat hats, a driving octave bass and a rising sweep every 4 bars
-    if (this.intensity >= MUSIC_TENSE) {
-      if (s % 2 === 1) hit('hat', 0.05, 0.03);
-      if (s % 4 === 3) voice('square', this.note(tr.root, scale, line[((s >> 1) + bar * 2) % 8], 1), stepDur * 0.9, 0.12, 900);
-      if (s === 0 && bar === 0) hit('sweep', 0.06, stepDur * 16);
-    }
+    const data = this.track.loop, loop = decodeLoop(data), lift = (this.intensity >= MUSIC_TENSE ? TENSE_LIFT : 1) * FIGHT_GAIN, tickSecs = stepDur / LOOP_TICKS_PER_STEP;
+    if (loop.drums[step]) this.drums(t, loop.drums[step], lift);
+    for (const note of loop.steps[step]) this.note(t, note, lift * data.melody, stepDur / 2 * note.half, tickSecs);
+  },
+  note(t, note, lift, secs, tickSecs) {
+    const instrument = LOOP_VOICES[note.role], hz = songHz(note.pitch), level = lift * note.velocity / LOOP_VELOCITY;
+    const bend = note.bend && note.bend.map(([ticks, cents]) => [ticks * tickSecs, cents]); // the file's pitch wheel, in seconds from the start of this note
+    this.voice(t, instrument.type, hz, secs, instrument.gain * level, instrument.filter, true, bend);
+    if (instrument.octave) this.voice(t, instrument.octave.type, hz * 2, secs, instrument.octave.gain * level, instrument.octave.filter, true, bend);
+  },
+  // An oscillator note through an optional low-pass: 10 ms attack, then a fall to 0 (a blip) or, held, a fall to 60 % over its length and a short release; bend = [[seconds after the start, cents]] for the detune
+  voice(t, type, hz, dur, gain, filt, held, bend) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain(), end = t + dur + (held ? MUSIC_RELEASE_SECS : 0);
+    o.type = type; o.frequency.value = hz;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + 0.01);
+    if (held) g.gain.exponentialRampToValueAtTime(gain * 0.6, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+    if (bend) for (const [after, cents] of bend) o.detune.setValueAtTime(cents, t + after);
+    let node = o;
+    if (filt) { const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = filt; o.connect(fl); node = fl; }
+    node.connect(g); g.connect(this.destination());
+    o.onended = () => g.disconnect();
+    o.start(t); o.stop(end + 0.03);
+  },
+  // A sine that falls from one pitch to another over glide seconds, then dies away by dur (the kick's body and the toms)
+  drop(t, from, to, glide, dur, gain) {
+    const c = Sound.ctx, o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(from, t); o.frequency.exponentialRampToValueAtTime(to, t + glide);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.destination()); o.onended = () => g.disconnect(); o.start(t); o.stop(t + dur + 0.04);
+  },
+  // Filtered noise from the shared buffer (it loops, so a crash longer than the buffer cannot run out: the P18-29 lesson)
+  hit(t, kind, gain, dur) {
+    const c = Sound.ctx, source = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
+    source.buffer = Sound.noiseBuf; source.loop = true;
+    fl.type = kind === 'snare' ? 'bandpass' : 'highpass'; fl.frequency.value = kind === 'snare' ? 1800 : kind === 'crash' ? 4500 : 7000; fl.Q.value = 0.8;
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    source.connect(fl); fl.connect(g); g.connect(this.destination()); source.onended = () => g.disconnect(); source.start(t, Math.random()); source.stop(t + dur + 0.02);
+  },
+  drums(t, mask, lift) { // the bits of the drum digit: 1 kick, 2 snare, 4 open hat, 8 high tom, 16 crash, 32 closed hat
+    if (mask & 1) { this.voice(t, 'sine', 120, 0.18, 0.34 * lift, 0, false); this.drop(t, 130, 40, 0.14, 0.16, 0.34 * lift); }
+    if (mask & 2) this.hit(t, 'snare', 0.32 * lift, 0.14);
+    if (mask & 4) this.hit(t, 'hat', 0.085 * lift, 0.2);
+    if (mask & 8) this.drop(t, 220, 130, 0.15, 0.3, 0.2 * lift);
+    if (mask & 16) this.hit(t, 'crash', 0.1 * lift, 1.1);
+    if (mask & 32) this.hit(t, 'hat', 0.085 * lift, 0.04);
   },
 };
 
@@ -15600,6 +15626,72 @@ const Song = {
     if (mask & 16) this.noise(at, 'highpass', 4500, 0.7, 1.1, SONG_MIX.crash);
   },
 };
+
+// === 08c Stage soundtrack (BP-P19-18): the owner's MIDI loops are the fight music of every stage (Appendix C, P19-18)
+// The notes are a table (tools/midi-to-song.js makes it from music/*.mid, the list LOOPS in that script: a fourth file is one more entry there and a --write); Music (08a) plays them, one per match, in a rotation that never repeats
+// loops-data:begin (generated by tools/midi-to-song.js from the files of LOOPS in that script, in that order: do not edit by hand)
+// name: the title in the file; bpm; steps: sixteenths (whole bars); melody: the level of the voices against the drums (LOOPS in that script); drums: a digit per step, a bit per drum (1 kick, 2 snare, 4 open hat, 8 high tom, 16 crash, 32 closed hat);
+// voices: [role, notes, bends, pitch wheel range in semitones]: a note is 8 digits = sixteenths since the last note began, length in half sixteenths, pitch, velocity (2 digits each);
+// a bend is 6 digits = ticks (480 to a quarter) since the last bend, wheel value 0 to 16383 (3 digits each; 8192 = none)
+const STAGE_TRACKS = [
+  {
+    name: 'Construction Site Loop', bpm: 164, steps: 128, melody: 1.8,
+    drums: 'hAAAEgAAEAAAgAEAiAgAAAgAAAgAEAAAhAAAEgAAEAAAgAEAiAgAAAgAAACAEACAhAAAEgAAEAAAgAEAiAgAAAgAAAgAEAAAhAAAEgAAEAAAgAEAiAgAAAgAAACAEACA',
+    voices: [
+      ['lead', 'ASAIBEBMAAAIBGBMAEAIBDBMAAAIBFBMAEAEA+BMAAAEBABMACAIA/BMAUAIA9BMACAEA/BMACAEBGBMACAEA9BMACACBGBMABACBJBMABAEBGBMACAEBEBMACAEBCBMASAIA9BMACAEA/BMACAEBGBMACAEA9BMACACBGBMABACBJBMABAIBGBMAEAEBEBMAUAIBGBMAEAIBEBMAEAIBJBMAEAEBGBM', 'AjbCFHAAVCKPAAWCPWAAVCUeAAVCZmAAWCetAAVCj1AAVCo9AAICqqADYCAAABrCFHAAVCKPAAWCPWAAVCUeAAVCZmAAWCetAAVCj1AAVCo9AAICqqADYCAAAA1CFHAALCKPAALCPWAAKCUeAALCZmAALCetAAKCj1AALCo9AAECqqABsCAAAl0CFHAAUCKPAAVCPWAAUCUeAAUCZmAAVCetAAUCj1AAVCo9AAHCqqABGCAAAH0CFHAAUCKPAAVCPWAAUCUeAAUCZmAAVCetAAUCj1AAVCo9AAHCqqABGCAAAtUCFHAAUCKPAAVCPWAAUCUeAAUCZmAAVCetAAUCj1AAVCo9AAHCqqABGCAAAH0CFHAAUCKPAAVCPWAAUCUeAAUCZmAAVCetAAUCj1AAVCo9AAHCqqABGCAA', 6],
+      ['chords', 'AAAEAzBMAEAEAzBMACAEA6BMAAAEA/BMAEAEAzBMAEAEAzBMAGACA6BMAAACA/BMABACA7BMAAACBABMABAEA4BMAAAEA9BMAEAEA5BMAAAEA+BMAEAEA6BMAAAEA/BMACAEAzBMAEAEAzBMACAEA6BMAAAEA/BMAEAEAzBMAEAEAzBMAGACA6BMAAACA/BMABACA7BMAAACBABMABAEA4BMAAAEA9BMAEAEA5BMAAAEA+BMAEAEA6BMAAAEA/BMACAEAxBMAEAEAxBMACAEA4BMAAAEA9BMAEAEAxBMAEAEAxBMAGACA6BMAAACA/BMABACA7BMAAACBABMABAEA4BMAAAEA9BMAEAEA2BMAAAEA7BMAEAEA4BMAAAEA9BMACAEAvBMAEAEAvBMACAEA2BMAAAEA7BMAEAEAvBMAEAEAvBMACAEAxBMAEAEAxBMACAEA4BMAAAEA9BMAEAEA5BMAAAEA9BMAEAEA6BMAAAEA+BM', '', 0],
+      ['bass', 'AAACAnBMACACAnBMAGACAnBMACACAnBMAEACAnBMAEACAnBMAEACAnBMAGACAnBMACACAnBMACACAnBMACACAnBMAGACAnBMACACAnBMAEACAnBMAEACAnBMAEACAnBMAGACAnBMACACAnBMACACAlBMACACAlBMAGACAlBMACACAlBMAEACAlBMAEACAlBMAEACAlBMAGACAlBMACACAlBMACACAjBMACACAjBMAGACAjBMACACAjBMAEACAjBMAEACAlBMAEACAlBMAGACAlBMACACAlBM', '', 0],
+    ],
+  },
+  {
+    name: 'Parking Garage', bpm: 156, steps: 128, melody: 1,
+    drums: 'hAAAiAAAgAAAiAAAhAAAiAAAgAAAiABBhAAAiABAhAAAiABAhAAAiABAgAAAiAAAhAAAiAAAgAAAiAAAhAAAiAAAgAAAiABBhAAAiABAhAAAiABAhAAAiABAgAAAiAAA',
+    voices: [
+      ['lead', 'AAABA+BMABABA/BMACAGA/BMADAEA+BMACABA+BMABABA/BMACAIA/BMAEACA+BMABABBBBMABABBDBMADABBBBMABABBDBMACAGBGBMADAEBEBMACACBDBMACAEBBBMACAEBDBMAHAGBGBMADAEBEBMACAEBDBMACAEBBBMACAEA+BMACAEA/BMACAEA+BMACAEA6BMACAQA8BMAIABA+BMABABA/BMACAGA/BMADAEA+BMACABA+BMABABA/BMACAIA/BMAEACA+BMABABBBBMABABBDBMADABBBBMABABBDBMACAGBGBMADAEBEBMACACBDBMACAEBBBMACAEBDBMAHAGBGBMADAEBEBMACAEBDBMACAEBBBMACAEA+BMACAEA/BMACAEBBBMACAEBGBMACAEBIBMACAEBDBMACAEA8BMACACA6BM', '', 0],
+      ['chords', 'AAABA9BMAAABBBBMAAABBEBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA9BMAAABBBBMAAABBEBMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA/BMAAABBDBMAAABBGBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBHBMABABAyBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABBBBMAAABBEBMAAABBLBMABABA3BMABABA3BMABABBBBMAAABBEBMAAABBLBMABABA3BMABABA3BMABABBDBMAAABBGBMAAABBNBMABABA3BMABABA/BMAAABBDBMAAABBKBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBHBMABABAyBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABA9BMAAABBBBMAAABBEBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA9BMAAABBBBMAAABBEBMABABA/BMAAABBDBMAAABBGBMABABA3BMABABA/BMAAABBDBMAAABBGBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBHBMABABAyBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABBBBMAAABBEBMAAABBLBMABABA3BMABABA3BMABABBBBMAAABBEBMAAABBLBMABABA3BMABABA3BMABABBDBMAAABBGBMAAABBNBMABABA3BMABABA/BMAAABBDBMAAABBKBMABABA3BMABABA3BMABABA/BMAAABBDBMAAABBGBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBHBMABABAyBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABAwBMABABA/BMAAABBDBMAAABBIBMABABAwBMABABA9BMAAABBBBMAAABBGBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBMABABAyBMABABA/BMAAABBDBMAAABBIBMABABAyBM', '', 0],
+      ['bass', 'AAADA3BMADACArBMACACA3BMACABArBMABADA6BMADACAuBMACACA6BMACABAuBMABADA8BMADACAwBMACACA8BMACABAwBMABACA8BMACAEAwBMAEAEAyBMACACAzBMACACAyBMACACAwBMACAIArBMAKACAzBMACACAyBMACACAwBMACACAuBMACAIAwBMAIADA3BMADACArBMACACA3BMACABArBMABADA6BMADACAuBMACACA6BMACABAuBMABADA8BMADACAwBMACACA8BMACABAwBMABACA8BMACAEAwBMAEAEAyBMACACAzBMACACAyBMACACAwBMACAIArBMAKACAzBMACACAyBMACACAwBMACACAuBMACAIAwBM', '', 0],
+    ],
+  },
+  {
+    name: 'Nightclub Loop', bpm: 180, steps: 128, melody: 0.6,
+    drums: 'hAABiABCgCBAiBAAhAABiABCgCBAiAAAhAABiABCgCBAiBAAhAABiABCgCBAiCBBhAABiABCgCBAiBAAhAABiABCgCBAiAAAhAABiABCgCBAiBAAhAABiABCgCBAiBCB',
+    voices: [
+      ['lead', 'AAAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBTBAACAEBLBAACAEBSBAACAEBLBAACAEBTBAACAEBLBAACAEBSBAACAEBLBAACAEBaBAACAEBLBAACAEBTBAACAEBLBAACAEBaBAACAEBLBAACAEBTBAACAEBLBAACAEBZBAACAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBXBAACAEBLBAACAEBSBAACAEBLBAACAEBTBAACAEBLBAACAEBSBAACAEBLBAACAEBTBAACAEBLBAACAEBSBAACAEBLBAACAEBaBAACAEBLBAACAEBTBAACAEBLBAACAEBaBAACAEBLBAACAEBTBAACAEBLBAACAEBZBA', '', 0],
+      ['chords', 'AAAgA/BAAAAgBGBAAAAgBPBAAQAgA+BAAAAgBEBAAAAgBOBAAQAgA7BAAAAgBGBAAAAgBLBAAQAgBBBAAAAgBGBAAAAgBNBAAQAgA/BAAAAgBGBAAAAgBPBAAQAgA+BAAAAgBEBAAAAgBOBAAQAgA7BAAAAgBGBAAAAgBLBAAQAgBBBAAAAgBGBAAAAgBNBA', '', 0],
+      ['bass', 'AAAgAzBMAQAgAzBMAQAgAvBMAQAgAuBMAQAgAzBMAQAgAyBMAQAgAvBMAQAgAuBM', '', 0],
+    ],
+  },
+];
+// loops-data:end
+const LOOP_TICKS_PER_STEP = 120, LOOP_TICKS_PER_HALF_STEP = 60, LOOP_WHEEL_CENTER = 8192; // 480 ticks to a quarter note; the pitch wheel's middle value
+const decodedLoops = new Map();
+// A loop table as { drums: [mask per step], steps: [[note]] per step, notes: [note] } with note = { role, step, half (length in half sixteenths), pitch, velocity, bend }; bend = null, or [[ticks after the note began, cents]] from the pitch wheel (the first entry is the wheel at the start); decoded once
+function decodeLoop(loop) {
+  if (decodedLoops.has(loop)) return decodedLoops.get(loop);
+  const read = (text, at, count) => { let value = 0; for (let i = 0; i < count; i++) value = value * 64 + SONG_DIGITS.indexOf(text[at + i]); return value; };
+  const decoded = { drums: [...loop.drums].map((char) => SONG_DIGITS.indexOf(char)), steps: Array.from({ length: loop.steps }, () => []), notes: [] };
+  for (const [role, text, bendText, range] of loop.voices) {
+    const wheel = []; // [tick in the loop, cents]
+    for (let at = 0, tick = 0; at < bendText.length; at += 6) { tick += read(bendText, at, 3); wheel.push([tick, (read(bendText, at + 3, 3) - LOOP_WHEEL_CENTER) / LOOP_WHEEL_CENTER * range * 100]); }
+    for (let at = 0, step = 0; at < text.length; at += 8) {
+      step += read(text, at, 2);
+      const half = read(text, at + 2, 2), start = step * LOOP_TICKS_PER_STEP, end = start + half * LOOP_TICKS_PER_HALF_STEP;
+      const before = wheel.filter(([tick]) => tick <= start), during = wheel.filter(([tick]) => tick > start && tick < end);
+      const first = before.length ? before[before.length - 1][1] : 0;
+      const note = { role, step, half, pitch: read(text, at + 4, 2), velocity: read(text, at + 6, 2), bend: first || during.length ? [[0, first], ...during.map(([tick, cents]) => [tick - start, cents])] : null };
+      decoded.steps[step].push(note); decoded.notes.push(note);
+    }
+  }
+  decodedLoops.set(loop, decoded);
+  return decoded;
+}
+// The rotation (decided in Appendix C, P19-18): the loop for a match on the stage with this name, never the loop the last match played (lastIndex, -1 when none yet). A stage named like a loop (the file's title without a trailing "Loop", compared by its letters:
+// "Night Club" and "Nightclub Loop") plays its own loop when that is not the last one; every other case takes the next loop in list order after the last. With a single loop there is nothing else to play.
+const loopKey = (title) => String(title).replace(/\s+loop$/i, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function stageTrackIndex(stageName, lastIndex, tracks = STAGE_TRACKS) {
+  const last = tracks[lastIndex] ? lastIndex : -1, own = tracks.findIndex((track) => loopKey(track.name) === loopKey(stageName));
+  return own >= 0 && own !== last ? own : (last + 1) % tracks.length;
+}
 
 // === 09 Online - signaling by copy-paste (P12-01) or by a room code (P19-12): the code format, the QR encoder, the peer link and the room signalling (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
@@ -17125,7 +17217,7 @@ const UI = {
       case GS.ARENASEL: this.menuScene(Game.selection.arena, this.leadId(), this.rivalId(), false); this.go('arena'); break;
       case GS.COUNTDOWN: case GS.FIGHT:
         this.hideScreen();
-        if (![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(e.from)) this.startMatchMusic();
+        if (this.matchMusicDue(e.from)) this.startMatchMusic();
         if (e.from === GS.PAUSED) Sound.ui('resume');
         break;
       case GS.PAUSED: this.showPause(); Sound.ui('pause'); break;
@@ -17152,8 +17244,10 @@ const UI = {
     else if (d && (d.mode === 'lineup' || d.mode === 'tournament')) this.banner('VICTORY', d.winnerName + ' wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
-  musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode, hum: a.hum || 0, floor: def ? def.env.floor : 0 }; },
-  startMatchMusic() { const def = Game.match.def; Sound.setArena(def); Music.start(this.musicFor(def), MUSIC_FIGHT); },
+  musicFor(def, loop = null) { return { hum: def ? def.audio.hum || 0 : 0, floor: def ? def.env.floor : 0, loop }; }, // the level's ambience (hum, noise bed) and the loop to play
+  // Every match picks its loop here, in the rotation (stageTrackIndex): a match that is not the one the music was started for (a rematch, the next Survival stage, a restart from the pause menu) starts one even when the music was still playing
+  matchMusicDue(from) { return ![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(from) || Music.match !== Game.match; },
+  startMatchMusic() { const def = Game.match.def, index = stageTrackIndex(def.name, Music.lastLoop); Music.lastLoop = index; Music.match = Game.match; Sound.setArena(def); Music.start(this.musicFor(def, STAGE_TRACKS[index]), MUSIC_FIGHT); },
   showcaseOpponent() { const custom = CustomRoster.profiles()[0]; return custom ? custom.id : 'mara'; },
   menuScene(arenaId, left, right, solo, altSolo) { Showcase.set(arenaId, left, right || (left === 'kai' ? 'mara' : 'kai'), solo, altSolo); Camera.snapNext = true; },
   onMatchCreated(match) {
@@ -21023,6 +21117,7 @@ function testApi() {
     LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
     HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
     STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
+    STAGE_TRACKS, stageTrackIndex, decodeLoop, loopKey, songHz, SONG_DIGITS, LOOP_VOICES, LOOP_VELOCITY, LOOP_TICKS_PER_STEP, MUSIC_FIGHT, MUSIC_TENSE, FIGHT_GAIN, TENSE_LIFT, TENSE_TEMPO, MUSIC_RELEASE_SECS,
     Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_LOOSEN_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
     TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
     Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,

@@ -55,6 +55,7 @@ const {
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
+  STAGE_TRACKS, stageTrackIndex, decodeLoop, loopKey, songHz, SONG_DIGITS, LOOP_VOICES, LOOP_VELOCITY, LOOP_TICKS_PER_STEP, MUSIC_FIGHT, MUSIC_TENSE, FIGHT_GAIN, TENSE_LIFT, TENSE_TEMPO, MUSIC_RELEASE_SECS,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_LOOSEN_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
   TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
@@ -15024,20 +15025,19 @@ const SelfTest = {
       const handlers = Events.handlers; Events.handlers = kept; Sound.wired = wasWired;
       return (name, e) => (handlers[name] || []).forEach((handler) => handler(e));
     };
-    test('Music sweep (P18-29): the tense layer\'s rising sweep lasts its whole bar: its noise source loops, so it never runs out of buffer (it did, 1 s in, with a click every 4 bars)', () => {
-      const bad = [], keep = { ctx: Sound.ctx, noiseBuf: Sound.noiseBuf, musicBus: Sound.musicBus, track: Music.track, intensity: Music.intensity }, keepRandom = Math.random, sources = [];
+    test('Music noise (P18-29, P19-18): every noise hit of a loop (snare, open and closed hat, a crash of 1.1 s) plays from a looping source, so none runs out of the 2 s buffer from any start (the old sweep did, 1 s in, with a click every 4 bars)', () => {
+      const bad = [], keep = { ctx: Sound.ctx, noiseBuf: Sound.noiseBuf, musicBus: Sound.musicBus, out: Music.out, outCtx: Music.outCtx }, keepRandom = Math.random, sources = [];
       const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} });
       const node = (extra) => Object.assign({ connect() {}, disconnect() {}, start() {}, stop() {} }, extra);
       Sound.ctx = { currentTime: 0, createOscillator: () => node({ frequency: param() }), createGain: () => node({ gain: param() }), createBiquadFilter: () => node({ frequency: param(), Q: param() }), createBufferSource() { const s = node({ loop: false, start(at, offset) { this.from = at; this.offset = offset; }, stop(at) { this.until = at; } }); sources.push(s); return s; } };
-      Sound.noiseBuf = { duration: 2 }; Sound.musicBus = {};
+      Sound.noiseBuf = { duration: 2 }; Sound.musicBus = {}; Music.out = null; Music.outCtx = null;
       try {
         Math.random = () => 0.99;   // the worst start: almost 1 s into the 2 s buffer
-        Music.track = { bpm: 118, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = 2;
-        Music.schedule(0, 0, 60 / 118 / 4 * 0.96);   // bar 1, step 0: the sweep
-        const sweeps = sources.filter((s) => s.until - s.from > 1);
-        if (sweeps.length !== 1) bad.push(sweeps.length + ' sources last over a second, not the one sweep');
+        Music.drums(0, 63, 1);   // every drum of the table at once
+        const crashes = sources.filter((s) => s.until - s.from > 1);
+        if (sources.length !== 4 || crashes.length !== 1) bad.push(sources.length + ' noise hits for the 4 noise drums, ' + crashes.length + ' of them over a second (the crash)');
         for (const s of sources) if (!s.loop && s.until - s.from > Sound.noiseBuf.duration - s.offset) bad.push('a noise source of ' + (s.until - s.from).toFixed(2) + ' s runs out of buffer from ' + s.offset + ' s in');
-      } finally { Math.random = keepRandom; Object.assign(Sound, { ctx: keep.ctx, noiseBuf: keep.noiseBuf, musicBus: keep.musicBus }); Music.track = keep.track; Music.intensity = keep.intensity; }
+      } finally { Math.random = keepRandom; Object.assign(Sound, { ctx: keep.ctx, noiseBuf: keep.noiseBuf, musicBus: keep.musicBus }); Music.out = keep.out; Music.outCtx = keep.outCtx; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     });
     test('Round start (P18-29): the low double stab plays when the next round decides the match (after a drawn round, or at 1-1 in a best of 3, 2-2 in a best of 5), the pips in any other later round, nothing in round 1, and no stab in a brawl or a lineup', () => {
@@ -15129,7 +15129,8 @@ const SelfTest = {
        Math.random is seeded for the render, so the numbers are the same every run. Returns the peaks in dBFS per slot. */
     const SOUND_FIGHTER = (extra) => Object.assign({ x: 0, z: 0, index: 1, weight: 2, stepIndex: 0, look: {}, team: 1, state: 0 }, extra);
     const soundTable = (fire) => {   // [name, target dBFS heard at the default volumes (null: only under -1), seconds, play]
-      const musicBar = (intensity) => () => { Music.track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }; Music.intensity = intensity; const stepDur = 60 / 100 / 4; for (let k = 0; k < 16; k++) Music.schedule(Sound.ctx.currentTime + k * stepDur, k, stepDur); };
+      const musicBar = (intensity, loop) => () => { Music.track = { floor: 1, hum: 60, loop }; Music.intensity = intensity; Music.out = null; Music.outCtx = null; const stepDur = 60 / loop.bpm / 4, from = Sound.ctx.currentTime; for (let k = 0; k * stepDur < 2.4; k++) Music.schedule(from + k * stepDur, k, stepDur); };   // the first 2.4 s of a loop (the bed's bar at 100 bpm was 2.4 s), on the offline context's own loop node
+      const loopRowTarget = { 'Nightclub Loop': -15 };   // P19-18: the fight bed peaked at -14; the nightclub's loudest steps are the kick alone (no bass note lands on it), about 1.5 dB under the other two in the offline estimate
       const f = SOUND_FIGHTER, hit = (extra) => () => fire('hit', HIT_EVENT(extra)), atk = (mv) => () => fire('attackActive', { f: f(), mv });
       const floor = (n, run) => () => { const keep = Arena.def; Arena.def = { env: { floor: n } }; try { fire('step', { f: f(), run }); } finally { Arena.def = keep; } };
       return [
@@ -15163,7 +15164,7 @@ const SelfTest = {
         ['round-ending knock-out', null, 1, () => Sound.roundKo()], ['combo milestone', -16, 0.4, () => Sound.milestone(3)], ['bell', -8, 2, () => Sound.bell()], ['fanfare, win', -12, 1.6, () => Sound.fanfare(true)], ['fanfare, lose', -12, 1.6, () => Sound.fanfare(false)], ['wave horn', -12, 0.8, () => Sound.horn()],
         ['low stamina', -18, 0.5, () => Sound.lowStamina()], ['late-defend tick', -16, 0.3, () => fire('lateDefend', { f: f({ index: 0 }) })], ['free-hit tick', -24, 0.3, () => fire('freeTick', { f: f({ index: 0, comboFoe: { state: S.ATTACK } }) })], ['heartbeat', -14, 0.6, () => Sound.heartbeat()], ['breath', -28, 0.6, () => Sound.breath(false)],
         ['get up', -16, 0.5, () => fire('quickRise', { f: f() })], ['fall whistle', -16, 0.8, () => Sound.whistle()], ['crowd cheer', -16, 2, () => Sound.swell()], ['crowd lean', -24, 1.2, () => Sound.swellNoise(800, 0.8, 0.35, 0.9, 0.14)],
-        ['music fight bed', -14, 2.4, musicBar(1)], ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
+        ...STAGE_TRACKS.map((loop, i) => ['music fight bed ' + (i + 1), loopRowTarget[loop.name] === undefined ? -14 : loopRowTarget[loop.name], 2.4, musicBar(1, loop)]), ['ambience bed', null, 1.5, () => Sound.syncAmbience({ floor: 1, hum: 60 })],
         ['music title song', null, 4, () => { const keep = Object.assign({}, Song); Object.assign(Song, { playing: false, nodes: null }); try { Song.start(); Song.pump(4); } finally { Object.assign(Song, keep); } }], // the first four seconds of the title song (P18-60): the drum fill, the first chords
       ];
     };
@@ -15174,10 +15175,10 @@ const SelfTest = {
       const randomFrom = (start) => { let seed = start; return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
       // The real Sound is only swapped for the offline one inside one synchronous stretch (the build, and each play): the other async tests and the game's frames run between them
       const inOffline = (offline, work, seed) => {   // seed: every play draws its random numbers from its own seed, so a row's level does not depend on how many numbers the rows before it took
-        const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
+        const live = saveSound(), keepRandom = Math.random, keepCamera = { target: Camera.target.slice(), right: Camera.dirRight.slice() }, keepMusic = { track: Music.track, intensity: Music.intensity, out: Music.out, outCtx: Music.outCtx }, keepVolumes = { master: Settings.v.master, sfx: Settings.v.sfx, music: Settings.v.music };
         Object.assign(Sound, offline); Object.assign(Settings.v, v);   // the engine reads the saved volumes itself (the music pump after a heavy hit), so they are the render's too
         Math.random = randomFrom(seed); Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0; Camera.dirRight[0] = 1; Camera.dirRight[1] = 0;
-        try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; Object.assign(Settings.v, keepVolumes); }
+        try { return work(); } finally { Object.assign(offline, saveSound()); Object.assign(Sound, live); Math.random = keepRandom; Camera.target[0] = keepCamera.target[0]; Camera.target[1] = keepCamera.target[1]; Camera.target[2] = keepCamera.target[2]; Camera.dirRight[0] = keepCamera.right[0]; Camera.dirRight[1] = keepCamera.right[1]; Music.track = keepMusic.track; Music.intensity = keepMusic.intensity; Music.out = keepMusic.out; Music.outCtx = keepMusic.outCtx; Object.assign(Settings.v, keepVolumes); }
       };
       const keepHandlers = Events.handlers, keepWired = Sound.wired, realAllow = Sound.allow, liveVoices = Sound.voices;   // the offline sources' onended handlers count the live Sound's voices down: it is put back at the end
       Events.handlers = {}; Sound.wired = false; Sound.wire(); const handlers = Events.handlers; Events.handlers = keepHandlers; Sound.wired = keepWired;
@@ -15245,13 +15246,13 @@ const SelfTest = {
       if (typeof OfflineAudioContext === 'undefined' || !hasLayoutEngine()) return 'skipped: this run has no OfflineAudioContext (the headless stub); a browser self-test renders the table';
       const bad = [], quiet = -70, music = (name) => /^(music|ambience)/.test(name), sounds = (name) => !music(name);
       const loudest = (peaks) => Math.max(...Object.values(peaks)), loud = (peaks) => Object.entries(peaks).filter(([, p]) => p > quiet).map(([n]) => n);
-      const master = await renderSounds({ master: 0 }, 0, undefined, ctl), effects = await renderSounds({ sfx: 0 }, 0, sounds, ctl), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3', ctl), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed)$/.test(name), ctl);
+      const master = await renderSounds({ master: 0 }, 0, undefined, ctl), effects = await renderSounds({ sfx: 0 }, 0, sounds, ctl), noMusic = await renderSounds({ music: 0 }, 0, (name) => music(name) || name === 'hit tier 3', ctl), full = await renderSounds({}, 0, (name) => /^(hit tier 3|menu confirm|music fight bed 1)$/.test(name), ctl);
       for (const run of [master, effects, noMusic, full]) bad.push(...run.failures);
       if (loudest(master.peaks) > quiet) bad.push('master at 0 still sounds: ' + loud(master.peaks).slice(0, 3).join(', '));
       if (loudest(effects.peaks) > quiet) bad.push('effects at 0 still sounds: ' + loud(effects.peaks).slice(0, 3).join(', '));
       const heardMusic = Object.entries(noMusic.peaks).filter(([name, p]) => music(name) && p > quiet).map(([name, p]) => name + ' ' + p.toFixed(1));
       if (heardMusic.length || !(noMusic.peaks['hit tier 3'] > -20)) bad.push('music at 0 still sounds: ' + heardMusic.join(', ') + ' (hit ' + noMusic.peaks['hit tier 3'].toFixed(1) + ')');
-      if (!(full.peaks['hit tier 3'] > -20 && full.peaks['menu confirm'] > -40 && full.peaks['music fight bed'] > -40)) bad.push('the control renders silent: ' + JSON.stringify(full.peaks));
+      if (!(full.peaks['hit tier 3'] > -20 && full.peaks['menu confirm'] > -40 && full.peaks['music fight bed 1'] > -40)) bad.push('the control renders silent: ' + JSON.stringify(full.peaks));
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }, SOUND_RENDER_LIMIT_MS);
     test('Lamp sway and prop jolt (P13-02): a wall or object impact, a collapse or a knockdown within 4 m swings the hanging lights 0.15 rad, damped to rest over 1.5 s, and jolts loose props; Camera shake scales it and 0 or Reduced motion stops it; at most 8 swing; a light with two rods swings as a parallelogram (rod ends stay on the strip), and the test leaves no light behind', () => {
@@ -24472,10 +24473,10 @@ const SelfTest = {
       return { ctx, made, bus: node({}) };
     };
     const withSongAudio = (body) => {
-      const keep = { sound: saveSound(), song: Object.assign({}, Song), intro: Object.assign({}, Intro), music: { track: Music.track, intensity: Music.intensity, active: Music.active, step: Music.step, nextTime: Music.nextTime }, volume: Settings.v.music };
+      const keep = { sound: saveSound(), song: Object.assign({}, Song), intro: Object.assign({}, Intro), music: { track: Music.track, intensity: Music.intensity, active: Music.active, step: Music.step, nextTime: Music.nextTime, lastLoop: Music.lastLoop, match: Music.match, out: Music.out, outCtx: Music.outCtx }, volume: Settings.v.music };
       const audio = songAudio();
       Object.assign(Sound, { ctx: audio.ctx, musicBus: audio.bus, noiseBuf: { duration: 2 }, unsupported: false, amb: null, ambKey: -1 });
-      Music.active = false;
+      Music.active = false; Music.out = null; Music.outCtx = null;
       Object.assign(Song, { playing: false, finished: false, stopped: false, t0: 0, cursor: 0, nodes: null, starts: 0, played: 0, dropped: 0 });
       Object.assign(Intro, { phase: 'off', el: null, handlers: [], padHeld: [], still: '', silent: false, pos: 0, wall: 0 });
       try { return body(audio); } finally { Object.assign(Sound, keep.sound); Object.assign(Song, keep.song); Object.assign(Intro, keep.intro); Object.assign(Music, keep.music); Settings.v.music = keep.volume; if (Intro.phase !== 'off') Intro.lock(true); }
@@ -24559,7 +24560,7 @@ const SelfTest = {
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     test('Intro song and the menu (P18-60): the menu has no code-made theme (nothing is scheduled at intensity 0), the fight music is unchanged, a fight stops the title song, and entering the menu again does not start the song again', () => withSongAudio((audio) => {
-      const bad = [], track = { bpm: 100, root: 55, mode: 'minor', floor: 1, hum: 60 }, made = () => audio.made.oscillators.length + audio.made.sources.length;
+      const bad = [], track = { floor: 1, hum: 60, loop: STAGE_TRACKS[0] }, made = () => audio.made.oscillators.length + audio.made.sources.length;
       Music.start(track, 0);
       for (let i = 0; i < 300; i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
       if (made()) bad.push('the menu schedules ' + made() + ' sources');
@@ -24576,6 +24577,180 @@ const SelfTest = {
       if (Intro.press()) bad.push('a press after the intro brings it back');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
+    /* ---------- the stage soundtrack (BP-P19-18, Appendix C "P19-18 stage soundtrack, decided and built") ---------- */
+    // What an independent read of the three .mid files gives (not the converter's own numbers): the title, the tempo, the bars, the notes per voice with the sums of their pitches, onset steps and lengths in half sixteenths (so a single changed note shows) and the first and the last onset (step, pitches), the velocity, the end of the last note in half sixteenths, the drum hits with their first and last step (and bit mask) and the sum of step x mask, the pitch wheel
+    const LOOP_FACTS = [
+      { name: 'Construction Site Loop', bpm: 164, drums: { hits: 54, steps: 46, first: [0, 33], last: [126, 2], weighted: 55296 }, voices: {
+        lead: { count: 28, sums: [1882, 1830, 148], first: [18, [68, 70]], last: [126, [70]], velocity: 76, end: 256, bends: 70, range: 6, firstBend: [2267, 8519], lastBend: [10560, 8192] },
+        chords: { count: 62, sums: [3510, 3946, 224], first: [0, [51]], last: [126, [58, 62]], velocity: 76, end: 256 }, bass: { count: 36, sums: [1358, 2256, 72], first: [0, [39]], last: [126, [37]], velocity: 76, end: 254 } } },
+      { name: 'Parking Garage', bpm: 156, drums: { hits: 68, steps: 42, first: [0, 33], last: [124, 34], weighted: 66846 }, voices: {
+        lead: { count: 55, sums: [3564, 3430, 194], first: [0, [62]], last: [126, [58]], velocity: 76, end: 254 },
+        chords: { count: 244, sums: [15262, 15444, 244], first: [0, [61, 65, 68]], last: [127, [50]], velocity: 76, end: 255 }, bass: { count: 48, sums: [2426, 2778, 128], first: [0, [55]], last: [120, [48]], velocity: 76, end: 248 } } },
+      { name: 'Nightclub Loop', bpm: 180, drums: { hits: 106, steps: 82, first: [0, 33], last: [127, 1], weighted: 70523 }, voices: {
+        lead: { count: 64, sums: [5108, 4032, 256], first: [0, [75]], last: [126, [89]], velocity: 64, end: 256 },
+        chords: { count: 24, sums: [1672, 1344, 768], first: [0, [63, 70, 79]], last: [112, [65, 70, 77]], velocity: 64, end: 256 }, bass: { count: 8, sums: [389, 448, 256], first: [0, [51]], last: [112, [46]], velocity: 76, end: 256 } } },
+    ];
+    const LOOP_STEPS = 128; // 8 bars of 4/4 in every file
+    const bitCount = (mask) => [1, 2, 4, 8, 16, 32].filter((bit) => mask & bit).length;
+    test('Stage soundtrack data (P19-18): the three tables decode to the notes of the three .mid files: the title, the tempo, 8 bars (128 sixteenths), the notes of every voice with their first and last onset, velocity and end, the drum hits and the pitch wheel of the construction lead; every note stays inside the loop (so the loop wraps with no note across the seam); the list holds exactly the three files, in the rotation order', () => {
+      const bad = [], wheel = (loop, role) => { const [, , text, range] = loop.voices.find((voice) => voice[0] === role), read = (at, n) => [...text.slice(at, at + n)].reduce((value, char) => value * 64 + SONG_DIGITS.indexOf(char), 0), events = []; for (let at = 0, tick = 0; at < text.length; at += 6) { tick += read(at, 3); events.push([tick, read(at + 3, 3)]); } return { events, range }; };
+      if (STAGE_TRACKS.length !== LOOP_FACTS.length) return 'the list holds ' + STAGE_TRACKS.length + ' tracks, the owner gave ' + LOOP_FACTS.length;
+      LOOP_FACTS.forEach((facts, i) => {
+        const loop = STAGE_TRACKS[i], decoded = decodeLoop(loop), where = facts.name + ': ';
+        if (loop.name !== facts.name || loop.bpm !== facts.bpm || loop.steps !== LOOP_STEPS) bad.push(where + 'is "' + loop.name + '" at ' + loop.bpm + ' bpm, ' + loop.steps + ' steps');
+        if (decoded.drums.length !== LOOP_STEPS || decoded.steps.length !== LOOP_STEPS) bad.push(where + 'the tables are not ' + LOOP_STEPS + ' steps long');
+        const hits = decoded.drums.reduce((sum, mask) => sum + bitCount(mask), 0), played = decoded.drums.map((mask, step) => (mask ? step : -1)).filter((step) => step >= 0);
+        if (decoded.drums.reduce((sum, mask, step) => sum + mask * step, 0) !== facts.drums.weighted) bad.push(where + 'the drum hits are on other steps than the file\'s');
+        if (hits !== facts.drums.hits || played.length !== facts.drums.steps || played[0] !== facts.drums.first[0] || decoded.drums[played[0]] !== facts.drums.first[1] || played[played.length - 1] !== facts.drums.last[0] || decoded.drums[played[played.length - 1]] !== facts.drums.last[1]) bad.push(where + 'drums ' + hits + ' hits on ' + played.length + ' steps, first ' + played[0] + '/' + decoded.drums[played[0]] + ', last ' + played[played.length - 1] + '/' + decoded.drums[played[played.length - 1]]);
+        for (const [role, want] of Object.entries(facts.voices)) {
+          const notes = decoded.notes.filter((note) => note.role === role), onsets = notes.map((note) => note.step), firstStep = Math.min(...onsets), lastStep = Math.max(...onsets);
+          const pitchesAt = (step) => notes.filter((note) => note.step === step).map((note) => note.pitch).sort((a, b) => a - b).join();
+          if (notes.length !== want.count) bad.push(where + role + ' has ' + notes.length + ' notes, the file ' + want.count);
+          const sums = [notes.reduce((sum, note) => sum + note.pitch, 0), notes.reduce((sum, note) => sum + note.step, 0), notes.reduce((sum, note) => sum + note.half, 0)];
+          if (sums.join() !== want.sums.join()) bad.push(where + role + ' sums of pitch, step and length are ' + sums.join('/') + ', the file ' + want.sums.join('/'));
+          if (firstStep !== want.first[0] || pitchesAt(firstStep) !== want.first[1].join() || lastStep !== want.last[0] || pitchesAt(lastStep) !== want.last[1].join()) bad.push(where + role + ' first ' + firstStep + ':' + pitchesAt(firstStep) + ', last ' + lastStep + ':' + pitchesAt(lastStep));
+          if (notes.some((note) => note.velocity !== want.velocity)) bad.push(where + role + ' velocities ' + [...new Set(notes.map((note) => note.velocity))].join());
+          const end = Math.max(...notes.map((note) => note.step * 2 + note.half));
+          if (end !== want.end) bad.push(where + role + ' ends at ' + end + ' half sixteenths, the file at ' + want.end);
+          if (end > LOOP_STEPS * 2 || notes.some((note) => note.half < 1 || note.pitch < 0 || note.pitch > 127)) bad.push(where + role + ' has a note outside the loop or the keyboard');
+          if (onsets.some((step, k) => k && step < onsets[k - 1])) bad.push(where + role + ' is not in time order');
+          const { events, range } = wheel(loop, role);
+          if (events.length !== (want.bends || 0)) bad.push(where + role + ' has ' + events.length + ' wheel changes, the file ' + (want.bends || 0));
+          if (want.bends && (range !== want.range || events[0].join() !== want.firstBend.join() || events[events.length - 1].join() !== want.lastBend.join())) bad.push(where + role + ' wheel range ' + range + ', first ' + events[0] + ', last ' + events[events.length - 1]);
+          if (events.length && events[events.length - 1][1] !== 8192) bad.push(where + role + ' leaves the wheel bent at the loop end');
+        }
+        if (decoded.steps.some((list, step) => list.some((note) => note.step !== step))) bad.push(where + 'a note sits in the wrong step');
+        if (decoded.notes.length !== Object.values(facts.voices).reduce((sum, want) => sum + want.count, 0)) bad.push(where + 'the decoded notes are not the sum of the voices');
+      });
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    // Music state a test may change: put back by the helper, so the live page's music goes on; the audio goes nowhere (the arena's reverb is not touched)
+    const withMusicState = (body) => {
+      const fields = ['track', 'intensity', 'active', 'step', 'nextTime', 'lastLoop', 'match', 'out', 'outCtx'], keep = Object.fromEntries(fields.map((key) => [key, Music[key]])), keepArena = Sound.setArena, keepRandom = Math.random, keepMatch = Game.match;
+      Sound.setArena = () => {}; Music.out = null; Music.outCtx = null; // the page's own loop node (if any) is not touched
+      try { return body(); } finally { Object.assign(Music, keep); Sound.setArena = keepArena; Math.random = keepRandom; Game.match = keepMatch; }
+    };
+    test('Stage soundtrack rotation (P19-18): no match starts with the loop the last match played, over 200 simulated match starts in every mode (the real start of the match music, a stage from a seeded draw); a stage named like a loop plays its own loop whenever that is allowed, otherwise the next loop in list order; the rotation never reads Math.random', () => withMusicState(() => {
+      const bad = [], modes = ['arcade', 'survival', 'training', 'free', 'versus', 'tournament', 'brawl', 'coop', 'online'], stages = ARENA_ORDER.map((id) => ARENAS[id]);
+      let draws = 0; Math.random = () => { draws++; return 0.5; };
+      modes.forEach((mode, modeIndex) => {
+        let seed = 1000 + modeIndex * 77; const next = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        Music.lastLoop = -1; Music.match = null;
+        let last = -1;
+        for (let start = 0; start < 200; start++) {
+          const stage = mode === 'survival' ? stages[start % stages.length] : stages[Math.floor(next() * stages.length)]; // Survival walks the levels in order, the other modes draw one
+          Game.match = { def: stage, cfg: { mode } };
+          UI.startMatchMusic(); Music.active = false;
+          const index = Music.lastLoop, own = STAGE_TRACKS.findIndex((track) => loopKey(track.name) === loopKey(stage.name));
+          if (index === last) { bad.push(mode + ' start ' + start + ' (' + stage.name + ') plays loop ' + index + ' twice in a row'); break; }
+          if (Music.track.loop !== STAGE_TRACKS[index] || Music.intensity !== MUSIC_FIGHT || Music.match !== Game.match) { bad.push(mode + ' start ' + start + ': the music was not started with loop ' + index + ' for this match'); break; }
+          const want = own >= 0 && own !== last ? own : (last + 1) % STAGE_TRACKS.length;
+          if (index !== want) { bad.push(mode + ' start ' + start + ' (' + stage.name + ', last ' + last + ') plays loop ' + index + ', the rule says ' + want); break; }
+          last = index;
+        }
+      });
+      if (draws) bad.push('the rotation drew ' + draws + ' random numbers');
+      const table = [['Construction Site', -1, 0], ['Parking Garage', -1, 1], ['Night Club', -1, 2], ['Construction Site', 0, 1], ['Night Club', 2, 0], ['Parking Garage', 1, 2], ['Industrial Warehouse', -1, 0], ['Industrial Warehouse', 0, 1], ['Industrial Warehouse', 2, 0], ['City Rooftop', 1, 2], ['Night Club', 0, 2], ['night  club', 1, 2], ['Nightclub', 2, 0]];
+      for (const [stage, last, want] of table) if (stageTrackIndex(stage, last) !== want) bad.push(stage + ' after ' + last + ' plays ' + stageTrackIndex(stage, last) + ', not ' + want);
+      // a fourth MIDI is one entry: the same rule over four loops, one of them named like a stage
+      const four = ['Alley Loop', 'Parking Garage', 'Roof Loop', 'Subway Station Loop'].map((name) => ({ name })), names = ['Alley', 'Subway Station', 'Parking Garage', 'Warehouse', 'Roof Top'];
+      let seed = 7, last = -1;
+      for (let start = 0; start < 200; start++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0; const stage = names[seed % names.length], index = stageTrackIndex(stage, last, four), own = four.findIndex((track) => loopKey(track.name) === loopKey(stage));
+        if (index === last || (own >= 0 && own !== last && index !== own)) { bad.push('four loops: start ' + start + ' (' + stage + ', last ' + last + ') plays ' + index); break; }
+        last = index;
+      }
+      if (stageTrackIndex('Warehouse', 0, [{ name: 'Only Loop' }]) !== 0 || stageTrackIndex('Only', -1, [{ name: 'Only Loop' }]) !== 0 || stageTrackIndex('Warehouse', 99) !== 0) bad.push('one loop, or a last index outside the list, does not give a loop');
+      // a match that is not the one the music was started for (a rematch, the next Survival stage, a restart from the pause menu) starts the music even when it was still playing; a pause and a resume do not
+      const match = { def: stages[0] }, other = { def: stages[0] };
+      Game.match = match; Music.match = match;
+      for (const [from, due] of [[GS.MENU, true], [GS.RESULTS, true], [GS.VICTORY, true], [GS.PAUSED, false], [GS.COUNTDOWN, false], [GS.FIGHT, false], [GS.ROUND_END, false]]) if (UI.matchMusicDue(from) !== due) bad.push('from ' + from + ' the same match is ' + (due ? 'not due' : 'due') + ' for music');
+      Game.match = other;
+      if (!UI.matchMusicDue(GS.PAUSED) || !UI.matchMusicDue(GS.FIGHT)) bad.push('a new match from the pause menu or a round end does not start music');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    // The stand-in audio of the title song, with the times of every detune change recorded on its oscillators
+    const withDetuneTimes = (audio) => {
+      const create = audio.ctx.createOscillator;
+      audio.ctx.createOscillator = function () { const o = create.call(this); o.detuneCalls = []; o.detune.setValueAtTime = (value, at) => o.detuneCalls.push([at, value]); return o; };
+      return audio;
+    };
+    const playLoop = (audio, loop, intensity, seconds) => { // Music.update at 60 frames a second; returns the (time, step, stepDur) of every step handed to the audio clock and every note and drum hit
+      const steps = [], notes = [], drums = [], keep = { schedule: Music.schedule, note: Music.note, drums: Music.drums };
+      Music.schedule = function (t, step, stepDur) { steps.push([t, step, stepDur]); return keep.schedule.call(this, t, step, stepDur); };
+      Music.note = function (t, note, lift, ...rest) { notes.push([t, note, lift]); return keep.note.call(this, t, note, lift, ...rest); };
+      Music.drums = function (t, mask, lift) { drums.push([t, mask, lift]); return keep.drums.call(this, t, mask, lift); };
+      try {
+        Music.start({ floor: 1, hum: 60, loop }, intensity);
+        for (let i = 0; i < Math.round(seconds * 60); i++) { audio.ctx.currentTime += 1 / 60; Music.update(); }
+      } finally { Object.assign(Music, keep); }
+      return { steps, notes, drums };
+    };
+    test('Stage soundtrack loops (P19-18): every loop is handed to the audio clock step after step at its own tempo and wraps from its last step to its first with no gap and no overlap (two whole passes: every step once per pass, each a step apart, the same notes and drum hits in each pass); the tense layer is the same loop a step 4 % shorter and 1.26 times louder', () => withSongAudio((audio) => withMusicState(() => {
+      const bad = [];
+      for (const intensity of [MUSIC_FIGHT, MUSIC_TENSE]) STAGE_TRACKS.forEach((loop) => {
+        const where = loop.name + (intensity === MUSIC_TENSE ? ' (tense)' : '') + ': ', stepDur = 60 / loop.bpm / 4 * (intensity === MUSIC_TENSE ? TENSE_TEMPO : 1), decoded = decodeLoop(loop);
+        audio.ctx.currentTime = 0;
+        const run = playLoop(audio, loop, intensity, 2.3 * loop.steps * stepDur), steps = run.steps;
+        if (steps.length < 2 * loop.steps + 1) { bad.push(where + 'only ' + steps.length + ' steps in two passes'); return; }
+        const wrong = steps.findIndex(([t, step, dur], k) => step !== k % loop.steps || Math.abs(dur - stepDur) > 1e-12 || (k && Math.abs(t - steps[k - 1][0] - stepDur) > 1e-9));
+        if (wrong >= 0) bad.push(where + 'step ' + wrong + ' is out of line: step ' + steps[wrong][1] + ' at ' + steps[wrong][0].toFixed(4));
+        else if (Math.abs(steps[loop.steps][0] - steps[0][0] - loop.steps * stepDur) > 1e-9) bad.push(where + 'the second pass starts ' + (steps[loop.steps][0] - steps[0][0]).toFixed(4) + ' s after the first, not ' + (loop.steps * stepDur).toFixed(4));
+        const inPass = (list, pass) => list.filter(([t]) => t >= steps[pass * loop.steps][0] - 1e-9 && t < steps[(pass + 1) * loop.steps][0] - 1e-9);
+        const first = inPass(run.notes, 0), second = inPass(run.notes, 1);
+        if (first.length !== decoded.notes.length || second.length !== decoded.notes.length || first.some(([t, note], k) => note !== second[k][1] || Math.abs(second[k][0] - t - loop.steps * stepDur) > 1e-9)) bad.push(where + 'a pass plays ' + first.length + ' and ' + second.length + ' notes, the table has ' + decoded.notes.length);
+        const drumSteps = decoded.drums.filter(Boolean).length;
+        if (inPass(run.drums, 0).length !== drumSteps || inPass(run.drums, 1).length !== drumSteps) bad.push(where + 'a pass plays ' + inPass(run.drums, 0).length + ' and ' + inPass(run.drums, 1).length + ' drum steps, the table has ' + drumSteps);
+        const level = FIGHT_GAIN * (intensity === MUSIC_TENSE ? TENSE_LIFT : 1);
+        if (Math.abs(run.drums[0][2] - level) > 1e-12) bad.push(where + 'the drums play at ' + run.drums[0][2] + ', not the fight level ' + level);
+        if (!(loop.melody > 0) || run.notes.some(([, , lift]) => Math.abs(lift - level * loop.melody) > 1e-12)) bad.push(where + 'the notes play at ' + run.notes[0][2] + ', not the fight level x the loop\'s melody level ' + level * loop.melody);
+      });
+      if (Math.abs(TENSE_TEMPO - 0.96) > 1e-12 || Math.abs(TENSE_LIFT - 1.26) > 1e-12) bad.push('the tense layer is ' + TENSE_TEMPO + ' x the step and ' + TENSE_LIFT + ' x the level');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    })));
+    test('Stage soundtrack sound (P19-18): the levels are the fight bed\'s (the kick 0.34 x FIGHT_GAIN 1.15, a note at its role\'s gain x the loop\'s melody level, a velocity 64 note 64/76 of a 76 one), the file\'s pitches play as General MIDI notes with the bass an octave above too, the pitch wheel bends the notes of the construction lead as the file says (each step of the wheel at its own time) and a note without a bend sets no detune; every voice goes through the loop\'s one gain node to the music bus (so Music volume, mute, the low-health muffle and the pause duck act on it), and a stop or the next match fades that node to 0', () => withSongAudio((audio) => withMusicState(() => {
+      const bad = [], [construction, , nightclub] = STAGE_TRACKS, stepDur = 60 / construction.bpm / 4;
+      withDetuneTimes(audio); Music.out = null; Music.outCtx = null;
+      const peak = (node) => node.gain.calls.find((call) => call[0] === 'ramp')[1], close = (a, b) => Math.abs(a - b) < 1e-9;
+      const noteOf = (loop, role, accept) => decodeLoop(loop).notes.find((note) => note.role === role && accept(note));
+      const play = (loop, note, step) => { audio.made.oscillators.length = 0; audio.made.gains.length = 0; Music.note(2, note, FIGHT_GAIN * loop.melody, step / 2 * note.half, step / LOOP_TICKS_PER_STEP); return audio.made.oscillators.slice(); };
+      Music.drums(5, 1, FIGHT_GAIN); // the kick: a sine of 120 Hz, then the drop; the gain of its first voice is made first
+      const kickGain = peak(audio.made.gains[0]);
+      if (!close(kickGain, 0.34 * FIGHT_GAIN) || audio.made.oscillators[0].from !== 5) bad.push('the kick peaks at ' + kickGain + ' from ' + audio.made.oscillators[0].from + ', the bed had 0.34 x ' + FIGHT_GAIN);
+      const bent = noteOf(construction, 'lead', (note) => note.bend && note.bend.length > 3), plain = noteOf(construction, 'chords', () => true), loud = noteOf(construction, 'lead', () => true), quiet = noteOf(nightclub, 'lead', () => true), low = noteOf(nightclub, 'bass', () => true);
+      const [saw] = play(construction, bent, stepDur), wantBend = bent.bend.map(([ticks, cents]) => [2 + ticks * (stepDur / LOOP_TICKS_PER_STEP), cents]);
+      if (saw.type !== 'sawtooth' || !close(saw.frequency.value, songHz(bent.pitch)) || saw.from !== 2 || !close(saw.until, 2 + stepDur / 2 * bent.half + MUSIC_RELEASE_SECS + 0.03)) bad.push('the lead note plays ' + saw.type + ' ' + saw.frequency.value + ' Hz from ' + saw.from + ' to ' + saw.until);
+      if (saw.detuneCalls.length !== wantBend.length || saw.detuneCalls.some(([at, cents], k) => !close(at, wantBend[k][0]) || !close(cents, wantBend[k][1])) || !saw.detuneCalls.some(([, cents]) => Math.abs(cents) > 20)) bad.push('the wheel of the lead note is ' + JSON.stringify(saw.detuneCalls.slice(0, 3)) + ' ..., not the file\'s ' + JSON.stringify(wantBend.slice(0, 3)));
+      if (bent.bend.some(([ticks], k) => k && ticks <= bent.bend[k - 1][0])) bad.push('the wheel changes of a note are not in time order');
+      if (play(construction, plain, stepDur)[0].detuneCalls.length) bad.push('a note without a bend sets the detune');
+      play(construction, loud, stepDur);
+      if (!close(peak(audio.made.gains[0]), LOOP_VOICES.lead.gain * FIGHT_GAIN * construction.melody * loud.velocity / LOOP_VELOCITY)) bad.push('a lead note of velocity ' + loud.velocity + ' peaks at ' + peak(audio.made.gains[0]));
+      play(nightclub, quiet, 60 / nightclub.bpm / 4);
+      if (quiet.velocity !== 64 || !close(peak(audio.made.gains[0]), LOOP_VOICES.lead.gain * FIGHT_GAIN * nightclub.melody * 64 / 76)) bad.push('a lead note of velocity ' + quiet.velocity + ' peaks at ' + peak(audio.made.gains[0]) + ', not 64/76 of the velocity 76 level');
+      const both = play(nightclub, low, 60 / nightclub.bpm / 4);
+      if (both.length !== 2 || both[0].type !== 'sawtooth' || both[1].type !== 'square' || !close(both[0].frequency.value, songHz(low.pitch)) || !close(both[1].frequency.value, 2 * songHz(low.pitch))) bad.push('the bass is not a note and its octave above');
+      // the loop's one gain node: made once, to the music bus and nowhere else; every voice goes into it
+      audio.made.connected.length = 0; audio.made.oscillators.length = 0; audio.made.gains.length = 0; audio.made.sources.length = 0;
+      Music.out = null; Music.outCtx = null; Music.track = { floor: 1, hum: 60, loop: construction };
+      Music.schedule(0, 0, stepDur); Music.drums(0, 63, 1);
+      const out = Music.out, voices = new Set(audio.made.gains.filter((gain) => gain !== out)), fromOut = audio.made.connected.filter(([from]) => from === out);
+      if (!out || fromOut.length !== 1 || fromOut[0][1] !== audio.bus) bad.push('the loop node does not connect to the music bus alone');
+      if (voices.size < 12 || audio.made.connected.some(([from, to]) => voices.has(from) && to !== out)) bad.push('a voice does not go through the loop node (' + voices.size + ' voices)');
+      if (audio.made.connected.some(([from, to]) => from !== out && to === audio.bus)) bad.push('something reaches the music bus round the loop node');
+      Settings.v.music = 0; Object.assign(Sound, { master: { gain: { setTargetAtTime() {} } }, sfxBus: { gain: { setTargetAtTime() {} } }, uiBus: { gain: { setTargetAtTime() {} } } });
+      audio.bus.gain = { calls: [], setTargetAtTime(v) { this.calls.push(v); } }; Sound.applyVolumes();
+      if (audio.bus.gain.calls.join() !== '0' || out.gain.calls.some((call) => call[0] === 'target')) bad.push('Music volume 0 sets the bus to ' + audio.bus.gain.calls.join() + ' and touches the loop node');
+      // a stop and the next match fade the node to 0 and let it go; nothing is scheduled after a stop
+      Music.active = true; Music.intensity = MUSIC_FIGHT; Music.match = {};
+      Music.stop();
+      if (Music.out || Music.match !== null || !out.gain.calls.some((call) => call[0] === 'target' && call[1] === 0)) bad.push('a stop does not fade the loop node to 0 and forget its match');
+      Music.start({ floor: 1, hum: 60, loop: construction }, MUSIC_FIGHT); Music.schedule(0, 0, stepDur);
+      const playing = Music.out; Music.start({ floor: 1, hum: 60, loop: nightclub }, MUSIC_FIGHT);
+      if (!playing || playing === out || Music.out || !playing.gain.calls.some((call) => call[0] === 'target' && call[1] === 0)) bad.push('the next match does not fade out the loop that was playing');
+      Music.active = false; const made = audio.made.oscillators.length + audio.made.sources.length; audio.ctx.currentTime += 30; Music.update();
+      if (audio.made.oscillators.length + audio.made.sources.length !== made) bad.push('a stopped music schedules');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    })));
     test('Intro card (P18-60): the card waits for a press for ever (no audio, no song, no timeout); a real key or a tap starts the reveal and the song at the same moment; synthetic events, modifier keys, browser shortcuts and held keys do not; the menu below never sees the key', () => withSongAudio((audio) => {
       const bad = [], card = introCard(audio);
       card.frames(30);
