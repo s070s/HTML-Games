@@ -6535,7 +6535,7 @@ async function offerLearnMove(mon, moveId) {
 //   - the four commands are a row of tabs between the podiums and the bottom;
 //   - every message runs in a news-ticker strip along the bottom edge.
 // textPad = the text margin inside the panel (name left, level right); nameGap = the least free space between the two texts (0 = they may touch, never overlap), which the selfTest checks for every creature.
-const POLL_PANEL = { y: 3, w: 112, h: 30, leftX: 4, rightX: 124, textPad: 5, nameGap: 1 }; // 5 px inside the border keeps the longest names (Δημόσιο at level 50) one pixel clear of the level text
+const POLL_PANEL = { y: 3, w: 112, h: 30, leftX: 4, rightX: 124, textPad: 5, nameGap: 1 }; // 5 px inside the border keeps the longest names (Δημοσιοϋπαλληλάκι, `dimosio`, at level 50) one pixel clear of the level text
 const CREATURE_Y = 32;
 const PODIUM = { y: 94, w: 88, h: 10, leftX: 14, rightX: 138 };
 const COMMAND_ROW = { x: 4, y: 106, w: 232, h: 13, tabW: 58 };
@@ -6851,11 +6851,11 @@ BattleLayer.prototype.drawPollPanel = function (view, x, showHp) {
   drawText(view.lvText, x + w - POLL_PANEL.textPad, y + 4, COLOR.ink, 'right');
   if (view.boostMark > 0) drawBoostMark(x + w - POLL_PANEL.textPad - view.boostMark, y + 5);
   ctx.font = FONT_SMALL;
-  drawText(T('battle.poll'), x + 6, y + 15, COLOR.red);
+  drawText(T('battle.poll'), x + POLL_PANEL.textPad, y + 15, COLOR.red);
   ctx.font = FONT;
   drawBar(x + 40, y + 15, w - 50, 5, view.shown / view.max);
-  if (showHp) drawText(view.hpText, x + w - 6, y + 21, COLOR.ink, 'right');
-  if (view.status) drawStatusTag(view.status, x + 6, y + 21);
+  if (showHp) drawText(view.hpText, x + w - POLL_PANEL.textPad, y + 21, COLOR.ink, 'right');
+  if (view.status) drawStatusTag(view.status, x + POLL_PANEL.textPad, y + 21);
 };
 // The four command tabs. They are dimmed while a message plays, bright when the player chooses.
 BattleLayer.prototype.drawCommandRow = function () {
@@ -8114,11 +8114,14 @@ async function selfTest() {
       const nameRoom = POLL_PANEL.w - 2 * POLL_PANEL.textPad - POLL_PANEL.nameGap;
       const nameTooWide = [];
       let widestName = 0;
+      // A boosted boss' creature also carries the boost mark left of its level text (boostMarkOffset), so it has that much less room.
+      const boosted = new Set();
+      for (const trainer of Object.values(TRAINERS)) if (trainer.boost) for (const entry of trainer.team) boosted.add(entry.sp);
       ctx.font = FONT;
       for (const lang of ['el', 'en']) {
         const levelWidth = ctx.measureText(lookupString('ui.lv', lang) + 50).width;
         for (const id of Object.keys(SPECIES)) {
-          const used = ctx.measureText(speciesName(id)).width + levelWidth;
+          const used = ctx.measureText(speciesName(id)).width + levelWidth + (boosted.has(id) ? BOOST_MARK_W + 3 : 0);
           widestName = Math.max(widestName, used);
           if (used > nameRoom) nameTooWide.push(lang + ' ' + id + ' ' + used.toFixed(1));
         }

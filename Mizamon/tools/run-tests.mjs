@@ -2719,7 +2719,7 @@ const OLD_WALKABLE_02D = {
   marousi_boss: '00000000000000/00111111111100/00111111111100/01110000001110/01111111111110/01111111111110/01111111111110/01001111110010/01111111111110/00000011000000',
 };
 // words of faith, prayer or rites (αγιο|αγια only at the start of a word, or Γιαγιά would match): no text of the new district may carry one (the Εκκλησία type and the abbot joke about wealth, property and tax only, 11.15)
-const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis|(?<!\p{L})(?:αγιο|αγια)|ευλογ|εικον|προσκυν|θαυμα/u;
+const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis|(?<!\p{L})(?:αγιο|αγια)|παναγι|θεε(?!\p{L})|ευλογ|εικονισμ|εικονοστ|προσκυν|θαυμα(?!σ)/u;
 const DYTIKA_STRING_KEY = /^(map\.(route9|peristeri|route10|chaidari)|warp\.route9|sign\.(route9|toll|peristeri|route10|channel|chaidari)|npc\.(tollwatcher|hitchhiker|peristeri|pscafe|stallholder|angler|chaidari)|cafe\.hello\.peristeri|tr\.(tollclerk|ultras|granny|marketeer|philosopher|steward|gatekeeper|plousiakis)|boss\.plousiakis|badge\.dytika|item\.sylvasi|itemd\.sylvasi|sp\.(tavlilordos|giagiaexo|elegktis|ktimatomesitis|rousfetolykos))/;
 
 test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
