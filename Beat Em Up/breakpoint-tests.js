@@ -17005,7 +17005,7 @@ const SelfTest = {
         for (let i = 0; i < 80 && d.dizzy > 0; i++) {
           if (d.zonePose === 'dizzy') poseOn++;
           if (d.state === S.BLOCK_H || d.state === S.BLOCK_L || d.state === S.SWAY || d.state === S.RUN) refused++;
-          if (i === 10) ratio = Math.hypot(d.vx, d.vz) / Math.hypot(a.vx, a.vz);
+          if (i === 10) ratio = DMath.hypot(d.vx, d.vz) / DMath.hypot(a.vx, a.vz);
           m.step(); active++;
           if (d.dizzy > 0 && (d.state === S.BLOCK_H || d.state === S.BLOCK_L || d.state === S.SWAY || d.state === S.RUN)) refused++;
         }
@@ -17046,7 +17046,7 @@ const SelfTest = {
         for (let i = 1; i <= LIMP_TICKS; i++) {
           m.step();
           if (d.state === S.RUN) ran++;
-          if (i === 40) ratio = Math.hypot(d.vx, d.vz) / Math.hypot(a.vx, a.vz);
+          if (i === 40) ratio = DMath.hypot(d.vx, d.vz) / DMath.hypot(a.vx, a.vz);
           if (i < LIMP_TICKS && (d.limp !== LIMP_TICKS - i || d.zonePose !== 'limp')) { bad.push('LIMP at tick ' + i + ': ' + d.limp + ' ' + d.zonePose); break; }
         }
         if (ran) bad.push('a limping fighter ran ' + ran + ' ticks');
@@ -17145,7 +17145,7 @@ const SelfTest = {
       if (equalTicks < 5000) bad.push('only ' + equalTicks + ' ticks were compared');
       return bad.length ? bad.slice(0, 6).join('; ') : true;
     });
-    test('Body strain (P19-02): (10) the sim functions that are new or changed use only DMath - no Math.sin, cos, atan2, exp, pow or hypot in Combat.strain, tickZones, tickZoneTimers, endZoneEffects, regenerate, updateFree, the zone parts of landHit and the other five damage sites, and matchChecksum', () => {
+    test('Body strain (P19-02): (10) the sim functions that are new or changed use only DMath - no raw sine, cosine, atan2, exp, pow or hypot call in Combat.strain, tickZones, tickZoneTimers, endZoneEffects, regenerate, updateFree, the zone parts of landHit and the other five damage sites, and matchChecksum', () => {
       const bad = [], pattern = /(^|[^D])Math\.(sin|cos|atan2|exp|pow|hypot)\b/;
       const sources = { 'Combat.strain': Combat.strain, 'tickZones': Fighter.prototype.tickZones, 'tickZoneTimers': Fighter.prototype.tickZoneTimers, 'endZoneEffects': Fighter.prototype.endZoneEffects, 'regenerate': Fighter.prototype.regenerate, 'updateFree': Fighter.prototype.updateFree, 'landHit': Combat.landHit, 'itemHit': Combat.itemHit, 'bodyHit': Combat.bodyHit, 'groundHit': Combat.groundHit, 'clinchStrike': Combat.clinchStrike, 'executeThrow': Combat.executeThrow, 'knockOut': Combat.knockOut, 'matchChecksum': matchChecksum, 'chooseIntent': AIController.prototype.chooseIntent };
       for (const [name, fn] of Object.entries(sources)) { const text = String(fn); if (!text || text.length < 20) bad.push(name + ' has no source'); else if (pattern.test(text)) bad.push(name + ' uses ' + pattern.exec(text)[0]); }
@@ -17351,7 +17351,7 @@ const SelfTest = {
       const row = FIGHT_RULES.find((entry) => entry[0] === 'zones');
       if (!row || row[1].join() !== 'Off,On' || row[2] !== 1 || row[3] !== 'Body strain') bad.push('the Free Fight row');
       const strings = [text, ZONE_HELP, row ? row[3] : '', SCENARIOS[6] || '', ...trainingText, ...['DIZZY', 'LIMPING', 'BREATHLESS'], ...ZONE_NAMES, 'gives out', Fighter.prototype.zoneEffectPose.toString().replace(/\/\/.*$/gm, '')];
-      for (const s of strings) if (forbidden.test(s.replace(/\bbroken\b/g, 'x') && s)) bad.push('a ruled-out word in "' + s.slice(0, 40) + '"');
+      for (const s of strings) if (forbidden.test(s)) bad.push('a ruled-out word in "' + s.slice(0, 40) + '"');
       const sources = [Combat.strain, Fighter.prototype.tickZones, Fighter.prototype.endZoneEffects, UI.zoneLines, UI.strainTiles, UI.coachZone].map((fn) => String(fn).replace(/\/\/.*$/gm, '').replace(/\/\*[^]*?\*\//g, ''));
       for (const s of sources) { const hit = forbidden.exec(s); if (hit) bad.push('a ruled-out word in the code: ' + hit[0]); }
       return bad.length ? bad.slice(0, 6).join('; ') : true;
@@ -18268,7 +18268,8 @@ const SelfTest = {
         if (new Set(seen).size !== 4) problems.push('sights repeat: ' + seen.join(' / '));
         if (new Set(heardAs).size !== 4) problems.push('sounds repeat: ' + heardAs.join(' / '));
         if (seen[0].split('|')[0] !== '' || !seen[1].startsWith(CUE_COLOR.perfect) || !seen[3].startsWith(CUE_COLOR.brk)) problems.push('rings ' + seen.join(' / '));
-        if (heardAs[2].includes('520') || !heardAs[2].includes(String(CUE_NOTES.perfect[0])) || heardAs[3].includes(String(CUE_NOTES.perfect[1])) || !CUE_NOTES.brk.every((hz) => heardAs[3].includes(String(hz)))) problems.push('notes ' + heardAs.join(' / '));
+        const tones = (text) => text.split(',');   // whole tones, not digits: the first tone of a hit-like cue is varied at random (P18-29), and a substring test met "1980" inside 533.3419804... once in a full run (2026-11-14)
+        if (tones(heardAs[2]).includes('520') || !tones(heardAs[2]).includes(String(CUE_NOTES.perfect[0])) || tones(heardAs[3]).includes(String(CUE_NOTES.perfect[1])) || !CUE_NOTES.brk.every((hz) => tones(heardAs[3]).includes(String(hz)))) problems.push('notes ' + heardAs.join(' / '));
         if (CUE_NOTES.ting.some((hz) => CUE_NOTES.perfect.includes(hz) || CUE_NOTES.brk.includes(hz))) problems.push('the counter ting shares a note');
         const person = { index: 0, y: 0, x: 0, z: 0, comboFoe: { state: S.ATTACK } };
         rings.length = 0; flashes.length = 0;
