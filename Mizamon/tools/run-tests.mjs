@@ -1747,7 +1747,7 @@ test('Νότια species: Καφενόβιος and the three middle starter form
     assert.equal(team[team.length - 1].sp, middle[R.RIVAL_STARTER[starter]], 'rival, third fight, player starter ' + starter);
     assert.equal(team[team.length - 1].lv, 18);
   }
-  assert.equal(R.TRAINERS.rival3.team[R.TRAINERS.rival3.team.length - 1].lv, R.TRAINERS.bougatsas.team[2].lv - 2, 'the rival: the boss top level minus 2');
+  assert.equal(R.TRAINERS.rival3.team[R.TRAINERS.rival3.team.length - 1].lv, R.TRAINERS.bougatsas.team[R.TRAINERS.bougatsas.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
   assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, {}), true);
   assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, { t_rival3: true }), false, 'he leaves after the third fight');
   // stat boost: only creatures that carry one; the formula for everybody else is the old one
@@ -1759,7 +1759,7 @@ test('Νότια species: Καφενόβιος and the three middle starter form
   assert.equal(R.statOf(plain, 'atk'), Math.floor(R.SPECIES.giagiaka.base[1] * 20 / 25) + 5);
   assert.equal(R.serializeMon(boosted).boost, undefined, 'a boost is never saved');
   for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
-  assert.ok(R.TRAINERS.bougatsas.boost > 1 && R.TRAINERS.bougatsas.boost <= 1.6);
+  assert.ok(R.TRAINERS.bougatsas.boost > 1 && R.TRAINERS.bougatsas.boost <= 1.2);
 });
 test('Νότια items: the Δικηγόρος and the Γεμιστά της Μάνας heal and clear a status, in and out of a battle', () => {
   const mon = R.makeMon('komma', 40); // 142 HP
@@ -1832,9 +1832,10 @@ test('Νότια trainers: seven trainers with names in the strings, levels 14-1
     assert.ok(winRate(id, 18, 3, 100) >= 0.5, id + ' with three creatures at level 18');
   }
 });
-test('Νότια boss, win-rate bands (11.7 scaled for the level, see 11.12) with the AI-played player team, and the boss data', () => {
+test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-creature team and the boost of 11.12) with the AI-played player team, and the boss data', () => {
   const boss = R.TRAINERS.bougatsas;
-  same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.3');
+  same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'efoplistakos19', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.12');
+  assert.ok(boss.boost > 1 && boss.boost <= 1.2, 'a small boost, visible in the battle (the mark)');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
   assert.equal(boss.look, 'bougatsas');
   assert.equal(R.WORLD.districts.notia.bossTrainer, 'bougatsas');
@@ -1852,10 +1853,21 @@ test('Νότια boss, win-rate bands (11.7 scaled for the level, see 11.12) wit
   const bands = [];
   for (const [label, offset, size, items, low, high] of NOTIA_BOSS_BANDS) bands.push([label, bossWinRate(R, 'bougatsas', top + offset, size, items === 2 ? twoSouvlaki : [], 500, 5000), low, high]);
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Μπουγάτσας, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
-  // stronger than the plain species: without the boost the same fight is a walkover
+  // stronger than the plain species: without the boost the same fight is easier (top minus 3 with six creatures leaves its band)
   const plainBoss = R.TRAINERS.bougatsas.boost;
   R.TRAINERS.bougatsas.boost = undefined;
-  try { assert.ok(bossWinRate(R, 'bougatsas', top - 1, 6, twoSouvlaki, 200, 5000) > 0.9, 'no boost: top minus 1 is above 90 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
+  try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, 500, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
+});
+test('every built district boss, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
+  const runsPerCell = 200;
+  for (const bossId of ['kotsos', 'bougatsas']) {
+    const team = R.TRAINERS[bossId].team;
+    const top = team[team.length - 1].lv;
+    const atTop = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top + 1, 6, runsPerCell, 8000));
+    const behind = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top - 1, 6, runsPerCell, 8000));
+    atTop.forEach((rate, index) => assert.ok(rate >= 0.75, bossId + ', ' + R.STARTERS[index] + ' at top plus 1: ' + rate));
+    assert.ok(Math.max(...behind) - Math.min(...behind) <= 0.35, bossId + ' spread at top minus 1: ' + behind.join(' '));
+  }
 });
 test('Νότια: old saves (v2 and v3, standing anywhere in Πειραιάς) load and continue; the new flag and the new places migrate; old creatures evolve at 16', () => {
   const party = [{ sp: 'komma', lv: 17, xp: R.xpForLevel(17), hp: 40 }, { sp: 'fakelakis', lv: 9, xp: R.xpForLevel(9), hp: 20 }];
@@ -1949,6 +1961,8 @@ test('Νότια: no per-frame text building in the new code (the shop and the b
   const badgeDraw = html.slice(html.indexOf('BadgeLayer.prototype.draw'), html.indexOf('// The short card after the first boss'));
   assert.ok(!badgeDraw.includes('shadeColor(') && badgeDraw.includes('this.ribbonDark'), 'the dark ribbon colour is built once in the constructor');
   assert.ok(html.includes('this.ribbonDark = shadeColor(this.ribbon, 0.6)'));
+  const pollDraw = html.slice(html.indexOf('BattleLayer.prototype.drawPollPanel'), html.indexOf('// The four command tabs'));
+  assert.ok(pollDraw.includes('drawBoostMark(') && !pollDraw.includes('measureText'), 'the boost mark is drawn from a value measured once when the creature is sent out');
 });
 
 // The player team of a Νότια fight: one starter (in its middle form from level 16) and creatures of the pool, every creature evolved as far as its level allows.
@@ -1968,15 +1982,29 @@ export function bossWinRate(rules, bossId, level, size, items, runsCount, seed) 
   }
   return wins / runsCount;
 }
-// [label, level offset to the boss' top level, creatures, 2 = two Σουβλάκι else none, lowest, highest]. Section 11.7 gives +1, -1, -3 and (three creatures) -1 for the
-// first boss, measured at top level 13. At top level 20 a level changes the stats by about two thirds of that, so the offsets are scaled by top/13 and cut to whole
-// levels where that keeps the band reachable (section 11.12): +1, -1, -4 for six creatures and -3 for three; the bands themselves are the ones of 11.7.
+// [label, level offset to the boss' top level, creatures, 2 = two Σουβλάκι else none, lowest, highest]: the offsets and bands of section 11.7, the same for every boss
+// (section 11.12: the Νότια boss keeps them by a four-creature team and a small boost).
 export const NOTIA_BOSS_BANDS = [
   ['top plus 1, six creatures', 1, 6, 2, 0.85, 0.97],
   ['top minus 1, six creatures', -1, 6, 2, 0.55, 0.75],
-  ['top minus 4, six creatures', -4, 6, 2, 0.10, 0.30],
-  ['top minus 3, three creatures, no items', -3, 3, 0, 0.08, 0.25],
+  ['top minus 3, six creatures', -3, 6, 2, 0.10, 0.30],
+  ['top minus 1, three creatures, no items', -1, 3, 0, 0.08, 0.25],
 ];
+// One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
+export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
+export function starterBossRate(rules, bossId, starter, level, size, runsCount, seed) {
+  const pool = bossId === 'bougatsas' ? NOTIA_POOL : PEIRAIAS_POOL;
+  const rng = rules.makeRng(seed + level * 10 + size);
+  let wins = 0;
+  for (let i = 0; i < runsCount; i++) {
+    const team = [rules.makeMon(starter, level)];
+    const rest = pool.slice();
+    for (let n = 1; n < size; n++) team.push(rules.makeMon(rest.splice(Math.floor(rng() * rest.length), 1)[0], level));
+    for (const mon of team) rules.evolveMon(mon);
+    if (rules.simulateBattle(team, rules.buildTrainerTeam(bossId, starter), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: ['souvlaki', 'souvlaki'] }).winner === 0) wins++;
+  }
+  return wins / runsCount;
+}
 
 // ---- XP band of a district (section 11.4): used by a test and by balance.mjs ----
 // The player's first creature starts at ARRIVAL_LEVEL; three main creatures must reach the boss' top level. The fixed trainers of the district

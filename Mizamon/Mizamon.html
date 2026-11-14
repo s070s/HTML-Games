@@ -1084,12 +1084,12 @@ const TRAINERS = {
   sunbedseller: { name: 'Ο Ξαπλωστράς Μάκης', look: 'sunbedseller', team: [{ sp: 'frapedoros', lv: 15 }, { sp: 'eforaki', lv: 16 }, { sp: 'laikatzis', lv: 16 }], items: [] },
   conductor: { name: 'Ο Εισπράκτορας Λάμπρος', look: 'conductor', team: [{ sp: 'dimosio', lv: 16 }, { sp: 'fakelarchis', lv: 16 }], items: [] },
   golfer: { name: 'Ο Γκόλφερ Τζίμης', look: 'golfer', team: [{ sp: 'efoplistakos', lv: 16 }, { sp: 'giagiaka', lv: 17 }, { sp: 'kafenovios', lv: 17 }], items: [] },
-  surfer: { name: 'Η Influencer Ντόρα', look: 'surfer', team: [{ sp: 'storoula', lv: 17 }, { sp: 'laikatzis', lv: 17 }, { sp: 'frapedoros', lv: 18 }], items: [] },
+  surfer: { name: 'Η Influencer Κική', look: 'surfer', team: [{ sp: 'storoula', lv: 17 }, { sp: 'laikatzis', lv: 17 }, { sp: 'frapedoros', lv: 18 }], items: [] },
   skipper: { name: 'Ο Καπετάνιος Σταύρος', look: 'skipper', team: [{ sp: 'efoplistakos', lv: 17 }, { sp: 'fakelarchis', lv: 18 }], items: [] },
   rival3: { name: 'Ο Μπέμπης', look: 'rival', team: [{ sp: 'fakelarchis', lv: 17 }, { sp: '$rivalEvo', lv: 18 }], items: ['souvlaki'] },
   bougatsas: { name: 'Ο Κύριος Μπουγάτσας', look: 'bougatsas', boss: true, bonus: 200,
     victory: { flag: 'badge_notia', win2: 'boss.bougatsas.win2', title: 'badge.notia.title', sub: 'badge.notia.sub', win3: 'boss.bougatsas.win3', ribbon: '#2f9a96' },
-    boost: 1.37, team: [{ sp: 'kafenovios', lv: 18 }, { sp: 'frapedoros', lv: 19 }, { sp: 'giagiaka', lv: 20 }], items: ['souvlaki'] },
+    boost: 1.185, team: [{ sp: 'kafenovios', lv: 18 }, { sp: 'efoplistakos', lv: 19 }, { sp: 'frapedoros', lv: 19 }, { sp: 'giagiaka', lv: 20 }], items: ['souvlaki'] },
   host: { name: 'Ο Παρουσιαστής Ρεκλαμάκης', look: 'host', recruitable: true, recruitOnly: 'fakelos', bonus: 400,
     team: [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }], items: ['souvlaki'] },
 };
@@ -2276,7 +2276,7 @@ const STRINGS = {
   'npc.glyfada.customer': ['Πήρα νερό. Κοστίζει όσο ένα εισιτήριο. Ένα καλό εισιτήριο.', 'I bought water. It costs as much as a ticket. A good ticket.'],
   'npc.boss.cust1': ['Ένας καφές, δύο ώρες, μία μπουγάτσα για δύο. Έτσι κλείνουν οι συμφωνίες.', 'One coffee, two hours, one bougatsa for two. That is how deals are closed.'],
   'npc.boss.cust2': ['Η συζήτηση ξεκίνησε για την οικονομία. Τελείωσε στο γέμισμα. Πάντα τελειώνει εκεί.', 'The talk started with the economy. It ended at the filling. It always ends there.'],
-  'item.dikigoros': ['Δικηγόρος', 'Δικηγόρος (lawyer)'], 'item.gemista': ['Γεμιστά της Μάνας', 'Γεμιστά της Μάνας (stuffed vegetables)'],
+  'item.dikigoros': ['Δικηγόρος', 'Δικηγόρος (lawyer)'], 'item.gemista': ['Γεμιστά της Μάνας', "Mum's Γεμιστά"],
   'itemd.dikigoros': ['Γιατρεύει 80 ΥΓ και κλείνει κάθε υπόθεση: καμία κατάσταση δεν επιζεί. Με αμοιβή.', 'Heals 80 HP and closes every case: no status survives. Fees apply.'],
   'itemd.gemista': ['Γιατρεύει πλήρως και σβήνει κάθε κατάσταση. Με τη Μάνα δεν διαφωνεί κανείς.', 'Full heal and clears every status. Nobody argues with Mum.'],
   'tr.lifeguard.intro': ['Η παραλία είναι δωρεάν! Μόνο η σκιά χρεώνεται. Έλα να τα πούμε.', 'The beach is free! Only the shade is charged. Come, let us talk.'],
@@ -2290,7 +2290,7 @@ const STRINGS = {
   'tr.conductor.after': ['Το τραμ ήρθε. Άργησε μόνο τρεις ώρες. Ρεκόρ.', 'The tram came. It was only three hours late. A record.'],
   'tr.golfer.intro': ['Η έκταση είναι τεράστια και άδεια. Ιδανική για μία τρύπα και μία μάχη.', 'The land is huge and empty. Ideal for one hole and one battle.'],
   'tr.golfer.win': ['Η μπάλα χάθηκε. Μαζί με τη μισή μου περιουσία.', 'The ball is lost. Together with half my estate.'],
-  'tr.golfer.after': ['Παίζω εδώ από πριν χτίσουν. Και από πριν σταματήσουν.', 'I have played here since before they built. And before they stopped.'],
+  'tr.golfer.after': ['Παίζω εδώ από πριν αρχίσουν να χτίζουν. Και από πριν σταματήσουν.', 'I have played here since before they built. And before they stopped.'],
   'tr.surfer.intro': ['Πρόσεξε το φόντο! Αύριο έχω ανάρτηση με χορηγό. Μπορώ να σε βάλω στο καρέ;', 'Mind the background! Tomorrow I have a sponsored post. May I put you in the frame?'],
   'tr.surfer.win': ['Εσύ βγήκες καλύτερα στη φωτογραφία. Αδικία.', 'You came out better in the photo. Unfair.'],
   'tr.surfer.after': ['Η ανάρτηση ανέβηκε. Το φίλτρο το έφτιαξε ο ήλιος.', 'The post is up. The sun made the filter.'],
@@ -2300,7 +2300,7 @@ const STRINGS = {
   'tr.rival3.intro': ['Εσύ ξανά! Ο θείος μου έφερε εξέλιξη. Με απευθείας ανάθεση.', 'You again! My uncle got me an evolution. By direct assignment.'],
   'tr.rival3.win': ['Θα τηλεφωνήσω ξανά. Αυτή τη φορά σε υψηλότερο όροφο.', 'I will call again. This time to a higher floor.'],
   'tr.rival3.after': ['Ο Μπέμπης έφυγε. Πήρε το ασανσέρ προς τα πάνω.', 'Bebis left. He took the lift up.'],
-  'tr.bougatsas.intro': ['Καλώς ήρθες στη Μεγάλη Προκυμαία. Εδώ κάθε συζήτηση τελειώνει στο γέμισμα της μπουγάτσας. Κάτσε, {ανιψιέ|ανιψιά}.', 'Welcome to the Great Waterfront. Here every talk ends at the filling of the bougatsa. Sit down, nephew.'],
+  'tr.bougatsas.intro': ['Καλώς ήρθες στη Μεγάλη Προκυμαία. Εδώ κάθε συζήτηση τελειώνει στο γέμισμα της μπουγάτσας. Τα δικά μου τρώνε μπουγάτσα με διπλή κρέμα. Κάτσε, {ανιψιέ|ανιψιά}.', 'Welcome to the Great Waterfront. Here every talk ends at the filling of the bougatsa. Mine eat bougatsa with double cream. Sit down, nephew.'],
   'tr.bougatsas.win': ['Ωραία. Το Παράσημο είναι δικό σου. Η μπουγάτσα όμως είναι δική μου.', 'Fine. The medal is yours. The bougatsa, though, is mine.'],
   'tr.bougatsas.after': ['Η συζήτηση συνεχίζεται. Δεν θα καταλήξει πουθενά, αλλά με άχνη ζάχαρη.', 'The talk goes on. It will end nowhere, but with powdered sugar.'],
   'boss.bougatsas.win2': ['Κέρδισες. Το Παράσημο Παραλιακής είναι δικό σου, με τον όρο να πληρώσεις τον καφέ.', 'You won. The Coast Medal is yours, on the condition that you pay for the coffee.'],
@@ -5211,6 +5211,7 @@ ShopLayer.prototype.update = function () {
   Sound.sfx('buy');
   this.message = T('shop.bought', { item: T('item.' + itemId) });
 };
+const SHOP_NAME_MAX_W = 116; // the item name starts at x 18 and the count column ends at x 150 ("x99" is about 16 px wide)
 ShopLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.font = FONT;
@@ -5297,8 +5298,20 @@ function getEnvelopeSprite() {
   envelopeSprite = p.canvas;
   return envelopeSprite;
 }
+// The mark of a boosted creature (a boss' creature with mon.boost, section 11.12): how far left of the panel's right text edge a small arrow is drawn, 0 = no mark.
+// Measured once when the creature is sent out, never per frame.
+function boostMarkOffset(mon, lvText) {
+  if (!mon.boost) return 0;
+  ctx.font = FONT;
+  return Math.ceil(ctx.measureText(lvText).width) + BOOST_MARK_W + 3;
+}
+const BOOST_MARK_W = 5;
+function drawBoostMark(x, y) {
+  ctx.fillStyle = COLOR.red;
+  ctx.fillRect(x + 2, y, 1, 1); ctx.fillRect(x + 1, y + 1, 3, 1); ctx.fillRect(x, y + 2, 5, 1); ctx.fillRect(x + 2, y + 3, 1, 3);
+}
 function newBattleView() {
-  return { sp: null, visible: false, name: '', lvText: '', hpText: '', shown: 0, target: 0, max: 1, lastShown: -1, status: null, dx: 0, dy: 0, alpha: 1, scale: 1, hidden: false };
+  return { sp: null, visible: false, name: '', lvText: '', boostMark: 0, hpText: '', shown: 0, target: 0, max: 1, lastShown: -1, status: null, dx: 0, dy: 0, alpha: 1, scale: 1, hidden: false };
 }
 function BattleLayer(battle, trainer, theme) {
   this.opaque = true;
@@ -5494,6 +5507,7 @@ BattleLayer.prototype.playEvents = async function (events) {
     else if (ev.k === 'send') {
       view.sp = ev.sp; view.name = speciesName(ev.sp); view.max = ev.max; view.shown = ev.hp; view.target = ev.hp; view.lastShown = -1;
       view.status = ev.status; view.visible = true; view.hidden = false; view.lvText = T('ui.lv') + battle.sides[ev.side].party[battle.sides[ev.side].active].lv;
+      view.boostMark = boostMarkOffset(battle.sides[ev.side].party[battle.sides[ev.side].active], view.lvText);
       if (ev.side === 1) this.trainerLook = null;
       await this.startFx('enter', ev.side, OPT.reduceMotion ? 1 : 16);
     } else if (ev.k === 'hp') {
@@ -5579,6 +5593,7 @@ BattleLayer.prototype.drawPollPanel = function (view, x, showHp) {
   drawPanel(x, y, w, POLL_PANEL.h);
   drawText(view.name, x + 6, y + 4, COLOR.ink);
   drawText(view.lvText, x + w - 6, y + 4, COLOR.ink, 'right');
+  if (view.boostMark > 0) drawBoostMark(x + w - 6 - view.boostMark, y + 5);
   ctx.font = FONT_SMALL;
   drawText(T('battle.poll'), x + 6, y + 15, COLOR.red);
   ctx.font = FONT;
@@ -6304,15 +6319,23 @@ async function selfTest() {
       G.starter = 'psaltak';
       G.money = 0; delete G.flags.badge_notia; delete G.flags.t_bougatsas; G.flags.badge = true; delete G.flags.credits;
       const boss = world.visibleNpcs().find(function (npc) { return npc.def.id === 'bougatsas'; });
-      let sawBadge = false; let sawCard = false; let sawCredits = false; let finished = false;
+      let sawBadge = false; let sawCard = false; let sawCredits = false; let finished = false; let sawMark = false; let markOnPlayer = false;
       world.busy = true; // as the game does while a scene runs: the A presses of this test do not start a second talk
       world.challenge(boss, false).then(function () { world.busy = false; finished = true; });
       await pumpUntil(function () {
         sawBadge = sawBadge || layers.some(function (l) { return l instanceof BadgeLayer; });
         sawCard = sawCard || layers.some(function (l) { return l instanceof ChapterLayer; });
         sawCredits = sawCredits || layers.some(function (l) { return l instanceof CreditsLayer; });
+        sawMark = sawMark || layers.some(function (l) { return l instanceof BattleLayer && l.views[1].boostMark > 0; });
+        markOnPlayer = markOnPlayer || layers.some(function (l) { return l instanceof BattleLayer && l.views[0].boostMark > 0; });
         return finished;
       }, 12000, 'a', 6);
+      const markFoes = [];
+      for (const trainerId of Object.keys(TRAINERS)) {
+        const marked = buildTrainerTeam(trainerId, 'komma').some(function (mon) { return boostMarkOffset(mon, 'Lv 20') > 0; });
+        if (marked !== (trainerId === 'bougatsas')) markFoes.push(trainerId);
+      }
+      check('the boost mark shows beside the level of the boss\' creatures only (not the player\'s, not any other trainer\'s) and the boss fight showed it', sawMark && !markOnPlayer && markFoes.length === 0 && boostMarkOffset(makeMon('komma', 20), 'Lv 20') === 0, [sawMark, markOnPlayer, markFoes.join(',')].join(' '));
       check('the boss fight is won through the UI: prize 20 x 30 + 200, the flag badge_notia, the badge card, no chapter card, no credits roll', finished && G.flags.t_bougatsas === true && G.flags.badge_notia === true && sawBadge && !sawCard && !sawCredits && !G.flags.credits && G.money === 800,
         [finished, G.flags.t_bougatsas, G.flags.badge_notia, sawBadge, sawCard, sawCredits, G.flags.credits, G.money].join(' '));
       // A lost fight sends the player back to the last hospital and sets no badge (the rules already cover the numbers; this is the flag path).
@@ -6347,6 +6370,16 @@ async function selfTest() {
       }
       OPT.lang = language;
       check('the Coast Medal texts and the names of the new maps fit the screen in both languages', tooWide.length === 0, tooWide.join(','));
+      // The shop's name column: from x 18 to the count column at x 150 (right-aligned "x99" is about 16 px wide), so a name may be 116 px at most.
+      const wideNames = [];
+      ctx.font = FONT;
+      for (const lang of ['el', 'en']) {
+        for (const id of Object.keys(ITEMS)) {
+          const nameWidth = Math.ceil(ctx.measureText(lookupString('item.' + id, lang)).width);
+          if (nameWidth > SHOP_NAME_MAX_W) wideNames.push(lang + ' ' + id + ' ' + nameWidth);
+        }
+      }
+      check('every item name fits the shop name column (' + SHOP_NAME_MAX_W + ' px) in both languages', wideNames.length === 0, wideNames.join(', '));
       G.party[0] = makeMon('komma', 16);
       runEvolutions();
       await pumpUntil(function () { return G.party[0].sp === 'vouleftakos' && topLayer() === world; }, 600, null, 1);
