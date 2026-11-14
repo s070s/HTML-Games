@@ -1,8 +1,8 @@
-// Balance script: simulates the port boss fight (Ο Λιμενάρχης Κώτσος) with an AI-played player team, then the Πειραιάς XP band and route 2, then Νότια.
+// Balance script: simulates the port boss fight (Ο Λιμενάρχης Κώτσος) with an AI-played player team, then the Πειραιάς XP band and route 2, then Νότια, then Ανατολικά, then Βόρεια, then Δυτικά.
 // Usage: node Mizamon/tools/balance.mjs [runs]   (default 500 runs per row)
 // The player team is one random starter plus five random route creatures, all at the same level
 // (or lagging two levels behind), played by the same AI as the opponent, with two Σουβλάκι to use.
-import { loadRules, xpBand, notiaTeam, bossWinRate, starterBossRate, bossBands } from './run-tests.mjs';
+import { loadRules, xpBand, notiaTeam, anatolikaTeam, voreiaTeam, dytikaTeam, bossWinRate, starterBossRate, bossBands } from './run-tests.mjs';
 
 const R = loadRules();
 const runs = Number(process.argv[2]) || 500;
@@ -129,4 +129,131 @@ for (const level of [17, 19]) {
     wins += R.simulateBattle([starter], [R.makeMon('kafenovios', level)], kafenoviosRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
   }
   console.log('Wild Καφενόβιος L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
+}
+
+// ---- Ανατολικά (MZ-WORLD-02c): the XP band, the boss @influencεr_Φαίη, the seven trainers ----
+console.log('');
+const anatolikaBand = xpBand(R, 'anatolika');
+console.log('Ανατολικά XP band (section 11.4): boss top level ' + anatolikaBand.top + ', XP needed for three creatures ' + anatolikaBand.need + ', XP of the ' + anatolikaBand.trainerIds.length + ' trainers ' + anatolikaBand.trainerXp +
+  ' (' + (100 * anatolikaBand.trainerShare).toFixed(0) + '% of the need), a route 6 wild fight pays ' + anatolikaBand.wildXp.toFixed(0) + ' on average, wild fights still needed ' + anatolikaBand.wildFights + ' (limit 10)');
+const faia = R.TRAINERS.faia;
+console.log('Boss fight Ανατολικά, ' + runs + ' runs per row. Boss team: ' + faia.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + (faia.boost ? ' (stat boost x' + faia.boost + ')' : ' (no boost)') + ', one ' + faia.items.join('/') + '. Player: a starter in its middle form plus creatures of Ανατολικά, all at the level shown, two Σουβλάκι');
+console.log('level | team                       | win rate | band of the test');
+const faiaTop = faia.team.reduce((best, m) => Math.max(best, m.lv), 0);
+for (const [label, offset, size, items, low, high] of bossBands(R, 'faia')) {
+  const rate = bossWinRate(R, 'faia', faiaTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000);
+  console.log(String(faiaTop + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + (100 * rate).toFixed(1).padStart(7) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0) + '%');
+}
+console.log('Per starter, six creatures, two Σουβλάκι (' + runs + ' runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1)');
+console.log('boss      | starter    | top plus 1 | top minus 1 | top minus 3');
+for (const starter of R.STARTERS) {
+  const cell = (offset) => (100 * starterBossRate(R, 'faia', starter, faiaTop + offset, 6, runs, 8000)).toFixed(1).padStart(9) + '%';
+  console.log('faia'.padEnd(9) + ' | ' + starter.padEnd(10) + ' | ' + cell(1) + ' | ' + cell(-1) + ' | ' + cell(-3));
+}
+console.log('Ανατολικά trainer fights, ' + runs + ' runs per cell (player: a middle-form starter plus creatures of Ανατολικά, all at the level shown, no items)');
+console.log('trainer (team)                                                       | level | 6 creatures | 3 creatures');
+for (const trainerId of anatolikaBand.trainerIds) {
+  const label = R.TRAINERS[trainerId].name + ' (' + R.buildTrainerTeam(trainerId, 'komma').map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ')';
+  for (const level of [23, 24, 25]) {
+    const cell = (size) => {
+      const rng = R.makeRng(7000 + level * 10 + size);
+      let wins = 0;
+      for (let i = 0; i < runs; i++) if (R.simulateBattle(anatolikaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { foeItems: R.TRAINERS[trainerId].items, playerItems: [] }).winner === 0) wins++;
+      return (100 * wins / runs).toFixed(1) + '%';
+    };
+    console.log(label.padEnd(68) + ' | ' + String(level).padStart(5) + ' | ' + cell(6).padStart(11) + ' | ' + cell(3).padStart(11));
+  }
+}
+const monastiriakiRng = R.makeRng(23);
+for (const level of [20, 22]) {
+  let wins = 0;
+  for (let i = 0; i < runs; i++) {
+    const starter = R.makeMon(R.pickOne(monastiriakiRng, R.STARTERS), level);
+    R.evolveMon(starter);
+    wins += R.simulateBattle([starter], [R.makeMon('monastiriaki', level)], monastiriakiRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
+  }
+  console.log('Wild Μοναστηριάκι L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
+}
+
+// ---- Βόρεια (MZ-WORLD-02d): the XP band, the boss DJ Αμαρτία, the seven trainers ----
+console.log('');
+const voreiaBand = xpBand(R, 'voreia');
+console.log('Βόρεια XP band (section 11.4): boss top level ' + voreiaBand.top + ', XP needed for three creatures ' + voreiaBand.need + ', XP of the ' + voreiaBand.trainerIds.length + ' trainers ' + voreiaBand.trainerXp +
+  ' (' + (100 * voreiaBand.trainerShare).toFixed(0) + '% of the need), a route 8 wild fight pays ' + voreiaBand.wildXp.toFixed(0) + ' on average, wild fights still needed ' + voreiaBand.wildFights + ' (limit 10)');
+const amartia = R.TRAINERS.amartia;
+console.log('Boss fight Βόρεια, ' + runs + ' runs per row. Boss team: ' + amartia.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + (amartia.boost ? ' (stat boost x' + amartia.boost + ')' : ' (no boost)') + ', one ' + amartia.items.join('/') + '. Player: a starter in its last form from level 32 plus creatures of Βόρεια, all at the level shown, two Σουβλάκι');
+console.log('level | team                       | win rate | band of the test');
+const amartiaTop = amartia.team.reduce((best, m) => Math.max(best, m.lv), 0);
+for (const [label, offset, size, items, low, high] of bossBands(R, 'amartia')) {
+  const rate = bossWinRate(R, 'amartia', amartiaTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000);
+  console.log(String(amartiaTop + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + (100 * rate).toFixed(1).padStart(7) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0) + '%');
+}
+console.log('Per starter, six creatures, two Σουβλάκι (' + runs + ' runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1)');
+console.log('boss      | starter    | top plus 1 | top minus 1 | top minus 3');
+for (const starter of R.STARTERS) {
+  const cell = (offset) => (100 * starterBossRate(R, 'amartia', starter, amartiaTop + offset, 6, runs, 8000)).toFixed(1).padStart(9) + '%';
+  console.log('amartia'.padEnd(9) + ' | ' + starter.padEnd(10) + ' | ' + cell(1) + ' | ' + cell(-1) + ' | ' + cell(-3));
+}
+console.log('Βόρεια trainer fights, ' + runs + ' runs per cell (player: a middle-form starter plus creatures of Βόρεια, all at the level shown, no items)');
+console.log('trainer (team)                                                       | level | 6 creatures | 3 creatures');
+for (const trainerId of voreiaBand.trainerIds) {
+  const label = R.TRAINERS[trainerId].name + ' (' + R.buildTrainerTeam(trainerId, 'komma').map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ')';
+  for (const level of [28, 29, 30]) {
+    const cell = (size) => {
+      const rng = R.makeRng(9000 + level * 10 + size);
+      let wins = 0;
+      for (let i = 0; i < runs; i++) if (R.simulateBattle(voreiaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { foeItems: R.TRAINERS[trainerId].items, playerItems: [] }).winner === 0) wins++;
+      return (100 * wins / runs).toFixed(1) + '%';
+    };
+    console.log(label.padEnd(68) + ' | ' + String(level).padStart(5) + ' | ' + cell(6).padStart(11) + ' | ' + cell(3).padStart(11));
+  }
+}
+const rialitoRng = R.makeRng(29);
+for (const level of [28, 30]) {
+  let wins = 0;
+  for (let i = 0; i < runs; i++) {
+    const starter = R.makeMon(R.pickOne(rialitoRng, R.STARTERS), level);
+    R.evolveMon(starter);
+    wins += R.simulateBattle([starter], [R.makeMon('rialito', level)], rialitoRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
+  }
+  console.log('Wild Ριάλιτο-Νταής L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
+}
+// ---- Δυτικά (MZ-WORLD-02e): the XP band, the boss Ο Ηγούμενος Πλουσιάκης, the seven trainers ----
+console.log('');
+const dytikaBand = xpBand(R, 'dytika');
+console.log('Δυτικά XP band (section 11.4): boss top level ' + dytikaBand.top + ', XP needed for three creatures ' + dytikaBand.need + ', XP of the ' + dytikaBand.trainerIds.length + ' trainers ' + dytikaBand.trainerXp +
+  ' (' + (100 * dytikaBand.trainerShare).toFixed(0) + '% of the need), a route 10 wild fight pays ' + dytikaBand.wildXp.toFixed(0) + ' on average, wild fights still needed ' + dytikaBand.wildFights + ' (limit 10)');
+const plousiakis = R.TRAINERS.plousiakis;
+console.log('Boss fight Δυτικά, ' + runs + ' runs per row. Boss team: ' + plousiakis.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + (plousiakis.boost ? ' (stat boost x' + plousiakis.boost + ')' : ' (no boost)') + ', ' + (plousiakis.items.length ? plousiakis.items.length + ' x ' + plousiakis.items[0] : 'nothing') + ' in his bag. Player: a starter in its last form plus creatures of Δυτικά, all at the level shown, two Σουβλάκι');
+console.log('level | team                       | win rate | band of the test');
+const plousiakisTop = plousiakis.team.reduce((best, m) => Math.max(best, m.lv), 0);
+for (const [label, offset, size, items, low, high] of bossBands(R, 'plousiakis')) {
+  const rate = bossWinRate(R, 'plousiakis', plousiakisTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000);
+  console.log(String(plousiakisTop + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + (100 * rate).toFixed(1).padStart(7) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0) + '%');
+}
+console.log('Per starter, six creatures, two Σουβλάκι (' + runs + ' runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1)');
+console.log('boss      | starter    | top plus 1 | top minus 1 | top minus 3');
+for (const starter of R.STARTERS) {
+  const cell = (offset) => (100 * starterBossRate(R, 'plousiakis', starter, plousiakisTop + offset, 6, runs, 8000)).toFixed(1).padStart(9) + '%';
+  console.log('plousiakis'.padEnd(9) + ' | ' + starter.padEnd(10) + ' | ' + cell(1) + ' | ' + cell(-1) + ' | ' + cell(-3));
+}
+console.log('Δυτικά trainer fights, ' + runs + ' runs per cell (player: a last-form starter plus creatures of Δυτικά, all at the level shown, no items)');
+console.log('trainer (team)                                                       | level | 6 creatures | 3 creatures');
+for (const trainerId of dytikaBand.trainerIds) {
+  const label = R.TRAINERS[trainerId].name + ' (' + R.buildTrainerTeam(trainerId, 'komma').map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ')';
+  for (const level of [35, 36, 37]) {
+    const cell = (size) => {
+      const rng = R.makeRng(9500 + level * 10 + size);
+      let wins = 0;
+      for (let i = 0; i < runs; i++) if (R.simulateBattle(dytikaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { foeItems: R.TRAINERS[trainerId].items, playerItems: [] }).winner === 0) wins++;
+      return (100 * wins / runs).toFixed(1) + '%';
+    };
+    console.log(label.padEnd(68) + ' | ' + String(level).padStart(5) + ' | ' + cell(6).padStart(11) + ' | ' + cell(3).padStart(11));
+  }
+}
+// The earlier bosses are measured again when a new evolution or pool entry can reach their levels (here none can: the new evolutions start at level 36 and the highest earlier player level is 33).
+for (const [bossId, label] of [['amartia', 'DJ Αμαρτία']]) {
+  const bossTop = R.TRAINERS[bossId].team.reduce((best, m) => Math.max(best, m.lv), 0);
+  const cells = bossBands(R, bossId).map(([bandLabel, offset, size, items]) => (100 * bossWinRate(R, bossId, bossTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000)).toFixed(1) + '%');
+  console.log('Control, ' + label + ' (top plus 1 / top minus 1 / top minus 3 / top with three creatures): ' + cells.join(' / '));
 }
