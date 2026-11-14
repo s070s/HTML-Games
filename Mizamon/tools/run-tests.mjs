@@ -4528,6 +4528,34 @@ test('accessibility large text: a question or title is said to the screen reader
   run('Caption.sync(true)');
   assert.equal(page.bar.textContent, 'Plain');
   assert.equal(page.bar.children.length, 0);
+  // the same screen with another question says that question again (it is tracked by the question text, not only the screen)
+  const quiz = { context: 'First?', caption() { return { context: this.context, text: 'A' }; } };
+  layers.push(quiz);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'first question: said');
+  quiz.context = 'Second?';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'the same screen, a new question: said again');
+  assert.equal(run('Caption.contextText'), 'Second?');
+  layers.push({ caption: () => 'Plain' });
+  run('Caption.sync(true)');
+  assert.equal(run('Caption.contextText'), null, 'a plain text clears what was said');
+  assert.equal(run('Caption.contextLayer'), null);
+});
+
+test('accessibility large text: the satire notice captions a Greek and an English line, and the bar gives each its own language', () => {
+  const noticeRun = engineSandbox(['NoticeLayer.prototype.caption = function'], 'function NoticeLayer() {}',
+    { lookupString: (key, lang) => key + '/' + lang });
+  const notice = JSON.parse(JSON.stringify(noticeRun('NoticeLayer.prototype.caption.call({})')));
+  assert.deepEqual(notice, { parts: [{ text: 'notice.line1/el', lang: 'el' }, { text: 'notice.line2/en', lang: 'en' }] });
+  const { page, layers, run } = captionSandbox({ lang: 'el' });
+  layers.push({ caption: () => notice });
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children.length, 3, 'two spans with a space between');
+  assert.deepEqual([page.bar.children[0].lang, page.bar.children[2].lang], ['el', 'en']);
+  assert.equal(page.bar.children[1].ownText, ' ');
+  assert.equal(page.bar.textContent, 'notice.line1/el notice.line2/en', 'the same text as the caption string, no trailing space');
+  assert.equal(run('captionString(' + JSON.stringify(notice) + ')'), 'notice.line1/el notice.line2/en');
 });
 
 test('accessibility large text: the real choice, gender and name screens answer { context, text } (the question, then the row or key)', () => {
@@ -4570,7 +4598,7 @@ test('accessibility large text: the credits caption only the line that just came
   const fourTimesASecond = heardWith(15); // how often the bar reads the screen
   assert.equal(new Set(fourTimesASecond).size, fourTimesASecond.length, 'no line twice');
   assert.deepEqual(fourTimesASecond, lines.filter((line) => fourTimesASecond.includes(line)), 'in order');
-  assert.ok(fourTimesASecond.length >= lines.length - 3);
+  assert.deepEqual(fourTimesASecond, lines.filter((line) => line), 'lines are 28 frames apart and the bar reads every 15: none is missed');
   assert.equal(run('CreditsLayer.prototype.caption.call({ lines: null, frame: 0 })'), null, 'before the lines exist: nothing');
 });
 
@@ -4582,11 +4610,11 @@ test('accessibility large text: the battle bar starts with both sides (name, lev
   const view = (name, lv, hp, visible = true) => ({ name, lvText: lv, hpText: hp, visible });
   const layer = { mode: 'root', rootPrompt: ['What now?'], rootCursor: 1, moveCursor: 0, moveType: 'pol', moveInfo: 'Power 5', battle: {}, views: [view('Komma', 'Lv 12', '30/45'), view('Fakelakis', 'Lv 3', '9/9')], box: { pageText: () => 'Ticker page' } };
   const onBattle = (fields) => 'BattleLayer.prototype.caption.call(Object.assign(Object.create(BattleLayer.prototype), ' + fields + '))';
-  const caption = (mode) => { layer.mode = mode; return run(onBattle(JSON.stringify(layer))).replace(/\s+/g, ' '); }; // JSON drops the box function: it is only read in the text mode, below
-  assert.equal(caption('root'), 'Komma Lv 12 30/45. Fakelakis Lv 3. What now? bag', 'the player: name, level, HP; the foe: name and level only (its HP numbers are not drawn)');
-  assert.equal(caption('moves'), 'Komma Lv 12 30/45. Fakelakis Lv 3. Slap: type.pol, Power 5');
+  const caption = (mode) => { layer.mode = mode; return JSON.parse(JSON.stringify(run(onBattle(JSON.stringify(layer))))); }; // JSON drops the box function: it is only read in the text mode, below
+  assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3. What now?', text: 'bag' }, 'the player: name, level, HP; the foe: name and level only (its HP numbers are not drawn); the row apart, so a cursor move reads only the row');
+  assert.deepEqual(caption('moves'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3', text: 'Slap: type.pol, Power 5' });
   layer.views[1].visible = false;
-  assert.equal(caption('root'), 'Komma Lv 12 30/45. What now? bag', 'a side that is not shown is not said');
+  assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. What now?', text: 'bag' }, 'a side that is not shown is not said');
   layer.views[1].visible = true;
   const ticker = run(onBattle('{ mode: "text", box: { pageText: () => "Ticker page" }, views: [] }'));
   assert.equal(ticker, 'Ticker page', 'the ticker text stays as it is');

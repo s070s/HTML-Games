@@ -5411,7 +5411,7 @@ function applyTouchHand(portrait) {
 // A screen with a question or a title and a chosen row answers { context, text }: the bar always shows both, but the screen reader is told the context only the first
 // time the screen is read (the context is hidden from it, aria-hidden, afterwards), so moving the cursor says only the chosen row.
 const Caption = {
-  element: document.getElementById('caption'), text: null, baseFont: 0, ticks: 0, contextLayer: null,
+  element: document.getElementById('caption'), text: null, baseFont: 0, ticks: 0, contextLayer: null, contextText: null,
   apply: function (layout) {
     const style = this.element.style;
     this.text = null; // the next sync() writes the text again
@@ -5452,11 +5452,23 @@ const Caption = {
   write: function (top, caption) {
     const element = this.element;
     element.lang = OPT.lang;
-    if (typeof caption === 'string') { element.textContent = caption; return; }
+    if (typeof caption === 'string') { element.textContent = caption; this.contextLayer = null; this.contextText = null; return; }
+    if (caption.parts) { // lines in different languages: each span names its own
+      element.textContent = '';
+      caption.parts.forEach(function (part, index) {
+        if (index > 0) element.appendChild(document.createTextNode(' '));
+        const span = document.createElement('span');
+        span.lang = part.lang;
+        span.textContent = part.text;
+        element.appendChild(span);
+      });
+      this.contextLayer = null; this.contextText = null;
+      return;
+    }
     const context = document.createElement('span');
     context.textContent = caption.context + ' ';
-    if (this.contextLayer === top) context.setAttribute('aria-hidden', 'true'); // said already: the screen reader hears only the text
-    this.contextLayer = top;
+    if (this.contextLayer === top && this.contextText === caption.context) context.setAttribute('aria-hidden', 'true'); // said already: the screen reader hears only the text
+    this.contextLayer = top; this.contextText = caption.context;
     element.textContent = '';
     element.appendChild(context);
     element.appendChild(document.createTextNode(caption.text));
@@ -8070,7 +8082,7 @@ function boot() {
 // Never a second place that holds a text: every caption is built from the same strings and values the screen draws.
 function joinCaption(parts) { return parts.filter(function (part) { return part; }).join('. '); }
 // The whole text of a caption, as the bar shows it: a plain string, or { context, text } (a question or a title, then the chosen row).
-function captionString(caption) { return typeof caption === 'string' ? caption : caption.context + ' ' + caption.text; }
+function captionString(caption) { if (typeof caption === 'string') return caption; if (caption.parts) return caption.parts.map(function (part) { return part.text; }).join(' '); return caption.context + ' ' + caption.text; }
 DialogLayer.prototype.caption = function () { return this.box.pageText(); };
 ChoiceLayer.prototype.caption = function () {
   const below = layers[layers.indexOf(this) - 1];
@@ -8097,7 +8109,7 @@ CreditsLayer.prototype.caption = function () {
   }
   return newest;
 };
-NoticeLayer.prototype.caption = function () { return lookupString('notice.line1', 'el') + ' ' + lookupString('notice.line2', 'en'); };
+NoticeLayer.prototype.caption = function () { return { parts: [{ text: lookupString('notice.line1', 'el'), lang: 'el' }, { text: lookupString('notice.line2', 'en'), lang: 'en' }] }; };
 TitleLayer.prototype.caption = function () { return joinCaption(['MIZAMON', T('title.sub')]); };
 GenderLayer.prototype.caption = function () { return { context: T('gender.title'), text: T(this.cursor === 0 ? 'gender.m' : 'gender.f') }; };
 NameLayer.prototype.caption = function () {
@@ -8163,8 +8175,8 @@ BattleLayer.prototype.sidesCaption = function () {
 };
 BattleLayer.prototype.caption = function () {
   if (this.mode === 'text') return this.box.pageText();
-  if (this.mode === 'root') return joinCaption([this.sidesCaption(), this.rootPrompt.join(' ') + ' ' + T(ROOT_LABELS[this.rootCursor])]);
-  if (this.mode === 'moves') return joinCaption([this.sidesCaption(), MOVES[activeMon(this.battle, 0).moves[this.moveCursor]].n + ': ' + T('type.' + this.moveType) + ', ' + this.moveInfo]);
+  if (this.mode === 'root') return { context: joinCaption([this.sidesCaption(), this.rootPrompt.join(' ')]), text: T(ROOT_LABELS[this.rootCursor]) };
+  if (this.mode === 'moves') return { context: this.sidesCaption(), text: MOVES[activeMon(this.battle, 0).moves[this.moveCursor]].n + ': ' + T('type.' + this.moveType) + ', ' + this.moveInfo };
   return null;
 };
 
@@ -9851,6 +9863,12 @@ async function accessibilityChecks(check) {
     const questionHidden = Caption.element.querySelector('[aria-hidden="true"]');
     check('large text: a question is said once, then only the chosen row is read', questionSpoken && questionHidden !== null && questionHidden.textContent === 'Question? ' && Caption.element.textContent === 'Question? BBB',
       'spoken first ' + questionSpoken + ', hidden after ' + (questionHidden ? '"' + questionHidden.textContent + '"' : 'no') + ', shows "' + Caption.element.textContent + '"');
+    // The satire notice has a Greek and an English line: the bar gives each its own language.
+    const noticeLayer = new NoticeLayer();
+    layers.length = 0; layers.push(noticeLayer);
+    Caption.sync(true);
+    const noticeSpans = Caption.element.querySelectorAll('span');
+    check('large text: the notice bar has two spans, one Greek and one English', noticeSpans.length === 2 && noticeSpans[0].lang === 'el' && noticeSpans[1].lang === 'en', noticeSpans.length + ' spans');
     // The credits are read one line at a time, each line once, in order.
     const roll = new CreditsLayer(); roll.lines = T('credits.text').split('\n');
     const heard = [];
@@ -9860,15 +9878,16 @@ async function accessibilityChecks(check) {
       if (line !== null && heard[heard.length - 1] !== line) heard.push(line);
     }
     const spoken = roll.lines.filter(function (line) { return line; });
-    check('large text: the credits caption one line at a time, each line once, in order (' + heard.length + ' lines)', heard.length > 5 && heard.every(function (line) { return roll.lines.indexOf(line) >= 0; }) && new Set(heard).size === heard.length
+    check('large text: the credits caption one line at a time, each line once, in order (' + heard.length + ' lines)', heard.length === spoken.length && heard.every(function (line) { return roll.lines.indexOf(line) >= 0; }) && new Set(heard).size === heard.length
       && heard.every(function (line, index) { return index === 0 || roll.lines.indexOf(line) > roll.lines.indexOf(heard[index - 1]); }), heard.slice(0, 3).join(' | ') + ' of ' + spoken.length);
     // The battle bar begins with who is fighting: name and level of both sides, the HP of the player's side.
     for (const mode of ['root', 'moves']) {
       const fight = a11yBattle(mode);
-      const line = fight.caption();
+      const line = captionString(fight.caption());
       const mine = fight.views[0];
       const foe = fight.views[1];
-      check('large text: the battle bar (' + mode + ') says both names and levels and the HP of the player side', line.indexOf(mine.name) === 0 && line.indexOf(mine.lvText) > 0 && line.indexOf(mine.hpText) > 0 && line.indexOf(foe.name) > 0 && line.indexOf(foe.lvText) > 0, line);
+      const expected = mine.name + ' ' + mine.lvText + ' ' + mine.hpText + '. ' + foe.name + ' ' + foe.lvText + '. ';
+      check('large text: the battle bar (' + mode + ') starts with both names and levels and the HP of the player side', line.indexOf(expected) === 0, line);
     }
 
     // 2. No text leaves the picture (every screen, every text), and no text leaves the screen (the bar and the buttons) at the largest scale.
