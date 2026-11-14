@@ -4482,7 +4482,7 @@ function fakePage() {
   const document = { getElementById: () => bar, createElement: (tag) => new FakeNode(tag, []), createTextNode: (text) => { const node = new FakeNode('#text', []); node.ownText = text; return node; } };
   return { log, bar, document };
 }
-const CAPTION_SANDBOX = ['const Caption = {', 'function joinCaption', 'function captionString'];
+const CAPTION_SANDBOX = ['const Caption = {', 'function joinCaption', 'function captionLead', 'function captionString'];
 function captionSandbox(optionValues) {
   const page = fakePage();
   const layers = [];
@@ -4613,6 +4613,9 @@ test('accessibility large text: the battle bar starts with both sides (name, lev
   const caption = (mode) => { layer.mode = mode; return JSON.parse(JSON.stringify(run(onBattle(JSON.stringify(layer))))); }; // JSON drops the box function: it is only read in the text mode, below
   assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3. What now?', text: 'bag' }, 'the player: name, level, HP; the foe: name and level only (its HP numbers are not drawn); the row apart, so a cursor move reads only the row');
   assert.deepEqual(caption('moves'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3', text: 'Slap: type.pol, Power 5' });
+  const { run: stringRun } = captionSandbox();
+  assert.equal(stringRun('captionString(' + JSON.stringify(caption('moves')) + ')'), 'Komma Lv 12 30/45. Fakelakis Lv 3. Slap: type.pol, Power 5', 'a full stop between who is fighting and the move, so the reader pauses');
+  assert.equal(stringRun('captionString({ context: "Sure?", text: "Yes" })'), 'Sure? Yes', 'a context that ends in a mark gets no second one');
   layer.views[1].visible = false;
   assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. What now?', text: 'bag' }, 'a side that is not shown is not said');
   layer.views[1].visible = true;
