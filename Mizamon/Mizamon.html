@@ -8295,9 +8295,9 @@ async function selfTest() {
       const markFoes = [];
       for (const trainerId of Object.keys(TRAINERS)) {
         const marked = buildTrainerTeam(trainerId, 'komma').some(function (mon) { return boostMarkOffset(mon, 'Lv 20') > 0; });
-        if (marked !== (trainerId === 'bougatsas')) markFoes.push(trainerId);
+        if (marked !== !!TRAINERS[trainerId].boost) markFoes.push(trainerId); // every boosted boss shows the mark (Μπουγάτσας here; later bosses with a boost, such as Ο Υφυπουργός, too), no other trainer
       }
-      check('the boost mark shows beside the level of the boss\' creatures only (not the player\'s, not any other trainer\'s) and the boss fight showed it', sawMark && !markOnPlayer && markFoes.length === 0 && boostMarkOffset(makeMon('komma', 20), 'Lv 20') === 0, [sawMark, markOnPlayer, markFoes.join(',')].join(' '));
+      check('the boost mark shows beside the level of the boss\' creatures only (not the player\'s, not any other trainer\'s) and the boss fight showed it', sawMark && !!TRAINERS.bougatsas.boost && !markOnPlayer && markFoes.length === 0 && boostMarkOffset(makeMon('komma', 20), 'Lv 20') === 0, [sawMark, markOnPlayer, markFoes.join(',')].join(' '));
       check('the boss fight is won through the UI: prize 20 x 30 + 200, the flag badge_notia, the badge card, no chapter card, no credits roll', finished && G.flags.t_bougatsas === true && G.flags.badge_notia === true && sawBadge && !sawCard && !sawCredits && !G.flags.credits && G.money === 800,
         [finished, G.flags.t_bougatsas, G.flags.badge_notia, sawBadge, sawCard, sawCredits, G.flags.credits, G.money].join(' '));
       // A lost fight sends the player back to the last hospital and sets no badge (the rules already cover the numbers; this is the flag path).
@@ -9134,30 +9134,31 @@ async function selfTest() {
         await settle();
         strongParty();
         const fighter = world.visibleNpcs().find(function (npc) { return npc.def.id === npcId; });
-        const seen = { badge: false, card: false, credits: false, foeLast: null, mark: false, finished: false };
+        const seen = { badge: false, card: false, credits: false, foeLast: null, mark: false, finished: false, delta: 0, gain: 0 }, before = G.money; // delta: what money moves took or gave in the fight (battle.moneyDelta, added after the prize)
         world.busy = true;
         world.challenge(fighter, false).then(function () { world.busy = false; seen.finished = true; });
         await pumpUntil(function () {
           seen.badge = seen.badge || layers.some(function (l) { return l instanceof BadgeLayer; });
           seen.card = seen.card || layers.some(function (l) { return l instanceof ChapterLayer; });
           seen.credits = seen.credits || layers.some(function (l) { return l instanceof CreditsLayer; });
-          for (const l of layers) if (l instanceof BattleLayer) { seen.foeLast = l.battle.sides[1].party[l.battle.sides[1].party.length - 1].sp; seen.mark = seen.mark || l.views[1].boostMark > 0; }
+          for (const l of layers) if (l instanceof BattleLayer) { seen.foeLast = l.battle.sides[1].party[l.battle.sides[1].party.length - 1].sp; seen.mark = seen.mark || l.views[1].boostMark > 0; seen.delta = l.battle.moneyDelta; }
           return seen.finished;
         }, 24000, 'a', 6);
         foeMarked = foeMarked || seen.mark;
+        seen.gain = G.money - before;
         return seen;
       };
       G.money = 0; G.starter = 'psaltak'; delete G.flags.credits; delete G.flags.badge_final; delete G.flags.ending;
       let seen = await fight('parliament_c1', 'euterpe', 5, 4);
-      check('fight 1 through the UI: Ευτέρπη is beaten, the flag t_euterpe, the prize 46 x 30, no badge, no chapter card, no credits', seen.finished && G.flags.t_euterpe === true && G.money === 1380 && !seen.badge && !seen.card && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
+      check('fight 1 through the UI: Ευτέρπη is beaten, the flag t_euterpe, the prize 46 x 30, no badge, no chapter card, no credits', seen.finished && G.flags.t_euterpe === true && seen.gain === 1380 + seen.delta && !seen.badge && !seen.card && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
       seen = await fight('parliament_c2', 'minister', 5, 4);
-      check('fight 2 through the UI: Σπυράδωνις is beaten, the flag t_minister, no badge, no credits', seen.finished && G.flags.t_minister === true && G.money === 1380 + 1410 && !seen.badge && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
+      check('fight 2 through the UI: Σπυράδωνις is beaten, the flag t_minister, no badge, no credits', seen.finished && G.flags.t_minister === true && seen.gain === 1410 + seen.delta && !seen.badge && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
       seen = await fight('parliament_c3', 'rival6', 5, 6);
       check('fight 3 through the UI: Μπέμπης ends with the last form of his starter (psaltak: Κομματάκι, his last form Υπερυπουργός), the flag t_rival6, no badge, no credits', seen.finished && seen.foeLast === 'yperypourgos' && G.flags.t_rival6 === true && !seen.badge && !seen.credits && !G.flags.ending, JSON.stringify(seen));
       check('no fighter of the first three fights shows a boost mark (only the last one has a small boost)', !foeMarked && TRAINERS.euterpe.boost === undefined && TRAINERS.minister.boost === undefined && TRAINERS.rival6.boost === undefined && TRAINERS.undersec.boost === 1.03, JSON.stringify(seen));
       seen = await fight('parliament_plenary', 'undersec', 7, 4);
       check('fight 4 through the UI: the badge card, the credits roll, no chapter card, the flags t_undersec, badge_final and ending, the flag credits untouched', seen.finished && seen.badge && seen.credits && !seen.card && G.flags.t_undersec === true && G.flags.badge_final === true && G.flags.ending === true && !G.flags.credits, JSON.stringify(seen) + ' ' + G.flags.ending);
-      check('after the credits the player stands on the roof, and the prize of the last fight is 50 x 30', world.mapId === 'parliament_roof' && world.px === 4 && world.py === 6 && G.money === 1380 + 1410 + 1440 + 1500, world.mapId + ' ' + world.px + ',' + world.py + ' ' + G.money);
+      check('after the credits the player stands on the roof, and the prize of the last fight is 50 x 30', world.mapId === 'parliament_roof' && world.px === 4 && world.py === 6 && seen.gain === 1500 + seen.delta, world.mapId + ' ' + world.px + ',' + world.py + ' ' + seen.gain + ' ' + seen.delta);
       // The ending: the plenary hall is empty but for the legend, who is met at level 50 and is gone once beaten; the roof saves the game with its ending.
       world.loadMap('parliament_plenary', 7, 4, 'up');
       await settle();
