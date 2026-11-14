@@ -32,16 +32,21 @@
   #touch.landscape [data-btn="a"] { right: 10px; bottom: 70px; width: 62px; height: 62px; border-radius: 50%; font-size: 22px; }
   #touch.landscape [data-btn="b"] { right: 78px; bottom: 20px; width: 52px; height: 52px; border-radius: 50%; }
   #touch.landscape [data-btn="menu"] { right: 10px; top: 10px; bottom: auto; width: 62px; height: 32px; font-size: 12px; border-radius: 16px; }
+  /* One drawn arrow for the four d-pad buttons (no font glyph, so no phone turns it into an emoji): a triangle pointing up, turned by the button. */
+  #touch .arrow { display: block; width: 1.1em; height: 1.1em; background: currentColor; clip-path: polygon(50% 15%, 85% 75%, 15% 75%); pointer-events: none; }
+  #touch [data-btn="down"] .arrow { transform: rotate(180deg); }
+  #touch [data-btn="left"] .arrow { transform: rotate(270deg); }
+  #touch [data-btn="right"] .arrow { transform: rotate(90deg); }
   noscript { position: fixed; inset: 0; color: #f6efdc; padding: 24px; font-size: 18px; }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="screen" width="240" height="160" aria-label="Mizamon"></canvas></div>
 <div id="touch" aria-hidden="true">
-  <div class="btn" data-btn="up">&#9650;</div>
-  <div class="btn" data-btn="down">&#9660;</div>
-  <div class="btn" data-btn="left">&#9664;</div>
-  <div class="btn" data-btn="right">&#9654;</div>
+  <div class="btn" data-btn="up"><span class="arrow"></span></div>
+  <div class="btn" data-btn="down"><span class="arrow"></span></div>
+  <div class="btn" data-btn="left"><span class="arrow"></span></div>
+  <div class="btn" data-btn="right"><span class="arrow"></span></div>
   <div class="btn" data-btn="b">B</div>
   <div class="btn" data-btn="a">A</div>
   <div class="btn" data-btn="menu">MENU</div>
@@ -57,11 +62,12 @@
 // =============================================================================
 
 // ---- Constants --------------------------------------------------------------
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 const SAVE_KEY = 'mizamon.v1.save';
 const OPTIONS_KEY = 'mizamon.v1.options';
 const MAX_LEVEL = 50;
 const PARTY_MAX = 6;
+const ARCHIVE_MAX = 60; // the Αρχείο Ασθενών (creature storage) of the hospital
 const MOVES_MAX = 4;
 const NAME_MAX = 8;
 const DAMAGE_DIVISOR = 90; // damage = power * atk / def * (level + 4) / DAMAGE_DIVISOR
@@ -322,6 +328,32 @@ function cloneMon(mon) {
 function healMon(mon) { mon.hp = maxHp(mon); mon.status = null; }
 function monIsAlive(mon) { return mon.hp > 0 && !mon.removed; }
 function partyHasAlive(party) { return party.some(monIsAlive); }
+
+// ---- Hospital: heal visit and the Αρχείο Ασθενών (creature archive) ---------------------------------
+// The whole team is healed (HP and status). A VIP visit also spends one Φακελάκι, but only when the bag has one:
+// the envelope is never required. Returns true when the VIP service was used.
+function hospitalHeal(party, bag, wantsVip) {
+  const vip = !!wantsVip && (bag.fakelaki || 0) > 0;
+  if (vip) bag.fakelaki -= 1;
+  for (const mon of party) healMon(mon);
+  return vip;
+}
+// A team member can go to the archive only when the archive has room and another team member is still able to fight.
+function canDeposit(party, archive, index) {
+  if (!party[index] || archive.length >= ARCHIVE_MAX) return false;
+  return party.some(function (mon, other) { return other !== index && monIsAlive(mon); });
+}
+function depositMon(party, archive, index) {
+  if (!canDeposit(party, archive, index)) return false;
+  archive.push(party.splice(index, 1)[0]);
+  return true;
+}
+function canWithdraw(party, archive, index) { return !!archive[index] && party.length < PARTY_MAX; }
+function withdrawMon(party, archive, index) {
+  if (!canWithdraw(party, archive, index)) return false;
+  party.push(archive.splice(index, 1)[0]);
+  return true;
+}
 // Adds experience. Returns the list of level-ups; each says which moves were learned
 // at once and which wait for a replace prompt (mon.pend).
 function gainXp(mon, amount) {
@@ -445,7 +477,7 @@ function emitHp(battle, sideIndex) {
 
 // options: kind 'wild' | 'trainer'; trainerId; foeItems; bag (the player's item counts);
 // sunday (Θεία Χάρη doubles); recruitable (trainer creature may be recruited, TV battle);
-// recruitOnly (the one item that works); foeName.
+// recruitOnly (the one item that works); foeName; archive (the player's hospital archive: a recruit with a full team goes there).
 function createBattle(playerParty, foeParty, rng, options) {
   const o = options || {};
   const battle = {
@@ -694,7 +726,10 @@ function doRecruit(battle, itemId) {
   const foe = activeMon(battle, 1);
   if (battle.kind !== 'wild' && !battle.opts.recruitable) { logMsg(battle, 'b.rec.trainer', {}); return; }
   if (battle.opts.recruitOnly && battle.opts.recruitOnly !== itemId) { logMsg(battle, 'b.rec.small', { mon: monRef(battle, 1) }); return; }
-  if (battle.sides[0].party.length >= PARTY_MAX) { logMsg(battle, 'b.rec.full', {}); return; }
+  // A full team sends the recruit to the hospital archive (battle.opts.archive); only a full archive refuses.
+  const teamFull = battle.sides[0].party.length >= PARTY_MAX;
+  const archive = battle.opts.archive;
+  if (teamFull && !(archive && archive.length < ARCHIVE_MAX)) { logMsg(battle, 'b.rec.full', {}); return; }
   if (!SPECIES[foe.sp].rec) { logMsg(battle, 'b.rec.never', { mon: monRef(battle, 1) }); return; }
   battle.bag[itemId] -= 1;
   const chance = recruitChance(foe, itemId);
@@ -705,10 +740,11 @@ function doRecruit(battle, itemId) {
   if (success) {
     const recruit = cloneMon(foe);
     recruit.status = null;
-    battle.sides[0].party.push(recruit);
+    if (teamFull) archive.push(recruit); else battle.sides[0].party.push(recruit);
     battle.recruited.push(recruit);
     emit(battle, { k: 'recruited', sp: foe.sp });
     logMsg(battle, 'b.rec.ok', { mon: monRef(battle, 1) });
+    if (teamFull) logMsg(battle, 'b.rec.archived', { mon: monRef(battle, 1) });
     foe.removed = true;
     foe.hp = 0;
   } else {
@@ -1031,6 +1067,11 @@ const TILE_DEFS = {
   'T': { solid: true }, 'S': { solid: true }, 'Z': { solid: true }, 'F': { solid: true }, 'K': { solid: true },
   'f': { solid: false }, 'w': { solid: true }, 'c': { solid: true, counter: true }, 'h': { solid: true },
   't': { solid: true }, 'r': { solid: false }, 'm': { solid: false },
+  // Hospital outside: teal roof '6', roof with the blue Η sign 'H', mint walls 'M', window 'N', green cross 'P', sliding glass door 'E'.
+  '6': { solid: true }, 'H': { solid: true }, 'M': { solid: true }, 'N': { solid: true }, 'P': { solid: true }, 'E': { solid: false },
+  // Hospital inside: wall 'i', floor 'L', corridor cot (ράντζο) 'B', vending machine 'V', TV 'Y', archive terminal 'A', reception counter 'C'.
+  'i': { solid: true }, 'L': { solid: false }, 'B': { solid: true }, 'V': { solid: true }, 'Y': { solid: true }, 'A': { solid: true },
+  'C': { solid: true, counter: true },
 };
 function paintMap(width, height, fill, operations) {
   const grid = [];
@@ -1079,10 +1120,10 @@ const MAPS = {
       'T,,,,S,,,,S,,,,S,,,,S,,T',
       'T.......................',
       'T,,,,,,,,,,,,,,,,,,,,,,T',
-      'T,1111,,,5555,,,,,2222,T',
-      'T,1111,,,5555,,,,,2222,T',
-      'T,W##W,,,W##W,,,,,W##W,T',
-      'T,#d##,,,#D##,,,,,##d#,T',
+      'T,1111,,,5555666662222,T',
+      'T,1111,,,555566H662222,T',
+      'T,W##W,,,W##WNMPMNW##W,T',
+      'T,#d##,,,#D##MMEMM##d#,T',
       'T,,,,,,,,,,,,S,,,,,,,,,T',
       'TTTTTTTTTTTTTTTTTTTTTTTT',
     ],
@@ -1092,9 +1133,10 @@ const MAPS = {
       { x: 13, y: 6, to: 'shop', tx: 3, ty: 4 },
       { x: 18, y: 6, to: 'cafe', tx: 4, ty: 6 },
       { x: 10, y: 13, to: 'studio', tx: 4, ty: 6, needFlag: 'credits', lockedText: 'warp.studio' },
+      { x: 15, y: 13, to: 'hospital', tx: 5, ty: 7 },
       { x: 23, y: 8, to: 'route1', tx: 1, ty: 9 },
     ],
-    signs: { '5,7': 'sign.lab', '10,7': 'sign.kep', '15,7': 'sign.shop', '20,7': 'sign.cafe', '13,14': 'sign.studio', '3,13': 'sign.house1', '20,13': 'sign.house2' },
+    signs: { '5,7': 'sign.lab', '10,7': 'sign.kep', '15,7': 'sign.shop', '20,7': 'sign.cafe', '13,14': 'sign.studio', '14,13': 'sign.hospital', '3,13': 'sign.house1', '20,13': 'sign.house2' },
     npcs: [
       { id: 'kid', x: 6, y: 9, face: 'down', look: 'kid', kind: 'talk', text: 'npc.kid' },
       { id: 'oldman', x: 14, y: 9, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.oldman' },
@@ -1118,9 +1160,36 @@ const MAPS = {
     warps: [{ x: 4, y: 7, to: 'town', tx: 8, ty: 7 }, { x: 5, y: 7, to: 'town', tx: 8, ty: 7 }],
     signs: {},
     npcs: [
-      { id: 'kepclerk', x: 4, y: 1, face: 'down', look: 'clerk', kind: 'heal' },
+      { id: 'kepclerk', x: 4, y: 1, face: 'down', look: 'clerk', kind: 'kep' },
       { id: 'queue1', x: 6, y: 5, face: 'up', look: 'oldwoman', kind: 'talk', text: 'npc.queue1' },
       { id: 'queue2', x: 2, y: 6, face: 'up', look: 'kid', kind: 'talk', text: 'npc.queue2' },
+    ],
+  },
+  // Νοσοκομείο 3000: reception counter (heal), a corridor with ράντζα and waiting people, a broken vending machine,
+  // a TV, and the Αρχείο Ασθενών terminal (actions: 'archive'). Row 1 is behind the counter; nobody can walk there.
+  hospital: {
+    name: 'map.hospital', w: 12, h: 9, music: 'indoor',
+    rows: [
+      'iiiiiiiiiiii',
+      'iLLLLLLLLLLi',
+      'iCCCCCCCCCCi',
+      'iALLLYLLLLVi',
+      'iLLLLLLLLLLi',
+      'iBLLLLLLLLBi',
+      'iBLLBLLBLLBi',
+      'iLLLLLLLLLLi',
+      'iiiiimmiiiii',
+    ],
+    warps: [{ x: 5, y: 8, to: 'town', tx: 15, ty: 14 }, { x: 6, y: 8, to: 'town', tx: 15, ty: 14 }],
+    signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+    actions: { '1,3': 'archive' },
+    npcs: [
+      { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
+      { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.hosp.doctor' },
+      { id: 'hospwait1', x: 3, y: 4, face: 'down', look: 'oldwoman', kind: 'talk', text: 'npc.hosp.wait1' },
+      { id: 'hospwait2', x: 8, y: 5, face: 'left', look: 'oldman2', kind: 'talk', text: 'npc.hosp.wait2' },
+      { id: 'hospwait3', x: 2, y: 6, face: 'right', look: 'kid', kind: 'talk', text: 'npc.hosp.wait3' },
+      { id: 'hospwait4', x: 9, y: 6, face: 'up', look: 'fisher', kind: 'talk', text: 'npc.hosp.wait4' },
     ],
   },
   shop: {
@@ -1192,7 +1261,8 @@ const MAPS = {
   },
 };
 const START_MAP = { map: 'lab', x: 4, y: 6, dir: 'up' };
-const DEFAULT_HEAL_SPOT = { map: 'kep', x: 4, y: 6, dir: 'up' }; // black-out destination until a ΚΕΠ visit
+const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' }; // just inside the hospital door
+const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out destination (the hospital is the only place that heals)
 
 function tileAt(map, x, y) {
   if (y < 0 || y >= map.h || x < 0 || x >= map.w) return ' ';
@@ -1322,7 +1392,9 @@ function migrateV0(old) {
     money: old.drachmas, bag: bag, dex: { seen: seen, got: got }, flags: flags, lastHeal: null, options: null, rngState: 12345, starter: old.starter,
   };
 }
-// Returns a clean version-1 save object, or null when the data is unusable or from a newer game.
+// Returns a clean current-version save object (version 2), or null when the data is unusable or from a newer game.
+// Version 0 goes through migrateV0 (to the version-1 shape) first. Version 1 had no archive and healed at the ΚΕΠ:
+// the archive starts empty and a heal spot on the kep map becomes the hospital spot.
 function migrateSave(raw) {
   if (!raw || typeof raw !== 'object') return null;
   let save = raw;
@@ -1331,27 +1403,35 @@ function migrateSave(raw) {
   if (version < 1) save = migrateV0(raw);
   const party = (Array.isArray(save.party) ? save.party : []).map(restoreMon).filter(Boolean).slice(0, PARTY_MAX);
   if (party.length === 0) return null;
+  const archive = (Array.isArray(save.archive) ? save.archive : []).map(restoreMon).filter(Boolean).slice(0, ARCHIVE_MAX);
   const player = save.player || {};
   const startMap = MAPS[player.map] ? player.map : START_MAP.map;
   const map = MAPS[startMap];
-  const useStart = !(MAPS[player.map] && tileWalkable(map, player.x, player.y, save.flags || {}));
+  const walkable = !!MAPS[player.map] && tileWalkable(map, player.x, player.y, save.flags || {});
+  // A version-1 save standing on the lot the hospital now covers goes to the pavement in front of its door, not to the lab.
+  const hospitalDoor = MAPS.town.warps.find((warp) => warp.to === 'hospital');
+  const onHospitalLot = version < 2 && player.map === 'town' && !walkable;
+  const useStart = !walkable && !onHospitalLot;
   const bag = {};
   for (const id of ITEM_IDS) bag[id] = Math.max(0, Math.floor(Number((save.bag || {})[id]) || 0));
   const dex = { seen: {}, got: {} };
+  const owned = {}; // creatures on the team or in the archive always count as recruited
+  for (const mon of party.concat(archive)) owned[mon.sp] = true;
   for (const id of DEX_ORDER) {
     if (save.dex && save.dex.seen && save.dex.seen[id]) dex.seen[id] = true;
-    if (save.dex && save.dex.got && save.dex.got[id]) { dex.got[id] = true; dex.seen[id] = true; }
+    if ((save.dex && save.dex.got && save.dex.got[id]) || owned[id]) { dex.got[id] = true; dex.seen[id] = true; }
   }
-  for (const mon of party) { dex.seen[mon.sp] = true; dex.got[mon.sp] = true; }
-  const heal = save.lastHeal && MAPS[save.lastHeal.map] ? save.lastHeal : DEFAULT_HEAL_SPOT;
+  const oldKepSpot = !!save.lastHeal && save.lastHeal.map === 'kep';
+  const heal = save.lastHeal && MAPS[save.lastHeal.map] && !oldKepSpot ? save.lastHeal : DEFAULT_HEAL_SPOT;
   return {
     version: SAVE_VERSION,
     player: {
       name: String(player.name || 'ΝΙΚΟΣ').slice(0, NAME_MAX), gender: player.gender === 'f' ? 'f' : 'm',
-      map: useStart ? START_MAP.map : player.map, x: useStart ? START_MAP.x : player.x, y: useStart ? START_MAP.y : player.y,
-      dir: ['up', 'down', 'left', 'right'].includes(player.dir) ? player.dir : 'down',
+      map: useStart ? START_MAP.map : player.map, x: useStart ? START_MAP.x : (onHospitalLot ? hospitalDoor.x : player.x), y: useStart ? START_MAP.y : (onHospitalLot ? hospitalDoor.y + 1 : player.y),
+      dir: onHospitalLot ? 'down' : (['up', 'down', 'left', 'right'].includes(player.dir) ? player.dir : 'down'),
     },
     party: party.map(serializeMon),
+    archive: archive.map(serializeMon),
     money: Math.max(0, Math.floor(Number(save.money) || 0)),
     bag: bag, dex: dex, flags: (save.flags && typeof save.flags === 'object') ? Object.assign({}, save.flags) : {},
     lastHeal: { map: heal.map, x: heal.x, y: heal.y, dir: heal.dir || 'up' },
@@ -1442,17 +1522,41 @@ const STRINGS = {
   'kep.hello': ['ΚΕΠ 3000. Παρακαλώ πάρτε αριθμό προτεραιότητας.', 'ΚΕΠ 3000. Please take a priority number.'],
   'kep.ticket': ['Ο αριθμός σας είναι {n}.', 'Your number is {n}.'], 'kep.sign': ['ΚΕΠ 3000', 'ΚΕΠ 3000'],
   'kep.yourNumber': ['Ο ΑΡΙΘΜΟΣ ΣΑΣ', 'YOUR NUMBER'], 'kep.serving': ['Τώρα εξυπηρετείται: {n}', 'Now serving: {n}'],
-  'kep.done': ['Η ομάδα σας εξυπηρετήθηκε. Παρακαλούμε αφήστε φιλοδώρημα.', 'Your team has been served. Please leave a tip.'],
+  'kep.comeBack': ['Ο φάκελός σας είναι ελλιπής. Ελάτε αύριο. Για την ομάδα σας δοκιμάστε το Νοσοκομείο 3000, πιο κάτω. Εκεί δεν θέλει αριθμό. Θέλει ράντζο.', 'Your file is incomplete. Return tomorrow. For your team try Hospital 3000, further down. There you do not need a number. You need a cot.'],
+  // Hospital 3000: the reception heal, the monitor, the Αρχείο Ασθενών (creature archive)
+  'hosp.hello': ['Νοσοκομείο 3000, γραφείο εισαγωγών. Για την ομάδα σου; Ο κανονισμός λέει: ραντεβού σε 3 έως 5 χρόνια.', 'Hospital 3000, admissions desk. For your team? The regulation says: an appointment in 3 to 5 years.'],
+  'hosp.free': ['Δωρεάν, φυσικά. Το σύστημα είναι δωρεάν για όποιον έχει υπομονή. Και έχει ράντζο.', 'Free, of course. The system is free for anyone who is patient. And has a cot.'],
+  'hosp.vipAsk': ['Υπάρχει και η υπηρεσία VIP: χωρίς αναμονή, με ένα Φακελάκι «για τα έξοδα του φαρμακείου». Το δίνεις;', 'There is also the VIP service: no waiting, for one little envelope "for the pharmacy expenses". Hand it over?'],
+  'hosp.vipTaken': ['Ευχαριστούμε! Το Φακελάκι καταχωρήθηκε ως «δωρεά προς το Νοσοκομείο». Απόδειξη δεν υπάρχει. Ποτέ δεν υπήρχε.', 'Thank you! The envelope was filed as a "donation to the hospital". There is no receipt. There never was.'],
+  'hosp.atOnce': ['Α, κοίτα: ένα ράντζο ελευθερώθηκε μόλις τώρα. Θαύμα. Ή τυπογραφικό λάθος. Πέρασε.', 'Oh, look: a cot just became free. A miracle. Or a typing error. Step in.'],
+  'hosp.monitor': ['ΕΞΕΤΑΣΗ ΣΕ ΕΞΕΛΙΞΗ', 'EXAMINATION IN PROGRESS'],
+  'hosp.monitorNote': ['Ραντεβού: 3-5 χρόνια. Σήμερα: τώρα.', 'Appointment: 3-5 years. Today: now.'],
+  'hosp.done': ['Η ομάδα σου εξετάστηκε και είναι σαν καινούργια. Η λίστα αναμονής δεν χρειάζεται να το μάθει.', 'Your team has been examined and is as good as new. The waiting list does not need to know.'],
+  'hosp.doneVip': ['Η ομάδα σου εξυπηρετήθηκε VIP: ένα χαμόγελο, μια καρέκλα με θέα και τρεις υπογραφές. Έλα ξανά... με φάκελο.', 'Your team was served VIP style: a smile, a chair with a view and three signatures. Come again... with an envelope.'],
+  'arch.hello': ['Αρχείο Ασθενών. Εδώ φυλάγονται τα Mizamon που δεν χωράνε στην ομάδα σου. Χωρητικότητα: 60. Ράφια: από το 2987.', 'Patient Archive. This is where the Mizamon that do not fit on your team are kept. Capacity: 60. Shelves: from 2987.'],
+  'arch.count': ['Αρχείο {n}/{max}', 'Archive {n}/{max}'],
+  'arch.deposit': ['Κατάθεση', 'Deposit'], 'arch.withdraw': ['Ανάκτηση', 'Withdraw'], 'arch.list': ['Κατάλογος', 'Catalogue'],
+  'arch.pickDeposit': ['Ποιος πάει στο αρχείο;', 'Who goes to the archive?'], 'arch.pickWithdraw': ['Ποιος βγαίνει από το αρχείο;', 'Who comes out of the archive?'],
+  'arch.listTitle': ['Αρχείο Ασθενών ({n}/{max})', 'Patient Archive ({n}/{max})'],
+  'arch.deposited': ['{mon} αρχειοθετήθηκε με αριθμό πρωτοκόλλου {n}. Θα βρεθεί... πιθανώς.', '{mon} was filed under protocol number {n}. It will be found... probably.'],
+  'arch.withdrawn': ['{mon} εντοπίστηκε στο αρχείο και επιστρέφει στην ομάδα. Έκπληξη και για εμάς.', '{mon} was located in the archive and rejoins the team. A surprise to us too.'],
+  'arch.lastOne': ['Δεν αφήνεις στο αρχείο τον τελευταίο που μπορεί να παλέψει. Ποιος θα εκπροσωπήσει την ομάδα;', 'You do not leave the last one who can still fight in the archive. Who would represent the team?'],
+  'arch.full': ['Το Αρχείο Ασθενών είναι γεμάτο: 60/60. Για νέο φάκελο πρέπει να ανοίξει θέση. Στο Δημόσιο αυτό σημαίνει ποτέ.', 'The Patient Archive is full: 60/60. A new file needs a free slot. In the civil service that means never.'],
+  'arch.empty': ['Το αρχείο είναι άδειο. Ούτε ένας φάκελος. Ύποπτο.', 'The archive is empty. Not one file. Suspicious.'],
+  'arch.teamFull': ['Η ομάδα σου είναι γεμάτη (6). Κάποιος πρέπει πρώτα να παραιτηθεί... δηλαδή να αρχειοθετηθεί.', 'Your team is full (6). Someone has to resign first... that is, be filed.'],
   'cafe.hello': ['Καφενείο «Η Κρίση». Έλα να τα πούμε. Ελληνικός, μέτριος, με λίγη οικονομία.', 'Cafe "The Crisis". Come, let us talk. Greek coffee, medium, with a little economics.'],
   'cafe.ask': ['Να σημειώσω την πρόοδό σου στο τεφτέρι;', 'Shall I write your progress in the ledger?'],
   'cafe.saved': ['Έγινε! Το τεφτέρι είναι ασφαλές. Όπως η δημόσια περιουσία.', 'Done! The ledger is safe. Like public property.'],
   'cafe.savedMemory': ['Έγινε... αλλά ο χώρος αποθήκευσης του browser δεν δουλεύει. Η πρόοδος μένει μόνο όσο είναι ανοιχτή η σελίδα.', 'Done... but the browser storage is not working. Progress only lasts while this page stays open.'],
   'cafe.bye': ['Όπως θες. Η Ιστορία θα το θυμάται. Εγώ όχι.', 'As you wish. History will remember. I will not.'],
   // Places and signs
-  'map.town': ['Νέα Πειραιάς', 'New Piraeus'], 'map.lab': ['Εργαστήριο', 'Laboratory'], 'map.kep': ['ΚΕΠ 3000', 'ΚΕΠ 3000'], 'map.shop': ['Περίπτερο', 'Kiosk'],
+  'map.town': ['Νέα Πειραιάς', 'New Piraeus'], 'map.lab': ['Εργαστήριο', 'Laboratory'], 'map.kep': ['ΚΕΠ 3000', 'ΚΕΠ 3000'], 'map.hospital': ['Νοσοκομείο 3000', 'Hospital 3000'], 'map.shop': ['Περίπτερο', 'Kiosk'],
   'map.cafe': ['Καφενείο «Η Κρίση»', 'Cafe "The Crisis"'], 'map.studio': ['Τηλεοπτικό Στούντιο', 'TV Studio'], 'map.route1': ['Διαδρομή 1: Παραλιακή', 'Route 1: The Waterfront'], 'map.port': ['Λιμεναρχείο', 'Harbour Office'],
   'sign.lab': ['Εργαστήριο Καθηγητή Σταθόπουλου. Μισθός: εκκρεμεί από το 2987.', 'Prof. Stathopoulos Laboratory. Salary: pending since 2987.'],
   'sign.kep': ['ΚΕΠ 3000. Ώρες εξυπηρέτησης: 9:00-9:05, ή όποτε.', 'ΚΕΠ 3000. Service hours: 9:00-9:05, or whenever.'],
+  'sign.hospital': ['Γενικό Νοσοκομείο Νέας Πειραιάς 3000. Επισκεπτήριο: ώρες προς ανακοίνωση. Εφημερεύει: ο διάδρομος.', 'General Hospital of New Piraeus 3000. Visiting hours: to be announced. On call: the corridor.'],
+  'sign.hosp.vending': ['Μηχάνημα καφέ: εκτός λειτουργίας. Έφαγε το κέρμα σου. Και το προηγούμενο. Και ένα του 2991.', 'Coffee machine: out of order. It ate your coin. And the previous one. And one from 2991.'],
+  'sign.hosp.tv': ['Πρωινή εκπομπή στην τηλεόραση: ο υπουργός εξηγεί ότι οι λίστες αναμονής είναι οπτική ψευδαίσθηση. Στο διπλανό κανάλι: συνταγή για τηγανητές πατάτες.', 'A morning show on the TV: the minister explains that waiting lists are an optical illusion. On the next channel: a recipe for fried potatoes.'],
   'sign.shop': ['Περίπτερο: εφημερίδες, σνακ, κι άλλα σνακ, ρέστα (εξαντλήθηκαν).', 'Kiosk: newspapers, snacks, more snacks, change (sold out).'],
   'sign.cafe': ['Καφενείο «Η Κρίση»: αποθήκευση προόδου, τάβλι και λύσεις για την οικονομία.', 'Cafe "The Crisis": saving progress, backgammon and solutions to the economy.'],
   'sign.studio': ['Τηλεοπτικό Στούντιο «Κανάλι 3000». Ζωντανά, δηλαδή ηχογραφημένα.', 'TV Studio "Channel 3000". Live, meaning recorded.'],
@@ -1473,6 +1577,11 @@ const STRINGS = {
   'npc.queue1': ['Περιμένω από την Τρίτη. Δεν θυμάμαι ποια Τρίτη.', 'I have been waiting since Tuesday. I do not remember which Tuesday.'],
   'npc.queue2': ['Ο αριθμός μου είναι 10.000. Ο μπαμπάς μου πήρε αριθμό το 2990.', 'My number is 10,000. My dad took a number in 2990.'],
   'npc.customer': ['Ήρθα για ένα κουλούρι και έφυγα με φορολογική δήλωση.', 'I came for a koulouri and left with a tax return.'],
+  'npc.hosp.doctor': ['Εφημερεύω 36 ώρες. Δεν θα σε εξετάσω, αλλά θα σου πω κάτι: ένα Φακελάκι... ένα Φακελάκι βοηθάει τη μνήμη μου.', 'I have been on call for 36 hours. I will not examine you, but I will tell you something: a little envelope... a little envelope helps my memory.'],
+  'npc.hosp.wait1': ['Περιμένω για εξέταση από το 2995. Στο μεταξύ έμαθα να πλέκω. Έχω πλέξει τρία πουλόβερ και μια λίστα αναμονής.', 'I have been waiting for an examination since 2995. In the meantime I learned to knit. I have knitted three sweaters and a waiting list.'],
+  'npc.hosp.wait2': ['Ράντζο στον διάδρομο, με θέα στον διάδρομο. Τα δωμάτια με θέα θάλασσα είναι για όσους έχουν... γνωριμίες.', 'A cot in the corridor, with a view of the corridor. The sea-view rooms are for those who have... connections.'],
+  'npc.hosp.wait3': ['Η μαμά μου είπε «πάμε για πέντε λεπτά». Αυτό ήταν πριν από δύο εξάμηνα.', 'My mum said "we are only going for five minutes". That was two semesters ago.'],
+  'npc.hosp.wait4': ['Η απεργία των εφημερευόντων ξεκινά αύριο. Ή ήταν χθες; Στο σύστημα γράφει «σε εξέλιξη».', 'The strike of the on-call staff starts tomorrow. Or was it yesterday? The system says "in progress".'],
   'npc.tavli1': ['Αν ο Μπέμπης γίνεται υπουργός, εγώ λύνω την οικονομία. Έλα, ρίξε ζάρια.', 'If Bebis can become a minister, I can fix the economy. Come on, roll the dice.'],
   'npc.tavli2': ['Πεντέ-έξι. Αυτό ήταν το ελληνικό ΑΕΠ το 2400.', 'Five-six. That was the Greek GDP in 2400.'],
   'npc.sailor1': ['Ο Λιμενάρχης είναι εκεί. Μην αναφέρεις ότι το λιμάνι πουλήθηκε ήδη. Δύο φορές.', 'The Harbour Master is right there. Do not mention the port is already sold. Twice.'],
@@ -1499,8 +1608,8 @@ const STRINGS = {
   'tr.host.intro': ['Καλησπέρα και καλώς ήρθατε στην εκπομπή «Όλοι Μαζί, Κανείς Μόνος»! Απόψε: ΕΣΥ εναντίον των καλεσμένων μου. Παίζουμε ζωντανά, δηλαδή ηχογραφημένα!', 'Good evening and welcome to the show "All Together, No One Alone"! Tonight: YOU against my guests. We play live, meaning recorded!'],
   'tr.host.win': ['Και κόβουμε για διαφημίσεις. Μείνετε μαζί μας. Δεν έχετε άλλη επιλογή.', 'And we cut to a commercial break. Stay with us. You have no other choice.'],
   'tr.host.after': ['Η εκπομπή συνεχίζεται. Όπως και τα ρέστα του καναλιού.', "The show goes on. So does the channel's budget."],
-  'blackout.text': ['Όλη η ομάδα σου παραιτήθηκε και το πορτοφόλι ελαφρύνθηκε στο μισό. Η δημοσκόπησή σου πήρε την κατηφόρα.', 'Your whole team resigned and the wallet got half lighter. Your poll numbers took the downhill road.'],
-  'blackout.kep': ['Σε περιμάζεψε το ΚΕΠ 3000. Η ομάδα σου εξυπηρετήθηκε χωρίς αριθμό. Αυτό είναι το πιο ανησυχητικό.', 'ΚΕΠ 3000 picked you up. Your team was served without a number. That is the most worrying part.'],
+  'blackout.text': ['Όλη η ομάδα σου παραιτήθηκε και το πορτοφόλι ελαφρύνθηκε στο μισό. Η δημοσκόπησή σου πήρε την κατηφόρα και ένα ασθενοφόρο ήρθε μόνο του: δεν το κάλεσε κανείς.', 'Your whole team resigned and the wallet got half lighter. Your poll numbers took the downhill road and an ambulance arrived on its own: nobody had called it.'],
+  'blackout.hospital': ['Ξύπνησες σε ράντζο στον διάδρομο του Νοσοκομείου 3000. Η ομάδα σου εξετάστηκε χωρίς ραντεβού. Αυτό είναι το πιο ανησυχητικό.', 'You woke up on a cot in the corridor of Hospital 3000. Your team was examined without an appointment. That is the most worrying part.'],
   'boss.win2': ['Ωραία, ωραία. Το Παράσημο είναι δικό σου, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά.', 'Fine, fine. The medal is yours, on the condition that you do not ask where the money went.'],
   'boss.win3': ['Πήρες το Παράσημο της Νέας Πειραιάς! Η πρώτη εκλογική περιφέρεια είναι δική σου.', 'You got the New Piraeus Medal! The first electoral district is yours.'],
   'badge.title': ['ΠΑΡΑΣΗΜΟ ΝΕΑΣ ΠΕΙΡΑΙΑΣ', 'NEW PIRAEUS MEDAL'], 'badge.sub': ['Με τον όρο ότι δεν ρωτάς.', 'On the condition you do not ask.'],
@@ -1570,7 +1679,8 @@ const STRINGS = {
   'b.rec.out0': ['Το βρήκε λίγο. {mon} αρνείται!', 'It found it too little. {mon} refuses!'],
   'b.rec.out1': ['Σχεδόν! Αλλά το βρήκε λίγο ακόμα.', 'Almost! But it still found it too little.'],
   'b.rec.out2': ['Τόσο κοντά! Ο φάκελος άνοιξε και... «Το βρήκε λίγο.»', 'So close! The envelope opened and... "It found it too little."'],
-  'b.rec.full': ['Η ομάδα είναι γεμάτη. Δεν υπάρχουν άλλες θέσεις στο Δημόσιο.', 'The team is full. There are no more positions in the civil service.'],
+  'b.rec.full': ['Η ομάδα είναι γεμάτη και το Αρχείο Ασθενών ξεχειλίζει. Δεν υπάρχουν άλλες θέσεις στο Δημόσιο.', 'The team is full and the Patient Archive is overflowing. There are no more positions in the civil service.'],
+  'b.rec.archived': ['{mon} πήγε στο αρχείο: η ομάδα είναι γεμάτη, αλλά το Αρχείο Ασθενών βρίσκει πάντα θέση.', '{mon} went to the archive: the team is full, but the Patient Archive always finds room.'],
   'b.rec.never': ['Αυτός δεν δωροδοκείται, ούτε με φάκελο.', 'This one cannot be bribed, not even with an envelope.'],
   'b.rec.small': ['Ένα φακελάκι; Για υπουργό; Πρέπει να είναι τουλάχιστον Φάκελος.', 'A little envelope? For a minister? It has to be at least a proper Φάκελος.'],
   'b.rec.trainer': ['Δεν δωροδοκείς τα παιδιά των άλλων!', "You cannot bribe other people's Mizamon!"],
@@ -1655,15 +1765,15 @@ const STRINGS = {
 
 // What the headless tests and the balance script can reach.
 const RULES = {
-  SAVE_VERSION, SAVE_KEY, OPTIONS_KEY, MAX_LEVEL, PARTY_MAX, MOVES_MAX, NAME_MAX, STAT_KEYS, STAGE_KEYS, START_MONEY, START_BAG,
+  SAVE_VERSION, SAVE_KEY, OPTIONS_KEY, MAX_LEVEL, PARTY_MAX, ARCHIVE_MAX, MOVES_MAX, NAME_MAX, STAT_KEYS, STAGE_KEYS, START_MONEY, START_BAG,
   DAMAGE_DIVISOR, CRIT_CHANCE, OVERTIME_TURN, USELESS_MOVE_SCORE, ENCOUNTER_CHANCE, BLACKOUT_MONEY_KEEP,
   makeRng, randInt, pickOne, pickWeighted, hashString,
   TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK,
   STRINGS, formatText, lookupString, monLabel, eventText,
-  statOf, maxHp, xpForLevel, levelFromXp, movesAtLevel, makeMon, cloneMon, healMon, monIsAlive, partyHasAlive, gainXp, evolutionFor, evolveMon,
+  statOf, maxHp, xpForLevel, levelFromXp, movesAtLevel, makeMon, cloneMon, healMon, monIsAlive, partyHasAlive, hospitalHeal, canDeposit, depositMon, canWithdraw, withdrawMon, gainXp, evolutionFor, evolveMon,
   abilityOf, effectiveStat, computeDamage, recruitChance, xpReward, canUseItemOn, applyItemToMon,
   createBattle, playTurn, playForcedSwitch, chooseAction, chooseReplacement, scoreMove, legalSwitchIndexes, endBattle, prizeFor, simulateBattle, activeMon,
-  TRAINERS, buildTrainerTeam, TILE_DEFS, MAPS, START_MAP, DEFAULT_HEAL_SPOT, tileAt, tileDef, npcVisible, findWarp, tileWalkable, zoneAt, rollEncounter,
+  TRAINERS, buildTrainerTeam, TILE_DEFS, MAPS, START_MAP, HOSPITAL_SPOT, DEFAULT_HEAL_SPOT, tileAt, tileDef, npcVisible, findWarp, tileWalkable, zoneAt, rollEncounter,
   reachableTiles, npcTalkable, defaultOptions, normalizeOptions, serializeMon, restoreMon, migrateSave,
 };
 // RULES-END
@@ -1770,6 +1880,90 @@ function drawRoofTile(p, color) {
   const light = shade(color, 0.2);
   for (let y = 0; y < 16; y += 4) { p.rect(0, y + 3, 16, 1, dark); p.rect(0, y, 16, 1, light); }
   for (let y = 0; y < 16; y += 4) for (let x = (y / 4) % 2 ? 4 : 0; x < 16; x += 8) p.rect(x, y, 1, 4, dark);
+}
+// The hospital's own look: teal roof, mint walls, a blue Η plate, a green cross (never red), pale green floors.
+const HOSPITAL_GREEN = '#2fa15a';
+const HOSPITAL_TEAL = '#2f8f8a';
+function drawMintWall(p) {
+  p.rect(0, 0, 16, 16, '#d9efe6');
+  p.rect(0, 13, 16, 3, '#a9cfc0');
+  p.rect(0, 0, 16, 1, '#c4e0d3');
+}
+function drawHospitalFloor(p) {
+  p.rect(0, 0, 16, 16, '#e3ece6');
+  p.rect(0, 0, 8, 8, '#d2e0d8');
+  p.rect(8, 8, 8, 8, '#d2e0d8');
+}
+function buildHospitalTiles(make) {
+  make('6', function (p) { drawRoofTile(p, HOSPITAL_TEAL); });
+  make('H', function (p) { // roof with a blue plate showing the Greek capital Eta
+    drawRoofTile(p, HOSPITAL_TEAL);
+    p.rect(2, 3, 12, 10, '#1b3f7a'); p.rect(3, 4, 10, 8, '#2a5fc4');
+    p.rect(5, 5, 2, 6, '#ffffff'); p.rect(9, 5, 2, 6, '#ffffff'); p.rect(5, 7, 6, 2, '#ffffff');
+  });
+  make('M', drawMintWall);
+  make('N', function (p) {
+    drawMintWall(p);
+    p.rect(2, 2, 12, 10, '#2d6f6a'); p.rect(3, 3, 10, 8, '#9fd6e6');
+    p.rect(7, 3, 2, 8, '#2d6f6a'); p.rect(3, 6, 10, 1, '#2d6f6a');
+    p.rect(1, 12, 14, 1, '#6f9a8c');
+  });
+  make('P', function (p) { // pharmacy-style green cross on the wall
+    drawMintWall(p);
+    p.rect(5, 1, 6, 12, '#1d6e3c'); p.rect(2, 4, 12, 6, '#1d6e3c');
+    p.rect(6, 2, 4, 10, HOSPITAL_GREEN); p.rect(3, 5, 10, 4, HOSPITAL_GREEN);
+    p.rect(6, 3, 4, 1, '#6fd596');
+  });
+  make('E', function (p) { // sliding glass door
+    drawMintWall(p);
+    p.rect(2, 1, 12, 15, '#2d6f6a');
+    p.rect(3, 2, 5, 14, '#bfe6f0'); p.rect(9, 2, 4, 14, '#bfe6f0');
+    p.rect(4, 3, 1, 4, '#e8f8fc'); p.rect(10, 3, 1, 4, '#e8f8fc');
+    p.rect(7, 8, 1, 3, '#2d6f6a'); p.rect(8, 8, 1, 3, '#2d6f6a');
+  });
+  make('i', function (p) {
+    p.rect(0, 0, 16, 16, '#b9d8cf');
+    p.rect(0, 0, 16, 2, '#d3ece3');
+    p.rect(0, 8, 16, 1, '#6f9a8c'); p.rect(0, 9, 16, 7, '#8fbcae');
+    for (let x = 0; x < 16; x += 8) p.rect(x, 9, 1, 7, '#79a698');
+    p.rect(0, 14, 16, 2, '#6f9a8c');
+  });
+  make('L', drawHospitalFloor);
+  make('B', function (p) { // a cot standing in the corridor
+    drawHospitalFloor(p);
+    p.rect(1, 1, 14, 14, '#5a5a66'); p.rect(2, 2, 12, 12, '#e8ecf0');
+    p.rect(2, 7, 12, 7, '#4a78c0'); p.rect(2, 10, 12, 1, '#3a60a0');
+    p.rect(3, 3, 10, 3, '#ffffff'); p.rect(3, 5, 10, 1, '#cfd6e0');
+    p.rect(0, 13, 3, 3, '#33333d'); p.rect(13, 13, 3, 3, '#33333d');
+  });
+  make('V', function (p) { // vending machine, out of order
+    drawHospitalFloor(p);
+    p.rect(1, 0, 14, 16, '#3a4a6a'); p.rect(2, 1, 12, 8, '#1d2a3a');
+    const colors = ['#d8452f', '#f4b942', '#2f8a5a', '#b0489a'];
+    for (let i = 0; i < 4; i++) { p.rect(3 + i * 3, 2, 2, 3, colors[i]); p.rect(3 + i * 3, 6, 2, 2, colors[(i + 2) % 4]); }
+    p.rect(2, 10, 12, 3, '#f0d030');
+    for (let x = 2; x < 14; x += 4) p.rect(x, 10, 2, 3, '#26262e');
+    p.rect(5, 14, 6, 2, '#14141c');
+  });
+  make('Y', function (p) { // small TV on a stand
+    drawHospitalFloor(p);
+    p.rect(7, 11, 2, 4, '#555560'); p.rect(4, 14, 8, 2, '#44444f');
+    p.rect(1, 1, 14, 10, '#26262e'); p.rect(2, 2, 12, 8, '#5fa8d8');
+    p.rect(10, 3, 3, 3, '#f6d84a'); p.rect(2, 8, 12, 2, '#d8452f'); p.rect(3, 8, 5, 1, '#ffffff');
+  });
+  make('A', function (p) { // the Αρχείο Ασθενών terminal
+    drawHospitalFloor(p);
+    p.rect(1, 9, 14, 7, '#7e8aa0'); p.rect(1, 9, 14, 1, '#a8b2c4');
+    p.rect(3, 0, 10, 9, '#2a2f3a'); p.rect(4, 1, 8, 7, '#0e2a1c');
+    p.rect(5, 2, 5, 1, '#4fe08a'); p.rect(5, 4, 6, 1, '#4fe08a'); p.rect(5, 6, 3, 1, '#4fe08a'); p.rect(9, 6, 2, 1, '#9fffc0');
+    p.rect(4, 11, 8, 3, '#cfd6e0'); p.rect(5, 12, 6, 1, '#8a94a8');
+  });
+  make('C', function (p) { // reception counter
+    drawHospitalFloor(p);
+    p.rect(0, 4, 16, 3, '#f0f6f3'); p.rect(0, 7, 16, 1, '#a9cfc0');
+    p.rect(0, 8, 16, 8, HOSPITAL_TEAL);
+    p.rect(1, 10, 6, 5, '#25736f'); p.rect(9, 10, 6, 5, '#25736f');
+  });
 }
 function buildTileSprites() {
   const make = function (char, fn) { const p = makePen(TILE, TILE); fn(p); tileSprites[char] = p.canvas; };
@@ -1885,6 +2079,7 @@ function buildTileSprites() {
     p.rect(1, 4, 14, 10, '#46435a');
     for (let x = 2; x < 14; x += 3) p.rect(x, 5, 1, 8, '#5d5a74');
   });
+  buildHospitalTiles(make);
   make('~', function () {});
   waterFrames = [];
   for (let frame = 0; frame < 2; frame++) {
@@ -1910,6 +2105,8 @@ const LOOKS = {
   oldwoman: { skin: '#e8b88a', hair: '#e0e0e0', top: '#222228', pants: '#222228', style: 'bun', skirt: true },
   fisher: { skin: '#d8a070', hair: '#6a4a2a', top: '#d8c030', pants: '#2a4a7a', style: 'short', hat: '#d8c030' },
   clerk: { skin: '#f0c08a', hair: '#4a3a2a', top: '#3a6ea5', pants: '#33384d', style: 'short', tie: '#f0f0f0' },
+  reception: { skin: '#f0c08a', hair: '#7a4a2a', top: '#2f8f8a', pants: '#33384d', style: 'bun', glasses: true, phone: true },
+  doctor: { skin: '#e8b88a', hair: '#9a9a9a', top: '#5a7a9a', pants: '#33384d', style: 'short', glasses: true, mustache: true, envelope: true },
   kiosk: { skin: '#e8b88a', hair: '#2a2a2a', top: '#d8452f', pants: '#33384d', style: 'short', mustache: true, apron: '#f0f0f0' },
   cafeowner: { skin: '#e8b88a', hair: '#2a2a2a', top: '#f0f0f0', pants: '#33384d', style: 'bald', mustache: true, apron: '#3a8a5a' },
   cop: { skin: '#f0c08a', hair: '#2a2a2a', top: '#26325a', pants: '#26325a', style: 'short', hat: '#26325a', tie: '#111' },
@@ -1959,6 +2156,7 @@ function drawCharFrame(p, ox, oy, look, dir, frame) {
       if (look.bowtie) { p.rect(ox + 6, oy + 8, 4, 1, look.bowtie); }
       if (look.mic) { p.rect(ox + 12, oy + 9, 1, 3, '#aaa'); p.px(ox + 12, oy + 8, '#222'); }
       if (look.phone) { p.rect(ox + 12, oy + 7, 2, 4, '#222'); p.px(ox + 12, oy + 8, '#8fc3ee'); }
+      if (look.envelope) { p.rect(ox + 12, oy + 10, 3, 2, '#f6efdc'); p.px(ox + 13, oy + 10, '#d8a030'); } // an envelope held out, just in case
     } else if (dir === 'left') {
       p.px(ox + 6, oy + 5, '#1a1a1a');
       p.rect(ox + 8, oy + 2, 3, 5, look.hair);
@@ -2188,7 +2386,7 @@ function newGameState(name, gender, starter) {
   dexGot[starter] = true;
   return {
     player: { name: name, gender: gender, map: START_MAP.map, x: START_MAP.x, y: START_MAP.y, dir: START_MAP.dir },
-    party: party, money: START_MONEY, bag: Object.assign({}, START_BAG), dex: { seen: dexSeen, got: dexGot }, flags: { gotStarter: true },
+    party: party, archive: [], money: START_MONEY, bag: Object.assign({}, START_BAG), dex: { seen: dexSeen, got: dexGot }, flags: { gotStarter: true },
     lastHeal: Object.assign({}, DEFAULT_HEAL_SPOT), rng: makeRng(1), starter: starter, steps: 0,
   };
 }
@@ -2223,7 +2421,7 @@ function saveOptions() {
 }
 function buildSaveObject() {
   return {
-    version: SAVE_VERSION, player: Object.assign({}, G.player), party: G.party.map(serializeMon), money: G.money, bag: Object.assign({}, G.bag),
+    version: SAVE_VERSION, player: Object.assign({}, G.player), party: G.party.map(serializeMon), archive: G.archive.map(serializeMon), money: G.money, bag: Object.assign({}, G.bag),
     dex: { seen: Object.assign({}, G.dex.seen), got: Object.assign({}, G.dex.got) }, flags: Object.assign({}, G.flags),
     lastHeal: Object.assign({}, G.lastHeal), options: Object.assign({}, OPT), rngState: G.rng.getState(), starter: G.starter,
   };
@@ -2236,7 +2434,7 @@ function readSave() {
 }
 function gameFromSave(save) {
   const state = {
-    player: save.player, party: save.party.map(restoreMon), money: save.money, bag: save.bag, dex: save.dex, flags: save.flags,
+    player: save.player, party: save.party.map(restoreMon), archive: save.archive.map(restoreMon), money: save.money, bag: save.bag, dex: save.dex, flags: save.flags,
     lastHeal: save.lastHeal, rng: makeRng(1), starter: save.starter, steps: 0,
   };
   state.rng.setState(save.rngState);
@@ -2434,6 +2632,8 @@ const SFX_PATTERNS = {
   shake: [[200, 0.08, 'square', 0.08, 0]],
   recruit: [[523, 0.12, 'square', 0.1, 0], [659, 0.12, 'square', 0.1, 0.13], [784, 0.12, 'square', 0.1, 0.26], [1047, 0.12, 'square', 0.1, 0.39], [784, 0.12, 'square', 0.1, 0.52], [1047, 0.3, 'square', 0.1, 0.65]],
   heal: [[784, 0.08, 'triangle', 0.12, 0], [988, 0.08, 'triangle', 0.12, 0.09], [1319, 0.18, 'triangle', 0.12, 0.18]],
+  // The hospital monitor: three flat beeps, then two quick rising blips.
+  hospital: [[1000, 0.05, 'sine', 0.12, 0], [1000, 0.05, 'sine', 0.12, 0.3], [1000, 0.05, 'sine', 0.12, 0.6], [1250, 0.06, 'triangle', 0.12, 0.9], [1670, 0.12, 'triangle', 0.12, 0.98]],
   alert: [[880, 0.08, 'square', 0.12, 0], [880, 0.08, 'square', 0.12, 0.12]],
   bump: [[110, 0.05, 'square', 0.07, 0]],
   error: [[180, 0.12, 'square', 0.1, 0]],
@@ -2880,6 +3080,8 @@ OverworldLayer.prototype.interact = async function () {
   let npc = this.npcAt(fx, fy);
   if (!npc && tileDef(this.map, fx, fy).counter) npc = this.npcAt(fx + facing[0], fy + facing[1]);
   if (npc) { npc.face = OPPOSITE[this.dir]; await this.talkTo(npc); return; }
+  const action = this.map.actions ? this.map.actions[fx + ',' + fy] : null;
+  if (action === 'archive') { await this.useArchive(); return; }
   const signKey = this.map.signs[fx + ',' + fy];
   if (signKey) { await say(signKey); return; }
   const warp = findWarp(this.map, fx, fy);
@@ -2889,7 +3091,8 @@ OverworldLayer.prototype.talkTo = async function (npc) {
   const def = npc.def;
   if (def.kind === 'talk') await say(def.text);
   else if (def.kind === 'prof') await this.talkProfessor();
-  else if (def.kind === 'heal') await this.healAtKep();
+  else if (def.kind === 'heal') await this.healAtHospital();
+  else if (def.kind === 'kep') await this.talkKep();
   else if (def.kind === 'shop') await this.shopTalk();
   else if (def.kind === 'save') await this.cafeTalk();
   else if (def.kind === 'trainer' || def.kind === 'boss') {
@@ -2903,14 +3106,59 @@ OverworldLayer.prototype.talkProfessor = async function () {
   else if (G.flags.rival1) await say('npc.prof.1b');
   else await say('npc.prof.1');
 };
-OverworldLayer.prototype.healAtKep = async function () {
+// The ΚΕΠ keeps its queue joke but heals nothing any more: the hospital does.
+OverworldLayer.prototype.talkKep = async function () {
   await say('kep.hello');
   await say('kep.ticket', { n: '9.999' });
   await openLayer(new TicketLayer());
-  Sound.sfx('heal');
-  for (const mon of G.party) healMon(mon);
-  G.lastHeal = { map: 'kep', x: 4, y: 6, dir: 'up' };
-  await say('kep.done');
+  await say('kep.comeBack');
+};
+// The receptionist: "free, in 3 to 5 years" ... and then it happens at once. With a Φακελάκι in the bag she also offers the VIP service.
+OverworldLayer.prototype.healAtHospital = async function () {
+  await say('hosp.hello');
+  await say('hosp.free');
+  const wantsVip = (G.bag.fakelaki || 0) > 0 && await askYesNo('hosp.vipAsk');
+  await say(wantsVip ? 'hosp.vipTaken' : 'hosp.atOnce');
+  await openLayer(new MonitorLayer());
+  const vip = hospitalHeal(G.party, G.bag, wantsVip);
+  G.lastHeal = Object.assign({}, HOSPITAL_SPOT);
+  await say(vip ? 'hosp.doneVip' : 'hosp.done');
+};
+// The Αρχείο Ασθενών terminal: deposit, withdraw, list.
+OverworldLayer.prototype.useArchive = async function () {
+  await say('arch.hello');
+  let start = 0;
+  for (;;) {
+    const choice = await choose([T('arch.deposit'), T('arch.withdraw'), T('arch.list'), T('menu.close')],
+      { x: 120, y: 40, w: 112, start: start, title: T('arch.count', { n: G.archive.length, max: ARCHIVE_MAX }) });
+    if (choice === -1 || choice === 3) return;
+    start = choice;
+    if (choice === 0) await this.archiveDeposit();
+    else if (choice === 1) await this.archiveWithdraw();
+    else if (G.archive.length === 0) await say('arch.empty');
+    else await openLayer(new ArchiveLayer({ mode: 'view' }));
+  }
+};
+OverworldLayer.prototype.archiveDeposit = async function () {
+  if (G.archive.length >= ARCHIVE_MAX) { await say('arch.full'); return; }
+  const candidates = G.party.filter(function (mon, index) { return canDeposit(G.party, G.archive, index); });
+  if (candidates.length === 0) { await say('arch.lastOne'); return; }
+  const index = await openLayer(new PartyLayer({ mode: 'choose', titleKey: 'arch.pickDeposit', canChoose: function (i) { return canDeposit(G.party, G.archive, i); } }));
+  if (index < 0) return;
+  const name = speciesName(G.party[index].sp);
+  depositMon(G.party, G.archive, index);
+  Sound.sfx('confirm');
+  await say('arch.deposited', { mon: name, n: G.archive.length });
+};
+OverworldLayer.prototype.archiveWithdraw = async function () {
+  if (G.archive.length === 0) { await say('arch.empty'); return; }
+  if (G.party.length >= PARTY_MAX) { await say('arch.teamFull'); return; }
+  const index = await openLayer(new ArchiveLayer({ mode: 'withdraw' }));
+  if (index < 0) return;
+  const name = speciesName(G.archive[index].sp);
+  withdrawMon(G.party, G.archive, index);
+  Sound.sfx('confirm');
+  await say('arch.withdrawn', { mon: name });
 };
 OverworldLayer.prototype.shopTalk = async function () {
   await say('shop.hello');
@@ -2959,9 +3207,9 @@ OverworldLayer.prototype.afterBattle = async function (result, trainerId) {
 OverworldLayer.prototype.blackout = async function () {
   await say('blackout.text');
   G.money = Math.floor(G.money * BLACKOUT_MONEY_KEEP);
-  for (const mon of G.party) healMon(mon);
+  hospitalHeal(G.party, G.bag, false);
   await this.teleport(G.lastHeal);
-  await say('blackout.kep');
+  await say('blackout.hospital');
 };
 OverworldLayer.prototype.bossVictory = async function () {
   await say('boss.win2');
@@ -3082,6 +3330,38 @@ TicketLayer.prototype.draw = function () {
   ctx.font = FONT;
   const serving = 3 + Math.floor(this.frame / 60);
   drawText(T('kep.serving', { n: serving }), 120, 86, COLOR.gray, 'center');
+};
+// The hospital "examination": a heart-monitor line sweeps across a dark screen while three beeps play.
+// With Reduced motion the line is drawn whole and does not scroll or flash.
+const MONITOR_FRAMES = 72;
+const MONITOR_PULSE = [0, 0, 0, 0, -1, -2, -1, 0, 0, 0, 3, -14, 9, 0, 0, 0, -1, -3, -4, -3, -1, 0, 0, 0, 0, 0, 0, 0]; // one heartbeat: pixel offsets from the middle
+const MONITOR_BOX = { x: 38, y: 52, w: 164, h: 48 };
+function MonitorLayer() { this.opaque = false; this.frame = 0; }
+MonitorLayer.prototype.onEnter = function () { Sound.sfx('hospital'); };
+MonitorLayer.prototype.update = function () {
+  this.frame++;
+  if (this.frame >= MONITOR_FRAMES) closeLayer(this);
+};
+MonitorLayer.prototype.draw = function () {
+  ctx.fillStyle = 'rgba(10,10,30,0.7)'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  drawPanel(30, 30, 180, 80);
+  ctx.font = FONT;
+  drawText(T('hosp.monitor'), 120, 38, COLOR.ink, 'center');
+  ctx.fillStyle = '#0e2a1c'; ctx.fillRect(MONITOR_BOX.x, MONITOR_BOX.y, MONITOR_BOX.w, MONITOR_BOX.h);
+  const still = OPT.reduceMotion;
+  const scroll = still ? 0 : this.frame * 2;
+  const reach = still ? MONITOR_BOX.w : Math.min(MONITOR_BOX.w, Math.round(this.frame / MONITOR_FRAMES * MONITOR_BOX.w * 1.2));
+  ctx.fillStyle = still || (this.frame >> 3) % 2 === 0 ? '#4fe08a' : '#b8ffd0';
+  const middle = MONITOR_BOX.y + MONITOR_BOX.h / 2;
+  let previousY = middle;
+  for (let x = 0; x < reach; x++) {
+    const y = middle + MONITOR_PULSE[(x + scroll) % MONITOR_PULSE.length];
+    ctx.fillRect(MONITOR_BOX.x + x, Math.min(y, previousY), 1, Math.abs(y - previousY) + 1);
+    previousY = y;
+  }
+  ctx.font = FONT_SMALL;
+  drawText(T('hosp.monitorNote'), 120, 102, COLOR.gray, 'center');
+  ctx.font = FONT;
 };
 function BadgeLayer() { this.opaque = false; this.frame = 0; }
 BadgeLayer.prototype.update = function () {
@@ -3359,10 +3639,12 @@ async function openPauseMenu(world) {
 }
 
 // ---- Party ---------------------------------------------------------------------------------------------------------------------
-// options: mode 'view' | 'choose' | 'switch'; activeIndex (cannot be chosen in switch mode); forced; canChoose(index) -> bool.
+// options: mode 'view' | 'choose' | 'switch'; activeIndex (cannot be chosen in switch mode); forced; canChoose(index) -> bool;
+// titleKey (a strings key for the heading instead of the default one).
 function PartyLayer(options) {
   const o = options || {};
   this.opaque = true;
+  this.titleKey = o.titleKey || null;
   this.mode = o.mode || 'view';
   this.activeIndex = o.activeIndex === undefined ? -1 : o.activeIndex;
   this.forced = !!o.forced;
@@ -3379,7 +3661,7 @@ PartyLayer.prototype.refresh = function () {
   this.rows = G.party.map(function (mon) {
     return { name: speciesName(mon.sp), level: T('ui.lv') + mon.lv, hp: mon.hp + '/' + maxHp(mon), fraction: mon.hp / maxHp(mon), fainted: mon.hp <= 0 };
   });
-  this.title = T(this.mode === 'switch' ? 'party.pickSwitch' : (this.mode === 'choose' ? 'party.pickTarget' : 'party.title'));
+  this.title = T(this.titleKey || (this.mode === 'switch' ? 'party.pickSwitch' : (this.mode === 'choose' ? 'party.pickTarget' : 'party.title')));
 };
 PartyLayer.prototype.update = function () {
   const count = G.party.length;
@@ -3435,6 +3717,60 @@ PartyLayer.prototype.draw = function () {
     drawText(row.hp, 176, y + 7, COLOR.ink);
     if (G.party[i].status) drawStatusTag(G.party[i].status.id, 100, y + 14);
     if (i === this.activeIndex) drawText(T('party.active'), 228, y + 3, COLOR.red, 'right');
+  }
+};
+
+// ---- Αρχείο Ασθενών: the archived creatures, six rows at a time ---------------------------------------------------------------
+// options: mode 'view' (browse, B closes) | 'withdraw' (A picks the creature to bring back; the layer returns its index, or -1).
+const ARCHIVE_ROWS = 6;
+function ArchiveLayer(options) {
+  this.opaque = true;
+  this.mode = options && options.mode === 'withdraw' ? 'withdraw' : 'view';
+  this.cursor = 0;
+  this.top = 0;
+  this.refresh();
+}
+ArchiveLayer.prototype.refresh = function () {
+  this.rows = G.archive.map(function (mon) {
+    return { name: speciesName(mon.sp), level: T('ui.lv') + mon.lv, hp: mon.hp + '/' + maxHp(mon), fraction: mon.hp / maxHp(mon), type: SPECIES[mon.sp].t };
+  });
+  this.title = T(this.mode === 'withdraw' ? 'arch.pickWithdraw' : 'arch.listTitle', { n: G.archive.length, max: ARCHIVE_MAX });
+  this.position = (this.cursor + 1) + '/' + G.archive.length;
+};
+ArchiveLayer.prototype.moveCursor = function (target) {
+  this.cursor = target;
+  if (this.cursor < this.top) this.top = this.cursor;
+  if (this.cursor >= this.top + ARCHIVE_ROWS) this.top = this.cursor - ARCHIVE_ROWS + 1;
+  this.refresh();
+  Sound.sfx('move');
+};
+ArchiveLayer.prototype.update = function () {
+  const count = G.archive.length;
+  if (Input.repeat.up) this.moveCursor((this.cursor + count - 1) % count);
+  if (Input.repeat.down) this.moveCursor((this.cursor + 1) % count);
+  if (Input.pressed.left) this.moveCursor(Math.max(0, this.cursor - ARCHIVE_ROWS));
+  if (Input.pressed.right) this.moveCursor(Math.min(count - 1, this.cursor + ARCHIVE_ROWS));
+  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this, -1); return; }
+  if (Input.pressed.a && this.mode === 'withdraw') { Sound.sfx('confirm'); closeLayer(this, this.cursor); }
+};
+ArchiveLayer.prototype.draw = function () {
+  ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  ctx.font = FONT;
+  drawText(this.title, 8, 4, COLOR.white);
+  drawText(this.position, 232, 4, COLOR.white, 'right');
+  for (let slot = 0; slot < ARCHIVE_ROWS; slot++) {
+    const index = this.top + slot;
+    if (index >= this.rows.length) break;
+    const row = this.rows[index];
+    const y = 16 + slot * 23;
+    drawPanel(4, y, 232, 22);
+    if (index === this.cursor) { ctx.fillStyle = COLOR.gold; ctx.fillRect(4, y + 2, 3, 18); }
+    drawCreatureIcon(G.archive[index].sp, 10, y + 3, 16);
+    drawText(row.name, 30, y + 3, COLOR.ink);
+    drawText(row.level, 30, y + 12, COLOR.ink);
+    drawTypeTag(row.type, 100, y + 3);
+    drawBar(100, y + 16, 70, 3, row.fraction);
+    drawText(row.hp, 176, y + 7, COLOR.ink);
   }
 };
 
@@ -4152,7 +4488,7 @@ async function runBattle(setup) {
   const trainer = setup.trainerId ? TRAINERS[setup.trainerId] : null;
   const battle = createBattle(G.party, setup.foeParty, G.rng, {
     kind: setup.kind, trainerId: setup.trainerId, foeItems: trainer ? trainer.items : [], foeName: trainer ? trainer.name : '',
-    bag: G.bag, sunday: new Date().getDay() === 0, recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
+    bag: G.bag, archive: G.archive, sunday: new Date().getDay() === 0, recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
   });
   const mapId = G.player.map;
   const theme = mapId === 'studio' ? 'studio' : (mapId === 'port' ? 'sea' : 'grass');
@@ -4380,15 +4716,74 @@ async function selfTest() {
       }
       check('recruit success path adds the creature and the dossier entry', success && G.dex.got.fakelakis, detail);
     });
+    await guard('hospital', async function () {
+      if (!G) throw new Error('no game');
+      const world = layers.find(function (l) { return l instanceof OverworldLayer; });
+      const topLayer = function () { return layers[layers.length - 1]; };
+      // Walk in through the town door.
+      world.loadMap('town', 15, 14, 'up');
+      Input.inject('up', 12);
+      const inside = await pumpUntil(function () { return world.mapId === 'hospital' && Fade.alpha === 0 && !world.busy; }, 400, null, 1);
+      check('the town door leads into the hospital', inside && G.player.map === 'hospital', world.mapId);
+      // Heal through the reception counter: no envelope in the bag, so it happens "at once".
+      world.loadMap('hospital', 4, 3, 'up');
+      const lead = G.party[0];
+      lead.hp = 1; lead.status = { id: 'str', turns: 2 };
+      G.bag.fakelaki = 0;
+      G.lastHeal = { map: 'town', x: 1, y: 1, dir: 'up' };
+      Input.inject('a', 2);
+      const healed = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('the receptionist heals the team (HP and status) and the hospital becomes the return point', healed && lead.status === null && G.lastHeal.map === 'hospital', 'hp ' + lead.hp + '/' + maxHp(lead));
+      // The VIP offer with a Φακελάκι: the first answer (Yes) spends exactly one.
+      lead.hp = 1;
+      G.bag.fakelaki = 2;
+      Input.inject('a', 2);
+      const vip = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('the VIP service heals too and spends one Φακελάκι', vip && G.bag.fakelaki === 1, 'fakelaki ' + G.bag.fakelaki);
+      // The archive terminal: deposit the second creature, then bring it back.
+      if (G.party.length < 2) G.party.push(makeMon('fakelakis', 3));
+      const teamBefore = G.party.length;
+      const archiveBefore = G.archive.length;
+      const second = G.party[1].sp;
+      world.loadMap('hospital', 1, 4, 'up');
+      Input.inject('a', 2);
+      await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 600, 'a', 8);
+      const menuShown = topLayer() instanceof ChoiceLayer;
+      await pumpFrames(3); // let the last injected press end, so the next one is a new press
+      Input.inject('a', 2); // Deposit
+      await pumpUntil(function () { return topLayer() instanceof PartyLayer; }, 200, null, 1);
+      await pumpFrames(3);
+      Input.inject('down', 2); await pumpFrames(4);
+      Input.inject('a', 2);
+      const deposited = await pumpUntil(function () { return G.archive.length === archiveBefore + 1; }, 200, null, 1);
+      check('the archive terminal takes a team member', menuShown && deposited && G.party.length === teamBefore - 1 && G.archive[archiveBefore].sp === second, 'team ' + G.party.length + ' archive ' + G.archive.length);
+      await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 600, 'a', 8);
+      await pumpFrames(3);
+      Input.inject('down', 2); await pumpFrames(4);
+      Input.inject('a', 2); // Withdraw
+      await pumpUntil(function () { return topLayer() instanceof ArchiveLayer; }, 200, null, 1);
+      await pumpFrames(3);
+      Input.inject('a', 2);
+      const withdrawn = await pumpUntil(function () { return deposited && G.archive.length === archiveBefore; }, 200, null, 1);
+      check('the archive terminal gives it back', withdrawn && G.party.length === teamBefore && G.party[teamBefore - 1].sp === second, 'team ' + G.party.length + ' archive ' + G.archive.length);
+      await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 600, 'a', 8);
+      await pumpFrames(3);
+      Input.inject('b', 2);
+      await pumpUntil(function () { return !world.busy; }, 300, null, 1);
+      check('the archive menu closes and the world is free again', !world.busy && !(topLayer() instanceof ChoiceLayer));
+    });
     await guard('save', async function () {
       if (!G) throw new Error('no game');
       G.money = 4321; G.flags.testFlag = true;
+      G.archive = [makeMon('storoula', 4)];
       const stored = writeSave();
       const loaded = readSave();
       const copy = loaded ? gameFromSave(loaded) : null;
       check('loaded game matches', !!copy && copy.money === 4321 && copy.flags.testFlag === true && copy.party.length === G.party.length &&
         copy.party[0].sp === G.party[0].sp && copy.party[0].lv === G.party[0].lv && copy.player.name === G.player.name, copy ? copy.money : 'null');
-      check('save key is mizamon.v1.save with version 1', JSON.parse(Store.get('mizamon.v1.save')).version === 1);
+      check('the archive survives a save and load', !!copy && copy.archive.length === 1 && copy.archive[0].sp === 'storoula' && copy.archive[0].lv === 4);
+      check('save key is mizamon.v1.save with version 2', JSON.parse(Store.get('mizamon.v1.save')).version === 2);
+      G.archive = [];
     });
     await guard('language', async function () {
       OPT.lang = 'el'; const greek = T('menu.bag');
@@ -4405,7 +4800,36 @@ async function selfTest() {
         const box = button.getBoundingClientRect();
         return box.left < game.right && box.right > game.left && box.top < game.bottom && box.bottom > game.top;
       }).map(function (button) { return button.getAttribute('data-btn'); });
+      // The four d-pad buttons are one drawn arrow turned four ways: same button size, same arrow size, no font glyph, in both layouts and when pressed.
+      const pad = ['up', 'down', 'left', 'right'].map(function (name) { return touchPad.querySelector('[data-btn="' + name + '"]'); });
+      const glyphs = /[▲▼◀▶]/;
+      const padProblems = [];
+      for (const layout of ['portrait', 'landscape']) {
+        touchPad.className = layout;
+        const sizes = pad.map(function (button) {
+          const box = button.getBoundingClientRect();
+          const arrow = button.querySelector('.arrow');
+          const arrowBox = arrow ? arrow.getBoundingClientRect() : { width: 0, height: 0 };
+          return [Math.round(box.width), Math.round(box.height), Math.round(arrowBox.width), Math.round(arrowBox.height)].join('x');
+        });
+        if (new Set(sizes).size !== 1 || sizes[0].split('x').some(function (n) { return Number(n) <= 0; })) padProblems.push(layout + ' sizes ' + sizes.join(','));
+        // One drawn arrow turned four ways: four different transforms, and "up" is the unturned one (none or the identity matrix).
+        const turns = pad.map(function (button) {
+          const arrow = button.querySelector('.arrow');
+          return arrow ? getComputedStyle(arrow).transform : '';
+        });
+        const upIsPlain = turns[0] === 'none' || turns[0] === 'matrix(1, 0, 0, 1, 0, 0)';
+        if (new Set(turns).size !== 4 || !upIsPlain) padProblems.push(layout + ' turns ' + turns.join(' ; '));
+        for (const button of pad) {
+          button.classList.add('on');
+          const arrow = button.querySelector('.arrow');
+          if (!arrow || getComputedStyle(arrow).backgroundColor !== getComputedStyle(button).color) padProblems.push(layout + ' pressed colour ' + button.getAttribute('data-btn'));
+          button.classList.remove('on');
+        }
+      }
+      for (const button of pad) if (glyphs.test(button.textContent)) padProblems.push('glyph in ' + button.getAttribute('data-btn'));
       touchForced = false; resizeScreen();
+      check('d-pad arrows are identical drawn shapes in both layouts and pressed (no font glyph)', padProblems.length === 0, padProblems.join(' | '));
       check('touch controls exist when forced on', shown);
       check('no touch button covers the game (' + window.innerWidth + 'x' + window.innerHeight + ')', covering.length === 0, covering.join(','));
     });
