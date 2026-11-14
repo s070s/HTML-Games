@@ -7108,6 +7108,459 @@ Built from the entry as decided (M2 numbers, the stumble in its own field `stumb
 - **Checked** (after the review fixes, 2026-11-14): `breakpoint.html` is 1,737,621 bytes in LF form (1,732,290 before the fixes, 1,681,273 at main 544a81f; on disk it keeps its CRLF and BOM). Headless runner (`node tools/run-tests.js`): PASS 907 / 925, the 18 known headless limits ("needs the main menu", "blank faces") and no other failure; `--only Intro`: 31 / 31; the 31 Intro tests also pass in headless system Chrome (`BREAKPOINT.selfTest('Intro')`, with the drawing checks that the stub skips). **Frame-time budget:** P18-60 set none for the intro; this task holds the picture to p50 no worse than the old picture's 26.3 ms and p95 within 10 % of its 52.5 ms (57.8 ms), at 640x360, 4x CPU throttle, software rendering, read back (`introBench`, 3 runs of the reveal, first frame left out), and the issuing of the drawing to under 5 ms p95: measured p50 19.8 ms, p95 55.3 ms, issuing 0.8 / 2.7 ms. Test hooks: `BREAKPOINT.introAt(p, { seed, reduced, shake, flash, effects })` holds the picture at time p (load the page without `?nointro`, wait about 250 ms before a screenshot, any press or tap takes it down) and `BREAKPOINT.introBench(w, h, { reduced, readback })` times the reveal; the stills in `Breakpoint/docs/p19-17-stills/` were taken that way (1280x720 and 390x844: first landing, build-up, the shatter at 5.9 and 6.1 s, the card, Reduced motion, the crack close-ups at 2x). After the re-review's small fixes (f1b7b3e, dd6cbc8: a tap takes down a held picture, the crack test counts below the feet, each group keeps 4 % of the width to the edge with a kicking leg, two depths on a phone, the ring's wear in concrete tones), 1,737,969 bytes in LF form: the full self-test in headless system Chrome (`BREAKPOINT.selfTest()`, 1280x720) passes 925 / 925 with none skipped, and P0-04 (640x360, Quality Low, 4x CPU throttle, `benchmark(10)` 3 times) is unchanged: frame p95 18.1 to 18.2 ms on this branch and 18.2 ms on main 544a81f, work p95 4.7 to 5.8 ms against 4.5 to 6.5 ms.
 - **Owner device checks to add to BP-P16-03**: on a phone (390 x 844 and 844 x 390) tap the card: the garage floor and the brawling silhouettes show, each landing lights it and cracks the floor (no thin lines), the last hit breaks the whole picture into pieces that fall away and the menu is under them with no blank moment; a tap during the shatter opens the menu at once; with Reduced motion nothing shakes or flashes, the picture fades out at the end; with Flashes Off a hit lights nothing and the picture stays steady, the damage still showing; with Effects Low there are no chips or dust; judge the look of the floor, the fighters and the cracks against "realistic".
 
+### P19-14 charged attacks and delayed strings, decided (2026-11-14)
+
+- Task: BP-P19-14 (DECIDE part; the build is BP-P19-15, after review). Owner (2026-11-13, 18:06; verbatim in the tracking repo, `Breakpoint/tasks/BP-P19-14.json`): "Also introduce for everyone new moves,combos,animations Hold down button attacks and slight pause-attack midcombo". Rule: keep things balanced. Decided by the coordinator's delegate under the Owner's standing go; the Owner can change any number (the free choices are at the end). This task changed no game code, test or fingerprint: every number below is a headless run of a candidate model on scratch copies of the game.
+- Base: `main` at 7c8d413 (P19-16 felt stamina and P19-17 the intro are in; branch `bp-p19-14-moves`). Every number is a headless P0-06 run (the inline script in the stub harness, real `MatchSim`, real `AIController`; the P19-16 probe library `pl.js`, which now also has three scripts for the new moves and counts them) of a scratch copy of that script with the candidate model patched in by a throw-away script (`mk1914.js` with the move list `spec1914.js`; text replacements on the extract, never the repo). Scripts, result lines, a README and the table printers are in the tracking repo, `Breakpoint/docs/p19-14-probes/` (a README says how to rebuild). Cells are as in P19-16: KAI (Block) against MARA on the Warehouse, evenDamage off, **F0** short duel (Health Normal), **F1** long duel (Health Double), **A3** the Arcade proxy (three CPU enemies with the Survival group rule), all at **Hard**, seeds 1 to 200 (the seat band also 6001 to 6200). Scripts: **Press**, **Mash** and **CPU** (KAI played by the AI) as in P19-16 (the Skilled script was not run), and two new ones: **Charge** (the String script of P18-61, Punch Punch Kick every 90 ticks, whose last press is held down until the charge has run 32 ticks, a full charge: a blind charger that never reads the foe) and **Pause** (Punch, then Kick after a wait of 30 ticks, every 90 ticks).
+- What the pick is, in one line: **hold the last press of a string (the strong step) and the move waits at its last startup tick; after 12 ticks it is a charged attack, after 30 a full one; let go and it strikes in 5 / 4 ticks. A press that is let go before that strikes exactly as today. Stand still for 10 ticks (0.17 s) with the string still open, and the next press of its position plays a different move.** Every one of the 16 styles has one of each, by name.
+
+#### 1. What exists today (the facts the pick rests on)
+
+- **No device knows "held" for Punch or Kick.** `PlayerInput.press()` latches an edge, `takeAttack()` hands one press a tick to `fillIntent`, and `Fighter.bufferInput` keeps it for `BUFFER_TICKS` 12; the touch code says "every button, PUNCH and KICK included, fires on press: no hold". `PlayerInput.held[action]` (the button is down now) exists for every device already (keys, pad buttons, touch buttons) and is read for Defend, Crouch and Use.
+- **Strong = tier 3.** The eight strong moves and the style moves of tier 3 are only steps of the string tables (`MOVE_STYLE.<style>.strings`, 18 positions); `Combat.canChain` ends a chain at a tier-3 step (`from.tier === 3`), a strong move that misses adds 8 recovery ticks (`whiffExtra`), every one breaks a block (`gb`). The strong step is the third press of most strings and the second of the grapplers' two-step tables (Wrestling, Judo, BJJ).
+- **Height = Crouch held at the press** (`it.height`; the crouch rows `cP1 cK1 cPP2 cKK2 cPPP3 cKKK3`), and on touch the automatic height (`touchAttackHeight`: against a crouched foe the press goes low by itself).
+- **A string continues** when the next press comes within `ATTACK_STRING_TICKS` 48 (0.8 s) of the previous string press and the move connected (x 2 with Auto-assist). Ticks everywhere in this entry are the fighter's own `age` ticks, which stand still in a hit-freeze, as every window of the string does today.
+- **Defend held** is the Sway stance (`STANCE_TICKS` 30 prepared ticks from a press, re-armed after `STANCE_REARM_TICKS` 90) or the Block guard; neither exists in S.ATTACK (the stance needs IDLE, WALK or CROUCH).
+- **There is no armour anywhere** and a counter hit is automatic: a hit on a fighter in the startup or active ticks of a strike does `cv` (1.15 / 1.25 / 1.5 by the hitter's tier) times the damage and 1.3 times the stun (`Combat.landHit`). A fighter waiting in a charge is exactly such a fighter, so the risk of charging needs no new rule.
+- **The online input word is full**: `encodeInput` is 8 + 8 bits of stick and 16 flag bits (12 flags, sidestep 2, grapple direction 2).
+
+#### 2. The pick in plain words
+
+Nothing changes for a player who taps. A hold is read only on the last press of a string, in a few ticks of waiting that cost a tap nothing, and a pause is read only when the fighter has stood still for a beat. A **charged attack**: press the last button of a string and keep it down. The fighter winds up as the move starts; at the end of the move's wind-up it stops in a deepened wind-up (the tell: the body sinks, the limb is drawn back, a ring fills at the feet), stamina does not refill, and after 0.2 s a short sound and a buzz say "level 1", after 0.5 s "level 2" (more damage, and the knockdown or launch of the move). Let go: it strikes in 5 or 4 ticks. Let go early (before 0.2 s) and the plain move strikes at once. Hit the charging fighter and the charge is gone, with the counter-hit bonus for the hitter. Press Defend and the charge is cancelled into the guard or the Sway (the stamina of the move is spent). A **delayed string**: stand still for a beat (0.17 s, the stick let go) and press the next button while the string is still open: a different move of that style comes out, quicker to start, at another height or angle than the plain step.
+
+#### 3. The rules (numbers in ticks; 60 a second)
+
+1. **Held flags.** The intent gets `punchHeld` and `kickHeld` (the button is down this tick; they are levels, not one-tick presses). Every device fills them from the `held[action]` it has already: keyboard `kb.has(code)`, pad `padHeld` (both Punch buttons, both Kick buttons), touch `touchHeld`. `clearIntent` clears them; no key, button, binding or setting is added.
+2. **Chargeable step.** One position per style (the table of section 4): the last press of one string. A press whose row is a crouch row (Crouch held, or the touch automatic height against a crouched foe) is never chargeable, and neither is any press with an item in hand. The plain move at that position is a tier-3 step with a base startup of 12 to 17.
+3. **Set tick.** The press plays its plain move exactly as today. If the button has stayed down on **every** tick from the move's first tick to its **last startup tick** (`moveTick === mStartup`, 12 to 17 ticks, never under `CHARGE_MIN_STARTUP` 9), and the tank is at 25 % or more and the move was paid (not `exhaustedMove`), the move stops on that tick: `charging` is true, `moveTick` stops counting, the fighter stands still (it keeps turning to the foe at 9 degrees a tick like a homing move). Otherwise nothing happens and the move goes on. **A tap is any press let go before the set tick: the build must give the identical event log of today's game for it** (test 3 of section 10). A press that is let go and pressed again before the set tick is not a hold (the button must stay down).
+4. **Levels** (ticks counted from the set tick): `CHARGE_L1` 12 (0.20 s), `CHARGE_L2` 30 (0.50 s), `CHARGE_MAX` 42 (0.70 s: the strike is released by itself at the cap, at level 2). Released below 12: the plain move, now (it was only delayed by the ticks held). Level 1 and 2 strike with the charged rows of section 4, `release` ticks after the release (5 at level 1, 4 at level 2, the release tick counting as the first): `mStartup = moveTick + release`, a new `moveId` (so a CPU reads a fresh strike and a hit list starts empty), recovery from the row.
+5. **Price.** The plain move's stamina is paid at the press, as today. The charge itself costs nothing a tick but the refill stops while it waits (`noRegen` held at 2 ticks). Releasing at level 1 or 2 pays an extra 35 % or 70 % of the plain move's price (the table shows it); a tank that cannot pay the extra strikes with the plain move instead.
+6. **What cancels a charge.** A hit, a stagger, a grab, a throw, a knock-down or a knock-out (the fighter leaves S.ATTACK; nothing is refunded; the hitter gets the counter-hit bonus of today); a fresh **Defend press** (`defendPressed`: a Block fighter guards, a Sway fighter's press leans out at once, through `swayBuffer`; the plain move's stamina is spent, so the cancel is not free); the round ending. **Nothing else cancels it:** Crouch, Jump, the stick, a double tap, Use or Grapple pressed during a charge do nothing until it ends (the fighter is in an attack). Defend held from before the press is not a press: the charge goes on, and the stance that was armed is not touched (a stance counts ticks only while the fighter stands free, P19-13).
+7. **Delayed string.** One position per style (a two-step key whose first letter is Punch, section 4). A press whose string position is that key, made while the string is open (the existing window `ATTACK_STRING_TICKS` 48, x 2 with Auto-assist, and the first move connected), **when the fighter has stood still for at least `PAUSE_STILL_TICKS` 10 ticks** (its state is IDLE and `stateTicks` is 10 or more: the count starts when the last move of the string ends and starts again after any walk, run, crouch, guard or sidestep; a press that chains out of a move, a press made while the move still ran and read after it ended, and a press made while walking are never a pause), plays the delayed row instead of the plain step. For the jab-type first moves (17 to 22 ticks long) that is a window from tick 27 to tick 48 after the first press: 22 ticks (0.37 s) long (a 22-tick first move such as a grappler's Snap Down: 32 to 48; a 27-tick kick first move: 37 to 48; no delayed string starts from a kick). A delayed move is a normal string step: it chains on as its tier allows, and a pause again later gives the next delayed step only where the table has one.
+8. **No clash.** Strong: the charged move is the strong step made stronger, a tapped strong step is unchanged. Height: a crouch row never charges and never pauses (the delayed rows are standing rows too). Defend: only a **press** cancels, a held Defend does not (so a Sway player may keep Defend down while striking), and a charge never uses a stance tick. Sway of the foe: a charge is a strike like any other, a held-Defend foe slips it at its tier price 8 (it is tier 3), a perfect block or sway of a released charge is a perfect as today (the strike's first active tick against the defender's press); the 4 and 5 ticks from the release to the strike are shorter than any other tier-3 startup (10 to 17), so a defender reads the charge pose, not the release.
+9. **Determinism.** Everything is ticks and the seeded `simRng`; no `Math.random`, no wall clock, no viewer setting in the simulation. The charge state (`charging`, `chargeTicks`, `chargeRows` as the move's slot, `holdBtn`, `holdBroke`) is sim state (the pause reads `state` and `stateTicks`, which already are): `matchChecksum` gets `charging` and `chargeTicks` (as it carries `moveTick`). The pose, the sounds, the buzz and the ring are draw-only and read the sim state.
+
+**What every other input does (no clash).**
+
+| Input | Before the press | During a charge (frozen at the set tick or waiting at a level) | In the pause window |
+|---|---|---|---|
+| Defend held (Block guard or Sway stance) | as today (Block guards, a Sway fighter holds its stance) | not a press: the charge goes on; the stance's `readyLeft` is not used or refilled (a stance counts only free ticks, P19-13); when the charge ends, Defend still down arms nothing new | as today: a Block fighter who holds Defend is in the guard state, which is not standing still (no pause while guarding); a Sway fighter's stance is IDLE, so a stance armed before the pause still slips a strike during it and the pause counts |
+| Defend **pressed** | a tap sway / a guard as today | **cancels** the charge: Block guards on the next tick; Sway leans out at once (the press is buffered 6 ticks for the free tick). The plain move's stamina is spent | a tap sway / guard as today (it ends the string: the fighter leaves its attack state by its own choice) |
+| Crouch (Duck, L2, key) at the press | picks the crouch row of the string (`cP1 ... cKKK3`) | ignored (the height was chosen at the press); a crouch row never charges | a crouch row never pauses (the delayed rows are standing rows) |
+| Stick / D-pad | walks; a double tap runs or sidesteps | nothing (the fighter stands still; it keeps turning to the foe at the homing rate of a move) | walks, runs or sidesteps as today; **a walk is not a pause** (it restarts the count of still ticks), so the stick has to be let go |
+| Jump | as today | nothing | as today (leaves the string) |
+| Grapple press or right-stick flick | a grab as today | nothing (kept in the buffer like any press made during a move, 12 ticks) | a grab (leaves the string) |
+| Use | as today | nothing (the press is kept 12 ticks) | as today |
+| Strong (a tier-3 step) | the strong step is a string step | the **same step**, held: the strong step made stronger; a tap plays it as it is today | not applicable (delayed rows are not strong steps except for the three grapplers, whose plain steps already are) |
+| Auto-assist | the string window is doubled | the charge ticks are the same | the string window, and so the pause window, is doubled |
+| Guard assist | as today | not read by a charge (a charging fighter is attacking) | as today |
+
+#### 4. The moves: 16 charged attacks and 16 delayed strings (every style of P17-10)
+
+Notation: a string is its presses, P = Punch and K = Kick (a Boxer's K is Hook, a Judoka's P is Pull; the table uses the letters). "Hold" is the last press of the string, kept down. Frame data is startup / active / recovery in ticks (a charged move's startup is the **release** ticks, after the hold); damage is before the fighter's strength, combo scaling and the counter hit; stamina is the move's price as `stamPrice` makes it (the extra of a charged move is paid at the release on top of the plain move's price that was paid at the press); hit / block is the frame advantage the Training line and the Move list already compute. The plain move stays what a quick tap plays, and its numbers are not changed. Every charged move is tier 3 (it breaks a block, ends a chain and costs +8 recovery ticks if it misses, as today's strong steps do), and every move named here is new: no name equals another move's name in any style (checked against the 59 animations and the style tables of P17-10).
+
+**Family reading.** Hand striking (Boxing, Wing Chun): the charge is a punch finisher. Clinch (Kickboxing, Muay Thai): a kick or a knee finisher. Kicking arts (Karate, Capoeira, Taekwondo): the chambered kick. Throws (Wrestling, Judo, Sambo): a driving strike that sends the foe away (it is the strong step of the grapplers' two-step table, so a grappler's charge comes after one press). Locks (BJJ, Hapkido): a frame or a palm drive. Weapon (Kali): the redonda swung across the body. Hybrid (Brawler, Krav Maga, MMA): the heavy hand or the heavy kick of the style.
+
+**Charged attacks** (hold the last press of the string; the plain move is what a tap plays; levels count 12 and 30 ticks from the set tick)
+
+| Style | Hold | Plain move (tap) | Charged move | Level 1 (hold 12) | Level 2 (hold 30) |
+|---|---|---|---|---|---|
+| Boxing | P P P | Hook (Mid, 12/4/21, 13 dmg, 10.4 stam, stagger) | **Sunday Punch** | 5/4/21, 15.6 dmg, +3.6 stam, reach 1.3, hit 0 / block -11 | 4/4/21, 19.5 dmg, +7.3 stam, reach 1.3, knockdown, hit +2 / block -11 |
+| Kickboxing | P P K | Heavy Push Kick (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Cannon Teep** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+| Karate | P P K | Kekomi Front Kick (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Kime Thrust Kick** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+| Wrestling | P K | Shoulder Charge (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Spear** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.2, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.3, knockdown, hit 0 / block -14 |
+| Judo | P P | Push-Out (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Osoto Drive** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.4, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.4, knockdown, hit 0 / block -14 |
+| Street Brawler | P P P | Haymaker (Mid, 12/4/21, 13 dmg, 10.4 stam, stagger) | **Sledge Right** | 5/4/21, 15.6 dmg, +3.6 stam, reach 1.3, hit 0 / block -11 | 4/4/21, 19.5 dmg, +7.3 stam, reach 1.3, knockdown, hit +2 / block -11 |
+| Capoeira | K K P | Heavy Bencao (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Meia-Lua de Compasso** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+| Wing Chun | P P K | Heavy Thrust Kick (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Pressing Thrust Kick** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, stagger, hit 0 / block -14 |
+| Muay Thai | K P P | Heavy Uppercut (Mid, 16/4/27, 15 dmg, 13.8 stam, launch) | **Khao Dot Knee** | 5/4/27, 18 dmg, +4.8 stam, reach 1.2, hit -4 / block -16 | 4/4/27, 22.5 dmg, +9.7 stam, reach 1.2, launch, hit -2 / block -16 |
+| Taekwondo | K K P | Chagi Push Kick (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Hook Heel Kick** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+| Sambo | P P K | Boot Push (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Crushing Boot** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+| Brazilian Jiu-Jitsu | P K | Guard Push (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Hip-Bump Drive** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.4, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.5, knockdown, hit 0 / block -14 |
+| Hapkido | P P P | Palm Smash (Mid, 12/4/21, 13 dmg, 10.4 stam, stagger) | **Double Palm Smash** | 5/4/21, 15.6 dmg, +3.6 stam, reach 1.3, hit 0 / block -11 | 4/4/21, 19.5 dmg, +7.3 stam, reach 1.3, knockdown, hit +2 / block -11 |
+| Kali / Eskrima | P P K | Redonda (Mid, 12/4/21, 13 dmg, 10.4 stam, stagger) | **Cross-Body Redonda** | 5/4/21, 15.6 dmg, +3.6 stam, reach 1.3, hit 0 / block -11 | 4/4/21, 19.5 dmg, +7.3 stam, reach 1.3, knockdown, hit +2 / block -11 |
+| Krav Maga | P P P | Hammer Fist (Mid, 12/4/21, 13 dmg, 10.4 stam, stagger) | **Hammer Slam** | 5/4/21, 15.6 dmg, +3.6 stam, reach 1.3, hit 0 / block -11 | 4/4/21, 19.5 dmg, +7.3 stam, reach 1.3, knockdown, hit +2 / block -11 |
+| MMA | P P K | Oblique Kick (Mid, 15/4/25, 12 dmg, 12.6 stam, stagger) | **Piston Kick** | 5/4/25, 14.4 dmg, +4.4 stam, reach 1.7, hit -2 / block -14 | 4/4/25, 18 dmg, +8.8 stam, reach 1.8, knockdown, hit 0 / block -14 |
+
+**Delayed strings** (the last press, made after the fighter has stood still for 10 ticks with the stick let go, while the string is open; the plain step is what a quicker press plays)
+
+| Style | String | Plain step (quick press) | Delayed move | Data | Hit / block |
+|---|---|---|---|---|---|
+| Boxing | P P | Cross (High, t2, 8 start, 7 dmg, hit +1 / block -6) | **Check Hook** | Mid, t2, 7/3/15, 9 dmg, 6.9 stam, reach 1.25, hit | hit +1 / block -7 |
+| Kickboxing | P K | Switch Kick (High, t2, 10 start, 10 dmg, hit 0 / block -9) | **Rhythm Kick** | Low, t2, 8/3/15, 9 dmg, 6.9 stam, reach 1.45, hit | hit +1 / block -7 |
+| Karate | P K | Side Thrust Kick (Mid, t2, 9 start, 8 dmg, hit 0 / block -8) | **Ura Mawashi Kick** | High, t2, 9/3/16, 10 dmg, 6.9 stam, reach 1.45, hit | hit 0 / block -8 |
+| Wrestling | P P | Underhook Smash (Mid, t3, 12 start, 13 dmg, hit -2 / block -11) | **Duck-Under** | Low, t3, 10/4/24, 10 dmg, 10.4 stam, reach 1.3, knockdown | hit -5 / block -15 |
+| Judo | P K | Lift-Up (Mid, t3, 16 start, 15 dmg, hit -6 / block -16) | **Sleeve Drag** | High, t3, 11/3/22, 10 dmg, 10.4 stam, reach 1.3, stagger | hit -2 / block -12 |
+| Street Brawler | P P | Big Right (High, t2, 8 start, 7 dmg, hit +1 / block -6) | **Sucker Punch** | Mid, t2, 7/3/15, 10 dmg, 6.9 stam, reach 1.2, hit | hit +1 / block -7 |
+| Capoeira | P K | Armada (High, t2, 12 start, 11 dmg, hit 0 / block -7) | **Rabo de Arraia** | Low, t2, 9/4/19, 10 dmg, 6.9 stam, reach 1.5, hit | hit 0 / block -8 |
+| Wing Chun | P P | Trap Strike (High, t2, 6 start, 6 dmg, hit +3 / block -4) | **Lap Sau Palm** | Mid, t2, 6/3/14, 9 dmg, 6.9 stam, reach 1.3, hit | hit +2 / block -6 |
+| Muay Thai | P P | Cross (High, t2, 8 start, 7 dmg, hit +1 / block -6) | **Spinning Elbow** | Mid, t2, 8/3/16, 10 dmg, 6.9 stam, reach 1.15, hit | hit 0 / block -8 |
+| Taekwondo | P K | Jump Round Kick (High, t2, 13 start, 10 dmg, hit -1 / block -11) | **Bandal Chagi** | Mid, t2, 9/3/17, 10 dmg, 6.9 stam, reach 1.5, hit | hit -1 / block -9 |
+| Sambo | P P | Cross (High, t2, 8 start, 7 dmg, hit +1 / block -6) | **Lapel Smash** | Mid, t2, 7/3/15, 9 dmg, 6.9 stam, reach 1.3, hit | hit +1 / block -7 |
+| Brazilian Jiu-Jitsu | P P | Overhook Smash (Mid, t3, 12 start, 13 dmg, hit -2 / block -11) | **Collar Drag** | High, t3, 10/3/20, 10 dmg, 10.4 stam, reach 1.3, stagger | hit 0 / block -10 |
+| Hapkido | P P | Palm Cross (High, t2, 8 start, 7 dmg, hit +1 / block -6) | **Back-Hand Whip** | Mid, t2, 7/3/15, 9 dmg, 6.9 stam, reach 1.2, hit | hit +1 / block -7 |
+| Kali / Eskrima | P P | Angle 1 (High, t2, 8 start, 7 dmg, hit 0 / block -7) | **Abanico** | Mid, t2, 7/3/14, 9 dmg, 6.9 stam, reach 1.35, hit | hit +2 / block -6 |
+| Krav Maga | P P | Parry Strike (Mid, t2, 6 start, 6 dmg, hit +1 / block -6) | **Palm Heel Strike** | High, t2, 6/3/14, 9 dmg, 6.9 stam, reach 1.25, hit | hit +2 / block -6 |
+| MMA | P K | Oblique Kick (Mid, t3, 15 start, 12 dmg, hit -4 / block -14) | **Switch Knee** | Mid, t2, 9/3/17, 10 dmg, 6.9 stam, reach 1.2, hit | hit -1 / block -9 |
+
+Reading the tables. **(1)** The charged moves are the strong step made stronger by about a third at level 1 and a half at level 2, at the price of 12 and 30 ticks of waiting and 35 % and 70 % more stamina; the plain step beside them keeps its place as the quick option (a tap). **(2)** The delayed moves are not stronger than the plain step they replace (9 to 10 damage for tier 2 against plain steps of 6 to 11; 10 for tier 3 against 12 to 15) and no worse on hit or block (within 1 tick of frame advantage, except the Wrestling Duck-Under, a knockdown, and the Judo Sleeve Drag, which trades 5 damage for 4 ticks of advantage); they differ in height (a high step becomes a mid or low one and the other way round in 15 of 16 styles: MMA's Switch Knee is a mid move like the Oblique Kick it replaces), in startup (0 to 6 ticks quicker, 6 to 11 in all) and in reach: a different follow-up, not a stronger one; its only edge is where it lands (a Low or Mid step reaches a standing guard that the High plain step does not), which gave the Pause script of section 9 4 to 8 points of win rate at Hard. **(3)** The positions do not overlap: a style never has its charge and its pause on the same string key. **(4)** Delayed rows of the grapplers (Wrestling, Judo, BJJ) are tier 3, as the plain steps they replace.
+
+#### 5. Inputs: touch, gamepad, keyboard (no new button, key or setting)
+
+| | Touch | Gamepad | Keyboard |
+|---|---|---|---|
+| Hold the last press | keep the finger on the PUNCH or KICK button (its label is the style's own: Boxing's KICK is Hook, Judo's PUNCH is Pull) | keep the Punch (X, Y) or Kick (A, B) button down (`PAD_BUTTONS`: punch [2, 3], kick [0, 1]) | keep the Punch or Kick key down (the bound keys; a key repeat is already ignored by `onKey`) |
+| Pause | let go of the stick and stand still for 0.17 s after the move, then tap | let go of the stick and the D-pad, then press | let go of the movement keys, then press |
+| Cancel a charge | tap DEFEND | tap R1 (the Defend button, `PAD_BUTTONS.defend` [5]) | tap the Defend key |
+| What says "level 1 / level 2" | the ring at the feet, the sound, a phone buzz of `TOUCH_BUZZ_MIN` ms at level 1 and two at level 2 (`navigator.vibrate`, the P13-02 rule: none on Rumble Off, with Camera shake 0 or where the browser has no vibrate) | the ring, the sound, a rumble pulse at level 1 and two at level 2 (the P13-02 rumble scale and the Reduced halving) | the ring and the sound |
+
+- **How a tap stays a tap, in ticks.** The press fires on the press edge exactly as today (no wait, no extra latency). The move's own startup is the tap window: a press let go before the move's last startup tick (12 to 17 ticks, 0.20 to 0.28 s) is a tap and the game does nothing different, **identical to the tick**. A typical tap is 3 to 9 ticks (50 to 150 ms) on all three inputs (an estimate, not measured on a device: the Owner's device checks are the test). A press kept past the set tick and let go inside the first 11 ticks (under 0.18 s) is a "long press": the plain move strikes at the release, late by at most those 11 ticks. A press that is let go and pressed again is two presses, never a hold. The pause is the same idea the other way round: it needs the fighter to stand still for 10 ticks, so a press that chains out of a move, a press made while walking, running, crouching or guarding, and the rhythm of a mash (a press every 6 ticks, the stick forward when the foe is out of reach) are never one: the Mash script of the probes plays no delayed move.
+- **Nothing to learn on the buttons.** The hold and the pause use the buttons a string already uses; the one rule to learn is "the last press of the string: hold it" and "after the move, stand still for a beat". The Controls card and the touch layout do not change; the Move list, Training and two tips teach it (section 8).
+- **Auto-assist** (human players only): the string window doubles, so the pause window does too (a longer rest still gives the delayed move); the charge is not widened (the set tick and the levels are the same ticks). **Guard assist** does not read the held flags.
+- **Online.** The two held flags need two bits of the 32-bit input word. Decided: the two stick axes drop from 8 to 7 bits each (steps of 1/63 instead of 1/127; the axes are only read past the 0.22 dead zone and the 0.5 digital threshold), so `fwd` is bits 0 to 6, `side` bits 7 to 13 and the flag word bits 14 to 31 (18 bits: the twelve flags, sidestep 2, grapple direction 2, then `punchHeld` and `kickHeld`); `NET_FLAGS` gets the two names; the word keeps 32 bits and the packet keeps its size; `ONLINE_NET_VERSION` goes from 4 to 5 (the simulation's inputs changed), so a build of today never plays a build of the next. `mergePresses` and the shifts of `encodeInput` / `decodeInput` follow; the held flags are levels and are not kept across a frame the sim did not read (`NET_PULSES` is unchanged).
+
+#### 6. The animations (draw-only: the simulation reads none of it)
+
+The skeleton is the game's own: 26 joint values (`torsoLean`, `torsoTwist`, `torsoRoll`, `headX`, `headY`, each shoulder x / z / y and elbow, each hip x / z and knee, `rootFwd`, `rootSide`, `rootDrop`, `bodyPitch`, `bodyRoll`, `bodyYaw`, `lie`) and the animation spec language of `ANIM_SPECS` (a strike builder plus offsets `arm`, `off`, `sw`, `leg`, `base`, `front`, `rear`, `lean`, `twist`, `roll`, `head`, `fwd`, `drop`, `wind`, `pivot`, `pitch`, `brol`, `yaw`, `rdrop`). Like the 59 animations of P17-10, the 32 specs below are **starting values, not fitted and not looked at**: the build fits each with the P17-10 fitter (`fitsway.js`, `docs/p17-10-runner/`) until the hit check limits, the Calm poses, the floor rule and the Sway pose clearance pass, and the Owner looks at them in the creator preview (BP-P16-03).
+
+**The charge pose** (one per family; it is the move's own wind-up held and deepened, not a new animation). A move's pose runs `strikeExtension(t, startup, active, recovery, windup, snap)`: a draw-back (`-windup`, the lowest point at 45 % of the startup) and then the extension, which is already full at the last startup tick. The charge is drawn like this: **from the wind-up's lowest point (tick `0.45 x startup`) the pose stays at the draw-back while the button is still down** (a hold is only known at the set tick; a tap's pose is held at most until its release and then catches up to the move's own extension over 3 ticks, which is the only visible difference from today and only for a press that was held past the wind-up), then while `charging` the draw-back deepens by 35 % over the charge ticks (`coil = 1 + 0.35 x min(1, chargeTicks / 30)`) with a tremor of 0.01 rad at 18 Hz from level 1 (none with Reduced motion: the coil is held still and the ring is the cue). The release plays `extension` from the coil to full over the 5 or 4 release ticks (the game's own smoothstep). The coil per family (offsets on the draw-back pose, joint names as above):
+
+| Family | Styles | Coil (added to the wind-up) |
+|---|---|---|
+| hand | Boxing, Wing Chun | `rootDrop` +0.06, `torsoTwist` -0.35, `torsoLean` +0.10, striking shoulder x -0.55 and elbow +0.5 (fist behind the hip), both knees +0.15, `headX` +0.05 (chin tucked) |
+| clinch | Kickboxing, Muay Thai | the striking leg chambered (hip x +0.9, knee +1.2) or the knee driven up (Muay Thai), support knee +0.2, `torsoLean` -0.10 (counter lean), both shoulder z +0.3 (arms wide) |
+| kicking | Karate, Capoeira, Taekwondo | the kick held in the chamber (hip x +1.0, knee +1.3), support knee +0.25, `torsoTwist` -0.3, Capoeira: hands to the floor (`shLx` 0.2, `bodyPitch` +0.5, `rootDrop` +0.12) |
+| throws | Wrestling, Judo, Sambo | `rootDrop` +0.10, `torsoLean` +0.35, both shoulders x 0.7 and elbows 1.2 (hands low and open, "ready to drive"), knees +0.35 |
+| locks | BJJ, Hapkido | as throws with the base wider (hip z +0.10) and `headY` -0.05; Hapkido: both palms at the chest (`shLx`, `shRx` 1.1, elbows 1.5) |
+| weapon | Kali | the striking arm up and behind (`shRx` 2.2, `elR` 1.3), `torsoTwist` -0.5, weight on the rear foot (`knR` +0.3) |
+| hybrid | Brawler, Krav Maga, MMA | Brawler: `rootDrop` +0.12, `torsoTwist` -0.6, the right fist behind the hip; Krav Maga: both fists at the chin, `torsoLean` +0.2; MMA: the leg chambered like the kicking family, the guard hands kept |
+
+**The strike after the release** (spec of the new look; `base` is the existing builder it starts from; `-` = the plain move's look is used):
+
+| Move | look | base | spec |
+|---|---|---|---|
+| Sunday Punch (boxer) | `sunday` | hook | `{ arm: [-0.1, 0.15, 0.4], drop: 0.3, lean: 0.4, twist: 0.5, roll: -0.3, fwd: 0.6, front: [0.2, 0, -0.1], head: -0.05 }` |
+| Cannon Teep (kickboxer) | `cannon` | teep | `{ leg: [0.2, 0, 0], lean: -0.25, fwd: 0.8, drop: 0.1, base: [0.15, 0, 0] }` |
+| Kime Thrust Kick (karateka) | `kime` | front (the mae look) | `{ leg: [0.1, 0.1, 0], lean: -0.15, fwd: 0.9, base: [0.2, 0.1, -0.1], yaw: 0.3 }` |
+| Spear (wrestler) | `spear` | straightLow (the shoulder look) | `{ arm: [0.2, -0.1, 0.4], lean: 0.55, twist: 0.3, fwd: 0.9, drop: 0.25, front: [0, -0.3, -0.4], pitch: 0.2 }` |
+| Osoto Drive (judoka) | `osoto` | pushout | `{ arm: [0.1, 0.2, 0.4], lean: 0.3, twist: 0.45, fwd: 0.6, drop: 0.15, front: [0.1, 0, -0.25], leg: [0.15, 0.1, 0] }` |
+| Sledge Right (brawler) | `sledge` | haymaker (the hook base) | `{ arm: [-0.2, 0.3, 0.6], drop: 0.4, lean: 0.5, twist: 0.6, roll: -0.4, fwd: 0.5, rdrop: 0.2 }` |
+| Meia-Lua de Compasso (capoeira) | `compasso` | crescent | `{ yaw: 1.0, pitch: 1.2, leg: [-0.5, 0.4, 0], front: [-0.3, 0, 0], drop: 0.5, lean: 0.2 }` |
+| Pressing Thrust Kick (wingchun) | `pressing` | thrust (the M base) | `{ leg: [0.1, 0, 0], lean: -0.1, fwd: 0.9, arm: [0, 0, 0.3], front: [0.1, 0, -0.1] }` |
+| Khao Dot Knee (muaythai) | `khaoDot` | knee | `{ leg: [1.3, 0, 0.2], lean: 0.3, arm: [0.2, 0, 0.5], fwd: 0.5, rdrop: -0.15, pitch: 0.1 }` |
+| Hook Heel Kick (taekwondo) | `hookHeel` | spinBack | `{ leg: [0.3, -0.4, 0], yaw: 0.8, lean: -0.15, pivot: 0.5 }` |
+| Crushing Boot (sambo) | `crushBoot` | boot (the heavy_front base) | `{ leg: [-0.1, -0.5, 0], drop: 0.2, lean: 0.1, fwd: 0.7 }` |
+| Hip-Bump Drive (bjj) | `hipBump` | guard (the heavy_front base) | `{ arm: [0.1, 0, 0.6], drop: 0.4, lean: 0.3, fwd: 0.9, base: [-0.2, 0, 0], roll: 0.2 }` |
+| Double Palm Smash (hapkido) | `doublePalm` | palm (the hook base) | `{ arm: [0, 0.2, 0.6], sw: [0.2, -0.2, 0.3], lean: 0.25, twist: 0.3, fwd: 0.6 }` |
+| Cross-Body Redonda (kali) | `crossRedonda` | redonda | `{ arm: [-0.1, 0.3, 0.4], twist: 0.6, lean: 0.3, fwd: 0.5, roll: -0.2 }` |
+| Hammer Slam (kravmaga) | `hammerSlam` | hammer | `{ arm: [0.2, 0.1, 0.7], lean: 0.45, drop: 0.3, fwd: 0.55, head: 0.1 }` |
+| Piston Kick (mma) | `piston` | oblique | `{ leg: [0, -0.2, 0], fwd: 0.8, lean: -0.3, base: [0.3, 0, 0], drop: 0.1 }` |
+
+**The delayed moves** (the strike; the "set" cue before it is shared, below):
+
+| Move | look | base | spec |
+|---|---|---|---|
+| Check Hook (boxer) | `checkHook` | hook | `{ arm: [-0.2, 0, 0.2], drop: 0.2, lean: 0.2, front: [0.15, 0, 0], fwd: 0.4, twist: 0.2, head: -0.05 }` |
+| Rhythm Kick (kickboxer) | `rhythm` | low | `{ leg: [0.05, 0, 0], lean: 0.05, twist: 0.15, fwd: 0.4 }` |
+| Ura Mawashi Kick (karateka) | `ura` | mawashi | `{ leg: [0.3, -0.6, 0], twist: -0.3, lean: -0.1 }` |
+| Duck-Under (wrestler) | `duckUnder` | low (the trip base) | `{ drop: 0.5, lean: 0.6, arm: [0.2, 0, 0.6], fwd: 0.8, front: [0, 0, -0.4], pitch: 0.1 }` |
+| Sleeve Drag (judoka) | `sleeveDrag` | collar (the H base) | `{ arm: [0, 0.2, 0.3], twist: 0.4, fwd: -0.2, roll: 0.2 }` |
+| Sucker Punch (brawler) | `sucker` | haymaker (the cross base) | `{ arm: [0.1, 0.3, 0.4], lean: 0.2, drop: 0.1, twist: 0.3 }` |
+| Rabo de Arraia (capoeira) | `rabo` | rasteira (the low_kick base) | `{ yaw: 1.2, drop: 0.4, leg: [-0.3, 0.2, 0], base: [-0.3, 0, 0.2] }` |
+| Lap Sau Palm (wingchun) | `lapSau` | chain | `{ arm: [0, 0.15, 0.4], twist: 0.15, off: [0.1, 0, -0.1] }` |
+| Spinning Elbow (muaythai) | `spinElbow` | elbowH | `{ twist: 0.9, roll: 0.3, yaw: 0.6, arm: [0, 0.2, 0.2], wind: 1.3 }` |
+| Bandal Chagi (taekwondo) | `bandal` | roundTkd | `{ leg: [0.1, 0.2, 0], lean: -0.1 }` |
+| Lapel Smash (sambo) | `lapel` | collar (the M base) | `{ arm: [0, 0.1, 0.3], twist: 0.3 }` |
+| Collar Drag (bjj) | `collarDrag` | collar (the H base) | `{ drop: 0.3, lean: 0.25, arm: [0.1, 0, 0.5], fwd: 0.3 }` |
+| Back-Hand Whip (hapkido) | `whip` | palm (the M base) | `{ arm: [0, 0.4, 0.2], twist: -0.3, roll: 0.3 }` |
+| Abanico (kali) | `abanico` | angle | `{ arm: [0, 0.4, 0.2], twist: 0.5, roll: 0.3, wind: 1.3 }` |
+| Palm Heel Strike (kravmaga) | `palmHeel` | parry | `{ lean: 0.15, arm: [0, 0, 0.4] }` |
+| Switch Knee (mma) | `switchKnee` | knee | `{ leg: [0.6, 0, 0], lean: 0.1, fwd: 0.4 }` |
+
+**The pause cue** (both fighters can read it; the opponent sees the same pose, so a pause is a feint and not a secret). From 4 ticks before the window opens (still tick 6) to the end of the string window, while the fighter's string is open and its style has a delayed step at the next press: the guard hands drop 0.08 rad on both shoulders (x) and the weight goes 0.03 m onto the rear foot (`rootFwd` -0.03), blended in over 3 ticks; the striking limb of the delayed move gets a faint light edge; at the window's first tick a short light tick plays for the person's own fighter (`allow` limited) and the Training line shows the ticks. Reduced motion: the guard drop only, no edge. None of this touches a strike pose, a hit volume or the reach fit (the P13-02 rule: strikes never come through the pose helpers). The pause pose is a guard variant: the P17-02 stance tests (idle pairs 0.25) are not asked of it; the Calm poses limits are.
+
+**The sounds and the other cues.** Wind-up: the move's own start sound at the press as today; set tick: a low creak (the existing `grunt` with `effort`, gain 0.35, held 30 ms, the P19-16 breath limiter); level 1: one short rising tick; level 2: two (`Sound.tone`, 0.1 s apart, gain 0.3); release: the move's whoosh and hit sound as today, the whoosh at gain 0.4 louder for a charged strike (the existing `whoosh` limiter); a cancelled charge: the existing guard sound. The **ring**: a thin 2-pixel arc at the fighter's feet, radius 0.45 m, filling clockwise to level 1 (12 ticks) in white and on to level 2 (30 ticks) in the style's accent colour, a bright flash-free edge pulse at each level (none under Effects Low or Reduced motion: the ring then only changes colour); it is a draw call for the person's own fighter and the foe's alike so the tell is fair.
+
+#### 7. The CPU
+
+Decided: **the CPU never charges and never makes a deliberate pause; at Normal, Hard and Expert it plays a delayed move when its own decision falls inside the pause window; Easy never does.** Nothing about `lowStamina`, the token rule of a crowd or the reaction delays changes.
+
+| | Easy | Normal | Hard | Expert |
+|---|---|---|---|---|
+| **charge** | never | never | never | never |
+| **delayed move**: a press in the pause window resolves to the delayed row (`pauseUse`, a new field of `DIFFICULTY`: 0, 1, 1, 1; at 0 the CPU's fighter is told `noPause` and plays the plain step; no `simRng` draw anywhere, so no CPU fight changes where no delayed move comes up) | no | yes | yes | yes |
+
+- **Why it does not charge** (measured, section 9, "What the search tried"): a CPU that holds a button for a charge stands still for 0.5 to 0.9 s, and every script that keeps attacking hits it. With a CPU that charged (the charged pick weighted up, against a guarding foe or one that had not struck for 20 ticks) the Press script's win rate in the long duel at Hard rose from 32 to 52 (100 seeds; section 9). The milder variant, charging only against a foe that had guarded for 20 ticks, was only run together with the pauses below (the Press script read 44 and 47), so its own share is not separated. A CPU that reads its foe well enough to charge safely is a separate job (like the anti-mash CPU of BP-P18-73), not part of this decision; a person who charges against the CPU is the one the charge is for.
+- **Why it does not pause on purpose**: a CPU that stands still after a hit to wait for the window (a plan of its own: it stops chaining, waits 10 to 15 still ticks and presses) lost 20 points as KAI against MARA in the short duel (54 > 34); the same plan only against a blocking foe still gave the Press script 11 points (32 > 43, long duel). The pause is a choice a person makes; the CPU's moves come from its own decisions.
+- **What it does play.** A delayed move comes into the CPU's list when it decides to press after it has stood still for 10 ticks with the string still open: `reachable` resolves the press through `pickString`, which returns the delayed row there. The CPU decides every 34 / 20 / 9 / 6 ticks (Easy / Normal / Hard / Expert), it walks between its decisions and its chain presses come inside the move. **Measured (section 9): none at Easy (by rule), 0.26 a minute at Normal (13 of the 16 styles played one in 30 fights), none at Hard and Expert in 30 fights of each of the 16 styles**: the Hard and Expert CPUs never stand still for 10 ticks inside the string window. So the delayed moves belong to people, and to the Normal CPU in passing; the CPU at Hard and Expert plays today's game, which is why every Hard cell of section 9 that does not ask the candidate to play a new move (Press, Mash, the CPU as KAI, the seat band) equals today's to the last digit. That is the decision: a CPU that plays more of them has to stand still or hold still, and each such variant made it weaker (section 9).
+- The new moves have no `aiw` weight (the weight is 1, as every move of a table without one): the signature test of P17-10 is unchanged.
+- **The foe is never frozen for the CPU**: the CPU does not punish a charging person (it reads the frozen move as a strike in its startup and defends like it always does; its `checkPunish` needs the move to be in recovery). That makes a charge safer against the CPU than against a person who steps in and hits it: stated as an open point in section 11.
+
+#### 8. Training, help lines and tips
+
+- **Training panel** (the existing `STAMINA` / `DEFENCE` lines are not touched): one new line `HOLD` that reads `-` outside a charge and `CHARGE 14 / 30  L1` while one waits (the level it would release at, the ticks to the next level), and `PAUSE 14` with the still ticks while the string is open and the style has a delayed step (`PAUSE 14 OPEN` from tick 10, `PAUSE 14` before it, `-` when the string is closed or the fighter moves), both for the person's fighter; and the Training dummy and the foe lines read a charge as `CHARGING 22`.
+- **Move list**: every style's string table gets two more rows in the existing format: `<keys> then hold <last key>` -> the charged move's name with its two levels (`Sunday Punch: level 1 5 / 4 / 21 frames, 15.6 dmg; level 2 4 / 4 / 21, 19.5 dmg, knockdown`), and `<keys>, stand still, <last key>` -> the delayed move. Their data rows follow in the move table in the same format as the others (`Mid, 7 / 3 / 15 frames, 9 dmg, 6.9 stam, hit +1 / block -7`). The "Start here" line gets `5. Hold the last press of a string to charge it; stand still for a beat after a move, then press, for a different one.`
+- **COMBO_HELP / DEFENSE_HELP**: one sentence each: `A charge is cancelled by a Defend press and by any hit; a Defend you are already holding does not cancel it.` (in `DEFENSE_HELP` for both defences) and `A press made while a move is still running is a chain; a press made after you have stood still for a beat plays the delayed move of your style.` (in `COMBO_HELP`).
+- **Coach tips** (`COACH_TIPS`, shown once, saved in `Progress.d.tips`, first seat's person only, within the first `COACH_MAX_FIGHTS` 20 fights, like the others; the keys are new and the `tips` object is read with `=== true`, so a save without them reads `false` and a save that has them keeps them): `charge`: `Hold ` + k('punch') or k('kick') + ` on the last press of a string to charge a stronger hit. Let go to strike.` (offered the first time the person's fighter lands the second step of a string at a position that has a charge and the button of that position is the one named; the text names the button of that style's chargeable step); `pause`: `Stop and stand still for a beat between two presses: a different move comes out.` (offered the first time the person lands a first step and then stands still for 10 ticks without pressing, in a fight where `charge` was already shown or the fighter has chained at least 8 strings). Both tips are held back like the others while a card is open, and they never show in Training, a benchmark or a replay (`Coach.eligible`).
+- **Controls card and the touch layout**: unchanged (the held buttons are the same buttons).
+
+#### 9. The evidence: the candidate model against today's game (Hard, 200 seeds a cell)
+
+**The model.** `mk1914.js` patches a scratch copy of the game's script; with `'{"OFF":true}'` it is today's game to the last character. It adds the two held flags, the charge (`stepCharge` / `releaseCharge`), the pause (the delayed row in `pickString`, read from the fighter's IDLE ticks) and the CPU's use (section 7); the 16 + 16 moves are the tables of section 4 (`spec1914.js`). The Press and Mash scripts never hold and, always walking or pressing, never stand still for 10 ticks, so they meet a new move only if the CPU foe plays one; the blind charger (Charge) and the Pause script are the two that play the new moves, and the CPU plays delayed moves at Normal (section 7).
+
+**Timeline of the charge and the pause on the model** (`unit1914.js`, Kickboxing KAI against a still foe at 1.3 m; ticks are match ticks of that run, a hit-freeze included; the press is made at tick 14, the plain Heavy Push Kick starts at 28 because it waits for the chain window, its startup is 15, so its set tick is 43):
+
+| Kick held from the press for | Set (tick) | Released at | Held after the set | What strikes | First hit | Foe lost |
+|---|---|---|---|---|---|---|
+| 20 ticks (a tap, let go before the set tick) | none | - | - | the plain Heavy Push Kick, on its own tick | 43 | 10.6 |
+| 32 ticks | 43 | 46 | 3 | below level 1: the plain move, 3 ticks late | 46 | 10.6 |
+| 45 ticks | 43 | 59 | 16 | level 1 Cannon Teep (5 ticks after the release) | 64 | 14.1 |
+| 60 ticks | 43 | 74 | 31 | level 2 Cannon Teep (4 ticks after the release) | 78 | 17.6 |
+| 80 or 100 ticks | 43 | 85 | 42 | level 2, released by itself at the cap | 89 | 17.6 |
+
+Cancels on the same run: a Defend **press** at tick 55 in the middle of the charge gives `chargeCancel` at 55 and no strike (the fighter is free again, a Block fighter guards on the next tick); a Defend that is **held** from tick 10, before the charge, does not cancel it (level 2 at 75, hit at 79). (The plain hit at 43 is the third hit of a string and is scaled by the combo; the charged hits land after the foe's combo has ended. The plain strike of the tap row is identical, to the tick, in today's game: `tap1914.js` below.) The pause on the same model: a Punch at tick 1 and a Kick later in the same string: after 14 ticks the chain plays the plain Switch Kick, after 26 ticks (the Jab's 17 ticks, then 9 still ticks) the plain Switch Kick, from 30 ticks the delayed **Rhythm Kick**, up to 52 ticks (the string window, 48 fighter ticks, a hit-freeze not counted); after 60 ticks the string is closed and the Kick is a new opener (Teep).
+
+**"A tap stays a tap", measured** (`tap1914.js`): for each of the 16 styles and every standing string of its table (4 to 12 strings), presses 6 ticks apart with the last button held for 0, 3, 8 or 12 ticks (all let go before the set tick, which is 12 to 17 ticks into the move): the attack starts, the hits (tick, move, damage) and the stamina equal today's game in **696 of 696 runs**; the same check with the last button held for 60 ticks finds 13 mismatches (the charges), so it can fail.
+
+Criteria of the brief against the numbers (Hard, 200 seeds a cell unless it says otherwise; today > decided):
+
+| Criterion | Result | Met? |
+|---|---|---|
+| FR-001: every style gets at least one charged attack and one delayed string, named and listed | section 4: 16 charged attacks (hold the last press of one string) and 16 delayed strings (stand still, then the last press of a two-step string), one of each per style of P17-10, each named, each with its frame data, damage, stamina, hit and block advantage; section 6 has the 32 animations; section 7 the CPU; section 8 the Training and help lines | yes |
+| FR-002: the pause window and the charge thresholds are numbers in ticks, readable on all inputs | set tick = the move's last startup tick (12 to 17); levels 12 and 30 ticks after it, cap 42; release 5 and 4 ticks; pause = 10 ticks standing still inside the 48-tick string window; tap = a press let go before the set tick (12 to 17 ticks, 0.20 to 0.28 s); the same ticks on touch, pad and keyboard (the held flags come from the `held` map each device already fills; ring, sound and buzz / rumble say the levels) | yes (decided; not tried on a device) |
+| FR-003: the seat band stays 40 to 60 | through `SimRunner.run`: today and the decided model are the same game at Hard (the Hard CPU plays no new move), seat 0 wins 428 of 800 = 53.5 % (seeds 1 to 200) and 382 of 800 = 47.8 % (6001 to 6200); **the stress model, in which the CPU does charge and pause on purpose at every level, seat 0 wins 390 of 800 = 48.8 % (seeds 1 to 200) and 410 of 800 = 51.3 % (6001 to 6200)** | yes |
+| FR-003: the Mash script gains nothing (win rate and damage a second not above today's) | Hard: win 0 > 0 (F0), 0 > 0 (F1), 2 > 2 (A3); damage a second 4.13 > 4.13, 2.17 > 2.17, 1.25 > 1.25; damage taken a second 7.72 > 7.72, 5.36 > 5.37, 1.69 > 1.69: the Mash script never holds and never stands still, and nobody plays a new move in those 600 fights, so the cells are today's to the last digit (the one 0.01 is the single delayed move the CPU made in the 200 long duels). Easy (identical to today: the Easy CPU is told not to pause) win 75 > 75 / 16 > 16 / 98 > 98 (F0 / F1 / A3), damage a second 3.62 > 3.62, 2.49 > 2.49, 2.57 > 2.57; Normal (the CPU plays 46 and 79 delayed moves in the 200 short and long duels) win 16 > 19 / 0 > 0 / 21 > 22, damage a second 3.86 > 3.88, 2.66 > 2.66, 2.70 > 2.70 | yes at Hard; Normal F0 +3 points is inside the noise of 200 fights (3.5), flagged |
+| a tap stays a tap | `tap1914.js`: 696 of 696 runs equal today's game to the tick (16 styles, every standing string, the last button held 0, 3, 8 or 12 ticks, all let go before the set tick); the same check with a 60-tick hold finds the charges (13 differ), so it can fail | yes (at the sim) |
+| the charge is a gamble, not a free win | the blind full charger (the String script, last press held to level 2) wins 27 > 1 % of the short duel and 8 > 0 % of the long one at Hard: it set 945 and 1,464 charges, 73 and 248 reached a release, 25 and 126 hit | yes |
+| the pause pays a little for a person who uses it every time | the Pause script (Punch, stand 30 ticks, Kick): 23 > 27 % and 60 > 68 % at Hard (488 and 1,798 delayed moves, 52 and 51 % of them hit) | yes (a small reward) |
+| the other scripts and the CPU keep their numbers | Press 54 > 54, 35 > 35, 61 > 61 (F0, F1, A3); the CPU as KAI 53 > 53, 10 > 10, 31 > 31; damage and win rates equal to the last digit | yes |
+| no style is moved by the new moves (coarse screen of the 16 styles) | Normal (the CPU plays delayed moves): all 16 pooled rates inside 35 to 65 before and after, the largest change +4.3 (Wing Chun), none over 6; Hard: the same game (136 of 136 pair rates equal); the 8 styles outside 40 to 60 at Hard today are not the new moves' doing | yes |
+| determinism (FIXED_DT, makeRng, no Math.random in the simulation) | the model adds no random number and no `Math.random`; twin runs of the Hard AI, Charge and Pause scripts (4 seeds each) are identical (12 of 12); every held button, pause and charge is a tick count | yes |
+| AC-001: Appendix C entry with the move table per style, the input rules per device, the CPU rules and the probe results | this entry | yes |
+
+**Table 1: win %** of the script, damage dealt : taken in brackets (Hard, 200 seeds a cell, seeds 1 to 200; today > candidate; for Charge and Pause, today plays the same presses as the plain String and Pause)
+
+| Fight | Script | Hard |
+|---|---|---|
+| F0 | Press | 54 > 54 (1.01 > 1.01) |
+| F0 | Mash | 0 > 0 (0.53 > 0.53) |
+| F0 | CPU (KAI as the CPU) | 53 > 53 (1.08 > 1.08) |
+| F0 | Charge (String, last press held to level 2) | 27 > 1 (0.88 > 0.51) |
+| F0 | Pause (P, wait 30, K) | 23 > 27 (0.75 > 0.78) |
+| F1 | Press | 35 > 35 (0.92 > 0.92) |
+| F1 | Mash | 0 > 0 (0.40 > 0.40) |
+| F1 | CPU (KAI as the CPU) | 10 > 10 (0.79 > 0.79) |
+| F1 | Charge (String, last press held to level 2) | 8 > 0 (0.71 > 0.50) |
+| F1 | Pause (P, wait 30, K) | 60 > 68 (1.06 > 1.12) |
+| A3 | Press | 61 > 61 (1.78 > 1.78) |
+| A3 | Mash | 2 > 2 (0.74 > 0.74) |
+| A3 | CPU (KAI as the CPU) | 31 > 31 (1.29 > 1.29) |
+
+**Table 2: damage a second** dealt by the script, damage taken a second, fight length in seconds (same cells; today > candidate)
+
+| Fight | Script | dps | taken/s | fight s |
+|---|---|---|---|---|
+| F0 | Press | 4.28 > 4.28 | 4.23 > 4.23 | 56.2 > 56.2 |
+| F0 | Mash | 4.13 > 4.13 | 7.72 > 7.72 | 31.1 > 31.1 |
+| F0 | CPU (KAI as the CPU) | 5.76 > 5.76 | 5.35 > 5.35 | 40.4 > 40.4 |
+| F0 | Charge (String, last press held to level 2) | 3.78 > 2.71 | 4.32 > 5.32 | 58.7 > 44.7 |
+| F0 | Pause (P, wait 30, K) | 2.39 > 2.40 | 3.18 > 3.10 | 80.0 > 84.6 |
+| F1 | Press | 3.30 > 3.30 | 3.57 > 3.57 | 140.4 > 140.4 |
+| F1 | Mash | 2.17 > 2.17 | 5.36 > 5.37 | 86.9 > 86.8 |
+| F1 | CPU (KAI as the CPU) | 3.70 > 3.70 | 4.66 > 4.66 | 101.8 > 101.7 |
+| F1 | Charge (String, last press held to level 2) | 2.87 > 2.30 | 4.04 > 4.58 | 113.5 > 96.1 |
+| F1 | Pause (P, wait 30, K) | 2.47 > 2.60 | 2.33 > 2.33 | 164.2 > 165.2 |
+| A3 | Press | 3.63 > 3.63 | 2.04 > 2.04 | 36.0 > 36.0 |
+| A3 | Mash | 1.25 > 1.25 | 1.69 > 1.69 | 65.4 > 65.4 |
+| A3 | CPU (KAI as the CPU) | 3.08 > 3.08 | 2.40 > 2.39 | 38.9 > 39.0 |
+
+**Table 3: the new moves in those fights** (candidate only; the first number of a pair is fighter 0 = the script or KAI, the second every foe; "released" counts the charges that reached level 1 and level 2, the rest were hit or let go early)
+
+| Fight | Script | set 0 / 1 | released L1 L2 (0) | released L1 L2 (foe) | delayed 0 / 1 | charged hits 0 / 1 | delayed hits 0 / 1 | cancels |
+|---|---|---|---|---|---|---|---|---|
+| F0 | Press | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F0 | Mash | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F0 | CPU (KAI as the CPU) | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F0 | Charge (String, last press held to level 2) | 945 / 0 | 0 73 | 0 0 | 0 / 0 | 25 / 0 | 0 / 0 | 0 / 0 |
+| F0 | Pause (P, wait 30, K) | 0 / 0 | 0 0 | 0 0 | 488 / 0 | 0 / 0 | 256 / 0 | 0 / 0 |
+| F1 | Press | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F1 | Mash | 0 / 0 | 0 0 | 0 0 | 0 / 1 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F1 | CPU (KAI as the CPU) | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| F1 | Charge (String, last press held to level 2) | 1464 / 0 | 2 246 | 0 0 | 0 / 0 | 126 / 0 | 0 / 0 | 0 / 0 |
+| F1 | Pause (P, wait 30, K) | 0 / 0 | 0 0 | 0 0 | 1798 / 0 | 0 / 0 | 926 / 0 | 0 / 0 |
+| A3 | Press | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| A3 | Mash | 0 / 0 | 0 0 | 0 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| A3 | CPU (KAI as the CPU) | 0 / 0 | 0 0 | 0 0 | 1 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+**Table 4: the Mash script at every level** (win %, damage a second dealt and taken, fight length; today > candidate)
+
+| Fight | Level | win % | dps | taken/s | fight s |
+|---|---|---|---|---|---|
+| F0 | easy | 75 > 75 | 3.62 > 3.62 | 2.88 > 2.88 | 71.9 > 71.9 |
+| F0 | normal | 16 > 19 | 3.86 > 3.88 | 4.38 > 4.37 | 58.9 > 60.0 |
+| F0 | hard | 0 > 0 | 4.13 > 4.13 | 7.72 > 7.72 | 31.1 > 31.1 |
+| F1 | easy | 16 > 16 | 2.49 > 2.49 | 3.10 > 3.10 | 150.1 > 150.1 |
+| F1 | normal | 0 > 0 | 2.66 > 2.66 | 4.56 > 4.58 | 102.9 > 102.4 |
+| F1 | hard | 0 > 0 | 2.17 > 2.17 | 5.36 > 5.37 | 86.9 > 86.8 |
+| A3 | easy | 98 > 98 | 2.57 > 2.57 | 1.14 > 1.14 | 53.4 > 53.4 |
+| A3 | normal | 21 > 22 | 2.70 > 2.70 | 2.46 > 2.45 | 44.3 > 44.3 |
+| A3 | hard | 2 > 2 | 1.25 > 1.25 | 1.69 > 1.69 | 65.4 > 65.4 |
+
+**The seat band** (through `SimRunner.run`: both seats get the default CPU of the level, Hard, Warehouse, even damage, 60 s rounds, best of 3; the four pairings of P19-01 and P19-16, 200 fights each; "seat 0 wins"; the band is 40 to 60 %):
+
+| Pairing (Hard, 200 fights each, seat 0 wins) | today 1 to 200 / 6001 to 6200 | decided 1 to 200 / 6001 to 6200 | stress model (the CPU charges and pauses on purpose) 1 to 200 / 6001 to 6200 |
+|---|---|---|---|
+| Block mirror | 112 / 106 | 112 / 106 | 92 / 104 |
+| Block (seat 0) vs Sway | 67 / 59 | 67 / 59 | 40 / 52 |
+| Sway (seat 0) vs Block | 142 / 139 | 142 / 139 | 157 / 155 |
+| Sway mirror | 107 / 78 | 107 / 78 | 101 / 99 |
+| **seat 0 wins of 800 / 800** | **428 = 53.5 % / 382 = 47.8 %** | **428 = 53.5 % / 382 = 47.8 %** | **390 = 48.8 % / 410 = 51.3 %** |
+
+**The Mash script and the seat band, plainly.** At Hard the Press and Mash scripts and the CPU as KAI give today's numbers to the last digit in every cell where the candidate is not asked to play a new move, because in those cells nobody does: the Mash script never holds a button and, always walking or pressing, never stands still for 10 ticks; the Press script is the same; and the Hard CPU decides every 9 ticks and walks between decisions, so it never stands still either (2 delayed moves in the 1,800 Mash, Press and CPU fights of table 3). That is the evidence for "gains nothing" and it is also its limit: the Hard probes show that the new moves cost nobody anything, not that the CPU plays them well. The seat band is the same game for the same reason, so it is also measured with the **stress model** (a CPU that charges at 0.4 / 0.7 / 0.9 and pauses on purpose at 0.3 / 0.6 / 0.8 by level; section 9, the search): seat 0 wins 390 of 800 (48.8 %) on seeds 1 to 200 and 410 of 800 (51.3 %) on 6001 to 6200, inside 40 to 60 on both; the four pairings read 92 / 104 (Block mirror), 40 / 52 (Block seat against Sway), 157 / 155 (Sway seat against Block) and 101 / 99 (Sway mirror) seat-0 wins of 200 each against 112 / 106, 67 / 59, 142 / 139 and 107 / 78 today. The new moves favour no seat; they do move the Block-against-Sway pairing towards the Sway side (the Block seat wins 33 and 30 % today, 20 and 26 % in the stress model), probably because a Sway CPU slips a CPU that stands still in a charge or a pause (not separated here): a note for BP-P14-05 if the Owner ever lets the CPU charge, and one more reason it does not.
+
+**CPU use, measured** (`use1914.js`, the style fighter on KAI's body against KAI, BRUTUS and YUKI, 10 seeds each, 20 s rounds, all 16 styles at the four levels):
+
+**Use per difficulty** (mean over the 16 styles; per fight minute of the style fighter; 30 fights a cell against KAI, BRUTUS and YUKI, 20 s rounds)
+
+| Level | strike starts a min | charges set a min | released level 1 | released level 2 | delayed moves a min | delayed share of strike starts % | charged hits (total) | delayed hits (total) | cancels |
+|---|---|---|---|---|---|---|---|---|---|
+| easy | 14.8 | 0.00 | 0.00 | 0.00 | 0.00 | 0.0 | 0 | 0 | 0 |
+| normal | 42.8 | 0.00 | 0.00 | 0.00 | 0.26 | 0.7 | 0 | 13 | 0 |
+| hard | 81.7 | 0.00 | 0.00 | 0.00 | 0.00 | 0.0 | 0 | 0 | 0 |
+| expert | 78.2 | 0.00 | 0.00 | 0.00 | 0.00 | 0.0 | 0 | 0 | 0 |
+
+**Use per style** (a fight minute: charges set / released (level 1 + level 2) / delayed moves; Normal, Hard, Expert; Easy plays none of them)
+
+| Style | Normal | Hard | Expert |
+|---|---|---|---|
+| boxer | 0 / 0.00 / 0.14 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| kickboxer | 0 / 0.00 / 0.26 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| karateka | 0 / 0.00 / 0.14 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| wrestler | 0 / 0.00 / 0 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| judoka | 0 / 0.00 / 0.78 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| brawler | 0 / 0.00 / 0.67 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| capoeira | 0 / 0.00 / 0 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| wingchun | 0 / 0.00 / 0.13 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| muaythai | 0 / 0.00 / 0.27 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| taekwondo | 0 / 0.00 / 0.41 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| sambo | 0 / 0.00 / 0.25 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| bjj | 0 / 0.00 / 0.14 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| hapkido | 0 / 0.00 / 0.14 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| kali | 0 / 0.00 / 0.37 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| kravmaga | 0 / 0.00 / 0.52 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+| mma | 0 / 0.00 / 0 | 0 / 0.00 / 0 | 0 / 0.00 / 0 |
+
+Styles that played no new move at all in their 30 fights: Easy 16 of 16 (by rule), Normal wrestler, capoeira, mma, Hard 16 of 16, Expert 16 of 16.
+
+**The coarse style screen** (the P17-10 runner: 16 styles on KAI's body with their default defence, AI against AI, Warehouse, 136 pairs, N = 20, seeds 5001 to 5020; pooled win rate over the 15 opponents; this is the screen of P17-10, a standard deviation is about 3 points a style). Many styles stand outside the band today at Hard (the tree has moved since the P17-10 screen; that is BP-P14-04's work, not this task's); the question here is whether the new moves move any style. At **Hard** the CPU plays none of the new moves, so the two screens are the same game:
+
+| Style | pooled win % at Hard (today > candidate) | change |
+|---|---|---|
+| boxer | 78.7 > 78.7 * | +0.0 |
+| kickboxer | 28.0 > 28.0 * | +0.0 |
+| karateka | 33.0 > 33.0 * | +0.0 |
+| wrestler | 44.3 > 44.3 | +0.0 |
+| judoka | 76.3 > 76.3 * | +0.0 |
+| brawler | 47.3 > 47.3 | +0.0 |
+| capoeira | 41.3 > 41.3 | +0.0 |
+| wingchun | 44.0 > 44.0 | +0.0 |
+| muaythai | 37.3 > 37.3 * | +0.0 |
+| taekwondo | 54.7 > 54.7 | +0.0 |
+| sambo | 47.3 > 47.3 | +0.0 |
+| bjj | 67.7 > 67.7 * | +0.0 |
+| hapkido | 62.3 > 62.3 * | +0.0 |
+| kali | 58.3 > 58.3 | +0.0 |
+| kravmaga | 53.7 > 53.7 | +0.0 |
+| mma | 25.7 > 25.7 * | +0.0 |
+
+N = 20 games a pair, seeds 5001 to 5020, band 40 to 60. Styles outside the band after the change (*): boxer 78.7, kickboxer 28.0, karateka 33.0, judoka 76.3, muaythai 37.3, bjj 67.7, hapkido 62.3, mma 25.7; today: boxer 78.7, kickboxer 28.0, karateka 33.0, judoka 76.3, muaythai 37.3, bjj 67.7, hapkido 62.3, mma 25.7. Largest change: boxer +0.0; styles that moved by more than 6 points (two standard deviations of the screen): none. Pairs whose rate is the same in both screens: 136 of 136.
+
+At **Normal**, where the CPU plays delayed moves now and then (the P14-01 band is 35 to 65):
+
+| Style | pooled win % at Normal (today > candidate) | change |
+|---|---|---|
+| boxer | 44.7 > 43.3 | -1.4 |
+| kickboxer | 49.7 > 50.7 | +1.0 |
+| karateka | 44.0 > 42.7 | -1.3 |
+| wrestler | 45.0 > 45.3 | +0.3 |
+| judoka | 41.0 > 42.7 | +1.7 |
+| brawler | 51.0 > 48.7 | -2.3 |
+| capoeira | 54.3 > 52.0 | -2.3 |
+| wingchun | 49.0 > 53.3 | +4.3 |
+| muaythai | 54.0 > 52.3 | -1.7 |
+| taekwondo | 46.7 > 47.0 | +0.3 |
+| sambo | 62.3 > 61.7 | -0.6 |
+| bjj | 49.7 > 49.3 | -0.4 |
+| hapkido | 56.0 > 59.3 | +3.3 |
+| kali | 45.3 > 45.3 | +0.0 |
+| kravmaga | 53.3 > 51.3 | -2.0 |
+| mma | 54.0 > 55.0 | +1.0 |
+
+N = 20 games a pair, seeds 5001 to 5020, band 35 to 65. Styles outside the band after the change (*): none; today: none. Largest change: wingchun +4.3; styles that moved by more than 6 points (two standard deviations of the screen): none. Pairs whose rate is the same in both screens: 34 of 136.
+
+**What the search tried and dropped** (60 and 100 seeds a cell at Hard, before the 200-seed finals; every line is in `results/`).
+
+- **The first model counted the pause as 26 to 46 ticks since the previous press, and the CPU held at every chargeable pick.** It made every long-recovery first move a pause by itself: the Capoeira KK string (the front kick lasts 27 ticks) was a "pause" every time its kick had ended, 54 delayed moves in 60 fights from one CPU; and the CPU as KAI fell from 52 to 20 % in the short duel (60 seeds). The pause was then counted from the end of the string's last move, 10 free ticks; the finals of that model (`m3`, 200 seeds, partial) showed the Mash script playing 31 delayed moves in the 200 short duels and 186 in the long ones (it walks after a foe that steps out of reach, inside the string window) and its damage a second reading 4.20 and 2.19 against today's 4.13 and 2.17. The pause is now 10 ticks of standing still (state IDLE): a walk is not a pause, and the Mash script plays none.
+- **The CPU's use of the moves, 100 seeds a cell** (seeds 1 to 100; "CPU (KAI)" is KAI played by the Hard AI against MARA; the Press script walks in and presses every 20 ticks and guards 65 % of the strikes it sees; Mash dps is the Mash script's damage a second). The model itself is neutral (w4, the CPU switched off from every new move, is today's game within the noise: 53 / 10, 56 / 34, 4.11 / 2.20 against 54 / 8, 56 / 32, 4.11 / 2.19):
+
+| Variant | What the CPU does | CPU (KAI) win F0 / F1 | Press win F0 / F1 | Mash dps F0 / F1 |
+|---|---|---|---|---|
+| base | today | 54 / 8 | 56 / 32 | 4.11 / 2.19 |
+| w4 | the model with the CPU switched off from every new move (the noise floor of the model itself) | 53 / 10 | 56 / 34 | 4.11 / 2.2 |
+| p4 | the decided rule as it was screened (the probe still drew one unused random number, see the noise point below): the CPU keeps any delayed pick its own decision reaches (Normal and up), never charges, never pauses on purpose | 54 / 14 | 56 / 34 | 4.24 / 2.2 |
+| p2 | the same with the delayed pick kept by chance (0.3 / 0.6 / 0.8 by level, one `simRng` draw) | 54 / 14 | 55 / 34 | 4.24 / 2.2 |
+| p1 | decided, and the delayed rows buffed (damage x 1.3, +3 / +2 stun, 1 tick quicker, they break a block) | 53 / 13 | 55 / 32 | 4.24 / 2.2 |
+| w0 | the CPU charges (0.4 / 0.7 / 0.9 by level, the charged pick weighted 6 times in its chain draw, only against a guarding foe or one that has not struck for 20 ticks), no deliberate pause | 52 / 11 | 65 / 52 | 4.25 / 2.23 |
+| w2 | the CPU pauses on purpose (a plan that stands and waits for the window), never charges, a delayed-key pick weighted 3 times | 34 / 16 | 60 / 34 | 4.09 / 2.12 |
+| z2 | the CPU charges only against a foe that has guarded for 20 ticks, and pauses on purpose only against a blocking foe | 50 / 11 | 58 / 47 | 4.11 / 2.2 |
+| p3 | no charge; a deliberate pause only against a blocking foe; the delayed rows buffed | 53 / 10 | 58 / 43 | 4.12 / 2.21 |
+| m1 | the first full model: charges as w0 and deliberate pauses as w2 | 33 / 10 | 68 / 36 | 4.12 / 2.15 |
+
+  Reading: **any CPU charge costs the CPU** (w0: the Press script wins 52 instead of 32 of the long duel), **a deliberate pause costs it too** (w2: the CPU as KAI wins 34 instead of 54 of the short duel; with the pause only against a blocking foe the Press script still gains 11 in the long duel, p3), and the buffed delayed rows (p1) change nothing the plain ones (p4) do not, so they stay plain. What is left is the decided rule: the CPU plays the delayed moves its own decisions reach and nothing else, which leaves the Press script (56 / 34 against 56 / 32) and the CPU as KAI (54 / 14 against 54 / 8) where they were. The Mash script's damage a second in the short duel reads 4.24 in the rows p1, p2, p4 and w0 and 4.09 to 4.12 elsewhere against today's 4.11: that spread is the noise of one random number, as the next point shows, and the 200-seed finals of the decided model, which draws none, read 4.13 = 4.13 (table 4).
+- **The noise of the Mash script.** A build that differed from the decided one only by one unused `simRng` draw (the probe still drew a number for the CPU's deliberate pause that it never made, `m4`, 200 seeds, partial) read Mash damage a second 4.19 and 2.18 and damage taken 7.90 a second where today reads 4.13, 2.17 and 7.72, with no new move played by anybody in those fights (0 delayed moves, 0 charges): one random number moves the Mash cells by about +0.06 dps and +0.2 taken a second, which is the size of the effect the first two models had. The decided model draws no new number, so in every cell where nobody plays a new move it is today's game to the last digit (checked directly: 16 seeds each of the Mash, Press and CPU scripts, hit points, damage, wins equal).
+- **The Charge script.** The blind full charger (the String script with its last press held to level 2) is a bad plan against the Hard CPU, which is the balance the brief asks for: of 945 charges it set in the 200 short duels only 73 reached a release (all at level 2: it holds 32 ticks) and 25 of those hit; in the long duels 1,464 set, 248 released, 126 hit. The rest were hit in the charge by the CPU's ordinary attacks (the counter hit of the engine) or ended with the round. Its win rate falls from 27 to 1 % and from 8 to 0 %, its damage a second from 3.78 to 2.71 and from 2.87 to 2.30, and it takes more (4.32 > 5.32 a second): a person who charges without looking is punished, as it should be, and a person who looks, cancels with Defend or charges against a guard is the player the move is for.
+- **The Pause script.** Punch, wait 30, Kick: 23 > 27 % of the short duel and 60 > 68 % of the long one at Hard (damage a second 2.39 > 2.40 and 2.47 > 2.60); it played 488 and 1,798 delayed moves and 52 and 51 % of them hit. Probably because the Low Rhythm Kick lands on a standing guard where the High Switch Kick does not (not separated here), the pause pays a little (about 4 to 8 points) for a script that makes it every time, and nothing for one that does not.
+
+#### 10. Build list for BP-P19-15
+
+- **Data.** `MOVE_STYLE.<style>` gets two fields: `charge: { at, name, look, l2 }` (the position, the move's name, its animation key, what level 2 adds: `knockdown`, `stagger` or `launch`) and `delay: { at, id }` (the position and the id of its row); the 16 delayed rows are `defAttack` rows (`dl_<style>`, tier 2 or 3, `delayed: true`, numbers of the table in section 4, stamina priced once with `stamPrice`: 6.9 for tier 2 and 10.4 for tier 3), and the 32 charged rows are derived once at load from the style's plain row at `at` with the four level constants (`CHARGE_DMG` [1.2, 1.5], `CHARGE_EXTRA` [0.35, 0.7] of the plain price, `CHARGE_RELEASE` [5, 4], `CHARGE_REACH` [0.05, 0.1], `CHARGE_STUN` [2, 4], `CHARGE_PUSH` [1.2, 1.5]; level 2 also sets the kind of the `l2` field) and stored on the plain row as `charged: [row1, row2]`. Names and numbers are the tables of section 4; `SKINS` / `moveFor` are not needed (the rows carry their own name and look). Constants (next to `ATTACK_STRING_TICKS` and the stamina constants, tests read them): `CHARGE_MIN_STARTUP` 9, `CHARGE_L1` 12, `CHARGE_L2` 30, `CHARGE_MAX` 42, `PAUSE_STILL_TICKS` 10, the CPU's `pauseUse` of section 7 as a new field of each `DIFFICULTY` row (0, 1, 1, 1).
+- **Sim.** `makeIntent` / `clearIntent` (the two held flags); `PlayerInput.fillIntent` (`it.punchHeld = !!h.punch; it.kickHeld = !!h.kick`, set for every device from the `held` map that `update()` already builds); `Fighter` reset (the new fields: `noPause` false, `chargeRows` null, `holdBtn` null, `charging` false, `chargeTicks` 0, `holdBroke` false, `chargeLevel` 0); `Fighter.pickString` (the delayed row and the charge slot on the pick: `charge` and `btn`; the pause test is `!this.noPause && this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS`, inside the `open` window); `Fighter.startAttack` (arms the slot for a non-crouch press with `mv.startup >= CHARGE_MIN_STARTUP`; resets `charging`, `holdBroke`); `Fighter.updateAttack` (calls `stepCharge(it, opp)` first and returns when the tick is spent frozen) and the two new methods `stepCharge` and `releaseCharge` of the model (about 40 lines; the model is in `Breakpoint/docs/p19-14-probes/mk1914.js`, which is the reference for the exact order of the checks: the button tracked on every tick of the startup, the set test, the Defend press cancel before the hold test, the release which re-times `mStartup`, `mActive`, `mRecovery`, takes a new `moveId` and empties `hitList`). `Combat` and `canChain` need no change (a charged row is tier 3: it ends a chain; a delayed row is tier 2 or 3 as listed and chains on as the tier allows). The AI's reading of a foe (`observe`, line 10009) takes `mStartup`, `moveTick` as they are: a charging foe reads as a strike in its startup, which it is.
+- **Events** (sim, not in `matchChecksum`): `chargeStart` `{ f }`, `chargeRelease` `{ f, level, mv }`, `chargeCancel` `{ f }`; the cue code listens to them.
+- **AI.** `reachable` carries `charge` on its entries (a CPU never reads it: nothing holds a button for a CPU) and `chooseIntent` tells its fighter `f.noPause = this.d.pauseUse <= 0` once a tick (a fighter with `noPause` resolves a press in the pause window to the plain step, so an Easy CPU plays today's game; a person's fighter never has it). Nothing else of the AI changes: no hold, no plan, no weight, no pick dropped, no new `simRng()` draw.
+- **Online.** The two bits of section 5, `ONLINE_NET_VERSION` 5, the layout comment of `encodeInput`; every test that pins the byte layout (the `encodeInput` / `decodeInput` round-trip tests, the packet tests) is re-recorded with the reason, never loosened.
+- **Draw and sound** (section 6): `Fighter.chargePose` next to `stumblePose` (the coil, the pause cue), the 16 charged and 16 delayed looks in `ANIM_SPECS` (and `STRIKE_BUILDERS` entries where a look is a new base), the ring (one draw call per charging fighter, none otherwise), the cue sounds and the buzz and rumble pulses, the Training line, the Move list rows, the help sentences and the two tips. No per-frame allocation (the P19-16 rule): the coil adds constants to the existing joint array, the ring is a pooled quad, the sounds use the existing limiter.
+- **Docs.** The Appendix C tables "P17-10 built" are not edited; this entry is the move list of the new moves. HANDOFF "How to test" gets the one line for `use1914.js` if the Owner wants the CPU use measured again.
+- **Self-tests** (names start `Moves (P19-14):`; none may skip, weaken or delete an older test):
+  1. Data: all 16 styles have one charge and one delay slot; the position exists in the style's string table and holds the plain move named in section 4; the 32 charged and 16 delayed rows equal the tables of section 4 (frozen list); no new name equals another move's name in any style (P17-09 identity rule `row@look`); every delayed row's height, startup and tier are the table's; `moveFor` returns them.
+  2. Input: the held flags are filled from the keyboard map, a pad button and the touch button (the three `Inputs` paths of the existing input tests), cleared by `clearIntent`; **the touch map, the gamepad map and the keyboard map (`Inputs` bindings and the default `Keymap`) read the same actions as before the change** (a frozen copy in the test: no new action, button or setting); the online word round-trips the held flags and the 7-bit axes, and a peer of version 4 is refused.
+  3. **A tap stays a tap**: for all 16 styles, every string of the table played with the button released on each tick from 1 to the set tick (a sweep, KAI's body, the foe at spacing) gives the event log, the stamina and the hit list of today's game to the tick (compared with the same press with both held flags false); a press that is let go and pressed again is not a hold.
+  4. The charge timeline on a Hard CPU body: set at the last startup tick, level at 12 and 30 ticks, auto-release at 42, strike `release` ticks after the release, damage, the extra stamina, `moveId` new, `hitList` empty; below 12 ticks the plain move strikes on the next tick; a tank that cannot pay the extra strikes the plain move; under 25 % or after an unpaid move no charge starts; no charge on a crouch row or with an item.
+  5. Cancels: each hit kind, a grab, a throw, a knock-down and a knock-out end the charge (no state kept); a Defend **press** cancels (Block: guard on the next tick, Sway: the sway on the next free tick); Defend held from before does not; Crouch, Jump, the stick, a double tap, Use and Grapple during a charge change nothing; the stance's `readyLeft` is the same before and after a charge.
+  6. A hit on a charging fighter is a counter hit (x `cv`, stun x 1.3) by the existing rule, and the charge is over.
+  7. The pause: a press after 9 still ticks plays the plain step, after 10 the delayed row; a press that chains out of a move, a press made while walking, running, crouching or guarding, a mash (a press every 6 ticks, the Mash script of the probe kit) and a press made while the move still ran never do; a walk restarts the count; the window closes with the string (48 ticks; 96 with Auto-assist); Auto-assist does not move the charge ticks; a string that did not connect gives no delayed move.
+  8. Online and determinism: two runs of the same seeded fight with the same scripted holds give equal `matchChecksum`; the checksum carries `charging` and `chargeTicks`; no `Math.random` in the changed functions (the existing grep test).
+  9. The CPU: no CPU fighter ever has a held flag set or a `chargeStart` event at any of the four levels (24 seeds each); Easy never plays a delayed move (24 seeds); at Normal at least 10 of the 16 styles play a delayed move in 30 fights (13 did, section 9); and in a staged state (a CPU with a foe in range and the string open) the delayed pick is kept at Normal, Hard and Expert and dropped at Easy; the P17-10 signature test stays as it is (the new moves have no `aiw` weight).
+  10. Animations: the 16 coil poses and the 32 strike poses pass the P17-02 hit check at the release strike's real ticks, the Calm poses limits, the floor rule and the Sway pose clearance (the P3-11 test extended: the delayed rows are 6 to 11 ticks of startup, the charged ones 4 and 5 after the release); the coil is held at the wind-up's lowest point and a tap's pose catches up to its extension within 3 ticks; the pause pose and the coil are zero outside their ticks; with Reduced motion the tremor and the edge are off and the coil stays; no cue reads or writes the simulation.
+  11. Cues: level sounds and buzz at the two levels only, none on Rumble Off or with Camera shake 0; the ring exists only while `charging`; Effects Low and Reduced motion switch the pulses off.
+  12. Training and help: the `HOLD` and `PAUSE` strings, the Move list rows for a style with and without an item in hand, the "Start here" step 5, the two help sentences built from the constants; the two tips are `false` in a fresh save, `true` once shown, shown once, never in Training or a replay, and a save from before the change keeps its other tips.
+  13. The Move list and Training frame data read the delayed rows' and the charged rows' numbers from the rows (no second copy).
+  14. Today's mechanics are unchanged: the P19-16 stamina tests, the P18-62 and P19-13 Sway tests, the strings tests of P17-10 and P3-10 (`Combos end for every move style's own strings`) pass without an edit.
+- **Tests that change with the data, and the fingerprints.** The move-row fingerprint of `Weapons: the swings ... change no move row` (`MOVE_FINGERPRINT_BEFORE_P506`) moves with the 48 new rows and the two new `MOVE_STYLE` fields (re-recorded in the build with the reason; `attacks` and `style` are the parts that differ). The seeded CPU-against-CPU fights of five tests (`N fighters: three seeded 1v1 matches`, `Accessibility (P18-27)`, `Levels: the engine of P8`, `Balance (P9)`, `Effect settings (P13-03)`) change where a CPU's decision reaches a delayed pick at Normal, Hard or Expert (a different move id from there on; the CPU draws no new `simRng` number); each is re-recorded from the Chrome run only after the same fight is replayed with the old build and the new one and the two event logs agree up to the first attack start of a delayed move (a log that differs earlier is a bug; a fight in which no delayed pick comes up must not change at all, so the first run of the new build shows which of the five move). The `DIFFICULTY` rows gain one field; the test that lists them (if any) reads it. No hash is edited to make a test pass without that check.
+- **Size and cost.** About 12,000 to 16,000 bytes in `breakpoint.html` (the 32 data lines and 32 animation specs are 8 to 10 KB, the rows, the two methods, the cues and the help text 4 to 6 KB): far inside the 4,000,000 budget (1,738,038 bytes with LF line endings and the BOM at 7c8d413). The P0-04 benchmark is unchanged in the frames where nobody charges; one ring draw per charging fighter; the coil and the pause cue are constants added to a pose that is already computed.
+
+#### 11. Free choices, open points, not verified
+
+- **Free choices (the Owner can change any of them):** (a) the hold rule: a hold only on a strong step at one position per style, with no charge on a first press (a first press must stay instant and is a 5 to 9 tick move that a 3 to 9 tick tap cannot be told from a hold; the alternative, a delay on every first press, was rejected for its latency); (b) the levels 12 / 30 / 42 and the strikes 5 / 4 ticks after the release; (c) the damage x 1.2 / x 1.5 and the extra stamina 35 % / 70 %; (d) no armour (the hit that lands on a charger is a counter hit, as the engine already does); (e) a Defend press cancels a charge (a feint), a CPU never does; (f) the pause is 10 ticks of standing still inside the string window (two earlier counts failed: a fixed gap since the previous press made the long-recovery kick strings pauses by themselves, the Capoeira KK string was a "pause" every time its first kick had ended, 54 times in 60 fights; and 10 ticks since the move ended let a walking Mash script play 31 and 186 delayed moves in 200 short and long fights and raised its damage a second by 0.07 in the short duel, section 9); (g) a crouch row never charges or pauses; (h) the CPU's use (section 7): it never charges and never pauses on purpose, because each cost it win rate in the runs; a CPU that charges against a foe that has guarded for 20 ticks, or one that pauses on purpose against a blocker, is a measured option (section 9) that moved the Press script by 11 to 20 points in the long duel; the delayed rows could be buffed (damage x 1.3, +3 / +2 stun, one tick quicker, guard break) at the price of the Mash script's damage a second (p1 in section 9, a free choice if the Owner wants the pause to pay more); (i) the 7-bit stick axes for the online word (the alternative is a fifth byte per input and a packet change).
+- **Open:** (1) **the animations and the cues are decided as data, not seen on a screen**; the build fits the specs numerically and the Owner looks at them in the creator preview and on a phone, a pad and a keyboard (BP-P16-03 list); (2) **the CPU does not punish a charging foe, and it never charges**, so the probes measure the charge only through the blind charger script and the CPU's own defence (a CPU that treats the frozen move as a strike in its startup); a person who steps in and hits it will find the charge riskier than the numbers say (it is a counter hit); a CPU rule "punish a charging foe" is a later tuning, not in this task; (3) whether a pad player finds 0.2 s and 0.5 s right: the numbers are tick constants, the Owner can change them after a hands-on try.
+- **Not verified:** no human hands-on play of any hold or pause (headless only, so `how a tap stays a tap` is argued from the tick thresholds and tested at the sim, not by a person on three devices); no look at any pose; the P0-04 benchmark and the Chrome self-test are not run (this task changed no game file); the Press and Mash scripts do not hold and the CPU never charges, so only the blind Charge script exercises the charge in the probes (and the scripted timelines of `unit1914.js`); the Skilled script was not run; the other balance work (the style pairs at all four difficulties) stays with BP-P14-03 / BP-P14-04, which should run the new moves too.
+
+#### 12. Checked (this task, 2026-11-14)
+
+- **Changed:** `Beat Em Up/REFERENCE-breakpoint.md` (this entry) only; `git diff --stat` of the worktree shows that one file, so no game, test or fingerprint file moved. Branch `bp-p19-14-moves` from 7c8d413.
+- **Commands run** (headless, every CPU-heavy one through `node ~/.claude/scripts/heavy.mjs`, from the work folder `%TEMP%/claude/bp-p1914`; the scripts are in `Breakpoint/docs/p19-14-probes/`): `node extract.js "<worktree>/Beat Em Up/breakpoint.html" base.js`; `node mk1914.js base.js final.js '{}'` (8,129 characters more than the extract; `'{"OFF":true}'` is byte-identical to the extract, `cmp`); the finals `fin14.sh base base.js` and `fin14.sh final final.js` (14 + 5 cells of 200 seeds each) and `easy14.sh` (the Easy cells again after the `noPause` change); the seat band `seat14.sh base final stress` (4 pairings x 2 seed ranges x 200 fights each); the CPU use `use1914.js final.js all easy,normal,hard,expert 10` (64 cells of 30 fights); the style screens `pairs.js` at Hard and Normal for today and the decided model (136 pairs x 20 games each); the variant screens of section 9 (`vscreen.sh`, 100 seeds); `node tap1914.js base.js final.js` (696 runs, 0 mismatches; `HOLDS=60`: 13 mismatches); `node unit1914.js final.js cases2.json | cases3.json | cases4.json | cases5.json` (the timelines of section 9).
+- **Outcome:** every number of section 9 is a line in `results/`; the decided model is today's game to the last digit wherever no new move is played; no `Math.random` in `mk1914.js` or `spec1914.js` (`rg -c`: none); twin runs identical (12 of 12).
+- **Not run:** `tools/run-tests.js` and the Chrome self-test (no game file changed), the P0-04 benchmark, any browser, device or look at a pose.
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
