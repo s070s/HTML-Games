@@ -4649,6 +4649,16 @@ test('accessibility: the title line and the top row of the Accessibility screen 
   assert.equal(R.hitLook(0, false, false), R.hitLook(1, false, false), 'the same object on the same pose');
 });
 
+test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to false and puts it back (its fights end the same way on every weekday)', () => {
+  const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
+  assert.ok(run.includes('sunday: isSundayToday()'), 'runBattle asks isSundayToday()');
+  assert.ok(!run.includes('new Date()'), 'runBattle reads no clock of its own');
+  const self = html.slice(html.indexOf('async function selfTest'), html.indexOf('async function selfTest') + 4000);
+  assert.ok(self.includes('sundayPinned: sundayPinned') && self.includes('sundayPinned = false;'), 'selfTest saves the pin and pins Sunday off');
+  assert.ok(html.includes('sundayPinned = snapshot.sundayPinned;'), 'selfTest puts the pin back');
+  const sunday = R.createBattle(monsOf('komma', 8, 1), [R.makeMon('fakelakis', 3)], R.makeRng(1), { kind: 'wild', sunday: true });
+  assert.equal(sunday.sunday, true, 'the battle keeps the Sunday flag it is given');
+});
 test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', () => {
   const reference = readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8');
   const start = reference.indexOf('## 12. Accessibility');

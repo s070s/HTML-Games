@@ -7950,12 +7950,16 @@ BattleLayer.prototype.draw = function () {
   this.drawTicker();
 };
 
+// The real weekday decides Θεία Χάρη's Sunday double heal. selfTest pins it (false) so its fights end the same way on every day of the week.
+let sundayPinned = null;
+function isSundayToday() { return sundayPinned === null ? new Date().getDay() === 0 : sundayPinned; }
+
 // ---- Start a battle and return 'win' | 'lose' | 'ran' --------------------------------------------------------------
 async function runBattle(setup) {
   const trainer = setup.trainerId ? TRAINERS[setup.trainerId] : null;
   const battle = createBattle(G.party, setup.foeParty, G.rng, {
     kind: setup.kind, trainerId: setup.trainerId, foeItems: trainer ? trainer.items : [], foeName: trainer ? trainer.name : '',
-    bag: G.bag, archive: G.archive, sunday: new Date().getDay() === 0, recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
+    bag: G.bag, archive: G.archive, sunday: isSundayToday(), recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
   });
   const mapId = G.player.map;
   const theme = mapId === 'studio' ? 'studio' : (mapId === 'port' ? 'sea' : 'grass');
@@ -8205,7 +8209,8 @@ async function chooseBattleCommand(labelKey) {
 async function selfTest() {
   const results = [];
   const check = function (name, pass, detail) { results.push({ name: name, pass: !!pass, detail: detail === undefined ? '' : String(detail) }); };
-  const snapshot = { G: G, layers: layers.slice(), OPT: Object.assign({}, OPT), forceMemory: Store.forceMemory, touchForced: touchForced, loopPaused: loopPaused, memory: Object.assign({}, Store.memory) };
+  const snapshot = { G: G, layers: layers.slice(), OPT: Object.assign({}, OPT), forceMemory: Store.forceMemory, touchForced: touchForced, loopPaused: loopPaused, memory: Object.assign({}, Store.memory), sundayPinned: sundayPinned };
+  sundayPinned = false;
   loopPaused = true;
   Store.forceMemory = true;
   Store.memory = {};
@@ -9686,6 +9691,7 @@ async function selfTest() {
     OPT = snapshot.OPT;
     Store.forceMemory = snapshot.forceMemory;
     Store.memory = snapshot.memory;
+    sundayPinned = snapshot.sundayPinned;
     touchForced = snapshot.touchForced;
     resizeScreen();
     Input.clear();
