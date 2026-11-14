@@ -16993,7 +16993,8 @@ const SelfTest = {
         const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }, (it) => { it.fwd = 1; }, (it) => { it.fwd = 1; it.run = true; it.defend = hold; });
         self.place(m, 6);
         const a = m.fighters[0], d = m.fighters[1];
-        d.defense = defense;        d.zone[0] = ZONE_MAX - 3; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
+        d.defense = defense;
+        d.zone[0] = ZONE_MAX - 3; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
         d.swayBuffer = 100;   // a Sway pressed just before the fire
         const label = defense + ': ';
         if (d.dizzyWait !== 1 || d.dizzy !== 0 || d.zone[0] !== ZONE_RESET || d.zonePose !== '') bad.push(label + 'after the fire: wait ' + d.dizzyWait + ', dizzy ' + d.dizzy + ', pose ' + d.zonePose);
