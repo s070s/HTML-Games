@@ -17267,7 +17267,7 @@ const UI = {
   screen_onlinejoin() { return OnlineUI.render('onlinejoin'); },
   screen_onlineqr() { return OnlineUI.render('onlineqr'); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], netChoices: [], netPick: 0, netPadPrev: { ok: false, back: false, left: false, right: false, select: false }, ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, pops: [], popIdx: 0, hudBottom: -1, popBoxPx: 0, tagH: [], popOut: [0, 0], popLive: [], tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, bannerTimer: 0, sayTimer: 0, sayPending: [], netChoices: [], netPick: 0, netPadPrev: { ok: false, back: false, left: false, right: false, select: false }, ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSlot: -1, pickQueue: [], pickFrom: '', startHeld: false, pickSeats: [], pickAt: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -18827,7 +18827,9 @@ const UI = {
     if (!(this.popBoxPx > 0)) this.popBoxPx = this.popFontPx();
     return this.popBoxPx;
   },
-  popReset() { this.hudBottom = -1; this.popBoxPx = 0; }, // after a resize or at a match start: measure the HUD and the text again
+  popReset() { this.hudBottom = -1; this.popBoxPx = 0; this.tagH.length = 0; }, // after a resize or at a match start: measure the HUD, the text and the name tags again
+  // P19-02: a name tag hangs up from its point (translate -100 %), so its top is y minus its height. It is kept under the HUD's lower edge like the damage pops (popHudBottom): the point is never above that edge plus the tag's own height. No HUD measure (0): the point as it is
+  tagY(y, height) { const hudBottom = this.popHudBottom(); return hudBottom > 0 ? Math.max(y, hudBottom + height) : y; },
   popHalfWidth(text, scale, px) { return text.length * POP_CHAR_EM * px * scale / 2; }, // an estimate from the letter count: no layout read per hit
   // The lower edge of the HUD (top bars, party row, level line) in CSS px, measured once and kept until popReset; 0 where there is no layout
   popHudBottom() {
@@ -18997,9 +18999,11 @@ const UI = {
       else if (f.blind > 0) status = 'BLIND';
       else if (f.lowStamina) status = 'TIRED';
       const health = m.brawl && i >= m.peopleCount ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : ''; // a brawl enemy's or ally's tag carries its own health bar
-      this.setHtml('tag' + i, el, this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health);
+      const html = this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health, changed = this.cache['tag' + i] !== html;
+      this.setHtml('tag' + i, el, html);
       el.style.display = ok ? '' : 'none';
-      if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
+      if (ok && (changed || !(this.tagH[i] > 0))) this.tagH[i] = el.offsetHeight || 0; // the height is read when the tag's content changes (a layout read), never per frame
+      if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(this.tagY(out[1], this.tagH[i] || 0)) + 'px) translate(-50%,-100%)');
     }
     this.edgeMarks(m);
     for (const p of this.pops) {

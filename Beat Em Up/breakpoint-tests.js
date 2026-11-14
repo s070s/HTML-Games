@@ -16864,6 +16864,42 @@ const SelfTest = {
       const bad = Object.keys(frozen).filter((key) => JSON.stringify(got[key]) !== JSON.stringify(frozen[key]));
       return bad.length ? 'changed: ' + bad.join(', ') : true;
     });
+    /* ---------- Name tags (P19-02): kept under the HUD's lower edge ----------
+       REFERENCE-breakpoint.md, Appendix C, "P19-01 body-zone strain ... decided", section 5, third bullet: the first commit of BP-P19-02. The HUD on stand-ins: every element UI.hudUpdate asks for is a plain object that keeps what is written to it. */
+    const hudStandIn = (fn) => {
+      const made = () => ({ style: {}, className: '', hidden: false, textContent: '', innerHTML: '', offsetHeight: 20, classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } }, querySelectorAll: () => [], setAttribute() {} });
+      const dom = new Proxy({}, { get: (target, key) => target[key] || (target[key] = made()) });
+      const keep = { dom: UI.dom, cache: UI.cache, tagEls: UI.tagEls, tagH: UI.tagH, hudBottom: UI.hudBottom, project: R.project, pops: UI.pops, partyEls: UI.partyEls, edgeEls: UI.edgeEls };
+      try {
+        UI.dom = dom; UI.cache = {}; UI.tagEls = []; UI.tagH = []; UI.pops = []; UI.partyEls = []; UI.edgeEls = [];
+        for (let i = 0; i < COOP_MAX_PLAYERS + BRAWL_MAX_ENEMIES; i++) UI.tagEls.push(made());
+        return fn(dom);
+      } finally { UI.dom = keep.dom; UI.cache = keep.cache; UI.tagEls = keep.tagEls; UI.tagH = keep.tagH; UI.hudBottom = keep.hudBottom; R.project = keep.project; UI.pops = keep.pops; UI.partyEls = keep.partyEls; UI.edgeEls = keep.edgeEls; }
+    };
+    const tagTop = (el) => { const part = /^translate\((-?[\d.]+)px,(-?[\d.]+)px\)/.exec(el.style.transform || ''); return part ? Number(part[2]) - el.offsetHeight : NaN; };   // where the tag's top edge is: its point minus its own height
+    test('Name tags (P19-02): no name tag is above the HUD\'s lower edge (UI.popHudBottom) - a head projected at the top of the screen puts the tag under the edge, a head lower down keeps its tag where it is, in a Free Fight and in a Brawl', () => {
+      const problems = [];
+      for (const [label, build] of [['a Free Fight', () => mk({ mode: 'free' })], ['a Brawl', () => self.makeBrawl({ enemies: 3 })]]) {
+        const m = build();
+        for (const [where, headY] of [['at the top', 12], ['low', 300]]) hudStandIn(() => {
+          UI.hudBottom = 110;   // the measured edge of the HUD (a headless run has no layout)
+          R.project = (x, y, z, out) => { out[0] = 400; out[1] = headY; return true; };
+          UI.hudUpdate(m);
+          let tags = 0;
+          for (let i = 0; i < m.fighters.length; i++) {
+            const el = UI.tagEls[i], top = tagTop(el);
+            if (el.style.display === 'none' || !m.fighters[i].alive) continue;
+            tags++;
+            if (where === 'at the top' && !(top >= 110 - 0.5)) problems.push(label + ', tag ' + i + ' ' + where + ': its top is ' + top + ', above the edge 110');
+            if (where === 'low' && Math.abs(top - (headY - 20)) > 1.5) problems.push(label + ', tag ' + i + ' ' + where + ': its top is ' + top + ', not ' + (headY - 20) + ' (the clamp moved a tag that was clear)');
+          }
+          if (!tags) problems.push(label + ' ' + where + ': no tag was placed');
+        });
+        m.dispose();
+      }
+      if (UI.popHudBottom() === 0 && UI.tagY(5, 20) !== 5) problems.push('with no HUD measure the point is not left as it is');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
     /* ---------- Thrown bodies (P18-25 + P18-32) ---------- */
     /* A fighter sent flying by a throw meets each fighter in its path once (owner, 2026-11-03: a thrown enemy must not fly through the others untouched). It hurts the fighters its thrower may hurt (MatchSim.canHurt: the thrown
        fighter's own teammates too, the thrower's team only with Friendly fire). A standing fighter staggers, or is knocked down from BODY_KNOCKDOWN_POWER up; a fighter lying down takes the damage only. Every scene stands the thrown
@@ -20475,6 +20511,36 @@ const SelfTest = {
         }
       });
       if (!overlaps) bad.push('no touch button overlaps the Controls card at any of the three sizes: the test measures nothing');
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* P19-02: a name tag is kept under the HUD's lower edge (UI.tagY). The live HUD markup and styles in a frame of a phone held either way, a Free Fight and a Brawl (the HUD class of each), a tag for a head projected at the very top of the screen with the longest text a tag carries (the name, a status word and, in a Brawl, the health strip): its top edge is not above the lower edge of the top bars, the party row and the level line, measured the way UI.popHudBottom measures it. */
+    layoutTest('Name tags (P19-02): at 844 x 390 and 390 x 844 in a Free Fight and a Brawl a name tag for a head at the top of the screen is never above the HUD\'s lower edge (the top bars, the party row and the level line)', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], hudHtml = document.getElementById('hud').innerHTML, keep = { dom: UI.dom, hudBottom: UI.hudBottom };
+      let tagsMeasured = 0;
+      try {
+        for (const [width, height] of [[844, 390], [390, 844]]) for (const [kind, hudClass, text] of [['a Free Fight', '', '1P<i>BREATHLESS</i>'], ['a Brawl', 'brawl', 'CPU<i>BREATHLESS</i><s><u style="width:60%"></u></s>']]) inLayoutFrame(width, height, '', (doc) => {
+          doc.getElementById('screens').innerHTML = '';
+          doc.getElementById('app').insertAdjacentHTML('afterbegin', '<div id="hud" class="' + hudClass + '">' + hudHtml + '</div>');
+          const hud = doc.getElementById('hud');
+          hud.hidden = false; doc.getElementById('tags').innerHTML = '';
+          for (const [id, value] of Object.entries({ hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100 / 100', ht2: '100 / 100', roundlbl: 'FINAL ROUND' })) doc.getElementById(id).textContent = value;
+          doc.getElementById('modeinfo').textContent = 'WAREHOUSE - Standard - Hard';
+          UI.dom = { hud }; UI.hudBottom = -1;
+          const edge = UI.popHudBottom(), where = kind + ' at ' + width + ' x ' + height + ': ';
+          if (!(edge > 0)) { bad.push(where + 'the HUD has no measurable lower edge'); return; }
+          const tag = doc.createElement('div');
+          tag.className = 'tag p1'; tag.innerHTML = text; doc.getElementById('tags').appendChild(tag);
+          for (const x of [width * 0.2, width * 0.5, width * 0.8]) {
+            const heightPx = tag.getBoundingClientRect().height;
+            tag.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(UI.tagY(6, heightPx)) + 'px) translate(-50%,-100%)';
+            const top = tag.getBoundingClientRect().top;
+            tagsMeasured++;
+            if (top < edge - 1) bad.push(where + 'the tag at x ' + Math.round(x) + ' has its top at ' + Math.round(top) + ', above the HUD edge ' + Math.round(edge));
+          }
+        });
+      } finally { UI.dom = keep.dom; UI.hudBottom = keep.hudBottom; }
+      if (!tagsMeasured) bad.push('no tag was measured');
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     /* P18-78: the level line (#modeinfo) shares its row with the two stamina and Momentum bars; its glyphs may not run over them. The live HUD markup, the real UI.levelLine on stand-ins for the match with the longest level name, the hardest difficulty label and the most waves. */
