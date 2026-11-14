@@ -19,7 +19,7 @@ const SCALE = 4;
 
 // ---- The district grid ------------------------------------------------------------------------------------------
 // Rectangles are applied in order; a later rectangle overrides an earlier one. Letters: P Peiraias, D Dytika, A Athina,
-// V Voreia, N Notia, E Anatolika. '~' is sea, '#' is mainland outside the six districts (north of Parnitha, the Marathon
+// V Voreia, N Notia, E Anatolika. '~' is sea, '#' is mainland outside the six districts (north and west of Parnitha, the Marathon
 // coast). Lower case marks a hill or mountain cell of that district.
 const DISTRICT_RECTS = [
   ['V', 9, 0, 21, 5], ['D', 2, 1, 8, 7], ['A', 9, 6, 16, 10], ['P', 1, 8, 8, 12], ['N', 9, 11, 16, 13],
@@ -36,7 +36,7 @@ const HILL_CELLS = [
   [6, 11], // the Munychia hill, Kastella
 ];
 // Real sea: the Aegean (east edge), the Saronic Gulf (south and west of Peiraias), the Elefsina bay (west of the Aigaleo ridge).
-const SEA_CELLS = (x, y) => x === 29 || y === 14 || (x === 0 && y >= 2) || (x === 1 && y >= 2 && y <= 7) || (x === 1 && y >= 13) || (x >= 7 && x <= 8 && y >= 12 && y <= 13) || (x === 9 && y === 13);
+const SEA_CELLS = (x, y) => x === 29 || y === 14 || (x === 0 && y >= 5) || (x === 1 && y >= 5 && y <= 7) || (x === 1 && y >= 13) || (x >= 7 && x <= 8 && y >= 12 && y <= 13) || (x === 9 && y === 13);
 
 const isDistrictLand = (char) => char !== '~' && char !== '#';
 
@@ -113,7 +113,7 @@ const LINES = [
   { color: [120, 120, 130], dash: 4, points: [[5, 1], [12, 1], [19, 2], [22, 4], [25, 8], [25, 11]] }, // the ring road
 ];
 const ICONS = [
-  ['temple', 11, 10], ['stadium', 14, 3], ['airport', 25, 10], ['monastery', 3, 6], ['theatre', 6, 10], ['port', 2, 11], ['port', 27, 4], ['stadium', 5, 13],
+  ['temple', 11, 10], ['stadium', 16, 5], ['airport', 25, 10], ['monastery', 3, 6], ['theatre', 6, 10], ['port', 2, 11], ['port', 27, 4], ['stadium', 5, 13],
 ];
 const SHAPES = {
   temple: ['.....', '#####', '.#.#.', '.#.#.', '#####'],
