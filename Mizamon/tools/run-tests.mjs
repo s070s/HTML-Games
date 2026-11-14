@@ -2704,7 +2704,7 @@ const DYTIKA_TRAINERS = ['tollclerk', 'ultras', 'granny', 'marketeer', 'philosop
 const DYTIKA_SPECIES = ['eforaki', 'elegktis', 'fakelarchis', 'giagiaexo', 'giagiaka', 'giotarchis', 'kafenovios', 'ktimatomesitis', 'lobbylykaina', 'monastiriaki', 'monimos', 'rousfetolykos', 'tavlilordos'];
 const DYTIKA_NEW_SPECIES = ['tavlilordos', 'giagiaexo', 'elegktis', 'ktimatomesitis', 'rousfetolykos'];
 // [pre-form, evolved form, evolution level]: the levels of 11.15 (11.3 proposed 30 / 32 / 32 / 32)
-const DYTIKA_EVOLUTIONS = [['kafenovios', 'tavlilordos', 36], ['giagiaka', 'giagiaexo', 37], ['eforaki', 'elegktis', 36], ['monastiriaki', 'ktimatomesitis', 36]];;
+const DYTIKA_EVOLUTIONS = [['kafenovios', 'tavlilordos', 36], ['giagiaka', 'giagiaexo', 37], ['eforaki', 'elegktis', 36], ['monastiriaki', 'ktimatomesitis', 36]];
 // the walkable tiles (1) and solid tiles (0) of the ten maps of Βόρεια, taken from the base build 5677122 (MZ-WORLD-02d)
 const OLD_WALKABLE_02D = {
   route7: '00000000000000000000000000000000/00000000000000000000000000000110/00000000000000000000000000000110/11111111111111111111111111111110/11111111111111111111111111111110/01011111111111111111111111111110/01110111110111110111011111111010/01111111111101111101111111111110/01111111111111111111111111111110/01111111111111111111111111111110/01111111111111111111111111111110/01111111111011111111111111101110/01101111111111011111110111111110/01111111111111111111111111111010/01011111111111111111111111111111/01111011111111111111111111111111/01111111111111111111111111111110/00000000000000000000000000000000',
@@ -2718,8 +2718,8 @@ const OLD_WALKABLE_02D = {
   marousi_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
   marousi_boss: '00000000000000/00111111111100/00111111111100/01110000001110/01111111111110/01111111111110/01111111111110/01001111110010/01111111111110/00000011000000',
 };
-// words of faith, prayer or rites: no text of the new district may carry one (the Εκκλησία type and the abbot joke about wealth, property and tax only, 11.15)
-const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis/;
+// words of faith, prayer or rites (αγιο|αγια only at the start of a word, or Γιαγιά would match): no text of the new district may carry one (the Εκκλησία type and the abbot joke about wealth, property and tax only, 11.15)
+const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis|(?<!\p{L})(?:αγιο|αγια)|ευλογ|εικον|προσκυν|θαυμα/u;
 const DYTIKA_STRING_KEY = /^(map\.(route9|peristeri|route10|chaidari)|warp\.route9|sign\.(route9|toll|peristeri|route10|channel|chaidari)|npc\.(tollwatcher|hitchhiker|peristeri|pscafe|stallholder|angler|chaidari)|cafe\.hello\.peristeri|tr\.(tollclerk|ultras|granny|marketeer|philosopher|steward|gatekeeper|plousiakis)|boss\.plousiakis|badge\.dytika|item\.sylvasi|itemd\.sylvasi|sp\.(tavlilordos|giagiaexo|elegktis|ktimatomesitis|rousfetolykos))/;
 
 test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
@@ -2867,7 +2867,7 @@ test('Δυτικά species: the five new creatures have stats, moves, abilities,
     assert.ok(species.n.length <= 20, id + ' name length');
   }
   assert.ok(R.SPECIES.tavlilordos.t === 'mem' && R.SPECIES.giagiaexo.t === 'mem' && R.SPECIES.elegktis.t === 'asf' && R.SPECIES.ktimatomesitis.t === 'ekk' && R.SPECIES.rousfetolykos.t === 'pol');
-  assert.ok(R.SPECIES.giagiaexo.n !== 'Γιαγιά Τερμινέιτορ' && !/Τερμινέιτορ|(?<![a-z])Terminator/i.test(R.SPECIES.giagiaexo.n + R.STRINGS['sp.giagiaexo'].join(' ')), 'the plan\'s name is a trademark echo: the creature is the Γιαγιά Εξολοθρεύτρια (11.15)');
+  assert.ok(R.SPECIES.giagiaexo.n !== 'Γιαγιά Τερμινέιτορ' && !/Τερμινέιτορ|(?<![a-z])Terminator/i.test(R.SPECIES.giagiaexo.n + R.STRINGS['sp.giagiaexo'].join(' ')), 'the plan\'s name is a trademark echo: the creature is the Γιαγιά Παντόφλα (11.15)');
   // a creature of an old save that is above its level evolves after its next battle: the evolution is data, so the old save needs nothing
   const monastiriaki = R.makeMon('monastiriaki', DYTIKA_EVOLUTIONS.find(([from]) => from === 'monastiriaki')[2]);
   assert.equal(R.evolutionFor(monastiriaki), 'ktimatomesitis');
@@ -3080,7 +3080,7 @@ export function anatolikaTeam(rules, rng, level, size) { return poolTeam(rules, 
 // The pool of Βόρεια: that of Ανατολικά plus the wild Ριάλιτο-Νταής and Lobby-Λύκαινα (Σταρ των 90ς is the evolved Λαϊκατζής, Γιοτάρχης the evolved Εφοπλιστάκος).
 export const VOREIA_POOL = ANATOLIKA_POOL.concat(['rialito', 'lobbylykaina']);
 export function voreiaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, VOREIA_POOL); }
-// The pool of Δυτικά: that of Βόρεια plus the wild Ρουσφετόλυκος (Τάβλι-λόρδος, Γιαγιά Εξολοθρεύτρια, Ελεγκτής ΣΔΟΕ 3000 and Κτηματομεσίτης are the evolved Καφενόβιος, Γιαγιάκα, Εφοράκι and Μοναστηριάκι).
+// The pool of Δυτικά: that of Βόρεια plus the wild Ρουσφετόλυκος (Τάβλι-λόρδος, Γιαγιά Παντόφλα, Ελεγκτής ΣΔΟΕ 3000 and Κτηματομεσίτης are the evolved Καφενόβιος, Γιαγιάκα, Εφοράκι and Μοναστηριάκι).
 export const DYTIKA_POOL = VOREIA_POOL.concat(['rousfetolykos']);
 export function dytikaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, DYTIKA_POOL); }
 function poolTeam(rules, rng, level, size, poolIds) {

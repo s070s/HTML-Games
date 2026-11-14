@@ -224,7 +224,7 @@ const dytikaBand = xpBand(R, 'dytika');
 console.log('Δυτικά XP band (section 11.4): boss top level ' + dytikaBand.top + ', XP needed for three creatures ' + dytikaBand.need + ', XP of the ' + dytikaBand.trainerIds.length + ' trainers ' + dytikaBand.trainerXp +
   ' (' + (100 * dytikaBand.trainerShare).toFixed(0) + '% of the need), a route 10 wild fight pays ' + dytikaBand.wildXp.toFixed(0) + ' on average, wild fights still needed ' + dytikaBand.wildFights + ' (limit 10)');
 const plousiakis = R.TRAINERS.plousiakis;
-console.log('Boss fight Δυτικά, ' + runs + ' runs per row. Boss team: ' + plousiakis.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + (plousiakis.boost ? ' (stat boost x' + plousiakis.boost + ')' : ' (no boost)') + ', ' + plousiakis.items.length + ' x ' + plousiakis.items[0] + ' in his bag. Player: a starter in its last form plus creatures of Δυτικά, all at the level shown, two Σουβλάκι');
+console.log('Boss fight Δυτικά, ' + runs + ' runs per row. Boss team: ' + plousiakis.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + (plousiakis.boost ? ' (stat boost x' + plousiakis.boost + ')' : ' (no boost)') + ', ' + (plousiakis.items.length ? plousiakis.items.length + ' x ' + plousiakis.items[0] : 'nothing') + ' in his bag. Player: a starter in its last form plus creatures of Δυτικά, all at the level shown, two Σουβλάκι');
 console.log('level | team                       | win rate | band of the test');
 const plousiakisTop = plousiakis.team.reduce((best, m) => Math.max(best, m.lv), 0);
 for (const [label, offset, size, items, low, high] of bossBands(R, 'plousiakis')) {
