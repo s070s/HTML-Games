@@ -55,7 +55,7 @@ const {
   LAMP_SWAY, LAMP_SECS, LAMP_RANGE, LAMP_MAX, LAMP_JOLT, TOUCH_BUZZ_MIN, TOUCH_BUZZ_RANGE,
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
-  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
+  Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse, INTRO_SHATTER_STEP, INTRO_SHATTER_AT, INTRO_FALL_SECS, INTRO_LOOSEN_SECS, INTRO_FADE_SECS, INTRO_SNAP_SECS, INTRO_SPREAD_SECS, INTRO_PIECES, INTRO_GRAVITY, INTRO_DRUMS, introKitFor, introSeed, introCanBake,
   TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
@@ -24737,11 +24737,15 @@ const SelfTest = {
       const set = (calls, name, value) => calls.some((call) => call[0] === 'set ' + name && call[1] === value);
       const hit = picture(full, at);
       if (!hit.some((call) => call[0] === 'scale' && call[1] > 1.5)) bad.push('the first word does not land big');
-      if (!set(hit, 'fillStyle', '#ffffff') || !set(hit, 'fillStyle', '#b8c4dc')) bad.push('a landing has no flash or no dust');
+      if (!set(hit, 'fillStyle', '#ffffff') || !(introKitFor(844, 390, 1).dust.x.length > 0)) bad.push('a landing has no flash or no dust');
+      if (introCanBake()) { // a real canvas: the dust of the landing is drawn with motion, and not on Reduced motion
+        const puff = introKitFor(844, 390, 1).puff, puffs = (look) => picture(look, at + 0.12).filter((call) => call[0] === 'drawImage' && call[1] === puff).length;
+        if (!(puffs(full) > puffs({ reduced: true, shake: 1, flash: 1 }))) bad.push('a landing draws no dust');
+      }
       for (const [label, look] of [['Reduced motion', { reduced: true, shake: 1, flash: 1 }], ['Flashes Off', { reduced: false, shake: 1, flash: 0 }]]) {
         const calls = picture(look, at);
         if (set(calls, 'fillStyle', '#ffffff')) bad.push(label + ' still flashes');
-        if (look.reduced && (set(calls, 'fillStyle', '#b8c4dc') || calls.some((call) => call[0] === 'scale' && call[1] !== 1) || calls.some((call) => call[0] === 'translate' && call[1] !== 422))) bad.push(label + ' still has dust, a slam or a shake');
+        if (look.reduced && (calls.some((call) => call[0] === 'scale' && call[1] !== 1) || calls.some((call) => call[0] === 'translate' && call[1] !== 422))) bad.push(label + ' still has a slam or a shake');
       }
       const fade = picture({ reduced: true, shake: 1, flash: 1 }, 0.5).filter((call) => call[0] === 'fillText').length, later = picture({ reduced: true, shake: 1, flash: 1 }, 3).filter((call) => call[0] === 'fillText').length;
       if (fade !== 0 || later !== INTRO_WORDS.length) bad.push('Reduced motion does not fade the title in (' + fade + ' words at 0.5 s, ' + later + ' at 3 s)');
@@ -24849,6 +24853,244 @@ const SelfTest = {
         if (shake(view({ shake: 0 })) !== 0 || shake(view({ reducedMotion: true })) !== 0) bad.push('the shake shows with the setting at 0 or on Reduced motion');
         if (Math.abs(shake(view({ shake: 1 })) - whole) > 1e-6) bad.push('the shake above the default is not capped at its full size');
       } finally { Object.assign(Settings.v, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    /* ---------- the intro rework (P19-17, Appendix C "P19-17 intro, decided and built"): the underground fight floor, the cracks, the brawling silhouettes, the shatter ---------- */
+    const introDrumSteps = () => new Set(songEvents().filter((e) => e.voice === 0 && (e.mask & INTRO_DRUMS)).map((e) => e.step));
+    const introPointIn = (poly, x, y) => { let inside = false; for (let i = 0, j = poly.length - 2; i < poly.length; j = i, i += 2) if ((poly[i + 1] > y) !== (poly[j + 1] > y) && x < (poly[j] - poly[i]) * (y - poly[i + 1]) / (poly[j + 1] - poly[i + 1]) + poly[i]) inside = !inside; return inside; };
+    const introPaint = (w, h) => { const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h; return canvas.getContext('2d'); }; // a real canvas (Chrome and the other browsers; the headless stub has none)
+    const introPicture = (g, w, h, p, look) => { introFrame(g, w, h, p, Object.assign({ seed: 5 }, look)); return g.getImageData(0, 0, w, h).data; };
+    test('Intro cracks (P19-17): the same seed builds the same cracks, chips, groups and moves and another seed builds others; the main fractures snap open in 0.05 s, every fracture has spread by 0.3 s and tapers to a point; each landing of the table has its own place on the floor; every move lands on a drum hit', () => {
+      const bad = [], drums = introDrumSteps(), look = (seed) => { const kit = introKitFor(640, 360, seed); return { kit, shapes: Array.from(kit.px).join() + '|' + Array.from(kit.phw).join() + '|' + Array.from(kit.chips.x).join(), fights: JSON.stringify(kit.groups.map((group) => group.events)) }; };
+      const one = look(11), other = look(12), again = look(11); // the cache holds one seed: the third is built again
+      if (one.shapes !== again.shapes || one.fights !== again.fights) bad.push('the same seed built other shapes or other fights');
+      if (one.shapes === other.shapes || one.fights === other.fights) bad.push('another seed built the same shapes or fights');
+      const kit = one.kit;
+      if (kit.sites.length !== INTRO_CRACKS.length) bad.push(kit.sites.length + ' places for ' + INTRO_CRACKS.length + ' landings');
+      kit.sites.forEach((site, i) => {
+        if (site.step !== INTRO_CRACKS[i][0] || site.c1 - site.c0 < 5) bad.push('landing ' + i + ' has too few fractures');
+        if (i && site.t < kit.sites[i - 1].t) bad.push('the landings are not in time order');
+      });
+      for (const crack of kit.cracks) {
+        const last = crack.first + crack.count - 1;
+        if (crack.delay + crack.grow > INTRO_SPREAD_SECS + 1e-6) bad.push('a fracture is still spreading after 0.3 s');
+        if (crack.depth === 0 && (crack.delay !== 0 || Math.abs(crack.grow - INTRO_SNAP_SECS) > 1e-9 || !(kit.phw[crack.first] > kit.phw[last]))) bad.push('a main fracture does not snap open in 0.05 s or does not taper');
+        for (let i = crack.first; i <= last; i++) if (kit.py[i] < kit.hy || kit.px[i] < -kit.margin || kit.px[i] > kit.w + kit.margin || !(kit.phw[i] > 0)) { bad.push('a fracture leaves the floor'); break; }
+      }
+      const sizes = new Set(), fights = new Set();
+      for (let seed = 1; seed <= 24; seed++) {
+        const groups = introKitFor(844, 390, seed).groups;
+        sizes.add(groups.map((group) => group.fighters.length).join());
+        fights.add(JSON.stringify(groups.map((group) => group.events)));
+        for (const group of groups) {
+          if (group.fighters.length < 2 || group.fighters.length > 4) bad.push('a group of ' + group.fighters.length);
+          if (group.events.length < 3 || group.events.some((event) => !drums.has(event.step) || event.step < 8 || event.step >= INTRO_SHATTER_STEP)) bad.push('seed ' + seed + ': a move off the beat or too few moves');
+        }
+      }
+      if (sizes.size < 4 || fights.size < 24) bad.push('24 seeds gave ' + sizes.size + ' group layouts and ' + fights.size + ' different fights');
+      if (hasLayoutEngine() && introSeed() === introSeed() && introSeed() === introSeed()) bad.push('every play would take the same seed'); // a real browser gives random numbers (the headless stub has no random source)
+      if (!Number.isInteger(introSeed()) || introSeed() < 0 || introSeed() > 4294967295) bad.push('the seed is not a 32 bit whole number');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro shatter pieces (P19-17): 44 pieces that cover the whole picture at 844x390, 390x844 and 640x360, none moves before the cracks have run out, and every piece has fallen out of the picture by 1.1 s', () => {
+      const bad = [];
+      for (const [w, h] of [[844, 390], [390, 844], [640, 360]]) {
+        const kit = introKitFor(w, h, 3), { pieces } = kit.shards;
+        if (pieces.length !== INTRO_PIECES[0] * INTRO_PIECES[1] || pieces.length !== 44) bad.push(w + 'x' + h + ' has ' + pieces.length + ' pieces');
+        let gap = '';
+        for (let ix = 0; ix < 24 && !gap; ix++) for (let iy = 0; iy < 14; iy++) { const x = (ix + 0.5) / 24 * w, y = (iy + 0.5) / 14 * h; if (!pieces.some((piece) => introPointIn(piece.poly, x, y))) { gap = x.toFixed(0) + ',' + y.toFixed(0); break; } }
+        if (gap) bad.push(w + 'x' + h + ': no piece at ' + gap);
+        if (Math.min(...pieces.map((piece) => piece.delay)) < 0.07 - 1e-9) bad.push('a piece moves before the cracks have run out');
+        for (const piece of pieces) { const fall = INTRO_FALL_SECS - piece.delay; if (piece.top + piece.vy * fall + 0.5 * kit.h * INTRO_GRAVITY * fall * fall < h) { bad.push(w + 'x' + h + ': a piece is still in the picture at ' + INTRO_FALL_SECS + ' s'); break; } }
+      }
+      if (Math.abs(INTRO_SHATTER_AT - 70 * SONG_STEP_SECS) > 1e-9 || INTRO_SHATTER_AT >= INTRO_SECS || !INTRO_IMPACTS.some(([step, strength]) => step === INTRO_SHATTER_STEP && strength >= 1)) bad.push('the shatter is not on the last big hit before the end of the reveal');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro shatter into the menu (P19-17): the reveal runs into the shatter and the overlay stays up with no fade until the pieces have fallen, then goes (the menu is live from the end of the reveal); a skip at any moment, in the shatter and over the falling pieces too, gives the menu at once', () => withSongAudio((audio) => {
+      const bad = [], rendered = [], keep = Intro.render;
+      Intro.render = (el, canvas, g, p) => { rendered.push(p); };
+      const up = () => { const card = introCard(audio); Intro.el.isConnected = true; Intro.canvas = {}; Intro.g = {}; return card; };
+      try {
+        const card = up(), el = Intro.el;
+        Intro.onKey(introKey());
+        card.frames(INTRO_SECS - 0.1);
+        if (Intro.phase !== 'play' || Intro.outro) bad.push('the reveal ended early');
+        card.frames(0.4); // the song's clock runs 0.12 s behind the frames (its lead)
+        if (Intro.phase !== 'off' || !Intro.outro || el.removed) bad.push('the overlay is gone at the end of the reveal (' + Intro.phase + ')');
+        if (!el.classes.has('out') || !el.classes.has('fall')) bad.push('the overlay does not stay (out and fall) over the open menu');
+        const before = rendered.length;
+        let frames = 0;
+        while (Intro.outro && frames < 600) { card.frames(1 / 60, 1 / 60); frames++; if (Intro.outro && el.removed) bad.push('the overlay was removed while pieces were falling'); }
+        const last = rendered[rendered.length - 1];
+        if (el.removed !== true || rendered.length === before || !(last < INTRO_SHATTER_AT + INTRO_FALL_SECS && last > INTRO_SHATTER_AT + INTRO_FALL_SECS - 0.1) || rendered.slice(before).some((p, i, all) => p <= INTRO_SECS - 0.02 || (i && p < all[i - 1]))) bad.push('the pieces did not fall to the end of ' + INTRO_FALL_SECS + ' s on the wall clock (last picture ' + last + ')');
+        for (const at of [1.0, 3.2, 5.6, INTRO_SHATTER_AT + 0.15, INTRO_SECS + 0.0]) { // a skip at any moment (the last two inside the shatter, the song's clock 0.12 s behind the frames)
+          const again = up(), shown = Intro.el;
+          Intro.onKey(introKey());
+          again.frames(at);
+          if (at > INTRO_SHATTER_AT && Intro.phase === 'play' && Intro.pos < INTRO_SHATTER_AT) bad.push('the test did not reach the shatter at ' + at);
+          Intro.startedAt = performance.now() - INTRO_SKIP_GUARD_MS - 10;
+          Intro.press();
+          if (Intro.phase !== 'off' || Intro.outro || !shown.classes.has('out') || !shown.classes.has('hold') || shown.classes.has('fall') || !Song.stopped) bad.push('a skip at ' + at + ' s did not give the menu (' + Intro.phase + ')');
+        }
+        const late = up(), over = Intro.el;
+        Intro.onKey(introKey());
+        late.frames(INTRO_SECS + 0.2);
+        if (!Intro.outro) bad.push('no pieces falling to skip');
+        Intro.skip();
+        if (Intro.outro || over.removed !== true) bad.push('a skip over the falling pieces did not clear them');
+      } finally { Intro.render = keep; Intro.outro = null; Intro.canvas = null; Intro.g = null; }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro shatter in the browser (P19-17): from the last hit the overlay has no background (the menu shows through every gap) and the picture is a whole picture of pieces, never a blank one: pieces cover the picture at the hit, fewer later, none after 1.1 s; Reduced motion fades one picture out; the real draw puts the shatter class on', () => {
+      if (!introCanBake() || !hasLayoutEngine()) return 'skipped: no real canvas and layout in the headless stub; a browser self-test draws the pictures';
+      const bad = [], w = 320, h = 180, g = introPaint(w, h), still = (p, look) => { const data = introPicture(g, w, h, p, look); let covered = 0; for (let i = 3; i < data.length; i += 4) if (data[i] > 200) covered++; return covered / (w * h); };
+      const normal = { reduced: false, shake: 1, flash: 1 }, reduced = { reduced: true, shake: 1, flash: 1 }, hit = INTRO_SHATTER_AT;
+      if (still(hit + 0.001, normal) < 0.985) bad.push('the first frame of the shatter is not whole (' + still(hit + 0.001, normal).toFixed(3) + ')');
+      if (!(still(hit + 0.6, normal) < 0.8) || still(hit + INTRO_FALL_SECS + 0.05, normal) > 0.001) bad.push('the pieces do not fall away (' + still(hit + 0.6, normal).toFixed(2) + ' at 0.6 s, ' + still(hit + INTRO_FALL_SECS + 0.05, normal).toFixed(3) + ' at the end)');
+      const early = still(hit + 0.001, reduced);
+      if (early < 0.985) bad.push('Reduced motion does not start whole');
+      const half = introPicture(g, w, h, hit + INTRO_FADE_SECS / 2, reduced)[3 + 4 * (90 * w + 160)], end = introPicture(g, w, h, hit + INTRO_FADE_SECS + 0.05, reduced)[3 + 4 * (90 * w + 160)];
+      if (!(half > 80 && half < 200) || end !== 0) bad.push('Reduced motion does not cross-fade (' + half + ' then ' + end + ')');
+      const recorder = introRecorder(); introFrame(recorder.g, w, h, hit + 0.3, Object.assign({ seed: 5 }, reduced));
+      if (recorder.calls.some((call) => call[0] === 'rotate' || call[0] === 'clip')) bad.push('Reduced motion throws pieces');
+      const pieces = introRecorder(); introFrame(pieces.g, w, h, hit + 0.3, Object.assign({ seed: 5 }, normal));
+      if (!pieces.calls.some((call) => call[0] === 'rotate') || !pieces.calls.some((call) => call[0] === 'clip')) bad.push('the pieces do not turn and clip');
+      const keep = { el: Intro.el, canvas: Intro.canvas, g: Intro.g, phase: Intro.phase };
+      try {
+        Intro.build(); Intro.phase = 'play';
+        const el = Intro.el;
+        Intro.draw(1);
+        const before = getComputedStyle(el).backgroundColor;
+        Intro.draw(hit + 0.01);
+        if (!el.classList.contains('shatter') || getComputedStyle(el).backgroundColor !== 'rgba(0, 0, 0, 0)' || before === 'rgba(0, 0, 0, 0)') bad.push('the overlay keeps its background in the shatter');
+        Intro.draw(2);
+        if (el.classList.contains('shatter')) bad.push('the shatter class stays when the time goes back');
+        el.remove();
+      } finally { if (Intro.el) Intro.el.remove(); Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro Reduced motion (P19-17): the fighters stand in a pose (the same at every time), the chips do not fly, the cracks are all there from the start and fade in, no pieces are thrown; with motion the fighters move, the chips fly and the cracks spread', () => {
+      const bad = [], at = INTRO_CRACKS[0][0] * SONG_STEP_SECS, still = { reduced: true, shake: 1, flash: 1, seed: 9 }, moving = { reduced: false, shake: 1, flash: 1, seed: 9 };
+      const calls = (look, p) => { const { g, calls: list } = introRecorder(); introFrame(g, 844, 390, p, look); return list; };
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b), only = (list, name) => list.filter((call) => call[0] === name);
+      if (!same(only(calls(still, 2), 'arc'), only(calls(still, 3.4), 'arc'))) bad.push('the fighters move on Reduced motion');
+      if (same(only(calls(moving, 2), 'arc'), only(calls(moving, 2.4), 'arc'))) bad.push('the fighters do not move');
+      if (!same(only(calls(still, at + 0.05), 'rect'), only(calls(still, at + 0.2), 'rect'))) bad.push('chips fly on Reduced motion');
+      if (same(only(calls(moving, at + 0.05), 'rect'), only(calls(moving, at + 0.2), 'rect'))) bad.push('the chips do not fly');
+      if (!(only(calls(still, at + 0.01), 'lineTo').length > only(calls(moving, at + 0.01), 'lineTo').length)) bad.push('the cracks are not all there at once on Reduced motion');
+      const fades = calls(still, at + 0.1).filter((call) => call[0] === 'set globalAlpha' && call[1] > 0.2 && call[1] < 0.3).length, whole = calls(still, at + 0.5).filter((call) => call[0] === 'set globalAlpha' && call[1] > 0.2 && call[1] < 0.3).length;
+      if (!fades || whole) bad.push('the cracks do not fade in on Reduced motion');
+      if (introCanBake()) { // a real canvas: Reduced motion draws no dust whatever the Effects setting says, and motion draws more
+        const puff = introKitFor(844, 390, 9).puff, puffs = (look) => calls(look, at + 0.12).filter((call) => call[0] === 'drawImage' && call[1] === puff).length;
+        const quiet = puffs(Object.assign({ effects: 1 }, still)), none = puffs(Object.assign({ effects: 0 }, still)), loud = puffs(Object.assign({ effects: 1 }, moving));
+        if (quiet !== none) bad.push('Reduced motion draws dust (' + quiet + ' puffs with Effects High, ' + none + ' with Low)');
+        if (!(loud > quiet)) bad.push('motion draws no more dust than Reduced motion (' + loud + ' against ' + quiet + ')');
+      }
+      for (const p of [at, 3, 5.5]) if (calls(still, p).some((call) => call[0] === 'translate' && call[1] !== 422)) bad.push('a jolt on Reduced motion at ' + p);
+      if (!calls(moving, at + 0.03).some((call) => call[0] === 'translate' && call[1] !== 422)) bad.push('no jolt with motion');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro Effects setting (P19-17): Low throws no chips and no dust, Medium half of them, High all; the real draw reads the setting (Low 0, Medium 0.5, High 1)', () => withSongAudio(() => {
+      const bad = [], at = INTRO_CRACKS[0][0] * SONG_STEP_SECS + 0.12, keep = { effects: Settings.v.effects, phase: Intro.phase, el: Intro.el, canvas: Intro.canvas, g: Intro.g, still: Intro.still, seed: Intro.seed };
+      const count = (effects, name, target) => { const { g, calls } = introRecorder(); introFrame(g, 844, 390, at, { reduced: false, shake: 1, flash: 1, effects, seed: 4 }); return calls.filter((call) => call[0] === name && (!target || call[1] === target)).length; };
+      const chips = [1, 0.5, 0].map((effects) => count(effects, 'rect'));
+      if (!(chips[0] > chips[1] && chips[1] > chips[2] && chips[2] > 0)) bad.push('the chips do not thin out with the Effects setting (' + chips.join(' > ') + ')');
+      if (introCanBake()) {
+        const puff = introKitFor(844, 390, 4).puff, dust = [1, 0.5, 0].map((effects) => count(effects, 'drawImage', puff));
+        if (!(dust[0] > dust[1] && dust[1] > dust[2])) bad.push('the dust does not thin out with the Effects setting (' + dust.join(' > ') + ')');
+      }
+      try {
+        const seen = [];
+        for (const [setting, want] of [['low', 0], ['medium', 0.5], ['high', 1]]) {
+          Settings.v.effects = setting;
+          const { g, calls } = introRecorder(), first = introKitFor(844, 390, 4);
+          Object.assign(Intro, { phase: 'play', el: { clientWidth: 844, clientHeight: 390 }, canvas: { width: 0, height: 0 }, g, still: '', seed: 4 });
+          Intro.draw(at);
+          const rects = calls.filter((call) => call[0] === 'rect').length;
+          seen.push(rects);
+          if (want === 0 && rects !== chips[2]) bad.push('the real draw does not read Effects Low');
+          if (want === 1 && rects !== chips[0]) bad.push('the real draw does not read Effects High');
+          if (introKitFor(844, 390, 4) !== first) bad.push('the real draw built the picture again');
+        }
+      } finally { Settings.v.effects = keep.effects; Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro cracks in the browser (P19-17): the damage builds up landing by landing (more dark gaps after every landing of the table), the picture is the same for the same time in any order of asking, the Flashes setting scales the light of a hit, and with Flashes Off a hit lights nothing (the steady picture shows the damage)', () => {
+      if (!introCanBake()) return 'skipped: no real canvas in the headless stub; a browser self-test draws the pictures';
+      const bad = [], w = 480, h = 270, g = introPaint(w, h), look = { reduced: true, shake: 1, flash: 1 };
+      const gaps = (p) => { const data = introPicture(g, w, h, p, look); let n = 0; for (let y = Math.ceil(h * 0.56 + h * 0.44 * 0.45); y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (data[i] + data[i + 1] + data[i + 2] < 24) n++; } return n; }; // the floor below the fighters' feet: a gap is darker than the concrete there
+      const steps = [...new Set(INTRO_CRACKS.map((crack) => crack[0]))].filter((step) => step * SONG_STEP_SECS + 0.45 < INTRO_SHATTER_AT - 0.02), counts = steps.map((step) => gaps(step * SONG_STEP_SECS + 0.45)); // the landing of the last hit before the shatter is left out: it is still fading in when the picture breaks
+      for (let i = 1; i < counts.length; i++) if (!(counts[i] > counts[i - 1])) bad.push('landing ' + steps[i] + ' adds no damage (' + counts.join(' ') + ')');
+      const backwards = steps.slice().reverse().map((step) => gaps(step * SONG_STEP_SECS + 0.45)).reverse();
+      if (JSON.stringify(backwards) !== JSON.stringify(counts) || gaps(steps[3] * SONG_STEP_SECS + 0.45) !== counts[3]) bad.push('the same time gives another picture after going back');
+      const wall = (flash, p) => { const data = introPicture(g, w, h, p, { reduced: false, shake: 0, flash }); let sum = 0; for (let y = 0; y < 18; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; sum += data[i] + data[i + 1] + data[i + 2]; } return sum; }; // the top of the back wall: no fighter, no title and no crack reaches it, so only the light of a hit and the white flash change it
+      const hit = 32 * SONG_STEP_SECS + 0.02, full = wall(1, hit), capped = wall(FLASH_REDUCED_ALPHA, hit), off = wall(0, hit);
+      if (!(full > capped)) bad.push('the Flashes setting does not scale the light of a hit (' + [full, capped, off].join(' > ') + ')');
+      if (!(capped > wall(FLASH_REDUCED_ALPHA, 0.1))) bad.push('Flashes Reduced shows no light of a hit');
+      if (off !== wall(0, 0.1) || off !== wall(0, hit + 0.5)) bad.push('Flashes Off still lights the picture at a hit (' + off + ' against ' + wall(0, 0.1) + ' with no hit)');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro frames build nothing (P19-17): the cracks, chips, pieces, groups and pictures are built once for a size and a seed and kept; a frame only draws (the same kit and the same arrays after hundreds of frames); the real draw hands the play\'s seed on', () => withSongAudio(() => {
+      const bad = [], parts = (k) => [k.px, k.phw, k.chips.x, k.dust.x, k.cracks, k.sites, k.groups, k.shards.pieces, k.lit, k.flash, k.damage], kit = introKitFor(640, 360, 21), before = parts(kit);
+      for (let i = 0; i <= 360; i += 3) { const { g } = introRecorder(); introFrame(g, 640, 360, i / 60, { reduced: i % 2 === 0, shake: 1, flash: 1, seed: 21 }); }
+      const after = introKitFor(640, 360, 21);
+      if (after !== kit || parts(after).some((value, i) => value !== before[i])) bad.push('a frame built the picture again');
+      if (introKitFor(644, 360, 21) === kit) bad.push('another size did not build its own');
+      const keep = { phase: Intro.phase, el: Intro.el, canvas: Intro.canvas, g: Intro.g, still: Intro.still, seed: Intro.seed };
+      try {
+        const first = introKitFor(844, 390, 77), { g } = introRecorder();
+        Object.assign(Intro, { phase: 'play', el: { clientWidth: 844, clientHeight: 390 }, canvas: { width: 0, height: 0 }, g, still: '', seed: 77 });
+        Intro.draw(2);
+        if (introKitFor(844, 390, 77) !== first) bad.push('the real draw did not use the seed of the play');
+      } finally { Object.assign(Intro, keep); }
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Intro shatter edges (P19-17 review): every edge of a piece is broken at three points that are pushed off the straight line, so a gap is a jagged fracture; each piece is outlined with a light edge under a dark line, and comes loose before it falls (a step away from the hit)', () => {
+      const bad = [], kit = introKitFor(844, 390, 3), { pieces } = kit.shards;
+      let straight = 0, edges = 0;
+      for (const piece of pieces) {
+        if (piece.poly.length !== 32) { bad.push('a piece has ' + piece.poly.length / 2 + ' points, not 16'); break; }
+        for (let side = 0; side < 4; side++) { // corner, three broken points, then the next corner
+          const q = piece.poly, from = side * 4, to = ((side + 1) * 4) % 16, ax = q[from * 2], ay = q[from * 2 + 1], dx = q[to * 2] - ax, dy = q[to * 2 + 1] - ay, length = Math.hypot(dx, dy);
+          if (length < 20) continue; // an edge that has shrunk to nothing at the centre
+          edges++;
+          for (let n = 1; n <= 3; n++) if (Math.abs((q[(from + n) * 2] - ax) * dy - (q[(from + n) * 2 + 1] - ay) * dx) / length < 0.05) { straight++; break; }
+        }
+        if (!(piece.nudge >= 1 && piece.nudge <= 2 * Math.max(1, kit.unit / 600) + 1e-9)) bad.push('a piece steps ' + piece.nudge + ' px away');
+      }
+      if (!(edges > 100) || straight > edges * 0.1) bad.push(straight + ' of ' + edges + ' edges have a straight run');
+      if (!introCanBake() || !hasLayoutEngine()) return bad.length ? bad.slice(0, 4).join('; ') : true; // the drawing needs a real canvas (a browser self-test checks it)
+      const early = Math.min(...pieces.map((piece) => piece.delay)), rotates = (t) => { const { g, calls } = introRecorder(); introFrame(g, 844, 390, INTRO_SHATTER_AT + t, { reduced: false, shake: 1, flash: 1, seed: 3 }); return calls; };
+      if (rotates(0.001).some((call) => call[0] === 'rotate')) bad.push('a piece moves in the first frame');
+      if (!rotates(early - INTRO_LOOSEN_SECS / 2).some((call) => call[0] === 'rotate')) bad.push('no piece comes loose before the first one falls');
+      const calls = rotates(early + 0.05), set = (name, value) => calls.findIndex((call) => call[0] === 'set ' + name && call[1] === value);
+      const light = set('strokeStyle', 'rgba(205,214,226,0.35)'), dark = set('strokeStyle', 'rgba(2,3,5,0.9)'), shifted = calls.findIndex((call) => call[0] === 'translate' && call[1] < 0 && call[1] === call[2]);
+      if (!(light >= 0 && dark > light && shifted >= 0 && shifted < dark)) bad.push('the light edge is not drawn under the dark line, up and to the left');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    });
+    test('Intro held picture (P19-17 review): the test hook BREAKPOINT.introAt puts the picture up with its listeners, and any press takes it down again (it is not a play that locks keys for good); a test bench draws on its own kit and leaves the picture on screen alone; the overlay gives its canvas back at the end', () => withSongAudio(() => {
+      const bad = [], listened = [], keep = { build: Intro.build, draw: Intro.draw, lock: Intro.lock, listen: Intro.listen };
+      try {
+        Intro.build = function () { this.el = introElement(); this.canvas = { width: 8, height: 8 }; this.g = {}; };
+        Intro.draw = () => {}; Intro.lock = () => {}; Intro.listen = function () { listened.push(this.phase); };
+        Intro.hold(2);
+        const el = Intro.el;
+        if (Intro.phase !== 'hold' || listened.length !== 1) bad.push('the held picture has no listeners');
+        if (!Intro.press() || Intro.phase !== 'off' || !el.classes.has('out')) bad.push('a press does not take a held picture down');
+        if (Intro.canvas !== null || Intro.g !== null) { Intro.letGo(); if (Intro.canvas !== null || Intro.g !== null) bad.push('the overlay keeps its canvas after the intro'); }
+        const canvas = { width: 9, height: 9 };
+        Object.assign(Intro, { phase: 'off', outro: null, el: {}, canvas, g: {}, kit: null });
+        Intro.letGo();
+        if (canvas.width !== 9) bad.push('a canvas still on screen was given back');
+        Object.assign(Intro, { el: null });
+        Intro.letGo();
+        if (canvas.width !== 0 || Intro.canvas !== null) bad.push('the canvas was not given back');
+      } finally { Object.assign(Intro, keep); }
+      if (introCanBake() && hasLayoutEngine()) {
+        const kit = introKitFor(320, 180, 8), times = Intro.bench(64, 36, { readback: false });
+        if (introKitFor(320, 180, 8) !== kit || !(kit.lit.width > 0)) bad.push('the bench replaced the kit of the picture on screen');
+        if (times.length !== INTRO_SECS * 60 + 1 || times.some((ms) => !(ms >= 0))) bad.push('the bench does not time every frame');
+      }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     /* ---------- Collisions, hitboxes and hurtboxes (P18-65): the findings K01 to K10 of the P18-64 audit (Appendix D). Each test was written first and run on the game before its fix, where it failed ---------- */
