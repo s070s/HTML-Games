@@ -28,6 +28,7 @@ Open `Mizamon.html` in a browser (desktop or phone). Greek is the default; Optio
 ## Test
 - Headless rules tests (Node 24+, no installs): `node Mizamon/tools/run-tests.mjs` prints `PASS n / m` and exits 1 on a failure. It loads the rules between `// RULES-BEGIN` and `// RULES-END` in `Mizamon.html`.
 - Balance table for the boss fight: `node Mizamon/tools/balance.mjs [runs]`.
+- World map picture (the six-district schematic, `Mizamon/docs/world-map.png`): `node Mizamon/tools/world-map.mjs` (`--ascii` prints the grid). The world design is section 11 of `REFERENCE-mizamon.md`.
 - In the browser (UI smoke tests and the same rules checks): open `Mizamon.html`, then in the console `await MIZAMON.selfTest()` returns a list of `{ name, pass, detail }`.
 
 ## Publish
