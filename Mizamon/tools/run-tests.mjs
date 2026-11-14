@@ -3547,7 +3547,7 @@ test('Βουλή: the door on the square opens with the Assembly Medal (shut and
   assert.ok(!R.MAPS.syntagma.signs['14,4'] && R.MAPS.syntagma.signs['11,5'] === 'sign.syntagma.parliament', 'the sign beside the door stays, the door says its own locked text');
   assert.equal(R.tileWalkable(R.MAPS.syntagma, 14, 4, ATHINA_FLAGS), false, 'the shut case: without the flag the door tile cannot be entered');
   assert.equal(R.tileWalkable(R.MAPS.syntagma, 14, 4, PARLIAMENT_FLAGS), true, 'the open case: with the flag it can');
-  assert.ok(R.tileWalkable(R.MAPS.syntagma, door.tx === 6 ? 14 : 14, 5, ATHINA_FLAGS), 'the steps in front of the door stay walkable');
+  assert.ok(R.tileWalkable(R.MAPS.syntagma, 14, 5, ATHINA_FLAGS), 'the steps in front of the door stay walkable');
   const start = R.START_MAP;
   const shut = R.reachableTiles(start.map, start.x, start.y, ATHINA_FLAGS);
   for (const id of PARLIAMENT_MAP_IDS) assert.ok(![...shut].some((key) => key.startsWith(id + ':')), id + ' is not reachable without the Assembly Medal');
@@ -3823,12 +3823,12 @@ test('Βουλή: old saves (v2 and v3, standing anywhere in the six built distr
   const world = R.newWorldState();
   R.worldVisit(world, 'parliament_roof', PARLIAMENT_FLAGS_ENDED);
   assert.equal(R.placeState(world, 'parliament'), 'visited');
-  const stored = R.migrateSave(make(3, 'parliament_roof', 4, 6, Object.assign({ legend_ilithiokratia: true }, PARLIAMENT_FLAGS_ENDED), { world, lastHeal: { map: 'parliament_lobby', x: 5, y: 7, dir: 'up' } }));
+  const stored = R.migrateSave(make(3, 'parliament_roof', 4, 6, Object.assign({ credits: true, legend_ilithiokratia: true }, PARLIAMENT_FLAGS_ENDED), { world, lastHeal: { map: 'parliament_lobby', x: 5, y: 7, dir: 'up' } }));
   assert.equal(stored.player.map, 'parliament_roof');
   same(stored.lastHeal, { map: 'parliament_lobby', x: 5, y: 7, dir: 'up' }, 'the lobby is a valid return point');
   for (const flag of ['ending', 't_undersec', 'badge_final', 'legend_ilithiokratia', 't_euterpe', 't_minister', 't_rival6']) assert.equal(stored.flags[flag], true, flag + ' is kept');
   same(R.migrateSave(JSON.parse(JSON.stringify(stored))), stored, 'a second load changes nothing');
-  assert.ok(!('credits' in stored.flags) || stored.flags.credits !== undefined, 'the flag credits is not touched by the ending');
+  assert.equal(stored.flags.credits, true, 'the flag credits is kept as it was by the ending');
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, PARLIAMENT_FLAGS)).player.map, 'lab', 'an unknown place falls back to the start, as before');
 });
 test('Βουλή leaves Αθήνα as it was: only the door of the parliament changes (14,4 walks on); every old walkable tile of the eleven maps is still walkable, and the walls of the Βουλή stay solid', () => {
@@ -3859,7 +3859,26 @@ test('Βουλή final path: the last fight rolls the credits and sets ending; n
   const finale = part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent');
   assert.ok(finale.includes('new CreditsLayer()') && finale.includes('G.flags.ending = true') && finale.indexOf('new CreditsLayer()') < finale.indexOf('G.flags.ending = true') && finale.indexOf('G.flags.ending = true') < finale.indexOf('this.teleport('), 'the credits first, then the flag, then the roof');
   assert.ok(!finale.includes('G.flags.credits'), 'the ending does not touch the flag credits');
-  assert.ok(html.includes("await this.finale(); // the last fight was won but the credits never finished") || html.includes('the last fight was won but the credits never finished'), 'a won last fight whose credits never finished rolls them when he is talked to');
+  const talkTo = part('OverworldLayer.prototype.talkTo', 'OverworldLayer.prototype.finale = async function');
+  assert.ok(/victory\.credits && !G\.flags\.ending\) await this\.finale\(\);/.test(talkTo) && talkTo.indexOf("say('tr.' + def.trainer + '.after')") < talkTo.indexOf('this.finale()'), 'a won last fight whose credits never finished rolls them when he is talked to (code, not a comment)');
+  // The credits roll closes only after the last line has scrolled fully onto the screen (fix round): the real helpers of the page are run on the real credits text.
+  const creditsCode = html.slice(html.indexOf('const CREDITS_LINE_FRAMES'), html.indexOf('function CreditsLayer()'));
+  const creditsHelpers = new vm.Script('(function (SCREEN_H) {\n' + creditsCode + '\nreturn { creditsLineY, creditsEndFrame };\n})').runInNewContext({}, { timeout: 5000 })(160);
+  for (const language of [0, 1]) {
+    const lineCount = R.STRINGS['credits.text'][language].split('\n').length;
+    const lastIndex = lineCount - 1;
+    const closeFrame = creditsHelpers.creditsEndFrame(lineCount);
+    let fullyOnScreen = -1;
+    for (let frame = 0; frame <= closeFrame && fullyOnScreen < 0; frame++) if (creditsHelpers.creditsLineY(frame, lastIndex) <= 160 - 12) fullyOnScreen = frame;
+    assert.ok(fullyOnScreen >= 0 && fullyOnScreen < closeFrame, 'the last line is fully on screen before the roll closes');
+    assert.ok(closeFrame - fullyOnScreen >= 120, 'and stays long enough to read (at least two seconds at 60 frames)');
+    const yAtClose = creditsHelpers.creditsLineY(closeFrame, lastIndex);
+    assert.ok(yAtClose >= 0 && yAtClose <= 148, 'at the close it is still drawn (y ' + yAtClose + ')');
+  }
+  const creditsLayerCode = part('CreditsLayer.prototype.update', 'CreditsLayer.prototype.draw');
+  assert.ok(creditsLayerCode.includes('this.frame > creditsEndFrame(this.lines.length)') && creditsLayerCode.includes('this.frame > 90 && Input.pressed.menu'), 'the end uses the helper and the skip after 90 frames stays');
+  assert.ok(part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent').includes("x: 4, y: 6, dir: 'up'"), 'the finale puts the player on the roof at (4, 6), where the in-page check and section 11.17 say');
+  assert.ok(R.tileWalkable(R.MAPS.parliament_roof, 4, 6, PARLIAMENT_FLAGS_ENDED), 'and that tile is walkable');
   assert.equal((html.slice(0, html.indexOf('async function selfTest()')).match(/G\.flags\.ending = true/g) || []).length, 1, 'the game sets the flag in one place (the finale)');
   same(R.MAPS.parliament_roof.warps.map((warp) => warp.to), ['parliament_plenary', 'parliament_plenary']);
   assert.equal(R.TRAINERS.kotsos.victory.chapterCard, true, 'Κώτσος keeps the chapter card');
@@ -4074,6 +4093,10 @@ let passed = 0;
 const failures = [];
 const only = process.env.MZ_TEST_FILTER ? new RegExp(process.env.MZ_TEST_FILTER, 'u') : null; // while working: MZ_TEST_FILTER="Βουλή" runs the tests whose name matches (the full run has no filter)
 const selected = only ? tests.filter(({ name }) => only.test(name)) : tests;
+if (only && selected.length === 0) {
+  console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
+  process.exit(1);
+}
 for (const { name, fn } of selected) {
   try {
     fn();

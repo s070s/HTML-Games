@@ -6014,7 +6014,7 @@ OverworldLayer.prototype.bossVictory = async function (trainerId) {
 OverworldLayer.prototype.finale = async function () {
   await openLayer(new CreditsLayer());
   G.flags.ending = true;
-  await this.teleport({ map: 'parliament_roof', x: 4, y: 5, dir: 'up' });
+  await this.teleport({ map: 'parliament_roof', x: 4, y: 6, dir: 'up' });
   await say('ending.roof');
 };
 OverworldLayer.prototype.runEvent = async function (eventId) {
@@ -6195,6 +6195,12 @@ ChapterLayer.prototype.draw = function () {
   drawText(T('chapter.title'), 120, 72, COLOR.gold, 'center');
   drawText(T('chapter.sub'), 120, 82, COLOR.white, 'center');
 };
+// The roll moves half a pixel a frame, a line is 14 px apart. The screen closes when the last line has scrolled up to the middle of the picture (SCREEN_H / 2 - 60 = 20 px from the top
+// with these numbers), so it is fully on screen for about 250 frames before the roll ends (MZ-WORLD-02g fix round).
+const CREDITS_LINE_FRAMES = 28;
+const CREDITS_HOLD_FRAMES = 120;
+function creditsLineY(frame, lineIndex) { return SCREEN_H - frame * 0.5 + lineIndex * 14; }
+function creditsEndFrame(lineCount) { return (lineCount - 1) * CREDITS_LINE_FRAMES + SCREEN_H + CREDITS_HOLD_FRAMES; }
 function CreditsLayer() { this.opaque = true; this.frame = 0; this.lines = null; }
 CreditsLayer.prototype.onEnter = function () {
   Sound.play('title');
@@ -6202,13 +6208,13 @@ CreditsLayer.prototype.onEnter = function () {
 };
 CreditsLayer.prototype.update = function () {
   this.frame += Input.down.a ? 3 : 1;
-  if (this.frame > this.lines.length * 14 + 200 || (this.frame > 90 && Input.pressed.menu)) closeLayer(this);
+  if (this.frame > creditsEndFrame(this.lines.length) || (this.frame > 90 && Input.pressed.menu)) closeLayer(this);
 };
 CreditsLayer.prototype.draw = function () {
   ctx.fillStyle = '#0c1030'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.font = FONT;
   for (let i = 0; i < this.lines.length; i++) {
-    const y = SCREEN_H - this.frame * 0.5 + i * 14;
+    const y = creditsLineY(this.frame, i);
     if (y < -12 || y > SCREEN_H) continue;
     const line = this.lines[i];
     drawText(line, 120, y, i === 0 ? COLOR.gold : COLOR.white, 'center');
@@ -9215,6 +9221,10 @@ async function selfTest() {
       const creditsLayer = new CreditsLayer();
       creditsLayer.onEnter();
       check('the credits screen splits its lines once, starts with the title and lists the facts of this game', creditsLayer.lines[0] === 'MIZAMON' && creditsLayer.lines.length > 12 && creditsLayer.lines.some(function (line) { return line.indexOf('Σάτιρα') === 0 || line.indexOf('Satire') === 0; }), creditsLayer.lines.length);
+      const lastLine = creditsLayer.lines.length - 1;
+      const closeFrame = creditsEndFrame(creditsLayer.lines.length);
+      const lastY = creditsLineY(closeFrame, lastLine);
+      check('the last line of the credits has scrolled fully onto the screen before the roll closes (and is not yet gone when it does)', lastY >= 0 && lastY <= SCREEN_H - 12 && creditsLineY(0, lastLine) > SCREEN_H, 'y ' + lastY);
       Sound.play(MAPS.parliament_roof.music);
     });
     await guard('map touch button', async function () {
