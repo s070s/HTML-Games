@@ -125,7 +125,7 @@ Boss team: Φακελάκης L11, Φραπεδόρος L12, Φακελάρχη�
 Original WebAudio: square, triangle and sawtooth blips for the menu, hits, faint, level-up, recruit; six short procedural chiptune loops (title/credits, town, indoors, route, battle, boss) written as note lists, with their own melodies. Mute: Options, or the N key. The audio context starts on the first key press or tap (browsers require it).
 
 ## 9. Not in the MVP (on purpose)
-Χοντρός Φάκελος, Offshore Λογαριασμός, Δικηγόρος and the other battle items, Spin and Crisis blues, starter evolutions, districts 2-8, ΚΤΕΛ fast travel, ΑΦΜ, Spin-based moves, PP.
+Χοντρός Φάκελος, Offshore Λογαριασμός, Δικηγόρος and the other battle items, Spin and Crisis blues, starter evolutions, districts 2-8 (decided as the six districts of section 11), ΚΤΕΛ fast travel (section 11.6), ΑΦΜ, Spin-based moves, PP.
 
 ## 10. Hospital (MZ-HOSP-01)
 The Owner asked for "a hospital building" like the one in the games of the genre. What was built is the ROLE that building plays (heal the team, the place you return to after losing, the terminal that stores extra creatures) as Mizamon's own building. Nothing is copied from any existing game's centre.
@@ -139,3 +139,234 @@ The Owner asked for "a hospital building" like the one in the games of the genre
 - **Voice.** Greek public-hospital clichés about the system only (cots in the corridor, waiting lists, a strike, an envelope for "VIP service", a broken machine, a morning show about optical illusions); never about patients, illness or real tragedies. A test keeps patient and illness words out of the new texts. The hospital texts avoid gendered adjectives ("για όποιον έχει υπομονή"); where one is needed the `{m|f}` choice is used.
 - **Originality rules (kept by tests where a test can see them).** No red roof with white walls (teal and mint; a colour test finds no red on the outside), no red-cross emblem (the cross is green, the sign is a blue Η), no nurse character (the receptionist is a clerk with a teal cardigan; the doctor a man with a held-out envelope), no greeting, bow, jingle, machine with balls, counter layout or text of any existing centre (a test looks for known phrases), its own blip sequence (`SFX_PATTERNS.hospital`), the reception is a long counter with people behind it and a corridor in front, not a single nurse behind a counter with a healing machine.
 - **Test setup note.** The test that keeps `Math.random`/`Date` out of the rules block now also works on a CRLF checkout (`autocrlf`), where it failed before.
+
+## 11. World (MZ-WORLD-01)
+Decision document, 2026-11-14; no game code. Owner request (verbatim): "Also / Add a viewable map / And / rework the existing or add extra areas according to the actual map abstraction (not actual scale) of / Peiraeus for Peiraeus / Central Athens for Athens / West Athens for Dytika / East Athens for Anatolika / North Athens for Voreia / South Athens for Notia". The seed's eight districts (CONTENT-SEED section 1) become six districts plus the final, the Βουλή, inside Αθήνα. Everything below supersedes the seed's district table; the rest of the seed (types, chart, roster, parodies) stands.
+
+### 11.1 Sources (layout only, no map art copied)
+Used for the abstraction only: which district lies where, what its coast, hills and arteries are, which kinds of public landmark it has. No outline, coastline or street plan is traced; the grid below is original. Confidence: high = stated in the page, medium = common knowledge, not in the pages read, low = a guess (an assumption, never a requirement).
+
+| Source | Taken from it | Confidence |
+|---|---|---|
+| https://en.wikipedia.org/wiki/Athens | the Athens basin is bounded by Aigaleo (west), Parnitha (north), Pentelicus (north-east), Hymettus (east); the Saronic Gulf lies to the south-west; the Acropolis with its temple; the old city plan was a triangle of Acropolis, Kerameikos and the royal palace (now the Parliament) | high |
+| https://en.wikipedia.org/wiki/Regional_units_of_Greece | Attica has eight regional units: North, West, Central, South Athens, East Attica, Piraeus, Islands, West Attica | high |
+| https://en.wikipedia.org/wiki/Piraeus | a rocky peninsula about 8 km south-west of the centre with three harbours (the Great Harbour for cargo and passenger ferries, Zea and Mikrolimano as marinas to the east), the Munychia hill with the Kastella quarter, a station of metro lines 1 and 3 and the suburban railway beside the seaport, Akti Miaouli with the shipowners' offices, Neo Faliro with two stadiums opposite each other, Aigaleo to the north-west, Keratsini, Perama and Drapetsona with harbours | high |
+| https://en.wikipedia.org/wiki/Piraeus_(regional_unit) | five municipalities; "west-central part of the Athens urban area" | high |
+| https://en.wikipedia.org/wiki/West_Athens_(regional_unit) | seven municipalities (Peristeri, Aigaleo, Chaidari, Ilion, Petroupoli ...); "west-central part of the agglomeration"; Kifissos Avenue from the north-east, the Athens-Corinth road from the west, Thivon Avenue as the main local route | high |
+| https://en.wikipedia.org/wiki/South_Athens | eight municipalities (Kallithea, Nea Smyrni, Palaio Faliro, Alimos, Glyfada, Elliniko ...); "south-central part of the agglomeration" | high |
+| https://en.wikipedia.org/wiki/Glyfada | the Athens Riviera at the southern edge of the urban area, from the foot of Hymettus to the sea; marina, beaches, golf course next to the former Elliniko airfield, nightclubs, Poseidonos and Vouliagmenis avenues, a seaside tram beside Poseidonos | high |
+| https://en.wikipedia.org/wiki/North_Athens | twelve municipalities (Kifisia as the seat, Chalandri, Penteli, Agia Paraskevi, Nea Ionia ...); "north-east-central part of the agglomeration" | high |
+| https://en.wikipedia.org/wiki/Athens_Olympic_Stadium | the Olympic complex (stadium with an arched roof, velodrome) in Marousi in the north on Kifissias Avenue and the Attiki Odos ring road | high |
+| https://en.wikipedia.org/wiki/East_Attica | "the eastern part of the urban agglomeration and the rural area to the east"; Spata-Artemida, Rafina-Pikermi, Marathon, Vari-Voula-Vouliagmeni, Lavreotiki. There is no regional unit called "East Athens"; the Owner's East Athens is read as this unit | high |
+| https://en.wikipedia.org/wiki/Athens_International_Airport | at Spata, about 20 km east of the centre (30 km by road around the hills), connected to the Attiki Odos | high |
+| https://en.wikipedia.org/wiki/Rafina | a port about 25 km east of the centre, east of Pentelicus, ferries to the Cyclades, the second busiest port after Piraeus | high |
+| https://en.wikipedia.org/wiki/Hymettus | a ridge about 15 km east of the centre, 16 km long, up to 1,026 m, a monastery on one flank | high |
+| https://en.wikipedia.org/wiki/Mount_Parnitha | the highest mountain of Attica, about 30 km north, national park, a cable car near the summit | high |
+| https://en.wikipedia.org/wiki/Mount_Lycabettus | a 277 m limestone hill in the middle of the centre, chapel and open-air theatre on top, a funicular from Kolonaki | high |
+| https://en.wikipedia.org/wiki/Hellenic_Parliament | the Parliament stands in the former royal palace above Syntagma Square | high |
+| https://en.wikipedia.org/wiki/Athens_Metro | three lines (1 Piraeus to Kifissia, 2 Anthoupoli to Elliniko, 3 Dimotiko Theatro to the airport); interchanges Attiki, Monastiraki, Omonia, Piraeus, Syntagma | high |
+| https://en.wikipedia.org/wiki/Athens_Tram | a tram from Syntagma to the south-west coast and along it (Poseidonos) to Voula, with a line to Akti Poseidonos in Piraeus | high |
+| (no page; general knowledge) | Kifisia as a leafy, wealthy suburb; Peristeri and Aigaleo as dense apartment-block suburbs; marble quarries on Pentelicus; the Sacred Way as the old western entrance to the city | medium |
+| (no page; guess) | a monastery on a pass at the western ridge. The game builds a fictional monastery there; it never names a real one | low, assumption |
+
+### 11.2 The schematic world map
+`Mizamon/docs/world-map.png` (960 x 544, generated by `node Mizamon/tools/world-map.mjs`; Node built-ins only: `zlib` and a hand-written PNG writer; `--ascii` prints the grid). The map is 30 x 15 cells of 8 px = 240 x 120 px, North up: the same grid the map screen draws (section 11.6), so the picture is the data. Not to scale: Piraeus is as big as Αθήνα on the map, the airport is 4 cells from the coast, because every district must hold two towns and two routes.
+
+Grid (capital letter = district, lower case = a hill or mountain cell of that district, `~` = sea; the digits and letters are the towns): P Πειραιάς, D Δυτικά, A Αθήνα, V Βόρεια, N Νότια, E Ανατολικά.
+```
+     0         1         2
+x    012345678901234567890123456789
+y 0  ~~~~~ddddVVVVVVVVvvvvV~~~~~~~~     Parnitha (d, top left), Penteli (v, top right)
+y 1  ~~DDDDddDVVVVVVVVVvvvV~~~~~~~~
+y 2  ~~dDDDDDDVVVVVVVV8VEEEEEEEEEE~     8 Κηφισιά
+y 3  ~~ddDDJDDVVVVVVVVVVEEEEEEEEEE~     J Περιστέρι; the d column = the Aigaleo ridge
+y 4  ~~dDDDDDDVVVV9VVVVVEEEEEEEEEE~     9 Μαρούσι (the Olympic-style complex)
+y 5  ~~dDDDDDDVVVVVVVVVVEEEEEEEEEE~
+y 6  ~~dDDDDDDAAAaaAAAeEEEEEEEEEEE~     aa = Lycabettus; e (x 17-18) = Hymettus
+y 7  ~~DDDKDDDAAAAAA$AeeEEEEEEEEEE~     K Χαϊδάρι, $ = the Βουλή
+y 8  ~PPPPPPPPAAAAAMAAeeEEEEEEEEEE~     M Σύνταγμα
+y 9  ~PPPPPPPPALAAAAAAeeEEEEE7EEEE~     L Μοναστηράκι, 7 Σπάτα (the airport)
+y 10 ~PP1PPP3PAAaAAAAAEEEEEEEEEEEE~     1 Νέα Πειραιάς, 3 Καστέλλα, a = the temple rock
+y 11 ~PPPPPpPPNNNNNNNNEEEEEEEEEEEE~     p = the Munychia hill
+y 12 ~PPPP2P~~N4NNNN5NEEEE6EEEEEEE~     2 Λιμεναρχείο, 4 Παλαιό Φάληρο, 5 Γλυφάδα, 6 Κορωπί
+y 13 ~~PPPPP~~~NNNNNNNEEEEEEEEEEEE~
+y 14 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```
+Real relative positions kept (from the sources): Piraeus is the south-west corner on a peninsula with the sea on its west and south sides and a small bay (Faliro) between it and the south coast; West lies north of it on the Aigaleo ridge; Αθήνα is the middle with Lycabettus to the north and the temple rock to the south-west; South is the strip along the coast east of the Faliro bay; East is everything beyond Hymettus with the Aegean on its far side, the airport south-east and the Rafina port in the north-east; North lies above the centre between Parnitha (north-west) and Penteli (north-east). Lines drawn as shapes only: metro 1 from the Piraeus harbour through the centre to Kifisia; metro 2 from the north-west through the centre to the south coast; metro 3 from the west across the centre and Hymettus to the airport; the tram from Syntagma down to the coast and along it; the ring road (Αττική Οδός) over the north to the airport.
+
+**Routes (12) and their ends.** A district is `entry route, town 1, middle route, town 2 (with the boss)`; Πειραιάς is the exception because it keeps what is built (town 1, route 1 with the boss at its end, then route 2 and town 2 as the second half, section 11.5). The entry route of a district is the road from the previous district's last town. Every district exit is a door or road tile locked by the previous badge (`needFlag`).
+
+| Route | Name (Greek / English) | From | To | Belongs to |
+|---|---|---|---|---|
+| R1 | Παραλιακή / The Waterfront (built) | 1 Νέα Πειραιάς | 2 Λιμεναρχείο (boss) | Πειραιάς |
+| R2 | Ακτή Θεμιστοκλέους / The Quay Road | 2 Λιμεναρχείο | 3 Καστέλλα | Πειραιάς |
+| R3 | Λεωφόρος Ποσειδώνος / Poseidon Avenue | 3 Καστέλλα | 4 Παλαιό Φάληρο | Νότια |
+| R4 | Ελληνικό / The Old Airfield | 4 Παλαιό Φάληρο | 5 Γλυφάδα (boss) | Νότια |
+| R5 | Υμηττός / The Hymettus Pass | 5 Γλυφάδα | 6 Κορωπί | Ανατολικά |
+| R6 | Μεσόγεια / The Plain | 6 Κορωπί | 7 Σπάτα (boss) | Ανατολικά |
+| R7 | Πεντέλη / The Marble Mountain | 7 Σπάτα | 8 Κηφισιά | Βόρεια |
+| R8 | Λεωφόρος Κηφισίας / Kifisia Avenue | 8 Κηφισιά | 9 Μαρούσι (boss) | Βόρεια |
+| R9 | Αττική Οδός / The Ring Road | 9 Μαρούσι | J Περιστέρι | Δυτικά |
+| R10 | Λεωφόρος Θηβών / Thivon Avenue | J Περιστέρι | K Χαϊδάρι (boss) | Δυτικά |
+| R11 | Ιερά Οδός / The Sacred Way | K Χαϊδάρι | L Μοναστηράκι | Αθήνα |
+| R12 | Λεωφόρος Πανεπιστημίου / University Avenue | L Μοναστηράκι | M Σύνταγμα (boss) | Αθήνα |
+
+The Βουλή (`$`) is a door on Σύνταγμα's square, locked until the sixth badge. The order is an anticlockwise spiral: coast east, up the east side, west across the north, down the west side, into the centre.
+
+### 11.3 The districts
+Each town has a Νοσοκομείο (the hospital template of section 10 with the town's own sign and two local lines; it is the black-out spot after its first heal) and a Περίπτερο (the kiosk template; the stock grows with the badge count, section 11.4). Town 1 of every district also has a Καφενείο (save point); the first town keeps its existing set. Every town has one ΚΤΕΛ stop (the fast-travel point, section 11.6). Species are the seed roster (section 6 of the seed); `(r)` = rare slot. Levels are wild levels. Evolution levels (data proposal, tuned later by the balance script): Φακελάκης 10 (built), Δημοσιοϋπαλληλάκι 20, Story-ούλα 22, Λαϊκατζής 26, Κρυπτο-Μάκης 26, Εφοπλιστάκος 30, Καφενόβιος 30, Γιαγιάκα 32, Εφοράκι 32, Μοναστηριάκι 32, the three starter lines 16 and 32. A wild creature appears in the form that fits its level, so evolved forms are found in the later districts.
+
+| # | District | Towns | Routes | Boss (type) | Boss team (level) | Wild levels | Badge (Παράσημο) |
+|---|---|---|---|---|---|---|---|
+| 1 | Πειραιάς / Piraeus | Νέα Πειραιάς, Καστέλλα | R1, R2 | Ο Λιμενάρχης Κώτσος (Επιχειρηματίες) | Φακελάκης 11, Φραπεδόρος 12, Φακελάρχης 13 (built) | R1 2-8, R2 10-13 | Παράσημο Λιμανιού |
+| 2 | Νότια / South | Παλαιό Φάληρο, Γλυφάδα | R3, R4 | Ο Κύριος Μπουγάτσας (Μιμίδια) | Καφενόβιος 18, Φραπεδόρος 19, Γιαγιάκα 20 | R3 13-16, R4 16-19 | Παράσημο Παραλιακής |
+| 3 | Ανατολικά / East | Κορωπί, Σπάτα | R5, R6 | Η @influencεr_Φαίη (Influencers) | Κρυπτο-Μάκης 23, Influεnζα 24, Τρολόσαυρος 25, NFT-άρχης 26 | R5 19-22, R6 22-26 | Παράσημο Επιβίβασης |
+| 4 | Βόρεια / North | Κηφισιά, Μαρούσι | R7, R8 | DJ Αμαρτία (Celebrities) | Ριάλιτο-Ράμπο 29, Φακελάρχης 30, Lobby-Λύκαινα 31, Σταρ των 90ς 32 | R7 26-29, R8 29-31 | Παράσημο Πρώτης Σειράς |
+| 5 | Δυτικά / West | Περιστέρι, Χαϊδάρι | R9, R10 | Ο Ηγούμενος Πλουσιάκης (Εκκλησία) | Κτηματομεσίτης 34, Γιαγιά Τερμινέιτορ 35, Τάβλι-λόρδος 36, Φακελάρχης 37, Δεσποτάκης 38 | R9 32-35, R10 34-37 | Παράσημο Αφορολογήτου |
+| 6 | Αθήνα / Athens | Μοναστηράκι, Σύνταγμα | R11, R12 (+ the Rock, Lycabettus) | Ο Ταξίαρχος Μπαμπούλας (Ασφαλίτες) | ΜΑΤάνθρωπος 40, Ελεγκτής ΣΔΟΕ 41, Μόνιμος 42, Ρουσφετόλυκος 43, ΜΑΤάνθρωπος 44 | R11 38-41, R12 40-43 | Παράσημο Συγκέντρωσης |
+| 7 | Βουλή (inside Αθήνα) | the Parliament building | 4 chambers | Η Προϊσταμένη Ευτέρπη, Ο Υπουργός Σπυράδωνις, Ο Μπέμπης, Ο Υφυπουργός Παντός with Μιζοτάκης (all Πολιτικοί or mixed; the last two fights are Πολιτικοί) | see 11.3.7 | no wild creatures | Διορισμός Εφ' Όρου Ζωής |
+
+Seed bosses re-assigned: Κώτσος stays (Πειραιάς, the port); Ο Κύριος Μπουγάτσας (seed district 7, Θεσσαλονίκη) moves to Νότια (a seaside café row fits the bougatsa debate, and the Φραπεδόρος and tavli creatures live there); Η @influencεr_Φαίη (seed Μύκονος Orbital) to Ανατολικά (the airport is the way to the orbital resorts); DJ Αμαρτία (seed Τρούμπα Neon) to Βόρεια (the old stars live in villas and play the big arena); Ο Ηγούμενος Πλουσιάκης (seed Μετέωρα Heights) to Δυτικά (a monastery on the western ridge); Ο Ταξίαρχος Μπαμπούλας (seed Εξάρχεια Zone) to Αθήνα (the police wall in front of the Parliament square); Η Προϊσταμένη Ευτέρπη (seed Δημόσιο Valley) and Ο Υφυπουργός Παντός (seed Νέα Αθήνα Dome) move into the Βουλή. The boss types are the seven minus Πολιτικοί, in the order above, and Πολιτικοί is the final: the satire ends where the laws are made.
+
+**Type fairness (kept by a test).** Every boss type has at least one species that hits it for x2 and can be had by then (wild or starter): Επιχειρηματίες - Πολιτικοί, Celebrities; Μιμίδια - Ασφαλίτες (Εφοράκι is wild in Πειραιάς, Κουλουράκι is a starter); Influencers - Ασφαλίτες, Επιχειρηματίες; Celebrities - Influencers, Εκκλησία; Εκκλησία - Επιχειρηματίες, Μιμίδια (Μοναστηριάκι is the first wild Εκκλησία creature, rare on R5, so Ψαλτάκι players level alone until then); Ασφαλίτες - Πολιτικοί, Εκκλησία; Πολιτικοί (final) - Celebrities, Influencers, Μιμίδια.
+
+#### 11.3.1 Πειραιάς (south-west corner: the peninsula with three harbours)
+- **Real shape:** a peninsula with the Great Harbour (cargo, passenger ferries) facing west, two small round marinas (Zea, Mikrolimano) facing east, the steep Munychia hill (Kastella) between them, the rail and metro terminus at the head of the Great Harbour, the shipowners' avenue behind the quay, two stadiums opposite each other at Neo Faliro in the south-east, Aigaleo to the north-west.
+- **Abstraction:** a dock and a hill. Νέα Πειραιάς (built) is the Great Harbour quarter: quay along the top of the town (water row), the lab, ΚΕΠ, kiosk, café, hospital and the studio. Rework adds decor only: two ferries moored at the quay, a crane, a metro-entrance sign; the kiosk row gets the ΚΤΕΛ stop. Route R1 is the waterfront road (built); the Λιμεναρχείο at its end is the boss building (built). Καστέλλα (new, after the badge) is the hill town: terraced streets with steps, a small open-air theatre on the top (a flavour building with the view of the whole bay and a viewpoint NPC who jokes about the "map of the Ministry"), a marina strip with yachts below it. R2 Ακτή Θεμιστοκλέους is a short quay road with a twin-stadium ground in the middle (two oval grounds opposite each other; fan trainers).
+- **Mizamon (10, 8 built):** Φακελάκης, Τρολόσαυρος, Λαϊκατζής, Story-ούλα, Δημοσιοϋπαλληλάκι, Εφοράκι, Φραπεδόρος (r), Γιαγιάκα (r) on R1 at L2-8 (the built tables); on R2 at L10-13: Φακελάρχης (common), Εφοπλιστάκος (new, shipowner, r), Λαϊκατζής, Φραπεδόρος, Γιαγιάκα.
+- **Trainers (7):** the rival twice (built), Φοίβη, Στέλιος, Τάκης (built), two on R2 (a fan, a ferry sailor) at L10-12.
+- **Running joke:** the port is sold again every season (Κώτσος); the ferry always leaves 20 minutes before the time printed on the ticket, "the timetable is a suggestion".
+
+#### 11.3.2 Νότια (a long strip along the south coast)
+- **Real shape:** a narrow band between the hills and the sea running south-east from the Faliro bay: the seaside avenue with the tram next to it, beach clubs and marinas, the golf course and the huge empty former airfield at Elliniko, the Hymettus foot at the east end.
+- **Abstraction:** the towns and routes are long horizontal strips with the sea as the bottom edge of every map, the avenue as the main path and the tram rails beside it (decor). R3 Λεωφόρος Ποσειδώνος: coast road, sunbed rows on the beach side, a lifeguard tower. Παλαιό Φάληρο: promenade, tram stop, marina, a row of beach cafés (the first Καφενείο «Ο Παραλιακός»). R4 Ελληνικό: one huge open rectangle (an airfield with two straight runway paths, hangars, the cranes of an unfinished project as decor, grass patches). Γλυφάδα: marina with yachts, a golf lawn, nightclubs; the boss sits in the big seaside café "Η Μεγάλη Προκυμαία".
+- **Mizamon (9):** Καφενόβιος 16-19 (new), Φραπεδόρος 13-19, Γιαγιάκα 16-19, Τρολόσαυρος 13-16, Εφοπλιστάκος 14-19 (yachts), Φακελάρχης 14-16 (r), Λαϊκατζής 13-16, Εφοράκι 13-16 (the sunbed inspector), Story-ούλα 16-19.
+- **Trainers (7):** a lifeguard, a sunbed seller, a tram conductor, a golfer, a beach influencer, a yacht skipper, the rival (third fight, L18, evolved starter).
+- **Running joke:** "free beach, one Φακελάκι for the chair"; every café's debate ends in the filling of the bougatsa; the coast road works "finish next year" every year.
+
+#### 11.3.3 Ανατολικά (the east: a ridge, a plain, an airport, a ferry coast)
+- **Real shape:** the Hymettus ridge separates the centre from the open Mesogeia plain with vineyards and small towns; the airport lies in the middle of the plain with the ring road beside it; the east coast on the Aegean has the Rafina ferry port.
+- **Abstraction:** R5 Υμηττός: switchback pass (diagonal paths, pines, rock), a monastery wall at one turn. Κορωπί: a plain-town with vineyard rows, a square with a small church, the kiosk. R6 Μεσόγεια: a wide plain with vineyard rows and a highway bridge over the road. Σπάτα: the airport town: check-in queue NPCs, a runway edge, the boss building is the terminal "Διαστημολιμένας" with gates (the way to the orbital resorts). Rafina (port icon on the map) is scenery for now: a sailor in Σπάτα mentions "the orbital ferry", reserved for a late fast-travel idea.
+- **Mizamon (9):** Μοναστηριάκι 19-22 (r, R5, new), Εφοράκι 19-22 (customs), Τρολόσαυρος 19-22, Εφοπλιστάκος 19-22, Story-ούλα 19-21, Influεnζα 22-26 (new), Κρυπτο-Μάκης 22-25 (new), NFT-άρχης 26 (r, new), Μόνιμος 22-25 (new, passport desk).
+- **Trainers (7):** a customs officer, a tourist influencer, a crypto seller, a pilgrim, a vineyard owner, a check-in clerk, a plane spotter.
+- **Running joke:** every sign is sponsored, even the exit; every gate is "Gate Β12" and nobody has found it; passports are stamped by sponsors.
+
+#### 11.3.4 Βόρεια (the leafy north between two mountains)
+- **Real shape:** a green, wealthy belt of tree-lined suburbs under Parnitha (north-west) and Penteli (north-east): Kifisia at the northern end of the metro and of the long Kifisias Avenue, the Olympic-style sports complex (stadium with an arched roof, velodrome) in Marousi, big shopping streets, the ring road close by.
+- **Abstraction:** R7 Πεντέλη: a marble-quarry mountain road (white stone steps, a crane). Κηφισιά: villas behind hedges, a plane-tree square with a café, the terminus station building. R8 Λεωφόρος Κηφισίας: a long boulevard with shop windows (decor) and roundabouts. Μαρούσι: the arena complex; the boss building is "Στάδιο Συναυλιών 3000" with a stage; scaffolding on the roof "for a renovation since 2961".
+- **Mizamon (9):** Σταρ των 90ς 26-31 (new), Ριάλιτο-Ράμπο 28-31 (new), Lobby-Λύκαινα 29-31 (new), Φακελάρχης 26-29, Εφοπλιστάκος 26-29, Γιοτάρχης 30-31 (r, new), Influεnζα 26-31, NFT-άρχης 26-29, Τρολόσαυρος 26-29. The starter lines finish here: Υπερυπουργός, ΜΑΤάνθρωπος, Δεσποτάκης at L32 are new species data for trainers (the rival).
+- **Trainers (7):** a retired singer, a reality contestant, a lobbyist, a tennis-club member, a stadium usher, a villa gardener, the rival (fourth fight, L30).
+- **Running joke:** the old stars are on a permanent "comeback tour"; the stadium is always "being renovated" and the roof cost three times the plan.
+
+#### 11.3.5 Δυτικά (the dense west under the ridge)
+- **Real shape:** the west-central part of the city: dense blocks of apartments (Peristeri, Aigaleo, Chaidari), the Kifissos river channel and avenue, the long straight Thivon Avenue, the Aigaleo ridge as the wall to the west with an old road over its pass towards the Athens-Corinth road, football grounds, street markets.
+- **Abstraction:** R9 Αττική Οδός: a highway route with toll booths (flavour NPCs that "charge for the road you just walked", no real cost), long straight lanes, trainers on the verges. Περιστέρι: a grid of identical apartment blocks with balcony laundry (decor), a small football ground where fans sing, the street market. R10 Λεωφόρος Θηβών: a straight avenue with market stalls and the river channel beside it. Χαϊδάρι: the pass town under the ridge; the boss building is the fictional "Μονή Αφορολογήτου" (a domed church, a bell tower, walls; the monastery owns the car park, the road to the car park and the bell).
+- **Mizamon (9):** Κτηματομεσίτης Ιερομόναχος 33-37 (new), Γιαγιά Τερμινέιτορ 33-37 (new), Τάβλι-λόρδος 33-37 (new), Ελεγκτής ΣΔΟΕ 3000 34-37 (r, new), Μόνιμος 32-35, Ρουσφετόλυκος 35-37 (r, new), Lobby-Λύκαινα 32-35, Φακελάρχης 32-35, Γιοτάρχης 32-34.
+- **Trainers (7):** a toll clerk, a market seller, a football fan, a grandmother with a slipper, a café philosopher, a sacristan, a monk (the Παράσημο Αφορολογήτου gate).
+- **Running joke:** "tax-free since 1830, and proud": the church owns the road to the church.
+
+#### 11.3.6 Αθήνα (the centre: a rock, a hill, a square)
+- **Real shape:** a compact centre: the ancient rock with its temple on the south-west, the old town below it, Lycabettus to the north, the central square with the parliament in the former palace on the east side of the centre, the university and academy buildings on the avenue between the square and Omonia, the old market streets, three metro lines crossing at Syntagma, Omonia and Monastiraki, the old road entering from the west.
+- **Abstraction:** R11 Ιερά Οδός: an ancient paved road with column stumps and a closed dig. Μοναστηράκι: narrow lanes, flea-market stalls, a clock tower, the rock rising behind (an extra map: "Ο Βράχος": a hill path with a temple on top, scaffolding everywhere, a ticket booth, the legendary Ο Τελευταίος Φορολογούμενος in a fixed encounter at L40). R12 Λεωφόρος Πανεπιστημίου: three neoclassical buildings in a row (decor), the circular plaza of Omonia with trainers around it, the central market street; an extra map "Ο Λόφος" (Lycabettus: a chapel on top and a funicular that is "closed for lunch"). Σύνταγμα: the square, the fountain, the closed metro entrance, police vans in rows; the Parliament is a long neoclassical building on the top edge of the square whose door is locked until the sixth badge; the boss Μπαμπούλας stands in the middle of the square.
+- **Mizamon (10 + 1):** Μόνιμος 38-41, Ελεγκτής ΣΔΟΕ 3000 38-41, Ρουσφετόλυκος 38-41, Lobby-Λύκαινα 38-41, Τάβλι-λόρδος 38-41, Γιαγιά Τερμινέιτορ 38-41, Σταρ των 90ς 38-41, Κτηματομεσίτης (r) 40-43, Γιοτάρχης 40-43, Influεnζα 40-43; plus Ο Τελευταίος Φορολογούμενος (legendary, static, on the Rock, L40).
+- **Trainers (8):** a ministry clerk, a tour guide, a student, a market porter, an Omonia busker, a tax inspector, a riot-police cadet, the rival (fifth fight, L42).
+- **Running joke:** the metro station at the square has been "closing for works" since 2961; the weather forecast shows tear gas as a cloud icon; the rock has been in scaffolding for a thousand years.
+
+#### 11.3.7 Βουλή (the final, inside Αθήνα)
+Opens with the sixth badge: the door on Σύνταγμα's square. Six maps: a lobby (security gate, ticket queue joke), four chambers, an epilogue roof. Four fights in a row, healing only at the lobby's doctor between the chambers:
+1. **Η Προϊσταμένη Ευτέρπη** (Πολιτικοί; seed Δημόσιο Valley): a chamber of desks and stamps; 5 creatures L44-46 (Μόνιμος, Ελεγκτής ΣΔΟΕ, Lobby-Λύκαινα ...); joke: "her office is closed 13:00-ever", so the door sign says it is open until 13:00 and then asks for an appointment.
+2. **Ο Υπουργός Σπυράδωνις** (parody, section 11 of the seed): a studio-panel chamber; 5 creatures L45-47 with Σπυράδωνις as the lead; the existing Σπυράδωνις (L15) in the Τηλεοπτικό Στούντιο remains a separate bonus fight.
+3. **Ο Μπέμπης** (the rival, last fight): 6 creatures L46-48 with the final form of his starter; "every badge by phone call, and tonight he has one more call to make".
+4. **Ο Υφυπουργός Παντός** (Πολιτικοί; seed Νέα Αθήνα Dome): the plenary hall; 6 creatures L47-50 ending with Μιζοτάκης L50 (the Prime Minister, section 11 of the seed) as his partner and ace; joke: holds 14 ministries and attends none; his "assistant" speaks for him.
+The reward is the Διορισμός Εφ' Όρου Ζωής (the final badge: "Prime Minister for Life, on the condition you do not ask where the money went") and the credits roll (moved here, section 11.5). Afterwards Ηλιθιοκρατία (the fused parliament, legendary, L50) waits in the empty plenary hall as the one post-game encounter.
+
+### 11.4 Play order and level curve
+Order: Πειραιάς → Νότια → Ανατολικά → Βόρεια → Δυτικά → Αθήνα → Βουλή. Walking forward is free; the way forward from a district's last town is a gate tile that needs the badge (`badge` for the first, then `badge_notia`, `badge_anatolika`, `badge_voreia`, `badge_dytika`, `badge_athina`; the final sets `ending`). Going back is always allowed (the ΚΤΕΛ stops make it cheap later).
+
+| # | District | Player level on arrival | Wild levels | Boss levels (top) | Trainers | Boss team size | Player level wanted at the boss |
+|---|---|---|---|---|---|---|---|
+| 1 | Πειραιάς | 5 (the starter) | 2-13 | 11-13 (13) | 7 | 3 | 12-14 |
+| 2 | Νότια | 13 | 13-19 | 18-20 (20) | 7 | 3 | 19-21 |
+| 3 | Ανατολικά | 20 | 19-26 | 23-26 (26) | 7 | 4 | 25-27 |
+| 4 | Βόρεια | 26 | 26-31 | 29-32 (32) | 7 | 4 | 31-33 |
+| 5 | Δυτικά | 32 | 32-37 | 34-38 (38) | 7 | 5 | 37-39 |
+| 6 | Αθήνα | 38 | 38-43 | 40-44 (44) | 8 | 5 | 43-45 |
+| 7 | Βουλή | 44 | none | 44-50 (50) | 4 fights | 5, 5, 6, 6 | 47-50 |
+The top boss level rises by 7 then 6 each time (13, 20, 26, 32, 38, 44, 50 = the level cap), the same shape as the built boss (a player one level above the boss' top level wins 93 %, one level below it 66 %). The rival fights: R1 twice (built), then at Νότια R4 (L18), Βόρεια R8 (L30), Αθήνα R12 (L42) and the final (L46-48); outside the final his level is the boss' top level minus 2.
+
+**The XP rule needs one change.** Total XP to level n is `floor(0.6 * n^3)` (built, section 2), which grows with the cube, while the XP of a defeated creature `speciesXp * foeLevel / 4` grows only linearly, so at level 40 the same plan would need 60 or more wild fights per district. Decision (MZ-WORLD-02a): `xp = floor(speciesXp * foeLevel / 4 * max(1, foeLevel / 13))`. Up to level 13 (everything built) the factor is 1, so the built tests and balance numbers stay as they are. Needed XP for the three main creatures (levels arrival to the boss' top, 3 x the difference of `0.6 n^3`) against what the district's fixed trainers give (7-8 trainers, 2 to 3 creatures each, species XP 55, wild average of the district):
+
+| District | XP needed (3 creatures) | XP from the trainers | Wild fights to fill the gap (at the wild XP shown) |
+|---|---|---|---|
+| Πειραιάς | 3,729 | 2,166 | 16 (103 each) |
+| Νότια | 10,446 | 8,503 | 6 (324) |
+| Ανατολικά | 17,238 | 15,333 | 4 (584) |
+| Βόρεια | 27,345 | 28,994 | 0 |
+| Δυτικά | 39,786 | 41,988 | 0 |
+| Αθήνα | 54,561 | 65,578 | 0 (the surplus covers the Βουλή at 58,437 for the last stretch) |
+
+A test keeps each district between "trainers + 10 wild fights cover the need" and "trainers alone give at most 1.3 times the need" (so grinding is little and optional, never required, and never skipped by trainers alone).
+
+**Shops (data table by badge count).** Stock: 0 badges Φακελάκι 80, Κουλούρι 25, Σουβλάκι 70, Φραπές 60 (built; the kiosk today also sells the Φάκελος 200 and Τσίπουρο 180, kept); new items arrive with the district that first sells them: Δικηγόρος 150 and Γεμιστά της Μάνας 300 (Νότια), Χοντρός Φάκελος 600 (Βόρεια), Συλλογική Σύμβαση 150 (Δυτικά). Trainer prize stays `lastLevel * 30` (+200 for a boss, +400 for the studio host); the final fights pay `lastLevel * 30` each.
+
+**Species count.** 14 are built (12 + the two parodies). New: Πειραιάς 1 (Εφοπλιστάκος), Νότια 4 (Καφενόβιος and the three middle starter forms Βουλευτάκος, Μπατσόνος, Διάκος Ντίσκο), Ανατολικά 5 (Influεnζα, Κρυπτο-Μάκης, NFT-άρχης, Μόνιμος, Μοναστηριάκι), Βόρεια 7 (Σταρ των 90ς, Ριάλιτο-Ράμπο, Lobby-Λύκαινα, Γιοτάρχης and the three final starter forms Υπερυπουργός, ΜΑΤάνθρωπος, Δεσποτάκης), Δυτικά 5 (Κτηματομεσίτης Ιερομόναχος, Γιαγιά Τερμινέιτορ, Τάβλι-λόρδος, Ελεγκτής ΣΔΟΕ 3000, Ρουσφετόλυκος), Αθήνα 1 (Ο Τελευταίος Φορολογούμενος), Βουλή 1 (Ηλιθιοκρατία): 24 new, 38 in all = the seed's 36 plus the two parodies. Each new species needs stats, moves, ability, Dossier text and a procedural sprite; that is data work inside its district task.
+
+### 11.5 What happens to Νέα Πειραιάς and route 1
+- **Kept as built, ids unchanged:** maps `town`, `lab`, `kep`, `hospital`, `shop`, `cafe`, `studio`, `route1`, `port`; the flags `gotStarter`, `rival1`, `t_*`, `badge`, `credits`; the start map, the hospital spot; every wild table and trainer of R1; the boss. Only display names change: the district is "Πειραιάς", the town stays "Νέα Πειραιάς" (the Great Harbour quarter), the first badge text becomes "ΠΑΡΑΣΗΜΟ ΛΙΜΑΝΙΟΥ" (strings only; the flag `badge` is unchanged).
+- **Added by MZ-WORLD-02a:** an opening in the east edge of `route1` (tiles that are trees today, so no old save can stand there) locked by `badge`, leading to the new map `route2`; the new town Καστέλλα (`kastella`, with `kastella_hospital`, `kastella_shop`, `kastella_theatre`); a ΚΤΕΛ stop tile in the town (replacing a solid tile); two ferry tiles and a crane on the water row (decor on water tiles); two R2 trainers; Εφοπλιστάκος; the XP rule above; the world data and the map screen are MZ-MAP-01.
+- **The credits roll moves.** Today beating Κώτσος sets `credits`, shows the credits and opens the Τηλεοπτικό Στούντιο. After the rework the same moment shows a short "Κεφάλαιο 1 ολοκληρώθηκε" card and still sets `credits` (the studio still opens on it, so old saves lose nothing); the full credits roll plays after the Βουλή and sets `ending`.
+- **Save migration (version 3, MZ-MAP-01).** `world: { visited: {nodeId: 1}, routes: {routeId: 1}, stops: {nodeId: 1}, badges: {district: 1}, seen: {nodeId: 1} }`. A version-2 save is rebuilt from what it has: `badge` gives `badges.peiraias` and the visited harbour office; `rival1` or any position on `town`, `lab`, `kep`, `shop`, `cafe`, `hospital`, `studio` gives the visited Νέα Πειραιάς; a trainer flag `t_phoebe`, `t_stelios`, `t_takis` or `t_rival2`, or a position on `route1`, gives the walked R1; the player's current map is always visited. A version-0 or version-1 save first goes through the existing migrations. The save key and every old field stay; the player continues on the same map and tile because no old walkable tile becomes solid (a test keeps the walkable set of the nine old maps and compares it with the new maps) and any tile that did change falls back to the existing "nearest door" rule.
+- **Orientation.** Town and route maps are not compass maps (Νέα Πειραιάς has its water at the top while Piraeus is on the south-west coast); only the world map is. New maps put their exits on the side they have on the world map where that costs nothing (R3 to R6 run left to right, R7 and R9 right to left, R10 top to bottom, R11 and R12 left to right).
+
+### 11.6 The viewable map screen (Χάρτης / Map)
+A Town-Map-style overview in Mizamon's own look: the six districts as flat colour blocks with dark borders, 8 px cells, the 8 px game font, the paper and ink palette of the game; the schematic of section 11.2 drawn from the same data. Scale joke in the title: "ΚΛΙΜΑΚΑ: ΠΕΡΙΠΟΥ" / "SCALE: ROUGHLY".
+- **Opening.** A new entry "Χάρτης" / "Map" in the pause menu after Δικογραφία (the list becomes Ομάδα, Τσάντα, Δικογραφία, Χάρτης, Αποθήκευση, Ρυθμίσεις, Κλείσιμο). Shortcuts in the overworld: keyboard `Q`; gamepad Select/Back (button 8; Start and Y still open the menu); touch: a "ΧΑΡΤΗΣ" pill button (`data-btn="map"`, new input name `map` in `BUTTONS`), portrait above the A button, landscape under MENU, same size rules as the other buttons (the self-test checks no overlap). It opens only when the overworld is on top and idle (not in a battle, dialog, scene or fade). The ΚΤΕΛ stop tile opens it in travel mode.
+- **Screen layout, 240 x 160 logical pixels.**
+```
+y 0-11    title bar (ink): "ΧΑΡΤΗΣ · ΚΛΙΜΑΚΑ: ΠΕΡΙΠΟΥ"   left;  six 7 px badge pips + "2/6"   right (gold = badge won)
+y 12-131  the map, 30 x 15 cells of 8 px: sea, six district blocks, hills, route lines, towns, the cursor, the player's marker
+y 132-159 info panel (paper, 28 px, three 9 px lines):  1  selected place name, district        e.g. "Γλυφάδα · Νότια"
+                                                          2  what is there                      e.g. "Νοσοκομείο, Περίπτερο, ΚΤΕΛ · επ. 16-19"
+                                                          3  keys                               e.g. "Α Λεπτομέρειες   Β Κλείσιμο"  (travel mode: "Α Ταξίδι")
+```
+  District names (Greek or English by the language option) are drawn in the blocks; a place's name appears only in the info panel for the selected place. Texts are measured: the longest line in either language must fit in 232 px (a test).
+- **States** (all from `world` in the save): a district is `locked` until the previous badge is won (colours dimmed with a checker pattern, its name and shape still shown, its towns not drawn); `open` (full colour); `cleared` (a gold star after its name). A place is `hidden` (not drawn), `seen` (a hollow square: you have been told it exists, e.g. the next district's first town after a badge, or the other end of a route sign) or `visited` (a filled white square); a bus pip marks a visited place with a ΚΤΕΛ stop. A route is dotted until walked, then a solid line with its number. Bosses show a gold diamond (greyed once beaten).
+- **Player marker.** A red 5 x 7 pin above the current place; indoors it stands on the town; on a route it stands at the fraction `(x + 0.5) / map width` of the route's line (route maps run from the first to the second end as in the route table); a 1 px bob every 500 ms, still with Reduced motion.
+- **Cursor and controls.** A gold 10 x 10 frame (blinks, still with Reduced motion) moves between places that are `seen` or `visited`: d-pad, arrows or WASD jump to the nearest such place in that direction. `A` / Z / Enter / Space / gamepad A / touch A: the district sheet (second page of the info panel: boss and badge state, towns, the species the player has met there from the Dossier, wild level range); `B` / X / Esc / Backspace / `Q` / the map button: close. Optional: a tap on a place selects it and a second tap opens the sheet (pointer hit-test on the 8 px cell with 24 px tolerance); nothing needs it.
+- **Fast travel (ΚΤΕΛ 3000, later: MZ-MAP-02).** In travel mode the cursor snaps to visited places that have a stop; `A` asks "Εισιτήριο 50 Δραχμές. Το ΚΤΕΛ θα αργήσει." (cost 50, Yes/No), then a black fade, a bus-horn blip and the player stands next to the stop in that town; allowed only from a stop, never from a route or indoors. A stop is unlocked by visiting its town, so the first two are Νέα Πειραιάς and Καστέλλα.
+- **Data (in the rules block, pure data so the tests reach it):** `WORLD = { cols: 30, rows: 15, grid: [15 strings as in 11.2], districts: { peiraias: {letter, order, bossTrainer, badgeFlag, nameKey, levels}, ... }, nodes: { newPeiraias: {district, kind: 'town'|'boss'|'door', cell: [x, y], maps: [...], stop: true, built: true}, ... }, routes: { route1: {a, b, map: 'route1', path: [[x, y], ...]}, ... } }`; `mapNode(mapId)` returns the node or route a map belongs to; every map belongs to exactly one. Districts not built yet carry `built: false` and are drawn as `locked` with "ΣΥΝΤΟΜΑ" / "SOON".
+- **Texts:** keys `menu.map`, `map.title`, `map.scale`, `map.keys`, `map.travel`, `world.<node>`, `world.d.<district>`; both languages, same placeholders, checked by the existing string tests.
+
+### 11.7 Build plan and tests
+Order: MZ-MAP-01, then MZ-WORLD-02a to 02g in play order (each needs the one before it for the gate and the save). One task = one branch, the full `run-tests.mjs` and the in-page self-test before every merge, an Opus review per task. Map sizes are w x h tiles (screen 15 x 10); interiors reuse the shared templates (hospital 12 x 9, shop 8 x 6, café 10 x 8), so their cost is data only; tiles per district are the sum of the sizes.
+
+| Task | Content | New maps and sizes | Tiles |
+|---|---|---|---|
+| MZ-MAP-01 | `WORLD` data with the nodes of the built district, save v3 and its migration, the map screen, menu entry, `Q`, Select, touch pill, strings | 0 | 0 |
+| MZ-MAP-02 | ΚΤΕΛ fast travel (travel mode, price, the bus joke) | 0 | 0 |
+| MZ-WORLD-02a Πειραιάς | rework (11.5): the gate, `route2`, Καστέλλα, the XP rule, Εφοπλιστάκος, 2 trainers, badge and credits card | 5: route2 40 x 14; kastella 26 x 18; its hospital 12 x 9, shop 8 x 6; theatre 12 x 10 | 1,304 |
+| MZ-WORLD-02b Νότια | Μπουγάτσας, 4 species, middle starter forms, rival 3 | 10: R3 40 x 14; Παλαιό Φάληρο 30 x 16 (+ hospital, shop, café); R4 36 x 20; Γλυφάδα 28 x 18 (+ hospital, shop); the café 12 x 10 | 2,776 |
+| MZ-WORLD-02c Ανατολικά | Φαίη, 5 species | 10: R5 36 x 16; Κορωπί 26 x 16 (+3); R6 40 x 16; Σπάτα 28 x 18 (+2); the terminal 14 x 10 | 2,668 |
+| MZ-WORLD-02d Βόρεια | DJ Αμαρτία, 7 species (final starter forms), rival 4 | 10: R7 32 x 18; Κηφισιά 26 x 18 (+3); R8 44 x 14; Μαρούσι 28 x 18 (+2); the arena 14 x 10 | 2,696 |
+| MZ-WORLD-02e Δυτικά | Πλουσιάκης, 5 species | 10: R9 44 x 12; Περιστέρι 26 x 18 (+3); R10 36 x 18; Χαϊδάρι 28 x 18 (+2); the monastery 12 x 10 | 2,660 |
+| MZ-WORLD-02f Αθήνα | Μπαμπούλας, 1 species, the Rock, Lycabettus, rival 5 | 11: R11 36 x 14; Μοναστηράκι 26 x 18 (+3); the Rock 20 x 16; R12 40 x 16; Lycabettus 20 x 16; Σύνταγμα 30 x 20 (+2) | 3,244 |
+| MZ-WORLD-02g Βουλή | the four chambers, the final badge, credits moved, `ending`, Ηλιθιοκρατία | 6: lobby 14 x 10; three chambers 12 x 9; plenary 16 x 12; epilogue roof 10 x 8 | 736 |
+
+Totals: 62 new maps (about 16,000 tiles, about 16 KB of row text plus trainers and strings; the one-file rule holds: maps are painted with `paintMap` rectangles and paths like route 1 to keep them small), 24 new species, 12 towns, 12 routes, 6 + 4 boss fights.
+
+**Tests every district task adds** (all headless, in `tools/run-tests.mjs`, plus in-page checks in `selfTest`):
+- *Reachability:* every walkable tile, door, NPC (talkable directly or across a counter), sign, the hospital, the kiosk, the boss and the exit gate is reachable from the arrival tile by the flood fill that follows doors and flags (`reachableTiles`); the gate is closed without its badge flag and open with it; no map leaves a dead end the player cannot leave; every warp has a return warp to a walkable tile.
+- *Data references:* every row has the map width; every tile char is in `TILE_DEFS`; every wild species, trainer species, item and string key exists; every map has a `WORLD` node or route; every zone table lists only the species the district table says, with levels inside the district range and at or above the species' evolution level for evolved forms; every species of the district's list appears in a zone, a trainer or a gift; strings have both languages and the same placeholders; no real brand, person or party in any text (the existing phrase lists extended); the old copied-phrasing and gendered-form checks run on the new strings.
+- *Balance:* the boss fight with the AI-played team at the boss' top level, one level behind and three behind, six creatures against only three (as in the table in section 7): win rate bands taken from the built boss: top plus 1 85-97 %, top minus 1 55-75 %, top minus 3 10-30 %, three creatures at top minus 1 8-25 % (the final: top minus 1 45-65 %); the XP budget band of 11.4; the money budget (the district's prize money buys at least the stock of its new items); the type-fairness rule of 11.3; a seeded 1,000-battle replay of the district's trainers twice with the same checksum.
+- *Save:* a save made in the previous version loads and continues; the walkable-tile snapshot of the old maps; the new flags migrate.
+
+MZ-MAP-01 tests: `WORLD` integrity (the grid is 30 x 15, every node cell is on land of its district, every route path's ends are its nodes, every map in `MAPS` belongs to exactly one node or route, the graph is connected in the play order and gates agree with the districts' badge flags), save v2 to v3 (the old-save cases of 11.5, a round trip, an unknown future version rejected as before), state rules (locked, seen, visited, marker position on a route from a map x), input (menu entry, `Q`, Select, touch pill do not overlap the d-pad, A or B in both layouts), layout (the text fits in 232 px in both languages), and the in-page check that opens the map from the menu, moves the cursor, closes it, and returns to the same tile.
+
+### 11.8 Satire and originality rules for the world
+- Real place names and public landmarks (the Parliament, the temple rock, Lycabettus, the airport, the ring road, the ports) are used as places. The monastery is fictional ("Μονή Αφορολογήτου") and no real active religious site, business, brand, person or party is named in any text; the stadium and the arena have generic names. The parody characters stay as SPEC rule 2 says; the satire notice still opens the game.
+- Jokes are about systems and behaviours: timetables, queues, tolls, sponsored signs, unfinished works, tax-free property, closed offices, the "comeback tour". No real tragedy, no joke about a group of people, no claim of a real crime; the police joke is the weather icon and the closed square, nothing about real incidents.
+- The layout is an abstraction of the real city's arrangement (this document's grid, original); no region, town, route name or map of any existing monster game is used, and no town or route design echoes one: the districts are a ring around a centre, not a chain of themed cities.
+
+### 11.9 Open questions for the Owner
+1. Scope: two towns per district as designed (62 new maps) or one town per district (about 36 maps; the second town's hospital, shop and routes would merge into one longer route)? Default: two, as designed.
+2. Should the full credits roll move from the first boss to the Βουλή as decided here (a short "Κεφάλαιο 1" card replaces it after Κώτσος)? Default: yes.
