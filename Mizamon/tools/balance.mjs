@@ -216,5 +216,5 @@ for (const level of [28, 30]) {
     R.evolveMon(starter);
     wins += R.simulateBattle([starter], [R.makeMon('rialito', level)], rialitoRng, { kind: 'wild' }).winner === 0 ? 1 : 0;
   }
-  console.log('Wild Ριάλιτο-Ράμπο L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
+  console.log('Wild Ριάλιτο-Νταής L' + level + ' against one starter (middle form) at L' + level + ': the starter wins ' + (100 * wins / runs).toFixed(1) + '%');
 }

@@ -2320,7 +2320,7 @@ const VOREIA_MAP_IDS = ['route7', 'kifisia', 'kifisia_hospital', 'kifisia_shop',
 const BOSS_TEAM_02D = ['rialito29', 'influenza30', 'fakelarchis32', 'lobbylykaina32', 'star9032'];
 const BOSS_BOOST_02D = undefined; // no boost (11.14)
 const BOSS_ITEMS_02D = ['gemista'];
-const VOREIA_FLAGS =Object.assign({ badge_anatolika: true }, ANATOLIKA_FLAGS);
+const VOREIA_FLAGS = Object.assign({ badge_anatolika: true }, ANATOLIKA_FLAGS);
 const VOREIA_TRAINERS = ['oldstar', 'gardener', 'contestant', 'lobbyist', 'tennis', 'rival4', 'usher'];
 const VOREIA_SPECIES = ['efoplistakos', 'fakelarchis', 'giotarchis', 'influenza', 'lobbylykaina', 'nftarchis', 'rialito', 'star90', 'trolosavros'];
 const VOREIA_NEW_SPECIES = ['star90', 'rialito', 'lobbylykaina', 'giotarchis', 'yperypourgos', 'matanthropos', 'despotakis'];
@@ -2417,7 +2417,7 @@ test('Βόρεια data: sizes of 11.7, places on the world map, rows, tiles, wi
     same([...used].sort(), allowed[mapId].slice().sort(), mapId + ' species');
   }
   const lowest = (zone) => zone.table.reduce((a, b) => (a.w <= b.w ? a : b)).sp;
-  assert.equal(lowest(R.MAPS.route7.zones[0]), 'rialito', 'Ριάλιτο-Ράμπο is the rare one on route 7 (from level 28, 11.3.4)');
+  assert.equal(lowest(R.MAPS.route7.zones[0]), 'rialito', 'Ριάλιτο-Νταής is the rare one on route 7 (from level 28, 11.3.4)');
   assert.equal(lowest(R.MAPS.route8.zones[1]), 'giotarchis', 'Γιοτάρχης is the rare one on route 8 (11.3.4)');
   same(R.districtSpecies('voreia').sort(), VOREIA_SPECIES);
   assert.equal(Math.min(...R.MAPS.route7.zones.flatMap((zone) => zone.table.map((entry) => entry.min))), 26);
@@ -2689,7 +2689,7 @@ export const NOTIA_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 
 export const ANATOLIKA_POOL = NOTIA_POOL.concat(['monastiriaki', 'kryptomakis']);
 export function notiaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, NOTIA_POOL); }
 export function anatolikaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, ANATOLIKA_POOL); }
-// The pool of Βόρεια: that of Ανατολικά plus the wild Ριάλιτο-Ράμπο and Lobby-Λύκαινα (Σταρ των 90ς is the evolved Λαϊκατζής, Γιοτάρχης the evolved Εφοπλιστάκος).
+// The pool of Βόρεια: that of Ανατολικά plus the wild Ριάλιτο-Νταής and Lobby-Λύκαινα (Σταρ των 90ς is the evolved Λαϊκατζής, Γιοτάρχης the evolved Εφοπλιστάκος).
 export const VOREIA_POOL = ANATOLIKA_POOL.concat(['rialito', 'lobbylykaina']);
 export function voreiaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, VOREIA_POOL); }
 function poolTeam(rules, rng, level, size, poolIds) {
