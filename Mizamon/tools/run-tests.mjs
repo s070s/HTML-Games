@@ -1398,22 +1398,91 @@ test('Πειραιάς trainers: a seeded replay of the two new fights twice giv
     assert.ok(winRate(id, 12, 6, 200) >= 0.9, id + ' with six creatures at level 12');
     assert.ok(winRate(id, 12, 3, 200) >= 0.5, id + ' with three creatures at level 12');
   }
-  // Κώτσος unchanged: one level above his top level 85-97 %, one level below 55-75 % (the built band)
-  const boss = (level, runsCount) => {
-    const rng = R.makeRng(4000 + level);
+  // Κώτσος unchanged, the win-rate bands of section 11.7 (top level 13): top plus 1 85-97 %, top minus 1 55-75 %, top minus 3 10-30 %, three creatures at top minus 1 8-25 %
+  const boss = (level, size, items, runsCount) => {
+    const rng = R.makeRng(4000 + level * 10 + size);
     let wins = 0;
     for (let i = 0; i < runsCount; i++) {
       const pool = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
       const team = [R.makeMon(R.pickOne(rng, R.STARTERS), level)];
-      for (let n = 1; n < 6; n++) team.push(R.makeMon(pool.splice(Math.floor(rng() * pool.length), 1)[0], level));
-      if (R.simulateBattle(team, R.buildTrainerTeam('kotsos', 'komma'), rng, { foeItems: R.TRAINERS.kotsos.items, playerItems: ['souvlaki', 'souvlaki'] }).winner === 0) wins++;
+      for (let n = 1; n < size; n++) team.push(R.makeMon(pool.splice(Math.floor(rng() * pool.length), 1)[0], level));
+      if (R.simulateBattle(team, R.buildTrainerTeam('kotsos', 'komma'), rng, { foeItems: R.TRAINERS.kotsos.items, playerItems: items }).winner === 0) wins++;
     }
     return wins / runsCount;
   };
-  const atTop = boss(14, 300);
-  const below = boss(12, 300);
-  assert.ok(atTop >= 0.85 && atTop <= 0.99, 'Κώτσος, player one level above his top: ' + atTop);
-  assert.ok(below >= 0.55 && below <= 0.78, 'Κώτσος, player one level below his top: ' + below);
+  const bossTop = R.TRAINERS.kotsos.team[R.TRAINERS.kotsos.team.length - 1].lv;
+  const twoSouvlaki = ['souvlaki', 'souvlaki'];
+  const bands = [
+    ['top plus 1, six creatures', boss(bossTop + 1, 6, twoSouvlaki, 600), 0.85, 0.97],
+    ['top minus 1, six creatures', boss(bossTop - 1, 6, twoSouvlaki, 600), 0.55, 0.75],
+    ['top minus 3, six creatures', boss(bossTop - 3, 6, twoSouvlaki, 600), 0.10, 0.30],
+    ['top minus 1, three creatures, no items', boss(bossTop - 1, 3, [], 600), 0.08, 0.25],
+  ];
+  for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Κώτσος, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
+});
+// Section 11.3: every boss type of a built district has a species that hits it for x2 and can be had by then (a starter or a wild creature of that
+// district or an earlier one). Written over the districts that are built, so every later district task is checked by it.
+test('type fairness: every type of every built boss is hit for x2 by a starter or a wild creature available by then', () => {
+  const built = Object.values(W.districts).filter((district) => district.built).sort((a, b) => a.order - b.order);
+  assert.ok(built.length >= 1 && built[0].id === 'peiraias');
+  const available = new Set(R.STARTERS);
+  for (const district of built) {
+    for (const species of R.districtSpecies(district.id)) available.add(species);
+    const bossTypes = new Set(R.TRAINERS[district.bossTrainer].team.map((entry) => R.SPECIES[entry.sp].t));
+    for (const bossType of bossTypes) {
+      const hitters = [...available].filter((id) => R.typeMultiplier(R.SPECIES[id].t, bossType) === 2);
+      assert.ok(hitters.length > 0, district.id + ': no available species hits ' + bossType + ' for x2');
+    }
+  }
+  // Πειραιάς, named: the boss brings Επιχειρηματίες (biz) and Μιμίδια (mem); Κομματάκι (pol) hits biz and Εφοράκι (asf, wild) or Κουλουράκι (asf, starter) hits mem
+  assert.equal(R.typeMultiplier(R.SPECIES.komma.t, 'biz'), 2, 'the starter Κομματάκι hits biz for x2');
+  assert.ok(R.STARTERS.includes('komma') && R.districtSpecies('peiraias').includes('eforaki') && R.typeMultiplier(R.SPECIES.eforaki.t, 'mem') === 2);
+});
+
+// Section 11.8: no real brand, person or party in any text. A deny-list over every STRINGS entry in both languages, compared without case and
+// without accents. The marked parodies (Μιζοτάκης, Σπυράδωνις, Νέα Δημοκτατορία) must not match.
+const DENIED_WHOLE_WORDS = ['Airbnb', "McDonald's", 'McDonalds', 'Starbucks', 'Coca-Cola', 'Coca Cola', 'Facebook', 'Meta', 'Instagram', 'TikTok', 'Google', 'Apple', 'Amazon',
+  'Netflix', 'Uber', 'Wolt', 'efood', 'Lidl', 'Vodafone', 'Cosmote', 'OPAP', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'ΣΥΡΙΖΑ', 'ΠΑΣΟΚ', 'ΚΚΕ', 'Ελληνική Λύση', 'Χρυσή Αυγή',
+  'Blue Star', 'Minoan', 'Anek', 'Seajets', 'Hellenic Seaways', 'Attica Group'];
+const DENIED_NAME_STEMS = ['Μητσοτάκ', 'Τσίπρα', 'Ανδρουλάκ', 'Βελόπουλ', 'Κουτσούμπ', 'Γεωργιάδ', 'Mitsotak', 'Tsipras', 'Androulak', 'Velopoul', 'Koutsoumb', 'Georgiad'];
+const PARODIES = ['Μιζοτάκης', 'Σπυράδωνις', 'Νέα Δημοκτατορία', 'Mizotakis', 'Spyradonis', 'New Democtatorship'];
+const plainText = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const escapeForRegex = (text) => plainText(text).replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/ /g, '[ -]');
+const DENY_PATTERN = new RegExp('(?<![\\p{L}\\p{N}])(?:(?:' + DENIED_WHOLE_WORDS.map(escapeForRegex).join('|') + ')(?![\\p{L}\\p{N}])|(?:' + DENIED_NAME_STEMS.map(escapeForRegex).join('|') + '))', 'u');
+test('strings: no real brand, person or party in any text of either language (deny-list); the marked parodies are allowed', () => {
+  for (const word of ['Airbnb 3000', "McDonald's", 'Starbucks', 'Coca-Cola', 'efood', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'Ελληνική Λύση', 'Blue Star', 'Μητσοτάκης', 'του Τσίπρα', 'Ανδρουλάκης', 'Γεωργιάδης', 'Wolt'])
+    assert.ok(DENY_PATTERN.test(plainText('For rent. ' + word + '. The owner is abroad.')), 'the deny-list catches ' + word);
+  for (const word of PARODIES) assert.ok(!DENY_PATTERN.test(plainText('Ο ' + word + ' είπε: ' + word + '.')), 'the parody ' + word + ' is allowed');
+  for (const word of ['ανδρας', 'δημοκρατια', 'Metaphor', 'Applesauce', 'τα κοινα', 'κανδαλο']) assert.ok(!DENY_PATTERN.test(plainText(word)), word + ' is not a false alarm');
+  let searched = 0;
+  for (const [key, texts] of Object.entries(R.STRINGS)) {
+    for (const text of texts.slice(0, 2)) {
+      const found = plainText(text).match(DENY_PATTERN);
+      assert.ok(!found, key + ' contains a real brand, person or party (' + (found && found[0]) + '): ' + text);
+      searched++;
+    }
+  }
+  assert.equal(searched, Object.keys(R.STRINGS).length * 2, 'both languages of every entry were searched');
+});
+
+// Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock).
+const DISTRICT_NEW_ITEMS = { peiraias: [] };
+const STOCK_BEFORE_THE_REWORK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
+test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none)', () => {
+  assert.deepEqual(DISTRICT_NEW_ITEMS.peiraias, [], 'Πειραιάς adds no item');
+  same(R.SHOP_STOCK, STOCK_BEFORE_THE_REWORK, 'the shop stock is the one before the rework, so no new item exists in Πειραιάς');
+  assert.ok(R.MAPS.kastella_shop.npcs.some((npc) => npc.kind === 'shop') && R.MAPS.shop.npcs.some((npc) => npc.kind === 'shop'), 'every kiosk sells that one stock');
+  for (const district of Object.values(W.districts).filter((entry) => entry.built)) {
+    const trainerIds = xpBand(R, district.id).trainerIds.concat(district.bossTrainer);
+    let prizeMoney = 0;
+    for (const id of trainerIds) {
+      const team = R.buildTrainerTeam(id, 'komma');
+      prizeMoney += R.prizeFor({ sides: [{ party: [], active: 0 }, { party: team }] }, R.TRAINERS[id]);
+    }
+    const cost = (DISTRICT_NEW_ITEMS[district.id] || []).reduce((sum, itemId) => sum + R.ITEMS[itemId].price, 0);
+    assert.ok(prizeMoney >= cost, district.id + ': prize money ' + prizeMoney + ' buys the new items (' + cost + ')');
+    assert.ok(prizeMoney > 0);
+  }
 });
 test('the chapter card replaces the credits roll after Κώτσος: the badge text is the Port Medal, the flag credits is still set, the studio still opens on it', () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
@@ -1503,12 +1572,16 @@ export function xpBand(rules, districtId) {
   const need = 3 * (rules.xpForLevel(top) - rules.xpForLevel(ARRIVAL_LEVEL[districtId]));
   const trainerIds = [];
   let wildMapId = null;
+  let wildTop = -1;
   for (const [mapId, map] of Object.entries(rules.MAPS)) {
     const place = rules.mapNode(mapId);
     if (!place || place.district !== districtId) continue;
     for (const npc of map.npcs) if (npc.kind === 'trainer' && !rules.TRAINERS[npc.trainer].recruitable) trainerIds.push(npc.trainer);
     for (const trigger of map.triggers || []) trainerIds.push(trigger.event);
-    if (map.zones) wildMapId = mapId; // the last zoned map of the district is the one with the highest levels
+    if (map.zones) { // the wild fights of the district are those of its zoned map with the highest levels
+      const mapTop = Math.max(...map.zones.flatMap((zone) => zone.table.map((entry) => entry.max)));
+      if (mapTop > wildTop) { wildTop = mapTop; wildMapId = mapId; }
+    }
   }
   let trainerXp = 0;
   for (const id of trainerIds) for (const mon of rules.buildTrainerTeam(id, 'komma')) trainerXp += rules.xpReward(mon, true);
