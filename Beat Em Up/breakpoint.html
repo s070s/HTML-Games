@@ -21378,7 +21378,7 @@ function introShards(kit, rng) {
     const away = Math.hypot(mx - cx, my - cy) || 1, speed = kit.unit * (0.2 + 0.5 / (k + 1)) * (0.7 + rng() * 0.6);
     pieces.push({ poly: Float32Array.from(polygon), left: Math.floor(left) - 2, top: Math.floor(top) - 2, right: Math.ceil(right) + 2, bottom: Math.ceil(bottom) + 2, mx, my, vx: (mx - cx) / away * speed, vy: (my - cy) / away * speed - kit.unit * 0.15, spin: (rng() - 0.5) * 2.6, delay: 0.07 + k * 0.04 + rng() * 0.05 });
   }
-  kit.shards = { cx, cy, far, corner, pieces, radii, rays, rings, ray, ring, at };
+  kit.shards = { cx, cy, far, pieces };
 }
 
 // The underground floor and its wall, drawn once for a size at full brightness (the dark picture and the light of a hit are both made from it): worn concrete with joints, stains, scuffs, a faded painted ring and line, puddles
@@ -21553,7 +21553,7 @@ function introSprite(size, stops) {
 
 // Builds everything the picture needs for this size and seed; the same seed gives the same shapes
 function introMake(w, h, seed) {
-  const unit = Math.min(w, h), hy = h * 0.56, kit = { key: w + 'x' + h + ':' + seed, w, h, seed, unit, hy, floor: h - hy, margin: Math.ceil(unit * 0.05), ppm: 0.24 * Math.sqrt(w * h), ambient: [null, null], lit: null, flash: null, hot: null, damage: null, damageContext: null, baked: 0, bakedStill: false, bakedEffects: 1, ox: 0, oy: 0, puff: null, dent: null, snap: null, snapKey: '', lamps: [], glow: 0 };
+  const unit = Math.min(w, h), hy = h * 0.56, kit = { key: w + 'x' + h + ':' + seed, w, h, seed, unit, hy, floor: h - hy, margin: Math.ceil(unit * 0.05), ppm: 0.24 * Math.sqrt(w * h), ambient: [null, null], lit: null, flash: null, hot: null, damage: null, damageContext: null, baked: 0, bakedStill: false, bakedEffects: 1, ox: 0, oy: 0, jx: 0, jy: 0, puff: null, dent: null, snap: null, snapKey: '', lamps: [], glow: 0 };
   const rng = makeRng(seed ^ 0x2545f491), pts = { x: [], y: [], a: [], nx: [], ny: [], hw: [] }, list = [];
   kit.sites = INTRO_CRACKS.map((row, index) => introSite(kit, pts, list, rng, index, row));
   kit.cracks = list; kit.px = Float32Array.from(pts.x); kit.py = Float32Array.from(pts.y); kit.pnx = Float32Array.from(pts.nx); kit.pny = Float32Array.from(pts.ny); kit.phw = Float32Array.from(pts.hw);
@@ -21623,8 +21623,8 @@ function introPose(out, fighter, s, still) {
     const beat = Math.sin(s * Math.PI / 2 + fighter.phase);
     out[0] += 0.025 * beat; out[11] += 0.012 * Math.abs(beat); out[2] += 0.07 * Math.sin(s * Math.PI + fighter.phase); out[4] += 0.07 * Math.sin(s * Math.PI + fighter.phase + 1.3);
   }
-  for (const event of fighter.events) {
-    const t = s - event.step;
+  for (let e = 0; e < fighter.events.length; e++) {
+    const event = fighter.events[e], t = s - event.step;
     if (t < event.keys[0] || t > event.span) continue;
     const keys = event.keys, ids = event.ids;
     let i = 0;
@@ -21667,7 +21667,8 @@ function introBody(g, J, height, ox, oy) {
 function introCrowdDraw(g, kit, step, reduced, light) {
   const rim = reduced ? 0.3 : clamp(0.1 + 0.6 * light, 0, 0.9), J = kit.joints, pose = kit.pose;
   g.lineCap = 'round'; g.lineJoin = 'round';
-  for (const group of kit.groups) for (const fighter of group.fighters) {
+  for (let gi = 0; gi < kit.groups.length; gi++) for (let fi = 0; fi < kit.groups[gi].fighters.length; fi++) {
+    const group = kit.groups[gi], fighter = group.fighters[fi];
     introPose(pose, fighter, reduced ? group.show + 0.6 : step, reduced);
     introSkeleton(J, pose, fighter.height, fighter.x, fighter.feet, fighter.dir);
     const offset = Math.max(1, fighter.height * 0.011);
@@ -21767,8 +21768,8 @@ function introDamage(g, kit, p, look, light, ox, oy, effects) {
 function introDust(g, kit, p, light, effects) {
   const { dust, puff } = kit;
   if (!puff) return;
-  for (const site of kit.sites) {
-    const age = p - site.t;
+  for (let s = 0; s < kit.sites.length; s++) {
+    const site = kit.sites[s], age = p - site.t;
     if (age < 0 || age > 1.4) continue;
     for (let i = site.dust0; i < site.dust0 + Math.floor((site.dust1 - site.dust0) * effects); i++) { // the Effects setting thins the dust out
       const u = age / dust.life[i];
@@ -21781,7 +21782,7 @@ function introDust(g, kit, p, light, effects) {
   g.globalAlpha = 1;
 }
 // The camera jolt of every hit: a short, damped knock, a different way each time (leaning to up and down)
-function introJolt(g, p, unit, scale) {
+function introJolt(g, kit, p, scale) {
   let x = 0, y = 0;
   for (let i = 0; i < INTRO_IMPACTS.length; i++) {
     const age = p - INTRO_IMPACTS[i][0] * SONG_STEP_SECS;
@@ -21789,9 +21790,9 @@ function introJolt(g, p, unit, scale) {
     const knock = INTRO_IMPACTS[i][1] * Math.exp(-age * INTRO_JOLT_RATE) * Math.cos(age * 52 + i), way = 1.1 + Math.sin(i * 2.4) * 0.9;
     x += Math.sin(way) * 0.5 * knock; y += Math.cos(way) * knock;
   }
-  const amount = unit * INTRO_JOLT_UNIT * scale;
-  if (x || y) g.translate(x * amount, y * amount);
-  return [x * amount, y * amount];
+  const amount = kit.unit * INTRO_JOLT_UNIT * scale;
+  kit.jx = x * amount; kit.jy = y * amount;
+  if (x || y) g.translate(kit.jx, kit.jy);
 }
 
 // The picture as it is at time p, with no shatter: the dark space, the lights, the fight, the damage, the dust, the title
@@ -21799,7 +21800,7 @@ function introScene(g, kit, p, look, live) {
   const { w, h, unit, margin } = kit, reduced = look.reduced, pulse = reduced ? 0 : introPulse(p);
   g.save();
   kit.ox = 0; kit.oy = 0;
-  if (live && look.shake > 0 && !reduced) { const [jx, jy] = introJolt(g, p, unit, look.shake); kit.ox = Math.round(jx) - jx; kit.oy = Math.round(jy) - jy; } // the dark picture is drawn on whole pixels (a fraction of a pixel makes the browser filter all of it)
+  if (live && look.shake > 0 && !reduced) { introJolt(g, kit, p, look.shake); kit.ox = Math.round(kit.jx) - kit.jx; kit.oy = Math.round(kit.jy) - kit.jy; } // the dark picture is drawn on whole pixels (a fraction of a pixel makes the browser filter all of it)
   const dim = kit.lit ? introAmbient(kit, reduced ? INTRO_AMBIENT_STILL : INTRO_AMBIENT) : null;
   if (dim) g.drawImage(dim, -margin + kit.ox, -margin + kit.oy); else { g.fillStyle = '#080b10'; g.fillRect(-margin, -margin, w + 2 * margin, h + 2 * margin); }
   const light = kit.lit && !reduced ? introLights(g, kit, p, look, kit.ox, kit.oy) : 0;
@@ -21835,7 +21836,7 @@ function introShatter(g, kit, p, look) {
   if (!kit.snap) return;
   if (look.reduced) { g.globalAlpha = 1 - clamp(t / INTRO_FADE_SECS, 0, 1); g.drawImage(kit.snap, -kit.margin, -kit.margin); g.globalAlpha = 1; return; }
   g.save();
-  if (look.shake > 0) introJolt(g, p, kit.unit, look.shake);
+  if (look.shake > 0) introJolt(g, kit, p, look.shake);
   const { pieces, cx, cy, far } = kit.shards, trace = (piece) => { const q = piece.poly; g.moveTo(q[0], q[1]); for (let i = 2; i < 16; i += 2) g.lineTo(q[i], q[i + 1]); g.closePath(); };
   g.save(); g.beginPath();
   for (const piece of pieces) if (t < piece.delay) trace(piece);
@@ -21878,7 +21879,7 @@ function introFrame(g, w, h, p, look) {
 }
 const Intro = {
   phase: 'off', // 'off' (no intro, skipped or over), 'card' (waits for the first press), 'arming' (pressed, waiting for the audio to run), 'play' (the reveal)
-  el: null, canvas: null, g: null, silent: false, pos: 0, wall: 0, armedAt: 0, startedAt: 0, padHeld: [], handlers: [], still: '', seed: 1, outro: null, kit: null, // seed: each play takes a new one (the fighters, their moves and the cracks); outro: the pieces of the shatter still falling over the open menu
+  el: null, canvas: null, g: null, silent: false, pos: 0, wall: 0, armedAt: 0, startedAt: 0, padHeld: [], handlers: [], still: '', seed: 1, outro: null, kit: null, look: { reduced: false, shake: 1, flash: 1, effects: 1, seed: 1 }, // seed: each play takes a new one (the fighters, their moves and the cracks); outro: the pieces of the shatter still falling over the open menu
   // Puts the card up over the live menu; false when a flag asks for no intro. `where` is location.search + location.hash
   init(where) {
     if (this.phase !== 'off' || INTRO_FLAG.test(where)) return false;
@@ -22015,8 +22016,10 @@ const Intro = {
     }
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     if (el.classList) { if (p >= INTRO_SHATTER_AT) el.classList.add('shatter'); else el.classList.remove('shatter'); } // from the last hit the overlay has no background: the menu shows through the gaps
-    const v = Settings.v;
-    introFrame(g, w, h, p, Object.assign({ reduced: !!v.reducedMotion, shake: Math.min(1, v.shake / SETTING_DEFS.shake.def), flash: v.flashes === 'off' ? 0 : v.flashes === 'reduced' ? FLASH_REDUCED_ALPHA : 1, effects: v.effects === 'low' ? 0 : v.effects === 'medium' ? 0.5 : 1, seed: this.seed }, over));
+    const v = Settings.v, look = this.look; // one look object, filled again every frame
+    look.reduced = !!v.reducedMotion; look.shake = Math.min(1, v.shake / SETTING_DEFS.shake.def); look.flash = v.flashes === 'off' ? 0 : v.flashes === 'reduced' ? FLASH_REDUCED_ALPHA : 1; look.effects = v.effects === 'low' ? 0 : v.effects === 'medium' ? 0.5 : 1; look.seed = this.seed;
+    if (over) Object.assign(look, over);
+    introFrame(g, w, h, p, look);
     this.kit = introKit;
   },
 };
