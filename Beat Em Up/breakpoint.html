@@ -21475,7 +21475,7 @@ function introBakeLit(kit) {
   }
   g.globalAlpha = 1;
   for (let i = 0; i < 3400; i++) { // the paint is worn through
-    const angle = rnd() * TAU, spread = (rnd() - 0.5) * 0.16, size = Math.max(1, (0.6 + rnd() * 1.6) * (0.5 + ringV)), grey = 92 + Math.floor(rnd() * 34);
+    const angle = rnd() * TAU, spread = (rnd() - 0.5) * paint / ringRadius, size = Math.max(1, (0.6 + rnd() * 1.6) * (0.5 + ringV)), grey = 34 + Math.floor(rnd() * 14); // the wear stays inside the width of the paint, in the tones of the concrete
     g.fillStyle = 'rgb(' + grey + ',' + (grey + 3) + ',' + (grey + 7) + ')';
     g.fillRect(ringX + Math.cos(angle) * ringRadius * (1 + spread), ringY + Math.sin(angle) * ringRadius * ratio * (1 + spread), size * 1.6, size);
     if (i % 2) { const y = rowY(0.05 + rnd() * 0.95), v = (y - hy) / floor, where = rnd() < 0.5 ? lineX : -lineX; g.fillRect(colX(where + (rnd() - 0.5) * 0.18, v), y, size * 1.4, size); }
@@ -21604,8 +21604,8 @@ function introCrowd(kit, rng) {
   for (const event of songEvents()) if (event.voice === 0 && (event.mask & INTRO_DRUMS) && event.step >= 8 && event.step < INTRO_SHATTER_STEP) drums.push(event);
   kit.pose = new Float32Array(12); kit.joints = new Float32Array(26);
   kit.groups = slots.map((slot, index) => {
-    const size = 2 + Math.floor(rng() * 3), v = 0.25 + rng() * 0.15, formation = INTRO_FORMATIONS[size], duels = INTRO_DUELS[size];
-    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.3 : 0.5) / (span * base)), centre = kit.w * (slot + (rng() - 0.5) * 0.04);
+    const size = 2 + Math.floor(rng() * 3), v = wide ? 0.25 + rng() * 0.15 : (index ? 0.34 : 0.24) + rng() * 0.06, formation = INTRO_FORMATIONS[size], duels = INTRO_DUELS[size];
+    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.3 : 0.5) / (span * base)), reach = base * fit, centre = clamp(kit.w * (slot + (rng() - 0.5) * 0.04), kit.w * 0.04 - (formation[0][0] - 0.3) * reach, kit.w * 0.96 - (formation[size - 1][0] + 0.3) * reach); // the outermost fighter keeps 4 % of the width to the edge
     const fighters = formation.map(([offset, dir], i) => { // each fighter stands a little nearer or further than the others (nearer = lower on the screen and bigger) and has its own build
       const depth = v + (rng() - 0.5) * 0.07 + (size === 4 && i > 1 ? -0.02 : 0);
       return { x: centre + offset * base * fit, feet: kit.hy + kit.floor * depth, height: base * fit * (0.94 + rng() * 0.12) * (0.88 + 0.12 * depth / v), build: 0.85 + rng() * 0.35, dir, phase: rng() * TAU, events: [] };
@@ -21941,7 +21941,7 @@ const Intro = {
   listen(win) {
     const add = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.handlers.push([target, type, fn, options]); };
     add(win, 'keydown', (e) => this.onKey(e), true); // before the menu's own key handling
-    add(this.el, 'pointerdown', (e) => { if (e.isTrusted && this.phase === 'play') this.press(); }); // a skip is the touch itself
+    add(this.el, 'pointerdown', (e) => { if (e.isTrusted && (this.phase === 'play' || this.phase === 'hold')) this.press(); }); // a skip is the touch itself; a tap also takes down a held picture
     add(this.el, 'pointerup', (e) => { if (e.isTrusted && this.phase === 'card') this.press(); }); // the card starts on the release: that is the touch a browser accepts as a gesture for the audio
   },
   lock(on) { // the menu under the card takes no focus, tap or reader until the intro is over
