@@ -1385,7 +1385,7 @@ MAPS.kastella_theatre = {
 };
 const START_MAP = { map: 'lab', x: 4, y: 6, dir: 'up' };
 const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' }; // just inside the hospital door
-const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out destination (the last hospital that healed you)
+const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out spot before any heal (after one, save.lastHeal: the last hospital that healed you)
 
 function tileAt(map, x, y) {
   if (y < 0 || y >= map.h || x < 0 || x >= map.w) return ' ';

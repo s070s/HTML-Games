@@ -1426,8 +1426,17 @@ test('type fairness: every type of every built boss is hit for x2 by a starter o
   const built = Object.values(W.districts).filter((district) => district.built).sort((a, b) => a.order - b.order);
   assert.ok(built.length >= 1 && built[0].id === 'peiraias');
   const available = new Set(R.STARTERS);
+  const flags = { gotStarter: true };
   for (const district of built) {
-    for (const species of R.districtSpecies(district.id)) available.add(species);
+    // only zones on maps reachable before the district's own badge count (route 2 opens with that badge, after the boss)
+    const start = R.START_MAP;
+    const reachableKeys = R.reachableTiles(start.map, start.x, start.y, flags);
+    const reachableMaps = new Set([...reachableKeys].map((key) => key.split(':')[0]));
+    const ofDistrict = new Set(R.districtSpecies(district.id));
+    for (const mapId of reachableMaps) {
+      for (const zone of R.MAPS[mapId].zones || []) for (const entry of zone.table) if (ofDistrict.has(entry.sp)) available.add(entry.sp);
+    }
+    flags[district.badgeFlag] = true; // later districts are entered with this badge
     const bossTypes = new Set(R.TRAINERS[district.bossTrainer].team.map((entry) => R.SPECIES[entry.sp].t));
     for (const bossType of bossTypes) {
       const hitters = [...available].filter((id) => R.typeMultiplier(R.SPECIES[id].t, bossType) === 2);
@@ -1441,28 +1450,41 @@ test('type fairness: every type of every built boss is hit for x2 by a starter o
 
 // Section 11.8: no real brand, person or party in any text. A deny-list over every STRINGS entry in both languages, compared without case and
 // without accents. The marked parodies (Μιζοτάκης, Σπυράδωνις, Νέα Δημοκτατορία) must not match.
-const DENIED_WHOLE_WORDS = ['Airbnb', "McDonald's", 'McDonalds', 'Starbucks', 'Coca-Cola', 'Coca Cola', 'Facebook', 'Meta', 'Instagram', 'TikTok', 'Google', 'Apple', 'Amazon',
+const DENIED_WHOLE_WORDS = ['Airbnb', 'Starbucks', 'Coca-Cola', 'Coca Cola', 'Facebook', 'Instagram', 'TikTok', 'Google', 'Amazon',
   'Netflix', 'Uber', 'Wolt', 'efood', 'Lidl', 'Vodafone', 'Cosmote', 'OPAP', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'ΣΥΡΙΖΑ', 'ΠΑΣΟΚ', 'ΚΚΕ', 'Ελληνική Λύση', 'Χρυσή Αυγή',
-  'Blue Star', 'Minoan', 'Anek', 'Seajets', 'Hellenic Seaways', 'Attica Group'];
-const DENIED_NAME_STEMS = ['Μητσοτάκ', 'Τσίπρα', 'Ανδρουλάκ', 'Βελόπουλ', 'Κουτσούμπ', 'Γεωργιάδ', 'Mitsotak', 'Tsipras', 'Androulak', 'Velopoul', 'Koutsoumb', 'Georgiad'];
-const PARODIES = ['Μιζοτάκης', 'Σπυράδωνις', 'Νέα Δημοκτατορία', 'Mizotakis', 'Spyradonis', 'New Democtatorship'];
+  'Syriza', 'Pasok', 'KKE', 'ND', 'New Democracy', 'Golden Dawn', 'Greek Solution',
+  'Blue Star', 'Minoan', 'Anek', 'Seajets', 'Hellenic Seaways', 'Attica Group', 'ΑΝΕΚ', 'Μινωικές', 'Μπλου Σταρ', 'Σιτζετς'];
+const DENIED_NAME_STEMS = ['McDonald', 'Μητσοτάκ', 'Τσίπρα', 'Ανδρουλάκ', 'Βελόπουλ', 'Κουτσούμπ', 'Γεωργιάδ', 'Mitsotak', 'Tsipras', 'Androulak', 'Velopoul', 'Koutsoumb', 'Georgiad'];
+// common words that are also brands: checked on the raw text, capitalised whole words only
+const DENIED_CAPITALISED_WORDS = /(?<![\p{L}\p{N}])(?:Apple|Meta)(?![\p{L}\p{N}])/u;
+const PARODIES = ['Μιζοτάκης', 'Σπυράδωνις', 'Νέα Δημοκτατορία', 'Mizotakis', 'Spyradonis', 'New Democratorship'];
 const plainText = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const escapeForRegex = (text) => plainText(text).replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/ /g, '[ -]');
 const DENY_PATTERN = new RegExp('(?<![\\p{L}\\p{N}])(?:(?:' + DENIED_WHOLE_WORDS.map(escapeForRegex).join('|') + ')(?![\\p{L}\\p{N}])|(?:' + DENIED_NAME_STEMS.map(escapeForRegex).join('|') + '))', 'u');
 test('strings: no real brand, person or party in any text of either language (deny-list); the marked parodies are allowed', () => {
-  for (const word of ['Airbnb 3000', "McDonald's", 'Starbucks', 'Coca-Cola', 'efood', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'Ελληνική Λύση', 'Blue Star', 'Μητσοτάκης', 'του Τσίπρα', 'Ανδρουλάκης', 'Γεωργιάδης', 'Wolt'])
+  for (const word of ['Airbnb 3000', "McDonald's", 'McDonald’s', 'Starbucks', 'Coca-Cola', 'efood', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'Ελληνική Λύση', 'Blue Star', 'Μητσοτάκης', 'του Τσίπρα', 'Ανδρουλάκης', 'Γεωργιάδης', 'Wolt',
+    'Syriza', 'New Democracy', 'Μπλου Σταρ'])
     assert.ok(DENY_PATTERN.test(plainText('For rent. ' + word + '. The owner is abroad.')), 'the deny-list catches ' + word);
+  for (const word of ['Apple', 'Meta']) assert.ok(DENIED_CAPITALISED_WORDS.test('For rent. ' + word + '. The owner is abroad.'), 'the capitalised check catches ' + word);
+  for (const word of ['Metaphor', 'Applesauce', 'a meta joke', 'an apple']) assert.ok(!DENIED_CAPITALISED_WORDS.test(word), word + ' is not a false alarm for Apple or Meta');
   for (const word of PARODIES) assert.ok(!DENY_PATTERN.test(plainText('Ο ' + word + ' είπε: ' + word + '.')), 'the parody ' + word + ' is allowed');
   for (const word of ['ανδρας', 'δημοκρατια', 'Metaphor', 'Applesauce', 'τα κοινα', 'κανδαλο']) assert.ok(!DENY_PATTERN.test(plainText(word)), word + ' is not a false alarm');
   let searched = 0;
+  const scan = (label, text) => {
+    const found = plainText(text).match(DENY_PATTERN) || text.match(DENIED_CAPITALISED_WORDS);
+    assert.ok(!found, label + ' contains a real brand, person or party (' + (found && found[0]) + '): ' + text);
+    searched++;
+  };
   for (const [key, texts] of Object.entries(R.STRINGS)) {
-    for (const text of texts.slice(0, 2)) {
-      const found = plainText(text).match(DENY_PATTERN);
-      assert.ok(!found, key + ' contains a real brand, person or party (' + (found && found[0]) + '): ' + text);
-      searched++;
-    }
+    for (const text of texts.slice(0, 2)) scan(key, text);
   }
   assert.equal(searched, Object.keys(R.STRINGS).length * 2, 'both languages of every entry were searched');
+  // names that live outside STRINGS (one Greek text each)
+  let names = 0;
+  for (const [id, species] of Object.entries(R.SPECIES)) { scan('species ' + id, species.n); names++; }
+  for (const [id, trainer] of Object.entries(R.TRAINERS)) { scan('trainer ' + id, trainer.name); names++; }
+  for (const [id, move] of Object.entries(R.MOVES)) { scan('move ' + id, move.n); names++; }
+  assert.equal(names, Object.keys(R.SPECIES).length + Object.keys(R.TRAINERS).length + Object.keys(R.MOVES).length, 'every species, trainer and move name was searched');
 });
 
 // Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock).
