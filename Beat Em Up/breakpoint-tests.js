@@ -26454,6 +26454,11 @@ const SelfTest = {
       // the Training string note names the delayed step by its own name, a plain step by its own
       { const delayedNote = at.d.m.lastMove && at.d.m.lastMove.string, plainNote = before.d.m.lastMove && before.d.m.lastMove.string;
         if (!/ > Rhythm Kick$/.test(delayedNote || '') || /Switch Kick/.test(delayedNote || '') || !/ > Switch Kick$/.test(plainNote || '')) problems.push('the Training string note reads "' + delayedNote + '" for the delayed step and "' + plainNote + '" for the plain one'); }
+      // a third step after the delayed one (Kickboxing PK, the Kick delayed, then a Punch): the note still names the delayed step in the middle, and after a plain second step it names the plain one
+      { const thirdNote = (second, third) => { for (let k3 = second + 6; k3 <= second + 34; k3++) { const r = pauseKick(second, {}, (it, f, t) => { if (t === k3) it.punch = true; }), note = r.d.m.lastMove && r.d.m.lastMove.string; if (/^step 3: /.test(note || '')) return note; } return null; };
+        const afterDelayed = thirdNote(first, first), afterPlain = thirdNote(first - 1, first - 1);
+        if (!afterDelayed || !/ > Rhythm Kick > /.test(afterDelayed) || /Switch Kick/.test(afterDelayed)) problems.push('the Training note of the third step after a delayed one reads "' + afterDelayed + '", want Rhythm Kick in the middle');
+        if (!afterPlain || !/ > Switch Kick > /.test(afterPlain) || /Rhythm Kick/.test(afterPlain)) problems.push('the Training note of the third step after a plain one reads "' + afterPlain + '", want Switch Kick in the middle'); }
       // pauseOpen (the cue, the PAUSE line, the tip) says what a standing press plays: the same answer as pickString's open / stillLow test for every combination, a crouch first step included
       { const g = new Fighter(ROSTER_BY_ID.kai, 0); let opens = 0, shut = 0, crouchOpens = 0;
         for (const stringLow of [false, true]) for (const keys of ['', 'P', 'PK', 'K']) for (const connected of [false, true]) for (const assist of [false, true]) for (const noPause of [false, true]) for (const since of [1, ATTACK_STRING_TICKS - 1, ATTACK_STRING_TICKS, ATTACK_STRING_TICKS + 1, ATTACK_STRING_TICKS * 2]) {
@@ -26702,7 +26707,8 @@ const SelfTest = {
       const TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }, FOE_RADIUS = 0.34, LIMIT = { short: 0.1, side: 0.45, band: 0.05, past: 0.15 }, BAND = { H: [1.25, 1.75], M: [0.85, 1.5], L: [0, 0.65] }, KICK_BAND_H = [1.0, 1.75];
       const CALM = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];
       const calmCheck = (label, pose) => { for (const [joint, limit] of CALM) if (Math.abs(pose[joint]) > limit + 0.005) problems.push(label + ' joint ' + joint + ' ' + pose[joint].toFixed(2)); if (!pose.every(Number.isFinite)) problems.push(label + ' is not finite'); };
-      let strikes = 0, coils = 0;
+      const PALM_HEEL_ELBOW_MAX = 0.6;   // the decision's Palm Heel Strike is the Parry Strike's straight arm with the heel of the hand: the striking elbow stays nearly straight (the fit of the first fix round bent it to 2.5 rad)
+      let strikes = 0, coils = 0, palmHeels = 0;
       for (const styleId of MOVE_STYLE_IDS) {
         const f = styleFighter(styleId), style = MOVE_STYLE[styleId];
         for (const { name, mv } of moves1914Rows(styleId)) {
@@ -26711,11 +26717,12 @@ const SelfTest = {
           const front = mv.reach * f.stats.reach;
           f.x = f.z = 0; f.target = { x: front + FOE_RADIUS, z: 0 };
           f.attackPose(); f.skeleton(0, 0, 0, 0, false);
-          const y = f.pts[tip + 1], sc = f.scale;
+          const y = f.pts[tip + 1], sc = f.scale, aimedElbow = Math.abs(f.pose[J.elR]);
           const miss = { short: front - f.pts[tip + 2], side: Math.abs(f.pts[tip]), band: Math.max(band[0] * sc - y, y - band[1] * sc, 0), past: f.pts[tip + 2] - (front + FOE_RADIUS) };
           const bad = Object.keys(LIMIT).filter((k) => miss[k] > LIMIT[k]);
           if (bad.length) problems.push(label + ' hit check ' + bad.map((k) => k + ' ' + miss[k].toFixed(2)).join(' '));
           f.target = null; f.attackPose(); calmCheck(label + ' at the contact', f.pose);
+          if (mv.anim === 'palmHeel') { const elbow = Math.max(aimedElbow, Math.abs(f.pose[J.elR])); if (elbow > PALM_HEEL_ELBOW_MAX) problems.push(label + ' is not a straight-arm strike: the striking elbow is at ' + elbow.toFixed(2) + ' rad at the contact (at most ' + PALM_HEEL_ELBOW_MAX + ')'); palmHeels++; }
           strikes++;
         }
         // the coil: the plain move at its set tick, charging (0, 12, 30 and 42 ticks), then the release ticks
@@ -26743,6 +26750,7 @@ const SelfTest = {
         f.chargeRows = null; f.holdVis = 0; f.charging = false; f.chargeTicks = 0; f.move = plain; f.moveTick = plain.startup; f.attackPose(); const calm = Float32Array.from(f.pose); const before = f.pose.slice(); f.chargePose(f.pose);
         if (Math.max(...calm.map((v, i) => Math.abs(v - before[i]))) > 0) problems.push(styleId + ' the coil is not zero outside the hold');
       }
+      if (palmHeels !== 1) problems.push('the straight-arm check saw ' + palmHeels + ' Palm Heel Strike rows, want 1');
       // the tremor: from level 1, none with Reduced motion, the coil stays; the pause pose: zero outside its ticks, the hands only with Reduced motion
       { const f = styleFighter('kickboxer'), keep = Settings.v.reducedMotion, style = MOVE_STYLE.kickboxer, plain = moveFor('kickboxer', 'heavy_front');
         const twist = (reduced, animT, ticks) => { Settings.v.reducedMotion = reduced; f.animT = animT; f.state = S.ATTACK; f.move = plain; f.mStartup = plain.startup; f.mActive = plain.active; f.mRecovery = plain.recovery; f.moveTick = plain.startup; f.chargeRows = style.charge.rows; f.holdBroke = false; f.charging = true; f.chargeTicks = ticks; f.holdVis = 1; f.x = f.z = 0; f.target = null; f.attackPose(); return Float32Array.from(f.pose); };
@@ -26757,8 +26765,10 @@ const SelfTest = {
         } finally { Settings.v.reducedMotion = keep; } }
       // the Sway pose clearance of the new strikes: the charged rows as strikes whose startup is their release ticks (4 and 5), the delayed rows as they are, against the full bar of the P3-11 test
       { const base = { head: SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, torso: SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, foot: SWAY_POSE_RADIUS.foot + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP }; const short = [];
+        /* The one named exception, for this one move only (restored in the second fix round): the Krav Maga Palm Heel Strike keeps the decision's straight-arm look (the Parry Strike's base, an elbow of at most 0.6 rad at the contact: asserted above). The fitter of P17-10 on every parameter of the spec (the parry, straight and chain bases, 400 to 800 random moves each, the hit check and the Calm limits met, the elbow at most 0.6) stopped 0.015 to 0.017 m short of the full bar in the late sideways slip: a straight arm of the Jab's reach (6 tick strike, reach 1.25) has no way past the head, the same cause as the named shortSlips of P3-11 for the Krav Maga Jab. The bent-arm look of the first fix round (the angle base, elbow 2.5 rad) cleared the bar but is not the decision's look. It is held at the floor the build had, measured clearance minus 0.01; the other 47 rows meet the full bar. */
+        const exceptions = { 'kravmaga Palm Heel Strike': { head: 0.30, torso: 0.32 } };
         for (const styleId of MOVE_STYLE_IDS) for (const { name, mv } of moves1914Rows(styleId)) {
-          const strike = mv.charged ? Object.assign({}, mv, { startup: mv.release, charged: 0 }) : mv, need = base;   // the full bar for all 48 rows (P19-15 fix round: the two delayed strikes that were held at a floor now clear it)
+          const strike = mv.charged ? Object.assign({}, mv, { startup: mv.release, charged: 0 }) : mv, need = Object.assign({}, base, exceptions[styleId + ' ' + mv.name]);   // the full bar for all rows but the one exception
           for (const t of swayPoseTrials(styleId, strike, [0, 1, -1], [0, SWAY_IFRAME_TICKS - 1])) {
             const miss = t.clear.head < need.head || t.clear.torso < need.torso || (mv.h === 'L' && t.clear.foot < need.foot);
             if (!t.unhurt || t.firstSt !== t.lead || miss) short.push(styleId + ' ' + mv.name + ' ' + name + ' dir ' + t.dir + ' lead ' + t.lead + (t.unhurt ? '' : ' HIT') + ' st ' + t.firstSt + ' ' + t.clear.head.toFixed(2) + '/' + t.clear.torso.toFixed(2) + '/' + t.clear.foot.toFixed(2));
@@ -26857,21 +26867,29 @@ const SelfTest = {
           f.charging = false; f.draw(1); const idle = drawn.length; f.charging = true; f.draw(1); f.charging = false;
           if (idle !== 0 || drawn.length !== 1) problems.push('the ring is drawn ' + idle + ' times when not charging and ' + (drawn.length - idle) + ' while charging');
         } finally { R.put = keepPut; Object.assign(Settings.v, v); delete f.drawChargeRing; delete f.skeleton; } }
-      // the pause cue: once, at the first tick of the window, only while the string is open and the fighter stands still
+      // the pause cue: once, at the first tick of the window, only while the string is open and the fighter stands still; age and stateTicks count up together, so a stillness is the ticks since the tick it began (`from`)
       { const heard = [], off = Events.on('pauseOpen', (e) => heard.push(e.f.stateTicks)), g = new Fighter(ROSTER_BY_ID.kai, 0);
-        g.state = S.IDLE; g.age = 30; g.stringKeys = 'P'; g.stringTick = 28; g.moveConnected = true;
-        for (const ticks of [PAUSE_STILL_TICKS - 1, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS + 1]) { g.stateTicks = ticks; g.animate(1 / 60); }
+        const still = (ticks, from, state = S.IDLE) => { g.state = state; g.stateTicks = ticks; g.age = from + ticks; g.animate(1 / 60); };
+        g.stringKeys = 'P'; g.stringTick = 100; g.moveConnected = true;
+        for (const ticks of [PAUSE_STILL_TICKS - 1, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS + 1]) still(ticks, 100);
         g.stateTicks = PAUSE_STILL_TICKS; g.age = 31; g.stringKeys = ''; g.animate(1 / 60); g.stringKeys = 'P'; g.state = S.WALK; g.animate(1 / 60);
+        const once = heard.slice();
+        // still, a walk, still again inside the one string (the string window of 48 ticks from the press at 100 is still open): the cue plays again, once more
+        g.stringKeys = 'P'; g.stringTick = 100; g.pauseCueFor = -1; heard.length = 0;
+        still(PAUSE_STILL_TICKS, 100); still(PAUSE_STILL_TICKS + 1, 100); still(3, 111, S.WALK); still(PAUSE_STILL_TICKS - 1, 114); const beforeSecond = heard.length;
+        still(PAUSE_STILL_TICKS, 114); still(PAUSE_STILL_TICKS + 2, 114);
         off();
-        if (heard.join() !== String(PAUSE_STILL_TICKS)) problems.push('the pause cue came at ticks ' + heard.join() + ', want ' + PAUSE_STILL_TICKS + ' once'); }
+        if (once.join() !== String(PAUSE_STILL_TICKS)) problems.push('the pause cue came at ticks ' + once.join() + ', want ' + PAUSE_STILL_TICKS + ' once');
+        if (beforeSecond !== 1 || heard.length !== 2) problems.push('still, a walk and still again in one string gave ' + beforeSecond + ' cue before the second stillness reached tick ' + PAUSE_STILL_TICKS + ' and ' + heard.length + ' in all (want 1 and 2)'); }
       // at 30 fps a frame holds two simulation ticks: the frames never show tick 10 itself, the cue still comes once at the first frame in the window, and again for the next string; and a real match drawn that way or not at all has one checksum (the cue is draw and sound state)
       { const heard = [], off = Events.on('pauseOpen', (e) => heard.push(e.f.stateTicks)), g = new Fighter(ROSTER_BY_ID.kai, 0);
-        g.state = S.IDLE; g.age = 30; g.stringKeys = 'P'; g.stringTick = 28; g.moveConnected = true;
-        for (const ticks of [PAUSE_STILL_TICKS - 1, PAUSE_STILL_TICKS + 1, PAUSE_STILL_TICKS + 3]) { g.stateTicks = ticks; g.animate(1 / 60); }   // the frames show 9, 11, 13: tick 10 itself is never drawn
+        const still = (ticks, from) => { g.state = S.IDLE; g.stateTicks = ticks; g.age = from + ticks; g.animate(1 / 60); };   // the same stillness (it began at `from`) seen at `ticks`
+        g.stringKeys = 'P'; g.stringTick = 100; g.moveConnected = true;
+        for (const ticks of [PAUSE_STILL_TICKS - 1, PAUSE_STILL_TICKS + 1, PAUSE_STILL_TICKS + 3]) still(ticks, 100);   // the frames show 9, 11, 13: tick 10 itself is never drawn
         const skipped = heard.slice();
-        for (const ticks of [PAUSE_STILL_TICKS - 2, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS + 2]) { g.stateTicks = ticks; g.animate(1 / 60); }   // then the even steps 8, 10, 12 of the same string: no second cue
+        for (const ticks of [PAUSE_STILL_TICKS - 2, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS + 2]) still(ticks, 100);   // then the even steps 8, 10, 12 of the same stillness: no second cue
         const afterEven = heard.length;
-        g.stringTick = 29; g.age = 31; g.stateTicks = PAUSE_STILL_TICKS + 1; g.animate(1 / 60); g.animate(1 / 60);   // a new string press: a new cue, once
+        g.stringTick = 150; still(PAUSE_STILL_TICKS + 1, 140); still(PAUSE_STILL_TICKS + 1, 140);   // the next string, a new stillness: a new cue, once
         if (skipped.join() !== String(PAUSE_STILL_TICKS + 1) || afterEven !== 1 || heard.length !== 2) problems.push('the cue came at ticks ' + skipped.join() + ' over frames that skip tick 10 (want ' + (PAUSE_STILL_TICKS + 1) + '), ' + afterEven + ' times for the whole string and ' + heard.length + ' with the next string');
         heard.length = 0;
         // a real match played one tick and two ticks a frame (the match draws each tick it plays): one cue for the one string

@@ -5977,7 +5977,7 @@ const ANIM_SPECS = {
   collarDrag: ['collar:H', { drop: -0.3, lean: 0.25, arm: [0.1, -0.4, 1.1], fwd: 0.3 }],
   whip: ['palm:M', { arm: [0, 0.2, 0.4], twist: -0.3, roll: 0.3, lean: -0.2 }],
   abanico: ['angle', { arm: [-0.4, 0.6, 0], twist: 0.3, roll: 0.3, wind: 1.3, lean: 0.2 }],
-  palmHeel: ['angle', { lean: -0.05, arm: [0, 0.6, 1.4], sw: [0, 0, 0.6], base: [0.2, 0, -0.15], front: [0, 0, 0.2], twist: 0.2, roll: -0.2, fwd: -0.2, drop: 0.2, yaw: -0.2 }],
+  palmHeel: ['parry', { arm: [0.3, 0.277, 0.4], sw: [0.2, 0, -0.05], base: [-0.25, -0.08, 0], front: [0.161, -0.1, -0.2], drop: -0.429, off: [-0.027, 0, -0.137], leg: [0, 0, 0.008], rear: [0.059, 0, 0], lean: -0.127, brol: -0.05, head: 0.071, pitch: -0.012, rdrop: 0.005, twist: 0.067 }],
   switchKnee: ['knee', { leg: [0.2, -0.2, 0.2], lean: 0.1, fwd: 0.4 }],
 };
 const ANIM_BASE = {};
@@ -6660,7 +6660,7 @@ class Fighter {
     this.buffer = null; this.bufferNext = null; this.throwPressed = false;
     this.resetString();
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.stumbleExtra = 0; this.stumbleCueAt = -STUMBLE_CUE_GAP; this.chainCount = 0; this.exhaustedMove = false;
-    this.holdVis = 0; this.pauseVis = 0; this.pauseCueFor = -1; /* the stringTick whose pause cue has played: draw and sound only, not in matchChecksum */ this.noPause = false; this.chargeRows = null; this.holdBtn = null; this.charging = false; this.chargeTicks = 0; this.holdBroke = false; this.chargeLevel = 0; // P19-15: holdVis, pauseVis and pauseCueAt are drawing only (the blends of the charge hold and the pause pose, the tick the pause cue last played); noPause = the CPU's Easy rule (a press in the pause window plays the plain step); chargeRows = the two charged rows armed by this press (null = no charge this move), holdBtn = the button held ('punch' / 'kick'), holdBroke = it was let go before the set tick, chargeLevel = the level the last release struck at
+    this.holdVis = 0; this.pauseVis = 0; this.pauseCueFor = -1; /* the tick the fighter's current stillness began (age - stateTicks) that the pause cue has played for, -1 = none: draw and sound only, not in matchChecksum */ this.noPause = false; this.chargeRows = null; this.holdBtn = null; this.charging = false; this.chargeTicks = 0; this.holdBroke = false; this.chargeLevel = 0; // P19-15: holdVis, pauseVis and pauseCueFor are drawing only (the blends of the charge hold and the pause pose, the start tick of the stillness whose pause cue has played); noPause = the CPU's Easy rule (a press in the pause window plays the plain step); chargeRows = the two charged rows armed by this press (null = no charge this move), holdBtn = the button held ('punch' / 'kick'), holdBroke = it was let go before the set tick, chargeLevel = the level the last release struck at
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.gotDamage = 0; this.comboFoe = null; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0; // gotHits / gotDamage / comboFoe: the combo this fighter is taking and whose it is (per attacker)
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
@@ -6761,7 +6761,7 @@ class Fighter {
     return true;
   }
   // A string ends when this fighter is hit, grabbed, thrown, knocked down or out
-  resetString() { this.stringKeys = ''; this.stringLow = false; this.stringTick = -ATTACK_STRING_TICKS - 1; }
+  resetString() { this.stringKeys = ''; this.stringLow = false; this.stringTick = -ATTACK_STRING_TICKS - 1; this.stringDelayedAt = -1; } // stringDelayedAt = the index of the string's delayed step (-1 = none), only for the Training note: not in matchChecksum
   to(next) { if (this.state !== next) this.setState(next); }
   faceOpponent(opp, maxTurn) {
     if (!opp || this.blind > 0) return; // a blinded fighter cannot follow its foe
@@ -6871,7 +6871,10 @@ class Fighter {
   startAttack(mv, pick) {
     const chained = this.state === S.ATTACK;
     if (!this.setState(S.ATTACK)) return false;
-    if (pick && pick.keys) { this.stringKeys = pick.keys; this.stringLow = pick.low; this.stringTick = pick.tick; } else this.resetString();
+    if (pick && pick.keys) {
+      this.stringKeys = pick.keys; this.stringLow = pick.low; this.stringTick = pick.tick;
+      if (mv.delayed) this.stringDelayedAt = pick.keys.length - 1; else if (pick.keys.length === 1) this.stringDelayedAt = -1; // a step after the delayed one keeps its index
+    } else this.resetString();
     if (mv.ctx === 'counter') this.counterWindow = 0; // one counter per perfect block
     if (mv.ctx === 'air') this.airAttackUsed = true; // one air attack per jump
     const price = mv.stam * (chained && !this.cpu ? CHAIN_PRICE_K : 1); // a string step cancelled into the last one costs more: what taxes a masher
@@ -7509,7 +7512,8 @@ class Fighter {
       for (const streak of STANCE_STREAKS) FX.trail(this.x - this.fwdX * streak.back, this.y + streak.up, this.z - this.fwdZ * streak.back, CUE_COLOR.stance, STANCE_STREAK_SIZE);
     }
     if (dt > 0 && this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS && this.pauseOpen()) { // P19-15: the pause window is open: a short tick at its first tick (the person's own fighter hears it) and a faint light at the tip of the delayed move's limb (not with Reduced motion or Effects Low)
-      if (this.pauseCueFor !== this.stringTick) { this.pauseCueFor = this.stringTick; Events.emit('pauseOpen', { f: this }); } // once for this string, at the first drawn frame in the window: at 30 fps a frame holds two simulation ticks and may never show tick 10 itself
+      const stillFrom = this.age - this.stateTicks; // the tick this stillness began: age and stateTicks count up together, so it is the same on every frame of one stillness and new after a walk
+      if (this.pauseCueFor !== stillFrom) { this.pauseCueFor = stillFrom; Events.emit('pauseOpen', { f: this }); } // once for this stillness, at the first drawn frame in the window: at 30 fps a frame holds two simulation ticks and may never show tick 10 itself; a walk and a new stillness inside the same string cue again
       if (!Settings.v.reducedMotion && Settings.v.effects !== 'low' && this.age % STANCE_STREAK_EVERY === 0) {
         const tip = STRIKE_TIP[MOVE_STYLE[this.rowStyle].delay.row.limb];
         FX.trail(this.pts[tip], this.pts[tip + 1], this.pts[tip + 2], CUE_COLOR.stance, STANCE_STREAK_SIZE);
@@ -11705,7 +11709,7 @@ class MatchSim {
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
       const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null; // the string this step belongs to, up to and including this step
-      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id, at) => (e.mv.delayed && at === row.length - 1 ? e.mv.name : moveFor(e.f.rowStyle, id).name)).join(' > ') : '' }); // a delayed step reads its own name, not the plain step's (P19-15)
+      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id, at) => (at === e.f.stringDelayedAt ? MOVE_STYLE[e.f.rowStyle].delay.row.name : moveFor(e.f.rowStyle, id).name)).join(' > ') : '' }); // the delayed step (here and in the steps after it) reads its own name, not the plain step's (P19-15)
     });
     on('chargeRelease', (e) => { // P19-15: the released charge is a new strike with its own frame data (the extra stamina is in its note)
       if (e.f.index !== 0) return;
