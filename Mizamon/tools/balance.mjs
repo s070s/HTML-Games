@@ -2,7 +2,7 @@
 // Usage: node Mizamon/tools/balance.mjs [runs]   (default 500 runs per row)
 // The player team is one random starter plus five random route creatures, all at the same level
 // (or lagging two levels behind), played by the same AI as the opponent, with two Σουβλάκι to use.
-import { loadRules, xpBand, notiaTeam, anatolikaTeam, voreiaTeam, dytikaTeam, athinaTeam, bossWinRate, starterBossRate, bossBands, meanOverSeeds } from './run-tests.mjs';
+import { loadRules, xpBand, notiaTeam, anatolikaTeam, voreiaTeam, dytikaTeam, athinaTeam, parliamentTeam, bossWinRate, starterBossRate, bossBands, meanOverSeeds, BOSS_BAND_SEEDS, PARLIAMENT_FIGHTS, PARLIAMENT_ARRIVAL_LEVEL, PARLIAMENT_WANTED_LEVEL, parliamentXpBand } from './run-tests.mjs';
 
 const R = loadRules();
 const runs = Number(process.argv[2]) || 500;
@@ -303,4 +303,38 @@ for (const [bossId, label] of [['plousiakis', 'Ο Ηγούμενος Πλουσ�
   const bossTop = R.TRAINERS[bossId].team.reduce((best, m) => Math.max(best, m.lv), 0);
   const cells = bossBands(R, bossId).map(([bandLabel, offset, size, items]) => (100 * bossWinRate(R, bossId, bossTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000)).toFixed(1) + '%');
   console.log('Control, ' + label + ' (top plus 1 / top minus 1 / top minus 3 / top with three creatures): ' + cells.join(' / '));
+}
+// ---- Βουλή (MZ-WORLD-02g): the XP band, the four fights (rows by seed, the mean, the margin), per starter, the legend Ηλιθιοκρατία ----
+console.log('');
+const parliamentBand = parliamentXpBand(R);
+console.log('Βουλή XP band (section 11.4): the player arrives at level ' + PARLIAMENT_ARRIVAL_LEVEL + ' and wants ' + PARLIAMENT_WANTED_LEVEL + ', XP needed for three creatures ' + parliamentBand.need + ', XP of the first three fights (' + parliamentBand.creatures + ' creatures) ' + parliamentBand.trainerXp +
+  ' (' + (100 * parliamentBand.trainerShare).toFixed(0) + '% of the need); no wild creature in the Βουλή, so none is needed');
+for (const fightId of PARLIAMENT_FIGHTS) {
+  const fighter = R.TRAINERS[fightId];
+  const top = fighter.team.reduce((best, m) => Math.max(best, m.lv), 0);
+  console.log('Fight ' + fightId + ', ' + runs + ' runs per seed and row (seeds 5000, 6000, 7000). Team: ' + fighter.team.map((m) => (R.SPECIES[m.sp] ? R.SPECIES[m.sp].n : 'the last form of the rival\'s starter') + ' L' + m.lv).join(', ') + (fighter.boost ? ' (stat boost x' + fighter.boost + ')' : ' (no boost)') + ', ' + (fighter.items.length ? fighter.items.join(', ') : 'nothing') + ' in the bag. Player: a starter in its last form plus creatures of the pool, all at the level shown' + (fightId === 'rival6' ? ', the rival built with the starter the player took' : ''));
+  console.log('level | team                       | seed 5000 | seed 6000 | seed 7000 |   mean | band  | margin (points) | SE');
+  for (const [label, offset, size, items, low, high] of bossBands(R, fightId)) {
+    const cells = BOSS_BAND_SEEDS.map((seed) => bossWinRate(R, fightId, top + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, seed));
+    const mean = cells.reduce((a, b) => a + b, 0) / cells.length;
+    const standardError = Math.sqrt(mean * (1 - mean) / (runs * cells.length));
+    console.log(String(top + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + cells.map((c) => (100 * c).toFixed(1).padStart(8) + '%').join(' | ') + ' | ' + (100 * mean).toFixed(1).padStart(5) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0).padEnd(3) + ' | ' + (100 * Math.min(mean - low, high - mean)).toFixed(1).padStart(15) + ' | ' + (100 * standardError).toFixed(2));
+  }
+}
+console.log('Per starter, six creatures, two Σουβλάκι (' + runs + ' runs per cell, seed 8000; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the rival is built with the starter that follows the player\'s)');
+console.log('fight     | starter    | top plus 1 | top minus 1 | lowest row');
+for (const fightId of PARLIAMENT_FIGHTS) {
+  const top = R.TRAINERS[fightId].team.reduce((best, m) => Math.max(best, m.lv), 0);
+  for (const starter of R.STARTERS) {
+    const cell = (offset) => (100 * starterBossRate(R, fightId, starter, top + offset, 6, runs, 8000)).toFixed(1).padStart(9) + '%';
+    console.log(fightId.padEnd(9) + ' | ' + starter.padEnd(10) + ' | ' + cell(1) + ' | ' + cell(-1) + ' | ' + cell(bossBands(R, fightId)[2][1]));
+  }
+}
+const parliamentLegend = R.MAPS.parliament_plenary.npcs.find((npc) => npc.kind === 'legend');
+console.log('The legend of the plenary hall (level 50, ' + R.SPECIES.ilithiokratia.n + ', boost x' + parliamentLegend.boost + '), ' + runs + ' runs per cell: a team of the pool, all at the level shown, no items');
+for (const [size, level] of [[6, 50], [6, 46], [3, 50], [3, 46]]) {
+  const rng = R.makeRng(9800 + level * 10 + size);
+  let wins = 0;
+  for (let i = 0; i < runs; i++) if (R.simulateBattle(parliamentTeam(R, rng, level, size), [R.makeMon('ilithiokratia', 50, parliamentLegend.boost)], rng, { playerItems: [] }).winner === 0) wins++;
+  console.log(size + ' creatures at level ' + level + ': ' + (100 * wins / runs).toFixed(1) + '%');
 }

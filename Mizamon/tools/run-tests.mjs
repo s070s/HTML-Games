@@ -482,7 +482,7 @@ test('map reachability: start to the boss door, the boss, and every NPC tile', (
   assert.ok(open.has('port:' + bossWarp.tx + ':' + bossWarp.ty), 'inside the harbour office reachable');
   const boss = R.MAPS.port.npcs.find((n) => n.id === 'kotsos');
   assert.ok(R.npcTalkable('port', boss, open), 'boss can be talked to');
-  const all = R.reachableTiles(start.map, start.x, start.y, { credits: true, badge: true, badge_notia: true, badge_anatolika: true, badge_voreia: true, badge_dytika: true }); // route 2 and Καστέλλα open with the Port Medal (flag badge), Ανατολικά with the Coast Medal, Βόρεια with the Boarding Medal, Δυτικά with the First Row Medal, Αθήνα with the Tax-Free Medal
+  const all = R.reachableTiles(start.map, start.x, start.y, { credits: true, badge: true, badge_notia: true, badge_anatolika: true, badge_voreia: true, badge_dytika: true, badge_athina: true, t_euterpe: true, t_minister: true, t_rival6: true, ending: true }); // the Βουλή opens with badge_athina, its chambers one after the other, its roof with ending (MZ-WORLD-02g); route 2 and Καστέλλα open with the Port Medal (flag badge), Ανατολικά with the Coast Medal, Βόρεια with the Boarding Medal, Δυτικά with the First Row Medal, Αθήνα with the Tax-Free Medal
   for (const [mapId, map] of Object.entries(R.MAPS)) {
     for (const npc of map.npcs) assert.ok(R.npcTalkable(mapId, npc, all), mapId + ':' + npc.id + ' unreachable');
     for (const warp of map.warps) assert.ok(all.has(mapId + ':' + warp.x + ':' + warp.y), mapId + ' warp tile ' + warp.x + ',' + warp.y + ' unreachable');
@@ -522,7 +522,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     if (species.evo) assert.ok(R.SPECIES[species.evo.to]);
   }
   for (const ability of R.ABILITY_IDS) assert.ok(abilityHolders.has(ability), 'ability ' + ability + ' is held by someone');
-  assert.equal(Object.keys(R.SPECIES).length, 37, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a), the four of Νότια (MZ-WORLD-02b), the five of Ανατολικά (MZ-WORLD-02c), the seven of Βόρεια (MZ-WORLD-02d), the five of Δυτικά (MZ-WORLD-02e), the legend of the Rock (MZ-WORLD-02f) and 2 parody characters');
+  assert.equal(Object.keys(R.SPECIES).length, 38, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a), the four of Νότια (MZ-WORLD-02b), the five of Ανατολικά (MZ-WORLD-02c), the seven of Βόρεια (MZ-WORLD-02d), the five of Δυτικά (MZ-WORLD-02e), the legend of the Rock (MZ-WORLD-02f), the legend of the plenary hall (MZ-WORLD-02g) and 2 parody characters');
   same(R.DEX_ORDER.slice().sort(), Object.keys(R.SPECIES).sort());
   for (const id of R.ITEM_IDS) assert.ok(R.ITEMS[id]);
   for (const id of R.SHOP_STOCK) assert.ok(R.ITEMS[id]);
@@ -532,7 +532,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
   for (const [id, trainer] of Object.entries(R.TRAINERS)) {
     assert.ok(looks.includes(trainer.look), id + ' look');
     assert.ok(trainer.team.length >= 1 && trainer.team.length <= 6);
-    for (const entry of trainer.team) assert.ok(entry.sp === '$rival' || entry.sp === '$rivalEvo' || R.SPECIES[entry.sp], id + ' team member ' + entry.sp);
+    for (const entry of trainer.team) assert.ok(entry.sp === '$rival' || entry.sp === '$rivalEvo' || entry.sp === '$rivalFinal' || R.SPECIES[entry.sp], id + ' team member ' + entry.sp);
     for (const item of trainer.items) assert.ok(R.ITEMS[item]);
     for (const starter of R.STARTERS) assert.equal(R.buildTrainerTeam(id, starter).length, trainer.team.length);
   }
@@ -548,7 +548,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     for (const zone of map.zones || []) for (const entry of zone.table) assert.ok(R.SPECIES[entry.sp] && entry.min <= entry.max);
     assert.ok(R.STRINGS[map.name], mapId + ' name string');
   }
-  const topBuiltLevel = 44; // the highest level of the built districts (the Αθήνα boss); raise it when a later district is built
+  const topBuiltLevel = 50; // the highest level of the built places (the last fight of the Βουλή: Μιζοτάκης); the level cap
   for (const id of Object.keys(R.TRAINERS)) {
     const last = R.TRAINERS[id].team[R.TRAINERS[id].team.length - 1];
     assert.ok(last.lv <= topBuiltLevel, id + ' last level ' + last.lv + ' is above the built top ' + topBuiltLevel);
@@ -954,7 +954,7 @@ test('WORLD places: every node cell is land of its district, only the built dist
     for (const mapId of node.maps) assert.ok(R.MAPS[mapId], id + ' lists the map ' + mapId);
     if (node.built) assert.ok(node.maps.length > 0, id + ' is built and has maps');
   }
-  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella', 'faliro', 'glyfada', 'koropi', 'spata', 'kifisia', 'marousi', 'peristeri', 'chaidari', 'monastiraki', 'syntagma']);
+  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella', 'faliro', 'glyfada', 'koropi', 'spata', 'kifisia', 'marousi', 'peristeri', 'chaidari', 'monastiraki', 'syntagma', 'parliament'], 'every place is built (the Βουλή with MZ-WORLD-02g)');
   same(Object.keys(W.nodes).filter((id) => W.nodes[id].boss).sort(), ['chaidari', 'glyfada', 'harbourOffice', 'marousi', 'spata', 'syntagma']);
   assert.equal(new Set(Object.values(W.nodes).map((node) => node.cell.join(','))).size, 14, 'no two places share a cell');
 });
@@ -1087,7 +1087,7 @@ test('map states: a district is locked until the previous badge (and while unbui
   const withFifthBadge = R.newWorldState();
   withFifthBadge.badges.peiraias = 1; withFifthBadge.badges.notia = 1; withFifthBadge.badges.anatolika = 1; withFifthBadge.badges.voreia = 1; withFifthBadge.badges.dytika = 1;
   assert.equal(R.districtState(withFifthBadge, 'athina'), 'open', 'Αθήνα is built and opens with the Tax-Free Medal');
-  assert.equal(W.nodes.parliament.built, false, 'the Βουλή is a door on the square, not built yet (MZ-WORLD-02g)');
+  assert.equal(W.nodes.parliament.built, true, 'the Βουλή is built (MZ-WORLD-02g): a door on the square of Σύνταγμα with six maps');
   // the district sheet counts the species of the zones of its maps
   const species = R.districtSpecies('peiraias');
   assert.equal(species.length, 10, 'the eight of route 1, Φακελάρχης and Εφοπλιστάκος of route 2');
@@ -1541,14 +1541,14 @@ test('money budget: the prize money of the district covers the stock of its new 
 });
 test('the chapter card replaces the credits roll after Κώτσος: the badge text is the Port Medal, the flag credits is still set, the studio still opens on it', () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
-  const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
+  const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.finale = async function'); // the credits roll is the finale's (MZ-WORLD-02g), not the first boss'
   assert.ok(victory.includes('new BadgeLayer(') && victory.includes('new ChapterLayer()') && !victory.includes('new CreditsLayer()'), 'the badge, then the chapter card, no credits roll');
   assert.ok(victory.indexOf('G.flags[victory.flag] = true') < victory.indexOf('new BadgeLayer(') && victory.indexOf('new ChapterLayer()') < victory.indexOf('G.flags.credits = true'), 'order: badge flag, badge, card, credits flag');
   assert.ok(victory.indexOf('victory.chapterCard') < victory.indexOf('new ChapterLayer()'), 'only a boss whose victory data asks for it shows the card and sets the credits flag');
   same(R.TRAINERS.kotsos.victory, { flag: 'badge', win2: 'boss.win2', title: 'badge.title', sub: 'badge.sub', win3: 'boss.win3', chapterCard: true });
   assert.ok(victory.includes("say('credits.after')"), 'the studio announcement stays');
   assert.ok(html.includes('function ChapterLayer()') && html.includes('function CreditsLayer()'), 'the credits roll stays in the code for the Βουλή');
-  assert.ok(!html.includes('new CreditsLayer()'), 'nothing opens the credits roll before the Βουλή is built');
+  assert.equal(html.split('new CreditsLayer()').length - 1, 1 + html.slice(html.indexOf('async function selfTest()')).split('new CreditsLayer()').length - 1, 'the credits roll is opened in one place of the game, the finale of the Βουλή (the self-test builds one more to check its lines)');
   assert.equal(R.STRINGS['badge.title'][0], 'ΠΑΡΑΣΗΜΟ ΛΙΜΑΝΙΟΥ');
   assert.ok(/Κεφάλαιο 1 ολοκληρώθηκε/.test(R.STRINGS['chapter.title'][0]) && /Chapter 1 complete/.test(R.STRINGS['chapter.title'][1]));
   assert.ok(R.STRINGS['chapter.sub'][0] && R.STRINGS['chapter.sub'][1] && R.STRINGS['boss.win3'][0].includes('Λιμανιού'));
@@ -1783,7 +1783,7 @@ test('Νότια species: Καφενόβιος and the three middle starter form
   assert.equal(R.cloneMon(boosted).boost, 1.3);
   assert.equal(R.statOf(plain, 'atk'), Math.floor(R.SPECIES.giagiaka.base[1] * 20 / 25) + 5);
   assert.equal(R.serializeMon(boosted).boost, undefined, 'a boost is never saved');
-  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
+  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas' && id !== 'undersec') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
   assert.ok(R.TRAINERS.bougatsas.boost > 1 && R.TRAINERS.bougatsas.boost <= 1.2);
 });
 test('Νότια items: the Δικηγόρος and the Γεμιστά της Μάνας heal and clear a status, in and out of a battle', () => {
@@ -1882,14 +1882,16 @@ test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-cre
   R.TRAINERS.bougatsas.boost = undefined;
   try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, BOSS_RUNS_PER_CELL, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
 });
-test('every built district boss, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
+test('every built boss and every fight of the Βουλή, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
   const runsPerCell = BOSS_RUNS_PER_CELL;
-  for (const bossId of ['kotsos', 'bougatsas', 'faia', 'amartia', 'plousiakis', 'baboulas']) {
+  for (const bossId of ['kotsos', 'bougatsas', 'faia', 'amartia', 'plousiakis', 'baboulas', 'euterpe', 'minister', 'rival6', 'undersec']) { // the four fights of the Βουλή too (the rival with his last form of the starter the player took)
     const team = R.TRAINERS[bossId].team;
     const top = team[team.length - 1].lv;
-    const atTop = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top + 1, 6, runsPerCell, 8000));
+    const above = Math.min(top + 1, R.MAX_LEVEL); // the final has no level above its top: the cap itself, where the bar is lower (40 %: its band at the cap is 60-90 and the starters differ)
+    const bar = above === top ? 0.4 : 0.75;
+    const atTop = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, above, 6, runsPerCell, 8000));
     const behind = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top - 1, 6, runsPerCell, 8000));
-    atTop.forEach((rate, index) => assert.ok(rate >= 0.75, bossId + ', ' + R.STARTERS[index] + ' at top plus 1: ' + rate));
+    atTop.forEach((rate, index) => assert.ok(rate >= bar, bossId + ', ' + R.STARTERS[index] + ' at level ' + above + ': ' + rate));
     assert.ok(Math.max(...behind) - Math.min(...behind) <= 0.35, bossId + ' spread at top minus 1: ' + behind.join(' '));
   }
 });
@@ -2216,7 +2218,7 @@ test('Ανατολικά boss: the win-rate bands of 11.7 (the same offsets and 
   assert.equal(prize, 26 * 30 + 200);
   // no hidden stat boost (11.13): her team holds the bands by its stats, so the only boosted boss is still Μπουγάτσας, whose boost is told in his greeting
   assert.equal(boss.boost, undefined, 'the boss has no boost');
-  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
+  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas' && id !== 'undersec') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
   same(boss.items, ['gemista'], 'she carries one Γεμιστά (a full heal that clears a status)');
   // the bands
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
@@ -2581,7 +2583,7 @@ test('Βόρεια boss: the win-rate bands of 11.7 (the same offsets and bands 
   const prize = R.prizeFor({ sides: [{ party: [], active: 0 }, { party: R.buildTrainerTeam('amartia', 'komma') }] }, boss);
   assert.equal(prize, 32 * 30 + 200);
   assert.equal(boss.boost, BOSS_BOOST_02D, 'the boost of 11.14 (none when undefined)');
-  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas' && id !== 'amartia') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
+  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas' && id !== 'amartia' && id !== 'undersec') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
   same(boss.items, BOSS_ITEMS_02D, 'the items in her bag');
   // the bands
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
@@ -3101,7 +3103,7 @@ test('Αθήνα XP band (section 11.4): within W = 10 wild fights, the eight tr
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.baboulas.boss && !band.trainerIds.includes('baboulas'), 'the boss comes after the climb');
 });
-test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Medal; every new map is reachable, has its way back and no dead end; the way into the Βουλή is a shut door with a sign', () => {
+test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Medal; every new map is reachable, has its way back and no dead end; the door of the Βουλή is shut without the sixth badge, with a sign beside it', () => {
   const start = R.START_MAP;
   const gate = R.MAPS.chaidari.warps.find((warp) => warp.x === 0 && warp.y === 9);
   assert.ok(gate && gate.to === 'route11' && gate.needFlag === 'badge_dytika' && R.STRINGS[gate.lockedText], 'the gate at the west end of the street needs the flag badge_dytika and says why');
@@ -3118,12 +3120,13 @@ test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Meda
     const map = R.MAPS[id];
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       if (/_(hospital|shop)$/.test(id) && y === 1) continue; // behind the counter, as in the templates of New Piraeus
+      if (id === 'syntagma' && x === 14 && y === 4) continue; // the door of the Βουλή: shut without badge_athina (tested in the Βουλή tests)
       if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, ATHINA_FLAGS)) assert.ok(all.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off');
     }
     for (const warp of map.warps) {
       assert.ok(R.MAPS[warp.to].warps.some((back) => back.to === id), id + ' -> ' + warp.to + ' has a return warp');
       assert.ok(R.tileWalkable(R.MAPS[warp.to], warp.tx, warp.ty, ATHINA_FLAGS), id + ' -> ' + warp.to + ' arrives on a walkable tile');
-      assert.ok(all.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable');
+      if (!(id === 'syntagma' && warp.x === 14 && warp.y === 4)) assert.ok(all.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable'); // the door of the Βουλή is shut without badge_athina
     }
     for (const npc of map.npcs) assert.ok(R.npcTalkable(id, npc, all), id + ':' + npc.id + ' can be talked to');
     for (const key of Object.keys(map.signs)) {
@@ -3136,12 +3139,11 @@ test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Meda
   for (const [mapId, x, y] of [['route11', 1, 6], ['monastiraki', 1, 9], ['route12', 1, 8], ['syntagma', 1, 10], ['rock', 10, 14], ['lycabettus', 10, 14], ['monastiraki_cafe', 4, 6]]) {
     assert.equal(R.reachableTiles(mapId, x, y, ATHINA_FLAGS).size, all.size, 'from ' + mapId + ' everything can be reached again');
   }
-  // the boss stands in the middle of the square and can be talked to; the door of the parliament is a solid tile with a sign beside it and no warp (MZ-WORLD-02g)
+  // the boss stands in the middle of the square and can be talked to; the door of the parliament is shut without badge_athina and opens with it (MZ-WORLD-02g: the Βουλή tests walk through it)
   assert.ok(R.npcTalkable('syntagma', R.MAPS.syntagma.npcs.find((npc) => npc.id === 'baboulas'), all));
-  assert.ok(R.tileDef(R.MAPS.syntagma, 14, 4).solid && !R.MAPS.syntagma.warps.some((warp) => warp.x === 14 && warp.y === 4), 'the door of the parliament is shut');
+  assert.ok(!R.tileWalkable(R.MAPS.syntagma, 14, 4, ATHINA_FLAGS) && R.MAPS.syntagma.warps.some((warp) => warp.x === 14 && warp.y === 4 && warp.needFlag === 'badge_athina'), 'the door of the parliament is shut without the sixth badge');
   assert.equal(R.MAPS.syntagma.signs['11,5'], 'sign.syntagma.parliament');
-  assert.equal(R.MAPS.syntagma.signs['14,4'], 'sign.syntagma.parliament', 'facing the shut door says why (the sign is on the door tile, which stays solid)');
-  assert.ok(!R.MAPS.syntagma.warps.some((warp) => warp.to === 'parliament'), 'no way into the Βουλή yet');
+  assert.ok(R.STRINGS[R.MAPS.syntagma.warps.find((warp) => warp.x === 14 && warp.y === 4).lockedText], 'facing the shut door says why');
 });
 test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.6, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Μοναστηράκι, the Rock and the Hill', () => {
   const sizes = { route11: [36, 14], monastiraki: [26, 18], monastiraki_hospital: [12, 9], monastiraki_shop: [8, 6], monastiraki_cafe: [10, 8], rock: [20, 16], route12: [40, 16], lycabettus: [20, 16], syntagma: [30, 20], syntagma_hospital: [12, 9], syntagma_shop: [8, 6] };
@@ -3155,7 +3157,7 @@ test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild
   }
   assert.equal(ATHINA_MAP_IDS.reduce((sum, id) => sum + R.MAPS[id].w * R.MAPS[id].h, 0), 36 * 14 + 26 * 18 + 12 * 9 * 2 + 8 * 6 * 2 + 10 * 8 + 20 * 16 + 40 * 16 + 20 * 16 + 30 * 20, 'the tiles of the build plan (3,244)');
   same([W.districts.athina.built, W.nodes.monastiraki.built, W.nodes.syntagma.built, W.routes.route11.built, W.routes.route12.built, W.nodes.monastiraki.stop, W.nodes.syntagma.stop], [true, true, true, true, true, true, true]);
-  assert.equal(W.nodes.parliament.built, false, 'the Βουλή stays a locked door (MZ-WORLD-02g)');
+  assert.equal(W.nodes.parliament.built, true, 'the Βουλή is built by MZ-WORLD-02g');
   same([R.mapNode('monastiraki_cafe').id, R.mapNode('rock').id, R.mapNode('syntagma_shop').id, R.mapNode('lycabettus').id, R.mapNode('route11').id, R.mapNode('route12').id], ['monastiraki', 'monastiraki', 'syntagma', 'syntagma', 'route11', 'route12']);
   // both routes run left to right (11.5)
   assert.equal(W.routes.route11.progress, 'x'); assert.equal(W.routes.route12.progress, 'x');
@@ -3225,7 +3227,7 @@ test('Αθήνα legend: the Φορολογούμενος is a single recruitabl
   assert.ok(new RegExp('^ {2}taxpayer: function \\(p\\)', 'm').test(html), 'the legend has a procedural sprite');
   assert.ok(species.n.length <= 16, 'the name is short enough for the battle name panel (the full name does not fit: 11.16)');
   const npcs = Object.values(R.MAPS).flatMap((map) => map.npcs.filter((npc) => npc.kind === 'legend'));
-  assert.equal(npcs.length, 1, 'one legend in the game so far');
+  assert.equal(npcs.length, 2, 'two legends in the game: the Rock and the empty plenary hall (MZ-WORLD-02g)');
   const legend = R.MAPS.rock.npcs.find((npc) => npc.kind === 'legend');
   assert.ok(legend && legend.species === 'taxpayer' && legend.level === 40 && legend.hideFlag === 'legend_taxpayer', 'on the Rock, level 40, hidden by the flag legend_taxpayer');
   assert.ok(legend.x >= 5 && legend.x <= 14 && legend.y >= 4 && legend.y <= 6, 'on the top terrace in front of the monument');
@@ -3403,7 +3405,7 @@ test('Αθήνα: old saves (v2 and v3, standing anywhere in the five built dist
   assert.equal(R.placeState(world, 'monastiraki'), 'visited'); assert.equal(R.placeState(world, 'syntagma'), 'visited', 'the Hill belongs to Σύνταγμα');
   assert.equal(world.badges.athina, 1, 'the flag badge_athina fills the badge');
   assert.equal(R.districtState(world, 'athina'), 'cleared');
-  assert.equal(R.placeState(world, 'parliament'), 'unknown', 'the Βουλή is still a question mark');
+  assert.equal(R.placeState(world, 'parliament'), 'seen', 'the Βουλή is told about with the sixth badge (MZ-WORLD-02g)');
   const stored = R.migrateSave(make(3, 'syntagma_hospital', 5, 7, Object.assign({ badge_athina: true, t_baboulas: true, legend_taxpayer: true }, ATHINA_FLAGS), { world, lastHeal: { map: 'syntagma_hospital', x: 5, y: 7, dir: 'up' } }));
   same(stored.lastHeal, { map: 'syntagma_hospital', x: 5, y: 7, dir: 'up' }, 'the Σύνταγμα hospital is a valid return point');
   assert.equal(stored.player.map, 'syntagma_hospital');
@@ -3467,6 +3469,476 @@ test('Αθήνα leaves the earlier bosses as they were: nothing it adds can rea
   assert.equal(R.TRAINERS.plousiakis.team.length, 5, 'the Δυτικά boss is as it was (its bands are measured by its own test, at the same seed)');
 });
 
+// ---- MZ-WORLD-02g: the Βουλή ----
+const PARLIAMENT_MAP_IDS = ['parliament_lobby', 'parliament_c1', 'parliament_c2', 'parliament_c3', 'parliament_plenary', 'parliament_roof'];
+// the four fights of 11.17 as 'species + level' (the last one is the top level), the items in each bag and the boost (none)
+const PARLIAMENT_TEAMS = {
+  euterpe: ['lobbylykaina45', 'tavlilordos44', 'fakelarchis44', 'tavlilordos46', 'lobbylykaina46'],
+  minister: ['spyradonis46', 'lobbylykaina45', 'giagiaexo45', 'fakelarchis46', 'giagiaexo47'],
+  rival6: ['star9047', 'tavlilordos47', 'tavlilordos46', 'fakelarchis48', 'lobbylykaina47', '$rivalFinal48'],
+  undersec: ['star9049', 'tavlilordos49', 'tavlilordos47', 'ktimatomesitis48', 'lobbylykaina47', 'mizotakis50'],
+};
+const PARLIAMENT_ITEMS = { euterpe: ['souvlaki'], minister: [], rival6: ['souvlaki'], undersec: ['gemista'] };
+const PARLIAMENT_BOOSTS = { euterpe: undefined, minister: undefined, rival6: undefined, undersec: 1.03 }; // only the last fight has a boost, a small visible one
+const PARLIAMENT_TOPS = { euterpe: 46, minister: 47, rival6: 48, undersec: 50 };
+const PARLIAMENT_LOWEST_ROWS = { euterpe: 5, minister: 5, rival6: 6, undersec: 6 };
+// the XP the three fights before the last give, against the need of 11.4 (the plan's 1.07 assumed species XP 50; the real species give 65 to 100, so the limit is the measured share rounded up, 11.17)
+const PARLIAMENT_XP_SHARE_LIMIT = 1.7;
+// win rates of the legend Ηλιθιοκρατία (level 50, the encounter's boost) against a team of the pool at the level cap: six creatures, three creatures
+const LEGEND_SIX_BAND = [0.45, 0.85];
+const LEGEND_THREE_BAND = [0.1, 0.5];
+const PARLIAMENT_FLAGS = Object.assign({ badge_athina: true }, ATHINA_FLAGS);
+const PARLIAMENT_FLAGS_OPEN = Object.assign({ t_euterpe: true, t_minister: true, t_rival6: true }, PARLIAMENT_FLAGS); // the three fights before the last are won
+const PARLIAMENT_FLAGS_ENDED = Object.assign({ t_undersec: true, badge_final: true, ending: true }, PARLIAMENT_FLAGS_OPEN);
+// the walkable tiles (1) and solid tiles (0) of the eleven maps of Αθήνα, taken from the base build 31bfa0d (MZ-WORLD-02f)
+const OLD_WALKABLE_02F = {
+  route11: '000000000000000000000000000000000000/011111111111111111111111111111111110/011011000001111111111111111111111110/011111000001111111111101111111111110/011111000001111111111111111111111010/011001110011111011110111111011110110/111111111111111111111111111111111111/011111111111111111111111111111111110/011110111110111110111110101111011110/011111111111111111111111000000111110/011111111111011111110111000000111110/011111111111111111111111000000111110/001111111111111111111111111111111100/000000000000000000000000000000000000',
+  monastiraki: '00000000000000000000000000/01111111111111111111101000/01000001100001100000101000/01000001100001100000101000/01000001100001100000101000/01001000101000100100001000/01111111111111111111111010/01101011011110101101111110/01111101111111111111111010/11111111111111111111111111/00111111111111111111111110/01000001000101110000011100/01000001000101110000011110/01000001000111110000011110/01000001000111110000011110/01111111111111011111111100/01111101111111111110111110/00000000000000000000000000',
+  monastiraki_hospital: '000000000000/011111111110/000000000000/001110111100/011111111110/001111111100/001101101100/011111111110/000001100000',
+  monastiraki_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
+  monastiraki_cafe: '0000000000/0001111100/0000001110/0111111110/0111111110/0100110010/0111111110/0000110000',
+  rock: '00000000000000000000/00001000000000010000/00001000000000010000/00001000000000010000/01111111111101111010/01111111111111111110/01111111111111111110/01111111011111111110/01111110111111101110/01111111111111011110/01111111111111111010/01111101111110111110/01110111111100110110/01011110111110111110/01111111111111111110/00000000001000000000',
+  route12: '0000000000000000000000000000000000000000/0100000010000001000000111111111111111110/0100000010000001000000110111111111111110/0100000010000001000000111111111111110110/0111111111111111111111111111111111111110/0111111111111111111111111011111111111110/0011101111111101111111111111111111011110/0111111111111111111111111111000111111110/1111111111111111111111111111000111111111/0111111111111111111111111111000111111110/0111111111111111111111111111111111111110/0111111111101111110111111111111111111110/0100000000110000000111101011110110101100/0100000000110000000111111111111111111110/0111111111111111111111111111111111111110/0000000000000000000000000000000000000000',
+  lycabettus: '00000000000000000000/01111000000000010000/01111111111111110000/01111101111111110000/01111111111111111110/01111111111111000010/01111111111101000010/01111111111110111110/00111111111111111110/01011111111111111010/01101110111111111110/01111111111111111110/01111111111110111110/01111011011111111010/01111111101101111110/00000000001000000000',
+  syntagma: '000000000000000000000000000000/000000110000000000000011000010/000000110000000000000011000010/000000110000000000000011000010/000100010000000000000010010010/011111111110111111111111111010/011111111111111111111111111111/011111111000001110000011111110/010111111111111111111111111010/011111111111111111111111111110/111111111111111111111100111110/010111111111011111111111111010/011111111111111111111111111110/011000000111111011110000000110/011111111111111111111111111110/011000000111111111110000000110/011111111101111011101111111110/011111011111111111111110111110/001111111111111111111111111100/000000000000000000000000000000',
+  syntagma_hospital: '000000000000/011111111110/000000000000/001110111100/011111111110/001111111100/001101101100/011111111110/000001100000',
+  syntagma_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
+};
+const PARLIAMENT_FORBIDDEN_WORDS = ATHINA_FORBIDDEN_WORDS; // the junta, the Polytechnic, riots, deaths, real violence, chapels and crosses: none in the Βουλή either
+const PARLIAMENT_STRING_KEY = /^(map\.parliament|warp\.parliament|sign\.(parliament|plenary|roof|syntagma\.parliament)|lobby\.|cafe\.hello\.roof|npc\.(parliament|plenary|roof)|tr\.(euterpe|minister|rival6|undersec)|boss\.(undersec|baboulas\.win3)|badge\.final|ending\.|legend\.ilithiokratia|sp\.ilithiokratia|credits\.text|world\.has\.(doctor|final))/;
+// The new fights are tuned to at least one standard error of the three-seed mean inside every band (section 11.7): the standard error of a mean of 3 x 1,000 runs is sqrt(p (1 - p) / 3000).
+const insideByOneStandardError = (rate, low, high) => {
+  const standardError = Math.sqrt(rate * (1 - rate) / (BOSS_RUNS_PER_CELL * BOSS_BAND_SEEDS.length));
+  return rate - low >= standardError && high - rate >= standardError;
+};
+const checkParliamentBands = (bossId) => {
+  const boss = R.TRAINERS[bossId];
+  const top = Math.max(...boss.team.map((entry) => entry.lv));
+  assert.equal(top, PARLIAMENT_TOPS[bossId]);
+  assert.equal(boss.team[boss.team.length - 1].lv, top, 'the last creature is the top level');
+  same(boss.team.map((entry) => entry.sp + entry.lv), PARLIAMENT_TEAMS[bossId], 'the team of 11.17');
+  same(boss.items, PARLIAMENT_ITEMS[bossId], 'the items in his bag');
+  assert.equal(boss.boost, PARLIAMENT_BOOSTS[bossId], 'the boost of 11.17 (only the last fight has one, a small visible one: the mark shows beside the level)');
+  const bands = bossBandMeans(R, bossId, BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
+  assert.equal(bands.length, 4);
+  for (const [label, rate, low, high] of bands) {
+    assert.ok(rate >= low && rate <= high, bossId + ', ' + label + ': ' + rate + ' outside ' + low + '-' + high);
+    assert.ok(insideByOneStandardError(rate, low, high), bossId + ', ' + label + ': ' + rate + ' is less than one standard error inside ' + low + '-' + high);
+  }
+  assert.equal(bossBands(R, bossId)[3][1], 0, 'a boss with four or more creatures has its three-creature row at offset 0');
+  assert.equal(bossBands(R, bossId)[2][1], -PARLIAMENT_LOWEST_ROWS[bossId], 'the lowest row by the stat-ratio rule of 11.7');
+  assert.equal(bossBands(R, bossId)[1][4], bossId === 'undersec' ? 0.45 : 0.55, 'the top minus 1 band: 45-65 for the final, 55-75 for the rest');
+  assert.equal(bossBands(R, bossId)[1][5], bossId === 'undersec' ? 0.65 : 0.75);
+};
+
+test('Βουλή XP band (section 11.4): no wild creature in the Βουλή, so the three fights before the last must pay the XP three creatures need from 44 to 48, and not much more', () => {
+  const band = parliamentXpBand(R);
+  same(band.fightIds, ['euterpe', 'minister', 'rival6'], 'the boss fight does not count');
+  assert.equal(band.need, 45735, '3 x (xpForLevel(48) - xpForLevel(44))');
+  assert.equal(band.creatures, 16, 'five, five and six creatures');
+  assert.ok(band.trainerShare >= 1 && band.trainerShare <= PARLIAMENT_XP_SHARE_LIMIT, 'the three fights give ' + band.trainerShare.toFixed(2) + ' of the need');
+  assert.ok(R.TRAINERS.undersec.boss && !band.fightIds.includes('undersec'));
+  for (const id of PARLIAMENT_FIGHTS) assert.ok(R.xpReward(R.buildTrainerTeam(id, 'komma')[0], true) > 0);
+});
+test('Βουλή: the door on the square opens with the Assembly Medal (shut and open); the chambers open one after the other; the roof opens with the ending; every map is reachable, leads back and has no dead end', () => {
+  const door = R.MAPS.syntagma.warps.find((warp) => warp.x === 14 && warp.y === 4);
+  assert.ok(door && door.to === 'parliament_lobby' && door.needFlag === 'badge_athina' && R.STRINGS[door.lockedText], 'the door needs the flag badge_athina and says why');
+  assert.ok(!R.tileDef(R.MAPS.syntagma, 14, 4).solid && R.MAPS.syntagma.rows[4][14] === 'Ξ', 'the door tile is a walkable formal door');
+  assert.ok(!R.MAPS.syntagma.signs['14,4'] && R.MAPS.syntagma.signs['11,5'] === 'sign.syntagma.parliament', 'the sign beside the door stays, the door says its own locked text');
+  assert.equal(R.tileWalkable(R.MAPS.syntagma, 14, 4, ATHINA_FLAGS), false, 'the shut case: without the flag the door tile cannot be entered');
+  assert.equal(R.tileWalkable(R.MAPS.syntagma, 14, 4, PARLIAMENT_FLAGS), true, 'the open case: with the flag it can');
+  assert.ok(R.tileWalkable(R.MAPS.syntagma, 14, 5, ATHINA_FLAGS), 'the steps in front of the door stay walkable');
+  const start = R.START_MAP;
+  const shut = R.reachableTiles(start.map, start.x, start.y, ATHINA_FLAGS);
+  for (const id of PARLIAMENT_MAP_IDS) assert.ok(![...shut].some((key) => key.startsWith(id + ':')), id + ' is not reachable without the Assembly Medal');
+  const lobbyOnly = R.reachableTiles(start.map, start.x, start.y, PARLIAMENT_FLAGS);
+  assert.ok(lobbyOnly.has('parliament_lobby:6:8') && lobbyOnly.has('parliament_c1:5:7'), 'with the medal the lobby and the first chamber are open');
+  for (const id of ['parliament_c2', 'parliament_c3', 'parliament_plenary', 'parliament_roof']) assert.ok(![...lobbyOnly].some((key) => key.startsWith(id + ':')), id + ' stays shut until the fight before it is won');
+  const afterOne = R.reachableTiles(start.map, start.x, start.y, Object.assign({ t_euterpe: true }, PARLIAMENT_FLAGS));
+  assert.ok(afterOne.has('parliament_c2:5:7') && ![...afterOne].some((key) => key.startsWith('parliament_c3:')), 'Ευτέρπη opens the studio only');
+  const afterTwo = R.reachableTiles(start.map, start.x, start.y, Object.assign({ t_euterpe: true, t_minister: true }, PARLIAMENT_FLAGS));
+  assert.ok(afterTwo.has('parliament_c3:5:7') && ![...afterTwo].some((key) => key.startsWith('parliament_plenary:')), 'Σπυράδωνις opens the lounge only');
+  const beforeEnding = R.reachableTiles(start.map, start.x, start.y, PARLIAMENT_FLAGS_OPEN);
+  assert.ok(beforeEnding.has('parliament_plenary:7:10') && beforeEnding.has('parliament_plenary:14:1') && !beforeEnding.has('parliament_plenary:14:0'), 'the plenary hall opens with the third fight, the roof door stays locked');
+  assert.ok(![...beforeEnding].some((key) => key.startsWith('parliament_roof:')), 'the roof is shut before the ending');
+  const ended = R.reachableTiles(start.map, start.x, start.y, PARLIAMENT_FLAGS_ENDED);
+  assert.ok(ended.has('parliament_roof:4:6') && ended.has('parliament_roof:5:3'), 'the roof opens with the flag ending');
+  const lock = (mapId, x, y) => R.MAPS[mapId].warps.find((warp) => warp.x === x && warp.y === y);
+  same([lock('parliament_lobby', 2, 0).needFlag, lock('parliament_lobby', 5, 0).needFlag, lock('parliament_lobby', 8, 0).needFlag, lock('parliament_lobby', 11, 0).needFlag, lock('parliament_plenary', 14, 0).needFlag], [undefined, 't_euterpe', 't_minister', 't_rival6', 'ending'], 'the chain of the doors');
+  for (const warp of R.MAPS.parliament_lobby.warps.concat(R.MAPS.parliament_plenary.warps)) if (warp.needFlag) assert.ok(R.STRINGS[warp.lockedText], 'the locked door says why: ' + warp.lockedText);
+  for (const id of PARLIAMENT_MAP_IDS) {
+    const map = R.MAPS[id];
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+      if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, PARLIAMENT_FLAGS_ENDED)) assert.ok(ended.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off');
+      if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, PARLIAMENT_FLAGS_OPEN) && !(id === 'parliament_roof' || (id === 'parliament_plenary' && x === 14 && y === 0))) assert.ok(beforeEnding.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off before the ending');
+    }
+    for (const warp of map.warps) {
+      assert.ok(R.MAPS[warp.to].warps.some((back) => back.to === id), id + ' -> ' + warp.to + ' has a return warp');
+      assert.ok(R.tileWalkable(R.MAPS[warp.to], warp.tx, warp.ty, PARLIAMENT_FLAGS_ENDED), id + ' -> ' + warp.to + ' arrives on a walkable tile');
+      assert.ok(ended.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable');
+    }
+    for (const npc of map.npcs) assert.ok(R.npcTalkable(id, npc, ended) || R.npcTalkable(id, npc, beforeEnding), id + ':' + npc.id + ' can be talked to');
+    for (const key of Object.keys(map.signs)) {
+      const [sx, sy] = key.split(',').map(Number);
+      assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => ended.has(id + ':' + (sx + dx) + ':' + (sy + dy))), id + ' sign ' + key + ' can be read');
+      assert.ok(R.tileDef(map, sx, sy).solid, id + ' sign ' + key + ' stands on a solid tile');
+    }
+  }
+  // no dead end: from the arrival tile of each map the player reaches what is reachable from the start (before the ending the roof is not part of it)
+  for (const [mapId, x, y] of [['parliament_lobby', 6, 8], ['parliament_c1', 5, 7], ['parliament_c2', 5, 7], ['parliament_c3', 5, 7], ['parliament_plenary', 7, 10]]) {
+    assert.equal(R.reachableTiles(mapId, x, y, PARLIAMENT_FLAGS_OPEN).size, beforeEnding.size, 'from ' + mapId + ' everything can be reached again');
+  }
+  assert.equal(R.reachableTiles('parliament_roof', 4, 6, PARLIAMENT_FLAGS_ENDED).size, ended.size, 'from the roof everything can be reached again');
+  // the four fighters can be talked to; healing is only at the doctor of the lobby (no healing, no café, no kiosk in a chamber; the café counter of the roof saves after the ending)
+  for (const [mapId, npcId] of [['parliament_c1', 'euterpe'], ['parliament_c2', 'minister'], ['parliament_c3', 'rival6'], ['parliament_plenary', 'undersec']]) assert.ok(R.npcTalkable(mapId, R.MAPS[mapId].npcs.find((npc) => npc.id === npcId), beforeEnding), npcId + ' can be talked to');
+  for (const id of PARLIAMENT_MAP_IDS) {
+    const kinds = R.MAPS[id].npcs.map((npc) => npc.kind);
+    const heals = kinds.filter((kind) => kind === 'heal').length;
+    assert.equal(heals, id === 'parliament_lobby' ? 1 : 0, id + ': healing only at the doctor of the lobby');
+    assert.ok(!kinds.includes('shop') && !R.MAPS[id].actions, id + ': no kiosk and no archive terminal');
+    assert.equal(kinds.filter((kind) => kind === 'save').length, id === 'parliament_roof' ? 1 : 0, id + ': only the roof has a café counter');
+  }
+  const doctor = R.MAPS.parliament_lobby.npcs.find((npc) => npc.kind === 'heal');
+  assert.ok(!R.tileDef(R.MAPS.parliament_lobby, R.HOSPITAL_SPOT.x, R.HOSPITAL_SPOT.y).solid && !R.npcAtTile(R.MAPS.parliament_lobby, R.HOSPITAL_SPOT.x, R.HOSPITAL_SPOT.y, PARLIAMENT_FLAGS_ENDED), 'the black-out spot (5,7) of the lobby is a free walkable tile');
+  assert.ok(doctor.healKeys && Object.values(doctor.healKeys).every((key) => R.STRINGS[key]), 'the doctor has texts of his own');
+  assert.ok(R.npcTalkable('parliament_lobby', doctor, beforeEnding), 'the doctor can be talked to');
+});
+test('Βουλή data: sizes of 11.7, the place on the world map, rows, tiles, the four new tiles and their sprites, looks, texts without a forbidden word', () => {
+  const sizes = { parliament_lobby: [14, 10], parliament_c1: [12, 9], parliament_c2: [12, 9], parliament_c3: [12, 9], parliament_plenary: [16, 12], parliament_roof: [10, 8] };
+  for (const id of PARLIAMENT_MAP_IDS) {
+    const map = R.MAPS[id];
+    same([map.w, map.h], sizes[id], id + ' size');
+    assert.equal(map.rows.length, map.h);
+    for (const row of map.rows) { assert.equal(row.length, map.w, id + ' width'); for (const char of row) assert.ok(R.TILE_DEFS[char], id + ' tile ' + char); }
+    assert.ok(R.mapNode(id) && R.mapNode(id).id === 'parliament' && R.mapNode(id).district === 'athina', id + ' belongs to the Βουλή');
+    assert.ok(R.STRINGS[map.name], id + ' name');
+    assert.ok(!/[†✝☦]/.test(map.rows.join('')), id + ': no cross character');
+    for (const key of Object.keys(map.signs)) assert.ok(R.STRINGS[map.signs[key]], id + ' sign ' + key + ' has a text');
+    for (const npc of map.npcs) { assert.ok(html.includes('  ' + npc.look + ': { skin'), id + ':' + npc.id + ' look ' + npc.look); if (npc.text) assert.ok(R.STRINGS[npc.text], npc.text); }
+  }
+  assert.equal(PARLIAMENT_MAP_IDS.reduce((sum, id) => sum + R.MAPS[id].w * R.MAPS[id].h, 0), 14 * 10 + 12 * 9 * 3 + 16 * 12 + 10 * 8, 'the tiles of the build plan (736)');
+  const node = W.nodes.parliament;
+  assert.ok(node.built && node.kind === 'door' && node.district === 'athina' && node.seenFlag === 'badge_athina', 'built, a door of Αθήνα, told about with the sixth badge');
+  same(node.maps, PARLIAMENT_MAP_IDS); same(node.levels, [44, 50]); same(node.has, ['doctor', 'final']);
+  assert.ok(R.STRINGS['world.has.doctor'] && R.STRINGS['world.has.final'] && R.STRINGS['world.parliament']);
+  same(R.districtSpecies('athina').sort(), ATHINA_SPECIES, 'the Βουλή adds no wild creature');
+  for (const id of PARLIAMENT_MAP_IDS) assert.ok(!R.MAPS[id].zones, id + ' has no wild table');
+  // the new tiles: a sprite each, solid or not as designed, none of them grass
+  const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
+  for (const char of ['Δ', 'Θ', 'Φ', 'Ξ']) assert.ok(R.TILE_DEFS[char] && tileBuilder.includes("make('" + char + "'"), 'a sprite for tile ' + char);
+  assert.ok(!R.TILE_DEFS['Δ'].solid && !R.TILE_DEFS['Ξ'].solid && R.TILE_DEFS['Θ'].solid && R.TILE_DEFS['Φ'].solid);
+  assert.ok(!R.TILE_DEFS['Δ'].grass);
+  const rows = (id) => R.MAPS[id].rows.join('');
+  assert.ok(rows('parliament_lobby').includes('Ξ') && rows('parliament_lobby').includes('Δ') && rows('parliament_lobby').includes('c') && rows('parliament_lobby').includes('r'), 'the lobby: doors, marble, the counter of the doctor, the carpet');
+  assert.ok(rows('parliament_c1').includes('c') && rows('parliament_c1').includes('t') && rows('parliament_c1').includes('h'), 'chamber 1: desks, tables, archive shelves');
+  assert.ok(rows('parliament_c2').includes(';') && rows('parliament_c2').includes(':') && rows('parliament_c2').includes('K'), 'chamber 2: the stage, the speakers, the camera cases');
+  assert.ok(rows('parliament_plenary').includes('Θ') && rows('parliament_plenary').includes('Φ') && rows('parliament_plenary').includes('r'), 'the plenary hall: benches, the podium, the carpet');
+  assert.ok(rows('parliament_roof').includes('F') && rows('parliament_roof').includes('`'), 'the roof: a fence round a floor of tar');
+  // no text of the Βουλή carries a forbidden word (faith, real monuments, real events and violence), and every key of the Βουλή was read; the credits are among them
+  let checked = 0;
+  for (const [key, texts] of Object.entries(R.STRINGS)) {
+    if (!PARLIAMENT_STRING_KEY.test(key)) continue;
+    for (const text of texts.slice(0, 2)) { assert.ok(!FAITH_WORDS.test(plainText(text)) && !PARLIAMENT_FORBIDDEN_WORDS.test(plainText(text)), key + ' carries a forbidden word: ' + text); checked++; }
+  }
+  assert.ok(checked >= 140, 'the word checks read ' + checked + ' texts');
+  for (const id of PARLIAMENT_FIGHTS) assert.ok(!FAITH_WORDS.test(plainText(R.TRAINERS[id].name)) && !PARLIAMENT_FORBIDDEN_WORDS.test(plainText(R.TRAINERS[id].name)), id + ' name');
+  assert.ok(!FAITH_WORDS.test(plainText(R.SPECIES.ilithiokratia.n)) && !PARLIAMENT_FORBIDDEN_WORDS.test(plainText(R.SPECIES.ilithiokratia.n)), 'the legend name');
+  // the names are plain: the three parodies of the brief are the only ones allowed (Σπυράδωνις and Μιζοτάκης as creatures, Νέα Δημοκτατορία), no other name that reads as a real person
+  for (const id of PARLIAMENT_FIGHTS) assert.ok(!DENY_PATTERN.test(plainText(R.TRAINERS[id].name)), id + ' name is not on the deny-list');
+  assert.equal(R.TRAINERS.euterpe.name, 'Η Προϊσταμένη Ευτέρπη'); assert.equal(R.TRAINERS.minister.name, 'Ο Υπουργός Σπυράδωνις'); assert.equal(R.TRAINERS.undersec.name, 'Ο Υφυπουργός Παντός');
+  assert.ok(R.STRINGS['sign.parliament.c1'][0].includes('13:00') && /ραντεβού/.test(R.STRINGS['sign.parliament.c1'][0]) && /appointment/.test(R.STRINGS['sign.parliament.c1'][1]), 'the door of Ευτέρπη: open until 13:00, then an appointment');
+});
+test('Βουλή legend: Ηλιθιοκρατία is a single recruitable creature that waits in the emptied plenary hall at level 50 after the credits (a fixed encounter with a visible boost), gone once beaten or recruited', () => {
+  const species = R.SPECIES.ilithiokratia;
+  assert.ok(species.t === 'pol' && species.ab === 'asy' && species.g === 'f' && !species.evo && !species.starter && !species.parody, 'type, ability, gender, no evolution');
+  assert.ok(species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) <= 490 && species.xp >= 100 && species.rec > 0 && species.rec <= 10, 'a legend: a base sum of 490 or less, a lot of XP, a very low recruit rate');
+  assert.ok(species.learn.every(([lv, moveId]) => R.MOVES[moveId] && lv >= 1) && R.movesAtLevel('ilithiokratia', 50).length === 4, 'four moves');
+  assert.ok(R.DEX_ORDER.includes('ilithiokratia') && R.STRINGS['sp.ilithiokratia'][0].startsWith('Γνωστ') && R.STRINGS['sp.ilithiokratia'][0].includes('Ποτέ δεν καταδικάστηκε') && R.STRINGS['sp.ilithiokratia'][1].includes('Never convicted'), 'dossier text');
+  assert.ok(new RegExp('^ {2}ilithiokratia: function \\(p\\)', 'm').test(html), 'the legend has a procedural sprite');
+  assert.ok(species.n.length <= 16, 'the name is short enough for the battle name panel');
+  assert.equal(Object.keys(R.SPECIES).length, 38, '38 species in all: the seed\'s 36 plus the two parodies (section 11.4)');
+  const legends = Object.values(R.MAPS).flatMap((map) => map.npcs.filter((npc) => npc.kind === 'legend'));
+  assert.equal(legends.length, 2, 'two legends in the game: the Rock and the empty plenary hall');
+  const legend = R.MAPS.parliament_plenary.npcs.find((npc) => npc.kind === 'legend');
+  assert.ok(legend && legend.species === 'ilithiokratia' && legend.level === 50 && legend.hideFlag === 'legend_ilithiokratia' && legend.showFlag === 'ending', 'in the plenary hall, level 50, shown by the flag ending, hidden by legend_ilithiokratia');
+  assert.equal(R.npcVisible(legend, {}), false, 'not there before the ending');
+  assert.equal(R.npcVisible(legend, { ending: true }), true, 'there after the credits');
+  assert.equal(R.npcVisible(legend, { ending: true, legend_ilithiokratia: true }), false, 'gone once beaten or recruited');
+  for (const npc of R.MAPS.parliament_plenary.npcs.filter((entry) => entry.kind !== 'legend')) assert.equal(R.npcVisible(npc, { ending: true }), false, npc.id + ' leaves with the ending: the hall is empty');
+  for (const npc of R.MAPS.parliament_plenary.npcs.filter((entry) => entry.kind !== 'legend')) assert.equal(R.npcVisible(npc, {}), true, npc.id + ' is there before the ending');
+  assert.ok(R.STRINGS['legend.ilithiokratia.intro'] && R.STRINGS['legend.ilithiokratia.gone'], 'its two texts');
+  for (const map of Object.values(R.MAPS)) for (const zone of map.zones || []) for (const entry of zone.table) assert.notEqual(entry.sp, 'ilithiokratia', 'it is in no wild table');
+  for (const [id, other] of Object.entries(R.SPECIES)) if (other.evo) assert.notEqual(other.evo.to, 'ilithiokratia', id + ' does not evolve into it');
+  assert.ok(![...PARLIAMENT_POOL, ...ATHINA_POOL].includes('ilithiokratia'), 'it is in no test pool');
+  // the way the game handles it: the same fixed encounter as the Rock (a talk, a wild battle, a won fight sets the flag)
+  const method = html.slice(html.indexOf('OverworldLayer.prototype.legendEncounter = async function'), html.indexOf('OverworldLayer.prototype.challenge = async function'));
+  assert.ok(method.includes('makeMon(def.species, def.level, def.boost)') && method.includes("if (result !== 'win') return;") && method.includes('G.flags[def.hideFlag] = true'), 'a won fight sets the flag, nothing else does');
+  // a fair fight for the cap: the player is at most level 50, so six creatures at 50 beat it most of the time, three less often, a weaker team less often again
+  const rate = (size, level, seed) => {
+    const rng = R.makeRng(seed);
+    let wins = 0;
+    for (let i = 0; i < 300; i++) wins += R.simulateBattle(parliamentTeam(R, rng, level, size), [R.makeMon('ilithiokratia', 50, legend.boost)], rng, { playerItems: [] }).winner === 0 ? 1 : 0;
+    return wins / 300;
+  };
+  const six = rate(6, 50, 6400);
+  const three = rate(3, 50, 6500);
+  assert.ok(six >= LEGEND_SIX_BAND[0] && six <= LEGEND_SIX_BAND[1], 'six creatures at level 50 beat the legend ' + six);
+  assert.ok(three >= LEGEND_THREE_BAND[0] && three <= LEGEND_THREE_BAND[1] && three < six, 'three creatures at level 50 beat the legend ' + three);
+  assert.ok(rate(6, 46, 6600) < six, 'a weaker team beats it less often');
+  // the species is ordinary; the encounter carries the visible boost; a recruited one has no boost and its HP is clamped to the plain maximum
+  assert.ok(legend.boost > 1 && legend.boost <= 1.6 && R.makeMon('ilithiokratia', 50, legend.boost).boost === legend.boost, 'the encounter has a boost (the boost mark shows in the fight)');
+  let recruitedLegend = null;
+  for (let seed = 1; seed <= 300 && !recruitedLegend; seed++) {
+    const bag = { chontros: 3 };
+    const foe = R.makeMon('ilithiokratia', 50, legend.boost);
+    foe.hp = R.maxHp(R.makeMon('ilithiokratia', 50)) + 40; // above its plain maximum, so the recruit must clamp it
+    const battle = R.createBattle([R.makeMon('komma', 50)], [foe], R.makeRng(seed), { kind: 'wild', bag });
+    R.playTurn(battle, { t: 'recruit', id: 'chontros' });
+    if (battle.recruited.length === 1) recruitedLegend = battle.sides[0].party[1];
+  }
+  assert.ok(recruitedLegend, 'a recruit succeeds within 300 seeds');
+  assert.equal(recruitedLegend.boost, undefined, 'a recruited legend has no boost');
+  assert.equal(recruitedLegend.hp, R.maxHp(recruitedLegend), 'its HP is clamped to its plain maximum');
+  const recruitHard = R.recruitChance(R.makeMon('ilithiokratia', 50), 'chontros');
+  assert.ok(recruitHard > 0 && recruitHard < R.recruitChance(R.makeMon('star90', 50), 'chontros'), 'it is harder to recruit than an ordinary creature');
+  assert.ok(R.SPECIES.taxpayer.base.reduce((a, b) => a + b, 0) <= 490 && R.SPECIES.ilithiokratia.base.reduce((a, b) => a + b, 0) <= 490, 'both legends are ordinary species');
+});
+test('Βουλή fights: four fights with the teams, levels and sizes of 11.17, names and texts in both languages, prize 30 x the last level each, the rival follows the starter, the studio fight is unchanged, a seeded replay twice gives equal checksums', () => {
+  same(PARLIAMENT_FIGHTS, ['euterpe', 'minister', 'rival6', 'undersec']);
+  same(PARLIAMENT_FIGHTS.map((id) => R.TRAINERS[id].team.length), [5, 5, 6, 6]);
+  const ranges = { euterpe: [44, 46], minister: [45, 47], rival6: [46, 48], undersec: [47, 50] };
+  const onMaps = {};
+  for (const id of PARLIAMENT_MAP_IDS) for (const npc of R.MAPS[id].npcs) if (npc.trainer) onMaps[npc.trainer] = id + ':' + npc.kind;
+  same(onMaps, { euterpe: 'parliament_c1:boss', minister: 'parliament_c2:boss', rival6: 'parliament_c3:trainer', undersec: 'parliament_plenary:boss' }, 'one fighter in each chamber, the rival as a trainer who sees you');
+  for (const id of PARLIAMENT_FIGHTS) {
+    const trainer = R.TRAINERS[id];
+    for (const entry of trainer.team) assert.ok(entry.lv >= ranges[id][0] && entry.lv <= ranges[id][1], id + ' level ' + entry.lv);
+    assert.equal(Math.max(...trainer.team.map((entry) => entry.lv)), PARLIAMENT_TOPS[id], id + ' top level');
+    assert.ok(trainer.team.every((entry) => entry.sp.startsWith('$') || R.SPECIES[entry.sp]), id + ' species');
+    for (const part of ['intro', 'win', 'after']) assert.ok(R.STRINGS['tr.' + id + '.' + part] && R.STRINGS['tr.' + id + '.' + part][1].length > 0, id + ' ' + part);
+    assert.equal(trainer.bonus, undefined, id + ': the final fights pay lastLevel x 30 each, no bonus (11.4)');
+    assert.equal(R.prizeFor({ sides: [{ party: [], active: 0 }, { party: R.buildTrainerTeam(id, 'komma') }] }, trainer), trainer.team[trainer.team.length - 1].lv * 30, id + ' prize');
+    assert.equal(R.MAPS[onMaps[id].split(':')[0]].npcs.find((npc) => npc.trainer === id).look, trainer.look);
+    assert.ok(html.includes('  ' + trainer.look + ': { skin'), id + ' look ' + trainer.look);
+  }
+  // each team as in 11.17 (the species of the rival's last creature is resolved by the starter)
+  same(R.TRAINERS.euterpe.team.map((entry) => entry.sp + entry.lv), PARLIAMENT_TEAMS.euterpe);
+  same(R.TRAINERS.minister.team.map((entry) => entry.sp + entry.lv), PARLIAMENT_TEAMS.minister);
+  same(R.TRAINERS.rival6.team.map((entry) => entry.sp + entry.lv), PARLIAMENT_TEAMS.rival6);
+  same(R.TRAINERS.undersec.team.map((entry) => entry.sp + entry.lv), PARLIAMENT_TEAMS.undersec);
+  for (const id of PARLIAMENT_FIGHTS) same(R.TRAINERS[id].items, PARLIAMENT_ITEMS[id], id + ' items');
+  // 11.3.7 (as built, 11.17): Ευτέρπη brings Lobby-Λύκαινα (twice), Τάβλι-λόρδος (twice) and a Φακελάρχης (the plan's Μόνιμος and Ελεγκτής ΣΔΟΕ 3000 could not keep the bands, 11.17), Σπυράδωνις leads his team, Ο Υφυπουργός ends with Μιζοτάκης at level 50
+  const species = (id) => R.TRAINERS[id].team.map((entry) => entry.sp);
+  assert.ok(['lobbylykaina', 'tavlilordos', 'fakelarchis'].every((id) => species('euterpe').includes(id)) && species('euterpe').filter((id) => id === 'lobbylykaina').length === 2, 'Ευτέρπη: Lobby-Λύκαινα, Τάβλι-λόρδος and Φακελάρχης');
+  assert.equal(species('minister')[0], 'spyradonis', 'Σπυράδωνις leads his team'); assert.ok(R.SPECIES.spyradonis.parody && R.TRAINERS.minister.name.includes('Σπυράδωνις'));
+  same(R.TRAINERS.undersec.team[5], { sp: 'mizotakis', lv: 50 }, 'the ace of the last fight is Μιζοτάκης at level 50'); assert.ok(R.SPECIES.mizotakis.parody);
+  assert.equal(R.TRAINERS.rival6.team[5].sp, '$rivalFinal', 'the rival ends with the last form of his starter');
+  for (const id of PARLIAMENT_FIGHTS) assert.equal(species(id).filter((sp) => R.SPECIES[sp] && R.SPECIES[sp].parody).length, id === 'minister' ? 1 : id === 'undersec' ? 1 : 0, id + ': the parodies are the two named ones only');
+  // only the last fight is a boss with a badge and the credits; the three before it have no badge, no chapter card and no credits
+  for (const id of ['euterpe', 'minister', 'rival6']) assert.ok(!R.TRAINERS[id].boss && !R.TRAINERS[id].victory, id + ' has no badge');
+  const last = R.TRAINERS.undersec;
+  assert.ok(last.boss && last.victory.flag === 'badge_final' && last.victory.credits === true && last.victory.chapterCard === undefined, 'a badge and the credits');
+  for (const key of ['win2', 'title', 'sub', 'win3']) assert.ok(R.STRINGS[last.victory[key]], 'victory text ' + key);
+  assert.equal(R.STRINGS['badge.final.title'][0], 'ΔΙΟΡΙΣΜΟΣ ΕΦ’ ΟΡΟΥ ΖΩΗΣ'); assert.equal(R.STRINGS['badge.final.title'][1], 'APPOINTMENT FOR LIFE');
+  assert.ok(R.STRINGS['boss.undersec.win2'][1].includes('where the money went') && R.STRINGS['boss.undersec.win3'][1].includes('Appointment for Life'), 'the badge and its condition');
+  assert.ok(R.STRINGS['tr.undersec.intro'][0].includes('{φίλε|φίλη}'), 'the player is addressed with the gender choice');
+  for (const other of ['kotsos', 'bougatsas', 'faia', 'amartia', 'plousiakis', 'baboulas']) assert.notEqual(last.victory.ribbon, R.TRAINERS[other].victory.ribbon, 'each badge has its own ribbon colour');
+  assert.equal(R.WORLD.districts.athina.badgeFlag, 'badge_athina', 'the sixth badge is still the Assembly Medal; the final badge is no seventh pip of the map (the map counts the six districts)');
+  assert.equal(R.WORLD_BADGE_COUNT, 6);
+  // the rival's last form follows the starter the player took, as the earlier fights do
+  for (const starter of R.STARTERS) {
+    const rivalStarter = R.RIVAL_STARTER[starter];
+    const middle = R.SPECIES[rivalStarter].evo.to;
+    const final = R.SPECIES[middle].evo.to;
+    const team = R.buildTrainerTeam('rival6', starter);
+    assert.equal(team[5].sp, final, 'the last creature of the rival is the last form of the starter he took (' + starter + ' gives ' + final + ')');
+    assert.ok(R.SPECIES[final].evo === undefined && R.STARTERS.every((s) => R.SPECIES[s].evo.to !== final), 'a last form');
+  }
+  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival6' }, {}), true);
+  // the bonus fight of the studio is separate and unchanged
+  same(R.TRAINERS.host.team, [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }]); assert.equal(R.TRAINERS.host.recruitOnly, 'fakelos'); assert.equal(R.TRAINERS.host.bonus, 400); assert.equal(R.TRAINERS.host.name, 'Ο Παρουσιαστής Ρεκλαμάκης');
+  // a seeded replay of the four fights twice gives equal checksums (and another seed differs); the fights are winnable at the intended level
+  const replay = (seed) => {
+    const rng = R.makeRng(seed);
+    const lines = [];
+    for (let i = 0; i < 250; i++) {
+      for (const id of PARLIAMENT_FIGHTS) {
+        const team = parliamentTeam(R, rng, 48, 6);
+        const result = R.simulateBattle(team, R.buildTrainerTeam(id, team.starter), rng, { foeItems: R.TRAINERS[id].items });
+        lines.push(id + result.winner + ':' + result.turns);
+      }
+    }
+    assert.equal(lines.length, 1000);
+    lines.push('end');
+    return R.hashString(lines.join('|'));
+  };
+  assert.equal(replay(71), replay(71));
+  assert.notEqual(replay(71), replay(72));
+  for (const id of PARLIAMENT_FIGHTS) assert.ok(bossWinRate(R, id, 50, 6, ['souvlaki', 'souvlaki'], 200, 7300) >= 0.5, id + ' with six creatures at level 50 (the cap)');
+});
+test('Βουλή fight 1, Ευτέρπη: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', () => { checkParliamentBands('euterpe'); });
+test('Βουλή fight 2, Σπυράδωνις: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', () => { checkParliamentBands('minister'); });
+test('Βουλή fight 3, Μπέμπης: the win-rate bands of 11.7 (the three-seed mean, with the starter the player took and the rival that follows it), and the team of 11.17', () => { checkParliamentBands('rival6'); });
+test('Βουλή fight 4, Ο Υφυπουργός Παντός: the win-rate bands of 11.7 (the final: the row above the top is the top itself, the cap, 60-90 %, and top minus 1 is 45-65 %), and the team of 11.17', () => { checkParliamentBands('undersec'); });
+test('Βουλή: the lowest row of every fight follows the stat-ratio rule (5, 5, 6, 6) and the earlier bosses keep their rows', () => {
+  same(PARLIAMENT_FIGHTS.map((id) => bossBands(R, id)[2][1]), [-5, -5, -6, -6]);
+  same(PARLIAMENT_FIGHTS.map((id) => lowestRowOffset(PARLIAMENT_TOPS[id])), [5, 5, 6, 6]);
+  for (const [earlier, offset] of [['bougatsas', 3], ['faia', 3], ['amartia', 4], ['plousiakis', 4], ['baboulas', 5]]) assert.equal(bossBands(R, earlier)[2][1], -offset, earlier + ' lowest row');
+  assert.equal(bossBands(R, 'baboulas')[1][4], 0.55, 'only the final has the band 45-65');
+});
+test('Βουλή: old saves (v2 and v3, standing anywhere in the six built districts) load and continue; the new flags and places migrate; the ending is saved with the player on the roof', () => {
+  const party = [{ sp: 'ktimatomesitis', lv: 44, xp: R.xpForLevel(44), hp: 40 }, { sp: 'giagiaexo', lv: 45, xp: R.xpForLevel(45), hp: 30 }, { sp: 'tavlilordos', lv: 46, xp: R.xpForLevel(46), hp: 40 }];
+  const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 777, bag: { fakelaki: 3, gemista: 1, sylvasi: 2 },
+    dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'syntagma_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
+  const sampleOf = (rows, mapId) => {
+    const found = [];
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) if (rows[y][x] === '1' && R.tileWalkable(R.MAPS[mapId], x, y, PARLIAMENT_FLAGS)) found.push([x, y]);
+    return found;
+  };
+  let count = 0;
+  for (const table of [OLD_WALKABLE, OLD_WALKABLE_02A, OLD_WALKABLE_02B, OLD_WALKABLE_02C, OLD_WALKABLE_02D, OLD_WALKABLE_02E, OLD_WALKABLE_02F]) for (const id of Object.keys(table)) for (const [x, y] of sampleOf(table[id].split('/'), id)) {
+    for (const version of table === OLD_WALKABLE ? [2, 3] : [3]) {
+      const loaded = R.migrateSave(make(version, id, x, y, PARLIAMENT_FLAGS));
+      assert.ok(loaded.player.map === id && loaded.player.x === x && loaded.player.y === y, version + ' ' + id + ' ' + x + ',' + y + ' loads where it stood');
+      count++;
+    }
+  }
+  assert.ok(count > 9000, 'a lot of positions were loaded: ' + count);
+  for (const id of PARLIAMENT_MAP_IDS) {
+    const map = R.MAPS[id];
+    let first = null;
+    for (let y = 0; y < map.h && !first; y++) for (let x = 0; x < map.w && !first; x++) if (R.tileWalkable(map, x, y, PARLIAMENT_FLAGS_ENDED)) first = [x, y];
+    const loaded = R.migrateSave(make(3, id, first[0], first[1], PARLIAMENT_FLAGS_ENDED));
+    assert.ok(loaded.player.map === id && loaded.player.x === first[0] && loaded.player.y === first[1], id + ' loads where it stood');
+    assert.equal(R.placeState(loaded.world, 'parliament'), 'visited', 'a save standing in the Βουλή has visited it');
+  }
+  const old = R.migrateSave(make(2, 'syntagma', 14, 6, PARLIAMENT_FLAGS));
+  assert.equal(old.party[0].sp, 'ktimatomesitis'); assert.equal(old.party[1].lv, 45); assert.equal(old.money, 777); assert.equal(old.bag.sylvasi, 2);
+  assert.equal(R.placeState(old.world, 'parliament'), 'seen', 'the medal tells about the Βουλή (seenFlag)');
+  assert.equal(R.districtState(old.world, 'athina'), 'cleared');
+  const before = R.migrateSave(make(3, 'syntagma', 14, 6, ATHINA_FLAGS));
+  assert.equal(R.placeState(before.world, 'parliament'), 'hidden', 'without the medal the Βουλή is not on the map yet');
+  assert.equal(R.placeState(R.newWorldState(), 'parliament'), 'hidden', 'and a district that is locked hides it');
+  // a finished game: the roof, the flags, the world; a second load changes nothing; the flag credits keeps its meaning (the chapter card) and ending is new
+  const world = R.newWorldState();
+  R.worldVisit(world, 'parliament_roof', PARLIAMENT_FLAGS_ENDED);
+  assert.equal(R.placeState(world, 'parliament'), 'visited');
+  const stored = R.migrateSave(make(3, 'parliament_roof', 4, 6, Object.assign({ credits: true, legend_ilithiokratia: true }, PARLIAMENT_FLAGS_ENDED), { world, lastHeal: { map: 'parliament_lobby', x: 5, y: 7, dir: 'up' } }));
+  assert.equal(stored.player.map, 'parliament_roof');
+  same(stored.lastHeal, { map: 'parliament_lobby', x: 5, y: 7, dir: 'up' }, 'the lobby is a valid return point');
+  for (const flag of ['ending', 't_undersec', 'badge_final', 'legend_ilithiokratia', 't_euterpe', 't_minister', 't_rival6']) assert.equal(stored.flags[flag], true, flag + ' is kept');
+  same(R.migrateSave(JSON.parse(JSON.stringify(stored))), stored, 'a second load changes nothing');
+  assert.equal(stored.flags.credits, true, 'the flag credits is kept as it was by the ending');
+  assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, PARLIAMENT_FLAGS)).player.map, 'lab', 'an unknown place falls back to the start, as before');
+});
+test('Βουλή leaves Αθήνα as it was: only the door of the parliament changes (14,4 walks on); every old walkable tile of the eleven maps is still walkable, and the walls of the Βουλή stay solid', () => {
+  for (const id of Object.keys(OLD_WALKABLE_02F)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02F[id].split('/');
+    assert.equal(map.h, rows.length, id + ' height'); assert.equal(map.w, rows[0].length, id + ' width');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '1') assert.ok(!R.tileDef(map, x, y).solid, id + ' ' + x + ',' + y + ' was walkable and still must be');
+  }
+  const nowWalkable = [];
+  for (const id of Object.keys(OLD_WALKABLE_02F)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02F[id].split('/');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '0' && !R.tileDef(map, x, y).solid) nowWalkable.push(id + ':' + x + ',' + y);
+  }
+  same(nowWalkable, ['syntagma:14,4']);
+  for (const id of PARLIAMENT_MAP_IDS) {
+    const map = R.MAPS[id];
+    for (let x = 0; x < map.w; x++) assert.ok(R.tileDef(map, x, 0).solid || R.findWarp(map, x, 0) || (id === 'parliament_roof' && R.tileDef(map, x, 0).solid), id + ' top row ' + x + ' is a wall or a door');
+  }
+  assert.equal(R.districtState(R.newWorldState(), 'athina'), 'locked');
+});
+test('Βουλή final path: the last fight rolls the credits and sets ending; no earlier fight does; the credits flag keeps its meaning; the credits list what the game really uses', () => {
+  const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
+  const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
+  assert.ok(victory.includes('if (victory.credits) { await this.finale(); return; }') && victory.indexOf('victory.credits') < victory.indexOf('victory.chapterCard'), 'the credits branch comes before the chapter card');
+  assert.ok(victory.includes('G.flags.credits = true') && victory.includes('ChapterLayer'), 'the first boss still shows the chapter card and sets the flag credits (the studio opens on it)');
+  const finale = part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent');
+  assert.ok(finale.includes('new CreditsLayer()') && finale.includes('G.flags.ending = true') && finale.indexOf('new CreditsLayer()') < finale.indexOf('G.flags.ending = true') && finale.indexOf('G.flags.ending = true') < finale.indexOf('this.teleport('), 'the credits first, then the flag, then the roof');
+  assert.ok(!finale.includes('G.flags.credits'), 'the ending does not touch the flag credits');
+  const talkTo = part('OverworldLayer.prototype.talkTo', 'OverworldLayer.prototype.finale = async function');
+  assert.ok(/victory\.credits && !G\.flags\.ending\) await this\.finale\(\);/.test(talkTo) && talkTo.indexOf("say('tr.' + def.trainer + '.after')") < talkTo.indexOf('this.finale()'), 'a won last fight whose credits never finished rolls them when he is talked to (code, not a comment)');
+  // The credits roll closes only after the last line has scrolled fully onto the screen (fix round): the real helpers of the page are run on the real credits text.
+  const creditsCode = html.slice(html.indexOf('const CREDITS_LINE_FRAMES'), html.indexOf('function CreditsLayer()'));
+  const creditsHelpers = new vm.Script('(function (SCREEN_H) {\n' + creditsCode + '\nreturn { creditsLineY, creditsEndFrame };\n})').runInNewContext({}, { timeout: 5000 })(160);
+  for (const language of [0, 1]) {
+    const lineCount = R.STRINGS['credits.text'][language].split('\n').length;
+    const lastIndex = lineCount - 1;
+    const closeFrame = creditsHelpers.creditsEndFrame(lineCount);
+    let fullyOnScreen = -1;
+    for (let frame = 0; frame <= closeFrame && fullyOnScreen < 0; frame++) if (creditsHelpers.creditsLineY(frame, lastIndex) <= 160 - 12) fullyOnScreen = frame;
+    assert.ok(fullyOnScreen >= 0 && fullyOnScreen < closeFrame, 'the last line is fully on screen before the roll closes');
+    assert.ok(closeFrame - fullyOnScreen >= 120, 'and stays long enough to read (at least two seconds at 60 frames)');
+    const yAtClose = creditsHelpers.creditsLineY(closeFrame, lastIndex);
+    assert.ok(yAtClose >= 0 && yAtClose <= 148, 'at the close it is still drawn (y ' + yAtClose + ')');
+  }
+  const creditsLayerCode = part('CreditsLayer.prototype.update', 'CreditsLayer.prototype.draw');
+  assert.ok(creditsLayerCode.includes('this.frame > creditsEndFrame(this.lines.length)') && creditsLayerCode.includes('this.frame > 90 && Input.pressed.menu'), 'the end uses the helper and the skip after 90 frames stays');
+  assert.ok(part('CreditsLayer.prototype.draw', '// ---- Helpers shared by the screens').includes('creditsLineY(this.frame, i)'), 'the draw code uses the same position helper');
+  assert.ok(part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent').includes("x: 4, y: 6, dir: 'up'"), 'the finale puts the player on the roof at (4, 6), where the in-page check and section 11.17 say');
+  assert.ok(R.tileWalkable(R.MAPS.parliament_roof, 4, 6, PARLIAMENT_FLAGS_ENDED), 'and that tile is walkable');
+  assert.equal((html.slice(0, html.indexOf('async function selfTest()')).match(/G\.flags\.ending = true/g) || []).length, 1, 'the game sets the flag in one place (the finale)');
+  same(R.MAPS.parliament_roof.warps.map((warp) => warp.to), ['parliament_plenary', 'parliament_plenary']);
+  assert.equal(R.TRAINERS.kotsos.victory.chapterCard, true, 'Κώτσος keeps the chapter card');
+  assert.ok(R.STRINGS['credits.after'][1].includes('TV Studio'));
+  // the credits text: both languages, short lines, the facts of this game, no AI attribution, no person, no brand
+  const credits = R.STRINGS['credits.text'];
+  assert.equal(credits.length, 2);
+  for (const [index, text] of credits.entries()) {
+    const lines = text.split('\n');
+    assert.equal(lines[0], 'MIZAMON');
+    assert.ok(lines.every((line) => line.length <= 42), 'every line of the credits is short enough for the screen: ' + lines.filter((line) => line.length > 42).join(' | '));
+    assert.ok(!/(\bAI\b|Claude|Anthropic|OpenAI|GPT|ChatGPT|generated|δημιουργήθηκε από τεχνητή|τεχνητή νοημοσύνη|Σταθόπουλος|Stathopoulos|Μητσοτάκ|Τσίπρα)/i.test(text), 'no AI attribution and no name in the credits');
+    assert.ok(!DENY_PATTERN.test(plainText(text)) && !DENIED_CAPITALISED_WORDS.test(text), 'no brand in the credits');
+    assert.ok(/Σάτιρα|Satire/.test(text), 'the satire line stays');
+  }
+  assert.ok(/πρωτότυπα/.test(credits[0]) && /original/.test(credits[1]), 'the code and the graphics are original');
+  assert.ok(/Μουσική και ήχοι/.test(credits[0]) && /συνθέτονται ζωντανά/.test(credits[0]) && /Music and sounds/.test(credits[1]) && /synthesised live/.test(credits[1]), 'the music and the sounds are made by the code');
+  assert.ok(/Κανένα εξωτερικό αρχείο/.test(credits[0]) && /No outside files/.test(credits[1]) && /συστήματός σου/.test(credits[0]) && /system fonts/.test(credits[1]), 'no outside file, the letters are system fonts');
+  // ... and the claims are true: the file loads nothing from outside (no image, sound or font file, no address, no audio or image element) and makes its sound with oscillators
+  assert.ok(!/https?:\/\//.test(html) && !/<img\b|<audio\b|<video\b|<link\b|<script\s+src|@font-face|@import|new Audio\(|new Image\(|\.(mp3|ogg|wav|mid|png|jpg|gif|ttf|woff2?)['"]/i.test(html), 'nothing is loaded from outside the file');
+  assert.ok(/createOscillator\(\)/.test(html) && !/decodeAudioData|createMediaElementSource/.test(html), 'the sounds are synthesised');
+  assert.ok(html.includes("img-src data: blob:") && html.includes("default-src 'none'"), 'the page may not load anything (content security policy)');
+});
+test('Βουλή: no per-frame work in the new content (the tiles and the creature sprite are drawn once into canvases; the texts are cached strings; the finale and the legend run only when the player talks)', () => {
+  const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
+  for (const char of ['Δ', 'Θ', 'Φ', 'Ξ']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
+  assert.ok(new RegExp('^ {2}ilithiokratia: function \\(p\\) \\{', 'm').test(html.slice(html.indexOf('const creatureDrawers = {'), html.indexOf('const creatureSprites = {}'))), 'the legend is drawn by a creatureDrawers entry (run once)');
+  const overworldDraw = html.slice(html.indexOf('OverworldLayer.prototype.draw = function'), html.indexOf('OverworldLayer.prototype.drawNpc'));
+  assert.ok(!/(parliament|plenary|ilithiokratia|euterpe|undersec|finale|ending)/i.test(overworldDraw), 'the overworld draw code has no Βουλή special case');
+  const finale = html.slice(html.indexOf('OverworldLayer.prototype.finale = async function'), html.indexOf('OverworldLayer.prototype.runEvent'));
+  assert.ok(!/(setInterval|requestAnimationFrame|update\s*=|rng)/.test(finale), 'the finale runs only once, from the won fight');
+  const creditsLayer = html.slice(html.indexOf('function CreditsLayer()'), html.indexOf('// ---- Helpers shared by the screens'));
+  assert.ok(creditsLayer.includes("T('credits.text').split('\\n')") && creditsLayer.indexOf("T('credits.text')") < creditsLayer.indexOf('CreditsLayer.prototype.update'), 'the credits lines are split once, when the screen opens');
+  const mapDraw = html.slice(html.indexOf('function drawMapPlaces'), html.indexOf('function drawMapDistrictNames'));
+  assert.ok(mapDraw.includes("state === 'visited'") && !mapDraw.includes('T('), 'the visited dot of the Βουλή is drawn into the cached base, with no text work');
+});
+test('Βουλή: type fairness named: every type of every fight is hit for x2 by a starter or a creature that is available before it', () => {
+  const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika'), ...R.districtSpecies('voreia'), ...R.districtSpecies('dytika'), ...R.districtSpecies('athina')];
+  for (const id of PARLIAMENT_FIGHTS) {
+    const types = new Set(R.buildTrainerTeam(id, 'komma').map((mon) => R.SPECIES[mon.sp].t)); // the rival's last form is that of the starter he took: the three starters give the three types pol, asf and ekk
+    if (id === 'rival6') for (const starter of R.STARTERS) types.add(R.SPECIES[R.buildTrainerTeam(id, starter)[5].sp].t);
+    for (const type of types) assert.ok(before.some((species) => R.typeMultiplier(R.SPECIES[species].t, type) === 2), id + ': a starter or a creature of the districts up to Αθήνα hits ' + type);
+  }
+  // named: the clerks (Πολιτικοί, Ασφαλίτες, Επιχειρηματίες) are hit by Memes (Τρολόσαυρος), Εκκλησία (Ψαλτάκι) and Πολιτικοί (Κομματάκι); Μιζοτάκης, the ace, is a Πολιτικός and is hit by the Memes, the Celebrities and the Influencers
+  assert.ok(R.typeMultiplier('mem', 'pol') === 2 && R.typeMultiplier('cel', 'pol') === 2 && R.typeMultiplier('inf', 'pol') === 2, 'Πολιτικοί are hit by Memes, Celebrities and Influencers');
+  assert.ok(R.typeMultiplier('pol', 'asf') === 2 && R.typeMultiplier('ekk', 'asf') === 2 && R.typeMultiplier('pol', 'biz') === 2, 'Ασφαλίτες and Επιχειρηματίες are hit by Πολιτικοί (and Ασφαλίτες also by Εκκλησία)');
+  assert.ok(R.districtSpecies('athina').some((id) => R.SPECIES[id].t === 'mem') || before.some((id) => R.SPECIES[id].t === 'mem'), 'a Memes creature is available (Τρολόσαυρος, from Πειραιάς)');
+  assert.equal(R.SPECIES[R.TRAINERS.undersec.team[5].sp].t, 'pol', 'the ace of the last fight is a Πολιτικός');
+});
+test('Βουλή leaves the earlier bosses as they were: the new fights add no creature to any test pool and the rival of the Βουλή builds with the starter the player took', () => {
+  assert.equal(PARLIAMENT_POOL.length, ATHINA_POOL.length, 'the pool of the Βουλή is the pool of Αθήνα (no wild creature, no new item, the legend in no pool)');
+  assert.equal(R.TRAINERS.baboulas.team.length, 6, 'the Αθήνα boss is as it was (its bands are measured by its own test, at the same seed)');
+  const team = parliamentTeam(R, R.makeRng(3), 48, 6);
+  assert.ok(R.STARTERS.includes(team.starter) && team.length === 6, 'a test team knows the starter it was built with');
+  const same1 = bossWinRate(R, 'baboulas', 45, 6, ['souvlaki', 'souvlaki'], 100, 5000);
+  const same2 = bossWinRate(R, 'baboulas', 45, 6, ['souvlaki', 'souvlaki'], 100, 5000);
+  assert.equal(same1, same2, 'the same seed gives the same rate');
+});
+
 // The player team of a Νότια, Ανατολικά, Βόρεια, Δυτικά or Αθήνα fight: one starter (in its middle form from level 16, in its last form from level 32) and creatures of the pool, every creature evolved as far as its level allows.
 export const NOTIA_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'fakelarchis', 'efoplistakos', 'kafenovios'];
 // The pool of Ανατολικά: that of Νότια plus the Μοναστηριάκι of route 5 and the Κρυπτο-Μάκης of route 6 (the other creatures of the district are evolved forms of the pool:
@@ -3484,18 +3956,24 @@ export function dytikaTeam(rules, rng, level, size) { return poolTeam(rules, rng
 // Κτηματομεσίτης), and the legend of the Rock is a single recruitable creature, not part of the test teams.
 export const ATHINA_POOL = DYTIKA_POOL.slice();
 export function athinaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, ATHINA_POOL); }
+// The pool of the Βουλή (MZ-WORLD-02g): that of Αθήνα again (the district has no wild creature and no new item; the legend of the Rock and Ηλιθιοκρατία are in no test team).
+export const PARLIAMENT_POOL = ATHINA_POOL.slice();
+export function parliamentTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, PARLIAMENT_POOL); }
 function poolTeam(rules, rng, level, size, poolIds) {
   const evolved = (mon) => { while (rules.evolveMon(mon)); return mon; }; // as far as the level allows (a starter has two steps from level 32)
-  const team = [evolved(rules.makeMon(rules.pickOne(rng, rules.STARTERS), level))];
+  const starter = rules.pickOne(rng, rules.STARTERS);
+  const team = [evolved(rules.makeMon(starter, level))];
   const pool = poolIds.slice();
   for (let n = 1; n < size; n++) team.push(evolved(rules.makeMon(pool.splice(Math.floor(rng() * pool.length), 1)[0], level)));
+  team.starter = starter; // the rival of the Βουλή (11.17) follows the starter the player took, so a fight is built with it
   return team;
 }
 export function bossWinRate(rules, bossId, level, size, items, runsCount, seed) {
   const rng = rules.makeRng(seed + level * 10 + size);
   let wins = 0;
   for (let i = 0; i < runsCount; i++) {
-    if (rules.simulateBattle(({ bougatsas: notiaTeam, faia: anatolikaTeam, amartia: voreiaTeam, plousiakis: dytikaTeam, baboulas: athinaTeam }[bossId] || notiaTeam)(rules, rng, level, size), rules.buildTrainerTeam(bossId, 'komma'), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: items }).winner === 0) wins++;
+    const team = ({ bougatsas: notiaTeam, faia: anatolikaTeam, amartia: voreiaTeam, plousiakis: dytikaTeam, baboulas: athinaTeam, euterpe: parliamentTeam, minister: parliamentTeam, rival6: parliamentTeam, undersec: parliamentTeam }[bossId] || notiaTeam)(rules, rng, level, size);
+    if (rules.simulateBattle(team, rules.buildTrainerTeam(bossId, team.starter), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: items }).winner === 0) wins++;
   }
   return wins / runsCount;
 }
@@ -3518,11 +3996,20 @@ export const NOTIA_BOSS_BANDS = [
 export const LOWEST_ROW_LEVEL_SHARE_PER_MILLE = 105;
 export const LOWEST_ROW_MIN_OFFSET = 3;
 export function lowestRowOffset(topLevel) { return Math.max(LOWEST_ROW_MIN_OFFSET, Math.ceil(LOWEST_ROW_LEVEL_SHARE_PER_MILLE * topLevel / 1000)); }
+// The last fight of the game (Ο Υφυπουργός Παντός, the Βουλή): section 11.7 gives it the band 45-65 % at top minus 1 (every other boss 55-75 %). Its top level is the level cap, 50,
+// so its "top plus 1" row would be level 51, a level no player reaches (see FINAL_BAND_AT_CAP).
+export const FINAL_BOSS_ID = 'undersec';
+export const FINAL_BAND_MINUS_ONE = [0.45, 0.65];
+// Agent decision (11.17): the plan's band for the row above the top, 85-97 %, cannot be measured for the final: its top is the cap, level 50, so that row would be level 51. It is replaced by the top itself, a
+// full team at the cap (the strongest player there is), 60-90 %: the final is won by most players who arrive at the cap and lost by a good share of those one level short (45-65 %).
+export const FINAL_BAND_AT_CAP = [0.60, 0.90];
 export function bossBands(rules, bossId) {
   const team = rules.TRAINERS[bossId].team;
   const longTeam = team.length >= 4;
   const lowestOffset = lowestRowOffset(Math.max(...team.map((entry) => entry.lv)));
   return NOTIA_BOSS_BANDS.map(([label, offset, size, items, low, up]) => {
+    if (bossId === FINAL_BOSS_ID && offset === 1) return ['top (the level cap), six creatures', 0, size, items, FINAL_BAND_AT_CAP[0], FINAL_BAND_AT_CAP[1]]; // no player is above the cap (11.17)
+    if (bossId === FINAL_BOSS_ID && offset === -1 && size === 6) return [label, offset, size, items, FINAL_BAND_MINUS_ONE[0], FINAL_BAND_MINUS_ONE[1]]; // the final is harder (section 11.7)
     if (size === 3 && longTeam) return ['top, three creatures, no items', 0, size, items, low, up];
     if (offset === -3) return ['top minus ' + lowestOffset + ', six creatures', -lowestOffset, size, items, low, up];
     return [label, offset, size, items, low, up];
@@ -3539,7 +4026,7 @@ export function bossBandMeans(rules, bossId, runsCount) {
 // One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
 export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
 export function starterBossRate(rules, bossId, starter, level, size, runsCount, seed) {
-  const pool = { kotsos: PEIRAIAS_POOL, bougatsas: NOTIA_POOL, faia: ANATOLIKA_POOL, amartia: VOREIA_POOL, plousiakis: DYTIKA_POOL, baboulas: ATHINA_POOL }[bossId];
+  const pool = { kotsos: PEIRAIAS_POOL, bougatsas: NOTIA_POOL, faia: ANATOLIKA_POOL, amartia: VOREIA_POOL, plousiakis: DYTIKA_POOL, baboulas: ATHINA_POOL, euterpe: PARLIAMENT_POOL, minister: PARLIAMENT_POOL, rival6: PARLIAMENT_POOL, undersec: PARLIAMENT_POOL }[bossId];
   const rng = rules.makeRng(seed + level * 10 + size);
   let wins = 0;
   for (let i = 0; i < runsCount; i++) {
@@ -3566,7 +4053,7 @@ export function xpBand(rules, districtId) {
   let wildTop = -1;
   for (const [mapId, map] of Object.entries(rules.MAPS)) {
     const place = rules.mapNode(mapId);
-    if (!place || place.district !== districtId) continue;
+    if (!place || place.district !== districtId || place.kind === 'door') continue; // the Βουλή is a door of Αθήνα with a band of its own (parliamentXpBand)
     for (const npc of map.npcs) if (npc.kind === 'trainer' && !rules.TRAINERS[npc.trainer].recruitable) trainerIds.push(npc.trainer);
     for (const trigger of map.triggers || []) trainerIds.push(trigger.event);
     if (map.zones) { // the wild fights of the district are those of its zoned map with the highest levels
@@ -3586,13 +4073,32 @@ export function xpBand(rules, districtId) {
   const wildXp = sum / weight;
   return { trainerIds, top, need, trainerXp, wildXp, wildFights: Math.max(0, Math.ceil((need - trainerXp) / wildXp)), trainerShare: trainerXp / need };
 }
+// The Βουλή (section 11.4 and 11.17): the player arrives at level 44 and wants 48 for the last fight; there is no wild creature in the Βουλή, so the first three fights (the last one,
+// the boss fight, is not counted, as in every district) have to pay the XP three creatures need for the climb.
+export const PARLIAMENT_FIGHTS = ['euterpe', 'minister', 'rival6', 'undersec'];
+export const PARLIAMENT_ARRIVAL_LEVEL = 44;
+export const PARLIAMENT_WANTED_LEVEL = 48;
+export function parliamentXpBand(rules) {
+  const fightIds = PARLIAMENT_FIGHTS.slice(0, 3);
+  const need = 3 * (rules.xpForLevel(PARLIAMENT_WANTED_LEVEL) - rules.xpForLevel(PARLIAMENT_ARRIVAL_LEVEL));
+  let creatures = 0;
+  let trainerXp = 0;
+  for (const id of fightIds) for (const mon of rules.buildTrainerTeam(id, 'komma')) { creatures++; trainerXp += rules.xpReward(mon, true); }
+  return { fightIds, need, creatures, trainerXp, trainerShare: trainerXp / need };
+}
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();
 function runAll() {
 let passed = 0;
 const failures = [];
-for (const { name, fn } of tests) {
+const only = process.env.MZ_TEST_FILTER ? new RegExp(process.env.MZ_TEST_FILTER, 'u') : null; // while working: MZ_TEST_FILTER="Βουλή" runs the tests whose name matches (the full run has no filter)
+const selected = only ? tests.filter(({ name }) => only.test(name)) : tests;
+if (only && selected.length === 0) {
+  console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
+  process.exit(1);
+}
+for (const { name, fn } of selected) {
   try {
     fn();
     passed++;
@@ -3602,6 +4108,6 @@ for (const { name, fn } of tests) {
     console.log('FAIL ' + name + '\n     ' + String(error && error.message ? error.message : error).split('\n').join('\n     '));
   }
 }
-console.log('PASS ' + passed + ' / ' + tests.length);
+console.log('PASS ' + passed + ' / ' + selected.length);
 if (failures.length > 0) process.exit(1);
 }
