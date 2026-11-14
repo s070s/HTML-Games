@@ -602,7 +602,7 @@ test('strings: every key the code asks for exists, including the keys built from
 
 test('strings: no battle text copies another monster game, and no masculine-only form is addressed to the player', () => {
   const copied = [/what will .* do/i, /\bused \{move\}/i, /^go,/i, /come back/i, /^a critical hit/i, /super effective/i, /not very effective/i, /blacked out/i,
-    /is evolving/i, /wants to learn/i, /^congratulations! it/i, /sends out/i, /\bmissed!/i];
+    /is evolving/i, /wants to learn/i, /^congratulations! it/i, /sends out/i, /\bmissed!/i, /^hit \{n\} times/i];
   const copiedGreek = [/χρησιμοποίησε/, /Σούπερ αποτελεσματικό/, /Εύστοχο χτύπημα/, /στέλνει στη μάχη/, /τι κάνει;/, /Επιστρέφει:/, /Λιποθύμησες/, /εξελίσσεται\.\.\./, /Συγχαρητήρια/];
   for (const [key, [greek, english]] of Object.entries(R.STRINGS)) {
     for (const pattern of copied) assert.ok(!pattern.test(english), key + ' (English) copies a known line: ' + english);
@@ -610,7 +610,7 @@ test('strings: no battle text copies another monster game, and no masculine-only
   }
   for (const kind of ['wild', 'trainer']) assert.ok(!/^(Wild|Foe) /.test(R.monLabel({ sp: 'komma', side: 1 }, 'en', kind)));
   // The player may be a woman: forms that only fit a man must sit inside a {man|woman} choice.
-  const masculineOnly = /(διάσημος|μόνος|έτοιμος|ανιψιέ|φίλε|κύριε|νεαρέ|αγόρι μου)/;
+  const masculineOnly = /(διάσημος|μόνος|έτοιμος|ανιψιέ|φίλε|κύριε|νεαρέ|αγόρι μου|γίνεις προπονητής)/;
   for (const [key, [greek]] of Object.entries(R.STRINGS)) {
     const outsideChoices = greek.replace(/\{[^{}|]*\|[^{}|]*\}/g, '');
     assert.ok(!masculineOnly.test(outsideChoices), key + ' addresses the player with a masculine-only form: ' + greek);
