@@ -204,7 +204,14 @@ canvas.qr{background:#fff;image-rendering:pixelated;max-width:100%;aspect-ratio:
 .hs.r .bar.mo{margin-left:30%}
 .bar.mo i,.hs.r .bar.mo i{background:#c9b88a}
 .bar.mo.on i{background:#ffd24a}
-.pips{margin-top:.3em;font-size:.9em;letter-spacing:.2em;min-height:1.2em}
+.pips{margin-top:.3em;font-size:.9em;letter-spacing:.2em;min-height:1.2em;height:1.2em;white-space:nowrap} /* P19-02: a fixed height, so the strain tiles never change what the row takes */
+.zr{display:inline-flex;align-items:center;vertical-align:top;height:1.2em;white-space:nowrap;letter-spacing:0} /* P19-02: the strain tiles H B L (UI.strainTiles) in a pip row or a name tag: each fills from the bottom (--zf), amber and orange-red from 45 of 60; the letter and the fill carry the meaning */
+.hs.l .zr{margin-left:1em}
+.hs.r .zr{margin-right:1em}
+.tag .zr{margin-left:.5em;height:1.1em;vertical-align:middle}
+.zt{flex:none;box-sizing:border-box;width:1.25em;height:1.2em;margin-right:.15em;border:1px solid #fff;font:900 .8em/1.2em Arial,sans-serif;text-align:center;color:#fff;text-shadow:0 0 2px #000,0 0 2px #000;background:linear-gradient(to top,#ffb347 calc(var(--zf,0) * 100%),rgba(0,0,0,.6) 0)}
+.zt.hot{background:linear-gradient(to top,#ff5a36 calc(var(--zf,0) * 100%),rgba(0,0,0,.6) 0)}
+.zt:last-child{margin-right:0}
 .hitem{margin-top:.15em;font-size:.75em;letter-spacing:.1em;min-height:1.1em;color:#ffe9a8;text-shadow:0 1px 2px #000;white-space:nowrap} /* the held item: name and durability pips */
 .hc-center{width:7em;text-align:center;flex:none}
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
@@ -885,7 +892,7 @@ const Setups = {
     const old = readJson(KEY_SETTINGS) || {}, stored = readJson(KEY_SETUPS), edge = +(old.ringOut === true); // at start-up: Settings.save drops the old Friendly fire and Ring-out keys
     const d = this.d = stored || { v: 1, freeFight: { friendlyFire: old.friendlyFire === true } }, ff = d.v === 1 ? this.plain(d.freeFight) : null, tour = d.v === 1 ? this.plain(d.tournament) : null;
     const seedRules = ff && !ff.rules, seedRing = tour && typeof tour.ringOut !== 'boolean';
-    if (seedRules) d.freeFight = Object.assign(ff, { rules: { area: edge, ringOut: edge, items: +(old.items !== false), hazards: +(old.hazards !== false), breakables: 1, health: 1, side: 0 } }); // only rules are added: no cleaning before the custom fighters load
+    if (seedRules) d.freeFight = Object.assign(ff, { rules: { area: edge, ringOut: edge, items: +(old.items !== false), hazards: +(old.hazards !== false), breakables: 1, health: 1, side: 0, zones: 1 } }); // only rules are added: no cleaning before the custom fighters load
     if (seedRing) d.tournament = Object.assign(tour, { ringOut: edge === 1 }); // the Tournament's Ring-out row, seeded once from the old switch
     if (!stored || seedRules || seedRing) this.save();
   },
@@ -904,12 +911,13 @@ const FIGHT_RULES = [
   ['breakables', ['Off', 'On'], 1, 'Breakables'],
   ['health', ['Half', 'Normal', 'One and a half', 'Double'], 1, 'Health'],
   ['side', SIDE_LABELS, 0, SIDE_ROW],
+  ['zones', ['Off', 'On'], 1, 'Body strain'], // P19-02: the head, body and legs strain of a landed hit and what a full zone does (Combat.strain); Off = the old game
 ];
 const FIGHT_PRESETS = [ // [name, rows in table order, rounds, seconds]
-  ['Standard', [0, 0, 1, 1, 1, 1, 0], 2, 60],
-  ['Tournament bout', [0, 0, 0, 0, 1, 1, 0], 1, 60],
-  ['Survival style', [0, 0, 1, 1, 1, 1, 0], 1, 60],
-  ['Ring match', [1, 1, 0, 0, 1, 1, 0], 2, 60],
+  ['Standard', [0, 0, 1, 1, 1, 1, 0, 1], 2, 60],
+  ['Tournament bout', [0, 0, 0, 0, 1, 1, 0, 1], 1, 60],
+  ['Survival style', [0, 0, 1, 1, 1, 1, 0, 1], 1, 60],
+  ['Ring match', [1, 1, 0, 0, 1, 1, 0, 1], 2, 60],
 ];
 const FightRules = {
   fix(raw) { const src = Setups.plain(raw), rules = {}; for (const [key, labels, def] of FIGHT_RULES) rules[key] = Number.isInteger(src[key]) && src[key] >= 0 && src[key] < labels.length ? src[key] : def; return rules; },
@@ -922,7 +930,7 @@ const FightRules = {
   // Config fields; a rule that does not apply is stored as its default
   cfg(rules, lineup, arena) {
     const ring = rules.area === 1 && !this.why('area', rules, lineup, arena);
-    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : SIDE_VALUE[rules.side], rulesSet: true };
+    return { ring, ringOut: ring && rules.ringOut === 1 && !this.why('ringOut', rules, lineup, arena), items: rules.items === 1, hazards: rules.hazards === 1, breakables: rules.breakables === 1, hpScale: (rules.health + 1) / 2, startSide: this.why('side', rules, lineup, arena) ? 0 : SIDE_VALUE[rules.side], zones: rules.zones === 1, rulesSet: true };
   },
   // The first preset the rows equal (dimmed rows ignored), or -1 for Custom
   match(rules, lineup, arena, sel) {
@@ -1163,6 +1171,7 @@ const COACH_TIPS = [
   { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
   { key: 'charge', text: (k, f) => 'Hold ' + k(f && MOVE_STYLE[moveStyleFor(f.profile)].charge.at.endsWith('K') ? 'kick' : 'punch') + ' on a string\'s last press to charge it. Let go to strike.' }, // P19-15: names the button of the style's chargeable step; the decision's wording shortened to the 70 characters of the strip (the P18-27 test)
   { key: 'pause', text: () => 'Stand still for a beat between two presses for a different move.' },
+  { key: 'zone', text: () => 'Many hits to one zone wear it out: dizzy, breathless or limping.' }, // P19-02 (64 characters): offered the first time the strain tiles show for the person's fighter or the lock-on target
 ];
 const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 1.15, POP_BOX_EM = 0.9, POP_GROW = 0.25, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6, POP_STEPS_DOWN = 3; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life; POP_STEPS_DOWN: steps below the hit a pop may take when the pile has no room above; POP_LIFT_EM: one step (more than a text box of POP_BOX_EM em at the start scale 1 + POP_GROW)
 const HUD_NAME_LONG = 9;
@@ -4799,6 +4808,14 @@ const PLAYER_STAMINA_EDGE = {
   hard: STAMINA_EDGE_NONE,
   expert: STAMINA_EDGE_NONE,
 };
+/* Body-zone strain (P19-01 decided, P19-02 built; REFERENCE-breakpoint.md, Appendix C, "P19-01 body-zone strain"). A zone is the head, the body or the legs (ZONE_NAMES, the order of Fighter.zone); its strain is kept in tenths of a point, 0 to ZONE_MAX (60 points), so the whole simulation is integer arithmetic and the tenths are exact in the state hash.
+   A hit that lands and does damage adds to the one zone it hits (Combat.strain): ZONE_GAIN strain points for each percent of the fighter's full health that the hit dealt. After ZONE_CALM_TICKS without a gain every zone loses a point every ZONE_DECAY_TICKS. A zone that reaches ZONE_MAX gives out: its effect starts, the zone drops to ZONE_RESET and nothing gives out again for ZONE_IMMUNE_TICKS of the match clock (Fighter.zoneUntil, kept across rounds).
+   Effects: DIZZY (head) takes Block, Sway and Run away and halves the walk for DIZZY_TICKS from the first free tick; BREATHLESS (body) halves the stamina refill for BREATHLESS_TICKS; LIMP (legs) slows the walk to LIMP_WALK and takes Run away for LIMP_TICKS. ZONE_SHOW is the strain above which the HUD shows the zone tiles. Fighter.tickZones and Fighter.tickZoneTimers run them; the rule is off when the match config says zones: false (Free Fight row "Body strain"). */
+const ZONE_NAMES = ['head', 'body', 'legs'];
+const ZONE_GAIN = { head: 1.15, body: 1.05, legs: 1.05 }; // strain points for each percent of the fighter's full health a hit dealt: a zone is full at 52 % (head) or 57 % (body, legs) of it
+const ZONE_MAX = 600, ZONE_RESET = 400, ZONE_SHOW = 300; // tenths of a point: full, what a zone that gave out drops to, the readout threshold
+const ZONE_CALM_TICKS = 60, ZONE_DECAY_TICKS = 45, ZONE_IMMUNE_TICKS = 900;
+const DIZZY_TICKS = 40, DIZZY_WALK = 0.5, BREATHLESS_TICKS = 300, BREATHLESS_REFILL = 0.5, LIMP_TICKS = 300, LIMP_WALK = 0.8;
 function normalizeAttrs(a) {
   const out = {};
   for (const k of ATTR_KEYS) out[k] = clamp(Math.round(finite(a[k], 5)), 1, 10);
@@ -5317,6 +5334,11 @@ const SLUMP_POSE_STATES = [S.IDLE, S.WALK, S.BLOCK_H, S.BLOCK_L]; // the states 
 const SLUMP_HANDS = 0.10, SLUMP_LEAN = 0.10, SLUMP_CHIN = 0.08, SLUMP_SINK = 0.06; // rad (sink: the depth of sink(), 3.4 rad of knee per unit) at slump 1; the hands drop (the elbows open: the shoulders stay up with the pant, P13-02), the back rounds, the head goes down
 const SLUMP_BY_BAND = [0, 0, 1, 1.6], PANT_RATE_BY_BAND = [1, 1, 1.15, 1.4], BREATH_GAIN_BY_BAND = [1, 1, 1.15, 1.4]; // by Fresh, Winded, Tired, Spent
 const EXHALE_GAIN = 0.5, STUMBLE_VOICE_GAIN = 0.6, STUMBLE_VOICE_PITCH = 0.88, STUMBLE_FOOT_GAIN = 0.6; // the exhale of a Spent breath and the stumble's scuff and grunt, against the sounds they borrow
+/* P19-02 body-zone strain, drawing only (the simulation reads none of it): the pose of a running zone effect (Fighter.zoneEffectPose; the key is Fighter.zonePose) and the readout. DIZZY drops the head and rocks the torso on a triangle wave of the fighter's own age (no Math.sin); BREATHLESS hunches forward with the shoulders rising and falling; LIMP puts the weight on one leg (a roll to the sound side, the other knee bent, a dip on the shorter step). Reduced motion keeps each pose and drops the wave. ZONE_HOT is the strain (tenths) from which a tile turns orange-red. */
+const ZONE_POSE_STATES = [S.IDLE, S.WALK, S.BLOCK_H, S.BLOCK_L]; // the calm poses and both guards; an attack, a hit and every other state keep their own pose
+const DIZZY_HEAD = 0.25, DIZZY_ROCK = 0.12, DIZZY_PERIOD = 36, BREATHLESS_LEAN = 0.3, BREATHLESS_KNEES = 0.1, BREATHLESS_SHOULDERS = 0.04, BREATHLESS_PERIOD = 48, LIMP_ROLL = 0.06, LIMP_KNEE = 0.25, LIMP_DIP = 0.04, LIMP_PERIOD = 36; // rad (the dip: metres of root drop) and ticks
+const ZONE_HOT = 450;
+const triangleWave = (age, period) => { const u = (age % period) / period; return u < 0.5 ? 4 * u - 1 : 3 - 4 * u; }; // -1 to 1 from an integer age: no Math.sin
 const STUMBLE_LEAN = 0.30, STUMBLE_KNEES = 0.25, STUMBLE_BLEND = 3; // rad at the full stumble, and the ticks it blends in and out over
 /* P19-15 charge and pause cues, drawing and sound only (the simulation reads none of it; Appendix C "P19-14 ... decided" section 6). A held chargeable press stays at the lowest point of its wind-up (CHARGE_POSE_FROM, the 0.45 of strikeExtension) and, while it waits, coils: the draw-back deepens by CHARGE_COIL_DEEPEN over CHARGE_L2 ticks and the family's coil joints (CHARGE_COIL) come in with it;
    from level 1 a tremor of CHARGE_TREMOR rad at CHARGE_TREMOR_HZ (none with Reduced motion); the release plays the extension from the coil to full over the release ticks; a tap catches up to its own extension over CHARGE_POSE_BLEND ticks. The ring is CHARGE_RING_SEGMENTS thin cubes at CHARGE_RING_RADIUS m, filling to level 1 in white and to level 2 in the style's accent colour.
@@ -5768,6 +5790,7 @@ const DEFAULT_DEFENSE = 'block';
 const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
 const CHARGE_CANCEL_HELP = 'A charge is cancelled by a Defend press and by any hit; a Defend that is already down does not cancel it.'; // P19-15: the last sentence of both defences' help (the decision wrote "a Defend you are already holding": the Move list tests read the word "holding" as an item line, so it says "down")
 const PAUSE_HELP = 'A press made while a move is still running is a chain; a press made after you have stood still for a beat plays the delayed move of your style.'; // the last sentence of COMBO_HELP
+const ZONE_HELP = 'Body strain: a hit that lands adds strain to the zone it hits (head, body or legs); blocked and slipped hits add none. At ' + ZONE_MAX / 10 + ' the zone gives out: head, dizzy (no Block or Sway for ' + +(DIZZY_TICKS / 60).toFixed(1) + ' s); body, breathless (slow stamina refill for ' + BREATHLESS_TICKS / 60 + ' s); legs, limping (slower walk, no run for ' + LIMP_TICKS / 60 + ' s). It then drops to ' + ZONE_RESET / 10 + ' and nothing gives out again for ' + ZONE_IMMUNE_TICKS / 60 + ' s.'; // P19-02: the help line (the Move list)
 // What Defend does, in plain words
 const DEFENSE_HELP = {
   block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter. ' + CHARGE_CANCEL_HELP,
@@ -6644,6 +6667,7 @@ class Fighter {
     this.tp = new Float32Array(NP);
     this.pts = new Float32Array(36);
     this.chainBend = CHAIN_REST; this.chainOver = false;
+    this.zoneUntil = 0; // P19-02: the match tick before which no zone effect fires; set here, before the first reset, because reset never writes it (it must survive a new round)
     this.reset(0, 0, 0);
   }
 
@@ -6666,6 +6690,7 @@ class Fighter {
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
     this.momentum = 0; this.boostTicks = 0; // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost
+    this.zone = [0, 0, 0]; this.zoneCalm = 0; this.dizzy = 0; this.breathless = 0; this.limp = 0; this.dizzyWait = 0; this.zoneLastZone = -1; this.zoneLastGain = 0; // P19-02 (zoneUntil is not here): strain in tenths (head, body, legs), ticks since the last gain, the ticks left of each effect, 1 = a head effect fired and the fighter has not been free yet; zoneLastZone and zoneLastGain (the last gain, tenths) are for the Training line only and are not in matchChecksum
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.plantStance = 0; this.plantFast = false; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
     this.bodyBy = null; this.bodyFlight = 0; this.bodyHits = []; // a thrown body: who threw it, the flight (flightId) it is valid for and the fighters it has met on that flight
@@ -6730,6 +6755,7 @@ class Fighter {
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
   get bandIndex() { for (let i = 0; i < STAMINA_BANDS.length; i++) if (this.stam >= this.maxStam * STAMINA_BANDS[i].from) return i; return STAMINA_BANDS.length - 1; } // the index of the first row the tank reaches (0 Fresh, 1 Winded, 2 Tired, 3 Spent); a tank below 0 is Spent. A number: the view code reads it every frame without allocating
   get band() { return STAMINA_BANDS[this.bandIndex]; }
+  get zonePose() { return !this.alive ? '' : this.dizzy > 0 ? 'dizzy' : this.limp > 0 ? 'limp' : this.breathless > 0 ? 'breathless' : ''; } // P19-02: the pose key of the zone effect that is running (at most one runs at a time), '' for none
   get airborne() { return this.y > this.groundY + 0.05; }
   get fwdX() { return DMath.sin(this.yaw); }
   get fwdZ() { return DMath.cos(this.yaw); }
@@ -6867,6 +6893,18 @@ class Fighter {
     Events.emit('boostStart', { f: this });
   }
   tickBoost() { if (this.boostTicks > 0 && --this.boostTicks === 0) Events.emit('boostEnd', { f: this }); }
+  // P19-02, once a tick before the Defend press is read: the strain decays, a head effect that has fired starts on the first free tick (a fighter who is down or in the air has none of its 40 ticks yet), and a running effect takes inputs away. The input is the match's scratch for this tick.
+  tickZones(it) {
+    if (!this.alive) { this.endZoneEffects(); return; }
+    this.zoneCalm++;
+    if (this.zoneCalm >= ZONE_CALM_TICKS && (this.zoneCalm - ZONE_CALM_TICKS) % ZONE_DECAY_TICKS === 0) for (let k = 0; k < this.zone.length; k++) this.zone[k] = Math.max(0, this.zone[k] - 10);
+    if (this.dizzyWait === 1 && FREE_SET.includes(this.state)) { this.dizzyWait = 0; this.dizzy = DIZZY_TICKS; }
+    if (this.dizzy > 0) { it.defend = false; this.swayBuffer = 0; } // no Block, no Sway and no prepared Sway: a Sway pressed just before the fire would start on the first free tick
+    if (this.dizzy > 0 || this.limp > 0) it.run = false;
+  }
+  // The effect timers run down at the end of the tick, after everything that reads them, so an effect lasts exactly its number of ticks
+  tickZoneTimers() { if (this.dizzy > 0) this.dizzy--; if (this.breathless > 0) this.breathless--; if (this.limp > 0) this.limp--; }
+  endZoneEffects() { this.dizzy = 0; this.dizzyWait = 0; this.breathless = 0; this.limp = 0; } // a knock-out and a round start end every running effect
   // pick = the string step this attack plays; any other attack ends the string
   startAttack(mv, pick) {
     const chained = this.state === S.ATTACK;
@@ -7042,6 +7080,7 @@ class Fighter {
     if (this.escapeLock > 0) this.escapeLock--;
     if (this.clinchStrikeCd > 0) this.clinchStrikeCd--;
     this.tickBoost();
+    this.tickZones(it);
     if (this.repeatTimer > 0) this.repeatTimer--;
     if (this.age % 45 === 0 && this.guardPressure > 0) this.guardPressure--;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
@@ -7093,6 +7132,7 @@ class Fighter {
     else if (this.moveId !== attackBefore && match && match.softFace) match.softFace(this); // an attack began this tick: aim it
     if (!this.lowWarned && this.lowStamina && this.alive) { this.lowWarned = true; Events.emit('lowStamina', { f: this }); }
     if (this.stam > this.maxStam * 0.4) this.lowWarned = false;
+    this.tickZoneTimers();
   }
 
   getupTicks() { return Math.round(30 * this.stats.getup * (this.quickRise ? 0.6 : 1)); }
@@ -7112,7 +7152,7 @@ class Fighter {
       default: k = 0;
     }
     if (this.swayReady) k = SWAY_READY_REGEN;
-    if (k > 0) k *= this.band.regen;
+    if (k > 0) k *= this.band.regen * (this.breathless > 0 ? BREATHLESS_REFILL : 1);
     this.stam = Math.min(this.maxStam, this.stam + this.stats.regen * STAMINA_REGEN_K * k * FIXED_DT);
   }
 
@@ -7133,7 +7173,7 @@ class Fighter {
     const mag = DMath.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
     const moving = mag > 0.12;
-    if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0 && !this.carrying) ? S.RUN : S.WALK;
+    if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0 && !this.carrying && this.limp === 0 && this.dizzy === 0) ? S.RUN : S.WALK; // a limp or a dizzy fighter walks (tickZones has already taken the Run input away)
     this.to(target);
     if (it.noParry) this.blockFresh = false; // a CPU block it chose not to time as a parry
     let speed = 0, mul = this.carrying ? CARRY_WALK : 1;
@@ -7144,7 +7184,7 @@ class Fighter {
       this.noRegen = 20;
       if (this.stam <= 0) this.exhaust = 60;
     } else if (moving) speed = (fwd > 0 ? WALK_FORWARD : WALK_BACK);
-    mul *= this.band.walk;
+    mul *= this.band.walk * (this.dizzy > 0 ? DIZZY_WALK : 1) * (this.limp > 0 ? LIMP_WALK : 1);
     const fx = this.fwdX, fz = this.fwdZ, rx = -fz, rz = fx;
     const along = target === S.RUN ? 1 : fwd * speed;
     const lateral = target === S.RUN ? 0 : side * WALK_SIDE;
@@ -7695,6 +7735,7 @@ class Fighter {
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     if (TIRED_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.tiredPose(p, t);
     if (SLUMP_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.slumpPose(p);
+    if (ZONE_POSE_STATES.includes(this.state) && !this.poseId && !this.throwFollow) this.zoneEffectPose(p);
     if (this.swayReady && !this.poseId && !this.throwFollow) this.readyPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]); // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
@@ -7787,6 +7828,15 @@ class Fighter {
     if (!this.item) { p[J.elL] -= SLUMP_HANDS * slump; p[J.elR] -= SLUMP_HANDS * slump; } // an item in hand keeps its hands
     p[J.torsoLean] += SLUMP_LEAN * slump; p[J.headX] += SLUMP_CHIN * slump;
     if (slump > 1) sink(p, SLUMP_SINK); // Spent only
+  }
+  // P19-02: the pose of the zone effect that is running (zonePose), on the calm and guard poses only; drawn only. The wave runs on the fighter's own age; Reduced motion keeps the pose and drops the wave
+  zoneEffectPose(p) {
+    const key = this.zonePose;
+    if (key === '') return;
+    const wave = (period) => (Settings.v.reducedMotion ? 0 : triangleWave(this.age, period));
+    if (key === 'dizzy') { p[J.headX] += DIZZY_HEAD; p[J.torsoRoll] += DIZZY_ROCK * wave(DIZZY_PERIOD); }
+    else if (key === 'breathless') { p[J.torsoLean] += BREATHLESS_LEAN; p[J.knL] += BREATHLESS_KNEES; p[J.knR] += BREATHLESS_KNEES; p[J.shLx] += BREATHLESS_SHOULDERS * wave(BREATHLESS_PERIOD); p[J.shRx] += BREATHLESS_SHOULDERS * wave(BREATHLESS_PERIOD); }
+    else { p[J.torsoRoll] += LIMP_ROLL; p[J.knR] += LIMP_KNEE; p[J.rootDrop] += LIMP_DIP * (0.5 + 0.5 * wave(LIMP_PERIOD)); }
   }
   // P19-16: the stumble after a move the tank could not pay, drawn only in the stumbleExtra ticks after the recovery (the move's own poses end before it): the torso leans on and the knees give, blended in and out over STUMBLE_BLEND ticks, half under Reduced motion. Reads the sim's fields and changes none
   stumblePose(p) {
@@ -8327,6 +8377,22 @@ const Combat = {
     if (def.hp > 0) att.gainMomentum(dmg * MOMENTUM_PER_DAMAGE);
     def.gainMomentum(dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO);
   },
+  /* Body-zone strain (P19-02): the damage a hit that landed dealt to def adds strain to one zone (0 head, 1 body, 2 legs), in tenths of a point: round(dmg * 100 / maxHp * ZONE_GAIN * 10). Called from the six places that deal damage by a hit (landHit, itemHit, bodyHit, groundHit, clinchStrike, executeThrow), after the damage and never for a block, a slip, a miss, scenery or a hit that knocks the fighter out.
+     A zone that reaches ZONE_MAX gives out (it drops to ZONE_RESET and its effect starts; zoneUntil holds every zone off for ZONE_IMMUNE_TICKS of the match clock); inside the immunity it waits at ZONE_MAX - 1. Integers and Math.round only: no random draw, no setting, no Math.sin-type call. */
+  strain(def, zone, dmg, match) {
+    if (match.cfg.zones === false || !def.alive || def.hp <= 0) return;
+    const name = ZONE_NAMES[zone];
+    if (!name) return;
+    const gain = Math.round(dmg * 100 / def.maxHp * ZONE_GAIN[name] * 10);
+    if (!(gain > 0)) return;
+    def.zoneCalm = 0; def.zoneLastZone = zone; def.zoneLastGain = gain;
+    const total = def.zone[zone] + gain;
+    if (total < ZONE_MAX) { def.zone[zone] = total; return; }
+    if (match.tick < def.zoneUntil) { def.zone[zone] = ZONE_MAX - 1; return; }
+    def.zone[zone] = ZONE_RESET;
+    def.zoneUntil = match.tick + ZONE_IMMUNE_TICKS;
+    if (zone === 0) def.dizzyWait = 1; else if (zone === 1) def.breathless = BREATHLESS_TICKS; else def.limp = LIMP_TICKS;
+  },
 
   // Whether att may strike or hit def with a thrown item at all, whatever the move: not while def is invulnerable, out, held in a submission by somebody else, in its wake-up grace, in a clinch or grapple, or flying in a knockdown (a juggle excepted)
   strikable(att, def) {
@@ -8425,6 +8491,7 @@ const Combat = {
     def.blockStun = 0;
     def.counterWindow = 0;
     def.hitKind = mv.h === 'H' ? 'high' : mv.h === 'L' ? 'low' : 'mid';
+    this.strain(def, mv.h === 'H' ? 0 : mv.h === 'L' ? 2 : 1, dmg, match); // a strike, a weapon move and the tackle: by the height of the move
     const dirx = att.fwdX, dirz = att.fwdZ;
     const stun = Math.round(mv.hitstun * def.stats.stun * def.band.stun * (counter ? 1.3 : 1) * Math.max(0.6, 1 - 0.07 * (def.gotHits - 1)));
     const v0 = mv.push * KNOCK_DAMP;
@@ -8508,6 +8575,7 @@ const Combat = {
     def.gotHits++; def.calmTicks = 0; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     this.momentum(att, def, dmg);
     def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = head || w.sp === 'crate' ? 'high' : 'mid';
+    this.strain(def, head || w.sp === 'crate' ? 0 : w.sp === 'trip' ? 2 : 1, dmg, match); // a thrown item: the head for one at head height or a crate, the legs for the trip item, the body for the rest
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     else if (kind === 'knockdown') {
       def.setState(S.THROWN);
@@ -8539,6 +8607,7 @@ const Combat = {
       def.gotHits++; def.calmTicks = 0; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     }
     this.momentum(att, def, dmg);
+    if (!lying) this.strain(def, 1, dmg, match); // a thrown body that lands on a standing fighter: the body (a lying one takes the damage only)
     def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = 'mid';
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     else if (knock) {
@@ -8563,6 +8632,7 @@ const Combat = {
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     def.groundHits++;
     this.momentum(att, def, dmg);
+    this.strain(def, 2, dmg, match); // the one Low ground hit on a downed foe: the legs
     def.flash = 1;
     att.moveConnected = true;
     const pos = this.hitPoint(att, def, mv);
@@ -8724,6 +8794,7 @@ const Combat = {
     if (def.gotHits === 0) def.gotDamage = 0;
     def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     this.momentum(att, def, dmg);
+    this.strain(def, cm.id === 'elbow' ? 0 : 1, dmg, match); // a clinch elbow: the head; a clinch knee: the body
     match.addHitStop(5, att, def);
     if (def.hp <= 0) this.knockOut(def, att, null, match); // before the hit event, so the KO blow gets its full feedback
     Events.emit('hit', { att, def, mv: { id: cm.id, name: cm.name, tier: 2, cat: cm.cat, h: 'M', kind: 'hit', hitStop: 5 }, dmg, counter: false, x: def.x, y: def.y + 0.9, z: def.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'hit', combo: att.comboHits, ko: def.state === S.KO });
@@ -8736,6 +8807,7 @@ const Combat = {
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     this.momentum(att, def, dmg);
+    this.strain(def, 1, dmg, match); // a throw: the body (the damage it dealt; a throw that finishes after the round ends deals none)
     const v = this.throwVector(att, p.dir), vx = v[0], vz = v[1];
     const speed = t.launch;
     def.setState(S.THROWN);
@@ -8871,6 +8943,7 @@ const Combat = {
     if (def.state === S.KO) return;
     if (def.state === S.SUBMIT) this.dropSubmission(def, 'ko'); // a knocked-out holder frees the held fighter
     def.boostTicks = 0; // a knocked-out fighter's boost ends with no boostEnd
+    def.endZoneEffects(); // P19-02: so do the zone effects
     def.hp = 0;
     def.alive = false;
     def.partner = null;
@@ -10462,6 +10535,7 @@ class AIController {
     if (this.punishBlocked(f, opp, snap, dist, it)) return it;
     // 1. reactive defence against attacks seen (with delay)
     this.reactToThreat(f, opp, snap, it);
+    if (f.dizzy > 0 && this.threatResp && (this.threatResp.kind === 'block' || this.threatResp.kind === 'sway')) this.threatResp = null; // P19-02: a dizzy CPU plans no Block and no Sway (the input is refused anyway; the draws of reactToThreat are made as before); a sidestep plan stays
     const tr = this.threatResp;
     if (tr && tr.until > this.tickNo && f.state !== S.ATTACK) {
       if (tr.kind === 'sway') { // one Defend press, at the planned tick
@@ -12835,15 +12909,18 @@ class MatchSim {
   resetFighters() {
     this.scenarioNo = 0;
     this.placeFighters(1);
+    this.clearZoneClock();
     this.spawnItems();
     this.spawnHazards();
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
   }
+  clearZoneClock() { for (const f of this.fighters) f.zoneUntil = 0; } // P19-02: a Training reset also lets a zone effect fire again at once (a practice tool); a new round of a fight keeps zoneUntil
   resetArenaObjects() { Arena.reset(); this.spawnItems(); this.spawnHazards(); Events.emit('trainingReset', {}); }
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
+    this.clearZoneClock();
     const side = this.startSide(), wall = side === 1 ? Arena.sx1 : Arena.sx0; // side: the player's start side (P18-16), 1 = left; the scenes are mirrored for Right, and placeFighters has already turned both to face each other
     const room = (x, z) => x >= Arena.sx0 + a.radius && x <= Arena.sx1 - a.radius && z >= Arena.sz0 + a.radius && z <= Arena.sz1 - a.radius && !Arena.blockedAt(x, z, a.radius, 0); // inside the room and clear of every prop
     if (n === 2) { a.x = -side * 0.55; b.x = side * 0.55; } else if (n === 3) { // the dummy in the corner of the chosen wall: the first row along the wall (from the middle outwards) that is clear for both
@@ -12860,6 +12937,8 @@ class MatchSim {
       a.x = -side * 0.5; b.x = side * 0.5;
       b.setState(S.HIT); b.setState(S.DOWN);
       b.groundHits = 0; b.lieSign = 1; b.downMult = HOLD_SCENARIO_DOWN; b.keepDown = true; // keepDown: a CPU dummy's Defend press does not get it up quickly
+    } else if (n === 7) { // P19-02: the dummy stands and cannot be knocked out, the player's tank is full: the ZONES lines of the panel are the whole scenario, and the dummy's effects play out
+      this.setDummy('stand'); this.infiniteHp = true; a.stam = a.maxStam;
     }
     this.scenarioNo = n;
     for (const f of this.fighters) { f.prevX = f.x; f.prevZ = f.z; }
@@ -13033,7 +13112,7 @@ const SimRunner = {
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, sides: cfg.sides === true, breakables: cfg.breakables !== false, hpScale: cfg.hpScale, startSide: cfg.startSide, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, sides: cfg.sides === true, breakables: cfg.breakables !== false, zones: cfg.zones !== false, hpScale: cfg.hpScale, startSide: cfg.startSide, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, stage)); // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -13633,7 +13712,8 @@ function matchChecksum(match) {
   const parts = [match.tick, match.phase, match.phaseTicks, match.round, match.roundTicks, match.matchTicks, match.hitStop, match.slowTicks, match.endTimer, match.locked, match.wins.join('/'), Combat.attackCounter, Combat.flightCounter, simRng.state()];
   const index = (other) => (other ? other.index : -1);
   for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '',
-    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt, f.charging ? 1 : 0, f.chargeTicks);
+    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt, f.charging ? 1 : 0, f.chargeTicks,
+    f.zone[0], f.zone[1], f.zone[2], f.zoneCalm, f.zoneUntil, f.dizzy, f.dizzyWait, f.breathless, f.limp); // P19-02: the body-zone strain
   for (const controller of match.controllers) if (controller.tickNo !== undefined) parts.push(controller.tickNo); // the CPU's own clock
   for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
   for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
@@ -17192,7 +17272,7 @@ const LINEUP_DEAL_LABEL = { ffa: 'Free-for-all', players: 'Players vs CPU', 2: '
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'tournament'];
 const BACK_BUTTON = '<button class="mi" data-nav data-act="back">Back</button>';
 // The Training panel's KEYS line per input type: only what that device has, short enough for one line of the narrow phone panel. The touch pause menu (screen_pause, the II button) offers Reset positions and health, Reset arena objects and Load scenario.
-const TRAINING_KEYS = { keyboard: 'Tab reset · F2 arena · 1-6 scenarios', gamepad: 'hold Select: reset · Start: menu', touch: 'II: reset · arena · scenarios' };
+const TRAINING_KEYS = { keyboard: 'Tab reset · F2 arena · 1-7 scenarios', gamepad: 'hold Select: reset · Start: menu', touch: 'II: reset · arena · scenarios' };
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'R3 (click the right stick)', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'L2', grapple: 'R2 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 // Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two context buttons
@@ -17256,7 +17336,7 @@ const heldLabel = (f) => (f.item ? WEAPONS[f.item.id].name.toUpperCase() + ' ' +
 const RESULTS_GUARD_MS = 600; // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 8000; // the first-match controls card closes itself after this long
 const VERSUS_CARD_MS = 9000; // the Versus controls card holds both players' keys: a little longer
-const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina', '6: Opponent knocked down (practise a hold)'];
+const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina', '6: Opponent knocked down (practise a hold)', '7: Zones'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'CARDBOARD', brick: 'BRICK', plastic: 'PLASTIC', tile: 'TILE', sheet: 'METAL' };
 
 const SAY_PENDING_MAX = 4; // announcements said within the same 30 ms that are read out together (the newest ones when more come)
@@ -17714,7 +17794,7 @@ const UI = {
       const m = Game.match;
       if (e.code === 'Tab') { e.preventDefault(); m.resetFighters(); return; }
       if (e.code === 'F2') { e.preventDefault(); m.resetArenaObjects(); return; }
-      if (/^Digit[1-6]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; } // a digit bound to an action stays that action
+      if (/^Digit[1-7]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; } // a digit bound to an action stays that action
     }
     if (e.code === 'F3') { e.preventDefault(); this.toggleDiag(); return; }
     if (this.fatalShown()) { // the error screen owns the keyboard: the menu behind it stays untouched
@@ -18404,6 +18484,7 @@ const UI = {
       '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows.join('') + '</table>' +
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
       '<p>' + COMBO_HELP + ' Chain before a move is 60% recovered; later the next step comes slowly.</p>' +
+      '<h3>Body strain</h3><p>' + ZONE_HELP.replace(/^Body strain: /, '') + '</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes, or a throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       '<table class="ctl"><tr><th>Throw</th><th>Input</th><th>Data</th></tr>' + throwRows + '</table>' +
       (style.submit.length ? '<h3>Holds</h3><p>Knock the foe down, step up to the body (within about ' + SUBMIT_RANGE + ' m) and press ' + key('grapple') + '. Your holds: ' + esc(style.submit.join(', ')) + '. ' + esc(GROUND_NOTES[styleId]) + ' Tap Grapple to keep the hold tight; the held fighter taps Defend to escape. To practise, load scenario 6 in Training.</p>' : '') +
@@ -18579,7 +18660,7 @@ const UI = {
       h += this.optRow('Dummy', dummyLabel(m),'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
         '<button class="mi" data-nav data-act="treset">Reset positions &amp; health<small>Tab</small></button><button class="mi" data-nav data-act="tarena">Reset arena objects<small>F2</small></button>' +
-        this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-6)</button>';
+        this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-7)</button>';
     }
     h += '<button class="mi" data-nav data-act="moves">Move list</button><button class="mi" data-nav data-act="controls">Controls</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + (mode === 'tournament' ? '<small>Leaving a tournament fight counts as a loss</small>' : '') + '</button></nav></div></section>';
     return h;
@@ -18963,10 +19044,12 @@ const UI = {
     const duo = m.setup ? (m.personFighters.length === 2 ? m.personFighters[1] : null) : (m.versus ? b : null); // the second person's own combo, warning and hint, on the right
     this.setText('item2', this.dom.item2, duo ? heldLabel(duo) : '');
     this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.setup ? SETUP_LABEL[m.cfg.setupMode] : m.coop ? SETUP_LABEL.free : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
-    if (!m.training && !m.brawl) {
-      const pip = (w) => '●'.repeat(w) + '○'.repeat(Math.max(0, m.winsNeeded - w));
-      this.setText('pips1', this.dom.pips1, pip(m.wins[0])); this.setText('pips2', this.dom.pips2, pip(m.wins[1]));
-    } else { this.setText('pips1', this.dom.pips1, ''); this.setText('pips2', this.dom.pips2, ''); }
+    // P19-02: the strain tiles of the fighters the readout shows (strainShown): a 1v1 shows both in the pip rows (the left row after the win pips, the right row before them); a brawl shows the own fighter in the left row and the lock-on target in its name tag; a crowd or a lineup (no left row) shows each person and the lock-on target in their name tags
+    const tiles = m.fighters.map((f) => { const html = this.strainTiles(f); return html && this.strainShown(m, f) ? html : ''; }); // the cheap threshold test first
+    const rowTiles = m.coop || m.setup ? ['', ''] : m.brawl ? [tiles[0], ''] : [tiles[0], tiles[1]];
+    const pipText = !m.training && !m.brawl ? [m.wins[0], m.wins[1]].map((w) => '●'.repeat(w) + '○'.repeat(Math.max(0, m.winsNeeded - w))) : ['', ''];
+    this.setHtml('pips1', this.dom.pips1, pipText[0] + rowTiles[0]); this.setHtml('pips2', this.dom.pips2, rowTiles[1] + pipText[1]);
+    if (tiles.some(Boolean)) this.coachZone(m, tiles);
     this.setText('modeinfo', this.dom.modeinfo, this.levelLine(m));
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus
     const lone = m.setup ? !watching && m.personFighters.length <= 2 : !m.coop || m.partySize === 1; // a co-op party of several has no room for one player's combo, warning and hint
@@ -18997,9 +19080,12 @@ const UI = {
       else if (f.state === S.DOWN) status = f.pinnedBy ? 'PINNED' : 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.blind > 0) status = 'BLIND';
+      else if (f.dizzy > 0) status = 'DIZZY'; // P19-02: one zone effect at a time; nothing while a head effect waits for its fighter to be free (dizzy is 0 then)
+      else if (f.limp > 0) status = 'LIMPING';
+      else if (f.breathless > 0) status = 'BREATHLESS';
       else if (f.lowStamina) status = 'TIRED';
       const health = m.brawl && i >= m.peopleCount ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : ''; // a brawl enemy's or ally's tag carries its own health bar
-      const html = this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health, changed = this.cache['tag' + i] !== html;
+      const html = this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + (m.coop || m.setup || (m.brawl && i > 0) ? tiles[i] || '' : '') + health, changed = this.cache['tag' + i] !== html; // the strain tiles in the tag: a crowd's people and the lock-on target of a brawl (tiles[i] is empty for anybody else)
       this.setHtml('tag' + i, el, html);
       el.style.display = ok ? '' : 'none';
       if (ok && (changed || !(this.tagH[i] > 0))) this.tagH[i] = el.offsetHeight || 0; // the height is read when the tag's content changes (a layout read), never per frame
@@ -19016,6 +19102,21 @@ const UI = {
     this.popLayout();
     if (m.training) this.trainingPanel(m);
   },
+  // P19-02: whose strain the readout shows: a person's own fighter, either fighter of a 1v1 (the foe is the lock-on target) and, in a brawl, the enemy the person has locked; never a CPU that is none of these
+  strainShown(m, f) { return !!f && (m.isHuman(f) || !m.brawl || m.lockMarked(f)); },
+  // The three tiles H B L (head, body, legs) of a fighter whose most strained zone is above ZONE_SHOW (30 of 60 points): each fills from the bottom by (strain - 30) / 30, empty at 30 and full at 60, and turns orange-red from ZONE_HOT; '' below the threshold
+  strainTiles(f) {
+    if (!f.alive || Math.max(f.zone[0], f.zone[1], f.zone[2]) <= ZONE_SHOW) return '';
+    let html = '', label = '';
+    for (let k = 0; k < ZONE_NAMES.length; k++) {
+      const fill = clamp((f.zone[k] - ZONE_SHOW) / (ZONE_MAX - ZONE_SHOW), 0, 1);
+      html += '<b class="zt' + (f.zone[k] >= ZONE_HOT ? ' hot' : '') + '" style="--zf:' + fill.toFixed(2) + '">' + ZONE_NAMES[k][0].toUpperCase() + '</b>';
+      label += (k ? ', ' : '') + ZONE_NAMES[k] + ' ' + Math.floor(f.zone[k] / 10);
+    }
+    return '<span class="zr" role="img" aria-label="Strain (of ' + ZONE_MAX / 10 + '): ' + label + '">' + html + '</span>';
+  },
+  // The Coach's zone line (once, saved): the first time the readout shows for the first person's own fighter or for a CPU (a 1v1's foe, a brawl's lock-on target); never for a second person
+  coachZone(m, tiles) { if (tiles[0] || tiles.some((tile, i) => i > 0 && tile && !m.isHuman(m.fighters[i]))) Coach.offer('zone'); },
   // Lock-on marker: the locked fighter's own name tag gets the `lk` class
   tagMarker(m, f, el, i) {
     const marked = m.lockMarked(f);
@@ -19210,6 +19311,16 @@ const UI = {
     }
   },
   toggleHidden(key, el, hidden) { if (this.cache[key] !== hidden) { this.cache[key] = hidden; el.hidden = hidden; } },
+  // P19-02: the Training lines of the body-zone strain (whole points; the last hit's gain has one decimal, from the tenths): the player's zones, its effect and the ticks until the next one may fire, the last hit on the dummy, the dummy's zones and effect
+  zoneLines(m) {
+    const a = m.fighters[0], b = m.fighters[1];
+    const points = (f) => ZONE_NAMES.map((name, k) => name + ' ' + Math.floor(f.zone[k] / 10)).join(' / ');
+    const effect = (f) => (f.dizzy > 0 ? 'DIZZY ' + f.dizzy : f.dizzyWait ? 'DIZZY (when free)' : f.limp > 0 ? 'LIMPING ' + f.limp : f.breathless > 0 ? 'BREATHLESS ' + f.breathless : 'none');
+    const wait = Math.max(0, a.zoneUntil - m.tick), running = effect(a) !== 'none';
+    const next = wait > 0 ? 'next one in ' + wait : 'ready';
+    const last = b.zoneLastZone < 0 ? 'none yet' : ZONE_NAMES[b.zoneLastZone] + ' +' + (b.zoneLastGain / 10).toFixed(1);
+    return '<br><b>ZONES</b> ' + points(a) + ' (of ' + ZONE_MAX / 10 + ')<br><b>ZONE EFFECT</b> ' + effect(a) + (running && wait <= 0 ? '' : ' (' + next + ')') + '<br><b>ZONE HIT</b> ' + last + ' (last hit on the dummy)<br><b>Dummy zones</b> ' + points(b) + ', effect ' + effect(b);
+  },
   trainingPanel(m) {
     let h = '<b>FRAME DATA</b> (60 fps)<br>' + this.frameDataHtml(m.lastMove) + '<br><b>KEYS</b> ' + TRAINING_KEYS[this.onboardKind()]; // KEYS after the frame data: on a phone the panel shows only a few lines, the frame data comes first
     const a = m.fighters[0];
@@ -19218,6 +19329,7 @@ const UI = {
     if (a.defense === 'sway') h += '<br><b>STANCE</b> ' + stanceText(a); // P19-13: up / armed / spent / off
     h += '<br><b>STYLE</b> ' + this.styleLine(a) + '<br><b>Dummy style</b> ' + this.styleLine(m.fighters[1]);
     h += '<br><b>HOLD</b> ' + holdText(a); // P19-15: a charge or a pause (after the lines the P18-62 and P19-13 tests read as a run)
+    h += this.zoneLines(m);
     h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>LINK</b> ' + (m.linkRead || '-') + '<br><b>DEFEND</b> ' + (m.defRead || '-') + '<br><b>Dummy:</b> ' + dummyLabel(m) + (m.fighters[1].charging ? ' CHARGING ' + m.fighters[1].chargeTicks : '');
     if (m.scenarioNo === 6) h += '<br><b>HOLD PRACTICE</b> ' + (styleCanSubmit(a.profile) ? 'Step to the dummy and press Grapple, then tap Grapple. The dummy stays down; set it to Easy to Expert and it taps Defend to escape.' : 'Your style has no holds (see the Move list). Pick ' + esc(submissionStyleText()) + ' to try one.');
     h += '<br><b>Objects:</b> ' + (() => { const c = Arena.statusCounts(); return c.intact + ' intact, ' + c.damaged + ' damaged, ' + c.destroyed + ' destroyed'; })();
@@ -21452,6 +21564,8 @@ function testApi() {
     ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
     mergePresses, NET_NEED_AFTER_MS, NET_FILL_MAX, NET_HELD_SCALE, NET_CODE_MAX, NET_INPUT_BYTES, CHARGE_MIN_STARTUP, CHARGE_L1, CHARGE_L2, CHARGE_MAX, CHARGE_RELEASE, CHARGE_DMG, CHARGE_EXTRA, CHARGE_REACH, CHARGE_STUN, CHARGE_PUSH, PAUSE_STILL_TICKS, STYLE_NEW_MOVES, CHARGE_COIL_FAMILY, CHARGE_COIL_STYLE, CHARGE_CANCEL_HELP, PAUSE_HELP, COACH_PAUSE_STRINGS, holdText, CHARGE_POSE_FROM, CHARGE_COIL_DEEPEN, CHARGE_POSE_BLEND, CHARGE_TREMOR, CHARGE_RING_SEGMENTS, PAUSE_HANDS, PAUSE_LEAN,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
+    ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
+    ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };

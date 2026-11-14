@@ -64,6 +64,8 @@ const {
   ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY, STUMBLE_CUE_GAP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
   ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
   encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
+  ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
+  ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -1249,7 +1251,7 @@ const SelfTest = {
     });
     test('Training scenario 6: the dummy lies on the floor within reach for longer than a hold lasts, a hold style can start one at once, and the training panel says what to do (or that the style has no holds)', () => {
       const problems = [];
-      if (SCENARIOS.length !== 6 || !SCENARIOS[5].startsWith('6:')) problems.push('scenario list');
+      if (SCENARIOS.length !== 7 || !SCENARIOS[5].startsWith('6:') || !SCENARIOS[6].startsWith('7:')) problems.push('scenario list');   // P19-02: scenario 7 (Zones) joined the six
       const m = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, once(14, 'grapple'), idle);
       m.scenario(6);
       const a = m.fighters[0], b = m.fighters[1];
@@ -6112,6 +6114,7 @@ const SelfTest = {
       grab: (m, a, b) => { m.intents[0].defend = true; Events.emit('clinch', { att: b, def: a, grip: 'front' }); },
       item: (m) => { m.itemToUse = () => ({}); },
       charge: (m, a, b) => { a.stringKeys = 'PP'; Events.emit('hit', { att: a, def: b, mv: { h: 'M' }, combo: 2, crouched: false }); },   // P19-15: the person lands the step before the chargeable one
+      zone: (m, a) => { a.zone[0] = ZONE_SHOW + 50; UI.coachZone(m, [UI.strainTiles(a)]); },   // P19-02: the strain tiles show for the person's fighter (the real path: UI.hudUpdate calls coachZone)
       pause: (m, a) => { Progress.d.tips.charge = true; a.stringKeys = 'P'; a.moveConnected = true; a.stringTick = a.age; a.state = S.IDLE; a.stateTicks = PAUSE_STILL_TICKS; },   // P19-15 (polled by Coach.line): a first step landed and the fighter stood still for a beat
     };
     test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
@@ -6175,7 +6178,7 @@ const SelfTest = {
       const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
       const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'L2'], touch: ['DEFEND', 'DUCK'] };
       try {
-        if (COACH_TIPS.length !== 12 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 12) bad.push('the table does not have 12 keys (the ten of P18-27 and the charge and pause tips of P19-15)');
+        if (COACH_TIPS.length !== 13 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 13) bad.push('the table does not have 13 keys (the ten of P18-27, the charge and pause tips of P19-15 and the zone tip of P19-02)');
         for (const device of ['keyboard', 'gamepad', 'touch']) {
           Input.lastDevice = device;
           for (const tip of COACH_TIPS) {
@@ -10170,8 +10173,8 @@ const SelfTest = {
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
       { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '59:1ocm8a7' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 119:wo082g; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 63:bxtyt5); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 61:12ezzz9); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 50:7zjnq6); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '112:x2lynm' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 66:1kn1vec; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '121:591inn' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 75:1pifewr; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '107:1wyfhjh' },   // re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 42 of this fight and its log differs from hit 43 on (it was 112:x2lynm); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 66:1kn1vec; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '86:1hljp2m' },   // re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 49 of this fight and its log differs from hit 52 on (it was 121:591inn); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 75:1pifewr; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
@@ -16494,7 +16497,7 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Training KEYS (P18-78): the level line of a Training match is the level name only, and the KEYS line of the Training panel names the keys of the current input type only (keyboard: Tab, F2, 1-6; gamepad: Select, Start; touch: the II button) and none of another type\'s', () => {
+    test('Training KEYS (P18-78): the level line of a Training match is the level name only, and the KEYS line of the Training panel names the keys of the current input type only (keyboard: Tab, F2, 1-7; gamepad: Select, Start; touch: the II button) and none of another type\'s', () => {
       const bad = [], saved = { dom: UI.dom, cache: UI.cache, device: Input.lastDevice, touch: Settings.v.touch, run: Game.run };
       const training = mk({ mode: 'training', playerId: 'kai', opponentId: 'mara' }, () => {}, () => {});
       try {
@@ -16502,7 +16505,7 @@ const SelfTest = {
         const name = training.def.name.toUpperCase();
         if (UI.levelLine(training) !== name) bad.push('the level line is "' + UI.levelLine(training) + '", not "' + name + '"');
         Settings.v.touch = 'off';   // a touch-capable PC must not turn the keyboard case into touch
-        const words = { keyboard: ['Tab', 'F2', '1-6'], gamepad: ['Select', 'Start'], touch: ['II'] };
+        const words = { keyboard: ['Tab', 'F2', '1-7'], gamepad: ['Select', 'Start'], touch: ['II'] };   // P19-02: scenario 7 (Zones) joined the six
         for (const device of Object.keys(words)) {
           const panel = { innerHTML: '', hidden: false };
           Input.lastDevice = device; UI.dom = { training: panel }; UI.cache = {};   // a stand-in for the panel element, so the test needs no screen
@@ -16871,7 +16874,7 @@ const SelfTest = {
       const dom = new Proxy({}, { get: (target, key) => target[key] || (target[key] = made()) });
       const keep = { dom: UI.dom, cache: UI.cache, tagEls: UI.tagEls, tagH: UI.tagH, hudBottom: UI.hudBottom, project: R.project, pops: UI.pops, partyEls: UI.partyEls, edgeEls: UI.edgeEls };
       try {
-        UI.dom = dom; UI.cache = {}; UI.tagEls = []; UI.tagH = []; UI.pops = []; UI.partyEls = []; UI.edgeEls = [];
+        UI.dom = dom; UI.cache = {}; UI.tagEls = []; UI.tagH = []; UI.pops = []; UI.partyEls = Array.from({ length: LINEUP_MAX }, () => ({ hp: made(), st: made(), root: made() })); UI.edgeEls = [];
         for (let i = 0; i < COOP_MAX_PLAYERS + BRAWL_MAX_ENEMIES; i++) UI.tagEls.push(made());
         return fn(dom);
       } finally { UI.dom = keep.dom; UI.cache = keep.cache; UI.tagEls = keep.tagEls; UI.tagH = keep.tagH; UI.hudBottom = keep.hudBottom; R.project = keep.project; UI.pops = keep.pops; UI.partyEls = keep.partyEls; UI.edgeEls = keep.edgeEls; }
@@ -16899,6 +16902,467 @@ const SelfTest = {
       }
       if (UI.popHudBottom() === 0 && UI.tagY(5, 20) !== 5) problems.push('with no HUD measure the point is not left as it is');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    /* ---------- Body strain (P19-02) ----------
+       REFERENCE-breakpoint.md, Appendix C, "P19-01 body-zone strain (head, body, legs), decided (2026-11-13)", sections 1 to 6; the build list's tests (1) to (11) are the ones named below (the first two of the Name tags tests above are its test 0, the layout tests and the lockstep test come later in this file). Direct calls of the combat functions for the rules, scripted fights for the effects. */
+    const zoneRig = (opts, s1, s2) => { const m = mk(Object.assign({ evenDamage: true, seed: 5 }, opts), s1, s2); self.place(m, 1.2); return m; };
+    const zoneClear = (d) => { d.zone[0] = d.zone[1] = d.zone[2] = 0; d.zoneCalm = 0; d.zoneUntil = 0; d.dizzy = d.dizzyWait = d.breathless = d.limp = 0; d.hp = d.maxHp; d.alive = true; d.state = S.IDLE; d.stateTicks = 0; d.y = 0; d.vy = 0; d.kx = d.kz = 0; d.juggle = false; d.pinnedBy = null; d.invuln = 0; d.strikeGrace = 0; d.gotHits = 0; d.groundHits = 0; d.blockStun = 0; };
+    const zoneStrike = (a, d, mv) => ({ type: 'strike', att: a, def: d, mv, block: 'none' });
+    const zoneGainOf = (d, dmg, zone) => Math.round(dmg * 100 / d.maxHp * ZONE_GAIN[ZONE_NAMES[zone]] * 10);
+    const zoneItem = (id, owner, d, up) => ({ id, owner, x: d.x, y: d.y + up, z: d.z, vx: 3, vz: 0, mode: 'fly', dur: 1 });
+    const zoneThrownBody = (a, d) => ({ bodyBy: a, kx: 4, kz: 0, weight: 1, x: d.x, z: d.z });
+    const zoneFire = (m, d, zone) => { d.zone[zone] = ZONE_MAX - 3; Combat.strain(d, zone, 5, m); };   // fills one zone with no hit and no hit stop: the effect's own ticks are counted from the next update
+    const zoneAfter = (m, ticks, each) => { for (let i = 0; i < ticks; i++) { m.step(); if (each) each(i); } };
+    test('Body strain (P19-02): (1) each mapping - a High strike adds to the head only, a Mid strike (and the tackle, a clinch knee, a thrown body on a standing fighter, a throw) to the body only, a Low strike (and the ground hit, the trip item) to the legs only, a clinch elbow and a thrown item at head height (a brick, a crate) to the head, and the amount is round(dmg x 100 / maxHp x K x 10) tenths for each', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      const rows = [
+        ['a High strike', 0, () => Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m)],
+        ['a Mid strike', 1, () => Combat.landHit(zoneStrike(a, d, ATTACKS.body_jab), m)],
+        ['a Low strike', 2, () => Combat.landHit(zoneStrike(a, d, ATTACKS.low_kick), m)],
+        ['the tackle', 1, () => Combat.landHit(zoneStrike(a, d, TACKLE_MOVE), m)],
+        ['a clinch elbow', 0, () => Combat.clinchStrike(a, d, CLINCH_MOVES.elbow, m)],
+        ['a clinch knee', 1, () => Combat.clinchStrike(a, d, CLINCH_MOVES.knee, m)],
+        ['a brick at head height', 0, () => Combat.itemHit(zoneItem('brick', a, d, 1.5), d, m)],
+        ['a brick below head height', 1, () => Combat.itemHit(zoneItem('brick', a, d, 0.5), d, m)],
+        ['a bottle', 1, () => Combat.itemHit(zoneItem('bottle', a, d, 1.5), d, m)],
+        ['a crate', 0, () => Combat.itemHit(zoneItem('crate', a, d, 0.5), d, m)],
+        ['the trip item (a skateboard)', 2, () => Combat.itemHit(zoneItem('skateboard', a, d, 0.3), d, m)],
+        ['a thrown body on a standing fighter', 1, () => Combat.bodyHit(zoneThrownBody(a, d), d, m)],
+        ['a throw', 1, () => { a.throwPending = { tick: 0, dir: 'fwd', data: THROW_SETS.front.fwd, side: 1, baseYaw: d.yaw }; Combat.executeThrow(a, d, m); }],
+        ['the ground hit on a downed foe', 2, () => { d.state = S.DOWN; Combat.groundHit({ type: 'ground', att: a, def: d, mv: ATTACKS.low_kick }, m); }],
+      ];
+      for (const [label, zone, play] of rows) {
+        zoneClear(d); a.state = S.IDLE; a.clinchStrikeCd = 0; a.partner = null;
+        const log = self.capture(['hit', 'throw']);
+        try { play(); } finally { log.stop(); }
+        const event = log.hit[0] || log.throw[0];
+        if (!event) { bad.push(label + ': no hit event'); continue; }
+        const want = [0, 0, 0]; want[zone] = zoneGainOf(d, event.dmg, zone);
+        if (!(want[zone] > 0)) bad.push(label + ': the damage ' + event.dmg + ' makes no strain');
+        if (d.zone.join() !== want.join()) bad.push(label + ': zones ' + d.zone.join('/') + ', not ' + want.join('/') + ' (damage ' + event.dmg + ')');
+      }
+      zoneClear(d); d.state = S.DOWN; Combat.bodyHit(zoneThrownBody(a, d), d, m);   // a thrown body on a lying fighter: the damage only
+      if (d.zone.join() !== '0,0,0') bad.push('a thrown body on a lying fighter added strain ' + d.zone.join('/'));
+      const head = ZONE_GAIN.head, body = ZONE_GAIN.body, legs = ZONE_GAIN.legs;
+      if (head !== 1.15 || body !== 1.05 || legs !== 1.05 || ZONE_MAX !== 600 || ZONE_RESET !== 400 || ZONE_SHOW !== 300 || ZONE_NAMES.join() !== 'head,body,legs') bad.push('the constants are not the decided ones');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (2) a block, a perfect block, a held and a tapped Sway dodge, a missed strike (the foe steps out of the line), a guard break\'s chip damage, the hit that knocks the fighter out, a hit in the Off rule and an alive check add nothing - and the stun hit after a guard break adds', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      const none = (label, play) => { zoneClear(d); a.state = S.IDLE; d.stam = d.maxStam; play(); if (d.zone.join() !== '0,0,0') bad.push(label + ' added ' + d.zone.join('/')); };
+      none('a block', () => { d.state = S.BLOCK_H; Combat.apply({ type: 'strike', att: a, def: d, mv: ATTACKS.body_jab, block: 'block' }, m); });
+      none('a perfect block', () => { d.state = S.BLOCK_H; Combat.apply({ type: 'strike', att: a, def: d, mv: ATTACKS.body_jab, block: 'perfect' }, m); });
+      none('a held Sway dodge', () => { d.state = S.SWAY; d.stateTicks = 1; Combat.apply({ type: 'sway', att: a, def: d, mv: ATTACKS.jab, auto: true, perfect: false }, m); });
+      none('a tapped Sway dodge', () => { d.state = S.SWAY; d.stateTicks = 1; Combat.apply({ type: 'sway', att: a, def: d, mv: ATTACKS.jab, auto: false, perfect: true }, m); });
+      none('a guard break (the chip damage)', () => { d.state = S.BLOCK_H; d.stam = 0; Combat.apply({ type: 'strike', att: a, def: d, mv: ATTACKS.power_jab, block: 'block' }, m); });
+      if (d.state !== S.STUN) bad.push('the guard break did not stun (' + S[d.state] + '): the test does not measure the chip');
+      const before = d.zone.slice(); Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);   // the stun hit that follows is a landed hit
+      if (!(d.zone[0] > before[0])) bad.push('the hit that lands on the stunned fighter added nothing');
+      none('the hit that knocks the fighter out', () => { d.hp = 1; Combat.landHit(zoneStrike(a, d, ATTACKS.power_jab), m); if (d.alive) bad.push('the fighter was not knocked out'); });
+      const miss = zoneRig({}, (it, f, o, mm) => { it.punch = mm.tick === 2; }), thrown = self.capture(['attackStart']);   // a real miss: the foe stands 3 m away
+      self.place(miss, 3); zoneAfter(miss, 60); thrown.stop();
+      if (!thrown.attackStart.length) bad.push('the missed strike was never thrown');
+      if (miss.fighters[1].zone.join() !== '0,0,0') bad.push('a missed strike added ' + miss.fighters[1].zone.join('/'));
+      none('a dead fighter', () => { d.alive = false; d.hp = 5; Combat.strain(d, 1, 50, m); });
+      zoneClear(d); d.hp = d.maxHp; const off = zoneRig({ zones: false }), od = off.fighters[1];
+      Combat.landHit(zoneStrike(off.fighters[0], od, ATTACKS.jab), off);
+      if (od.zone.join() !== '0,0,0') bad.push('the Off rule added ' + od.zone.join('/'));
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (3) fire once, then immunity - a zone filled to 600 fires and drops to 400, a second fill inside 900 match ticks stops at 599 and fires nothing, at tick 900 after the first fire it fires again, a new round keeps zoneUntil and clears the strain, and a new Fighter has zoneUntil 0 before any reset', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      if (new Fighter(ROSTER_BY_ID.kai, 0).zoneUntil !== 0 || d.zoneUntil !== 0) bad.push('zoneUntil is not 0 in a new Fighter');
+      const fill = (zone, mv) => { d.zone[zone] = ZONE_MAX - 4; d.hp = d.maxHp; d.state = S.IDLE; d.stateTicks = 0; Combat.landHit(zoneStrike(a, d, mv), m); };
+      m.tick = 100; fill(1, ATTACKS.body_jab);
+      if (d.zone[1] !== ZONE_RESET || d.breathless !== BREATHLESS_TICKS || d.zoneUntil !== 100 + ZONE_IMMUNE_TICKS) bad.push('the first fill: zone ' + d.zone[1] + ', breathless ' + d.breathless + ', zoneUntil ' + d.zoneUntil);
+      d.breathless = 0; m.tick = 100 + ZONE_IMMUNE_TICKS - 1; fill(1, ATTACKS.body_jab);   // one tick before the immunity ends
+      if (d.zone[1] !== ZONE_MAX - 1 || d.breathless !== 0 || d.zoneUntil !== 100 + ZONE_IMMUNE_TICKS) bad.push('inside the immunity: zone ' + d.zone[1] + ', breathless ' + d.breathless + ', zoneUntil ' + d.zoneUntil);
+      d.zone[2] = ZONE_MAX - 4; d.hp = d.maxHp; d.state = S.IDLE; Combat.landHit(zoneStrike(a, d, ATTACKS.low_kick), m);   // another zone inside the immunity: held off too
+      if (d.zone[2] !== ZONE_MAX - 1 || d.limp !== 0) bad.push('another zone inside the immunity: ' + d.zone[2] + ' limp ' + d.limp);
+      m.tick = 100 + ZONE_IMMUNE_TICKS; fill(1, ATTACKS.body_jab);   // the tick the immunity ends: the zone at 599 fires on the next hit
+      if (d.zone[1] !== ZONE_RESET || d.breathless !== BREATHLESS_TICKS || d.zoneUntil !== 100 + 2 * ZONE_IMMUNE_TICKS) bad.push('at tick 900 after the first fire: zone ' + d.zone[1] + ', breathless ' + d.breathless + ', zoneUntil ' + d.zoneUntil);
+      const until = d.zoneUntil; d.zone[0] = 55;
+      m.startRound();
+      if (d.zoneUntil !== until || d.zone.join() !== '0,0,0' || d.breathless !== 0 || d.limp !== 0 || d.dizzy !== 0 || d.dizzyWait !== 0) bad.push('a new round: zoneUntil ' + d.zoneUntil + ' (want ' + until + '), zones ' + d.zone.join('/') + ', effects ' + [d.breathless, d.limp, d.dizzy, d.dizzyWait].join('/'));
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (4a) DIZZY - read from the fighter: it starts on the first free tick (not while the fighter is hit), lasts exactly DIZZY_TICKS (40), takes Defend, Sway (also one pressed just before) and Run away, halves the walk, the pose key reads dizzy while it runs and \'\' after, and Defend works again once it is over - for a Block and a Sway fighter', () => {
+      const bad = [];
+      for (const defense of ['block', 'sway']) {
+        const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }, (it) => { it.fwd = 1; }, (it) => { it.fwd = 1; it.run = true; it.defend = true; });
+        self.place(m, 6);
+        const a = m.fighters[0], d = m.fighters[1];
+        d.defense = defense;
+        d.zone[0] = ZONE_MAX - 3; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
+        d.swayBuffer = 100;   // a Sway pressed just before the fire
+        const label = defense + ': ';
+        if (d.dizzyWait !== 1 || d.dizzy !== 0 || d.zone[0] !== ZONE_RESET || d.zonePose !== '') bad.push(label + 'after the fire: wait ' + d.dizzyWait + ', dizzy ' + d.dizzy + ', pose ' + d.zonePose);
+        let guard = 0;
+        while (d.dizzy === 0 && guard++ < 120) { m.step(); if (d.dizzy === 0 && (d.dizzyWait !== 1 || d.zonePose !== '')) { bad.push(label + 'dizzy was not waiting while hit'); break; } }
+        if (d.dizzy !== DIZZY_TICKS - 1 || d.dizzyWait !== 0) { bad.push(label + 'the first free tick left dizzy ' + d.dizzy); continue; }
+        if (d.swayBuffer !== 0 || d.state === S.SWAY) bad.push(label + 'the buffered Sway survived (buffer ' + d.swayBuffer + ', ' + S[d.state] + ')');
+        let active = 1, ratio = 0, refused = 0, poseOn = 0;
+        for (let i = 0; i < 80 && d.dizzy > 0; i++) {
+          if (d.zonePose === 'dizzy') poseOn++;
+          if (d.state === S.BLOCK_H || d.state === S.BLOCK_L || d.state === S.SWAY || d.state === S.RUN) refused++;
+          if (i === 10) ratio = Math.hypot(d.vx, d.vz) / Math.hypot(a.vx, a.vz);
+          m.step(); active++;
+          if (d.dizzy > 0 && (d.state === S.BLOCK_H || d.state === S.BLOCK_L || d.state === S.SWAY || d.state === S.RUN)) refused++;
+        }
+        if (active !== DIZZY_TICKS) bad.push(label + 'dizzy lasted ' + active + ' ticks, not ' + DIZZY_TICKS);
+        if (refused) bad.push(label + 'Defend or Run got through ' + refused + ' times');
+        if (Math.abs(ratio - DIZZY_WALK) > 1e-6) bad.push(label + 'the walk was x ' + ratio.toFixed(4) + ', not ' + DIZZY_WALK);
+        if (poseOn < DIZZY_TICKS - 2) bad.push(label + 'the pose key read dizzy ' + poseOn + ' times');
+        if (d.zonePose !== '' || d.dizzy !== 0) bad.push(label + 'the pose key is "' + d.zonePose + '" after the effect');
+        zoneAfter(m, 3);
+        if (d.state !== (defense === 'block' ? S.BLOCK_H : S.SWAY)) bad.push(label + 'Defend did not work again after the effect (' + S[d.state] + ')');
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (4b) BREATHLESS and LIMP - read from the fighter: each lasts exactly 300 ticks from the hit, the refill is x 0.5 (the stamina after 120 standing ticks is half the control\'s gain), the walk is x 0.8 and a Run input walks for the 300 ticks (a control with no effect runs), the pose keys read breathless and limp while they run and \'\' after', () => {
+      const bad = [];
+      {   // BREATHLESS
+        const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }), a = m.fighters[0], d = m.fighters[1];
+        zoneFire(m, d, 1);
+        if (d.breathless !== BREATHLESS_TICKS || d.zonePose !== 'breathless') bad.push('BREATHLESS after the fire: ' + d.breathless + ', pose ' + d.zonePose);
+        let base = 0, gains = null;
+        for (let i = 1; i <= BREATHLESS_TICKS; i++) {
+          m.step();
+          if (i === 30) { a.stam = d.stam = a.maxStam * 0.3; a.noRegen = d.noRegen = 0; base = a.stam; }
+          if (i === 150) gains = [a.stam - base, d.stam - base];
+          if (i < BREATHLESS_TICKS && (d.breathless !== BREATHLESS_TICKS - i || d.zonePose !== 'breathless')) { bad.push('BREATHLESS at tick ' + i + ': ' + d.breathless + ' ' + d.zonePose); break; }
+        }
+        if (d.breathless !== 0 || d.zonePose !== '') bad.push('BREATHLESS did not end after exactly ' + BREATHLESS_TICKS + ' ticks: ' + d.breathless);
+        if (!gains || !(gains[0] > 5) || Math.abs(gains[1] / gains[0] - BREATHLESS_REFILL) > 1e-9) bad.push('the refill was x ' + (gains ? (gains[1] / gains[0]).toFixed(6) : '?') + ', not ' + BREATHLESS_REFILL);
+        a.stam = d.stam = a.maxStam * 0.3; base = a.stam; zoneAfter(m, 60);
+        if (Math.abs((a.stam - base) - (d.stam - base)) > 1e-9) bad.push('the refill is still halved after the effect');
+      }
+      {   // LIMP
+        const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }, (it) => { it.fwd = 1; }, (it) => { it.fwd = 1; it.run = true; }), a = m.fighters[0], d = m.fighters[1];
+        self.place(m, 8);
+        zoneFire(m, d, 2);
+        if (d.limp !== LIMP_TICKS || d.zonePose !== 'limp') bad.push('LIMP after the fire: ' + d.limp + ', pose ' + d.zonePose);
+        let ran = 0, ratio = 0;
+        for (let i = 1; i <= LIMP_TICKS; i++) {
+          m.step();
+          if (d.state === S.RUN) ran++;
+          if (i === 40) ratio = Math.hypot(d.vx, d.vz) / Math.hypot(a.vx, a.vz);
+          if (i < LIMP_TICKS && (d.limp !== LIMP_TICKS - i || d.zonePose !== 'limp')) { bad.push('LIMP at tick ' + i + ': ' + d.limp + ' ' + d.zonePose); break; }
+        }
+        if (ran) bad.push('a limping fighter ran ' + ran + ' ticks');
+        if (Math.abs(ratio - LIMP_WALK) > 1e-6) bad.push('the walk was x ' + ratio.toFixed(4) + ', not ' + LIMP_WALK);
+        if (d.limp !== 0 || d.zonePose !== '') bad.push('LIMP did not end after exactly ' + LIMP_TICKS + ' ticks: ' + d.limp);
+        m.controllers[1] = self.scripted((it) => { it.fwd = 1; it.run = true; }); zoneAfter(m, 6);
+        if (d.state !== S.RUN) bad.push('the fighter cannot run after the effect (' + S[d.state] + ')');
+        const control = zoneRig({}, null, (it) => { it.fwd = 1; it.run = true; }); self.place(control, 8); zoneAfter(control, 6);
+        if (control.fighters[1].state !== S.RUN) bad.push('the control fighter does not run: the test measures nothing');
+      }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (4c) every effect ends on a knock-out, at a round start and at a Training reset (which also clears zoneUntil), and strain resets with the round', () => {
+      const bad = [], m = zoneRig({}), a = m.fighters[0], d = m.fighters[1];
+      const arm = () => { zoneClear(d); d.zone[0] = 500; d.zone[1] = 400; d.zone[2] = 450; d.dizzy = 30; d.dizzyWait = 1; d.breathless = 200; d.limp = 100; d.zoneUntil = 5000; };
+      arm(); Combat.knockOut(d, a, null, m);
+      if ([d.dizzy, d.dizzyWait, d.breathless, d.limp].join() !== '0,0,0,0' || d.zonePose !== '') bad.push('a knock-out left effects ' + [d.dizzy, d.dizzyWait, d.breathless, d.limp].join('/'));
+      arm(); m.startRound();
+      if ([d.dizzy, d.dizzyWait, d.breathless, d.limp].join() !== '0,0,0,0' || d.zone.join() !== '0,0,0' || d.zoneUntil !== 5000) bad.push('a round start: effects ' + [d.dizzy, d.dizzyWait, d.breathless, d.limp].join('/') + ', zones ' + d.zone.join('/') + ', zoneUntil ' + d.zoneUntil);
+      const t = zoneRig({ mode: 'training' }), td = t.fighters[1], ta = t.fighters[0];
+      for (const f of [ta, td]) { f.zone[1] = 500; f.limp = 100; f.dizzyWait = 1; f.zoneUntil = 7000; }
+      t.resetFighters();
+      for (const f of [ta, td]) if (f.zone.join() !== '0,0,0' || f.limp !== 0 || f.dizzyWait !== 0 || f.zoneUntil !== 0) bad.push('a Training reset left ' + f.zone.join('/') + ' limp ' + f.limp + ' zoneUntil ' + f.zoneUntil);
+      ta.zoneUntil = 7000; t.scenario(3);
+      if (ta.zoneUntil !== 0) bad.push('a Training scenario kept zoneUntil');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (5) decay - nothing for 60 ticks, then 1 point (10 tenths) every 45, never below 0, and a gain restarts the 60', () => {
+      const bad = [], m = zoneRig({}), d = m.fighters[1];
+      d.zone[0] = 100; d.zone[1] = 305; d.zone[2] = 5; d.zoneCalm = 0;
+      const at = (tick) => { while (m.tick < tick) m.step(); return d.zone.join('/'); };
+      const t0 = m.tick;
+      if (at(t0 + 59) !== '100/305/5') bad.push('it decayed before 60 ticks: ' + d.zone.join('/'));
+      if (at(t0 + 60) !== '90/295/0') bad.push('at 60 ticks: ' + d.zone.join('/') + ' (a zone with 5 tenths goes to 0, not below)');
+      if (at(t0 + 104) !== '90/295/0') bad.push('before the second step: ' + d.zone.join('/'));
+      if (at(t0 + 105) !== '80/285/0') bad.push('at 105 ticks: ' + d.zone.join('/'));
+      if (at(t0 + 150) !== '70/275/0') bad.push('at 150 ticks: ' + d.zone.join('/'));
+      Combat.strain(d, 2, 5, m);   // a gain restarts the 60 ticks for every zone
+      const afterGain = d.zone.join('/'), t1 = m.tick;
+      if (at(t1 + 59) !== afterGain) bad.push('decay went on inside 60 ticks of a gain: ' + d.zone.join('/'));
+      if (at(t1 + 60) === afterGain) bad.push('no decay 60 ticks after a gain');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (6) the state hash and the online peers - each of the nine numbers changes matchChecksum, two matches of one seed give the same strain tick by tick, and a pair of peers that differ in one strain tenth is caught by the existing check (the lockstep test below)', () => {
+      const bad = [], m = zoneRig({}), d = m.fighters[1], base = matchChecksum(m);
+      const numbers = [['zone[0]', () => d.zone[0]++], ['zone[1]', () => d.zone[1]++], ['zone[2]', () => d.zone[2]++], ['zoneCalm', () => d.zoneCalm++], ['zoneUntil', () => d.zoneUntil++], ['dizzy', () => d.dizzy++], ['dizzyWait', () => d.dizzyWait++], ['breathless', () => d.breathless++], ['limp', () => d.limp++]];
+      const seen = new Set([base]);
+      for (const [label, change] of numbers) { change(); const sum = matchChecksum(m); if (seen.has(sum)) bad.push('changing ' + label + ' did not change the checksum'); seen.add(sum); }
+      const strainLog = (seed) => {
+        const fight = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, winsNeeded: 3, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true }));
+        fight.controllers[0] = new AIController(fight.fighters[0].profile, 'hard'); fight.controllers[1] = new AIController(fight.fighters[1].profile, 'hard');
+        const log = [];
+        for (let t = 0; t < 900; t++) { fight.step(); if (fight.phase === 'waiting') fight.startRound(); log.push(fight.fighters.map((f) => f.zone.join('.') + ':' + f.dizzy + f.breathless + f.limp).join('|')); }
+        return log;
+      };
+      for (const seed of [3, 4, 9]) { const one = strainLog(seed), two = strainLog(seed); if (one.join('\n') !== two.join('\n')) bad.push('seed ' + seed + ': the strain differs between two runs'); if (!one.some((row) => !/^0\.0\.0:000\|0\.0\.0:000$/.test(row))) bad.push('seed ' + seed + ': no strain at all in 900 ticks (the test measures nothing)'); }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (9) the rule switch - Off (zones: false) leaves every fighter at 0 strain over a fight that lands many hits, no zones key plays with the rule On, and a fight in which no effect fires equals the Off fight tick by tick (state hash without the nine numbers)', () => {
+      const bad = [];
+      const press = (it, f, o, mm) => { it.punch = mm.tick % 14 === 2; it.kick = mm.tick % 14 === 9; it.fwd = 0.3; o.hp = o.maxHp; f.hp = f.maxHp; };
+      for (const [label, opts, want] of [['no zones key', {}, true], ['zones: true', { zones: true }, true], ['zones: false', { zones: false }, false]]) {
+        const m = zoneRig(opts, press); self.place(m, 1.0);
+        zoneAfter(m, 400);
+        const d = m.fighters[1], total = d.zone[0] + d.zone[1] + d.zone[2], fired = d.zoneUntil > 0;
+        if (want && !(total > 0 || fired)) bad.push(label + ': no strain over 400 ticks of hits (' + d.hp + ')');
+        if (!want && (total !== 0 || fired || d.dizzy + d.breathless + d.limp + d.dizzyWait !== 0)) bad.push(label + ': strain ' + d.zone.join('/') + ' with the rule off');
+      }
+      const plainSum = (m) => {   // the state of the P12-05 test: what the game had before the nine numbers
+        const parts = [m.tick, m.phase, m.round, m.roundTicks, m.hitStop, m.wins.join('/'), Combat.attackCounter, Combat.flightCounter];
+        for (const f of m.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.alive, f.blockStun, f.boostTicks, f.chainCount, f.counterWindow, f.reactDur, f.readyLeft, f.charging ? 1 : 0, f.chargeTicks);
+        return fnv1a(parts.join(','));
+      };
+      let whole = 0, firedSeeds = 0, equalTicks = 0;
+      for (let seed = 1; seed <= 24; seed++) {
+        const play = (zones) => {   // one fight at a time: the random stream and the move counters are global (a second match in step with the first would share them)
+          const fight = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, winsNeeded: 2, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, zones });
+          try {
+            fight.controllers[0] = new AIController(fight.fighters[0].profile, 'hard'); fight.controllers[1] = new AIController(fight.fighters[1].profile, 'hard');
+            const sums = []; let firedAt = -1;
+            for (let t = 0; t < 1500 && fight.phase !== 'matchEnd'; t++) {
+              fight.step();
+              if (fight.phase === 'waiting') fight.startRound();
+              sums.push(plainSum(fight));
+              if (firedAt < 0 && fight.fighters.some((f) => f.zoneUntil > 0)) firedAt = t;
+            }
+            return { sums, firedAt };
+          } finally { fight.dispose(); }
+        };
+        const on = play(true), off = play(false), upTo = on.firedAt < 0 ? Math.min(on.sums.length, off.sums.length) : on.firedAt;   // up to the tick the first effect fired (the effect changes the fight from the next tick on)
+        for (let t = 0; t < upTo; t++) if (on.sums[t] !== off.sums[t]) { bad.push('seed ' + seed + ': the fights differ at tick ' + t + ' before any effect fired'); break; }
+        equalTicks += upTo;
+        if (on.firedAt < 0) { whole++; if (on.sums.join() !== off.sums.join()) bad.push('seed ' + seed + ': no effect fired and the Off fight differs'); } else firedSeeds++;
+      }
+      if (!whole || !firedSeeds) bad.push('the 24 seeds did not cover both cases (' + whole + ' fights with no effect, ' + firedSeeds + ' with one)');
+      if (equalTicks < 5000) bad.push('only ' + equalTicks + ' ticks were compared');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (10) the sim functions that are new or changed use only DMath - no Math.sin, cos, atan2, exp, pow or hypot in Combat.strain, tickZones, tickZoneTimers, endZoneEffects, regenerate, updateFree, the zone parts of landHit and the other five damage sites, and matchChecksum', () => {
+      const bad = [], pattern = /(^|[^D])Math\.(sin|cos|atan2|exp|pow|hypot)\b/;
+      const sources = { 'Combat.strain': Combat.strain, 'tickZones': Fighter.prototype.tickZones, 'tickZoneTimers': Fighter.prototype.tickZoneTimers, 'endZoneEffects': Fighter.prototype.endZoneEffects, 'regenerate': Fighter.prototype.regenerate, 'updateFree': Fighter.prototype.updateFree, 'landHit': Combat.landHit, 'itemHit': Combat.itemHit, 'bodyHit': Combat.bodyHit, 'groundHit': Combat.groundHit, 'clinchStrike': Combat.clinchStrike, 'executeThrow': Combat.executeThrow, 'knockOut': Combat.knockOut, 'matchChecksum': matchChecksum, 'chooseIntent': AIController.prototype.chooseIntent };
+      for (const [name, fn] of Object.entries(sources)) { const text = String(fn); if (!text || text.length < 20) bad.push(name + ' has no source'); else if (pattern.test(text)) bad.push(name + ' uses ' + pattern.exec(text)[0]); }
+      if (!/Math\.round/.test(String(Combat.strain)) || /Math\.random|simRng|Settings/.test(String(Combat.strain) + String(Fighter.prototype.tickZones))) bad.push('Combat.strain or tickZones draws a random number or reads a setting');
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Body strain (P19-02): (7) the CPU - a dizzy CPU plans and issues no Block and no Sway for its 40 ticks (200 seeds of the Hard duel with a forced fill: no block or sway event from it, never in a guard or Sway, no Block or Sway plan left) and a limping CPU never enters RUN in 300 ticks (the same seeds without the limp run)', () => {
+      const bad = [], FREE = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L];
+      const duel = (seed) => {
+        const fight = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, winsNeeded: 2, arenaId: 'warehouse', difficulty: 'hard', evenDamage: true, items: false, hazards: false });   // disposed by the loops below, one fight at a time
+        fight.controllers[0] = new AIController(fight.fighters[0].profile, 'hard'); fight.controllers[1] = new AIController(fight.fighters[1].profile, 'hard');
+        return fight;
+      };
+      let windows = 0, struck = 0, plans = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const m = duel(seed), f = m.fighters[1], cpu = m.controllers[1], log = self.capture(['block', 'sway', 'hit']);
+        try {
+          let forced = false, started = false, mark = null, inWindow = 0;
+          for (let t = 0; t < 600 && m.phase !== 'matchEnd'; t++) {
+            if (!forced && m.tick >= 60 + (seed % 40) && f.alive && FREE.includes(f.state) && !m.locked) { f.dizzyWait = 1; forced = true; }
+            m.step();
+            if (m.phase === 'waiting') m.startRound();
+            if (forced && !started && f.dizzy === DIZZY_TICKS - 1) { started = true; mark = { blocks: log.block.length, sways: log.sway.length, hits: log.hit.length }; }
+            else if (started) inWindow++;
+            if (started) {
+              if (f.state === S.BLOCK_H || f.state === S.BLOCK_L || f.state === S.SWAY || f.state === S.RUN) { bad.push('seed ' + seed + ': the dizzy CPU was in ' + S[f.state]); break; }
+              const plan = cpu.threatResp;   // the first dizzy tick was thought before the effect started: from the second on no Block or Sway plan is left
+              if (inWindow >= 1 && f.dizzy > 0 && plan && (plan.kind === 'block' || plan.kind === 'sway')) { plans++; bad.push('seed ' + seed + ': a ' + plan.kind + ' plan was kept'); break; }
+              if (f.dizzy === 0 || !f.alive) break;
+            }
+          }
+          if (started) {
+            windows++;
+            const issued = log.block.slice(mark.blocks).filter((e) => e.def === f).length + log.sway.slice(mark.sways).filter((e) => e.f === f).length;
+            if (issued) bad.push('seed ' + seed + ': ' + issued + ' block or sway events from the dizzy CPU');
+            if (log.hit.slice(mark.hits).some((e) => e.def === f)) struck++;
+          }
+        } finally { log.stop(); m.dispose(); }
+        if (bad.length > 4) break;
+      }
+      if (windows < 150) bad.push('only ' + windows + ' of 200 fights had a dizzy window');
+      if (struck < 20) bad.push('the dizzy CPU was struck in only ' + struck + ' windows: the test measures too little');
+      let limped = 0, ranWithout = 0;
+      for (let seed = 1; seed <= 24; seed++) {
+        for (const limp of [true, false]) {
+          const m = duel(seed), f = m.fighters[1];
+          let ran = 0;
+          try {
+            for (let t = 0; t < 330 && m.phase !== 'matchEnd'; t++) {
+              if (t === 30 && limp) f.limp = LIMP_TICKS;
+              const limping = f.limp > 0;   // a round start ends the effect: only the ticks it was running count
+              m.step();
+              if (m.phase === 'waiting') m.startRound();
+              if (t >= 30 && f.state === S.RUN && (limping || !limp)) ran++;
+            }
+          } finally { m.dispose(); }
+          if (limp) { limped++; if (ran) bad.push('seed ' + seed + ': the limping CPU ran ' + ran + ' ticks'); } else if (ran) ranWithout++;
+        }
+      }
+      if (ranWithout < 6) bad.push('the control CPU ran in only ' + ranWithout + ' of 24 fights: the test measures nothing');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Body strain (P19-02): (8a) the pose - the key reads dizzy, limp or breathless while its effect runs and \'\' for none and for a fighter who is out; each effect moves the joints the decision names (dizzy: the head drops 0.25 and the torso rocks 0.12 on a 36-tick wave; breathless: lean 0.3, knees 0.1, shoulders 0.04 on a 48-tick wave; limp: roll, one knee, a dip), in the calm and guard poses only, and Reduced motion keeps the pose and drops the wave', () => {
+      const bad = [], keep = Settings.v.reducedMotion, f = new Fighter(ROSTER_BY_ID.kai, 0);
+      const keyOf = (field) => { f.dizzy = f.breathless = f.limp = f.dizzyWait = 0; if (field) f[field] = 5; return f.zonePose; };
+      if (keyOf('dizzy') !== 'dizzy' || keyOf('limp') !== 'limp' || keyOf('breathless') !== 'breathless' || keyOf('') !== '' || keyOf('dizzyWait') !== '') bad.push('the keys: ' + [keyOf('dizzy'), keyOf('limp'), keyOf('breathless'), keyOf(''), keyOf('dizzyWait')].join('/'));
+      f.dizzy = 5; f.alive = false; if (f.zonePose !== '') bad.push('a fighter who is out has a pose key'); f.alive = true; f.dizzy = 0;
+      const poseAt = (state, age, field) => { f.dizzy = f.breathless = f.limp = 0; if (field) f[field] = 9; f.state = state; f.age = age; f.animT = 0.3; f.computePose(); return Float32Array.from(f.tp); };
+      try {
+        Settings.v.reducedMotion = false;
+        const quiet = { 36: 9, 48: 12 };   // an age on the wave's zero crossing (a quarter of the period)
+        for (const state of ZONE_POSE_STATES) {
+          const rest = poseAt(state, quiet[36], '');
+          const diz = poseAt(state, quiet[36], 'dizzy'), bre = poseAt(state, quiet[48], 'breathless'), breRest = poseAt(state, quiet[48], ''), lim = poseAt(state, quiet[36], 'limp');
+          const near = (a, b) => Math.abs(a - b) < 1e-5;
+          if (state !== S.BLOCK_H && state !== S.BLOCK_L && state !== S.WALK && state !== S.IDLE) continue;
+          if (!near(diz[J.headX] - rest[J.headX], DIZZY_HEAD) || !near(diz[J.torsoRoll] - rest[J.torsoRoll], 0)) bad.push(S[state] + ' dizzy: head ' + (diz[J.headX] - rest[J.headX]).toFixed(3) + ', roll ' + (diz[J.torsoRoll] - rest[J.torsoRoll]).toFixed(3));
+          if (!near(bre[J.torsoLean] - breRest[J.torsoLean], BREATHLESS_LEAN) || !near(bre[J.knL] - breRest[J.knL], BREATHLESS_KNEES) || !near(bre[J.shLx] - breRest[J.shLx], 0)) bad.push(S[state] + ' breathless: lean ' + (bre[J.torsoLean] - breRest[J.torsoLean]).toFixed(3) + ', knee ' + (bre[J.knL] - breRest[J.knL]).toFixed(3));
+          if (!near(lim[J.torsoRoll] - rest[J.torsoRoll], LIMP_ROLL) || !near(lim[J.knR] - rest[J.knR], LIMP_KNEE) || !near(lim[J.rootDrop] - rest[J.rootDrop], LIMP_DIP * 0.5)) bad.push(S[state] + ' limp: roll ' + (lim[J.torsoRoll] - rest[J.torsoRoll]).toFixed(3) + ', knee ' + (lim[J.knR] - rest[J.knR]).toFixed(3) + ', dip ' + (lim[J.rootDrop] - rest[J.rootDrop]).toFixed(3));
+        }
+        const wave = (field, joint, period) => { const v = []; for (let age = 0; age < period; age += 3) v.push(poseAt(S.IDLE, age, field)[joint]); return Math.max(...v) - Math.min(...v); };
+        const rockOn = wave('dizzy', J.torsoRoll, DIZZY_PERIOD), heaveOn = wave('breathless', J.shLx, BREATHLESS_PERIOD), dipOn = wave('limp', J.rootDrop, LIMP_PERIOD);
+        if (!(Math.abs(rockOn - 2 * DIZZY_ROCK) < 0.03) || !(Math.abs(heaveOn - 2 * BREATHLESS_SHOULDERS) < 0.01) || !(Math.abs(dipOn - LIMP_DIP) < 0.01)) bad.push('the waves span ' + rockOn.toFixed(3) + ' / ' + heaveOn.toFixed(3) + ' / ' + dipOn.toFixed(3) + ' (want ' + 2 * DIZZY_ROCK + ' / ' + 2 * BREATHLESS_SHOULDERS + ' / ' + LIMP_DIP + ')');
+        for (let age = 0; age < 200; age++) { const w = triangleWave(age, 36); if (!(w >= -1 && w <= 1)) { bad.push('the triangle wave leaves -1..1'); break; } }
+        const idle = poseAt(S.IDLE, 4, ''), attack = (field) => { const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross; g[field] = 9; g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null; g.computePose(); return Array.from(g.pose); };
+        const clean = attack('stam');
+        for (const field of ['dizzy', 'breathless', 'limp']) if (attack(field).some((v, i) => Math.abs(v - clean[i]) > 1e-6)) bad.push('an attack pose took the ' + field + ' offsets');
+        void idle;
+        Settings.v.reducedMotion = true;
+        for (const [field, joint, period] of [['dizzy', J.torsoRoll, DIZZY_PERIOD], ['breathless', J.shLx, BREATHLESS_PERIOD], ['limp', J.rootDrop, LIMP_PERIOD]]) if (wave(field, joint, period) > 1e-6) bad.push('Reduced motion kept the ' + field + ' wave (' + wave(field, joint, period).toFixed(4) + ')');
+        const still = poseAt(S.IDLE, 5, 'dizzy'), restStill = poseAt(S.IDLE, 5, '');
+        if (!(Math.abs(still[J.headX] - restStill[J.headX] - DIZZY_HEAD) < 1e-5)) bad.push('Reduced motion lost the dizzy pose (head ' + (still[J.headX] - restStill[J.headX]).toFixed(3) + ')');
+        const limpStill = poseAt(S.IDLE, 5, 'limp'), restLimp = poseAt(S.IDLE, 5, '');
+        if (!(Math.abs(limpStill[J.knR] - restLimp[J.knR] - LIMP_KNEE) < 1e-5)) bad.push('Reduced motion lost the limp pose');
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Body strain (P19-02): (8b) the readout - three tiles H B L appear only when the most strained zone is above 30 of 60, filled (strain - 30) / 30 from the bottom and orange-red from 45, in the pip row of a 1v1 (left after the win pips, right before them) for both fighters, in a Brawl for the own fighter in the left row and the lock-on target in its name tag and for no other CPU, in a crowd or a lineup in the name tags; the status word follows BLIND and goes before TIRED (DIZZY, LIMPING, BREATHLESS)', () => {
+      const bad = [], tileCount = (html) => (html.match(/class="zt/g) || []).length, fills = (html) => [...html.matchAll(/--zf:([\d.]+)/g)].map((part) => Number(part[1])), hot = (html) => (html.match(/class="zt hot"/g) || []).length;
+      const frame = (m, fn) => hudStandIn((dom) => { UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300 + x * 40; out[1] = 300; return true; }; UI.hudUpdate(m); return fn(dom); });
+      const duel = zoneRig({}), a = duel.fighters[0], b = duel.fighters[1];
+      a.zone.fill(0); b.zone.fill(0);
+      for (const strain of [0, 299, 300]) { a.zone[0] = strain; if (frame(duel, (dom) => dom.pips1.innerHTML + dom.pips2.innerHTML).includes('class="zt')) bad.push('tiles at ' + strain / 10 + ' of 60'); }
+      a.zone[0] = 301; b.zone[2] = 460; b.zone[1] = 450; a.zone[1] = 449;
+      frame(duel, (dom) => {
+        const left = dom.pips1.innerHTML, right = dom.pips2.innerHTML;
+        if (tileCount(left) !== 3 || tileCount(right) !== 3) bad.push('a 1v1: ' + tileCount(left) + ' and ' + tileCount(right) + ' tiles, not 3 and 3');
+        if (!/^(●|○|)+<span class="zr"/.test(left) || !/^<span class="zr".*<\/span>(●|○|)*$/.test(right)) bad.push('the tiles are not after the win pips on the left and before them on the right');
+        if (hot(left) !== 0 || hot(right) !== 2 || Math.abs(fills(left)[0] - 1 / 300) > 0.006 || Math.abs(fills(right)[2] - 160 / 300) > 0.006) bad.push('fills ' + fills(left).join('/') + ' | ' + fills(right).join('/') + ', hot ' + hot(left) + '/' + hot(right));
+        if (!left.includes('aria-label="Strain (of 60): head 30, body 44, legs 0"') || !right.includes('aria-label="Strain (of 60): head 0, body 45, legs 46"')) bad.push('the labels of the tiles: ' + left + ' | ' + right);
+      });
+      a.zone.fill(0); b.zone.fill(0); a.zone[1] = 600; b.zone[0] = 350;
+      const full = frame(duel, (dom) => dom.pips1.innerHTML + '|' + dom.pips2.innerHTML);
+      if (fills(full.split('|')[0])[1] !== 1 || fills(full.split('|')[1])[0] !== 0.17 && Math.abs(fills(full.split('|')[1])[0] - 50 / 300) > 0.01) bad.push('a full zone and one at 35: ' + fills(full).join('/'));
+      // a Brawl: the own fighter in the left row, the lock-on target in its tag, the other CPUs nothing
+      const brawl = self.makeBrawl({ enemies: 3 }), [own, e1, e2] = brawl.fighters; brawl.controllers[0] = Object.assign(self.scripted(() => {}), { human: true });
+      own.zone[2] = 400; e1.zone[1] = 500; e2.zone[0] = 580;
+      brawl.lockMarked = (f) => f === e1;
+      frame(brawl, (dom) => {
+        if (tileCount(dom.pips1.innerHTML) !== 3 || tileCount(dom.pips2.innerHTML) !== 0) bad.push('a Brawl: row tiles ' + tileCount(dom.pips1.innerHTML) + ' / ' + tileCount(dom.pips2.innerHTML));
+        const tag = (i) => UI.tagEls[i].innerHTML;
+        if (tileCount(tag(1)) !== 3 || tileCount(tag(2)) !== 0 || tileCount(tag(0)) !== 0) bad.push('a Brawl: tag tiles ' + [0, 1, 2].map((i) => tileCount(tag(i))).join('/') + ' (the lock-on target 1 only)');
+      });
+      // a crowd (co-op) and a lineup: each person in the name tag, no row tiles
+      const crowd = track(new MatchSim({ mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], enemies: 2, countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }));
+      crowd.fighters.forEach((f, i) => { crowd.controllers[i] = Object.assign(self.scripted(() => {}), { human: i < 2 }); });
+      crowd.fighters[1].zone[0] = 450; crowd.fighters[2].zone[0] = 600;
+      frame(crowd, (dom) => {
+        if (tileCount(dom.pips1.innerHTML) + tileCount(dom.pips2.innerHTML) !== 0) bad.push('a crowd has row tiles');
+        if (tileCount(UI.tagEls[1].innerHTML) !== 3 || tileCount(UI.tagEls[2].innerHTML) !== 0) bad.push('a crowd: tag tiles ' + [0, 1, 2].map((i) => tileCount(UI.tagEls[i].innerHTML)).join('/') + ' (person 2 only)');
+      });
+      // the status word
+      const word = (set) => { zoneClear(b); b.blind = 0; b.stam = b.maxStam; a.state = S.IDLE; set(b); return frame(duel, () => /<i>([A-Z.]+)<\/i>/.exec(UI.tagEls[1].innerHTML) ? /<i>([A-Z.]+)<\/i>/.exec(UI.tagEls[1].innerHTML)[1] : ''); };
+      const words = [[(f) => { f.dizzy = 5; }, 'DIZZY'], [(f) => { f.limp = 5; }, 'LIMPING'], [(f) => { f.breathless = 5; }, 'BREATHLESS'], [(f) => { f.dizzyWait = 1; }, ''], [(f) => { f.blind = 5; f.dizzy = 5; }, 'BLIND'], [(f) => { f.stam = 1; f.dizzy = 5; }, 'DIZZY'], [(f) => { f.stam = 1; }, 'TIRED'], [(f) => { f.state = S.STUN; f.dizzy = 5; }, 'STUNNED'], [(f) => { f.state = S.BLOCK_H; f.limp = 5; }, 'BLOCK'], [(f) => { f.dizzy = 5; f.limp = 5; f.breathless = 5; }, 'DIZZY'], [(f) => { f.limp = 5; f.breathless = 5; }, 'LIMPING']];
+      for (const [set, want] of words) { const got = word(set); if (got !== want) bad.push('the status word is "' + got + '", not "' + want + '"'); }
+      if (!(('BREATHLESS').length > 'STUNNED'.length)) bad.push('BREATHLESS is not the longest status word');
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (8c) the Coach line comes once - the first time the tiles show for the first person\'s own fighter or for a CPU foe, never for a second person, a replay or a benchmark, and the tip is saved', () => {
+      const bad = [], keep = { game: Game.match, tips: Object.assign({}, Progress.d.tips), wins: Progress.d.wins, losses: Progress.d.losses, coach: { pending: Coach.pending, shown: Coach.shown, until: Coach.until, last: Coach.last, watched: Coach.watched }, save: Progress.save };
+      try {
+        Progress.save = () => {};
+        Progress.d.wins = Progress.d.losses = 0;
+        const play = (cfg, who, humans) => {
+          const m = zoneRig(cfg); humans.forEach((human, i) => { m.controllers[i] = Object.assign(self.scripted(() => {}), { human }); });
+          Game.match = m; Progress.d.tips.zone = false; Coach.pending = Coach.shown = null; Coach.last = null; Coach.watched = m;   // watched: the strip has seen the match's first frame (Coach.line resets a pending tip for a new match)
+          m.fighters[who].zone[1] = 400;
+          hudStandIn((dom) => { dom.onboard.hidden = true; UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300; out[1] = 300; return true; }; UI.hudUpdate(m); });
+          return { shown: Coach.shown, saved: Progress.d.tips.zone };
+        };
+        const own = play({}, 0, [true, false]);
+        if (own.shown !== 'zone' || own.saved !== true) bad.push('own fighter: ' + JSON.stringify(own));
+        const foe = play({}, 1, [true, false]);
+        if (foe.shown !== 'zone') bad.push('a CPU foe: ' + JSON.stringify(foe));
+        const second = play({ mode: 'versus' }, 1, [true, true]);
+        if (second.shown !== null || second.saved !== false) bad.push('the second person: ' + JSON.stringify(second));
+        const replay = play({ replay: true }, 0, [true, false]);
+        if (replay.shown !== null) bad.push('a replay: ' + JSON.stringify(replay));
+        const bench = play({ benchmark: true }, 0, [true, false]);
+        if (bench.shown !== null) bad.push('a benchmark: ' + JSON.stringify(bench));
+        const cpus = play({}, 0, [false, false]);
+        if (cpus.shown !== null) bad.push('two CPUs: ' + JSON.stringify(cpus));
+        Progress.d.tips.zone = true; Coach.pending = Coach.shown = null; Coach.last = null;
+        const again = zoneRig({}); again.controllers[0] = Object.assign(self.scripted(() => {}), { human: true }); Game.match = again; Coach.watched = again; again.fighters[0].zone[1] = 450;
+        hudStandIn((dom) => { dom.onboard.hidden = true; UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300; out[1] = 300; return true; }; UI.hudUpdate(again); });
+        if (Coach.shown !== null || Coach.pending) bad.push('a saved tip came again');
+      } finally { Game.match = keep.game; Progress.d.tips = keep.tips; Progress.d.wins = keep.wins; Progress.d.losses = keep.losses; Object.assign(Coach, keep.coach); Progress.save = keep.save; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Body strain (P19-02): (11) one Coach line (64 characters, ASCII, device-neutral, once), the Training lines and scenario 7, one help line in the Move list, the Free Fight row, and none of the words the decision rules out in any string this task added', () => {
+      const bad = [], tip = COACH_TIPS.find((entry) => entry.key === 'zone'), text = tip ? tip.text() : '';
+      if (!tip || text !== 'Many hits to one zone wear it out: dizzy, breathless or limping.' || text.length > 70 || !/^[\x20-\x7e]+$/.test(text)) bad.push('the Coach line: ' + text);
+      if (COACH_TIPS.filter((entry) => entry.key === 'zone').length !== 1 || Progress.fresh().tips.zone !== false) bad.push('the tip is not one entry, false in a fresh save');
+      const forbidden = /blood|wound|injur|hurt|bone|broken|crack|bruise|maim/i;
+      const trainingText = [];
+      const keep = { dom: UI.dom, cache: UI.cache, device: Input.lastDevice, touch: Settings.v.touch };
+      const t = track(new MatchSim({ mode: 'training', countdown: false, timer: 0, seed: 11, playerId: 'kai', opponentId: 'mara' })), ta = t.fighters[0], tb = t.fighters[1];   // the real Training dummy controller (scenario 7 sets its mode)
+      try {
+        Settings.v.touch = 'off';
+        const panel = () => { const stand = { innerHTML: '', hidden: false }; UI.dom = { training: stand }; UI.cache = {}; UI.trainingPanel(t); return stand.innerHTML; };
+        let html = panel();
+        for (const line of ['<b>ZONES</b> head 0 / body 0 / legs 0 (of 60)', '<b>ZONE EFFECT</b> none (ready)', '<b>ZONE HIT</b> none yet (last hit on the dummy)', '<b>Dummy zones</b> head 0 / body 0 / legs 0, effect none']) if (!html.includes(line)) bad.push('the panel lacks "' + line.replace(/<\/?b>/g, '') + '"');
+        if (!html.startsWith('<b>FRAME DATA</b>') || html.indexOf('<b>KEYS</b>') > html.indexOf('<b>DEFENCE</b>')) bad.push('the first lines are not FRAME DATA and KEYS');
+        const heading = html.slice(0, html.indexOf('<b>ZONES</b>')); if (!heading.includes('<b>KEYS</b>') || !heading.includes('<b>DEFENCE</b>')) bad.push('the ZONES lines are not after KEYS and DEFENCE');
+        t.tick = 1000; ta.zone[0] = 340; ta.zone[1] = 520; ta.zone[2] = 129; ta.breathless = 212; ta.zoneUntil = 1640; tb.zone[1] = 189; tb.zoneLastZone = 0; tb.zoneLastGain = 69;
+        html = panel();
+        for (const line of ['<b>ZONES</b> head 34 / body 52 / legs 12 (of 60)', '<b>ZONE EFFECT</b> BREATHLESS 212 (next one in 640)', '<b>ZONE HIT</b> head +6.9 (last hit on the dummy)', '<b>Dummy zones</b> head 0 / body 18 / legs 0, effect none']) if (!html.includes(line)) bad.push('the panel reads "' + html.slice(html.indexOf('<b>ZONES</b>'), html.indexOf('<b>COMBO</b>')).replace(/<\/?b>/g, '') + '"');
+        ta.breathless = 0; ta.zoneUntil = 1000; html = panel(); if (!html.includes('<b>ZONE EFFECT</b> none (ready)')) bad.push('ready is not shown when the clock is out');
+        ta.zoneUntil = 1640; html = panel(); if (!html.includes('<b>ZONE EFFECT</b> none (next one in 640)')) bad.push('the clock is not shown with no effect');
+        ta.dizzy = 30; tb.limp = 12; html = panel(); if (!html.includes('DIZZY 30') || !html.includes('effect LIMPING 12')) bad.push('the effects of the player and the dummy are not named');
+        trainingText.push(html.slice(html.indexOf('<b>ZONES</b>'), html.indexOf('<b>COMBO</b>')));
+        t.scenario(7);
+        if (t.scenarioNo !== 7 || !t.infiniteHp || t.cfg.dummy !== 'stand' || ta.stam !== ta.maxStam) bad.push('scenario 7: ' + [t.scenarioNo, t.infiniteHp, t.cfg.dummy, ta.stam === ta.maxStam].join('/'));
+        if (SCENARIOS.length !== 7 || SCENARIOS[6] !== '7: Zones') bad.push('the scenario list: ' + SCENARIOS.join(' | '));
+        for (const row of [ta, tb]) if (row.zone.join() !== '0,0,0' || row.zoneUntil !== 0) bad.push('scenario 7 kept strain or the clock');
+        Combat.landHit(zoneStrike(ta, tb, ATTACKS.jab), t); tb.setState(S.IDLE);   // the dummy cannot be knocked out: a hit with 1 hp left leaves it up
+        tb.hp = 1; Combat.landHit(zoneStrike(ta, tb, ATTACKS.power_jab), t);
+        if (!tb.alive) bad.push('the dummy of scenario 7 was knocked out');
+      } finally { UI.dom = keep.dom; UI.cache = keep.cache; Input.lastDevice = keep.device; Settings.v.touch = keep.touch; }
+      const move = UI.screen_moves(ROSTER_BY_ID.kai, 'keyboard');
+      if (!move.includes('<h3>Body strain</h3><p>' + ZONE_HELP.replace(/^Body strain: /, '') + '</p>') || move.split('Body strain').length !== 2) bad.push('the Move list does not carry the help line once');
+      if (ZONE_HELP !== 'Body strain: a hit that lands adds strain to the zone it hits (head, body or legs); blocked and slipped hits add none. At 60 the zone gives out: head, dizzy (no Block or Sway for 0.7 s); body, breathless (slow stamina refill for 5 s); legs, limping (slower walk, no run for 5 s). It then drops to 40 and nothing gives out again for 15 s.') bad.push('the help line: ' + ZONE_HELP);
+      const row = FIGHT_RULES.find((entry) => entry[0] === 'zones');
+      if (!row || row[1].join() !== 'Off,On' || row[2] !== 1 || row[3] !== 'Body strain') bad.push('the Free Fight row');
+      const strings = [text, ZONE_HELP, row ? row[3] : '', SCENARIOS[6] || '', ...trainingText, ...['DIZZY', 'LIMPING', 'BREATHLESS'], ...ZONE_NAMES, 'gives out', Fighter.prototype.zoneEffectPose.toString().replace(/\/\/.*$/gm, '')];
+      for (const s of strings) if (forbidden.test(s.replace(/\bbroken\b/g, 'x') && s)) bad.push('a ruled-out word in "' + s.slice(0, 40) + '"');
+      const sources = [Combat.strain, Fighter.prototype.tickZones, Fighter.prototype.endZoneEffects, UI.zoneLines, UI.strainTiles, UI.coachZone].map((fn) => String(fn).replace(/\/\/.*$/gm, '').replace(/\/\*[^]*?\*\//g, ''));
+      for (const s of sources) { const hit = forbidden.exec(s); if (hit) bad.push('a ruled-out word in the code: ' + hit[0]); }
+      return bad.length ? bad.slice(0, 6).join('; ') : true;
+    });
+    test('Body strain (P19-02): (12) touch, gamepad and keyboard need nothing new - no new action, key, button, setting or touch slot (the P19-16 frozen lists still hold) and the only new Free Fight row is the one rule row', () => {
+      const bad = [];
+      if (ACTIONS.length !== 13 || TOUCH_BUTTONS.length !== 9 || Object.keys(PAD_BUTTONS).length !== 8) bad.push('the action, touch or pad lists changed size: ' + ACTIONS.length + '/' + TOUCH_BUTTONS.length + '/' + Object.keys(PAD_BUTTONS).length);
+      if (Object.keys(SETTING_DEFS).some((key) => /zone|strain/i.test(key))) bad.push('a setting was added');
+      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side,zones') bad.push('the Free Fight rows: ' + FIGHT_RULES.map((row) => row[0]).join());
+      if (JSON.stringify(TOUCH_CONTEXT_ACTIONS) !== '["use","lock"]') bad.push('the touch context actions changed');
+      return bad.length ? bad.join('; ') : true;
     });
     /* ---------- Thrown bodies (P18-25 + P18-32) ---------- */
     /* A fighter sent flying by a throw meets each fighter in its path once (owner, 2026-11-03: a thrown enemy must not fly through the others untouched). It hurts the fighters its thrower may hurt (MatchSim.canHurt: the thrown
@@ -18611,7 +19075,7 @@ const SelfTest = {
       Input.lastDevice = 'keyboard';   // a phone seats one person in a crowd fight
       Object.assign(sel, { player: 'kai', opponent: 'mara', arena: 'dojo', difficulty: 'hard', rounds: 3, timer: 90 });
       const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'rulesSet', 'assist']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
+      const same = (cfg, old) => { const copy = Object.assign({}, cfg); for (const key of ['seed', 'items', 'hazards', 'ringOut', 'ring', 'sides', 'breakables', 'hpScale', 'startSide', 'zones', 'rulesSet', 'assist']) delete copy[key]; return JSON.stringify(canon(copy)) === JSON.stringify(canon(old)); };
       const waves = !!ARENAS.dojo.waves;
       const brawlPlan = MatchLineup.plan(lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false], ['yuki', 2, false]]), 'hard');
       const old = {
@@ -19196,10 +19660,10 @@ const SelfTest = {
     const ruleHash = (m) => { aiAll(m, 'normal'); for (let i = 0; i < 150; i++) m.step(); return fnv1a(m.fighters.map((f) => [f.x.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|')).toString(36); };
     test('Fight rules (P18-43): the table, the defaults and the clean-up - the defaults build the old Free Fight config and play the same fights (a 1v1, a 1v1 in a ring with ring-out, a lineup of two teams, a free-for-all and a crowd), a damaged value falls back field by field', () => {
       const bad = [], defaults = FightRules.fix();
-      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side' || FIGHT_RULES.some(([key, labels, def]) => defaults[key] !== def || labels.length < 2) || FIGHT_PRESETS.some((preset) => preset[1].length !== FIGHT_RULES.length)) bad.push('the table');
+      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side,zones' || FIGHT_RULES.some(([key, labels, def]) => defaults[key] !== def || labels.length < 2) || FIGHT_PRESETS.some((preset) => preset[1].length !== FIGHT_RULES.length)) bad.push('the table');
       for (const raw of [undefined, null, 'x', [1, 2], 7, { area: 2, ringOut: -1, items: 1.5, hazards: '1', breakables: null, health: 4, side: 3 }]) if (JSON.stringify(FightRules.fix(raw)) !== JSON.stringify(defaults)) bad.push('clean-up of ' + JSON.stringify(raw));
       if (JSON.stringify(FightRules.fix({ area: 1, health: 3, side: 2, items: 'x' })) !== JSON.stringify(Object.assign({}, defaults, { area: 1, health: 3, side: 2 }))) bad.push('field by field');
-      const fields = { ring: false, ringOut: false, items: true, hazards: true, breakables: true, hpScale: 1, startSide: 0, rulesSet: true };
+      const fields = { ring: false, ringOut: false, items: true, hazards: true, breakables: true, hpScale: 1, startSide: 0, zones: true, rulesSet: true };   // P19-02: the Body strain row (default On) adds zones
       for (const [name, lineup] of [['duel', ruleLineup()], ['lineup', lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]])], ['crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true })]]) if (JSON.stringify(FightRules.cfg(defaults, lineup, ARENAS.dojo)) !== JSON.stringify(fields)) bad.push(name + ' default config');
       const party = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], people = lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]]), ffa = lineupOf([['kai', 0, true], ['mara', 0, false], ['brutus', 0, false], ['yuki', 0, false]]);
       const same = (name, lineup, make) => { if (ruleHash(make(FightRules.cfg(defaults, lineup, ARENAS.dojo))) !== ruleHash(make({ items: true, hazards: true }))) bad.push(name + ' plays differently with the default rules'); };
@@ -19210,6 +19674,22 @@ const SelfTest = {
       same('crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), (extra) => coopMatch(party, Object.assign({ arenaId: 'dojo', seed: 11 }, extra)));
       const ringed = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, ruleCfg({ area: 1, ringOut: 1 }, null, EDGE_LEVELS[0]), { arenaId: EDGE_LEVELS[0] })))), plainRing = ruleHash(track(new MatchSim(Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', sides: true }, base, { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true }))));
       if (ringed !== plainRing) bad.push('the ring match differs from the old ring options');
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Body strain (P19-02): (9b) the Free Fight row - "Body strain" Off / On, default On in every preset and in an old saved setup, the config says zones: false only when the row is Off, and a match built from the Off config deals no strain while the default config does', () => {
+      const bad = [], row = FIGHT_RULES.find((entry) => entry[0] === 'zones'), index = FIGHT_RULES.indexOf(row);
+      if (!row || index !== FIGHT_RULES.length - 1 || row[1].join() !== 'Off,On' || row[2] !== 1 || row[3] !== 'Body strain') bad.push('the row');
+      if (FIGHT_PRESETS.some((preset) => preset[1][index] !== 1)) bad.push('a preset does not read On');
+      if (FightRules.fix({ area: 1, health: 2 }).zones !== 1 || FightRules.fix().zones !== 1 || FightRules.fix({ zones: 5 }).zones !== 1) bad.push('an old setup or a bad value does not fall back to On');
+      if (FightRules.fix({ zones: 0 }).zones !== 0) bad.push('Off is not kept');
+      if (ruleCfg({}).zones !== true || ruleCfg({ zones: 1 }).zones !== true || ruleCfg({ zones: 0 }).zones !== false) bad.push('the config: ' + [ruleCfg({}).zones, ruleCfg({ zones: 1 }).zones, ruleCfg({ zones: 0 }).zones].join('/'));
+      for (const [name, lineup] of [['a lineup', lineupOf([['kai', 1, true], ['mara', 2, false], ['brutus', 2, false]])], ['a crowd', MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true })]]) if (ruleCfg({ zones: 0 }, lineup, 'dojo').zones !== false || ruleCfg({}, lineup, 'dojo').zones !== true) bad.push(name + ' does not carry the row');
+      const off = ruleDuel('warehouse', { zones: 0 }), on = ruleDuel('warehouse', {});
+      if (off.cfg.zones !== false || on.cfg.zones !== true) bad.push('the match configs: ' + off.cfg.zones + '/' + on.cfg.zones);
+      for (const m of [off, on]) { m.controllers[0] = self.scripted(() => {}); m.controllers[1] = self.scripted(() => {}); Combat.landHit(zoneStrike(m.fighters[0], m.fighters[1], ATTACKS.jab), m); }
+      if (off.fighters[1].zone.join() !== '0,0,0' || !(on.fighters[1].zone[0] > 0)) bad.push('strain Off ' + off.fighters[1].zone.join('/') + ', On ' + on.fighters[1].zone.join('/'));
+      const run = SimRunner.run({ seed: 3, difficulty: 'hard', zones: false }), plain = SimRunner.run({ seed: 3, difficulty: 'hard' });
+      if (run.error || plain.error || run.winner === undefined) bad.push('SimRunner: ' + (run.error || plain.error));
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Fight rules (P18-43): Area and Ring-out on all eight levels - the whole level or the level ring, the walls on the ring edge (and 1.5 m beyond with ring-out), the starts, items and hazards inside, the ring-out only on the four levels with a ring edge, and the dimmed reasons', () => {
@@ -19235,8 +19715,8 @@ const SelfTest = {
         } else if (Arena.outside(Arena.ring.x1 + 0.4, row[1], 0.34) !== true) bad.push(id + ' no wall on the ring edge');
       }
       const duel = ruleLineup(), reasons = (rules, lineup, id) => FIGHT_RULES.map(([key]) => FightRules.why(key, Object.assign(FightRules.fix(), rules), lineup, ARENAS[id])).join('|');
-      if (reasons({ area: 1 }, duel, EDGE_LEVELS[0]) !== '||||||' || !reasons({}, duel, EDGE_LEVELS[0]).includes('whole level is open') || !reasons({ area: 1 }, duel, PLAIN_LEVELS[0]).includes('no ring edge')) bad.push('reasons');
-      if (!/^the crowd uses the doors\|the crowd uses the doors\|{5}the doors decide$/.test(reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'))) bad.push('crowd reasons ' + reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'));
+      if (reasons({ area: 1 }, duel, EDGE_LEVELS[0]) !== '|||||||' || !reasons({}, duel, EDGE_LEVELS[0]).includes('whole level is open') || !reasons({ area: 1 }, duel, PLAIN_LEVELS[0]).includes('no ring edge')) bad.push('reasons');
+      if (!/^the crowd uses the doors\|the crowd uses the doors\|{5}the doors decide\|$/.test(reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'))) bad.push('crowd reasons ' + reasons({}, MatchLineup.fix({ slots: [{ id: 'kai', human: true, team: 0 }], crowd: true }), 'dojo'));
       const crowd = coopMatch([{ slot: 0, id: 'kai' }], { arenaId: EDGE_LEVELS[0], ring: true, ringOut: true });
       if (Arena.ring !== null || crowd.cfg.ring !== true) bad.push('the crowd took the ring');
       return bad.length ? bad.slice(0, 5).join('; ') : true;
@@ -19435,7 +19915,7 @@ const SelfTest = {
         self.freshFree(); Game.lineups.free = Game.loadSetup(); Game.selection.rules = FightRules.fix({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 });
         Game.saveSetup();
         const saved = JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules;
-        if (JSON.stringify(saved) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2 })) bad.push('saved ' + JSON.stringify(saved));
+        if (JSON.stringify(saved) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 1, breakables: 0, health: 3, side: 2, zones: 1 })) bad.push('saved ' + JSON.stringify(saved));
         Setups.d = JSON.parse(Store.get(KEY_SETUPS)); Game.lineups = {}; Game.loadSetup();
         if (JSON.stringify(Game.selection.rules) !== JSON.stringify(saved)) bad.push('read back');
         for (const rules of [undefined, 'x', [3], { area: 9, items: 'no', health: 2.5, side: -1, breakables: 0 }]) {
@@ -19448,7 +19928,7 @@ const SelfTest = {
         // the seed at start-up
         put(KEY_SETTINGS, { ringOut: true, items: false, hazards: false, friendlyFire: true }); put(KEY_SETUPS, null);
         Setups.init();
-        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 1, health: 1, side: 0 }) || Setups.d.freeFight.friendlyFire !== true || JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules.items !== 0) bad.push('seed from nothing ' + JSON.stringify(Setups.d));
+        if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify({ area: 1, ringOut: 1, items: 0, hazards: 0, breakables: 1, health: 1, side: 0, zones: 1 }) || Setups.d.freeFight.friendlyFire !== true || JSON.parse(Store.get(KEY_SETUPS)).freeFight.rules.items !== 0) bad.push('seed from nothing ' + JSON.stringify(Setups.d));
         put(KEY_SETTINGS, { ringOut: false }); put(KEY_SETUPS, null); Setups.init();
         if (JSON.stringify(Setups.d.freeFight.rules) !== JSON.stringify(FightRules.fix({ items: 1, hazards: 1 }))) bad.push('seed of the defaults');
         const custom = [{ id: 'c1', human: true, team: 0 }, { id: 'c8', human: false, team: 0 }];
@@ -19835,6 +20315,24 @@ const SelfTest = {
         if (stepPeer(peer) || peer.match.tick !== tick) problems.push('seat ' + peer.seat + ' still steps after the stop');
       }
       return problems.length ? problems.join('; ') : true;
+    });
+    /* P19-02 (test 6 of the build list, the peers): the body-zone strain is part of the state the peers compare. A guest whose strain differs from the host's by one tenth, one timer tick or the immunity clock is caught at the next 60-frame checksum, like a different hit-point total; there is no other snapshot to extend (the online play is lockstep: the inputs and this checksum are all of its state). */
+    test('Body strain (P19-02): (6b) online peers - a guest that differs in one tenth of a zone, in one tick of the calm counter or in zoneUntil is caught at the next 60-frame checksum: both peers stop with "Out of sync" at frame 240 and the sim no longer steps', () => {
+      const problems = [];
+      for (const [label, corrupt] of [['one tenth of a strain zone', (f, guest) => { f.zone[2] = 300 + guest; }], ['one tick of the calm counter', (f, guest) => { f.zoneCalm = 5000 + guest; }], ['zoneUntil', (f, guest) => { f.zoneUntil = 9000 + guest; }]]) {   // both peers get the same base, the guest one more: the difference does not depend on the tick it was made, and a zone with a base does not decay to 0 before the check
+        const game = makeLockstep(2, { delay: 2, latency: 10, seed: 6 }), [host, guest] = game.peers;
+        let corrupted = false;
+        const done = playLockstep(game, 600, () => {
+          if (!corrupted && host.match.tick >= 200 && guest.match.tick >= 200) { corrupted = true; if (host.session.ended || guest.session.ended) problems.push(label + ': stopped before the corruption'); inPeer(host, () => { corrupt(host.match.fighters[0], 0); }); inPeer(guest, () => { corrupt(guest.match.fighters[0], 1); }); }
+        });
+        if (done !== true) return done;
+        for (const peer of game.peers) {
+          if (peer.session.ended !== 'desync' || !peer.desync || peer.desync.frame !== 240) problems.push(label + ': seat ' + peer.seat + ' ended as "' + peer.session.ended + '" at ' + (peer.desync ? peer.desync.frame : '-'));
+          const tick = peer.match.tick;
+          if (stepPeer(peer) || peer.match.tick !== tick) problems.push(label + ': seat ' + peer.seat + ' still steps after the stop');
+        }
+      }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
     });
     test('Lockstep (P12-02, P19-12): the host sets the input delay to clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 10) from 20 ping samples (median), guests follow - up to 10 frames for friends far apart (N12: 6 frames covered only a 167 ms round trip)', () => {
       const table = [[0, 2], [10, 2], [33, 2], [34, 3], [50, 3], [67, 4], [100, 4], [133, 5], [170, 7], [200, 7], [250, 9], [300, 10], [400, 10], [2000, 10]];   // RTT ms -> frames
@@ -20478,6 +20976,71 @@ const SelfTest = {
           if (width >= 390) for (const el of touch) { const r = rect(el); if (r.width < LAYOUT_TARGET_PX - 0.5 || r.height < LAYOUT_TARGET_PX - 0.5) bad.push(where + 'the ' + el.dataset.a + ' button is ' + Math.round(r.width) + ' x ' + Math.round(r.height)); }
         }, scaled ? uiScaleFor(1.5, width, height) : undefined);
       }
+      return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
+    });
+    /* P19-02 (test 8 of the build list, in the browser): the strain readout in a frame of a phone held either way with the live HUD markup and styles. The real UI.strainTiles in both pip rows of a 1v1 (the left row after the win pips, the right row before them) and in the name tag of a Brawl enemy with the longest status word (BREATHLESS); the tiles may not touch a bar, the timer, the round label, a name, an item label, the level line's glyphs, the pause button or a touch button; the pip row is as high with the tiles as without; a tag put where the clamp puts it for a head at the top of the screen (UI.tagY) stays under the HUD's lower edge and clear of the bars, the level line and the touch buttons. Two tags may still overlap each other when the fighters stand close: that is the old behaviour and is not asserted. Not asserted for a tag at the screen's right edge: it may meet the pause button as it always could. */
+    layoutTest('Body strain (P19-02): (8d) the readout at 390 x 844 and 844 x 390 - the tiles in both pip rows of a 1v1 and the BREATHLESS tag of a Brawl enemy are clear of every bar, the timer, the round label, the names, the item labels, the level line, the pause button and the touch buttons, the pip row is as high with the tiles as without, and a clamped tag stays under the HUD edge', () => {
+      if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
+      const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●', keep = { dom: UI.dom, hudBottom: UI.hudBottom };
+      const buttons = TOUCH_BUTTONS.map(([action, label, size]) => '<div class="tb' + (size ? ' ' + size : '') + '" data-a="' + action + '" role="button">' + label + '</div>').join('');
+      const tileFor = (zones) => UI.strainTiles({ alive: true, zone: zones });
+      let tilesMeasured = 0, tagsMeasured = 0;
+      try {
+        for (const kind of [{ name: 'a 1v1', hud: '', brawl: false }, { name: 'a Brawl', hud: 'brawl', brawl: true }]) for (const [width, height] of [[390, 844], [844, 390]]) {
+          const html = '<div id="hud" class="' + kind.hud + '">' + hudHtml + '</div><div id="touch"><div id="stickBase"><div id="stickKnob"></div></div>' + buttons + '</div>';
+          inLayoutFrame(width, height, '', (doc) => {
+            doc.getElementById('screens').innerHTML = '';
+            doc.getElementById('app').insertAdjacentHTML('afterbegin', html);
+            const where = kind.name + ' at ' + width + ' x ' + height + ': ';
+            for (const [id, text] of Object.entries({ hn1: 'KAI', hn2: 'CPU ENEMY', ht1: '100 / 100', ht2: '100 / 100', timer: '60', roundlbl: 'FINAL ROUND', item1: 'BASEBALL BAT ' + dot.repeat(6), item2: 'BASEBALL BAT ' + dot.repeat(6) })) doc.getElementById(id).textContent = text;
+            doc.getElementById('modeinfo').textContent = 'WAREHOUSE - Standard - Hard';
+            const hud = doc.getElementById('hud'), rect = (el) => el.getBoundingClientRect();
+            hud.hidden = false; doc.getElementById('pauseBtn').hidden = true; doc.getElementById('tags').innerHTML = '';
+            for (const el of doc.querySelectorAll('#touch [hidden]')) el.hidden = false;
+            const glyphs = (el) => { const range = doc.createRange(); range.selectNodeContents(el); const boxes = [...range.getClientRects()].filter((box) => box.width > 0); return boxes.length ? { left: Math.min(...boxes.map((box) => box.left)), top: Math.min(...boxes.map((box) => box.top)), right: Math.max(...boxes.map((box) => box.right)), bottom: Math.max(...boxes.map((box) => box.bottom)) } : null; };
+            const cross = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
+            const others = (skip) => {   // everything a tile or a tag must stay clear of
+              const parts = [['the timer', rect(doc.getElementById('timer'))], ['the round label', glyphs(doc.getElementById('roundlbl'))], ['the level line', glyphs(doc.getElementById('modeinfo'))], ['the pause button', rect(doc.querySelector('#touch .tb[data-a="pause"]'))]];
+              for (const bar of doc.querySelectorAll('#hud .bar')) parts.push([bar.id || 'a bar', rect(bar)]);
+              for (const id of ['hn1', 'hn2', 'item1', 'item2']) parts.push([id, glyphs(doc.getElementById(id))]);
+              for (const el of doc.querySelectorAll('#touch .tb')) if (el.dataset.a !== 'pause') parts.push(['the ' + el.dataset.a + ' button', rect(el)]);
+              parts.push(['the stick', rect(doc.getElementById('stickBase'))]);
+              return parts.filter(([label, box]) => box && box.right - box.left > 0 && !skip.includes(label));
+            };
+            if (!kind.brawl) {
+              const row = (id) => rect(doc.getElementById(id)).height, plain = [row('pips1'), row('pips2')];
+              doc.getElementById('pips1').innerHTML = dot + dot + tileFor([800 / 2, 450, 300]);   // 40, 45, 30 of 60: the empty tile, the orange-red one and the amber one
+              doc.getElementById('pips2').innerHTML = tileFor([600, 599, 301]) + dot + dot;
+              if (Math.abs(row('pips1') - plain[0]) > 0.5 || Math.abs(row('pips2') - plain[1]) > 0.5) bad.push(where + 'the pip row is ' + row('pips1').toFixed(1) + ' / ' + row('pips2').toFixed(1) + ' px high with tiles and ' + plain[0].toFixed(1) + ' / ' + plain[1].toFixed(1) + ' without');
+              const tiles = [...doc.querySelectorAll('#pips1 .zt, #pips2 .zt')];
+              if (tiles.length !== 6) bad.push(where + 'the pip rows hold ' + tiles.length + ' tiles, not 6');
+              for (const tile of tiles) {
+                const box = rect(tile); tilesMeasured++;
+                if (box.width < 4 || box.height < 4) bad.push(where + 'a tile is ' + Math.round(box.width) + ' x ' + Math.round(box.height) + ' px');
+                if (box.right > width || box.left < 0) bad.push(where + 'a tile is off the screen');
+                for (const [label, other] of others([])) if (cross(box, other)) bad.push(where + 'a tile (' + Math.round(box.left) + '-' + Math.round(box.right) + ' x ' + Math.round(box.top) + '-' + Math.round(box.bottom) + ') runs over ' + label + ' (' + Math.round(other.left) + '-' + Math.round(other.right) + ' x ' + Math.round(other.top) + '-' + Math.round(other.bottom) + ')');
+              }
+            } else {
+              doc.getElementById('pips1').innerHTML = tileFor([450, 450, 450]);   // the own fighter's tiles sit in the left row of a Brawl
+              for (const tile of doc.querySelectorAll('#pips1 .zt')) { const box = rect(tile); tilesMeasured++; for (const [label, other] of others([])) if (cross(box, other)) bad.push(where + 'an own tile runs over ' + label); }
+            }
+            const edge = (() => { UI.dom = { hud }; UI.hudBottom = -1; return UI.popHudBottom(); })();
+            if (!(edge > 0)) { bad.push(where + 'no HUD edge'); return; }
+            const tag = doc.createElement('div');
+            tag.className = 'tag p2'; tag.innerHTML = 'CPU<i>BREATHLESS</i>' + tileFor([520, 450, 340]) + (kind.brawl ? '<s><u style="width:60%"></u></s>' : ''); doc.getElementById('tags').appendChild(tag);
+            for (const x of [width * 0.2, width * 0.5]) {
+              tag.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(UI.tagY(6, rect(tag).height)) + 'px) translate(-50%,-100%)';
+              const box = rect(tag); tagsMeasured++;
+              if (box.top < edge - 1) bad.push(where + 'the tag at x ' + Math.round(x) + ' has its top at ' + Math.round(box.top) + ', above the HUD edge ' + Math.round(edge));
+              if (box.right > width + 1 || box.left < -1) bad.push(where + 'the tag at x ' + Math.round(x) + ' leaves the screen (' + Math.round(box.left) + '-' + Math.round(box.right) + ')');
+              for (const [label, other] of others(['the pause button'])) if (cross(box, other)) bad.push(where + 'the tag at x ' + Math.round(x) + ' runs over ' + label);
+            }
+            const widest = rect(tag).width;
+            if (!(widest > 0) || widest > width * 0.6) bad.push(where + 'the tag with the longest word is ' + Math.round(widest) + ' px wide');
+          });
+        }
+      } finally { UI.dom = keep.dom; UI.hudBottom = keep.hudBottom; }
+      if (!tilesMeasured || !tagsMeasured) bad.push('nothing was measured (' + tilesMeasured + ' tiles, ' + tagsMeasured + ' tags)');
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
     /* P18-78 review: #onboard has z-index 2; without a stacking context on #hud that lifted the Controls card above the #touch layer (a later sibling) and the card covered the stick and buttons on a first touch fight. The real HUD markup, the real card, the real touch buttons. */
