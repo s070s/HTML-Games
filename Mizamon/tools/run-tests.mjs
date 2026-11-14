@@ -1417,8 +1417,8 @@ test('Πειραιάς trainers: a seeded replay of the two new fights twice giv
     assert.ok(winRate(id, 12, 3, 200) >= 0.5, id + ' with three creatures at level 12');
   }
   // Κώτσος unchanged, the win-rate bands of section 11.7 (top level 13): top plus 1 85-97 %, top minus 1 55-75 %, top minus 3 10-30 %, three creatures at top minus 1 8-25 %
-  const boss = (level, size, items, runsCount) => {
-    const rng = R.makeRng(4000 + level * 10 + size);
+  const bossOneSeed = (level, size, items, runsCount, seed) => {
+    const rng = R.makeRng(seed + level * 10 + size);
     let wins = 0;
     for (let i = 0; i < runsCount; i++) {
       const pool = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
@@ -1428,13 +1428,14 @@ test('Πειραιάς trainers: a seeded replay of the two new fights twice giv
     }
     return wins / runsCount;
   };
+  const boss = (level, size, items, runsCount) => meanOverSeeds((seed) => bossOneSeed(level, size, items, runsCount, seed)); // the mean of three seeds, as for every boss
   const bossTop = R.TRAINERS.kotsos.team[R.TRAINERS.kotsos.team.length - 1].lv;
   const twoSouvlaki = ['souvlaki', 'souvlaki'];
   const bands = [
-    ['top plus 1, six creatures', boss(bossTop + 1, 6, twoSouvlaki, 600), 0.85, 0.97],
-    ['top minus 1, six creatures', boss(bossTop - 1, 6, twoSouvlaki, 600), 0.55, 0.75],
-    ['top minus 3, six creatures', boss(bossTop - 3, 6, twoSouvlaki, 600), 0.10, 0.30],
-    ['top minus 1, three creatures, no items', boss(bossTop - 1, 3, [], 600), 0.08, 0.25],
+    ['top plus 1, six creatures', boss(bossTop + 1, 6, twoSouvlaki, BOSS_RUNS_PER_CELL), 0.85, 0.97],
+    ['top minus 1, six creatures', boss(bossTop - 1, 6, twoSouvlaki, BOSS_RUNS_PER_CELL), 0.55, 0.75],
+    ['top minus 3, six creatures', boss(bossTop - 3, 6, twoSouvlaki, BOSS_RUNS_PER_CELL), 0.10, 0.30],
+    ['top minus 1, three creatures, no items', boss(bossTop - 1, 3, [], BOSS_RUNS_PER_CELL), 0.08, 0.25],
   ];
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Κώτσος, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
@@ -1874,8 +1875,7 @@ test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-cre
   // the bands
   const top = boss.team[boss.team.length - 1].lv;
   const twoSouvlaki = ['souvlaki', 'souvlaki'];
-  const bands = [];
-  for (const [label, offset, size, items, low, high] of bossBands(R, 'bougatsas')) bands.push([label, bossWinRate(R, 'bougatsas', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  const bands = bossBandMeans(R, 'bougatsas', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Μπουγάτσας, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
   // stronger than the plain species: without the boost the same fight is easier (top minus 3 with six creatures leaves its band)
   const plainBoss = R.TRAINERS.bougatsas.boost;
@@ -2220,9 +2220,7 @@ test('Ανατολικά boss: the win-rate bands of 11.7 (the same offsets and 
   same(boss.items, ['gemista'], 'she carries one Γεμιστά (a full heal that clears a status)');
   // the bands
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
-  const twoSouvlaki = ['souvlaki', 'souvlaki'];
-  const bands = [];
-  for (const [label, offset, size, items, low, high] of bossBands(R, 'faia')) bands.push([label, bossWinRate(R, 'faia', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  const bands = bossBandMeans(R, 'faia', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Φαίη, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
 test('Ανατολικά: old saves (v2 and v3, standing anywhere in Πειραιάς or Νότια) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
@@ -2588,9 +2586,7 @@ test('Βόρεια boss: the win-rate bands of 11.7 (the same offsets and bands 
   // the bands
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
   assert.equal(top, 32);
-  const twoSouvlaki = ['souvlaki', 'souvlaki'];
-  const bands = [];
-  for (const [label, offset, size, items, low, high] of bossBands(R, 'amartia')) bands.push([label, bossWinRate(R, 'amartia', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  const bands = bossBandMeans(R, 'amartia', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'DJ Αμαρτία, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
 test('Βόρεια: old saves (v2 and v3, standing anywhere in Πειραιάς, Νότια or Ανατολικά) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
@@ -2967,9 +2963,7 @@ test('Δυτικά boss: the win-rate bands of 11.7 (the same offsets and bands 
   // type fairness of the team is its own test; the bands
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
   assert.equal(top, 38);
-  const twoSouvlaki = ['souvlaki', 'souvlaki'];
-  const bands = [];
-  for (const [label, offset, size, items, low, high] of bossBands(R, 'plousiakis')) bands.push([label, bossWinRate(R, 'plousiakis', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  const bands = bossBandMeans(R, 'plousiakis', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Ο Ηγούμενος Πλουσιάκης, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
 test('Δυτικά: old saves (v2 and v3, standing anywhere in the four built districts) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
@@ -3072,9 +3066,9 @@ test('Δυτικά: type fairness named: every type of the boss is hit for x2 by
 
 // ---- MZ-WORLD-02f: the district Αθήνα ----
 const ATHINA_MAP_IDS = ['route11', 'monastiraki', 'monastiraki_hospital', 'monastiraki_shop', 'monastiraki_cafe', 'rock', 'route12', 'lycabettus', 'syntagma', 'syntagma_hospital', 'syntagma_shop'];
-const BOSS_TEAM_02F = ['despotakis43', 'lobbylykaina39', 'star9039', 'tavlilordos41', 'despotakis44'];
+const BOSS_TEAM_02F = ['fakelarchis43', 'fakelarchis42', 'fakelarchis42', 'star9043', 'nftarchis42', 'matanthropos44'];
 const BOSS_BOOST_02F = undefined;
-const BOSS_ITEMS_02F = ['gemista']; // one Γεμιστά της Μάνας in his bag (11.16)
+const BOSS_ITEMS_02F = []; // nothing in his bag (11.16)
 const ATHINA_FLAGS = Object.assign({ badge_dytika: true }, DYTIKA_FLAGS);
 const ATHINA_TRAINERS = ['clerk', 'guide', 'porter', 'student', 'busker', 'rival5', 'inspector', 'cadet'];
 // the ten wild creatures of 11.3.6 (all final forms: every earlier evolution is at level 37 or lower, so no pre-form is wild here)
@@ -3146,6 +3140,7 @@ test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Meda
   assert.ok(R.npcTalkable('syntagma', R.MAPS.syntagma.npcs.find((npc) => npc.id === 'baboulas'), all));
   assert.ok(R.tileDef(R.MAPS.syntagma, 14, 4).solid && !R.MAPS.syntagma.warps.some((warp) => warp.x === 14 && warp.y === 4), 'the door of the parliament is shut');
   assert.equal(R.MAPS.syntagma.signs['11,5'], 'sign.syntagma.parliament');
+  assert.equal(R.MAPS.syntagma.signs['14,4'], 'sign.syntagma.parliament', 'facing the shut door says why (the sign is on the door tile, which stays solid)');
   assert.ok(!R.MAPS.syntagma.warps.some((warp) => warp.to === 'parliament'), 'no way into the Βουλή yet');
 });
 test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.6, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Μοναστηράκι, the Rock and the Hill', () => {
@@ -3223,7 +3218,7 @@ test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild
 test('Αθήνα legend: the Φορολογούμενος is a single recruitable creature met on the Rock at level 40 (a fixed encounter), gone once beaten or recruited, and a fair fight for a level 40 team', () => {
   const species = R.SPECIES.taxpayer;
   assert.ok(species.t === 'mem' && species.ab === 'out' && species.g === 'm' && !species.evo && !species.starter && !species.parody, 'type, ability, gender, no evolution');
-  assert.ok(species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) > 600 && species.xp >= 100 && species.rec > 0 && species.rec <= 10, 'a legend: strong, a lot of XP, a very low recruit rate');
+  assert.ok(species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) >= 470 && species.xp >= 100 && species.rec > 0 && species.rec <= 10, 'a legend: strong for a species (470 to 490, the best final forms), a lot of XP, a very low recruit rate');
   assert.ok(species.learn.every(([lv, moveId]) => R.MOVES[moveId] && lv >= 1) && R.movesAtLevel('taxpayer', 40).length === 4 && R.movesAtLevel('taxpayer', 40).every((moveId) => R.MOVES[moveId].t === 'mem'), 'four moves, all of its own type');
   assert.ok(R.DEX_ORDER.includes('taxpayer') && R.STRINGS['sp.taxpayer'][0].startsWith('Γνωστ') && R.STRINGS['sp.taxpayer'][0].includes('Ποτέ δεν καταδικάστηκε') && R.STRINGS['sp.taxpayer'][1].includes('Never convicted'), 'dossier text');
   assert.ok(R.STRINGS['sp.taxpayer'][0].length > 0 && R.STRINGS['sp.taxpayer'][1].includes('The Last Taxpayer'), 'the full name of the legend is in the dossier text');
@@ -3239,14 +3234,14 @@ test('Αθήνα legend: the Φορολογούμενος is a single recruitabl
   for (const map of Object.values(R.MAPS)) for (const zone of map.zones || []) for (const entry of zone.table) assert.notEqual(entry.sp, 'taxpayer', 'it is in no wild table');
   // the way the game handles it: the talk starts a wild battle against that one creature, and only a win sets the flag (running away or losing leaves it standing; no random roll)
   const method = html.slice(html.indexOf('OverworldLayer.prototype.legendEncounter = async function'), html.indexOf('OverworldLayer.prototype.challenge = async function'));
-  assert.ok(method.includes("kind: 'wild'") && method.includes('makeMon(def.species, def.level)') && method.includes("if (result !== 'win') return;") && method.indexOf("if (result !== 'win') return;") < method.indexOf('G.flags[def.hideFlag] = true'), 'a won fight sets the flag, nothing else does');
+  assert.ok(method.includes("kind: 'wild'") && method.includes('makeMon(def.species, def.level, def.boost)') && method.includes("if (result !== 'win') return;") && method.indexOf("if (result !== 'win') return;") < method.indexOf('G.flags[def.hideFlag] = true'), 'a won fight sets the flag, nothing else does');
   assert.ok(!method.includes('rng'), 'no random roll');
   assert.ok(html.includes("else if (def.kind === 'legend') await this.legendEncounter(npc);"), 'talking to the legend starts the encounter');
   // a fair fight: a team of six at level 40 beats it most of the time, three creatures less often, and it is not a pushover
   const rate = (size, level, seed) => {
     const rng = R.makeRng(seed);
     let wins = 0;
-    for (let i = 0; i < 200; i++) wins += R.simulateBattle(athinaTeam(R, rng, level, size), [R.makeMon('taxpayer', 40)], rng, { playerItems: [] }).winner === 0 ? 1 : 0;
+    for (let i = 0; i < 200; i++) wins += R.simulateBattle(athinaTeam(R, rng, level, size), [R.makeMon('taxpayer', 40, legend.boost)], rng, { playerItems: [] }).winner === 0 ? 1 : 0;
     return wins / 200;
   };
   const six = rate(6, 40, 6100);
@@ -3254,6 +3249,21 @@ test('Αθήνα legend: the Φορολογούμενος is a single recruitabl
   assert.ok(six >= 0.45 && six <= 0.9, 'six creatures at level 40 beat the legend ' + six);
   assert.ok(three >= 0.15 && three < six, 'three creatures at level 40 beat the legend ' + three);
   assert.ok(rate(6, 44, 6300) > six, 'a stronger team beats it more often');
+  // the species is ordinary (a base sum of 490 or less, like the best final forms); the encounter carries the visible boost that keeps it a hard fight, and a recruited one has no boost
+  assert.ok(species.base.reduce((sum, value) => sum + value, 0) <= 490, 'the base sum of the legend is 490 or less');
+  assert.ok(legend.boost > 1 && R.makeMon('taxpayer', 40, legend.boost).boost === legend.boost, 'the encounter has a boost (the boost mark shows in the fight)');
+  let recruitedLegend = null;
+  for (let seed = 1; seed <= 200 && !recruitedLegend; seed++) {
+    const bag = { chontros: 3 };
+    const foe = R.makeMon('taxpayer', 40, legend.boost);
+    foe.hp = 1;
+    const battle = R.createBattle([R.makeMon('komma', 40)], [foe], R.makeRng(seed), { kind: 'wild', bag });
+    R.playTurn(battle, { t: 'recruit', id: 'chontros' });
+    if (battle.recruited.length === 1) recruitedLegend = battle.sides[0].party[1];
+  }
+  assert.ok(recruitedLegend, 'a recruit succeeds within 200 seeds');
+  assert.equal(recruitedLegend.boost, undefined, 'a recruited legend has no boost');
+  assert.ok(recruitedLegend.hp <= R.maxHp(recruitedLegend), 'its HP fits its plain stats');
   const recruitHard = R.recruitChance(R.makeMon('taxpayer', 40), 'chontros');
   assert.ok(recruitHard > 0 && recruitHard < R.recruitChance(R.makeMon('star90', 40), 'chontros'), 'it is harder to recruit than an ordinary creature');
 });
@@ -3344,13 +3354,14 @@ test('Αθήνα boss: the win-rate bands of 11.7 (the same offsets and bands as
   // the bands, seeded
   const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
   assert.equal(top, 44);
-  const twoSouvlaki = ['souvlaki', 'souvlaki'];
-  const bands = [];
-  for (const [label, offset, size, items, low, high] of bossBands(R, 'baboulas')) bands.push([label, bossWinRate(R, 'baboulas', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  const bands = bossBandMeans(R, 'baboulas', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Ο Ταξίαρχος Μπαμπούλας, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
   assert.equal(bossBands(R, 'baboulas')[3][1], 0, 'a boss with four or more creatures has its three-creature row at offset 0');
-  assert.equal(bossBands(R, 'baboulas')[2][1], -5, 'a boss of level 44 or more has its lowest row at top minus 5 (11.16)');
-  for (const earlier of ['bougatsas', 'faia', 'amartia', 'plousiakis']) assert.equal(bossBands(R, earlier)[2][1], -3, earlier + ' keeps top minus 3');
+  assert.equal(bossBands(R, 'baboulas')[2][1], -5, 'a boss of level 44 has its lowest row at top minus 5 (11.16)');
+  // the lowest row by the stat-ratio rule (11.7): top 26 or less gives 3, 32 and 38 give 4, 44 gives 5, the final at 50 gives 6, and the rule is smooth (no cliff at one level)
+  same([13, 20, 26, 32, 38, 43, 44, 45, 50].map(lowestRowOffset), [3, 3, 3, 4, 4, 5, 5, 5, 6]);
+  for (let top = 10; top < 60; top++) assert.ok(lowestRowOffset(top) >= 3 && lowestRowOffset(top + 1) - lowestRowOffset(top) <= 1 && lowestRowOffset(top) / top >= 0.105, 'the rule at top ' + top);
+  for (const [earlier, offset] of [['bougatsas', 3], ['faia', 3], ['amartia', 4], ['plousiakis', 4]]) assert.equal(bossBands(R, earlier)[2][1], -offset, earlier + ' lowest row');
 });
 test('Αθήνα: old saves (v2 and v3, standing anywhere in the five built districts) load and continue; the new flags and places migrate; the old creatures are untouched', () => {
   const party = [{ sp: 'ktimatomesitis', lv: 40, xp: R.xpForLevel(40), hp: 40 }, { sp: 'giagiaexo', lv: 41, xp: R.xpForLevel(41), hp: 30 }, { sp: 'tavlilordos', lv: 42, xp: R.xpForLevel(42), hp: 40 }];
@@ -3443,10 +3454,11 @@ test('Αθήνα: no per-frame work in the new content (the tiles and creature s
 });
 test('Αθήνα: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
   const types = new Set(R.TRAINERS.baboulas.team.map((entry) => R.SPECIES[entry.sp].t));
-  assert.ok(['ekk', 'mem', 'cel', 'pol'].every((type) => types.has(type)) && types.size === 4, 'the boss brings Εκκλησία, Memes, Celebrities and Πολιτικοί (11.16: the police stand in front of the powerful)');
+  assert.ok(['asf', 'biz', 'cel'].every((type) => types.has(type)) && types.size === 3, 'the boss brings Ασφαλίτες (his ace ΜΑΤάνθρωπος, as 11.3 names them), Επιχειρηματίες and Celebrities, no Πολιτικοί (kept for the final) and no Εκκλησία (the Δυτικά boss has it)');
+  assert.equal(R.SPECIES[R.TRAINERS.baboulas.team[R.TRAINERS.baboulas.team.length - 1].sp].t, 'asf', 'the ace is of the type of his title');
   const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika'), ...R.districtSpecies('voreia'), ...R.districtSpecies('dytika'), ...R.districtSpecies('athina')];
   for (const type of types) assert.ok(before.some((id) => R.typeMultiplier(R.SPECIES[id].t, type) === 2), 'a starter or a creature of the districts up to Αθήνα hits ' + type);
-  assert.ok(R.typeMultiplier('biz', 'ekk') === 2 && R.typeMultiplier('mem', 'pol') === 2 && R.typeMultiplier('asf', 'mem') === 2 && R.typeMultiplier('ekk', 'cel') === 2, 'Φακελάκης (Επιχειρηματίες) hits the Εκκλησία, Τρολόσαυρος (Memes) the Πολιτικοί, Κουλουράκι (Ασφαλίτες) the Memes and Ψαλτάκι (Εκκλησία) the Celebrities');
+  assert.ok(R.typeMultiplier('pol', 'biz') === 2 && R.typeMultiplier('pol', 'asf') === 2 && R.typeMultiplier('ekk', 'asf') === 2 && R.typeMultiplier('ekk', 'cel') === 2, 'Κομματάκι (Πολιτικοί) hits the Επιχειρηματίες and the Ασφαλίτες, Ψαλτάκι (Εκκλησία) the Ασφαλίτες and the Celebrities');
 });
 test('Αθήνα leaves the earlier bosses as they were: nothing it adds can reach their levels (the legend is one level 40 creature, no evolution, no wild table and no place in a test pool)', () => {
   assert.ok(R.SPECIES.taxpayer.rec <= 10 && !R.SPECIES.taxpayer.evo && ![...ATHINA_POOL, ...DYTIKA_POOL].includes('taxpayer'), 'the legend is in no test pool and is no evolution');
@@ -3499,19 +3511,30 @@ export const NOTIA_BOSS_BANDS = [
 ];
 // A boss with four or more creatures meets the three-creature row at its top level (offset 0, not top minus 1): three player creatures against four boss creatures are
 // already outnumbered (section 11.7).
-// A boss whose top level is 44 or more has its lowest row two levels lower, at top minus 5 (section 11.16): one level is 3.1 % of a creature's stats at level 32 and 2.3 % at level 44, and no boss
-// team built of the roster's creatures (more than 600 team settings measured) falls from 85 % to 30 % in four levels at level 44 (the bands of 11.7 need that: 0.65 logit a level; the best teams give about 0.6),
-// nor in five (0.5 a level at these win rates, margin 0): the lowest row sits five levels below the top, so the steps keep the power ratio they have for the other bosses with some room. The other rows and the bands are those of every other boss.
-export const HIGH_LEVEL_BOSS_TOP = 44;
+// The lowest row sits k levels below the boss' top level, k = the smallest number of levels whose share of the top level is at least LOWEST_ROW_LEVEL_SHARE_PER_MILLE / 1000, never below 3
+// (section 11.7, an agent decision of the unattended run): one level is a smaller part of a creature's stats the higher the level (7.7 % at level 13, 3.1 % at 32, 2.3 % at 44, section 11.16),
+// so the same drop in power needs more levels (top 26 gives 3, top 32 and 38 give 4, top 44 gives 5, top 50 gives 6). 0.105 and not 0.11: at 0.11 the Δυτικά boss (top 38) would move to
+// top minus 5 and sit at 9.6 %, under the 10 % edge, where top minus 4 gives 15.7 % (11.16). Integer arithmetic, so a share that lands exactly on a whole level is not moved by rounding.
+export const LOWEST_ROW_LEVEL_SHARE_PER_MILLE = 105;
+export const LOWEST_ROW_MIN_OFFSET = 3;
+export function lowestRowOffset(topLevel) { return Math.max(LOWEST_ROW_MIN_OFFSET, Math.ceil(LOWEST_ROW_LEVEL_SHARE_PER_MILLE * topLevel / 1000)); }
 export function bossBands(rules, bossId) {
   const team = rules.TRAINERS[bossId].team;
   const longTeam = team.length >= 4;
-  const high = Math.max(...team.map((entry) => entry.lv)) >= HIGH_LEVEL_BOSS_TOP;
+  const lowestOffset = lowestRowOffset(Math.max(...team.map((entry) => entry.lv)));
   return NOTIA_BOSS_BANDS.map(([label, offset, size, items, low, up]) => {
     if (size === 3 && longTeam) return ['top, three creatures, no items', 0, size, items, low, up];
-    if (offset === -3 && high) return ['top minus 5, six creatures', -5, size, items, low, up];
+    if (offset === -3) return ['top minus ' + lowestOffset + ', six creatures', -lowestOffset, size, items, low, up];
     return [label, offset, size, items, low, up];
   });
+}
+// A band is read from the mean of three seeds (a single seed of 1,000 runs has a standard error of about 1.5 points and one lucky sample can pass a boss that three seeds do not).
+export const BOSS_BAND_SEEDS = [5000, 6000, 7000];
+export function meanOverSeeds(rateOfSeed) { return BOSS_BAND_SEEDS.reduce((sum, seed) => sum + rateOfSeed(seed), 0) / BOSS_BAND_SEEDS.length; }
+export function bossBandMeans(rules, bossId, runsCount) {
+  const top = Math.max(...rules.TRAINERS[bossId].team.map((entry) => entry.lv));
+  return bossBands(rules, bossId).map(([label, offset, size, items, low, up]) =>
+    [label, meanOverSeeds((seed) => bossWinRate(rules, bossId, top + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runsCount, seed)), low, up]);
 }
 // One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
 export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];

@@ -306,7 +306,7 @@ const SPECIES = {
   // MZ-WORLD-02f (Αθήνα): the legend of the Rock, met once at level 40 (a fixed encounter, not a wild creature). Its name is short so that it fits the battle name panel; the
   // dossier text carries the full "Ο Τελευταίος Φορολογούμενος" (11.16).
   taxpayer: { n: 'Φορολογούμενος', t: 'mem', ab: 'out', g: 'm', rec: 6, xp: 150,
-    base: [150, 120, 140, 110, 140, 80], learn: [[1, 'ellada'], [1, 'giagia'], [1, 'frapes'], [1, 'tzampa']] },
+    base: [97, 78, 91, 71, 91, 52], learn: [[1, 'ellada'], [1, 'giagia'], [1, 'frapes'], [1, 'tzampa']] },
   // Parody characters (CONTENT-SEED section 11): recruitable only in the television battle.
   spyradonis: { n: 'Σπυράδωνις', t: 'pol', ab: 'des', g: 'm', rec: 24, xp: 80, parody: true,
     base: [60, 55, 50, 76, 55, 55], learn: [[1, 'fonipanel'], [1, 'tilepolisi'], [1, 'tweet'], [1, 'denmilas']] },
@@ -817,6 +817,8 @@ function doRecruit(battle, itemId) {
   if (success) {
     const recruit = cloneMon(foe);
     recruit.status = null;
+    delete recruit.boost; // a boost belongs to the fight (a boss' creature or the legend), a recruited creature has plain stats
+    recruit.hp = Math.min(recruit.hp, maxHp(recruit));
     if (teamFull) archive.push(recruit); else battle.sides[0].party.push(recruit);
     battle.recruited.push(recruit);
     emit(battle, { k: 'recruited', sp: foe.sp });
@@ -1186,7 +1188,7 @@ const TRAINERS = {
   cadet: { name: 'Ο Δόκιμος Παντελής', look: 'cadet', team: [{ sp: 'matanthropos', lv: 40 }, { sp: 'monimos', lv: 41 }], items: [] },
   baboulas: { name: 'Ο Ταξίαρχος Μπαμπούλας', look: 'baboulas', boss: true, bonus: 200,
     victory: { flag: 'badge_athina', win2: 'boss.baboulas.win2', title: 'badge.athina.title', sub: 'badge.athina.sub', win3: 'boss.baboulas.win3', ribbon: '#3a6ea5' },
-    team: [{ sp: 'despotakis', lv: 43 }, { sp: 'lobbylykaina', lv: 39 }, { sp: 'star90', lv: 39 }, { sp: 'tavlilordos', lv: 41 }, { sp: 'despotakis', lv: 44 }], items: ['gemista'] },
+    team: [{ sp: 'fakelarchis', lv: 43 }, { sp: 'fakelarchis', lv: 42 }, { sp: 'fakelarchis', lv: 42 }, { sp: 'star90', lv: 43 }, { sp: 'nftarchis', lv: 42 }, { sp: 'matanthropos', lv: 44 }], items: [] },
   host: { name: 'Ο Παρουσιαστής Ρεκλαμάκης', look: 'host', recruitable: true, recruitOnly: 'fakelos', bonus: 400,
     team: [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }], items: ['souvlaki'] },
 };
@@ -2542,7 +2544,7 @@ MAPS.rock = {
   warps: [{ x: 10, y: 15, to: 'monastiraki', tx: 22, ty: 2 }],
   signs: { '8,7': 'sign.rock.path', '13,12': 'sign.rock.ticket', '12,4': 'sign.rock.scaffold' },
   npcs: [
-    { id: 'taxpayer', x: 9, y: 5, face: 'down', look: 'taxpayerman', kind: 'legend', species: 'taxpayer', level: 40, hideFlag: 'legend_taxpayer' },
+    { id: 'taxpayer', x: 9, y: 5, face: 'down', look: 'taxpayerman', kind: 'legend', species: 'taxpayer', level: 40, boost: 1.55, hideFlag: 'legend_taxpayer' },
     { id: 'rockguide', x: 14, y: 5, face: 'left', look: 'guide', kind: 'talk', text: 'npc.rock.guide' },
     { id: 'rocktourist', x: 6, y: 5, face: 'right', look: 'tourist', kind: 'talk', text: 'npc.rock.tourist' },
     { id: 'rockticket', x: 11, y: 12, face: 'right', look: 'kiosk', kind: 'talk', text: 'npc.rock.ticket' },
@@ -2599,7 +2601,7 @@ MAPS.syntagma = {
     { x: 25, y: 4, to: 'syntagma_shop', tx: 3, ty: 4 },
     { x: 29, y: 6, to: 'lycabettus', tx: 10, ty: 14 },
   ],
-  signs: { '6,4': 'sign.syntagma.hospital', '23,4': 'sign.shop', '11,5': 'sign.syntagma.parliament', '23,10': 'sign.syntagma.metro', '27,5': 'sign.syntagma.hill', '12,11': 'sign.ktel' },
+  signs: { '6,4': 'sign.syntagma.hospital', '23,4': 'sign.shop', '11,5': 'sign.syntagma.parliament', '14,4': 'sign.syntagma.parliament', '23,10': 'sign.syntagma.metro', '27,5': 'sign.syntagma.hill', '12,11': 'sign.ktel' },
   npcs: [
     { id: 'baboulas', x: 15, y: 9, face: 'down', look: 'baboulas', kind: 'boss', trainer: 'baboulas' },
     { id: 'cadet', x: 10, y: 12, face: 'right', look: 'cadet', kind: 'trainer', trainer: 'cadet', sight: 3 },
@@ -3569,7 +3571,7 @@ const STRINGS = {
   'npc.hill.kid': ['Το τελεφερίκ ήταν κλειστό. Η πινακίδα έγραφε «μεσημεριανό». Δεν ξέρω τι τρώει.', 'The funicular was closed. The sign said "lunch". I do not know what it eats.'],
   'npc.syntagma1': ['Έχω παγκάκι εδώ από το 2900. Δεν το αγόρασα. Το κληρονόμησα από το προηγούμενο παγκάκι.', 'I have had a bench here since 2900. I did not buy it. I inherited it from the previous bench.'],
   'npc.syntagma2': ['Ρώτησα πού είναι η πλατεία. Μου είπαν «είστε πάνω της». Είναι κλειστή, όμως.', 'I asked where the square is. They said "you are on it". It is closed, though.'],
-  'npc.syntagma3': ['Τα βαν στέκονται στη σειρά από το πρωί. Κανείς δεν ξέρει για ποιον. Ούτε τα βαν.', 'The vans have stood in a row since morning. Nobody knows for whom. Not even the vans.'],
+  'npc.syntagma3': ['Αυτό το βαν δεν φεύγει. Η άδεια στάθμευσης είναι στο άλλο βαν. Το άλλο βαν περιμένει την άδεια του πρώτου.', 'This van is not leaving. Its parking permit is in the other van. The other van is waiting for this one\'s permit.'],
   'npc.syntagma.doctor': ['Εφημερεύουμε όλο το εικοσιτετράωρο. Εκτός από το διάλειμμα του εικοσιτετραώρου.', 'We are on duty around the clock. Except during the break of the clock.'],
   'npc.syntagma.wait1': ['Περιμένω τον γιατρό. Μου είπαν «σε μια στιγμή». Η στιγμή έχει αριθμό προτεραιότητας.', 'I am waiting for the doctor. They said "in a moment". The moment has a priority number.'],
   'npc.syntagma.customer': ['Ζήτησα ένα νερό. Μου έδωσαν έντυπο.', 'I asked for water. They gave me a form.'],
@@ -5691,7 +5693,7 @@ OverworldLayer.prototype.wildEncounter = async function (encounter) {
 OverworldLayer.prototype.legendEncounter = async function (npc) {
   const def = npc.def;
   await say('legend.' + def.species + '.intro');
-  const result = await runBattle({ kind: 'wild', foeParty: [makeMon(def.species, def.level)] });
+  const result = await runBattle({ kind: 'wild', foeParty: [makeMon(def.species, def.level, def.boost)] });
   await this.afterBattle(result, null);
   if (result !== 'win') return;
   G.flags[def.hideFlag] = true;
@@ -8544,6 +8546,7 @@ async function selfTest() {
       // A boosted boss' creature also carries the boost mark left of its level text (boostMarkOffset), so it has that much less room.
       const boosted = new Set();
       for (const trainer of Object.values(TRAINERS)) if (trainer.boost) for (const entry of trainer.team) boosted.add(entry.sp);
+      for (const map of Object.values(MAPS)) for (const npc of map.npcs) if (npc.kind === 'legend' && npc.boost) boosted.add(npc.species); // the legend of the Rock carries a boost too (11.16)
       ctx.font = FONT;
       for (const lang of ['el', 'en']) {
         const levelWidth = ctx.measureText(lookupString('ui.lv', lang) + 50).width;
@@ -8612,7 +8615,7 @@ async function selfTest() {
       Input.inject('down', 12);
       check('the Hill leads back down to Σύνταγμα', await arrive('syntagma', 28, 6), world.mapId + ' ' + world.px + ',' + world.py);
       // The shut door of the parliament: a solid tile with a sign, no way in yet (MZ-WORLD-02g).
-      check('the door of the parliament is solid, has no warp and carries a sign', tileDef(MAPS.syntagma, 14, 4).solid && !findWarp(MAPS.syntagma, 14, 4) && !!MAPS.syntagma.signs['11,5'], 'door');
+      check('the door of the parliament is solid, has no warp and carries a sign', tileDef(MAPS.syntagma, 14, 4).solid && !findWarp(MAPS.syntagma, 14, 4) && !!MAPS.syntagma.signs['11,5'] && MAPS.syntagma.signs['14,4'] === 'sign.syntagma.parliament', 'door');
       // Every new map paints the screen, and the new creature has a sprite.
       const paintsScreen = function () {
         renderFrame();
