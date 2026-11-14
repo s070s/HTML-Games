@@ -1173,7 +1173,7 @@ const MAPS = {
       'iiiiiiiiiiii',
       'iLLLLLLLLLLi',
       'iCCCCCCCCCCi',
-      'iVLLLYLLLLAi',
+      'iALLLYLLLLVi',
       'iLLLLLLLLLLi',
       'iBLLLLLLLLBi',
       'iBLLBLLBLLBi',
@@ -1181,8 +1181,8 @@ const MAPS = {
       'iiiiimmiiiii',
     ],
     warps: [{ x: 5, y: 8, to: 'town', tx: 15, ty: 14 }, { x: 6, y: 8, to: 'town', tx: 15, ty: 14 }],
-    signs: { '1,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
-    actions: { '10,3': 'archive' },
+    signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+    actions: { '1,3': 'archive' },
     npcs: [
       { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
       { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.hosp.doctor' },
@@ -1407,7 +1407,11 @@ function migrateSave(raw) {
   const player = save.player || {};
   const startMap = MAPS[player.map] ? player.map : START_MAP.map;
   const map = MAPS[startMap];
-  const useStart = !(MAPS[player.map] && tileWalkable(map, player.x, player.y, save.flags || {}));
+  const walkable = !!MAPS[player.map] && tileWalkable(map, player.x, player.y, save.flags || {});
+  // A version-1 save standing on the lot the hospital now covers goes to the pavement in front of its door, not to the lab.
+  const hospitalDoor = MAPS.town.warps.find((warp) => warp.to === 'hospital');
+  const onHospitalLot = version < 2 && player.map === 'town' && !walkable;
+  const useStart = !walkable && !onHospitalLot;
   const bag = {};
   for (const id of ITEM_IDS) bag[id] = Math.max(0, Math.floor(Number((save.bag || {})[id]) || 0));
   const dex = { seen: {}, got: {} };
@@ -1423,8 +1427,8 @@ function migrateSave(raw) {
     version: SAVE_VERSION,
     player: {
       name: String(player.name || 'ΝΙΚΟΣ').slice(0, NAME_MAX), gender: player.gender === 'f' ? 'f' : 'm',
-      map: useStart ? START_MAP.map : player.map, x: useStart ? START_MAP.x : player.x, y: useStart ? START_MAP.y : player.y,
-      dir: ['up', 'down', 'left', 'right'].includes(player.dir) ? player.dir : 'down',
+      map: useStart ? START_MAP.map : player.map, x: useStart ? START_MAP.x : (onHospitalLot ? hospitalDoor.x : player.x), y: useStart ? START_MAP.y : (onHospitalLot ? hospitalDoor.y + 1 : player.y),
+      dir: onHospitalLot ? 'down' : (['up', 'down', 'left', 'right'].includes(player.dir) ? player.dir : 'down'),
     },
     party: party.map(serializeMon),
     archive: archive.map(serializeMon),
@@ -1521,7 +1525,7 @@ const STRINGS = {
   'kep.comeBack': ['Ο φάκελός σας είναι ελλιπής. Ελάτε αύριο. Για την ομάδα σας δοκιμάστε το Νοσοκομείο 3000, πιο κάτω. Εκεί δεν θέλει αριθμό. Θέλει ράντζο.', 'Your file is incomplete. Return tomorrow. For your team try Hospital 3000, further down. There you do not need a number. You need a cot.'],
   // Hospital 3000: the reception heal, the monitor, the Αρχείο Ασθενών (creature archive)
   'hosp.hello': ['Νοσοκομείο 3000, γραφείο εισαγωγών. Για την ομάδα σου; Ο κανονισμός λέει: ραντεβού σε 3 έως 5 χρόνια.', 'Hospital 3000, admissions desk. For your team? The regulation says: an appointment in 3 to 5 years.'],
-  'hosp.free': ['Δωρεάν, φυσικά. Το σύστημα είναι δωρεάν για όποιον είναι {υπομονετικός|υπομονετική}. Και έχει ράντζο.', 'Free, of course. The system is free for anyone who is patient. And has a cot.'],
+  'hosp.free': ['Δωρεάν, φυσικά. Το σύστημα είναι δωρεάν για όποιον έχει υπομονή. Και έχει ράντζο.', 'Free, of course. The system is free for anyone who is patient. And has a cot.'],
   'hosp.vipAsk': ['Υπάρχει και η υπηρεσία VIP: χωρίς αναμονή, με ένα Φακελάκι «για τα έξοδα του φαρμακείου». Το δίνεις;', 'There is also the VIP service: no waiting, for one little envelope "for the pharmacy expenses". Hand it over?'],
   'hosp.vipTaken': ['Ευχαριστούμε! Το Φακελάκι καταχωρήθηκε ως «δωρεά προς το Νοσοκομείο». Απόδειξη δεν υπάρχει. Ποτέ δεν υπήρχε.', 'Thank you! The envelope was filed as a "donation to the hospital". There is no receipt. There never was.'],
   'hosp.atOnce': ['Α, κοίτα: ένα ράντζο ελευθερώθηκε μόλις τώρα. Θαύμα. Ή τυπογραφικό λάθος. Πέρασε.', 'Oh, look: a cot just became free. A miracle. Or a typing error. Step in.'],
@@ -4741,7 +4745,7 @@ async function selfTest() {
       const teamBefore = G.party.length;
       const archiveBefore = G.archive.length;
       const second = G.party[1].sp;
-      world.loadMap('hospital', 10, 4, 'up');
+      world.loadMap('hospital', 1, 4, 'up');
       Input.inject('a', 2);
       await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 600, 'a', 8);
       const menuShown = topLayer() instanceof ChoiceLayer;
@@ -4809,6 +4813,13 @@ async function selfTest() {
           return [Math.round(box.width), Math.round(box.height), Math.round(arrowBox.width), Math.round(arrowBox.height)].join('x');
         });
         if (new Set(sizes).size !== 1 || sizes[0].split('x').some(function (n) { return Number(n) <= 0; })) padProblems.push(layout + ' sizes ' + sizes.join(','));
+        // One drawn arrow turned four ways: four different transforms, and "up" is the unturned one (none or the identity matrix).
+        const turns = pad.map(function (button) {
+          const arrow = button.querySelector('.arrow');
+          return arrow ? getComputedStyle(arrow).transform : '';
+        });
+        const upIsPlain = turns[0] === 'none' || turns[0] === 'matrix(1, 0, 0, 1, 0, 0)';
+        if (new Set(turns).size !== 4 || !upIsPlain) padProblems.push(layout + ' turns ' + turns.join(' ; '));
         for (const button of pad) {
           button.classList.add('on');
           const arrow = button.querySelector('.arrow');

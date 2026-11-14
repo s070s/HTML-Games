@@ -753,6 +753,8 @@ test('save v2: the archive is saved; version 1 gets an empty archive and its Κ�
   same(fromV1.lastHeal, HOSPITAL_SPOT);
   assert.equal(fromV1.player.x, 5, 'the rest of the save is untouched');
   assert.equal(fromV1.party.length, 2);
+  const onLot = R.migrateSave(Object.assign(sampleV1(), { player: { name: 'ΜΑΡΙΑ', gender: 'f', map: 'town', x: 14, y: 11, dir: 'left' } }));
+  assert.ok(onLot.player.map === 'town' && onLot.player.x === 15 && onLot.player.y === 14 && onLot.player.dir === 'down', 'a version-1 save on the hospital lot loads in front of the hospital door');
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 5, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
   const fromV0 = R.migrateSave(v0);
   assert.equal(fromV0.version, 2);
@@ -834,10 +836,11 @@ test('hospital map: counter reach, terminal, furniture, four waiting people, the
     const [x, y] = key.split(',').map(Number);
     assert.equal(action, 'archive');
     assert.equal(R.tileAt(hospital, x, y), 'A', 'the archive terminal tile');
+    assert.equal(x + ',' + y, '1,3', 'the terminal is at the left, away from the reception counter');
     assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => all.has('hospital:' + (x + dx) + ':' + (y + dy))), 'the terminal can be used');
   }
   assert.equal(Object.keys(hospital.actions).length, 1);
-  assert.ok(R.tileAt(hospital, 1, 3) === 'V' && R.tileAt(hospital, 5, 3) === 'Y', 'vending machine and TV');
+  assert.ok(R.tileAt(hospital, 10, 3) === 'V' && R.tileAt(hospital, 5, 3) === 'Y', 'vending machine and TV');
   assert.ok(Object.values(hospital.signs).includes('sign.hosp.vending') && Object.values(hospital.signs).includes('sign.hosp.tv'));
   assert.ok(hospital.rows.join('').split('B').length - 1 >= 4, 'at least four corridor cots (ράντζα)');
   const waiting = hospital.npcs.filter((npc) => npc.kind === 'talk' && npc.id.startsWith('hospwait'));
@@ -861,8 +864,8 @@ test('hospital strings: every new key has both languages, the code finds them, g
   assert.ok(hospitalKeys.length >= 30, hospitalKeys.length + ' keys');
   for (const key of ['arch.pickDeposit', 'arch.pickWithdraw', 'arch.listTitle', 'arch.count', 'hosp.monitor', 'hosp.monitorNote', 'hosp.vipAsk', 'hosp.vipTaken', 'hosp.atOnce', 'hosp.done', 'hosp.doneVip']) assert.ok(S[key], key);
   for (const key of hospitalKeys) assert.ok(S[key][0].length > 3 && S[key][1].length > 3 && S[key][0] !== S[key][1], key + ' has two different languages');
-  assert.equal(R.formatText(S['hosp.free'][0], {}, 'f').includes('υπομονετική'), true);
-  assert.equal(R.formatText(S['hosp.free'][0], {}, 'm').includes('υπομονετικός'), true);
+  assert.equal(R.formatText(S['hosp.free'][0], {}, 'f').includes('για όποιον έχει υπομονή'), true, 'no gendered adjective: the line reads the same for both');
+  assert.equal(R.formatText(S['hosp.free'][0], {}, 'm'), R.formatText(S['hosp.free'][0], {}, 'f'));
   const copiedEnglish = /nurse|joy\b|pok[eé]|red cross|we hope to see you again|restored to full|welcome to our|we heal your/i;
   const copiedGreek = /νοσοκόμα|τζόι|κόκκινος σταυρός|ελπίζουμε να σε ξαναδούμε|θα σε ξαναδούμε|καλώς ήρθες στο κέντρο|θεραπεύουμε/i;
   for (const key of hospitalKeys) {
