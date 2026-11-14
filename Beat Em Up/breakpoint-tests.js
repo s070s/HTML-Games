@@ -7,6 +7,7 @@
 window.BREAKPOINT_TESTS = function (api) {
 'use strict';
 const {
+  CHARGE_MIN_STARTUP, CHARGE_L1, CHARGE_L2, CHARGE_MAX, CHARGE_RELEASE, CHARGE_DMG, CHARGE_EXTRA, CHARGE_REACH, CHARGE_STUN, CHARGE_PUSH, NET_CODE_MAX, NET_HELD_SCALE, NET_NEED_AFTER_MS, NET_FILL_MAX, NET_INPUT_BYTES, mergePresses, PAUSE_STILL_TICKS, CHARGE_COIL_FAMILY, CHARGE_COIL_STYLE, CHARGE_CANCEL_HELP, PAUSE_HELP, COACH_PAUSE_STRINGS, holdText, CHARGE_POSE_FROM, CHARGE_COIL_DEEPEN, CHARGE_POSE_BLEND, CHARGE_TREMOR, CHARGE_RING_SEGMENTS, PAUSE_HANDS, PAUSE_LEAN, STYLE_NEW_MOVES,
   ANIM_SPECS, AIW_WEIGHTS, DERIVED_THROWS, applyStyleGuard, isKickAnim, sampleCarry, THROW_SKINS, clinchMoveName, ATTACK_INPUT_PLAIN, attackInputMove, attackInputName, attackInputFullName, genericAttackNote, clinchStrikeWord, poseLabel, PLANT_SPEED, PLANT_SPEED_MOVE, SKINS, STRING_POSITIONS, STRIKE_ROLL, STRIKE_SPIN, moveFor, moveIdentity, tableFromPositions,
   DMath, PICKUP_CONE_COS, SPRAY_CONE_COS, LOCK_VIEW_COS, LOCK_STICK_COS, ACTIONS, ACTION_LABELS, AGE_DEFAULT, AGE_MARK, AGE_MAX, AGE_MIN, AGE_OLD_FROM, AIController, AI_EDGE_PATIENCE, ALL_MOVES,
   ARCADE_ARENAS, ARCADE_STAGES, ARCHETYPES, ARCHETYPE_IDS, ARCHETYPE_MOVE_STYLE, ARENAS, ARENA_ORDER,
@@ -457,7 +458,7 @@ const SelfTest = {
     test('Determinism: no transcendental Math call in the simulation (P12-08, J01): everything between the SIM markers of the page (fighters, combat, the CPU, the match, the lockstep, the hazard links) calls DMath; only named pose and drawing methods keep Math.sin and the like', () => {
       const BEGIN = '// <<SIM BEGIN: ', END = '// <<SIM END>>';
       const BAD = /(?:^|[^\w$.])Math\s*(?:\.\s*(sin|cos|tan|atan|atan2|asin|acos|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\b|\[)|\*\*|=\s*Math\s*[;,)]/;
-      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'strikePose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
+      const VISUAL = ['walkLegs', 'crouchWalkLegs', 'computePose', 'levelTorso', 'storyPose', 'styleRhythm', 'boostPose', 'tiredPose', 'chargePose', 'pausePose', 'drawChargeRing', 'clinchPose', 'submitPose', 'pinnedPose', 'attackPose', 'strikePose', 'itemDebris', 'hazardParticles', 'loadHidesFighter', 'lampAngle',
         'draw', 'drawPointLightFlicker', 'drawObject', 'drawCracks', 'drawBox', 'drawColumn', 'drawRail', 'drawPanel', 'drawLook', 'drawDeck', 'drawScaffold', 'drawFireDoor', 'drawRubble', 'drawChain', 'drawHead', 'drawLowerFace', 'drawHair', 'drawItems', 'drawFlames', 'drawHazards'];   // pose, drawing, particles: each name on its own, so a new simulation method called draw... is scanned
       const MUST_HOLD = ['class Fighter ', 'const Combat = ', 'class AIController ', 'class DummyController ', 'class CrowdDirector ', 'class MatchSim ', 'const MatchLineup = ', 'const PlayerController = ', 'function humanController(', 'const SimRunner = ',
         'class LockstepSession ', 'class NetSeatController ', 'function matchChecksum(', 'function encodeInput(', 'function decodeInput(', 'function aimFromIntent(', 'function koEndsFight(', 'function makeWeaponMove(', 'function weaponTable(', 'function coopEnemyCount(', 'const Arena = ', '  linkConductors(',
@@ -6110,6 +6111,8 @@ const SelfTest = {
       down: (m, a) => Events.emit('knockdown', { f: a }),
       grab: (m, a, b) => { m.intents[0].defend = true; Events.emit('clinch', { att: b, def: a, grip: 'front' }); },
       item: (m) => { m.itemToUse = () => ({}); },
+      charge: (m, a, b) => { a.stringKeys = 'PP'; Events.emit('hit', { att: a, def: b, mv: { h: 'M' }, combo: 2, crouched: false }); },   // P19-15: the person lands the step before the chargeable one
+      pause: (m, a) => { Progress.d.tips.charge = true; a.stringKeys = 'P'; a.moveConnected = true; a.stringTick = a.age; a.state = S.IDLE; a.stateTicks = PAUSE_STILL_TICKS; },   // P19-15 (polled by Coach.line): a first step landed and the fighter stood still for a beat
     };
     test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
       const bad = [], strip = () => Coach.line(m, a), nextRound = () => { m.tick += COACH_SHOW_TICKS + 1; m.round++; };
@@ -6121,7 +6124,7 @@ const SelfTest = {
         if (tip.key === 'lose') continue;
         ACC_TRIGGERS[tip.key](m, a, b);
         const text = strip();
-        if (text !== Coach.textOf(tip.key) || Progress.d.tips[tip.key] !== true || JSON.parse(Store.get(KEY_PROGRESS)).tips[tip.key] !== true) bad.push(tip.key + ' did not show or was not saved: "' + text + '"');
+        if (text !== Coach.textOf(tip.key, a) || Progress.d.tips[tip.key] !== true || JSON.parse(Store.get(KEY_PROGRESS)).tips[tip.key] !== true) bad.push(tip.key + ' did not show or was not saved: "' + text + '"');
         if (strip() !== text) bad.push(tip.key + ' did not stay on the strip');
         const snap = JSON.stringify(Progress.d.tips), probe = ['down', 'stam', 'block', 'perfect'].find((key) => key !== tip.key && Progress.d.tips[key] === false);
         if (probe) ACC_TRIGGERS[probe](m, a, b);   // another line asks in the same round: it waits, and does not come in that round at all
@@ -6172,7 +6175,7 @@ const SelfTest = {
       const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
       const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'L2'], touch: ['DEFEND', 'DUCK'] };
       try {
-        if (COACH_TIPS.length !== 10 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 10) bad.push('the table does not have 10 keys');
+        if (COACH_TIPS.length !== 12 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 12) bad.push('the table does not have 12 keys (the ten of P18-27 and the charge and pause tips of P19-15)');
         for (const device of ['keyboard', 'gamepad', 'touch']) {
           Input.lastDevice = device;
           for (const tip of COACH_TIPS) {
@@ -15724,6 +15727,7 @@ const SelfTest = {
         for (const side of ['stand', 'crouch']) for (const keys in own[side]) own[side][keys].forEach((id) => mine.add(id));
         const expected = ALL_MOVES.filter((m) => m.ctx || mine.has(m.id)).map((m) => esc(moveFor(styleId, m.id).name)).concat(Object.keys(CLINCH_MOVES).map((id) => esc(clinchMoveName(styleId, id))));
         if (weightClass(profile) >= TACKLE_MIN_GAP) expected.push(esc(TACKLE_MOVE.name));
+        expected.push(esc(style.charge.name + ', level 1'), esc(style.charge.name + ', level 2'), esc(style.delay.row.name));   // P19-15: the style's charged attack (two levels) and delayed step
         for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) if (dir !== 'left') expected.push(esc(throwFor(grip, dir, styleId).name));
         for (const kind of kinds) {
           const html = UI.screen_moves(profile, kind);
@@ -19824,7 +19828,7 @@ const SelfTest = {
         if (JSON.stringify(back) !== JSON.stringify(Object.assign(makeIntent(), it, { assist: false, guardAssist: false, noParry: false }))) { problems.push('round trip ' + JSON.stringify(it)); break; }
       }
       const codes = [1, 0xffffffff, 7, 0, 5, 6, 8, 9], bytes = packInputs(2, 70000, codes), packet = unpackInputs(bytes);
-      if (bytes.length !== NET_PACKET_HEAD + 4 * NET_REDUNDANCY || !packet || packet.seat !== 2 || packet.last !== 70000 || packet.codes.join() !== codes.join()) problems.push('packet round trip');
+      if (bytes.length !== NET_PACKET_HEAD + 5 * NET_REDUNDANCY || !packet || packet.seat !== 2 || packet.last !== 70000 || packet.codes.join() !== codes.join()) problems.push('packet round trip');
       if (unpackInputs(bytes.slice(0, bytes.length - 1)) || unpackInputs(new Uint8Array(3)) || unpackInputs(packInputs(0, 1, []))) problems.push('a bad packet was accepted');
       const game = makeLockstep(3, { delay: 2, latency: 5, seed: 8 }), [host, second] = game.peers;
       const id = host.session.matchId;
@@ -20003,7 +20007,7 @@ const SelfTest = {
       const hostEnds = [1, 2, 3].map((seat) => game.hostEnd(seat)), hostPackets = hostEnds.reduce((sum, end) => sum + end.packets, 0), hostBytes = hostEnds.reduce((sum, end) => sum + end.bytes, 0);
       const perFrame = hostPackets / game.peers[0].match.tick;
       if (perFrame < 8 || perFrame > 12) problems.push('the host sent ' + perFrame.toFixed(2) + ' packets a frame (9 expected: 3 own + 6 relayed; the repeats of a stalled peer, relayed too, add some)');
-      if (Math.abs(hostBytes / hostPackets - (NET_PACKET_HEAD + 4 * NET_REDUNDANCY)) > 0.5) problems.push('a packet was ' + (hostBytes / hostPackets).toFixed(2) + ' bytes on average, not ' + (NET_PACKET_HEAD + 4 * NET_REDUNDANCY) + ' (the first 8 frames of a match have fewer inputs in a packet)');
+      if (Math.abs(hostBytes / hostPackets - (NET_PACKET_HEAD + 5 * NET_REDUNDANCY)) > 0.5) problems.push('a packet was ' + (hostBytes / hostPackets).toFixed(2) + ' bytes on average, not ' + (NET_PACKET_HEAD + 5 * NET_REDUNDANCY) + ' (the first 8 frames of a match have fewer inputs in a packet)');
       if (globalThis.BP_LOCKSTEP_REPORT) globalThis.BP_LOCKSTEP_REPORT.push({ seats: 4, frames: FRAMES, packets: game.net.packets, bytes: game.net.bytes, lost: game.net.lost, hostPackets, hostBytes, ticks: game.peers[0].match.tick, stallRate: peerFrameRate(game.net), needs: game.peers.map((peer) => peer.session.stats.needs), fills: game.peers.map((peer) => peer.session.stats.fills) });
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
@@ -26167,6 +26171,129 @@ const SelfTest = {
         if (UI.sayPending.length) bad.push('the announcements are still waiting after the timer fired');
         return bad.length ? bad.join('; ') : true;
       } finally { Object.assign(window, { setTimeout: keep.set, clearTimeout: keep.clear }); Object.assign(UI, { dom: keep.dom, banners: keep.banners, bannerTimer: keep.bannerTimer, sayTimer: keep.sayTimer, sayPending: keep.sayPending }); }
+    });
+    /* ---------- Moves (P19-14): charged attacks and delayed strings, built in P19-15 (REFERENCE-breakpoint.md, Appendix C, "P19-14 charged attacks and delayed strings, decided") ---------- */
+    /* The 16 charged attacks and 16 delayed strings of the decision's tables, frozen (section 4): at / delayAt = the string positions; l1 / l2 = [release ticks, active, recovery, damage, extra stamina, reach, hit advantage, block advantage]; delay = [name, height, tier, startup, active, recovery, damage, stamina, reach, limb, kind, hit, block]. */
+    const MOVES_1914 = {
+      boxer: { at: 'PPP', plain: 'Hook', name: 'Sunday Punch', limb: 'RA', l1: [5, 4, 21, 15.6, 3.6, 1.3, 0, -11], l2: [4, 4, 21, 19.5, 7.3, 1.3, 2, -11], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Cross', delay: ['Check Hook', 'M', 2, 7, 3, 15, 7, 6.9, 1.25, 'RA', 'hit', 1, -7] },
+      kickboxer: { at: 'PPK', plain: 'Heavy Push Kick', name: 'Cannon Teep', limb: 'LL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Switch Kick', delay: ['Rhythm Kick', 'H', 2, 8, 3, 15, 8, 6.9, 1.45, 'LL', 'hit', 1, -7] },
+      karateka: { at: 'PPK', plain: 'Kekomi Front Kick', name: 'Kime Thrust Kick', limb: 'LL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Side Thrust Kick', delay: ['Ura Mawashi Kick', 'H', 2, 9, 3, 16, 8, 6.9, 1.45, 'RL', 'hit', 0, -8] },
+      wrestler: { at: 'PK', plain: 'Shoulder Charge', name: 'Spear', limb: 'RA', l1: [5, 4, 25, 14.4, 4.4, 1.2, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.3, 0, -14], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Underhook Smash', delay: ['Duck-Under', 'L', 3, 10, 4, 24, 10, 10.4, 1.3, 'LL', 'knockdown', -5, -15] },
+      judoka: { at: 'PP', plain: 'Push-Out', name: 'Osoto Drive', limb: 'LA', l1: [5, 4, 25, 14.4, 4.4, 1.4, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.4, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Lift-Up', delay: ['Sleeve Drag', 'H', 3, 11, 3, 22, 10, 10.4, 1.3, 'LA', 'stagger', -2, -12] },
+      brawler: { at: 'PPP', plain: 'Haymaker', name: 'Sledge Right', limb: 'RA', l1: [5, 4, 21, 15.6, 3.6, 1.3, 0, -11], l2: [4, 4, 21, 19.5, 7.3, 1.3, 2, -11], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Big Right', delay: ['Sucker Punch', 'M', 2, 7, 3, 15, 7, 6.9, 1.2, 'RA', 'hit', 1, -7] },
+      capoeira: { at: 'KKP', plain: 'Heavy Bencao', name: 'Meia-Lua de Compasso', limb: 'RL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Armada', delay: ['Rabo de Arraia', 'L', 2, 9, 4, 19, 10, 6.9, 1.5, 'LL', 'hit', 0, -8] },
+      wingchun: { at: 'PPK', plain: 'Heavy Thrust Kick', name: 'Pressing Thrust Kick', limb: 'LL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'stagger', delayAt: 'PP', delayPlain: 'Trap Strike', delay: ['Lap Sau Palm', 'M', 2, 6, 3, 14, 6.5, 6.9, 1.3, 'LA', 'hit', 2, -6] },
+      muaythai: { at: 'KPP', plain: 'Heavy Uppercut', name: 'Khao Dot Knee', limb: 'RL', l1: [5, 4, 27, 18, 4.8, 1.2, -4, -16], l2: [4, 4, 27, 22.5, 9.7, 1.2, -2, -16], kind2: 'launch', delayAt: 'PP', delayPlain: 'Cross', delay: ['Spinning Elbow', 'M', 2, 8, 3, 16, 7.5, 6.9, 1.15, 'RA', 'hit', 0, -8] },
+      taekwondo: { at: 'KKP', plain: 'Chagi Push Kick', name: 'Hook Heel Kick', limb: 'RL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Jump Round Kick', delay: ['Bandal Chagi', 'M', 2, 9, 3, 17, 8, 6.9, 1.5, 'RL', 'hit', -1, -9] },
+      sambo: { at: 'PPK', plain: 'Boot Push', name: 'Crushing Boot', limb: 'LL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Cross', delay: ['Lapel Smash', 'M', 2, 7, 3, 15, 7, 6.9, 1.3, 'LA', 'hit', 1, -7] },
+      bjj: { at: 'PK', plain: 'Guard Push', name: 'Hip-Bump Drive', limb: 'LA', l1: [5, 4, 25, 14.4, 4.4, 1.4, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.5, 0, -14], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Overhook Smash', delay: ['Collar Drag', 'H', 3, 10, 3, 20, 10, 10.4, 1.3, 'LA', 'stagger', 0, -10] },
+      hapkido: { at: 'PPP', plain: 'Palm Smash', name: 'Double Palm Smash', limb: 'RA', l1: [5, 4, 21, 15.6, 3.6, 1.3, 0, -11], l2: [4, 4, 21, 19.5, 7.3, 1.3, 2, -11], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Palm Cross', delay: ['Back-Hand Whip', 'M', 2, 7, 3, 15, 7, 6.9, 1.2, 'RA', 'hit', 1, -7] },
+      kali: { at: 'PPK', plain: 'Redonda', name: 'Cross-Body Redonda', limb: 'RA', l1: [5, 4, 21, 15.6, 3.6, 1.3, 0, -11], l2: [4, 4, 21, 19.5, 7.3, 1.3, 2, -11], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Angle 1', delay: ['Abanico', 'M', 2, 7, 3, 14, 6.5, 6.9, 1.35, 'RA', 'hit', 2, -6] },
+      kravmaga: { at: 'PPP', plain: 'Hammer Fist', name: 'Hammer Slam', limb: 'RA', l1: [5, 4, 21, 15.6, 3.6, 1.3, 0, -11], l2: [4, 4, 21, 19.5, 7.3, 1.3, 2, -11], kind2: 'knockdown', delayAt: 'PP', delayPlain: 'Parry Strike', delay: ['Palm Heel Strike', 'H', 2, 6, 3, 14, 6.5, 6.9, 1.25, 'RA', 'hit', 2, -6] },
+      mma: { at: 'PPK', plain: 'Oblique Kick', name: 'Piston Kick', limb: 'LL', l1: [5, 4, 25, 14.4, 4.4, 1.7, -2, -14], l2: [4, 4, 25, 18, 8.8, 1.8, 0, -14], kind2: 'knockdown', delayAt: 'PK', delayPlain: 'Oblique Kick', delay: ['Switch Knee', 'M', 2, 9, 3, 17, 7.5, 6.9, 1.2, 'RL', 'hit', -1, -9] },
+    };
+    const frameLine = (mv) => { const fa = frameAdvantage(mv); return [fa.onHit, fa.onBlock]; };
+    test('Moves (P19-14): every one of the 16 styles has one charged attack and one delayed string; the positions exist in its string table and hold the plain moves of the decision; the 32 charged rows and 16 delayed rows are the tables of section 4 (frozen); no new name or identity equals another move\'s', () => {
+      const problems = [], names = new Map(), identities = new Set();
+      for (const id of MOVE_STYLE_IDS) for (const rowId in ATTACKS) names.set(moveFor(id, rowId).name, id + ':' + rowId); // the names of every older move in every style
+      for (const id of MOVE_STYLE_IDS) for (const rowId in ATTACKS) identities.add(moveIdentity(moveFor(id, rowId)));
+      if (MOVE_STYLE_IDS.length !== 16 || Object.keys(MOVES_1914).length !== 16) problems.push('the styles are not the 16 of the decision');
+      for (const id of MOVE_STYLE_IDS) {
+        const row = MOVE_STYLE[id], want = MOVES_1914[id], table = stringsFor(id, false).stand;
+        if (!want || !row.charge || !row.delay) { problems.push(id + ' has no charge or delay slot'); continue; }
+        if (row.charge.at !== want.at || row.delay.at !== want.delayAt) problems.push(id + ' positions ' + row.charge.at + ' / ' + row.delay.at + ', want ' + want.at + ' / ' + want.delayAt);
+        const plain = table[want.at] && moveFor(id, table[want.at][want.at.length - 1]), delayPlain = table[want.delayAt] && moveFor(id, table[want.delayAt][want.delayAt.length - 1]);
+        if (!plain || plain.name !== want.plain || plain.tier !== 3 || plain.startup < CHARGE_MIN_STARTUP || plain.startup < 12 || plain.startup > 17) problems.push(id + ' plain move at ' + want.at + ' is ' + (plain && plain.name + ' tier ' + plain.tier + ' startup ' + plain.startup) + ', want ' + want.plain);
+        if (!delayPlain || delayPlain.name !== want.delayPlain) problems.push(id + ' plain step at ' + want.delayAt + ' is ' + (delayPlain && delayPlain.name) + ', want ' + want.delayPlain);
+        if (row.charge.at === row.delay.at || row.charge.at.startsWith(row.delay.at) && row.charge.at.length === row.delay.at.length) problems.push(id + ' has its charge and its pause on one position');
+        const [r1, r2] = row.charge.rows || [];
+        [[r1, want.l1, 1], [r2, want.l2, 2]].forEach(([mv, level, n]) => {
+          if (!mv) { problems.push(id + ' has no level ' + n + ' row'); return; }
+          const got = [mv.release, mv.active, mv.recovery, mv.dmg, mv.xstam, mv.reach].concat(frameLine(mv));
+          if (mv.name !== want.name || mv.limb !== want.limb || mv.tier !== 3 || mv.gb !== true || mv.charged !== n || got.join() !== level.join()) problems.push(id + ' level ' + n + ' is ' + mv.name + ' ' + mv.limb + ' ' + got.join('/') + ', want ' + want.name + ' ' + want.limb + ' ' + level.join('/'));
+        });
+        if (r2 && r2.kind !== want.kind2) problems.push(id + ' level 2 is a ' + r2.kind + ', want ' + want.kind2);
+        if (r1 && r1.kind !== plain.kind) problems.push(id + ' level 1 changed the kind of the plain move');
+        const d = row.delay.row, w = want.delay;
+        if (!d || d.id !== row.delay.id || d.delayed !== true || ATTACKS[d.id]) { problems.push(id + ' delayed row ' + row.delay.id + ' is missing, not marked or in ATTACKS (the strong-move tests count tier 3 rows of ATTACKS)'); continue; }
+        const got = [d.name, d.h, d.tier, d.startup, d.active, d.recovery, d.dmg, d.stam, d.reach, d.limb, d.kind].concat(frameLine(d));
+        if (got.join() !== w.join() || d.gb !== false) problems.push(id + ' delayed row is ' + got.join('/') + ', want ' + w.join('/'));
+        for (const mv of [r1, r2, d]) if (mv) {
+          if (names.has(mv.name)) problems.push(id + ' ' + mv.name + ' is also the name of ' + names.get(mv.name));
+          if (identities.has(moveIdentity(mv))) problems.push(id + ' ' + moveIdentity(mv) + ' is another move\'s identity');
+        }
+        if (r1) { names.set(r1.name, id + ':charge'); identities.add(moveIdentity(r1)); }
+        if (d) { names.set(d.name, id + ':delay'); identities.add(moveIdentity(d)); }
+        if (row.charge.rows.some((mv) => ATTACKS[mv.id])) problems.push(id + ' put a charged row in ATTACKS (the plain row is shared by other styles)');
+      }
+      return problems.length ? problems.length + ': ' + problems.slice(0, 6).join('; ') : true;
+    });
+    test('Moves (P19-14): the held flags come from the keyboard, a pad button and the touch button as levels and are cleared by clearIntent; no key, button, binding or action was added (frozen maps); the 40-bit online word round-trips them and keeps the stick at 1/127, mergePresses keeps the current frame\'s held bits and carries none, a 4-byte packet and a peer of version 4 are refused, and a need / fill round trip of a held frame (and a bad fill code) is read exactly', () => {
+      const problems = [];
+      const FROZEN = {
+        pad: '{"punch":[2,3],"kick":[0,1],"defend":[5],"lock":[4],"use":[11],"grapple":[7],"crouch":[6],"pause":[9]}',
+        keys: '{"up":["KeyW","ArrowUp"],"down":["KeyS","ArrowDown"],"left":["KeyA","ArrowLeft"],"right":["KeyD","ArrowRight"],"punch":["KeyJ"],"kick":["KeyK"],"defend":["KeyL"],"jump":["Space"],"crouch":["KeyC"],"grapple":["KeyG"],"use":["KeyE"],"lock":["KeyQ"],"pause":["Escape","KeyP"]}',
+        keys2: '{"up":["ArrowUp"],"down":["ArrowDown"],"left":["ArrowLeft"],"right":["ArrowRight"],"punch":["Numpad4"],"kick":["Numpad5"],"defend":["Numpad6"],"jump":["Numpad0"],"crouch":["NumpadDecimal"],"grapple":["Numpad3"],"use":["Numpad1"],"lock":["Numpad2"],"pause":["NumpadEnter"]}',
+        touch: '[["punch","PUNCH","lg"],["kick","KICK","lg"],["defend","DEFEND","lg"],["grapple","GRAB",""],["jump","JUMP","sm"],["crouch","DUCK","sm"],["pause","II","sm"],["use","USE","sm"],["lock","LOCK","sm"]]',
+        actions: '["up","down","left","right","punch","kick","defend","jump","crouch","grapple","use","lock","pause"]',
+      };
+      if (JSON.stringify(PAD_BUTTONS) !== FROZEN.pad) problems.push('the gamepad map changed');
+      if (JSON.stringify(DEFAULT_KEYS) !== FROZEN.keys || JSON.stringify(DEFAULT_KEYS_P2) !== FROZEN.keys2) problems.push('a default key map changed');
+      if (JSON.stringify(Keymap.bindings) !== FROZEN.keys && Keymap.bindings.punch[0] !== 'KeyJ') problems.push('the live key map is not the default and the test cannot read it');
+      if (JSON.stringify(TOUCH_BUTTONS) !== FROZEN.touch) problems.push('the touch buttons changed');
+      if (JSON.stringify(ACTIONS) !== FROZEN.actions) problems.push('the list of actions changed');
+      if (Object.keys(SETTING_DEFS).length !== 27 || Object.keys(SETTING_DEFS).some((key) => /charge|hold|pause/i.test(key))) problems.push('a setting was added (the 27 settings of before P19-15 are frozen)');
+      const probe = makeIntent(); probe.punchHeld = probe.kickHeld = true; clearIntent(probe);
+      if (probe.punchHeld || probe.kickHeld) problems.push('clearIntent left a held flag');
+      withDevices(() => {
+        const pad = navigator.getGamepads()[0], it = makeIntent();
+        const read = () => { Input.update(); Input.fillIntent(it, null, null); return [it.punchHeld, it.kickHeld, it.punch, it.kick].map(Number).join(''); };
+        const punchKey = Keymap.bindings.punch[0], kickKey = Keymap.bindings.kick[0];
+        const devices = {
+          keyboard: { punch: (on) => (on ? Input.onKey({ code: punchKey, repeat: false }) : Input.kb.delete(punchKey)), kick: (on) => (on ? Input.onKey({ code: kickKey, repeat: false }) : Input.kb.delete(kickKey)) },
+          gamepad: { punch: (on, b) => { pad.buttons[PAD_BUTTONS.punch[b || 0]].pressed = on; }, kick: (on, b) => { pad.buttons[PAD_BUTTONS.kick[b || 0]].pressed = on; } },
+          touch: { punch: (on) => Input.touchSet('punch', on), kick: (on) => Input.touchSet('kick', on) },
+        };
+        for (const [name, device] of Object.entries(devices)) {
+          const seen = [];
+          device.punch(true); seen.push(read()); seen.push(read()); device.punch(false); seen.push(read());   // pressed: the press and the level; still down: the level only; let go: nothing
+          device.kick(true); seen.push(read()); device.punch(true); seen.push(read()); device.kick(false); device.punch(false); seen.push(read());
+          if (seen.join() !== '1010,1000,0000,0101,1110,0000') problems.push(name + ' held flags ' + seen.join() + ', want 1010,1000,0000,0101,1110,0000');   // [punchHeld, kickHeld, punch, kick] each tick: the press edge once, the level while down
+        }
+        for (const [action, b] of [['punch', 1], ['kick', 1]]) { devices.gamepad[action](true, b); const r = read(); devices.gamepad[action](false, b); read(); if (r[action === 'punch' ? 0 : 1] !== '1') problems.push('the second ' + action + ' button does not hold'); }
+      });
+      // the online word
+      const it = makeIntent(), twin = makeIntent();
+      for (let i = 0; i < 64; i++) {
+        clearIntent(it); it.fwd = (i - 32) / 32 * 127 / 127; it.side = ((i * 7) % 65 - 32) / 32; it.punch = !!(i & 1); it.kick = !!(i & 2); it.defend = !!(i & 4); it.punchHeld = !!(i & 8); it.kickHeld = !!(i & 16); it.sidestep = i % 3 - 1;
+        const code = encodeInput(it);
+        decodeInput(code, twin);
+        const clamp1 = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 127) / 127;
+        if (twin.punchHeld !== it.punchHeld || twin.kickHeld !== it.kickHeld || twin.punch !== it.punch || twin.kick !== it.kick || twin.defend !== it.defend || Math.abs(twin.fwd - clamp1(it.fwd)) > 1e-9 || Math.abs(twin.side - clamp1(it.side)) > 1e-9 || twin.sidestep !== it.sidestep) { problems.push('round trip failed at ' + i); break; }
+        if (code >= NET_CODE_MAX || (code % NET_HELD_SCALE) !== (code >>> 0)) problems.push('a code is not a 40-bit number');
+      }
+      const held = (code) => Math.floor(code / NET_HELD_SCALE);
+      clearIntent(it); it.kickHeld = true; if (encodeInput(it) === 0 || held(encodeInput(it)) !== 2) problems.push('a frame with only a held bit is 0 or has the wrong bit');
+      clearIntent(it); it.punchHeld = true; it.kickHeld = true; if (held(encodeInput(it)) !== 3 || (encodeInput(it) >>> 0) !== 0) problems.push('both held bits');
+      const PUNCH_BIT = 1 << 5, GRAB = 1 << 7, current = (1 * NET_HELD_SCALE) + 0x7f;   // the carried word is the flag bits (bit 5 Punch, bit 7 Grapple)
+      const merged = mergePresses(current, PUNCH_BIT | GRAB);
+      if (held(merged) !== 1 || ((merged >>> 0) & 0xffff) !== 0x7f || (((merged >>> 0) >>> 16) & 0xffff) !== (PUNCH_BIT | GRAB)) problems.push('mergePresses did not keep the held bit and the carried pulses: ' + merged);
+      if (held(mergePresses(0x7f, PUNCH_BIT)) !== 0 || held(mergePresses(3 * NET_HELD_SCALE, 0)) !== 3 || mergePresses(3 * NET_HELD_SCALE, 0) !== 3 * NET_HELD_SCALE) problems.push('mergePresses carried a held bit or dropped one');
+      const codes = [3 * NET_HELD_SCALE + 5, 1 * NET_HELD_SCALE, 2 * NET_HELD_SCALE + 0xffffffff, 0, 0xffffffff, 7, 9, 11], bytes = packInputs(1, 90000, codes), packet = unpackInputs(bytes);
+      if (bytes.length !== NET_PACKET_HEAD + 5 * NET_REDUNDANCY || !packet || packet.codes.join() !== codes.join()) problems.push('the 5-byte packet does not round-trip: ' + (packet && packet.codes.join()));
+      const dirty = bytes.slice(); dirty[NET_PACKET_HEAD + 4] |= 0xfc; // spare bits 2 to 7 of the fifth byte hold anything: they are masked off
+      if (unpackInputs(dirty).codes[0] !== codes[0]) problems.push('spare bits of the held byte changed a code');
+      const old = new Uint8Array(NET_PACKET_HEAD + 4 * 2); old[7] = 2; if (unpackInputs(old)) problems.push('a packet of the old 4-byte length was accepted');
+      const game = makeLockstep(2, { delay: 2, latency: 20, seed: 4 }), [host, guest] = game.peers, id = host.session.matchId, FRAME = 10;
+      host.session.got[0].set(FRAME, 3 * NET_HELD_SCALE + 0x12345678); host.session.got[0].set(FRAME + 1, 1 * NET_HELD_SCALE);
+      host.session.receive(1, 'control', JSON.stringify({ t: 'need', seat: 0, from: FRAME, mid: id }));   // the guest asks, the host answers with a fill on the reliable channel (JSON)
+      game.net.advance(game.net.t + 200);
+      if (guest.session.got[0].get(FRAME) !== 3 * NET_HELD_SCALE + 0x12345678 || guest.session.got[0].get(FRAME + 1) !== NET_HELD_SCALE) problems.push('a held frame did not survive need / fill: ' + guest.session.got[0].get(FRAME) + ', ' + guest.session.got[0].get(FRAME + 1));
+      guest.session.receive(0, 'control', JSON.stringify({ t: 'fill', seat: 0, from: 20, codes: [-1, NET_CODE_MAX, 1.5, 'x', null, NET_CODE_MAX - 1, '7', {}], mid: id }));
+      const bad = [20, 21, 22, 23, 24, 25, 26, 27].map((f) => guest.session.got[0].get(f)).join();
+      if (bad !== '0,0,0,0,0,' + (NET_CODE_MAX - 1) + ',7,0') problems.push('bad fill codes stored as ' + bad + ', want 0 for each malformed one');
+      if (typeof ONLINE_NET_VERSION !== 'number' || ONLINE_NET_VERSION !== 5) problems.push('ONLINE_NET_VERSION is ' + ONLINE_NET_VERSION + ', want 5');
+      return problems.length ? problems.slice(0, 8).join('; ') : true;
     });
     /* Deferred and registered after every other test, so the connections of the whole run are counted */
     test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {

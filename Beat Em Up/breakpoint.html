@@ -1161,18 +1161,21 @@ const COACH_TIPS = [
   { key: 'grab', text: (k) => 'A grab beats a guard. Move away, or tap ' + k('grapple') + ' to escape.' },
   { key: 'item', text: (k) => k('use') + ' picks it up. Hit with it, or throw it.' },
   { key: 'lose', text: () => 'Hard fight? Settings has Auto-assist and Guard assist; Training shows every move.' }, // a toast
+  { key: 'charge', text: (k, f) => 'Hold ' + k(f && MOVE_STYLE[moveStyleFor(f.profile)].charge.at.endsWith('K') ? 'kick' : 'punch') + ' on a string\'s last press to charge it. Let go to strike.' }, // P19-15: names the button of the style's chargeable step; the decision's wording shortened to the 70 characters of the strip (the P18-27 test)
+  { key: 'pause', text: () => 'Stand still for a beat between two presses for a different move.' },
 ];
 const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 1.15, POP_BOX_EM = 0.9, POP_GROW = 0.25, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6, POP_STEPS_DOWN = 3; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life; POP_STEPS_DOWN: steps below the hit a pop may take when the pile has no room above; POP_LIFT_EM: one step (more than a text box of POP_BOX_EM em at the start scale 1 + POP_GROW)
 const HUD_NAME_LONG = 9;
 const COACH_MAX_FIGHTS = 20, COACH_LOW_FIGHTS = 5, COACH_LOSS_FIGHTS = 10; // no tips after 20 fights (wins + losses); the low-hit tip and the loss offer are for the first 5 and 10
 const COACH_SHOW_TICKS = 240, COACH_PUNCH_TICKS = 900, COACH_OFFER_MS = 6000; // a tip stays 4 s; the Punch tip comes after 15 s without a chain
+const COACH_PAUSE_STRINGS = 8; // the pause tip comes once the charge tip was shown or the person has chained this many strings in the fight
 const COACH_PAD = { grapple: 'R2', crouch: 'L2' }; // short gamepad names where the label is a sentence
 const Coach = {
-  pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0,
+  pending: null, shown: null, until: 0, last: null, watched: null, chained: false, streak: 0, strings: 0, inString: false,
   fights() { return Progress.d.wins + Progress.d.losses; },
-  textOf(key) {
+  textOf(key, fighter) { // fighter: whose strip it is (the charge tip names the button of that style's chargeable step)
     const pad = Inputs.players[0].lastDevice === 'gamepad';
-    return COACH_TIPS.find((tip) => tip.key === key).text((action) => (pad && COACH_PAD[action]) || UI.keyName(action, 0).replace(/ \(.*/, '').split(' / ')[0]);
+    return COACH_TIPS.find((tip) => tip.key === key).text((action) => (pad && COACH_PAD[action]) || UI.keyName(action, 0).replace(/ \(.*/, '').split(' / ')[0], fighter);
   },
   eligible(m) { return !!m && !m.training && !m.cfg.benchmark && !m.cfg.replay && m.hasPerson() && !(m.coop && m.partySize > 1) && !(m.setup && m.personFighters.length > 2); },
   ready(m) { // a live fight, no card open, no tip yet this round
@@ -1181,17 +1184,20 @@ const Coach = {
   },
   offer(key) { const m = Game.match; if (Progress.d.tips[key] === false && !this.pending && this.ready(m)) this.pending = { key, m, round: m.round }; }, // saved only once shown, so a held-back tip comes again
   line(m, f) { // the strip text of this frame, asked while no clinch or hold hint is up
-    if (this.watched !== m) { this.watched = m; this.chained = false; this.shown = this.pending = null; }
+    if (this.watched !== m) { this.watched = m; this.chained = false; this.strings = 0; this.inString = false; this.shown = this.pending = null; }
     if (this.shown && m.tick >= this.until) this.shown = null;
     if (f.stringKeys.length > 1) this.chained = true;
+    if (f.stringKeys.length > 1 && !this.inString) this.strings++; // a string of two or more steps, counted once
+    this.inString = f.stringKeys.length > 1;
     if (!this.shown && this.ready(m)) {
+      if (Progress.d.tips.pause === false && f.alive && f.stringKeys.length === 1 && f.state === S.IDLE && f.stateTicks >= PAUSE_STILL_TICKS && f.pauseOpen() && (Progress.d.tips.charge || this.strings >= COACH_PAUSE_STRINGS)) this.offer('pause'); // P19-15: the person landed a first step and stood still for a beat without pressing
       if (m.round === 1 && !this.chained && m.matchTicks >= COACH_PUNCH_TICKS) this.offer('punch');
       else if (!f.item && f.alive && Progress.d.tips.item === false && m.itemToUse(f)) this.offer('item');
       const want = this.pending;
       this.pending = null;
       if (want && want.m === m && want.round === m.round) { Progress.d.tips[want.key] = true; Progress.save(); this.shown = want.key; this.until = m.tick + COACH_SHOW_TICKS; this.last = { m, round: m.round }; }
     }
-    return this.shown ? this.textOf(this.shown) : '';
+    return this.shown ? this.textOf(this.shown, f) : '';
   },
   hook() { // read-only listeners: they only ask for a tip
     const mine = (f) => !!Game.match && f === Game.match.fighters[0];
@@ -1201,6 +1207,11 @@ const Coach = {
       if (!mine(e.def)) return;
       if (e.combo >= 3) this.offer('stun');
       else if (e.crouched === false && e.mv.h === 'L' && this.fights() < COACH_LOW_FIGHTS && !(Game.match.cfg.assist & ASSIST_GUARD)) this.offer('low');
+    });
+    Events.on('hit', (e) => { // P19-15: the person lands the step before the chargeable one of their style (the second step of a three-step string): offer the charge
+      if (!mine(e.att) || e.att.item) return;
+      const keys = e.att.stringKeys, at = MOVE_STYLE[moveStyleFor(e.att.profile)].charge.at;
+      if (keys.length === at.length - 1 && at.startsWith(keys)) this.offer('charge');
     });
     Events.on('knockdown', (e) => { if (mine(e.f)) this.offer('down'); });
     Events.on('clinch', (e) => { if (mine(e.def) && Game.match.intents[0].defend) this.offer('grab'); });
@@ -1310,6 +1321,15 @@ const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT); // cou
 const ASSIST_STRING_WINDOW = 2; // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
 const ASSIST_STRINGS = 1, ASSIST_GUARD = 2; // bits of cfg.assist: the assists of a match's human seats
 const ATTACK_QUEUE_MAX = 3; // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
+/* P19-15 charged attacks and delayed strings (Appendix C, "P19-14 charged attacks and delayed strings, decided"). All counts are the fighter's own age ticks, which stand still in a hit freeze.
+   Charge: the last press of one string per style, kept down from the press to the move's last startup tick (the set tick), makes the move wait there. After CHARGE_L1 ticks a release strikes the level 1 row, after CHARGE_L2 the level 2 row, CHARGE_MAX releases by itself at level 2; a release below CHARGE_L1 is the plain move.
+   The charged rows of a level (index 0 = level 1, 1 = level 2) come from the plain row once at load: damage, push and the extra stamina (a share of the plain price, paid at the release), reach, hit stun, and the ticks from the release to the strike (CHARGE_RELEASE).
+   Pause: a press of the delayed string's position, made while the string is open by a fighter that has stood still in IDLE for PAUSE_STILL_TICKS, plays the style's delayed row instead of the plain step. */
+const CHARGE_MIN_STARTUP = 9; // a move with a shorter startup never charges
+const CHARGE_L1 = 12, CHARGE_L2 = 30, CHARGE_MAX = 42;
+const CHARGE_RELEASE = [5, 4], CHARGE_DMG = [1.2, 1.5], CHARGE_EXTRA = [0.35, 0.7], CHARGE_REACH = [0.05, 0.1], CHARGE_STUN = [2, 4], CHARGE_PUSH = [1.2, 1.5];
+const CHARGE_LAUNCH_ADD = 0.6, CHARGE_LAUNCH_FLOOR = 5.0; // level 2 of a launch charge: the plain launch speed plus this, or CHARGE_LAUNCH_FLOOR where the plain move does not launch
+const PAUSE_STILL_TICKS = 10; // 0.17 s
 
 // Local co-op: up to COOP_MAX_PLAYERS players, each on one device
 const COOP_MAX_PLAYERS = 4;
@@ -1335,12 +1355,13 @@ function makeIntent() {
     jump: false, punch: false, kick: false, grapple: false, use: false, setDown: false, lock: false, // use / setDown / lock: one-tick presses (lock: lock-on; use: pick up or throw; setDown: put the held item down)
     sidestep: 0, grapDir: 'fwd', noParry: false, assist: false, guardAssist: false, // assist, guardAssist: the match's cfg.assist, set for human seats only
     stickAnalog: false, // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on
+    punchHeld: false, kickHeld: false, // P19-15: the Punch / Kick button is down this tick (a level, not a one-tick press); only the human devices set them, the CPU never holds
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false;
+  it.grapple = false; it.use = false; it.setDown = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.guardAssist = false; it.stickAnalog = false; it.punchHeld = false; it.kickHeld = false;
   return it;
 }
 
@@ -1447,7 +1468,7 @@ class PlayerInput {
     return kind;
   }
 
-  // Every button, PUNCH and KICK included, fires on press: no hold
+  // Every button, PUNCH and KICK included, fires on press, with no wait (P19-15: the level `touchHeld` is also read, for the held flags of a charge)
   touchSet(action, down) {
     this.lastDevice = 'touch';
     if (down && !this.touchHeld[action]) this.press(action);
@@ -1479,6 +1500,15 @@ class PlayerInput {
       const motor = pad && pad.vibrationActuator;
       if (motor && motor.playEffect) Promise.resolve(motor.playEffect('dual-rumble', { duration: ms, strongMagnitude: magnitude, weakMagnitude: magnitude * 0.6 })).catch(() => {});
     } catch (err) { /* vibration is optional */ }
+  }
+  // P19-15: a charge reaches level 1 or 2: one buzz or pulse, two at level 2. A phone follows the P13-02 rule (none on Rumble Off or with Camera shake 0, none where the browser has no vibrate); a pad goes through rumble(), which scales it by Camera shake and halves it on Reduced; a keyboard has none
+  chargePulse(level) {
+    if (this.lastDevice === 'touch') {
+      if (Settings.v.rumble !== 'off' && Settings.v.shake > 0 && typeof navigator.vibrate === 'function') navigator.vibrate(level === 1 ? TOUCH_BUZZ_MIN : [TOUCH_BUZZ_MIN, CHARGE_BUZZ_GAP_MS, TOUCH_BUZZ_MIN]);
+      return;
+    }
+    this.rumble(CHARGE_RUMBLE, CHARGE_RUMBLE_MS);
+    if (level === 2) setTimeout(() => this.rumble(CHARGE_RUMBLE, CHARGE_RUMBLE_MS), CHARGE_RUMBLE_MS + CHARGE_BUZZ_GAP_MS);
   }
   pollPad() {
     if (!navigator.getGamepads) return;
@@ -1595,6 +1625,7 @@ class PlayerInput {
     if (it.jump && it.crouch) { it.jump = false; if (!it.defend) it.crouch = false; } // conflicting vertical inputs cancel; a low guard stays low
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
+    it.punchHeld = !!h.punch; it.kickHeld = !!h.kick; // P19-15: the same held map on every device (keys, pad buttons, touch buttons); a charge reads it
     it.grapple = this.take('grapple');
     this.fillUse(it, self);
     it.lock = this.take('lock');
@@ -5156,6 +5187,27 @@ function tableFromPositions(text) {
 }
 // The row a string typed so far (keys such as 'PK') plays in a style's tables (default: STRINGS), or null
 function stringRow(keys, low, table) { const t = table || STRINGS; return (low && t.crouch[keys]) || t.stand[keys] || null; }
+/* P19-15 delayed strings: the 16 rows a press plays in the pause window instead of the plain step (MOVE_STYLE.<style>.delay names the position, the id and, once the styles are built, the row). Numbers are the tables of Appendix C "P19-14 charged attacks and delayed strings, decided" section 4;
+   the damage of the whole move per tick is never above the plain step's. They are kept in DELAYED_ROWS and not in ATTACKS (the decision made them defAttack rows): the grapplers' three are tier 3 and every test of the strong string moves, the string tables and the price table counts ATTACKS rows of tier 3 as strong string steps.
+   A delayed row never breaks a block, tier 3 included (the probes of the decision ran it so), whatever makeAttack does for a tier 3 row, and is not a `strong` row. */
+const DELAYED_ROWS = {};
+function defDelayed(id, over) { const row = makeAttack(id, Object.assign({ delayed: true }, over)); row.gb = false; row.stam = stamPrice(row.stam); return (DELAYED_ROWS[id] = row); }
+defDelayed('dl_boxer', { name: 'Check Hook', btn: 'rp', limb: 'RA', anim: 'checkHook', h: 'M', tier: 2, cat: 'punch', startup: 7, active: 3, recovery: 15, dmg: 7, stam: 6, reach: 1.25, width: 0.7, push: 0.4, hitstun: 18, blockstun: 10, step: 0.2 });
+defDelayed('dl_kickboxer', { name: 'Rhythm Kick', btn: 'lk', limb: 'LL', anim: 'rhythm', h: 'H', tier: 2, cat: 'kick', startup: 8, active: 3, recovery: 15, dmg: 8, stam: 6, reach: 1.45, width: 0.4, push: 0.6, hitstun: 18, blockstun: 10, step: 0.1 });
+defDelayed('dl_karateka', { name: 'Ura Mawashi Kick', btn: 'lk', limb: 'RL', anim: 'ura', h: 'H', tier: 2, cat: 'kick', startup: 9, active: 3, recovery: 16, dmg: 8, stam: 6, reach: 1.45, width: 0.9, push: 0.9, hitstun: 18, blockstun: 10, blockPush: 0.8, step: 0.1 });
+defDelayed('dl_wrestler', { name: 'Duck-Under', btn: 'rp', limb: 'LL', anim: 'duckUnder', h: 'L', tier: 3, cat: 'heavy', startup: 10, active: 4, recovery: 24, dmg: 10, stam: 9, reach: 1.3, width: 0.6, push: 0.7, hitstun: 22, blockstun: 12, step: 0.1, kind: 'knockdown', gdm: 1.7 });
+defDelayed('dl_judoka', { name: 'Sleeve Drag', btn: 'rp', limb: 'LA', anim: 'sleeveDrag', h: 'H', tier: 3, cat: 'heavy', startup: 11, active: 3, recovery: 22, dmg: 10, stam: 9, reach: 1.3, width: 0.4, push: 0.2, hitstun: 22, blockstun: 12, step: 0.2, kind: 'stagger' });
+defDelayed('dl_brawler', { name: 'Sucker Punch', btn: 'rp', limb: 'RA', anim: 'sucker', h: 'M', tier: 2, cat: 'punch', startup: 7, active: 3, recovery: 15, dmg: 7, stam: 6, reach: 1.2, width: 0.5, push: 0.4, hitstun: 18, blockstun: 10, step: 0.2 });
+defDelayed('dl_capoeira', { name: 'Rabo de Arraia', btn: 'rk', limb: 'LL', anim: 'rabo', h: 'L', tier: 2, cat: 'kick', startup: 9, active: 4, recovery: 19, dmg: 10, stam: 6, reach: 1.5, width: 0.9, push: 0.7, hitstun: 22, blockstun: 14, step: 0.1 });
+defDelayed('dl_wingchun', { name: 'Lap Sau Palm', btn: 'rp', limb: 'LA', anim: 'lapSau', h: 'M', tier: 2, cat: 'punch', startup: 6, active: 3, recovery: 14, dmg: 6.5, stam: 6, reach: 1.3, width: 0.4, push: 0.3, hitstun: 18, blockstun: 10, step: 0.15 });
+defDelayed('dl_muaythai', { name: 'Spinning Elbow', btn: 'rp', limb: 'RA', anim: 'spinElbow', h: 'M', tier: 2, cat: 'punch', startup: 8, active: 3, recovery: 16, dmg: 7.5, stam: 6, reach: 1.15, width: 0.5, push: 0.4, hitstun: 18, blockstun: 10, step: 0.2 });
+defDelayed('dl_taekwondo', { name: 'Bandal Chagi', btn: 'rk', limb: 'RL', anim: 'bandal', h: 'M', tier: 2, cat: 'kick', startup: 9, active: 3, recovery: 17, dmg: 8, stam: 6, reach: 1.5, width: 0.8, push: 0.6, hitstun: 18, blockstun: 10, step: 0.1 });
+defDelayed('dl_sambo', { name: 'Lapel Smash', btn: 'rp', limb: 'LA', anim: 'lapel', h: 'M', tier: 2, cat: 'punch', startup: 7, active: 3, recovery: 15, dmg: 7, stam: 6, reach: 1.3, width: 0.5, push: 0.4, hitstun: 18, blockstun: 10, step: 0.2 });
+defDelayed('dl_bjj', { name: 'Collar Drag', btn: 'rp', limb: 'LA', anim: 'collarDrag', h: 'H', tier: 3, cat: 'heavy', startup: 10, active: 3, recovery: 20, dmg: 10, stam: 9, reach: 1.3, width: 0.4, push: 0.7, hitstun: 22, blockstun: 12, step: 0.1, kind: 'stagger', gdm: 1.7 });
+defDelayed('dl_hapkido', { name: 'Back-Hand Whip', btn: 'rp', limb: 'RA', anim: 'whip', h: 'M', tier: 2, cat: 'punch', startup: 7, active: 3, recovery: 15, dmg: 7, stam: 6, reach: 1.2, width: 0.6, push: 0.4, hitstun: 18, blockstun: 10, step: 0.2 });
+defDelayed('dl_kali', { name: 'Abanico', btn: 'rp', limb: 'RA', anim: 'abanico', h: 'M', tier: 2, cat: 'punch', startup: 7, active: 3, recovery: 14, dmg: 6.5, stam: 6, reach: 1.35, width: 0.8, push: 0.35, hitstun: 18, blockstun: 10, step: 0.1 });
+defDelayed('dl_kravmaga', { name: 'Palm Heel Strike', btn: 'rp', limb: 'RA', anim: 'palmHeel', h: 'H', tier: 2, cat: 'punch', startup: 6, active: 3, recovery: 14, dmg: 6.5, stam: 6, reach: 1.25, width: 0.4, push: 0.3, hitstun: 18, blockstun: 10, step: 0.15 });
+defDelayed('dl_mma', { name: 'Switch Knee', btn: 'lk', limb: 'RL', anim: 'switchKnee', h: 'M', tier: 2, cat: 'heavy', startup: 9, active: 3, recovery: 17, dmg: 7.5, stam: 6, reach: 1.2, width: 0.5, push: 1.3, hitstun: 18, blockstun: 10, blockPush: 1.1, step: 0.1 });
 const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
 for (const row of ALL_MOVES) row.stam = stamPrice(row.stam); // once, after the last row exists: every price is the table's real price (AI, HUD and tests read it)
 
@@ -5266,6 +5318,33 @@ const SLUMP_HANDS = 0.10, SLUMP_LEAN = 0.10, SLUMP_CHIN = 0.08, SLUMP_SINK = 0.0
 const SLUMP_BY_BAND = [0, 0, 1, 1.6], PANT_RATE_BY_BAND = [1, 1, 1.15, 1.4], BREATH_GAIN_BY_BAND = [1, 1, 1.15, 1.4]; // by Fresh, Winded, Tired, Spent
 const EXHALE_GAIN = 0.5, STUMBLE_VOICE_GAIN = 0.6, STUMBLE_VOICE_PITCH = 0.88, STUMBLE_FOOT_GAIN = 0.6; // the exhale of a Spent breath and the stumble's scuff and grunt, against the sounds they borrow
 const STUMBLE_LEAN = 0.30, STUMBLE_KNEES = 0.25, STUMBLE_BLEND = 3; // rad at the full stumble, and the ticks it blends in and out over
+/* P19-15 charge and pause cues, drawing and sound only (the simulation reads none of it; Appendix C "P19-14 ... decided" section 6). A held chargeable press stays at the lowest point of its wind-up (CHARGE_POSE_FROM, the 0.45 of strikeExtension) and, while it waits, coils: the draw-back deepens by CHARGE_COIL_DEEPEN over CHARGE_L2 ticks and the family's coil joints (CHARGE_COIL) come in with it;
+   from level 1 a tremor of CHARGE_TREMOR rad at CHARGE_TREMOR_HZ (none with Reduced motion); the release plays the extension from the coil to full over the release ticks; a tap catches up to its own extension over CHARGE_POSE_BLEND ticks. The ring is CHARGE_RING_SEGMENTS thin cubes at CHARGE_RING_RADIUS m, filling to level 1 in white and to level 2 in the style's accent colour.
+   The pause pose (a guard variant, from PAUSE_CUE_LEAD ticks before the window opens to the end of the string window): the hands drop PAUSE_HANDS rad and the weight goes PAUSE_LEAN m onto the rear foot, blended over CHARGE_POSE_BLEND ticks. */
+const CHARGE_POSE_FROM = 0.45, CHARGE_COIL_DEEPEN = 0.35, CHARGE_POSE_BLEND = 3, CHARGE_COIL_START = 0.3;
+const CHARGE_TREMOR = 0.01, CHARGE_TREMOR_HZ = 18;
+const CHARGE_RING_RADIUS = 0.45, CHARGE_RING_SEGMENTS = 24, CHARGE_RING_THICK = 0.03, CHARGE_RING_LIFT = 0.03, CHARGE_RING_PULSE_TICKS = 4, CHARGE_RING_WHITE = [1, 1, 1];
+const PAUSE_CUE_LEAD = 4, PAUSE_HANDS = 0.08, PAUSE_LEAN = 0.03;
+const CHARGE_CREAK_GAIN = 0.35, CHARGE_LEVEL_GAIN = 0.3, CHARGE_LEVEL_GAP = 0.1, CHARGE_WHOOSH_BOOST = 1.4; // sound: the creak at the set tick (a grunt, held 30 ms), the level ticks (0.1 s apart at level 2) and the louder whoosh of a charged strike
+const CHARGE_BUZZ_GAP_MS = 40, CHARGE_RUMBLE = 0.35, CHARGE_RUMBLE_MS = 60; // a phone's buzz (TOUCH_BUZZ_MIN ms, twice at level 2 with this gap) and a pad's pulse
+// The coil of a family or style, in the spec language of ANIM_SPECS (applyTech), added to the wind-up at full share; the striking side is the move's limb. A style with its own entry uses it, otherwise its family's.
+const CHARGE_COIL_FAMILY = {
+  hand: { rdrop: 0.06, twist: 0.35, lean: 0.10, arm: [-0.55, 0, 0.5], front: [0, 0, 0.15], rear: [0, 0, 0.15], head: 0.05 },
+  clinch: { leg: [0.9, 0, 1.2], base: [0, 0, 0.2], lean: -0.10, arm: [0, 0.3, 0], off: [0, 0.3, 0] },
+  kicking: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25], twist: 0.3 },
+  throws: { rdrop: 0.10, lean: 0.35, arm: [-0.3, 0, -0.65], off: [-0.3, 0, -0.65], front: [0, 0, 0.35], rear: [0, 0, 0.35] },
+  locks: { rdrop: 0.10, lean: 0.35, arm: [-0.3, 0, -0.65], off: [-0.3, 0, -0.65], front: [0, 0.10, 0.35], rear: [0, 0.10, 0.35], head: -0.05 },
+  weapon: { arm: [1.2, 0, -0.7], twist: 0.5, rear: [0, 0, 0.3] },
+  hybrid: { rdrop: 0.10, twist: 0.4, arm: [-0.4, 0, 0.3] },
+};
+const CHARGE_COIL_STYLE = {
+  capoeira: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25], twist: 0.3, arm: [-0.8, 0, 0], off: [-0.8, 0, 0], pitch: 0.5, rdrop: 0.12 },
+  muaythai: { leg: [1.0, 0, 1.4], base: [0, 0, 0.2], lean: -0.10, arm: [0, 0.3, 0], off: [0, 0.3, 0] },
+  hapkido: { rdrop: 0.10, lean: 0.35, arm: [0.1, 0, -0.35], off: [0.25, 0, -0.35], front: [0, 0.10, 0.35], rear: [0, 0.10, 0.35], head: -0.05 },
+  brawler: { rdrop: 0.12, twist: 0.6, arm: [-0.6, 0, 0.5] },
+  kravmaga: { arm: [0.1, 0, -0.2], off: [0.1, 0, -0.2], lean: 0.2 },
+  mma: { leg: [1.0, 0, 1.3], base: [0, 0, 0.25] },
+};
 const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // under this share of health the body leans on (rad; more for a hurt leg) and a hand holds the zone hit most
 const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
 const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY]; // calm states that show the boost; strikes, reactions and holds keep their own poses
@@ -5687,12 +5766,14 @@ const DEFENSE_TYPES = ['block', 'sway'];
 const DEFENSE_LABEL = { block: 'Block', sway: 'Sway' };
 const DEFAULT_DEFENSE = 'block';
 const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
+const CHARGE_CANCEL_HELP = 'A charge is cancelled by a Defend press and by any hit; a Defend that is already down does not cancel it.'; // P19-15: the last sentence of both defences' help (the decision wrote "a Defend you are already holding": the Move list tests read the word "holding" as an item line, so it says "down")
+const PAUSE_HELP = 'A press made while a move is still running is a chain; a press made after you have stood still for a beat plays the delayed move of your style.'; // the last sentence of COMBO_HELP
 // What Defend does, in plain words
 const DEFENSE_HELP = {
-  block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter.',
-  sway: 'Press Defend before the fight reaches you: the press leans out at once, and then you stand ready for ' + swaySeconds(STANCE_TICKS) + ' s (you weave and faint streaks show it): each strike that would hit you in that time slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina. When the stance drops, let go of Defend and press again: a new stance needs ' + swaySeconds(STANCE_REARM_TICKS) + ' s since the last one, and a press at any time still leans out. Grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter. A heavy charge is slipped like a strike, but a thrown item still hits you unless a sway is already under way.',
+  block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter. ' + CHARGE_CANCEL_HELP,
+  sway: 'Press Defend before the fight reaches you: the press leans out at once, and then you stand ready for ' + swaySeconds(STANCE_TICKS) + ' s (you weave and faint streaks show it): each strike that would hit you in that time slips by (Stick left / right leans sideways, otherwise back) at a cost of ' + SWAY_COST_BY_TIER[0] + ' to ' + SWAY_COST_BY_TIER[SWAY_COST_BY_TIER.length - 1] + ' stamina. When the stance drops, let go of Defend and press again: a new stance needs ' + swaySeconds(STANCE_REARM_TICKS) + ' s since the last one, and a press at any time still leans out. Grabs still land, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. Tap Defend just before a hit lands (up to a tenth of a second) for a perfect sway and a counter. A heavy charge is slipped like a strike, but a thrown item still hits you unless a sway is already under way. ' + CHARGE_CANCEL_HELP,
 };
-const COMBO_HELP = 'While you are hit you cannot act, and a hit that lands while you are still stunned cannot be stopped. Once you are free, Defend can: keep it held and your guard starts the moment you are free, so a hit right then is a perfect block that breaks the combo (a Sway fighter who pressed it a moment ago is ready the moment they are free). A guard raised in the last half second cannot be perfect.';
+const COMBO_HELP = 'While you are hit you cannot act, and a hit that lands while you are still stunned cannot be stopped. Once you are free, Defend can: keep it held and your guard starts the moment you are free, so a hit right then is a perfect block that breaks the combo (a Sway fighter who pressed it a moment ago is ready the moment they are free). A guard raised in the last half second cannot be perfect. ' + PAUSE_HELP;
 // Move styles whose fighters may hold a downed opponent: every style whose row lists holds in submit
 const SUBMISSION_STYLES = new Set(MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0));
 const styleCanSubmit = (profile) => SUBMISSION_STYLES.has(moveStyleFor(profile));
@@ -5865,6 +5946,39 @@ const ANIM_SPECS = {
   airFlip: ['airKick', { pitch: 1.2, leg: [0.1, 0, -0.45], base: [0, 0, -0.2], front: [-0.3, 0, -0.2], rear: [0, 0, -0.4], drop: -0.4 }],
   tornado: ['airKick', { yaw: 1.2, leg: [0.15, 0.45, -0.4], rear: [0, 0.1, -0.4] }],
   airKnee: ['airKick', { leg: [0.05, 0, 0.9], lean: 0.1, drop: -0.35, fwd: 0.5, pitch: -0.05 }],
+  // P19-15 charged attacks (the strike after the release; the coil before it is chargePose) and delayed strings: starting values of Appendix C "P19-14 ... decided" section 6, fitted by the hit check, the Calm limits, the floor rule and the Sway clearance of the 'Moves (P19-14)' tests
+  sunday: ['hook', { arm: [-0.1, 0.15, 0.4], drop: 0.3, lean: 0.4, twist: 0.5, roll: -0.3, fwd: 0.6, front: [0.2, 0, -0.1], head: -0.05 }],
+  cannon: ['teep', { leg: [0.2, 0, 0], lean: -0.25, fwd: 0.8, drop: 0.1, base: [0.15, 0, 0] }],
+  kime: ['mae', { leg: [0.1, 0.1, 0], lean: -0.15, fwd: 0.9, base: [0.2, 0.1, -0.1], yaw: 0.3 }],
+  spear: ['shoulder:heavy_front', { arm: [0.2, -0.1, 0.4], lean: 0.55, twist: 0.3, fwd: 0.9, drop: 0.25, front: [0, -0.3, -0.4], pitch: 0.2 }],
+  osoto: ['pushout', { arm: [0.1, 0.2, 0.4], lean: 0.3, twist: 0.45, fwd: 0.6, drop: 0.15, front: [0.1, 0, -0.25], leg: [0.15, 0.1, 0] }],
+  sledge: ['haymaker:hook', { arm: [-0.2, 0.3, 0.6], drop: 0.4, lean: 0.5, twist: 0.6, roll: -0.4, fwd: 0.5, rdrop: 0.2 }],
+  compasso: ['crescent', { yaw: 1.0, pitch: 1.2, leg: [-0.5, 0.4, 0], front: [-0.3, 0, 0], drop: 0.5, lean: 0.2 }],
+  pressing: ['thrust:M', { leg: [0.1, 0, 0], lean: -0.1, fwd: 0.9, arm: [0, 0, 0.3], front: [0.1, 0, -0.1] }],
+  khaoDot: ['knee', { leg: [1.3, 0, 0.2], lean: 0.3, arm: [0.2, 0, 0.5], fwd: 0.5, rdrop: -0.15, pitch: 0.1 }],
+  hookHeel: ['spinBack', { leg: [0.3, -0.4, 0], yaw: 0.8, lean: -0.15, pivot: 0.5 }],
+  crushBoot: ['boot:heavy_front', { leg: [-0.1, -0.5, 0], drop: 0.2, lean: 0.1, fwd: 0.7 }],
+  hipBump: ['guard:heavy_front', { arm: [0.1, 0, 0.6], drop: 0.4, lean: 0.3, fwd: 0.9, base: [-0.2, 0, 0], roll: 0.2 }],
+  doublePalm: ['palm:hook', { arm: [0, 0.2, 0.6], sw: [0.2, -0.2, 0.3], lean: 0.25, twist: 0.3, fwd: 0.6 }],
+  crossRedonda: ['redonda', { arm: [-0.1, 0.3, 0.4], twist: 0.6, lean: 0.3, fwd: 0.5, roll: -0.2 }],
+  hammerSlam: ['hammer', { arm: [0.2, 0.1, 0.7], lean: 0.45, drop: 0.3, fwd: 0.55, head: 0.1 }],
+  piston: ['oblique', { leg: [0, -0.2, 0], fwd: 0.8, lean: -0.3, base: [0.3, 0, 0], drop: 0.1 }],
+  checkHook: ['hook', { arm: [-0.2, 0, 0.2], drop: 0.2, lean: 0.2, front: [0.15, 0, 0], fwd: 0.4, twist: 0.2, head: -0.05 }],
+  rhythm: ['mawashi', { leg: [0.1, 0, 0], lean: -0.1, twist: 0.1, fwd: 0.3 }],
+  ura: ['mawashi', { leg: [0.3, -0.6, 0], twist: -0.3, lean: -0.1 }],
+  duckUnder: ['trip', { drop: 0.5, lean: 0.6, arm: [0.2, 0, 0.6], fwd: 0.8, front: [0, 0, -0.4], pitch: 0.1 }],
+  sleeveDrag: ['collar:H', { arm: [0, 0.2, 0.3], twist: 0.4, fwd: -0.2, roll: 0.2 }],
+  sucker: ['haymaker:cross', { arm: [0.1, 0.3, 0.4], lean: 0.2, drop: 0.1, twist: 0.3 }],
+  rabo: ['rasteira:low_kick', { yaw: 1.2, drop: 0.4, leg: [-0.3, 0.2, 0], base: [-0.3, 0, 0.2] }],
+  lapSau: ['chain', { arm: [0, 0.15, 0.4], twist: 0.15, off: [0.1, 0, -0.1] }],
+  spinElbow: ['elbowH', { twist: 0.9, roll: 0.3, yaw: 0.6, arm: [0, 0.2, 0.2], wind: 1.3 }],
+  bandal: ['roundTkd', { leg: [0.1, 0.2, 0], lean: -0.1 }],
+  lapel: ['collar:M', { arm: [0, 0.1, 0.3], twist: 0.3 }],
+  collarDrag: ['collar:H', { drop: 0.3, lean: 0.25, arm: [0.1, 0, 0.5], fwd: 0.3 }],
+  whip: ['palm:M', { arm: [0, 0.4, 0.2], twist: -0.3, roll: 0.3 }],
+  abanico: ['angle', { arm: [0, 0.4, 0.2], twist: 0.5, roll: 0.3, wind: 1.3 }],
+  palmHeel: ['parry', { lean: 0.15, arm: [0, 0, 0.4] }],
+  switchKnee: ['knee', { leg: [0.6, 0, 0], lean: 0.1, fwd: 0.4 }],
 };
 const ANIM_BASE = {};
 for (const name in ANIM_SPECS) {
@@ -5886,6 +6000,46 @@ function animKey(name, row) {
 for (const id in ATTACKS) { // a row of a name with a base for each row keeps the name as its look and draws with that base
   const row = ATTACKS[id], key = animKey(row.anim, row);
   if (key !== row.anim) { row.look = row.anim; row.anim = key; }
+}
+/* P19-15: every style's charged attack and delayed string (Appendix C, "P19-14 charged attacks and delayed strings, decided", section 4). They join the MOVE_STYLE row as two fields:
+   charge: { at, name, look, l2, limb?, rows } - hold the last press of the string `at` (the plain move standing there is the tap); look = the animation key; l2 = what level 2 adds beyond damage (knockdown, stagger or launch); limb = only where the heavy move is another limb than the plain row's;
+           rows = [level 1, level 2], derived once below from the plain row and the CHARGE_* constants and kept here, never on the plain row (a skin-less row is shared by other styles);
+   delay: { at, id, row } - the press at the string `at` made after a pause plays the row `id` (a defDelayed row, in DELAYED_ROWS: the object is `row`). */
+const STYLE_NEW_MOVES = {
+  boxer: { charge: { at: 'PPP', name: 'Sunday Punch', look: 'sunday', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_boxer' } },
+  kickboxer: { charge: { at: 'PPK', name: 'Cannon Teep', look: 'cannon', l2: 'knockdown' }, delay: { at: 'PK', id: 'dl_kickboxer' } },
+  karateka: { charge: { at: 'PPK', name: 'Kime Thrust Kick', look: 'kime', l2: 'knockdown' }, delay: { at: 'PK', id: 'dl_karateka' } },
+  wrestler: { charge: { at: 'PK', name: 'Spear', look: 'spear', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_wrestler' } },
+  judoka: { charge: { at: 'PP', name: 'Osoto Drive', look: 'osoto', l2: 'knockdown' }, delay: { at: 'PK', id: 'dl_judoka' } },
+  brawler: { charge: { at: 'PPP', name: 'Sledge Right', look: 'sledge', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_brawler' } },
+  capoeira: { charge: { at: 'KKP', name: 'Meia-Lua de Compasso', look: 'compasso', l2: 'knockdown', limb: 'RL' }, delay: { at: 'PK', id: 'dl_capoeira' } },
+  wingchun: { charge: { at: 'PPK', name: 'Pressing Thrust Kick', look: 'pressing', l2: 'stagger' }, delay: { at: 'PP', id: 'dl_wingchun' } },
+  muaythai: { charge: { at: 'KPP', name: 'Khao Dot Knee', look: 'khaoDot', l2: 'launch', limb: 'RL' }, delay: { at: 'PP', id: 'dl_muaythai' } },
+  taekwondo: { charge: { at: 'KKP', name: 'Hook Heel Kick', look: 'hookHeel', l2: 'knockdown', limb: 'RL' }, delay: { at: 'PK', id: 'dl_taekwondo' } },
+  sambo: { charge: { at: 'PPK', name: 'Crushing Boot', look: 'crushBoot', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_sambo' } },
+  bjj: { charge: { at: 'PK', name: 'Hip-Bump Drive', look: 'hipBump', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_bjj' } },
+  hapkido: { charge: { at: 'PPP', name: 'Double Palm Smash', look: 'doublePalm', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_hapkido' } },
+  kali: { charge: { at: 'PPK', name: 'Cross-Body Redonda', look: 'crossRedonda', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_kali' } },
+  kravmaga: { charge: { at: 'PPP', name: 'Hammer Slam', look: 'hammerSlam', l2: 'knockdown' }, delay: { at: 'PP', id: 'dl_kravmaga' } },
+  mma: { charge: { at: 'PPK', name: 'Piston Kick', look: 'piston', l2: 'knockdown' }, delay: { at: 'PK', id: 'dl_mma' } },
+};
+function chargedRows(styleId, charge) { // the two charged rows of a style: the plain row at the position, made stronger by the CHARGE_* constants of the level
+  const round1 = (value) => Math.round(value * 10) / 10;
+  const plainId = stringsFor(styleId, false).stand[charge.at][charge.at.length - 1], plain = moveFor(styleId, plainId);
+  return [0, 1].map((index) => {
+    const row = Object.assign({}, plain, { id: 'ch' + (index + 1) + '_' + styleId, name: charge.name, look: charge.look, anim: charge.look, limb: charge.limb || plain.limb,
+      dmg: round1(plain.dmg * CHARGE_DMG[index]), xstam: round1(plain.stam * CHARGE_EXTRA[index]), release: CHARGE_RELEASE[index], reach: round1(plain.reach + CHARGE_REACH[index]),
+      hitstun: plain.hitstun + CHARGE_STUN[index], push: round1(plain.push * CHARGE_PUSH[index]), charged: index + 1, plainId });
+    if (index === 1 && charge.l2 === 'knockdown') row.kind = 'knockdown';
+    if (index === 1 && charge.l2 === 'launch') { row.kind = 'launch'; row.launchV = plain.kind === 'launch' ? plain.launchV + CHARGE_LAUNCH_ADD : CHARGE_LAUNCH_FLOOR; }
+    return row;
+  });
+}
+for (const styleId in STYLE_NEW_MOVES) {
+  const entry = STYLE_NEW_MOVES[styleId];
+  entry.charge.rows = chargedRows(styleId, entry.charge);
+  entry.delay.row = DELAYED_ROWS[entry.delay.id];
+  Object.assign(MOVE_STYLE[styleId], entry);
 }
 // The fighter's own strike target pose: the library pose on the fighter's guard, with the style's hip turn and lean
 function styledStrikePose(mv, m) {
@@ -6506,6 +6660,7 @@ class Fighter {
     this.buffer = null; this.bufferNext = null; this.throwPressed = false;
     this.resetString();
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.stumbleExtra = 0; this.stumbleCueAt = -STUMBLE_CUE_GAP; this.chainCount = 0; this.exhaustedMove = false;
+    this.holdVis = 0; this.pauseVis = 0; this.pauseCueAt = -1; this.noPause = false; this.chargeRows = null; this.holdBtn = null; this.charging = false; this.chargeTicks = 0; this.holdBroke = false; this.chargeLevel = 0; // P19-15: holdVis, pauseVis and pauseCueAt are drawing only (the blends of the charge hold and the pause pose, the tick the pause cue last played); noPause = the CPU's Easy rule (a press in the pause window plays the plain step); chargeRows = the two charged rows armed by this press (null = no charge this move), holdBtn = the button held ('punch' / 'kick'), holdBroke = it was let go before the set tick, chargeLevel = the level the last release struck at
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.gotDamage = 0; this.comboFoe = null; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0; // gotHits / gotDamage / comboFoe: the combo this fighter is taking and whose it is (per attacker)
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
@@ -6601,7 +6756,7 @@ class Fighter {
     if (next === S.RUN && prev !== S.RUN) this.tackleUsed = false; // one tackle per run start
     if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.SUBMIT || next === S.THROWN) { this.buffer = null; this.bufferNext = null; this.throwPressed = false; }
     if (STRING_BREAK_STATES.includes(next)) this.resetString();
-    if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
+    if (next !== S.ATTACK && prev === S.ATTACK) { this.move = null; this.charging = false; this.chargeRows = null; this.chargeTicks = 0; } // a hit, a grab, a throw or a knock-down ends a charge; nothing is kept
     if (this.item && (next === S.THROWN || next === S.DOWN || next === S.KO)) this.dropHeld(); // any knockdown (a flight, or lying down after a fall), throw or knock-out disarms
     return true;
   }
@@ -6658,7 +6813,14 @@ class Fighter {
     const table = this.strings;
     const row = stillLow ? table.crouch[this.stringKeys + letter] : table.stand[this.stringKeys + letter];
     if (open && row) { keys = this.stringKeys + letter; low = stillLow; }
-    return { mv: moveFor(this.rowStyle, stringRow(keys, low, table)[keys.length - 1]), keys, low, cont: keys.length > 1, tick: buf.tick };
+    let mv = null, charge = null;
+    const style = this.item || low ? null : MOVE_STYLE[this.rowStyle]; // P19-15: never with an item in hand, never on a crouch row
+    if (style) {
+      const stillTicks = this.state === S.IDLE ? this.stateTicks : -1; // a pause is standing still: a press that chains out of a move, or is made walking, running, crouching or guarding, is never one
+      if (open && !this.noPause && keys === style.delay.at && stillTicks >= PAUSE_STILL_TICKS) mv = style.delay.row;
+      if (keys === style.charge.at) charge = style.charge.rows; // the press may be held: startAttack arms it
+    }
+    return { mv: mv || moveFor(this.rowStyle, stringRow(keys, low, table)[keys.length - 1]), keys, low, cont: keys.length > 1, tick: buf.tick, charge, btn: buf.btn };
   }
   // The move a Punch / Kick press (Crouch held or not) would play right now
   pressMove(kind, height) { // the press is buffered on the next update, one tick later
@@ -6723,6 +6885,8 @@ class Fighter {
     this.hitList.length = 0;
     this.moveConnected = false;
     this.whiffExtra = 0;
+    this.chargeRows = pick && pick.charge && mv.startup >= CHARGE_MIN_STARTUP ? pick.charge : null; this.holdBtn = pick && pick.btn ? pick.btn : null; // P19-15: arm the charge of the chargeable step; stepCharge decides at the set tick
+    this.charging = false; this.chargeTicks = 0; this.chargeLevel = 0; this.holdBroke = false;
     this.stumbleExtra = this.exhaustedMove ? STUMBLE_RECOVERY : 0; // a move the tank could not pay leaves the fighter stumbling after its recovery (P19-16); a move paid to the last point is not one
     if (this.exhaustedMove && this.age - this.stumbleCueAt >= STUMBLE_CUE_GAP) { this.stumbleCueAt = this.age; Events.emit('lowStamina', { f: this, refused: true }); } // the bar and the warning tone say "refused", at most once a second
     this.mStartup = Math.max(2, Math.round(mv.startup * sp) + (this.exhaustedMove ? EMPTY_MOVE_STARTUP : 0));
@@ -6739,6 +6903,7 @@ class Fighter {
   updateAttack(it, opp, match) {
     const mv = this.move;
     if (!mv) { this.setState(S.IDLE); return; }
+    if (this.chargeRows && this.stepCharge(it, opp)) return; // P19-15: a held chargeable step waits at its last startup tick, so this tick is spent
     this.moveTick++;
     const t = this.moveTick;
     if (t <= (mv.tier === 1 ? 5 : mv.tier === 2 ? 3 : 2)) this.faceOpponent(opp, 9 * FIXED_DT); // short homing window; slower moves track less
@@ -6763,6 +6928,49 @@ class Fighter {
       if (this.airborne) this.setState(S.JUMP); else this.setState(S.IDLE);
       this.move = null;
     }
+  }
+
+  /* P19-15: the charge of a chargeable step (Appendix C, "P19-14 charged attacks and delayed strings, decided", section 3). Called every tick of the move while chargeRows is armed, before moveTick counts; returns true when this tick is spent waiting.
+     The button must stay down on every tick from the press to the set tick (moveTick === mStartup, the last startup tick); a tap is any press let go before that, and then nothing here changes the move. */
+  stepCharge(it, opp) {
+    const held = this.holdBtn === 'punch' ? it.punchHeld === true : it.kickHeld === true;
+    if (!this.charging) {
+      if (!held) this.holdBroke = true;
+      if (this.moveTick !== this.mStartup || this.holdBroke) return false;
+      if (this.mStartup < CHARGE_MIN_STARTUP || this.exhaustedMove || this.lowStamina) { this.chargeRows = null; return false; } // too quick a move, a move the tank did not pay, or under a quarter of the tank: the plain move goes on
+      this.charging = true; this.chargeTicks = 0; this.vx = this.vz = 0;
+      Events.emit('chargeStart', { f: this });
+      return true;
+    }
+    this.chargeTicks++;
+    if (this.chargeTicks === CHARGE_L1 || this.chargeTicks === CHARGE_L2) Events.emit('chargeLevel', { f: this, level: this.chargeTicks === CHARGE_L1 ? 1 : 2 }); // the level sound, the buzz and the ring's pulse
+    this.vx = this.vz = 0;
+    if (this.noRegen < 2) this.noRegen = 2; // the tank does not refill while the charge waits
+    this.faceOpponent(opp, 9 * FIXED_DT);
+    if (this.defendPressed) { // a fresh Defend press cancels (a Defend already held from before does not): the plain move's stamina is spent, nothing is refunded
+      this.charging = false; this.chargeRows = null; this.setState(S.IDLE); this.move = null;
+      Events.emit('chargeCancel', { f: this });
+      return true;
+    }
+    if (held && this.chargeTicks < CHARGE_MAX) return true;
+    this.releaseCharge();
+    return false;
+  }
+  // The strike of a released charge: level 2 from CHARGE_L2 ticks, level 1 from CHARGE_L1, below that the plain move (it was only late by the ticks held). The extra stamina is paid here; a tank that cannot pay it strikes the plain move.
+  releaseCharge() {
+    const level = this.chargeTicks >= CHARGE_L2 ? 2 : this.chargeTicks >= CHARGE_L1 ? 1 : 0, rows = this.chargeRows;
+    this.charging = false; this.chargeRows = null;
+    if (!level) return;
+    const row = rows[level - 1];
+    if (this.stam < row.xstam) return;
+    this.stam = Math.max(0, this.stam - row.xstam);
+    this.move = row;
+    this.mStartup = this.moveTick + row.release; // the release tick counts as the first of the release ticks
+    this.mActive = row.active;
+    this.mRecovery = Math.max(3, Math.round(row.recovery * this.moveSpeedMult(row)));
+    this.moveId = ++Combat.attackCounter; // a fresh strike: a CPU reads it as one and the hit list starts empty
+    this.hitList.length = 0; this.whiffExtra = 0; this.chargeLevel = level;
+    Events.emit('chargeRelease', { f: this, level, mv: row });
   }
 
   // --- other voluntary actions
@@ -6955,7 +7163,7 @@ class Fighter {
     if (!it.defend) this.readySpent = false;
     if (this.guardMode === 'sway' && (this.defendPressed || (this.age === 1 && it.defend))) this.armStance(); // a press in any state, or a round that starts with Defend down
     const free = this.state === S.IDLE || this.state === S.WALK || this.state === S.CROUCH;
-    let ready = this.guardMode === 'sway' && it.defend && free && !this.airborne && this.swayBuffer === 0 && !this.readySpent;
+    let ready = this.guardMode === 'sway' && it.defend && free && !this.charging && !this.airborne && this.swayBuffer === 0 && !this.readySpent; // P19-15: a charge waits inside an attack, so `free` already excludes it; the term keeps a stance from counting ticks while one waits whatever the state, and a charge never uses Defend (P19-13 open point e)
     if (ready) { // only ticks stood prepared count: the tap's own sway, a stun, an attack and a get-up use none of the stance
       if (this.readyLeft > 0) this.readyLeft--;
       else { ready = false; this.readySpent = true; }
@@ -7299,6 +7507,13 @@ class Fighter {
     if (this.swayReady && dt > 0 && !Settings.v.reducedMotion && Settings.v.effects !== 'low' && this.age % (this.readyLeft < STANCE_FADE_TICKS ? STANCE_STREAK_EVERY * 2 : STANCE_STREAK_EVERY) === 0) { // P19-13: faint streaks behind a fighter in the stance (momentum lines), fewer as it runs out
       for (const streak of STANCE_STREAKS) FX.trail(this.x - this.fwdX * streak.back, this.y + streak.up, this.z - this.fwdZ * streak.back, CUE_COLOR.stance, STANCE_STREAK_SIZE);
     }
+    if (dt > 0 && this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS && this.pauseOpen()) { // P19-15: the pause window is open: a short tick at its first tick (the person's own fighter hears it) and a faint light at the tip of the delayed move's limb (not with Reduced motion or Effects Low)
+      if (this.stateTicks === PAUSE_STILL_TICKS && this.pauseCueAt !== this.age) { this.pauseCueAt = this.age; Events.emit('pauseOpen', { f: this }); }
+      if (!Settings.v.reducedMotion && Settings.v.effects !== 'low' && this.age % STANCE_STREAK_EVERY === 0) {
+        const tip = STRIKE_TIP[MOVE_STYLE[this.rowStyle].delay.row.limb];
+        FX.trail(this.pts[tip], this.pts[tip + 1], this.pts[tip + 2], CUE_COLOR.stance, STANCE_STREAK_SIZE);
+      }
+    }
   }
   // Crouching or guarding while the stick moves the fighter: the legs step instead of sliding
   guardWalking() {
@@ -7320,6 +7535,7 @@ class Fighter {
   computePose(dt = DT) {
     const p = this.tp, g = this.motion.guard, m = this.motion;
     p.set(g);
+    this.updateCueBlend(dt); // P19-15: the blends of the charge hold and the pause pose
     this.chainBend = CHAIN_REST; this.chainOver = false; // a bike chain hangs slack unless a swing bends it
     this.levelHead = Math.max(0, this.levelHead - 1 / SWAY_NECK_TICKS); // only a side sway counter-rolls the neck; it lets go over SWAY_NECK_TICKS after the slip ends
     const t = this.animT, st = this.stateTicks;
@@ -7329,6 +7545,7 @@ class Fighter {
         if (this.poseId && this.poseActive(t)) { k = this.storyPose(p, t, dt); break; }
         if (this.throwFollowPose(p)) { k = 0.45; break; }
         this.styleRhythm(p, t, Settings.v.reducedMotion ? 0.35 : 1);
+        if (this.pauseVis > 0) this.pausePose(p); // P19-15: standing still with the string open for a delayed step
         break;
       }
       case S.WALK: case S.RUN: {
@@ -7573,6 +7790,59 @@ class Fighter {
     const blend = smoothstep(clamp(into / STUMBLE_BLEND, 0, 1)) * smoothstep(clamp((this.stumbleExtra - into + 1) / STUMBLE_BLEND, 0, 1)), share = blend * (Settings.v.reducedMotion ? 0.5 : 1);
     p[J.torsoLean] += STUMBLE_LEAN * share; p[J.knL] += STUMBLE_KNEES * share; p[J.knR] += STUMBLE_KNEES * share;
   }
+  /* P19-15 (drawing only, reading the simulation's fields and changing none): the string of a delayed step is open and the fighter stands still: the keys so far are the delayed position without its last press, the window has not closed and the first move connected (the same test pickString makes).
+     pauseCueOn: from PAUSE_CUE_LEAD ticks before the window opens; both fighters can read the pose, so a pause is a feint and not a secret. The Training line reads pauseOpen. */
+  pauseOpen() {
+    const style = this.item ? null : MOVE_STYLE[this.rowStyle];
+    if (!style || this.stringLow || this.stringKeys.length !== style.delay.at.length - 1 || !style.delay.at.startsWith(this.stringKeys) || this.stringKeys === '') return false;
+    return this.stringKeys.length < this.maxSteps && (this.moveConnected || this.assist) && this.age - this.stringTick <= (this.assist ? ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW : ATTACK_STRING_TICKS);
+  }
+  pauseCueOn() { return this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS - PAUSE_CUE_LEAD && this.pauseOpen(); }
+  // Once a frame, before the pose: holdVis (a chargeable press still held past the lowest point of its wind-up stays there; let go, a tap's pose catches up over CHARGE_POSE_BLEND ticks) and pauseVis (the pause pose)
+  updateCueBlend(dt) {
+    const step = dt * 60 / CHARGE_POSE_BLEND;
+    const holding = this.state === S.ATTACK && !!this.move && !!this.chargeRows && !this.holdBroke && this.moveTick >= CHARGE_POSE_FROM * this.mStartup;
+    this.holdVis = holding ? 1 : Math.max(0, this.holdVis - step);
+    this.pauseVis = this.pauseCueOn() ? Math.min(1, this.pauseVis + step) : Math.max(0, this.pauseVis - step);
+  }
+  // The extension of the move's pose: the plain curve, except that a held chargeable press stays at the lowest point of its draw-back (deeper while it charges) and a released charge goes from that coil to full over its release ticks
+  moveExtension(t, startup, active, recovery, windup, snap) {
+    const mv = this.move, coil = 1 + CHARGE_COIL_DEEPEN * Math.min(1, this.chargeTicks / CHARGE_L2);
+    if (mv.charged) {
+      if (t > startup) return strikeExtension(t, startup, active, recovery, windup, snap);
+      return lerp(-windup * coil, 1, smoothstep((t - (startup - mv.release)) / mv.release));
+    }
+    const own = strikeExtension(t, startup, active, recovery, windup, snap);
+    return this.holdVis > 0 ? lerp(own, -windup * (this.charging ? coil : 1), this.holdVis) : own;
+  }
+  // The coil joints of the family on top of the strike pose (and the tremor from level 1), blended out as the strike goes out; added after the reach fit, so it never changes it
+  chargePose(p) {
+    const mv = this.move;
+    if (!mv || (this.holdVis <= 0 && !mv.charged)) return;
+    const grown = Math.min(1, CHARGE_COIL_START + this.chargeTicks / CHARGE_L2);
+    const share = mv.charged ? (1 - smoothstep((this.moveTick - (this.mStartup - mv.release)) / mv.release)) * grown : this.holdVis * (this.charging ? grown : CHARGE_COIL_START);
+    if (share <= 0) return;
+    const styleId = this.motion.styleId, spec = CHARGE_COIL_STYLE[styleId] || CHARGE_COIL_FAMILY[MOVE_STYLE[styleId].family];
+    const to = POSE_SCRATCH;
+    to.set(p); applyTech(to, spec, mv.limb[0] === 'L' ? 1 : -1);
+    for (let i = 0; i < NP; i++) p[i] += (to[i] - p[i]) * share;
+    if (this.charging && this.chargeTicks >= CHARGE_L1 && !Settings.v.reducedMotion) p[J.torsoTwist] += CHARGE_TREMOR * Math.sin(this.animT * CHARGE_TREMOR_HZ * TAU);
+  }
+  // The pause pose: the hands drop a little and the weight goes onto the rear foot (a guard variant; with Reduced motion the hands only)
+  pausePose(p) {
+    p[J.shLx] -= PAUSE_HANDS * this.pauseVis; p[J.shRx] -= PAUSE_HANDS * this.pauseVis;
+    if (!Settings.v.reducedMotion) p[J.rootFwd] -= PAUSE_LEAN * this.pauseVis;
+  }
+  // The ring at the feet of a charging fighter: dots filling round to level 1 in white and on to level 2 in the style's accent colour, a brighter dot at the edge for a few ticks at each level (not with Effects Low or Reduced motion: the ring then only changes colour)
+  drawChargeRing(px, footing, pz, fade) {
+    const fill = Math.min(1, this.chargeTicks / CHARGE_L2), lit = Math.ceil(fill * CHARGE_RING_SEGMENTS), whiteTo = Math.round(CHARGE_L1 / CHARGE_L2 * CHARGE_RING_SEGMENTS);
+    const calm = Settings.v.reducedMotion || Settings.v.effects === 'low', since = Math.min(this.chargeTicks - CHARGE_L1 >= 0 ? this.chargeTicks - CHARGE_L1 : 99, this.chargeTicks - CHARGE_L2 >= 0 ? this.chargeTicks - CHARGE_L2 : 99);
+    const pulse = !calm && since < CHARGE_RING_PULSE_TICKS;
+    for (let i = 0; i < lit; i++) {
+      const angle = this.yaw + (i + 0.5) * TAU / CHARGE_RING_SEGMENTS, edge = pulse && i === lit - 1;
+      R.put(LAYER.ALPHA, MESH.CUBE, px + Math.sin(angle) * CHARGE_RING_RADIUS, footing + CHARGE_RING_LIFT, pz + Math.cos(angle) * CHARGE_RING_RADIUS, CHARGE_RING_THICK * (edge ? 1.6 : 1), CHARGE_RING_THICK * 0.5, CHARGE_RING_THICK * (edge ? 1.6 : 1), 0, angle, 0, i < whiteTo ? CHARGE_RING_WHITE : this.col.accent, (edge ? 1 : 0.85) * fade, edge ? 1.4 : 0.9, 1, false, 0);
+    }
+  }
   // An item in hand: one hand on a one-handed item, both on a two-handed one, a crate held out in front
   heldPose(p) {
     const cls = this.itemDef.cls;
@@ -7726,7 +7996,7 @@ class Fighter {
   attackPose() {
     this.strikePose(0);
     const mv = this.move;
-    if (!mv || this.fitShare >= 1) { if (mv) this.stumblePose(this.pose); return; } // P19-16: the stumble is added after the strike pose is fitted, so it never changes the reach fit
+    if (!mv || this.fitShare >= 1) { if (mv) { this.chargePose(this.pose); this.stumblePose(this.pose); } return; } // P19-16: the stumble is added after the strike pose is fitted, so it never changes the reach fit
     const tip = mv.anim === 'elbowH' ? (mv.limb[0] === 'L' ? 30 : 33) : STRIKE_TIP[mv.limb], want = this.fitAim(mv) + STRIKE_PAST, moved = this.fitMoved; // the step does not depend on the share: it is looked for once
     for (let pass = 0; pass < 5; pass++) { // the limb does not extend in a straight line with the share: measure where the tip is and fit it
       this.walkSkeleton(0, 0, 0, 0, false);
@@ -7734,6 +8004,7 @@ class Fighter {
       if (got <= want + STRIKE_FIT || got <= this.fitMoved) break;
       this.strikePose(clamp(this.fitShare * (want - moved) / (got - moved), STRIKE_REACH_MIN, 1), moved);
     }
+    this.chargePose(this.pose);
     this.stumblePose(this.pose);
   }
   // The strike pose with the limb given `share` of its extension (0: the share strikeReach asks for)
@@ -7749,7 +8020,7 @@ class Fighter {
     const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra + this.stumbleExtra;
     const spec = !m.noTech && STYLE_TECH[m.styleId] && (kick ? STYLE_TECH[m.styleId].kick : STYLE_TECH[m.styleId].punch);
     const windup = (mv.tier === 3 ? 0.45 : 0.28) * ((spec && spec.wind) || 1), snap = kick ? m.kickSnap : m.punchSnap;
-    const ext = strikeExtension(t, startup, active, recovery, windup, snap);
+    const ext = this.moveExtension(t, startup, active, recovery, windup, snap); // P19-15: a held or charged press draws its own curve
     const moved = stepped !== undefined ? stepped : ext > 0 && step > 0 ? Math.max(0, Math.min(step, this.stepRoom(step))) : 0; // metres the body steps into the blow, as far as it takes for the limb to end where the hit volume does (P17-02), never into the foe, another fighter, a wall or a prop
     const reach = ext > 0 ? share || this.strikeReach(mv, moved) : 1; // the share of its full extension the limb is given, so it does not go on through a near foe
     this.fitShare = reach; this.fitMoved = moved;
@@ -7781,7 +8052,7 @@ class Fighter {
     }
     // kinetic chain: the hips and torso turn a little ahead of the limb
     if (t < startup) {
-      const lead = strikeExtension(Math.min(t + HIP_LEAD_TICKS, startup), startup, active, recovery, windup, snap);
+      const lead = this.moveExtension(Math.min(t + HIP_LEAD_TICKS, startup), startup, active, recovery, windup, snap);
       pose[J.torsoTwist] = g[J.torsoTwist] + (strike[J.torsoTwist] - g[J.torsoTwist]) * Math.max(ext, lead);
     }
     // heel pivot: rear-hand (right) punches and round kicks turn the body over the support foot
@@ -7994,6 +8265,7 @@ class Fighter {
     if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * fade * (1 - Math.min(0.7, (py - footing) * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team
     if (marker) R.put(LAYER.ALPHA, MESH.CYL, px, footing + 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22 * fade, 0.6, 1, false, 0);
+    if (this.charging) this.drawChargeRing(px, footing, pz, fade); // P19-15: the tell of a charge, for the person's fighter and the foe's alike
   }
 }
 // <<SIM END>>
@@ -9614,10 +9886,10 @@ const Story = {
 /* === 06 AI - perception snapshots with reaction delay, action scoring, difficulty profiles
    The AI reads only observable state (positions, the opponent's animation phase), delayed by its reaction time; never the opponent's controller input. */
 const DIFFICULTY = {
-  easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, swayRead: 0.4, swayAim: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75 },
-  normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 1.3, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
-  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.25, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
-  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.3, swayRead: 0.1, swayAim: 0.7, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
+  easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, swayRead: 0.4, swayAim: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75, pauseUse: 0 },
+  normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 1.3, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85, pauseUse: 1 },
+  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.25, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1, pauseUse: 1 },
+  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.3, swayRead: 0.1, swayAim: 0.7, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1, pauseUse: 1 },
 };
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises); parry = chance a reaction block is a perfect block; adapt = chance to guard where the opponent usually attacks;
    dmg = the CPU's damage dealt (Easy and Normal hit softer).
@@ -10163,6 +10435,7 @@ class AIController {
   chooseIntent(f, opp, match, it) {
     clearIntent(it);
     this.tickNo++;
+    f.noPause = this.d.pauseUse <= 0; // P19-15: the Easy CPU's press in the pause window plays the plain step; it never holds a button (no held flag), so it never charges, and it never pauses on purpose (no plan, no simRng draw)
     this.observe(f, opp);
     const d = this.d;
     const snap = this.delayed(d.react);
@@ -10601,6 +10874,12 @@ const stanceText = (f) => {
   if (f.readySpent) return 'spent' + (wait > 0 ? waitText : ', let go and press');
   if (f.prevDefend && f.readyLeft > 0) return 'armed ' + f.readyLeft;
   return 'off' + (wait > 0 ? waitText : ', press Defend');
+};
+// Training's HOLD line (P19-15): the charge a fighter holds (the ticks held, the ticks to the next level, the level a release would strike at), or the pause (the ticks stood still, OPEN from PAUSE_STILL_TICKS) while the string is open for a delayed step, else -
+const holdText = (f) => {
+  if (f.charging) { const level = f.chargeTicks >= CHARGE_L2 ? 2 : f.chargeTicks >= CHARGE_L1 ? 1 : 0; return 'CHARGE ' + f.chargeTicks + ' / ' + (level === 2 ? CHARGE_MAX : level === 1 ? CHARGE_L2 : CHARGE_L1) + '  L' + level; }
+  if (f.state === S.IDLE && f.pauseOpen()) return 'PAUSE ' + f.stateTicks + (f.stateTicks >= PAUSE_STILL_TICKS ? ' OPEN' : '');
+  return '-';
 };
 const DUMMY_AI_MODES = ['easy', 'normal', 'hard', 'expert'];
 const DUMMY_ATTACK_EVERY = 75; // ticks between dummy attacks: time to practise blocking and punishing
@@ -11375,8 +11654,8 @@ class MatchSim {
         note({ mv: e.mv, startup: 0, active: 1, recovery: CLINCH_STRIKE_COOLDOWN, result: 'hit', dmg: e.dmg, note: 'in the clinch: next strike after ' + CLINCH_STRIKE_COOLDOWN + 'f, at most ' + CLINCH_STRIKE_MAX + ' per clinch' });
       } else if (e.mv === TACKLE_MOVE) { // the charge is the run itself: contact is its only frame, the charger is free at once
         note({ mv: e.mv, startup: 0, active: 1, recovery: 0, result: 'hit', dmg: e.dmg, adv: { onHit: frameAdvantage(e.mv, { active: 1, recovery: 0, hitstun: e.def.reactDur }).onHit, onBlock: null } });
-      } else if (ATTACKS[e.mv.id] && this.lastMove) {
-        const lm = this.lastMove, base = ATTACKS[e.mv.id], reacting = e.def.state === S.HIT || e.def.state === S.STAGGER;
+      } else if ((ATTACKS[e.mv.id] || e.mv.charged || e.mv.delayed) && this.lastMove) { // P19-15: a charged or delayed row is not in ATTACKS; it is its own base
+        const lm = this.lastMove, base = ATTACKS[e.mv.id] || e.mv, reacting = e.def.state === S.HIT || e.def.state === S.STAGGER;
         lm.result = 'hit'; lm.dmg = e.dmg;
         // a launch or knockdown has no hit-stun to count: the victim is in the air, then down
         const downed = e.def.state === S.DOWN || !e.def.alive; // a hit on a downed foe or a knock-out has no hit-stun to count either
@@ -11426,6 +11705,10 @@ class MatchSim {
       if (e.f.index !== 0) return;
       const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null; // the string this step belongs to, up to and including this step
       note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id) => moveFor(e.f.rowStyle, id).name).join(' > ') : '' });
+    });
+    on('chargeRelease', (e) => { // P19-15: the released charge is a new strike with its own frame data (the extra stamina is in its note)
+      if (e.f.index !== 0) return;
+      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: 'charged: level ' + e.level, note: 'level ' + e.level + ' charge, +' + e.mv.xstam + ' stamina' });
     });
   }
   dispose() {
@@ -13282,19 +13565,24 @@ const NET_PULSE_BITS = NET_PULSES.reduce((bits, key) => bits | (1 << NET_FLAGS.i
 const NET_SKIP_BITS = ['jump', 'punch', 'kick', 'grapple'].reduce((bits, key) => bits | (1 << NET_FLAGS.indexOf(key)), 0); // the same four actions as SKIP_ACTIONS
 const NET_GRAP_DIRS = ['fwd', 'back', 'left', 'right'], NET_GRAP_DIR_BITS = 0xc000, NET_GRAPPLE_BIT = 1 << NET_FLAGS.indexOf('grapple');
 
-// One seat's intent as a 32-bit number: fwd and side as signed bytes (steps of 1/127), then 16 flag bits. Every peer, the sender too, plays the decoded value.
+/* One seat's intent as a 40-bit number (P19-15), held in one JS Number: bits 0 to 31 are fwd and side as signed bytes (steps of 1/127), then 16 flag bits; bit 32 is punchHeld, bit 33 kickHeld, bits 34 to 39 are spare (zero).
+   Every read of the low word (code & 255, code >>> 8, code >>> 16) takes the Number modulo 2^32, so it works on a 40-bit code unchanged; the held bits are levels, never carried across a hit freeze. Every peer, the sender too, plays the decoded value. */
+const NET_HELD_SCALE = 4294967296, NET_HELD_BITS = 3, NET_CODE_MAX = 1099511627776; // 2^32: the weight of bit 32; the two held bits; 2^40, the first value that is not a code (no `**` in the simulation block: the determinism test bans it)
 function encodeInput(it) {
   let flags = 0;
   NET_FLAGS.forEach((key, bit) => { if (it[key]) flags |= 1 << bit; });
   flags |= (it.sidestep < 0 ? 1 : it.sidestep > 0 ? 2 : 0) << 12;
   flags |= Math.max(0, NET_GRAP_DIRS.indexOf(it.grapDir)) << 14;
   const byteOf = (value) => Math.round(clamp(value, -1, 1) * 127) & 255;
-  return (byteOf(it.fwd) | (byteOf(it.side) << 8) | (flags << 16)) >>> 0;
+  const held = (it.punchHeld ? 1 : 0) | (it.kickHeld ? 2 : 0);
+  return ((byteOf(it.fwd) | (byteOf(it.side) << 8) | (flags << 16)) >>> 0) + held * NET_HELD_SCALE;
 }
 function decodeInput(code, it) {
   clearIntent(it);
   const axis = (byte) => clamp((byte > 127 ? byte - 256 : byte) / 127, -1, 1);
   it.fwd = axis(code & 255); it.side = axis((code >>> 8) & 255);
+  const held = Math.floor(code / NET_HELD_SCALE) & NET_HELD_BITS;
+  it.punchHeld = (held & 1) !== 0; it.kickHeld = (held & 2) !== 0;
   const flags = code >>> 16;
   NET_FLAGS.forEach((key, bit) => { it[key] = (flags & (1 << bit)) !== 0; });
   const step = (flags >> 12) & 3;
@@ -13307,23 +13595,30 @@ function mergePresses(code, carried) {
   const flags = code >>> 16;
   let merged = flags | (carried & NET_PULSE_BITS);
   if (!(flags & NET_GRAPPLE_BIT) && (carried & NET_GRAPPLE_BIT)) merged = (merged & ~NET_GRAP_DIR_BITS) | (carried & NET_GRAP_DIR_BITS);
-  return ((code & 0xffff) | (merged << 16)) >>> 0;
+  return (((code & 0xffff) | (merged << 16)) >>> 0) + Math.floor(code / NET_HELD_SCALE) * NET_HELD_SCALE; // the merged low word, then the held part of `code` added (`x >>> 0 + held` would parse as `x >>> (0 + held)` and drop the held bits); the carried bits are pulses only
 }
 
-// A packet of the input channel: seat, the match number, the newest frame, a count, then that many inputs (the newest last), all big-endian. A packet of another match (a late one after a rematch) is dropped on receipt.
-const NET_PACKET_HEAD = 8;
+// A packet of the input channel: seat, the match number, the newest frame, a count, then that many inputs (the newest last), all big-endian: five bytes an input, the low 32 bits then one byte of held bits (P19-15). A packet of another match (a late one after a rematch) is dropped on receipt.
+const NET_PACKET_HEAD = 8, NET_INPUT_BYTES = 5;
 function packInputs(seat, last, codes, matchId = 0) {
-  const bytes = new Uint8Array(NET_PACKET_HEAD + codes.length * 4), view = new DataView(bytes.buffer);
+  const bytes = new Uint8Array(NET_PACKET_HEAD + codes.length * NET_INPUT_BYTES), view = new DataView(bytes.buffer);
   bytes[0] = seat; view.setUint16(1, matchId & 0xffff); view.setUint32(3, last); bytes[7] = codes.length;
-  codes.forEach((code, i) => view.setUint32(NET_PACKET_HEAD + i * 4, code));
+  codes.forEach((code, i) => {
+    const offset = NET_PACKET_HEAD + i * NET_INPUT_BYTES;
+    view.setUint32(offset, code); // the low word: ToUint32 takes the Number modulo 2^32
+    bytes[offset + 4] = Math.floor(code / NET_HELD_SCALE) & NET_HELD_BITS;
+  });
   return bytes;
 }
 function unpackInputs(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < NET_PACKET_HEAD) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), count = bytes[7];
-  if (count < 1 || count > NET_FILL_MAX || bytes.length !== NET_PACKET_HEAD + count * 4) return null;
+  if (count < 1 || count > NET_FILL_MAX || bytes.length !== NET_PACKET_HEAD + count * NET_INPUT_BYTES) return null; // a packet of the old length (four bytes an input) is refused
   const codes = [];
-  for (let i = 0; i < count; i++) codes.push(view.getUint32(NET_PACKET_HEAD + i * 4));
+  for (let i = 0; i < count; i++) {
+    const offset = NET_PACKET_HEAD + i * NET_INPUT_BYTES;
+    codes.push(view.getUint32(offset) + (bytes[offset + 4] & NET_HELD_BITS) * NET_HELD_SCALE); // the mask drops spare bits 2 to 7 of the fifth byte, so every peer reads the same code from the same packet
+  }
   return { seat: bytes[0], matchId: view.getUint16(1), last: view.getUint32(3), codes };
 }
 
@@ -13332,7 +13627,7 @@ function matchChecksum(match) {
   const parts = [match.tick, match.phase, match.phaseTicks, match.round, match.roundTicks, match.matchTicks, match.hitStop, match.slowTicks, match.endTimer, match.locked, match.wins.join('/'), Combat.attackCounter, Combat.flightCounter, simRng.state()];
   const index = (other) => (other ? other.index : -1);
   for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '',
-    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt);
+    f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt, f.charging ? 1 : 0, f.chargeTicks);
   for (const controller of match.controllers) if (controller.tickNo !== undefined) parts.push(controller.tickNo); // the CPU's own clock
   for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
   for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
@@ -13621,7 +13916,7 @@ class LockstepSession {
       }
       case 'fill':
         if (this.validSeat(m.seat) && m.seat !== this.seat && (!this.host || m.seat === from) && Array.isArray(m.codes) && Number.isInteger(m.from)) {
-          this.stats.fills += this.store(m.seat, m.from + Math.min(m.codes.length, NET_FILL_MAX) - 1, m.codes.slice(0, NET_FILL_MAX).map((code) => Number(code) >>> 0));
+          this.stats.fills += this.store(m.seat, m.from + Math.min(m.codes.length, NET_FILL_MAX) - 1, m.codes.slice(0, NET_FILL_MAX).map((code) => { const n = Number(code); return Number.isSafeInteger(n) && n >= 0 && n < NET_CODE_MAX ? n : 0; })); // a 40-bit code survives the JSON round trip exactly; a malformed one is 0 (the held bits must not be cut: a charge recovered after a stall would end early on this peer only)
         }
         break;
       case 'drop':
@@ -14582,6 +14877,7 @@ const Effects = {
     });
     on('lateDefend', (e) => { if (Inputs.forFighter(e.f.index)) FX.flash(e.f.x, e.f.y + 1.0, e.f.z, 0.2, CUE_COLOR.late); });
     on('freeTick', (e) => { if (freeTickCue(e.f)) FX.ring(e.f.x, 0.05, e.f.z, CUE_COLOR.free, 3); });
+    on('chargeLevel', (e) => { const seat = Inputs.forFighter(e.f.index); if (seat) seat.chargePulse(e.level); }); // P19-15: a phone buzzes and a pad pulses at level 1, twice at level 2
     on('land', (e) => { FX.dust(e.f.x, 0.05, e.f.z, Math.min(10, 3 + Math.floor(e.impact)), 0.5, '#b5ada0'); if (e.impact > 4) Camera.impact(0.3, 0.2); });
     on('knockdown', (e) => FX.dust(e.f.x, 0.05, e.f.z, 6, 0.7, '#b5ada0'));
     on('step', (e) => { if (e.run) FX.dust(e.f.x, 0.05, e.f.z, 1, 0.2, '#b5ada0'); });
@@ -15093,9 +15389,9 @@ const Sound = {
     else if (perfect) CUE_NOTES.perfect.forEach((hz, i) => this.tone('sine', hz, hz, 0.45 - i * 0.05, (0.22 - i * 0.07) * (sway ? 1.35 : 0.6), i * 0.02));
   },
   // M3: cloth (a fist), kick, weapon whistle (the centre follows the item's length) and a jump's flap; tier 1 to 3 sets the level
-  whoosh(tier, kind, len, index) {
+  whoosh(tier, kind, len, index, boost) { // boost (P19-15): a charged strike is this much louder
     if (!this.allow('whoosh' + index, MIN_GAP.whoosh, 1)) return;
-    const g = [0.22, 0.5, 0.62][tier - 1] * vary(1, 0.12), p = vary(1, 0.06);
+    const g = [0.22, 0.5, 0.62][tier - 1] * vary(1, 0.12) * (boost || 1), p = vary(1, 0.06);
     if (kind === 'weapon') { const hz = clamp(1100 - 600 * len, 400, 1000); this.noise('bandpass', hz * p, hz * 0.4, 3, vary(0.18, 0.08), g * 2.35); }
     else if (kind === 'kick') this.noise('bandpass', 300 * p, 1500 * p, 0.7, vary(0.14, 0.08), g * 1.2);
     else this.noise('bandpass', 600 * p, 2400 * p, 0.7, vary(kind === 'jump' ? 0.11 : 0.09, 0.08), g * (kind === 'jump' ? 0.79 : 1.1));
@@ -15272,8 +15568,18 @@ const Sound = {
     on('attackActive', (e) => {
       this.at(e.f.x, e.f.z);
       const mv = e.mv, item = mv.wpn && WEAPONS[mv.wpn], kick = mv.cat === 'kick' || (mv.cat === 'heavy' && /kick|sweep/i.test(mv.name));
-      this.whoosh(clamp(mv.tier || 1, 1, 3), item ? 'weapon' : kick ? 'kick' : 'cloth', item ? item.len : 0, e.f.index);
+      this.whoosh(clamp(mv.tier || 1, 1, 3), item ? 'weapon' : kick ? 'kick' : 'cloth', item ? item.len : 0, e.f.index, mv.charged ? CHARGE_WHOOSH_BOOST : 1); // P19-15: a charged strike whooshes louder
     });
+    // P19-15: the charge. Set tick: a low creak (a grunt at CHARGE_CREAK_GAIN); level 1: one short rising tick, level 2: two, CHARGE_LEVEL_GAP apart; a cancelled charge: the guard sound; the pause window opening: a light tick for a person's own fighter. All through the existing limiters.
+    on('chargeStart', (e) => { this.at(e.f.x, e.f.z); this.grunt(e.f, 'effort', CHARGE_CREAK_GAIN); });
+    on('chargeLevel', (e) => {
+      this.at(e.f.x, e.f.z);
+      if (!this.allow('chargeLevel' + e.f.index, CHARGE_LEVEL_GAP, 1)) return;
+      this.tone('triangle', 660, 880, 0.05, CHARGE_LEVEL_GAIN);
+      if (e.level === 2) this.tone('triangle', 880, 1175, 0.05, CHARGE_LEVEL_GAIN, CHARGE_LEVEL_GAP);
+    });
+    on('chargeCancel', (e) => { this.at(e.f.x, e.f.z); this.block(false, false, e.f.x); });
+    on('pauseOpen', (e) => { if (person(e.f) && this.allow('pause' + e.f.index, 0.1, 1)) this.tone('sine', CUE_NOTES.free[0], CUE_NOTES.free[0], 0.04, 0.08); });
     on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team !== TEAM_PLAYERS) { this.at(e.f.x, e.f.z); this.grunt(e.f, 'effort'); } });
     on('step', (e) => { this.at(e.f.x, e.f.z); this.step(e.run, e.f.index, e.f.stepIndex & 1); });
     on('land', (e) => { this.at(e.f.x, e.f.z); this.land(e.impact / 6, e.f); });
@@ -15695,7 +16001,7 @@ function stageTrackIndex(stageName, lastIndex, tracks = STAGE_TRACKS) {
 
 // === 09 Online - signaling by copy-paste (P12-01) or by a room code (P19-12): the code format, the QR encoder, the peer link and the room signalling (Appendix C, Online signaling)
 const ONLINE_CODE_VERSION = 1; // high nibble of the first byte of every code; a code of another version is refused with a plain message
-const ONLINE_NET_VERSION = 4; // the match message protocol (raised when the messages or the simulation's bits change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start; 4 since P12-08, whose exact simulation maths gives other bits than the old build's); the low nibble of the second byte
+const ONLINE_NET_VERSION = 5; // the match message protocol (raised when the messages or the simulation's bits change: 2 since P12-03, which adds the host's start message and the seats that only watch; 3 since P12-06, which adds the lobby messages and the Free Fight lineup start; 4 since P12-08, whose exact simulation maths gives other bits than the old build's; 5 since P19-15, whose input word has 40 bits (the held Punch and Kick) and whose simulation has charges); the low nibble of the second byte
 const ONLINE_PREFIX = ['BPO-', 'BPA-']; // offer, answer: the index is the kind
 const ONLINE_FORM = { PACKED: 0, DEFLATE: 1, PLAIN: 2 }; // the packed binary form, or the whole SDP (deflated where the browser can, else as it is)
 const ONLINE_SEAT_MIN = 2; // seat 1 is the host
@@ -18047,18 +18353,27 @@ const UI = {
         stringRows.push('<tr><td>' + presses(keys, table === 'crouch') + '</td><td>' + esc(steps.map((id) => moveFor(rowStyle, id).name).join(' → ')) + '</td></tr>');
       }
     }
-    const listed = ALL_MOVES.filter((m) => (m.ctx || found[m.id]) && !(carry && m.btn[1] === 'p')).map((m) => moveFor(rowStyle, m.id)).concat(Object.keys(found).filter((id) => !ATTACKS[id]).map(moveById)); // the moves of the rows, and the ones every fighter has; then the item's
+    const lastKey = (keys) => key(keys[keys.length - 1] === 'P' ? 'punch' : 'kick');
+    if (!held) { // P19-15: the style's charged attack and delayed step, two more rows of the string table (an item in hand has neither); every number is read from the rows
+      const earlier = (keys) => own.stand[keys].slice(0, -1).map((id) => moveFor(rowStyle, id).name), [c1, c2] = style.charge.rows, d = style.delay.row;
+      const chargeText = c1.name + ': level 1 ' + c1.release + ' / ' + c1.active + ' / ' + c1.recovery + ' frames, ' + c1.dmg + ' dmg; level 2 ' + c2.release + ' / ' + c2.active + ' / ' + c2.recovery + ', ' + c2.dmg + ' dmg' + (c2.kind === 'knockdown' ? ', knockdown' : c2.kind === 'launch' ? ', launcher' : '');
+      stringRows.push('<tr><td>' + presses(style.charge.at.slice(0, -1)) + ' then hold ' + lastKey(style.charge.at) + '</td><td>' + esc(earlier(style.charge.at).concat(chargeText).join(' → ')) + '</td></tr>');
+      stringRows.push('<tr><td>' + presses(style.delay.at.slice(0, -1)) + ', stand still, ' + lastKey(style.delay.at) + '</td><td>' + esc(earlier(style.delay.at).concat(d.name).join(' → ')) + '</td></tr>');
+    }
+    const listed = ALL_MOVES.filter((m) => (m.ctx || found[m.id]) && !(carry && m.btn[1] === 'p')).map((m) => moveFor(rowStyle, m.id)).concat(Object.keys(found).filter((id) => !ATTACKS[id]).map(moveById)).concat(held ? [] : [style.delay.row].concat(style.charge.rows)); // the moves of the rows, and the ones every fighter has; then the item's; then (P19-15, never with an item in hand) the style's delayed step and its two charge levels
     const rows = listed.map((m) => {
       const punch = m.btn[1] === 'p', grab = m.type === 'grab';
       let input;
-      if (grab) input = key('grapple');
+      if (m.charged) input = presses(style.charge.at.slice(0, -1)) + ' then hold ' + lastKey(style.charge.at);
+      else if (m.delayed) input = presses(style.delay.at.slice(0, -1)) + ', stand still, ' + lastKey(style.delay.at);
+      else if (grab) input = key('grapple');
       else if (m.ctx === 'air') input = 'In the air: ' + key(punch ? 'punch' : 'kick');
       else if (m.ctx === 'run') input = 'Running: ' + key('punch');
       else if (m.ctx === 'counter') input = 'After a perfect ' + (defense === 'sway' ? 'sway' : 'block') + ': ' + key(punch ? 'punch' : 'kick');
       else input = found[m.id].sort((x, y) => x[0] - y[0]).slice(0, 2).map((x) => x[1]).join(' / '); // the two shortest rows that end on this move
       const fa = frameAdvantage(m);
-      const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
-      return '<tr><td>' + esc(m.name) + '</td><td>' + input + '</td><td>' + (style.signature.some((x) => x[1] === m.id) ? '<b>*</b> ' : '') + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + m.startup + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
+      const note = [m.charged ? 'the strike comes ' + m.release + ' frames after you let go, level ' + m.charged + ' needs ' + (m.charged === 1 ? CHARGE_L1 : CHARGE_L2) + ' frames held' : '', m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
+      return '<tr><td>' + esc(m.name) + (m.charged ? ', level ' + m.charged : '') + '</td><td>' + input + '</td><td>' + (style.signature.some((x) => x[1] === m.id) ? '<b>*</b> ' : '') + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + (m.charged ? m.release : m.startup) + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + (m.charged ? ' + ' + m.xstam : '') + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
     }).join('');
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
     const clinchRows = Object.keys(CLINCH_MOVES).map((id) => {
@@ -18074,7 +18389,7 @@ const UI = {
     const legend = [[attackInputFullName(profile, 'punch', !!held), 'punch'], [attackInputFullName(profile, 'kick', !!held), 'kick'], ['Crouch', 'crouch'], ['Defend', 'defend'], ['Grapple', 'grapple']].map(([name, action]) => name + ' <kbd>' + esc(label(action)) + '</kbd>').join(' &middot; ');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub"><b>' + esc(profile.name) + '</b> &middot; ' + esc(style.label) + ' (' + esc(STYLE_FAMILY_LABEL[style.family]) + ')' + (held ? ' &middot; ' + (carry ? 'carrying ' : 'holding ') + esc(WEAPONS[held].name) : '') + ' &middot; ' + kind + ' controls</p>' +
       '<p>' + esc(style.desc) + ' Signature moves: ' + esc(style.signature.map((x) => x[0]).join(', ')) + '.</p><p class="hint">' + legend + '</p>' +
-      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Press ' + key('defend') + ' as the foe comes in: you lean out and stand ready for half a second to slip each strike. Let go and press again for the next.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low. Moves marked * are signature moves.</p>' +
+      '<p><b>Start here:</b> 1. Press ' + key(carry ? 'kick' : 'punch') + ' ' + times + ': your first string. 2. ' + (defense === 'sway' ? 'Press ' + key('defend') + ' as the foe comes in: you lean out and stand ready for half a second to slip each strike. Let go and press again for the next.' : 'Hold ' + key('defend') + ' when the foe starts a move.') + ' 3. ' + key('grapple') + ' grabs a foe who is guarding. 4. Stop hitting when the stamina bar is low.' + (held ? '' : ' 5. Hold the last press of a string to charge it; stand still for a beat after a move, then press, for a different one.') + ' Moves marked * are signature moves.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Data</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<p class="hint">Data: hits high, mid or low, then start / active / recover frames at 60 fps, damage, stamina, and the frame advantage on hit and on block. Strong moves cost more stamina and leave you open longer if they miss.</p>' +
       (carry ? '<p class="hint">While you carry it Punch does nothing, you cannot run and you walk slowly. ' + attackName('kick') + ' still works. Use ' + key('use') + ' throws it, or hold Use ' + key('use') + ' to put it down; Grapple ' + key('grapple') + ' drops it and grabs.</p>'
@@ -18892,7 +19207,8 @@ const UI = {
     h += '<br><b>DEFENCE</b> ' + defenceCooldownText(a); // P18-62: ready, or the ticks left of the cooldown Block and Sway share
     if (a.defense === 'sway') h += '<br><b>STANCE</b> ' + stanceText(a); // P19-13: up / armed / spent / off
     h += '<br><b>STYLE</b> ' + this.styleLine(a) + '<br><b>Dummy style</b> ' + this.styleLine(m.fighters[1]);
-    h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>LINK</b> ' + (m.linkRead || '-') + '<br><b>DEFEND</b> ' + (m.defRead || '-') + '<br><b>Dummy:</b> ' + dummyLabel(m);
+    h += '<br><b>HOLD</b> ' + holdText(a); // P19-15: a charge or a pause (after the lines the P18-62 and P19-13 tests read as a run)
+    h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>LINK</b> ' + (m.linkRead || '-') + '<br><b>DEFEND</b> ' + (m.defRead || '-') + '<br><b>Dummy:</b> ' + dummyLabel(m) + (m.fighters[1].charging ? ' CHARGING ' + m.fighters[1].chargeTicks : '');
     if (m.scenarioNo === 6) h += '<br><b>HOLD PRACTICE</b> ' + (styleCanSubmit(a.profile) ? 'Step to the dummy and press Grapple, then tap Grapple. The dummy stays down; set it to Easy to Expert and it taps Defend to escape.' : 'Your style has no holds (see the Move list). Pick ' + esc(submissionStyleText()) + ' to try one.');
     h += '<br><b>Objects:</b> ' + (() => { const c = Arena.statusCounts(); return c.intact + ' intact, ' + c.damaged + ' damaged, ' + c.destroyed + ' destroyed'; })();
     this.setHtml('train', this.dom.training, h);
@@ -21124,6 +21440,7 @@ function testApi() {
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY, STUMBLE_CUE_GAP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
+    mergePresses, NET_NEED_AFTER_MS, NET_FILL_MAX, NET_HELD_SCALE, NET_CODE_MAX, NET_INPUT_BYTES, NET_PACKET_HEAD, CHARGE_MIN_STARTUP, CHARGE_L1, CHARGE_L2, CHARGE_MAX, CHARGE_RELEASE, CHARGE_DMG, CHARGE_EXTRA, CHARGE_REACH, CHARGE_STUN, CHARGE_PUSH, PAUSE_STILL_TICKS, STYLE_NEW_MOVES, CHARGE_COIL_FAMILY, CHARGE_COIL_STYLE, CHARGE_CANCEL_HELP, PAUSE_HELP, COACH_PAUSE_STRINGS, holdText, CHARGE_POSE_FROM, CHARGE_COIL_DEEPEN, CHARGE_POSE_BLEND, CHARGE_TREMOR, CHARGE_RING_SEGMENTS, PAUSE_HANDS, PAUSE_LEAN,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
