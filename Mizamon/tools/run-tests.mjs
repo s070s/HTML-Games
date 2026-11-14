@@ -436,7 +436,7 @@ test('seeded replay of a 1,000-battle sample gives equal checksums twice (and a 
 });
 test('the rules never call Math.random or Date', () => {
   const begin = html.indexOf('// RULES-BEGIN');
-  const rulesText = html.slice(begin, html.indexOf('// RULES-END')).split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n');
+  const rulesText = html.slice(begin, html.indexOf('// RULES-END')).split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n'); // CRLF checkouts too
   assert.ok(!/Math\.random|Date\.now|new Date|performance\.now/.test(rulesText));
 });
 test('encounters are seeded and happen at about the set rate on grass only', () => {
@@ -626,10 +626,10 @@ const sampleV1 = () => ({
   dex: { seen: { komma: true, fakelakis: true, storoula: true }, got: { komma: true } }, flags: { rival1: true, t_rival1: true },
   lastHeal: { map: 'kep', x: 4, y: 6, dir: 'up' }, options: { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true }, rngState: 4242, starter: 'komma',
 });
-test('save migration: a version-0 save becomes version 1; version 1 is stable; bad data is refused', () => {
+test('save migration: a version-0 save becomes the current version (2); the current version is stable; bad data is refused', () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 123, team: [{ id: 'psaltak', lv: 6, xp: 130, hp: 20 }, { id: 'nonsense', lv: 3 }], map: 'town', x: 5, y: 8, items: { fakelaki: 3, bogus: 9 }, seen: ['komma'], got: ['psaltak'] };
   const migrated = R.migrateSave(v0);
-  assert.equal(migrated.version, 1);
+  assert.equal(migrated.version, 2);
   assert.equal(migrated.player.name, 'ΝΙΚΟΣ');
   assert.equal(migrated.player.gender, 'm');
   assert.equal(migrated.money, 123);
@@ -642,11 +642,12 @@ test('save migration: a version-0 save becomes version 1; version 1 is stable; b
   assert.equal(migrated.player.map, 'town');
   assert.equal(R.migrateSave(Object.assign({}, v0, { girl: true })).player.gender, 'f');
   // a shape without a version number is treated as version 0 too
-  assert.equal(R.migrateSave({ name: 'Α', drachmas: 5, team: [{ id: 'komma', lv: 5 }] }).version, 1);
+  assert.equal(R.migrateSave({ name: 'Α', drachmas: 5, team: [{ id: 'komma', lv: 5 }] }).version, 2);
   const v1 = R.migrateSave(sampleV1());
   same(R.migrateSave(JSON.parse(JSON.stringify(v1))), v1);
   assert.equal(v1.options.lang, 'en');
   assert.equal(v1.player.x, 5);
+  assert.equal(R.migrateSave({ version: 3, party: [R.serializeMon(R.makeMon('komma', 5))] }), null, 'a newer game save is refused');
   assert.equal(R.migrateSave({ version: 2, party: [] }), null);
   assert.equal(R.migrateSave({ version: 1, party: [] }), null);
   assert.equal(R.migrateSave(null), null);
@@ -660,7 +661,7 @@ test('save migration: a version-0 save becomes version 1; version 1 is stable; b
   assert.equal(fixed.money, 0);
   assert.ok(fixed.party.length <= 6);
   assert.equal(R.SAVE_KEY, 'mizamon.v1.save');
-  assert.equal(R.SAVE_VERSION, 1);
+  assert.equal(R.SAVE_VERSION, 2);
 });
 test('save migration: a version-0 save gets its story flags back (starter chosen, rival met)', () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 10, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
@@ -674,6 +675,218 @@ test('save migration: a version-0 save gets its story flags back (starter chosen
   assert.equal(inLab.flags.rival1, undefined, 'still in the lab: the rival has not been met');
   assert.equal(inLab.flags.t_rival1, undefined);
   same(R.migrateSave(JSON.parse(JSON.stringify(outside))).flags, outside.flags);
+});
+
+// ---- Hospital (MZ-HOSP-01) ----
+const monsOf = (species, level, count) => Array.from({ length: count }, () => R.makeMon(species, level));
+const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' };
+test('archive: deposit and withdraw keep the creature as it is; the last creature able to fight never leaves; the archive holds 60', () => {
+  const party = [R.makeMon('komma', 8), R.makeMon('fakelakis', 4)];
+  const archive = [];
+  assert.equal(R.ARCHIVE_MAX, 60);
+  assert.equal(R.canDeposit([R.makeMon('komma', 5)], archive, 0), false, 'a team of one never goes down to zero');
+  party[1].hp = 0;
+  assert.equal(R.canDeposit(party, archive, 0), false, 'the only creature able to fight stays');
+  assert.equal(R.depositMon(party, archive, 0), false);
+  assert.equal(party.length, 2);
+  assert.equal(R.canDeposit(party, archive, 1), true, 'a fainted one may go');
+  party[1].hp = 5;
+  assert.equal(R.depositMon(party, archive, 1), true);
+  assert.equal(party.length, 1);
+  assert.equal(archive.length, 1);
+  assert.equal(archive[0].sp, 'fakelakis');
+  assert.equal(archive[0].hp, 5, 'level, moves and HP travel with it');
+  assert.equal(R.depositMon(party, archive, 0), false, 'the last one stays');
+  assert.equal(R.depositMon(party, archive, 7), false, 'no such team member');
+  assert.equal(R.canWithdraw(party, archive, 1), false, 'no such archive entry');
+  assert.equal(R.withdrawMon(party, archive, 0), true);
+  assert.equal(party.length, 2);
+  assert.equal(archive.length, 0);
+  assert.equal(party[1].sp, 'fakelakis');
+  const fullTeam = monsOf('komma', 3, R.PARTY_MAX);
+  const stored = [R.makeMon('fakelakis', 3)];
+  assert.equal(R.canWithdraw(fullTeam, stored, 0), false, 'a full team has no room');
+  assert.equal(R.withdrawMon(fullTeam, stored, 0), false);
+  assert.ok(fullTeam.length === R.PARTY_MAX && stored.length === 1);
+  const two = monsOf('komma', 5, 2);
+  assert.equal(R.canDeposit(two, monsOf('komma', 3, 60), 0), false, 'a full archive refuses');
+  assert.equal(R.depositMon(two, monsOf('komma', 3, 60), 0), false);
+  assert.equal(R.canDeposit(two, monsOf('komma', 3, 59), 0), true, 'one free slot is enough');
+});
+test('archive: a recruit with a full team goes to the archive; a full archive (or none) still refuses', () => {
+  let archived = false;
+  for (let seed = 1; seed <= 60 && !archived; seed++) {
+    const foe = R.makeMon('fakelakis', 3);
+    foe.hp = 1;
+    const team = monsOf('komma', 8, R.PARTY_MAX);
+    const archive = [];
+    const bag = { fakelaki: 5 };
+    const b = R.createBattle(team, [foe], R.makeRng(seed), { kind: 'wild', bag, archive });
+    const keys = keysOf(R.playTurn(b, { t: 'recruit', id: 'fakelaki' }));
+    assert.equal(bag.fakelaki, 4, 'the offer costs the item');
+    assert.equal(team.length, R.PARTY_MAX, 'the team stays at 6');
+    if (b.recruited.length === 0) { assert.equal(archive.length, 0); continue; }
+    archived = true;
+    assert.equal(archive.length, 1);
+    assert.equal(archive[0].sp, 'fakelakis');
+    assert.equal(archive[0].status, null);
+    assert.ok(keys.includes('b.rec.ok') && keys.includes('b.rec.archived'), 'the "went to the archive" line plays');
+    assert.ok(b.over && b.winner === 0);
+  }
+  assert.ok(archived, 'some seed recruits');
+  const foe = R.makeMon('fakelakis', 3);
+  foe.hp = 1;
+  const packed = monsOf('komma', 3, R.ARCHIVE_MAX);
+  const full = R.createBattle(monsOf('komma', 8, R.PARTY_MAX), [foe], R.makeRng(1), { kind: 'wild', bag: { fakelaki: 5 }, archive: packed });
+  assert.ok(keysOf(R.playTurn(full, { t: 'recruit', id: 'fakelaki' })).includes('b.rec.full'));
+  assert.equal(full.bag.fakelaki, 5, 'a refused offer keeps the item');
+  assert.equal(packed.length, R.ARCHIVE_MAX);
+  const noArchive = R.createBattle(monsOf('komma', 8, R.PARTY_MAX), [R.makeMon('fakelakis', 3)], R.makeRng(1), { kind: 'wild', bag: { fakelaki: 5 } });
+  assert.ok(keysOf(R.playTurn(noArchive, { t: 'recruit', id: 'fakelaki' })).includes('b.rec.full'));
+  const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
+  assert.ok(run.includes('archive: G.archive'), 'the game gives the battle its archive');
+});
+test('save v2: the archive is saved; version 1 gets an empty archive and its ΚΕΠ heal spot becomes the hospital; version 0 goes through version 1', () => {
+  const fromV1 = R.migrateSave(sampleV1());
+  assert.equal(fromV1.version, 2);
+  same(fromV1.archive, []);
+  same(fromV1.lastHeal, HOSPITAL_SPOT);
+  assert.equal(fromV1.player.x, 5, 'the rest of the save is untouched');
+  assert.equal(fromV1.party.length, 2);
+  const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 5, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
+  const fromV0 = R.migrateSave(v0);
+  assert.equal(fromV0.version, 2);
+  same(fromV0.archive, []);
+  same(fromV0.lastHeal, HOSPITAL_SPOT);
+  const withArchive = Object.assign(sampleV1(), {
+    version: 2, lastHeal: HOSPITAL_SPOT,
+    archive: [R.serializeMon(R.makeMon('storoula', 7)), null, { sp: 'nonsense', lv: 3 }, R.serializeMon(R.makeMon('laikatzis', 99))],
+  });
+  const current = R.migrateSave(withArchive);
+  assert.equal(current.archive.length, 2, 'bad entries are dropped');
+  assert.ok(current.archive[0].sp === 'storoula' && current.archive[0].lv === 7);
+  assert.equal(current.archive[1].lv, 50, 'levels are clamped');
+  assert.ok(current.dex.got.storoula && current.dex.got.laikatzis, 'archived creatures count as recruited');
+  same(current.lastHeal, HOSPITAL_SPOT);
+  same(R.migrateSave(JSON.parse(JSON.stringify(current))), current);
+  const crowded = Object.assign(sampleV1(), { version: 2, archive: monsOf('komma', 3, 70).map(R.serializeMon) });
+  assert.equal(R.migrateSave(crowded).archive.length, R.ARCHIVE_MAX, 'the archive is cut at its capacity');
+  const state = html.slice(html.indexOf('function newGameState'), html.indexOf('// ---- Canvas and scaling'));
+  assert.ok(state.includes('archive: []') && state.includes('archive: G.archive.map(serializeMon)') && state.includes('archive: save.archive.map(restoreMon)'), 'new game, save and load all carry the archive');
+});
+test('hospital heal: the whole team gets full HP and no status; the VIP service spends one Φακελάκι only when asked and owned', () => {
+  const sick = () => {
+    const team = monsOf('komma', 8, 3);
+    team[0].hp = 1; team[0].status = { id: 'sca', turns: 0 };
+    team[1].hp = 0;
+    team[2].status = { id: 'str', turns: 2 };
+    return team;
+  };
+  const check = (team) => { for (const mon of team) { assert.equal(mon.hp, R.maxHp(mon)); assert.equal(mon.status, null); } };
+  const plain = sick(); const plainBag = { fakelaki: 2 };
+  assert.equal(R.hospitalHeal(plain, plainBag, false), false);
+  check(plain);
+  assert.equal(plainBag.fakelaki, 2, 'no VIP: nothing is spent');
+  const vip = sick(); const vipBag = { fakelaki: 2 };
+  assert.equal(R.hospitalHeal(vip, vipBag, true), true);
+  check(vip);
+  assert.equal(vipBag.fakelaki, 1, 'VIP spends exactly one');
+  const poor = sick(); const poorBag = { fakelaki: 0 };
+  assert.equal(R.hospitalHeal(poor, poorBag, true), false, 'the envelope is never required');
+  check(poor);
+  assert.equal(poorBag.fakelaki, 0);
+  const none = sick();
+  assert.equal(R.hospitalHeal(none, {}, true), false);
+  check(none);
+});
+test('the black-out spot is the hospital; the ΚΕΠ no longer heals; the engine heals and sends the player there', () => {
+  same(R.HOSPITAL_SPOT, HOSPITAL_SPOT);
+  same(R.DEFAULT_HEAL_SPOT, HOSPITAL_SPOT);
+  assert.ok(!R.tileDef(R.MAPS.hospital, HOSPITAL_SPOT.x, HOSPITAL_SPOT.y).solid, 'the spot is a floor tile');
+  const start = R.START_MAP;
+  assert.ok(R.reachableTiles(start.map, start.x, start.y, {}).has('hospital:' + HOSPITAL_SPOT.x + ':' + HOSPITAL_SPOT.y), 'the spot can be reached on foot');
+  assert.ok(R.MAPS.town.warps.some((warp) => warp.to === 'hospital'), 'the town has the hospital door');
+  assert.notEqual(R.MAPS.kep.npcs.find((npc) => npc.id === 'kepclerk').kind, 'heal', 'the ΚΕΠ clerk does not heal');
+  assert.ok(R.MAPS.hospital.npcs.some((npc) => npc.kind === 'heal'), 'the hospital receptionist heals');
+  const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
+  const blackout = part('OverworldLayer.prototype.blackout', 'OverworldLayer.prototype.bossVictory');
+  assert.ok(blackout.includes('hospitalHeal(') && blackout.includes('teleport(G.lastHeal)') && blackout.includes("'blackout.hospital'"), 'black-out: heal, go to the saved spot, hospital line');
+  const heal = part('OverworldLayer.prototype.healAtHospital', 'OverworldLayer.prototype.useArchive');
+  assert.ok(heal.includes('hospitalHeal(') && heal.includes('G.lastHeal = Object.assign({}, HOSPITAL_SPOT)'), 'a visit heals and keeps the hospital as the return point');
+  const kep = part('OverworldLayer.prototype.talkKep', 'OverworldLayer.prototype.healAtHospital');
+  assert.ok(!kep.includes('healMon') && !kep.includes('hospitalHeal') && kep.includes("'kep.comeBack'"), 'the ΚΕΠ only jokes');
+  assert.ok(html.includes('lastHeal: Object.assign({}, DEFAULT_HEAL_SPOT)'), 'a new game starts with the hospital as the return point');
+  for (const [key, greek, english] of [['blackout.hospital', 'Νοσοκομείο', 'Hospital']]) {
+    assert.ok(R.STRINGS[key][0].includes(greek) && R.STRINGS[key][1].includes(english), key);
+  }
+  assert.ok(!/ΚΕΠ/.test(R.STRINGS['blackout.hospital'][0] + R.STRINGS['blackout.text'][0]), 'no black-out text names the ΚΕΠ any more');
+  assert.equal(R.STRINGS['blackout.kep'], undefined, 'the old ΚΕΠ black-out line is gone');
+});
+test('hospital map: counter reach, terminal, furniture, four waiting people, the town stays connected', () => {
+  const start = R.START_MAP;
+  const all = R.reachableTiles(start.map, start.x, start.y, { credits: true });
+  const hospital = R.MAPS.hospital;
+  assert.equal(R.MAPS.hospital.name, 'map.hospital');
+  const receptionist = hospital.npcs.find((npc) => npc.kind === 'heal');
+  assert.ok(R.tileDef(hospital, receptionist.x, receptionist.y + 1).counter, 'the receptionist sits behind a counter');
+  assert.ok(R.npcTalkable('hospital', receptionist, all), 'the receptionist can be talked to across the counter');
+  for (const [key, action] of Object.entries(hospital.actions)) {
+    const [x, y] = key.split(',').map(Number);
+    assert.equal(action, 'archive');
+    assert.equal(R.tileAt(hospital, x, y), 'A', 'the archive terminal tile');
+    assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => all.has('hospital:' + (x + dx) + ':' + (y + dy))), 'the terminal can be used');
+  }
+  assert.equal(Object.keys(hospital.actions).length, 1);
+  assert.ok(R.tileAt(hospital, 1, 3) === 'V' && R.tileAt(hospital, 5, 3) === 'Y', 'vending machine and TV');
+  assert.ok(Object.values(hospital.signs).includes('sign.hosp.vending') && Object.values(hospital.signs).includes('sign.hosp.tv'));
+  assert.ok(hospital.rows.join('').split('B').length - 1 >= 4, 'at least four corridor cots (ράντζα)');
+  const waiting = hospital.npcs.filter((npc) => npc.kind === 'talk' && npc.id.startsWith('hospwait'));
+  assert.equal(waiting.length, 4);
+  assert.equal(new Set(waiting.map((npc) => npc.text)).size, 4, 'four different lines');
+  assert.ok(/Φακελάκι/.test(R.STRINGS['npc.hosp.doctor'][0]), 'the doctor hints at an envelope');
+  hospital.rows.forEach((row, y) => [...row].forEach((char, x) => {
+    if (y >= 3 && (char === 'L' || char === 'm') && !hospital.npcs.some((npc) => npc.x === x && npc.y === y)) assert.ok(all.has('hospital:' + x + ':' + y), 'floor ' + x + ',' + y + ' reachable');
+  }));
+  const town = R.MAPS.town;
+  town.rows.forEach((row, y) => [...row].forEach((char, x) => {
+    const blocked = R.tileDef(town, x, y).solid || town.npcs.some((npc) => npc.x === x && npc.y === y);
+    if (!blocked) assert.ok(all.has('town:' + x + ':' + y), 'town tile ' + x + ',' + y + ' (' + char + ') reachable');
+  }));
+  const door = town.warps.find((warp) => warp.to === 'hospital');
+  assert.ok(R.tileAt(town, door.x, door.y) === 'E' && hospital.warps.every((warp) => warp.to === 'town' && warp.tx === door.x && warp.ty === door.y + 1));
+});
+test('hospital strings: every new key has both languages, the code finds them, gender wording is used, and nothing copies another game', () => {
+  const S = R.STRINGS;
+  const hospitalKeys = Object.keys(S).filter((key) => /^(hosp|arch|sign\.hosp|npc\.hosp)\./.test(key) || ['b.rec.archived', 'blackout.hospital', 'kep.comeBack', 'map.hospital', 'sign.hospital'].includes(key));
+  assert.ok(hospitalKeys.length >= 30, hospitalKeys.length + ' keys');
+  for (const key of ['arch.pickDeposit', 'arch.pickWithdraw', 'arch.listTitle', 'arch.count', 'hosp.monitor', 'hosp.monitorNote', 'hosp.vipAsk', 'hosp.vipTaken', 'hosp.atOnce', 'hosp.done', 'hosp.doneVip']) assert.ok(S[key], key);
+  for (const key of hospitalKeys) assert.ok(S[key][0].length > 3 && S[key][1].length > 3 && S[key][0] !== S[key][1], key + ' has two different languages');
+  assert.equal(R.formatText(S['hosp.free'][0], {}, 'f').includes('υπομονετική'), true);
+  assert.equal(R.formatText(S['hosp.free'][0], {}, 'm').includes('υπομονετικός'), true);
+  const copiedEnglish = /nurse|joy\b|pok[eé]|red cross|we hope to see you again|restored to full|welcome to our|we heal your/i;
+  const copiedGreek = /νοσοκόμα|τζόι|κόκκινος σταυρός|ελπίζουμε να σε ξαναδούμε|θα σε ξαναδούμε|καλώς ήρθες στο κέντρο|θεραπεύουμε/i;
+  for (const key of hospitalKeys) {
+    assert.ok(!copiedEnglish.test(S[key][1]), key + ' (English) copies a known line: ' + S[key][1]);
+    assert.ok(!copiedGreek.test(S[key][0]), key + ' (Greek) copies a known line: ' + S[key][0]);
+  }
+  assert.ok(/3 έως 5/.test(S['hosp.hello'][0]) && /3 to 5/.test(S['hosp.hello'][1]), 'the "3 to 5 years" joke');
+  assert.ok(/Φακελάκι/.test(S['hosp.vipAsk'][0]), 'the VIP offer names the item');
+  assert.ok(!/(^|\s)(ασθενής|ασθενείς|αρρώστ|πάσχ|καρκίν|θάνατ)/i.test(hospitalKeys.map((key) => S[key][0]).join(' ')), 'the jokes are about the system, never about patients or illness');
+});
+test('hospital look: green cross and blue Η, teal roof and mint walls, no red cross, no red roof with white walls, no nurse', () => {
+  const builder = html.slice(html.indexOf('const HOSPITAL_GREEN'), html.indexOf('function buildTileSprites'));
+  assert.ok(builder.includes("make('P'") && builder.includes('HOSPITAL_GREEN'), 'the cross is green');
+  assert.ok(builder.includes("make('H'") && builder.includes("'#2a5fc4'"), 'the Η plate is blue');
+  assert.ok(builder.includes("make('6', function (p) { drawRoofTile(p, HOSPITAL_TEAL)"), 'a teal roof');
+  assert.ok(builder.includes("'#d9efe6'"), 'mint, not white, walls');
+  const outside = builder.slice(builder.indexOf("make('6'"), builder.indexOf("make('i'"));
+  const colors = [...outside.matchAll(/'#([0-9a-f]{6})'/gi)].map((m) => [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)));
+  assert.ok(colors.length >= 15);
+  assert.ok(colors.every(([r, g, b]) => !(r > 140 && g < 110 && b < 110)), 'no red anywhere on the outside of the hospital');
+  assert.ok(!html.includes('nurse:') && !/look: 'nurse'/.test(html), 'no nurse look');
+  assert.ok(html.includes("hospital: [[1000, 0.05, 'sine'"), 'its own blip sequence');
+  const monitor = html.slice(html.indexOf('function MonitorLayer'), html.indexOf('function BadgeLayer'));
+  assert.ok(monitor.includes('OPT.reduceMotion') && monitor.includes("Sound.sfx('hospital')"), 'the monitor respects Reduced motion and plays the blips');
 });
 
 test('options are normalised', () => {
