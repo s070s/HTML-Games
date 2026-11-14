@@ -1129,6 +1129,24 @@ test('save v3: a version-2 save gets its visited places from its flags and its p
   const noPart = JSON.parse(JSON.stringify(migrated));
   delete noPart.world;
   same(idsOf(R.migrateSave(noPart).world.visited), ['newPeiraias']);
+  // inherited names are not places; a damaged world part never writes "undefined"
+  const inherited = JSON.parse(JSON.stringify(migrated));
+  inherited.world = { badges: { constructor: 1, toString: 1, peiraias: 1 }, visited: { constructor: 1, hasOwnProperty: 1 }, seen: { valueOf: 1 }, routes: { constructor: 1 }, stops: { toString: 1 } };
+  const inheritedWorld = R.migrateSave(inherited).world;
+  same(idsOf(inheritedWorld.badges), ['peiraias']);
+  same(idsOf(inheritedWorld.visited), ['newPeiraias']);
+  same(idsOf(inheritedWorld.routes), []);
+  same(idsOf(inheritedWorld.stops), []);
+  same(idsOf(inheritedWorld.seen), [], 'no undefined or inherited name, and no place told about without a walked route');
+  // a version-3 save whose world part is missing or damaged still gets the walked routes its flags tell
+  const walkedV3 = Object.assign(JSON.parse(JSON.stringify(migrated)), { flags: { gotStarter: true, rival1: true, t_phoebe: true, badge: true } });
+  for (const damagedPart of [undefined, null, 'x', { routes: 5 }]) {
+    walkedV3.world = damagedPart;
+    const rebuilt = R.migrateSave(walkedV3).world;
+    same(idsOf(rebuilt.routes), ['route1'], String(damagedPart));
+    same(idsOf(rebuilt.visited), ['harbourOffice', 'newPeiraias'], String(damagedPart));
+    same(idsOf(rebuilt.badges), ['peiraias'], String(damagedPart));
+  }
   assert.equal(R.migrateSave({ version: 4, party: [R.serializeMon(R.makeMon('komma', 5))] }), null, 'a newer save is still refused');
   // the engine writes, reads and starts the world part
   const state = html.slice(html.indexOf('function newGameState'), html.indexOf('// ---- Canvas and scaling'));

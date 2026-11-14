@@ -1477,7 +1477,7 @@ function normalizeWorld(raw) {
   const known = { visited: WORLD.nodes, routes: WORLD.routes, stops: WORLD.nodes, badges: WORLD.districts, seen: WORLD.nodes };
   for (const part of Object.keys(known)) {
     const ids = source[part] && typeof source[part] === 'object' ? Object.keys(source[part]) : [];
-    for (const id of ids) if (known[part][id] && source[part][id]) clean[part][id] = 1;
+    for (const id of ids) if (Object.prototype.hasOwnProperty.call(known[part], id) && source[part][id]) clean[part][id] = 1; // own names only: not "constructor" or "toString"
   }
   for (const id of Object.keys(clean.routes)) { clean.seen[WORLD.routes[id].a] = 1; clean.seen[WORLD.routes[id].b] = 1; } // a walked route tells about both its ends
   return clean;
@@ -1607,7 +1607,10 @@ function migrateSave(raw) {
   const heal = save.lastHeal && MAPS[save.lastHeal.map] && !oldKepSpot ? save.lastHeal : DEFAULT_HEAL_SPOT;
   const flags = (save.flags && typeof save.flags === 'object') ? Object.assign({}, save.flags) : {};
   const finalMap = useStart ? START_MAP.map : player.map;
-  const world = version >= 3 ? normalizeWorld(save.world) : worldFromOldSave(finalMap, flags);
+  // what the flags and the position tell is always added, so a damaged or missing world part does not lose walked routes
+  const world = version >= 3 ? normalizeWorld(save.world) : newWorldState();
+  const fromFlags = worldFromOldSave(finalMap, flags);
+  for (const part of Object.keys(fromFlags)) Object.assign(world[part], fromFlags[part]);
   worldVisit(world, finalMap, flags);
   return {
     version: SAVE_VERSION,
@@ -3983,8 +3986,7 @@ function drawMapPlaces(g, world) {
       continue;
     }
     g.fillStyle = COLOR.ink; g.fillRect(cx - 3, cy - 3, 7, 7);
-    g.fillStyle = '#ffffff'; g.fillRect(cx - 2, cy - 2, 5, 5);
-    if (state === 'seen') { g.fillStyle = COLOR.ink; g.fillRect(cx - 1, cy - 1, 3, 3); } // a hollow square: told about, not visited
+    g.fillStyle = state === 'seen' ? WORLD.districts[node.district].color : '#ffffff'; g.fillRect(cx - 2, cy - 2, 5, 5); // a seen place is a hollow square in its district colour; a visited one is white
     if (node.boss) drawShapeOn(g, MAP_DIAMOND, cx + 2, cy - 6, world.badges[node.district] ? COLOR.gray : COLOR.gold, COLOR.ink);
     if (world.stops[node.id]) { g.fillStyle = MAP_COLOR.bus; g.fillRect(cx - 6, cy + 2, 4, 3); } // a bus pip: a ΚΤΕΛ stop is open here
   }
@@ -4063,7 +4065,18 @@ function MapLayer() {
   this.base = buildMapBase(this.world);
   this.marker = worldMarker(G.player.map, G.player.x, G.player.y);
   this.cursor = this.startCursor();
+  // Everything draw() shows is built here or when the cursor or the sheet changes, never per frame (reference section 11).
+  this.won = worldBadgeCount(this.world);
+  this.titleLayout = mapTitleLayout(this.won);
+  this.markerPixel = this.marker ? mapCellCentre(this.marker.cell) : null;
+  this.refreshInfo();
 }
+// The cursor's pixel position and its info lines; called when the cursor or the sheet changes.
+MapLayer.prototype.refreshInfo = function () {
+  this.cursorPixel = this.cursor ? mapCellCentre(WORLD.nodes[this.cursor].cell) : null;
+  this.lines = this.cursor ? mapInfoLines(this.world, this.cursor, this.sheet) : null;
+  this.districtWon = this.cursor ? !!this.world.badges[WORLD.nodes[this.cursor].district] : false;
+};
 // The cursor starts on the player's place; on a route, on the nearer end that is on the map.
 MapLayer.prototype.startCursor = function () {
   const candidates = worldCandidates(this.world);
@@ -4092,21 +4105,21 @@ MapLayer.prototype.moveCursor = function (direction) {
     const score = along + 2 * across;
     if (score < bestScore) { best = id; bestScore = score; }
   }
-  if (best) { this.cursor = best; Sound.sfx('move'); }
+  if (best) { this.cursor = best; this.refreshInfo(); Sound.sfx('move'); }
 };
 MapLayer.prototype.update = function () {
   this.frame++;
-  if (Input.pressed.b && this.sheet) { this.sheet = false; Sound.sfx('back'); return; }
+  if (Input.pressed.b && this.sheet) { this.sheet = false; this.refreshInfo(); Sound.sfx('back'); return; }
   // back, the open key and the menu input all close the map; the layer below (pause menu or overworld) gets control back
   if (Input.pressed.b || Input.pressed.map || Input.pressed.menu) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; Sound.sfx('confirm'); return; }
+  if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; this.refreshInfo(); Sound.sfx('confirm'); return; }
   if (this.sheet) return;
   for (const name of ['up', 'down', 'left', 'right']) if (Input.pressed[name]) this.moveCursor(name);
 };
 MapLayer.prototype.draw = function () {
   ctx.font = FONT;
-  const won = worldBadgeCount(this.world);
-  const layout = mapTitleLayout(won);
+  const won = this.won;
+  const layout = this.titleLayout;
   ctx.fillStyle = COLOR.ink; ctx.fillRect(0, 0, SCREEN_W, MAP_TOP);
   drawText(layout.title, 4, 2, COLOR.paper);
   for (let i = 0; i < WORLD_BADGE_COUNT; i++) {
@@ -4117,12 +4130,12 @@ MapLayer.prototype.draw = function () {
   ctx.drawImage(this.base, 0, MAP_TOP);
   const still = OPT.reduceMotion; // Reduced motion: no bobbing and no blinking
   if (this.marker) {
-    const centre = mapCellCentre(this.marker.cell);
+    const centre = this.markerPixel;
     const bob = still ? 0 : Math.floor(this.frame / 30) % 2; // 1 px every 500 ms
     drawShapeOn(ctx, MAP_PIN, centre[0] - 2, centre[1] + MAP_TOP - 10 - bob, COLOR.red, COLOR.ink);
   }
   if (this.cursor && (still || Math.floor(this.frame / 16) % 2 === 0)) {
-    const centre = mapCellCentre(WORLD.nodes[this.cursor].cell);
+    const centre = this.cursorPixel;
     const left = centre[0] - 5;
     const top = centre[1] + MAP_TOP - 5;
     ctx.fillStyle = COLOR.gold;
@@ -4131,10 +4144,10 @@ MapLayer.prototype.draw = function () {
   ctx.fillStyle = COLOR.paper; ctx.fillRect(0, MAP_PANEL_TOP, SCREEN_W, SCREEN_H - MAP_PANEL_TOP);
   ctx.fillStyle = COLOR.ink; ctx.fillRect(0, MAP_PANEL_TOP, SCREEN_W, 1);
   if (!this.cursor) return;
-  const lines = mapInfoLines(this.world, this.cursor, this.sheet);
+  const lines = this.lines;
   for (let i = 0; i < lines.length; i++) drawText(lines[i], 4, MAP_PANEL_TOP + 2 + i * 9, i === 2 && !this.sheet ? COLOR.gray : COLOR.ink);
   if (this.sheet) { // the badge pip of the district at the right end of the first line
-    const won = !!this.world.badges[WORLD.nodes[this.cursor].district];
+    const won = this.districtWon;
     ctx.fillStyle = won ? COLOR.gold : MAP_COLOR.pipEdge; ctx.fillRect(SCREEN_W - 4 - MAP_PIP, MAP_PANEL_TOP + 3, MAP_PIP, MAP_PIP);
     ctx.fillStyle = won ? '#c88a1c' : MAP_COLOR.pipOff; ctx.fillRect(SCREEN_W - 3 - MAP_PIP, MAP_PANEL_TOP + 4, MAP_PIP - 2, MAP_PIP - 2);
   }
@@ -5395,7 +5408,30 @@ async function selfTest() {
       await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
       const onRoute = topLayer().marker;
       check('on route 1 the marker is on the route line at the tile fraction', !!onRoute && onRoute.onRoute && onRoute.id === 'route1' && Math.abs(onRoute.fraction - 16.5 / 32) < 1e-9, JSON.stringify(onRoute));
-      await pumpFrames(3); Input.inject('b', 2); await settle();
+      // The cursor starts on the harbour office (the nearer end), moves to New Piraeus and back, and a direction with no place leaves it.
+      const mapScreen = topLayer();
+      const cursorAfter = async function (name) { Input.inject(name, 2); await pumpFrames(3); return mapScreen.cursor; };
+      const startCursor = mapScreen.cursor;
+      const movedLeft = await cursorAfter('left');
+      const movedBack = await cursorAfter('right');
+      const stayed = await cursorAfter('right');
+      check('the cursor moves between New Piraeus and the harbour office with the d-pad and stays where no place lies', startCursor === 'harbourOffice' && movedLeft === 'newPeiraias' && movedBack === 'harbourOffice' && stayed === 'harbourOffice', [startCursor, movedLeft, movedBack, stayed].join(','));
+      // draw() reads cached values: with no input, pumped frames and renders build nothing new.
+      const realLayout = mapTitleLayout; const realLines = mapInfoLines; const realCentre = mapCellCentre; const realSpecies = districtSpecies;
+      let builds = 0;
+      mapTitleLayout = function () { builds++; return realLayout.apply(this, arguments); };
+      mapInfoLines = function () { builds++; return realLines.apply(this, arguments); };
+      mapCellCentre = function () { builds++; return realCentre.apply(this, arguments); };
+      districtSpecies = function () { builds++; return realSpecies.apply(this, arguments); };
+      try {
+        Input.inject('a', 2); await pumpFrames(3); // the sheet opens: one rebuild of the lines
+        const afterSheet = builds;
+        await pumpFrames(10); renderFrame(); renderFrame();
+        check('the map draw builds no layout, lines, positions or species lists per frame', mapScreen.sheet && afterSheet >= 1 && builds === afterSheet, afterSheet + ' then ' + builds);
+      } finally { mapTitleLayout = realLayout; mapInfoLines = realLines; mapCellCentre = realCentre; districtSpecies = realSpecies; }
+      Input.inject('b', 2); await pumpFrames(3);
+      Input.inject('b', 2); await settle();
+      check('closing the map returns to the overworld on the same tile', world.px === 16 && world.py === 9);
       world.loadMap('town', 15, 14, 'up');
       await settle();
       // The map is drawn without error and its pixels differ from an empty screen.
@@ -5414,7 +5450,8 @@ async function selfTest() {
         OPT.lang = lang; resetTextCache();
         for (let won = 0; won <= WORLD_BADGE_COUNT; won++) {
           const layout = mapTitleLayout(won);
-          if (layout.pipsX - layout.leftEnd < 4) wide.push(lang + ' title ' + won + ': ends at ' + layout.leftEnd + ', pips start at ' + layout.pipsX);        }
+          if (layout.pipsX - layout.leftEnd < 4) wide.push(lang + ' title ' + won + ': ends at ' + layout.leftEnd + ', pips start at ' + layout.pipsX);
+        }
         const probe = newWorldState();
         for (const id of Object.keys(WORLD.nodes)) { probe.visited[id] = 1; probe.badges[WORLD.nodes[id].district] = 1; }
         ctx.font = FONT;
