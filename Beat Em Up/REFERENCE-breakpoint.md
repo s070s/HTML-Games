@@ -7734,6 +7734,102 @@ N = 20 games a pair, seeds 5001 to 5020, band 35 to 65 (re-run in the review rou
 - **Size (`breakpoint.html`, LF line endings and the BOM):** 1,810,497 bytes after this fix round (+303 over the build's 1,810,194; +17,167 over 958c4db, of the 4,000,000 budget). The `breakpoint-tests.js` size is not budgeted.
 - Not run: the Chrome self-test, the P0-04 benchmark, any browser (the lead's); no fingerprint moved, so none was re-recorded.
 
+### P19-03 hit-reaction pack, decided (2026-11-14)
+
+- Task: BP-P19-03 (animation, visual only), from the RE study of 2026-11-13 (`Breakpoint/docs/RE-STUDY-urban-reign-tekken5.md` section 7.1). The Owner asked for similar animation without any asset of the reference games: more than one look for a blow that lands. Rule: keep things balanced. Decided and built by the coordinator's delegate under the Owner's standing go; the Owner can change any number (the free choices are at the end). Nothing the simulation reads changes: every recorded fingerprint stays, `matchChecksum` holds no new field.
+
+#### 1. What is read from a blow (all of it already known when the blow lands)
+
+- **Zone** (0 head, 1 body, 2 legs): the zone the body strain of P19-02 adds to, taken from the same variable in `Combat.landHit` and `Combat.itemHit` (the height of the move; for a thrown item the head at head height or a crate, the legs for the trip item, the body for the rest) and 1 for a thrown body that lands on a standing fighter. So the zone that wears out also picks the pose (AC-010). A clinch strike and a throw keep the clinch and throw poses.
+- **Tier** 1 to 3: `mv.tier`.
+- **Side**: the dot of the blow's travel with the way the foe faces: below -0.5 front, above 0.5 back, otherwise side (`LOOK_FRONT_DOT`); the sign of the cross product says which way a side blow pushes the sideways joints (`lookSign`).
+- **Air**: the foe was off the ground (`airborne`) or in a flight (a juggle) before the blow.
+- **Kind** (`mv.kind`): a `stagger` stumbles out; a hit tier 2 or more on a foe with his back to a wall (`def.wallHit`, the flag the push-back already reads) shows the wall.
+
+#### 2. The table (`HIT_LOOK_TABLE`, 54 cells)
+
+The task wrote 36 cells; the four dimensions it names (3 heights x 3 tiers x front/back/side x ground/air) are 54, so the table has 54 and the test walks 54 (a deviation, recorded in "P19-03 built"). One digit a cell, in the order zone, tier, front / back / side, ground then air. Ids: 0 head snap, 1 gut fold, 2 leg buckle, 3 back arch, 4 stumble out, 5 wall hit, 6 delayed-launch hold, 7 face-down fall, 8 face-up fall, 9 crumple look.
+
+| Zone, tier | Front ground | Front air | Back ground | Back air | Side ground | Side air |
+|---|---|---|---|---|---|---|
+| Head 1 | snap | snap | arch | arch | snap | snap |
+| Head 2 | snap | face up | arch | face down | snap | face up |
+| Head 3 | hold | face up | face down | face down | hold | face up |
+| Body 1 | fold | fold | arch | arch | fold | fold |
+| Body 2 | fold | face up | arch | face down | stumble | face up |
+| Body 3 | hold | face up | face down | face down | hold | face up |
+| Legs 1 | buckle | buckle | buckle | buckle | buckle | buckle |
+| Legs 2 | buckle | crumple | crumple | crumple | buckle | crumple |
+| Legs 3 | crumple | face up | crumple | face down | crumple | face up |
+
+The wall (5) is not in a cell: it comes from the blow (above) or from a wall slam. What a fighter shows for an id that needs a flight while he stays on his feet (a tier 3 blow that does not launch): the hold shows the zone's own pose (snap, fold or buckle), a face-up fall the same, a face-down fall the arch (`HIT_LOOK_GROUND`). What a flight shows for an id that is not a fall: face down when the blow came from behind, face up otherwise.
+
+#### 3. The ten poses (`HIT_LOOK_ROWS`): joint offsets at tier 2 (amplitude 1), in rad (the root in m), added to the reaction pose; "side" joints are multiplied by `lookSign`
+
+| Pose | Joint offsets |
+|---|---|
+| 0 head snap | headX -0.5, torsoLean -0.1, shLx +0.12, shRx +0.12; side: headY 0.45, torsoRoll 0.08 |
+| 1 gut fold | torsoLean 0.5, headX 0.2, shLx 0.3, shRx 0.3, shLy -0.4, shRy -0.4, elL 0.9, elR 0.9, hipLx 0.2, hipRx 0.2, knL 0.4, knR 0.4, rootFwd -0.04 |
+| 2 leg buckle | hipLx 0.22, hipRx 0.22, knL 0.45, knR 0.45, torsoLean 0.15, shLz 0.2, shRz 0.2; side: torsoRoll 0.12 |
+| 3 back arch | torsoLean -0.45, headX -0.3, shLx 0.2, shRx 0.2, shLz 0.4, shRz 0.4, elL 0.2, elR 0.2, hipLx -0.15, hipRx -0.1 |
+| 4 stumble out | hipLx 0.4, hipRx -0.4, knL 0.3, knR 0.15, torsoLean 0.2, shLz 0.4, shRz 0.3; side: torsoRoll 0.3, rootSide 0.05 |
+| 5 wall hit | torsoLean -0.3, headX -0.35, shLz 0.9, shRz 0.9, shLx -0.3, shRx -0.3, elL 0.3, elR 0.3, hipLx -0.1, hipRx -0.1 |
+| 6 delayed-launch hold | torsoLean 0.1, headX -0.2, shLx 0.2, shRx 0.2, elL 0.25, elR 0.25, knL 0.2, knR 0.2 |
+| 7 face-down fall | shLx 0.9, shRx 0.9, elL 0.3, elR 0.3, headX -0.5, torsoLean -0.1 |
+| 8 face-up fall | shLz 0.5, shRz 0.5, shLx -0.4, shRx -0.4, headX 0.5, hipLx 0.3, hipRx 0.2, knL 0.3, knR 0.2 |
+| 9 crumple look | hipLx 0.32, hipRx 0.32, knL 0.65, knR 0.65, torsoLean 0.5, headX 0.3, shLx 0.1, shRx 0.1, elL 0.9, elR 0.9, shLz 0.2, shRz 0.2 |
+
+The first numbers were written from the plain reaction pose; the build then fitted four of them (the fold's elbows and inward twist, the buckle's and the crumple's knees, the hold's elbows) against the pose test of section 6 (no joint over its limit, no hand inside the body, the floor rule). Facing and sides are described for a fighter who faces +z; the code reads the yaw.
+
+#### 4. Amplitude and timing
+
+- **Tier** scales a pose: `HIT_TIER_AMP` = 0.5, 1, 1.5 (tier 3 is three times tier 1; the study asked for at least two times). **Reduced motion halves** every joint of every pose (a factor 0.5 on the amplitude; the pose is kept, the timing is not changed). Counter-hit and perfect-defence feedback (the stop, the ring, the flash, the sound) is not touched: the look reads nothing of `counter`.
+- **On the feet** (HIT, STAGGER): the pose is added to the plain reaction pose with that reaction's own decay `a = (1 - ticks / reactDur)^1.4 x the fighter's react`, eased in over `LOOK_IN_TICKS` = 2 ticks, so a snap is there on the second tick and has gone when the reaction ends. The existing blend of the pose toward its target (0.7 a frame) is kept.
+- **In the flight** (THROWN): the fall pose (7 or 8, or the crumple) fades in over `LOOK_FLIGHT_IN` = 4 ticks from the launch and stays for the flight. **The hold** (pose 6, only for a cell that says hold, that is tier 3 from the front or the side on the ground): for `HIT_HOLD_TICKS` = 0, 4, 6 ticks (tier 1, 2, 3) the flight's limbs (arms, hips, knees) stay at the guard and the brace is added, both fading out linearly over those ticks; **the launch itself is the simulation's, on its own tick**: the fighter rises and moves as before and only the drawn limbs wait. A hold never lasts more than 6 ticks.
+- **The wall**: a wall slam (`Combat.impactCheck`'s `wallSlam`) sets `wallVis` to 1, which falls to 0 over `LOOK_WALL_TICKS` = 12 frames' worth of ticks and adds the wall pose in any reaction or flight; a cornered blow of tier 2 or more picks the wall pose from the start.
+- **The floor**: a look on the feet is held to the floor rule of a blow (`SINK_MAX`, 0.1 m): `Fighter.animate` lifts the body when the lowest drawn part would sink further, as it does for an attack. The cost is one skeleton walk (`lowestPart`) a drawn frame while a reaction with a look runs.
+
+#### 5. State and where it lives
+
+- **Draw-only fields** (not in `matchChecksum`, not read by the simulation): `lookId` (-1 = none), `lookZone`, `lookTier`, `lookDir`, `lookSign`, `wallVis`. `Combat.look(def, zone, tier, dirx, dirz, kind, air)` writes them after the reaction state is set (called from `landHit`, `itemHit` and `bodyHit`); `setState` clears `lookId` when a fighter enters HIT, STAGGER, STUN or THROWN (a reaction no blow caused has no look); `Fighter.addLook`, `standLook` and `flightLook` read them while the pose is made (no allocation, no sine call, so no entry in the determinism test's VISUAL list was needed).
+- **Face down:** a body struck from behind that is launched, knocked down or knocked out goes down on its face: `Combat.look` sets the existing visual-only `lieSign` to -1 (it is read by the flight pose and the lying pose only and is not in `matchChecksum`); every strike so far fell face up. A later blow of a juggle does not change it.
+- **Event:** the `hit` event carries `zone` (strike and thrown item) and `wall` (strike), read by the sound only.
+
+#### 6. Sound (AC-009)
+
+P18-29 baked impacts by tier (3), weight band (3) and variant (3) = 27, 9 material buffers and 24 footsteps, and synthesised the wall slam (`wallSlam`: a heavy thump and a noise burst). It baked no head hit and no wall hit of a blow. So both are added, **synthesised** and not baked: baking would add jobs and change the bank counts and the bake time that `Sound bake (P18-29)` and the budget of the idle bake fix. A blow to the head (`zone` 0) adds a short high crack (a high-passed noise, 4.2 kHz to 2.8 kHz, and a triangle tone, 1.5 kHz to 0.9 kHz, gain 0.1); a blow to a foe with his back to the wall (`wall`) adds a low thump (a sine, 95 Hz to 48 Hz) and a scrape (a band-passed noise, gain 0.2 and 0.14). Both are layers through the existing cap (`HIT_LAYER_VOICES`) and a gap per fighter.
+
+#### 7. Tests (names start `Hit looks (P19-03):`)
+
+(1) the table: 54 cells in the decided order, each resolves to a pose, a blow with that data draws a pose of its own, the stagger and the wall rules; (2) the amplitude: tier 3 head snap against tier 1, every joint of all ten poses at tier 3 against tier 1 and halved under Reduced motion, and a real head hit of each tier; (3) the hold: it shows for exactly its ticks (4 at tier 2, 6 at tier 3, never more), and the 20 seeded launches have the flight on the tick of the build before the looks and the same `matchChecksum` on every tick; (4) eight seeded AI duels (every tick drawn) match the build before the looks on every tick, the new functions use no sine-type call, no random draw and no checksum field; (5) the ten poses, tier 1 and 3, both sides, all 32 bodies: every joint inside the Calm limits (the torso lean and head nod widened to 1.2 and 1.3 rad), no hand or elbow within 0.15 m of the spine, the floor rule on the feet, at most 0.07 m lower than the plain pose in a flight; (6) the blow picks the look: the zone of the strain for strikes, thrown items and a thrown body (AC-010), from the front, back and side, in the air, and face down after a blow from behind; (7) the wall and the reset; (8) the sound variants. The digests of (3) and (4) are recorded from the build of e6dcae0.
+
+#### 8. Free choices (the Owner can change them)
+
+The tier scales (0.5, 1, 1.5), the hold ticks (0, 4, 6), the ten poses' numbers, the side threshold (0.5), the wall's 12 ticks and the two sound gains. Open: the look on screen (nothing here was drawn in a browser), and whether the face-down knock-out from behind should have its own sound.
+
+### P19-03 built (2026-11-14): hit-reaction pack
+
+- Task: BP-P19-03 (BUILD of the entry above; animation, visual only). Base e6dcae0, branch `bp-p19-03-hitpack`, code commit 33313ed. Built as decided; every number of the decision is the build's, except the four rows the decision says were fitted (fold, buckle, crumple, hold). No simulation code reads a look field: `Combat.look` and one wall flag are the only writes in simulation code, to draw-only fields and to the visual-only `lieSign`.
+- **What changed** (`breakpoint.html`): the constants and the 54-cell table (`LOOK`, `HIT_LOOK_ROWS`, `HIT_LOOK_TABLE`, `pickLook`, ...), six draw-only `Fighter` fields, `Combat.look` (called from `landHit`, `itemHit`, `bodyHit`; the strain's zone is now one variable used by both), `Fighter.addLook` / `standLook` / `flightLook` in the HIT, STAGGER and THROWN poses, the floor lift of `animate` for a reaction with a look, `wallVis` set on a wall slam and faded in `updateCueBlend`, `Sound.lookCue`, `zone` and `wall` on the `hit` event, `testApi` names. `breakpoint-tests.js`: eight tests `Hit looks (P19-03): (1)` to `(8)` and the new names in the destructuring. No other test was changed.
+- **Where the build differs from the task's wording:** (1) **54 cells, not 36**: 3 heights x 3 tiers x 3 sides x 2 (ground, air) is 54; the test walks all 54. (2) **`lieSign` is written** (a body struck from behind that goes down or out lands face down, the "face-down fall"): it is an existing field that only the flight and lying poses read and `matchChecksum` does not hold, so it is draw-only in effect, but it is not a new field; every fingerprint and the 20 launches prove no tick moved. (3) The two sounds are **synthesised layers, not baked buffers** (see AC-009). (4) A clinch strike and a throw have no look (they keep their own poses).
+- **Fingerprints:** none moved, none re-recorded. The five seeded-fight fingerprint tests, the move-row fingerprint and the determinism tests pass unedited; the new tests compare the `matchChecksum` of every tick of 20 launches and 8 AI duels with digests recorded from e6dcae0.
+
+| AC | Evidence |
+|---|---|
+| AC-001 (tier 3 head snap at least 2x tier 1) | `Hit looks (P19-03): (2)`: `HIT_TIER_AMP` 0.5 / 1 / 1.5, so every joint of all ten poses at tier 3 is exactly 3 times tier 1, and a real tier 1 and tier 3 head hit through `Combat.landHit` move the head by a ratio of at least 2. |
+| AC-002 (every cell resolves to a pose) | `(1)`: all 54 cells, in order, resolve to an id 0 to 9 with a row, and a blow with that data draws a pose that differs from the plain one by more than 0.05 rad; nine poses are in the table, the wall comes from the blow. |
+| AC-003 (hold at most 6 ticks; the launch tick does not move; 20 seeded launches) | `(3)`: the hold shows for exactly 4 ticks at tier 2 and 6 at tier 3 and never after; on 20 seeded launches (four moves, a foe facing, turning its back, sideways) the flight starts on ticks 10, 11, 17, 16 as in e6dcae0, and the digest of the `matchChecksum` of every tick equals e6dcae0's. |
+| AC-004 (every fingerprint unchanged) | `(4)`: 8 seeded AI duels, every tick drawn, equal e6dcae0 on every tick; no sine-type call, no random draw and no checksum field in the new code. The existing fingerprint tests pass unedited in the affected run (below). Chrome: the lead's. |
+| AC-005 (no limb through the body or the floor, 10 poses) | `(5)`: 10 poses x tier 1 and 3 x both sides x 32 bodies: joints inside the Calm limits (torso lean 1.2, head nod 1.3), no hand or elbow within 0.15 m of the spine, no part more than 0.105 m under the floor on the feet (the lift rule), at most 0.07 m lower than the plain pose in a flight. |
+| AC-006 (Reduced motion halves the amplitudes) | `(2)`: every joint of every pose is exactly half. |
+| AC-007 (low-spec performance not worse than P0-04) | Not measured in Chrome (the lead's). Headless, stub GL, per `animate` call: 8.1 us plain reaction, 22 us with a look (the extra skeleton walk of the floor lift, only while a reaction with a look runs); no allocation; a flight 8.4 us, 8.5 us with a look; idle 9.5 us. |
+| AC-008 (size recorded) | `breakpoint.html`, LF and BOM: 1,811,219 bytes at e6dcae0, 1,821,935 after (+10,716 of the 4,000,000 budget). |
+| AC-009 (head and wall sounds only if P18-29 has not baked them) | Checked: P18-29 baked 27 impacts (tier x weight band x variant), 9 material buffers and 24 footsteps, no head hit and no wall hit of a blow (only a synthesised wall slam). Both are added as synthesised layers (`Sound.lookCue`), not baked, so the bank counts of `Sound bake (P18-29)` and the bake time stay. `(8)`: head = one noise and one tone, wall = a tone and a noise, nothing for other hits, the limiter and layer cap respected, and a real hit carries `zone` 0, 1 or 2. |
+| AC-010 (the zone picks the pose) | `(6)`: for the three heights of a strike, a brick at head height and below it, a crate, the trip item and a thrown body, `lookZone` equals the strain's `zoneLastZone` and the look is the table's cell for that zone. |
+
+- **Checked** (2026-11-14, headless, from `Beat Em Up/` through `heavy.mjs`): the 8 new tests alone 8 / 8 in 11 s; `node tools/run-tests.js --affected` (959 tests): PASS 941 / 959 in 1,652 s, the 18 known headless limits ("needs the main menu", "blank faces") and no other failure. Each new test was run against deliberately broken copies (hold of 7 ticks, tiers not scaled, Reduced motion ignored, the floor lift removed, a simulation field changed by a look, a hole in the table, the launch moved): each copy fails the matching test.
+- **Not verified:** the look on a screen (every pose number is fitted by tests, none was drawn in a browser; the fold's hands, the face-down fall and the knock-out from behind are the ones to look at); the Chrome self-test and the Chrome-only layout tests (none of the new tests is Chrome-only); the recorded digests of tests (3) and (4) were taken headless and are not yet seen in Chrome; the P0-04 benchmark; touch, gamepad and keyboard by a person (nothing new to press). For BP-P16-03: land a heavy uppercut from behind on a CPU and see it go down on its face, then a head hit, a gut hit and a low kick, and a hit with the CPU's back to a wall, on a phone; check that the hold (up to 0.1 s) reads as weight and not as lag.
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
