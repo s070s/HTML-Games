@@ -56,10 +56,10 @@ const {
   HIT_LAYER_VOICES, HEART_BPM, HEART_MUFFLE_HZ, HEART_HP,
   STEP_SURFACES, FLOOR_SURFACE, PRIORITY_CAP, BAKE_RATE, BAKE_VARIANTS, Music, MESH,
   Song, SONG_DATA, SONG_SECS, SONG_STEP_SECS, SONG_AHEAD_SECS, SONG_LEAD_SECS, SONG_TAIL_SECS, songEvents, Intro, INTRO_SECS, INTRO_ARM_MS, INTRO_SKIP_GUARD_MS, INTRO_WATCHDOG_SECS, INTRO_IMPACTS, INTRO_WORDS, INTRO_CRACKS, INTRO_FLAG, introFrame, introPulse,
-  TIRED_POSE_STATES, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
+  TIRED_POSE_STATES, SLUMP_POSE_STATES, SLUMP_HANDS, SLUMP_LEAN, SLUMP_CHIN, SLUMP_SINK, SLUMP_BY_BAND, PANT_RATE_BY_BAND, BREATH_GAIN_BY_BAND, STUMBLE_LEAN, STUMBLE_KNEES, STUMBLE_BLEND, EXHALE_GAIN, TIRED_STAMINA, PANT_HZ, PANT_LEAN, PANT_SHOULDER, HURT_HP, HURT_LEAN, HURT_STOOP, HURT_HAND,
   Feel, DEFAULT_ENV, BRUISE_RGB, BRUISE_MAX, BRUISE_FULL, DUST_STEP, DUST_MAX, SWEAT_SECONDS, SKIN_ROUGH, SKIN_SHINE, WEAR_DARK, WEAPON_BEND, WEAPON_CRACKS,
   PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
-  ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
+  ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY, STUMBLE_CUE_GAP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
   ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
   encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
 } = api;
@@ -6067,11 +6067,11 @@ const SelfTest = {
        mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
     /* Re-recorded 2026-10-29 for the P8-02 arenas; the pre-P8 layout values live in "Levels: the engine of P8 changes no 1v1 result" (since P18-01 recorded from this engine). */
     const ONE_V_ONE_FINGERPRINTS = [
-      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '73:1sl77bi' },   // re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 81:o4n03l); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 41:6p3ehj); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 47:14ynhdv); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:1o1588u), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: MARA is a Sway fighter; was 101:e6hj22) and 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '76:yz6vvb' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 73:1sl77bi; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 81:o4n03l); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 41:6p3ehj); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 47:14ynhdv); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:1o1588u), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02: MARA is a Sway fighter; was 101:e6hj22) and 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
       { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '89:1w9cmgc' },   // re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 61:j0cflz); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 103:mtun1h)
-      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '89:l9wfji' },   // re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 106:1trybt0); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 74:19gw87j); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 80:1dpzzwv)
+      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '92:z089gb' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 89:l9wfji; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 106:1trybt0); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 74:19gw87j); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 80:1dpzzwv)
     ];
-    const ONE_V_ONE_OLD_HASHES = ['73:1sl77bi', '88:hld9e9', '129:lhs59t'];   // re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 81:o4n03l); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (were 41:6p3ehj, 88:hld9e9, 106:1trybt0); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (were 47:14ynhdv, 61:j0cflz, 92:1tn23bf); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:16yzha8, 64:1563zst, 81:g3xni6). The three matches on the pre-P8 layouts. First recorded from the code before P8-02 (commit 05e3c78); since P18-01 all three are this engine's own hashes (the old code walks slower), so the test now guards the old layouts' replay, not the engine's neutrality against the old code
+    const ONE_V_ONE_OLD_HASHES = ['76:yz6vvb', '88:hld9e9', '92:z089gb'];   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 73:1sl77bi and 129:lhs59t; 88:hld9e9 is unchanged: that fight never has a tank under 25 %; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 81:o4n03l); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (were 41:6p3ehj, 88:hld9e9, 106:1trybt0); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (were 47:14ynhdv, 61:j0cflz, 92:1tn23bf); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 102:16yzha8, 64:1563zst, 81:g3xni6). The three matches on the pre-P8 layouts. First recorded from the code before P8-02 (commit 05e3c78); since P18-01 all three are this engine's own hashes (the old code walks slower), so the test now guards the old layouts' replay, not the engine's neutrality against the old code
     const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
     const fingerprint = (opts) => {
       const lines = [];
@@ -10165,9 +10165,9 @@ const SelfTest = {
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '119:wo082g' },   // re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 63:bxtyt5); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 61:12ezzz9); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 50:7zjnq6); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '66:1kn1vec' },   // re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '75:1pifewr' },   // re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '59:1ocm8a7' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 119:wo082g; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 63:bxtyt5); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 61:12ezzz9); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 50:7zjnq6); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '112:x2lynm' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 66:1kn1vec; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '121:591inn' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 75:1pifewr; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
@@ -14683,9 +14683,17 @@ const SelfTest = {
         }
         f.stam = f.maxStam * 0.2;
         const base = (state) => { f.stam = f.maxStam; const q = targetPose(f, state, 0.3); f.stam = f.maxStam * 0.2; return q; };
-        for (const state of [S.CROUCH, S.BLOCK_H, S.SIDESTEP, S.JUMP, S.RUN]) {
+        for (const state of [S.CROUCH, S.SIDESTEP, S.JUMP, S.RUN]) {
           const rested = base(state), tired = targetPose(f, state, 0.3);
           if (rested.some((v, i) => Math.abs(v - tired[i]) > 1e-6)) bad.push(S[state] + ' changed');
+        }
+        {   // P19-16: the guard is the one other state that shows a low tank, by the slump of the Stamina feel tests (the elbows, the lean and the chin; the shoulders stay): unchanged above 25 %, the same joints and nothing else under it (this was 'BLOCK_H unchanged' before P19-16)
+          const rested = base(S.BLOCK_H), tired = targetPose(f, S.BLOCK_H, 0.3);
+          f.stam = f.maxStam * 0.3; const winded = targetPose(f, S.BLOCK_H, 0.3); f.stam = f.maxStam * 0.2;
+          const slumped = [J.elL, J.elR, J.torsoLean, J.headX];
+          if (rested.some((v, i) => Math.abs(v - winded[i]) > 1e-6)) bad.push('BLOCK_H changed at 30 %');
+          if (rested.some((v, i) => !slumped.includes(i) && Math.abs(v - tired[i]) > 1e-6)) bad.push('BLOCK_H changed beyond the slump at 20 %');
+          if (!(tired[J.torsoLean] > rested[J.torsoLean]) || !(tired[J.elL] < rested[J.elL])) bad.push('BLOCK_H does not slump at 20 %');
         }
         const striking = (worn) => {   // the pose of a strike at its contact tick, through computePose like every other state
           const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross;
@@ -16241,7 +16249,7 @@ const SelfTest = {
     /* One fight of section 3 with a script as fighter 0 (KAI, Warehouse, the CPU damage levels on: evenDamage off, as in the game; Items and Hazards off as SimRunner has them): kind 'F1' = the long duel (MARA, Health Double, best of 3, 60 s rounds),
        'F2' = the brawl against 3 CPU enemies (no clock), 'F0' = the short duel (F1 at plain Health). Returns the ticks the script is up with a foe alive (fight), the ticks of them under 25 % of its tank (low) and at 0 (empty), and the damage it dealt. */
     const staminaFight = (script, difficulty, kind, seed) => {
-      const savedHandlers = Events.handlers, out = { fight: 0, low: 0, empty: 0, damage: 0 };
+      const savedHandlers = Events.handlers, out = { fight: 0, low: 0, empty: 0, damage: 0, foeLow: 0, won: false };
       Events.handlers = {};   // only this run's listeners, as SimRunner has it: no sound, effects or HUD
       let m = null;
       try {
@@ -16259,7 +16267,9 @@ const SelfTest = {
           out.fight++;
           if (player.lowStamina) out.low++;
           if (player.stam <= 0) out.empty++;
+          if (m.fighters.some((g) => g.team !== player.team && g.alive && g.lowStamina)) out.foeLow++;   // P19-16: a foe under 25 % (the CPU resting)
         }
+        out.won = m.matchWinner === 0;   // P19-16: the script's fighter won the match
       } finally {
         if (m) m.dispose();
         Events.handlers = savedHandlers;
@@ -16273,15 +16283,16 @@ const SelfTest = {
       return { fight: sum.fight, low: sum.low / Math.max(1, sum.fight), empty: sum.empty / Math.max(1, sum.fight), dps: sum.damage / Math.max(1, sum.fight / 60) };
     };
     test('Stamina (P18-33): the stamina numbers are the decided ones (the edge of the human side by difficulty, the plain regeneration and its delays, the attack tokens, grant gaps and rests of the CPU group)', () => {
-      const got = JSON.stringify([ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, SWAY_COST_BY_TIER, SIDESTEP_COST, JUMP_COST, RUN_DRAIN, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP]);
+      const got = JSON.stringify([ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, LOW_STAMINA, SWAY_COST_BY_TIER, SIDESTEP_COST, JUMP_COST, RUN_DRAIN, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY]);
       const none = { regen: 1, delay: 1, attackShare: 0, perfect: 6 };   // P18-52: the two perfect fields became one, the waits are 24 and 40 (were 36 and 50), the edge of Easy and Normal is lower
       const want = JSON.stringify([24, 40, none, {
         easy: { regen: 1.3, delay: 0.85, attackShare: 0.1, perfect: 8 },
         normal: { regen: 1.15, delay: 0.9, attackShare: 0.1, perfect: 7 }, hard: none, expert: none }, 0.25, [5, 6, 8], 6, 4, 7,
       { easy: 1, normal: 2, hard: 2, expert: 3 }, { easy: 120, normal: 90, hard: 200, expert: 200 }, { easy: 200, normal: 150, hard: 300, expert: 300 },
       1.15, 1.8, 1.3, { idle: 1, walk: 0.6, guard: 0.4, guardStun: 0.1, down: 0.4, getUp: 0.4, air: 0.2, hit: 0.15 },
-      [{ from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1 }, { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1 }, { from: 0.1, name: 'Tired', dmg: 0.6, slow: 1.4, walk: 0.9, regen: 0.85 }, { from: 0, name: 'Spent', dmg: 0.4, slow: 1.6, walk: 0.85, regen: 0.75 }],
-      0.35, 4]);
+      // P19-16 (the bands below Winded, the guard and stun levers and the stumble): Tired x 0.50 damage, x 1.50 slower, walk x 0.88, refill x 0.80, a blocked hit x 1.15, a hit's stun x 1.15; Spent x 0.30, x 1.70, x 0.82, x 0.65, x 1.35, x 1.30; an unpaid move x 0.30 damage, +6 startup, STUMBLE_RECOVERY 8 ticks after its recovery (was Tired 0.6 / 1.4 / 0.9 / 0.85, Spent 0.4 / 1.6 / 0.85 / 0.75, no guard or stun field, 0.35, +4, no stumble)
+      [{ from: 0.5, name: 'Fresh', dmg: 1, slow: 1, walk: 1, regen: 1, guard: 1, stun: 1 }, { from: 0.25, name: 'Winded', dmg: 0.9, slow: 1.08, walk: 0.97, regen: 1, guard: 1, stun: 1 }, { from: 0.1, name: 'Tired', dmg: 0.5, slow: 1.5, walk: 0.88, regen: 0.8, guard: 1.15, stun: 1.15 }, { from: 0, name: 'Spent', dmg: 0.3, slow: 1.7, walk: 0.82, regen: 0.65, guard: 1.35, stun: 1.3 }],
+      0.3, 6, 8]);
       const kai = deriveStats(ROSTER_BY_ID.kai.attrs);
       const plain = kai.regen === 21.5 && kai.edge === STAMINA_EDGE_NONE && deriveStats(Object.assign({}, ROSTER_BY_ID.kai.attrs, { recovery: 1 })).regen === 14 && deriveStats(Object.assign({}, ROSTER_BY_ID.kai.attrs, { recovery: 10 })).regen === 27.5;   // the plain rate is untouched: 14 to 27.5 a second
       return got === want && plain ? true : 'numbers ' + got + ' plain ' + plain;
@@ -16410,7 +16421,7 @@ const SelfTest = {
       const shares = [['idle', S.IDLE, 1], ['crouch', S.CROUCH, 1], ['walk', S.WALK, 0.6], ['guard', S.BLOCK_H, 0.4], ['low guard', S.BLOCK_L, 0.4], ['block stun', S.BLOCK_H, 0.1, () => { f.blockStun = 5; }], ['knocked down', S.DOWN, 0.4], ['pinned', S.DOWN, 0, () => { f.pinnedBy = d; }],
         ['getting up', S.GETUP, 0.4], ['jump', S.JUMP, 0.2], ['sidestep', S.SIDESTEP, 0.2], ['hit', S.HIT, 0.15], ['stagger', S.STAGGER, 0.15], ['stun', S.STUN, 0.15], ['attack', S.ATTACK, 0], ['run', S.RUN, 0], ['sway', S.SWAY, 0], ['clinch', S.CLINCH, 0]];
       for (const [label, state, share, setup] of shares) { const got = gain(state, 80, setup); if (Math.abs(got - share) > 1e-9) problems.push(label + ' refills ' + got.toFixed(4) + ' of the rate, not ' + share); }
-      for (const [fraction, factor] of [[0.6, 1], [0.4, 1], [0.2, 0.85], [0.05, 0.75], [0, 0.75]]) { const got = gain(S.IDLE, f.maxStam * fraction); if (Math.abs(got - factor) > 1e-9) problems.push('at ' + fraction * 100 + ' % the refill is ' + got.toFixed(4) + ' of the rate, not ' + factor); }
+      for (const [fraction, factor] of [[0.6, 1], [0.4, 1], [0.2, 0.8], [0.05, 0.65], [0, 0.65]]) { const got = gain(S.IDLE, f.maxStam * fraction); if (Math.abs(got - factor) > 1e-9) problems.push('at ' + fraction * 100 + ' % the refill is ' + got.toFixed(4) + ' of the rate, not ' + factor); }
       f.noRegen = 0; f.setState(S.IDLE); f.stam = 80; f.startAttack(ATTACKS.jab);
       const waits = { attack: f.noRegen };
       d.noRegen = 0; d.stam = 80; Combat.blockHit({ att: f, def: d, mv: ATTACKS.jab }, m, false); waits.guard = d.noRegen;
@@ -16422,15 +16433,17 @@ const SelfTest = {
       if (JSON.stringify(waits) !== JSON.stringify({ attack: 24, guard: 40, sway: 24, throw: 40, clinch: 30, run: 20 }) || run.fighters[0].state !== S.RUN) problems.push('waits ' + JSON.stringify(waits) + ' state ' + run.fighters[0].state);
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
-    test('Stamina (P18-52): the bands at 60, 40, 20, 5 and 0 % of the tank - damage, startup and recovery, walk speed are the table\'s, an unpaid move does at most x 0.35 and starts 4 ticks later, a tank emptied by an attack cannot run or sidestep for 50 ticks', () => {
+    test('Stamina (P18-52): the bands at 60, 40, 20, 5 and 0 % of the tank - damage, startup and recovery, walk speed are the table\'s, an unpaid move does at most x 0.30, starts 6 ticks later and stumbles 8 ticks after its recovery (P19-16), a tank emptied by an attack cannot run or sidestep for 50 ticks', () => {
       const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), f = m.fighters[0];
-      const table = [[0.6, 'Fresh', 1, 1, 1], [0.4, 'Winded', 0.9, 1.08, 0.97], [0.2, 'Tired', 0.6, 1.4, 0.9], [0.05, 'Spent', 0.4, 1.6, 0.85], [0, 'Spent', 0.4, 1.6, 0.85]];
+      const table = [[0.6, 'Fresh', 1, 1, 1], [0.4, 'Winded', 0.9, 1.08, 0.97], [0.2, 'Tired', 0.5, 1.5, 0.88], [0.05, 'Spent', 0.3, 1.7, 0.82], [0, 'Spent', 0.3, 1.7, 0.82]];   // P19-16: Tired and Spent re-recorded (were 0.6 / 1.4 / 0.9 and 0.4 / 1.6 / 0.85)
       const mv = ATTACKS.cross, lead = ATTACKS.jab, speed = (row) => f.stats.atkSpeed * 1.04 * row;   // the cross is a rear-hand move (x 1.04), the jab a lead-hand one
       for (const [fraction, name, damage, slow, walk] of table) {
         f.setState(S.IDLE); f.stam = f.maxStam * fraction; f.noRegen = 0; f.boostTicks = 0; f.exhaustedMove = false;
         const label = fraction * 100 + ' %: ';
         if (f.band.name !== name) problems.push(label + 'band ' + f.band.name + ', not ' + name);
         if (f.lowStamina !== (fraction < LOW_STAMINA)) problems.push(label + 'lowStamina ' + f.lowStamina);
+        const wantGuardStun = [[1, 1], [1, 1], [1.15, 1.15], [1.35, 1.3], [1.35, 1.3]][table.findIndex((row) => row[0] === fraction)];   // P19-16: the guard and stun factors of the band
+        if (f.band.guard !== wantGuardStun[0] || f.band.stun !== wantGuardStun[1]) problems.push(label + 'guard x ' + f.band.guard + ' and stun x ' + f.band.stun + ', not ' + wantGuardStun.join(' and '));
         const hit = f.damageMult(mv), want = f.stats.damage * 1.08 * damage;
         if (Math.abs(hit - want) > 1e-9) problems.push(label + 'hits at x ' + hit.toFixed(4) + ', not ' + want.toFixed(4));
         if (Math.abs(f.damageMult(lead) - f.stats.damage * 0.95 * damage) > 1e-9) problems.push(label + 'the jab does not follow the band');
@@ -16448,12 +16461,14 @@ const SelfTest = {
         const ratio = Math.hypot(g.vx, g.vz) / Math.hypot(full.fighters[0].vx, full.fighters[0].vz);
         if (Math.abs(ratio - walk) > 1e-9) problems.push(fraction * 100 + ' %: walks at ' + ratio.toFixed(4) + ' of the fresh speed, not ' + walk);
       }
-      // an unpaid move: the tank cannot pay it (the move starts 4 ticks later, does at most x 0.35 and empties the tank)
+      // an unpaid move: the tank cannot pay it (the move starts 6 ticks later, does at most x 0.30, holds the fighter 8 ticks after its recovery and empties the tank; P19-16, was +4 and x 0.35)
       f.setState(S.IDLE); f.stam = 2; f.boostTicks = 0; f.startAttack(mv);
-      const unpaid = Math.max(2, Math.round(mv.startup * f.stats.atkSpeed * 1.04 * 1.6) + EMPTY_MOVE_STARTUP);
-      if (!f.exhaustedMove || f.mStartup !== unpaid || Math.abs(f.damageMult(mv) - f.stats.damage * 1.08 * 0.35) > 1e-9 || f.stam !== 0 || f.exhaust !== 50) problems.push('an unpaid move: startup ' + f.mStartup + ' not ' + unpaid + ', x ' + f.damageMult(mv).toFixed(3) + ', stamina ' + f.stam + ', exhaust ' + f.exhaust);
-      f.setState(S.IDLE); f.stam = mv.stam; f.startAttack(mv);   // a move the tank pays to the last point is not an unpaid one (it empties the tank, the band at 0 weakens it to x 0.4)
-      if (f.exhaustedMove || f.stam !== 0 || f.exhaust !== 50 || Math.abs(f.damageMult(mv) - f.stats.damage * 1.08 * 0.4) > 1e-9) problems.push('a move paid to 0: unpaid ' + f.exhaustedMove + ', stamina ' + f.stam + ', exhaust ' + f.exhaust);
+      const unpaid = Math.max(2, Math.round(mv.startup * f.stats.atkSpeed * 1.04 * 1.7) + 6);
+      if (EMPTY_MOVE_STARTUP !== 6 || EMPTY_MOVE_DAMAGE !== 0.3 || STUMBLE_RECOVERY !== 8) problems.push('the unpaid-move constants are ' + EMPTY_MOVE_DAMAGE + ' / ' + EMPTY_MOVE_STARTUP + ' / ' + STUMBLE_RECOVERY);
+      if (f.stumbleExtra !== 8 || f.mRecovery !== Math.max(3, Math.round(mv.recovery * f.stats.atkSpeed * 1.04 * 1.7))) problems.push('the stumble: stumbleExtra ' + f.stumbleExtra + ', mRecovery ' + f.mRecovery);
+      if (!f.exhaustedMove || f.mStartup !== unpaid || Math.abs(f.damageMult(mv) - f.stats.damage * 1.08 * 0.3) > 1e-9 || f.stam !== 0 || f.exhaust !== 50) problems.push('an unpaid move: startup ' + f.mStartup + ' not ' + unpaid + ', x ' + f.damageMult(mv).toFixed(3) + ', stamina ' + f.stam + ', exhaust ' + f.exhaust);
+      f.setState(S.IDLE); f.stam = mv.stam; f.startAttack(mv);   // a move the tank pays to the last point is not an unpaid one (it empties the tank, the band at 0 weakens it to x 0.3, and it does not stumble)
+      if (f.exhaustedMove || f.stumbleExtra !== 0 || f.stam !== 0 || f.exhaust !== 50 || Math.abs(f.damageMult(mv) - f.stats.damage * 1.08 * 0.3) > 1e-9) problems.push('a move paid to 0: unpaid ' + f.exhaustedMove + ', stamina ' + f.stam + ', exhaust ' + f.exhaust);
       const afterStep = (exhaust, wish) => {   // the state a fighter with a full tank takes on its first step while the emptied-tank lock still has `exhaust` ticks to run
         const t = mk({ evenDamage: true, difficulty: 'hard' }, wish); self.place(t, 8);
         const g = t.fighters[0]; g.exhaust = exhaust; g.stam = 100; t.step();
@@ -16530,6 +16545,313 @@ const SelfTest = {
         }
       }
       return problems.length ? problems.join('; ') : true;
+    });
+    /* ---------- Stamina feel (P19-16): the bands below Winded, the guard and stun levers, the unpaid move's stumble, the cues ----------
+       REFERENCE-breakpoint.md, Appendix C, "P19-16 felt stamina, decided (2026-11-14)", sections 3 to 6. Tests (1) to (14) of its build list. */
+    test('Stamina feel (P19-16): (1) the bands read from a fighter at 60, 40, 20, 5 and 0 % of the tank - damage, startup and recovery, walk, refill, guard and stun factors are the decided table\'s, and bandIndex names the same row as band', () => {
+      const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), f = m.fighters[0], rate = 21.5 * 1.3 / 60;
+      const frozen = [[0.6, 0, 'Fresh', 1, 1, 1, 1, 1, 1], [0.4, 1, 'Winded', 0.9, 1.08, 0.97, 1, 1, 1], [0.2, 2, 'Tired', 0.5, 1.5, 0.88, 0.8, 1.15, 1.15], [0.05, 3, 'Spent', 0.3, 1.7, 0.82, 0.65, 1.35, 1.3], [0, 3, 'Spent', 0.3, 1.7, 0.82, 0.65, 1.35, 1.3]];   // tank share, index, name, damage, slower, walk, refill, guard (a blocked hit costs), stun
+      for (const [fraction, index, name, dmg, slow, walk, regen, guard, stun] of frozen) {
+        const label = fraction * 100 + ' %: ';
+        f.setState(S.IDLE); f.stam = f.maxStam * fraction; f.noRegen = 0; f.blockStun = 0; f.pinnedBy = null; f.boostTicks = 0; f.exhaustedMove = false; f.exhaust = 0;
+        const row = f.band, want = { dmg, slow, walk, regen, guard, stun };
+        if (f.bandIndex !== index || row !== STAMINA_BANDS[index] || row.name !== name) problems.push(label + 'band ' + row.name + ' at index ' + f.bandIndex + ', not ' + name + ' at ' + index);
+        for (const key in want) if (row[key] !== want[key]) problems.push(label + key + ' ' + row[key] + ', not ' + want[key]);
+        if (Math.abs(f.damageMult(ATTACKS.cross) / (f.stats.damage * 1.08) - dmg) > 1e-9) problems.push(label + 'the damage factor is not ' + dmg);
+        if (Math.abs(f.moveSpeedMult(ATTACKS.cross) / (f.stats.atkSpeed * 1.04) - slow) > 1e-9) problems.push(label + 'the slowdown is not ' + slow);
+        const before = f.stam; f.regenerate();
+        if (Math.abs((f.stam - before) / rate - regen) > 1e-9) problems.push(label + 'the refill is not ' + regen);
+      }
+      if (Object.keys(STAMINA_BANDS[0]).join() !== 'from,name,dmg,slow,walk,regen,guard,stun') problems.push('the row fields are ' + Object.keys(STAMINA_BANDS[0]).join());
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (2) a blocked hit costs the Tired and Spent factor (x 1.15 / x 1.35 of the Fresh cost), a perfect block pays nothing as before, and a guard that the cost empties breaks', () => {
+      const problems = [], m = mkBlock({ evenDamage: true, difficulty: 'hard' }), [att, def] = m.fighters, mv = ATTACKS.jab;
+      self.place(m, 1.2);
+      const pay = (fraction, perfect) => { def.setState(S.BLOCK_H); def.item = null; def.guardPressure = 0; def.blockFresh = false; def.stam = def.maxStam * fraction; const before = def.stam; Combat.blockHit({ att, def, mv }, m, perfect); return before - def.stam; };
+      const fresh = pay(0.6, false), winded = pay(0.4, false), tired = pay(0.2, false), spent = pay(0.08, false);
+      if (!(fresh > 0.5) || Math.abs(winded - fresh) > 1e-9) problems.push('the Fresh cost ' + fresh.toFixed(3) + ' and the Winded cost ' + winded.toFixed(3) + ' differ');
+      if (Math.abs(tired - fresh * 1.15) > 1e-9) problems.push('Tired pays ' + tired.toFixed(3) + ', not ' + (fresh * 1.15).toFixed(3));
+      if (Math.abs(spent - fresh * 1.35) > 1e-9) problems.push('Spent pays ' + spent.toFixed(3) + ', not ' + (fresh * 1.35).toFixed(3));
+      for (const fraction of [0.6, 0.2, 0.05]) { const paid = pay(fraction, true); if (paid > 0) problems.push('a perfect block at ' + fraction * 100 + ' % paid ' + paid.toFixed(3)); }
+      def.setState(S.BLOCK_H); def.guardPressure = 0; def.stam = 1;   // a Spent tank the cost empties
+      Combat.blockHit({ att, def, mv }, m, false);
+      if (def.stam !== 0 || def.state !== S.STUN) problems.push('the guard did not break: stamina ' + def.stam + ', state ' + S[def.state]);
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (3) a hit that lands stuns the Tired and Spent fighter x 1.15 / x 1.30 as long, a stagger the same before its own x 1.15, and a launch or a knock-down is not stretched', () => {
+      const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), [att, def] = m.fighters, hitMv = ATTACKS.jab;
+      const staggerMv = Object.values(ATTACKS).find((a) => a.kind === 'stagger' && a.type === 'strike'), downMv = ATTACKS.heavy_roundhouse;
+      self.place(m, 1.2);
+      const land = (fraction, mv) => { def.state = S.IDLE; def.hp = def.maxHp; def.y = def.groundY; def.vy = 0; def.kx = def.kz = 0; def.gotHits = 0; def.comboFoe = null; def.reactDur = 77; def.stam = def.maxStam * fraction; Combat.landHit({ type: 'strike', att, def, mv, block: 'none' }, m); return { dur: def.reactDur, state: def.state }; };
+      for (const [fraction, factor] of [[0.6, 1], [0.4, 1], [0.2, 1.15], [0.05, 1.3], [0, 1.3]]) {
+        const label = fraction * 100 + ' %: ';
+        const hit = land(fraction, hitMv), stun = Math.round(hitMv.hitstun * def.stats.stun * factor);
+        if (hit.state !== S.HIT || hit.dur !== stun) problems.push(label + 'a hit stuns ' + hit.dur + ' ticks, not ' + stun);
+        if (staggerMv) { const stagger = land(fraction, staggerMv), want = Math.round(Math.round(staggerMv.hitstun * def.stats.stun * factor) * 1.15); if (stagger.state !== S.STAGGER || stagger.dur !== want) problems.push(label + 'a stagger lasts ' + stagger.dur + ' ticks, not ' + want); }
+        const down = land(fraction, downMv);
+        if (down.state !== S.THROWN || down.dur !== 77) problems.push(label + 'a knock-down changed the stun (' + S[down.state] + ', ' + down.dur + ')');
+      }
+      if (!staggerMv) problems.push('no stagger move found');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (4) a move the tank cannot pay does at most x 0.30, starts 6 ticks later and holds the fighter 8 ticks after its recovery (stumbleExtra: the move is 8 ticks longer, mRecovery is not); its chain window is the paid one\'s, not wider; a move paid to 0 is not a stumble; the Fighter reset clears it', () => {
+      const problems = [], m = mk({ evenDamage: true, difficulty: 'hard' }), [f, foe] = m.fighters, mv = ATTACKS.jab;
+      const idle = {}, play = (stam) => {   // starts the jab with a tank of `stam` and plays it out by updateAttack: the ticks the fighter stays in the attack
+        f.setState(S.IDLE); f.move = null; f.boostTicks = 0; f.stam = stam; f.startAttack(mv);
+        const info = { unpaid: f.exhaustedMove, extra: f.stumbleExtra, startup: f.mStartup, active: f.mActive, recovery: f.mRecovery, whiff: f.whiffExtra, hits: f.damageMult(mv) };
+        let ticks = 0;
+        while (f.state === S.ATTACK && ticks < 300) { f.updateAttack(idle, foe, m); ticks++; }
+        info.ticks = ticks;
+        return info;
+      };
+      const full = play(100), zero = play(mv.stam), empty = play(mv.stam - 0.5);
+      if (full.unpaid || full.extra !== 0 || full.ticks !== full.startup + full.active + full.recovery) problems.push('a paid move: unpaid ' + full.unpaid + ', extra ' + full.extra + ', ' + full.ticks + ' ticks');
+      if (zero.unpaid || zero.extra !== 0 || zero.ticks !== zero.startup + zero.active + zero.recovery || Math.abs(zero.hits - f.stats.damage * 0.95 * 0.3) > 1e-9) problems.push('a move paid to 0: unpaid ' + zero.unpaid + ', extra ' + zero.extra + ', x ' + zero.hits.toFixed(4));
+      if (!empty.unpaid || empty.extra !== STUMBLE_RECOVERY || empty.startup !== zero.startup + 6 || empty.recovery !== zero.recovery || empty.ticks !== empty.startup + empty.active + empty.recovery + 8) problems.push('an unpaid move: extra ' + empty.extra + ', startup ' + empty.startup + ' (paid to 0: ' + zero.startup + '), recovery ' + empty.recovery + ' (' + zero.recovery + '), ' + empty.ticks + ' ticks');
+      if (Math.abs(empty.hits - f.stats.damage * 0.95 * 0.3) > 1e-9) problems.push('an unpaid move hits at x ' + empty.hits.toFixed(4) + ', not x 0.30');
+      const letter = ['P', 'K'].find((l) => f.strings.stand['P' + l]);   // the chain window: the last tick at which a pressed second step is taken, for a paid and for an unpaid first move
+      const chain = (stam) => {
+        let last = -1, window = -1;
+        for (let T = 2; T < 90; T++) {
+          f.setState(S.IDLE); f.move = null; f.age = 100; f.stam = stam; f.startAttack(mv, { keys: 'P', low: false, tick: f.age });
+          window = f.mStartup + f.mActive + Math.floor(f.mRecovery * 0.6);
+          let alive = true;
+          for (let k = 1; k < T && alive; k++) { f.moveConnected = false; f.updateAttack(idle, foe, m); alive = f.state === S.ATTACK; }
+          if (!alive) break;
+          f.moveConnected = true; f.buffer = { btn: letter === 'P' ? 'punch' : 'kick', height: false, tick: f.age, grapDir: 'fwd', low: false, age: 0 };
+          const id = f.moveId; f.updateAttack(idle, foe, m);
+          if (f.moveId !== id) last = T;
+          f.buffer = null;
+        }
+        return { last, window };
+      };
+      const paidChain = chain(100), unpaidChain = chain(1);
+      if (!letter || paidChain.last !== paidChain.window || unpaidChain.last !== unpaidChain.window) problems.push('the chain window: paid ends at ' + paidChain.last + ' (floor rule ' + paidChain.window + '), unpaid ends at ' + unpaidChain.last + ' (' + unpaidChain.window + ')');
+      f.setState(S.IDLE); f.stam = 1; f.startAttack(mv); f.reset(0, 0, 0, 1, 1);
+      if (f.stumbleExtra !== 0 || f.stumbleCueAt !== -STUMBLE_CUE_GAP) problems.push('the reset left stumbleExtra ' + f.stumbleExtra + ' and stumbleCueAt ' + f.stumbleCueAt);
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    /* (5) and (6) play the P18-61 duels on the Press and Mash scripts (staminaFight above); the seeds are fixed, so the numbers are the same on every run. */
+    test('Stamina feel (P19-16): (5) the CPU still rests when low - in the long duel at Hard (Health Double, the Press script, seeds 1 to 12) its foe is under 25 % of the tank for 15 to 40 % of the fight (21.9 % over 200 seeds in the P19-16 probe)', () => {
+      const sum = { fight: 0, foeLow: 0 };
+      for (let seed = 1; seed <= 12; seed++) { const r = staminaFight(pressScript(seed), 'hard', 'F1', seed); sum.fight += r.fight; sum.foeLow += r.foeLow; }   // one seed alone varies from 15 to 50 %, so a dozen seeds and a wide band: a CPU that stopped resting would sit far above it
+      const share = sum.foeLow / Math.max(1, sum.fight) * 100;
+      return sum.fight > 3000 && share >= 15 && share <= 40 ? true : 'the CPU foe is under 25 % for ' + share.toFixed(1) + ' % of ' + sum.fight + ' ticks, not 15 to 40 %';
+    });
+    test('Stamina feel (P19-16): (6) the scripts - the Press script is under 25 % of its tank for 8 to 20 % of the long duel at Easy, Normal and Hard (seeds 1 to 8), and the Mash script wins no more than 30 % of the Easy long duel (24 seeds)', () => {
+      const problems = [];
+      for (const difficulty of ['easy', 'normal', 'hard']) {
+        const press = staminaShares(pressScript, difficulty, 'F1', 1, 8);
+        if (press.fight < 3000 || press.low < 0.08 || press.low > 0.2) problems.push('Press at ' + difficulty + ': under 25 % for ' + (press.low * 100).toFixed(1) + ' % of ' + press.fight + ' ticks, not 8 to 20 %');
+      }
+      let won = 0;
+      for (let seed = 1; seed <= 24; seed++) if (staminaFight(mashScript(), 'easy', 'F1', seed).won) won++;
+      if (won > 7) problems.push('Mash wins ' + won + ' of 24 Easy long duels, not at most 7 (30 %)');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (7) the pose - the slump is zero in Fresh and Winded, x 1 in Tired and x 1.6 in Spent (the hands drop, the back rounds, the chin goes down, Spent knees give), in the idle, walk and both guard poses only, never in an attack pose; the pant is quicker by band, its heave shrinks under Reduced motion and the slump stays', () => {
+      const bad = [], keep = Settings.v.reducedMotion, f = new Fighter(ROSTER_BY_ID.kai, 0);
+      const targetPose = (state, t) => { f.state = state; f.animT = t; f.computePose(); return Float32Array.from(f.tp); };
+      const slumpOf = (fraction) => { f.stam = f.maxStam * fraction; f.exhaust = 0; const p = new Float32Array(NP); f.slumpPose(p); return p; };
+      try {
+        Settings.v.reducedMotion = false;
+        for (const [fraction, slump] of [[0.9, 0], [0.4, 0], [0.2, 1], [0.05, 1.6], [0, 1.6]]) {
+          const p = slumpOf(fraction), want = [[J.elL, -SLUMP_HANDS * slump], [J.elR, -SLUMP_HANDS * slump], [J.torsoLean, SLUMP_LEAN * slump], [J.headX, SLUMP_CHIN * slump], [J.knL, slump > 1 ? SLUMP_SINK * 3.4 : 0], [J.shLx, 0]];
+          for (const [joint, value] of want) if (Math.abs(p[joint] - value) > 1e-6) bad.push(fraction * 100 + ' %: joint ' + joint + ' ' + p[joint].toFixed(4) + ', not ' + value.toFixed(4));
+          if (SLUMP_BY_BAND[f.bandIndex] !== slump) bad.push(fraction * 100 + ' %: SLUMP_BY_BAND ' + SLUMP_BY_BAND[f.bandIndex]);
+        }
+        f.item = { id: 'bat', dur: 6, sprays: 0 }; const armed = slumpOf(0.2); f.item = null;   // an item in hand keeps its hands
+        if (armed[J.elL] !== 0 || !(armed[J.torsoLean] > 0)) bad.push('an item in hand: elbow ' + armed[J.elL]);
+        for (const state of SLUMP_POSE_STATES) {   // through computePose: rested, Winded, Tired, Spent
+          f.stam = f.maxStam; const rested = targetPose(state, 0.3);
+          f.stam = f.maxStam * 0.4; const winded = targetPose(state, 0.3);
+          f.stam = f.maxStam * 0.2; const tired = targetPose(state, 0.3);
+          f.stam = f.maxStam * 0.05; const spent = targetPose(state, 0.3);
+          if (state === S.BLOCK_H || state === S.BLOCK_L) { if (rested.some((v, i) => Math.abs(v - winded[i]) > 1e-6)) bad.push(S[state] + ' changed at 40 %'); }
+          if (Math.abs(tired[J.elL] - rested[J.elL] + SLUMP_HANDS) > 1e-6 || Math.abs(spent[J.elL] - rested[J.elL] + SLUMP_HANDS * 1.6) > 1e-6) bad.push(S[state] + ' elbows ' + (tired[J.elL] - rested[J.elL]).toFixed(3) + ' / ' + (spent[J.elL] - rested[J.elL]).toFixed(3));
+        }
+        const ticksPer = (rate) => 1 / (PANT_HZ * rate);   // the heave repeats after one breath: quicker in Tired and Spent
+        for (const [fraction, band] of [[0.2, 2], [0.05, 3]]) {
+          f.stam = f.maxStam * fraction; f.exhaust = 0;
+          const at = (t) => targetPose(S.IDLE, t)[J.torsoLean], t0 = 0.37;
+          if (Math.abs(at(t0) - at(t0 + ticksPer(PANT_RATE_BY_BAND[band]))) > 1e-5 || Math.abs(at(t0) - at(t0 + ticksPer(1))) < 1e-4) bad.push('the heave at ' + fraction * 100 + ' % does not repeat at x ' + PANT_RATE_BY_BAND[band]);
+        }
+        f.stam = f.maxStam * 0.2;
+        const range = (state) => { const v = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].map((t) => targetPose(state, t)[J.torsoLean]); return Math.max(...v) - Math.min(...v); };
+        const heave = range(S.IDLE), guard = targetPose(S.BLOCK_H, 0.3); Settings.v.reducedMotion = true;
+        const calm = targetPose(S.BLOCK_H, 0.3), rested = (f.stam = f.maxStam, targetPose(S.BLOCK_H, 0.3)); f.stam = f.maxStam * 0.2;
+        if (!(range(S.IDLE) < heave * 0.6)) bad.push('Reduced motion keeps the heave');
+        if (calm.some((v, i) => Math.abs(v - guard[i]) > 1e-6) || Math.abs(calm[J.elL] - rested[J.elL] + SLUMP_HANDS) > 1e-6) bad.push('Reduced motion changed the slump');
+        Settings.v.reducedMotion = false;
+        const striking = (fraction) => { const g = new Fighter(ROSTER_BY_ID.kai, 0), mv = ATTACKS.cross; g.stam = g.maxStam * fraction; g.state = S.ATTACK; g.move = mv; g.mStartup = mv.startup; g.mActive = mv.active; g.mRecovery = mv.recovery; g.moveTick = mv.startup + 1; g.whiffExtra = 0; g.x = g.z = 0; g.target = null; g.computePose(); return Array.from(g.pose); };
+        const a = striking(1), b = striking(0.2), c = striking(0.05);
+        if (a.some((v, i) => Math.abs(v - b[i]) > 1e-6 || Math.abs(v - c[i]) > 1e-6)) bad.push('an attack pose took the slump');
+      } finally { Settings.v.reducedMotion = keep; }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (8) the sound - the breath comes every 1 / (PANT_HZ x rate) s at x 1 / 1 / 1.15 / 1.4 of the gain by band, also in a guard from Tired, only for a person\'s fighter, the exhale grunt only in Spent (every second breath); bandIndex names the band row and allocates nothing', () => {
+      const bad = [], keepGame = { match: Game.match, state: Game.state }, keepSound = { ctx: Sound.ctx, allow: Sound.allow, breath: Sound.breath, grunt: Sound.grunt, clock: Sound.clock, breathAt: Sound.breathAt, breathCount: Sound.breathCount, fires: Sound.fires };
+      const m = mk({ evenDamage: true, difficulty: 'hard' }), [person, cpu] = m.fighters, heard = [];
+      try {
+        Game.match = m; Game.state = GS.FIGHT;
+        Sound.ctx = { state: 'running', currentTime: 5 }; Sound.allow = () => true; Sound.fires = [];
+        Sound.breath = (exhausted, level) => heard.push(['breath', Sound.clock, level]); Sound.grunt = (f, kind, level) => heard.push(['grunt', Sound.clock, kind, level]);
+        const listen = (fraction, state, who, seconds) => {
+          heard.length = 0; Sound.clock = 0; Sound.breathAt = 0; Sound.breathCount = 0;
+          person.stam = person.maxStam; person.exhaust = 0; cpu.stam = cpu.maxStam; cpu.exhaust = 0; person.state = S.IDLE; cpu.state = S.IDLE;
+          who.stam = who.maxStam * fraction; who.state = state;
+          for (let t = 0; t < seconds * 100; t++) Sound.frame(0.01);
+          return heard.slice();
+        };
+        const gaps = (list) => list.filter((h) => h[0] === 'breath').map((h, i, all) => (i ? h[1] - all[i - 1][1] : null)).filter((g) => g !== null);
+        for (const [fraction, band] of [[0.6, 0], [0.3, 1], [0.2, 2], [0.05, 3]]) {
+          const heardIdle = listen(fraction, S.IDLE, person, 8), breaths = heardIdle.filter((h) => h[0] === 'breath');
+          if (band === 0) { if (heardIdle.length) bad.push('a Fresh fighter breathes'); continue; }
+          if (band === 1 && (!breaths.length || breaths.some((h) => h[2] !== 1))) bad.push('Winded breath ' + JSON.stringify(breaths.slice(0, 2)));
+          if (band === 1) { const gap = gaps(heardIdle); if (!gap.length || gap.some((g) => Math.abs(g - 1 / PANT_HZ) > 0.03)) bad.push('Winded gap ' + gap.slice(0, 2)); }
+          if (band >= 2) {
+            const gap = gaps(heardIdle), wantGap = 1 / (PANT_HZ * PANT_RATE_BY_BAND[band]);
+            if (!gap.length || gap.some((g) => Math.abs(g - wantGap) > 0.03) || breaths.some((h) => h[2] !== BREATH_GAIN_BY_BAND[band])) bad.push('band ' + band + ' breath gap ' + gap.slice(0, 2) + ' (want ' + wantGap.toFixed(3) + '), level ' + (breaths[0] && breaths[0][2]));
+            const guarding = listen(fraction, S.BLOCK_H, person, 4).filter((h) => h[0] === 'breath');
+            if (!guarding.length) bad.push('band ' + band + ' is silent in a guard');
+          }
+          const grunts = heardIdle.filter((h) => h[0] === 'grunt');
+          if (band < 3 && grunts.length) bad.push('band ' + band + ' exhales');
+          if (band === 3 && (grunts.length < 2 || grunts.length * 2 < breaths.length - 1 || grunts.length * 2 > breaths.length + 1 || grunts.some((h) => h[2] !== 'effort' || h[3] !== EXHALE_GAIN))) bad.push('Spent exhales ' + grunts.length + ' of ' + breaths.length + ' breaths');
+        }
+        if (listen(0.3, S.BLOCK_H, person, 4).length) bad.push('a Winded fighter breathes in a guard');
+        if (listen(0.05, S.IDLE, cpu, 4).length) bad.push('the CPU\'s fighter is heard breathing');
+        const f = new Fighter(ROSTER_BY_ID.kai, 0);
+        for (const fraction of [1, 0.6, 0.4, 0.2, 0.05, 0]) { f.stam = f.maxStam * fraction; for (let k = 0; k < 1000; k++) if (f.band !== STAMINA_BANDS[f.bandIndex] || typeof f.bandIndex !== 'number') { bad.push('band and bandIndex differ at ' + fraction * 100 + ' %'); break; } }
+      } finally { Game.match = keepGame.match; Game.state = keepGame.state; Object.assign(Sound, keepSound); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (9) the stamina bar - winded, low and spent classes as before, and (in a browser, where the page has its stylesheet) the slow and the quick pulse exist as CSS and .reduced switches every animation off', () => {
+      const problems = [], f = mk({}).fighters[0], classes = new Set(), el = { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } };
+      const savedDom = UI.dom, savedCache = UI.cache;
+      UI.dom = { stb1: el }; UI.cache = {};
+      try {
+        for (const [fraction, want] of [[0.9, ''], [0.4, 'winded'], [0.2, 'low'], [0.05, 'low spent'], [0, 'low spent']]) {
+          f.stam = f.maxStam * fraction; UI.staminaBand(0, f);
+          const got = ['winded', 'low', 'spent'].filter((name) => classes.has(name)).join(' ');
+          if (got !== want) problems.push(fraction * 100 + ' %: classes "' + got + '", not "' + want + '"');
+        }
+      } finally { UI.dom = savedDom; UI.cache = savedCache; }
+      const sheets = typeof document !== 'undefined' && document.styleSheets;
+      if (sheets && sheets.length) {   // a headless run has no stylesheet; a browser run reads the rules
+        const text = [];
+        const read = (rules) => { for (const rule of Array.from(rules)) { text.push(rule.cssText); if (rule.cssRules) read(rule.cssRules); } };
+        for (const sheet of Array.from(sheets)) { try { read(sheet.cssRules); } catch (error) { /* a sheet from another origin */ } }
+        const css = text.join(' ');
+        if (!/@keyframes stPulse\b/.test(css) || !/@keyframes stPulseFast\b/.test(css)) problems.push('a pulse keyframe is missing');
+        if (!/\.bar\.st\.low\s*\{[^}]*stPulse\b/.test(css) || !/\.bar\.st\.spent\s*\{[^}]*stPulseFast\b/.test(css)) problems.push('the low and spent bars do not pulse');
+        if (!/\.reduced \*\s*\{[^}]*animation:\s*none\s*!important/.test(css)) problems.push('.reduced does not stop animations');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (10) the announcer - a lowStamina event with refused: true is not spoken (a masher gets no "Low stamina" every second) and one without it still says it', () => {
+      const bad = [], m = mk({}), f = m.fighters[0], said = [], keep = { say: UI.say, match: Game.match };
+      try {
+        Game.match = m; UI.say = (text) => said.push(text);
+        UI.sayLowStamina({ f, refused: true });
+        if (said.length) bad.push('a refused event was spoken: ' + said.join('|'));
+        UI.sayLowStamina({ f });
+        if (said.length !== 1 || !said[0].includes('Low stamina')) bad.push('the crossing under 25 % says ' + JSON.stringify(said));
+        UI.sayLowStamina({ f: m.fighters[1] });   // the CPU's fighter is nobody's to announce
+        if (said.length !== 1) bad.push('a CPU fighter was announced');
+      } finally { UI.say = keep.say; Game.match = keep.match; }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (11) the flash - a refused event turns the bar red for 0.4 s with Reduced motion off and Flashes Full or Reduced, and leaves it alone with Reduced motion on or Flashes Off', () => {
+      const bad = [], m = mk({}), f = m.fighters[0], keep = { dom: UI.dom, match: Game.match, motion: Settings.v.reducedMotion, flashes: Settings.v.flashes, timer: globalThis.setTimeout };
+      let timers = [];
+      try {
+        Game.match = m; globalThis.setTimeout = (fn, ms) => { timers.push([fn, ms]); return 0; };
+        const flash = (motion, flashes, event) => { const bar = { style: { background: '' } }; UI.dom = { stb1: bar }; Settings.v.reducedMotion = motion; Settings.v.flashes = flashes; timers = []; UI.flashRefused(event); return bar; };
+        for (const flashes of ['full', 'reduced']) {
+          const bar = flash(false, flashes, { f, refused: true });
+          if (bar.style.background !== '#a33' || timers.length !== 1 || timers[0][1] !== 400) bad.push(flashes + ': background "' + bar.style.background + '", timers ' + JSON.stringify(timers.map((t) => t[1])));
+          else { timers[0][0](); if (bar.style.background !== '') bad.push(flashes + ': the red stays'); }
+        }
+        const calm = flash(true, 'full', { f, refused: true });
+        if (calm.style.background !== '' || timers.length) bad.push('Reduced motion flashed');
+        const off = flash(false, 'off', { f, refused: true });
+        if (off.style.background !== '' || timers.length) bad.push('Flashes Off flashed');
+        const plain = flash(false, 'full', { f });
+        if (plain.style.background !== '' || timers.length) bad.push('an event that is not refused flashed');
+      } finally { UI.dom = keep.dom; Game.match = keep.match; Settings.v.reducedMotion = keep.motion; Settings.v.flashes = keep.flashes; globalThis.setTimeout = keep.timer; }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (12) the stumble cue - an unpaid move sends one refused event, a second inside 60 ticks sends none, one after 60 does; a paid move sends none; the first tick of the stumble sends one stumble event', () => {
+      const bad = [], m = mk({ evenDamage: true, difficulty: 'hard' }), [f, foe] = m.fighters, mv = ATTACKS.jab, refused = [], stumbles = [];
+      const offs = [Events.on('lowStamina', (e) => { if (e.refused && e.f === f) refused.push(f.age); }), Events.on('stumble', (e) => { if (e.f === f) stumbles.push(f.moveTick); })];
+      try {
+        f.age = 500; f.setState(S.IDLE); f.stam = 100; f.startAttack(mv);
+        if (refused.length || f.stumbleExtra) bad.push('a paid move sent a cue');
+        f.setState(S.IDLE); f.stam = 1; f.startAttack(mv);
+        if (refused.length !== 1) bad.push('the first unpaid move sent ' + refused.length);
+        f.setState(S.IDLE); f.stam = 1; f.age += STUMBLE_CUE_GAP - 1; f.startAttack(mv);
+        if (refused.length !== 1) bad.push('a second one inside ' + STUMBLE_CUE_GAP + ' ticks sent a cue');
+        f.setState(S.IDLE); f.stam = 1; f.age += 1; f.startAttack(mv);
+        if (refused.length !== 2) bad.push('one after ' + STUMBLE_CUE_GAP + ' ticks sent ' + (refused.length - 1));
+        let ticks = 0; const end = f.mStartup + f.mActive + f.mRecovery;
+        while (f.state === S.ATTACK && ticks < 300) { f.updateAttack({}, foe, m); ticks++; }
+        if (stumbles.length !== 1 || stumbles[0] !== end + 1) bad.push('stumble events at ' + stumbles + ', want one at ' + (end + 1));
+        stumbles.length = 0; f.setState(S.IDLE); f.stam = 100; f.startAttack(mv); ticks = 0;
+        while (f.state === S.ATTACK && ticks < 300) { f.updateAttack({}, foe, m); ticks++; }
+        if (stumbles.length) bad.push('a paid move stumbled');
+      } finally { offs.forEach((off) => off()); }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (13) the stumble pose - its offsets are zero outside the stumble ticks and for a paid move, are added only after the active frames (the lean 0.30 and the knees 0.25, blended over 3 ticks, half under Reduced motion), and every joint of every move of every style stays inside the Calm poses limits', () => {
+      const AIR_AND_COUNTER = ['jump_kick', 'jump_punch', 'lunge', 'counter_strike', 'counter_kick'];
+      const LIMITS = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];   // the numbers of the Calm poses test
+      let checked = 0;
+      const problems = [], keep = Settings.v.reducedMotion, ease = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };   // the smoothstep of the blend, written out again here
+      const blendAt = (into, extra) => ease(into / STUMBLE_BLEND) * ease((extra - into + 1) / STUMBLE_BLEND);
+      try {
+        Settings.v.reducedMotion = false;
+        for (const r of ROSTER) {
+          const f = new Fighter(r, 0), style = moveStyleFor(r), table = stringsFor(style), ids = new Set(AIR_AND_COUNTER);
+          for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => ids.add(id));
+          for (const id of ids) {
+            const mv = moveFor(style, id), own = mv.startup + mv.active + mv.recovery;
+            const set = (tick, extra, off) => { f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = tick; f.whiffExtra = 0; f.stumbleExtra = extra; f.x = f.z = 0; f.target = null; if (off) f.stumblePose = () => {}; f.attackPose(); if (off) delete f.stumblePose; return Float32Array.from(f.pose); };
+            const first = r === ROSTER[0] ? 1 : own + 1;   // the first body also checks every tick of the move, the others the stumble ticks
+            for (let tick = first; tick <= own + STUMBLE_RECOVERY; tick++) {
+              const into = tick - own, full = set(tick, STUMBLE_RECOVERY, false), base = set(tick, STUMBLE_RECOVERY, true);
+              checked++;
+              const share = into > 0 ? blendAt(into, STUMBLE_RECOVERY) : 0;
+              for (let i = 0; i < NP; i++) {
+                const want = i === J.torsoLean ? STUMBLE_LEAN * share : i === J.knL || i === J.knR ? STUMBLE_KNEES * share : 0;
+                if (Math.abs(full[i] - base[i] - want) > 1e-5) { problems.push(r.id + ' ' + id + ' tick ' + tick + ' joint ' + i + ' moved ' + (full[i] - base[i]).toFixed(4) + ', not ' + want.toFixed(4)); break; }
+              }
+              if (into > 0) for (const [joint, limit] of LIMITS) if (Math.abs(full[joint]) > limit + 0.005) problems.push(r.id + ' ' + id + ' tick ' + tick + ' joint ' + joint + ' ' + full[joint].toFixed(2));
+              if (r === ROSTER[0] && tick <= own) { const paid = set(tick, 0, false), same = set(tick, 0, true); if (paid.some((v, i) => Math.abs(v - same[i]) > 1e-9)) problems.push(id + ' a paid move at tick ' + tick + ' took the stumble'); }
+            }
+          }
+        }
+        const f = new Fighter(ROSTER[0], 0), mv = ATTACKS.jab, own = mv.startup + mv.active + mv.recovery, set = (tick) => { f.state = S.ATTACK; f.move = mv; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = tick; f.whiffExtra = 0; f.stumbleExtra = STUMBLE_RECOVERY; f.x = f.z = 0; f.target = null; const p = new Float32Array(NP); f.stumblePose(p); return p; };
+        const peak = set(own + 4)[J.torsoLean]; Settings.v.reducedMotion = true; const calm = set(own + 4)[J.torsoLean]; Settings.v.reducedMotion = false;
+        if (Math.abs(peak - STUMBLE_LEAN) > 1e-6 || Math.abs(calm - STUMBLE_LEAN / 2) > 1e-6) problems.push('the peak lean is ' + peak.toFixed(3) + ' (' + calm.toFixed(3) + ' under Reduced motion)');
+      } finally { Settings.v.reducedMotion = keep; }
+      if (checked < 3000) problems.push('only ' + checked + ' poses were checked');
+      return problems.length ? problems.length + ' wrong: ' + problems.slice(0, 5).join('; ') : true;
+    });
+    test('Stamina feel (P19-16): (14) input mapping unchanged - the keyboard, gamepad and touch maps and the action and setting lists are the frozen copies below (no new action, button or setting)', () => {
+      const frozen = {
+        settings: ['master', 'music', 'sfx', 'movement', 'shake', 'uiScale', 'reducedMotion', 'flashes', 'rumble', 'trails', 'slowFinisher', 'cameraCuts', 'wearMarks', 'heartbeat', 'highContrast', 'quality', 'antialias', 'shadows', 'effects', 'touch', 'autoAssist', 'guardAssist', 'items', 'hazards', 'storyScenes', 'storyAuto', 'showStats'],
+        actions: ['up', 'down', 'left', 'right', 'punch', 'kick', 'defend', 'jump', 'crouch', 'grapple', 'use', 'lock', 'pause'],
+        touch: [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm'], ['use', 'USE', 'sm'], ['lock', 'LOCK', 'sm']],
+        touchContext: ['use', 'lock'],
+        pad: { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [11], grapple: [7], crouch: [6], pause: [9] },
+        keys: { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], punch: ['KeyJ'], kick: ['KeyK'], defend: ['KeyL'], jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], use: ['KeyE'], lock: ['KeyQ'], pause: ['Escape', 'KeyP'] },
+        keys2: { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], punch: ['Numpad4'], kick: ['Numpad5'], defend: ['Numpad6'], jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], use: ['Numpad1'], lock: ['Numpad2'], pause: ['NumpadEnter'] },
+      };
+      const got = { settings: Object.keys(SETTING_DEFS), actions: ACTIONS, touch: TOUCH_BUTTONS, touchContext: TOUCH_CONTEXT_ACTIONS, pad: PAD_BUTTONS, keys: DEFAULT_KEYS, keys2: DEFAULT_KEYS_P2 };
+      const bad = Object.keys(frozen).filter((key) => JSON.stringify(got[key]) !== JSON.stringify(frozen[key]));
+      return bad.length ? 'changed: ' + bad.join(', ') : true;
     });
     /* ---------- Thrown bodies (P18-25 + P18-32) ---------- */
     /* A fighter sent flying by a throw meets each fighter in its path once (owner, 2026-11-03: a thrown enemy must not fly through the others untouched). It hurts the fighters its thrower may hurt (MatchSim.canHurt: the thrown
