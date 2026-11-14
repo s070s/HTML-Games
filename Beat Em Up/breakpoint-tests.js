@@ -26293,6 +26293,16 @@ const SelfTest = {
       const bad = [20, 21, 22, 23, 24, 25, 26, 27].map((f) => guest.session.got[0].get(f)).join();
       if (bad !== '0,0,0,0,0,' + (NET_CODE_MAX - 1) + ',7,0') problems.push('bad fill codes stored as ' + bad + ', want 0 for each malformed one');
       if (typeof ONLINE_NET_VERSION !== 'number' || ONLINE_NET_VERSION !== 5) problems.push('ONLINE_NET_VERSION is ' + ONLINE_NET_VERSION + ', want 5');
+      // a peer of version 4 (the build before this task) is refused by the real code reader: the same offer with net nibble 4 and a good checksum
+      const withNetNibble = (nibble) => {
+        const codeBytes = Array.from(fromBase64Url(OnlineCode.packSdp(0, 2, OFFER).slice(4)), (c) => c.charCodeAt(0)).slice(0, -2);
+        codeBytes[1] = (codeBytes[1] & 0xf0) | nibble;
+        const crc = OnlineCode.crc16(codeBytes);
+        return ONLINE_PREFIX[0] + toBase64Url(String.fromCharCode(...codeBytes, crc >> 8, crc & 255));
+      };
+      const readerOf = (text) => { try { OnlineCode.readCode(text, 0); return 'accepted'; } catch (e) { return e.code; } };
+      if (readerOf(withNetNibble(4)) !== 'version') problems.push('a code of net version 4 was not refused as version: ' + readerOf(withNetNibble(4)));
+      if (readerOf(withNetNibble(ONLINE_NET_VERSION)) !== 'accepted') problems.push('the same code at the current version was refused: ' + readerOf(withNetNibble(ONLINE_NET_VERSION)));
       return problems.length ? problems.slice(0, 8).join('; ') : true;
     });
     /* One fighter of a style (KAI's body, a Block or Sway defence as asked) against a foe that stands still 1.3 m in front of it (hit points 9999). script(it, f, t, m) fills fighter 0's intent each tick; t counts the steps (1 on the first).
@@ -26381,6 +26391,14 @@ const SelfTest = {
       // the stance of a Sway fighter after an uncancelled charge is the same as before it
       { const d = movesDuel('kickboxer', kickCharge(74, (it, f, t) => { if (t <= 8) it.defend = true; }), { defense: 'sway' }); d.step(30); const before = [d.f.readyLeft, d.f.readySpent, d.f.rearmAt].join(); d.step(100); d.stop();
         if (!d.at('chargeRelease') || [d.f.readyLeft, d.f.readySpent, d.f.rearmAt].join() !== before) problems.push('a charge changed the stance: ' + before + ' then ' + [d.f.readyLeft, d.f.readySpent, d.f.rearmAt].join()); }
+      // the stance across the cancelling Defend press (one press at tick 55, the charge set at 45): Block mode arms nothing, so readyLeft, readySpent and rearmAt stay; Sway mode arms the stance like any other Defend press (the full STANCE_TICKS, the next arm one STANCE_REARM_TICKS later), the same numbers as a press made by a fighter that stands free
+      { const press = (it, f, tick) => { if (tick === 55) it.defend = true; }, stance = (d) => [d.f.readyLeft, d.f.readySpent ? 1 : 0, d.f.rearmAt - d.f.age].join();
+        const block = movesDuel('kickboxer', kickCharge(90, press), { defense: 'block' }); block.step(54); const blockBefore = [block.f.readyLeft, block.f.readySpent, block.f.rearmAt].join(); block.step(1); const blockAfter = [block.f.readyLeft, block.f.readySpent, block.f.rearmAt].join(); block.step(40); const blockLater = [block.f.readyLeft, block.f.readySpent, block.f.rearmAt].join();
+        if (!block.at('chargeCancel') || blockAfter !== blockBefore || blockLater !== blockBefore) problems.push('Block mode: the cancelling press changed the stance ' + blockBefore + ' -> ' + blockAfter + ' -> ' + blockLater + ' (cancel ' + !!block.at('chargeCancel') + ')');
+        const sway = movesDuel('kickboxer', kickCharge(90, press), { defense: 'sway' }); sway.step(54); const swayBefore = stance(sway); sway.step(1);
+        const free = movesDuel('kickboxer', press, { defense: 'sway' }); free.step(55);
+        if (!sway.at('chargeCancel') || stance(sway) !== STANCE_TICKS + ',0,' + STANCE_REARM_TICKS || stance(sway) === swayBefore || stance(sway) !== stance(free)) problems.push('Sway mode: the cancelling press left the stance ' + swayBefore + ' -> ' + stance(sway) + ', a press while free gives ' + stance(free) + ' (want ' + STANCE_TICKS + ',0,' + STANCE_REARM_TICKS + ')');
+        block.stop(); sway.stop(); free.stop(); }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Moves (P19-14): a hit on a charging fighter is a counter hit (x cv, stun x 1.3) by the existing rule, and the charge is over', () => {
@@ -26433,6 +26451,18 @@ const SelfTest = {
       { const mash = movesDuel('kickboxer', (it, f, t) => { if (t % 6 === 1) { if ((t / 6 | 0) % 2) it.kick = true; else it.punch = true; } }, { gap: 3 }); mash.step(300); mash.stop();
         if (mash.log.some((l) => l[0] === 'attackStart' && l[3] === 'Rhythm Kick')) problems.push('a mash played the delayed move'); }
       { const missed = pauseKick(first + 4, { gap: 3.5 }); if (missed.name === 'Rhythm Kick') problems.push('a string that did not connect gave the delayed move'); }
+      // the Training string note names the delayed step by its own name, a plain step by its own
+      { const delayedNote = at.d.m.lastMove && at.d.m.lastMove.string, plainNote = before.d.m.lastMove && before.d.m.lastMove.string;
+        if (!/ > Rhythm Kick$/.test(delayedNote || '') || /Switch Kick/.test(delayedNote || '') || !/ > Switch Kick$/.test(plainNote || '')) problems.push('the Training string note reads "' + delayedNote + '" for the delayed step and "' + plainNote + '" for the plain one'); }
+      // pauseOpen (the cue, the PAUSE line, the tip) says what a standing press plays: the same answer as pickString's open / stillLow test for every combination, a crouch first step included
+      { const g = new Fighter(ROSTER_BY_ID.kai, 0); let opens = 0, shut = 0, crouchOpens = 0;
+        for (const stringLow of [false, true]) for (const keys of ['', 'P', 'PK', 'K']) for (const connected of [false, true]) for (const assist of [false, true]) for (const noPause of [false, true]) for (const since of [1, ATTACK_STRING_TICKS - 1, ATTACK_STRING_TICKS, ATTACK_STRING_TICKS + 1, ATTACK_STRING_TICKS * 2]) {
+          g.state = S.IDLE; g.stateTicks = PAUSE_STILL_TICKS + 2; g.age = 200; g.stringKeys = keys; g.stringLow = stringLow; g.stringTick = g.age + 1 - since; g.moveConnected = connected; g.assist = assist; g.noPause = noPause;
+          const plays = !!g.resolveMove({ btn: 'kick', height: false, tick: g.age + 1 }).mv.delayed;
+          if (g.pauseOpen() !== plays) problems.push('pauseOpen ' + g.pauseOpen() + ' but a standing Kick plays ' + (plays ? 'the delayed step' : 'the plain step') + ' (keys ' + keys + ', low ' + stringLow + ', connected ' + connected + ', assist ' + assist + ', noPause ' + noPause + ', ' + since + ' ticks since)');
+          if (plays) { opens++; if (stringLow) crouchOpens++; } else shut++;
+        }
+        if (!opens || !shut || !crouchOpens) problems.push('the pauseOpen comparison did not reach both answers (' + opens + ' open, ' + shut + ' shut, ' + crouchOpens + ' after a crouch first step)'); }
       // the same for a style whose pause is on a PP string: Boxing's Cross becomes the Check Hook
       { const r = (k) => { const d = movesDuel('boxer', (it, f, t) => { if (t === 1 || t === k) it.punch = true; }); d.step(k + 40); d.stop(); const s = d.log.filter((l) => l[0] === 'attackStart' && l[1] >= k)[0]; return s && s[3]; };
         if (r(14) !== 'Cross' || r(first + 4) !== 'Check Hook') problems.push('Boxing: ' + r(14) + ' then ' + r(first + 4)); }
@@ -26456,16 +26486,18 @@ const SelfTest = {
     /* "A tap stays a tap": the standing strings of every style, the presses 6 ticks apart, the last one held for `hold` ticks (0 = a plain tap); a digest of the attack starts (tick, move id), the hits and the tank at the end of 160 ticks.
        TAP_DIGESTS are recorded from today's build before P19-15 (the tree at 2f6cf07), one number per standing row of each style's string table, in the table's order. */
     const textDigest = (text) => { let h = 2166136261; for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
-    const tapDigest = (style, keys, hold) => {
-      const lastAt = 1 + 6 * (keys.length - 1), heldKey = keys[keys.length - 1] === 'P' ? 'punchHeld' : 'kickHeld';
+    const CLOSE_1914 = { capoeira: 0.9, muaythai: 1.0, taekwondo: 0.9 };   // the styles whose first kicks do not reach a foe 1.3 m away, so the string would not connect (the foe stands this far away for them)
+    const tapRun = (style, keys, hold, gap, spacing = 6) => {   // { digest, charged }: charged counts the chargeStart events (0 for a tap)
+      const lastAt = 1 + spacing * (keys.length - 1), heldKey = keys[keys.length - 1] === 'P' ? 'punchHeld' : 'kickHeld';
       const d = movesDuel(style, (it, f, t) => {
-        const n = Math.floor((t - 1) / 6);
-        if ((t - 1) % 6 === 0 && n < keys.length) it[keys[n] === 'P' ? 'punch' : 'kick'] = true;
+        const n = Math.floor((t - 1) / spacing);
+        if ((t - 1) % spacing === 0 && n < keys.length) it[keys[n] === 'P' ? 'punch' : 'kick'] = true;
         if (t >= lastAt && t < lastAt + hold) it[heldKey] = true;
-      }, { keepStam: false });
+      }, { keepStam: false, gap });
       d.step(160); d.stop();
-      return textDigest(d.log.filter((l) => l[0] === 'attackStart' || l[0] === 'hit').map((l) => l.slice(0, l[0] === 'hit' ? 5 : 5).join(':')).join(',') + '|' + d.f.stam.toFixed(3));
+      return { digest: textDigest(d.log.filter((l) => l[0] === 'attackStart' || l[0] === 'hit').map((l) => l.slice(0, l[0] === 'hit' ? 5 : 5).join(':')).join(',') + '|' + d.f.stam.toFixed(3)), charged: d.all('chargeStart').length };
     };
+    const tapDigest = (style, keys, hold, gap, spacing) => tapRun(style, keys, hold, gap, spacing).digest;
     const standingKeys = (style) => Object.keys(stringsFor(style, false).stand);
     const TAP_DIGESTS = {   // recorded from the build of 2f6cf07 (before P19-15) with tapDigest(style, keys, 0)
       boxer: [1598787268, 79867248, 2562744434, 860773726, 2884226327, 623745940, 586117147, 2420948692, 186987210, 2884226327, 623745940, 623745940],
@@ -26485,14 +26517,28 @@ const SelfTest = {
       kravmaga: [1598787268, 1141105863, 3692677332, 887697544, 3092766136, 2689907392, 1711601054, 2736439314, 3106218681, 3092766136, 2689907392, 2689907392],
       mma: [1598787268, 633862219, 2562744434, 3170712781, 1998991052, 792240306, 396707437, 1908001972, 3656064546, 1998991052, 792240306, 792240306],
     };
-    test('Moves (P19-14): a tap stays a tap: for every style and every standing string, the last press held for 0 to 12 ticks (let go before the set tick, which is 12 to 17 ticks into the move) and, on a position with no charge, held for 60, gives the attack starts, hits and tank of the build before P19-15 (frozen digests), and a press let go and pressed again is not a hold', () => {
+    /* The chargeable position of each style: the press is held from its tick (hold = the ticks it stays down) and the charge sets TAP_SET_HOLD[style] ticks after the press (the move starts after the previous move and the set tick is the move's last startup tick: 21 to 33 ticks), so a tap is any hold below it.
+       The three styles whose first kicks are long (Capoeira, Muay Thai, Taekwondo) never reach their chargeable string with the presses 6 ticks apart (the third press is dropped from the buffer): their string is pressed 8 ticks apart at the CLOSE_1914 gap, and TAP_CLOSE_1914 is the digest of that run recorded from the build of 2f6cf07. */
+    const TAP_SET_HOLD = { boxer: 29, kickboxer: 31, karateka: 31, wrestler: 22, judoka: 22, brawler: 29, capoeira: 33, wingchun: 29, muaythai: 27, taekwondo: 33, sambo: 31, bjj: 21, hapkido: 29, kali: 29, kravmaga: 27, mma: 31 };
+    const TAP_CLOSE_1914 = { capoeira: { spacing: 8, digest: 3406783628 }, muaythai: { spacing: 8, digest: 1646620926 }, taekwondo: { spacing: 8, digest: 3516106502 } };
+    test('Moves (P19-14): a tap stays a tap: for every style, the chargeable string\'s last press let go on every tick from 0 up to the tick before its charge sets (21 to 33 ticks), and every other standing string held for 0, 3, 12 and 60, gives the attack starts, hits and tank of the build before P19-15 (frozen digests), the charge sets at the frozen tick and not one tick earlier, and a press let go and pressed again is not a hold', () => {
       const problems = [];
       for (const style of MOVE_STYLE_IDS) {
         const keysList = standingKeys(style), want = TAP_DIGESTS[style], chargeAt = MOVE_STYLE[style].charge.at;
         if (!want || want.length !== keysList.length) { problems.push(style + ' has ' + keysList.length + ' strings, the frozen table ' + (want && want.length)); continue; }
         keysList.forEach((keys, i) => {
-          const holds = keys === chargeAt ? [0, 1, 2, 3, 5, 8, 11, 12] : [0, 3, 12, 60];   // the chargeable position's set tick is at least 12 ticks after its press; the other positions never charge, so a long hold is a tap too
-          for (const hold of holds) if (tapDigest(style, keys, hold) !== want[i]) { problems.push(style + ' ' + keys + ' held ' + hold + ' differs from the old build'); break; }
+          if (keys === chargeAt) {
+            const close = TAP_CLOSE_1914[style], gap = close && CLOSE_1914[style], spacing = close && close.spacing, digest = close ? close.digest : want[i];
+            if (close) for (const hold of [0, 3, 12, 60]) if (tapDigest(style, keys, hold) !== want[i]) { problems.push(style + ' ' + keys + ' held ' + hold + ' (presses 6 apart, no charge) differs from the old build'); break; }
+            for (let hold = 0; hold < TAP_SET_HOLD[style]; hold++) {
+              const run = tapRun(style, keys, hold, gap, spacing);
+              if (run.charged) { problems.push(style + ' ' + keys + ' charged with a hold of ' + hold + ' ticks, the set tick is ' + TAP_SET_HOLD[style]); break; }
+              if (run.digest !== digest) { problems.push(style + ' ' + keys + ' held ' + hold + ' differs from the old build'); break; }
+            }
+            if (!tapRun(style, keys, TAP_SET_HOLD[style], gap, spacing).charged) problems.push(style + ' ' + keys + ' does not charge when held ' + TAP_SET_HOLD[style] + ' ticks');
+            return;
+          }
+          for (const hold of [0, 3, 12, 60]) if (tapDigest(style, keys, hold) !== want[i]) { problems.push(style + ' ' + keys + ' held ' + hold + ' differs from the old build'); break; }   // the other positions never charge, so a long hold is a tap too
         });
       }
       // let go and pressed again before the set tick: two presses, never a hold (Kickboxing PPK: the move starts at tick 28, the Kick is let go at 32 and pressed again at 36, down to 90)
@@ -26500,6 +26546,42 @@ const SelfTest = {
         if (d.all('chargeStart').length || d.all('chargeRelease').length) problems.push('a press let go and pressed again charged'); }
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     }, 240000);
+    /* One charge per device through the real input path: the key map, the pad poll or the touch button state set the button, Input.update() reads it every tick and Input.fillIntent() makes the intent of a person (the held flag is never set by hand).
+       KAI (Kickboxing, PPK) presses Punch at ticks 1 and 6, which hit a still foe, then the Kick at tick 14 and keeps it down until `until`. */
+    const deviceCharge = (device, until) => {
+      const d = movesDuel('kickboxer', null);
+      d.m.controllers[0] = { input: Input, human: true, reset() {}, think(f, opp, match, it) {
+        const t = d.now();
+        if (t === 1 || t === 6) device.punch(true); else if (t === 2 || t === 7) device.punch(false);
+        if (t === 14) device.kick(true); else if (t === until) device.kick(false);
+        Input.update(); Input.fillIntent(it, f, opp); return it;
+      } };
+      d.step(130); d.stop();
+      return d;
+    };
+    test('Moves (P19-14): the charge from each device through the real input path: a keyboard key, a gamepad button and the touch button held on the last press of the string set the charge, reach level 1 and release it as the plain move\'s charged row when the button is let go, and the same press let go after a few ticks is a tap that never charges', () => {
+      const problems = [];
+      withDevices(() => {
+        const pad = navigator.getGamepads()[0], punchKey = Keymap.bindings.punch[0], kickKey = Keymap.bindings.kick[0];
+        const devices = {
+          keyboard: { punch: (on) => (on ? Input.onKey({ code: punchKey, repeat: false }) : Input.kb.delete(punchKey)), kick: (on) => (on ? Input.onKey({ code: kickKey, repeat: false }) : Input.kb.delete(kickKey)) },
+          gamepad: { punch: (on) => { pad.buttons[PAD_BUTTONS.punch[0]].pressed = on; }, kick: (on) => { pad.buttons[PAD_BUTTONS.kick[0]].pressed = on; } },
+          touch: { punch: (on) => Input.touchSet('punch', on), kick: (on) => Input.touchSet('kick', on) },
+        };
+        for (const [name, device] of Object.entries(devices)) {
+          Input.reset(); Input.releaseAll();
+          const held = deviceCharge(device, 62);   // the charge sets about 31 ticks after the press (tick 45), level 1 is 12 ticks later: let go at 62
+          const start = held.at('chargeStart', 0), level = held.at('chargeLevel', 0), release = held.at('chargeRelease', 0), hit = held.log.find((l) => l[0] === 'hit' && l[3] === MOVE_STYLE.kickboxer.charge.rows[0].name);
+          if (!start || start[1] < 30 || start[1] > 60) problems.push(name + ' set no charge at the expected tick (' + (start && start[1]) + ')');
+          if (!level || level[3] !== 1 || !release || release[3] !== 1 || release[4] !== MOVE_STYLE.kickboxer.charge.rows[0].name || release[1] < 62 || release[1] > 64) problems.push(name + ' did not release the level 1 row on the let go: ' + JSON.stringify(release));
+          if (!hit || held.all('chargeCancel').length) problems.push(name + ' the released charge did not hit, or a cancel was logged');
+          Input.reset(); Input.releaseAll();
+          const tap = deviceCharge(device, 18);
+          if (tap.all('chargeStart').length) problems.push(name + ' a tap charged');
+        }
+      });
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
     /* Two peers (P19-15): seat 0 (KAI) walks up to seat 1 (MARA), then plays P P K with the Kick held through a whole charge; seat 1 stands still, or (hit) jabs on tick 5 of the charge. hook(net, game) runs once per virtual frame.
        Records, for each peer, fighter 0's charging, chargeTicks, moveTick and moveId (and the match's hitStop) after every simulation step of that peer, and the codes seat 0 sampled with the held flags its device showed. */
     const heldPeers = (cfg, o = {}) => {
@@ -26594,17 +26676,28 @@ const SelfTest = {
         if (!!pick.mv.delayed !== (level !== 'easy') || f.noPause !== (level === 'easy')) problems.push(level + ': the staged pick is ' + pick.mv.name + ' with noPause ' + f.noPause);
         m.dispose();
       }
+      // the controller changes mid-match: an Easy CPU's noPause goes with the CPU, a person who takes the fighter over plays the delayed string, and the CPU that takes it back has it again
+      { const m = mk({ seed: 3, difficulty: 'easy', playerId: 'kai', opponentId: 'mara' }), f = m.fighters[0];
+        m.controllers[0] = new AIController(f.profile, 'easy'); self.place(m, 1.2); self.run(m, 2);
+        if (!f.noPause || !f.cpu) problems.push('the Easy CPU did not set noPause');
+        const person = { human: true, think(fighter, opp, match, it) { return it; }, reset() {} }, easy = m.controllers[0];
+        m.controllers[0] = person; m.readIntents();
+        const stage = () => { f.setState(S.IDLE); f.stateTicks = 12; f.stringKeys = 'P'; f.stringTick = f.age - 1; f.moveConnected = true; };
+        stage(); m.readIntents();
+        if (f.noPause || f.cpu || !f.resolveMove({ btn: 'kick', height: false, tick: f.age + 1 }).mv.delayed || !f.pauseOpen()) problems.push('a person who took the fighter over from an Easy CPU still has noPause (' + f.noPause + ')');
+        m.controllers[0] = easy; stage(); m.readIntents();
+        if (!f.noPause || f.resolveMove({ btn: 'kick', height: false, tick: f.age + 1 }).mv.delayed || f.pauseOpen()) problems.push('the Easy CPU that took the fighter back has no noPause');
+        m.dispose(); }
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     }, 240000);
     const DIFFICULTY_ORDER_1914 = ['easy', 'normal', 'hard', 'expert'];
     /* The 16 coil poses and the 48 rows' strike poses (a charged row at both levels, a delayed row) are checked like every older move: the P17-02 hit check and Calm limits at the real contact tick (a charged row strikes release ticks after the set tick), the P3-11 Sway clearance (a charged row as a strike whose startup is its release ticks), the floor rule, and that nothing drawn reads or writes the simulation. */
-    const CLOSE_1914 = { capoeira: 0.9, muaythai: 1.0, taekwondo: 0.9 };   // the styles whose first kicks do not reach a foe 1.3 m away, so the string would not connect
     const moves1914Rows = (styleId) => { const s = MOVE_STYLE[styleId]; return [{ name: 'level 1', mv: s.charge.rows[0] }, { name: 'level 2', mv: s.charge.rows[1] }, { name: 'delayed', mv: s.delay.row }]; };
     const contactPose = (f, mv) => {   // fighter f at the first active tick of mv (a charged row: its release ticks after the set tick of the plain move)
       f.state = S.ATTACK; f.move = mv; f.mStartup = mv.charged ? mv.startup + mv.release : mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.moveTick = f.mStartup + 1; f.whiffExtra = 0; f.stumbleExtra = 0;
       f.chargeRows = null; f.charging = false; f.chargeTicks = mv.charged ? (mv.charged === 1 ? CHARGE_L1 : CHARGE_L2) : 0; f.holdVis = 0; f.holdBroke = true;
     };
-    test('Moves (P19-14): the 16 coil poses and the 48 strike poses pass the hit check and the Calm limits at the real ticks, the Sway pose clearance and the floor rule; the coil is held at the wind-up\'s lowest point and a tap catches up within 3 ticks; the coil, the tremor and the pause pose are zero outside their ticks, off with Reduced motion where the decision says so; nothing drawn reads or writes the simulation', () => {
+    test('Moves (P19-14): the 16 coil poses and the 48 strike poses pass the hit check and the Calm limits at the real ticks, the Sway pose clearance and the floor rule; the coil is held at the wind-up\'s lowest point and a tap catches up within 3 ticks; the coil, the tremor and the pause pose are zero outside their ticks, off with Reduced motion where the decision says so; nothing drawn reads or writes the simulation; every style plays its charged attack (a held press) and its delayed string (a rest, then the press) from scripted input', () => {
       const problems = [];
       const TIP = { LA: 9, RA: 12, LL: 15, RL: 18 }, FOE_RADIUS = 0.34, LIMIT = { short: 0.1, side: 0.45, band: 0.05, past: 0.15 }, BAND = { H: [1.25, 1.75], M: [0.85, 1.5], L: [0, 0.65] }, KICK_BAND_H = [1.0, 1.75];
       const CALM = [[J.shLx, 2.02], [J.shRx, 2.0], [J.elL, 2.48], [J.elR, 2.63], [J.hipLx, 1.68], [J.hipRx, 1.78], [J.knL, 1.8], [J.knR, 1.8], [J.torsoLean, 1.05], [J.torsoTwist, 1.5], [J.torsoRoll, 0.9], [J.headX, 0.68]];
@@ -26635,6 +26728,10 @@ const SelfTest = {
         for (const ticks of [0, CHARGE_L1, CHARGE_L2, CHARGE_MAX]) { calmCheck(styleId + ' coil ' + ticks, stage(ticks, plain.startup)); coils++; }
         const lowest = Math.ceil(CHARGE_POSE_FROM * plain.startup) + 1, a = stage(-1, lowest), b = stage(-1, lowest + 3);   // held (not yet set): the same pose from the lowest point of the wind-up on
         if (Math.max(...a.map((v, i) => Math.abs(v - b[i]))) > 1e-6) problems.push(styleId + ' the hold is not still from the wind-up\'s lowest point');
+        { stage(-1, lowest); const held = f.pose.slice(); f.chargePose(f.pose);   // the coil belongs to a charge that has set: a press that is held and not charging has none, then a set charge has
+          if (Math.max(...held.map((v, i) => Math.abs(v - f.pose[i]))) > 0) problems.push(styleId + ' a press that is held but not charging has coil');
+          stage(0, plain.startup); const set0 = f.pose.slice(); f.charging = false; f.attackPose(); const uncoiled = Float32Array.from(f.pose);
+          if (!(Math.max(...set0.map((v, i) => Math.abs(v - uncoiled[i]))) > 0.01)) problems.push(styleId + ' a set charge has no coil at its first tick'); }
         const deep = stage(CHARGE_L2, plain.startup), set = stage(0, plain.startup);
         if (!(Math.max(...deep.map((v, i) => Math.abs(v - set[i]))) > 0.05)) problems.push(styleId + ' the coil does not deepen with the charge');
         // a tap: the hold lets go, the pose catches up to the move's own curve within CHARGE_POSE_BLEND ticks
@@ -26660,10 +26757,8 @@ const SelfTest = {
         } finally { Settings.v.reducedMotion = keep; } }
       // the Sway pose clearance of the new strikes: the charged rows as strikes whose startup is their release ticks (4 and 5), the delayed rows as they are, against the full bar of the P3-11 test
       { const base = { head: SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, torso: SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, foot: SWAY_POSE_RADIUS.foot + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP }; const short = [];
-        /* The two High / Mid hand strikes whose fit stopped at 0.02 m or less short of the bar (the fitter of P17-10 on every parameter of the spec, 800 random moves): the Krav Maga Palm Heel Strike is a 6 tick strike with the Jab's reach, the same cause as the named shortSlips of P3-11 for the Krav Maga Jab; each is held at its measured floor minus 0.01. */
-        const exceptions = { 'brawler Sucker Punch': { torso: 0.34 }, 'kravmaga Palm Heel Strike': { head: 0.30, torso: 0.32 } };
         for (const styleId of MOVE_STYLE_IDS) for (const { name, mv } of moves1914Rows(styleId)) {
-          const strike = mv.charged ? Object.assign({}, mv, { startup: mv.release, charged: 0 }) : mv, need = Object.assign({}, base, exceptions[styleId + ' ' + mv.name]);
+          const strike = mv.charged ? Object.assign({}, mv, { startup: mv.release, charged: 0 }) : mv, need = base;   // the full bar for all 48 rows (P19-15 fix round: the two delayed strikes that were held at a floor now clear it)
           for (const t of swayPoseTrials(styleId, strike, [0, 1, -1], [0, SWAY_IFRAME_TICKS - 1])) {
             const miss = t.clear.head < need.head || t.clear.torso < need.torso || (mv.h === 'L' && t.clear.foot < need.foot);
             if (!t.unhurt || t.firstSt !== t.lead || miss) short.push(styleId + ' ' + mv.name + ' ' + name + ' dir ' + t.dir + ' lead ' + t.lead + (t.unhurt ? '' : ' HIT') + ' st ' + t.firstSt + ' ' + t.clear.head.toFixed(2) + '/' + t.clear.torso.toFixed(2) + '/' + t.clear.foot.toFixed(2));
@@ -26687,6 +26782,17 @@ const SelfTest = {
         if (drawn.sum !== plainRun.sum) problems.push(styleId + ' drawing changed the simulation');
         if (drawn.sink > 0.1 + 0.005) problems.push(styleId + ' a charge draws ' + drawn.sink.toFixed(2) + ' m under the floor');
         if (!drawn.charged) problems.push(styleId + ' the scripted hold never released a charge (' + delay + ')');
+        // the delayed string of the style from scripted input: the first step, stand still, then the second press once the pause window is open
+        const dl = MOVE_STYLE[styleId].delay;
+        let seenAttack = false, pressedAt = 0;
+        const rest = movesDuel(styleId, (it, f, t) => {
+          if (t === 1) it[dl.at[0] === 'P' ? 'punch' : 'kick'] = true;
+          if (f.state === S.ATTACK) seenAttack = true;
+          if (seenAttack && !pressedAt && f.state === S.IDLE && f.stateTicks + 1 >= PAUSE_STILL_TICKS) { it[dl.at[1] === 'P' ? 'punch' : 'kick'] = true; pressedAt = t; }
+        }, { gap: CLOSE_1914[styleId] || 1.3 });
+        rest.step(120); rest.stop();
+        const starts = rest.log.filter((l) => l[0] === 'attackStart' && l[2] === 0), second = starts[1];
+        if (!pressedAt || !second || second[3] !== dl.row.name || second[4] !== dl.row.id) problems.push(styleId + ' the second press after a rest played ' + (second ? second[3] : 'nothing') + ', want ' + dl.row.name + ' (pressed at ' + pressedAt + ')');
       }
       if (strikes !== 48 || coils !== 64) problems.push('checked ' + strikes + ' strike poses and ' + coils + ' coil poses');
       return problems.length ? problems.length + ': ' + problems.slice(0, 6).join('; ') : true;
@@ -26758,6 +26864,24 @@ const SelfTest = {
         g.stateTicks = PAUSE_STILL_TICKS; g.age = 31; g.stringKeys = ''; g.animate(1 / 60); g.stringKeys = 'P'; g.state = S.WALK; g.animate(1 / 60);
         off();
         if (heard.join() !== String(PAUSE_STILL_TICKS)) problems.push('the pause cue came at ticks ' + heard.join() + ', want ' + PAUSE_STILL_TICKS + ' once'); }
+      // at 30 fps a frame holds two simulation ticks: the frames never show tick 10 itself, the cue still comes once at the first frame in the window, and again for the next string; and a real match drawn that way or not at all has one checksum (the cue is draw and sound state)
+      { const heard = [], off = Events.on('pauseOpen', (e) => heard.push(e.f.stateTicks)), g = new Fighter(ROSTER_BY_ID.kai, 0);
+        g.state = S.IDLE; g.age = 30; g.stringKeys = 'P'; g.stringTick = 28; g.moveConnected = true;
+        for (const ticks of [PAUSE_STILL_TICKS - 1, PAUSE_STILL_TICKS + 1, PAUSE_STILL_TICKS + 3]) { g.stateTicks = ticks; g.animate(1 / 60); }   // the frames show 9, 11, 13: tick 10 itself is never drawn
+        const skipped = heard.slice();
+        for (const ticks of [PAUSE_STILL_TICKS - 2, PAUSE_STILL_TICKS, PAUSE_STILL_TICKS + 2]) { g.stateTicks = ticks; g.animate(1 / 60); }   // then the even steps 8, 10, 12 of the same string: no second cue
+        const afterEven = heard.length;
+        g.stringTick = 29; g.age = 31; g.stateTicks = PAUSE_STILL_TICKS + 1; g.animate(1 / 60); g.animate(1 / 60);   // a new string press: a new cue, once
+        if (skipped.join() !== String(PAUSE_STILL_TICKS + 1) || afterEven !== 1 || heard.length !== 2) problems.push('the cue came at ticks ' + skipped.join() + ' over frames that skip tick 10 (want ' + (PAUSE_STILL_TICKS + 1) + '), ' + afterEven + ' times for the whole string and ' + heard.length + ' with the next string');
+        heard.length = 0;
+        // a real match played one tick and two ticks a frame (the match draws each tick it plays): one cue for the one string
+        const run = (frameTicks) => { const heardHere = []; const d = movesDuel('kickboxer', (it, f, t) => { if (t === 1) it.punch = true; }); const offHere = Events.on('pauseOpen', (e) => { if (e.f === d.f) heardHere.push(e.f.stateTicks); });
+          for (let frame = 0; frame < 70 / frameTicks; frame++) d.step(frameTicks);
+          offHere(); const sum = matchChecksum(d.m), cue = d.f.pauseCueFor; d.f.pauseCueFor = cue + 7; const moved = matchChecksum(d.m); d.stop(); return { sum, moved, heard: heardHere }; };
+        const one = run(1), two = run(2);
+        if (one.heard.join() !== String(PAUSE_STILL_TICKS) || two.heard.join() !== String(PAUSE_STILL_TICKS)) problems.push('the pause cue over a real match came at ticks ' + one.heard.join('/') + ' (1 tick a frame) and ' + two.heard.join('/') + ' (2 ticks a frame), want ' + PAUSE_STILL_TICKS + ' once');
+        if (one.sum !== one.moved || two.sum !== two.moved) problems.push('the cue state is in the checksum');
+        off(); }
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Moves (P19-14): Training and help: the HOLD line (-, CHARGE n / next  Ln, PAUSE n with OPEN from tick 10), a charging dummy, the Move list rows with and without an item in hand and the Start here step 5, every number read from the rows, the two help sentences, the two tips (false in a fresh save, the style\'s own button, never in Training, a benchmark or a replay, an old save keeps its other tips), and the frame data of a released charge', () => {

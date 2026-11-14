@@ -5968,7 +5968,7 @@ const ANIM_SPECS = {
   ura: ['mawashi', { leg: [0.3, 0, 0.2], twist: -0.3, lean: -0.1, drop: -0.4 }],
   duckUnder: ['trip', { drop: 0.5, lean: 0.4, arm: [0.2, 0, 0.6], fwd: 0.8, front: [0, 0, -0.4], pitch: 0.1 }],
   sleeveDrag: ['collar:H', { arm: [-0.4, 0, 0.1], twist: 0.2 }],
-  sucker: ['haymaker:cross', { arm: [-0.053, -0.05, 0.483], drop: -0.048, lean: 0.154, twist: -0.098, fwd: 0.001 }],
+  sucker: ['haymaker:cross', { arm: [-0.033, -0.05, 0.483], drop: -0.248, twist: -0.098, base: [0.02, -0.2, 0.1], brol: -0.03, fwd: 0.001, lean: 0.154 }],
   rabo: ['rasteira:low_kick', { yaw: 0.8, drop: 0.8, leg: [0.1, -0.2, 0.4], base: [-0.3, 0, 0.2], fwd: 0.2 }],
   lapSau: ['chain', { arm: [-0.2, -0.05, 0.4], twist: 0.35, off: [0.1, 0, -0.1], fwd: -0.2 }],
   spinElbow: ['elbowH', { twist: 0.1, roll: 0.5, yaw: 0.6, arm: [0, 0.4, 0.2], wind: 1.3 }],
@@ -5977,7 +5977,7 @@ const ANIM_SPECS = {
   collarDrag: ['collar:H', { drop: -0.3, lean: 0.25, arm: [0.1, -0.4, 1.1], fwd: 0.3 }],
   whip: ['palm:M', { arm: [0, 0.2, 0.4], twist: -0.3, roll: 0.3, lean: -0.2 }],
   abanico: ['angle', { arm: [-0.4, 0.6, 0], twist: 0.3, roll: 0.3, wind: 1.3, lean: 0.2 }],
-  palmHeel: ['parry', { lean: 0.15, arm: [0.2, 0.4, 0.8], sw: [0.2, 0, 0.2], base: [0.2, 0, -0.15], rdrop: -0.2 }],
+  palmHeel: ['angle', { lean: -0.05, arm: [0, 0.6, 1.4], sw: [0, 0, 0.6], base: [0.2, 0, -0.15], front: [0, 0, 0.2], twist: 0.2, roll: -0.2, fwd: -0.2, drop: 0.2, yaw: -0.2 }],
   switchKnee: ['knee', { leg: [0.2, -0.2, 0.2], lean: 0.1, fwd: 0.4 }],
 };
 const ANIM_BASE = {};
@@ -6660,7 +6660,7 @@ class Fighter {
     this.buffer = null; this.bufferNext = null; this.throwPressed = false;
     this.resetString();
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.stumbleExtra = 0; this.stumbleCueAt = -STUMBLE_CUE_GAP; this.chainCount = 0; this.exhaustedMove = false;
-    this.holdVis = 0; this.pauseVis = 0; this.pauseCueAt = -1; this.noPause = false; this.chargeRows = null; this.holdBtn = null; this.charging = false; this.chargeTicks = 0; this.holdBroke = false; this.chargeLevel = 0; // P19-15: holdVis, pauseVis and pauseCueAt are drawing only (the blends of the charge hold and the pause pose, the tick the pause cue last played); noPause = the CPU's Easy rule (a press in the pause window plays the plain step); chargeRows = the two charged rows armed by this press (null = no charge this move), holdBtn = the button held ('punch' / 'kick'), holdBroke = it was let go before the set tick, chargeLevel = the level the last release struck at
+    this.holdVis = 0; this.pauseVis = 0; this.pauseCueFor = -1; /* the stringTick whose pause cue has played: draw and sound only, not in matchChecksum */ this.noPause = false; this.chargeRows = null; this.holdBtn = null; this.charging = false; this.chargeTicks = 0; this.holdBroke = false; this.chargeLevel = 0; // P19-15: holdVis, pauseVis and pauseCueAt are drawing only (the blends of the charge hold and the pause pose, the tick the pause cue last played); noPause = the CPU's Easy rule (a press in the pause window plays the plain step); chargeRows = the two charged rows armed by this press (null = no charge this move), holdBtn = the button held ('punch' / 'kick'), holdBroke = it was let go before the set tick, chargeLevel = the level the last release struck at
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.gotDamage = 0; this.comboFoe = null; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0; // gotHits / gotDamage / comboFoe: the combo this fighter is taking and whose it is (per attacker)
     this.hitKind = 'mid'; this.reactDur = 10; this.groundHits = 0; this.quickRise = false;
@@ -7509,7 +7509,7 @@ class Fighter {
       for (const streak of STANCE_STREAKS) FX.trail(this.x - this.fwdX * streak.back, this.y + streak.up, this.z - this.fwdZ * streak.back, CUE_COLOR.stance, STANCE_STREAK_SIZE);
     }
     if (dt > 0 && this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS && this.pauseOpen()) { // P19-15: the pause window is open: a short tick at its first tick (the person's own fighter hears it) and a faint light at the tip of the delayed move's limb (not with Reduced motion or Effects Low)
-      if (this.stateTicks === PAUSE_STILL_TICKS && this.pauseCueAt !== this.age) { this.pauseCueAt = this.age; Events.emit('pauseOpen', { f: this }); }
+      if (this.pauseCueFor !== this.stringTick) { this.pauseCueFor = this.stringTick; Events.emit('pauseOpen', { f: this }); } // once for this string, at the first drawn frame in the window: at 30 fps a frame holds two simulation ticks and may never show tick 10 itself
       if (!Settings.v.reducedMotion && Settings.v.effects !== 'low' && this.age % STANCE_STREAK_EVERY === 0) {
         const tip = STRIKE_TIP[MOVE_STYLE[this.rowStyle].delay.row.limb];
         FX.trail(this.pts[tip], this.pts[tip + 1], this.pts[tip + 2], CUE_COLOR.stance, STANCE_STREAK_SIZE);
@@ -7793,10 +7793,10 @@ class Fighter {
   }
   /* P19-15 (drawing only, reading the simulation's fields and changing none): the string of a delayed step is open and the fighter stands still: the keys so far are the delayed position without its last press, the window has not closed and the first move connected (the same test pickString makes).
      pauseCueOn: from PAUSE_CUE_LEAD ticks before the window opens; both fighters can read the pose, so a pause is a feint and not a secret. The Training line reads pauseOpen. */
-  pauseOpen() {
-    const style = this.item ? null : MOVE_STYLE[this.rowStyle];
-    if (!style || this.stringLow || this.stringKeys.length !== style.delay.at.length - 1 || !style.delay.at.startsWith(this.stringKeys) || this.stringKeys === '') return false;
-    return this.stringKeys.length < this.maxSteps && (this.moveConnected || this.assist) && this.age - this.stringTick <= (this.assist ? ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW : ATTACK_STRING_TICKS);
+  pauseOpen() { // exactly pickString's test for the next STANDING press (a crouch first step does not close it: pickString's stillLow is false for a standing press, and a press with Crouch held never pauses); the press is read on the next update, hence age + 1 as in pressMove
+    const style = this.item || this.noPause ? null : MOVE_STYLE[this.rowStyle];
+    if (!style || this.stringKeys.length !== style.delay.at.length - 1 || !style.delay.at.startsWith(this.stringKeys) || this.stringKeys === '' || !this.strings.stand[style.delay.at]) return false;
+    return this.stringKeys.length < this.maxSteps && (this.moveConnected || this.assist) && this.age + 1 - this.stringTick <= (this.assist ? ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW : ATTACK_STRING_TICKS);
   }
   pauseCueOn() { return this.state === S.IDLE && this.stateTicks >= PAUSE_STILL_TICKS - PAUSE_CUE_LEAD && this.pauseOpen(); }
   // Once a frame, before the pose: holdVis (a chargeable press still held past the lowest point of its wind-up stays there; let go, a tap's pose catches up over CHARGE_POSE_BLEND ticks) and pauseVis (the pause pose)
@@ -7821,7 +7821,7 @@ class Fighter {
     const mv = this.move;
     if (!mv || (this.holdVis <= 0 && !mv.charged)) return;
     const grown = Math.min(1, CHARGE_COIL_START + this.chargeTicks / CHARGE_L2);
-    const share = mv.charged ? (1 - smoothstep((this.moveTick - (this.mStartup - mv.release)) / mv.release)) * grown : this.holdVis * (this.charging ? grown : CHARGE_COIL_START);
+    const share = mv.charged ? (1 - smoothstep((this.moveTick - (this.mStartup - mv.release)) / mv.release)) * grown : this.holdVis * (this.charging ? grown : 0); // the coil is for a charge that has set; a press that is held but has not set one yet shows only the held draw-back (the decision: while charging the draw-back deepens)
     if (share <= 0) return;
     const styleId = this.motion.styleId, spec = CHARGE_COIL_STYLE[styleId] || CHARGE_COIL_FAMILY[MOVE_STYLE[styleId].family];
     const to = POSE_SCRATCH;
@@ -11705,7 +11705,7 @@ class MatchSim {
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
       const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null; // the string this step belongs to, up to and including this step
-      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id) => moveFor(e.f.rowStyle, id).name).join(' > ') : '' });
+      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id, at) => (e.mv.delayed && at === row.length - 1 ? e.mv.name : moveFor(e.f.rowStyle, id).name)).join(' > ') : '' }); // a delayed step reads its own name, not the plain step's (P19-15)
     });
     on('chargeRelease', (e) => { // P19-15: the released charge is a new strike with its own frame data (the extra stamina is in its note)
       if (e.f.index !== 0) return;
@@ -12714,6 +12714,7 @@ class MatchSim {
       else {
         const controller = this.controllers[i];
         f.cpu = controller instanceof AIController || controller.ai instanceof AIController; // whoever steers it now (a swapped-in script or person pays the chain price); a Training dummy in an AI mode steers through an inner AIController
+        if (!f.cpu) f.noPause = false; // the Easy CPU's noPause (set by its own controller every tick) does not stay on a fighter that a person or a script has taken over (P19-15)
         this.controllers[i].think(f, f.target, this, this.intents[i]);
         if (this.controllers[i].human) { this.updateLock(f, this.intents[i]); this.readAssist(this.intents[i]); }
       }
@@ -21441,7 +21442,7 @@ function testApi() {
     PICKUP_AROUND, PICKUP_UP, PICKUP_DOWN, SETDOWN_TICKS, ITEM_CUE_RGB, ITEM_CUE_SIZE, AI_TOSS_REST_TICKS, AI_TOSS_OPEN_TICKS, BODY_DAMAGE_BASE, BODY_DAMAGE_PER_POWER, BODY_DOWN_SHARE, BODY_HIT_BAND, BODY_KNOCKDOWN_POWER, BODY_STAGGER_TICKS, BODY_WEIGHT_BASE, BODY_WEIGHT_STEP,
     ATTACK_NO_REGEN, GUARD_NO_REGEN, STAMINA_EDGE_NONE, PLAYER_STAMINA_EDGE, STAMINA_PRICE_K, CHAIN_PRICE_K, STAMINA_REGEN_K, REGEN_SHARE, STAMINA_BANDS, EMPTY_MOVE_DAMAGE, EMPTY_MOVE_STARTUP, STUMBLE_RECOVERY, STUMBLE_CUE_GAP, stamPrice, LOW_STAMINA, RUN_DRAIN, JUMP_COST, BRAWL_ATTACK_TOKENS, TOKEN_GRANT_GAP_TICKS, TOKEN_REST_TICKS,
     ROUND_END_TICKS, NET_SKIP_BITS, NET_INPUT_DELAY, NET_DELAY_MIN, NET_DELAY_MAX, NET_FRAME_MS, NET_REDUNDANCY, NET_CHECK_EVERY, NET_WAIT_SHOW_MS, NET_DROP_MS, NET_PING_SAMPLES, NET_PACKET_HEAD,
-    mergePresses, NET_NEED_AFTER_MS, NET_FILL_MAX, NET_HELD_SCALE, NET_CODE_MAX, NET_INPUT_BYTES, NET_PACKET_HEAD, CHARGE_MIN_STARTUP, CHARGE_L1, CHARGE_L2, CHARGE_MAX, CHARGE_RELEASE, CHARGE_DMG, CHARGE_EXTRA, CHARGE_REACH, CHARGE_STUN, CHARGE_PUSH, PAUSE_STILL_TICKS, STYLE_NEW_MOVES, CHARGE_COIL_FAMILY, CHARGE_COIL_STYLE, CHARGE_CANCEL_HELP, PAUSE_HELP, COACH_PAUSE_STRINGS, holdText, CHARGE_POSE_FROM, CHARGE_COIL_DEEPEN, CHARGE_POSE_BLEND, CHARGE_TREMOR, CHARGE_RING_SEGMENTS, PAUSE_HANDS, PAUSE_LEAN,
+    mergePresses, NET_NEED_AFTER_MS, NET_FILL_MAX, NET_HELD_SCALE, NET_CODE_MAX, NET_INPUT_BYTES, CHARGE_MIN_STARTUP, CHARGE_L1, CHARGE_L2, CHARGE_MAX, CHARGE_RELEASE, CHARGE_DMG, CHARGE_EXTRA, CHARGE_REACH, CHARGE_STUN, CHARGE_PUSH, PAUSE_STILL_TICKS, STYLE_NEW_MOVES, CHARGE_COIL_FAMILY, CHARGE_COIL_STYLE, CHARGE_CANCEL_HELP, PAUSE_HELP, COACH_PAUSE_STRINGS, holdText, CHARGE_POSE_FROM, CHARGE_COIL_DEEPEN, CHARGE_POSE_BLEND, CHARGE_TREMOR, CHARGE_RING_SEGMENTS, PAUSE_HANDS, PAUSE_LEAN,
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
