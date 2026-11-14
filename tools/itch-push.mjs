@@ -2,7 +2,7 @@
 //
 // Usage (from the repo root):
 //   node tools/itch-push.mjs <game|all> [--dry-run]
-//   games: breakpoint, ironhorizon, classtimekiller, fingerlickinmusic
+//   games: breakpoint, ironhorizon, classtimekiller, fingerlickinmusic, mizamon
 //
 // It uploads the last pushed commit (origin/main), never the working copy, so
 // unpushed or unfinished work cannot reach players. Each upload folder holds the
@@ -25,6 +25,7 @@ const GAMES = {
   ironhorizon: { folder: 'Mech Flight Sim', file: 'Mech Flight Sim/IronHorizon.html', slug: 'ironhorizon' },
   classtimekiller: { folder: 'ClassTimeKiller', file: 'ClassTimeKiller/ClassTimeKiller.html', slug: 'class-time-killer' },
   fingerlickinmusic: { folder: 'Finger Lickin Music', file: 'Finger Lickin Music/FingerLickinMusic.html', slug: 'finger-licking-music' },
+  mizamon: { folder: 'Mizamon', file: 'Mizamon/Mizamon.html', slug: 'mizamon' },
 };
 const UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
 
