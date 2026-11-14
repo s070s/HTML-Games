@@ -8,9 +8,19 @@ Every decision below has its reason. Numbers are the ones in `Mizamon.html`; `to
 - **Engine names must not clash with rules names.** The first version had an engine `say()` (dialog) overriding the rules' battle logger; the rules logger is now `logMsg`. A headless test would not have caught it, the in-page self-test did.
 - **Screens are a stack of layers** (overworld, dialog, choice, party, battle...). Only the top layer gets input. Flows are `async` functions that `await` a layer, so scripted scenes read top to bottom.
 - **Battle = rules + playback.** `playTurn()` changes the state and returns events; `BattleLayer` plays them (text, HP bars, animation). The same events drive the tests, the balance script and the screen, so a battle on screen is exactly the seeded battle the tests replay.
-- **No per-frame allocation in play.** Sprites and tiles are drawn once to offscreen canvases. `T()` caches every text without variables; texts with numbers are built when a value changes, not per frame. Typewriter text slices a string only while it is typing. The gamepad is polled only when a pad is connected (`getGamepads()` allocates).
-- **Scaling.** Logical screen 240x160 (15x10 tiles of 16 px). The backing canvas is sized in device pixels so text stays crisp. With room, the scale is a whole number (desktop 1280x720 = x4); on small screens it is fractional so a 390 px phone still gets the full width. Phone portrait: canvas on top, controls below. Phone landscape: controls overlay the two sides. The page never scrolls (`position: fixed`, `touch-action: none`).
+- **No per-frame allocation in play.** Sprites and tiles are drawn once to offscreen canvases. `T()` caches every text without variables; texts with numbers are built when a value changes, not per frame. Typewriter text slices a string only while it is typing. The gamepad is polled only when a pad is connected (`getGamepads()` allocates), and its state object is reused. The sky gradients (battle, one per theme; title) are created once. The list of visible NPCs is rebuilt only when a story flag was added or the map changed. The Summary screen cuts its ability text once, not per frame.
+- **Scaling.** Logical screen 240x160 (15x10 tiles of 16 px). The backing canvas is sized in device pixels so text stays crisp. With room, the scale is a whole number (desktop 1280x720 = x4); on small screens it is fractional so a 390 px phone still gets the full width. Phone portrait: canvas on top, controls below. Phone landscape: the two button pads stand in the side margins, never over the game: the scale is `min((width - 2 * 160) / 240, height / 160)` (160 CSS px is what the d-pad needs; at 667 x 325 the game is 348 px wide with 160 px on each side). The page never scrolls (`position: fixed`, `touch-action: none`).
 - **Touch controls** show on touch devices (`pointer: coarse`, touch points) or when forced (`MIZAMON.forceTouch(true)`).
+- **Reduced motion** starts from the operating system setting (`prefers-reduced-motion: reduce`) when nothing was saved; the Options screen overrides it and the choice is remembered. With it on, a fainting creature disappears at once (no slide and fade), as hits, attacks and flashes already did.
+- **Battle screen layout (decision).** The first build used the classic arrangement of its genre (foe panel top right, player panel bottom left, a message box with a 2 x 2 command box). It is replaced by an original television-debate screen, 240 x 160 logical pixels:
+  - the two fighters stand on wooden podiums that face each other at the same height (player left, opponent right), 64 px sprites;
+  - above each podium a poll panel (the "δημοσκόπηση", i.e. the HP bar, with name, level and, for the player, the numbers; the status tag sits in the same panel); both panels are at the same height at the top of the screen;
+  - between the podiums and the bottom, a row of four command tabs: Ομιλία (Speech: the moves), Τσάντα (Bag), Κόμμα (Party: switch creature), Διαφυγή (Flee). Left/right (or up/down) move along the row, A confirms. The tabs are dimmed while a message plays;
+  - the whole bottom of the screen is a news-ticker strip (a red "ΕΙΔΗΣΕΙΣ / NEWS" tag on the left, navy band, white text, three lines). Messages, the prompt ("το μικρόφωνο είναι δικό σου") and the move list (a vertical list, up/down) all appear there. While a move is highlighted, the tab row shows its type, power, accuracy and category instead;
+  - a trainer's portrait stands on the opponent's podium until the first creature is sent out; the recruit envelope flies from podium to podium.
+  It stays readable at 390 x 844 (scale 1.6) and 844 x 390 (scale 2) because every text is the 8 px game font on large flat bands, and it is driven only by the d-pad and A/B, so touch needs nothing extra.
+- **Battle texts are in the game's own voice.** Every line that the first build took from the common phrasing of other monster games ("What will X do?", "X used Y!", "Go, X!", "come back", "critical hit", "super effective", "not very effective", "Wild/Foe X", the learn-move, evolution and black-out lines) was rewritten in both languages as political satire: "X decided: Y!", "X was transferred back to the bench.", "Double whammy: the favour landed!", "It did not stick: nearly untouched.", "The poll numbers plunge!", "Cabinet reshuffle! X is changing portfolio...", "New minister: Y. Sworn in.", moves are "fired" or "shelved", level-ups are "promotions". Wild creatures are "independent" (ανεξάρτητος), opponents "Opposition X" in English. A test keeps a list of the old phrasings out of the strings table.
+- **A battle that throws an exception ends as "ran"**: no flags, no medal, no credits, no prize; the error is logged to the console.
 
 ## 2. Rules: numbers and formulas
 ### Stats
@@ -21,7 +31,7 @@ Every decision below has its reason. Numbers are the ones in `Mizamon.html`; `to
 ### Damage (own formula)
 `damage = floor( floor(power * atk / def * (attackerLevel + 4) / 90) * STAB * typeMultiplier * crit * roll )`, minimum 1.
 - STAB x1.5 (move type equals the attacker's type), type multiplier 2 / 1 / 0.5, critical x1.5 with chance 1/16, roll 0.85-1.00 (16 steps).
-- `DAMAGE_DIVISOR = 90` was tuned so an ordinary same-level exchange takes a creature to about 30 % HP per neutral STAB hit. Measured: an average 1v1 wild fight (starter against a route creature, 0-3 levels lower) lasts 3.4 turns; the whole boss fight (3 creatures) 14-20 turns, about 5-6 turns per creature.
+- `DAMAGE_DIVISOR = 90` was tuned so an ordinary same-level exchange takes a creature to about 30 % HP per neutral STAB hit. Measured: an average 1v1 wild fight (starter against a route creature, 0-3 levels lower) lasts 4.0 turns; the whole boss fight (3 creatures) 15-22 turns, about 5-7 turns per creature.
 - Fixed numbers pinned by a test: Κομματάκι L10 (rat 27) with Ψηφοδέλτιο against Φακελάκης L10 (rde 20, HP 39): base 12, x1.5 STAB x2 = 36; with a critical 54; lowest roll 30.
 - Accuracy: `chance = move accuracy * accuracyMultiplier(stage)`; "never misses" moves skip the roll.
 
@@ -34,11 +44,12 @@ Switching, items, recruiting and running go before moves (player first). Moves: 
 | Υπό Έρευνα | attack and rhetoric x0.75; archived after 5 turns |
 | Σκάνδαλο | loses 1/8 max HP at the end of each turn; ends when switched out |
 | Απεργία | 50 % to do nothing; 3 turns |
-| Λαδωμένος | 30 % to pocket the money instead of attacking (the foe heals 1/16); 4 turns |
+| Λαδωμένος | 30 % to pocket the money instead of attacking (the foe heals 1/16); 4 turns. Inflicted by Offshore Μεταφορά (25 %) |
 Statuses clear after every battle (the MVP has no overworld poison). Φραπές cures any of the four, because Crisis blues is not in the MVP.
 
 ### Abilities (the 14 used)
 Ασυλία (Κομματάκι), Συνδικαλιστής (Κουλουράκι), Θεία Χάρη (Ψαλτάκι; the Sunday bonus uses the real clock, passed into the battle as `sunday` so tests stay deterministic), Ρουσφέτι (Φακελάκης), Αφορολόγητο (Φακελάρχης; +50 % prize money), Παλιά Δόξα (Λαϊκατζής), Viral (Story-ούλα), Ούτε Γάτα Ούτε Ζημιά (Τρολόσαυρος), Γραφειοκρατία (Δημοσιοϋπαλληλάκι; a status starts one turn late), Βύσμα (Εφοράκι; 20 % to ignore a hit from a higher level), Μπάχαλο (Φραπεδόρος), Κουμπαριά (Γιαγιάκα), Ντεσιμπέλ (Σπυράδωνις), Επιτελικό Κράτος (Μιζοτάκης).
+- Every status can be inflicted by some move a creature learns (a test checks it); Λαδωμένος comes from Offshore Μεταφορά (25 %), so the recruit bonus for a bribed creature is reachable.
 - Changes against the seed text, each because a 1v1 MVP has no allies on the field: Επιτελικό Κράτος gives +1 priority to the holder's own first move; Κουμπαριά counts fainted same-type allies of the whole team; Ρουσφέτι heals the next creature sent in by the holder's side.
 
 ### Moves (41)
@@ -49,10 +60,12 @@ All 7 types have 4-13 moves (the minimum asked was 3). Simplifications of the se
 - Προεκλογική Υπόσχεση: heals 25 % now, the promise is broken two turns later (lose 1/8).
 - Τηλεπώληση and Πρόγραμμα Ανάκαμψης move money: the player gains money when the player's creature uses them, loses it when the opponent's does.
 - No PP: moves are unlimited. It keeps the 3-6 turn battles simple and removes a menu.
-- A creature knows 4 moves at most; at higher levels the newest four are kept.
+- A creature knows 4 moves at most. When a species has learned more by a level, it keeps its basic attack (the first damaging move of its own type) plus the newest three, so no creature loses its main attack (the boss's Φακελάρχης L13 keeps Offshore Μεταφορά: Offshore, Lobbying, Υπερκοστολόγηση, Φραπές). Learning during play still asks which move to forget.
 
 ### Opponent AI (seeded)
 Each move scores by expected damage as a share of the foe's current HP (type, STAB, accuracy, hits), +30 for a kill, small fixed values for status and setup moves (heal only below 35 % HP and not twice in a row), x(0.85-1.15) noise, and 12 % of turns a random move. Trainers use their item once (below 35 % HP, 70 % chance per turn). The same AI plays the player side in the simulations.
+- **Pointless moves score 0** (`USELESS_MOVE_SCORE`, below even a 1-damage hit): a setup move whose stat is already at +2 or more (Τεχνοκράτης would otherwise climb to +6 and make Μιζοτάκης untouchable), a skip-turn move used the turn before (Ψηφιακό Ραντεβού), a heal at full HP. The 12 % random pick never takes a pointless move.
+- **Overtime (stalemate breaker).** From turn 120 both active creatures lose `maxHP * (turns over) / 32` at the end of every turn (the show runs over time; "οι δημοσκοπήσεις πέφτουν και για τους δύο"). Two defensive healers (two Μιζοτάκης, or one against a creature that cannot hurt it) could otherwise heal forever. A seeded sample of 1,000 random 3 v 3 battles never reaches the 400-turn simulation limit; about 2.4 % of them need overtime.
 
 ### Recruiting
 `chance = rate/150 * (1 + 1.5 * (1 - hp/maxHP)) * statusFactor * tier * levelFactor`, clamped to 0.03-0.95.
@@ -88,25 +101,25 @@ Trainer prize `lastCreatureLevel * 30` (+200 for the boss, +400 for the televisi
 ## 5. Language
 - One table `STRINGS` holds every text as `[Greek, English]`. `{name}` is the player's name; `{m|f}` picks masculine or feminine Greek (used where the player is addressed, e.g. "Είσαι έτοιμος/έτοιμη;"). Both the in-page self-test and the headless tests check that every key has both languages with the same placeholders, and that every key used by the code exists (including the keys built from data).
 - Creature and move names are Greek in both languages. English mode adds a gloss in the move text ("Ballot: ...") and the Dossier ("Κομματάκι = Little Party Kid"). Types, statuses, abilities, items and stats are translated.
-- Battle sentences are built from events at play time, so switching language changes them immediately. Greek names get the right article and "άγριος/αντίπαλος" by the species' grammatical gender.
+- Battle sentences are built from events at play time, so switching language changes them immediately. Greek names get the right article and "ανεξάρτητος/αντίπαλος" by the species' grammatical gender. Wherever the player is addressed with a gendered Greek form it uses the `{man|woman}` choice ("{διάσημος|διάσημη}", "{μόνος|μόνη}", "{ανιψιέ|ανιψιά}", "{φίλε|φίλη}"); a test finds masculine-only forms left outside a choice.
 
 ## 6. Save
 - Key `mizamon.v1.save`, object `{ version: 1, player, party, money, bag, dex, flags, lastHeal, options, rngState, starter }`. Options also live under `mizamon.v1.options` so the language is remembered before a first save.
-- `migrateSave()` accepts version 0 (flat prototype shape with `team`, `items`, `girl`, `drachmas`), version 1, rejects newer versions, drops unknown creatures and items, clamps levels and falls back to the start position when a place is unknown. Every storage call is in `try/catch` with an in-memory fallback.
+- `migrateSave()` accepts version 0 (flat prototype shape with `team`, `items`, `girl`, `drachmas`; its story flags are rebuilt: a team means `gotStarter`, a position outside the lab means the rival was met, `rival1` and `t_rival1`), version 1, rejects newer versions, drops unknown creatures and items, clamps levels and falls back to the start position when a place is unknown. Every storage call is in `try/catch` with an in-memory fallback.
 - The seeded RNG state is saved so a loaded game continues the same random sequence.
 
 ## 7. Tests and balance
-- `node Mizamon/tools/run-tests.mjs`: 22 groups (type chart against the seed table, damage numbers, abilities, statuses, recruit odds, level-up and move learning, AI, a 1,000-battle seeded replay twice with equal checksums, encounters, reachability, data references, strings, save migration, prize rules). Prints `PASS n / m`, exit code 1 on failure.
-- `window.MIZAMON.selfTest()` (browser): rules smoke tests, all 14 sprites drawn, title -> notice -> new game reaches the overworld, walking, a scripted battle won through the real menus, recruit success path through the Bag menu, save round trip, language toggle, touch controls. Test hooks: `MIZAMON.quickStart({...})`, `press`, `pause`, `pumpUntil`, `forceTouch`.
+- `node Mizamon/tools/run-tests.mjs`: 34 groups (type chart against the seed table, damage numbers, every ability with a control case (Ασυλία, Συνδικαλιστής, Γραφειοκρατία, Ούτε Γάτα Ούτε Ζημιά, Βύσμα with its 12-28 % bound, Επιτελικό Κράτος, Viral, Ρουσφέτι, Κουμπαριά), the four statuses with exact turn counts, every status inflictable, recruit odds, level-up, the kept basic attack, AI scoring and no-stall checks, a 1,000-battle seeded replay twice with equal checksums, encounters, reachability, data references, strings (both languages, no copied phrasing, gendered forms), save migration with flags, prize rules, and source checks of the engine: a broken battle returns "ran", Reduced motion follows the OS). Each rule test was checked by removing the feature and watching it fail. Prints `PASS n / m`, exit code 1 on failure.
+- `window.MIZAMON.selfTest()` (browser): rules smoke tests, all 14 sprites drawn, title -> notice -> new game reaches the overworld, walking, a scripted battle won through the real menus (the commands are found by their labels, the test also checks the four labels), recruit success path through the Bag command, landscape touch pads that do not overlap the game, save round trip, language toggle, touch controls. Test hooks: `MIZAMON.quickStart({...})`, `press`, `pause`, `pumpUntil`, `forceTouch`.
 - `node Mizamon/tools/balance.mjs [runs]` simulates the boss fight with an AI-played player team (one random starter plus five random route creatures, two Σουβλάκι). The player AI does not switch cleverly and never grinds smartly, so a human does a little better. 500 runs per row:
 
 | Player level | 6 creatures at that level | 6 creatures, 2 levels behind | only 3 creatures, no items |
 |---|---|---|---|
-| 10 | 35.6 % | 4.4 % | 1.2 % |
-| 12 | 76.2 % | 41.4 % | 17.4 % |
-| 14 | 95.6 % | 80.0 % | 50.2 % |
+| 10 | 20.4 % | 1.2 % | 1.0 % |
+| 12 | 65.8 % | 32.8 % | 15.0 % |
+| 14 | 92.8 % | 67.4 % | 51.4 % |
 
-Boss team: Φακελάκης L11, Φραπεδόρος L12, Φακελάρχης L13 (holds a Σουβλάκι). A player at level 12-14 with a normal team wins; at level 10 the fight is a real wall. The four route trainers (with the rival) give about 800 XP to the creatures that fight (level 10 is 600, level 12 is 1,036); the rest is a few wild fights, which is the "little grinding".
+Boss team: Φακελάκης L11, Φραπεδόρος L12, Φακελάρχης L13 (holds a Σουβλάκι); every boss creature now keeps its basic attack and Offshore Μεταφορά can bribe, so the fight is harder than in the first build (which measured 35.6 / 4.4 / 1.2, 76.2 / 41.4 / 17.4 and 95.6 / 80.0 / 50.2 %). A player at level 12-14 with a normal team still wins most fights; at level 10 the fight is a real wall. The four route trainers (with the rival) give about 800 XP to the creatures that fight (level 10 is 600, level 12 is 1,036); the rest is a few wild fights, which is the "little grinding".
 
 ## 8. Sound
 Original WebAudio: square, triangle and sawtooth blips for the menu, hits, faint, level-up, recruit; six short procedural chiptune loops (title/credits, town, indoors, route, battle, boss) written as note lists, with their own melodies. Mute: Options, or the N key. The audio context starts on the first key press or tap (browsers require it).

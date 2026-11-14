@@ -92,7 +92,7 @@ test('abilities change damage: Παλιά Δόξα below half HP, Ντεσιμπ
   assert.ok(loud > plain);
   const granny = R.makeMon('giagiaka', 10);
   const target = R.makeMon('komma', 10);
-  assert.ok(R.computeDamage(granny, target, R.MOVES.giagia, { roll: 1, allyFallen: true }).damage >= R.computeDamage(granny, target, R.MOVES.giagia, { roll: 1 }).damage);
+  assert.ok(R.computeDamage(granny, target, R.MOVES.giagia, { roll: 1, allyFallen: true }).damage > R.computeDamage(granny, target, R.MOVES.giagia, { roll: 1 }).damage);
 });
 
 // ---- Battle helpers ----
@@ -106,12 +106,18 @@ test('statuses: Υπό Έρευνα -25% attack and ends after 5 turns; Σκάν
   const base = R.effectiveStat(sick, 'rat');
   sick.status = { id: 'inv', turns: 5 };
   assert.equal(R.effectiveStat(sick, 'rat'), Math.max(1, Math.floor(base * 0.75)));
-  // inv ends after 5 turns
-  const b1 = newBattle(R.makeMon('koulourak', 30), R.makeMon('dimosio', 12), 3);
-  b1.sides[1].party[0].status = { id: 'inv', turns: 5 };
-  const ended = [];
-  for (let i = 0; i < 6 && !b1.over; i++) ended.push(...keysOf(R.playTurn(b1, { t: 'move', id: 'enisxuseis' })));
-  assert.ok(ended.includes('b.stend.inv') || b1.over, 'inv ended');
+  // inv comes from a real move and is archived at the end of the 5th turn counted from the move:
+  // not before, and the creature is free afterwards. After turn 1 our creature only heals itself
+  // (no damage dealt), so the fight cannot end early.
+  const b1 = newBattle(R.makeMon('komma', 30), R.makeMon('eforaki', 12), 3);
+  R.playTurn(b1, { t: 'move', id: 'exetastiki' });
+  assert.equal(b1.sides[1].party[0].status.id, 'inv', 'the investigation starts on turn 1');
+  for (let turn = 2; turn <= 6; turn++) {
+    const turnKeys = keysOf(R.playTurn(b1, { t: 'move', id: 'promise' }));
+    assert.ok(!b1.over, 'the fight goes on');
+    assert.equal(turnKeys.includes('b.stend.inv'), turn === 5, 'investigation ends on turn 5 only (turn ' + turn + ')');
+    assert.equal(b1.sides[1].party[0].status === null, turn >= 5, 'status cleared from turn 5 (turn ' + turn + ')');
+  }
   // scandal: foe loses exactly 1/8 of max HP at the end of the turn when nobody hits it
   const b2 = newBattle(R.makeMon('komma', 12), R.makeMon('eforaki', 12), 5);
   const foe = b2.sides[1].party[0];
@@ -138,38 +144,116 @@ test('statuses: Υπό Έρευνα -25% attack and ends after 5 turns; Σκάν
   }
   assert.ok(pocket / 400 > 0.2 && pocket / 400 < 0.4, 'bribed rate ' + pocket / 400);
 });
-test('abilities: Ασυλία blocks Υπό Έρευνα, Ούτε Γάτα Ούτε Ζημιά survives once, Γραφειοκρατία delays, Συνδικαλιστής is immune to strikes', () => {
+const msgs = (events, key) => events.filter((e) => e.k === 'msg' && e.key === key);
+// How many times a message about the defending side (side 1) shows up in one turn, over many seeds.
+function countOnFoe(key, makePlayer, makeFoe, action, seeds = 300) {
+  let count = 0;
+  for (let seed = 1; seed <= seeds; seed++) {
+    const fight = newBattle(makePlayer(), makeFoe(), seed);
+    count += msgs(R.playTurn(fight, action), key).filter((e) => e.v.mon.side === 1).length;
+  }
+  return count;
+}
+test('abilities: Ασυλία blocks Υπό Έρευνα and Σκάνδαλο, Συνδικαλιστής blocks strikes, each against a control', () => {
+  // Ασυλία against Υπό Έρευνα
   const b = newBattle(R.makeMon('komma', 10), R.makeMon('komma', 10), 11);
   const events = R.playTurn(b, { t: 'move', id: 'exetastiki' });
   assert.ok(keysOf(events).includes('b.immune'));
   assert.equal(b.sides[1].party[0].status, null);
+  const control = newBattle(R.makeMon('komma', 10), R.makeMon('eforaki', 10), 11);
+  R.playTurn(control, { t: 'move', id: 'exetastiki' });
+  assert.equal(control.sides[1].party[0].status && control.sides[1].party[0].status.id, 'inv', 'the control creature is investigated');
+  // Ασυλία against Σκάνδαλο (Αφορισμός, 30 %)
+  const scandal = (foeId) => countOnFoe('b.st.sca', () => R.makeMon('psaltak', 10), () => R.makeMon(foeId, 20), { t: 'move', id: 'aforismos' });
+  assert.equal(scandal('komma'), 0, 'Ασυλία refuses every Σκάνδαλο');
+  assert.ok(scandal('eforaki') > 30, 'the control creature gets Σκάνδαλο');
+  // Συνδικαλιστής against Απεργία (Ελλάδα 0 Λογική 1, 30 %)
+  const strike = (foeId) => countOnFoe('b.st.str', () => R.makeMon('trolosavros', 10), () => R.makeMon(foeId, 20), { t: 'move', id: 'ellada' });
+  assert.equal(strike('koulourak'), 0, 'Συνδικαλιστής refuses every Απεργία');
+  assert.ok(strike('komma') > 40, 'the control creature goes on strike');
+});
+test('abilities: Ούτε Γάτα Ούτε Ζημιά survives one knock-out hit, Γραφειοκρατία starts a status one turn late', () => {
   const b2 = newBattle(R.makeMon('komma', 40), R.makeMon('trolosavros', 3), 2);
   const events2 = R.playTurn(b2, { t: 'move', id: 'psifodeltio' });
-  const foeHp = b2.sides[1].party[0].hp;
-  assert.ok(keysOf(events2).includes('b.survive') && foeHp === 1, 'survive ' + foeHp);
+  assert.ok(keysOf(events2).includes('b.survive') && b2.sides[1].party[0].hp === 1, 'survives with 1 HP');
+  // Γραφειοκρατία: no status after turn 1, the status arrives at the end of turn 2
   const b3 = newBattle(R.makeMon('komma', 10), R.makeMon('dimosio', 10), 4);
-  R.playTurn(b3, { t: 'move', id: 'exetastiki' });
-  const afterOneTurn = b3.sides[1].party[0].status;
-  assert.ok(afterOneTurn === null || afterOneTurn.id === 'inv');
-  // the status arrives later than the move, never before it
-  const b4 = newBattle(R.makeMon('komma', 10), R.makeMon('dimosio', 10), 4);
-  const firstEvents = R.playTurn(b4, { t: 'move', id: 'exetastiki' });
-  assert.ok(keysOf(firstEvents).includes('b.bureau'));
-  const b5 = newBattle(R.makeMon('koulourak', 10), R.makeMon('koulourak', 10), 1);
-  b5.sides[1].party[0].bt.stage.atk = 0;
-  assert.equal(R.abilityOf(b5.sides[1].party[0]), 'syn');
+  assert.ok(keysOf(R.playTurn(b3, { t: 'move', id: 'exetastiki' })).includes('b.bureau'));
+  assert.equal(b3.sides[1].party[0].status, null, 'nothing after turn 1');
+  R.playTurn(b3, { t: 'move', id: 'promise' });
+  assert.equal(b3.sides[1].party[0].status && b3.sides[1].party[0].status.id, 'inv', 'the investigation starts after turn 2');
 });
-test('Βύσμα (20 %), Επιτελικό Κράτος priority and Viral are seeded rules', () => {
-  let skipped = 0;
-  for (let seed = 1; seed <= 500; seed++) {
-    const b = newBattle(R.makeMon('komma', 30), R.makeMon('eforaki', 5), seed);
-    if (keysOf(R.playTurn(b, { t: 'move', id: 'psifodeltio' })).includes('b.vys')) skipped++;
-  }
-  assert.ok(skipped > 0, 'Βύσμα never triggered');
+test('Βύσμα (20 % against a higher level only), Επιτελικό Κράτος priority', () => {
+  const ignoredShare = (attackerLevel) => {
+    let ignored = 0;
+    for (let seed = 1; seed <= 1000; seed++) {
+      const b = newBattle(R.makeMon('komma', attackerLevel), R.makeMon('eforaki', 5), seed);
+      if (keysOf(R.playTurn(b, { t: 'move', id: 'psifodeltio' })).includes('b.vys')) ignored++;
+    }
+    return ignored / 1000;
+  };
+  const higher = ignoredShare(30);
+  assert.ok(higher > 0.12 && higher < 0.28, 'Βύσμα share ' + higher);
+  assert.equal(ignoredShare(5), 0, 'an equal level is never ignored');
   const b = newBattle(R.makeMon('mizotakis', 5), R.makeMon('dimosio', 40), 1);
   const events = R.playTurn(b, { t: 'move', id: 'diaggelma' });
   const used = events.filter((e) => e.k === 'msg' && e.key === 'b.used');
   assert.equal(used[0].v.mon.side, 0, 'the first move of Επιτελικό Κράτος goes first even when slower');
+});
+test('Viral: after a knock-out the next move hits twice, and only that one', () => {
+  const b = R.createBattle([R.makeMon('storoula', 30)], [R.makeMon('fakelakis', 2), R.makeMon('fakelakis', 50)], R.makeRng(8), { kind: 'trainer', foeName: 'Test', bag: {} });
+  const first = R.playTurn(b, { t: 'move', id: 'hashtag' });
+  assert.ok(first.some((e) => e.k === 'faint' && e.side === 1), 'the first foe falls');
+  assert.ok(!keysOf(first).includes('b.viral'));
+  const second = R.playTurn(b, { t: 'move', id: 'hashtag' });
+  assert.ok(keysOf(second).includes('b.viral'), 'the next move goes viral');
+  const hits = msgs(second, 'b.hits');
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].v.n, 2);
+  const third = R.playTurn(b, { t: 'move', id: 'hashtag' });
+  assert.ok(!keysOf(third).includes('b.viral') && msgs(third, 'b.hits').length === 0, 'only one move is doubled');
+});
+test('Ρουσφέτι: a leaving Φακελάκης heals the next ally 1/8 of its max HP; other creatures do not', () => {
+  const healedBy = (leaderId) => {
+    const ally = R.makeMon('komma', 10);
+    ally.hp = 10;
+    const b = R.createBattle([R.makeMon(leaderId, 10), ally], [R.makeMon('eforaki', 5)], R.makeRng(3), { kind: 'trainer', foeName: 'Test', bag: {} });
+    const events = R.playTurn(b, { t: 'switch', idx: 1 });
+    const at = events.findIndex((e) => e.k === 'msg' && e.key === 'b.rousfeti');
+    return at < 0 ? 0 : events[at - 1].hp - 10; // the hp event just before the message
+  };
+  assert.equal(healedBy('fakelakis'), Math.floor(R.maxHp(R.makeMon('komma', 10)) / 8));
+  assert.equal(healedBy('koulourak'), 0);
+});
+test('Σκάνδαλο ends when the creature is switched out; Υπό Έρευνα stays', () => {
+  const afterSwitch = (statusId) => {
+    const sick = R.makeMon('koulourak', 10);
+    const b = R.createBattle([sick, R.makeMon('komma', 10)], [R.makeMon('eforaki', 5)], R.makeRng(4), { kind: 'trainer', foeName: 'Test', bag: {} });
+    sick.status = { id: statusId, turns: 5 };
+    R.playTurn(b, { t: 'switch', idx: 1 });
+    return sick.status;
+  };
+  assert.equal(afterSwitch('sca'), null);
+  assert.equal(afterSwitch('inv').id, 'inv');
+});
+test('Κουμπαριά in a battle: a fallen ally of the same type adds damage', () => {
+  const damageDealt = (allyFell) => {
+    const b = newBattle(R.makeMon('giagiaka', 10), R.makeMon('komma', 30), 9);
+    if (allyFell) b.sides[0].fallen.mem = 1;
+    const hit = R.playTurn(b, { t: 'move', id: 'giagia' }).find((e) => e.k === 'hp' && e.side === 1);
+    return R.maxHp(R.makeMon('komma', 30)) - hit.hp;
+  };
+  assert.ok(damageDealt(true) > damageDealt(false));
+});
+test('every status of the MVP can be inflicted by a move some creature learns; Offshore Μεταφορά bribes about 25 %', () => {
+  const learnable = new Set();
+  for (const species of Object.values(R.SPECIES)) for (const [, moveId] of species.learn) learnable.add(moveId);
+  for (const statusId of Object.keys(R.STATUSES)) {
+    const sources = [...learnable].filter((id) => (R.MOVES[id].foeSt && R.MOVES[id].foeSt[0] === statusId) || R.MOVES[id].bothSt === statusId);
+    assert.ok(sources.length > 0, 'nothing inflicts ' + statusId);
+  }
+  const bribed = countOnFoe('b.st.bri', () => R.makeMon('fakelakis', 40), () => R.makeMon('komma', 20), { t: 'move', id: 'offshore' }, 400) / 400;
+  assert.ok(bribed > 0.15 && bribed < 0.35, 'bribe share ' + bribed);
 });
 test('recruit odds: monotonic in HP, status and tier; bounded; zero when impossible', () => {
   const foe = R.makeMon('fakelakis', 5);
@@ -243,6 +327,26 @@ test('level up, stat growth, XP curve and move learning with a full move list', 
   assert.ok(R.evolveMon(little));
   assert.equal(little.sp, 'fakelarchis');
 });
+// ---- Moves kept when more than four are known ----
+test('a creature keeps its basic attack and its newest three moves when it knows more than four', () => {
+  for (const [id, species] of Object.entries(R.SPECIES)) {
+    for (let level = 1; level <= 50; level++) {
+      const known = [];
+      for (const [from, moveId] of species.learn) if (from <= level && !known.includes(moveId)) known.push(moveId);
+      const moves = R.movesAtLevel(id, level);
+      assert.ok(moves.length <= 4 && moves.every((moveId) => known.includes(moveId)), id + ' L' + level);
+      if (known.length <= 4) { same(moves, known); continue; }
+      const basic = known.find((moveId) => R.MOVES[moveId].p > 0 && R.MOVES[moveId].t === species.t);
+      if (!basic) continue;
+      assert.equal(moves[0], basic, id + ' L' + level + ' keeps its basic attack first');
+      same(moves.slice(1), known.filter((moveId) => moveId !== basic).slice(-3));
+    }
+  }
+  same(R.movesAtLevel('komma', 11), ['psifodeltio', 'exetastiki', 'tropologia', 'thios']);
+  same(R.makeMon('fakelarchis', 13).moves, ['offshore', 'lobbying', 'yperkostol', 'frapes']);
+  assert.ok(R.buildTrainerTeam('kotsos', 'komma')[2].moves.includes('offshore'), 'the boss Φακελάρχης still has Offshore Μεταφορά');
+});
+
 test('AI picks a super effective move most of the time and uses its item at most once', () => {
   let superEffective = 0;
   for (let seed = 1; seed <= 200; seed++) {
@@ -257,6 +361,49 @@ test('AI picks a super effective move most of the time and uses its item at most
   let used = 0;
   for (let i = 0; i < 30; i++) { const action = R.chooseAction(b, 1); if (action.t === 'item') used++; }
   assert.equal(used, 1);
+});
+
+test('AI: a setup move stops at +2, a skip move is not repeated, the random pick never takes a pointless move', () => {
+  const b = R.createBattle([R.makeMon('komma', 12)], [R.makeMon('mizotakis', 12)], R.makeRng(2), { kind: 'trainer', foeName: 'AI', bag: {} });
+  const boss = b.sides[1].party[0];
+  const score = (moveId) => R.scoreMove(b, 1, moveId);
+  assert.ok(score('technokratis') > 10, 'a first Τεχνοκράτης is worth a turn');
+  boss.bt.stage.rde = 2;
+  assert.ok(score('technokratis') <= R.USELESS_MOVE_SCORE, 'at +2 it is not');
+  assert.ok(score('diaggelma') > score('technokratis'));
+  assert.ok(score('psifiako') > 2);
+  boss.bt.lastMove = 'psifiako';
+  assert.ok(score('psifiako') <= R.USELESS_MOVE_SCORE, 'no skip turn after skip turn');
+  // over whole fights the boss never climbs above +2 Ρητορική Άμυνα
+  const routeIds = ['komma', 'koulourak', 'psaltak', 'laikatzis', 'storoula', 'trolosavros', 'giagiaka', 'frapedoros', 'eforaki', 'dimosio', 'fakelakis'];
+  const rng = R.makeRng(31);
+  let highest = 0;
+  for (let i = 0; i < 300; i++) {
+    const fight = R.createBattle([R.makeMon(R.pickOne(rng, routeIds), 12)], [R.makeMon('mizotakis', 12)], rng, { kind: 'trainer', foeName: 'AI', bag: {} });
+    for (let turns = 0; turns < 60 && !fight.over; turns++) {
+      if (fight.phase === 'forced') R.playForcedSwitch(fight, R.chooseReplacement(fight, 0));
+      else R.playTurn(fight, R.chooseAction(fight, 0));
+      highest = Math.max(highest, R.activeMon(fight, 1).bt.stage.rde);
+    }
+  }
+  assert.ok(highest <= 2, 'highest Ρητορική Άμυνα stage ' + highest);
+});
+test('no battle of a seeded 1,000-battle sample reaches the turn limit, and a stalemate still ends in overtime', () => {
+  const rng = R.makeRng(2024);
+  let longest = 0;
+  for (let i = 0; i < 1000; i++) {
+    const result = R.simulateBattle(randomParty(rng, 3), randomParty(rng, 3), rng, {});
+    assert.ok(result.battle.over, 'battle ' + i + ' ended before the turn limit');
+    longest = Math.max(longest, result.turns);
+  }
+  assert.ok(longest < R.OVERTIME_TURN + 40, 'longest battle ' + longest + ' turns');
+  // The worst case: two Μιζοτάκης that nobody can hurt (Ρητορική Άμυνα +6, Ακρίβεια -6). Overtime ends it.
+  const stalemate = R.createBattle([R.makeMon('mizotakis', 12)], [R.makeMon('mizotakis', 12)], R.makeRng(5), { kind: 'trainer', foeName: 'AI', bag: {} });
+  for (const side of [0, 1]) { const stage = R.activeMon(stalemate, side).bt.stage; stage.rde = 6; stage.acc = -6; }
+  let guard = 0;
+  while (!stalemate.over && guard++ < 300) R.playTurn(stalemate, R.chooseAction(stalemate, 0));
+  assert.ok(stalemate.over, 'the stalemate ended');
+  assert.ok(stalemate.turn >= R.OVERTIME_TURN && stalemate.turn < R.OVERTIME_TURN + 40, 'ended in overtime at turn ' + stalemate.turn);
 });
 
 // ---- Determinism ----
@@ -453,6 +600,25 @@ test('strings: every key the code asks for exists, including the keys built from
   for (const id of Object.keys(R.TRAINERS)) if (id !== 'rival1') for (const part of ['intro', 'win', 'after']) need('tr.' + id + '.' + part);
 });
 
+test('strings: no battle text copies another monster game, and no masculine-only form is addressed to the player', () => {
+  const copied = [/what will .* do/i, /\bused \{move\}/i, /^go,/i, /come back/i, /^a critical hit/i, /super effective/i, /not very effective/i, /blacked out/i,
+    /is evolving/i, /wants to learn/i, /^congratulations! it/i, /sends out/i, /\bmissed!/i];
+  const copiedGreek = [/χρησιμοποίησε/, /Σούπερ αποτελεσματικό/, /Εύστοχο χτύπημα/, /στέλνει στη μάχη/, /τι κάνει;/, /Επιστρέφει:/, /Λιποθύμησες/, /εξελίσσεται\.\.\./, /Συγχαρητήρια/];
+  for (const [key, [greek, english]] of Object.entries(R.STRINGS)) {
+    for (const pattern of copied) assert.ok(!pattern.test(english), key + ' (English) copies a known line: ' + english);
+    for (const pattern of copiedGreek) assert.ok(!pattern.test(greek), key + ' (Greek) copies a known line: ' + greek);
+  }
+  for (const kind of ['wild', 'trainer']) assert.ok(!/^(Wild|Foe) /.test(R.monLabel({ sp: 'komma', side: 1 }, 'en', kind)));
+  // The player may be a woman: forms that only fit a man must sit inside a {man|woman} choice.
+  const masculineOnly = /(διάσημος|μόνος|έτοιμος|ανιψιέ|φίλε|κύριε|νεαρέ|αγόρι μου)/;
+  for (const [key, [greek]] of Object.entries(R.STRINGS)) {
+    const outsideChoices = greek.replace(/\{[^{}|]*\|[^{}|]*\}/g, '');
+    assert.ok(!masculineOnly.test(outsideChoices), key + ' addresses the player with a masculine-only form: ' + greek);
+  }
+  assert.equal(R.formatText(R.STRINGS['warp.studio'][0], {}, 'f').includes('διάσημη'), true);
+  assert.equal(R.formatText(R.STRINGS['tr.kotsos.intro'][0], {}, 'f').includes('ανιψιά'), true);
+});
+
 // ---- Save ----
 const sampleV1 = () => ({
   version: 1, player: { name: 'ΜΑΡΙΑ', gender: 'f', map: 'town', x: 5, y: 8, dir: 'left' },
@@ -496,6 +662,20 @@ test('save migration: a version-0 save becomes version 1; version 1 is stable; b
   assert.equal(R.SAVE_KEY, 'mizamon.v1.save');
   assert.equal(R.SAVE_VERSION, 1);
 });
+test('save migration: a version-0 save gets its story flags back (starter chosen, rival met)', () => {
+  const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 10, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
+  const outside = R.migrateSave(v0);
+  assert.equal(outside.flags.gotStarter, true);
+  assert.equal(outside.flags.rival1, true, 'the rival meeting happens when leaving the lab');
+  assert.equal(outside.flags.t_rival1, true);
+  assert.equal(R.MAPS.town.triggers[0].flag, 'rival1', 'with the flag set, the doorstep fight does not repeat');
+  const inLab = R.migrateSave(Object.assign({}, v0, { map: 'lab', x: 4, y: 6 }));
+  assert.equal(inLab.flags.gotStarter, true);
+  assert.equal(inLab.flags.rival1, undefined, 'still in the lab: the rival has not been met');
+  assert.equal(inLab.flags.t_rival1, undefined);
+  same(R.migrateSave(JSON.parse(JSON.stringify(outside))).flags, outside.flags);
+});
+
 test('options are normalised', () => {
   same(R.normalizeOptions(null), R.defaultOptions());
   assert.equal(R.normalizeOptions({ lang: 'fr', textSpeed: 9 }).lang, 'el');
@@ -506,6 +686,19 @@ test('the Φάκελος prize rule: boss prize and Αφορολόγητο bonus
   assert.equal(R.prizeFor(b, R.TRAINERS.kotsos), 13 * 30 + 200);
   const rich = R.createBattle([R.makeMon('fakelarchis', 10)], R.buildTrainerTeam('kotsos', 'komma'), R.makeRng(1), { kind: 'trainer', trainerId: 'kotsos', foeName: 'K', bag: {} });
   assert.equal(R.prizeFor(rich, R.TRAINERS.kotsos), Math.floor((13 * 30 + 200) * 1.5));
+});
+
+
+// ---- Engine facts the headless tests can still check in the source text ----
+test('a battle that throws counts as neither a win nor a loss ("ran"), and Reduced motion follows the OS by default', () => {
+  const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
+  const caught = run.slice(run.indexOf('catch (error)'), run.indexOf('await Fade.start(1, 12)'));
+  assert.ok(caught.includes("result = 'ran'") && !caught.includes("'win'") && caught.includes('console.error'), 'the catch block returns ran and logs');
+  assert.ok(html.includes("matchMedia('(prefers-reduced-motion: reduce)')"), 'the OS Reduced motion setting is read');
+  const load = html.slice(html.indexOf('function loadOptions'), html.indexOf('function saveOptions'));
+  assert.ok(load.includes('systemPrefersReducedMotion()'), 'it is the default when nothing is saved');
+  const faint = html.slice(html.indexOf("fx.kind === 'faint') {"), html.indexOf("fx.kind === 'enter'"));
+  assert.ok(faint.includes('OPT.reduceMotion'), 'the faint animation checks Reduced motion');
 });
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----

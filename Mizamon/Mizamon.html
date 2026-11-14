@@ -72,6 +72,8 @@ const ENCOUNTER_CHANCE = 0.13; // chance per step on tall grass
 const XP_DIVISOR = 4; // xp = species.xp * foeLevel / XP_DIVISOR
 const TRAINER_XP_BONUS = 1.5;
 const PRIZE_PER_LEVEL = 30;
+const OVERTIME_TURN = 120; // from this turn on the show runs over: both fighters lose HP each turn (ends any stalemate)
+const OVERTIME_STEP = 1 / 32; // the loss grows by this share of max HP with every turn over time, so healing cannot keep up
 const START_MONEY = 300;
 const BLACKOUT_MONEY_KEEP = 0.5;
 const STAT_KEYS = ['hp', 'atk', 'def', 'rat', 'rde', 'spe'];
@@ -201,7 +203,7 @@ const MOVES = {
   hashtag: defMove('Hashtag Boost', 'inf', 'r', 50, 100, { prio: 1 }),
   bluetick: defMove('Μπλε Τικ', 'inf', 's', 0, 100, { stg: [['self', 'rat', 2, 100]] }),
   // Επιχειρηματίες
-  offshore: defMove('Offshore Μεταφορά', 'biz', 'r', 60, 100, { drain: 0.5 }),
+  offshore: defMove('Offshore Μεταφορά', 'biz', 'r', 60, 100, { drain: 0.5, foeSt: ['bri', 25] }),
   apolyseis: defMove('Απολύσεις', 'biz', 'p', 65, 100, { stg: [['foe', 'def', -1, 100]] }),
   lobbying: defMove('Lobbying', 'biz', 's', 0, 100, { lobby: true }),
   yperkostol: defMove('Υπερκοστολόγηση', 'biz', 'p', 120, 60, { selfHurt: 0.25 }),
@@ -295,12 +297,19 @@ function levelFromXp(xp) {
   while (level < MAX_LEVEL && xp >= xpForLevel(level + 1)) level++;
   return level;
 }
+// The moves a species knows at a level: at most MOVES_MAX. When there are more, the creature keeps
+// its basic attack (the first damaging move of its own type) plus the newest moves.
 function movesAtLevel(speciesId, level) {
   const known = [];
   for (const entry of SPECIES[speciesId].learn) {
     if (entry[0] <= level && !known.includes(entry[1])) known.push(entry[1]);
   }
-  return known.slice(-MOVES_MAX);
+  if (known.length <= MOVES_MAX) return known;
+  const ownType = SPECIES[speciesId].t;
+  const basic = known.find(function (id) { return MOVES[id].p > 0 && MOVES[id].t === ownType; });
+  if (!basic) return known.slice(-MOVES_MAX);
+  const others = known.filter(function (id) { return id !== basic; });
+  return [basic].concat(others.slice(-(MOVES_MAX - 1)));
 }
 function makeMon(speciesId, level) {
   const mon = { sp: speciesId, lv: level, xp: xpForLevel(level), moves: movesAtLevel(speciesId, level), pend: [], hp: 1, status: null };
@@ -419,7 +428,7 @@ function freshVolatile() {
   return {
     stage: { atk: 0, def: 0, rat: 0, rde: 0, spe: 0, acc: 0 },
     decoy: false, gag: 0, trap: 0, skip: 0, recharge: 0, lobby: false, blockStatus: 0,
-    noAbility: 0, lastHeal: 0, viral: false, moved: false, broken: 0, pending: null,
+    noAbility: 0, lastHeal: 0, viral: false, moved: false, broken: 0, pending: null, lastMove: null,
   };
 }
 function newSide(party, isPlayer, trainerId, items) {
@@ -582,6 +591,7 @@ function useMove(battle, sideIndex, moveId) {
   const rng = battle.rng;
   if (!canAct(battle, sideIndex)) return;
   user.bt.moved = true;
+  user.bt.lastMove = moveId;
   logMsg(battle, 'b.used', { mon: monRef(battle, sideIndex), move: moveId });
   emit(battle, { k: 'anim', kind: 'attack', side: sideIndex });
   if (move.c === 'r' && user.bt.gag > 0) { logMsg(battle, 'b.gagged', {}); return; }
@@ -719,6 +729,7 @@ function doRun(battle) {
 // ---- Opponent AI ---------------------------------------------------------------------
 // Scores each move (expected damage as a share of the foe's HP, plus small values for
 // status moves), adds seeded noise, and sometimes picks at random.
+const USELESS_MOVE_SCORE = 0; // below even a 1-damage hit, so a pointless move is only picked when nothing else is left
 function scoreMove(battle, sideIndex, moveId) {
   const user = activeMon(battle, sideIndex);
   const foe = activeMon(battle, 1 - sideIndex);
@@ -736,15 +747,19 @@ function scoreMove(battle, sideIndex, moveId) {
     if (move.foeSt && !foe.status) score += 6;
   } else {
     score = 8;
-    if (move.heal) score = userFraction < 0.35 && !user.bt.lastHeal ? 45 : 2;
+    if (move.heal) score = userFraction < 0.35 && !user.bt.lastHeal ? 45 : (userFraction >= 1 ? USELESS_MOVE_SCORE : 2);
     if (move.healBoth) score = userFraction < 0.3 ? 25 : 2;
     if (move.foeSt) score = foe.status ? 2 : (foe.hp / maxHp(foe) > 0.5 ? 26 : 10);
     if (move.foeSt && abilityOf(foe) === 'asy' && move.foeSt[0] !== 'str') score = 1;
     for (const change of move.stg || []) {
       const stageNow = (change[0] === 'self' ? user : foe).bt.stage[change[1]];
-      if (change[0] === 'self' && change[2] > 0) score = Math.max(score, stageNow >= 1 ? 3 : 24 - 8 * stageNow);
+      if (change[0] === 'self' && change[2] > 0) {
+        // Setup that is already at +2 or more is not worth a turn (it kept two status-only fighters stalling).
+        score = stageNow >= 2 ? USELESS_MOVE_SCORE : Math.max(score, stageNow >= 1 ? 3 : 24 - 8 * stageNow);
+      }
       if (change[0] === 'foe' && change[2] < 0) score = Math.max(score, stageNow > -1 ? 18 : 3);
     }
+    if (move.foeSkip && user.bt.lastMove === moveId) score = USELESS_MOVE_SCORE; // skipping the foe turn after turn is a stalemate
     if (move.decoy && !user.bt.decoy) score = 7;
     if (move.lobby && !user.bt.lobby) score = 6;
     if (move.cureSelf && user.status) score = 30;
@@ -761,13 +776,14 @@ function chooseAction(battle, sideIndex) {
   }
   let best = null;
   let bestScore = -1e9;
-  const scored = [];
+  const worthPlaying = []; // the random pick below never takes a pointless move (it could lock a battle forever)
   for (const moveId of user.moves) {
-    const noisy = scoreMove(battle, sideIndex, moveId) * (0.85 + 0.3 * rng());
-    scored.push(moveId);
+    const score = scoreMove(battle, sideIndex, moveId);
+    const noisy = score * (0.85 + 0.3 * rng());
+    if (score > USELESS_MOVE_SCORE) worthPlaying.push(moveId);
     if (noisy > bestScore) { bestScore = noisy; best = moveId; }
   }
-  if (rng() < 0.12) best = pickOne(rng, scored); // sometimes the opponent just does something
+  if (rng() < 0.12 && worthPlaying.length > 0) best = pickOne(rng, worthPlaying); // sometimes the opponent just does something
   return { t: 'move', id: best };
 }
 // Best creature to send in against the current opponent (type matchup score).
@@ -862,6 +878,14 @@ function endOfTurn(battle) {
     }
     for (const key of ['gag', 'trap', 'noAbility', 'lastHeal']) if (mon.bt[key] > 0) mon.bt[key]--;
   }
+  if (battle.turn >= OVERTIME_TURN) {
+    logMsg(battle, 'b.overtime', {});
+    const turnsOver = battle.turn - OVERTIME_TURN + 1;
+    for (let sideIndex = 0; sideIndex < 2; sideIndex++) {
+      const mon = activeMon(battle, sideIndex);
+      if (mon.hp > 0) loseHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) * OVERTIME_STEP * turnsOver)));
+    }
+  }
   checkFaints(battle);
 }
 // Moves the next opponent creature in, or asks the player to pick one.
@@ -949,14 +973,14 @@ function simulateBattle(partyA, partyB, rng, options) {
 
 // ---- Battle text: events to sentences ------------------------------------------------
 const ARTICLE = { m: 'Ο', f: 'Η', n: 'Το' };
-const WILD_ADJECTIVE = { m: 'άγριος', f: 'άγρια', n: 'άγριο' };
+const WILD_ADJECTIVE = { m: 'ανεξάρτητος', f: 'ανεξάρτητη', n: 'ανεξάρτητο' };
 const FOE_ADJECTIVE = { m: 'αντίπαλος', f: 'αντίπαλη', n: 'αντίπαλο' };
-// Label of a creature in battle text: "Ο Φακελάκης", "Ο άγριος Φακελάκης", "Foe Φακελάκης".
+// Label of a creature in battle text: "Ο Φακελάκης", "Ο ανεξάρτητος Φακελάκης", "Opposition Φακελάκης".
 function monLabel(ref, lang, battleKind) {
   const species = SPECIES[ref.sp];
   if (lang === 'en') {
     if (ref.side === 0) return species.n;
-    return (battleKind === 'wild' ? 'Wild ' : 'Foe ') + species.n;
+    return (battleKind === 'wild' ? 'Independent ' : 'Opposition ') + species.n;
   }
   if (ref.side === 0) return ARTICLE[species.g] + ' ' + species.n;
   const adjective = battleKind === 'wild' ? WILD_ADJECTIVE[species.g] : FOE_ADJECTIVE[species.g];
@@ -1284,11 +1308,18 @@ function migrateV0(old) {
   const got = {};
   for (const id of old.seen || []) seen[id] = true;
   for (const id of old.got || []) { got[id] = true; seen[id] = true; }
+  // The first prototype had no story flags. Rebuild the ones that can be told from the data:
+  // a creature on the team means the starter was chosen; a player outside the lab has met the
+  // rival (the meeting happens on the doorstep when leaving the lab).
+  const flags = {};
+  const team = Array.isArray(old.team) ? old.team : [];
+  if (team.length > 0) flags.gotStarter = true;
+  if (team.length > 0 && MAPS[old.map] && old.map !== START_MAP.map) { flags.rival1 = true; flags.t_rival1 = true; }
   return {
     version: 1,
     player: { name: String(old.name || 'ΝΙΚΟΣ').slice(0, NAME_MAX), gender: old.girl ? 'f' : 'm', map: old.map, x: old.x, y: old.y, dir: 'down' },
     party: (old.team || []).map(function (member) { return { sp: member.id, lv: member.lv, xp: member.xp, hp: member.hp }; }),
-    money: old.drachmas, bag: bag, dex: { seen: seen, got: got }, flags: {}, lastHeal: null, options: null, rngState: 12345, starter: old.starter,
+    money: old.drachmas, bag: bag, dex: { seen: seen, got: got }, flags: flags, lastHeal: null, options: null, rngState: 12345, starter: old.starter,
   };
 }
 // Returns a clean version-1 save object, or null when the data is unusable or from a newer game.
@@ -1397,7 +1428,7 @@ const STRINGS = {
   // Items and shops
   'item.fakelaki': ['Φακελάκι', 'Φακελάκι (small envelope)'], 'item.fakelos': ['Φάκελος', 'Φάκελος (envelope)'], 'item.koulouri': ['Κουλούρι', 'Koulouri (bread ring)'],
   'item.souvlaki': ['Σουβλάκι', 'Souvlaki'], 'item.frapes': ['Φραπές', 'Frappé'], 'item.tsipouro': ['Τσίπουρο', 'Tsipouro'],
-  'itemd.fakelaki': ['Στρατολογεί άγριο Mizamon. Μικρό, αλλά ειλικρινές.', 'Recruits a wild Mizamon. Small, but sincere.'],
+  'itemd.fakelaki': ['Στρατολογεί ανεξάρτητο Mizamon. Μικρό, αλλά ειλικρινές.', 'Recruits an independent Mizamon. Small, but sincere.'],
   'itemd.fakelos': ['Πιο χοντρό (x1,5). Οι πόρτες ανοίγουν ευκολότερα.', 'Thicker (x1.5). Doors open more easily.'],
   'itemd.koulouri': ['Γιατρεύει 20 ΥΓ. Πρωινό πρωταθλητών.', 'Heals 20 HP. Breakfast of champions.'],
   'itemd.souvlaki': ['Γιατρεύει 50 ΥΓ. Με πίτα.', 'Heals 50 HP. With pita.'],
@@ -1429,7 +1460,7 @@ const STRINGS = {
   'sign.house2': ['Ενοικιάζεται. Airbnb 3000. Ο ιδιοκτήτης είναι στο εξωτερικό.', 'For rent. Airbnb 3000. The owner is abroad.'],
   'sign.route1': ['Διαδρομή 1. Προσοχή: ψηλό γρασίδι και ψηλοί φόροι.', 'Route 1. Beware: tall grass and tall taxes.'],
   'sign.port': ['Λιμεναρχείο. Το λιμάνι πουλιέται κάθε σεζόν. Η πόρτα είναι ανοιχτή.', 'Harbour Office. The port is sold every season. The door is open.'],
-  'warp.studio': ['Το στούντιο είναι κλειστό. Περιμένει να γίνεις αρκετά διάσημος.', 'The studio is closed. It is waiting for you to become famous enough.'],
+  'warp.studio': ['Το στούντιο είναι κλειστό. Περιμένει να γίνεις αρκετά {διάσημος|διάσημη}.', 'The studio is closed. It is waiting for you to become famous enough.'],
   // People
   'npc.kid': ['Έδωσα εξετάσεις 12 φορές. Ο Μπέμπης πέρασε με ένα τηλεφώνημα.', 'I took the exam 12 times. Bebis passed with one phone call.'],
   'npc.oldman': ['Στον καιρό μου το Δημόσιο έκλεινε στις 3. Τώρα κλείνει και στις 2:59.', 'In my day the civil service closed at 3. Now it closes at 2:59.'],
@@ -1447,7 +1478,7 @@ const STRINGS = {
   'npc.sailor1': ['Ο Λιμενάρχης είναι εκεί. Μην αναφέρεις ότι το λιμάνι πουλήθηκε ήδη. Δύο φορές.', 'The Harbour Master is right there. Do not mention the port is already sold. Twice.'],
   'npc.sailor2': ['Δουλεύω εδώ 20 χρόνια. Ο μισθός μου είναι μια ιδέα. Μου αρέσει η ιδέα.', 'I have worked here 20 years. My salary is an idea. I like the idea.'],
   'rival1.intro1': ['Ε, εσύ! Εσύ είσαι που πήρες Mizamon από τον Καθηγητή; Εγώ πήρα το δικό μου με ένα τηλεφώνημα.', 'Hey, you! You are the one who got a Mizamon from the Professor? I got mine with one phone call.'],
-  'rival1.intro2': ['Με λένε Μπέμπη. Ο θείος μου είναι υπουργός. Ο άλλος θείος μου είναι υπουργός. Ο τρίτος... βρες μόνος. ΜΑΧΗ!', 'I am Bebis. My uncle is a minister. My other uncle is a minister. The third... figure it out. BATTLE!'],
+  'rival1.intro2': ['Με λένε Μπέμπη. Ο θείος μου είναι υπουργός. Ο άλλος θείος μου είναι υπουργός. Ο τρίτος... βρες {μόνος|μόνη}. ΜΑΧΗ!', 'I am Bebis. My uncle is a minister. My other uncle is a minister. The third... figure it out. BATTLE!'],
   'rival1.win': ['Χα! Το ήξερα. Γεννήθηκα νικητής. Και με βύσμα.', 'Ha! I knew it. I was born a winner. And with connections.'],
   'rival1.lose': ['Τι; Αυτό δεν... Θα το πω στον θείο! Θα σε βάλω σε εξεταστική επιτροπή!', 'What? That is not... I will tell my uncle! I will put you before an inquiry committee!'],
   'tr.phoebe.intro': ['Γεια σας, φίλοι μου! Σήμερα κάνουμε unboxing... ΜΑΧΗ! Μην ξεχάσετε το like!', 'Hi friends! Today we do an unboxing... BATTLE! Do not forget to like!'],
@@ -1456,20 +1487,20 @@ const STRINGS = {
   'tr.stelios.intro': ['Έλεγχος ταυτότητας! Για λόγους ασφαλείας. Μόνο τα δικά σου χαρτιά.', 'ID check! For security reasons. Only your papers.'],
   'tr.stelios.win': ['Ήταν άσκηση ετοιμότητας. Δεν έγινε τίποτα. Αρχειοθετείται.', 'That was a readiness exercise. Nothing happened. Filed away.'],
   'tr.stelios.after': ['Δεν υπήρξε περιστατικό. Κυκλοφορήστε.', 'There was no incident. Move along.'],
-  'tr.takis.intro': ['Στο πάλκο, φίλε! Το μπουζούκι θέλει φωνή και ο κόσμος θέλει ψυχή.', 'To the stage, friend! The bouzouki wants a voice and the crowd wants a soul.'],
+  'tr.takis.intro': ['Στο πάλκο, {φίλε|φίλη}! Το μπουζούκι θέλει φωνή και ο κόσμος θέλει ψυχή.', 'To the stage, friend! The bouzouki wants a voice and the crowd wants a soul.'],
   'tr.takis.win': ['Το τραγούδι ήταν καλύτερο από τη μάχη. Πάντα είναι.', 'The song was better than the fight. It always is.'],
   'tr.takis.after': ['Αύριο παίζω στην Τρούμπα. Αν με θυμηθούν.', 'Tomorrow I play in Troumpa. If they remember me.'],
   'tr.rival2.intro': ['Α, εσύ πάλι! Ο θείος μου ο υπουργός είπε να σε νικήσω. Δεν τον ρώτησα πώς.', 'Oh, you again! My uncle the minister told me to beat you. I did not ask him how.'],
   'tr.rival2.win': ['Θα τηλεφωνήσω σε κάποιον. Αυτό δεν μετράει! Αυτό δεν μετράει!', 'I will call someone. This does not count! This does not count!'],
   'tr.rival2.after': ['Ο Μπέμπης έφυγε. Κάποιος του τηλεφώνησε.', 'Bebis left. Someone called him.'],
-  'tr.kotsos.intro': ['Καλώς ήρθες στο Λιμεναρχείο. Το λιμάνι είναι δικό μου... αυτή τη σεζόν. Να δούμε τι ομάδα έχεις, ανιψιέ.', 'Welcome to the Harbour Office. The port is mine... this season. Let us see what team you have, nephew.'],
+  'tr.kotsos.intro': ['Καλώς ήρθες στο Λιμεναρχείο. Το λιμάνι είναι δικό μου... αυτή τη σεζόν. Να δούμε τι ομάδα έχεις, {ανιψιέ|ανιψιά}.', 'Welcome to the Harbour Office. The port is mine... this season. Let us see what team you have, nephew.'],
   'tr.kotsos.win': ['Ε, μπράβο. Θα πουλήσω ξανά το λιμάνι για να το γιορτάσω.', 'Well, congratulations. I will sell the port again to celebrate.'],
   'tr.kotsos.after': ['Το λιμάνι είναι πουλημένο. Ξανά. Να προσέχεις στον δρόμο.', 'The port is sold. Again. Take care on the road.'],
   'tr.host.intro': ['Καλησπέρα και καλώς ήρθατε στην εκπομπή «Όλοι Μαζί, Κανείς Μόνος»! Απόψε: ΕΣΥ εναντίον των καλεσμένων μου. Παίζουμε ζωντανά, δηλαδή ηχογραφημένα!', 'Good evening and welcome to the show "All Together, No One Alone"! Tonight: YOU against my guests. We play live, meaning recorded!'],
   'tr.host.win': ['Και κόβουμε για διαφημίσεις. Μείνετε μαζί μας. Δεν έχετε άλλη επιλογή.', 'And we cut to a commercial break. Stay with us. You have no other choice.'],
   'tr.host.after': ['Η εκπομπή συνεχίζεται. Όπως και τα ρέστα του καναλιού.', "The show goes on. So does the channel's budget."],
-  'blackout.text': ['Λιποθύμησες. Η ομάδα σου εξαντλήθηκε και το πορτοφόλι σου ελαφρύνθηκε στο μισό.', 'You blacked out. Your team is exhausted and your wallet is half lighter.'],
-  'blackout.kep': ['Ξύπνησες στο ΚΕΠ 3000. Η ομάδα σου εξυπηρετήθηκε χωρίς αριθμό. Αυτό είναι το πιο ανησυχητικό.', 'You wake up at ΚΕΠ 3000. Your team was served without a number. That is the most worrying part.'],
+  'blackout.text': ['Όλη η ομάδα σου παραιτήθηκε και το πορτοφόλι ελαφρύνθηκε στο μισό. Η δημοσκόπησή σου πήρε την κατηφόρα.', 'Your whole team resigned and the wallet got half lighter. Your poll numbers took the downhill road.'],
+  'blackout.kep': ['Σε περιμάζεψε το ΚΕΠ 3000. Η ομάδα σου εξυπηρετήθηκε χωρίς αριθμό. Αυτό είναι το πιο ανησυχητικό.', 'ΚΕΠ 3000 picked you up. Your team was served without a number. That is the most worrying part.'],
   'boss.win2': ['Ωραία, ωραία. Το Παράσημο είναι δικό σου, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά.', 'Fine, fine. The medal is yours, on the condition that you do not ask where the money went.'],
   'boss.win3': ['Πήρες το Παράσημο της Νέας Πειραιάς! Η πρώτη εκλογική περιφέρεια είναι δική σου.', 'You got the New Piraeus Medal! The first electoral district is yours.'],
   'badge.title': ['ΠΑΡΑΣΗΜΟ ΝΕΑΣ ΠΕΙΡΑΙΑΣ', 'NEW PIRAEUS MEDAL'], 'badge.sub': ['Με τον όρο ότι δεν ρωτάς.', 'On the condition you do not ask.'],
@@ -1477,18 +1508,20 @@ const STRINGS = {
     'MIZAMON\n\nThe end of the First District\n\nDesign, code, graphics, music:\nall made from code\n\nProfessor Stathopoulos\nspeaks for everyone\nwaiting to be paid\n\nSatire. All characters\nare parodies or fictional;\nany resemblance is caricature.\n\nThe Parliament of 3000 awaits...\n\nThanks for playing!'],
   'credits.after': ['Ένα νέο κτίριο άνοιξε στην πλατεία της Νέας Πειραιάς: το Τηλεοπτικό Στούντιο. Λένε ότι ψάχνει αντίπαλο.', 'A new building opened in the New Piraeus square: the TV Studio. They say it is looking for a challenger.'],
   // Battle
-  'battle.fight': ['Μάχη', 'Fight'], 'battle.bag': ['Τσάντα', 'Bag'], 'battle.mizamon': ['Ομάδα', 'Team'], 'battle.run': ['Φυγή', 'Run'],
-  'battle.prompt': ['{name}: τι κάνει;', 'What will {name} do?'],
+  // The four commands of the debate screen: Speech (the moves), Bag, Party (switch creature), Flee.
+  'battle.fight': ['Ομιλία', 'Speech'], 'battle.bag': ['Τσάντα', 'Bag'], 'battle.mizamon': ['Κόμμα', 'Party'], 'battle.run': ['Διαφυγή', 'Flee'],
+  'battle.prompt': ['{name}: το μικρόφωνο είναι δικό σου.', '{name}: the floor is yours.'],
+  'battle.poll': ['ΔΗΜΟΣΚ.', 'POLL'], 'battle.news': ['ΕΙΔΗΣΕΙΣ', 'NEWS'],
   'b.wild': ['{mon} ζητάει κάτι για να κάνει τη δουλειά!', '{mon} asks for something to do the job!'],
-  'b.trainer': ['{trainer} σε προκαλεί σε μάχη!', '{trainer} challenges you to a battle!'],
-  'b.foesend': ['{trainer} στέλνει στη μάχη: {mon_name}!', '{trainer} sends out {mon_name}!'],
-  'b.go': ['Στη μάχη: {mon_name}!', 'Go, {mon_name}!'],
-  'b.back': ['Επιστρέφει: {mon_name}!', '{mon_name}, come back!'],
-  'b.used': ['{mon} χρησιμοποίησε {move}!', '{mon} used {move}!'],
-  'b.miss': ['{mon} αστόχησε!', '{mon} missed!'],
-  'b.crit': ['Εύστοχο χτύπημα!', 'A critical hit!'],
-  'b.super': ['Σούπερ αποτελεσματικό!', 'It is super effective!'],
-  'b.resist': ['Δεν είναι πολύ αποτελεσματικό...', 'It is not very effective...'],
+  'b.trainer': ['{trainer}: «Έλα στο πάνελ να τα πούμε!»', '{trainer}: "Come on the panel and let us talk!"'],
+  'b.foesend': ['{trainer} βγάζει στο πάνελ: {mon_name}!', '{trainer} brings {mon_name} onto the panel!'],
+  'b.go': ['{mon_name} ανεβαίνει στο βήμα!', '{mon_name} steps up to the podium!'],
+  'b.back': ['{mon} πήρε μετάθεση πίσω στον πάγκο.', '{mon} was transferred back to the bench.'],
+  'b.used': ['{mon} αποφάσισε: {move}!', '{mon} decided: {move}!'],
+  'b.miss': ['{mon} μιλάει στον τοίχο: χαμένη κίνηση.', '{mon} talks to a wall: wasted move.'],
+  'b.crit': ['Διπλό χτύπημα: το ρουσφέτι πέτυχε!', 'Double whammy: the favour landed!'],
+  'b.super': ['Βυθίζεται η δημοσκόπηση!', 'The poll numbers plunge!'],
+  'b.resist': ['Δεν τσίμπησε: σχεδόν ανέπαφος.', 'It did not stick: nearly untouched.'],
   'b.fainted': ['{mon} υπέβαλε παραίτηση!', '{mon} resigned!'],
   'b.recharge': ['{mon} παρελαύνει ακόμα και δεν μπορεί να κινηθεί!', '{mon} is still parading and cannot move!'],
   'b.skip': ['{mon} περιμένει στην ουρά...', '{mon} waits in the queue...'],
@@ -1505,14 +1538,15 @@ const STRINGS = {
   'b.stend.bri': ['Το φακελάκι εξαντλήθηκε. {mon} ξαναμπαίνει στη μάχη.', 'The envelope ran out. {mon} is back in the fight.'],
   'b.sca.hurt': ['{mon} χάνει υγεία από το κακό δημοσίευμα!', '{mon} loses health from the bad press!'],
   'b.grace': ['Η Θεία Χάρη γιατρεύει: {mon_name}.', 'Divine grace heals {mon_name}.'],
+  'b.overtime': ['Η εκπομπή τραβάει σε μάκρος: οι δημοσκοπήσεις πέφτουν και για τους δύο!', 'The show runs over time: both polls keep dropping!'],
   'b.promise': ['Η υπόσχεση δεν τηρήθηκε: {mon} χάνει υγεία.', 'The promise was broken: {mon} loses health.'],
   'b.heal': ['{mon} ανακτά υγεία!', '{mon} recovers health!'],
   'b.drain': ['{mon} ρουφάει χρήματα... και υγεία!', '{mon} drains money... and health!'],
   'b.recoil': ['{mon} πληρώνει το τίμημα!', '{mon} pays the price!'],
-  'b.stage.up': ['{mon}: ανεβαίνει η {stat}!', '{mon}: {stat} rises!'],
-  'b.stage.down': ['{mon}: πέφτει η {stat}!', '{mon}: {stat} falls!'],
-  'b.stage.max': ['{mon}: η {stat} δεν ανεβαίνει άλλο!', '{mon}: {stat} cannot go higher!'],
-  'b.stage.min': ['{mon}: η {stat} δεν πέφτει άλλο!', '{mon}: {stat} cannot go lower!'],
+  'b.stage.up': ['{mon}: ανεβαίνει η {stat}!', '{mon}: {stat} climbs!'],
+  'b.stage.down': ['{mon}: γλιστράει η {stat}!', '{mon}: {stat} slips!'],
+  'b.stage.max': ['{mon}: η {stat} χτύπησε ταβάνι!', '{mon}: {stat} hit the ceiling!'],
+  'b.stage.min': ['{mon}: η {stat} βρήκε πάτο!', '{mon}: {stat} hit rock bottom!'],
   'b.decoy': ['Ο ανιψιός δέχεται το χτύπημα αντί για {mon_name}!', 'The nephew takes the hit instead of {mon_name}!'],
   'b.decoyset': ['Διορίζεται ανιψιός για να προστατεύσει: {mon_name}!', 'A nephew is hired to protect {mon_name}!'],
   'b.lobbyset': ['Το λόμπι δουλεύει για {mon_name}.', 'Lobbyists go to work for {mon_name}.'],
@@ -1529,7 +1563,7 @@ const STRINGS = {
   'b.survive': ['{mon} επιβιώνει με 1 ΥΓ: ούτε γάτα, ούτε ζημιά!', '{mon} survives on 1 HP: no cat, no harm!'],
   'b.rousfeti': ['Ρουσφέτι! {mon_name} παίρνει υγεία από αυτόν που έφυγε.', 'Patronage! {mon_name} gets a favour from the one who left.'],
   'b.winefree': ['Τζάμπα κρασί: όλοι ανακτούν υγεία!', 'Free wine: everyone recovers health!'],
-  'b.noeffect': ['Δεν έχει αποτέλεσμα.', 'It has no effect.'],
+  'b.noeffect': ['Πολλά λόγια, κανένα αποτέλεσμα.', 'Many words, no effect.'],
   'b.item': ['Χρησιμοποιήθηκε: {item}.', 'Used: {item}.'],
   'b.rec.throw': ['Πετάς {item} και περιμένεις απάντηση...', 'You offer {item} and wait for an answer...'],
   'b.rec.ok': ['Επιτυχία! {mon} δέχτηκε... για τα παιδιά.', 'Success! {mon} accepted... for the children.'],
@@ -1541,20 +1575,20 @@ const STRINGS = {
   'b.rec.small': ['Ένα φακελάκι; Για υπουργό; Πρέπει να είναι τουλάχιστον Φάκελος.', 'A little envelope? For a minister? It has to be at least a proper Φάκελος.'],
   'b.rec.trainer': ['Δεν δωροδοκείς τα παιδιά των άλλων!', "You cannot bribe other people's Mizamon!"],
   'b.run.ok': ['Διέφυγες! Ποιος σε είδε; Κανείς.', 'Got away! Who saw you? Nobody.'],
-  'b.run.fail': ['Δεν γλιτώνεις!', 'You cannot escape!'],
+  'b.run.fail': ['Η έξοδος φρουρείται: ξαναδοκίμασε.', 'The exit is guarded: try again.'],
   'b.run.trainer': ['Δεν φεύγεις από προπονητή. Θα σε βρουν από το ΑΦΜ.', 'You cannot run from a trainer. They will find you by your tax ID.'],
   'b.run.trapped': ['Σε ελέγχουν: δεν μπορείς να φύγεις!', 'You are being checked: you cannot run!'],
-  'b.xp': ['{mon} κέρδισε {n} XP!', '{mon} gained {n} XP!'],
-  'b.lvl': ['{mon} έφτασε στο Επίπεδο {n}!', '{mon} reached level {n}!'],
-  'b.learned': ['{mon} έμαθε: {move}!', '{mon} learned {move}!'],
+  'b.xp': ['{mon} μάζεψε {n} XP από τα παρασκήνια!', '{mon} collected {n} XP behind the scenes!'],
+  'b.lvl': ['{mon} προήχθη: Επίπεδο {n}!', '{mon} got promoted: Level {n}!'],
+  'b.learned': ['{mon} ψήφισε νέα τροπολογία: {move}!', '{mon} passed a new amendment: {move}!'],
   'b.prize': ['Κέρδισες Δρχ {n} από τον αντίπαλο. Το κράτος δεν το έμαθε.', 'You won Dr {n} from the opponent. The state did not find out.'],
   'b.moneyGain': ['Μπόνους: +Δρχ {n}.', 'Bonus: +Dr {n}.'], 'b.moneyLoss': ['Έξοδα: -Δρχ {n}.', 'Costs: -Dr {n}.'],
-  'learn.ask': ['{mon} θέλει να μάθει {move}, αλλά ξέρει ήδη 4 κινήσεις. Να ξεχάσει κάποια;', '{mon} wants to learn {move} but already knows 4 moves. Forget one?'],
-  'learn.forget': ['Ποια ξεχνάει;', 'Forget which?'],
-  'learn.skip': ['{mon} δεν έμαθε {move}.', '{mon} did not learn {move}.'],
-  'learn.done': ['{mon} ξέχασε {old} και έμαθε {move}!', '{mon} forgot {old} and learned {move}!'],
-  'evolve.start': ['Τι συμβαίνει; {from} εξελίσσεται...', 'What is happening? {from} is evolving...'],
-  'evolve.done': ['Συγχαρητήρια! Έγινε {to}!', 'Congratulations! It became {to}!'],
+  'learn.ask': ['{mon} έχει νέα εισήγηση: {move}. Η ατζέντα είναι γεμάτη (4 κινήσεις). Να απολυθεί κάποια;', '{mon} has a new proposal: {move}. The agenda is full (4 moves). Fire one of them?'],
+  'learn.forget': ['Ποια απολύεται;', 'Which one is fired?'],
+  'learn.skip': ['{mon} αρχειοθέτησε το {move}: θα εξεταστεί... ποτέ.', '{mon} filed {move} away: to be examined... never.'],
+  'learn.done': ['{mon}: το {old} απολύθηκε, το {move} ψηφίστηκε!', '{mon}: {old} is fired, {move} is passed!'],
+  'evolve.start': ['Ανασχηματισμός! {from} αλλάζει χαρτοφυλάκιο...', 'Cabinet reshuffle! {from} is changing portfolio...'],
+  'evolve.done': ['Νέος υπουργός: {to}. Ορκίστηκε.', 'New minister: {to}. Sworn in.'],
   // Dossier (the fake police file)
   'dossier.title': ['ΔΙΚΟΓΡΑΦΙΑ', 'CASE FILES'],
   'dossier.counts': ['Εντοπ. {seen} · Στρατ. {got} / {total}', 'Found {seen} · Recruited {got} / {total}'],
@@ -1622,7 +1656,7 @@ const STRINGS = {
 // What the headless tests and the balance script can reach.
 const RULES = {
   SAVE_VERSION, SAVE_KEY, OPTIONS_KEY, MAX_LEVEL, PARTY_MAX, MOVES_MAX, NAME_MAX, STAT_KEYS, STAGE_KEYS, START_MONEY, START_BAG,
-  DAMAGE_DIVISOR, CRIT_CHANCE, ENCOUNTER_CHANCE, BLACKOUT_MONEY_KEEP,
+  DAMAGE_DIVISOR, CRIT_CHANCE, OVERTIME_TURN, USELESS_MOVE_SCORE, ENCOUNTER_CHANCE, BLACKOUT_MONEY_KEEP,
   makeRng, randInt, pickOne, pickWeighted, hashString,
   TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK,
   STRINGS, formatText, lookupString, monLabel, eventText,
@@ -2174,8 +2208,15 @@ function T(key, vars) {
   }
   return formatText(lookupString(key, OPT.lang), Object.assign({ name: name }, vars), gender);
 }
+// With no saved choice, Reduced motion follows the operating system setting; the Options screen can change it.
+function systemPrefersReducedMotion() {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (error) { return false; }
+}
 function loadOptions() {
-  try { OPT = normalizeOptions(JSON.parse(Store.get(OPTIONS_KEY) || 'null')); } catch (error) { OPT = defaultOptions(); }
+  let saved = null;
+  try { saved = JSON.parse(Store.get(OPTIONS_KEY) || 'null'); } catch (error) { saved = null; }
+  OPT = normalizeOptions(saved);
+  if (!saved || typeof saved.reduceMotion !== 'boolean') OPT.reduceMotion = systemPrefersReducedMotion();
 }
 function saveOptions() {
   try { Store.set(OPTIONS_KEY, JSON.stringify(OPT)); } catch (error) { /* ignore */ }
@@ -2210,6 +2251,7 @@ const touchPad = document.getElementById('touch');
 let viewScale = 1;
 let touchVisible = false;
 let touchForced = null;
+const TOUCH_SIDE_WIDTH = 160; // CSS px a landscape button pad needs (the d-pad is 152 px wide)
 function detectTouch() {
   if (touchForced !== null) return touchForced;
   return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
@@ -2221,7 +2263,10 @@ function resizeScreen() {
   touchVisible = detectTouch();
   const portrait = viewH > viewW;
   const reservedBottom = touchVisible && portrait ? Math.min(Math.round(viewH * 0.4), 300) : 0;
-  let scale = Math.min(viewW / SCREEN_W, (viewH - reservedBottom) / SCREEN_H);
+  // Landscape with touch: the two button pads stand beside the game, never over it.
+  const reservedSides = touchVisible && !portrait ? 2 * TOUCH_SIDE_WIDTH : 0;
+  let scale = Math.min((viewW - reservedSides) / SCREEN_W, (viewH - reservedBottom) / SCREEN_H);
+  scale = Math.max(scale, 0.5); // a tiny window must still give a drawable canvas
   if (scale >= 2) scale = Math.floor(scale); // whole-number scaling when there is room (crisp pixels)
   const cssW = Math.floor(SCREEN_W * scale);
   const cssH = Math.floor(SCREEN_H * scale);
@@ -2293,6 +2338,7 @@ const KEY_MAP = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
   KeyZ: 'a', Enter: 'a', Space: 'a', KeyX: 'b', Escape: 'b', Backspace: 'b', KeyM: 'menu', Tab: 'menu',
 };
+function padButtonOn(buttons, index) { return !!(buttons[index] && buttons[index].pressed); }
 const Input = {
   down: {}, previous: {}, pressed: {}, repeat: {}, heldFrames: {}, keys: {}, pad: {}, touch: {}, injected: {}, padConnected: 0,
   poll: function () {
@@ -2310,20 +2356,19 @@ const Input = {
   },
   readGamepad: function () {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    this.pad = {};
+    for (let i = 0; i < BUTTONS.length; i++) this.pad[BUTTONS[i]] = false; // reuse the object: no allocation per frame
     for (const pad of pads) {
       if (!pad) continue;
       const axisX = pad.axes[0] || 0;
       const axisY = pad.axes[1] || 0;
       const buttons = pad.buttons;
-      const on = function (index) { return !!(buttons[index] && buttons[index].pressed); };
-      if (on(12) || axisY < -0.5) this.pad.up = true;
-      if (on(13) || axisY > 0.5) this.pad.down = true;
-      if (on(14) || axisX < -0.5) this.pad.left = true;
-      if (on(15) || axisX > 0.5) this.pad.right = true;
-      if (on(0)) this.pad.a = true;
-      if (on(1)) this.pad.b = true;
-      if (on(9) || on(3)) this.pad.menu = true;
+      if (padButtonOn(buttons, 12) || axisY < -0.5) this.pad.up = true;
+      if (padButtonOn(buttons, 13) || axisY > 0.5) this.pad.down = true;
+      if (padButtonOn(buttons, 14) || axisX < -0.5) this.pad.left = true;
+      if (padButtonOn(buttons, 15) || axisX > 0.5) this.pad.right = true;
+      if (padButtonOn(buttons, 0)) this.pad.a = true;
+      if (padButtonOn(buttons, 1)) this.pad.b = true;
+      if (padButtonOn(buttons, 9) || padButtonOn(buttons, 3)) this.pad.menu = true;
     }
   },
   inject: function (name, frames) { this.injected[name] = frames || 2; },
@@ -2669,6 +2714,10 @@ function OverworldLayer() {
   this.popup = 0;
   this.npcs = [];
   this.tempNpcs = [];
+  this.npcList = [];
+  this.npcListFlagCount = -1;
+  this.npcListFlags = null;
+  this.npcListStale = true;
   this.stepAnim = 0;
 }
 OverworldLayer.prototype.loadMap = function (mapId, x, y, dir) {
@@ -2680,15 +2729,26 @@ OverworldLayer.prototype.loadMap = function (mapId, x, y, dir) {
   this.move = null;
   this.tempNpcs = [];
   this.npcs = this.map.npcs.map(function (def) { return { def: def, x: def.x, y: def.y, face: def.face, walk: null }; });
+  this.npcListStale = true;
   G.player.map = mapId; G.player.x = x; G.player.y = y; G.player.dir = this.dir;
   this.popup = 120;
   Sound.play(this.map.music);
 };
 OverworldLayer.prototype.onEnter = function () { this.loadMap(G.player.map, G.player.x, G.player.y, G.player.dir); this.popup = 0; };
+// The visible NPCs are listed again only when a story flag was added or the NPCs of the map changed
+// (flags are only ever added), so the per-frame calls do not allocate.
 OverworldLayer.prototype.visibleNpcs = function () {
-  const out = [];
-  for (const npc of this.npcs) if (npcVisible(npc.def, G.flags)) out.push(npc);
-  return out.concat(this.tempNpcs);
+  let flagCount = 0;
+  for (const name in G.flags) if (G.flags[name]) flagCount++;
+  if (this.npcListStale || flagCount !== this.npcListFlagCount || G.flags !== this.npcListFlags) {
+    this.npcList = [];
+    for (const npc of this.npcs) if (npcVisible(npc.def, G.flags)) this.npcList.push(npc);
+    for (const npc of this.tempNpcs) this.npcList.push(npc);
+    this.npcListFlagCount = flagCount;
+    this.npcListFlags = G.flags;
+    this.npcListStale = false;
+  }
+  return this.npcList;
 };
 OverworldLayer.prototype.npcAt = function (x, y) {
   for (const npc of this.visibleNpcs()) if (npc.x === x && npc.y === y) return npc;
@@ -2919,10 +2979,12 @@ OverworldLayer.prototype.runEvent = async function (eventId) {
     G.flags.rival1 = true;
     const rival = { def: { look: 'rival', kind: 'tmp' }, x: 3, y: 9, face: 'up', walk: null };
     this.tempNpcs.push(rival);
+    this.npcListStale = true;
     Sound.sfx('alert');
     await this.walkNpc(rival, 'up');
     await sayAll(['rival1.intro1', 'rival1.intro2']);
     const result = await runBattle({ kind: 'trainer', trainerId: 'rival1', foeParty: buildTrainerTeam('rival1', G.starter) });
+    if (result === 'ran') { this.tempNpcs = []; this.npcListStale = true; return; } // the battle broke: the fight does not count
     G.flags.t_rival1 = true;
     if (result === 'lose') { await say('rival1.win'); await this.afterBattle('lose', 'rival1'); }
     else { await say('rival1.lose'); await runEvolutions(); }
@@ -2931,6 +2993,7 @@ OverworldLayer.prototype.runEvent = async function (eventId) {
       for (let i = 0; i < 6; i++) await this.walkNpc(rival, 'right');
     }
     this.tempNpcs = [];
+    this.npcListStale = true;
   }
 };
 OverworldLayer.prototype.draw = function () {
@@ -3111,14 +3174,18 @@ NoticeLayer.prototype.draw = function () {
 };
 function TitleLayer() { this.opaque = true; this.frame = 0; }
 TitleLayer.prototype.update = function () { this.frame++; };
+const TITLE_CREATURE_IDS = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'storoula', 'trolosavros'];
+let titleSky = null; // made once, on the first frame
 TitleLayer.prototype.draw = function () {
-  const sky = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-  sky.addColorStop(0, '#1b3a7a'); sky.addColorStop(0.6, '#4a8ad0'); sky.addColorStop(1, '#f0d8a0');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  if (!titleSky) {
+    titleSky = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
+    titleSky.addColorStop(0, '#1b3a7a'); titleSky.addColorStop(0.6, '#4a8ad0'); titleSky.addColorStop(1, '#f0d8a0');
+  }
+  ctx.fillStyle = titleSky; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.fillStyle = '#2a78c8'; ctx.fillRect(0, 98, SCREEN_W, 62);
   ctx.fillStyle = '#8ccaf2'; for (let x = 0; x < SCREEN_W; x += 24) ctx.fillRect((x + (this.frame >> 3)) % SCREEN_W, 150 + (x % 3) * 3, 10, 1);
   ctx.fillStyle = '#e8e0cc'; ctx.fillRect(0, 94, SCREEN_W, 4);
-  const ids = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'storoula', 'trolosavros'];
+  const ids = TITLE_CREATURE_IDS;
   for (let i = 0; i < ids.length; i++) {
     const bob = OPT.reduceMotion ? 0 : Math.round(Math.sin((this.frame + i * 17) / 10) * 2);
     drawSprite(creatureSprite(ids[i]), 6 + i * 38, 60 + bob, 1.2, i % 2 === 1);
@@ -3379,7 +3446,7 @@ SummaryLayer.prototype.refresh = function () {
   this.mon = mon;
   this.statLines = STAT_KEYS.map(function (key) { return [T('stat.' + key), String(statOf(mon, key))]; });
   this.abilityName = T('ab.' + species.ab);
-  this.abilityLines = wrapText(T('abd.' + species.ab), 100, FONT_SMALL);
+  this.abilityLines = wrapText(T('abd.' + species.ab), 100, FONT_SMALL).slice(0, 2); // only two lines fit
   this.hpText = mon.hp + '/' + maxHp(mon);
   this.xpNeeded = mon.lv >= MAX_LEVEL ? 0 : xpForLevel(mon.lv + 1) - mon.xp;
   this.xpFraction = mon.lv >= MAX_LEVEL ? 1 : (mon.xp - xpForLevel(mon.lv)) / (xpForLevel(mon.lv + 1) - xpForLevel(mon.lv));
@@ -3419,7 +3486,7 @@ SummaryLayer.prototype.draw = function () {
   drawText(this.abilityName, 10, 131, COLOR.red);
   ctx.font = FONT_SMALL;
   let y = 141;
-  for (const line of this.abilityLines.slice(0, 2)) { drawText(line, 10, y, COLOR.ink); y += 8; }
+  for (const line of this.abilityLines) { drawText(line, 10, y, COLOR.ink); y += 8; }
   ctx.font = FONT;
   drawPanel(108, 4, 128, 152);
   for (let i = 0; i < this.statLines.length; i++) {
@@ -3703,7 +3770,18 @@ async function offerLearnMove(mon, moveId) {
 
 // ---- Battle screen ----------------------------------------------------------------------------------------
 // The rules (createBattle, playTurn) produce events; this layer plays them back.
-const BATTLE_BOX = { x: 4, y: 116, w: 232, h: 42 };
+// Layout (decision recorded in REFERENCE section 1): a television debate, not a two-panel RPG screen.
+//   - the two fighters stand on podiums that face each other at the same height (player left, foe right);
+//   - a poll panel (the "δημοσκόπηση" bar, the creature's HP) hangs above each podium;
+//   - the four commands are a row of tabs between the podiums and the bottom;
+//   - every message runs in a news-ticker strip along the bottom edge.
+const POLL_PANEL = { y: 3, w: 112, h: 30, leftX: 4, rightX: 124 };
+const CREATURE_Y = 32;
+const PODIUM = { y: 94, w: 88, h: 10, leftX: 14, rightX: 138 };
+const COMMAND_ROW = { x: 4, y: 106, w: 232, h: 13, tabW: 58 };
+const TICKER = { y: 121, h: 39, tagW: 44, textX: 50, textW: 184, lineHeight: 11 };
+const NEWS_NAVY = '#10163a';
+const TAB_BLUE = '#26346e';
 const AUTO_ADVANCE_FRAMES = [80, 50, 24];
 const ROOT_LABELS = ['battle.fight', 'battle.bag', 'battle.mizamon', 'battle.run'];
 let envelopeSprite = null;
@@ -3726,7 +3804,7 @@ function BattleLayer(battle, trainer, theme) {
   this.theme = theme;
   this.views = [newBattleView(), newBattleView()];
   this.mode = 'idle';
-  this.box = new TextBox(BATTLE_BOX.w - 24, 3);
+  this.box = new TextBox(TICKER.textW, 3);
   this.hold = 0;
   this.textResolve = null;
   this.fx = null;
@@ -3778,6 +3856,7 @@ BattleLayer.prototype.showText = function (text) {
 BattleLayer.prototype.startFx = function (kind, side, duration) {
   const layer = this;
   if (OPT.reduceMotion && (kind === 'attack' || kind === 'hit')) duration = Math.min(duration, 6);
+  if (OPT.reduceMotion && kind === 'faint') duration = 1; // the creature just disappears
   return new Promise(function (resolve) { layer.fx = { kind: kind, side: side, t: 0, dur: Math.max(1, duration), resolve: resolve }; });
 };
 BattleLayer.prototype.applyFx = function () {
@@ -3788,7 +3867,10 @@ BattleLayer.prototype.applyFx = function () {
   else if (fx.kind === 'hit') {
     view.dx = OPT.reduceMotion ? 0 : ((fx.t >> 1) % 2 === 0 ? 3 : -3);
     view.alpha = OPT.reduceMotion ? 1 : ((fx.t >> 1) % 2 === 0 ? 0.4 : 1);
-  } else if (fx.kind === 'faint') { view.dy = progress * 36; view.alpha = 1 - progress; }
+  } else if (fx.kind === 'faint') {
+    view.dy = OPT.reduceMotion ? 0 : progress * 36;
+    view.alpha = OPT.reduceMotion ? 1 : 1 - progress;
+  }
   else if (fx.kind === 'enter') { view.alpha = progress; view.dx = (1 - progress) * (fx.side === 0 ? -30 : 30); }
 };
 BattleLayer.prototype.finishFx = function () {
@@ -3803,18 +3885,17 @@ BattleLayer.prototype.waitUntil = async function (condition, maxFrames) {
 };
 // ---- menus ----
 BattleLayer.prototype.updateRoot = function () {
-  if (Input.pressed.left || Input.pressed.right) { this.rootCursor ^= 1; Sound.sfx('move'); }
-  if (Input.pressed.up || Input.pressed.down) { this.rootCursor ^= 2; Sound.sfx('move'); }
+  // The four tabs sit in one row: left/up goes to the previous tab, right/down to the next (wrapping).
+  const step = (Input.pressed.right || Input.pressed.down ? 1 : 0) - (Input.pressed.left || Input.pressed.up ? 1 : 0);
+  if (step !== 0) { this.rootCursor = (this.rootCursor + step + ROOT_LABELS.length) % ROOT_LABELS.length; Sound.sfx('move'); }
   if (Input.pressed.a) { Sound.sfx('confirm'); const resolve = this.menuResolve; this.mode = 'idle'; this.menuResolve = null; resolve(this.rootCursor); }
 };
 BattleLayer.prototype.updateMoves = function () {
   const mon = activeMon(this.battle, 0);
   const count = mon.moves.length;
-  let cursor = this.moveCursor;
-  if (Input.pressed.left && cursor % 2 === 1) cursor--;
-  if (Input.pressed.right && cursor % 2 === 0 && cursor + 1 < count) cursor++;
-  if (Input.pressed.up && cursor >= 2) cursor -= 2;
-  if (Input.pressed.down && cursor + 2 < count) cursor += 2;
+  let cursor = this.moveCursor; // the moves are a vertical list in the ticker strip
+  if (Input.pressed.up && cursor > 0) cursor--;
+  if (Input.pressed.down && cursor + 1 < count) cursor++;
   if (cursor !== this.moveCursor) { this.moveCursor = cursor; Sound.sfx('move'); this.refreshMoveInfo(); }
   if (Input.pressed.a || Input.pressed.b) {
     const resolve = this.menuResolve;
@@ -3831,7 +3912,7 @@ BattleLayer.prototype.refreshMoveInfo = function () {
 BattleLayer.prototype.askRoot = function () {
   const layer = this;
   const mon = activeMon(this.battle, 0);
-  this.rootPrompt = wrapText(T('battle.prompt', { name: speciesName(mon.sp) }), 100);
+  this.rootPrompt = wrapText(T('battle.prompt', { name: speciesName(mon.sp) }), TICKER.textW);
   this.mode = 'root';
   return new Promise(function (resolve) { layer.menuResolve = resolve; });
 };
@@ -3955,76 +4036,115 @@ BattleLayer.prototype.playRecruit = async function (ev) {
   if (ev.ok) { foeView.visible = false; await waitFrames(20); }
 };
 // ---- drawing ----
-BattleLayer.prototype.drawBackground = function () {
-  const theme = this.theme;
-  const sky = ctx.createLinearGradient(0, 0, 0, 112);
-  if (theme === 'studio') { sky.addColorStop(0, '#3a1a5a'); sky.addColorStop(1, '#7a3a8a'); }
-  else if (theme === 'sea') { sky.addColorStop(0, '#8ac8f0'); sky.addColorStop(1, '#d8eefc'); }
-  else { sky.addColorStop(0, '#8ec8f0'); sky.addColorStop(1, '#dff3d8'); }
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, SCREEN_W, 112);
-  ctx.fillStyle = theme === 'studio' ? '#4a2a5a' : (theme === 'sea' ? '#2a78c8' : '#6cba58');
-  ctx.fillRect(0, 70, SCREEN_W, 90);
-  ctx.fillStyle = theme === 'studio' ? '#5a3a6a' : (theme === 'sea' ? '#8ccaf2' : '#8ad070');
-  ctx.fillRect(0, 70, SCREEN_W, 2);
-  if (theme === 'studio') { ctx.fillStyle = '#d8452f'; for (let x = 0; x < SCREEN_W; x += 40) ctx.fillRect(x, 0, 6, 70); }
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.beginPath(); ctx.ellipse(186, 66, 40, 7, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(58, 108, 44, 8, 0, 0, Math.PI * 2); ctx.fill();
+const battleSkyCache = {}; // one gradient per theme, made on first use (not every frame)
+const BATTLE_THEMES = {
+  studio: { top: '#3a1a5a', bottom: '#7a3a8a', ground: '#4a2a5a', edge: '#5a3a6a' },
+  sea: { top: '#8ac8f0', bottom: '#d8eefc', ground: '#2a78c8', edge: '#8ccaf2' },
+  grass: { top: '#8ec8f0', bottom: '#dff3d8', ground: '#6cba58', edge: '#8ad070' },
 };
+BattleLayer.prototype.drawBackground = function () {
+  const colors = BATTLE_THEMES[this.theme] || BATTLE_THEMES.grass;
+  if (!battleSkyCache[this.theme]) {
+    const sky = ctx.createLinearGradient(0, 0, 0, 112);
+    sky.addColorStop(0, colors.top);
+    sky.addColorStop(1, colors.bottom);
+    battleSkyCache[this.theme] = sky;
+  }
+  ctx.fillStyle = battleSkyCache[this.theme]; ctx.fillRect(0, 0, SCREEN_W, 112);
+  ctx.fillStyle = colors.ground; ctx.fillRect(0, 70, SCREEN_W, 90);
+  ctx.fillStyle = colors.edge; ctx.fillRect(0, 70, SCREEN_W, 2);
+  if (this.theme === 'studio') { ctx.fillStyle = '#d8452f'; for (let x = 0; x < SCREEN_W; x += 40) ctx.fillRect(x, 0, 6, 70); }
+};
+// A wooden podium; x is its left edge.
+function drawPodium(x) {
+  ctx.fillStyle = COLOR.border; ctx.fillRect(x - 1, PODIUM.y - 1, PODIUM.w + 2, PODIUM.h + 2);
+  ctx.fillStyle = '#b98a52'; ctx.fillRect(x, PODIUM.y, PODIUM.w, 3);
+  ctx.fillStyle = '#6b4a2b'; ctx.fillRect(x + 2, PODIUM.y + 3, PODIUM.w - 4, PODIUM.h - 3);
+  ctx.fillStyle = COLOR.gold; ctx.fillRect(x + PODIUM.w / 2 - 8, PODIUM.y + 5, 16, 3);
+}
 BattleLayer.prototype.drawView = function (view, x, y, flip) {
   if (!view.visible || view.hidden) return;
   ctx.globalAlpha = Math.max(0, Math.min(1, view.alpha));
   drawSprite(creatureSprite(view.sp), x + view.dx, y + view.dy, 2, flip);
   ctx.globalAlpha = 1;
 };
-BattleLayer.prototype.drawInfo = function (view, x, y, w, showHp) {
+// The poll panel above a podium: name, level, the poll bar (HP) and, for the player's side, the numbers.
+BattleLayer.prototype.drawPollPanel = function (view, x, showHp) {
   if (!view.visible) return;
-  drawPanel(x, y, w, 30);
+  const w = POLL_PANEL.w;
+  const y = POLL_PANEL.y;
+  drawPanel(x, y, w, POLL_PANEL.h);
   drawText(view.name, x + 6, y + 4, COLOR.ink);
   drawText(view.lvText, x + w - 6, y + 4, COLOR.ink, 'right');
-  drawText('HP', x + 6, y + 14, COLOR.red);
-  drawBar(x + 22, y + 15, w - 32, 5, view.shown / view.max);
+  ctx.font = FONT_SMALL;
+  drawText(T('battle.poll'), x + 6, y + 15, COLOR.red);
+  ctx.font = FONT;
+  drawBar(x + 40, y + 15, w - 50, 5, view.shown / view.max);
   if (showHp) drawText(view.hpText, x + w - 6, y + 21, COLOR.ink, 'right');
   if (view.status) drawStatusTag(view.status, x + 6, y + 21);
+};
+// The four command tabs. They are dimmed while a message plays, bright when the player chooses.
+BattleLayer.prototype.drawCommandRow = function () {
+  const active = this.mode === 'root';
+  ctx.globalAlpha = active ? 1 : 0.45;
+  for (let i = 0; i < ROOT_LABELS.length; i++) {
+    const x = COMMAND_ROW.x + i * COMMAND_ROW.tabW;
+    const selected = active && i === this.rootCursor;
+    ctx.fillStyle = COLOR.border; ctx.fillRect(x, COMMAND_ROW.y, COMMAND_ROW.tabW - 2, COMMAND_ROW.h);
+    ctx.fillStyle = selected ? COLOR.gold : TAB_BLUE; ctx.fillRect(x + 1, COMMAND_ROW.y + 1, COMMAND_ROW.tabW - 4, COMMAND_ROW.h - 2);
+    drawText(T(ROOT_LABELS[i]), x + (COMMAND_ROW.tabW - 2) / 2, COMMAND_ROW.y + 3, selected ? COLOR.ink : COLOR.white, 'center');
+  }
+  ctx.globalAlpha = 1;
+};
+// The news-ticker strip along the bottom: a red NEWS tag on the left, the text on a navy band.
+BattleLayer.prototype.drawTicker = function () {
+  ctx.fillStyle = NEWS_NAVY; ctx.fillRect(0, TICKER.y, SCREEN_W, TICKER.h);
+  ctx.fillStyle = COLOR.red; ctx.fillRect(0, TICKER.y, SCREEN_W, 2);
+  ctx.fillStyle = COLOR.red; ctx.fillRect(0, TICKER.y + 2, TICKER.tagW, TICKER.h - 2);
+  ctx.font = FONT_SMALL;
+  drawText(T('battle.news'), TICKER.tagW / 2, TICKER.y + 7, COLOR.white, 'center');
+  ctx.fillStyle = COLOR.gold; ctx.fillRect(6, TICKER.y + 17, TICKER.tagW - 12, 2);
+  ctx.font = FONT;
+  if (this.mode === 'root') {
+    for (let i = 0; i < this.rootPrompt.length; i++) drawText(this.rootPrompt[i], TICKER.textX, TICKER.y + 5 + i * TICKER.lineHeight, COLOR.white);
+  } else if (this.mode === 'moves') {
+    const mon = activeMon(this.battle, 0);
+    for (let i = 0; i < mon.moves.length; i++) {
+      const rowY = TICKER.y + 3 + i * 9;
+      if (i === this.moveCursor) { ctx.fillStyle = COLOR.gold; ctx.fillRect(TICKER.textX, rowY + 1, 3, 6); }
+      drawText(MOVES[mon.moves[i]].n, TICKER.textX + 7, rowY, i === this.moveCursor ? COLOR.gold : COLOR.white);
+    }
+  } else if (this.mode === 'text') {
+    this.box.draw(TICKER.textX, TICKER.y + 5, TICKER.lineHeight, COLOR.white);
+  }
+};
+// While the player picks a move, the command row shows that move's type and numbers instead of the tabs.
+BattleLayer.prototype.drawMoveInfo = function () {
+  ctx.fillStyle = TAB_BLUE; ctx.fillRect(COMMAND_ROW.x, COMMAND_ROW.y, COMMAND_ROW.w, COMMAND_ROW.h);
+  const tagWidth = drawTypeTag(this.moveType, COMMAND_ROW.x + 2, COMMAND_ROW.y + 2);
+  ctx.font = FONT_SMALL;
+  drawText(this.moveInfo, COMMAND_ROW.x + tagWidth + 8, COMMAND_ROW.y + 3, COLOR.white);
+  ctx.font = FONT;
 };
 BattleLayer.prototype.draw = function () {
   ctx.font = FONT;
   this.drawBackground();
-  if (this.trainerLook && !this.views[1].visible) ctx.drawImage(charSheet(this.trainerLook), 0, 0, 16, 16, 162, 16, 48, 48);
-  this.drawView(this.views[1], 154, 3, false);
-  this.drawView(this.views[0], 26, 48, true);
-  this.drawInfo(this.views[1], 6, 6, 112, false);
-  this.drawInfo(this.views[0], 124, 82, 112, true);
+  drawPodium(PODIUM.leftX);
+  drawPodium(PODIUM.rightX);
+  if (this.trainerLook && !this.views[1].visible) ctx.drawImage(charSheet(this.trainerLook), 0, 0, 16, 16, 158, 48, 48, 48);
+  this.drawView(this.views[1], 150, CREATURE_Y, false);
+  this.drawView(this.views[0], 26, CREATURE_Y, true);
+  this.drawPollPanel(this.views[0], POLL_PANEL.leftX, true);
+  this.drawPollPanel(this.views[1], POLL_PANEL.rightX, false);
   if (this.thrown) {
     const t = this.thrown.t;
-    const x = 40 + (170 - 40) * t + this.thrown.wobble;
-    const y = 90 + (38 - 90) * t - Math.sin(t * Math.PI) * 24;
+    const x = 70 + (172 - 70) * t + this.thrown.wobble;
+    const y = 70 + (52 - 70) * t - Math.sin(t * Math.PI) * 24;
     ctx.drawImage(getEnvelopeSprite(), Math.round(x), Math.round(y));
   }
-  drawPanel(BATTLE_BOX.x, BATTLE_BOX.y, BATTLE_BOX.w, BATTLE_BOX.h);
-  if (this.mode === 'root') {
-    for (let i = 0; i < this.rootPrompt.length; i++) drawText(this.rootPrompt[i], 12, BATTLE_BOX.y + 8 + i * 11, COLOR.ink);
-    for (let i = 0; i < 4; i++) {
-      const bx = 124 + (i % 2) * 54;
-      const by = BATTLE_BOX.y + 8 + (i >> 1) * 15;
-      if (i === this.rootCursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(bx - 6, by + 1, 3, 6); }
-      drawText(T(ROOT_LABELS[i]), bx, by, COLOR.ink);
-    }
-  } else if (this.mode === 'moves') {
-    const mon = activeMon(this.battle, 0);
-    for (let i = 0; i < mon.moves.length; i++) {
-      const bx = 16 + (i % 2) * 112;
-      const by = BATTLE_BOX.y + 7 + (i >> 1) * 12;
-      if (i === this.moveCursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(bx - 8, by + 1, 3, 6); }
-      drawText(MOVES[mon.moves[i]].n, bx, by, COLOR.ink);
-    }
-    drawTypeTag(this.moveType, 12, BATTLE_BOX.y + 31);
-    ctx.font = FONT_SMALL;
-    drawText(this.moveInfo, 70, BATTLE_BOX.y + 32, COLOR.ink);
-    ctx.font = FONT;
-  } else if (this.mode === 'text') {
-    this.box.draw(BATTLE_BOX.x + 10, BATTLE_BOX.y + 7, 11, COLOR.ink);
-  }
+  if (this.mode === 'moves') this.drawMoveInfo();
+  else this.drawCommandRow();
+  this.drawTicker();
 };
 
 // ---- Start a battle and return 'win' | 'lose' | 'ran' --------------------------------------------------------------
@@ -4043,7 +4163,12 @@ async function runBattle(setup) {
   await waitFrames(2);
   await Fade.start(0, 14);
   let result;
-  try { result = await layer.run(); } catch (error) { console.error('Mizamon battle error', error); endBattle(battle); result = 'win'; }
+  try { result = await layer.run(); } catch (error) {
+    // A broken battle must never count as a win: no story flag, medal or credits follow from 'ran'.
+    console.error('Mizamon battle error', error);
+    endBattle(battle);
+    result = 'ran';
+  }
   await Fade.start(1, 12);
   removeLayer(layer);
   const world = layers.find(function (candidate) { return candidate instanceof OverworldLayer; });
@@ -4161,6 +4286,15 @@ async function pumpUntil(condition, maxFrames, button, every) {
   return condition();
 }
 async function pumpFrames(count) { await pumpUntil(function () { return false; }, count, null, 1); }
+// Moves the battle command cursor to the command with this label key (a row of tabs: right = next) and presses A.
+async function chooseBattleCommand(labelKey) {
+  const top = layers[layers.length - 1];
+  const wanted = ROOT_LABELS.indexOf(labelKey);
+  for (let tries = 0; tries < ROOT_LABELS.length && top.rootCursor !== wanted; tries++) { Input.inject('right', 2); await pumpFrames(3); }
+  const found = top.rootCursor === wanted;
+  Input.inject('a', 2); await pumpFrames(3);
+  return found;
+}
 async function selfTest() {
   const results = [];
   const check = function (name, pass, detail) { results.push({ name: name, pass: !!pass, detail: detail === undefined ? '' : String(detail) }); };
@@ -4221,6 +4355,7 @@ async function selfTest() {
       let result = null;
       runBattle({ kind: 'wild', foeParty: [makeMon('fakelakis', 2)] }).then(function (r) { result = r; });
       await pumpUntil(function () { return result !== null; }, 4000, 'a', 6);
+      check('battle commands carry the debate labels', ROOT_LABELS.map(function (key) { return lookupString(key, 'en'); }).join('/') === 'Speech/Bag/Party/Flee');
       check('scripted battle is won through the UI', result === 'win' && G.party[0].xp > xpBefore, result + ' xp ' + xpBefore + ' -> ' + G.party[0].xp);
     });
     await guard('recruit', async function () {
@@ -4235,9 +4370,9 @@ async function selfTest() {
         let result = null;
         const size = G.party.length;
         runBattle({ kind: 'wild', foeParty: [foe] }).then(function (r) { result = r; });
-        // Wait for the first menu, then pick Bag (right), first item (A), and let the rest run
+        // Wait for the first menu, pick the Bag command by its label, choose the first item (A), and let the rest run
         await pumpUntil(function () { const top = layers[layers.length - 1]; return top instanceof BattleLayer && top.mode === 'root'; }, 600, null, 1);
-        Input.inject('right', 2); await pumpFrames(3); Input.inject('a', 2); await pumpFrames(3);
+        await chooseBattleCommand('battle.bag');
         Input.inject('a', 2);
         await pumpUntil(function () { return result !== null; }, 3000, 'a', 8);
         success = G.party.length === size + 1;
@@ -4263,9 +4398,16 @@ async function selfTest() {
     });
     await guard('touch', async function () {
       touchForced = true; resizeScreen();
-      const shown = touchPad.style.display !== 'none' && touchPad.querySelectorAll('[data-btn]').length >= 7;
+      const buttons = Array.from(touchPad.querySelectorAll('[data-btn]'));
+      const shown = touchPad.style.display !== 'none' && buttons.length >= 7;
+      const game = canvas.getBoundingClientRect();
+      const covering = buttons.filter(function (button) {
+        const box = button.getBoundingClientRect();
+        return box.left < game.right && box.right > game.left && box.top < game.bottom && box.bottom > game.top;
+      }).map(function (button) { return button.getAttribute('data-btn'); });
       touchForced = false; resizeScreen();
       check('touch controls exist when forced on', shown);
+      check('no touch button covers the game (' + window.innerWidth + 'x' + window.innerHeight + ')', covering.length === 0, covering.join(','));
     });
   } finally {
     layers.length = 0;

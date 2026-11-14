@@ -19,10 +19,10 @@ Open `Mizamon.html` in a browser (desktop or phone). Greek is the default; Optio
 | Menu | M, Tab | Start | MENU button |
 | Mute | N | | Options |
 
-- Walk in tall grass to meet wild Mizamon. In a battle, offer a Φακελάκι or Φάκελος from the Bag to recruit a wild one (odds rise when it is hurt, Υπό Έρευνα or Λαδωμένος).
+- Walk in tall grass to meet independent (wild) Mizamon. A battle is a television debate: the two fighters stand on podiums, a poll bar (the HP) hangs over each, the commands are four tabs (Ομιλία = moves, Τσάντα, Κόμμα = switch, Διαφυγή) and the messages run in a news ticker at the bottom. In a battle, offer a Φακελάκι or Φάκελος from the Bag to recruit an independent one (odds rise when it is hurt, Υπό Έρευνα or Λαδωμένος).
 - The ΚΕΠ 3000 heals your team (take a number). The Περίπτερο sells items. Saving happens at the Καφενείο.
 - Beat Ο Λιμενάρχης Κώτσος at the port to get the Παράσημο and see the credits. Afterwards a Τηλεοπτικό Στούντιο opens in the square.
-- Options: language, sound, text speed, Reduced motion (no shaking or flashing).
+- Options: language, sound, text speed, Reduced motion (no shaking or flashing; the default follows the operating system setting).
 - The save is in the browser (`localStorage` key `mizamon.v1.save`). Without storage the game still plays; the save lasts only while the page is open.
 
 ## Test
