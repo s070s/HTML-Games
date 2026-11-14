@@ -16872,12 +16872,12 @@ const SelfTest = {
     const hudStandIn = (fn) => {
       const made = () => ({ style: {}, className: '', hidden: false, textContent: '', innerHTML: '', offsetHeight: 20, classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } }, querySelectorAll: () => [], setAttribute() {} });
       const dom = new Proxy({}, { get: (target, key) => target[key] || (target[key] = made()) });
-      const keep = { dom: UI.dom, cache: UI.cache, tagEls: UI.tagEls, tagH: UI.tagH, hudBottom: UI.hudBottom, project: R.project, pops: UI.pops, partyEls: UI.partyEls, edgeEls: UI.edgeEls };
+      const keep = { dom: UI.dom, cache: UI.cache, tagEls: UI.tagEls, tagH: UI.tagH, tagW: UI.tagW, hudBottom: UI.hudBottom, project: R.project, pops: UI.pops, partyEls: UI.partyEls, edgeEls: UI.edgeEls };
       try {
-        UI.dom = dom; UI.cache = {}; UI.tagEls = []; UI.tagH = []; UI.pops = []; UI.partyEls = Array.from({ length: LINEUP_MAX }, () => ({ hp: made(), st: made(), root: made() })); UI.edgeEls = [];
+        UI.dom = dom; UI.cache = {}; UI.tagEls = []; UI.tagH = []; UI.tagW = []; UI.pops = []; UI.partyEls = Array.from({ length: LINEUP_MAX }, () => ({ hp: made(), st: made(), root: made() })); UI.edgeEls = [];
         for (let i = 0; i < COOP_MAX_PLAYERS + BRAWL_MAX_ENEMIES; i++) UI.tagEls.push(made());
         return fn(dom);
-      } finally { UI.dom = keep.dom; UI.cache = keep.cache; UI.tagEls = keep.tagEls; UI.tagH = keep.tagH; UI.hudBottom = keep.hudBottom; R.project = keep.project; UI.pops = keep.pops; UI.partyEls = keep.partyEls; UI.edgeEls = keep.edgeEls; }
+      } finally { UI.dom = keep.dom; UI.cache = keep.cache; UI.tagEls = keep.tagEls; UI.tagH = keep.tagH; UI.tagW = keep.tagW; UI.hudBottom = keep.hudBottom; R.project = keep.project; UI.pops = keep.pops; UI.partyEls = keep.partyEls; UI.edgeEls = keep.edgeEls; }
     };
     const tagTop = (el) => { const part = /^translate\((-?[\d.]+)px,(-?[\d.]+)px\)/.exec(el.style.transform || ''); return part ? Number(part[2]) - el.offsetHeight : NaN; };   // where the tag's top edge is: its point minus its own height
     test('Name tags (P19-02): no name tag is above the HUD\'s lower edge (UI.popHudBottom) - a head projected at the top of the screen puts the tag under the edge, a head lower down keeps its tag where it is, in a Free Fight and in a Brawl; sideways a tag\'s centre stays half a tag inside the screen (UI.tagX)', () => {

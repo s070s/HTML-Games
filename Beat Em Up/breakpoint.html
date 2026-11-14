@@ -17850,7 +17850,7 @@ const UI = {
     Settings.set(key, next);
     if (['master', 'sfx', 'music'].includes(key)) Sound.applyVolumes();
     if (['quality', 'shadows', 'effects'].includes(key)) Quality.apply();
-    if (key === 'uiScale') setTimeout(() => R.resize(), 0);
+    if (key === 'uiScale') setTimeout(() => { R.resize(); this.popReset(); }, 0); // the tags, the pops and the HUD edge follow --ui: measure them again
     if (def.type === 'bool') Sound.ui(next ? 'on' : 'off'); else if (def.type === 'num') Sound.ui('tick', (next - def.min) / (def.max - def.min));
     if (key === 'antialias') this.toast('Anti-aliasing changes apply after reloading the page');
     this.rerender(true);
