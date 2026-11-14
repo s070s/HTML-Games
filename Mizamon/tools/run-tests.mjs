@@ -522,7 +522,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     if (species.evo) assert.ok(R.SPECIES[species.evo.to]);
   }
   for (const ability of R.ABILITY_IDS) assert.ok(abilityHolders.has(ability), 'ability ' + ability + ' is held by someone');
-  assert.equal(Object.keys(R.SPECIES).length, 15, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a) and 2 parody characters');
+  assert.equal(Object.keys(R.SPECIES).length, 19, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a), the four of Νότια (MZ-WORLD-02b) and 2 parody characters');
   same(R.DEX_ORDER.slice().sort(), Object.keys(R.SPECIES).sort());
   for (const id of R.ITEM_IDS) assert.ok(R.ITEMS[id]);
   for (const id of R.SHOP_STOCK) assert.ok(R.ITEMS[id]);
@@ -532,7 +532,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
   for (const [id, trainer] of Object.entries(R.TRAINERS)) {
     assert.ok(looks.includes(trainer.look), id + ' look');
     assert.ok(trainer.team.length >= 1 && trainer.team.length <= 6);
-    for (const entry of trainer.team) assert.ok(entry.sp === '$rival' || R.SPECIES[entry.sp], id + ' team member ' + entry.sp);
+    for (const entry of trainer.team) assert.ok(entry.sp === '$rival' || entry.sp === '$rivalEvo' || R.SPECIES[entry.sp], id + ' team member ' + entry.sp);
     for (const item of trainer.items) assert.ok(R.ITEMS[item]);
     for (const starter of R.STARTERS) assert.equal(R.buildTrainerTeam(id, starter).length, trainer.team.length);
   }
@@ -938,8 +938,7 @@ test('WORLD grid: 30 x 15, only known cells, six districts in play order, every 
     assert.equal(labelChar.toUpperCase(), district.letter, id + ' label sits inside the district');
     assert.ok(R.STRINGS[district.nameKey], id + ' name string');
   }
-  assert.equal(Object.values(W.districts).filter((district) => district.built).length, 1, 'only Peiraias is built');
-  assert.equal(W.districts.peiraias.built, true);
+  same(Object.values(W.districts).filter((district) => district.built).map((district) => district.id), ['peiraias', 'notia'], 'Πειραιάς and Νότια are built');
   assert.equal(R.WORLD_BADGE_COUNT, 6);
 });
 test('WORLD places: every node cell is land of its district, only the built district has built places, built places have maps', () => {
@@ -954,7 +953,7 @@ test('WORLD places: every node cell is land of its district, only the built dist
     for (const mapId of node.maps) assert.ok(R.MAPS[mapId], id + ' lists the map ' + mapId);
     if (node.built) assert.ok(node.maps.length > 0, id + ' is built and has maps');
   }
-  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella']);
+  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella', 'faliro', 'glyfada']);
   same(Object.keys(W.nodes).filter((id) => W.nodes[id].boss).sort(), ['chaidari', 'glyfada', 'harbourOffice', 'marousi', 'spata', 'syntagma']);
   assert.equal(new Set(Object.values(W.nodes).map((node) => node.cell.join(','))).size, 14, 'no two places share a cell');
 });
@@ -1069,16 +1068,21 @@ test('map states: a district is locked until the previous badge (and while unbui
   assert.equal(world.badges.peiraias, 1, 'the badge flag fills the badges');
   assert.equal(R.districtState(world, 'peiraias'), 'cleared');
   assert.equal(R.placeState(world, 'kastella'), 'seen', 'the Port Medal tells about Καστέλλα');
-  assert.equal(R.districtState(world, 'notia'), 'locked', 'the next district stays locked while it is not built');
+  assert.equal(R.districtState(world, 'notia'), 'open', 'Νότια is built and opens with the Port Medal');
+  assert.equal(R.districtState(R.newWorldState(), 'notia'), 'locked', 'without the first badge it stays locked');
+  assert.equal(R.districtState(world, 'anatolika'), 'locked', 'the next district stays locked while it is not built');
   // a built next district would open with the badge: model it on a copy of the data
-  const second = W.districts.notia;
-  second.built = true;
-  try { assert.equal(R.districtState(world, 'notia'), 'open'); assert.equal(R.districtState(R.newWorldState(), 'notia'), 'locked', 'without the first badge it stays locked'); } finally { second.built = false; }
+  const third = W.districts.anatolika;
+  const withSecondBadge = R.newWorldState();
+  withSecondBadge.badges.peiraias = 1; withSecondBadge.badges.notia = 1;
+  third.built = true;
+  try { assert.equal(R.districtState(withSecondBadge, 'anatolika'), 'open'); assert.equal(R.districtState(world, 'anatolika'), 'locked', 'without the second badge it stays locked'); } finally { third.built = false; }
   // the district sheet counts the species of the zones of its maps
   const species = R.districtSpecies('peiraias');
   assert.equal(species.length, 10, 'the eight of route 1, Φακελάρχης and Εφοπλιστάκος of route 2');
   assert.ok(species.includes('fakelakis') && species.includes('giagiaka') && species.includes('efoplistakos'));
-  same(R.districtSpecies('notia'), []);
+  same(R.districtSpecies('notia').sort(), ['efoplistakos', 'eforaki', 'fakelarchis', 'frapedoros', 'giagiaka', 'kafenovios', 'laikatzis', 'storoula', 'trolosavros'], 'the nine of Νότια (11.3.2)');
+  same(R.districtSpecies('anatolika'), []);
 });
 test('save v3: a version-2 save gets its visited places from its flags and its position; the world part round-trips; damaged parts are cleaned', () => {
   const v2 = (map, x, y, flags) => Object.assign(sampleV1(), { version: 2, lastHeal: HOSPITAL_SPOT, player: { name: 'ΜΑΡΙΑ', gender: 'f', map, x, y, dir: 'down' }, flags });
@@ -1487,13 +1491,19 @@ test('strings: no real brand, person or party in any text of either language (de
   assert.equal(names, Object.keys(R.SPECIES).length + Object.keys(R.TRAINERS).length + Object.keys(R.MOVES).length, 'every species, trainer and move name was searched');
 });
 
-// Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock).
-const DISTRICT_NEW_ITEMS = { peiraias: [] };
+// Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock);
+// Νότια adds the Δικηγόρος (150) and the Γεμιστά της Μάνας (300) to the two kiosks of its towns.
+const DISTRICT_NEW_ITEMS = { peiraias: [], notia: ['dikigoros', 'gemista'] };
 const STOCK_BEFORE_THE_REWORK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
-test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none)', () => {
+test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none, Νότια two)', () => {
   assert.deepEqual(DISTRICT_NEW_ITEMS.peiraias, [], 'Πειραιάς adds no item');
   same(R.SHOP_STOCK, STOCK_BEFORE_THE_REWORK, 'the shop stock is the one before the rework, so no new item exists in Πειραιάς');
-  assert.ok(R.MAPS.kastella_shop.npcs.some((npc) => npc.kind === 'shop') && R.MAPS.shop.npcs.some((npc) => npc.kind === 'shop'), 'every kiosk sells that one stock');
+  assert.ok(R.MAPS.kastella_shop.npcs.some((npc) => npc.kind === 'shop') && R.MAPS.shop.npcs.some((npc) => npc.kind === 'shop'), 'every kiosk of Πειραιάς sells that one stock');
+  for (const mapId of ['shop', 'kastella_shop']) same(R.shopStockOf(R.MAPS[mapId]), STOCK_BEFORE_THE_REWORK, mapId + ' keeps the old stock');
+  for (const mapId of ['faliro_shop', 'glyfada_shop']) same(R.shopStockOf(R.MAPS[mapId]), STOCK_BEFORE_THE_REWORK.concat(DISTRICT_NEW_ITEMS.notia), mapId + ' adds the two new items');
+  same(R.SHOP_STOCK_NOTIA, STOCK_BEFORE_THE_REWORK.concat(DISTRICT_NEW_ITEMS.notia));
+  for (const id of DISTRICT_NEW_ITEMS.notia) assert.ok(!STOCK_BEFORE_THE_REWORK.includes(id) && R.ITEMS[id] && R.STRINGS['item.' + id] && R.STRINGS['itemd.' + id], id + ' is a new item with its texts');
+  assert.equal(R.ITEMS.dikigoros.price, 150); assert.equal(R.ITEMS.gemista.price, 300);
   for (const district of Object.values(W.districts).filter((entry) => entry.built)) {
     const trainerIds = xpBand(R, district.id).trainerIds.concat(district.bossTrainer);
     let prizeMoney = 0;
@@ -1509,8 +1519,10 @@ test('money budget: the prize money of the district covers the stock of its new 
 test('the chapter card replaces the credits roll after Κώτσος: the badge text is the Port Medal, the flag credits is still set, the studio still opens on it', () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
-  assert.ok(victory.includes('new BadgeLayer()') && victory.includes('new ChapterLayer()') && !victory.includes('new CreditsLayer()'), 'the badge, then the chapter card, no credits roll');
-  assert.ok(victory.indexOf('G.flags.badge = true') < victory.indexOf('new BadgeLayer()') && victory.indexOf('new ChapterLayer()') < victory.indexOf('G.flags.credits = true'), 'order: badge flag, badge, card, credits flag');
+  assert.ok(victory.includes('new BadgeLayer(') && victory.includes('new ChapterLayer()') && !victory.includes('new CreditsLayer()'), 'the badge, then the chapter card, no credits roll');
+  assert.ok(victory.indexOf('G.flags[victory.flag] = true') < victory.indexOf('new BadgeLayer(') && victory.indexOf('new ChapterLayer()') < victory.indexOf('G.flags.credits = true'), 'order: badge flag, badge, card, credits flag');
+  assert.ok(victory.indexOf('victory.chapterCard') < victory.indexOf('new ChapterLayer()'), 'only a boss whose victory data asks for it shows the card and sets the credits flag');
+  same(R.TRAINERS.kotsos.victory, { flag: 'badge', win2: 'boss.win2', title: 'badge.title', sub: 'badge.sub', win3: 'boss.win3', chapterCard: true });
   assert.ok(victory.includes("say('credits.after')"), 'the studio announcement stays');
   assert.ok(html.includes('function ChapterLayer()') && html.includes('function CreditsLayer()'), 'the credits roll stays in the code for the Βουλή');
   assert.ok(!html.includes('new CreditsLayer()'), 'nothing opens the credits roll before the Βουλή is built');
@@ -1583,10 +1595,429 @@ test('the new maps are painted from the same tiles as the old ones: the ferries,
   assert.equal(ferries, 2, 'two ferries on route 2');
 });
 
+// ---- MZ-WORLD-02b: the district Νότια ----
+const NOTIA_MAP_IDS = ['route3', 'faliro', 'faliro_hospital', 'faliro_shop', 'faliro_cafe', 'route4', 'glyfada', 'glyfada_hospital', 'glyfada_shop', 'glyfada_boss'];
+const NOTIA_FLAGS = { gotStarter: true, rival1: true, badge: true, credits: true };
+const NOTIA_TRAINERS = ['sunbedseller', 'conductor', 'lifeguard', 'surfer', 'rival3', 'golfer', 'skipper'];
+const NOTIA_SPECIES = ['efoplistakos', 'eforaki', 'fakelarchis', 'frapedoros', 'giagiaka', 'kafenovios', 'laikatzis', 'storoula', 'trolosavros'];
+// the walkable tiles (1) and solid tiles (0) of the five maps of the second half of Πειραιάς, taken from the base build f66b8c0 (MZ-WORLD-02a)
+const OLD_WALKABLE_02A = {
+  route2: '0000000000000000000000000000000000000000/0000000000000000000000000000000000000000/0000000000000000000000000000000000000000/0111001111111100000000111111111001111110/0111111111101101111110011111111111111110/0111111111111101111110111111111111111110/0111111111111100011000111111111101111110/0101111111111111111111111111111111111010/1111111111111111111111111111111111111111/0111111111011111111111110001100011111110/0111111111111111111111110111111011111110/0111111111111111111111010111111011111110/0111111111111111111111110000000011110110/0000000000000000000000000000000000000000',
+  kastella: '00000000000000000000000000/01111111111111111111111110/01000011100000001110000110/01000011100000001110000110/01000011100000001110000110/01000011100010001110000110/01111111111011111111111110/00000011000000000000000000/01000011100000110000100000/01000011100000110000100000/01000011100000110000100000/01000011000100100100100000/11111111111111111111111110/00000000000000000000011000/01111111111111111111111100/00000000000000000000000000/00000000000000000000000000/00000000000000000000000000',
+  kastella_hospital: '000000000000/011111111110/000000000000/001110111100/011111111110/001111111100/001101101100/011111111110/000001100000',
+  kastella_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
+  kastella_theatre: '000000000000/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/000001100000',
+};
+
+test('Νότια XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+  const band = xpBand(R, 'notia');
+  same(band.trainerIds.slice().sort(), NOTIA_TRAINERS.slice().sort(), 'the seven trainers of route 3, route 4 and Γλυφάδα (the boss does not count)');
+  assert.equal(band.top, 20);
+  assert.equal(band.need, 10446, '3 x (xpForLevel(20) - xpForLevel(13))');
+  assert.ok(band.wildFights <= 10, 'wild fights still needed: ' + band.wildFights);
+  assert.ok(band.trainerShare <= 1.3 && band.trainerShare < 1, 'trainers give ' + band.trainerShare.toFixed(2) + ' of the need');
+  assert.ok(band.trainerXp > 0 && band.wildXp > 0);
+  assert.ok(R.TRAINERS.bougatsas.boss && !band.trainerIds.includes('bougatsas'), 'the boss comes after the climb');
+});
+test('Νότια: the road from Καστέλλα is shut without the Port Medal; every new map is reachable, has its way back and no dead end', () => {
+  const start = R.START_MAP;
+  const gate = R.MAPS.kastella.warps.find((warp) => warp.x === 25 && warp.y === 14);
+  assert.ok(gate && gate.to === 'route3' && gate.needFlag === 'badge' && R.STRINGS[gate.lockedText], 'the gate at the east end of the promenade needs the flag badge and says why');
+  assert.ok(!R.tileDef(R.MAPS.kastella, 24, 14).solid && !R.tileDef(R.MAPS.kastella, 25, 14).solid && !R.MAPS.kastella.signs['24,14'], 'the road sign of the roadworks is gone and the promenade walks on');
+  const without = R.reachableTiles(start.map, start.x, start.y, { gotStarter: true });
+  for (const id of NOTIA_MAP_IDS) assert.ok(![...without].some((key) => key.startsWith(id + ':')), id + ' is not reachable without the badge');
+  const shutOnKastella = R.reachableTiles('kastella', 1, 12, { gotStarter: true }); // standing in Καστέλλα, but the medal flag missing (a damaged save)
+  assert.ok(shutOnKastella.has('kastella:24:14') && !shutOnKastella.has('kastella:25:14') && !shutOnKastella.has('route3:1:8'), 'the gate tile is shut without the badge flag');
+  const all = R.reachableTiles(start.map, start.x, start.y, NOTIA_FLAGS);
+  assert.ok(all.has('kastella:25:14') && all.has('route3:1:8') && all.has('route3:38:8') && all.has('faliro:1:9') && all.has('faliro:28:9') && all.has('route4:1:8') && all.has('route4:34:8') && all.has('glyfada:1:7'), 'through the gate and along both routes into Γλυφάδα');
+  for (const id of NOTIA_MAP_IDS) {
+    const map = R.MAPS[id];
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+      if (/_(hospital|shop)$/.test(id) && y === 1) continue; // behind the counter, as in the templates of New Piraeus
+      if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, NOTIA_FLAGS)) assert.ok(all.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off');
+    }
+    for (const warp of map.warps) {
+      assert.ok(R.MAPS[warp.to].warps.some((back) => back.to === id), id + ' -> ' + warp.to + ' has a return warp');
+      assert.ok(R.tileWalkable(R.MAPS[warp.to], warp.tx, warp.ty, NOTIA_FLAGS), id + ' -> ' + warp.to + ' arrives on a walkable tile');
+      assert.ok(all.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable');
+    }
+    for (const npc of map.npcs) assert.ok(R.npcTalkable(id, npc, all), id + ':' + npc.id + ' can be talked to');
+    for (const key of Object.keys(map.signs)) {
+      const [sx, sy] = key.split(',').map(Number);
+      assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => all.has(id + ':' + (sx + dx) + ':' + (sy + dy))), id + ' sign ' + key + ' can be read');
+      assert.ok(R.tileDef(map, sx, sy).solid, id + ' sign ' + key + ' stands on a sign tile');
+    }
+  }
+  assert.ok(all.has('route3:0:8') && all.has('route3:39:8'), 'both ends of route 3');
+  // no dead end: standing in Γλυφάδα, on route 4 or in Παλαιό Φάληρο the player reaches exactly what is reachable from the start
+  for (const [mapId, x, y] of [['glyfada', 1, 7], ['route4', 1, 8], ['faliro', 1, 9], ['route3', 1, 8], ['glyfada_boss', 5, 8]]) {
+    assert.equal(R.reachableTiles(mapId, x, y, NOTIA_FLAGS).size, all.size, 'from ' + mapId + ' everything can be reached again');
+  }
+  // the boss can be talked to across the counter, and the east end of Γλυφάδα carries the roadworks sign (the gate to Ανατολικά is a later task)
+  assert.ok(R.npcTalkable('glyfada_boss', R.MAPS.glyfada_boss.npcs.find((npc) => npc.id === 'bougatsas'), all));
+  assert.equal(R.MAPS.glyfada.signs['26,7'], 'sign.roadworks');
+  assert.ok(!R.MAPS.glyfada.warps.some((warp) => warp.x > 20 && warp.y === 7), 'no exit to Ανατολικά yet');
+});
+test('Νότια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.2, two towns with hospital, kiosk, ΚΤΕΛ stop, café and boss café', () => {
+  const sizes = { route3: [40, 14], faliro: [30, 16], faliro_hospital: [12, 9], faliro_shop: [8, 6], faliro_cafe: [10, 8], route4: [36, 20], glyfada: [28, 18], glyfada_hospital: [12, 9], glyfada_shop: [8, 6], glyfada_boss: [12, 10] };
+  for (const id of NOTIA_MAP_IDS) {
+    const map = R.MAPS[id];
+    same([map.w, map.h], sizes[id], id + ' size');
+    assert.equal(map.rows.length, map.h);
+    for (const row of map.rows) { assert.equal(row.length, map.w, id + ' width'); for (const char of row) assert.ok(R.TILE_DEFS[char], id + ' tile ' + char); }
+    assert.ok(R.mapNode(id) && R.mapNode(id).district === 'notia', id + ' belongs to a place of Νότια');
+    assert.ok(R.STRINGS[map.name], id + ' name');
+  }
+  assert.equal(NOTIA_MAP_IDS.reduce((sum, id) => sum + R.MAPS[id].w * R.MAPS[id].h, 0), 40 * 14 + 30 * 16 + 12 * 9 * 2 + 8 * 6 * 2 + 10 * 8 + 36 * 20 + 28 * 18 + 12 * 10, 'the tiles of the build plan');
+  same([W.nodes.faliro.built, W.nodes.glyfada.built, W.routes.route3.built, W.routes.route4.built, W.nodes.faliro.stop, W.nodes.glyfada.stop], [true, true, true, true, true, true]);
+  same([R.mapNode('faliro_cafe').id, R.mapNode('glyfada_boss').id, R.mapNode('route3').id, R.mapNode('route4').id], ['faliro', 'glyfada', 'route3', 'route4']);
+  // wild tables: the species of 11.3.2 at the levels of 11.3.2 (R3 13-16, R4 16-19), evolved forms only at or above their evolution level
+  const allowed = { route3: ['eforaki', 'efoplistakos', 'fakelarchis', 'frapedoros', 'laikatzis', 'trolosavros'], route4: ['efoplistakos', 'frapedoros', 'giagiaka', 'kafenovios', 'storoula'] };
+  const range = { route3: [13, 16], route4: [16, 19] };
+  const seenInZones = new Set();
+  for (const mapId of ['route3', 'route4']) {
+    const used = new Set();
+    for (const zone of R.MAPS[mapId].zones) for (const entry of zone.table) {
+      used.add(entry.sp); seenInZones.add(entry.sp);
+      assert.ok(entry.min >= range[mapId][0] && entry.max <= range[mapId][1] && entry.min <= entry.max, mapId + ' ' + entry.sp + ' levels');
+      for (const species of Object.values(R.SPECIES)) if (species.evo && species.evo.to === entry.sp) assert.ok(entry.min >= species.evo.lv, entry.sp + ' appears only from its evolution level');
+    }
+    same([...used].sort(), allowed[mapId].slice().sort(), mapId + ' species');
+    const lows = R.MAPS[mapId].zones.map((zone) => zone.table.reduce((a, b) => (a.w <= b.w ? a : b)).sp);
+    if (mapId === 'route3') assert.ok(lows.every((sp) => sp === 'fakelarchis'), 'Φακελάρχης is the rare one on route 3 (11.3.2)');
+  }
+  same(R.districtSpecies('notia').sort(), NOTIA_SPECIES);
+  assert.equal(Math.min(...R.MAPS.route3.zones.flatMap((zone) => zone.table.map((entry) => entry.min))), 13);
+  assert.equal(Math.max(...R.MAPS.route4.zones.flatMap((zone) => zone.table.map((entry) => entry.max))), 19);
+  // each town: a hospital that heals (return point), a kiosk with the new stock, a ΚΤΕΛ stop tile; Παλαιό Φάληρο the first Καφενείο, Γλυφάδα the boss café
+  for (const [town, buildings] of [['faliro', ['faliro_hospital', 'faliro_shop', 'faliro_cafe']], ['glyfada', ['glyfada_hospital', 'glyfada_shop', 'glyfada_boss']]]) {
+    assert.ok(R.MAPS[town].rows.join('').includes('U'), town + ' has its ΚΤΕΛ stop');
+    assert.ok(R.MAPS[town].warps.filter((warp) => buildings.includes(warp.to)).length === 3, town + ' has the three doors');
+    const hospital = R.MAPS[town + '_hospital'];
+    assert.ok(hospital.npcs.some((npc) => npc.kind === 'heal') && hospital.actions['1,3'] === 'archive' && !R.tileDef(hospital, R.HOSPITAL_SPOT.x, R.HOSPITAL_SPOT.y).solid, town + ' hospital heals and has the archive terminal');
+    assert.ok(R.MAPS[town + '_shop'].npcs.some((npc) => npc.kind === 'shop'));
+  }
+  assert.ok(R.MAPS.faliro_cafe.npcs.some((npc) => npc.kind === 'save') && R.STRINGS[R.MAPS.faliro_cafe.cafeHello], 'the first Καφενείο of Νότια saves, with its own greeting');
+  assert.ok(!R.MAPS.glyfada_boss.npcs.some((npc) => npc.kind === 'save'), 'only the first town has the café');
+  assert.ok(R.MAPS.glyfada_boss.npcs.some((npc) => npc.kind === 'boss' && npc.trainer === 'bougatsas'));
+  // the sprites and texts of the new tiles
+  for (const char of ['a', 'b', 'k', 'l', 'n', 'o', 'p', 'q', 'u', 'G']) { assert.ok(R.TILE_DEFS[char] && html.includes("make('" + char + "'"), 'a sprite for tile ' + char); }
+  for (const char of ['b', 'k', 'n', 'p', 'q', 'G']) assert.equal(R.TILE_DEFS[char].solid, true, char + ' is solid');
+  for (const char of ['a', 'l', 'o', 'u']) assert.equal(R.TILE_DEFS[char].solid, false, char + ' is walkable');
+  // sand, sea and a lot of grass: the sea is the bottom edge of the maps of the strip (11.3.2)
+  for (const id of ['route3', 'faliro', 'route4', 'glyfada']) assert.ok(R.MAPS[id].rows.slice(-4).some((row) => row.includes('~')), id + ' has the sea along its bottom');
+  assert.ok(R.MAPS.route4.rows.join('').split('o').length > 60, 'two runways');
+  for (const id of ['faliro', 'glyfada']) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]]);
+});
+test('Νότια species: Καφενόβιος and the three middle starter forms have stats, moves, abilities, dossier texts, sprites and an evolution that is consistent', () => {
+  const kafenovios = R.SPECIES.kafenovios;
+  assert.equal(kafenovios.t, 'mem');
+  assert.ok(kafenovios.rec > 0 && kafenovios.xp > 0 && kafenovios.base.reduce((a, b) => a + b, 0) > 280);
+  const middle = { komma: 'vouleftakos', koulourak: 'batsonos', psaltak: 'diakosdisko' };
+  for (const [starterId, formId] of Object.entries(middle)) {
+    const starter = R.SPECIES[starterId];
+    const form = R.SPECIES[formId];
+    same(starter.evo, { to: formId, lv: 16 }, starterId + ' evolves at level 16 (11.3)');
+    assert.equal(form.t, starter.t, formId + ' keeps the type');
+    assert.equal(form.ab, starter.ab, formId + ' keeps the ability');
+    assert.equal(form.rec, 0, formId + ' cannot be recruited');
+    assert.ok(form.base.reduce((a, b) => a + b, 0) > starter.base.reduce((a, b) => a + b, 0), formId + ' is stronger than ' + starterId);
+    assert.ok(!form.evo, formId + ' has no later form in this roster (the last starter forms come with MZ-WORLD-02d)');
+    assert.ok(R.movesAtLevel(formId, 18).length === 4 && R.makeMon(formId, 18).moves.every((id) => R.MOVES[id]));
+    assert.equal(R.evolutionFor(R.makeMon(starterId, 15)), null);
+    assert.equal(R.evolutionFor(R.makeMon(starterId, 16)), formId);
+    const mon = R.makeMon(starterId, 16);
+    const before = R.maxHp(mon);
+    mon.hp = 5;
+    assert.ok(R.evolveMon(mon) && mon.sp === formId && mon.hp === 5 + R.maxHp(mon) - before, 'evolving keeps the damage taken');
+  }
+  for (const id of ['kafenovios', 'vouleftakos', 'batsonos', 'diakosdisko']) {
+    assert.ok(R.DEX_ORDER.includes(id) && R.STRINGS['sp.' + id][0].startsWith('Γνωστός για') && R.STRINGS['sp.' + id][1].includes('Never convicted'), id + ' dossier text');
+    assert.ok(new RegExp('^ {2}' + id + ': function \\(p\\)', 'm').test(html), id + ' has a procedural sprite');
+    assert.ok(R.STRINGS['sp.' + id][0].includes('Ποτέ δεν καταδικάστηκε'), id + ' Greek dossier ends like all the others');
+  }
+  // a creature's evolution is reached by levelling: gainXp to level 16 and the evolution is offered
+  const komma = R.makeMon('komma', 15);
+  R.gainXp(komma, R.xpForLevel(16) - komma.xp);
+  assert.equal(komma.lv, 16);
+  assert.equal(R.evolutionFor(komma), 'vouleftakos');
+  // the rival's third fight shows the evolved form of whatever starter he took
+  for (const starter of R.STARTERS) {
+    const team = R.buildTrainerTeam('rival3', starter);
+    assert.equal(team[team.length - 1].sp, middle[R.RIVAL_STARTER[starter]], 'rival, third fight, player starter ' + starter);
+    assert.equal(team[team.length - 1].lv, 18);
+  }
+  assert.equal(R.TRAINERS.rival3.team[R.TRAINERS.rival3.team.length - 1].lv, R.TRAINERS.bougatsas.team[R.TRAINERS.bougatsas.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
+  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, {}), true);
+  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, { t_rival3: true }), false, 'he leaves after the third fight');
+  // stat boost: only creatures that carry one; the formula for everybody else is the old one
+  const plain = R.makeMon('giagiaka', 20);
+  const boosted = R.makeMon('giagiaka', 20, 1.3);
+  assert.equal(plain.boost, undefined);
+  assert.ok(R.statOf(boosted, 'atk') > R.statOf(plain, 'atk') && R.maxHp(boosted) > R.maxHp(plain));
+  assert.equal(R.cloneMon(boosted).boost, 1.3);
+  assert.equal(R.statOf(plain, 'atk'), Math.floor(R.SPECIES.giagiaka.base[1] * 20 / 25) + 5);
+  assert.equal(R.serializeMon(boosted).boost, undefined, 'a boost is never saved');
+  for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
+  assert.ok(R.TRAINERS.bougatsas.boost > 1 && R.TRAINERS.bougatsas.boost <= 1.2);
+});
+test('Νότια items: the Δικηγόρος and the Γεμιστά της Μάνας heal and clear a status, in and out of a battle', () => {
+  const mon = R.makeMon('komma', 40); // 142 HP
+  mon.hp = 10; mon.status = { id: 'inv', turns: 3 };
+  assert.ok(R.canUseItemOn(mon, 'dikigoros') && R.canUseItemOn(mon, 'gemista'));
+  const healed = R.applyItemToMon(mon, 'dikigoros');
+  assert.equal(healed, 80);
+  assert.equal(mon.hp, 90); assert.equal(mon.status, null, 'the status is gone');
+  mon.hp = 12; mon.status = { id: 'sca', turns: 0 };
+  R.applyItemToMon(mon, 'gemista');
+  assert.equal(mon.hp, R.maxHp(mon)); assert.equal(mon.status, null);
+  const sick = R.makeMon('komma', 20); sick.status = { id: 'str', turns: 2 };
+  assert.ok(R.canUseItemOn(sick, 'dikigoros') && R.canUseItemOn(sick, 'gemista'), 'a full-HP creature with a status can use them');
+  assert.ok(!R.canUseItemOn(R.makeMon('komma', 20), 'dikigoros'), 'nothing to heal or clear');
+  assert.ok(!R.canUseItemOn(R.makeMon('komma', 20), 'souvlaki'), 'the old items are as before');
+  const fainted = R.makeMon('komma', 20); fainted.hp = 0;
+  assert.ok(!R.canUseItemOn(fainted, 'gemista'));
+  // in a battle the bag item is used on the active creature and the status event follows
+  const battle = R.createBattle([R.makeMon('komma', 20)], [R.makeMon('giagiaka', 20)], R.makeRng(3), { kind: 'trainer', trainerId: 'sim', foeName: 'x', bag: { dikigoros: 1 } });
+  const lead = battle.sides[0].party[0];
+  lead.hp = 20; lead.status = { id: 'inv', turns: 4 };
+  const events = R.playTurn(battle, { t: 'item', id: 'dikigoros', target: 0 });
+  assert.ok(events.some((event) => event.k === 'msg' && event.key === 'b.item'), 'the item message');
+  assert.equal(battle.bag.dikigoros, 0, 'the item is spent');
+  assert.ok(lead.hp > 20 && lead.status === null, 'healed and cleared');
+  // the bag of an old save (without the new items) gets zero of them
+  const migrated = R.migrateSave({ version: 3, player: { name: 'Α', gender: 'm', map: 'town', x: 5, y: 8, dir: 'left' }, party: [R.serializeMon(R.makeMon('komma', 9))], bag: { fakelaki: 2 }, flags: {}, dex: { seen: {}, got: {} } });
+  assert.equal(migrated.bag.dikigoros, 0); assert.equal(migrated.bag.gemista, 0); assert.equal(migrated.bag.fakelaki, 2);
+});
+test('Νότια trainers: seven trainers with names in the strings, levels 14-18, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', () => {
+  assert.equal(NOTIA_TRAINERS.length, 7);
+  const onMaps = {};
+  for (const id of ['route3', 'route4', 'glyfada']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
+  same(onMaps, { sunbedseller: 'route3', conductor: 'route3', lifeguard: 'route3', surfer: 'route4', rival3: 'route4', golfer: 'route4', skipper: 'glyfada' }, 'three on route 3, three on route 4, one on the Γλυφάδα pier');
+  for (const id of NOTIA_TRAINERS) {
+    const trainer = R.TRAINERS[id];
+    assert.ok(trainer.team.length >= 2 && trainer.team.length <= 3 && !trainer.boss, id + ' team');
+    for (const entry of trainer.team) assert.ok(entry.lv >= 14 && entry.lv <= 18, id + ' level ' + entry.lv);
+    for (const part of ['intro', 'win', 'after']) assert.ok(R.STRINGS['tr.' + id + '.' + part], id + ' ' + part);
+    const npc = Object.values(R.MAPS).flatMap((map) => map.npcs).find((entry) => entry.trainer === id);
+    assert.ok(npc.sight >= 2 && npc.sight <= 3, id + ' sees ' + npc.sight + ' tiles');
+  }
+  const members = new Set(NOTIA_TRAINERS.flatMap((id) => R.TRAINERS[id].team.map((entry) => entry.sp)));
+  for (const species of ['efoplistakos', 'giagiaka', 'kafenovios', 'storoula', 'dimosio', 'eforaki']) assert.ok(members.has(species), 'the trainers use ' + species);
+  const replay = (seed) => {
+    const rng = R.makeRng(seed);
+    const lines = [];
+    const ids = NOTIA_TRAINERS.concat(['bougatsas']);
+    for (let i = 0; i < 125; i++) {
+      for (const id of ids) {
+        const team = notiaTeam(R, rng, 18, 3);
+        const result = R.simulateBattle(team, R.buildTrainerTeam(id, 'komma'), rng, { foeItems: R.TRAINERS[id].items });
+        lines.push(id + result.winner + ':' + result.turns);
+      }
+    }
+    assert.equal(lines.length, 1000);
+    return R.hashString(lines.join('|'));
+  };
+  assert.equal(replay(31), replay(31));
+  assert.notEqual(replay(31), replay(32));
+  const winRate = (trainerId, level, size, runsCount) => {
+    const rng = R.makeRng(1900 + level + size);
+    let wins = 0;
+    for (let i = 0; i < runsCount; i++) wins += R.simulateBattle(notiaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { playerItems: [] }).winner === 0 ? 1 : 0;
+    return wins / runsCount;
+  };
+  // a full team of level 18 (the level of the last route 4 trainers) wins every trainer fight almost always; three creatures still win more often than not
+  for (const id of NOTIA_TRAINERS) {
+    assert.ok(winRate(id, 18, 6, 100) >= 0.9, id + ' with six creatures at level 18');
+    assert.ok(winRate(id, 18, 3, 100) >= 0.5, id + ' with three creatures at level 18');
+  }
+});
+test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-creature team and the boost of 11.12) with the AI-played player team, and the boss data', () => {
+  const boss = R.TRAINERS.bougatsas;
+  same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'efoplistakos20', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.12');
+  assert.ok(boss.boost > 1 && boss.boost <= 1.2, 'a small boost, visible in the battle (the mark)');
+  assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
+  assert.equal(boss.look, 'bougatsas');
+  assert.equal(R.WORLD.districts.notia.bossTrainer, 'bougatsas');
+  assert.equal(R.WORLD.districts.notia.badgeFlag, 'badge_notia');
+  assert.equal(boss.victory.flag, 'badge_notia');
+  for (const key of ['win2', 'title', 'sub', 'win3']) assert.ok(R.STRINGS[boss.victory[key]], 'victory text ' + key);
+  assert.equal(boss.victory.chapterCard, undefined, 'only the first boss ends a chapter');
+  assert.equal(R.STRINGS['badge.notia.title'][0], 'ΠΑΡΑΣΗΜΟ ΠΑΡΑΛΙΑΚΗΣ');
+  // the money: 20 x 30 + 200 for the boss
+  const prize = R.prizeFor({ sides: [{ party: [], active: 0 }, { party: R.buildTrainerTeam('bougatsas', 'komma') }] }, boss);
+  assert.equal(prize, 20 * 30 + 200);
+  // the bands
+  const top = boss.team[boss.team.length - 1].lv;
+  const twoSouvlaki = ['souvlaki', 'souvlaki'];
+  const bands = [];
+  for (const [label, offset, size, items, low, high] of bossBands(R, 'bougatsas')) bands.push([label, bossWinRate(R, 'bougatsas', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Μπουγάτσας, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
+  // stronger than the plain species: without the boost the same fight is easier (top minus 3 with six creatures leaves its band)
+  const plainBoss = R.TRAINERS.bougatsas.boost;
+  R.TRAINERS.bougatsas.boost = undefined;
+  try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, BOSS_RUNS_PER_CELL, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
+});
+test('every built district boss, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
+  const runsPerCell = BOSS_RUNS_PER_CELL;
+  for (const bossId of ['kotsos', 'bougatsas']) {
+    const team = R.TRAINERS[bossId].team;
+    const top = team[team.length - 1].lv;
+    const atTop = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top + 1, 6, runsPerCell, 8000));
+    const behind = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top - 1, 6, runsPerCell, 8000));
+    atTop.forEach((rate, index) => assert.ok(rate >= 0.75, bossId + ', ' + R.STARTERS[index] + ' at top plus 1: ' + rate));
+    assert.ok(Math.max(...behind) - Math.min(...behind) <= 0.35, bossId + ' spread at top minus 1: ' + behind.join(' '));
+  }
+});
+test('Νότια: old saves (v2 and v3, standing anywhere in Πειραιάς) load and continue; the new flag and the new places migrate; old creatures evolve at 16', () => {
+  const party = [{ sp: 'komma', lv: 17, xp: R.xpForLevel(17), hp: 40 }, { sp: 'fakelakis', lv: 9, xp: R.xpForLevel(9), hp: 20 }];
+  const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, souvlaki: 2 },
+    dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'kastella_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
+  // every walkable tile of every map of Πειραιάς (the nine old ones, route 2 and Καστέλλα with its three buildings): the save loads where it stood
+  const sampleOf = (rows, mapId) => {
+    const found = [];
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) if (rows[y][x] === '1' && R.tileWalkable(R.MAPS[mapId], x, y, NOTIA_FLAGS)) found.push([x, y]);
+    return found;
+  };
+  let count = 0;
+  for (const id of OLD_MAP_IDS) for (const [x, y] of sampleOf(OLD_WALKABLE[id].split('/'), id)) {
+    for (const version of [2, 3]) {
+      const loaded = R.migrateSave(make(version, id, x, y, NOTIA_FLAGS));
+      assert.ok(loaded.player.map === id && loaded.player.x === x && loaded.player.y === y, version + ' ' + id + ' ' + x + ',' + y + ' loads where it stood');
+      count++;
+    }
+  }
+  for (const id of Object.keys(OLD_WALKABLE_02A)) for (const [x, y] of sampleOf(OLD_WALKABLE_02A[id].split('/'), id)) {
+    const loaded = R.migrateSave(make(3, id, x, y, NOTIA_FLAGS));
+    assert.ok(loaded.player.map === id && loaded.player.x === x && loaded.player.y === y, id + ' ' + x + ',' + y + ' loads where it stood');
+    count++;
+  }
+  assert.ok(count > 1500, 'a lot of positions were loaded: ' + count);
+  // the creatures of an old save: Κομματάκι L17 is evolvable (the game offers it after the next battle), nothing is lost
+  const old = R.migrateSave(make(2, 'kastella', 12, 8, NOTIA_FLAGS));
+  assert.equal(old.party[0].sp, 'komma'); assert.equal(old.party[0].lv, 17);
+  assert.equal(R.evolutionFor(R.restoreMon(old.party[0])), 'vouleftakos');
+  assert.equal(old.money, 555); assert.equal(old.bag.souvlaki, 2); assert.equal(old.bag.gemista, 0);
+  same(old.lastHeal, { map: 'kastella_hospital', x: 5, y: 7, dir: 'up' });
+  assert.equal(R.placeState(old.world, 'faliro'), 'hidden', 'Παλαιό Φάληρο is told about only when route 3 is walked');
+  assert.equal(R.districtState(old.world, 'notia'), 'open', 'the Port Medal opens the district');
+  // a new save: Νότια places, the new badge flag
+  const world = R.newWorldState();
+  R.worldVisit(world, 'route3', NOTIA_FLAGS);
+  assert.equal(world.routes.route3, 1); assert.equal(R.placeState(world, 'faliro'), 'seen');
+  R.worldVisit(world, 'faliro_cafe', NOTIA_FLAGS);
+  R.worldVisit(world, 'route4', NOTIA_FLAGS);
+  R.worldVisit(world, 'glyfada_boss', Object.assign({ badge_notia: true }, NOTIA_FLAGS));
+  assert.equal(R.placeState(world, 'faliro'), 'visited'); assert.equal(R.placeState(world, 'glyfada'), 'visited');
+  assert.equal(world.badges.notia, 1, 'the flag badge_notia fills the badge');
+  assert.equal(R.districtState(world, 'notia'), 'cleared');
+  assert.equal(R.districtState(world, 'anatolika'), 'locked', 'the next district is not built');
+  const stored = R.migrateSave(make(3, 'glyfada_hospital', 5, 7, Object.assign({ badge_notia: true, t_bougatsas: true }, NOTIA_FLAGS), { world, lastHeal: { map: 'glyfada_hospital', x: 5, y: 7, dir: 'up' } }));
+  same(stored.lastHeal, { map: 'glyfada_hospital', x: 5, y: 7, dir: 'up' }, 'the Γλυφάδα hospital is a valid return point');
+  assert.equal(stored.player.map, 'glyfada_hospital');
+  assert.equal(stored.flags.badge_notia, true);
+  assert.equal(stored.world.routes.route4, 1);
+  same(R.migrateSave(JSON.parse(JSON.stringify(stored))), stored, 'a second load changes nothing');
+  // a flag without the world part (a v2 save of the next build): the badge is still shown
+  const flagOnly = R.migrateSave(make(2, 'kastella', 12, 8, Object.assign({ badge_notia: true }, NOTIA_FLAGS)));
+  assert.equal(flagOnly.world.badges.notia, 1);
+  // a save from this build stands on a Νότια tile that an older build does not know: it falls back to the start, as for every unknown place
+  assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, NOTIA_FLAGS)).player.map, 'lab');
+});
+test('Νότια leaves Πειραιάς as it was: only the east end of the Καστέλλα promenade changes (24,14 walks on, 25,14 is the gate); every old walkable tile is still walkable', () => {
+  for (const id of Object.keys(OLD_WALKABLE_02A)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02A[id].split('/');
+    assert.equal(map.h, rows.length, id + ' height'); assert.equal(map.w, rows[0].length, id + ' width');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '1') assert.ok(!R.tileDef(map, x, y).solid, id + ' ' + x + ',' + y + ' was walkable and still must be');
+  }
+  const nowWalkable = [];
+  for (const id of Object.keys(OLD_WALKABLE_02A)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02A[id].split('/');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '0' && !R.tileDef(map, x, y).solid) nowWalkable.push(id + ':' + x + ',' + y);
+  }
+  same(nowWalkable, ['kastella:24,14', 'kastella:25,14']);
+  for (const id of ['route2', 'kastella', 'kastella_hospital', 'kastella_shop', 'kastella_theatre']) assert.ok(R.STRINGS[R.MAPS[id].name]);
+  assert.equal(R.MAPS.kastella.signs['24,13'], 'sign.kastella.east');
+  assert.equal(R.districtState(R.newWorldState(), 'peiraias'), 'open');
+});
+test('Νότια boss path: the boss victory sets only the flag of its own badge; the Port Medal flag and the credits flag are not touched; the badge card takes its texts and ribbon from the boss data', () => {
+  const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
+  const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
+  assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true'));
+  assert.ok(!/G\.flags\.badge\b/.test(victory), 'no hard-coded Port Medal flag any more');
+  assert.ok(html.includes('this.bossVictory(trainerId)'), 'the fight tells which boss it was');
+  const layer = part('function BadgeLayer(', '// The short card after the first boss');
+  assert.ok(layer.includes("titleKey || 'badge.title'") && layer.includes('this.ribbon') && !layer.includes('T(\'badge.title\')'), 'the badge card is data driven');
+  // text widths are checked in the page (selfTest); here: the strings differ from the first badge and say what they are
+  assert.notEqual(R.STRINGS['badge.notia.title'][0], R.STRINGS['badge.title'][0]);
+  assert.ok(R.STRINGS['boss.bougatsas.win3'][0].includes('Παραλιακής') && R.STRINGS['boss.bougatsas.win3'][1].includes('Coast Medal'));
+  assert.ok(R.STRINGS['tr.bougatsas.intro'][0].includes('{ανιψιέ|ανιψιά}'), 'the player is addressed with the gender choice');
+});
+test('Νότια: no per-frame text building in the new code (the shop and the badge card take their text from the cached T() or build it once)', () => {
+  const shopDraw = html.slice(html.indexOf('ShopLayer.prototype.draw'), html.indexOf('// ---- Evolution and move learning'));
+  assert.ok(!/T\('[^']+', \{/.test(shopDraw) && !shopDraw.includes('wrapText('), 'the shop draw builds no text with variables and does not wrap');
+  const badgeDraw = html.slice(html.indexOf('BadgeLayer.prototype.draw'), html.indexOf('// The short card after the first boss'));
+  assert.ok(!badgeDraw.includes('shadeColor(') && badgeDraw.includes('this.ribbonDark'), 'the dark ribbon colour is built once in the constructor');
+  assert.ok(html.includes('this.ribbonDark = shadeColor(this.ribbon, 0.6)'));
+  const pollDraw = html.slice(html.indexOf('BattleLayer.prototype.drawPollPanel'), html.indexOf('// The four command tabs'));
+  assert.ok(pollDraw.includes('drawBoostMark(') && !pollDraw.includes('measureText'), 'the boost mark is drawn from a value measured once when the creature is sent out');
+});
+
+// The player team of a Νότια fight: one starter (in its middle form from level 16) and creatures of the pool, every creature evolved as far as its level allows.
+export const NOTIA_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'fakelarchis', 'efoplistakos', 'kafenovios'];
+export function notiaTeam(rules, rng, level, size) {
+  const evolved = (mon) => { rules.evolveMon(mon); return mon; };
+  const team = [evolved(rules.makeMon(rules.pickOne(rng, rules.STARTERS), level))];
+  const pool = NOTIA_POOL.slice();
+  for (let n = 1; n < size; n++) team.push(evolved(rules.makeMon(pool.splice(Math.floor(rng() * pool.length), 1)[0], level)));
+  return team;
+}
+export function bossWinRate(rules, bossId, level, size, items, runsCount, seed) {
+  const rng = rules.makeRng(seed + level * 10 + size);
+  let wins = 0;
+  for (let i = 0; i < runsCount; i++) {
+    if (rules.simulateBattle(notiaTeam(rules, rng, level, size), rules.buildTrainerTeam(bossId, 'komma'), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: items }).winner === 0) wins++;
+  }
+  return wins / runsCount;
+}
+// Runs per cell of the boss tests: the standard error of a win rate is about 1.5 points here, and the settings of 11.12 sit about 1 to 3 of those inside the bands.
+export const BOSS_RUNS_PER_CELL = 1000;
+// [label, level offset to the boss' top level, creatures, 2 = two Σουβλάκι else none, lowest, highest]: the offsets and bands of section 11.7, the same for every boss
+// (section 11.12: the Νότια boss keeps them by a four-creature team and a small boost).
+export const NOTIA_BOSS_BANDS = [
+  ['top plus 1, six creatures', 1, 6, 2, 0.85, 0.97],
+  ['top minus 1, six creatures', -1, 6, 2, 0.55, 0.75],
+  ['top minus 3, six creatures', -3, 6, 2, 0.10, 0.30],
+  ['top minus 1, three creatures, no items', -1, 3, 0, 0.08, 0.25],
+];
+// A boss with four or more creatures meets the three-creature row at its top level (offset 0, not top minus 1): three player creatures against four boss creatures are
+// already outnumbered (section 11.7).
+export function bossBands(rules, bossId) {
+  const longTeam = rules.TRAINERS[bossId].team.length >= 4;
+  return NOTIA_BOSS_BANDS.map(([label, offset, size, items, low, high]) => (size === 3 && longTeam ? ['top, three creatures, no items', 0, size, items, low, high] : [label, offset, size, items, low, high]));
+}
+// One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
+export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
+export function starterBossRate(rules, bossId, starter, level, size, runsCount, seed) {
+  const pool = bossId === 'bougatsas' ? NOTIA_POOL : PEIRAIAS_POOL;
+  const rng = rules.makeRng(seed + level * 10 + size);
+  let wins = 0;
+  for (let i = 0; i < runsCount; i++) {
+    const team = [rules.makeMon(starter, level)];
+    const rest = pool.slice();
+    for (let n = 1; n < size; n++) team.push(rules.makeMon(rest.splice(Math.floor(rng() * rest.length), 1)[0], level));
+    for (const mon of team) rules.evolveMon(mon);
+    if (rules.simulateBattle(team, rules.buildTrainerTeam(bossId, starter), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: ['souvlaki', 'souvlaki'] }).winner === 0) wins++;
+  }
+  return wins / runsCount;
+}
+
 // ---- XP band of a district (section 11.4): used by a test and by balance.mjs ----
 // The player's first creature starts at ARRIVAL_LEVEL; three main creatures must reach the boss' top level. The fixed trainers of the district
 // (the boss and the bonus studio host not counted) pay XP at the trainer bonus; the wild fights of the district's last route fill the gap.
-export const ARRIVAL_LEVEL = { peiraias: 5 };
+export const ARRIVAL_LEVEL = { peiraias: 5, notia: 13 };
 export function xpBand(rules, districtId) {
   const district = rules.WORLD.districts[districtId];
   const bossTeam = rules.TRAINERS[district.bossTrainer].team;
