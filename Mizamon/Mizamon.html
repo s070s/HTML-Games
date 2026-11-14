@@ -6195,8 +6195,8 @@ ChapterLayer.prototype.draw = function () {
   drawText(T('chapter.title'), 120, 72, COLOR.gold, 'center');
   drawText(T('chapter.sub'), 120, 82, COLOR.white, 'center');
 };
-// The roll moves half a pixel a frame, a line is 14 px apart. The screen closes when the last line has scrolled up to the middle of the picture (SCREEN_H / 2 - 60 = 20 px from the top
-// with these numbers), so it is fully on screen for about 250 frames before the roll ends (MZ-WORLD-02g fix round).
+// The roll moves half a pixel a frame, a line is 14 px apart. The screen closes when the last line is 20 px from the top (SCREEN_H / 2 - CREDITS_HOLD_FRAMES / 2,
+// whatever the line count), so it is fully on screen for about 250 frames before the roll ends (MZ-WORLD-02g fix round).
 const CREDITS_LINE_FRAMES = 28;
 const CREDITS_HOLD_FRAMES = 120;
 function creditsLineY(frame, lineIndex) { return SCREEN_H - frame * 0.5 + lineIndex * 14; }

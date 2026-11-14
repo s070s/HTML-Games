@@ -3877,6 +3877,7 @@ test('Βουλή final path: the last fight rolls the credits and sets ending; n
   }
   const creditsLayerCode = part('CreditsLayer.prototype.update', 'CreditsLayer.prototype.draw');
   assert.ok(creditsLayerCode.includes('this.frame > creditsEndFrame(this.lines.length)') && creditsLayerCode.includes('this.frame > 90 && Input.pressed.menu'), 'the end uses the helper and the skip after 90 frames stays');
+  assert.ok(part('CreditsLayer.prototype.draw', '// ---- Helpers shared by the screens').includes('creditsLineY(this.frame, i)'), 'the draw code uses the same position helper');
   assert.ok(part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent').includes("x: 4, y: 6, dir: 'up'"), 'the finale puts the player on the roof at (4, 6), where the in-page check and section 11.17 say');
   assert.ok(R.tileWalkable(R.MAPS.parliament_roof, 4, 6, PARLIAMENT_FLAGS_ENDED), 'and that tile is walkable');
   assert.equal((html.slice(0, html.indexOf('async function selfTest()')).match(/G\.flags\.ending = true/g) || []).length, 1, 'the game sets the flag in one place (the finale)');
