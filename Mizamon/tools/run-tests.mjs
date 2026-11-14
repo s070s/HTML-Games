@@ -4214,8 +4214,9 @@ test('accessibility flashes off: a hit is steady and still, an evolution glows s
   assert.ok(enginePart.includes('evolveGlows(this.frame, OPT.flashesOff, OPT.reduceMotion)'), 'the evolution');
   assert.ok(enginePart.includes('OPT.reduceMotion || OPT.flashesOff ? 0 : Math.sin(t / 22'), 'the shaking envelope');
   assert.ok(enginePart.includes('blinkShows(this.blink, 4, OPT.flashesOff)') && enginePart.includes('blinkShows(this.frame, 5, OPT.flashesOff)') && enginePart.includes('blinkShows(this.frame, 4, OPT.flashesOff)'), 'the dialog arrow, the press-A line and the name cursor');
-  // no blink is left outside the helper: every (frame >> n) % 2 in the engine is a sprite step or goes through blinkShows
-  const rawBlinks = enginePart.split('\n').filter((line) => /\(this\.(frame|blink|tick) >> \d\) % 2/.test(line) && !/bob|frame = i === this\.cursor|\? 1 : 2|waterFrames/.test(line));
+  assert.ok(enginePart.includes('blinkShows(this.frame, 4, still || OPT.flashesOff)'), 'the map cursor');
+  // no blink is left outside the helper: every (frame >> n) % 2 and (frame / n) % 2 in the engine is a sprite step or goes through blinkShows
+  const rawBlinks = enginePart.split('\n').filter((line) => /\(this\.(frame|blink|tick) (>> \d|\/ \d+)\) % 2/.test(line) && !/bob|frame = i === this\.cursor|\? 1 : 2|waterFrames/.test(line));
   assert.deepEqual(rawBlinks, [], 'every blink goes through blinkShows');
 });
 
@@ -4235,7 +4236,7 @@ test('accessibility type marks: seven different 5 x 5 shapes, none of them a cro
     assert.ok(!plus.includes(rows(id)), id + ' is not a cross, a plus or an x');
     for (const other of R.TYPE_IDS) if (other !== id) {
       const differing = mask.join('').split('').filter((cell, index) => cell !== R.TYPE_MARKS[other].join('')[index]).length;
-      assert.ok(differing >= 3, id + ' and ' + other + ' differ in at least 3 pixels (' + differing + ')');
+      assert.ok(differing >= 6, id + ' and ' + other + ' differ in at least 6 pixels (' + differing + ')');
     }
   }
   // the marks are drawn where the colours are: every type tag and the colour square of a move
@@ -4300,7 +4301,7 @@ test('accessibility large text: at the largest scale the picture and the bar are
   assert.ok(desk.cssH + desk.captionHeight <= 720 && desk.captionHeight >= 56);
 });
 
-test('accessibility one-hand touch controls: all eight buttons inside the pad, none over another or the picture or the bar, all inside the thumb reach of one side, and the left hand mirrors the right', () => {
+test('accessibility one-hand touch controls: all eight buttons inside the pad, none over another or the picture or the bar, all inside the thumb reach of one side, the left hand mirrors the pad but not the arrows (left arrow left of the right arrow in both hands)', () => {
   const NAMES = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
   for (const orientation of ['portrait', 'landscape']) assert.deepEqual(Object.keys(R.ONE_HAND_BUTTONS[orientation]).sort(), [...NAMES].sort(), orientation + ' has all eight buttons');
   const overlap = (a, b) => a.left < b.left + b.width && b.left < a.left + a.width && a.bottom < b.bottom + b.height && b.bottom < a.bottom + a.height;
@@ -4308,6 +4309,7 @@ test('accessibility one-hand touch controls: all eight buttons inside the pad, n
     const layout = R.screenLayout(viewW, viewH, true, level, hand);
     const rects = R.oneHandRects(layout.portrait, hand, viewW);
     const where = viewW + 'x' + viewH + ' hand ' + hand + ' level ' + level;
+    assert.ok(rects.left.left < rects.right.left, where + ': the left arrow is left of the right arrow');
     // the room the buttons have: portrait, the strip under the picture and the bar; landscape, the 160 px side column
     const roomHeight = layout.portrait ? viewH - layout.cssH - layout.captionHeight : viewH;
     for (const name of NAMES) {
@@ -4330,14 +4332,25 @@ test('accessibility one-hand touch controls: all eight buttons inside the pad, n
       }
     }
   }
-  // the left hand is the right hand mirrored
+  // the left hand is the right hand mirrored, except that the arrows keep their order: the pad moves to the other side, the left arrow stays the left-most
+  const traded = { left: 'right', right: 'left' };
   for (const orientation of [true, false]) {
     const right = R.oneHandRects(orientation, 1, 400);
     const left = R.oneHandRects(orientation, 2, 400);
     for (const name of NAMES) {
-      assert.equal(left[name].left, 400 - right[name].left - right[name].width, name + ' mirrored');
-      assert.equal(left[name].bottom, right[name].bottom);
+      const mirrored = right[traded[name] ? traded[name] : name]; // the place the left hand gives this button: the mirror of the right hand's button (the arrows trade places)
+      assert.equal(left[name].left, 400 - mirrored.left - mirrored.width, name + ' mirrored');
+      assert.equal(left[name].bottom, mirrored.bottom);
+      assert.equal(left[name].width, mirrored.width);
     }
+    for (const rects of [right, left]) {
+      assert.ok(rects.left.left < rects.right.left, 'the left arrow is left of the right arrow');
+      assert.equal(rects.up.left, rects.down.left, 'up and down are in one column');
+      assert.ok(rects.up.bottom > rects.down.bottom, 'up is above down');
+      assert.equal(rects.left.bottom, rects.right.bottom, 'left and right are in one row');
+    }
+    const outline = (rects) => ({ low: Math.min(...NAMES.map((name) => rects[name].bottom)), high: Math.max(...NAMES.map((name) => rects[name].bottom + rects[name].height)), width: Math.max(...NAMES.map((name) => rects[name].left + rects[name].width)) - Math.min(...NAMES.map((name) => rects[name].left)) });
+    same(outline(left), outline(right), 'the outline of the pad is the same, only on the other side');
   }
   // choosing one hand in portrait asks the picture for room for the buttons
   assert.ok(R.screenLayout(500, 600, true, 0, 1).reservedBottom >= R.ONE_HAND_PAD_HEIGHT - 4 && R.screenLayout(500, 600, true, 0, 1).reservedBottom <= 300);
@@ -4434,6 +4447,180 @@ test('accessibility large text: every screen of the game answers the bar (a capt
   assert.ok(/id="caption" role="status" aria-live="polite"/.test(html), 'the bar is a live region: a screen reader says what is read');
   assert.ok(/#caption \{ display: none;/.test(html), 'hidden until the option is on');
 });
+// ---- Captions run for real: the engine's caption code in a sandbox with a fake page (MZ-A11Y-01 fix round) ----
+// Takes statements out of the engine source by their first line (one line, or up to the next line that starts with "}") and runs them with the given globals.
+function engineSandbox(markers, prelude, globals) {
+  const source = enginePart.replace(/\r\n/g, '\n');
+  const pieces = markers.map((marker) => {
+    const start = source.indexOf(marker);
+    assert.ok(start >= 0, 'engine statement not found: ' + marker);
+    const firstEnd = source.indexOf('\n', start);
+    const firstLine = source.slice(start, firstEnd);
+    const opened = (firstLine.match(/\{/g) || []).length;
+    const closed = (firstLine.match(/\}/g) || []).length;
+    if (opened === closed) return firstLine;
+    const closing = source.indexOf('\n}', start);
+    return source.slice(start, source.indexOf('\n', closing + 1));
+  });
+  const context = vm.createContext(Object.assign({}, globals));
+  vm.runInContext(prelude + '\n' + pieces.join('\n'), context, { timeout: 5000 });
+  return (expression) => vm.runInContext(expression, context, { timeout: 5000 });
+}
+// A page element that remembers what was done to it, in order.
+class FakeNode {
+  constructor(tag, log) { this.tag = tag; this.log = log; this.children = []; this.attrs = {}; this.style = {}; this.scrollHeight = 0; this.clientHeight = 0; this.ownText = ''; this.languageValue = ''; }
+  set lang(value) { this.languageValue = value; this.log.push('lang ' + value); }
+  get lang() { return this.languageValue; }
+  set textContent(value) { this.ownText = String(value); this.children = []; this.log.push('text'); }
+  get textContent() { return this.children.length > 0 ? this.children.map((child) => child.textContent).join('') : this.ownText; }
+  setAttribute(name, value) { this.attrs[name] = value; }
+  appendChild(child) { this.children.push(child); }
+}
+function fakePage() {
+  const log = [];
+  const bar = new FakeNode('div', log);
+  const document = { getElementById: () => bar, createElement: (tag) => new FakeNode(tag, []), createTextNode: (text) => { const node = new FakeNode('#text', []); node.ownText = text; return node; } };
+  return { log, bar, document };
+}
+const CAPTION_SANDBOX = ['const Caption = {', 'function joinCaption', 'function captionString'];
+function captionSandbox(optionValues) {
+  const page = fakePage();
+  const layers = [];
+  const OPT = Object.assign({ largeText: 1, lang: 'el' }, optionValues);
+  const run = engineSandbox(CAPTION_SANDBOX, '', { document: page.document, OPT, layers, CAPTION_MIN_FONT: R.CAPTION_MIN_FONT });
+  return { page, layers, OPT, run };
+}
+
+test('accessibility large text: the bar names its language before it writes the text, and again when the language changes', () => {
+  const { page, layers, OPT, run } = captionSandbox({ lang: 'en' });
+  layers.push({ caption: () => 'Hello' });
+  run('Caption.sync(true)');
+  assert.deepEqual(page.log, ['lang en', 'text'], 'lang first, then the text');
+  assert.equal(page.bar.lang, 'en');
+  OPT.lang = 'el';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.lang, 'el', 'the same words in another language are written again with the new language');
+  assert.deepEqual(page.log, ['lang en', 'text', 'lang el', 'text']);
+  run('Caption.sync(true)');
+  assert.equal(page.log.length, 4, 'an unchanged caption is not written again');
+  assert.ok(enginePart.includes('element.lang = OPT.lang;'), 'the engine sets it');
+});
+
+test('accessibility large text: a question or title is said to the screen reader once, then only the chosen row; the bar still shows both', () => {
+  const { page, layers, run } = captionSandbox();
+  const screen = { row: 'Yes', caption() { return { context: 'Sure?', text: this.row }; } };
+  layers.push(screen);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'the first caption says the question');
+  assert.equal(page.bar.textContent, 'Sure? Yes');
+  screen.row = 'No';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], 'true', 'moving the cursor hides the question from the reader');
+  assert.equal(page.bar.children[0].textContent, 'Sure? ', 'but the bar still shows it');
+  assert.equal(page.bar.children[1].textContent, 'No');
+  assert.equal(page.bar.textContent, 'Sure? No');
+  // another screen of its own says its question again, and a plain text screen has no hidden part
+  const next = { caption: () => ({ context: 'Name?', text: 'A' }) };
+  layers.push(next);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'a new screen says its own question');
+  layers.push({ caption: () => 'Plain' });
+  run('Caption.sync(true)');
+  assert.equal(page.bar.textContent, 'Plain');
+  assert.equal(page.bar.children.length, 0);
+});
+
+test('accessibility large text: the real choice, gender and name screens answer { context, text } (the question, then the row or key)', () => {
+  const run = engineSandbox(
+    ['function joinCaption', 'ChoiceLayer.prototype.caption = function', 'GenderLayer.prototype.caption = function', 'NameLayer.prototype.caption = function'],
+    'function ChoiceLayer() {} function GenderLayer() {} function NameLayer() {} function DialogLayer() {}\nconst NAME_PAGES = [["ABC", "DEF"]];',
+    { layers: [], T: (key) => key });
+  same(run('ChoiceLayer.prototype.caption.call(Object.assign(Object.create(ChoiceLayer.prototype), { title: "Money 5", items: [{ label: "Yes" }, { label: "No" }], cursor: 1 }))'), { context: 'Money 5', text: 'No' });
+  assert.equal(run('ChoiceLayer.prototype.caption.call(Object.assign(Object.create(ChoiceLayer.prototype), { title: "", items: [{ label: "Yes" }], cursor: 0 }))'), 'Yes', 'no question: just the row');
+  // a yes or no question that follows a dialog: the question is the dialog page
+  const asking = run(`(function () {
+    const dialog = Object.assign(Object.create(DialogLayer.prototype), { box: { pageText: () => 'Buy it?' } });
+    const layer = Object.assign(Object.create(ChoiceLayer.prototype), { title: "", items: [{ label: "Yes" }, { label: "No" }], cursor: 0 });
+    layers.push(dialog, layer);
+    return layer.caption();
+  })()`);
+  same(asking, { context: 'Buy it?', text: 'Yes' });
+  same(run('GenderLayer.prototype.caption.call({ cursor: 1 })'), { context: 'gender.title', text: 'gender.f' });
+  same(run('NameLayer.prototype.caption.call({ page: 0, row: 0, col: 1, name: "ΝΙΚΟΣ" })'), { context: 'name.title', text: 'ΝΙΚΟΣ [B]' });
+  same(run('NameLayer.prototype.caption.call({ page: 0, row: 5, col: 2, name: "ΝΙΚΟΣ" })'), { context: 'name.title', text: 'ΝΙΚΟΣ [name.ok]' }, 'the end row: OK');
+});
+
+test('accessibility large text: the credits caption only the line that just came in, each line once and in order', () => {
+  const lines = ['MIZAMON', '', 'Line one', 'Line two', '', 'Line three', 'Line four', 'Line five', 'Line six', 'Line seven'];
+  const run = engineSandbox(['const CREDITS_LINE_FRAMES', 'const CREDITS_HOLD_FRAMES', 'function creditsLineY', 'function creditsEndFrame', 'const CREDITS_CAPTION_Y', 'const CREDITS_CAPTION_TOP', 'CreditsLayer.prototype.caption = function'],
+    'function CreditsLayer() {}', { SCREEN_H: R.SCREEN_H });
+  const heardWith = (step) => {
+    const heard = [];
+    const end = run('creditsEndFrame(' + lines.length + ')');
+    for (let frame = 0; frame <= end; frame += step) {
+      const caption = run('CreditsLayer.prototype.caption.call({ lines: ' + JSON.stringify(lines) + ', frame: ' + frame + ' })');
+      if (caption === null) continue;
+      assert.ok(lines.includes(caption), 'frame ' + frame + ': one whole line, not a page (' + caption + ')');
+      if (heard[heard.length - 1] !== caption) heard.push(caption); // the bar writes only a changed text
+    }
+    return heard;
+  };
+  const everyFrame = heardWith(1);
+  assert.deepEqual(everyFrame, lines.filter((line) => line), 'every non-empty line once, in order');
+  const fourTimesASecond = heardWith(15); // how often the bar reads the screen
+  assert.equal(new Set(fourTimesASecond).size, fourTimesASecond.length, 'no line twice');
+  assert.deepEqual(fourTimesASecond, lines.filter((line) => fourTimesASecond.includes(line)), 'in order');
+  assert.ok(fourTimesASecond.length >= lines.length - 3);
+  assert.equal(run('CreditsLayer.prototype.caption.call({ lines: null, frame: 0 })'), null, 'before the lines exist: nothing');
+});
+
+test('accessibility large text: the battle bar starts with both sides (name, level) and the HP of the player; it is written once, and again only when those values change', () => {
+  const makeRun = () => engineSandbox(['function joinCaption', 'BattleLayer.prototype.sidesCaption = function', 'BattleLayer.prototype.caption = function'],
+    'function BattleLayer() {}\nconst ROOT_LABELS = ["fight", "bag"]; const MOVES = { m1: { n: "Slap" } };\nfunction activeMon() { return { moves: ["m1"] }; }',
+    { T: (key) => key });
+  const run = makeRun();
+  const view = (name, lv, hp, visible = true) => ({ name, lvText: lv, hpText: hp, visible });
+  const layer = { mode: 'root', rootPrompt: ['What now?'], rootCursor: 1, moveCursor: 0, moveType: 'pol', moveInfo: 'Power 5', battle: {}, views: [view('Komma', 'Lv 12', '30/45'), view('Fakelakis', 'Lv 3', '9/9')], box: { pageText: () => 'Ticker page' } };
+  const onBattle = (fields) => 'BattleLayer.prototype.caption.call(Object.assign(Object.create(BattleLayer.prototype), ' + fields + '))';
+  const caption = (mode) => { layer.mode = mode; return run(onBattle(JSON.stringify(layer))).replace(/\s+/g, ' '); }; // JSON drops the box function: it is only read in the text mode, below
+  assert.equal(caption('root'), 'Komma Lv 12 30/45. Fakelakis Lv 3. What now? bag', 'the player: name, level, HP; the foe: name and level only (its HP numbers are not drawn)');
+  assert.equal(caption('moves'), 'Komma Lv 12 30/45. Fakelakis Lv 3. Slap: type.pol, Power 5');
+  layer.views[1].visible = false;
+  assert.equal(caption('root'), 'Komma Lv 12 30/45. What now? bag', 'a side that is not shown is not said');
+  layer.views[1].visible = true;
+  const ticker = run(onBattle('{ mode: "text", box: { pageText: () => "Ticker page" }, views: [] }'));
+  assert.equal(ticker, 'Ticker page', 'the ticker text stays as it is');
+  assert.equal(run(onBattle('{ mode: "idle", views: [] }')), null);
+  // through the bar: many reads of an unchanged battle write once; a change of HP writes again
+  const { page, layers, run: barRun } = captionSandbox();
+  const live = { mode: 'root', views: [view('Komma', 'Lv 12', '30/45'), view('Fakelakis', 'Lv 3', '9/9')], caption() { return this.views[0].name + ' ' + this.views[0].lvText + ' ' + this.views[0].hpText; } };
+  layers.push(live);
+  for (let tick = 0; tick < 300; tick++) barRun('Caption.sync(false)');
+  assert.equal(page.log.filter((entry) => entry === 'text').length, 1, 'written once in 300 frames');
+  live.views[0].hpText = '29/45';
+  for (let tick = 0; tick < 30; tick++) barRun('Caption.sync(false)');
+  assert.equal(page.log.filter((entry) => entry === 'text').length, 2, 'written again when the HP changed');
+  assert.equal(page.bar.textContent, 'Komma Lv 12 29/45');
+});
+
+test('accessibility: the title line and the top row of the Accessibility screen keep room (a line too wide for the picture shrinks), and hitLook allocates nothing', () => {
+  const title = enginePart.slice(enginePart.indexOf('TitleLayer.prototype.draw = function'), enginePart.indexOf('// ---- Gender, name'));
+  assert.ok(title.includes("ctx.font = fontForWidth(T('title.sub'), FONT, FONT_SMALL);"), 'the title line picks a font that fits');
+  const fit = enginePart.slice(enginePart.indexOf('function fontForWidth'), enginePart.indexOf('function drawText'));
+  assert.ok(fit.includes('SCREEN_W - 2 * TEXT_EDGE_MARGIN') && /TEXT_EDGE_MARGIN = 8;/.test(enginePart), 'it keeps 8 px from each edge');
+  // the in-page checks measure the real fonts of the browser (AC-001 runs them in Chrome)
+  assert.ok(html.includes("check('room: the title line keeps '") && html.includes("check('room: the Accessibility title and hint keep '"), 'the in-page checks for the room are there');
+  // hitLook: the same four frozen objects every time
+  const seen = new Set();
+  for (let t = 0; t < 40; t++) for (const flashesOff of [false, true]) for (const reduceMotion of [false, true]) {
+    const look = R.hitLook(t, flashesOff, reduceMotion);
+    assert.ok(Object.isFrozen(look), 'frozen');
+    seen.add(look);
+  }
+  assert.equal(seen.size, 4, 'still, steady and the two shake poses: four objects in all');
+  assert.equal(R.hitLook(0, false, false), R.hitLook(1, false, false), 'the same object on the same pose');
+});
+
 test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', () => {
   const reference = readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8');
   const start = reference.indexOf('## 12. Accessibility');

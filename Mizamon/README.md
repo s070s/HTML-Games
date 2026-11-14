@@ -32,7 +32,7 @@ Open `Mizamon.html` in a browser (desktop or phone). Greek is the default; Optio
 - The Χάρτης (Map) shows the six districts of Attica as a schematic, not to scale: open it from the menu or with Q, Select or the ΧΑΡΤΗΣ button; the red pin is where you are, the arrows move between the places you know, A shows the district sheet.
 - Options: language, sound, text speed, Reduced motion (no shaking or flashing; the default follows the operating system setting) and an Accessibility screen (Options, row 5):
   - Large text (Off / Large / Largest): the text being read (the dialog page, the chosen menu row, the battle ticker) shows again in big letters in a bar under the picture; it is also a screen-reader live region.
-  - Type marks (default on): a small shape beside every type colour (diamond, square, ring, triangle, disc, three bars, triangle down), so the seven types can be told apart without colour.
+  - Type marks (default on): a small shape beside every type colour (diamond, hourglass, ring, triangle, disc, three bars, triangle down), so the seven types can be told apart without colour.
   - Flashes off: a creature that is hit stays still and dim instead of shaking and blinking, the evolution glows steadily, and the cursors and the heart line stop blinking or changing colour.
   - Hold to repeat (Off / Slow / Normal / Fast): how a held arrow moves a menu cursor; Normal is the old timing, Off is one step per press.
   - Touch controls (Two hands / One hand: right / One hand: left): the one-hand layouts put all eight buttons on one side, within one thumb.

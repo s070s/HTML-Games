@@ -3116,11 +3116,15 @@ function repeatFires(level, heldFrames) {
 }
 // A creature that is hit, frame t of its animation: how far it is pushed sideways and how see-through it is. Normally it shakes and blinks (15 times a
 // second); Flashes off keeps it still and dims it steadily; Reduced motion leaves it alone.
+// The result is one of four frozen objects (nothing is allocated per frame); callers read it and never change it.
+const HIT_LOOK_STILL = Object.freeze({ dx: 0, alpha: 1 });
+const HIT_LOOK_STEADY = Object.freeze({ dx: 0, alpha: HIT_STEADY_ALPHA });
+const HIT_LOOK_SHAKE_RIGHT = Object.freeze({ dx: 3, alpha: 0.4 });
+const HIT_LOOK_SHAKE_LEFT = Object.freeze({ dx: -3, alpha: 1 });
 function hitLook(t, flashesOff, reduceMotion) {
-  if (reduceMotion) return { dx: 0, alpha: 1 };
-  if (flashesOff) return { dx: 0, alpha: HIT_STEADY_ALPHA };
-  const first = (t >> 1) % 2 === 0;
-  return { dx: first ? 3 : -3, alpha: first ? 0.4 : 1 };
+  if (reduceMotion) return HIT_LOOK_STILL;
+  if (flashesOff) return HIT_LOOK_STEADY;
+  return (t >> 1) % 2 === 0 ? HIT_LOOK_SHAKE_RIGHT : HIT_LOOK_SHAKE_LEFT;
 }
 // The evolution screen draws the creature as a white shape from frame 30 to 79: blinking normally, steady with Flashes off, not at all with Reduced motion.
 function evolveGlows(frame, flashesOff, reduceMotion) {
@@ -3133,7 +3137,7 @@ function blinkShows(frame, shift, steady) { return steady || (frame >> shift) % 
 const TYPE_MARK_SIZE = 5;
 const TYPE_MARKS = {
   pol: ['..#..', '.###.', '#####', '.###.', '..#..'], // diamond
-  asf: ['#####', '#####', '#####', '#####', '#####'], // square
+  asf: ['#####', '.###.', '..#..', '.###.', '#####'], // hourglass
   ekk: ['.###.', '#...#', '#...#', '#...#', '.###.'], // ring
   cel: ['..#..', '.###.', '.###.', '#####', '#####'], // triangle
   inf: ['.###.', '#####', '#####', '#####', '.###.'], // disc
@@ -3184,11 +3188,13 @@ const ONE_HAND_BUTTONS = {
   },
 };
 // The rectangles of the one-hand layout (hand 1 right, 2 left) as left/bottom/width/height inside a pad of padWidth CSS px.
+// The pad moves to the other side but the arrows keep their order (the left arrow stays left of the right arrow): on the left hand those two specs trade places.
 function oneHandRects(portrait, hand, padWidth) {
   const specs = ONE_HAND_BUTTONS[portrait ? 'portrait' : 'landscape'];
+  const swappedArrow = { left: 'right', right: 'left' };
   const rects = {};
   for (const name of Object.keys(specs)) {
-    const spec = specs[name];
+    const spec = specs[hand === 2 && swappedArrow[name] ? swappedArrow[name] : name];
     rects[name] = { left: hand === 1 ? padWidth - spec.x - spec.w : spec.x, bottom: spec.y, width: spec.w, height: spec.h };
   }
   return rects;
@@ -5401,13 +5407,15 @@ function applyTouchHand(portrait) {
 }
 // ---- Large text: the text being read, again in big letters in a bar under the picture ---------------------------------------------
 // Every screen can say what is being read (caption(): the page of a dialog, the chosen menu row, the line of the battle ticker); the bar
-// shows it. The bar is always inside the window: screenLayout() leaves its room, and the letters shrink until the text fits (never below 14 px).
+// shows it. The bar is always inside the window: screenLayout() leaves its room, and the letters shrink until the text fits (never below CAPTION_MIN_FONT, 12 px).
+// A screen with a question or a title and a chosen row answers { context, text }: the bar always shows both, but the screen reader is told the context only the first
+// time the screen is read (the context is hidden from it, aria-hidden, afterwards), so moving the cursor says only the chosen row.
 const Caption = {
-  element: document.getElementById('caption'), text: null, baseFont: 0, ticks: 0,
+  element: document.getElementById('caption'), text: null, baseFont: 0, ticks: 0, contextLayer: null,
   apply: function (layout) {
     const style = this.element.style;
     this.text = null; // the next sync() writes the text again
-    if (layout.captionHeight === 0) { style.display = 'none'; this.element.textContent = ''; return; }
+    if (layout.captionHeight === 0) { style.display = 'none'; this.element.textContent = ''; this.contextLayer = null; return; }
     style.display = 'block';
     style.width = layout.cssW + 'px';
     style.height = layout.captionHeight + 'px';
@@ -5432,15 +5440,37 @@ const Caption = {
     this.ticks++;
     if (!force && this.ticks % 15 !== 0) return;
     const top = layers[layers.length - 1];
-    const text = top && top.caption ? top.caption() : null;
-    if (text === null || text === this.text) return;
+    const caption = top && top.caption ? top.caption() : null;
+    if (caption === null) return;
+    const text = OPT.lang + '|' + captionString(caption);
+    if (text === this.text) return;
     this.text = text;
-    this.element.textContent = text;
+    this.write(top, caption);
     this.fit();
+  },
+  // The bar names its language (a screen reader picks the voice from it), then gets the text.
+  write: function (top, caption) {
+    const element = this.element;
+    element.lang = OPT.lang;
+    if (typeof caption === 'string') { element.textContent = caption; return; }
+    const context = document.createElement('span');
+    context.textContent = caption.context + ' ';
+    if (this.contextLayer === top) context.setAttribute('aria-hidden', 'true'); // said already: the screen reader hears only the text
+    this.contextLayer = top;
+    element.textContent = '';
+    element.appendChild(context);
+    element.appendChild(document.createTextNode(caption.text));
   },
 };
 
 // ---- Drawing helpers ------------------------------------------------------------------------------------
+// A line that must stay clear of the picture's edges (TEXT_EDGE_MARGIN each side) is drawn in the normal font, or in the small one when the normal one is too wide
+// (the font that the browser really uses decides: a wider fallback font makes the line wider).
+const TEXT_EDGE_MARGIN = 8;
+function fontForWidth(text, normalFont, smallFont) {
+  ctx.font = normalFont;
+  return ctx.measureText(text).width <= SCREEN_W - 2 * TEXT_EDGE_MARGIN ? normalFont : smallFont;
+}
 function drawText(text, x, y, color, align) {
   ctx.fillStyle = color || COLOR.ink;
   ctx.textAlign = align || 'left';
@@ -6504,8 +6534,9 @@ TitleLayer.prototype.draw = function () {
   ctx.font = 'bold 30px "Segoe UI", Verdana, sans-serif';
   drawText('MIZAMON', 121, 13, '#14142a', 'center');
   drawText('MIZAMON', 120, 11, COLOR.gold, 'center');
-  ctx.font = FONT;
+  ctx.font = fontForWidth(T('title.sub'), FONT, FONT_SMALL);
   drawText(T('title.sub'), 120, 46, COLOR.white, 'center');
+  ctx.font = FONT;
 };
 
 // ---- Gender, name, professor, starter (new game) ------------------------------------------------------------------------
@@ -6956,7 +6987,7 @@ MapLayer.prototype.draw = function () {
     const bob = still ? 0 : Math.floor(this.frame / 30) % 2; // 1 px every 500 ms
     drawShapeOn(ctx, MAP_PIN, centre[0] - 2, centre[1] + MAP_TOP - 10 - bob, COLOR.red, COLOR.ink);
   }
-  if (this.cursor && (still || Math.floor(this.frame / 16) % 2 === 0)) {
+  if (this.cursor && blinkShows(this.frame, 4, still || OPT.flashesOff)) {
     const centre = this.cursorPixel;
     const left = centre[0] - 5;
     const top = centre[1] + MAP_TOP - 5;
@@ -8038,29 +8069,41 @@ function boot() {
 // caption() returns the text being read on the screen (null: nothing new, the bar keeps what it shows). The bar reads the top screen.
 // Never a second place that holds a text: every caption is built from the same strings and values the screen draws.
 function joinCaption(parts) { return parts.filter(function (part) { return part; }).join('. '); }
+// The whole text of a caption, as the bar shows it: a plain string, or { context, text } (a question or a title, then the chosen row).
+function captionString(caption) { return typeof caption === 'string' ? caption : caption.context + ' ' + caption.text; }
 DialogLayer.prototype.caption = function () { return this.box.pageText(); };
 ChoiceLayer.prototype.caption = function () {
   const below = layers[layers.indexOf(this) - 1];
   const question = below instanceof DialogLayer ? below.box.pageText() : (this.title || ''); // a yes or no question: the question first
-  return (question ? question + ' ' : '') + this.items[this.cursor].label;
+  const label = this.items[this.cursor].label;
+  return question ? { context: question, text: label } : label;
 };
 OverworldLayer.prototype.caption = function () { return T(this.map.name); };
 TicketLayer.prototype.caption = function () { return joinCaption([T('kep.sign'), T('kep.yourNumber') + ' 9.999']); };
 MonitorLayer.prototype.caption = function () { return T('hosp.monitor'); };
 BadgeLayer.prototype.caption = function () { return joinCaption([T(this.titleKey), T(this.subKey)]); };
 ChapterLayer.prototype.caption = function () { return joinCaption([T('chapter.title'), T('chapter.sub')]); };
+// Only the line that has just come in (the one nearest the line y = CREDITS_CAPTION_Y, from above) is captioned: the bar rewrites its text only when it changes,
+// so each line is read once instead of the whole page again at every new line.
+const CREDITS_CAPTION_Y = 110;
+const CREDITS_CAPTION_TOP = 30;
 CreditsLayer.prototype.caption = function () {
-  const shown = [];
-  if (this.lines) for (let i = 0; i < this.lines.length; i++) { const y = creditsLineY(this.frame, i); if (y >= 30 && y <= 110 && this.lines[i]) shown.push(this.lines[i]); }
-  return shown.length > 0 ? shown.join(' ') : null;
+  let newest = null;
+  let newestY = -Infinity;
+  if (!this.lines) return null;
+  for (let i = 0; i < this.lines.length; i++) {
+    const y = creditsLineY(this.frame, i);
+    if (this.lines[i] && y >= CREDITS_CAPTION_TOP && y <= CREDITS_CAPTION_Y && y > newestY) { newest = this.lines[i]; newestY = y; }
+  }
+  return newest;
 };
 NoticeLayer.prototype.caption = function () { return lookupString('notice.line1', 'el') + ' ' + lookupString('notice.line2', 'en'); };
 TitleLayer.prototype.caption = function () { return joinCaption(['MIZAMON', T('title.sub')]); };
-GenderLayer.prototype.caption = function () { return T('gender.title') + ' ' + T(this.cursor === 0 ? 'gender.m' : 'gender.f'); };
+GenderLayer.prototype.caption = function () { return { context: T('gender.title'), text: T(this.cursor === 0 ? 'gender.m' : 'gender.f') }; };
 NameLayer.prototype.caption = function () {
   const pageRows = NAME_PAGES[this.page].length;
   const key = this.row < pageRows ? (NAME_PAGES[this.page][this.row][this.col] || '') : [T('name.switch'), T('name.del'), T('name.ok')][this.col];
-  return T('name.title') + ' ' + this.name + (key ? ' [' + key + ']' : '');
+  return { context: T('name.title'), text: this.name + (key ? ' [' + key + ']' : '') };
 };
 BackdropLayer.prototype.caption = function () { return null; };
 StarterLayer.prototype.caption = function () {
@@ -8109,10 +8152,19 @@ ShopLayer.prototype.caption = function () {
 EvolveLayer.prototype.caption = function () {
   return T(this.frame > 80 ? 'evolve.done' : 'evolve.start', { from: speciesName(this.fromId), to: speciesName(this.targetId) });
 };
+// Who is fighting, as the two poll panels show it: name and level of each side, and the HP numbers of the player's side only (the foe's are not drawn).
+BattleLayer.prototype.sidesCaption = function () {
+  const sides = [];
+  for (let side = 0; side < this.views.length; side++) {
+    const view = this.views[side];
+    if (view.visible) sides.push([view.name, view.lvText, side === 0 ? view.hpText : ''].filter(function (part) { return part; }).join(' '));
+  }
+  return joinCaption(sides);
+};
 BattleLayer.prototype.caption = function () {
   if (this.mode === 'text') return this.box.pageText();
-  if (this.mode === 'root') return this.rootPrompt.join(' ') + ' ' + T(ROOT_LABELS[this.rootCursor]);
-  if (this.mode === 'moves') return MOVES[activeMon(this.battle, 0).moves[this.moveCursor]].n + ': ' + T('type.' + this.moveType) + ', ' + this.moveInfo;
+  if (this.mode === 'root') return joinCaption([this.sidesCaption(), this.rootPrompt.join(' ') + ' ' + T(ROOT_LABELS[this.rootCursor])]);
+  if (this.mode === 'moves') return joinCaption([this.sidesCaption(), MOVES[activeMon(this.battle, 0).moves[this.moveCursor]].n + ': ' + T('type.' + this.moveType) + ', ' + this.moveInfo]);
   return null;
 };
 
@@ -9767,7 +9819,7 @@ async function accessibilityChecks(check) {
       OPT.largeText = 0; resizeScreen(); Caption.sync(true);
       const hiddenWhenOff = Caption.element.style.display === 'none' && Caption.element.textContent === '';
       OPT.largeText = 2; resizeScreen(); Caption.sync(true);
-      const said = layer.caption ? layer.caption() : null;
+      const said = layer.caption ? captionString(layer.caption()) : null; // a screen with a question answers { context, text }: the bar shows both
       const shown = Caption.element.textContent;
       check('large text: ' + screen[0] + ' says what is read in the bar, and the bar is empty and hidden when the option is off' + where,
         hiddenWhenOff && typeof said === 'string' && said.length > 0 && shown === said && Caption.element.style.display === 'block', 'said "' + said + '" shown "' + shown + '" hidden when off ' + hiddenWhenOff);
@@ -9785,8 +9837,39 @@ async function accessibilityChecks(check) {
     layers.length = 0; layers.push(optionsScreen);
     Caption.sync(true);
     const english = Caption.element.textContent;
+    const englishLang = Caption.element.lang;
     OPT.lang = 'el'; resetTextCache(); Caption.sync(true);
     check('large text: the bar follows the language', english === 'Language: English' && Caption.element.textContent === 'Γλώσσα: Ελληνικά', english + ' / ' + Caption.element.textContent);
+    check('large text: the bar names its language (lang is en, then el)', englishLang === 'en' && Caption.element.lang === 'el', englishLang + ' / ' + Caption.element.lang);
+    // A question is said once: the first time the bar shows it, then the screen reader hears only the chosen row (the question stays visible, hidden from the reader).
+    const asking = new ChoiceLayer(['AAA', 'BBB'], { title: 'Question?' });
+    layers.length = 0; layers.push(asking);
+    Caption.contextLayer = null; Caption.text = null;
+    Caption.sync(true);
+    const questionSpoken = Caption.element.querySelector('[aria-hidden]') === null;
+    asking.cursor = 1; Caption.sync(true);
+    const questionHidden = Caption.element.querySelector('[aria-hidden="true"]');
+    check('large text: a question is said once, then only the chosen row is read', questionSpoken && questionHidden !== null && questionHidden.textContent === 'Question? ' && Caption.element.textContent === 'Question? BBB',
+      'spoken first ' + questionSpoken + ', hidden after ' + (questionHidden ? '"' + questionHidden.textContent + '"' : 'no') + ', shows "' + Caption.element.textContent + '"');
+    // The credits are read one line at a time, each line once, in order.
+    const roll = new CreditsLayer(); roll.lines = T('credits.text').split('\n');
+    const heard = [];
+    for (let frame = 0; frame <= creditsEndFrame(roll.lines.length); frame++) {
+      roll.frame = frame;
+      const line = roll.caption();
+      if (line !== null && heard[heard.length - 1] !== line) heard.push(line);
+    }
+    const spoken = roll.lines.filter(function (line) { return line; });
+    check('large text: the credits caption one line at a time, each line once, in order (' + heard.length + ' lines)', heard.length > 5 && heard.every(function (line) { return roll.lines.indexOf(line) >= 0; }) && new Set(heard).size === heard.length
+      && heard.every(function (line, index) { return index === 0 || roll.lines.indexOf(line) > roll.lines.indexOf(heard[index - 1]); }), heard.slice(0, 3).join(' | ') + ' of ' + spoken.length);
+    // The battle bar begins with who is fighting: name and level of both sides, the HP of the player's side.
+    for (const mode of ['root', 'moves']) {
+      const fight = a11yBattle(mode);
+      const line = fight.caption();
+      const mine = fight.views[0];
+      const foe = fight.views[1];
+      check('large text: the battle bar (' + mode + ') says both names and levels and the HP of the player side', line.indexOf(mine.name) === 0 && line.indexOf(mine.lvText) > 0 && line.indexOf(mine.hpText) > 0 && line.indexOf(foe.name) > 0 && line.indexOf(foe.lvText) > 0, line);
+    }
 
     // 2. No text leaves the picture (every screen, every text), and no text leaves the screen (the bar and the buttons) at the largest scale.
     OPT.largeText = 2; resizeScreen();
@@ -9799,6 +9882,20 @@ async function accessibilityChecks(check) {
       check('no text leaves the ' + SCREEN_W + 'x' + SCREEN_H + ' picture: ' + screen[0] + ' (' + wanted.length + ' texts)' + where, wanted.length > 0 && outside.length === 0,
         outside.slice(0, 3).map(function (box) { return '"' + box.text + '" ' + Math.round(box.left) + ',' + Math.round(box.top) + ' to ' + Math.round(box.right) + ',' + Math.round(box.bottom); }).join(' | '));
     }
+    // Room with the real fonts of this browser, in both languages: the title screen line and the top row of the Accessibility screen keep TEXT_EDGE_MARGIN from the edges, and the
+    // screen's title keeps it from the hint beside it.
+    for (const language of ['el', 'en']) {
+      OPT.lang = language; resetTextCache();
+      const sub = a11yTextBoxes(new TitleLayer()).filter(function (box) { return box.text === T('title.sub'); })[0];
+      check('room: the title line keeps ' + TEXT_EDGE_MARGIN + ' px from the edges (' + language + ')' + where, !!sub && sub.left >= TEXT_EDGE_MARGIN - 0.5 && sub.right <= SCREEN_W - TEXT_EDGE_MARGIN + 0.5, sub ? Math.round(sub.left) + ' to ' + Math.round(sub.right) : 'not drawn');
+      const rowBoxes = a11yTextBoxes(new AccessibilityLayer());
+      const heading = rowBoxes.filter(function (box) { return box.text === T('acc.title'); })[0];
+      const hint = rowBoxes.filter(function (box) { return box.text === T('opt.hint'); })[0];
+      check('room: the Accessibility title and hint keep ' + TEXT_EDGE_MARGIN + ' px from the edges and from each other (' + language + ')' + where,
+        !!heading && !!hint && heading.left >= TEXT_EDGE_MARGIN - 0.5 && hint.right <= SCREEN_W - TEXT_EDGE_MARGIN + 0.5 && hint.left - heading.right >= TEXT_EDGE_MARGIN,
+        heading && hint ? 'title ' + Math.round(heading.left) + ' to ' + Math.round(heading.right) + ', hint ' + Math.round(hint.left) + ' to ' + Math.round(hint.right) : 'not drawn');
+    }
+    OPT.lang = 'el'; resetTextCache();
     // The longest pages of any dialog or ticker text, in both languages, fit the bar at the largest scale and at the smallest bar letters.
     const pages = [];
     for (const key of Object.keys(STRINGS)) {
