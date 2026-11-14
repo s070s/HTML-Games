@@ -2,7 +2,7 @@
 // Usage: node Mizamon/tools/balance.mjs [runs]   (default 500 runs per row)
 // The player team is one random starter plus five random route creatures, all at the same level
 // (or lagging two levels behind), played by the same AI as the opponent, with two Σουβλάκι to use.
-import { loadRules, xpBand, notiaTeam, bossWinRate, starterBossRate, NOTIA_BOSS_BANDS } from './run-tests.mjs';
+import { loadRules, xpBand, notiaTeam, bossWinRate, starterBossRate, bossBands } from './run-tests.mjs';
 
 const R = loadRules();
 const runs = Number(process.argv[2]) || 500;
@@ -92,7 +92,7 @@ const notiaBoss = R.TRAINERS.bougatsas;
 console.log('Boss fight Νότια, ' + runs + ' runs per row. Boss team: ' + notiaBoss.team.map((m) => R.SPECIES[m.sp].n + ' L' + m.lv).join(', ') + ' (stat boost x' + notiaBoss.boost + ', one Σουβλάκι). Player: a starter in its middle form plus creatures of Νότια, all at the level shown, two Σουβλάκι');
 console.log('level | team                       | win rate | band of the test');
 const notiaTop = notiaBoss.team[notiaBoss.team.length - 1].lv;
-for (const [label, offset, size, items, low, high] of NOTIA_BOSS_BANDS) {
+for (const [label, offset, size, items, low, high] of bossBands(R, 'bougatsas')) {
   const rate = bossWinRate(R, 'bougatsas', notiaTop + offset, size, items === 2 ? ['souvlaki', 'souvlaki'] : [], runs, 5000);
   console.log(String(notiaTop + offset).padStart(5) + ' | ' + label.padEnd(26) + ' | ' + (100 * rate).toFixed(1).padStart(7) + '% | ' + (100 * low).toFixed(0) + '-' + (100 * high).toFixed(0) + '%');
 }

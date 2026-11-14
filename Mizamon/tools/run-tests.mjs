@@ -1834,7 +1834,7 @@ test('Νότια trainers: seven trainers with names in the strings, levels 14-1
 });
 test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-creature team and the boost of 11.12) with the AI-played player team, and the boss data', () => {
   const boss = R.TRAINERS.bougatsas;
-  same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'efoplistakos19', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.12');
+  same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'efoplistakos20', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.12');
   assert.ok(boss.boost > 1 && boss.boost <= 1.2, 'a small boost, visible in the battle (the mark)');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
   assert.equal(boss.look, 'bougatsas');
@@ -1851,15 +1851,15 @@ test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-cre
   const top = boss.team[boss.team.length - 1].lv;
   const twoSouvlaki = ['souvlaki', 'souvlaki'];
   const bands = [];
-  for (const [label, offset, size, items, low, high] of NOTIA_BOSS_BANDS) bands.push([label, bossWinRate(R, 'bougatsas', top + offset, size, items === 2 ? twoSouvlaki : [], 500, 5000), low, high]);
+  for (const [label, offset, size, items, low, high] of bossBands(R, 'bougatsas')) bands.push([label, bossWinRate(R, 'bougatsas', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Μπουγάτσας, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
   // stronger than the plain species: without the boost the same fight is easier (top minus 3 with six creatures leaves its band)
   const plainBoss = R.TRAINERS.bougatsas.boost;
   R.TRAINERS.bougatsas.boost = undefined;
-  try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, 500, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
+  try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, BOSS_RUNS_PER_CELL, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
 });
 test('every built district boss, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
-  const runsPerCell = 200;
+  const runsPerCell = BOSS_RUNS_PER_CELL;
   for (const bossId of ['kotsos', 'bougatsas']) {
     const team = R.TRAINERS[bossId].team;
     const top = team[team.length - 1].lv;
@@ -1982,6 +1982,8 @@ export function bossWinRate(rules, bossId, level, size, items, runsCount, seed) 
   }
   return wins / runsCount;
 }
+// Runs per cell of the boss tests: the standard error of a win rate is about 1.5 points here, and the settings of 11.12 sit about 1 to 3 of those inside the bands.
+export const BOSS_RUNS_PER_CELL = 1000;
 // [label, level offset to the boss' top level, creatures, 2 = two Σουβλάκι else none, lowest, highest]: the offsets and bands of section 11.7, the same for every boss
 // (section 11.12: the Νότια boss keeps them by a four-creature team and a small boost).
 export const NOTIA_BOSS_BANDS = [
@@ -1990,6 +1992,12 @@ export const NOTIA_BOSS_BANDS = [
   ['top minus 3, six creatures', -3, 6, 2, 0.10, 0.30],
   ['top minus 1, three creatures, no items', -1, 3, 0, 0.08, 0.25],
 ];
+// A boss with four or more creatures meets the three-creature row at its top level (offset 0, not top minus 1): three player creatures against four boss creatures are
+// already outnumbered (section 11.7).
+export function bossBands(rules, bossId) {
+  const longTeam = rules.TRAINERS[bossId].team.length >= 4;
+  return NOTIA_BOSS_BANDS.map(([label, offset, size, items, low, high]) => (size === 3 && longTeam ? ['top, three creatures, no items', 0, size, items, low, high] : [label, offset, size, items, low, high]));
+}
 // One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
 export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
 export function starterBossRate(rules, bossId, starter, level, size, runsCount, seed) {
