@@ -6917,15 +6917,16 @@ async function selfTest() {
       await closeMap();
       // The texts fit, and the evolutions of 11.3 work: Δημοσιοϋπαλληλάκι at 20, Story-ούλα at 22, Κρυπτο-Μάκης at 26.
       const language = OPT.lang;
-      const tooWide = [];
+      const tooWide = [], noName = [];
       ctx.font = FONT;
       for (const lang of ['el', 'en']) {
         for (const key of ['badge.anatolika.title', 'badge.anatolika.sub']) if (ctx.measureText(lookupString(key, lang)).width > 232) tooWide.push(lang + ' ' + key);
         for (const mapId of Object.keys(MAPS)) if (/^(route5|route6|koropi|spata)/.test(mapId) && ctx.measureText(lookupString(MAPS[mapId].name, lang)).width > 232) tooWide.push(lang + ' ' + mapId);
-        for (const id of ['monastiriaki', 'monimos', 'influenza', 'kryptomakis', 'nftarchis']) if (ctx.measureText(lookupString('sp.' + id, lang)).width < 1) tooWide.push(lang + ' ' + id);
+        for (const id of ['monastiriaki', 'monimos', 'influenza', 'kryptomakis', 'nftarchis']) if (ctx.measureText(lookupString('sp.' + id, lang)).width < 1) noName.push(lang + ' ' + id);
       }
       OPT.lang = language;
       check('the Boarding Medal texts and the names of the new maps fit the screen in both languages', tooWide.length === 0, tooWide.join(','));
+      check('the five new creatures have a name in both languages', noName.length === 0, noName.join(','));
       const evolved = [];
       for (const [from, level, to] of [['dimosio', 20, 'monimos'], ['storoula', 22, 'influenza'], ['kryptomakis', 26, 'nftarchis']]) {
         G.party[0] = makeMon(from, level);

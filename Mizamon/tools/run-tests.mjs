@@ -548,9 +548,10 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     for (const zone of map.zones || []) for (const entry of zone.table) assert.ok(R.SPECIES[entry.sp] && entry.min <= entry.max);
     assert.ok(R.STRINGS[map.name], mapId + ' name string');
   }
+  const topBuiltLevel = 26; // the highest level of the built districts (the Ανατολικά boss); raise it when a later district is built
   for (const id of Object.keys(R.TRAINERS)) {
     const last = R.TRAINERS[id].team[R.TRAINERS[id].team.length - 1];
-    assert.ok(last.lv <= R.MAX_LEVEL, id + ' last level');
+    assert.ok(last.lv <= topBuiltLevel, id + ' last level ' + last.lv + ' is above the built top ' + topBuiltLevel);
   }
 });
 
