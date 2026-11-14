@@ -21605,7 +21605,7 @@ function introCrowd(kit, rng) {
   kit.pose = new Float32Array(12); kit.joints = new Float32Array(26);
   kit.groups = slots.map((slot, index) => {
     const size = 2 + Math.floor(rng() * 3), v = wide ? 0.25 + rng() * 0.15 : (index ? 0.34 : 0.24) + rng() * 0.06, formation = INTRO_FORMATIONS[size], duels = INTRO_DUELS[size];
-    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.3 : 0.5) / (span * base)), reach = base * fit, centre = clamp(kit.w * (slot + (rng() - 0.5) * 0.04), kit.w * 0.04 - (formation[0][0] - 0.3) * reach, kit.w * 0.96 - (formation[size - 1][0] + 0.3) * reach); // the outermost fighter keeps 4 % of the width to the edge
+    const base = clamp(1.8 * kit.ppm * v * (wide ? 1.25 : 1.6), kit.unit * 0.1, kit.unit * 0.36), span = formation[size - 1][0] - formation[0][0] + 0.6, fit = Math.min(1, kit.w * (wide ? 0.3 : 0.5) / (span * base)), reach = base * fit, centre = clamp(kit.w * (slot + (rng() - 0.5) * 0.04), kit.w * 0.04 - (formation[0][0] - 0.6) * reach, kit.w * 0.96 - (formation[size - 1][0] + 0.6) * reach); // the outermost fighter keeps 4 % of the width to the edge, a kicking leg included
     const fighters = formation.map(([offset, dir], i) => { // each fighter stands a little nearer or further than the others (nearer = lower on the screen and bigger) and has its own build
       const depth = v + (rng() - 0.5) * 0.07 + (size === 4 && i > 1 ? -0.02 : 0);
       return { x: centre + offset * base * fit, feet: kit.hy + kit.floor * depth, height: base * fit * (0.94 + rng() * 0.12) * (0.88 + 0.12 * depth / v), build: 0.85 + rng() * 0.35, dir, phase: rng() * TAU, events: [] };
