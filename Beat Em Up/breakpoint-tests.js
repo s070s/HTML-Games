@@ -26833,7 +26833,7 @@ const SelfTest = {
       const keepSound = {}, calls = [], keepForFighter = Inputs.forFighter, wiredBefore = Sound.wired, wiredOffs = [], realOn = Events.on;
       for (const name of ['ready', 'allow', 'at', 'tone', 'grunt', 'block', 'whoosh']) keepSound[name] = Sound[name];
       try {
-        Sound.wired = false; Events.on = (name, fn) => { const off = realOn.call(Events, name, fn); wiredOffs.push(off); return off; }; Sound.wire(); Events.on = realOn;   // the handlers Sound.wire adds are taken off again after the test
+        if (!wiredBefore) { Events.on = (name, fn) => { const off = realOn.call(Events, name, fn); wiredOffs.push(off); return off; }; Sound.wire(); Events.on = realOn; }   // in the browser the game wired them at boot (a second set would play every cue twice); headless the test wires them and takes them off again after
         Sound.ready = () => true; Sound.allow = () => true; Sound.at = () => {};
         Sound.tone = (...a) => calls.push(['tone', ...a]); Sound.grunt = (...a) => calls.push(['grunt', a[1], a[2]]); Sound.block = (...a) => calls.push(['block']); Sound.whoosh = (...a) => calls.push(['whoosh', a[4]]);
         Inputs.forFighter = (index) => (index === 0 ? Input : null);
