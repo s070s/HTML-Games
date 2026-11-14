@@ -230,11 +230,11 @@ const MOVES = {
 // xp: base experience yield; rec: recruit rate 0-100 (0 = cannot be recruited);
 // g: grammatical gender of the name (m, f, n) for the Greek article.
 const SPECIES = {
-  komma: { n: 'Κομματάκι', t: 'pol', ab: 'asy', g: 'n', starter: true, rec: 0, xp: 50,
+  komma: { n: 'Κομματάκι', t: 'pol', ab: 'asy', g: 'n', starter: true, rec: 0, xp: 50, evo: { to: 'vouleftakos', lv: 16 },
     base: [46, 38, 44, 56, 48, 46], learn: [[1, 'psifodeltio'], [1, 'promise'], [5, 'exetastiki'], [8, 'tropologia'], [11, 'thios']] },
-  koulourak: { n: 'Κουλουράκι', t: 'asf', ab: 'syn', g: 'n', starter: true, rec: 0, xp: 50,
+  koulourak: { n: 'Κουλουράκι', t: 'asf', ab: 'syn', g: 'n', starter: true, rec: 0, xp: 50, evo: { to: 'batsonos', lv: 16 },
     base: [52, 56, 54, 34, 42, 42], learn: [[1, 'globos'], [1, 'enisxuseis'], [6, 'chimika'], [10, 'taftotita'], [13, 'parelasi']] },
-  psaltak: { n: 'Ψαλτάκι', t: 'ekk', ab: 'gra', g: 'n', starter: true, rec: 0, xp: 50,
+  psaltak: { n: 'Ψαλτάκι', t: 'ekk', ab: 'gra', g: 'n', starter: true, rec: 0, xp: 50, evo: { to: 'diakosdisko', lv: 16 },
     base: [50, 36, 46, 52, 56, 38], learn: [[1, 'agiasmos'], [1, 'thymiama'], [6, 'aforismos'], [10, 'litaneia'], [13, 'akinito']] },
   fakelakis: { n: 'Φακελάκης', t: 'biz', ab: 'rou', g: 'm', rec: 70, xp: 40, evo: { to: 'fakelarchis', lv: 10 },
     base: [38, 44, 34, 46, 38, 52], learn: [[1, 'offshore'], [1, 'apolyseis'], [6, 'lobbying'], [9, 'yperkostol']] },
@@ -256,6 +256,15 @@ const SPECIES = {
     base: [50, 56, 44, 36, 50, 44], learn: [[1, 'giagia'], [1, 'ellada'], [7, 'frapes'], [10, 'thios']] },
   efoplistakos: { n: 'Εφοπλιστάκος', t: 'biz', ab: 'afo', g: 'm', rec: 25, xp: 55,
     base: [58, 46, 52, 60, 54, 40], learn: [[1, 'offshore'], [1, 'lobbying'], [8, 'apolyseis'], [12, 'yperkostol']] },
+  // MZ-WORLD-02b (Νότια): the café regular, and the middle forms of the three starters (evolution level 16, section 11.3).
+  kafenovios: { n: 'Καφενόβιος', t: 'mem', ab: 'bur', g: 'm', rec: 28, xp: 60,
+    base: [64, 52, 56, 46, 54, 36], learn: [[1, 'ellada'], [1, 'tzampa'], [7, 'frapes'], [12, 'giagia'], [17, 'thios']] },
+  vouleftakos: { n: 'Βουλευτάκος', t: 'pol', ab: 'asy', g: 'm', rec: 0, xp: 80,
+    base: [60, 50, 58, 74, 64, 60], learn: [[1, 'psifodeltio'], [1, 'promise'], [5, 'exetastiki'], [8, 'tropologia'], [11, 'thios'], [18, 'diaggelma']] },
+  batsonos: { n: 'Μπατσόνος', t: 'asf', ab: 'syn', g: 'm', rec: 0, xp: 80,
+    base: [68, 74, 70, 44, 56, 54], learn: [[1, 'globos'], [1, 'enisxuseis'], [6, 'chimika'], [10, 'taftotita'], [13, 'parelasi']] },
+  diakosdisko: { n: 'Διάκος Ντίσκο', t: 'ekk', ab: 'gra', g: 'm', rec: 0, xp: 80,
+    base: [64, 46, 60, 70, 76, 50], learn: [[1, 'agiasmos'], [1, 'thymiama'], [6, 'aforismos'], [10, 'litaneia'], [13, 'akinito']] },
   // Parody characters (CONTENT-SEED section 11): recruitable only in the television battle.
   spyradonis: { n: 'Σπυράδωνις', t: 'pol', ab: 'des', g: 'm', rec: 24, xp: 80, parody: true,
     base: [60, 55, 50, 76, 55, 55], learn: [[1, 'fonipanel'], [1, 'tilepolisi'], [1, 'tweet'], [1, 'denmilas']] },
@@ -263,7 +272,7 @@ const SPECIES = {
     base: [72, 50, 65, 74, 80, 58], learn: [[1, 'psifiako'], [1, 'anakampsi'], [1, 'diaggelma'], [1, 'technokratis']] },
 };
 const DEX_ORDER = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'fakelarchis', 'laikatzis', 'storoula', 'trolosavros',
-  'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'efoplistakos', 'spyradonis', 'mizotakis'];
+  'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'efoplistakos', 'kafenovios', 'vouleftakos', 'batsonos', 'diakosdisko', 'spyradonis', 'mizotakis'];
 const STARTERS = ['komma', 'koulourak', 'psaltak'];
 // The rival copies the starter that does not threaten the player's pick (a fair first fight).
 const RIVAL_STARTER = { komma: 'psaltak', psaltak: 'komma', koulourak: 'koulourak' };
@@ -276,9 +285,15 @@ const ITEMS = {
   souvlaki: { kind: 'heal', amount: 50, price: 70 },
   frapes: { kind: 'cure', price: 60 }, // the MVP has no Crisis blues, so the frappe cures any status
   tsipouro: { kind: 'heal', amount: 9999, accDown: true, price: 180 },
+  // MZ-WORLD-02b (Νότια): two heal items that also clear a status (cures: true). Only the kiosks of Νότια and later districts sell them.
+  dikigoros: { kind: 'heal', amount: 80, cures: true, price: 150 },
+  gemista: { kind: 'heal', amount: 9999, cures: true, price: 300 },
 };
-const ITEM_IDS = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
+const ITEM_IDS = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro', 'dikigoros', 'gemista'];
 const SHOP_STOCK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
+const SHOP_STOCK_NOTIA = SHOP_STOCK.concat(['dikigoros', 'gemista']);
+// The stock of the kiosk on a map: its own list (map.stock) or the New Piraeus one.
+function shopStockOf(map) { return map && map.stock ? map.stock : SHOP_STOCK; }
 const START_BAG = { fakelaki: 5, koulouri: 3 };
 
 // ---- Formatting helpers (strings table is below) ------------------------------------
@@ -297,8 +312,9 @@ function lookupString(key, lang) {
 }
 
 // ---- Creatures: stats, experience, moves ------------------------------------------
+// mon.boost (a boss' creatures only, section 11.12): a multiplier on the species' base stats, so a weak species can still be a boss' wall at a level where levels count for little.
 function statOf(mon, key) {
-  const base = SPECIES[mon.sp].base[STAT_INDEX[key]];
+  const base = SPECIES[mon.sp].base[STAT_INDEX[key]] * (mon.boost || 1);
   if (key === 'hp') return Math.floor(base * mon.lv / 20) + mon.lv + 10;
   return Math.floor(base * mon.lv / 25) + 5;
 }
@@ -323,13 +339,16 @@ function movesAtLevel(speciesId, level) {
   const others = known.filter(function (id) { return id !== basic; });
   return [basic].concat(others.slice(-(MOVES_MAX - 1)));
 }
-function makeMon(speciesId, level) {
+function makeMon(speciesId, level, boost) {
   const mon = { sp: speciesId, lv: level, xp: xpForLevel(level), moves: movesAtLevel(speciesId, level), pend: [], hp: 1, status: null };
+  if (boost && boost !== 1) mon.boost = boost;
   mon.hp = maxHp(mon);
   return mon;
 }
 function cloneMon(mon) {
-  return { sp: mon.sp, lv: mon.lv, xp: mon.xp, moves: mon.moves.slice(), pend: mon.pend.slice(), hp: mon.hp, status: null };
+  const copy = { sp: mon.sp, lv: mon.lv, xp: mon.xp, moves: mon.moves.slice(), pend: mon.pend.slice(), hp: mon.hp, status: null };
+  if (mon.boost) copy.boost = mon.boost;
+  return copy;
 }
 function healMon(mon) { mon.hp = maxHp(mon); mon.status = null; }
 function monIsAlive(mon) { return mon.hp > 0 && !mon.removed; }
@@ -444,7 +463,7 @@ function xpReward(foeMon, isTrainer) {
 function canUseItemOn(mon, itemId) {
   const item = ITEMS[itemId];
   if (!item || mon.hp <= 0) return false;
-  if (item.kind === 'heal') return mon.hp < maxHp(mon);
+  if (item.kind === 'heal') return mon.hp < maxHp(mon) || (!!item.cures && !!mon.status);
   if (item.kind === 'cure') return !!mon.status;
   return false;
 }
@@ -453,7 +472,7 @@ function applyItemToMon(mon, itemId) {
   const item = ITEMS[itemId];
   const before = mon.hp;
   if (item.kind === 'heal') mon.hp = Math.min(maxHp(mon), mon.hp + item.amount);
-  if (item.kind === 'cure') mon.status = null;
+  if (item.kind === 'cure' || item.cures) mon.status = null;
   if (mon.bt && item.accDown) mon.bt.stage.acc = Math.max(-6, mon.bt.stage.acc - 1);
   return mon.hp - before;
 }
@@ -1053,18 +1072,38 @@ const TRAINERS = {
   stelios: { name: 'Ο Αστυφύλακας Στέλιος', look: 'cop', team: [{ sp: 'eforaki', lv: 7 }, { sp: 'dimosio', lv: 7 }], items: [] },
   takis: { name: 'Ο Μπουζουξής Τάκης', look: 'singer', team: [{ sp: 'laikatzis', lv: 8 }, { sp: 'trolosavros', lv: 7 }], items: [] },
   rival2: { name: 'Ο Μπέμπης', look: 'rival', team: [{ sp: '$rival', lv: 9 }, { sp: 'fakelakis', lv: 8 }], items: ['koulouri'] },
+  // victory: what bossVictory plays (the flag it sets, the two lines around the badge card, the card's texts, the chapter card after the first boss)
   kotsos: { name: 'Ο Λιμενάρχης Κώτσος', look: 'captain', boss: true, bonus: 200,
+    victory: { flag: 'badge', win2: 'boss.win2', title: 'badge.title', sub: 'badge.sub', win3: 'boss.win3', chapterCard: true },
     team: [{ sp: 'fakelakis', lv: 11 }, { sp: 'frapedoros', lv: 12 }, { sp: 'fakelarchis', lv: 13 }], items: ['souvlaki'] },
   // Route 2 (MZ-WORLD-02a): a fan of the twin-stadium ground and a ferry sailor, two creatures each (L10 + L11, L11 + L12).
   fan: { name: 'Ο Οπαδός Θύμιος', look: 'fan', team: [{ sp: 'laikatzis', lv: 10 }, { sp: 'frapedoros', lv: 11 }], items: [] },
   ferrysailor: { name: 'Ο Ναύτης Μανώλης', look: 'sailor', team: [{ sp: 'fakelarchis', lv: 11 }, { sp: 'efoplistakos', lv: 12 }], items: [] },
+  // Route 3 and 4, Γλυφάδα (MZ-WORLD-02b). Levels 14-18; the rival's third fight is the boss' top level minus 2 (18) with his evolved starter.
+  lifeguard: { name: 'Ο Ναυαγοσώστης Βαγγέλης', look: 'lifeguard', team: [{ sp: 'laikatzis', lv: 15 }, { sp: 'trolosavros', lv: 16 }, { sp: 'eforaki', lv: 16 }], items: [] },
+  sunbedseller: { name: 'Ο Ξαπλωστράς Μάκης', look: 'sunbedseller', team: [{ sp: 'frapedoros', lv: 15 }, { sp: 'eforaki', lv: 16 }, { sp: 'laikatzis', lv: 16 }], items: [] },
+  conductor: { name: 'Ο Εισπράκτορας Λάμπρος', look: 'conductor', team: [{ sp: 'dimosio', lv: 16 }, { sp: 'fakelarchis', lv: 16 }], items: [] },
+  golfer: { name: 'Ο Γκόλφερ Τζίμης', look: 'golfer', team: [{ sp: 'efoplistakos', lv: 16 }, { sp: 'giagiaka', lv: 17 }, { sp: 'kafenovios', lv: 17 }], items: [] },
+  surfer: { name: 'Η Influencer Κική', look: 'surfer', team: [{ sp: 'storoula', lv: 17 }, { sp: 'laikatzis', lv: 17 }, { sp: 'frapedoros', lv: 18 }], items: [] },
+  skipper: { name: 'Ο Καπετάνιος Σταύρος', look: 'skipper', team: [{ sp: 'efoplistakos', lv: 17 }, { sp: 'fakelarchis', lv: 18 }], items: [] },
+  rival3: { name: 'Ο Μπέμπης', look: 'rival', team: [{ sp: 'fakelarchis', lv: 17 }, { sp: '$rivalEvo', lv: 18 }], items: ['souvlaki'] },
+  bougatsas: { name: 'Ο Κύριος Μπουγάτσας', look: 'bougatsas', boss: true, bonus: 200,
+    victory: { flag: 'badge_notia', win2: 'boss.bougatsas.win2', title: 'badge.notia.title', sub: 'badge.notia.sub', win3: 'boss.bougatsas.win3', ribbon: '#2f9a96' },
+    boost: 1.16, team: [{ sp: 'kafenovios', lv: 18 }, { sp: 'efoplistakos', lv: 20 }, { sp: 'frapedoros', lv: 19 }, { sp: 'giagiaka', lv: 20 }], items: ['souvlaki'] },
   host: { name: 'Ο Παρουσιαστής Ρεκλαμάκης', look: 'host', recruitable: true, recruitOnly: 'fakelos', bonus: 400,
     team: [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }], items: ['souvlaki'] },
 };
+// '$rival' is the rival's starter, '$rivalEvo' its middle form (his third fight).
+function resolveTeamSpecies(speciesId, playerStarter) {
+  const rivalStarter = RIVAL_STARTER[playerStarter || 'komma'];
+  if (speciesId === '$rival') return rivalStarter;
+  if (speciesId === '$rivalEvo') return SPECIES[rivalStarter].evo.to;
+  return speciesId;
+}
 function buildTrainerTeam(trainerId, playerStarter) {
   const trainer = TRAINERS[trainerId];
   return trainer.team.map(function (entry) {
-    return makeMon(entry.sp === '$rival' ? RIVAL_STARTER[playerStarter || 'komma'] : entry.sp, entry.lv);
+    return makeMon(resolveTeamSpecies(entry.sp, playerStarter), entry.lv, trainer.boost);
   });
 }
 
@@ -1083,6 +1122,10 @@ const TILE_DEFS = {
   'e': { solid: false }, 'j': { solid: true },
   // The ΚΤΕΛ bus stop sign 'U' (the fast-travel stop of MZ-MAP-02; for now it is a sign).
   'U': { solid: true },
+  // South coast decor (MZ-WORLD-02b): sand 'a', sunbed with a parasol 'b', lifeguard tower 'k', tram rails 'l' (walkable), palm 'n', runway 'o' (walkable),
+  // hangar 'p', crane of the unfinished project 'q', golf fairway 'u' (walkable), nightclub front 'G'.
+  'a': { solid: false }, 'b': { solid: true }, 'k': { solid: true }, 'l': { solid: false }, 'n': { solid: true },
+  'o': { solid: false }, 'p': { solid: true }, 'q': { solid: true }, 'u': { solid: false }, 'G': { solid: true },
   // Hospital outside: teal roof '6', roof with the blue Η sign 'H', mint walls 'M', window 'N', green cross 'P', sliding glass door 'E'.
   '6': { solid: true }, 'H': { solid: true }, 'M': { solid: true }, 'N': { solid: true }, 'P': { solid: true }, 'E': { solid: false },
   // Hospital inside: wall 'i', floor 'L', corridor cot (ράντζο) 'B', vending machine 'V', TV 'Y', archive terminal 'A', reception counter 'C'.
@@ -1150,9 +1193,72 @@ const KASTELLA_ROWS = paintMap(26, 18, 'T', [
   ['px', 'N', 9, 10], ['px', 'M', 10, 10], ['px', 'P', 11, 10], ['px', 'M', 12, 10], ['px', 'N', 13, 10], ['rect', 'M', 9, 11, 5, 1], ['px', 'E', 11, 11],
   ['rect', '4', 16, 8, 4, 2], ['rect', '#', 16, 10, 4, 2], ['px', 'W', 16, 10], ['px', 'W', 19, 10], ['px', 'D', 17, 11],
   ['rect', '2', 21, 8, 4, 2], ['rect', '#', 21, 10, 4, 2], ['px', 'W', 21, 10], ['px', 'W', 24, 10], ['px', 'd', 22, 11],
-  ['px', 'S', 11, 6], ['px', 'S', 8, 11], ['px', 'S', 15, 11], ['px', 'U', 6, 13], ['px', 'S', 24, 14],
+  ['px', 'S', 11, 6], ['px', 'S', 8, 11], ['px', 'S', 15, 11], ['px', 'U', 6, 13], ['px', 'S', 24, 13],
   ['px', '.', 0, 12],
+  // MZ-WORLD-02b: the east end of the promenade (the roadworks sign before) is the road to Νότια: (24, 14) walks on, (25, 14) is the gate tile.
+  ['px', '.', 25, 14],
 ]);
+
+// The hospital front (5 x 4 tiles, door 'E' at the foot of the middle), the kiosk front (4 x 4, door at x + 1) and a plain house front,
+// painted at a position so the Νότια towns do not repeat the rectangles by hand.
+function hospitalFront(x, y) {
+  return [['rect', '6', x, y, 5, 2], ['px', 'H', x + 2, y + 1],
+    ['px', 'N', x, y + 2], ['px', 'M', x + 1, y + 2], ['px', 'P', x + 2, y + 2], ['px', 'M', x + 3, y + 2], ['px', 'N', x + 4, y + 2],
+    ['rect', 'M', x, y + 3, 5, 1], ['px', 'E', x + 2, y + 3]];
+}
+function kioskFront(x, y) {
+  return [['rect', '4', x, y, 4, 2], ['rect', '#', x, y + 2, 4, 2], ['px', 'W', x, y + 2], ['px', 'W', x + 3, y + 2], ['px', 'D', x + 1, y + 3]];
+}
+function houseFront(x, y, width, roof, doorX, doorChar) {
+  return [['rect', roof, x, y, width, 2], ['rect', '#', x, y + 2, width, 2], ['px', 'W', x, y + 2], ['px', 'W', x + width - 1, y + 2], ['px', doorChar, doorX, y + 3]];
+}
+
+// Route 3, Λεωφόρος Ποσειδώνος (40 x 14): a hillside with grass, the tram rails, the avenue, a beach with sunbeds, the sea along the bottom.
+const ROUTE3_ROWS = paintMap(40, 14, 'T', [
+  ['rect', 's', 1, 1, 38, 5], ['rect', 'g', 2, 2, 9, 3], ['rect', 'g', 15, 2, 10, 3], ['rect', 'g', 29, 2, 9, 3],
+  ['rect', 'l', 1, 6, 38, 1], ['rect', '.', 0, 7, 40, 2], ['rect', 'a', 1, 9, 38, 2], ['rect', '~', 1, 11, 38, 2],
+  ['rect', 'g', 3, 9, 6, 2], ['rect', 'g', 29, 9, 8, 2],
+  ['px', 'b', 10, 10], ['px', 'b', 15, 9], ['px', 'b', 17, 10], ['px', 'b', 21, 9], ['px', 'k', 24, 10],
+  ['px', 'n', 2, 10], ['px', 'n', 13, 10], ['px', 'n', 27, 9], ['px', 'n', 38, 10],
+  ['px', 'T', 12, 3], ['px', 'T', 13, 2], ['px', 'T', 27, 4], ['px', 'T', 28, 3], ['px', 'T', 38, 5],
+  ['px', 'Z', 2, 6], ['px', 'Z', 37, 6],
+]);
+// Παλαιό Φάληρο (30 x 16): the buildings on top, the tram rails and the street, a beach and the marina below.
+const FALIRO_ROWS = paintMap(30, 16, 'T', [
+  ['rect', ',', 1, 1, 28, 10], ['rect', 'a', 1, 11, 28, 2], ['rect', '~', 1, 13, 28, 2],
+  ['rect', 'l', 1, 8, 28, 1], ['rect', '.', 0, 9, 30, 1],
+].concat(hospitalFront(2, 2), kioskFront(9, 2), houseFront(15, 2, 5, '5', 17, 'D'), houseFront(25, 2, 4, '2', 26, 'd'), [
+  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 20, 5], ['px', 'S', 24, 5], ['px', 'U', 22, 7], ['px', 'S', 12, 8],
+  ['px', 'T', 7, 2], ['px', 'T', 13, 2], ['px', 'T', 21, 2], ['px', 'T', 22, 3],
+  ['px', 'b', 5, 11], ['px', 'b', 9, 12], ['px', 'b', 14, 11], ['px', 'b', 20, 12],
+  ['px', 'n', 2, 11], ['px', 'n', 12, 12], ['px', 'n', 17, 11], ['px', 'n', 25, 12], ['px', 'n', 27, 11],
+  ['px', 'y', 4, 14], ['px', 'y', 10, 13], ['px', 'y', 16, 14], ['px', 'y', 22, 13], ['px', 'y', 27, 14],
+]));
+// Route 4, Ελληνικό (36 x 20): the old airfield: hangars, two straight runways, the cranes of the unfinished project, grass, a golf patch, the beach below.
+const ROUTE4_ROWS = paintMap(36, 20, 'T', [
+  ['rect', 's', 1, 1, 34, 15], ['rect', 'p', 3, 1, 7, 2], ['rect', 'p', 24, 1, 9, 2],
+  ['rect', 'o', 1, 4, 34, 2], ['rect', 'o', 1, 12, 34, 2],
+  ['rect', 'g', 2, 6, 8, 2], ['rect', 'g', 13, 6, 7, 2], ['rect', 'g', 23, 6, 6, 2],
+  ['rect', 'g', 2, 9, 6, 3], ['rect', 'g', 12, 9, 8, 3], ['rect', 'u', 27, 9, 7, 3],
+  ['rect', '.', 0, 8, 36, 1],
+  ['px', 'q', 6, 14], ['px', 'q', 13, 15], ['px', 'q', 22, 14], ['px', 'q', 30, 15],
+  ['rect', 'a', 1, 16, 34, 1], ['rect', '~', 1, 17, 34, 2],
+  ['px', 'n', 4, 16], ['px', 'n', 12, 16], ['px', 'n', 20, 16], ['px', 'n', 28, 16],
+  ['px', 'T', 11, 3], ['px', 'T', 21, 3], ['px', 'T', 11, 10], ['px', 'T', 25, 10],
+  ['px', 'Z', 2, 7], ['px', 'Z', 33, 7],
+]);
+// Γλυφάδα (28 x 18): the buildings on top (hospital, kiosk, the big café, a nightclub), the street, a golf lawn and houses, the marina with a pier below.
+const GLYFADA_ROWS = paintMap(28, 18, 'T', [
+  ['rect', ',', 1, 1, 26, 13], ['rect', '~', 1, 14, 26, 3], ['rect', ',', 12, 14, 2, 2],
+  ['rect', '.', 0, 7, 26, 1],
+].concat(hospitalFront(2, 2), kioskFront(9, 2), houseFront(14, 2, 8, '4', 17, 'D'), [
+  ['rect', 'G', 23, 2, 4, 4], ['px', 'd', 24, 5],
+], houseFront(13, 9, 4, '3', 14, 'd'), houseFront(19, 9, 4, '1', 20, 'd'), [
+  ['rect', 'u', 2, 9, 8, 4],
+  ['px', 'S', 7, 5], ['px', 'S', 13, 5], ['px', 'S', 22, 5], ['px', 'S', 23, 6], ['px', 'S', 26, 7], ['px', 'S', 12, 12], ['px', 'S', 23, 12], ['px', 'U', 4, 13],
+  ['px', 'T', 7, 2], ['px', 'T', 1, 8], ['px', 'T', 11, 10], ['px', 'T', 24, 10], ['px', 'T', 25, 12],
+  ['px', 'y', 3, 15], ['px', 'y', 6, 14], ['px', 'y', 9, 16], ['px', 'y', 16, 15], ['px', 'y', 19, 14], ['px', 'y', 22, 16], ['px', 'y', 24, 15],
+]));
 
 const MAPS = {
   town: {
@@ -1383,6 +1489,166 @@ MAPS.kastella_theatre = {
     { id: 'theatreold', x: 9, y: 5, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.theatre.old' },
   ],
 };
+// MZ-WORLD-02b: the district Νότια. The gate is the east end of the Καστέλλα promenade (the flag badge, as 11.4 says for the road out of the first district).
+MAPS.kastella.warps.push({ x: 25, y: 14, to: 'route3', tx: 1, ty: 8, needFlag: 'badge', lockedText: 'warp.route3' });
+MAPS.kastella.signs['24,13'] = 'sign.kastella.east';
+delete MAPS.kastella.signs['24,14'];
+MAPS.route3 = {
+  name: 'map.route3', w: 40, h: 14, music: 'route',
+  rows: ROUTE3_ROWS,
+  warps: [
+    { x: 0, y: 8, to: 'kastella', tx: 24, ty: 14 },
+    { x: 39, y: 8, to: 'faliro', tx: 1, ty: 9 },
+  ],
+  signs: { '2,6': 'sign.route3', '37,6': 'sign.faliro' },
+  npcs: [
+    { id: 'sunbedseller', x: 12, y: 9, face: 'up', look: 'sunbedseller', kind: 'trainer', trainer: 'sunbedseller', sight: 2 },
+    { id: 'conductor', x: 19, y: 6, face: 'down', look: 'conductor', kind: 'trainer', trainer: 'conductor', sight: 2 },
+    { id: 'lifeguard', x: 26, y: 10, face: 'up', look: 'lifeguard', kind: 'trainer', trainer: 'lifeguard', sight: 3 },
+    { id: 'beachgoer', x: 20, y: 10, face: 'up', look: 'kid', kind: 'talk', text: 'npc.beachgoer' },
+    { id: 'roadworker', x: 34, y: 7, face: 'down', look: 'oldman2', kind: 'talk', text: 'npc.roadworker' },
+  ],
+  zones: [
+    { x0: 0, x1: 19, table: [
+      { sp: 'frapedoros', w: 22, min: 13, max: 15 }, { sp: 'trolosavros', w: 20, min: 13, max: 15 }, { sp: 'laikatzis', w: 18, min: 13, max: 15 },
+      { sp: 'eforaki', w: 16, min: 13, max: 15 }, { sp: 'efoplistakos', w: 8, min: 14, max: 15 }, { sp: 'fakelarchis', w: 6, min: 14, max: 15 }] },
+    { x0: 20, x1: 99, table: [
+      { sp: 'frapedoros', w: 22, min: 14, max: 16 }, { sp: 'trolosavros', w: 20, min: 14, max: 16 }, { sp: 'laikatzis', w: 18, min: 14, max: 16 },
+      { sp: 'eforaki', w: 16, min: 14, max: 16 }, { sp: 'efoplistakos', w: 8, min: 14, max: 16 }, { sp: 'fakelarchis', w: 6, min: 14, max: 16 }] },
+  ],
+};
+MAPS.faliro = {
+  name: 'map.faliro', w: 30, h: 16, music: 'town',
+  rows: FALIRO_ROWS,
+  warps: [
+    { x: 0, y: 9, to: 'route3', tx: 38, ty: 8 },
+    { x: 29, y: 9, to: 'route4', tx: 1, ty: 8 },
+    { x: 4, y: 5, to: 'faliro_hospital', tx: 5, ty: 7 },
+    { x: 10, y: 5, to: 'faliro_shop', tx: 3, ty: 4 },
+    { x: 17, y: 5, to: 'faliro_cafe', tx: 4, ty: 6 },
+  ],
+  signs: { '7,5': 'sign.faliro.hospital', '13,5': 'sign.shop', '20,5': 'sign.faliro.cafe', '24,5': 'sign.house2', '22,7': 'sign.ktel', '12,8': 'sign.faliro.tram' },
+  npcs: [
+    { id: 'framwatcher', x: 14, y: 7, face: 'down', look: 'oldman', kind: 'talk', text: 'npc.faliro1' },
+    { id: 'fcafeguest', x: 20, y: 7, face: 'left', look: 'clerk', kind: 'talk', text: 'npc.faliro2' },
+    { id: 'fbeachkid', x: 8, y: 11, face: 'right', look: 'kid', kind: 'talk', text: 'npc.faliro3' },
+  ],
+};
+MAPS.faliro_hospital = {
+  name: 'map.faliro.hospital', w: 12, h: 9, music: 'indoor',
+  rows: MAPS.hospital.rows,
+  warps: [{ x: 5, y: 8, to: 'faliro', tx: 4, ty: 6 }, { x: 6, y: 8, to: 'faliro', tx: 4, ty: 6 }],
+  signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+  actions: { '1,3': 'archive' },
+  npcs: [
+    { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
+    { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.faliro.doctor' },
+    { id: 'hospwait1', x: 3, y: 4, face: 'down', look: 'oldman', kind: 'talk', text: 'npc.faliro.wait1' },
+    { id: 'hospwait2', x: 8, y: 5, face: 'left', look: 'oldman2', kind: 'talk', text: 'npc.hosp.wait2' },
+  ],
+};
+MAPS.faliro_shop = {
+  name: 'map.faliro.shop', w: 8, h: 6, music: 'indoor',
+  rows: MAPS.shop.rows,
+  stock: SHOP_STOCK_NOTIA,
+  warps: [{ x: 3, y: 5, to: 'faliro', tx: 10, ty: 6 }, { x: 4, y: 5, to: 'faliro', tx: 10, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'shopkeeper', x: 3, y: 1, face: 'down', look: 'kiosk', kind: 'shop' },
+    { id: 'customer', x: 5, y: 4, face: 'up', look: 'student', kind: 'talk', text: 'npc.faliro.customer' },
+  ],
+};
+// The first Καφενείο of Νότια («Ο Παραλιακός»): the save point, with its own greeting (cafeHello).
+MAPS.faliro_cafe = {
+  name: 'map.faliro.cafe', w: 10, h: 8, music: 'indoor',
+  rows: MAPS.cafe.rows,
+  cafeHello: 'cafe.hello.faliro',
+  warps: [{ x: 4, y: 7, to: 'faliro', tx: 17, ty: 6 }, { x: 5, y: 7, to: 'faliro', tx: 17, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'cafeowner', x: 3, y: 1, face: 'down', look: 'cafeowner', kind: 'save' },
+    { id: 'fcafe1', x: 2, y: 4, face: 'right', look: 'oldman', kind: 'talk', text: 'npc.fcafe1' },
+    { id: 'fcafe2', x: 7, y: 6, face: 'up', look: 'fisher', kind: 'talk', text: 'npc.fcafe2' },
+  ],
+};
+MAPS.route4 = {
+  name: 'map.route4', w: 36, h: 20, music: 'route',
+  rows: ROUTE4_ROWS,
+  warps: [
+    { x: 0, y: 8, to: 'faliro', tx: 28, ty: 9 },
+    { x: 35, y: 8, to: 'glyfada', tx: 1, ty: 7 },
+  ],
+  signs: { '2,7': 'sign.route4', '33,7': 'sign.glyfada' },
+  npcs: [
+    { id: 'surfer', x: 9, y: 7, face: 'down', look: 'surfer', kind: 'trainer', trainer: 'surfer', sight: 2 },
+    { id: 'rival3', x: 20, y: 6, face: 'down', look: 'rival', kind: 'trainer', trainer: 'rival3', sight: 2 },
+    { id: 'golfer', x: 30, y: 10, face: 'up', look: 'golfer', kind: 'trainer', trainer: 'golfer', sight: 3 },
+    { id: 'airfieldworker', x: 15, y: 10, face: 'down', look: 'fan', kind: 'talk', text: 'npc.airfield1' },
+    { id: 'planewatcher', x: 5, y: 12, face: 'up', look: 'oldman', kind: 'talk', text: 'npc.airfield2' },
+  ],
+  zones: [
+    { x0: 0, x1: 17, table: [
+      { sp: 'kafenovios', w: 26, min: 16, max: 18 }, { sp: 'frapedoros', w: 22, min: 16, max: 18 }, { sp: 'giagiaka', w: 20, min: 16, max: 18 },
+      { sp: 'efoplistakos', w: 16, min: 16, max: 18 }, { sp: 'storoula', w: 16, min: 16, max: 18 }] },
+    { x0: 18, x1: 99, table: [
+      { sp: 'kafenovios', w: 26, min: 17, max: 19 }, { sp: 'frapedoros', w: 22, min: 17, max: 19 }, { sp: 'giagiaka', w: 20, min: 17, max: 19 },
+      { sp: 'efoplistakos', w: 16, min: 17, max: 19 }, { sp: 'storoula', w: 16, min: 17, max: 19 }] },
+  ],
+};
+MAPS.glyfada = {
+  name: 'map.glyfada', w: 28, h: 18, music: 'town',
+  rows: GLYFADA_ROWS,
+  warps: [
+    { x: 0, y: 7, to: 'route4', tx: 34, ty: 8 },
+    { x: 4, y: 5, to: 'glyfada_hospital', tx: 5, ty: 7 },
+    { x: 10, y: 5, to: 'glyfada_shop', tx: 3, ty: 4 },
+    { x: 17, y: 5, to: 'glyfada_boss', tx: 5, ty: 8 },
+  ],
+  signs: { '7,5': 'sign.glyfada.hospital', '13,5': 'sign.shop', '22,5': 'sign.glyfada.cafe', '23,6': 'sign.glyfada.club', '26,7': 'sign.roadworks',
+    '12,12': 'sign.house1', '23,12': 'sign.house2', '4,13': 'sign.ktel' },
+  npcs: [
+    { id: 'skipper', x: 11, y: 9, face: 'up', look: 'skipper', kind: 'trainer', trainer: 'skipper', sight: 3 },
+    { id: 'gmarina', x: 17, y: 13, face: 'down', look: 'fisher', kind: 'talk', text: 'npc.glyfada1' },
+    { id: 'ggolf', x: 5, y: 10, face: 'right', look: 'golfer', kind: 'talk', text: 'npc.glyfada2' },
+    { id: 'gclubber', x: 24, y: 8, face: 'up', look: 'singer', kind: 'talk', text: 'npc.glyfada3' },
+  ],
+};
+MAPS.glyfada_hospital = {
+  name: 'map.glyfada.hospital', w: 12, h: 9, music: 'indoor',
+  rows: MAPS.hospital.rows,
+  warps: [{ x: 5, y: 8, to: 'glyfada', tx: 4, ty: 6 }, { x: 6, y: 8, to: 'glyfada', tx: 4, ty: 6 }],
+  signs: { '10,3': 'sign.hosp.vending', '5,3': 'sign.hosp.tv' },
+  actions: { '1,3': 'archive' },
+  npcs: [
+    { id: 'hospreception', x: 4, y: 1, face: 'down', look: 'reception', kind: 'heal' },
+    { id: 'hospdoctor', x: 7, y: 1, face: 'down', look: 'doctor', kind: 'talk', text: 'npc.glyfada.doctor' },
+    { id: 'hospwait1', x: 3, y: 4, face: 'down', look: 'oldwoman', kind: 'talk', text: 'npc.glyfada.wait1' },
+    { id: 'hospwait2', x: 8, y: 5, face: 'left', look: 'kid', kind: 'talk', text: 'npc.hosp.wait3' },
+  ],
+};
+MAPS.glyfada_shop = {
+  name: 'map.glyfada.shop', w: 8, h: 6, music: 'indoor',
+  rows: MAPS.shop.rows,
+  stock: SHOP_STOCK_NOTIA,
+  warps: [{ x: 3, y: 5, to: 'glyfada', tx: 10, ty: 6 }, { x: 4, y: 5, to: 'glyfada', tx: 10, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'shopkeeper', x: 3, y: 1, face: 'down', look: 'kiosk', kind: 'shop' },
+    { id: 'customer', x: 5, y: 4, face: 'up', look: 'fisher', kind: 'talk', text: 'npc.glyfada.customer' },
+  ],
+};
+// «Η Μεγάλη Προκυμαία»: the big seaside café, a counter with the boss behind it (the Port Office layout, with tables).
+MAPS.glyfada_boss = {
+  name: 'map.glyfada.boss', w: 12, h: 10, music: 'boss',
+  rows: ['wwwwwwwwwwww', 'whhfffffffhw', 'wffffffffffw', 'wfffccccfffw', 'wffffffffffw', 'wfttffffttfw', 'wffffffffffw', 'wfttffffttfw', 'wffffffffffw', 'wwwwwmmwwwww'],
+  warps: [{ x: 5, y: 9, to: 'glyfada', tx: 17, ty: 6 }, { x: 6, y: 9, to: 'glyfada', tx: 17, ty: 6 }],
+  signs: {},
+  npcs: [
+    { id: 'bougatsas', x: 5, y: 2, face: 'down', look: 'bougatsas', kind: 'boss', trainer: 'bougatsas' },
+    { id: 'bcust1', x: 2, y: 6, face: 'right', look: 'oldman2', kind: 'talk', text: 'npc.boss.cust1' },
+    { id: 'bcust2', x: 9, y: 6, face: 'left', look: 'clerk', kind: 'talk', text: 'npc.boss.cust2' },
+  ],
+};
 const START_MAP = { map: 'lab', x: 4, y: 6, dir: 'up' };
 const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' }; // just inside the hospital door
 const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out spot before any heal (after one, save.lastHeal: the last hospital that healed you)
@@ -1396,6 +1662,7 @@ function npcVisible(npc, flags) {
   if (npc.showFlag && !flags[npc.showFlag]) return false;
   if (npc.hideFlag && flags[npc.hideFlag]) return false;
   if (npc.kind === 'trainer' && npc.trainer === 'rival2' && flags.t_rival2) return false; // he leaves after the second fight
+  if (npc.kind === 'trainer' && npc.trainer === 'rival3' && flags.t_rival3) return false; // and after the third
   return true;
 }
 function findWarp(map, x, y) {
@@ -1471,7 +1738,7 @@ function npcTalkable(mapId, npc, reached) {
 // routes between them. Pure data plus small pure functions, so the headless tests, tools/world-map.mjs and the map screen read the
 // same numbers. Grid letters: upper case = a district, lower case = a hill of that district, '~' = sea, '#' = mainland outside
 // the six districts. Cells are [x, y]; a route path is a list of cell centres from the route's first end (a) to its second (b).
-// Only Peiraias is built today; the other districts are drawn locked ("soon") until their own task builds them (built: false).
+// Πειραιάς and Νότια are built; the other districts are drawn locked ("soon") until their own task builds them (built: false).
 const WORLD_BADGE_COUNT = 6;
 const WORLD = {
   cols: 30, rows: 15,
@@ -1495,7 +1762,7 @@ const WORLD = {
   // order = play order; badgeFlag = the story flag the district's boss sets; levels = wild level range; label = where the name sits (cell units)
   districts: {
     peiraias: { letter: 'P', order: 1, bossTrainer: 'kotsos', badgeFlag: 'badge', nameKey: 'world.d.peiraias', levels: [2, 13], color: '#e9b872', label: [4.5, 8.5], built: true },
-    notia: { letter: 'N', order: 2, bossTrainer: 'bougatsas', badgeFlag: 'badge_notia', nameKey: 'world.d.notia', levels: [13, 20], color: '#8fd0c8', label: [13.5, 12.5], built: false },
+    notia: { letter: 'N', order: 2, bossTrainer: 'bougatsas', badgeFlag: 'badge_notia', nameKey: 'world.d.notia', levels: [13, 20], color: '#8fd0c8', label: [13.5, 12.5], built: true },
     anatolika: { letter: 'E', order: 3, bossTrainer: 'faia', badgeFlag: 'badge_anatolika', nameKey: 'world.d.anatolika', levels: [19, 26], color: '#d9a0c4', label: [25.5, 3.5], built: false },
     voreia: { letter: 'V', order: 4, bossTrainer: 'amartia', badgeFlag: 'badge_voreia', nameKey: 'world.d.voreia', levels: [26, 32], color: '#9fcb7b', label: [13.5, 1], built: false },
     dytika: { letter: 'D', order: 5, bossTrainer: 'plousiakis', badgeFlag: 'badge_dytika', nameKey: 'world.d.dytika', levels: [32, 38], color: '#e6d26a', label: [5.5, 3.5], built: false },
@@ -1507,8 +1774,8 @@ const WORLD = {
     newPeiraias: { district: 'peiraias', kind: 'town', cell: [3, 10], maps: ['town', 'lab', 'kep', 'hospital', 'shop', 'cafe', 'studio'], stop: true, built: true, has: ['hospital', 'shop', 'cafe'] },
     harbourOffice: { district: 'peiraias', kind: 'boss', cell: [5, 12], maps: ['port'], boss: true, built: true, has: ['boss'] },
     kastella: { district: 'peiraias', kind: 'town', cell: [7, 10], maps: ['kastella', 'kastella_hospital', 'kastella_shop', 'kastella_theatre'], stop: true, built: true, seenFlag: 'badge', has: ['hospital', 'shop', 'theatre'] },
-    faliro: { district: 'notia', kind: 'town', cell: [10, 12], maps: [], stop: true, built: false },
-    glyfada: { district: 'notia', kind: 'town', cell: [15, 12], maps: [], boss: true, stop: true, built: false },
+    faliro: { district: 'notia', kind: 'town', cell: [10, 12], maps: ['faliro', 'faliro_hospital', 'faliro_shop', 'faliro_cafe'], stop: true, built: true, has: ['hospital', 'shop', 'cafe'] },
+    glyfada: { district: 'notia', kind: 'town', cell: [15, 12], maps: ['glyfada', 'glyfada_hospital', 'glyfada_shop', 'glyfada_boss'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
     koropi: { district: 'anatolika', kind: 'town', cell: [21, 12], maps: [], stop: true, built: false },
     spata: { district: 'anatolika', kind: 'town', cell: [24, 9], maps: [], boss: true, stop: true, built: false },
     kifisia: { district: 'voreia', kind: 'town', cell: [17, 2], maps: [], stop: true, built: false },
@@ -1523,8 +1790,8 @@ const WORLD = {
   routes: {
     route1: { district: 'peiraias', a: 'newPeiraias', b: 'harbourOffice', map: 'route1', path: [[3, 10], [3, 12], [5, 12]], progress: 'x', built: true },
     route2: { district: 'peiraias', a: 'harbourOffice', b: 'kastella', map: 'route2', path: [[5, 12], [6, 12], [7, 11], [7, 10]], progress: 'x', built: true },
-    route3: { district: 'notia', a: 'kastella', b: 'faliro', map: 'route3', path: [[7, 10], [9, 11], [10, 12]], progress: 'x', built: false },
-    route4: { district: 'notia', a: 'faliro', b: 'glyfada', map: 'route4', path: [[10, 12], [12, 12], [15, 12]], progress: 'x', built: false },
+    route3: { district: 'notia', a: 'kastella', b: 'faliro', map: 'route3', path: [[7, 10], [9, 11], [10, 12]], progress: 'x', built: true },
+    route4: { district: 'notia', a: 'faliro', b: 'glyfada', map: 'route4', path: [[10, 12], [12, 12], [15, 12]], progress: 'x', built: true },
     route5: { district: 'anatolika', a: 'glyfada', b: 'koropi', map: 'route5', path: [[15, 12], [18, 12], [21, 12]], progress: 'x', built: false },
     route6: { district: 'anatolika', a: 'koropi', b: 'spata', map: 'route6', path: [[21, 12], [22, 10], [24, 9]], progress: 'x', built: false },
     route7: { district: 'voreia', a: 'spata', b: 'kifisia', map: 'route7', path: [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]], progress: '-x', built: false },
@@ -1952,7 +2219,7 @@ const STRINGS = {
   'sign.ktel': ['ΚΤΕΛ 3000. Στάση. Το λεωφορείο θα αργήσει.', 'KTEL 3000. Stop. The bus will be late.'],
   'sign.metro': ['Μετρό 3000. Είσοδος. Ο συρμός έρχεται σε λίγο. Το «λίγο» δεν έχει οριστεί.', 'Metro 3000. Entrance. The train arrives shortly. "Shortly" is not defined.'],
   'sign.theatre': ['Θέατρο Καστέλλας. Παράσταση: ανακοινώνεται. Το εισιτήριο είναι ήδη πληρωμένο.', 'Kastella Theatre. Show: to be announced. The ticket is already paid.'],
-  'sign.roadworks': ['Έργα στον παραλιακό δρόμο προς τα Νότια. Τελειώνουν του χρόνου. Πάντα του χρόνου.', 'Roadworks on the coast road to the South. They finish next year. Always next year.'],
+  'sign.roadworks': ['Έργα στον παραλιακό δρόμο προς τα Ανατολικά. Τελειώνουν του χρόνου. Πάντα του χρόνου.', 'Roadworks on the coast road to the East. They finish next year. Always next year.'],
   'sign.kastella.hospital': ['Νοσοκομείο Καστέλλας 3000. Το ασανσέρ είναι υπό μελέτη. Τα σκαλιά είναι εκατό.', 'Kastella Hospital 3000. The lift is under study. The steps are a hundred.'],
   'npc.ferryclerk': ['Το πλοίο φεύγει σε 20 λεπτά. Πριν από την ώρα του εισιτηρίου. Το δρομολόγιο είναι πρόταση.', 'The ferry leaves in 20 minutes. Before the ticket time. The timetable is a suggestion.'],
   'npc.groundkeeper': ['Δύο γήπεδα, το ένα απέναντι στο άλλο. Κανείς δεν θυμάται γιατί. Οι οπαδοί, όμως, θυμούνται.', 'Two grounds facing each other. Nobody remembers why. The fans do.'],
@@ -1970,6 +2237,79 @@ const STRINGS = {
   'tr.ferrysailor.intro': ['Το πλοίο φεύγει σε είκοσι λεπτά! Μέχρι τότε, μια μάχη;', 'The ferry leaves in twenty minutes! Until then, a battle?'],
   'tr.ferrysailor.win': ['Έχασα το πλοίο. Δεν πειράζει, έφυγε χθες.', 'I missed the ferry. No matter, it left yesterday.'],
   'tr.ferrysailor.after': ['Το πλοίο έφυγε πριν. Πάντα φεύγει πριν.', 'The ferry left earlier. It always does.'],
+  // Νότια (MZ-WORLD-02b): places, signs, people, the new items and creatures, the boss and its badge.
+  'map.route3': ['Διαδρομή 3: Λεωφόρος Ποσειδώνος', 'Route 3: Poseidon Avenue'], 'map.faliro': ['Παλαιό Φάληρο', 'Old Faliro'],
+  'map.faliro.hospital': ['Νοσοκομείο Φαλήρου 3000', 'Faliro Hospital 3000'], 'map.faliro.shop': ['Περίπτερο Φαλήρου', 'Faliro Kiosk'],
+  'map.faliro.cafe': ['Καφενείο «Ο Παραλιακός»', 'Cafe "The Coast Road"'], 'map.route4': ['Διαδρομή 4: Ελληνικό', 'Route 4: The Old Airfield'],
+  'map.glyfada': ['Γλυφάδα', 'Glyfada'], 'map.glyfada.hospital': ['Νοσοκομείο Γλυφάδας 3000', 'Glyfada Hospital 3000'],
+  'map.glyfada.shop': ['Περίπτερο Γλυφάδας', 'Glyfada Kiosk'], 'map.glyfada.boss': ['Η Μεγάλη Προκυμαία', 'The Great Waterfront'],
+  'warp.route3': ['Ο δρόμος προς τα Νότια είναι κλειστός. Πρώτα το Παράσημο Λιμανιού.', 'The road to the South is closed. The Port Medal first.'],
+  'sign.kastella.east': ['Προς τα Νότια: Λεωφόρος Ποσειδώνος. Τα έργα τελειώνουν του χρόνου.', 'To the South: Poseidon Avenue. The works finish next year.'],
+  'sign.route3': ['Διαδρομή 3: Λεωφόρος Ποσειδώνος. Δρόμος με τραμ, παραλία και ένα έργο που δεν τελειώνει.', 'Route 3: Poseidon Avenue. A road with a tram, a beach and a project that never ends.'],
+  'sign.faliro': ['Παλαιό Φάληρο. Η παραλία είναι δωρεάν. Η καρέκλα, ένα Φακελάκι.', 'Old Faliro. The beach is free. The chair costs one Φακελάκι.'],
+  'sign.faliro.hospital': ['Νοσοκομείο Φαλήρου 3000. Δίπλα στο τραμ. Όποιο έρθει πρώτο.', 'Faliro Hospital 3000. Next to the tram. Whichever comes first.'],
+  'sign.faliro.cafe': ['Καφενείο «Ο Παραλιακός». Καφές με θέα. Η θέα χρεώνεται.', 'Cafe "The Coast Road". Coffee with a view. The view is charged.'],
+  'sign.faliro.tram': ['Στάση τραμ. Επόμενο τραμ: σύντομα. Προηγούμενο τραμ: ποτέ.', 'Tram stop. Next tram: soon. Previous tram: never.'],
+  'sign.route4': ['Διαδρομή 4: Ελληνικό. Το αεροδρόμιο έκλεισε. Το μεγάλο έργο ανοίγει του χρόνου.', 'Route 4: The Old Airfield. The airport closed. The big project opens next year.'],
+  'sign.glyfada': ['Γλυφάδα. Μαρίνα, γκολφ και κλαμπ. Η είσοδος είναι δωρεάν. Η έξοδος, όχι.', 'Glyfada. Marina, golf and clubs. Entry is free. Leaving is not.'],
+  'sign.glyfada.hospital': ['Νοσοκομείο Γλυφάδας 3000. Η αναμονή έχει θέα στη μαρίνα.', 'Glyfada Hospital 3000. The waiting list has a marina view.'],
+  'sign.glyfada.cafe': ['Η Μεγάλη Προκυμαία. Καφές, μπουγάτσα και η τελευταία λέξη.', 'The Great Waterfront. Coffee, bougatsa and the last word.'],
+  'sign.glyfada.club': ['Κλαμπ «Μεσάνυχτα». Ανοίγει στις δύο. Πάντα στις δύο.', 'Club "Midnight". Opens at two. Always at two.'],
+  'npc.beachgoer': ['Η άμμος είναι δωρεάν. Το να καθίσεις πάνω της, όχι.', 'The sand is free. Sitting on it is not.'],
+  'npc.roadworker': ['Τελειώνουμε του χρόνου. Το λέω εδώ και είκοσι χρόνια, αλλά μετράει ως πρόοδος.', 'We finish next year. I have said so for twenty years, but it counts as progress.'],
+  'npc.faliro1': ['Το τραμ έρχεται όταν βαρεθεί. Τα εισιτήρια, πάντως, ισχύουν.', 'The tram comes when it gets bored. The tickets, though, are valid.'],
+  'npc.faliro2': ['Ήρθα για έναν καφέ. Πήρα ήδη δύο αποφάσεις. Καμία δεν εφαρμόστηκε.', 'I came for one coffee. I have already made two decisions. Neither was carried out.'],
+  'npc.faliro3': ['Η θάλασσα είναι δωρεάν. Το να τη βλέπεις έχει τιμή.', 'The sea is free. Looking at it has a price.'],
+  'npc.faliro.doctor': ['Θέα στη μαρίνα έχουμε. Ράντζο με θέα, όχι.', 'We have a marina view. A cot with a view, no.'],
+  'npc.faliro.wait1': ['Έχω ραντεβού από το 2990. Ήρθα νωρίς για να μη χάσω τη σειρά.', 'I have had an appointment since 2990. I came early so as not to lose my place.'],
+  'npc.faliro.customer': ['Ζήτησα αντηλιακό. Μου έδωσαν υπόσχεση ότι θα έρθει καλοκαίρι.', 'I asked for sunscreen. They gave me a promise that summer will come.'],
+  'cafe.hello.faliro': ['Καφενείο «Ο Παραλιακός». Καφές με θέα και λογαριασμός με ηχώ.', 'Cafe "The Coast Road". Coffee with a view and a bill with an echo.'],
+  'npc.fcafe1': ['Τα ζάρια είναι του παππού. Φέρνουν πάντα εξάρες. Όταν παίζει εκείνος.', "The dice are grandpa's. They always roll sixes. When he plays."],
+  'npc.fcafe2': ['Από εδώ βλέπω τα γιοτ. Κάποτε θα δω και τον ιδιοκτήτη.', 'From here I see the yachts. One day I will see an owner too.'],
+  'npc.airfield1': ['Εδώ θα γίνει κάτι μεγάλο. Το λένε χρόνια. Οι γερανοί περιμένουν υπομονετικά.', 'Something big will be built here. They have said so for years. The cranes wait patiently.'],
+  'npc.airfield2': ['Τα αεροπλάνα έφυγαν. Έμειναν οι διάδρομοι και οι υποσχέσεις.', 'The planes left. The runways and the promises stayed.'],
+  'npc.glyfada1': ['Αυτό το σκάφος είναι δικό μου. Δηλαδή του φίλου μου. Δηλαδή της εταιρείας του.', "That boat is mine. Well, my friend's. Well, his company's."],
+  'npc.glyfada2': ['Το γκολφ θέλει νερό. Ο δήμος θέλει υπομονή.', 'Golf wants water. The council wants patience.'],
+  'npc.glyfada3': ['Το κλαμπ ανοίγει στις δύο. Το ρολόι του δείχνει πάντα μία και πενήντα εννέα.', 'The club opens at two. Its clock always shows one fifty-nine.'],
+  'npc.glyfada.doctor': ['Θέα στα γιοτ έχουμε. Τα ράντζα κοιτάνε τον τοίχο.', 'We have a view of the yachts. The cots face the wall.'],
+  'npc.glyfada.wait1': ['Περιμένω σειρά από το πρωί. Η αναμονή έχει θέα στη μαρίνα, τουλάχιστον.', 'I have waited for my turn since morning. The wait has a marina view, at least.'],
+  'npc.glyfada.customer': ['Πήρα νερό. Κοστίζει όσο ένα εισιτήριο. Ένα καλό εισιτήριο.', 'I bought water. It costs as much as a ticket. A good ticket.'],
+  'npc.boss.cust1': ['Ένας καφές, δύο ώρες, μία μπουγάτσα για δύο. Έτσι κλείνουν οι συμφωνίες.', 'One coffee, two hours, one bougatsa for two. That is how deals are closed.'],
+  'npc.boss.cust2': ['Η συζήτηση ξεκίνησε για την οικονομία. Τελείωσε στο γέμισμα. Πάντα τελειώνει εκεί.', 'The talk started with the economy. It ended at the filling. It always ends there.'],
+  'item.dikigoros': ['Δικηγόρος', 'Δικηγόρος (lawyer)'], 'item.gemista': ['Γεμιστά της Μάνας', "Mum's Γεμιστά"],
+  'itemd.dikigoros': ['Γιατρεύει 80 ΥΓ και κλείνει κάθε υπόθεση: καμία κατάσταση δεν επιζεί. Με αμοιβή.', 'Heals 80 HP and closes every case: no status survives. Fees apply.'],
+  'itemd.gemista': ['Γιατρεύει πλήρως και σβήνει κάθε κατάσταση. Με τη Μάνα δεν διαφωνεί κανείς.', 'Full heal and clears every status. Nobody argues with Mum.'],
+  'tr.lifeguard.intro': ['Η παραλία είναι δωρεάν! Μόνο η σκιά χρεώνεται. Έλα να τα πούμε.', 'The beach is free! Only the shade is charged. Come, let us talk.'],
+  'tr.lifeguard.win': ['Έχασα. Θα γράψω στην αναφορά ότι έσωσα εγώ εσένα.', 'I lost. I will write in the report that I saved you.'],
+  'tr.lifeguard.after': ['Η σημαία είναι πράσινη. Χθες ήταν ό,τι χρώμα είχε ο χορηγός.', 'The flag is green. Yesterday it was whatever colour the sponsor had.'],
+  'tr.sunbedseller.intro': ['Μία ξαπλώστρα, ένα Φακελάκι. Και μία μάχη για το ρέστο.', 'One sunbed, one Φακελάκι. And a battle for the change.'],
+  'tr.sunbedseller.win': ['Μου χαλάς τον τζίρο. Ποιος θα πληρώσει την ομπρέλα;', 'You are ruining my turnover. Who will pay for the parasol?'],
+  'tr.sunbedseller.after': ['Η ξαπλώστρα είναι δική σου. Ο ήλιος, όχι.', 'The sunbed is yours. The sun is not.'],
+  'tr.conductor.intro': ['Το εισιτήριο, παρακαλώ! Δεν έχεις; Έχουμε μάχη.', 'Your ticket, please! None? Then we have a battle.'],
+  'tr.conductor.win': ['Ακυρώνεται το εισιτήριο. Και η μάχη.', 'The ticket is cancelled. So is the battle.'],
+  'tr.conductor.after': ['Το τραμ ήρθε. Άργησε μόνο τρεις ώρες. Ρεκόρ.', 'The tram came. It was only three hours late. A record.'],
+  'tr.golfer.intro': ['Η έκταση είναι τεράστια και άδεια. Ιδανική για μία τρύπα και μία μάχη.', 'The land is huge and empty. Ideal for one hole and one battle.'],
+  'tr.golfer.win': ['Η μπάλα χάθηκε. Μαζί με τη μισή μου περιουσία.', 'The ball is lost. Together with half my estate.'],
+  'tr.golfer.after': ['Παίζω εδώ από πριν αρχίσουν να χτίζουν. Και από πριν σταματήσουν.', 'I have played here since before they built. And before they stopped.'],
+  'tr.surfer.intro': ['Πρόσεξε το φόντο! Αύριο έχω ανάρτηση με χορηγό. Μπορώ να σε βάλω στο καρέ;', 'Mind the background! Tomorrow I have a sponsored post. May I put you in the frame?'],
+  'tr.surfer.win': ['Εσύ βγήκες καλύτερα στη φωτογραφία. Αδικία.', 'You came out better in the photo. Unfair.'],
+  'tr.surfer.after': ['Η ανάρτηση ανέβηκε. Το φίλτρο το έφτιαξε ο ήλιος.', 'The post is up. The sun made the filter.'],
+  'tr.skipper.intro': ['Το σκάφος δεν είναι δικό μου. Ούτε το λιμάνι. Η μάχη, ναι.', 'The boat is not mine. Neither is the harbour. The battle is.'],
+  'tr.skipper.win': ['Βυθίστηκα. Δεν πειράζει, το σκάφος δεν ήταν δικό μου.', 'I sank. No matter, the boat was not mine.'],
+  'tr.skipper.after': ['Ο ιδιοκτήτης λείπει. Όπως πάντα.', 'The owner is away. As always.'],
+  'tr.rival3.intro': ['Εσύ ξανά! Ο θείος μου έφερε εξέλιξη. Με απευθείας ανάθεση.', 'You again! My uncle got me an evolution. By direct assignment.'],
+  'tr.rival3.win': ['Θα τηλεφωνήσω ξανά. Αυτή τη φορά σε υψηλότερο όροφο.', 'I will call again. This time to a higher floor.'],
+  'tr.rival3.after': ['Ο Μπέμπης έφυγε. Πήρε το ασανσέρ προς τα πάνω.', 'Bebis left. He took the lift up.'],
+  'tr.bougatsas.intro': ['Καλώς ήρθες στη Μεγάλη Προκυμαία. Εδώ κάθε συζήτηση τελειώνει στο γέμισμα της μπουγάτσας. Τα δικά μου τρώνε μπουγάτσα με διπλή κρέμα. Κάτσε, {ανιψιέ|ανιψιά}.', 'Welcome to the Great Waterfront. Here every talk ends at the filling of the bougatsa. Mine eat bougatsa with double cream. Sit down, nephew.'],
+  'tr.bougatsas.win': ['Ωραία. Το Παράσημο είναι δικό σου. Η μπουγάτσα όμως είναι δική μου.', 'Fine. The medal is yours. The bougatsa, though, is mine.'],
+  'tr.bougatsas.after': ['Η συζήτηση συνεχίζεται. Δεν θα καταλήξει πουθενά, αλλά με άχνη ζάχαρη.', 'The talk goes on. It will end nowhere, but with powdered sugar.'],
+  'boss.bougatsas.win2': ['Κέρδισες. Το Παράσημο Παραλιακής είναι δικό σου, με τον όρο να πληρώσεις τον καφέ.', 'You won. The Coast Medal is yours, on the condition that you pay for the coffee.'],
+  'boss.bougatsas.win3': ['Πήρες το Παράσημο Παραλιακής! Ο δρόμος προς τα Ανατολικά είναι ακόμα υπό έργα.', 'You got the Coast Medal! The road to the East is still under works.'],
+  'badge.notia.title': ['ΠΑΡΑΣΗΜΟ ΠΑΡΑΛΙΑΚΗΣ', 'COAST MEDAL'], 'badge.notia.sub': ['Χωρίς απόδειξη.', 'No receipt.'],
+  'sp.kafenovios': ['Γνωστός για: ένα φλιτζάνι που κρατά από το πρωί ως το βράδυ και πολιτική ανάλυση χωρίς λογαριασμό. Ποτέ δεν καταδικάστηκε.', 'Καφενόβιος = "Cafe-dweller". Known for: one small cup that lasts from morning to night and political analysis with no bill. Never convicted.'],
+  'sp.vouleftakos': ['Γνωστός για: ψήφους που αλλάζουν με τον καιρό και την έδρα. Ποτέ δεν καταδικάστηκε.', 'Βουλευτάκος = "Little MP". Known for: votes that change with the weather and the seat. Never convicted.'],
+  'sp.batsonos': ['Γνωστός για: σφυρίχτρα, γκλομπ και βαθιά πίστη στη «διαδικασία». Ποτέ δεν καταδικάστηκε.', 'Μπατσόνος = "Big Cop". Known for: a whistle, a baton and deep faith in "procedure". Never convicted.'],
+  'sp.diakosdisko': ['Γνωστός για: ψαλμωδία με ηχοσύστημα και φώτα. Η ευχή έρχεται μετά τον λογαριασμό. Ποτέ δεν καταδικάστηκε.', 'Διάκος Ντίσκο = "Deacon Disco". Known for: chanting with a sound system and lights. The blessing comes after the bill. Never convicted.'],
   'sp.efoplistakos': ['Γνωστός για: πλοία με σημαία ευκαιρίας και φόρους με σημαία καμία. Ποτέ δεν καταδικάστηκε.', 'Εφοπλιστάκος = "Little Shipowner". Known for: ships under a flag of convenience and taxes under no flag. Never convicted.'],
   'credits.text': ['MIZAMON\n\nΤο τέλος της Πρώτης Περιφέρειας\n\nΣχεδιασμός, κώδικας, γραφικά, μουσική:\nόλα φτιαγμένα από κώδικα\n\nΟ Καθηγητής Σταθόπουλος\nεκπροσωπεί όλους όσους\nπεριμένουν πληρωμή\n\nΣάτιρα. Όλοι οι χαρακτήρες\nείναι παρωδίες ή φανταστικοί·\nκάθε ομοιότητα είναι καρικατούρα.\n\nΗ Βουλή του 3000 περιμένει...\n\nΕυχαριστούμε που έπαιξες!',
     'MIZAMON\n\nThe end of the First District\n\nDesign, code, graphics, music:\nall made from code\n\nProfessor Stathopoulos\nspeaks for everyone\nwaiting to be paid\n\nSatire. All characters\nare parodies or fictional;\nany resemblance is caricature.\n\nThe Parliament of 3000 awaits...\n\nThanks for playing!'],
@@ -2126,7 +2466,7 @@ const RULES = {
   SAVE_VERSION, SAVE_KEY, OPTIONS_KEY, MAX_LEVEL, PARTY_MAX, ARCHIVE_MAX, MOVES_MAX, NAME_MAX, STAT_KEYS, STAGE_KEYS, START_MONEY, START_BAG,
   DAMAGE_DIVISOR, CRIT_CHANCE, OVERTIME_TURN, USELESS_MOVE_SCORE, ENCOUNTER_CHANCE, BLACKOUT_MONEY_KEEP, XP_DIVISOR, TRAINER_XP_BONUS, XP_SCALE_FROM,
   makeRng, randInt, pickOne, pickWeighted, hashString,
-  TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK,
+  TYPE_IDS, TYPE_RULES, TYPE_CHART, typeMultiplier, ABILITY_IDS, STATUSES, MOVES, SPECIES, DEX_ORDER, STARTERS, RIVAL_STARTER, ITEMS, ITEM_IDS, SHOP_STOCK, SHOP_STOCK_NOTIA, shopStockOf,
   STRINGS, formatText, lookupString, monLabel, eventText,
   statOf, maxHp, xpForLevel, levelFromXp, movesAtLevel, makeMon, cloneMon, healMon, monIsAlive, partyHasAlive, hospitalHeal, canDeposit, depositMon, canWithdraw, withdrawMon, gainXp, evolutionFor, evolveMon,
   abilityOf, effectiveStat, computeDamage, recruitChance, xpReward, canUseItemOn, applyItemToMon,
@@ -2474,6 +2814,54 @@ function buildTileSprites() {
     p.rect(2, 0, 12, 5, '#2f8a5a'); p.rect(2, 0, 12, 1, '#7fd0a0');
     p.rect(7, 1, 2, 2, '#f4f4f4'); p.tri(5, 3, 11, 3, 8, 5, '#f4f4f4');
   });
+  // South coast decor (MZ-WORLD-02b).
+  const drawSand = function (p) { drawGrassTexture(p, '#e8d49a', 21); p.px(3, 4, '#cdb67a'); p.px(11, 10, '#cdb67a'); p.px(6, 13, '#cdb67a'); };
+  make('a', drawSand);
+  make('b', function (p) { // a sunbed under a striped parasol
+    drawSand(p);
+    p.rect(2, 10, 12, 3, '#2a78c8'); p.rect(2, 10, 12, 1, '#8ccaf2'); p.rect(2, 13, 2, 2, '#7a5a30'); p.rect(12, 13, 2, 2, '#7a5a30');
+    p.rect(7, 4, 2, 7, '#8a8a98');
+    p.tri(1, 5, 15, 5, 8, 0, '#f4f4f4'); p.tri(1, 5, 5, 5, 4, 2, '#e0483e'); p.tri(8, 0, 12, 5, 8, 5, '#e0483e'); p.rect(1, 5, 14, 1, '#c0392b');
+  });
+  make('k', function (p) { // a lifeguard tower on stilts: striped hut, a ladder, a flag
+    drawSand(p);
+    p.rect(2, 9, 2, 7, '#7a5a30'); p.rect(12, 9, 2, 7, '#7a5a30'); p.line(3, 15, 12, 9, '#7a5a30'); p.rect(7, 12, 2, 4, '#9a7a4a');
+    p.rect(1, 8, 14, 1, '#5a3a22'); p.rect(2, 3, 12, 5, '#f4f4f4'); p.rect(2, 5, 12, 1, '#f08a30'); p.rect(4, 4, 3, 2, '#8fc3ee');
+    p.rect(1, 2, 14, 1, '#f08a30'); p.rect(8, 0, 1, 2, '#6b4a2a'); p.rect(9, 0, 3, 2, '#f4c430');
+  });
+  make('l', function (p) { // tram rails on gravel
+    p.rect(0, 0, 16, 16, '#b4ae9c'); p.px(2, 2, '#9a9482'); p.px(12, 13, '#9a9482'); p.px(7, 8, '#cfc9b6');
+    for (let x = 1; x < 16; x += 4) p.rect(x, 2, 2, 12, '#6b4a2a');
+    p.rect(0, 4, 16, 2, '#7a7e8a'); p.rect(0, 4, 16, 1, '#c8ccd8'); p.rect(0, 10, 16, 2, '#7a7e8a'); p.rect(0, 10, 16, 1, '#c8ccd8');
+  });
+  make('n', function (p) { // a palm tree on sand
+    drawSand(p);
+    p.line(8, 15, 9, 6, '#7a5a30'); p.line(9, 15, 10, 6, '#6b4a2a');
+    p.tri(9, 6, 0, 3, 3, 7, '#2d8a3a'); p.tri(9, 6, 15, 3, 12, 7, '#2d8a3a'); p.tri(9, 6, 4, 0, 8, 1, '#3f9a4c'); p.tri(9, 6, 14, 0, 11, 1, '#3f9a4c'); p.tri(9, 6, 6, 9, 12, 9, '#256a30');
+    p.px(8, 8, '#8a5a32'); p.px(10, 8, '#8a5a32');
+  });
+  make('o', function (p) { // runway: asphalt with a dashed centre line
+    p.rect(0, 0, 16, 16, '#4a4a54'); p.px(3, 3, '#5a5a66'); p.px(12, 12, '#3c3c46'); p.px(8, 13, '#5a5a66');
+    p.rect(2, 7, 8, 2, '#e8e8e8'); p.rect(0, 0, 16, 1, '#8a8a96'); p.rect(0, 15, 16, 1, '#8a8a96');
+  });
+  make('p', function (p) { // a hangar: corrugated metal with a big door
+    p.rect(0, 0, 16, 16, '#8aa0b8'); for (let x = 1; x < 16; x += 3) p.rect(x, 0, 1, 16, '#6c849c');
+    p.rect(0, 0, 16, 2, '#5a7088'); p.rect(2, 7, 12, 9, '#4a5a70'); p.rect(2, 7, 12, 1, '#2a3446'); p.rect(7, 7, 2, 9, '#2a3446'); p.rect(2, 4, 12, 1, '#d8c040');
+  });
+  make('q', function (p) { // the crane of the unfinished project: a lattice mast and a jib on dusty ground
+    p.rect(0, 0, 16, 16, '#cbbf9a'); p.px(4, 13, '#b3a47a'); p.px(12, 14, '#b3a47a');
+    p.rect(5, 3, 1, 13, '#d8a020'); p.rect(9, 3, 1, 13, '#d8a020'); for (let y = 4; y < 16; y += 3) p.line(5, y, 9, y + 3, '#b8860a');
+    p.rect(0, 2, 16, 2, '#d8a020'); p.rect(0, 1, 16, 1, '#b8860a'); p.rect(1, 4, 1, 5, '#222'); p.rect(0, 9, 3, 2, '#c0392b'); p.rect(11, 0, 4, 2, '#8a6a10');
+  });
+  make('u', function (p) { // golf fairway: mown stripes
+    drawGrassTexture(p, '#86cf6a', 9);
+    p.rect(0, 0, 16, 4, '#92d974'); p.rect(0, 8, 16, 4, '#92d974');
+  });
+  make('G', function (p) { // a nightclub front: dark wall with neon bars
+    p.rect(0, 0, 16, 16, '#2c2040'); p.rect(0, 13, 16, 3, '#1c1430');
+    p.rect(2, 3, 12, 2, '#ff4fa8'); p.rect(2, 8, 12, 2, '#3fe0e8'); p.rect(2, 3, 1, 7, '#ff4fa8'); p.rect(13, 3, 1, 7, '#3fe0e8');
+    p.px(7, 6, '#f4f4f4'); p.px(8, 6, '#f4f4f4');
+  });
   buildHospitalTiles(make);
   make('~', function () {});
   waterFrames = [];
@@ -2511,6 +2899,14 @@ const LOOKS = {
   sailor: { skin: '#d8a070', hair: '#3a2a1a', top: '#f4f4f4', pants: '#1a2a5a', style: 'short', stripes: '#1a2a5a' },
   host: { skin: '#f0c08a', hair: '#2a2a2a', top: '#161620', pants: '#161620', style: 'short', bowtie: '#d03030', mic: true },
   fan: { skin: '#e8b88a', hair: '#3a2a1a', top: '#e8d030', pants: '#33384d', style: 'short', stripes: '#3a3a8a', hat: '#3a3a8a' },
+  // Νότια (MZ-WORLD-02b): the people of the coast.
+  lifeguard: { skin: '#d8a070', hair: '#3a2a1a', top: '#f08a30', pants: '#f08a30', style: 'short', hat: '#f4f4f4', brim: '#f08a30', glasses: true },
+  sunbedseller: { skin: '#d8a070', hair: '#2a2a2a', top: '#3fb0c0', pants: '#e8e0c0', style: 'short', hat: '#e8d090', mustache: true },
+  conductor: { skin: '#e8b88a', hair: '#3a3a3a', top: '#2a5a8a', pants: '#2a3a5a', style: 'short', hat: '#2a5a8a', tie: '#f4f4f4' },
+  golfer: { skin: '#e8b88a', hair: '#8a8a8a', top: '#7ac07a', pants: '#e8e0c0', style: 'short', hat: '#f4efe0', glasses: true },
+  surfer: { skin: '#e0a878', hair: '#f0d068', top: '#30b0c0', pants: '#f06aa0', style: 'long', phone: true, skirt: true },
+  skipper: { skin: '#d8a070', hair: '#cccccc', top: '#f4f4f4', pants: '#d8c8a0', style: 'short', hat: '#f4f4f4', brim: '#1a2a5a', glasses: true, stripes: '#1a2a5a' },
+  bougatsas: { skin: '#e8b88a', hair: '#555555', top: '#f0e6c8', pants: '#33384d', style: 'bald', mustache: true, apron: '#d8a84a', hat: '#f4f4f4' },
 };
 function drawCharFrame(p, ox, oy, look, dir, frame) {
   const dark = shade(look.top, -0.3);
@@ -2717,6 +3113,39 @@ const creatureDrawers = {
     p.rect(11, 18, 3, 1, '#f4c430'); p.rect(11, 20, 3, 1, '#f4c430'); // gold buttons
     p.rect(22, 21, 8, 3, '#f4f4f4'); p.rect(22, 23, 8, 1, '#c0392b'); p.rect(24, 18, 4, 3, '#cfd6e0'); p.rect(26, 15, 1, 3, '#8a8a98'); // toy ship in his hand
     p.rect(1, 22, 6, 5, '#2d6f9a'); p.rect(2, 23, 4, 1, '#ffffff'); // the folded sea chart
+  },
+  kafenovios: function (p) {
+    humanoid(p, { suit: '#7a5a3a', shirt: '#f4f4f4', pants: '#3a3a4a', skin: '#e0a878', cheeks: '#e8887a' });
+    p.rect(9, 2, 14, 4, '#4a4a52'); p.rect(8, 5, 16, 2, '#33333a'); // flat cap
+    eyes(p, 8); p.rect(11, 11, 10, 2, '#a8a8b0'); p.rect(14, 13, 4, 1, '#7a2a2a'); // grey moustache
+    p.rect(11, 18, 2, 6, '#5a3a22'); p.rect(19, 18, 2, 6, '#5a3a22'); // waistcoat edges
+    p.rect(24, 22, 5, 4, '#f4f4f4'); p.rect(25, 21, 3, 1, '#5a3a22'); p.px(29, 23, '#f4f4f4'); p.px(29, 24, '#f4f4f4'); // the little coffee cup
+    p.rect(1, 15, 7, 9, '#e8e4d0'); p.rect(2, 17, 5, 1, '#8a8a98'); p.rect(2, 19, 5, 1, '#8a8a98'); p.rect(2, 21, 3, 1, '#8a8a98'); // newspaper
+    p.px(8, 26, '#8a2a1a'); p.px(7, 27, '#8a2a1a'); p.px(9, 27, '#8a2a1a'); p.px(8, 28, '#8a2a1a'); // worry beads, under the hand
+  },
+  vouleftakos: function (p) {
+    humanoid(p, { suit: '#1d3278', shirt: '#ffffff', tie: '#d03030', cheeks: '#e8887a' });
+    p.ell(16, 4, 7, 3, '#5a3a22'); p.rect(9, 4, 14, 3, '#5a3a22'); p.rect(9, 6, 2, 3, '#9a9aa8'); p.rect(21, 6, 2, 3, '#9a9aa8'); // hair with grey temples
+    eyes(p, 8); p.rect(14, 13, 4, 1, '#7a2a2a'); p.px(13, 12, '#7a2a2a'); p.px(18, 12, '#7a2a2a');
+    p.line(11, 17, 20, 25, '#f4c430'); p.line(12, 17, 21, 25, '#f4c430'); // sash
+    p.rect(11, 18, 3, 2, '#f4c430'); // party pin
+    p.rect(22, 15, 8, 10, '#8a8a99'); p.rect(24, 16, 4, 1, '#222'); p.rect(23, 18, 6, 5, '#c8ccd8'); p.px(26, 20, '#2f9a4a'); // the ballot box
+  },
+  batsonos: function (p) {
+    humanoid(p, { suit: '#1c2848', shirt: '#cfd6ea', tie: '#111', cheeks: '#e8887a' });
+    p.rect(6, 16, 4, 5, '#1c2848'); p.rect(22, 16, 4, 5, '#1c2848'); // broad shoulders
+    p.rect(9, 0, 14, 6, '#1c2848'); p.rect(7, 5, 18, 2, '#101830'); p.ell(16, 3, 3, 2, '#e8b030'); // tall cap with the ring badge
+    p.rect(10, 8, 5, 3, '#111'); p.rect(17, 8, 5, 3, '#111'); p.rect(15, 9, 2, 1, '#111'); p.px(11, 8, '#6a6a8a'); p.px(18, 8, '#6a6a8a'); p.rect(14, 13, 4, 1, '#7a2a2a');
+    p.rect(0, 12, 7, 16, '#26325a'); p.rect(1, 13, 5, 14, '#9fd4ff'); p.line(2, 14, 4, 20, '#e8f8ff'); // the riot shield
+    p.rect(25, 10, 3, 18, '#222'); p.rect(26, 10, 1, 18, '#44444f'); // the baton
+  },
+  diakosdisko: function (p) {
+    humanoid(p, { suit: '#241c34', longRobe: true, shirt: '#f4f4f4', cheeks: '#e8887a' });
+    p.rect(10, 15, 12, 2, '#f4f4f4'); p.rect(14, 17, 4, 13, '#e0b020'); p.rect(15, 18, 2, 11, '#f4d86a'); // collar and a golden stole
+    p.rect(11, 0, 10, 6, '#15151f'); p.rect(9, 5, 14, 2, '#15151f'); // tall black hat
+    p.rect(10, 8, 12, 3, '#3a3a5a'); p.rect(11, 8, 4, 1, '#9fe8ff'); p.rect(17, 8, 4, 1, '#ff9fe8'); p.rect(14, 13, 4, 1, '#7a2a2a'); // mirrored sunglasses
+    p.ell(26, 9, 4, 4, '#d8d8e8'); p.px(24, 8, '#8a8aa0'); p.px(26, 7, '#8a8aa0'); p.px(28, 9, '#8a8aa0'); p.px(25, 11, '#8a8aa0'); p.rect(26, 13, 1, 5, '#8a8a98'); // the disco ball
+    p.px(29, 4, '#ffffff'); p.px(2, 10, '#ff9fe8'); p.px(3, 16, '#9fe8ff'); p.px(28, 20, '#ffffff'); // sparkles
   },
   spyradonis: function (p) {
     humanoid(p, { suit: '#202026', shirt: '#ffffff', tie: '#f4c430', skin: '#e0805a' });
@@ -3570,11 +3999,11 @@ OverworldLayer.prototype.archiveWithdraw = async function () {
 };
 OverworldLayer.prototype.shopTalk = async function () {
   await say('shop.hello');
-  await openLayer(new ShopLayer());
+  await openLayer(new ShopLayer(shopStockOf(this.map)));
   await say('shop.bye');
 };
 OverworldLayer.prototype.cafeTalk = async function () {
-  await say('cafe.hello');
+  await say(this.map.cafeHello || 'cafe.hello'); // the café of Παλαιό Φάληρο has its own greeting
   if (await askYesNo('cafe.ask')) {
     const stored = writeSave();
     Sound.sfx('heal');
@@ -3601,7 +4030,7 @@ OverworldLayer.prototype.challenge = async function (npc, fromSight) {
   if (result === 'win') {
     G.flags['t_' + trainerId] = true;
     await say('tr.' + trainerId + '.win');
-    if (trainer.boss) await this.bossVictory();
+    if (trainer.boss) await this.bossVictory(trainerId);
   }
   if (result !== 'lose' && npcVisible(npc.def, G.flags)) {
     for (let i = walked.length - 1; i >= 0; i--) await this.walkNpc(npc, OPPOSITE[walked[i]]);
@@ -3619,12 +4048,17 @@ OverworldLayer.prototype.blackout = async function () {
   await this.teleport(G.lastHeal);
   await say('blackout.hospital');
 };
-OverworldLayer.prototype.bossVictory = async function () {
-  await say('boss.win2');
-  G.flags.badge = true;
+// What follows a won boss fight: the line, the badge flag, the badge card, the line after it. Only the first boss also shows the chapter card
+// and sets the flag credits (the studio opens on it).
+OverworldLayer.prototype.bossVictory = async function (trainerId) {
+  const victory = TRAINERS[trainerId].victory;
+  await say(victory.win2);
+  G.flags[victory.flag] = true;
   Sound.sfx('levelup');
-  await openLayer(new BadgeLayer());
-  await say('boss.win3');
+  await openLayer(new BadgeLayer(victory.title, victory.sub, victory.ribbon));
+  await say(victory.win3);
+  Sound.play(this.map.music);
+  if (!victory.chapterCard) return;
   await openLayer(new ChapterLayer()); // the full credits roll plays after the Βουλή (MZ-WORLD-02g)
   G.flags.credits = true; // the flag keeps its name: the studio opens on it, as in the old saves
   Sound.play(this.map.music);
@@ -3771,7 +4205,8 @@ MonitorLayer.prototype.draw = function () {
   drawText(T('hosp.monitorNote'), 120, 102, COLOR.gray, 'center');
   ctx.font = FONT;
 };
-function BadgeLayer() { this.opaque = false; this.frame = 0; }
+// The badge card; the texts and the ribbon colour come from the boss' victory data (the first badge keeps the red ribbon).
+function BadgeLayer(titleKey, subKey, ribbon) { this.opaque = false; this.frame = 0; this.titleKey = titleKey || 'badge.title'; this.subKey = subKey || 'badge.sub'; this.ribbon = ribbon || '#c0392b'; this.ribbonDark = shadeColor(this.ribbon, 0.6); }
 BadgeLayer.prototype.update = function () {
   this.frame++;
   if (this.frame > 60 && Input.pressed.a) closeLayer(this);
@@ -3781,8 +4216,8 @@ BadgeLayer.prototype.draw = function () {
   const bob = OPT.reduceMotion ? 0 : Math.sin(this.frame / 12) * 2;
   const cx = 120;
   const cy = 62 + bob;
-  ctx.fillStyle = '#c0392b'; ctx.fillRect(cx - 14, cy + 6, 8, 22); ctx.fillRect(cx + 6, cy + 6, 8, 22); // ribbon
-  ctx.fillStyle = '#7a2a20'; ctx.fillRect(cx - 14, cy + 22, 8, 2); ctx.fillRect(cx + 6, cy + 22, 8, 2);
+  ctx.fillStyle = this.ribbon; ctx.fillRect(cx - 14, cy + 6, 8, 22); ctx.fillRect(cx + 6, cy + 6, 8, 22); // ribbon
+  ctx.fillStyle = this.ribbonDark; ctx.fillRect(cx - 14, cy + 22, 8, 2); ctx.fillRect(cx + 6, cy + 22, 8, 2);
   ctx.fillStyle = '#8a6a10'; ctx.beginPath(); ctx.arc(cx, cy, 17, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#f4c430'; ctx.beginPath(); ctx.arc(cx, cy, 15, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ffe58a'; ctx.beginPath(); ctx.arc(cx - 3, cy - 3, 7, 0, Math.PI * 2); ctx.fill();
@@ -3790,8 +4225,8 @@ BadgeLayer.prototype.draw = function () {
   ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(cx - 8, cy - 3); ctx.lineTo(cx, cy + 4); ctx.lineTo(cx + 8, cy - 3); ctx.lineTo(cx + 8, cy - 2); ctx.lineTo(cx, cy + 5); ctx.lineTo(cx - 8, cy - 2); ctx.fill();
   ctx.fillStyle = '#f4c430'; ctx.fillRect(cx - 5, cy - 8, 10, 4); ctx.fillRect(cx - 5, cy - 11, 2, 3); ctx.fillRect(cx - 1, cy - 11, 2, 3); ctx.fillRect(cx + 3, cy - 11, 2, 3); // crown
   ctx.font = FONT;
-  drawText(T('badge.title'), 120, 100, COLOR.gold, 'center');
-  drawText(T('badge.sub'), 120, 112, COLOR.white, 'center');
+  drawText(T(this.titleKey), 120, 100, COLOR.gold, 'center');
+  drawText(T(this.subKey), 120, 112, COLOR.white, 'center');
 };
 // The short card after the first boss: "Chapter 1 complete".
 function ChapterLayer() { this.opaque = true; this.frame = 0; }
@@ -4758,40 +5193,41 @@ OptionsLayer.prototype.draw = function () {
 };
 
 // ---- Shop -----------------------------------------------------------------------------------------------------------------------------------
-function ShopLayer() { this.opaque = true; this.cursor = 0; this.message = ''; this.refresh(); }
+function ShopLayer(stock) { this.opaque = true; this.cursor = 0; this.message = ''; this.stock = stock || SHOP_STOCK; this.refresh(); }
 ShopLayer.prototype.refresh = function () {
-  this.descLines = wrapText(T('itemd.' + SHOP_STOCK[this.cursor]), 214);
+  this.descLines = wrapText(T('itemd.' + this.stock[this.cursor]), 214);
 };
 ShopLayer.prototype.update = function () {
   if (this.lastMoney !== G.money) { this.lastMoney = G.money; this.moneyText = T('ui.money', { n: G.money }); }
-  const count = SHOP_STOCK.length;
+  const count = this.stock.length;
   if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
   if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; this.message = ''; this.refresh(); Sound.sfx('move'); }
   if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; this.message = ''; this.refresh(); Sound.sfx('move'); }
   if (!Input.pressed.a) return;
-  const itemId = SHOP_STOCK[this.cursor];
+  const itemId = this.stock[this.cursor];
   if (G.money < ITEMS[itemId].price) { Sound.sfx('error'); this.message = T('shop.poor'); return; }
   G.money -= ITEMS[itemId].price;
   G.bag[itemId] = (G.bag[itemId] || 0) + 1;
   Sound.sfx('buy');
   this.message = T('shop.bought', { item: T('item.' + itemId) });
 };
+const SHOP_NAME_MAX_W = 116; // the item name starts at x 18 and the count column ends at x 150 ("x99" is about 16 px wide)
 ShopLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.font = FONT;
   drawText(T('shop.title'), 8, 4, COLOR.white);
   drawText(this.moneyText, 232, 4, COLOR.gold, 'right');
-  drawPanel(4, 16, 232, 84);
-  for (let i = 0; i < SHOP_STOCK.length; i++) {
-    const id = SHOP_STOCK[i];
+  drawPanel(4, 16, 232, 100); // room for eight items (the Νότια kiosks)
+  for (let i = 0; i < this.stock.length; i++) {
+    const id = this.stock[i];
     if (i === this.cursor) { ctx.fillStyle = COLOR.red; ctx.fillRect(10, 24 + i * 12, 3, 6); }
     drawText(T('item.' + id), 18, 22 + i * 12, COLOR.ink);
     drawText('x' + (G.bag[id] || 0), 150, 22 + i * 12, COLOR.gray, 'right');
     drawText(String(ITEMS[id].price), 226, 22 + i * 12, COLOR.ink, 'right');
   }
-  drawPanel(4, 104, 232, 52);
-  for (let i = 0; i < this.descLines.length; i++) drawText(this.descLines[i], 10, 110 + i * 10, COLOR.ink);
-  drawText(this.message, 10, 142, COLOR.red);
+  drawPanel(4, 120, 232, 36);
+  for (let i = 0; i < this.descLines.length; i++) drawText(this.descLines[i], 10, 125 + i * 9, COLOR.ink);
+  drawText(this.message, 10, 144, COLOR.red);
 };
 
 // ---- Evolution and move learning ------------------------------------------------------------------------------------------------------------
@@ -4862,8 +5298,20 @@ function getEnvelopeSprite() {
   envelopeSprite = p.canvas;
   return envelopeSprite;
 }
+// The mark of a boosted creature (a boss' creature with mon.boost, section 11.12): how far left of the panel's right text edge a small arrow is drawn, 0 = no mark.
+// Measured once when the creature is sent out, never per frame.
+function boostMarkOffset(mon, lvText) {
+  if (!mon.boost) return 0;
+  ctx.font = FONT;
+  return Math.ceil(ctx.measureText(lvText).width) + BOOST_MARK_W + 3;
+}
+const BOOST_MARK_W = 5;
+function drawBoostMark(x, y) {
+  ctx.fillStyle = COLOR.red;
+  ctx.fillRect(x + 2, y, 1, 1); ctx.fillRect(x + 1, y + 1, 3, 1); ctx.fillRect(x, y + 2, 5, 1);
+}
 function newBattleView() {
-  return { sp: null, visible: false, name: '', lvText: '', hpText: '', shown: 0, target: 0, max: 1, lastShown: -1, status: null, dx: 0, dy: 0, alpha: 1, scale: 1, hidden: false };
+  return { sp: null, visible: false, name: '', lvText: '', boostMark: 0, hpText: '', shown: 0, target: 0, max: 1, lastShown: -1, status: null, dx: 0, dy: 0, alpha: 1, scale: 1, hidden: false };
 }
 function BattleLayer(battle, trainer, theme) {
   this.opaque = true;
@@ -5059,6 +5507,7 @@ BattleLayer.prototype.playEvents = async function (events) {
     else if (ev.k === 'send') {
       view.sp = ev.sp; view.name = speciesName(ev.sp); view.max = ev.max; view.shown = ev.hp; view.target = ev.hp; view.lastShown = -1;
       view.status = ev.status; view.visible = true; view.hidden = false; view.lvText = T('ui.lv') + battle.sides[ev.side].party[battle.sides[ev.side].active].lv;
+      view.boostMark = boostMarkOffset(battle.sides[ev.side].party[battle.sides[ev.side].active], view.lvText);
       if (ev.side === 1) this.trainerLook = null;
       await this.startFx('enter', ev.side, OPT.reduceMotion ? 1 : 16);
     } else if (ev.k === 'hp') {
@@ -5144,6 +5593,7 @@ BattleLayer.prototype.drawPollPanel = function (view, x, showHp) {
   drawPanel(x, y, w, POLL_PANEL.h);
   drawText(view.name, x + 6, y + 4, COLOR.ink);
   drawText(view.lvText, x + w - 6, y + 4, COLOR.ink, 'right');
+  if (view.boostMark > 0) drawBoostMark(x + w - 6 - view.boostMark, y + 5);
   ctx.font = FONT_SMALL;
   drawText(T('battle.poll'), x + 6, y + 15, COLOR.red);
   ctx.font = FONT;
@@ -5762,7 +6212,7 @@ async function selfTest() {
       world.loadMap('port', 5, 8, 'up');
       await settle();
       let sawCard = false; let sawCredits = false; let sawBadge = false; let finished = false;
-      world.bossVictory().then(function () { finished = true; });
+      world.bossVictory('kotsos').then(function () { finished = true; });
       await pumpUntil(function () {
         sawBadge = sawBadge || layers.some(function (l) { return l instanceof BadgeLayer; });
         sawCard = sawCard || layers.some(function (l) { return l instanceof ChapterLayer; });
@@ -5777,6 +6227,163 @@ async function selfTest() {
       OPT.lang = language;
       check('the chapter card and the badge texts fit the screen in both languages', tooWide.length === 0, tooWide.join(','));
       check('the studio opens on the credits flag (old saves lose nothing)', warpOpen(MAPS.town.warps.find(function (w) { return w.to === 'studio'; }), G.flags));
+    });
+    await guard('notia', async function () {
+      if (!G) throw new Error('no game');
+      const world = layers.find(function (l) { return l instanceof OverworldLayer; });
+      const topLayer = function () { return layers[layers.length - 1]; };
+      const settle = function () { return pumpUntil(function () { return !world.busy && topLayer() === world; }, 600, null, 1); };
+      const arrive = function (mapId, x, y) { return pumpUntil(function () { return world.mapId === mapId && world.px === x && world.py === y && Fade.alpha === 0 && !world.busy; }, 400, null, 1); };
+      // The gate: the east end of the Καστέλλα promenade is shut without the Port Medal and leads to route 3 with it.
+      delete G.flags.badge;
+      world.loadMap('kastella', 24, 14, 'right');
+      await settle();
+      Input.inject('right', 12);
+      await pumpFrames(24);
+      check('Καστέλλα: the road to Νότια is shut without the Port Medal', world.mapId === 'kastella' && world.px === 24, world.mapId + ' ' + world.px);
+      G.flags.badge = true;
+      Input.inject('right', 12);
+      check('Καστέλλα: with the Port Medal the promenade leads to route 3 (Poseidon Avenue)', await arrive('route3', 1, 8), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('route3', 38, 8, 'right');
+      await settle();
+      Input.inject('right', 12);
+      check('route 3 leads into Παλαιό Φάληρο', await arrive('faliro', 1, 9), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('left', 12);
+      check('Παλαιό Φάληρο leads back to the east end of route 3', await arrive('route3', 38, 8), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('faliro', 28, 9, 'right');
+      await settle();
+      Input.inject('right', 12);
+      check('Παλαιό Φάληρο leads on to route 4 (the old airfield)', await arrive('route4', 1, 8), world.mapId + ' ' + world.px + ',' + world.py);
+      world.loadMap('route4', 34, 8, 'right');
+      await settle();
+      Input.inject('right', 12);
+      check('route 4 leads into Γλυφάδα', await arrive('glyfada', 1, 7), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('left', 12);
+      check('Γλυφάδα leads back to route 4', await arrive('route4', 34, 8), world.mapId + ' ' + world.px + ',' + world.py);
+      // Every new map paints the screen.
+      const paintsScreen = function () {
+        renderFrame();
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let lit = 0;
+        for (let i = 0; i < pixels.length; i += 16) if (pixels[i] !== 0 || pixels[i + 1] !== 0 || pixels[i + 2] !== 0) lit++;
+        return lit > pixels.length / 16 * 0.25;
+      };
+      const painted = [];
+      for (const [mapId, x, y] of [['route3', 20, 8], ['faliro', 14, 9], ['faliro_hospital', 5, 5], ['faliro_shop', 3, 3], ['faliro_cafe', 4, 5], ['route4', 17, 8], ['glyfada', 12, 7], ['glyfada_hospital', 5, 5], ['glyfada_shop', 3, 3], ['glyfada_boss', 5, 6]]) {
+        world.loadMap(mapId, x, y, 'up');
+        await settle();
+        await pumpFrames(2);
+        if (!paintsScreen()) painted.push(mapId);
+      }
+      check('the ten new maps paint the screen', painted.length === 0, painted.join(','));
+      // Παλαιό Φάληρο: the hospital heals and becomes the return point; the café saves.
+      world.loadMap('faliro_hospital', 4, 3, 'up');
+      await settle();
+      const lead = G.party[0];
+      lead.hp = 1; G.bag.fakelaki = 0;
+      G.lastHeal = { map: 'hospital', x: 5, y: 7, dir: 'up' };
+      Input.inject('a', 2);
+      const healed = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('Παλαιό Φάληρο: the hospital heals the team and becomes the black-out spot', healed && G.lastHeal.map === 'faliro_hospital', JSON.stringify(G.lastHeal));
+      world.loadMap('faliro_cafe', 3, 3, 'up');
+      await settle();
+      delete Store.memory[SAVE_KEY];
+      Input.inject('a', 2);
+      const savedAtCafe = await pumpUntil(function () { return !world.busy && Store.memory[SAVE_KEY] !== undefined; }, 1800, 'a', 6);
+      check('Παλαιό Φάληρο: the café «Ο Παραλιακός» saves the game', savedAtCafe && migrateSave(JSON.parse(Store.memory[SAVE_KEY])).player.map === 'faliro_cafe', String(savedAtCafe));
+      // Γλυφάδα: its hospital heals; the kiosk sells the two new items and a purchase works.
+      world.loadMap('glyfada_hospital', 4, 3, 'up');
+      await settle();
+      lead.hp = 1;
+      Input.inject('a', 2);
+      const healedTwo = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('Γλυφάδα: the hospital heals the team and becomes the black-out spot', healedTwo && G.lastHeal.map === 'glyfada_hospital', JSON.stringify(G.lastHeal));
+      check('the kiosks of Νότια sell eight items (the two new ones last), the New Piraeus kiosk six', shopStockOf(MAPS.glyfada_shop).length === 8 && shopStockOf(MAPS.faliro_shop).length === 8 && shopStockOf(MAPS.shop).length === 6 && shopStockOf(MAPS.glyfada_shop)[7] === 'gemista');
+      world.loadMap('glyfada_shop', 3, 3, 'up');
+      await settle();
+      G.money = 1000; G.bag.gemista = 0;
+      Input.inject('a', 2);
+      await pumpUntil(function () { return topLayer() instanceof ShopLayer; }, 600, 'a', 6);
+      const shopLayer = topLayer();
+      check('the Glyfada kiosk opens with its own stock', shopLayer instanceof ShopLayer && shopLayer.stock.length === 8, shopLayer.stock ? shopLayer.stock.length : 'no shop');
+      for (let i = 0; i < 7; i++) { Input.inject('down', 2); await pumpFrames(3); }
+      Input.inject('a', 2); await pumpFrames(4);
+      check('buying the last item (Γεμιστά της Μάνας, 300) takes the money and fills the bag', G.bag.gemista === 1 && G.money === 700, G.bag.gemista + ' ' + G.money);
+      Input.inject('b', 2);
+      await pumpUntil(function () { return !world.busy && topLayer() === world; }, 600, 'a', 6); // the goodbye line of the shopkeeper
+      // The boss: a won fight through the real code gives the prize, the Coast Medal, no chapter card and no credits roll.
+      world.loadMap('glyfada_boss', 5, 4, 'up');
+      await settle();
+      G.party.length = 1;
+      G.party[0] = makeMon('diakosdisko', 50);
+      G.starter = 'psaltak';
+      G.money = 0; delete G.flags.badge_notia; delete G.flags.t_bougatsas; G.flags.badge = true; delete G.flags.credits;
+      const boss = world.visibleNpcs().find(function (npc) { return npc.def.id === 'bougatsas'; });
+      let sawBadge = false; let sawCard = false; let sawCredits = false; let finished = false; let sawMark = false; let markOnPlayer = false;
+      world.busy = true; // as the game does while a scene runs: the A presses of this test do not start a second talk
+      world.challenge(boss, false).then(function () { world.busy = false; finished = true; });
+      await pumpUntil(function () {
+        sawBadge = sawBadge || layers.some(function (l) { return l instanceof BadgeLayer; });
+        sawCard = sawCard || layers.some(function (l) { return l instanceof ChapterLayer; });
+        sawCredits = sawCredits || layers.some(function (l) { return l instanceof CreditsLayer; });
+        sawMark = sawMark || layers.some(function (l) { return l instanceof BattleLayer && l.views[1].boostMark > 0; });
+        markOnPlayer = markOnPlayer || layers.some(function (l) { return l instanceof BattleLayer && l.views[0].boostMark > 0; });
+        return finished;
+      }, 12000, 'a', 6);
+      const markFoes = [];
+      for (const trainerId of Object.keys(TRAINERS)) {
+        const marked = buildTrainerTeam(trainerId, 'komma').some(function (mon) { return boostMarkOffset(mon, 'Lv 20') > 0; });
+        if (marked !== (trainerId === 'bougatsas')) markFoes.push(trainerId);
+      }
+      check('the boost mark shows beside the level of the boss\' creatures only (not the player\'s, not any other trainer\'s) and the boss fight showed it', sawMark && !markOnPlayer && markFoes.length === 0 && boostMarkOffset(makeMon('komma', 20), 'Lv 20') === 0, [sawMark, markOnPlayer, markFoes.join(',')].join(' '));
+      check('the boss fight is won through the UI: prize 20 x 30 + 200, the flag badge_notia, the badge card, no chapter card, no credits roll', finished && G.flags.t_bougatsas === true && G.flags.badge_notia === true && sawBadge && !sawCard && !sawCredits && !G.flags.credits && G.money === 800,
+        [finished, G.flags.t_bougatsas, G.flags.badge_notia, sawBadge, sawCard, sawCredits, G.flags.credits, G.money].join(' '));
+      // A lost fight sends the player back to the last hospital and sets no badge (the rules already cover the numbers; this is the flag path).
+      check('the Coast Medal is not set by anything but the boss (the first badge flag is untouched)', G.flags.badge === true && TRAINERS.bougatsas.victory.flag === 'badge_notia');
+      // The map shows Νότια: the routes as lines with the marker, the towns told about and visited, the district cleared.
+      const openMap = async function () { MIZAMON.press('map', 2); await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1); await pumpFrames(3); return topLayer(); };
+      const closeMap = async function () { Input.inject('b', 2); await settle(); };
+      G.world.visited = {}; G.world.routes = {}; G.world.seen = {}; G.world.stops = {};
+      world.loadMap('route3', 20, 8, 'right');
+      await settle();
+      let screen = await openMap();
+      check('on route 3 the marker is on its line, the route is walked, Παλαιό Φάληρο is told about', screen.marker.onRoute && screen.marker.id === 'route3' && Math.abs(screen.marker.fraction - 20.5 / 40) < 1e-9 && G.world.routes.route3 === 1 && placeState(G.world, 'faliro') === 'seen', JSON.stringify(screen.marker));
+      await closeMap();
+      world.loadMap('faliro', 14, 9, 'right');
+      await settle();
+      screen = await openMap();
+      check('in Παλαιό Φάληρο the marker stands on the town and the town is visited', screen.marker.id === 'faliro' && placeState(G.world, 'faliro') === 'visited' && worldCandidates(G.world).includes('faliro'), JSON.stringify(screen.marker));
+      await closeMap();
+      world.loadMap('glyfada', 12, 7, 'right');
+      await settle();
+      screen = await openMap();
+      for (let i = 0; i < 10 && screen.cursor !== 'glyfada'; i++) { Input.inject('right', 2); await pumpFrames(3); }
+      check('Γλυφάδα is visited, its cursor can be reached, and the district shows as cleared with the Coast Medal', screen.marker.id === 'glyfada' && placeState(G.world, 'glyfada') === 'visited' && screen.cursor === 'glyfada' && districtState(G.world, 'notia') === 'cleared' && G.world.badges.notia === 1, screen.cursor + ' ' + districtState(G.world, 'notia'));
+      await closeMap();
+      // The texts fit and the starter's middle form shows up: Κομματάκι at level 16 becomes Βουλευτάκος.
+      const language = OPT.lang;
+      const tooWide = [];
+      ctx.font = FONT;
+      for (const lang of ['el', 'en']) {
+        for (const key of ['badge.notia.title', 'badge.notia.sub']) if (ctx.measureText(lookupString(key, lang)).width > 232) tooWide.push(lang + ' ' + key);
+        for (const mapId of Object.keys(MAPS)) if (/^(route3|route4|faliro|glyfada)/.test(mapId) && ctx.measureText(lookupString(MAPS[mapId].name, lang)).width > 232) tooWide.push(lang + ' ' + mapId);
+      }
+      OPT.lang = language;
+      check('the Coast Medal texts and the names of the new maps fit the screen in both languages', tooWide.length === 0, tooWide.join(','));
+      // The shop's name column: from x 18 to the count column at x 150 (right-aligned "x99" is about 16 px wide), so a name may be 116 px at most.
+      const wideNames = [];
+      ctx.font = FONT;
+      for (const lang of ['el', 'en']) {
+        for (const id of Object.keys(ITEMS)) {
+          const nameWidth = Math.ceil(ctx.measureText(lookupString('item.' + id, lang)).width);
+          if (nameWidth > SHOP_NAME_MAX_W) wideNames.push(lang + ' ' + id + ' ' + nameWidth);
+        }
+      }
+      check('every item name fits the shop name column (' + SHOP_NAME_MAX_W + ' px) in both languages', wideNames.length === 0, wideNames.join(', '));
+      G.party[0] = makeMon('komma', 16);
+      runEvolutions();
+      await pumpUntil(function () { return G.party[0].sp === 'vouleftakos' && topLayer() === world; }, 600, null, 1);
+      check('a Κομματάκι of level 16 evolves into the Βουλευτάκος and the dossier knows it', G.party[0].sp === 'vouleftakos' && G.dex.got.vouleftakos === true, G.party[0].sp);
     });
     await guard('map touch button', async function () {
       // The ΧΑΡΤΗΣ pill: shown, inside the window, off the game picture and clear of every other button (checked in the layout this window has).
