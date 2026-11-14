@@ -16880,7 +16880,7 @@ const SelfTest = {
       } finally { UI.dom = keep.dom; UI.cache = keep.cache; UI.tagEls = keep.tagEls; UI.tagH = keep.tagH; UI.hudBottom = keep.hudBottom; R.project = keep.project; UI.pops = keep.pops; UI.partyEls = keep.partyEls; UI.edgeEls = keep.edgeEls; }
     };
     const tagTop = (el) => { const part = /^translate\((-?[\d.]+)px,(-?[\d.]+)px\)/.exec(el.style.transform || ''); return part ? Number(part[2]) - el.offsetHeight : NaN; };   // where the tag's top edge is: its point minus its own height
-    test('Name tags (P19-02): no name tag is above the HUD\'s lower edge (UI.popHudBottom) - a head projected at the top of the screen puts the tag under the edge, a head lower down keeps its tag where it is, in a Free Fight and in a Brawl', () => {
+    test('Name tags (P19-02): no name tag is above the HUD\'s lower edge (UI.popHudBottom) - a head projected at the top of the screen puts the tag under the edge, a head lower down keeps its tag where it is, in a Free Fight and in a Brawl; sideways a tag\'s centre stays half a tag inside the screen (UI.tagX)', () => {
       const problems = [];
       for (const [label, build] of [['a Free Fight', () => mk({ mode: 'free' })], ['a Brawl', () => self.makeBrawl({ enemies: 3 })]]) {
         const m = build();
@@ -16901,6 +16901,10 @@ const SelfTest = {
         m.dispose();
       }
       if (UI.popHudBottom() === 0 && UI.tagY(5, 20) !== 5) problems.push('with no HUD measure the point is not left as it is');
+      // sideways (UI.tagX): the centre stays half a tag inside each side, a tag wider than the screen is centred, a point already clear is not moved, no measure leaves the point as it is, and the tag loop places every tag through it
+      const sideways = [[UI.tagX(10, 192, 390), 96], [UI.tagX(380, 192, 390), 294], [UI.tagX(200, 192, 390), 200], [UI.tagX(50, 500, 390), 195], [UI.tagX(10, 0, 390), 10], [UI.tagX(10, 192, 0), 10]];
+      sideways.forEach(([got, want], k) => { if (got !== want) problems.push('tagX case ' + k + ' gives ' + got + ', not ' + want); });
+      if (!/this\.tagX\(out\[0\], this\.tagW\[i\] \|\| 0, R\.cssW\)/.test(String(UI.hudUpdate))) problems.push('the tag loop does not place tags through UI.tagX');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     /* ---------- Body strain (P19-02) ----------
@@ -20991,7 +20995,7 @@ const SelfTest = {
       }
       return bad.length ? bad.length + ' problems: ' + bad.slice(0, layoutShown()).join('; ') : true;
     });
-    /* P19-02 (test 8 of the build list, in the browser): the strain readout in a frame of a phone held either way with the live HUD markup and styles. The real UI.strainTiles in both pip rows of a 1v1 (the left row after the win pips, the right row before them) and in the name tag of a Brawl enemy with the longest status word (BREATHLESS); the tiles may not touch a bar, the timer, the round label, a name, an item label, the level line's glyphs, the pause button or a touch button; the pip row is as high with the tiles as without; a tag put where the clamp puts it for a head at the top of the screen (UI.tagY) stays under the HUD's lower edge and clear of the bars, the level line and the touch buttons. Two tags may still overlap each other when the fighters stand close: that is the old behaviour and is not asserted. Not asserted for a tag at the screen's right edge: it may meet the pause button as it always could. */
+    /* P19-02 (test 8 of the build list, in the browser): the strain readout in a frame of a phone held either way with the live HUD markup and styles. The real UI.strainTiles in both pip rows of a 1v1 (the left row after the win pips, the right row before them) and in the name tag of a Brawl enemy with the longest status word (BREATHLESS); the tiles may not touch a bar, the timer, the round label, a name, an item label, the level line's glyphs, the pause button or a touch button; the pip row is as high with the tiles as without; a tag put where the clamp puts it for a head at the top of the screen (UI.tagY) stays under the HUD's lower edge and clear of the bars, the level line and the touch buttons. Two tags may still overlap each other when the fighters stand close: that is the old behaviour and is not asserted. Tags are also put for a fighter at either side of the screen, where UI.tagX keeps the tag on the screen; a tag at the right side may still meet the pause button as it always could (not asserted). */
     layoutTest('Body strain (P19-02): (8d) the readout at 390 x 844 and 844 x 390 - the tiles in both pip rows of a 1v1 and the BREATHLESS tag of a Brawl enemy are clear of every bar, the timer, the round label, the names, the item labels, the level line, the pause button and the touch buttons, the pip row is as high with the tiles as without, and a clamped tag stays under the HUD edge', () => {
       if (!hasLayoutEngine()) return 'skipped: this run is the headless stub (no frames, no layout), so the sizes were not measured';
       const bad = [], hudHtml = document.getElementById('hud').innerHTML, dot = '●', keep = { dom: UI.dom, hudBottom: UI.hudBottom };
@@ -21041,8 +21045,8 @@ const SelfTest = {
             if (!(edge > 0)) { bad.push(where + 'no HUD edge'); return; }
             const tag = doc.createElement('div');
             tag.className = 'tag p2'; tag.innerHTML = 'CPU<i>BREATHLESS</i>' + tileFor([520, 450, 340]) + (kind.brawl ? '<s><u style="width:60%"></u></s>' : ''); doc.getElementById('tags').appendChild(tag);
-            for (const x of [width * 0.2, width * 0.5]) {
-              tag.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(UI.tagY(6, rect(tag).height)) + 'px) translate(-50%,-100%)';
+            for (const x of [width * 0.02, width * 0.2, width * 0.5, width * 0.98]) {   // a fighter near either side as well: the game keeps the tag's centre half a tag inside the screen (UI.tagX)
+              tag.style.transform = 'translate(' + Math.round(UI.tagX(x, rect(tag).width, width)) + 'px,' + Math.round(UI.tagY(6, rect(tag).height)) + 'px) translate(-50%,-100%)';
               const box = rect(tag); tagsMeasured++;
               if (box.top < edge - 1) bad.push(where + 'the tag at x ' + Math.round(x) + ' has its top at ' + Math.round(box.top) + ', above the HUD edge ' + Math.round(edge));
               if (box.right > width + 1 || box.left < -1) bad.push(where + 'the tag at x ' + Math.round(x) + ' leaves the screen (' + Math.round(box.left) + '-' + Math.round(box.right) + ')');
