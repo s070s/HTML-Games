@@ -26455,8 +26455,8 @@ const SelfTest = {
       { const delayedNote = at.d.m.lastMove && at.d.m.lastMove.string, plainNote = before.d.m.lastMove && before.d.m.lastMove.string;
         if (!/ > Rhythm Kick$/.test(delayedNote || '') || /Switch Kick/.test(delayedNote || '') || !/ > Switch Kick$/.test(plainNote || '')) problems.push('the Training string note reads "' + delayedNote + '" for the delayed step and "' + plainNote + '" for the plain one'); }
       // a third step after the delayed one (Kickboxing PK, the Kick delayed, then a Punch): the note still names the delayed step in the middle, and after a plain second step it names the plain one
-      { const thirdNote = (second, third) => { for (let k3 = second + 6; k3 <= second + 34; k3++) { const r = pauseKick(second, {}, (it, f, t) => { if (t === k3) it.punch = true; }), note = r.d.m.lastMove && r.d.m.lastMove.string; if (/^step 3: /.test(note || '')) return note; } return null; };
-        const afterDelayed = thirdNote(first, first), afterPlain = thirdNote(first - 1, first - 1);
+      { const thirdNote = (second) => { for (let k3 = second + 6; k3 <= second + 34; k3++) { const r = pauseKick(second, {}, (it, f, t) => { if (t === k3) it.punch = true; }), note = r.d.m.lastMove && r.d.m.lastMove.string; if (/^step 3: /.test(note || '')) return note; } return null; };
+        const afterDelayed = thirdNote(first), afterPlain = thirdNote(first - 1);
         if (!afterDelayed || !/ > Rhythm Kick > /.test(afterDelayed) || /Switch Kick/.test(afterDelayed)) problems.push('the Training note of the third step after a delayed one reads "' + afterDelayed + '", want Rhythm Kick in the middle');
         if (!afterPlain || !/ > Switch Kick > /.test(afterPlain) || /Rhythm Kick/.test(afterPlain)) problems.push('the Training note of the third step after a plain one reads "' + afterPlain + '", want Switch Kick in the middle'); }
       // pauseOpen (the cue, the PAUSE line, the tip) says what a standing press plays: the same answer as pickString's open / stillLow test for every combination, a crouch first step included
