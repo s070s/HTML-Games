@@ -24638,7 +24638,7 @@ const SelfTest = {
         Music.lastLoop = -1; Music.match = null;
         let last = -1;
         for (let start = 0; start < 200; start++) {
-          const stage = run === 'levels in order' ? stages[start % stages.length] : stages[Math.floor(next() * stages.length)]; // Survival walks the levels in order, the other modes draw one
+          const stage = run === 'levels in order' ? stages[start % stages.length] : stages[Math.floor(next() * stages.length)]; // the first run walks the levels in order, the others draw one
           Game.match = { def: stage };
           UI.startMatchMusic(); Music.active = false;
           const index = Music.lastLoop, own = STAGE_TRACKS.findIndex((track) => loopKey(track.name) === loopKey(stage.name));
@@ -24694,7 +24694,7 @@ const SelfTest = {
         const second = Music.lastLoop;
         Game.state = GS.RESULTS; Game.resultsAction('again'); // the results screen's Rematch button
         expectNew('a rematch from the results', second);
-      } finally { if (standIn) standIn(); Game.endMatch(); Game.state = kept.state; Game.run = kept.run; Game.config = kept.config; Game.pausedFrom = kept.pausedFrom; Game.pausedBy = kept.pausedBy; }
+      } finally { if (standIn) standIn(); Game.endMatch(); if (!standIn) Game.quitToMenu(); else Game.state = kept.state; Game.run = kept.run; /* in the browser the real UI saw FIGHT, so leave through the menu (HUD, inputs, leave prompt) */ Game.config = kept.config; Game.pausedFrom = kept.pausedFrom; Game.pausedBy = kept.pausedBy; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     // The stand-in audio of the title song, with the times of every detune change recorded on its oscillators
