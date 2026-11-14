@@ -307,6 +307,10 @@ const SPECIES = {
   // dossier text carries the full "Ο Τελευταίος Φορολογούμενος" (11.16).
   taxpayer: { n: 'Φορολογούμενος', t: 'mem', ab: 'out', g: 'm', rec: 6, xp: 150,
     base: [97, 78, 91, 71, 91, 52], learn: [[1, 'ellada'], [1, 'giagia'], [1, 'frapes'], [1, 'tzampa']] },
+  // MZ-WORLD-02g (Βουλή): the legend of the empty plenary hall, met once at level 50 after the credits (a fixed encounter with a visible boost, like the legend of the Rock, 11.16 and 11.17):
+  // the species itself is ordinary (a base sum of 490 or less), so a recruited one is no stronger than the best final forms.
+  ilithiokratia: { n: 'Ηλιθιοκρατία', t: 'pol', ab: 'asy', g: 'f', rec: 5, xp: 160,
+    base: [112, 58, 96, 96, 96, 32], learn: [[1, 'psifodeltio'], [1, 'tropologia'], [1, 'diaggelma'], [1, 'promise']] },
   // Parody characters (CONTENT-SEED section 11): recruitable only in the television battle.
   spyradonis: { n: 'Σπυράδωνις', t: 'pol', ab: 'des', g: 'm', rec: 24, xp: 80, parody: true,
     base: [60, 55, 50, 76, 55, 55], learn: [[1, 'fonipanel'], [1, 'tilepolisi'], [1, 'tweet'], [1, 'denmilas']] },
@@ -317,7 +321,7 @@ const DEX_ORDER = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'fakelarchis', 
   'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'efoplistakos', 'kafenovios', 'vouleftakos', 'batsonos', 'diakosdisko',
   'monastiriaki', 'monimos', 'influenza', 'kryptomakis', 'nftarchis',
   'star90', 'rialito', 'lobbylykaina', 'giotarchis', 'yperypourgos', 'matanthropos', 'despotakis',
-  'tavlilordos', 'giagiaexo', 'elegktis', 'ktimatomesitis', 'rousfetolykos', 'taxpayer', 'spyradonis', 'mizotakis'];
+  'tavlilordos', 'giagiaexo', 'elegktis', 'ktimatomesitis', 'rousfetolykos', 'taxpayer', 'ilithiokratia', 'spyradonis', 'mizotakis'];
 const STARTERS = ['komma', 'koulourak', 'psaltak'];
 // The rival copies the starter that does not threaten the player's pick (a fair first fight).
 const RIVAL_STARTER = { komma: 'psaltak', psaltak: 'komma', koulourak: 'koulourak' };
@@ -1189,14 +1193,27 @@ const TRAINERS = {
   baboulas: { name: 'Ο Ταξίαρχος Μπαμπούλας', look: 'baboulas', boss: true, bonus: 200,
     victory: { flag: 'badge_athina', win2: 'boss.baboulas.win2', title: 'badge.athina.title', sub: 'badge.athina.sub', win3: 'boss.baboulas.win3', ribbon: '#3a6ea5' },
     team: [{ sp: 'fakelarchis', lv: 43 }, { sp: 'fakelarchis', lv: 42 }, { sp: 'fakelarchis', lv: 42 }, { sp: 'star90', lv: 43 }, { sp: 'nftarchis', lv: 42 }, { sp: 'matanthropos', lv: 44 }], items: [] },
+  // The Βουλή (MZ-WORLD-02g): four fights in a row, healing only at the doctor of the lobby between them. Levels 44-50 (the tops are 46, 47, 48 and 50: the lowest band row is at top minus 5, 5, 6 and 6).
+  // Only the last one is a boss with a badge (the Διορισμός Εφ' Όρου Ζωής) and the credits.
+  euterpe: { name: 'Η Προϊσταμένη Ευτέρπη', look: 'euterpe',
+    team: [{ sp: 'lobbylykaina', lv: 45 }, { sp: 'tavlilordos', lv: 44 }, { sp: 'fakelarchis', lv: 44 }, { sp: 'tavlilordos', lv: 46 }, { sp: 'lobbylykaina', lv: 46 }], items: ['souvlaki'] },
+  minister: { name: 'Ο Υπουργός Σπυράδωνις', look: 'ministerman',
+    team: [{ sp: 'spyradonis', lv: 46 }, { sp: 'lobbylykaina', lv: 45 }, { sp: 'giagiaexo', lv: 45 }, { sp: 'fakelarchis', lv: 46 }, { sp: 'giagiaexo', lv: 47 }], items: [] },
+  rival6: { name: 'Ο Μπέμπης', look: 'rival',
+    team: [{ sp: 'star90', lv: 47 }, { sp: 'tavlilordos', lv: 47 }, { sp: 'tavlilordos', lv: 46 }, { sp: 'fakelarchis', lv: 48 }, { sp: 'lobbylykaina', lv: 47 }, { sp: '$rivalFinal', lv: 48 }], items: ['souvlaki'] },
+  undersec: { name: 'Ο Υφυπουργός Παντός', look: 'undersec', boss: true,
+    victory: { flag: 'badge_final', win2: 'boss.undersec.win2', title: 'badge.final.title', sub: 'badge.final.sub', win3: 'boss.undersec.win3', ribbon: '#8a2a4a', credits: true },
+    // A small visible boost (the mark shows beside the level, 11.12 and 11.17) keeps the last fight inside its bands with a team of creatures the player has met.
+    boost: 1.03, team: [{ sp: 'star90', lv: 49 }, { sp: 'tavlilordos', lv: 49 }, { sp: 'tavlilordos', lv: 47 }, { sp: 'ktimatomesitis', lv: 48 }, { sp: 'lobbylykaina', lv: 47 }, { sp: 'mizotakis', lv: 50 }], items: ['gemista'] },
   host: { name: 'Ο Παρουσιαστής Ρεκλαμάκης', look: 'host', recruitable: true, recruitOnly: 'fakelos', bonus: 400,
     team: [{ sp: 'spyradonis', lv: 15 }, { sp: 'mizotakis', lv: 17 }], items: ['souvlaki'] },
 };
-// '$rival' is the rival's starter, '$rivalEvo' its middle form (his third fight).
+// '$rival' is the rival's starter, '$rivalEvo' its middle form (his third fight), '$rivalFinal' its last form (his last fight, the Βουλή).
 function resolveTeamSpecies(speciesId, playerStarter) {
   const rivalStarter = RIVAL_STARTER[playerStarter || 'komma'];
   if (speciesId === '$rival') return rivalStarter;
   if (speciesId === '$rivalEvo') return SPECIES[rivalStarter].evo.to;
+  if (speciesId === '$rivalFinal') return SPECIES[SPECIES[rivalStarter].evo.to].evo.to; // the last form (the final fight of the Βουλή)
   return speciesId;
 }
 function buildTrainerTeam(trainerId, playerStarter) {
@@ -1240,6 +1257,8 @@ const TILE_DEFS = {
   // Centre decor (MZ-WORLD-02f): ancient paving '"' (walkable), column or column stump '$', closed dig behind a hoarding '[', neoclassical building front ']',
   // police van '{', clock tower '}'.
   '"': { solid: false }, '$': { solid: true }, '[': { solid: true }, ']': { solid: true }, '{': { solid: true }, '}': { solid: true },
+  // Parliament (MZ-WORLD-02g, Greek capitals as tile characters: the ASCII punctuation is used up): marble floor 'Δ' (walkable), bench 'Θ' (θρανίο), speaker's podium 'Φ', formal double door 'Ξ' (walkable).
+  'Δ': { solid: false }, 'Θ': { solid: true }, 'Φ': { solid: true }, 'Ξ': { solid: false },
   // Hospital outside: teal roof '6', roof with the blue Η sign 'H', mint walls 'M', window 'N', green cross 'P', sliding glass door 'E'.
   '6': { solid: true }, 'H': { solid: true }, 'M': { solid: true }, 'N': { solid: true }, 'P': { solid: true }, 'E': { solid: false },
   // Hospital inside: wall 'i', floor 'L', corridor cot (ράντζο) 'B', vending machine 'V', TV 'Y', archive terminal 'A', reception counter 'C'.
@@ -1581,12 +1600,12 @@ const LYCABETTUS_ROWS = paintMap(20, 16, 'T', [
   ['px', 'I', 1, 8], ['px', 'I', 7, 10], ['px', 'I', 13, 7], ['px', 'I', 17, 9], ['px', 'I', 8, 13], ['px', 'I', 3, 10], ['px', 'I', 12, 6], ['px', 'I', 17, 13], ['px', 'I', 5, 13],
   ['px', 'S', 9, 14], ['px', 'S', 13, 7], ['px', 'S', 6, 3],
 ]);
-// Σύνταγμα (30 x 20): the square. The hospital and the kiosk on top, the long front of the parliament in the middle (its door is shut: a sign), the police vans in rows, a fountain,
+// Σύνταγμα (30 x 20): the square. The hospital and the kiosk on top, the long front of the parliament in the middle (its door opens with the Assembly Medal, MZ-WORLD-02g), the police vans in rows, a fountain,
 // the closed metro entrance, trees. The road from route 12 comes in on the west edge; the way to the hill is on the east edge. The boss stands in the middle of the square.
 const SYNTAGMA_ROWS = paintMap(30, 20, 'T', [
   ['rect', ',', 1, 1, 28, 18], ['rect', '.', 0, 10, 9, 1],
 ].concat(hospitalFront(1, 1), kioskFront(24, 1), [
-  ['rect', '5', 8, 1, 14, 1], ['rect', ']', 8, 2, 14, 3], ['px', 'd', 14, 4], ['rect', '&', 12, 5, 5, 1],
+  ['rect', '5', 8, 1, 14, 1], ['rect', ']', 8, 2, 14, 3], ['px', 'Ξ', 14, 4], ['rect', '&', 12, 5, 5, 1],
   ['rect', '{', 9, 7, 5, 1], ['rect', '{', 17, 7, 5, 1],
   ['rect', '{', 3, 13, 6, 1], ['rect', '{', 3, 15, 6, 1], ['rect', '{', 20, 13, 7, 1], ['rect', '{', 20, 15, 7, 1],
   ['px', '7', 15, 13], ['px', 'j', 22, 10], ['px', 'U', 12, 11],
@@ -2600,8 +2619,9 @@ MAPS.syntagma = {
     { x: 3, y: 4, to: 'syntagma_hospital', tx: 5, ty: 7 },
     { x: 25, y: 4, to: 'syntagma_shop', tx: 3, ty: 4 },
     { x: 29, y: 6, to: 'lycabettus', tx: 10, ty: 14 },
+    { x: 14, y: 4, to: 'parliament_lobby', tx: 6, ty: 8, needFlag: 'badge_athina', lockedText: 'warp.parliament' }, // MZ-WORLD-02g: the door of the Βουλή opens with the sixth badge
   ],
-  signs: { '6,4': 'sign.syntagma.hospital', '23,4': 'sign.shop', '11,5': 'sign.syntagma.parliament', '14,4': 'sign.syntagma.parliament', '23,10': 'sign.syntagma.metro', '27,5': 'sign.syntagma.hill', '12,11': 'sign.ktel' },
+  signs: { '6,4': 'sign.syntagma.hospital', '23,4': 'sign.shop', '11,5': 'sign.syntagma.parliament', '23,10': 'sign.syntagma.metro', '27,5': 'sign.syntagma.hill', '12,11': 'sign.ktel' },
   npcs: [
     { id: 'baboulas', x: 15, y: 9, face: 'down', look: 'baboulas', kind: 'boss', trainer: 'baboulas' },
     { id: 'cadet', x: 10, y: 12, face: 'right', look: 'cadet', kind: 'trainer', trainer: 'cadet', sight: 3 },
@@ -2632,6 +2652,130 @@ MAPS.syntagma_shop = {
   npcs: [
     { id: 'shopkeeper', x: 3, y: 1, face: 'down', look: 'kiosk', kind: 'shop' },
     { id: 'customer', x: 5, y: 4, face: 'up', look: 'oldman2', kind: 'talk', text: 'npc.syntagma.customer' },
+  ],
+};
+// MZ-WORLD-02g: the Βουλή (the door on the square of Σύνταγμα, flag badge_athina). The lobby (14 x 10) has the doctor who heals between the fights, the queue and the security gate joke and the
+// doors of the four chambers: the chamber of Ευτέρπη opens at once, each next one when the fight before it is won (t_euterpe, t_minister, t_rival6). Three chambers of 12 x 9, the plenary hall
+// of 16 x 12 with the last fight, and the roof of 10 x 8 that opens with the flag ending (set by the credits). No hospital, no healing inside a chamber.
+const PARLIAMENT_LOBBY_ROWS = [
+  'wwΞwwΞwwΞwwΞww',
+  'wΔΔΔΔΔΔΔΔΔΔΔΔw',
+  'wΔΔΔΔΔrrΔΔΔΔhw',
+  'wΔΔΔΔΔrrΔΔΔΔΔw',
+  'wcccΔΔrrΔΔΔΔΔw',
+  'wΔΔΔΔΔrrΔΔΔΔΔw',
+  'wΔΔΔΔΔrrΔΔΔΔΔw',
+  'wΔΔΔΔΔrrΔΔtΔΔw',
+  'wΔhΔΔΔrrΔΔΔhΔw',
+  'wwwwwwmmwwwwww',
+];
+const PARLIAMENT_CHAMBER1_ROWS = [
+  'wwwwwwwwwwww', 'whhfffffffhw', 'wfffccccfffw', 'wffffffffffw', 'wffffrrffffw', 'wfttffffttfw', 'wffffrrffffw', 'wffffrrffffw', 'wwwwwΞΞwwwww',
+];
+const PARLIAMENT_CHAMBER2_ROWS = [
+  'wwwwwwwwwwww', 'w::;;;;;;::w', 'w;;;;;;;;;;w', 'w;;cc;;cc;;w', 'wffffffffffw', 'wfKffffffKfw', 'wffffrrffffw', 'wffffrrffffw', 'wwwwwΞΞwwwww',
+];
+const PARLIAMENT_CHAMBER3_ROWS = [
+  'wwwwwwwwwwww', 'whhfffffffhw', 'wffffffffffw', 'wfrrrrrrrrfw', 'wfrrrrrrrrfw', 'wfΘΘffffΘΘfw', 'wffffffffffw', 'wffffffffffw', 'wwwwwΞΞwwwww',
+];
+const PARLIAMENT_PLENARY_ROWS = [
+  'wwwwwwwwwwwwwwΞw',
+  'wΔΔΔΔΔΔΔΔΔΔΔΔΔΔw',
+  'wΔΔΔΔΔΦΦΦΦΔΔΔΔΔw',
+  'wΔΔΔΔΔΔΔΔΔΔΔΔΔΔw',
+  'wΔΘΘΘΘΔrrΔΘΘΘΘΔw',
+  'wΔΔΔΔΔΔrrΔΔΔΔΔΔw',
+  'wΔΘΘΘΘΔrrΔΘΘΘΘΔw',
+  'wΔΔΔΔΔΔrrΔΔΔΔΔΔw',
+  'wΔΘΘΘΘΔrrΔΘΘΘΘΔw',
+  'wΔΔΔΔΔΔrrΔΔΔΔΔΔw',
+  'wΔΔΔΔΔΔrrΔΔΔΔΔΔw',
+  'wwwwwwwΞΞwwwwwww',
+];
+const PARLIAMENT_ROOF_ROWS = [
+  'FFFFFFFFFF', 'F````````F', 'F````ccc`F', 'F````````F', 'F`tt`````F', 'F````````F', 'F````````F', 'FFFFΞΞFFFF',
+];
+MAPS.parliament_lobby = {
+  name: 'map.parliament.lobby', w: 14, h: 10, music: 'indoor',
+  rows: PARLIAMENT_LOBBY_ROWS,
+  warps: [
+    { x: 6, y: 9, to: 'syntagma', tx: 14, ty: 5 }, { x: 7, y: 9, to: 'syntagma', tx: 14, ty: 5 },
+    { x: 2, y: 0, to: 'parliament_c1', tx: 5, ty: 7 },
+    { x: 5, y: 0, to: 'parliament_c2', tx: 5, ty: 7, needFlag: 't_euterpe', lockedText: 'warp.parliament.c2' },
+    { x: 8, y: 0, to: 'parliament_c3', tx: 5, ty: 7, needFlag: 't_minister', lockedText: 'warp.parliament.c3' },
+    { x: 11, y: 0, to: 'parliament_plenary', tx: 7, ty: 10, needFlag: 't_rival6', lockedText: 'warp.parliament.plenary' },
+  ],
+  signs: { '3,0': 'sign.parliament.c1', '6,0': 'sign.parliament.c2', '9,0': 'sign.parliament.c3', '12,0': 'sign.parliament.plenary', '12,2': 'sign.parliament.queue', '10,7': 'sign.parliament.table' },
+  npcs: [
+    { id: 'lobbydoctor', x: 2, y: 3, face: 'down', look: 'doctor', kind: 'heal', healKeys: { hello: 'lobby.hello', free: 'lobby.free', atOnce: 'lobby.atOnce', done: 'lobby.done' } },
+    { id: 'lobbyguard', x: 8, y: 8, face: 'left', look: 'usher', kind: 'talk', text: 'npc.parliament.guard' },
+    { id: 'lobbyq1', x: 12, y: 3, face: 'up', look: 'tourist', kind: 'talk', text: 'npc.parliament.q1' },
+    { id: 'lobbyq2', x: 12, y: 4, face: 'up', look: 'oldwoman', kind: 'talk', text: 'npc.parliament.q2' },
+    { id: 'lobbyq3', x: 12, y: 5, face: 'up', look: 'student', kind: 'talk', text: 'npc.parliament.q3' },
+  ],
+};
+MAPS.parliament_c1 = {
+  name: 'map.parliament.c1', w: 12, h: 9, music: 'boss',
+  rows: PARLIAMENT_CHAMBER1_ROWS,
+  warps: [{ x: 5, y: 8, to: 'parliament_lobby', tx: 2, ty: 1 }, { x: 6, y: 8, to: 'parliament_lobby', tx: 2, ty: 1 }],
+  signs: { '1,1': 'sign.parliament.c1.shelf', '7,2': 'sign.parliament.c1.stamps' },
+  npcs: [
+    { id: 'euterpe', x: 5, y: 3, face: 'down', look: 'euterpe', kind: 'boss', trainer: 'euterpe' },
+    { id: 'c1clerk1', x: 2, y: 6, face: 'right', look: 'ministryclerk', kind: 'talk', text: 'npc.parliament.c1.clerk1' },
+    { id: 'c1clerk2', x: 9, y: 6, face: 'left', look: 'inspector', kind: 'talk', text: 'npc.parliament.c1.clerk2' },
+  ],
+};
+MAPS.parliament_c2 = {
+  name: 'map.parliament.c2', w: 12, h: 9, music: 'boss',
+  rows: PARLIAMENT_CHAMBER2_ROWS,
+  warps: [{ x: 5, y: 8, to: 'parliament_lobby', tx: 5, ty: 1 }, { x: 6, y: 8, to: 'parliament_lobby', tx: 5, ty: 1 }],
+  signs: { '2,1': 'sign.parliament.c2.air', '9,5': 'sign.parliament.c2.cases' },
+  npcs: [
+    { id: 'minister', x: 5, y: 3, face: 'down', look: 'ministerman', kind: 'boss', trainer: 'minister' },
+    { id: 'c2host', x: 3, y: 5, face: 'right', look: 'host', kind: 'talk', text: 'npc.parliament.c2.host' },
+    { id: 'c2camera', x: 8, y: 6, face: 'up', look: 'oldman2', kind: 'talk', text: 'npc.parliament.c2.camera' },
+  ],
+};
+MAPS.parliament_c3 = {
+  name: 'map.parliament.c3', w: 12, h: 9, music: 'boss',
+  rows: PARLIAMENT_CHAMBER3_ROWS,
+  warps: [{ x: 5, y: 8, to: 'parliament_lobby', tx: 8, ty: 1 }, { x: 6, y: 8, to: 'parliament_lobby', tx: 8, ty: 1 }],
+  signs: { '1,1': 'sign.parliament.c3.phones', '2,5': 'sign.parliament.c3.sofa' },
+  npcs: [
+    { id: 'rival6', x: 5, y: 3, face: 'down', look: 'rival', kind: 'trainer', trainer: 'rival6', sight: 3 },
+    { id: 'c3aide', x: 9, y: 6, face: 'left', look: 'lobbyist', kind: 'talk', text: 'npc.parliament.c3.aide' },
+  ],
+};
+// The plenary hall: benches in blocks on both sides of a carpet aisle, the speaker's podium at the back, the door to the roof in the top right corner. Ο Υφυπουργός Παντός stands in front
+// of the podium with his assistant; once the credits have rolled (the flag ending) they and the members are gone and Ηλιθιοκρατία stands there alone.
+MAPS.parliament_plenary = {
+  name: 'map.parliament.plenary', w: 16, h: 12, music: 'boss',
+  rows: PARLIAMENT_PLENARY_ROWS,
+  warps: [
+    { x: 7, y: 11, to: 'parliament_lobby', tx: 11, ty: 1 }, { x: 8, y: 11, to: 'parliament_lobby', tx: 11, ty: 1 },
+    { x: 14, y: 0, to: 'parliament_roof', tx: 4, ty: 6, needFlag: 'ending', lockedText: 'warp.parliament.roof' },
+  ],
+  signs: { '6,2': 'sign.plenary.podium', '2,4': 'sign.plenary.bench', '13,0': 'sign.plenary.roof' },
+  npcs: [
+    { id: 'undersec', x: 7, y: 3, face: 'down', look: 'undersec', kind: 'boss', trainer: 'undersec', hideFlag: 'ending' },
+    { id: 'undersecaide', x: 8, y: 3, face: 'down', look: 'steward', kind: 'talk', text: 'npc.plenary.aide', hideFlag: 'ending' },
+    { id: 'plenarymp1', x: 3, y: 5, face: 'down', look: 'oldman2', kind: 'talk', text: 'npc.plenary.mp1', hideFlag: 'ending' },
+    { id: 'plenarymp2', x: 12, y: 7, face: 'left', look: 'oldman', kind: 'talk', text: 'npc.plenary.mp2', hideFlag: 'ending' },
+    { id: 'ilithiokratia', x: 7, y: 3, face: 'down', look: 'fusedmp', kind: 'legend', species: 'ilithiokratia', level: 50, boost: 1.35, showFlag: 'ending', hideFlag: 'legend_ilithiokratia' },
+  ],
+};
+// The roof: the epilogue. A café counter that saves the game (so the end can be kept), a table, three people who stayed, a fence all round, and the stairs down to the plenary hall.
+MAPS.parliament_roof = {
+  name: 'map.parliament.roof', w: 10, h: 8, music: 'town',
+  rows: PARLIAMENT_ROOF_ROWS,
+  cafeHello: 'cafe.hello.roof',
+  warps: [{ x: 4, y: 7, to: 'parliament_plenary', tx: 14, ty: 1 }, { x: 5, y: 7, to: 'parliament_plenary', tx: 14, ty: 1 }],
+  signs: { '1,0': 'sign.roof.view', '8,0': 'sign.roof.antenna' },
+  npcs: [
+    { id: 'roofcafe', x: 6, y: 1, face: 'down', look: 'cafeowner', kind: 'save' },
+    { id: 'roofeuterpe', x: 2, y: 3, face: 'right', look: 'euterpe', kind: 'talk', text: 'npc.roof.euterpe' },
+    { id: 'roofminister', x: 7, y: 4, face: 'left', look: 'ministerman', kind: 'talk', text: 'npc.roof.minister' },
+    { id: 'roofrival', x: 3, y: 5, face: 'up', look: 'rival', kind: 'talk', text: 'npc.roof.rival' },
   ],
 };
 const START_MAP = { map: 'lab', x: 4, y: 6, dir: 'up' };
@@ -2771,7 +2915,8 @@ const WORLD = {
     chaidari: { district: 'dytika', kind: 'town', cell: [4, 6], maps: ['chaidari', 'chaidari_hospital', 'chaidari_shop', 'chaidari_boss'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
     monastiraki: { district: 'athina', kind: 'town', cell: [10, 9], maps: ['monastiraki', 'monastiraki_hospital', 'monastiraki_shop', 'monastiraki_cafe', 'rock'], stop: true, built: true, has: ['hospital', 'shop', 'cafe', 'legend'] },
     syntagma: { district: 'athina', kind: 'town', cell: [14, 8], maps: ['syntagma', 'syntagma_hospital', 'syntagma_shop', 'lycabettus'], boss: true, stop: true, built: true, has: ['hospital', 'shop', 'boss'] },
-    parliament: { district: 'athina', kind: 'door', cell: [15, 7], maps: [], built: false },
+    // The Βουλή (MZ-WORLD-02g): told about with the sixth badge (seenFlag), visited when any of its six maps is entered; its own level range (the district's is 38-44).
+    parliament: { district: 'athina', kind: 'door', cell: [15, 7], maps: ['parliament_lobby', 'parliament_c1', 'parliament_c2', 'parliament_c3', 'parliament_plenary', 'parliament_roof'], built: true, seenFlag: 'badge_athina', levels: [44, 50], has: ['doctor', 'final'] },
   },
   // progress = the way the route's map runs, for the player marker: 'x' left to right, '-x' right to left, 'y' top to bottom
   routes: {
@@ -3041,6 +3186,7 @@ const STRINGS = {
   'map.badge.won': ['Παράσημο: ναι', 'Badge: yes'], 'map.badge.no': ['Παράσημο: όχι', 'Badge: no'],
   'world.has.hospital': ['Νοσοκομείο', 'Hospital'], 'world.has.shop': ['Περίπτερο', 'Kiosk'], 'world.has.cafe': ['Καφενείο', 'Cafe'],
   'world.has.boss': ['Αρχηγός περιφέρειας', 'District boss'], 'world.has.theatre': ['Θέατρο', 'Theatre'], 'world.has.legend': ['Θρύλος', 'Legend'],
+  'world.has.doctor': ['Γιατρός', 'Doctor'], 'world.has.final': ['Τελική μάχη', 'Final battle'],
   'world.newPeiraias': ['Νέα Πειραιάς', 'New Piraeus'], 'world.harbourOffice': ['Λιμεναρχείο', 'Harbour Office'], 'world.kastella': ['Καστέλλα', 'Kastella'],
   'world.faliro': ['Παλαιό Φάληρο', 'Old Faliro'], 'world.glyfada': ['Γλυφάδα', 'Glyfada'], 'world.koropi': ['Κορωπί', 'Koropi'], 'world.spata': ['Σπάτα', 'Spata'],
   'world.kifisia': ['Κηφισιά', 'Kifisia'], 'world.marousi': ['Μαρούσι', 'Marousi'], 'world.peristeri': ['Περιστέρι', 'Peristeri'], 'world.chaidari': ['Χαϊδάρι', 'Chaidari'],
@@ -3546,7 +3692,7 @@ const STRINGS = {
   'sign.hill.funicular': ['Το τελεφερίκ είναι κλειστό για μεσημεριανό. Επιστρέφει όταν χωνέψει.', 'The funicular is closed for lunch. It returns when it has digested.'],
   'sign.hill.view': ['Σημείο θέας. Βλέπεις όλη την πόλη. Η πόλη δεν σε βλέπει. Έχει έργα.', 'Viewpoint. You see the whole city. The city does not see you. It has works.'],
   'sign.syntagma.hospital': ['Νοσοκομείο Συντάγματος 3000. Επισκεπτήριο: όταν κλείσει η πλατεία.', 'Syntagma Hospital 3000. Visiting hours: when the square closes.'],
-  'sign.syntagma.parliament': ['Βουλή. Η είσοδος είναι υπό έργα. Τα έργα τελειώνουν του χρόνου.', 'Parliament. The entrance is under works. The works finish next year.'],
+  'sign.syntagma.parliament': ['Βουλή. Είσοδος μόνο με Παράσημο Συγκέντρωσης. Για τους υπόλοιπους: με ραντεβού, του χρόνου.', 'Parliament. Entry only with the Assembly Medal. For everyone else: by appointment, next year.'],
   'sign.syntagma.metro': ['Σταθμός μετρό. Κλείνει για εργασίες. Από το 2961.', 'Metro station. Closing for works. Since 2961.'],
   'sign.syntagma.hill': ['Προς τον Λόφο: ανηφόρα. Το τελεφερίκ ανεβαίνει όποτε θέλει.', 'To the Hill: uphill. The funicular goes up whenever it wants.'],
   'npc.digger': ['Σκάβω εδώ είκοσι χρόνια. Βρήκα ένα νόμισμα και τριάντα έντυπα.', 'I have dug here for twenty years. I found one coin and thirty forms.'],
@@ -3603,16 +3749,84 @@ const STRINGS = {
   'tr.baboulas.win': ['Έχασα. Θα το καταχωρίσω ως «άσκηση». Η άσκηση πέτυχε. Εγώ, λιγότερο.', 'I lost. I will file it as an "exercise". The exercise was a success. Me, less so.'],
   'tr.baboulas.after': ['Η τάξη επανήλθε. Με υπερωρία, φυσικά. Την παίρνω πάντα.', 'Order is back. On overtime, of course. I always take it.'],
   'boss.baboulas.win2': ['Κέρδισες. Το Παράσημο Συγκέντρωσης είναι δικό σου, με τον όρο να υποβάλεις αίτηση για να το φορέσεις.', 'You won. The Assembly Medal is yours, on the condition that you file an application to wear it.'],
-  'boss.baboulas.win3': ['Πήρες το Παράσημο Συγκέντρωσης! Η Βουλή είναι ακόμα υπό έργα. Οι πόρτες ανοίγουν του χρόνου.', 'You got the Assembly Medal! The Parliament is still under works. The doors open next year.'],
+  'boss.baboulas.win3': ['Πήρες το Παράσημο Συγκέντρωσης! Η πόρτα της Βουλής ανοίγει για όσους το έχουν. Οι υπόλοιποι περιμένουν του χρόνου.', 'You got the Assembly Medal! The door of the Parliament opens for those who hold it. Everyone else waits until next year.'],
   'badge.athina.title': ['ΠΑΡΑΣΗΜΟ ΣΥΓΚΕΝΤΡΩΣΗΣ', 'ASSEMBLY MEDAL'], 'badge.athina.sub': ['Απαιτείται άδεια για να το φορέσεις.', 'A permit is needed to wear it.'],
+  // Βουλή (MZ-WORLD-02g): the places, the doors, the signs, the people, the four fights, the final badge, the ending and the legend of the empty plenary hall. Running joke: everything is
+  // open until 13:00 and then needs an appointment; the officials hold fourteen ministries, make phone calls and speak through assistants.
+  'map.parliament.lobby': ['Βουλή: Αίθριο', 'Parliament: Lobby'], 'map.parliament.c1': ['Βουλή: Γραφείο Προϊσταμένης', "Parliament: Head Clerk's Office"],
+  'map.parliament.c2': ['Βουλή: Στούντιο Πάνελ', 'Parliament: Panel Studio'], 'map.parliament.c3': ['Βουλή: Σαλόνι Τηλεφώνων', 'Parliament: Phone Lounge'],
+  'map.parliament.plenary': ['Βουλή: Ολομέλεια', 'Parliament: Plenary Hall'], 'map.parliament.roof': ['Βουλή: Ταράτσα', 'Parliament: Roof'],
+  'warp.parliament': ['Η πόρτα της Βουλής είναι κλειστή. Ανοίγει μόνο για όσους έχουν το Παράσημο Συγκέντρωσης.', 'The door of the Parliament is shut. It opens only for those who hold the Assembly Medal.'],
+  'warp.parliament.c2': ['Η πόρτα είναι κλειστή. Πρώτα πρέπει να περάσεις από την Προϊσταμένη Ευτέρπη.', 'The door is shut. First you have to get past Head Clerk Euterpe.'],
+  'warp.parliament.c3': ['Η πόρτα είναι κλειστή. Πρώτα ο Υπουργός Σπυράδωνις, που ακόμη μιλάει.', 'The door is shut. First Minister Spyradonis, who is still talking.'],
+  'warp.parliament.plenary': ['Η πόρτα της Ολομέλειας είναι κλειστή. Πριν από τον Υφυπουργό έρχεται ο Μπέμπης. Έχει ένα τηλεφώνημα να κάνει.', 'The door of the Plenary Hall is shut. Before the Under-Secretary comes Bebis. He has a call to make.'],
+  'warp.parliament.roof': ['Η πόρτα για την ταράτσα είναι κλειδωμένη. Ανοίγει όταν τελειώσει η συνεδρίαση.', 'The door to the roof is locked. It opens when the session is over.'],
+  'sign.parliament.c1': ['Γραφείο Προϊσταμένης. Ανοιχτά έως τις 13:00. Μετά τις 13:00: με ραντεβού. Το ραντεβού κλείνεται μετά τις 13:00.', "Head Clerk's Office. Open until 13:00. After 13:00: by appointment. Appointments are made after 13:00."],
+  'sign.parliament.c2': ['Στούντιο Πάνελ. Ζωντανή μετάδοση. Η είσοδος γίνεται φωνάζοντας.', 'Panel Studio. Live broadcast. Entry is by shouting.'],
+  'sign.parliament.c3': ['Σαλόνι Τηλεφώνων. Μην ενοχλείτε: ο ένοικος κάνει τηλεφωνήματα.', 'Phone Lounge. Do not disturb: the occupant is making calls.'],
+  'sign.parliament.plenary': ['Ολομέλεια. Η συνεδρίαση είναι σε εξέλιξη. Αρχίζει του χρόνου.', 'Plenary Hall. The session is in progress. It starts next year.'],
+  'sign.parliament.queue': ['Πάρε αριθμό προτεραιότητας. Εξυπηρετείται το 3. Εσύ έχεις το 9.999.', 'Take a priority number. Now serving: 3. You have 9,999.'],
+  'sign.parliament.table': ['Στο τραπέζι: το πρόγραμμα της ημέρας. Της χθεσινής. Το σημερινό είναι υπό έγκριση.', "On the table: the programme of the day. Yesterday's. Today's is awaiting approval."],
+  'sign.parliament.c1.shelf': ['Αρχείο: 14.000 φάκελοι. Όλοι «σε εκκρεμότητα». Κάποιοι από το 2961.', 'Archive: 14,000 files. All "pending". Some from 2961.'],
+  'sign.parliament.c1.stamps': ['Σφραγίδες: ΠΑΡΕΛΗΦΘΗ, ΕΛΕΓΧΘΗΚΕ, ΑΠΟΡΡΙΦΘΗΚΕ. Η τρίτη φθείρεται πρώτη.', 'Stamps: RECEIVED, CHECKED, REJECTED. The third one wears out first.'],
+  'sign.parliament.c2.air': ['Κόκκινο φως: ζωντανά. Σβηστό φως: ζωντανά κι αυτό, απλώς δεν το ξέρεις.', 'Red light: live. Light off: also live, you just do not know it.'],
+  'sign.parliament.c2.cases': ['Θήκες κάμερας. Μέσα: ένα πάνελ, ένα πάνελ και ένα πάνελ για το πάνελ.', 'Camera cases. Inside: a panel, a panel and a panel about the panel.'],
+  'sign.parliament.c3.phones': ['Τηλέφωνα: 14 γραμμές. Όλες απασχολημένες από τον ίδιο συνδρομητή.', 'Phones: 14 lines. All busy with the same subscriber.'],
+  'sign.parliament.c3.sofa': ['Ο καναπές είναι ακόμα ζεστός. Κάποιος καθόταν εδώ μέχρι πριν από ένα τηλεφώνημα.', 'The sofa is still warm. Someone sat here until a phone call ago.'],
+  'sign.plenary.podium': ['Βήμα Ομιλητή. Δεκατέσσερα υπουργεία, ένα μικρόφωνο. Το μικρόφωνο είναι κλειστό.', "Speaker's podium. Fourteen ministries, one microphone. The microphone is off."],
+  'sign.plenary.bench': ['Θρανίο. Οι θέσεις είναι αριθμημένες. Οι αριθμοί δεν ταιριάζουν με τα καθίσματα.', 'Bench. The seats are numbered. The numbers do not match the seats.'],
+  'sign.plenary.roof': ['Προς την ταράτσα. Μόνο μετά τη συνεδρίαση.', 'To the roof. Only after the session.'],
+  'sign.roof.view': ['Θέα προς την πλατεία: τα βαν, το σιντριβάνι και μια σκαλωσιά που δεν λέει να φύγει.', 'View of the square: the vans, the fountain and a scaffolding that will not leave.'],
+  'sign.roof.antenna': ['Κεραία. Πιάνει τρία κανάλια: ειδήσεις, πάνελ και ένα ακόμα πάνελ.', 'Antenna. It picks up three channels: news, a panel and another panel.'],
+  'lobby.hello': ['Ιατρείο Βουλής. Για την ομάδα σου; Ο κανονισμός λέει: ραντεβού μετά τη συνεδρίαση. Η συνεδρίαση δεν τελειώνει ποτέ.', 'Parliament clinic. For your team? The regulation says: an appointment after the session. The session never ends.'],
+  'lobby.free': ['Δωρεάν, φυσικά. Μόνο για όσους κάνουν διάλειμμα ανάμεσα σε δύο συνεδριάσεις. Δηλαδή για σένα.', 'Free, of course. Only for those who take a break between two sessions. That means you.'],
+  'lobby.atOnce': ['Α, ένα ραντεβού μόλις ακυρώθηκε. Πέρασε, πριν το πάρει κάποιος άλλος.', 'Oh, an appointment just got cancelled. Step in before somebody else takes it.'],
+  'lobby.done': ['Η ομάδα σου είναι σαν καινούργια. Η επόμενη αίθουσα περιμένει. Όπως όλοι σε αυτό το κτίριο.', 'Your team is as good as new. The next chamber is waiting. Like everyone in this building.'],
+  'cafe.hello.roof': ['Καφέ Ταράτσας. Η θέα είναι δωρεάν. Ο καφές όχι. Το τεφτέρι, ναι.', 'Roof Café. The view is free. The coffee is not. The ledger is.'],
+  'npc.parliament.guard': ['Η πύλη ασφαλείας χτυπάει για όλους. Κανείς δεν ελέγχει τι χτυπάει. Εσύ περνάς.', 'The security gate beeps for everyone. Nobody checks what it beeps at. You may pass.'],
+  'npc.parliament.q1': ['Περιμένω από το πρωί για να πάρω αριθμό. Για να πάρεις αριθμό χρειάζεσαι αριθμό.', 'I have waited since morning to take a number. To take a number you need a number.'],
+  'npc.parliament.q2': ['Ήρθα για μία υπογραφή. Ο υπογράφων βγήκε για καφέ. Το 2958.', 'I came for one signature. The signer went out for coffee. In 2958.'],
+  'npc.parliament.q3': ['Ρώτησα πόση ώρα θα κάνει η ουρά. Μου είπαν «λίγο». Το «λίγο» έχει δική του ουρά.', 'I asked how long the queue will take. They said "a little". The "little" has a queue of its own.'],
+  'npc.parliament.c1.clerk1': ['Όλες οι αιτήσεις εξετάζονται με σειρά. Η σειρά αλλάζει όταν κοιτάμε.', 'All applications are examined in order. The order changes when we look.'],
+  'npc.parliament.c1.clerk2': ['Ελέγχω τα έγγραφα της Προϊσταμένης. Εκείνη ελέγχει τα δικά μου. Έτσι δεν βρίσκουμε τίποτα.', "I check the Head Clerk's papers. She checks mine. This way we find nothing."],
+  'npc.parliament.c2.host': ['Η εκπομπή έχει τηλεθέαση ρεκόρ. Μετράμε και όσους βγήκαν από το δωμάτιο.', 'The show has record ratings. We count those who left the room, too.'],
+  'npc.parliament.c2.camera': ['Η κάμερα έχει δύο πλάνα: τον Υπουργό που μιλάει και τον Υπουργό που διακόπτει.', 'The camera has two shots: the Minister talking and the Minister interrupting.'],
+  'npc.parliament.c3.aide': ['Ο κύριος Μπέμπης δεν περιμένει τηλέφωνα. Τα κάνει. Τον λογαριασμό τον πληρώνει ο θείος.', 'Mr Bebis does not wait for calls. He makes them. The uncle pays the bill.'],
+  'npc.plenary.aide': ['Ο Υφυπουργός Παντός κρατάει δεκατέσσερα υπουργεία και δεν πηγαίνει σε κανένα. Πηγαίνω εγώ, για λογαριασμό του.', 'The Under-Secretary of Everything holds fourteen ministries and attends none. I go instead, on his behalf.'],
+  'npc.plenary.mp1': ['Ψηφίζω ό,τι μου δώσουν. Το διαβάζω μετά. Αν υπάρξει μετά.', 'I vote for whatever I am handed. I read it afterwards. If there is an afterwards.'],
+  'npc.plenary.mp2': ['Κοιμάμαι στο θρανίο μόνο όταν μιλάει κάποιος. Όταν δεν μιλάει κανείς, ξυπνάω. Για λίγο.', 'I sleep on the bench only when somebody speaks. When nobody speaks, I wake up. Briefly.'],
+  'npc.roof.euterpe': ['Στις 13:00 κλείνω το γραφείο. Εδώ πάνω δεν υπάρχει ωράριο. Μου αρέσει, και χωρίς ραντεβού.', 'I close the office at 13:00. Up here there are no hours. I like it, and without an appointment.'],
+  'npc.roof.minister': ['Πρώτη φορά σε ταράτσα χωρίς κάμερα. Μιλάω χωρίς κοινό. Δεν με διακόπτει κανείς. Είναι περίεργο.', 'My first roof with no camera. I am talking to nobody. Nobody interrupts me. It is odd.'],
+  'npc.roof.rival': ['Πήρα τον θείο μου τηλέφωνο. Μου είπε «μπράβο». Στο λέω γιατί δεν είχα κανέναν άλλον να το πω.', 'I called my uncle. He said "well done". I am telling you because I had nobody else to tell.'],
+  'tr.euterpe.intro': ['Ραντεβού; Όχι; Τότε περιμένετε. Μετά τις 13:00 είμαι κλειστή. Είναι 12:59. Για πάντα. Μάχη!', 'An appointment? No? Then wait. After 13:00 I am closed. It is 12:59. Forever. Battle!'],
+  'tr.euterpe.win': ['Έχασα. Θα το καταχωρίσω ως «υπό εξέταση». Θα εξεταστεί μετά τις 13:00.', 'I lost. I will file it as "under review". It will be reviewed after 13:00.'],
+  'tr.euterpe.after': ['Το αίτημά σου εγκρίθηκε. Η έγκριση θα σταλεί ταχυδρομικά. Το ταχυδρομείο έχει κλείσει.', 'Your request is approved. The approval will be sent by post. The post office has closed.'],
+  'tr.minister.intro': ['Και τώρα, ζωντανά: ο Υπουργός! Έχω δύο λεπτά χρόνο και μισή ώρα ομιλία. Μην με διακόψεις!', 'And now, live: the Minister! I have two minutes of airtime and half an hour of speech. Do not interrupt me!'],
+  'tr.minister.win': ['Έχασα! Θα πω στο επόμενο πάνελ ότι κέρδισα. Εσύ δεν θα είσαι εκεί να με διορθώσεις.', 'I lost! I will tell the next panel that I won. You will not be there to correct me.'],
+  'tr.minister.after': ['Το πάνελ τελείωσε. Εγώ μίλησα. Οι άλλοι, όσο πρόλαβαν.', 'The panel is over. I spoke. The others, as much as they could.'],
+  'tr.rival6.intro': ['Έφτασες ως εδώ; Εγώ πήρα όλα μου τα παράσημα με τηλέφωνο. Απόψε έχω ένα ακόμα τηλεφώνημα. Σε σένα.', 'You got this far? I got all my medals by phone. Tonight I have one more call to make. To you.'],
+  'tr.rival6.win': ['Δεν το περίμενα. Θα πάρω τον θείο μου. Αυτή τη φορά δεν το σηκώνει.', 'I did not expect that. I will call my uncle. This time he is not picking up.'],
+  'tr.rival6.after': ['Η γραμμή είναι κατειλημμένη. Πήγαινε, σε περιμένει ο Υφυπουργός στην Ολομέλεια.', 'The line is busy. Go on, the Under-Secretary is waiting for you in the Plenary Hall.'],
+  'tr.undersec.intro': ['Καλώς ήρθες στην Ολομέλεια, {φίλε|φίλη}! Έχω δεκατέσσερα υπουργεία και δεν πηγαίνω σε κανένα. Σήμερα έχω χρόνο μόνο για σένα.', 'Welcome to the Plenary Hall, friend! I hold fourteen ministries and attend none. Today I have time only for you.'],
+  'tr.undersec.win': ['Έχασα. Ο βοηθός μου θα δηλώσει ότι ήμουν παρών. Και ότι κέρδισα.', 'I lost. My assistant will declare that I was present. And that I won.'],
+  'tr.undersec.after': ['Η συνεδρίαση τελείωσε. Τα πρακτικά λένε ότι δεν άρχισε ποτέ.', 'The session is over. The minutes say it never began.'],
+  'boss.undersec.win2': ['Κέρδισες. Ο Διορισμός Εφ’ Όρου Ζωής είναι δικός σου, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά.', 'You won. The Appointment for Life is yours, on the condition that you do not ask where the money went.'],
+  'boss.undersec.win3': ['Πήρες τον Διορισμό Εφ’ Όρου Ζωής! Είσαι πια Πρωθυπουργός. Για πάντα. Ή μέχρι το επόμενο διάγγελμα.', 'You got the Appointment for Life! You are Prime Minister now. For good. Or until the next address.'],
+  'badge.final.title': ['ΔΙΟΡΙΣΜΟΣ ΕΦ’ ΟΡΟΥ ΖΩΗΣ', 'APPOINTMENT FOR LIFE'], 'badge.final.sub': ['Πρωθυπουργός εφ’ όρου ζωής.', 'Prime Minister for Life.'],
+  'ending.roof': ['Η συνεδρίαση τελείωσε. Στην ταράτσα φυσάει. Κάτω, η πόλη έχει ακόμα έργα. Εσύ έχεις διορισμό εφ’ όρου ζωής.', 'The session is over. A breeze on the roof. Below, the city still has works. And you have an appointment for life.'],
+  'legend.ilithiokratia.intro': ['Η Ολομέλεια είναι άδεια. Στη μέση στέκεται η Ηλιθιοκρατία: τρία θρανία που έγιναν ένα, δώδεκα κεφάλια και μια ψηφοφορία που δεν τελειώνει. «Ομόφωνα;» ρωτούν όλα μαζί. «Ομόφωνα.»', 'The Plenary Hall is empty. In the middle stands the Foolocracy: three benches fused into one, a dozen heads and a vote that never ends. "Unanimous?" they all ask together. "Unanimous."'],
+  'legend.ilithiokratia.gone': ['Η Ηλιθιοκρατία διαλύθηκε. Τα θρανία έμειναν άδεια. Για πρώτη φορά, κανείς δεν ψήφισε τίποτα.', 'The Foolocracy is dissolved. The benches stand empty. For the first time, nobody voted for anything.'],
+  'sp.ilithiokratia': ['Γνωστή για: δώδεκα κεφάλια που ψηφίζουν ομόφωνα, χωρίς να διαβάσουν τίποτα. Ποτέ δεν καταδικάστηκε.', 'Ηλιθιοκρατία = "Foolocracy". Known for: a dozen heads that vote unanimously without reading anything. Never convicted.'],
   'sp.taxpayer': ['Γνωστός για: μια απόδειξη για κάθε ευρώ, φόρους που πληρώνονται στην ώρα τους και έναν θρύλο που κανείς δεν πιστεύει. Ποτέ δεν καταδικάστηκε.', 'Ο Τελευταίος Φορολογούμενος = "The Last Taxpayer". Known for: a receipt for every euro, taxes paid on time and a legend that nobody believes. Never convicted.'],
   'sp.kafenovios': ['Γνωστός για: ένα φλιτζάνι που κρατά από το πρωί ως το βράδυ και πολιτική ανάλυση χωρίς λογαριασμό. Ποτέ δεν καταδικάστηκε.', 'Καφενόβιος = "Cafe-dweller". Known for: one small cup that lasts from morning to night and political analysis with no bill. Never convicted.'],
   'sp.vouleftakos': ['Γνωστός για: ψήφους που αλλάζουν με τον καιρό και την έδρα. Ποτέ δεν καταδικάστηκε.', 'Βουλευτάκος = "Little MP". Known for: votes that change with the weather and the seat. Never convicted.'],
   'sp.batsonos': ['Γνωστός για: σφυρίχτρα, γκλομπ και βαθιά πίστη στη «διαδικασία». Ποτέ δεν καταδικάστηκε.', 'Μπατσόνος = "Big Cop". Known for: a whistle, a baton and deep faith in "procedure". Never convicted.'],
   'sp.diakosdisko': ['Γνωστός για: ψαλμωδία με ηχοσύστημα και φώτα. Η ευχή έρχεται μετά τον λογαριασμό. Ποτέ δεν καταδικάστηκε.', 'Διάκος Ντίσκο = "Deacon Disco". Known for: chanting with a sound system and lights. The blessing comes after the bill. Never convicted.'],
   'sp.efoplistakos': ['Γνωστός για: πλοία με σημαία ευκαιρίας και φόρους με σημαία καμία. Ποτέ δεν καταδικάστηκε.', 'Εφοπλιστάκος = "Little Shipowner". Known for: ships under a flag of convenience and taxes under no flag. Never convicted.'],
-  'credits.text': ['MIZAMON\n\nΤο τέλος της Πρώτης Περιφέρειας\n\nΣχεδιασμός, κώδικας, γραφικά, μουσική:\nόλα φτιαγμένα από κώδικα\n\nΟ Καθηγητής Σταθόπουλος\nεκπροσωπεί όλους όσους\nπεριμένουν πληρωμή\n\nΣάτιρα. Όλοι οι χαρακτήρες\nείναι παρωδίες ή φανταστικοί·\nκάθε ομοιότητα είναι καρικατούρα.\n\nΗ Βουλή του 3000 περιμένει...\n\nΕυχαριστούμε που έπαιξες!',
-    'MIZAMON\n\nThe end of the First District\n\nDesign, code, graphics, music:\nall made from code\n\nProfessor Stathopoulos\nspeaks for everyone\nwaiting to be paid\n\nSatire. All characters\nare parodies or fictional;\nany resemblance is caricature.\n\nThe Parliament of 3000 awaits...\n\nThanks for playing!'],
+  // The credits roll after the last fight (MZ-WORLD-02g). They list what the game really uses: the code, the graphics, the music and the sounds are original and made by the code itself
+  // (the music and sounds are synthesised live, the pictures are drawn by the code), no image, sound or font file is loaded, and no outside asset is used.
+  'credits.text': ['MIZAMON\n\nΤο τέλος του παιχνιδιού\n\nΣχεδιασμός, κώδικας και γραφικά:\nπρωτότυπα, φτιαγμένα με κώδικα\n\nΜουσική και ήχοι:\nσυνθέτονται ζωντανά από τον κώδικα\n\nΚανένα εξωτερικό αρχείο:\nούτε εικόνες, ούτε ήχοι, ούτε γράμματα·\nτα γράμματα είναι του συστήματός σου\n\nΣάτιρα. Όλοι οι χαρακτήρες\nείναι παρωδίες ή φανταστικοί·\nκάθε ομοιότητα είναι καρικατούρα.\n\nΕυχαριστούμε που έπαιξες!',
+    'MIZAMON\n\nThe end of the game\n\nDesign, code and graphics:\noriginal, made with code\n\nMusic and sounds:\nsynthesised live by the code\n\nNo outside files:\nno images, no sounds, no fonts;\nthe letters are your system fonts\n\nSatire. All characters\nare parodies or fictional;\nany resemblance is caricature.\n\nThanks for playing!'],
   'credits.after': ['Ένα νέο κτίριο άνοιξε στην πλατεία της Νέας Πειραιάς: το Τηλεοπτικό Στούντιο. Λένε ότι ψάχνει αντίπαλο.', 'A new building opened in the New Piraeus square: the TV Studio. They say it is looking for a challenger.'],
   // Battle
   // The four commands of the debate screen: Speech (the moves), Bag, Party (switch creature), Flee.
@@ -4347,6 +4561,29 @@ function buildTileSprites() {
     p.tri(2, 4, 8, 0, 14, 4, '#8a3a2a'); p.px(8, 0, '#f4c430');
     p.ell(8, 8, 3, 3, '#f4f0e0'); p.ell(8, 8, 2, 2, '#ffffff'); p.line(8, 8, 8, 6, '#222'); p.line(8, 8, 10, 9, '#222');
   });
+  // The parliament inside (MZ-WORLD-02g): marble floor, a bench, the speaker's podium and a formal door. No writing, no emblem, no flag.
+  const drawMarbleFloor = function (p) {
+    p.rect(0, 0, 16, 16, '#e8e4da'); p.rect(0, 0, 8, 8, '#d6d1c4'); p.rect(8, 8, 8, 8, '#d6d1c4');
+    p.px(3, 5, '#c4beb0'); p.px(4, 6, '#c4beb0'); p.px(12, 3, '#c4beb0'); p.px(11, 12, '#c4beb0'); p.px(2, 12, '#f4f1ea'); p.px(13, 6, '#f4f1ea');
+  };
+  make('Δ', drawMarbleFloor);
+  make('Θ', function (p) { // a bench of the hall: a dark wooden back, a green leather seat with a lighter edge, wooden feet
+    drawMarbleFloor(p);
+    p.rect(0, 2, 16, 4, '#5a3a22'); p.rect(0, 2, 16, 1, '#7a5230'); p.rect(0, 5, 16, 1, '#3e2814');
+    p.rect(0, 6, 16, 6, '#2f7a4a'); p.rect(0, 6, 16, 1, '#56a572'); p.rect(0, 11, 16, 1, '#1f5634');
+    p.rect(1, 12, 2, 3, '#3e2814'); p.rect(13, 12, 2, 3, '#3e2814');
+  });
+  make('Φ', function (p) { // the speaker's podium: a wooden lectern with a lighter top and a small microphone
+    drawMarbleFloor(p);
+    p.rect(1, 6, 14, 9, '#6b4a2a'); p.rect(1, 6, 14, 2, '#a8733f'); p.rect(3, 9, 10, 5, '#8a5a32'); p.rect(3, 9, 10, 1, '#5a3a22'); p.rect(1, 14, 14, 1, '#3e2814');
+    p.rect(7, 2, 2, 5, '#9a9aa8'); p.rect(6, 1, 4, 2, '#2a2a34');
+  });
+  make('Ξ', function (p) { // a formal double door: a pale stone frame, two dark mahogany leaves with panels and brass handles
+    p.rect(0, 0, 16, 16, '#cfc7b4'); p.rect(0, 0, 16, 2, '#e8e2d2'); p.rect(0, 15, 16, 1, '#8f8672');
+    p.rect(2, 2, 12, 14, '#5a2f22'); p.rect(2, 2, 1, 14, '#3a1c14'); p.rect(13, 2, 1, 14, '#3a1c14'); p.rect(7, 2, 2, 14, '#2a1510');
+    p.rect(3, 4, 4, 5, '#7a4332'); p.rect(9, 4, 4, 5, '#7a4332'); p.rect(3, 10, 4, 5, '#7a4332'); p.rect(9, 10, 4, 5, '#7a4332');
+    p.rect(6, 9, 1, 3, '#e0b040'); p.rect(9, 9, 1, 3, '#e0b040');
+  });
   buildHospitalTiles(make);
   make('~', function () {});
   waterFrames = [];
@@ -4427,6 +4664,11 @@ const LOOKS = {
   cadet: { skin: '#e8b88a', hair: '#2a2a2a', top: '#26325a', pants: '#26325a', style: 'short', hat: '#26325a', brim: '#f4c430', bowtie: '#f4c430' },
   taxpayerman: { skin: '#e8b88a', hair: '#6a5a4a', top: '#7a7f8c', pants: '#3a3f50', style: 'short', glasses: true, tie: '#2a4a8a', envelope: true },
   baboulas: { skin: '#e0a878', hair: '#cccccc', top: '#1e2a4a', pants: '#1e2a4a', style: 'short', hat: '#1e2a4a', brim: '#d8a82a', mustache: true, glasses: true, stripes: '#d8a82a', tie: '#d8a82a' },
+  // Βουλή (MZ-WORLD-02g): the head clerk with her stamps, the loud minister of the panels, the under-secretary of everything (a sash of many offices).
+  euterpe: { skin: '#f0c08a', hair: '#8a8a96', top: '#5a2f55', pants: '#2a2a3a', style: 'bun', glasses: true, skirt: true, tie: '#e0b040', envelope: true },
+  ministerman: { skin: '#e0805a', hair: '#bdbdc4', top: '#202026', pants: '#202026', style: 'pomp', tie: '#f4c430', mic: true },
+  undersec: { skin: '#e8b88a', hair: '#3a3a3a', top: '#14234a', pants: '#14234a', style: 'short', glasses: true, tie: '#e0b040', stripes: '#e0b040', envelope: true },
+  fusedmp: { skin: '#e8b88a', hair: '#6a5a4a', top: '#2f7a4a', pants: '#33384d', style: 'short', glasses: true, tie: '#e0b040', stripes: '#1f5634', hat: '#5a3a22', brim: '#7a5230' },
 };
 function drawCharFrame(p, ox, oy, look, dir, frame) {
   const dark = shade(look.top, -0.3);
@@ -4818,6 +5060,19 @@ const creatureDrawers = {
     p.rect(23, 14, 6, 17, '#fbf8ee'); p.rect(23, 14, 1, 17, '#d8d4c4'); p.rect(28, 14, 1, 17, '#d8d4c4'); // the receipt: a long paper strip
     for (let y = 16; y < 30; y += 3) { p.rect(24, y, 3, 1, '#8a8a99'); p.rect(27, y, 1, 1, '#2a4a8a'); }
     p.rect(24, 29, 4, 2, '#d8a82a'); // a gold stamp at its end
+  },
+  ilithiokratia: function (p) { // the fused parliament: three tiers of green benches grown into one body, a dozen small heads with the same blank smile, a gavel on top
+    const head = function (x, y, hair) {
+      p.rect(x, y, 5, 5, '#f0c08a'); p.rect(x, y, 5, 1, hair); p.px(x + 1, y + 2, '#111'); p.px(x + 3, y + 2, '#111'); p.rect(x + 1, y + 4, 3, 1, '#a85050');
+      p.rect(x - 1, y + 5, 7, 3, '#33384d'); p.px(x + 2, y + 5, '#e0b040'); // a dark suit with a gold tie
+    };
+    for (const x of [8, 14, 20]) head(x, 1, '#6a5a4a');
+    p.rect(5, 9, 22, 2, '#2f7a4a'); p.rect(5, 9, 22, 1, '#56a572');
+    for (const x of [5, 11, 17, 23]) head(x, 11, x === 11 ? '#bdbdc4' : '#3a3a3a');
+    p.rect(2, 19, 28, 2, '#2f7a4a'); p.rect(2, 19, 28, 1, '#56a572');
+    for (const x of [2, 8, 14, 20, 26]) head(x, 21, x === 14 ? '#8a8a96' : '#4a3a2a');
+    p.rect(0, 29, 32, 3, '#5a3a22'); p.rect(0, 29, 32, 1, '#7a5230');
+    p.line(25, 6, 30, 1, '#8a5a32'); p.rect(27, 0, 4, 3, '#a8733f'); // a gavel
   },
   spyradonis: function (p) {
     humanoid(p, { suit: '#202026', shirt: '#ffffff', tie: '#f4c430', skin: '#e0805a' });
@@ -5600,14 +5855,17 @@ OverworldLayer.prototype.talkTo = async function (npc) {
   const def = npc.def;
   if (def.kind === 'talk') await say(def.text);
   else if (def.kind === 'prof') await this.talkProfessor();
-  else if (def.kind === 'heal') await this.healAtHospital();
+  else if (def.kind === 'heal') await this.healAtHospital(npc);
   else if (def.kind === 'kep') await this.talkKep();
   else if (def.kind === 'shop') await this.shopTalk();
   else if (def.kind === 'save') await this.cafeTalk();
   else if (def.kind === 'legend') await this.legendEncounter(npc);
   else if (def.kind === 'trainer' || def.kind === 'boss') {
-    if (G.flags['t_' + def.trainer]) await say('tr.' + def.trainer + '.after');
-    else await this.challenge(npc, false);
+    if (G.flags['t_' + def.trainer]) {
+      await say('tr.' + def.trainer + '.after');
+      const victory = TRAINERS[def.trainer].victory;
+      if (victory && victory.credits && !G.flags.ending) await this.finale(); // the last fight was won but the credits never finished: they roll now
+    } else await this.challenge(npc, false);
   }
 };
 OverworldLayer.prototype.talkProfessor = async function () {
@@ -5624,15 +5882,17 @@ OverworldLayer.prototype.talkKep = async function () {
   await say('kep.comeBack');
 };
 // The receptionist: "free, in 3 to 5 years" ... and then it happens at once. With a Φακελάκι in the bag she also offers the VIP service.
-OverworldLayer.prototype.healAtHospital = async function () {
-  await say('hosp.hello');
-  await say('hosp.free');
-  const wantsVip = (G.bag.fakelaki || 0) > 0 && await askYesNo('hosp.vipAsk');
-  await say(wantsVip ? 'hosp.vipTaken' : 'hosp.atOnce');
+// The doctor of the Βουλή lobby (MZ-WORLD-02g) is the same desk with texts of its own (healKeys) and no VIP service: a state doctor takes no envelope.
+OverworldLayer.prototype.healAtHospital = async function (npc) {
+  const own = npc && npc.def.healKeys ? npc.def.healKeys : null;
+  await say(own ? own.hello : 'hosp.hello');
+  await say(own ? own.free : 'hosp.free');
+  const wantsVip = !own && (G.bag.fakelaki || 0) > 0 && await askYesNo('hosp.vipAsk');
+  await say(own ? own.atOnce : (wantsVip ? 'hosp.vipTaken' : 'hosp.atOnce'));
   await openLayer(new MonitorLayer());
   const vip = hospitalHeal(G.party, G.bag, wantsVip);
-  G.lastHeal = Object.assign({}, HOSPITAL_SPOT, { map: this.mapId }); // the hospital of this town becomes the return point
-  await say(vip ? 'hosp.doneVip' : 'hosp.done');
+  G.lastHeal = Object.assign({}, HOSPITAL_SPOT, { map: this.mapId }); // the hospital of this town (or the lobby of the Βουλή) becomes the return point
+  await say(own ? own.done : (vip ? 'hosp.doneVip' : 'hosp.done'));
 };
 // The Αρχείο Ασθενών terminal: deposit, withdraw, list.
 OverworldLayer.prototype.useArchive = async function () {
@@ -5733,7 +5993,7 @@ OverworldLayer.prototype.blackout = async function () {
   await say('blackout.hospital');
 };
 // What follows a won boss fight: the line, the badge flag, the badge card, the line after it. Only the first boss also shows the chapter card
-// and sets the flag credits (the studio opens on it).
+// and sets the flag credits (the studio opens on it); only the last one (the Βουλή) rolls the credits and sets the flag ending.
 OverworldLayer.prototype.bossVictory = async function (trainerId) {
   const victory = TRAINERS[trainerId].victory;
   await say(victory.win2);
@@ -5742,11 +6002,20 @@ OverworldLayer.prototype.bossVictory = async function (trainerId) {
   await openLayer(new BadgeLayer(victory.title, victory.sub, victory.ribbon));
   await say(victory.win3);
   Sound.play(this.map.music);
+  if (victory.credits) { await this.finale(); return; }
   if (!victory.chapterCard) return;
   await openLayer(new ChapterLayer()); // the full credits roll plays after the Βουλή (MZ-WORLD-02g)
   G.flags.credits = true; // the flag keeps its name: the studio opens on it, as in the old saves
   Sound.play(this.map.music);
   await say('credits.after');
+};
+// The end of the game (MZ-WORLD-02g, section 11.5): the full credits roll, then the flag ending is set, the plenary hall empties (its people carry hideFlag ending, the legend showFlag ending)
+// and the player stands on the roof, where the café counter can save the game with its ending.
+OverworldLayer.prototype.finale = async function () {
+  await openLayer(new CreditsLayer());
+  G.flags.ending = true;
+  await this.teleport({ map: 'parliament_roof', x: 4, y: 5, dir: 'up' });
+  await say('ending.roof');
 };
 OverworldLayer.prototype.runEvent = async function (eventId) {
   if (eventId === 'rival1') {
@@ -6313,6 +6582,7 @@ function drawMapPlaces(g, world) {
     if (node.kind === 'door') { // the Parliament: a purple square with a gold frame
       g.fillStyle = COLOR.gold; g.fillRect(cx - 4, cy - 4, 9, 9);
       g.fillStyle = MAP_COLOR.door; g.fillRect(cx - 3, cy - 3, 7, 7);
+      if (state === 'visited') { g.fillStyle = '#ffffff'; g.fillRect(cx - 1, cy - 1, 3, 3); } // entered: a white dot in the middle
       continue;
     }
     g.fillStyle = COLOR.ink; g.fillRect(cx - 3, cy - 3, 7, 7);
@@ -6372,7 +6642,8 @@ function mapInfoLines(world, nodeId, sheet) {
   const levels = T('map.levels', { lo: district.levels[0], hi: district.levels[1] });
   if (!sheet) {
     const has = (node.has || []).map(function (key) { return T('world.has.' + key); }).join(', ');
-    return [T('world.' + nodeId) + ' · ' + T(district.nameKey), has + ' · ' + levels, T('map.keys')];
+    const placeLevels = node.levels ? T('map.levels', { lo: node.levels[0], hi: node.levels[1] }) : levels; // the Βουλή has its own range
+    return [T('world.' + nodeId) + ' · ' + T(district.nameKey), has + ' · ' + placeLevels, T('map.keys')];
   }
   const boss = TRAINERS[district.bossTrainer] ? TRAINERS[district.bossTrainer].name : '???';
   const species = districtSpecies(district.id);
@@ -8614,8 +8885,8 @@ async function selfTest() {
       check('the east edge of Σύνταγμα leads up to the Hill', await arrive('lycabettus', 10, 14), world.mapId + ' ' + world.px + ',' + world.py);
       Input.inject('down', 12);
       check('the Hill leads back down to Σύνταγμα', await arrive('syntagma', 28, 6), world.mapId + ' ' + world.px + ',' + world.py);
-      // The shut door of the parliament: a solid tile with a sign, no way in yet (MZ-WORLD-02g).
-      check('the door of the parliament is solid, has no warp and carries a sign', tileDef(MAPS.syntagma, 14, 4).solid && !findWarp(MAPS.syntagma, 14, 4) && !!MAPS.syntagma.signs['11,5'] && MAPS.syntagma.signs['14,4'] === 'sign.syntagma.parliament', 'door');
+      // The door of the parliament: a formal door with a warp that needs the sixth badge, and the sign beside it (MZ-WORLD-02g; the walk through it is in the group 'parliament').
+      check('the door of the parliament is a warp that needs the sixth badge, with a sign beside it', !tileDef(MAPS.syntagma, 14, 4).solid && !!findWarp(MAPS.syntagma, 14, 4) && findWarp(MAPS.syntagma, 14, 4).needFlag === 'badge_athina' && MAPS.syntagma.signs['11,5'] === 'sign.syntagma.parliament', 'door');
       // Every new map paints the screen, and the new creature has a sprite.
       const paintsScreen = function () {
         renderFrame();
@@ -8751,6 +9022,200 @@ async function selfTest() {
       }
       OPT.lang = language;
       check('the Assembly Medal texts and the names of the new maps fit in both languages', tooWide.length === 0, tooWide.join(','));
+    });
+    await guard('parliament', async function () {
+      if (!G) throw new Error('no game');
+      const world = layers.find(function (l) { return l instanceof OverworldLayer; });
+      const topLayer = function () { return layers[layers.length - 1]; };
+      const settle = function () { return pumpUntil(function () { return !world.busy && topLayer() === world; }, 600, null, 1); };
+      const arrive = function (mapId, x, y) { return pumpUntil(function () { return world.mapId === mapId && world.px === x && world.py === y && Fade.alpha === 0 && !world.busy; }, 400, null, 1); };
+      // walks one step from (x, y) of a map and says where the player is afterwards
+      const walkFrom = async function (mapId, x, y, dir) { world.loadMap(mapId, x, y, dir); await settle(); Input.inject(dir, 12); await pumpFrames(30); };
+      // The door on the square: shut without the sixth badge, open with it.
+      delete G.flags.badge_athina; delete G.flags.t_euterpe; delete G.flags.t_minister; delete G.flags.t_rival6; delete G.flags.ending;
+      await walkFrom('syntagma', 14, 5, 'up');
+      check('Σύνταγμα: the door of the Βουλή is shut without the Assembly Medal', world.mapId === 'syntagma' && world.px === 14 && world.py === 5, world.mapId + ' ' + world.px + ',' + world.py);
+      G.flags.badge_athina = true;
+      world.loadMap('syntagma', 14, 5, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('with the Assembly Medal the door leads into the lobby', await arrive('parliament_lobby', 6, 8), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      check('the lobby leads back out to the square', await arrive('syntagma', 14, 5), world.mapId + ' ' + world.px + ',' + world.py);
+      // The chambers open one after the other; each leads back to the lobby.
+      world.loadMap('parliament_lobby', 2, 1, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('the first chamber (Ευτέρπη) is open at once', await arrive('parliament_c1', 5, 7), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      check('the first chamber leads back to the lobby', await arrive('parliament_lobby', 2, 1), world.mapId + ' ' + world.px + ',' + world.py);
+      await walkFrom('parliament_lobby', 5, 1, 'up');
+      check('the studio is shut until Ευτέρπη is beaten', world.mapId === 'parliament_lobby' && world.py === 1, world.mapId + ' ' + world.px + ',' + world.py);
+      G.flags.t_euterpe = true;
+      world.loadMap('parliament_lobby', 5, 1, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('the studio opens once she is beaten, and leads back', await arrive('parliament_c2', 5, 7), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      await arrive('parliament_lobby', 5, 1);
+      await walkFrom('parliament_lobby', 8, 1, 'up');
+      check('the phone lounge is shut until Σπυράδωνις is beaten', world.mapId === 'parliament_lobby' && world.py === 1, world.mapId + ' ' + world.px + ',' + world.py);
+      G.flags.t_minister = true;
+      world.loadMap('parliament_lobby', 8, 1, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('the phone lounge opens once he is beaten, and leads back', await arrive('parliament_c3', 5, 7), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      await arrive('parliament_lobby', 8, 1);
+      await walkFrom('parliament_lobby', 11, 1, 'up');
+      check('the plenary hall is shut until Μπέμπης is beaten', world.mapId === 'parliament_lobby' && world.py === 1, world.mapId + ' ' + world.px + ',' + world.py);
+      G.flags.t_rival6 = true;
+      world.loadMap('parliament_lobby', 11, 1, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('the plenary hall opens once he is beaten, and leads back', await arrive('parliament_plenary', 7, 10), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      await arrive('parliament_lobby', 11, 1);
+      await walkFrom('parliament_plenary', 14, 1, 'up');
+      check('the door of the roof is locked until the credits have rolled', world.mapId === 'parliament_plenary' && world.py === 1, world.mapId + ' ' + world.px + ',' + world.py);
+      G.flags.ending = true;
+      world.loadMap('parliament_plenary', 14, 1, 'up');
+      await settle();
+      Input.inject('up', 12);
+      check('with the ending the door leads up to the roof, and the roof leads back down', await arrive('parliament_roof', 4, 6), world.mapId + ' ' + world.px + ',' + world.py);
+      Input.inject('down', 12);
+      check('the stairs of the roof lead back to the plenary hall', await arrive('parliament_plenary', 14, 1), world.mapId + ' ' + world.px + ',' + world.py);
+      delete G.flags.ending; delete G.flags.t_rival6; delete G.flags.t_minister; delete G.flags.t_euterpe;
+      // Every new map paints the screen, and the legend has a sprite, and so have the four new tiles.
+      const paintsScreen = function () {
+        renderFrame();
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let lit = 0;
+        for (let i = 0; i < pixels.length; i += 16) if (pixels[i] !== 0 || pixels[i + 1] !== 0 || pixels[i + 2] !== 0) lit++;
+        return lit > pixels.length / 16 * 0.25;
+      };
+      const painted = [];
+      for (const [mapId, x, y] of [['parliament_lobby', 6, 6], ['parliament_c1', 5, 6], ['parliament_c2', 5, 6], ['parliament_c3', 5, 6], ['parliament_plenary', 7, 8], ['parliament_roof', 4, 5]]) {
+        world.loadMap(mapId, x, y, 'up');
+        await settle();
+        await pumpFrames(2);
+        if (!paintsScreen()) painted.push(mapId);
+      }
+      check('the six maps of the Βουλή paint the screen', painted.length === 0, painted.join(','));
+      const noSprite = ['ilithiokratia'].filter(function (id) { const sprite = creatureSprite(id); return !sprite || sprite.width < 16; });
+      check('the legend of the plenary hall has a sprite', noSprite.length === 0, noSprite.join(','));
+      const noTile = ['Δ', 'Θ', 'Φ', 'Ξ'].filter(function (char) { return !tileSprites[char]; });
+      check('the four tiles of the parliament have sprites', noTile.length === 0, noTile.join(','));
+      // The doctor of the lobby heals the team, becomes the return point and takes no envelope; the chambers have nobody who heals.
+      world.loadMap('parliament_lobby', 2, 5, 'up');
+      await settle();
+      const lead = G.party[0];
+      lead.hp = 1; G.bag.fakelaki = 3;
+      G.lastHeal = { map: 'hospital', x: 5, y: 7, dir: 'up' };
+      Input.inject('a', 2);
+      const healed = await pumpUntil(function () { return !world.busy && lead.hp === maxHp(lead); }, 1800, 'a', 6);
+      check('the doctor of the lobby heals the team and the lobby becomes the black-out spot', healed && G.lastHeal.map === 'parliament_lobby' && G.lastHeal.x === 5 && G.lastHeal.y === 7, JSON.stringify(G.lastHeal));
+      check('the doctor of the lobby takes no envelope (no VIP service, the Φακελάκια stay in the bag)', G.bag.fakelaki === 3, G.bag.fakelaki);
+      check('only the lobby has someone who heals, and only the roof a café counter', ['parliament_c1', 'parliament_c2', 'parliament_c3', 'parliament_plenary', 'parliament_roof'].every(function (id) { return !MAPS[id].npcs.some(function (npc) { return npc.kind === 'heal'; }); }) && MAPS.parliament_roof.npcs.some(function (npc) { return npc.kind === 'save'; }), 'heal');
+      // The fights, through the real code: six boosted creatures at the level cap, so the fight's result does not depend on the player's luck. Each win sets its flag; only the last gives the badge and the credits.
+      const strongParty = function () {
+        G.party.length = 0;
+        for (const speciesId of ['despotakis', 'yperypourgos', 'matanthropos', 'despotakis', 'yperypourgos', 'matanthropos']) G.party.push(makeMon(speciesId, 50, 3));
+      };
+      let foeMarked = false; // a boost mark on a creature of the fighters (the player's own creatures here carry a boost so the result does not depend on luck; none of the four fighters has one)
+      const fight = async function (mapId, npcId, x, y) {
+        world.loadMap(mapId, x, y, 'up');
+        await settle();
+        strongParty();
+        const fighter = world.visibleNpcs().find(function (npc) { return npc.def.id === npcId; });
+        const seen = { badge: false, card: false, credits: false, foeLast: null, mark: false, finished: false };
+        world.busy = true;
+        world.challenge(fighter, false).then(function () { world.busy = false; seen.finished = true; });
+        await pumpUntil(function () {
+          seen.badge = seen.badge || layers.some(function (l) { return l instanceof BadgeLayer; });
+          seen.card = seen.card || layers.some(function (l) { return l instanceof ChapterLayer; });
+          seen.credits = seen.credits || layers.some(function (l) { return l instanceof CreditsLayer; });
+          for (const l of layers) if (l instanceof BattleLayer) { seen.foeLast = l.battle.sides[1].party[l.battle.sides[1].party.length - 1].sp; seen.mark = seen.mark || l.views[1].boostMark > 0; }
+          return seen.finished;
+        }, 24000, 'a', 6);
+        foeMarked = foeMarked || seen.mark;
+        return seen;
+      };
+      G.money = 0; G.starter = 'psaltak'; delete G.flags.credits; delete G.flags.badge_final; delete G.flags.ending;
+      let seen = await fight('parliament_c1', 'euterpe', 5, 4);
+      check('fight 1 through the UI: Ευτέρπη is beaten, the flag t_euterpe, the prize 46 x 30, no badge, no chapter card, no credits', seen.finished && G.flags.t_euterpe === true && G.money === 1380 && !seen.badge && !seen.card && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
+      seen = await fight('parliament_c2', 'minister', 5, 4);
+      check('fight 2 through the UI: Σπυράδωνις is beaten, the flag t_minister, no badge, no credits', seen.finished && G.flags.t_minister === true && G.money === 1380 + 1410 && !seen.badge && !seen.credits && !G.flags.ending, JSON.stringify(seen) + ' ' + G.money);
+      seen = await fight('parliament_c3', 'rival6', 5, 6);
+      check('fight 3 through the UI: Μπέμπης ends with the last form of his starter (psaltak: Κομματάκι, his last form Υπερυπουργός), the flag t_rival6, no badge, no credits', seen.finished && seen.foeLast === 'yperypourgos' && G.flags.t_rival6 === true && !seen.badge && !seen.credits && !G.flags.ending, JSON.stringify(seen));
+      check('no fighter of the first three fights shows a boost mark (only the last one has a small boost)', !foeMarked && TRAINERS.euterpe.boost === undefined && TRAINERS.minister.boost === undefined && TRAINERS.rival6.boost === undefined && TRAINERS.undersec.boost === 1.03, JSON.stringify(seen));
+      seen = await fight('parliament_plenary', 'undersec', 7, 4);
+      check('fight 4 through the UI: the badge card, the credits roll, no chapter card, the flags t_undersec, badge_final and ending, the flag credits untouched', seen.finished && seen.badge && seen.credits && !seen.card && G.flags.t_undersec === true && G.flags.badge_final === true && G.flags.ending === true && !G.flags.credits, JSON.stringify(seen) + ' ' + G.flags.ending);
+      check('after the credits the player stands on the roof, and the prize of the last fight is 50 x 30', world.mapId === 'parliament_roof' && world.px === 4 && world.py === 6 && G.money === 1380 + 1410 + 1440 + 1500, world.mapId + ' ' + world.px + ',' + world.py + ' ' + G.money);
+      // The ending: the plenary hall is empty but for the legend, who is met at level 50 and is gone once beaten; the roof saves the game with its ending.
+      world.loadMap('parliament_plenary', 7, 4, 'up');
+      await settle();
+      const here = world.visibleNpcs().map(function (npc) { return npc.def.id; });
+      check('after the ending the plenary hall is empty: Ο Υφυπουργός, his assistant and the members are gone, Ηλιθιοκρατία stands there alone', here.length === 1 && here[0] === 'ilithiokratia', here.join(','));
+      strongParty();
+      G.starter = 'komma';
+      delete G.flags.legend_ilithiokratia; delete G.dex.seen.ilithiokratia;
+      const legend = world.visibleNpcs().find(function (npc) { return npc.def.id === 'ilithiokratia'; });
+      let legendFinished = false; let sawBattle = false; let sawMark = false;
+      world.busy = true;
+      world.legendEncounter(legend).then(function () { world.busy = false; legendFinished = true; });
+      await pumpUntil(function () {
+        for (const l of layers) if (l instanceof BattleLayer && l.battle.kind === 'wild' && l.battle.sides[1].party[0].sp === 'ilithiokratia' && l.battle.sides[1].party[0].lv === 50) { sawBattle = true; sawMark = sawMark || l.views[1].boostMark > 0; }
+        return legendFinished;
+      }, 12000, 'a', 6);
+      check('the legend: a wild battle at level 50 with the boost mark shown, then the flag legend_ilithiokratia, it is gone and the dossier knows it', legendFinished && sawBattle && sawMark && G.flags.legend_ilithiokratia === true && world.visibleNpcs().length === 0 && G.dex.seen.ilithiokratia === true, [legendFinished, sawBattle, sawMark, G.flags.legend_ilithiokratia, world.visibleNpcs().length, G.dex.seen.ilithiokratia].join(' '));
+      world.loadMap('parliament_roof', 6, 3, 'up');
+      await settle();
+      delete Store.memory[SAVE_KEY];
+      Input.inject('a', 2);
+      const savedOnRoof = await pumpUntil(function () { return !world.busy && Store.memory[SAVE_KEY] !== undefined; }, 1800, 'a', 6);
+      const reloaded = savedOnRoof ? migrateSave(JSON.parse(Store.memory[SAVE_KEY])) : null;
+      check('the café counter of the roof saves the game with its ending (a reload stands on the roof with the flags ending and badge_final)', !!reloaded && reloaded.player.map === 'parliament_roof' && reloaded.flags.ending === true && reloaded.flags.badge_final === true && reloaded.flags.legend_ilithiokratia === true, String(savedOnRoof));
+      // The map shows the Βουλή: a door that is told about with the sixth badge, visited once entered, with its own level range; the marker stands on it inside.
+      const openMap = async function () { MIZAMON.press('map', 2); await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1); await pumpFrames(3); return topLayer(); };
+      const closeMap = async function () { Input.inject('b', 2); await settle(); };
+      G.world.visited = {}; G.world.routes = {}; G.world.seen = {}; G.world.stops = {};
+      delete G.flags.badge_athina;
+      world.loadMap('syntagma', 14, 6, 'up');
+      await settle();
+      let screen = await openMap();
+      const hiddenWithout = placeState(G.world, 'parliament') === 'hidden' && !worldCandidates(G.world).includes('parliament');
+      await closeMap();
+      G.flags.badge_athina = true;
+      world.loadMap('syntagma', 14, 6, 'up');
+      await settle();
+      screen = await openMap();
+      const toldAbout = placeState(G.world, 'parliament') === 'seen' && worldCandidates(G.world).includes('parliament');
+      check('on the map the Βουλή is not drawn before the Assembly Medal and is told about (a hollow door) with it', hiddenWithout && toldAbout, hiddenWithout + ' ' + toldAbout);
+      await closeMap();
+      world.loadMap('parliament_lobby', 6, 6, 'up');
+      await settle();
+      screen = await openMap();
+      for (let i = 0; i < 10 && screen.cursor !== 'parliament'; i++) { Input.inject('up', 2); await pumpFrames(3); }
+      check('inside the Βουλή the marker stands on its door, the place is visited, the cursor reaches it and the info line shows its own levels 44-50', screen.marker.id === 'parliament' && !screen.marker.onRoute && placeState(G.world, 'parliament') === 'visited' && screen.cursor === 'parliament' && screen.lines[1].indexOf('44-50') >= 0, screen.cursor + ' ' + (screen.lines ? screen.lines[1] : ''));
+      check('the district of Αθήνα keeps its own levels 38-44 on its sheet and is cleared with the Assembly Medal', districtState(G.world, 'athina') === 'cleared' && mapInfoLines(G.world, 'syntagma', false)[1].indexOf('38-44') >= 0 && mapInfoLines(G.world, 'parliament', false)[1].indexOf('44-50') >= 0, mapInfoLines(G.world, 'syntagma', false)[1]);
+      await closeMap();
+      // The texts fit: the final badge, the six map names and every line of the credits in both languages.
+      const language = OPT.lang;
+      const tooWide = [];
+      ctx.font = FONT;
+      for (const lang of ['el', 'en']) {
+        for (const key of ['badge.final.title', 'badge.final.sub']) if (ctx.measureText(lookupString(key, lang)).width > 232) tooWide.push(lang + ' ' + key);
+        for (const mapId of Object.keys(MAPS)) if (/^parliament/.test(mapId) && ctx.measureText(lookupString(MAPS[mapId].name, lang)).width > 232) tooWide.push(lang + ' ' + mapId);
+        for (const line of lookupString('credits.text', lang).split('\n')) if (ctx.measureText(line).width > 232) tooWide.push(lang + ' credits: ' + line);
+        if (ctx.measureText(lookupString('sp.ilithiokratia', lang)).width < 1) tooWide.push(lang + ' sp.ilithiokratia');
+      }
+      OPT.lang = language;
+      check('the final badge texts, the names of the six maps and every line of the credits fit in both languages', tooWide.length === 0, tooWide.join(','));
+      const creditsLayer = new CreditsLayer();
+      creditsLayer.onEnter();
+      check('the credits screen splits its lines once, starts with the title and lists the facts of this game', creditsLayer.lines[0] === 'MIZAMON' && creditsLayer.lines.length > 12 && creditsLayer.lines.some(function (line) { return line.indexOf('Σάτιρα') === 0 || line.indexOf('Satire') === 0; }), creditsLayer.lines.length);
+      Sound.play(MAPS.parliament_roof.music);
     });
     await guard('map touch button', async function () {
       // The ΧΑΡΤΗΣ pill: shown, inside the window, off the game picture and clear of every other button (checked in the layout this window has).
