@@ -6928,6 +6928,151 @@ Words: the **stance** is P18-62's prepared state (`swayReady`), now timed; to **
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
 
+### P19-16 felt stamina, decided (2026-11-14)
+
+- Task: BP-P19-16 (DECIDE part; the build follows after review). Owner (2026-11-13, 18:09; verbatim in the tracking repo, `Breakpoint/tasks/BP-P19-16.json`): "Also low and depleted stamina should be a little less lenient to allow the players r feel that stamina depletion affects the fight without making the game difficult or unplayable". Rule: keep things balanced. Decided by the coordinator's delegate under the Owner's standing go; the Owner can change any number (the free choices are at the end). This task changed no game code, test or fingerprint.
+- Base: `main` with P19-13 built (ab14511; the tree at 1643a17, game unchanged since). Every number is a headless P0-06 run (the inline script in the stub harness, real `MatchSim`, real `AIController`; the P18-61 and P19-13 probe library `pl.js`, which now also counts the bands) of a scratch copy of that script with the candidate patched in by a throw-away script (`mkp16.js`, text replacements on the extract, never the repo). Scripts, result lines, parameter notes and table printers are in the tracking repo, `Breakpoint/docs/p19-16-probes/` (a README says how to rebuild). Cells: KAI (Block) against MARA on the Warehouse, evenDamage off (the people's side gets the stamina edge of the difficulty), seeds 1 to 200 for today and the finalists, 60 for the search. **F0** = short duel (Health Normal), **F1** = long duel (Health Double, the P18-61 duel), **A3** = the Arcade proxy: three CPU enemies with the Survival group rule (`survival: true`: the enemies' health x 0.33 and damage x 0.7, the rule of a 1v3 Arcade brawl; this is the row P14-01 used, there is no stage-by-stage Arcade runner in the kit, so the proxy stands for Arcade Easy and Normal). Scripts: **Press** (the P18-33 player script: walks in, one press every 20+ ticks, guards 65 % of the strikes it sees, rests under 25 % until 55 %), **Skilled** (Press that presses Defend 4 ticks before each strike: a perfect block), **Mash** (a press every 6 ticks, never guards, never rests), **CPU** (KAI played by the AI at the level; the foe columns of the other rows are the CPU's own tank). Bands (exclusive): Winded 25 to 50 %, Tired 10 to 25 %, Spent above 0 and under 10 %, Empty exactly 0; "under 25 %" = Tired + Spent + Empty = the LOW STAMINA state.
+
+#### 1. Today, measured (the Press player lives in Winded; Tired is a visit; Spent is rare; only Mash lives empty)
+
+- **Time.** The Press script spends 49 to 51 % of a long duel Winded, 10 to 12 % Tired, 1 to 3 % Spent and 0.2 to 0.8 % empty: under 25 % for 11.4 / 13.8 / 15.3 % of the fight at Easy / Normal / Hard (F1; 10.1 / 11.3 / 15.8 % in the Arcade proxy; 4.7 / 7.4 / 9.6 % in the short duel). The Skilled script is under 25 % for 4.6 to 7.1 % (it never rests and rarely spends), the Mash script for 64 to 90 % (Spent and Empty: 52 + 35 % at Easy), the CPU (KAI played by the AI) for 0 / 0.8 / 31 % (Easy and Normal CPUs never run low; Hard and Expert do, as P18-52 decided). The CPU foe of a script fight is under 25 % for 0 / 0.2 / 21 % and Spent for 0 to 2.2 %: it rests when low.
+- **What a band does.** Damage a second of the Press script at Easy (F1): Fresh 8.2, Winded 6.5, Tired 3.1, Spent 0.8; Hard 5.2 / 3.0 / 1.2 / 0.3. Skilled Easy 8.7 / 7.4 / 4.0 / 2.6. The bands already take two thirds of the damage away in Tired; the cost to a player who paces is small because the Press script rests at 25 % (its whole-fight damage a second is 6.76 at Easy against 8.2 fresh) and rarely makes an empty-handed move (0 a minute), while the Mash script makes 60 a minute at Easy.
+- **So what is "too lenient" today.** (1) Tired costs a pacing player almost nothing but the damage of the moves it does not make; hits it takes cost it exactly as much as when it is fresh (a blocked hit costs the same stamina, a hit staggers it as long). (2) The empty-handed move is a harmless wasted button: x 0.35 damage, 4 ticks later, and the fighter is free again at once. (3) The Mash script wins 85 % of the Easy long duel and 100 % of the Easy short one with a tank that is empty 35 % of the time: Easy and Normal let a person mash through an empty tank, which is the thing the Owner calls lenient.
+
+#### 2. The search (60 seeds a cell; win % of the script; the cells that discriminate)
+
+Levers (all on the bands, nothing else of the stamina rules): **A** every band harsher, Winded too (x 0.88 / 1.10 / 0.96); **A2** the same below Winded only (Tired x 0.50 damage, 1.50 slower, walk 0.88, refill 0.80; Spent x 0.30, 1.70, 0.82, 0.65); **BE** the empty-handed move (x 0.30, +6 ticks startup) and a **stumble** (+8 recovery ticks after a move paid from an empty tank); **C** a weaker guard and a longer stagger when low (a blocked hit costs x 1.3 / 1.6 in Tired / Spent, hit stun and stagger x 1.15 / 1.30); **D** more damage taken (x 1.1 / 1.25); **E** a slower refill (wait after an attack +12 ticks while under 25 %, refill x 0.7 / 0.55); **G2** = A2 + C + BE; **H2** = G2 + E; **F2** = G2 + D + the Sway slip +1 / +2 in Tired / Spent.
+
+| Candidate | Mash F1 Easy | Mash F0 Easy | Mash A3 Normal | Press F1 Hard | Press A3 Normal | Press under 25 % F1 Easy / Hard | CPU (KAI) F0 Hard |
+|---|---|---|---|---|---|---|---|
+| today (S60) | 85 | 100 | 68 | 42 | 100 | 11.0 / 16.0 | 57 |
+| A | 35 | 95 | 40 | 42 | **95** | 11.6 / 17.8 | **42** |
+| A2 | 42 | 93 | 45 | 40 | **95** | 11.9 / 17.2 | 53 |
+| BE | 58 | 98 | 42 | 42 | 100 | 11.0 / 16.0 | 57 |
+| C | 73 | 98 | 68 | **28** | **95** | 11.7 / 17.3 | 45 |
+| D | 52 | 92 | 48 | 42 | 100 | 11.0 / 16.0 | 57 |
+| E | 70 | 98 | 70 | 35 | 97 | 13.2 / 19.6 | 60 |
+| G2 | 12 | 77 | 20 | 32 | 97 | 12.2 / 18.4 | 52 |
+| H2 | 13 | 72 | 20 | 27 | 97 | 13.0 / 18.6 | 55 |
+| F2 | 3 | 60 | 7 | 37 | 95 | 12.2 / 17.4 | 52 |
+
+Read (60 seeds are about +/- 6 points; every row used is re-run at 200 below): (1) **BE costs the Press script nothing** (it never makes an empty-handed move: identical to today, to the last digit) and takes the Mash script from 85 to 58 alone, so it is the lever that separates the careless spender from the pacer. (2) **The bands below Winded** (A2) do most of the rest (Mash 85 to 42) and leave the Press script's Easy cells at 100 (Arcade Normal 100 to 95 at 60 seeds, 98 to 97 at 200 in the pick); **harsher Winded** (A) adds to that only what it costs the CPU played as a person (the short Hard duel 57 to 42) and every Press exchange (the Press player lives in Winded for 49 % of the fight): rejected, because the Owner asked for "a little". (3) **C hits the pacing player hardest** (Press Hard 42 to 28, Arcade Normal 95) because the Press script guards, and moves Mash only 85 to 73: the guard and stagger levers are kept but small (see section 3). (4) **E, a slower refill, adds nothing the others do not**: Mash 85 to 70, Press under 25 % 19.6 % at Hard (near the 20 % ceiling); dropped (H2 = G2 within noise). (5) **D and the Sway surcharge** (F2): D alone moves Mash 85 to 52 and nothing else, the Sway slip surcharge was probed on a Sway body at 200 seeds (Sway-Press Hard 75 to 69 with G2, 71 with the surcharge, Sway-Hold 63 to 58 both: noise); neither is needed, so a Sway pays what it pays today. (6) **Winded stays as it is**: it is the band every player passes through, the HUD and the Coach already name it, and the target "a little less lenient" is met below it.
+
+#### 3. The pick: M2 = the bands below Winded, a small guard and stagger lever, an empty-handed move that stumbles
+
+Plain words: nothing changes above a quarter of the tank. Under it a fighter hits softer, swings slower and walks slower than today, its refill is slower, a blocked hit costs it more and a hit that lands staggers it a little longer. A move that the tank cannot pay is weaker still, starts later and leaves the fighter stumbling for a moment afterwards. A player who rests at a quarter never sees the stumble; a player who mashes through an empty tank sees it on every press.
+
+| | Winded (25 to 50 %) | Tired (10 to 25 %) | Spent (under 10 %, empty included) | An unpaid move |
+|---|---|---|---|---|
+| damage dealt | x 0.90 (as today) | x 0.60 > **x 0.50** | x 0.40 > **x 0.30** | at most x 0.35 > **x 0.30** |
+| startup and recovery | x 1.08 | x 1.40 > **x 1.50** | x 1.60 > **x 1.70** | startup +4 > **+6**, recovery **+8 ticks (new, "the stumble")** |
+| walk | x 0.97 | x 0.90 > **x 0.88** | x 0.85 > **x 0.82** | |
+| refill | x 1 | x 0.85 > **x 0.80** | x 0.75 > **x 0.65** | |
+| a blocked hit costs (new) | x 1 | **x 1.15** | **x 1.35** | |
+| hit stun and stagger of a hit that lands (new) | x 1 | **x 1.15** | **x 1.30** | |
+
+Everything else of P18-52 stays: the prices, the waits (24, 40), the edge by difficulty, the Sway slip 5 / 6 / 8, the empty tank's lock on running and sidestepping (50 ticks), the Sway that fails like a broken guard, the CPU's rules. A perfect block or Sway still pays nothing and refunds the same; a knock-down or launch keeps its flight (only HIT and STAGGER reactions stretch); a thrown-item block keeps its cost (rare, not probed).
+
+Criteria of the brief against the numbers (200 seeds, today > decided):
+
+| Criterion | Result | Met? |
+|---|---|---|
+| a careless spender (Mash) loses noticeably more | Mash wins F1 Easy **85 > 16**, F0 Easy 100 > 75, F0 Normal 51 > 16, Arcade proxy Normal 69 > 23, Easy 100 > 97; damage dealt : taken 1.26 > 0.80 (F1 Easy), 1.46 > 1.10 (A3 Normal); the fight lasts 8 % longer (139.5 > 150.1 s at Easy) and the masher does 28 % less damage a second (3.45 > 2.49) | yes |
+| the Press script is under 25 % for 8 to 20 % of a fight | F1 11.4 > **12.1** / 13.8 > **14.9** / 15.3 > **17.4** (Easy / Normal / Hard); A3 10.1 > 10.2 / 11.3 > 12.5 / 15.8 > 18.1 | yes (the short duel F0 reads 4.7 > 5.4 at Easy: it is not the target fight, as in P18-61) |
+| Press win rate at Easy and Normal 1v1 and Arcade drops at most 5 points | F0 100 > 100 / 100 > 100; F1 100 > 100 / 99 > 99; A3 100 > 100 / 98 > **97** | yes (the largest drop is 1 point) |
+| the CPU rests when low as today | the CPU foe is under 25 % for 0.0 / 0.2 / 21.1 % today and 0.0 / 0.2 / 21.9 % decided, Spent 0 to 2.4 % both; the AI is untouched (no AI code changes; `lowStamina` still gates it) | yes |
+| the seat band stays 40 to 60 | through `SimRunner.run` (Hard, four pairings, 200 fights each, seat 0 wins): today 417 of 800 = 52.1 %, decided 428 of 800 = 53.5 % (Block mirror 112, Block against Sway 67, Sway against Block 142, Sway mirror 107 seat-0 wins of 200 each) | yes |
+| the game stays easy to play | Press, Skilled: no cell moved more than 5 points above Normal; at Hard the Press script loses 5 to 7 points (F1 40 > 35, A3 68 > 61), the CPU as a player 15 > 10 (F1) and 40 > 31 (A3): Hard and Expert are the P14-04 outliers, see the last section | yes at Easy and Normal; Hard flagged |
+
+Table 1 (share of the fight in each band, %, F1 long duel, 200 seeds; today > decided):
+
+| Script | Diff | Winded | Tired | Spent | Empty | under 25 % | CPU foe under 25 % |
+|---|---|---|---|---|---|---|---|
+| Press | easy | 48.6 > 48.6 | 10.4 > 10.9 | 0.8 > 1.0 | 0.2 > 0.2 | **11.4 > 12.1** | 0.0 > 0.0 |
+| Press | normal | 51.1 > 50.7 | 11.7 > 12.2 | 1.6 > 2.1 | 0.5 > 0.6 | **13.8 > 14.9** | 0.2 > 0.2 |
+| Press | hard | 50.9 > 48.7 | 11.6 > 12.5 | 2.9 > 3.7 | 0.8 > 1.2 | **15.3 > 17.4** | 21.1 > 21.9 |
+| Skilled | easy | 36.6 > 37.2 | 6.9 > 7.2 | 0.2 > 0.2 | 0.0 > 0.0 | **7.1 > 7.4** | 0.0 > 0.0 |
+| Skilled | normal | 28.2 > 28.5 | 4.4 > 4.9 | 0.2 > 0.3 | 0.0 > 0.0 | **4.6 > 5.2** | 0.3 > 0.5 |
+| Skilled | hard | 32.9 > 32.5 | 5.3 > 5.7 | 0.4 > 0.3 | 0.0 > 0.0 | **5.7 > 6.0** | 14.5 > 14.3 |
+| Mash | easy | 2.6 > 2.5 | 3.9 > 3.8 | 51.7 > 59.4 | 34.5 > 27.5 | **90.1 > 90.7** | 0.0 > 0.0 |
+| Mash | normal | 5.3 > 5.3 | 4.4 > 4.3 | 47.7 > 52.2 | 31.8 > 27.6 | **83.9 > 84.1** | 0.4 > 0.1 |
+| Mash | hard | 15.0 > 14.4 | 15.1 > 16.0 | 29.6 > 32.0 | 19.6 > 18.4 | **64.3 > 66.4** | 43.4 > 44.8 |
+| CPU (KAI as the CPU) | easy | 0.0 > 0.0 | 0.0 > 0.0 | 0.0 > 0.0 | 0.0 > 0.0 | **0.0 > 0.0** | 0.0 > 0.0 |
+| CPU (KAI as the CPU) | normal | 3.9 > 4.1 | 0.6 > 0.5 | 0.2 > 0.1 | 0.0 > 0.0 | **0.8 > 0.6** | 3.2 > 2.8 |
+| CPU (KAI as the CPU) | hard | 35.0 > 33.5 | 25.5 > 26.8 | 4.6 > 4.8 | 1.2 > 1.3 | **31.3 > 32.9** | 18.2 > 18.2 |
+
+Table 2 (damage a second dealt in each band; F1, 200 seeds):
+
+| Script | Diff | Fresh | Winded | Tired | Spent | all bands | damage taken a second |
+|---|---|---|---|---|---|---|---|
+| Press | easy | 8.2 > 8.1 | 6.5 > 6.5 | 3.1 > 2.3 | 0.8 > 0.6 | 6.76 > 6.56 | 2.04 > 2.09 |
+| Press | hard | 5.2 > 5.1 | 3.0 > 3.0 | 1.2 > 0.8 | 0.3 > 0.1 | 3.41 > 3.30 | 3.61 > 3.57 |
+| Skilled | easy | 8.7 > 8.6 | 7.4 > 7.3 | 4.0 > 3.0 | 2.6 > 2.2 | 7.85 > 7.72 | 1.83 > 1.89 |
+| Skilled | hard | 7.5 > 7.5 | 5.3 > 5.3 | 2.4 > 1.8 | 1.7 > 0.9 | 6.51 > 6.42 | 3.50 > 3.44 |
+| Mash | easy | 10.6 > 10.7 | 11.8 > 11.3 | 4.8 > 3.7 | 2.9 > 1.9 | 3.45 > 2.49 | 2.74 > 3.10 |
+| Mash | hard | 5.3 > 5.3 | 4.3 > 4.4 | 2.0 > 1.4 | 0.9 > 0.6 | 2.54 > 2.17 | 5.71 > 5.36 |
+
+Table 3 (win % of the script, 200 seeds, damage dealt : taken in brackets):
+
+| Fight | Script | Easy | Normal | Hard |
+|---|---|---|---|---|
+| F0 | Press | 100 > 100 (3.94 > 3.70) | 100 > 100 (2.32 > 2.13) | 60 > 54 (1.03 > 1.01) |
+| F0 | Skilled | 100 > 100 (4.43 > 4.54) | 100 > 100 (3.32 > 3.37) | 100 > 100 (1.73 > 1.87) |
+| F0 | Mash | 100 > 75 (2.15 > 1.26) | 51 > 16 (1.06 > 0.88) | 0 > 0 (0.54 > 0.53) |
+| F0 | CPU (KAI as the CPU) | 36 > 36 (0.88 > 0.88) | 14 > 14 (0.69 > 0.70) | 55 > 53 (1.09 > 1.08) |
+| F1 | Press | 100 > 100 (3.31 > 3.14) | 99 > 99 (1.81 > 1.72) | 40 > 35 (0.94 > 0.92) |
+| F1 | Skilled | 100 > 100 (4.28 > 4.09) | 100 > 100 (3.27 > 3.20) | 100 > 100 (1.86 > 1.87) |
+| F1 | Mash | 85 > 16 (1.26 > 0.80) | 1 > 0 (0.69 > 0.58) | 0 > 0 (0.44 > 0.40) |
+| F1 | CPU (KAI as the CPU) | 39 > 39 (0.89 > 0.89) | 11 > 9 (0.74 > 0.74) | 15 > 10 (0.84 > 0.79) |
+| A3 | Press | 100 > 100 (12.42 > 11.61) | 98 > 97 (3.28 > 3.17) | 68 > 61 (1.79 > 1.78) |
+| A3 | Skilled | 100 > 100 (14.48 > 14.49) | 100 > 100 (4.66 > 4.49) | 100 > 99 (3.36 > 3.19) |
+| A3 | Mash | 100 > 97 (3.83 > 2.27) | 69 > 23 (1.46 > 1.10) | 4 > 2 (0.92 > 0.74) |
+| A3 | CPU (KAI as the CPU) | 94 > 94 (2.95 > 2.95) | 74 > 73 (1.76 > 1.76) | 40 > 31 (1.37 > 1.29) |
+
+Table 4 (the empty-handed move; Mash, F1):
+
+| Script | Diff | empty-handed moves a min | fight s |
+|---|---|---|---|
+| Mash | easy | 60.4 > 48.4 | 139.5 > 150.1 |
+| Mash | normal | 48.4 > 42.4 | 103.5 > 102.9 |
+| Mash | hard | 19.6 > 15.5 | 81.6 > 86.9 |
+
+Why M2 and not G2 (the same with the guard lever at x 1.3 / 1.6 instead of x 1.15 / 1.35): the 200-seed rows are the same to the point in every Mash cell (the masher never guards) and within 2 points in the Press Hard cells (35 against 33, 61 against 62), so the stronger guard lever buys nothing the numbers can see; and it **breaks a rule test**: on a scratch copy of the tree the P3-10 test `Combos end for every move style's own strings` (every string looped against a guarding defender) fails at G2 (capoeira and taekwondo KKP against a guard: 62 damage in one lock against the 0.55 of a health bar the test allows) and passes at M2. M2 keeps both levers present but small.
+
+#### 4. The rule (everything BP-P19-16 needs; tick numbers are 60 a second)
+
+1. `STAMINA_BANDS` rows get two fields, `guard` (the multiplier of a blocked hit's stamina cost) and `stun` (the multiplier of hit stun and stagger duration), and the Tired and Spent rows the numbers of the table above; Fresh and Winded have 1 and 1.
+2. `Combat.blockHit`: `cost` is multiplied by `def.band.guard` (after every other factor; a shield, a perfect block and a guard break are as before: a hit that empties the tank still breaks the guard).
+3. `Combat.landHit`: `stun` is multiplied by `def.band.stun` before the stagger factor of 1.15 (`kind: 'stagger'`) and before it is rounded; a hit that launches or knocks down is not stretched.
+4. `EMPTY_MOVE_DAMAGE` 0.30, `EMPTY_MOVE_STARTUP` 6, and a new `STUMBLE_RECOVERY` 8: `startAttack` adds it to `mRecovery` when `exhaustedMove` (a move the tank could not pay; a move paid to the last point is not one).
+5. A getter `bandIndex` (an index loop over the four rows, no iterator) is added to `Fighter`; `band` returns `STAMINA_BANDS[this.bandIndex]`. The view code (pose, sound, HUD) reads `bandIndex`.
+
+#### 5. The look and the sound (draw and audio only; nothing here is read by the simulation, except the stumble ticks, which equal STUMBLE_RECOVERY and are read by nothing)
+
+Every cue must respect **Reduced motion** (`.reduced *` already switches every CSS animation and transition off; the pose code uses the `calm` factor 0.4) and **Effects Low** (no cue adds a particle or a flash: they are pose, sound and CSS, so Low changes nothing; a sweat-drop particle was left out for that reason). Per band:
+
+| Band | Pose | Animation speed | Breathing sound | HUD bar |
+|---|---|---|---|---|
+| Winded | the pant pose at 35 % as today (`tiredPose`) | as today (x 1.08) | as today (the breath from 35 %, the person's fighter only) | yellow with the tick marks, as today |
+| Tired | **slumped guard**: in BLOCK_H, BLOCK_L, IDLE and WALK the hands sag and the back rounds (`SLUMP_SHOULDER` 0.10 rad each shoulder, `SLUMP_LEAN` 0.10, `SLUMP_CHIN` 0.08) on top of the pant; held, so it stays under Reduced motion (the heave of the breath keeps its x 0.4 factor) | swings x 1.5 slower and walk x 0.88 (the sim's own speed: the attack animation is drawn from the move's own startup and recovery, so it is slower by itself; the idle heave runs at `PANT_HZ` x 1.15) | the breath, quicker (interval 1 / (PANT_HZ x 1.15) s) and 15 % louder, also while guarding | the amber dashed bar as today plus a slow pulse (CSS, opacity .75 to 1, 1.2 s; none under Reduced motion) |
+| Spent | the slump x 1.6, knees bent 0.06 more (`sink`), the head down | swings x 1.7 slower, walk x 0.82; the heave at `PANT_HZ` x 1.4 | the breath at x 1.4 with an `exhale` grunt (`VOICE_KINDS.effort`, gain 0.5) on every second breath | the red dashed bar, pulse 0.7 s (CSS; none under Reduced motion) |
+| Stumble | for the 8 recovery ticks: the torso leans on 0.30 and the knees give 0.25 (`stumbleTicks` counts down; drawn blended like the other holds, half of it under Reduced motion, never a shake) | the recovery itself is 8 ticks longer | a low scuff (`footfall` at gain x 0.6) and the `effort` voice at 0.6 of its gain, pitched down 12 %; once a stumble, through the existing `allow` limiter | the bar turns red for 0.4 s and the two-tone warning plays: the existing `lowStamina` event with `refused: true` (the Sway's "could not pay" cue, handled in the HUD listener at line 16853 and the Audio one at 15292) is emitted on the start of an unpaid move, at most once a second per fighter (`stumbleCueAt`), so a masher gets a steady cue, not a strobe; nothing new to style |
+
+What code each cue needs: (1) `Fighter.slumpPose(p, t)` next to `tiredPose` (about 12 lines, constants named above, `bandIndex` scales it 0 / 0 / 1 / 1.6), called from `computePose` for `TIRED_POSE_STATES` plus the two block states (`SLUMP_POSE_STATES`); attack poses never come through it, so the hit volumes and the joint limits are untouched (`attackPose` rule of P13-02). (2) `stumblePose`: the same function, reading `stumbleTicks`. (3) `Audio.frame`: the breath interval and gain from `bandIndex`, the loop also reaches BLOCK states; `breath(exhausted)` gets a `level`; the exhale uses `grunt(f, 'effort')`. (4) CSS: two `@keyframes` (`stPulse`, `stPulseFast`) on `.bar.st.low` and `.bar.st.spent`, nothing else. (5) `Events.emit('lowStamina', { f, refused: true })` in `startAttack` when `exhaustedMove` and 60 ticks have passed since the fighter's last such cue (the existing listeners: the Coach ignores `refused`, the HUD colours the bar, the Audio plays its warning through its own 0.5 s limiter). **Per-frame cost rule:** no allocations: `bandIndex` is an index loop and returns a number; the poses add constants to the existing joint array; the sound reuses the one timer `breathAt` and the `allow` limiter; the HUD classes are toggled only on a band change (the existing `staminaBand` cache) and the pulse is a compositor animation, not JavaScript. Touch, gamepad and keyboard: nothing in the cues needs an input; no new button, no new setting.
+
+#### 6. Build list for BP-P19-16
+
+- **Functions:** `STAMINA_BANDS` (two new fields, five new numbers), `EMPTY_MOVE_DAMAGE`, `EMPTY_MOVE_STARTUP`, a new `STUMBLE_RECOVERY` (also in `testApi()`'s list, next to line 20965), `Fighter.bandIndex` and `band`, `Fighter.startAttack` (recovery and the refused event), `Combat.blockHit` (cost), `Combat.landHit` (stun), `Fighter.slumpPose` and its call in `computePose`, `Audio.frame` and `Audio.breath`, `HUD.staminaBand` (unchanged: it already toggles winded / low / spent) and the CSS of `.bar.st`. The sim functions use `DMath` where they use a math function (none is added; the factors are products and a `Math.round` that is already there). The Training panel's `STAMINA` line keeps its band name; the Coach `stam` line stays. `Appendix C, "Exhaustion, graded"`: the table is replaced by the numbers above in the same change (the build edits the old table; this entry is the decision log).
+- **Self-tests** (names start `Stamina feel (P19-16):`; none may skip, weaken or delete an older test): (1) the bands read from a fighter at 60, 40, 20, 5 and 0 % of the tank: damage, startup, recovery, walk, refill, guard and stun factors are the table's; (2) a blocked hit costs the Tired and Spent factors and a perfect block pays nothing as before; a guard that the cost empties breaks; (3) a hit's stun and a stagger last the factor longer in Tired and Spent, and a launch or a knock-down is not stretched; (4) an unpaid move does at most x 0.30, starts 6 ticks later and recovers 8 ticks longer; a move paid to 0 is not a stumble and still hits at x 0.30 (the Spent row); (5) the CPU still rests: the AI scores a move it cannot pay at x 0.25 (`cost * 2 + 10`) and holds back under `lowStamina` (the existing tests stay; one new seeded fight reads the foe under 25 % as 21 %, plus or minus 4 points); (6) the scripts: the Press script is under 25 % for 8 to 20 % of the F1 duel at Easy, Normal and Hard, and the Mash script wins no more than 30 % of the Easy long duel in 24 seeds (the 200-seed number is 16 %); (7) the pose: the slump offsets are zero in Fresh and Winded, the table's values in Tired and Spent, never applied to an attack pose, and the heave is x 0.4 under Reduced motion while the slump stays; (8) the sound: the breath interval and gain by band, only for a person's fighter, and the exhale only in Spent; `bandIndex` returns the same row `band` returns and allocates nothing (the same object on 1000 calls); (9) the HUD classes: winded, low and spent as before, and the pulse style exists in the CSS with `.reduced` stopping it.
+- **Tests that change with the numbers** (re-recorded in the build, with the reason, never loosened; found by running the whole suite on a scratch copy of the tree with the decided numbers patched in: 875 of 901, the 18 known headless limits, 8 other failures, logs `Breakpoint/docs/p19-16-probes/results/logs/tests-M2all.txt`): `Stamina (P18-52): the bands at 60, 40, 20, 5 and 0 %` (the table of rows and the unpaid move: x 0.50 / 0.30 / 0.30, startup +6, recovery +8, plus the new guard and stun factors), `Stamina (P18-52): the refill ... and the refill factor of each band` (0.80 and 0.65), `Stamina (P18-33): the stamina numbers are the decided ones` (it lists `STAMINA_BANDS`, `EMPTY_MOVE_DAMAGE` and `EMPTY_MOVE_STARTUP`; **it fails on today's tree too in the headless runner** (the nine-test run `base9` shows it), so the build first finds why (the runner cuts the message at 500 characters) and the full Chrome run is the judge). The `staminaShares` tests (Press under 25 %, Mash dps) pass unedited. **Fingerprints that change, and why:** the seeded CPU-against-CPU fights of five tests have a fighter under 25 % of its tank for part of the fight (a Hard CPU is under 25 % for about a third of one), so the harder bands change their event logs: `N fighters: three seeded 1v1 matches ...` (seeds 1 and 3: 73:1sl77bi > 76:yz6vvb and 89:l9wfji > 92:z089gb; seed 2, 89:1w9cmgc, is unchanged), `Accessibility (P18-27): ... the three recorded 1v1 fights` (the same two hashes, with the assists Off and with the CPU-only match), `Levels: the engine of P8 ...` (the same two again; 88:hld9e9 unchanged), `Balance (P9): three seeded 1v1 matches with the ring, hazards and items on` (all three: 119:wo082g > 59:1ocm8a7, 66:1kn1vec > 112:x2lynm, 75:1pifewr > 121:591inn) and `Effect settings (P13-03): ...` (it reads the first P9 hash, so it follows it: 119:wo082g > 59:1ocm8a7). Each hash is re-recorded in the build only after the same fight is replayed once with the old numbers and once with the new and the two event logs are compared: they must agree up to the first tick a fighter's tank is under 25 % and differ only after it (a log that differs earlier would be a bug, not a re-recording). `Combos end for every move style's own strings` passes at the decided numbers (it failed with a stronger guard lever, see the pick). No hash is edited to make a test pass without that check.
+- **P0-04 benchmark** unchanged: the cues add three constants to one pose function and one timer branch; no new draw call, no new texture.
+
+#### 7. What moves to BP-P14-03 / BP-P14-04, and what the Owner can change
+
+- **Moves to BP-P14-03 (the testing plan) and BP-P14-04 (run the plan, fix outliers by data):** the P14-01 group ladder row and the Hard and Expert win rates are measured today and again after the build, in the plan, not re-tuned here: at Hard the Press script wins 5 to 7 points fewer fights (F1 40 > 35, Arcade proxy 68 > 61) and the CPU played as a person 15 > 10 and 40 > 31, because the harder bands reach every fighter that runs low (Hard and Expert CPUs spend 30 to 47 % of a fight under 25 %). If P14-04 finds Hard or Expert out of its band, the lever is the CPU's damage or its stamina edge there, not these bands. The anti-mash CPU of BP-P18-73 reads the Mash script, whose numbers are in Table 3.
+- **Free choices (the Owner can change any of them):** (a) the Tired and Spent damage (x 0.50 / 0.30: the Owner's own example numbers, tried as the search lever A2); (b) the guard and stun factors (1.15 / 1.35 and 1.15 / 1.30: G2's 1.3 / 1.6 is the stronger version, 200 seeds measured it within 3 points of M2); (c) Winded harsher (A: costs the Press script 5 points in the Arcade Normal row); (d) the stumble length (8 ticks, 0.13 s); (e) a slower refill (E, adds nothing measurable); (f) damage taken x 1.1 / 1.25 when low (D: Mash 85 > 52 alone, nothing else moves); (g) the Sway slip surcharge in Tired and Spent (measured as noise on a Sway body).
+- **Open:** the cues are decided here, not seen on a screen; BP-P19-16's build checks the slump, the breath and the pulse in a browser at 390x844 and 844x390 and with Reduced motion on, and may tune the pose constants (they are draw-only) without a new decision.
+
 ### BP-P19-11 online audit (2026-11-13)
 
 - Owner, 2026-11-13 (verbatim): "Also the multiplayer with the two codes is very unintuitive and causes friction,doesnt work? Audit and fix all issues for multiplayer i want to be able to show it to my friends". Audit only: no game file changed (base `a20682a`, branch `bp-p19-11-online-audit`); the fixes are BP-P19-12, the decision is in Appendix C ("BP-P19-11 online one-code design, decided") and its full spec in "One-code design" below. Result: 24 findings (3 Critical, 6 High, 8 Medium, 7 Low); N01 N02 N04 N13 N14 N16 N23 were closed in BP-P19-12 part A and the rest in part B (every row below is marked [x]; see "BP-P19-12 built (part A)" and "(part B)").
