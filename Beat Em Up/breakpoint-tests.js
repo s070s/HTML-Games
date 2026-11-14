@@ -24626,32 +24626,36 @@ const SelfTest = {
     });
     // Music state a test may change: put back by the helper, so the live page's music goes on; the audio goes nowhere (the arena's reverb is not touched)
     const withMusicState = (body) => {
-      const fields = ['track', 'intensity', 'active', 'step', 'nextTime', 'lastLoop', 'match', 'out', 'outCtx'], keep = Object.fromEntries(fields.map((key) => [key, Music[key]])), keepArena = Sound.setArena, keepRandom = Math.random, keepMatch = Game.match;
-      Sound.setArena = () => {}; Music.out = null; Music.outCtx = null; // the page's own loop node (if any) is not touched
-      try { return body(); } finally { Object.assign(Music, keep); Sound.setArena = keepArena; Math.random = keepRandom; Game.match = keepMatch; }
+      const fields = ['track', 'intensity', 'active', 'step', 'nextTime', 'lastLoop', 'match', 'out', 'outCtx'], keep = Object.fromEntries(fields.map((key) => [key, Music[key]])), keepArena = Sound.setArena, keepRandom = Math.random, keepMatch = Game.match, keepSongStop = Song.stop, keepIntroSkip = Intro.skip;
+      Sound.setArena = () => {}; Song.stop = () => {}; Intro.skip = () => {}; Music.out = null; Music.outCtx = null; // the page's own loop node (if any) is not touched; Music.start must not fade the live title song or end a live intro
+      try { return body(); } finally { Object.assign(Music, keep); Sound.setArena = keepArena; Song.stop = keepSongStop; Intro.skip = keepIntroSkip; Math.random = keepRandom; Game.match = keepMatch; }
     };
-    test('Stage soundtrack rotation (P19-18): no match starts with the loop the last match played, over 200 simulated match starts in every mode (the real start of the match music, a stage from a seeded draw); a stage named like a loop plays its own loop whenever that is allowed, otherwise the next loop in list order; the rotation never reads Math.random', () => withMusicState(() => {
-      const bad = [], modes = ['arcade', 'survival', 'training', 'free', 'versus', 'tournament', 'brawl', 'coop', 'online'], stages = ARENA_ORDER.map((id) => ARENAS[id]);
+    test('Stage soundtrack rotation (P19-18): no match starts with the loop the last match played, over 200 simulated match starts in four runs (the levels in order, three seeded draws; the mode plays no part; the real start of the match music); a stage named like a loop plays its own loop whenever that is allowed, otherwise the next loop in list order; the rotation never reads Math.random', () => withMusicState(() => {
+      const bad = [], runs = ['levels in order', 'draw 1', 'draw 2', 'draw 3'], stages = ARENA_ORDER.map((id) => ARENAS[id]); // the rotation reads the stage's name only, never the mode
       let draws = 0; Math.random = () => { draws++; return 0.5; };
-      modes.forEach((mode, modeIndex) => {
-        let seed = 1000 + modeIndex * 77; const next = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+      runs.forEach((run, runIndex) => {
+        let seed = 1000 + runIndex * 77; const next = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
         Music.lastLoop = -1; Music.match = null;
         let last = -1;
         for (let start = 0; start < 200; start++) {
-          const stage = mode === 'survival' ? stages[start % stages.length] : stages[Math.floor(next() * stages.length)]; // Survival walks the levels in order, the other modes draw one
-          Game.match = { def: stage, cfg: { mode } };
+          const stage = run === 'levels in order' ? stages[start % stages.length] : stages[Math.floor(next() * stages.length)]; // Survival walks the levels in order, the other modes draw one
+          Game.match = { def: stage };
           UI.startMatchMusic(); Music.active = false;
           const index = Music.lastLoop, own = STAGE_TRACKS.findIndex((track) => loopKey(track.name) === loopKey(stage.name));
-          if (index === last) { bad.push(mode + ' start ' + start + ' (' + stage.name + ') plays loop ' + index + ' twice in a row'); break; }
-          if (Music.track.loop !== STAGE_TRACKS[index] || Music.intensity !== MUSIC_FIGHT || Music.match !== Game.match) { bad.push(mode + ' start ' + start + ': the music was not started with loop ' + index + ' for this match'); break; }
+          if (index === last) { bad.push(run + ' start ' + start + ' (' + stage.name + ') plays loop ' + index + ' twice in a row'); break; }
+          if (Music.track.loop !== STAGE_TRACKS[index] || Music.intensity !== MUSIC_FIGHT || Music.match !== Game.match) { bad.push(run + ' start ' + start + ': the music was not started with loop ' + index + ' for this match'); break; }
           const want = own >= 0 && own !== last ? own : (last + 1) % STAGE_TRACKS.length;
-          if (index !== want) { bad.push(mode + ' start ' + start + ' (' + stage.name + ', last ' + last + ') plays loop ' + index + ', the rule says ' + want); break; }
+          if (index !== want) { bad.push(run + ' start ' + start + ' (' + stage.name + ', last ' + last + ') plays loop ' + index + ', the rule says ' + want); break; }
           last = index;
         }
       });
       if (draws) bad.push('the rotation drew ' + draws + ' random numbers');
-      const table = [['Construction Site', -1, 0], ['Parking Garage', -1, 1], ['Night Club', -1, 2], ['Construction Site', 0, 1], ['Night Club', 2, 0], ['Parking Garage', 1, 2], ['Industrial Warehouse', -1, 0], ['Industrial Warehouse', 0, 1], ['Industrial Warehouse', 2, 0], ['City Rooftop', 1, 2], ['Night Club', 0, 2], ['night  club', 1, 2], ['Nightclub', 2, 0]];
-      for (const [stage, last, want] of table) if (stageTrackIndex(stage, last) !== want) bad.push(stage + ' after ' + last + ' plays ' + stageTrackIndex(stage, last) + ', not ' + want);
+      // [stage, last loop, the stage's own loop or null]: the own loop when it is not the last one, otherwise the next in list order (so a fourth loop needs no edit here)
+      const table = [['Construction Site', -1, 0], ['Parking Garage', -1, 1], ['Night Club', -1, 2], ['Construction Site', 0, 0], ['Night Club', 2, 2], ['Parking Garage', 1, 1], ['Industrial Warehouse', -1, null], ['Industrial Warehouse', 0, null], ['Industrial Warehouse', 2, null], ['City Rooftop', 1, null], ['Night Club', 0, 2], ['night  club', 1, 2], ['Nightclub', 2, 2]];
+      for (const [stage, last, own] of table) {
+        const want = own !== null && own !== last ? own : (last + 1) % STAGE_TRACKS.length;
+        if (stageTrackIndex(stage, last) !== want) bad.push(stage + ' after ' + last + ' plays ' + stageTrackIndex(stage, last) + ', not ' + want);
+      }
       // a fourth MIDI is one entry: the same rule over four loops, one of them named like a stage
       const four = ['Alley Loop', 'Parking Garage', 'Roof Loop', 'Subway Station Loop'].map((name) => ({ name })), names = ['Alley', 'Subway Station', 'Parking Garage', 'Warehouse', 'Roof Top'];
       let seed = 7, last = -1;
@@ -24667,6 +24671,30 @@ const SelfTest = {
       for (const [from, due] of [[GS.MENU, true], [GS.RESULTS, true], [GS.VICTORY, true], [GS.PAUSED, false], [GS.COUNTDOWN, false], [GS.FIGHT, false], [GS.ROUND_END, false]]) if (UI.matchMusicDue(from) !== due) bad.push('from ' + from + ' the same match is ' + (due ? 'not due' : 'due') + ' for music');
       Game.match = other;
       if (!UI.matchMusicDue(GS.PAUSED) || !UI.matchMusicDue(GS.FIGHT)) bad.push('a new match from the pause menu or a round end does not start music');
+      return bad.length ? bad.slice(0, 4).join('; ') : true;
+    }));
+    test('Stage soundtrack rotation (P19-18): the real game states pick a new loop at every new match: Game.beginMatch, a restart from the pause menu and a rematch from the results each change Music.lastLoop and the playing track\'s loop; a pause and a resume change neither', () => withMusicState(() => {
+      const bad = [], kept = { state: Game.state, run: Game.run, config: Game.config, pausedFrom: Game.pausedFrom, pausedBy: Game.pausedBy };
+      const cfg = { mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: ARENA_ORDER[0], difficulty: 'easy', winsNeeded: 1, timer: 30, items: false, hazards: false, countdown: false };
+      const playing = () => STAGE_TRACKS.indexOf(Music.track && Music.track.loop);
+      const expectNew = (what, before) => { if (Music.lastLoop === before || playing() !== Music.lastLoop || Music.match !== Game.match) bad.push(what + ': loop ' + before + ' then ' + Music.lastLoop + ' (playing ' + playing() + ')'); };
+      // the page's UI listens to every state change (UI.onGameState); the headless runner builds no UI, so a stand-in does the same music step with the real UI.matchMusicDue and UI.startMatchMusic
+      const standIn = UI.dom && UI.dom.hud ? null : Events.on('gamestate', (e) => { if ((e.to === GS.COUNTDOWN || e.to === GS.FIGHT) && UI.matchMusicDue(e.from)) UI.startMatchMusic(); });
+      try {
+        Game.run = null; Game.state = GS.CHARSEL; Music.lastLoop = -1; Music.match = null; // the fighter select, where a new match starts from
+        Game.beginMatch(Object.assign({}, cfg));
+        expectNew('Game.beginMatch', -1);
+        if (Game.state === GS.COUNTDOWN) Game.go(GS.FIGHT);
+        const first = Music.lastLoop, firstTrack = Music.track;
+        if (!Game.pause() || Game.state !== GS.PAUSED) bad.push('the match could not be paused');
+        if (!Game.resume() || Music.lastLoop !== first || Music.track !== firstTrack) bad.push('a pause and a resume changed the loop (' + first + ' then ' + Music.lastLoop + ')');
+        if (!Game.pause()) bad.push('the match could not be paused a second time');
+        Game.restartMatch();
+        expectNew('a restart from the pause menu', first);
+        const second = Music.lastLoop;
+        Game.state = GS.RESULTS; Game.resultsAction('again'); // the results screen's Rematch button
+        expectNew('a rematch from the results', second);
+      } finally { if (standIn) standIn(); Game.endMatch(); Game.state = kept.state; Game.run = kept.run; Game.config = kept.config; Game.pausedFrom = kept.pausedFrom; Game.pausedBy = kept.pausedBy; }
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     }));
     // The stand-in audio of the title song, with the times of every detune change recorded on its oscillators

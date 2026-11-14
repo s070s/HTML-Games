@@ -77,7 +77,7 @@ function readMidi(buffer) {
       else if (first === 0xF0 || first === 0xF7) pos += vlq();
       else {
         const kind = first & 0xF0, channel = first & 15, a = buffer[pos++], b = kind === 0xC0 || kind === 0xD0 ? 0 : buffer[pos++];
-        if (kind === 0x90 && b > 0) { open[a] = { tick, velocity: b, channel }; channels.add(channel); }
+        if (kind === 0x90 && b > 0) { if (open[a]) throw new Error('track ' + i + ': pitch ' + a + ' starts again before it ends'); open[a] = { tick, velocity: b, channel }; channels.add(channel); }
         else if (kind === 0x80 || (kind === 0x90 && b === 0)) { if (open[a]) { notes.push({ tick: open[a].tick, length: tick - open[a].tick, pitch: a, velocity: open[a].velocity, channel: open[a].channel }); delete open[a]; } }
         else if (kind === 0xB0) controllers.push({ tick, number: a, value: b });
         else if (kind === 0xE0) bends.push({ tick, value: a | (b << 7) });
