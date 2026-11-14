@@ -1,65 +1,50 @@
 // World map generator (MZ-WORLD-01): draws the schematic of the six districts and writes Mizamon/docs/world-map.png.
 // Usage: node Mizamon/tools/world-map.mjs          (writes the PNG)
 //        node Mizamon/tools/world-map.mjs --ascii  (prints the 30 x 15 district grid used in REFERENCE-mizamon.md)
-// Node built-ins only (fs, zlib, path, url). The map is an abstraction of Attica, not a scale drawing; it is original art
-// made of rectangles, lines and small pixel glyphs. The grid is 30 x 15 cells of 8 px = 240 x 120 px, the same data the
-// in-game map screen (MZ-MAP-01) will use; the PNG adds a 16 px legend and is scaled x4 with nearest neighbour.
-import { writeFileSync, mkdirSync } from 'node:fs';
+// Node built-ins only (fs, zlib, path, url, vm). The grid, the districts' colours, the places, the routes and their progress values
+// are not kept here: they are WORLD in Mizamon.html (between RULES-BEGIN and RULES-END), loaded with node:vm the way run-tests.mjs
+// loads the rules, so the data exists once and this picture is the data the in-game map screen (MZ-MAP-01) draws. What stays here is
+// the picture's own decoration (district name labels, route labels, metro and tram lines, landmark icons, legend). The map is an
+// abstraction of Attica, not a scale drawing; it is original art made of rectangles, lines and small pixel glyphs. The grid is
+// 30 x 15 cells of 8 px = 240 x 120 px; the PNG adds a 16 px legend and is scaled x4 with nearest neighbour.
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
+
+function loadWorld() {
+  const html = readFileSync(new URL('../Mizamon.html', import.meta.url), 'utf8');
+  const begin = html.indexOf('// RULES-BEGIN');
+  const end = html.indexOf('// RULES-END');
+  if (begin < 0 || end < begin) throw new Error('RULES markers not found in Mizamon.html');
+  const rules = new vm.Script('(function () {\n' + html.slice(begin, end) + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
+  return rules.WORLD;
+}
+const WORLD = loadWorld();
 
 const CELL = 8;
-const COLS = 30;
-const ROWS = 15;
+const COLS = WORLD.cols;
+const ROWS = WORLD.rows;
 const LEGEND_HEIGHT = 16;
 const WIDTH = COLS * CELL;
 const HEIGHT = ROWS * CELL + LEGEND_HEIGHT;
 const SCALE = 4;
 
 // ---- The district grid ------------------------------------------------------------------------------------------
-// Rectangles are applied in order; a later rectangle overrides an earlier one. Letters: P Peiraias, D Dytika, A Athina,
-// V Voreia, N Notia, E Anatolika. '~' is sea, '#' is mainland outside the six districts (north and west of Parnitha, the Marathon
-// coast). Lower case marks a hill or mountain cell of that district.
-const DISTRICT_RECTS = [
-  ['V', 9, 0, 21, 5], ['D', 2, 1, 8, 7], ['A', 9, 6, 16, 10], ['P', 1, 8, 8, 12], ['N', 9, 11, 16, 13],
-  ['E', 19, 2, 28, 5], ['E', 17, 6, 28, 13], ['D', 5, 0, 8, 0], ['P', 2, 13, 6, 13],
-];
-const HILL_CELLS = [
-  [5, 0], [6, 0], [7, 0], [8, 0], [6, 1], [7, 1], // Parnitha, north-west
-  [17, 0], [18, 0], [19, 0], [20, 0], [18, 1], [19, 1], [20, 1], // Penteli, north-east
-  [2, 2], [2, 3], [2, 4], [2, 5], [2, 6], [3, 3], // Aigaleo ridge, west edge of the west
-  [17, 6], [17, 7], [17, 8], [17, 9], [18, 7], [18, 8], [18, 9], // Hymettus, east of the centre
-  [17, 10], [17, 11], [17, 12], // the southern end of the Hymettus ridge: the pass of route 5 crosses it
-  [15, 6], [16, 6], // Lycabettus, north-east of the centre square
-  [11, 10], // the rock with the ancient temple
-  [6, 11], // the Munychia hill, Kastella
-];
-// Real sea: the Aegean (east edge), the Saronic Gulf (south and west of Peiraias), the Elefsina bay (west of the Aigaleo ridge).
-const SEA_CELLS = (x, y) => x === 29 || y === 14 || (x === 0 && y >= 5) || (x === 1 && y >= 5 && y <= 7) || (x === 1 && y >= 13) || (x >= 7 && x <= 8 && y >= 12 && y <= 13) || (x === 9 && y === 13);
-
+// Upper case = a district (P Peiraias, D Dytika, A Athina, V Voreia, N Notia, E Anatolika), lower case = a hill or mountain cell of
+// that district, '~' = sea, '#' = mainland outside the six districts (north and west of Parnitha, the Marathon coast).
+const GRID = WORLD.grid.map((row) => [...row]);
 const isDistrictLand = (char) => char !== '~' && char !== '#';
+const HILL_CELLS = [];
+GRID.forEach((row, y) => row.forEach((char, x) => { if (isDistrictLand(char) && char !== char.toUpperCase()) HILL_CELLS.push([x, y]); }));
 
-function buildGrid() {
-  const grid = [];
-  for (let y = 0; y < ROWS; y++) grid.push(new Array(COLS).fill('#'));
-  for (const [letter, x0, y0, x1, y1] of DISTRICT_RECTS) {
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) grid[y][x] = letter;
-  }
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (SEA_CELLS(x, y)) grid[y][x] = '~';
-  for (const [x, y] of HILL_CELLS) if (isDistrictLand(grid[y][x])) grid[y][x] = grid[y][x].toLowerCase();
-  return grid;
-}
-const GRID = buildGrid();
 
-const DISTRICTS = {
-  P: { name: 'PEIRAIAS', color: [233, 184, 114] },
-  N: { name: 'NOTIA', color: [143, 208, 200] },
-  E: { name: 'ANATOLIKA', color: [217, 160, 196] },
-  V: { name: 'VOREIA', color: [159, 203, 123] },
-  D: { name: 'DYTIKA', color: [230, 210, 106] },
-  A: { name: 'ATHINA', color: [201, 182, 232] },
-};
+const hexToRgb = (hex) => [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+// The English name caps are this picture's own labels (the 3 x 5 pixel font has no Greek); the colours come from WORLD.
+const DISTRICT_NAMES = { P: 'PEIRAIAS', N: 'NOTIA', E: 'ANATOLIKA', V: 'VOREIA', D: 'DYTIKA', A: 'ATHINA' };
+const DISTRICTS = {};
+for (const district of Object.values(WORLD.districts)) DISTRICTS[district.letter] = { name: DISTRICT_NAMES[district.letter], color: hexToRgb(district.color) };
 // Label position per district, in pixels (top-left of the text), and per route, in pixels (centre of the label).
 const LABELS = { P: [10, 64], N: [84, 106], E: [197, 56], V: [90, 2], D: [34, 28], A: [82, 50] };
 const ROUTE_LABELS = {
@@ -67,43 +52,12 @@ const ROUTE_LABELS = {
   R9: [96, 20], R10: [48, 44], R11: [64, 62], R12: [106, 68],
 };
 
-// ---- Places, routes and lines (cell coordinates, centre of a cell) ------------------------------------------------
-const TOWNS = {
-  newPeiraias: [3, 10], kastella: [7, 10], faliro: [10, 12], glyfada: [15, 12], koropi: [21, 12], spata: [24, 9],
-  kifisia: [17, 2], marousi: [15, 4], peristeri: [7, 5], chaidari: [4, 6], monastiraki: [10, 9], syntagma: [14, 8],
-};
-const BOSS_TOWNS = ['glyfada', 'spata', 'marousi', 'chaidari', 'syntagma']; // town with the district boss; Peiraias' boss is the harbour office below
-const HARBOUR_OFFICE = [5, 12];
-const PARLIAMENT = [15, 7];
-// [id, path, progress]: progress says which way the route map runs, for the player marker on the route line:
-// 'x' = left to right, '-x' = right to left, 'y' = top to bottom (marker fraction (x+0.5)/w, 1-(x+0.5)/w, (y+0.5)/h).
-const ROUTES = [
-  ['R1', [[3, 10], [3, 12], [5, 12]], 'x'],
-  ['R2', [[5, 12], [6, 12], [7, 11], [7, 10]], 'x'],
-  ['R3', [[7, 10], [9, 11], [10, 12]], 'x'],
-  ['R4', [[10, 12], [12, 12], [15, 12]], 'x'],
-  ['R5', [[15, 12], [18, 12], [21, 12]], 'x'],
-  ['R6', [[21, 12], [22, 10], [24, 9]], 'x'],
-  ['R7', [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]], '-x'],
-  ['R8', [[17, 2], [17, 4], [15, 4]], '-x'],
-  ['R9', [[15, 4], [13, 2], [10, 2], [9, 3], [8, 4], [7, 5]], '-x'],
-  ['R10', [[7, 5], [5, 5], [4, 6]], '-x'],
-  ['R11', [[4, 6], [6, 7], [8, 7], [9, 8], [10, 9]], 'x'],
-  ['R12', [[10, 9], [12, 8], [14, 8]], 'x'],
-];
-// The data must agree with the grid: every town, the harbour office, the parliament and every point of every route path
-// stand on district land (not sea, not outside land), and the progress value is one of the three known ones.
-function checkOnLand(label, [x, y]) {
-  const char = GRID[y] && GRID[y][x];
-  if (!char || !isDistrictLand(char)) throw new Error(label + ' at [' + x + ', ' + y + '] is not on district land (' + char + ')');
-}
-for (const [name, cell] of Object.entries(TOWNS)) checkOnLand('town ' + name, cell);
-checkOnLand('harbour office', HARBOUR_OFFICE);
-checkOnLand('parliament', PARLIAMENT);
-for (const [id, points, progress] of ROUTES) {
-  if (!['x', '-x', 'y'].includes(progress)) throw new Error(id + ' has an unknown progress value ' + progress);
-  points.forEach((cell, index) => checkOnLand(id + ' point ' + index, cell));
-}
+// ---- Places and routes: WORLD.nodes and WORLD.routes (cell coordinates, centre of a cell) -----------------------------
+const TOWNS = Object.values(WORLD.nodes).filter((node) => node.kind === 'town');
+const BOSS_NODES = Object.values(WORLD.nodes).filter((node) => node.boss); // the district boss stands in this town (Peiraias: the harbour office)
+const HARBOUR_OFFICE = WORLD.nodes.harbourOffice;
+const PARLIAMENT = WORLD.nodes.parliament;
+const ROUTES = Object.values(WORLD.routes);
 
 const LINES = [
   { color: [46, 160, 80], dash: 0, points: [[4, 11], [7, 10], [9, 9], [11, 8], [11, 6], [13, 5], [15, 4], [16, 3], [17, 2]] }, // metro 1: harbour to the leafy north
@@ -253,9 +207,10 @@ function drawLines() {
   for (const line of LINES) drawPolyline(line.points, line.color, line.dash, false);
 }
 function drawRoutes() {
-  for (const [id, points] of ROUTES) {
-    drawPolyline(points, INK, 0, true);
-    drawPolyline(points, PAPER, 2, false);
+  for (const route of ROUTES) {
+    const id = 'R' + route.id.replace('route', '');
+    drawPolyline(route.path, INK, 0, true);
+    drawPolyline(route.path, PAPER, 2, false);
     const [mx, my] = ROUTE_LABELS[id];
     const width = textWidth(id);
     fillRect(mx - Math.floor(width / 2) - 1, my - 3, width + 2, 7, PAPER);
@@ -272,17 +227,17 @@ function drawPlaces() {
     fillRect(px - Math.floor(size / 2) - 1, py - Math.floor(size / 2) - 1, size + 2, size + 2, border);
     fillRect(px - Math.floor(size / 2), py - Math.floor(size / 2), size, size, fill);
   };
-  for (const cell of Object.values(TOWNS)) square(cell, 5, [255, 255, 255], INK);
+  for (const town of TOWNS) square(town.cell, 5, [255, 255, 255], INK);
   // boss marks: a gold diamond at the corner of the town (or of the harbour office)
   const diamond = (cell, dx, dy) => {
     const [px, py] = centre(cell);
     drawShape(['..#..', '.###.', '#####', '.###.', '..#..'], px + dx, py + dy, GOLD, INK);
   };
-  for (const name of BOSS_TOWNS) diamond(TOWNS[name], 4, -4);
-  square(HARBOUR_OFFICE, 5, [255, 255, 255], INK);
-  diamond(HARBOUR_OFFICE, 4, -4);
+  for (const node of BOSS_NODES) if (node.kind === 'town') diamond(node.cell, 4, -4);
+  square(HARBOUR_OFFICE.cell, 5, [255, 255, 255], INK);
+  diamond(HARBOUR_OFFICE.cell, 4, -4);
   // the parliament: a larger purple square with a gold border (the final)
-  const [fx, fy] = centre(PARLIAMENT);
+  const [fx, fy] = centre(PARLIAMENT.cell);
   fillRect(fx - 4, fy - 4, 9, 9, GOLD);
   fillRect(fx - 3, fy - 3, 7, 7, [90, 50, 150]);
   fillRect(fx - 1, fy - 2, 3, 5, GOLD);

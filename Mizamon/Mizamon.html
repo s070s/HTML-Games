@@ -25,6 +25,7 @@
   #touch.portrait [data-btn="a"] { right: 16px; bottom: 90px; width: 80px; height: 80px; border-radius: 50%; font-size: 30px; }
   #touch.portrait [data-btn="b"] { right: 104px; bottom: 26px; width: 66px; height: 66px; border-radius: 50%; }
   #touch.portrait [data-btn="menu"] { right: 16px; bottom: 14px; width: 76px; height: 38px; font-size: 14px; border-radius: 19px; }
+  #touch.portrait [data-btn="map"] { right: 18px; bottom: 180px; width: 76px; height: 34px; font-size: 12px; border-radius: 17px; }
   #touch.landscape [data-btn="up"] { left: 54px; bottom: 112px; }
   #touch.landscape [data-btn="down"] { left: 54px; bottom: 10px; }
   #touch.landscape [data-btn="left"] { left: 6px; bottom: 61px; }
@@ -32,6 +33,7 @@
   #touch.landscape [data-btn="a"] { right: 10px; bottom: 70px; width: 62px; height: 62px; border-radius: 50%; font-size: 22px; }
   #touch.landscape [data-btn="b"] { right: 78px; bottom: 20px; width: 52px; height: 52px; border-radius: 50%; }
   #touch.landscape [data-btn="menu"] { right: 10px; top: 10px; bottom: auto; width: 62px; height: 32px; font-size: 12px; border-radius: 16px; }
+  #touch.landscape [data-btn="map"] { right: 10px; top: 50px; bottom: auto; width: 62px; height: 30px; font-size: 10px; border-radius: 15px; }
   /* One drawn arrow for the four d-pad buttons (no font glyph, so no phone turns it into an emoji): a triangle pointing up, turned by the button. */
   #touch .arrow { display: block; width: 1.1em; height: 1.1em; background: currentColor; clip-path: polygon(50% 15%, 85% 75%, 15% 75%); pointer-events: none; }
   #touch [data-btn="down"] .arrow { transform: rotate(180deg); }
@@ -50,6 +52,7 @@
   <div class="btn" data-btn="b">B</div>
   <div class="btn" data-btn="a">A</div>
   <div class="btn" data-btn="menu">MENU</div>
+  <div class="btn" data-btn="map">ΧΑΡΤΗΣ</div>
 </div>
 <noscript>Mizamon needs JavaScript. / Το Mizamon χρειάζεται JavaScript.</noscript>
 <script>
@@ -62,7 +65,7 @@
 // =============================================================================
 
 // ---- Constants --------------------------------------------------------------
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 const SAVE_KEY = 'mizamon.v1.save';
 const OPTIONS_KEY = 'mizamon.v1.options';
 const MAX_LEVEL = 50;
@@ -1343,6 +1346,184 @@ function npcTalkable(mapId, npc, reached) {
   return false;
 }
 
+// ---- World (MZ-MAP-01) ------------------------------------------------------------------------
+// The schematic map of Attica: six districts on a 30 x 15 grid (section 11.2 of REFERENCE-mizamon.md), the places on it and the
+// routes between them. Pure data plus small pure functions, so the headless tests, tools/world-map.mjs and the map screen read the
+// same numbers. Grid letters: upper case = a district, lower case = a hill of that district, '~' = sea, '#' = mainland outside
+// the six districts. Cells are [x, y]; a route path is a list of cell centres from the route's first end (a) to its second (b).
+// Only Peiraias is built today; the other districts are drawn locked ("soon") until their own task builds them (built: false).
+const WORLD_BADGE_COUNT = 6;
+const WORLD = {
+  cols: 30, rows: 15,
+  grid: [
+    '#####ddddVVVVVVVVvvvvV#######~',
+    '##DDDDddDVVVVVVVVVvvvV#######~',
+    '##dDDDDDDVVVVVVVVVVEEEEEEEEEE~',
+    '##ddDDDDDVVVVVVVVVVEEEEEEEEEE~',
+    '##dDDDDDDVVVVVVVVVVEEEEEEEEEE~',
+    '~~dDDDDDDVVVVVVVVVVEEEEEEEEEE~',
+    '~~dDDDDDDAAAAAAaaeEEEEEEEEEEE~',
+    '~~DDDDDDDAAAAAAAAeeEEEEEEEEEE~',
+    '~PPPPPPPPAAAAAAAAeeEEEEEEEEEE~',
+    '~PPPPPPPPAAAAAAAAeeEEEEEEEEEE~',
+    '~PPPPPPPPAAaAAAAAeEEEEEEEEEEE~',
+    '~PPPPPpPPNNNNNNNNeEEEEEEEEEEE~',
+    '~PPPPPP~~NNNNNNNNeEEEEEEEEEEE~',
+    '~~PPPPP~~~NNNNNNNEEEEEEEEEEEE~',
+    '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+  ],
+  // order = play order; badgeFlag = the story flag the district's boss sets; levels = wild level range; label = where the name sits (cell units)
+  districts: {
+    peiraias: { letter: 'P', order: 1, bossTrainer: 'kotsos', badgeFlag: 'badge', nameKey: 'world.d.peiraias', levels: [2, 13], color: '#e9b872', label: [4.5, 8.5], built: true },
+    notia: { letter: 'N', order: 2, bossTrainer: 'bougatsas', badgeFlag: 'badge_notia', nameKey: 'world.d.notia', levels: [13, 20], color: '#8fd0c8', label: [13.5, 12.5], built: false },
+    anatolika: { letter: 'E', order: 3, bossTrainer: 'faia', badgeFlag: 'badge_anatolika', nameKey: 'world.d.anatolika', levels: [19, 26], color: '#d9a0c4', label: [25.5, 3.5], built: false },
+    voreia: { letter: 'V', order: 4, bossTrainer: 'amartia', badgeFlag: 'badge_voreia', nameKey: 'world.d.voreia', levels: [26, 32], color: '#9fcb7b', label: [13.5, 1], built: false },
+    dytika: { letter: 'D', order: 5, bossTrainer: 'plousiakis', badgeFlag: 'badge_dytika', nameKey: 'world.d.dytika', levels: [32, 38], color: '#e6d26a', label: [5.5, 3.5], built: false },
+    athina: { letter: 'A', order: 6, bossTrainer: 'baboulas', badgeFlag: 'badge_athina', nameKey: 'world.d.athina', levels: [38, 44], color: '#c9b6e8', label: [12.5, 6.5], built: false },
+  },
+  // kind: 'town' | 'boss' (the boss building of a district) | 'door' (the Parliament); maps = the game maps that belong to the place;
+  // boss = the district's boss is here; stop = a ΚΤΕΛ stop will stand here (MZ-MAP-02); has = what the info panel lists (built places only)
+  nodes: {
+    newPeiraias: { district: 'peiraias', kind: 'town', cell: [3, 10], maps: ['town', 'lab', 'kep', 'hospital', 'shop', 'cafe', 'studio'], stop: true, built: true, has: ['hospital', 'shop', 'cafe'] },
+    harbourOffice: { district: 'peiraias', kind: 'boss', cell: [5, 12], maps: ['port'], boss: true, built: true, has: ['boss'] },
+    kastella: { district: 'peiraias', kind: 'town', cell: [7, 10], maps: [], stop: true, built: false },
+    faliro: { district: 'notia', kind: 'town', cell: [10, 12], maps: [], stop: true, built: false },
+    glyfada: { district: 'notia', kind: 'town', cell: [15, 12], maps: [], boss: true, stop: true, built: false },
+    koropi: { district: 'anatolika', kind: 'town', cell: [21, 12], maps: [], stop: true, built: false },
+    spata: { district: 'anatolika', kind: 'town', cell: [24, 9], maps: [], boss: true, stop: true, built: false },
+    kifisia: { district: 'voreia', kind: 'town', cell: [17, 2], maps: [], stop: true, built: false },
+    marousi: { district: 'voreia', kind: 'town', cell: [15, 4], maps: [], boss: true, stop: true, built: false },
+    peristeri: { district: 'dytika', kind: 'town', cell: [7, 5], maps: [], stop: true, built: false },
+    chaidari: { district: 'dytika', kind: 'town', cell: [4, 6], maps: [], boss: true, stop: true, built: false },
+    monastiraki: { district: 'athina', kind: 'town', cell: [10, 9], maps: [], stop: true, built: false },
+    syntagma: { district: 'athina', kind: 'town', cell: [14, 8], maps: [], boss: true, stop: true, built: false },
+    parliament: { district: 'athina', kind: 'door', cell: [15, 7], maps: [], built: false },
+  },
+  // progress = the way the route's map runs, for the player marker: 'x' left to right, '-x' right to left, 'y' top to bottom
+  routes: {
+    route1: { district: 'peiraias', a: 'newPeiraias', b: 'harbourOffice', map: 'route1', path: [[3, 10], [3, 12], [5, 12]], progress: 'x', built: true },
+    route2: { district: 'peiraias', a: 'harbourOffice', b: 'kastella', map: 'route2', path: [[5, 12], [6, 12], [7, 11], [7, 10]], progress: 'x', built: false },
+    route3: { district: 'notia', a: 'kastella', b: 'faliro', map: 'route3', path: [[7, 10], [9, 11], [10, 12]], progress: 'x', built: false },
+    route4: { district: 'notia', a: 'faliro', b: 'glyfada', map: 'route4', path: [[10, 12], [12, 12], [15, 12]], progress: 'x', built: false },
+    route5: { district: 'anatolika', a: 'glyfada', b: 'koropi', map: 'route5', path: [[15, 12], [18, 12], [21, 12]], progress: 'x', built: false },
+    route6: { district: 'anatolika', a: 'koropi', b: 'spata', map: 'route6', path: [[21, 12], [22, 10], [24, 9]], progress: 'x', built: false },
+    route7: { district: 'voreia', a: 'spata', b: 'kifisia', map: 'route7', path: [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]], progress: '-x', built: false },
+    route8: { district: 'voreia', a: 'kifisia', b: 'marousi', map: 'route8', path: [[17, 2], [17, 4], [15, 4]], progress: '-x', built: false },
+    route9: { district: 'dytika', a: 'marousi', b: 'peristeri', map: 'route9', path: [[15, 4], [13, 2], [10, 2], [9, 3], [8, 4], [7, 5]], progress: '-x', built: false },
+    route10: { district: 'dytika', a: 'peristeri', b: 'chaidari', map: 'route10', path: [[7, 5], [5, 5], [4, 6]], progress: '-x', built: false },
+    route11: { district: 'athina', a: 'chaidari', b: 'monastiraki', map: 'route11', path: [[4, 6], [6, 7], [8, 7], [9, 8], [10, 9]], progress: 'x', built: false },
+    route12: { district: 'athina', a: 'monastiraki', b: 'syntagma', map: 'route12', path: [[10, 9], [12, 8], [14, 8]], progress: 'x', built: false },
+  },
+};
+for (const id of Object.keys(WORLD.districts)) WORLD.districts[id].id = id;
+for (const id of Object.keys(WORLD.nodes)) WORLD.nodes[id].id = id;
+for (const id of Object.keys(WORLD.routes)) WORLD.routes[id].id = id;
+
+// The node or route a game map belongs to (null for a map that is on none: a test keeps every map on exactly one).
+function mapNode(mapId) {
+  for (const node of Object.values(WORLD.nodes)) if (node.maps.includes(mapId)) return node;
+  for (const route of Object.values(WORLD.routes)) if (route.map === mapId) return route;
+  return null;
+}
+function worldIsRoute(place) { return Array.isArray(place.path); }
+// Where along a route the player stands, 0 at its first end and 1 at its second, from the tile on the route's own map.
+function routeMarkerFraction(progress, x, y, width, height) {
+  const raw = progress === 'y' ? (y + 0.5) / height : (x + 0.5) / width;
+  return Math.max(0, Math.min(1, progress === '-x' ? 1 - raw : raw));
+}
+// The cell position (a float, in cell units) at this fraction of the path length.
+function pointAlongPath(path, fraction) {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) total += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+  let remaining = Math.max(0, Math.min(1, fraction)) * total;
+  for (let i = 1; i < path.length; i++) {
+    const length = Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+    if (remaining <= length && length > 0) {
+      const t = remaining / length;
+      return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t];
+    }
+    remaining -= length;
+  }
+  return path[path.length - 1].slice();
+}
+// The player marker for a map tile: the place's cell, or the point along the route's line. Null on a map without a place.
+function worldMarker(mapId, x, y) {
+  const place = mapNode(mapId);
+  if (!place) return null;
+  if (!worldIsRoute(place)) return { id: place.id, onRoute: false, fraction: 0, cell: place.cell.slice() };
+  const map = MAPS[mapId];
+  const fraction = routeMarkerFraction(place.progress, x, y, map.w, map.h);
+  return { id: place.id, onRoute: true, fraction: fraction, cell: pointAlongPath(place.path, fraction) };
+}
+
+// The part of the save that the map screen needs: places entered, routes walked, places told about, ΚΤΕΛ stops, badges won.
+function newWorldState() { return { visited: {}, routes: {}, stops: {}, badges: {}, seen: {} }; }
+function worldSyncBadges(world, flags) {
+  for (const district of Object.values(WORLD.districts)) if (flags && flags[district.badgeFlag]) world.badges[district.id] = 1;
+}
+function worldMarkPlace(world, place) {
+  if (worldIsRoute(place)) { world.routes[place.id] = 1; world.seen[place.a] = 1; world.seen[place.b] = 1; } else world.visited[place.id] = 1;
+}
+// Called whenever the player stands on a map (and when the map screen opens).
+function worldVisit(world, mapId, flags) {
+  const place = mapNode(mapId);
+  if (place) worldMarkPlace(world, place);
+  worldSyncBadges(world, flags);
+}
+// Keeps only ids that exist, each as 1, so a damaged save cannot put a stranger on the map.
+function normalizeWorld(raw) {
+  const clean = newWorldState();
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const known = { visited: WORLD.nodes, routes: WORLD.routes, stops: WORLD.nodes, badges: WORLD.districts, seen: WORLD.nodes };
+  for (const part of Object.keys(known)) {
+    const ids = source[part] && typeof source[part] === 'object' ? Object.keys(source[part]) : [];
+    for (const id of ids) if (known[part][id] && source[part][id]) clean[part][id] = 1;
+  }
+  for (const id of Object.keys(clean.routes)) { clean.seen[WORLD.routes[id].a] = 1; clean.seen[WORLD.routes[id].b] = 1; } // a walked route tells about both its ends
+  return clean;
+}
+// A version-2 save has no world part: rebuild it from what the save says (section 11.5 of the reference).
+function worldFromOldSave(mapId, flags) {
+  const world = newWorldState();
+  const f = flags || {};
+  if (f.badge) { worldMarkPlace(world, WORLD.nodes.harbourOffice); worldMarkPlace(world, WORLD.routes.route1); worldMarkPlace(world, WORLD.nodes.newPeiraias); }
+  if (f.rival1) worldMarkPlace(world, WORLD.nodes.newPeiraias);
+  if (f.t_phoebe || f.t_stelios || f.t_takis || f.t_rival2) worldMarkPlace(world, WORLD.routes.route1);
+  worldVisit(world, mapId, f);
+  return world;
+}
+function worldDistrictByOrder(order) { return Object.values(WORLD.districts).find(function (district) { return district.order === order; }) || null; }
+// 'locked' (not built yet, or the previous badge is missing), 'open' or 'cleared' (its own badge is won).
+function districtState(world, districtId) {
+  const district = WORLD.districts[districtId];
+  if (!district.built) return 'locked';
+  if (world.badges[districtId]) return 'cleared';
+  const previous = worldDistrictByOrder(district.order - 1);
+  return previous && !world.badges[previous.id] ? 'locked' : 'open';
+}
+// 'hidden' (not drawn), 'unknown' (built later: a question mark), 'seen' (told it exists) or 'visited'.
+function placeState(world, nodeId) {
+  const node = WORLD.nodes[nodeId];
+  if (districtState(world, node.district) === 'locked') return 'hidden';
+  if (!node.built) return 'unknown';
+  if (world.visited[nodeId]) return 'visited';
+  return world.seen[nodeId] ? 'seen' : 'hidden';
+}
+// The places the map cursor can stand on.
+function worldCandidates(world) {
+  return Object.keys(WORLD.nodes).filter(function (id) { const state = placeState(world, id); return state === 'seen' || state === 'visited'; });
+}
+// The species a district's wild zones hold (for the "met" count on the district sheet).
+function districtSpecies(districtId) {
+  const found = new Set();
+  for (const [mapId, map] of Object.entries(MAPS)) {
+    const place = mapNode(mapId);
+    if (!place || place.district !== districtId) continue;
+    for (const zone of map.zones || []) for (const entry of zone.table) found.add(entry.sp);
+  }
+  return Array.from(found);
+}
+
 // ---- Save data ------------------------------------------------------------------------------
 function defaultOptions() { return { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }; }
 function normalizeOptions(raw) {
@@ -1392,9 +1573,10 @@ function migrateV0(old) {
     money: old.drachmas, bag: bag, dex: { seen: seen, got: got }, flags: flags, lastHeal: null, options: null, rngState: 12345, starter: old.starter,
   };
 }
-// Returns a clean current-version save object (version 2), or null when the data is unusable or from a newer game.
+// Returns a clean current-version save object (version 3), or null when the data is unusable or from a newer game.
 // Version 0 goes through migrateV0 (to the version-1 shape) first. Version 1 had no archive and healed at the ΚΕΠ:
-// the archive starts empty and a heal spot on the kep map becomes the hospital spot.
+// the archive starts empty and a heal spot on the kep map becomes the hospital spot. Version 2 had no world part
+// (the map screen): it is rebuilt from the flags and the position (worldFromOldSave).
 function migrateSave(raw) {
   if (!raw || typeof raw !== 'object') return null;
   let save = raw;
@@ -1423,17 +1605,21 @@ function migrateSave(raw) {
   }
   const oldKepSpot = !!save.lastHeal && save.lastHeal.map === 'kep';
   const heal = save.lastHeal && MAPS[save.lastHeal.map] && !oldKepSpot ? save.lastHeal : DEFAULT_HEAL_SPOT;
+  const flags = (save.flags && typeof save.flags === 'object') ? Object.assign({}, save.flags) : {};
+  const finalMap = useStart ? START_MAP.map : player.map;
+  const world = version >= 3 ? normalizeWorld(save.world) : worldFromOldSave(finalMap, flags);
+  worldVisit(world, finalMap, flags);
   return {
     version: SAVE_VERSION,
     player: {
       name: String(player.name || 'ΝΙΚΟΣ').slice(0, NAME_MAX), gender: player.gender === 'f' ? 'f' : 'm',
-      map: useStart ? START_MAP.map : player.map, x: useStart ? START_MAP.x : (onHospitalLot ? hospitalDoor.x : player.x), y: useStart ? START_MAP.y : (onHospitalLot ? hospitalDoor.y + 1 : player.y),
+      map: finalMap, x: useStart ? START_MAP.x : (onHospitalLot ? hospitalDoor.x : player.x), y: useStart ? START_MAP.y : (onHospitalLot ? hospitalDoor.y + 1 : player.y),
       dir: onHospitalLot ? 'down' : (['up', 'down', 'left', 'right'].includes(player.dir) ? player.dir : 'down'),
     },
     party: party.map(serializeMon),
     archive: archive.map(serializeMon),
     money: Math.max(0, Math.floor(Number(save.money) || 0)),
-    bag: bag, dex: dex, flags: (save.flags && typeof save.flags === 'object') ? Object.assign({}, save.flags) : {},
+    bag: bag, dex: dex, flags: flags, world: world,
     lastHeal: { map: heal.map, x: heal.x, y: heal.y, dir: heal.dir || 'up' },
     options: normalizeOptions(save.options),
     rngState: Number.isFinite(save.rngState) ? save.rngState >>> 0 : 12345,
@@ -1469,7 +1655,24 @@ const STRINGS = {
   'intro.7': ['Στο λιμάνι της Νέας Πειραιάς κάθεται ο Λιμενάρχης Κώτσος. Νίκησέ τον και θα πάρεις Παράσημο, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά. Είσαι έτοιμ{ος|η};', 'In the port of New Piraeus sits Harbour Master Kotsos. Beat him and you get a medal, on the condition that you do not ask where the money went. Ready?'],
   // Menus
   'menu.party': ['Ομάδα', 'Team'], 'menu.bag': ['Τσάντα', 'Bag'], 'menu.dossier': ['Δικογραφία', 'Case files'], 'menu.save': ['Αποθήκευση', 'Save'],
-  'menu.options': ['Ρυθμίσεις', 'Options'], 'menu.close': ['Κλείσιμο', 'Close'],
+  'menu.options': ['Ρυθμίσεις', 'Options'], 'menu.close': ['Κλείσιμο', 'Close'], 'menu.map': ['Χάρτης', 'Map'],
+  // Map screen (Χάρτης): title, hints, district sheet, the places, the routes and the districts
+  'map.title': ['ΧΑΡΤΗΣ', 'MAP'], 'map.scale': ['ΚΛΙΜΑΚΑ: ΠΕΡΙΠΟΥ', 'SCALE: ROUGHLY'], 'map.soon': ['ΣΥΝΤΟΜΑ', 'SOON'],
+  'map.keys': ['Α Λεπτομέρειες   Β Κλείσιμο', 'A Details   B Close'], 'map.levels': ['επ. {lo}-{hi}', 'Lv {lo}-{hi}'],
+  'map.sheet.boss': ['Αρχηγός: {boss}', 'Boss: {boss}'], 'map.sheet.stats': ['Είδη {met}/{all} · Πόλεις {seen}/{towns}', 'Species {met}/{all} · Towns {seen}/{towns}'],
+  'map.badge.won': ['Παράσημο: ναι', 'Badge: yes'], 'map.badge.no': ['Παράσημο: όχι', 'Badge: no'],
+  'world.has.hospital': ['Νοσοκομείο', 'Hospital'], 'world.has.shop': ['Περίπτερο', 'Kiosk'], 'world.has.cafe': ['Καφενείο', 'Cafe'],
+  'world.has.boss': ['Αρχηγός περιφέρειας', 'District boss'],
+  'world.newPeiraias': ['Νέα Πειραιάς', 'New Piraeus'], 'world.harbourOffice': ['Λιμεναρχείο', 'Harbour Office'], 'world.kastella': ['Καστέλλα', 'Kastella'],
+  'world.faliro': ['Παλαιό Φάληρο', 'Old Faliro'], 'world.glyfada': ['Γλυφάδα', 'Glyfada'], 'world.koropi': ['Κορωπί', 'Koropi'], 'world.spata': ['Σπάτα', 'Spata'],
+  'world.kifisia': ['Κηφισιά', 'Kifisia'], 'world.marousi': ['Μαρούσι', 'Marousi'], 'world.peristeri': ['Περιστέρι', 'Peristeri'], 'world.chaidari': ['Χαϊδάρι', 'Chaidari'],
+  'world.monastiraki': ['Μοναστηράκι', 'Monastiraki'], 'world.syntagma': ['Σύνταγμα', 'Syntagma'], 'world.parliament': ['Βουλή', 'Parliament'],
+  'world.route1': ['Παραλιακή', 'The Waterfront'], 'world.route2': ['Ακτή Θεμιστοκλέους', 'The Quay Road'], 'world.route3': ['Λεωφόρος Ποσειδώνος', 'Poseidon Avenue'],
+  'world.route4': ['Ελληνικό', 'The Old Airfield'], 'world.route5': ['Υμηττός', 'The Hymettus Pass'], 'world.route6': ['Μεσόγεια', 'The Plain'],
+  'world.route7': ['Πεντέλη', 'The Marble Mountain'], 'world.route8': ['Λεωφόρος Κηφισίας', 'Kifisia Avenue'], 'world.route9': ['Αττική Οδός', 'The Ring Road'],
+  'world.route10': ['Λεωφόρος Θηβών', 'Thivon Avenue'], 'world.route11': ['Ιερά Οδός', 'The Sacred Way'], 'world.route12': ['Λεωφόρος Πανεπιστημίου', 'University Avenue'],
+  'world.d.peiraias': ['Πειραιάς', 'Piraeus'], 'world.d.notia': ['Νότια', 'South'], 'world.d.anatolika': ['Ανατολικά', 'East'],
+  'world.d.voreia': ['Βόρεια', 'North'], 'world.d.dytika': ['Δυτικά', 'West'], 'world.d.athina': ['Αθήνα', 'Athens'],
   'menu.saveOnlyCafe': ['Η αποθήκευση γίνεται μόνο στο Καφενείο. Εκεί ακούγονται όλα και τίποτα δεν αλλάζει.', 'Saving only works at the Cafe. Everything is discussed there and nothing changes.'],
   'party.title': ['Η ομάδα σου', 'Your team'], 'party.pickSwitch': ['Ποιος μπαίνει;', 'Who goes in?'], 'party.pickTarget': ['Σε ποιον;', 'Use on whom?'],
   'party.summary': ['Στοιχεία', 'Summary'], 'party.move': ['Αλλαγή θέσης', 'Move'], 'party.active': ['Στη μάχη', 'In battle'],
@@ -1775,6 +1978,8 @@ const RULES = {
   createBattle, playTurn, playForcedSwitch, chooseAction, chooseReplacement, scoreMove, legalSwitchIndexes, endBattle, prizeFor, simulateBattle, activeMon,
   TRAINERS, buildTrainerTeam, TILE_DEFS, MAPS, START_MAP, HOSPITAL_SPOT, DEFAULT_HEAL_SPOT, tileAt, tileDef, npcVisible, findWarp, tileWalkable, zoneAt, rollEncounter,
   reachableTiles, npcTalkable, defaultOptions, normalizeOptions, serializeMon, restoreMon, migrateSave,
+  WORLD, WORLD_BADGE_COUNT, mapNode, worldIsRoute, routeMarkerFraction, pointAlongPath, worldMarker, newWorldState, worldVisit, normalizeWorld,
+  worldFromOldSave, districtState, placeState, worldCandidates, districtSpecies,
 };
 // RULES-END
 
@@ -2386,7 +2591,7 @@ function newGameState(name, gender, starter) {
   dexGot[starter] = true;
   return {
     player: { name: name, gender: gender, map: START_MAP.map, x: START_MAP.x, y: START_MAP.y, dir: START_MAP.dir },
-    party: party, archive: [], money: START_MONEY, bag: Object.assign({}, START_BAG), dex: { seen: dexSeen, got: dexGot }, flags: { gotStarter: true },
+    party: party, archive: [], money: START_MONEY, bag: Object.assign({}, START_BAG), dex: { seen: dexSeen, got: dexGot }, flags: { gotStarter: true }, world: newWorldState(),
     lastHeal: Object.assign({}, DEFAULT_HEAL_SPOT), rng: makeRng(1), starter: starter, steps: 0,
   };
 }
@@ -2422,7 +2627,7 @@ function saveOptions() {
 function buildSaveObject() {
   return {
     version: SAVE_VERSION, player: Object.assign({}, G.player), party: G.party.map(serializeMon), archive: G.archive.map(serializeMon), money: G.money, bag: Object.assign({}, G.bag),
-    dex: { seen: Object.assign({}, G.dex.seen), got: Object.assign({}, G.dex.got) }, flags: Object.assign({}, G.flags),
+    dex: { seen: Object.assign({}, G.dex.seen), got: Object.assign({}, G.dex.got) }, flags: Object.assign({}, G.flags), world: JSON.parse(JSON.stringify(G.world)),
     lastHeal: Object.assign({}, G.lastHeal), options: Object.assign({}, OPT), rngState: G.rng.getState(), starter: G.starter,
   };
 }
@@ -2434,7 +2639,7 @@ function readSave() {
 }
 function gameFromSave(save) {
   const state = {
-    player: save.player, party: save.party.map(restoreMon), archive: save.archive.map(restoreMon), money: save.money, bag: save.bag, dex: save.dex, flags: save.flags,
+    player: save.player, party: save.party.map(restoreMon), archive: save.archive.map(restoreMon), money: save.money, bag: save.bag, dex: save.dex, flags: save.flags, world: save.world,
     lastHeal: save.lastHeal, rng: makeRng(1), starter: save.starter, steps: 0,
   };
   state.rng.setState(save.rngState);
@@ -2531,10 +2736,10 @@ function wrapText(text, maxWidth, font) {
 }
 
 // ---- Input: keyboard, gamepad, touch --------------------------------------------------------------------------
-const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu'];
+const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
 const KEY_MAP = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
-  KeyZ: 'a', Enter: 'a', Space: 'a', KeyX: 'b', Escape: 'b', Backspace: 'b', KeyM: 'menu', Tab: 'menu',
+  KeyZ: 'a', Enter: 'a', Space: 'a', KeyX: 'b', Escape: 'b', Backspace: 'b', KeyM: 'menu', Tab: 'menu', KeyQ: 'map',
 };
 function padButtonOn(buttons, index) { return !!(buttons[index] && buttons[index].pressed); }
 const Input = {
@@ -2567,6 +2772,7 @@ const Input = {
       if (padButtonOn(buttons, 0)) this.pad.a = true;
       if (padButtonOn(buttons, 1)) this.pad.b = true;
       if (padButtonOn(buttons, 9) || padButtonOn(buttons, 3)) this.pad.menu = true;
+      if (padButtonOn(buttons, 8)) this.pad.map = true; // Select / Back
     }
   },
   inject: function (name, frames) { this.injected[name] = frames || 2; },
@@ -2931,6 +3137,7 @@ OverworldLayer.prototype.loadMap = function (mapId, x, y, dir) {
   this.npcs = this.map.npcs.map(function (def) { return { def: def, x: def.x, y: def.y, face: def.face, walk: null }; });
   this.npcListStale = true;
   G.player.map = mapId; G.player.x = x; G.player.y = y; G.player.dir = this.dir;
+  worldVisit(G.world, mapId, G.flags);
   this.popup = 120;
   Sound.play(this.map.music);
 };
@@ -2973,6 +3180,7 @@ OverworldLayer.prototype.update = function () {
   if (this.busy) return;
   if (this.move) { this.advanceMove(); return; }
   if (Input.pressed.menu) { this.runScript(openPauseMenu.bind(null, this)); return; }
+  if (Input.pressed.map) { this.runScript(openMapScreen); return; }
   if (Input.pressed.a) { this.runScript(this.interact.bind(this)); return; }
   for (const name of ['up', 'down', 'left', 'right']) if (Input.pressed[name]) this.lastDir = name;
   let wanted = Input.down[this.lastDir] ? this.lastDir : null;
@@ -3624,18 +3832,318 @@ async function openPauseMenu(world) {
   Sound.sfx('confirm');
   let start = 0;
   for (;;) {
-    const choice = await choose([T('menu.party'), T('menu.bag'), T('menu.dossier'), T('menu.save'), T('menu.options'), T('menu.close')],
+    const choice = await choose([T('menu.party'), T('menu.bag'), T('menu.dossier'), T('menu.map'), T('menu.save'), T('menu.options'), T('menu.close')],
       { x: 140, y: 6, w: 96, start: start, title: T('ui.money', { n: G.money }) });
-    if (choice === -1 || choice === 5) return;
+    if (choice === -1 || choice === 6) return;
     start = choice;
     if (choice === 0) await openLayer(new PartyLayer({ mode: 'view' }));
     else if (choice === 1) await openLayer(new BagLayer({ battle: false }));
     else if (choice === 2) await openLayer(new DossierLayer());
-    else if (choice === 3) {
+    else if (choice === 3) await openMapScreen();
+    else if (choice === 4) {
       if (world.mapId !== 'cafe') await say('menu.saveOnlyCafe');
       else { const stored = writeSave(); await say(stored ? 'cafe.saved' : 'cafe.savedMemory'); }
-    } else if (choice === 4) await openLayer(new OptionsLayer());
+    } else if (choice === 5) await openLayer(new OptionsLayer());
   }
+}
+
+// ---- Map screen (Χάρτης / Map) ----------------------------------------------------------------------------------------------------
+// 240 x 160: a 12 px title bar, the 30 x 15 cell map (8 px cells) and a 28 px info panel (three 9 px lines). The land, routes and places
+// are drawn once into an offscreen canvas when the screen opens (nothing on them changes while it is open); the player marker and the
+// cursor are drawn on top every frame.
+const MAP_TOP = 12;
+const MAP_CELL = 8;
+const MAP_PANEL_TOP = 132;
+const MAP_TEXT_LIMIT = 232; // the widest text line of the screen must fit in this many logical pixels
+const MAP_PIP = 7;
+const MAP_PIN = ['.###.', '#####', '##.##', '#####', '.###.', '..#..', '..#..'];
+const MAP_DIAMOND = ['..#..', '.###.', '#####', '.###.', '..#..'];
+const MAP_STAR = ['..#..', '.###.', '#####', '.###.', '##.##'];
+const MAP_PEAK = ['..#..', '.###.', '#####'];
+const MAP_SNOW = ['..#..', '.#...'];
+const MAP_COLOR = { sea: '#3c78b4', foam: '#8fc5ee', outside: '#9e9a92', peak: '#6b5a46', snow: '#faf5eb', pipOff: '#3a3a52', pipEdge: '#8a8a99', door: '#5a3296', bus: '#2a5fc4' };
+function shadeColor(hex, factor) {
+  const value = parseInt(hex.slice(1), 16);
+  const parts = [value >> 16, (value >> 8) & 255, value & 255].map(function (part) { return Math.max(0, Math.min(255, Math.round(part * factor))); });
+  return 'rgb(' + parts.join(',') + ')';
+}
+// Draws a shape of '#' cells with its top-left corner at (left, top); an outline colour adds a 1 px ring first.
+function drawShapeOn(g, shape, left, top, color, outline) {
+  if (outline) {
+    g.fillStyle = outline;
+    shape.forEach(function (row, ry) {
+      for (let rx = 0; rx < row.length; rx++) {
+        if (row[rx] !== '#') continue;
+        g.fillRect(left + rx - 1, top + ry, 3, 1); g.fillRect(left + rx, top + ry - 1, 1, 3);
+      }
+    });
+  }
+  g.fillStyle = color;
+  shape.forEach(function (row, ry) { for (let rx = 0; rx < row.length; rx++) if (row[rx] === '#') g.fillRect(left + rx, top + ry, 1, 1); });
+}
+function worldBadgeCount(world) { return Object.keys(world.badges).length; }
+function mapCellCentre(cell) { return [Math.round(cell[0] * MAP_CELL + MAP_CELL / 2), Math.round(cell[1] * MAP_CELL + MAP_CELL / 2)]; }
+
+function mapDistrictAt(x, y) {
+  const char = WORLD.grid[y][x];
+  if (char === '~' || char === '#') return char;
+  return Object.values(WORLD.districts).find(function (district) { return district.letter === char.toUpperCase(); }).id;
+}
+function drawMapTerrain(g, world) {
+  const locked = {};
+  for (const id of Object.keys(WORLD.districts)) locked[id] = districtState(world, id) === 'locked';
+  for (let y = 0; y < WORLD.rows; y++) {
+    for (let x = 0; x < WORLD.cols; x++) {
+      const here = mapDistrictAt(x, y);
+      const left = x * MAP_CELL;
+      const top = y * MAP_CELL;
+      if (here === '~') {
+        g.fillStyle = MAP_COLOR.sea; g.fillRect(left, top, MAP_CELL, MAP_CELL);
+        if ((x + y) % 2 === 0) { g.fillStyle = MAP_COLOR.foam; g.fillRect(left + 3, top + 4, 1, 1); } // a faint wave mark
+        continue;
+      }
+      if (here === '#') { g.fillStyle = MAP_COLOR.outside; g.fillRect(left, top, MAP_CELL, MAP_CELL); continue; }
+      const hill = WORLD.grid[y][x] !== WORLD.grid[y][x].toUpperCase();
+      let factor = hill ? 0.82 : 1;
+      if (locked[here]) factor *= 0.62;
+      g.fillStyle = shadeColor(WORLD.districts[here].color, factor); g.fillRect(left, top, MAP_CELL, MAP_CELL);
+      if (locked[here]) { // the checker pattern of a locked district
+        g.fillStyle = 'rgba(27,27,47,0.3)';
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) if ((i + j) % 2 === 0) g.fillRect(left + i * 2, top + j * 2, 2, 2);
+      }
+    }
+  }
+  // borders: a dark line between two districts, a light line along the coast
+  for (let y = 0; y < WORLD.rows; y++) {
+    for (let x = 0; x < WORLD.cols; x++) {
+      const here = mapDistrictAt(x, y);
+      if (here === '~') continue;
+      const rightSide = x + 1 < WORLD.cols ? mapDistrictAt(x + 1, y) : '~';
+      const below = y + 1 < WORLD.rows ? mapDistrictAt(x, y + 1) : '~';
+      const leftSide = x > 0 ? mapDistrictAt(x - 1, y) : '~';
+      const above = y > 0 ? mapDistrictAt(x, y - 1) : '~';
+      if (rightSide !== here) { g.fillStyle = rightSide === '~' ? MAP_COLOR.foam : COLOR.ink; g.fillRect(x * MAP_CELL + MAP_CELL - 1, y * MAP_CELL, 1, MAP_CELL); }
+      if (below !== here) { g.fillStyle = below === '~' ? MAP_COLOR.foam : COLOR.ink; g.fillRect(x * MAP_CELL, y * MAP_CELL + MAP_CELL - 1, MAP_CELL, 1); }
+      g.fillStyle = MAP_COLOR.foam;
+      if (leftSide === '~') g.fillRect(x * MAP_CELL, y * MAP_CELL, 1, MAP_CELL);
+      if (above === '~' && y > 0) g.fillRect(x * MAP_CELL, y * MAP_CELL, MAP_CELL, 1);
+    }
+  }
+  // hills and mountains (lower case in the grid): little peaks with a snow tip
+  for (let y = 0; y < WORLD.rows; y++) {
+    for (let x = 0; x < WORLD.cols; x++) {
+      const char = WORLD.grid[y][x];
+      if (char === '~' || char === '#' || char === char.toUpperCase()) continue;
+      const centre = mapCellCentre([x, y]);
+      drawShapeOn(g, MAP_PEAK, centre[0] - 2, centre[1], MAP_COLOR.peak);
+      drawShapeOn(g, MAP_SNOW, centre[0] - 2, centre[1] - 2, MAP_COLOR.snow);
+    }
+  }
+}
+function drawMapRoutes(g, world) {
+  for (const route of Object.values(WORLD.routes)) {
+    if (districtState(world, route.district) === 'locked') continue;
+    const endStates = [placeState(world, route.a), placeState(world, route.b)];
+    if (!endStates.some(function (state) { return state === 'seen' || state === 'visited'; })) continue;
+    g.beginPath();
+    route.path.forEach(function (cell, index) {
+      const centre = mapCellCentre(cell);
+      if (index === 0) g.moveTo(centre[0] + 0.5, centre[1] + 0.5); else g.lineTo(centre[0] + 0.5, centre[1] + 0.5);
+    });
+    if (route.built && world.routes[route.id]) { // walked: a solid line with its number
+      g.setLineDash([]); g.lineJoin = 'round';
+      g.strokeStyle = COLOR.ink; g.lineWidth = 3; g.stroke();
+      g.strokeStyle = COLOR.paper; g.lineWidth = 1; g.stroke();
+      const middle = mapCellCentre(pointAlongPath(route.path, 0.5));
+      const label = route.id.replace('route', '');
+      const width = label.length * 4 + 3;
+      g.fillStyle = COLOR.paper; g.fillRect(middle[0] - Math.floor(width / 2), middle[1] - 4, width, 7);
+      g.font = FONT_SMALL; g.textAlign = 'center'; g.fillStyle = COLOR.ink; g.fillText(label, middle[0], middle[1] - 4);
+    } else { // not walked yet: dotted
+      g.setLineDash([2, 2]); g.strokeStyle = COLOR.ink; g.lineWidth = 1; g.stroke(); g.setLineDash([]);
+    }
+  }
+}
+function drawMapPlaces(g, world) {
+  for (const node of Object.values(WORLD.nodes)) {
+    const state = placeState(world, node.id);
+    if (state === 'hidden') continue;
+    const centre = mapCellCentre(node.cell);
+    const cx = centre[0];
+    const cy = centre[1];
+    if (state === 'unknown') { // built later: a question mark
+      g.fillStyle = COLOR.ink; g.fillRect(cx - 3, cy - 3, 7, 7);
+      g.fillStyle = COLOR.paper; g.fillRect(cx - 2, cy - 2, 5, 5);
+      g.font = FONT_SMALL; g.textAlign = 'center'; g.fillStyle = COLOR.ink; g.fillText('?', cx + 0.5, cy - 4);
+      continue;
+    }
+    if (node.kind === 'door') { // the Parliament: a purple square with a gold frame
+      g.fillStyle = COLOR.gold; g.fillRect(cx - 4, cy - 4, 9, 9);
+      g.fillStyle = MAP_COLOR.door; g.fillRect(cx - 3, cy - 3, 7, 7);
+      continue;
+    }
+    g.fillStyle = COLOR.ink; g.fillRect(cx - 3, cy - 3, 7, 7);
+    g.fillStyle = '#ffffff'; g.fillRect(cx - 2, cy - 2, 5, 5);
+    if (state === 'seen') { g.fillStyle = COLOR.ink; g.fillRect(cx - 1, cy - 1, 3, 3); } // a hollow square: told about, not visited
+    if (node.boss) drawShapeOn(g, MAP_DIAMOND, cx + 2, cy - 6, world.badges[node.district] ? COLOR.gray : COLOR.gold, COLOR.ink);
+    if (world.stops[node.id]) { g.fillStyle = MAP_COLOR.bus; g.fillRect(cx - 6, cy + 2, 4, 3); } // a bus pip: a ΚΤΕΛ stop is open here
+  }
+}
+function drawMapDistrictNames(g, world) {
+  g.textAlign = 'center';
+  for (const district of Object.values(WORLD.districts)) {
+    const name = T(district.nameKey);
+    const x = Math.round(district.label[0] * MAP_CELL);
+    const y = Math.round(district.label[1] * MAP_CELL) - 4;
+    g.font = FONT;
+    const width = Math.ceil(g.measureText(name).width);
+    g.fillStyle = 'rgba(246,239,220,0.88)'; g.fillRect(x - Math.floor(width / 2) - 1, y - 1, width + 2, 10);
+    g.fillStyle = COLOR.ink; g.fillText(name, x, y);
+    if (districtState(world, district.id) === 'cleared') drawShapeOn(g, MAP_STAR, x + Math.ceil(width / 2) + 3, y + 1, COLOR.gold, COLOR.ink);
+    if (!district.built) {
+      g.font = FONT_SMALL;
+      const soon = T('map.soon');
+      const soonWidth = Math.ceil(g.measureText(soon).width);
+      g.fillStyle = 'rgba(246,239,220,0.88)'; g.fillRect(x - Math.floor(soonWidth / 2) - 1, y + 10, soonWidth + 2, 9);
+      g.fillStyle = COLOR.ink; g.fillText(soon, x, y + 11);
+    }
+  }
+}
+function buildMapBase(world) {
+  const base = document.createElement('canvas');
+  base.width = WORLD.cols * MAP_CELL;
+  base.height = WORLD.rows * MAP_CELL;
+  const g = base.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.textBaseline = 'top';
+  drawMapTerrain(g, world);
+  drawMapRoutes(g, world);
+  drawMapPlaces(g, world);
+  drawMapDistrictNames(g, world);
+  return base;
+}
+
+// The title bar: the title on the left, the six badge pips and "n/6" on the right. Measured, so a test can check they fit and do not touch.
+function mapTitleLayout(won) {
+  ctx.font = FONT;
+  const title = T('map.title') + ' · ' + T('map.scale');
+  const count = won + '/' + WORLD_BADGE_COUNT;
+  const countWidth = Math.ceil(ctx.measureText(count).width);
+  const countX = SCREEN_W - 4 - countWidth;
+  const pipsX = countX - 4 - (WORLD_BADGE_COUNT * (MAP_PIP + 1) - 1);
+  return { title: title, count: count, countX: countX, pipsX: pipsX, leftEnd: 4 + Math.ceil(ctx.measureText(title).width) };
+}
+// The three info lines for the selected place: page one (what is there, the keys) or the district sheet (page two).
+function mapInfoLines(world, nodeId, sheet) {
+  const node = WORLD.nodes[nodeId];
+  const district = WORLD.districts[node.district];
+  const levels = T('map.levels', { lo: district.levels[0], hi: district.levels[1] });
+  if (!sheet) {
+    const has = (node.has || []).map(function (key) { return T('world.has.' + key); }).join(', ');
+    return [T('world.' + nodeId) + ' · ' + T(district.nameKey), has + ' · ' + levels, T('map.keys')];
+  }
+  const boss = TRAINERS[district.bossTrainer] ? TRAINERS[district.bossTrainer].name : '???';
+  const species = districtSpecies(district.id);
+  const towns = Object.values(WORLD.nodes).filter(function (other) { return other.district === district.id && other.kind === 'town'; });
+  return [
+    T(district.nameKey) + ' · ' + T(world.badges[district.id] ? 'map.badge.won' : 'map.badge.no'),
+    T('map.sheet.boss', { boss: boss }),
+    T('map.sheet.stats', {
+      met: species.filter(function (id) { return G.dex.seen[id]; }).length, all: species.length,
+      seen: towns.filter(function (town) { return world.visited[town.id]; }).length, towns: towns.length,
+    }) + ' · ' + levels,
+  ];
+}
+
+function MapLayer() {
+  this.opaque = true;
+  this.frame = 0;
+  this.sheet = false;
+  this.world = G.world;
+  this.base = buildMapBase(this.world);
+  this.marker = worldMarker(G.player.map, G.player.x, G.player.y);
+  this.cursor = this.startCursor();
+}
+// The cursor starts on the player's place; on a route, on the nearer end that is on the map.
+MapLayer.prototype.startCursor = function () {
+  const candidates = worldCandidates(this.world);
+  const marker = this.marker;
+  if (marker && !marker.onRoute && candidates.includes(marker.id)) return marker.id;
+  if (marker && marker.onRoute) {
+    const route = WORLD.routes[marker.id];
+    const ends = marker.fraction < 0.5 ? [route.a, route.b] : [route.b, route.a];
+    for (const id of ends) if (candidates.includes(id)) return id;
+  }
+  return candidates.length > 0 ? candidates[0] : null;
+};
+// Jumps to the nearest place in the pressed direction (a straight line is preferred over a sideways one).
+MapLayer.prototype.moveCursor = function (direction) {
+  if (!this.cursor) return;
+  const vector = DIRS[direction];
+  const from = WORLD.nodes[this.cursor].cell;
+  let best = null;
+  let bestScore = Infinity;
+  for (const id of worldCandidates(this.world)) {
+    if (id === this.cursor) continue;
+    const cell = WORLD.nodes[id].cell;
+    const along = (cell[0] - from[0]) * vector[0] + (cell[1] - from[1]) * vector[1];
+    const across = Math.abs((cell[0] - from[0]) * vector[1] - (cell[1] - from[1]) * vector[0]);
+    if (along <= 0) continue;
+    const score = along + 2 * across;
+    if (score < bestScore) { best = id; bestScore = score; }
+  }
+  if (best) { this.cursor = best; Sound.sfx('move'); }
+};
+MapLayer.prototype.update = function () {
+  this.frame++;
+  if (Input.pressed.b && this.sheet) { this.sheet = false; Sound.sfx('back'); return; }
+  // back, the open key and the menu input all close the map; the layer below (pause menu or overworld) gets control back
+  if (Input.pressed.b || Input.pressed.map || Input.pressed.menu) { Sound.sfx('back'); closeLayer(this); return; }
+  if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; Sound.sfx('confirm'); return; }
+  if (this.sheet) return;
+  for (const name of ['up', 'down', 'left', 'right']) if (Input.pressed[name]) this.moveCursor(name);
+};
+MapLayer.prototype.draw = function () {
+  ctx.font = FONT;
+  const won = worldBadgeCount(this.world);
+  const layout = mapTitleLayout(won);
+  ctx.fillStyle = COLOR.ink; ctx.fillRect(0, 0, SCREEN_W, MAP_TOP);
+  drawText(layout.title, 4, 2, COLOR.paper);
+  for (let i = 0; i < WORLD_BADGE_COUNT; i++) {
+    ctx.fillStyle = i < won ? COLOR.gold : MAP_COLOR.pipEdge; ctx.fillRect(layout.pipsX + i * (MAP_PIP + 1), 2, MAP_PIP, MAP_PIP);
+    ctx.fillStyle = i < won ? '#c88a1c' : MAP_COLOR.pipOff; ctx.fillRect(layout.pipsX + i * (MAP_PIP + 1) + 1, 3, MAP_PIP - 2, MAP_PIP - 2);
+  }
+  drawText(layout.count, layout.countX, 2, COLOR.paper);
+  ctx.drawImage(this.base, 0, MAP_TOP);
+  const still = OPT.reduceMotion; // Reduced motion: no bobbing and no blinking
+  if (this.marker) {
+    const centre = mapCellCentre(this.marker.cell);
+    const bob = still ? 0 : Math.floor(this.frame / 30) % 2; // 1 px every 500 ms
+    drawShapeOn(ctx, MAP_PIN, centre[0] - 2, centre[1] + MAP_TOP - 10 - bob, COLOR.red, COLOR.ink);
+  }
+  if (this.cursor && (still || Math.floor(this.frame / 16) % 2 === 0)) {
+    const centre = mapCellCentre(WORLD.nodes[this.cursor].cell);
+    const left = centre[0] - 5;
+    const top = centre[1] + MAP_TOP - 5;
+    ctx.fillStyle = COLOR.gold;
+    ctx.fillRect(left, top, 10, 1); ctx.fillRect(left, top + 9, 10, 1); ctx.fillRect(left, top, 1, 10); ctx.fillRect(left + 9, top, 1, 10);
+  }
+  ctx.fillStyle = COLOR.paper; ctx.fillRect(0, MAP_PANEL_TOP, SCREEN_W, SCREEN_H - MAP_PANEL_TOP);
+  ctx.fillStyle = COLOR.ink; ctx.fillRect(0, MAP_PANEL_TOP, SCREEN_W, 1);
+  if (!this.cursor) return;
+  const lines = mapInfoLines(this.world, this.cursor, this.sheet);
+  for (let i = 0; i < lines.length; i++) drawText(lines[i], 4, MAP_PANEL_TOP + 2 + i * 9, i === 2 && !this.sheet ? COLOR.gray : COLOR.ink);
+  if (this.sheet) { // the badge pip of the district at the right end of the first line
+    const won = !!this.world.badges[WORLD.nodes[this.cursor].district];
+    ctx.fillStyle = won ? COLOR.gold : MAP_COLOR.pipEdge; ctx.fillRect(SCREEN_W - 4 - MAP_PIP, MAP_PANEL_TOP + 3, MAP_PIP, MAP_PIP);
+    ctx.fillStyle = won ? '#c88a1c' : MAP_COLOR.pipOff; ctx.fillRect(SCREEN_W - 3 - MAP_PIP, MAP_PANEL_TOP + 4, MAP_PIP - 2, MAP_PIP - 2);
+  }
+};
+// Opened from the pause menu, the overworld key (Q), Select or the touch pill; whoever opened it gets control back when it closes.
+async function openMapScreen() {
+  worldVisit(G.world, G.player.map, G.flags);
+  Sound.sfx('confirm');
+  await openLayer(new MapLayer());
 }
 
 // ---- Party ---------------------------------------------------------------------------------------------------------------------
@@ -4782,7 +5290,8 @@ async function selfTest() {
       check('loaded game matches', !!copy && copy.money === 4321 && copy.flags.testFlag === true && copy.party.length === G.party.length &&
         copy.party[0].sp === G.party[0].sp && copy.party[0].lv === G.party[0].lv && copy.player.name === G.player.name, copy ? copy.money : 'null');
       check('the archive survives a save and load', !!copy && copy.archive.length === 1 && copy.archive[0].sp === 'storoula' && copy.archive[0].lv === 4);
-      check('save key is mizamon.v1.save with version 2', JSON.parse(Store.get('mizamon.v1.save')).version === 2);
+      check('save key is mizamon.v1.save with version 3', JSON.parse(Store.get('mizamon.v1.save')).version === 3);
+      check('the visited places survive a save and load', !!copy && copy.world.visited.newPeiraias === 1, copy ? JSON.stringify(copy.world) : 'null');
       G.archive = [];
     });
     await guard('language', async function () {
@@ -4832,6 +5341,117 @@ async function selfTest() {
       check('d-pad arrows are identical drawn shapes in both layouts and pressed (no font glyph)', padProblems.length === 0, padProblems.join(' | '));
       check('touch controls exist when forced on', shown);
       check('no touch button covers the game (' + window.innerWidth + 'x' + window.innerHeight + ')', covering.length === 0, covering.join(','));
+    });
+    await guard('map screen', async function () {
+      if (!G) throw new Error('no game');
+      const world = layers.find(function (l) { return l instanceof OverworldLayer; });
+      const topLayer = function () { return layers[layers.length - 1]; };
+      const settle = function () { return pumpUntil(function () { return !world.busy && topLayer() === world; }, 400, null, 1); };
+      world.loadMap('town', 15, 14, 'up');
+      await settle();
+      // From the pause menu: the entry is the fourth one, closing returns to the menu with the cursor still on it.
+      Input.inject('menu', 2);
+      await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 100, null, 1);
+      await pumpFrames(3);
+      for (let i = 0; i < 3; i++) { Input.inject('down', 2); await pumpFrames(3); }
+      Input.inject('a', 2);
+      const fromMenu = await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      check('the pause menu has a Χάρτης entry that opens the map', fromMenu && T('menu.map') === 'Χάρτης');
+      const screen = topLayer();
+      check('the marker stands on the current place (town: New Piraeus) and the cursor starts there', fromMenu && screen.marker.id === 'newPeiraias' && !screen.marker.onRoute && screen.cursor === 'newPeiraias', JSON.stringify(screen.marker));
+      await pumpFrames(3);
+      Input.inject('a', 2); await pumpFrames(3);
+      const sheetShown = screen.sheet;
+      Input.inject('b', 2); await pumpFrames(3); // the first B leaves the district sheet, not the map
+      const sheetLeft = !screen.sheet && topLayer() === screen;
+      Input.inject('menu', 2); // the menu input closes the map
+      const backToMenu = await pumpUntil(function () { return topLayer() instanceof ChoiceLayer; }, 100, null, 1);
+      check('A opens the district sheet, B leaves it, the menu input closes the map and returns to the pause menu on Χάρτης', sheetShown && sheetLeft && backToMenu && topLayer().cursor === 3, 'cursor ' + (topLayer() && topLayer().cursor));
+      await pumpFrames(3);
+      Input.inject('b', 2); await settle();
+      // From the key: Q opens it on the overworld and closes it again, with the player on the same tile.
+      const tile = world.px + ',' + world.py;
+      MIZAMON.press('map', 2);
+      const fromKey = await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      await pumpFrames(3);
+      Input.inject('map', 2);
+      const closedByKey = await settle();
+      check('the map key opens the map and the same key closes it back to the overworld', fromKey && closedByKey && world.px + ',' + world.py === tile && G.player.map === 'town');
+      MIZAMON.press('map', 2);
+      await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      await pumpFrames(3);
+      Input.inject('menu', 2);
+      const menuClosed = await settle();
+      check('opened by the key, the menu input closes the map back to the overworld (not to the pause menu)', menuClosed);
+      MIZAMON.press('map', 2);
+      await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      await pumpFrames(3);
+      Input.inject('b', 2);
+      check('B closes the map back to the overworld', await settle());
+      // On a route the marker stands on the route's line, at the fraction the tile gives.
+      world.loadMap('route1', 16, 9, 'right');
+      await settle();
+      MIZAMON.press('map', 2);
+      await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      const onRoute = topLayer().marker;
+      check('on route 1 the marker is on the route line at the tile fraction', !!onRoute && onRoute.onRoute && onRoute.id === 'route1' && Math.abs(onRoute.fraction - 16.5 / 32) < 1e-9, JSON.stringify(onRoute));
+      await pumpFrames(3); Input.inject('b', 2); await settle();
+      world.loadMap('town', 15, 14, 'up');
+      await settle();
+      // The map is drawn without error and its pixels differ from an empty screen.
+      MIZAMON.press('map', 2);
+      await pumpUntil(function () { return topLayer() instanceof MapLayer; }, 100, null, 1);
+      renderFrame();
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let lit = 0;
+      for (let i = 0; i < pixels.length; i += 16) if (pixels[i] !== 0 || pixels[i + 1] !== 0 || pixels[i + 2] !== 0) lit++;
+      check('the map screen paints the whole screen', lit > pixels.length / 16 * 0.9, lit);
+      await pumpFrames(3); Input.inject('b', 2); await settle();
+      // Every text line fits in 232 px in both languages, the title bar with its badge pips and "n/6" included.
+      const language = OPT.lang;
+      const wide = [];
+      for (const lang of ['el', 'en']) {
+        OPT.lang = lang; resetTextCache();
+        for (let won = 0; won <= WORLD_BADGE_COUNT; won++) {
+          const layout = mapTitleLayout(won);
+          if (layout.pipsX - layout.leftEnd < 4) wide.push(lang + ' title ' + won + ': ends at ' + layout.leftEnd + ', pips start at ' + layout.pipsX);        }
+        const probe = newWorldState();
+        for (const id of Object.keys(WORLD.nodes)) { probe.visited[id] = 1; probe.badges[WORLD.nodes[id].district] = 1; }
+        ctx.font = FONT;
+        for (const id of Object.keys(WORLD.nodes)) {
+          for (const sheet of [false, true]) {
+            mapInfoLines(probe, id, sheet).forEach(function (line, index) {
+              const room = sheet && index === 0 ? MAP_TEXT_LIMIT - MAP_PIP - 4 : MAP_TEXT_LIMIT; // the sheet's first line shares its row with the badge pip
+              if (ctx.measureText(line).width > room) wide.push(lang + ' ' + id + ': ' + line);
+            });
+          }
+        }
+      }
+      OPT.lang = language; resetTextCache();
+      check('the title bar with the badge pips and every info line fit in 232 px in both languages', wide.length === 0, wide.join(' | '));
+    });
+    await guard('map touch button', async function () {
+      // The ΧΑΡΤΗΣ pill: shown, inside the window, off the game picture and clear of every other button (checked in the layout this window has).
+      touchForced = true; resizeScreen();
+      const map = touchPad.querySelector('[data-btn="map"]');
+      const box = map.getBoundingClientRect();
+      const game = canvas.getBoundingClientRect();
+      const overlaps = [];
+      for (const other of touchPad.querySelectorAll('[data-btn]')) {
+        if (other === map) continue;
+        const b = other.getBoundingClientRect();
+        if (box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top) overlaps.push(other.getAttribute('data-btn'));
+      }
+      const inside = box.width > 0 && box.left >= 0 && box.top >= 0 && box.right <= window.innerWidth && box.bottom <= window.innerHeight;
+      const onGame = box.left < game.right && box.right > game.left && box.top < game.bottom && box.bottom > game.top;
+      // Pressing it makes the "map" input, and the touch handler releases it again.
+      map.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const pressed = !!Input.touch.map;
+      map.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+      const released = !Input.touch.map;
+      touchForced = false; resizeScreen();
+      check('the map touch button is reachable and clear of the other buttons (' + window.innerWidth + 'x' + window.innerHeight + ')', inside && !onGame && overlaps.length === 0 && pressed && released,
+        'inside ' + inside + ' onGame ' + onGame + ' overlaps ' + overlaps.join(',') + ' pressed ' + pressed + ' released ' + released);
     });
   } finally {
     layers.length = 0;

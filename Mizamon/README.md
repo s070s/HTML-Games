@@ -17,13 +17,15 @@ Open `Mizamon.html` in a browser (desktop or phone). Greek is the default; Optio
 | Confirm / talk | Z, Enter, Space | A | A button |
 | Back | X, Escape, Backspace | B | B button |
 | Menu | M, Tab | Start | MENU button |
+| Map | Q | Select / Back | ΧΑΡΤΗΣ button |
 | Mute | N | | Options |
 
 - Walk in tall grass to meet independent (wild) Mizamon. A battle is a television debate: the two fighters stand on podiums, a poll bar (the HP) hangs over each, the commands are four tabs (Ομιλία = moves, Τσάντα, Κόμμα = switch, Διαφυγή) and the messages run in a news ticker at the bottom. In a battle, offer a Φακελάκι or Φάκελος from the Bag to recruit an independent one (odds rise when it is hurt, Υπό Έρευνα or Λαδωμένος).
 - The Νοσοκομείο 3000 heals your team: talk to the receptionist (free "in 3 to 5 years", then at once; with a Φακελάκι you can pay for the VIP service). If your whole team loses you wake up there. The terminal on the left (Αρχείο Ασθενών) deposits and withdraws Mizamon; a recruit that does not fit in a full team of 6 goes to it by itself. The ΚΕΠ 3000 only has a queue. The Περίπτερο sells items. Saving happens at the Καφενείο.
 - Beat Ο Λιμενάρχης Κώτσος at the port to get the Παράσημο and see the credits. Afterwards a Τηλεοπτικό Στούντιο opens in the square.
+- The Χάρτης (Map) shows the six districts of Attica as a schematic, not to scale: open it from the menu or with Q, Select or the ΧΑΡΤΗΣ button; the red pin is where you are, the arrows move between the places you know, A shows the district sheet.
 - Options: language, sound, text speed, Reduced motion (no shaking or flashing; the default follows the operating system setting).
-- The save is in the browser (`localStorage` key `mizamon.v1.save`, save format version 2; older saves are migrated). Without storage the game still plays; the save lasts only while the page is open.
+- The save is in the browser (`localStorage` key `mizamon.v1.save`, save format version 3; older saves are migrated). Without storage the game still plays; the save lasts only while the page is open.
 
 ## Test
 - Headless rules tests (Node 24+, no installs): `node Mizamon/tools/run-tests.mjs` prints `PASS n / m` and exits 1 on a failure. It loads the rules between `// RULES-BEGIN` and `// RULES-END` in `Mizamon.html`.
