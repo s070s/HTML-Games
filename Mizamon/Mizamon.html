@@ -363,7 +363,7 @@ function lookupString(key, lang) {
 }
 
 // ---- Creatures: stats, experience, moves ------------------------------------------
-// mon.boost (a boss' creatures only, section 11.12): a multiplier on the species' base stats, so a weak species can still be a boss' wall at a level where levels count for little.
+// mon.boost (a boss' creatures, or the legend's encounter (11.16); section 11.12): a multiplier on the species' base stats, so a weak species can still be a boss' wall at a level where levels count for little.
 function statOf(mon, key) {
   const base = SPECIES[mon.sp].base[STAT_INDEX[key]] * (mon.boost || 1);
   if (key === 'hp') return Math.floor(base * mon.lv / 20) + mon.lv + 10;
@@ -6983,7 +6983,7 @@ function getEnvelopeSprite() {
   envelopeSprite = p.canvas;
   return envelopeSprite;
 }
-// The mark of a boosted creature (a boss' creature with mon.boost, section 11.12): how far left of the panel's right text edge a small arrow is drawn, 0 = no mark.
+// The mark of a boosted creature (a boss' creature, or the legend's encounter (11.16), with mon.boost; section 11.12): how far left of the panel's right text edge a small arrow is drawn, 0 = no mark.
 // Measured once when the creature is sent out, never per frame.
 function boostMarkOffset(mon, lvText) {
   if (!mon.boost) return 0;

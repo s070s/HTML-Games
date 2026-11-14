@@ -3256,14 +3256,14 @@ test('Αθήνα legend: the Φορολογούμενος is a single recruitabl
   for (let seed = 1; seed <= 200 && !recruitedLegend; seed++) {
     const bag = { chontros: 3 };
     const foe = R.makeMon('taxpayer', 40, legend.boost);
-    foe.hp = 1;
+    foe.hp = R.maxHp(R.makeMon('taxpayer', 40)) + 40; // above its plain maximum, so the recruit must clamp it
     const battle = R.createBattle([R.makeMon('komma', 40)], [foe], R.makeRng(seed), { kind: 'wild', bag });
     R.playTurn(battle, { t: 'recruit', id: 'chontros' });
     if (battle.recruited.length === 1) recruitedLegend = battle.sides[0].party[1];
   }
   assert.ok(recruitedLegend, 'a recruit succeeds within 200 seeds');
   assert.equal(recruitedLegend.boost, undefined, 'a recruited legend has no boost');
-  assert.ok(recruitedLegend.hp <= R.maxHp(recruitedLegend), 'its HP fits its plain stats');
+  assert.equal(recruitedLegend.hp, R.maxHp(recruitedLegend), 'its HP is clamped to its plain maximum');
   const recruitHard = R.recruitChance(R.makeMon('taxpayer', 40), 'chontros');
   assert.ok(recruitHard > 0 && recruitHard < R.recruitChance(R.makeMon('star90', 40), 'chontros'), 'it is harder to recruit than an ordinary creature');
 });
