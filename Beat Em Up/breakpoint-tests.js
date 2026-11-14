@@ -16986,20 +16986,21 @@ const SelfTest = {
       if (d.zoneUntil !== until || d.zone.join() !== '0,0,0' || d.breathless !== 0 || d.limp !== 0 || d.dizzy !== 0 || d.dizzyWait !== 0) bad.push('a new round: zoneUntil ' + d.zoneUntil + ' (want ' + until + '), zones ' + d.zone.join('/') + ', effects ' + [d.breathless, d.limp, d.dizzy, d.dizzyWait].join('/'));
       return bad.length ? bad.slice(0, 6).join('; ') : true;
     });
-    test('Body strain (P19-02): (4a) DIZZY - read from the fighter: it starts on the first free tick (not while the fighter is hit), lasts exactly DIZZY_TICKS (40), takes Defend, Sway (also one pressed just before) and Run away, halves the walk, the pose key reads dizzy while it runs and \'\' after, and Defend works again once it is over - for a Block and a Sway fighter', () => {
+    test('Body strain (P19-02): (4a) DIZZY - read from the fighter: it starts on the first free tick (not while the fighter is hit), lasts exactly DIZZY_TICKS (40), takes Defend, Sway (also one pressed just before) and Run away, halves the walk, the pose key reads dizzy while it runs and \'\' after, and a Defend held through it is no fresh press when it is over (the Block guard is a held one, the Sway fighter does not Sway and its spent stance stays spent, a release and a new press Sways) - for a Block and a Sway fighter', () => {
       const bad = [];
       for (const defense of ['block', 'sway']) {
-        const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }, (it) => { it.fwd = 1; }, (it) => { it.fwd = 1; it.run = true; it.defend = true; });
+        let hold = true;   // the Defend button of the dizzy fighter: held through the whole effect, let go and pressed again at the end of the test
+        const m = zoneRig({ playerId: 'kai', opponentId: 'kai' }, (it) => { it.fwd = 1; }, (it) => { it.fwd = 1; it.run = true; it.defend = hold; });
         self.place(m, 6);
         const a = m.fighters[0], d = m.fighters[1];
-        d.defense = defense;
-        d.zone[0] = ZONE_MAX - 3; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
+        d.defense = defense;        d.zone[0] = ZONE_MAX - 3; Combat.landHit(zoneStrike(a, d, ATTACKS.jab), m);
         d.swayBuffer = 100;   // a Sway pressed just before the fire
         const label = defense + ': ';
         if (d.dizzyWait !== 1 || d.dizzy !== 0 || d.zone[0] !== ZONE_RESET || d.zonePose !== '') bad.push(label + 'after the fire: wait ' + d.dizzyWait + ', dizzy ' + d.dizzy + ', pose ' + d.zonePose);
         let guard = 0;
         while (d.dizzy === 0 && guard++ < 120) { m.step(); if (d.dizzy === 0 && (d.dizzyWait !== 1 || d.zonePose !== '')) { bad.push(label + 'dizzy was not waiting while hit'); break; } }
         if (d.dizzy !== DIZZY_TICKS - 1 || d.dizzyWait !== 0) { bad.push(label + 'the first free tick left dizzy ' + d.dizzy); continue; }
+        if (defense === 'sway') { d.readySpent = true; d.readyLeft = 0; }   // a Sway hold whose stance was used up before the effect: it stays spent until Defend is really let go (set here: the round start arms the stance once)
         if (d.swayBuffer !== 0 || d.state === S.SWAY) bad.push(label + 'the buffered Sway survived (buffer ' + d.swayBuffer + ', ' + S[d.state] + ')');
         let active = 1, ratio = 0, refused = 0, poseOn = 0;
         for (let i = 0; i < 80 && d.dizzy > 0; i++) {
@@ -17014,8 +17015,18 @@ const SelfTest = {
         if (Math.abs(ratio - DIZZY_WALK) > 1e-6) bad.push(label + 'the walk was x ' + ratio.toFixed(4) + ', not ' + DIZZY_WALK);
         if (poseOn < DIZZY_TICKS - 2) bad.push(label + 'the pose key read dizzy ' + poseOn + ' times');
         if (d.zonePose !== '' || d.dizzy !== 0) bad.push(label + 'the pose key is "' + d.zonePose + '" after the effect');
-        zoneAfter(m, 3);
-        if (d.state !== (defense === 'block' ? S.BLOCK_H : S.SWAY)) bad.push(label + 'Defend did not work again after the effect (' + S[d.state] + ')');
+        // Defend was held the whole time: the effect's forced-off button is not a release, so its end is no fresh press (F1 of the P19-02 review)
+        const spentAtEnd = d.readySpent;
+        let swayed = false;
+        zoneAfter(m, 3, () => { if (d.state === S.SWAY) swayed = true; });
+        if (defense === 'block') {
+          if (d.state !== S.BLOCK_H || d.guardHeld !== true) bad.push(label + 'the held Defend did not give the guard as a held button after the effect (' + S[d.state] + ', guardHeld ' + d.guardHeld + ')');
+        } else {
+          if (swayed || d.state === S.SWAY || spentAtEnd !== true || d.readySpent !== true) bad.push(label + 'the held Defend after the effect started a sway or cleared the spent stance (sway ' + swayed + ', spent ' + spentAtEnd + ' -> ' + d.readySpent + ')');
+          hold = false; zoneAfter(m, 1); hold = true;   // a real release and a real press do the Sway
+          swayed = false; zoneAfter(m, 4, () => { if (d.state === S.SWAY) swayed = true; });
+          if (!swayed) bad.push(label + 'a release and a new press after the effect did not Sway (' + S[d.state] + ')');
+        }
       }
       return bad.length ? bad.slice(0, 6).join('; ') : true;
     });
@@ -27042,6 +27053,20 @@ const SelfTest = {
       const stunOf = (d) => d.f.reactDur;
       if (stunOf(charger) < Math.round(stunOf(idle) * 1.3) - 1) problems.push('the stun of a counter hit is ' + stunOf(charger) + ' against ' + stunOf(idle) + ' (want x 1.3)');
       return problems.length ? problems.join('; ') : true;
+    });
+    // P19-02 (F1 of the review): DIZZY forces the Defend input off for its 40 ticks; the button the player holds is another thing. The first tick after the effect must be no fresh press, so a charge held with Defend down goes on
+    test('Body strain (P19-02): (4d) a fighter charging with Defend held from before is not cancelled when DIZZY ends - the forced-off Defend is not a release followed by a fresh press (a Block and a Sway fighter; the charge releases at the same tick and level as with no DIZZY)', () => {
+      const problems = [];
+      for (const defense of ['block', 'sway']) {
+        const script = (withDizzy) => kickCharge(75, (it, f, t) => { if (t >= 10) it.defend = true; if (withDizzy && t === 40) f.dizzy = 25; });   // Defend down from tick 10, before the charge at 43; DIZZY from 40 to 64, inside the charge
+        const control = movesDuel('kickboxer', script(false), { defense }); control.step(130); control.stop();
+        const d = movesDuel('kickboxer', script(true), { defense });
+        d.step(50); const dizzyInCharge = d.f.dizzy > 0 && d.f.charging; d.step(24); const dizzyOver = d.f.dizzy === 0; d.step(56); d.stop();
+        const want = control.at('chargeRelease'), got = d.at('chargeRelease');
+        if (!dizzyInCharge || !dizzyOver) problems.push(defense + ': the set-up is wrong (dizzy during the charge ' + dizzyInCharge + ', over before the release ' + dizzyOver + ')');
+        if (!want || d.all('chargeCancel').length || !got || got[1] !== want[1] || got[3] !== want[3]) problems.push(defense + ': DIZZY ending changed the charge: ' + d.log.filter((l) => /charge/.test(l[0])).map((l) => l.join('/')).join(' ') + ' against ' + control.log.filter((l) => /charge/.test(l[0])).map((l) => l.join('/')).join(' '));
+      }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
     });
     // Punch at t = 1 (it hits the still foe), then Kick at tick `k` (the second press of PK): which move the Kick plays, and the fighter's still ticks when it was read
     const pauseKick = (k, o = {}, extra) => {

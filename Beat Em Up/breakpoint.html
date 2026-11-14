@@ -7080,12 +7080,12 @@ class Fighter {
     if (this.escapeLock > 0) this.escapeLock--;
     if (this.clinchStrikeCd > 0) this.clinchStrikeCd--;
     this.tickBoost();
-    this.tickZones(it);
+    const defendDown = it.defend; this.tickZones(it); // defendDown = the button as the player holds it: a DIZZY fighter has it.defend forced off, and that must not read as a release followed by a fresh press when the effect ends
     if (this.repeatTimer > 0) this.repeatTimer--;
     if (this.age % 45 === 0 && this.guardPressure > 0) this.guardPressure--;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
     this.defendPressed = it.defend && !this.prevDefend && !(this.age === 1 && this.guardMode === 'sway'); // a fresh press, not a held button (quick recovery while down); a Sway fighter whose round starts with Defend down is prepared, it has not pressed
-    this.prevDefend = it.defend;
+    this.prevDefend = defendDown;
     if (this.defendPressed && isStunState(this.state) && this.age - this.hitAt >= 1 && this.age - this.hitAt <= LATE_DEFEND_TICKS) Events.emit('lateDefend', { f: this, late: this.age - this.hitAt });
     this.grapplePressed = it.grapple && !this.prevGrapple; // a fresh Grapple press: the hold contest counts presses, not holding
     this.prevGrapple = it.grapple;
@@ -7093,7 +7093,7 @@ class Fighter {
     if (this.defendPressed && this.guardMode === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
     else if (this.swayBuffer > 0) this.swayBuffer--;
     this.stickSide = it.side || 0; this.stickFwd = it.fwd || 0; // the stick the hold's dodge leans by (Combat.apply)
-    this.updateReady(it);
+    this.updateReady(it, defendDown);
     this.assist = it.assist === true; // Auto-assist: read by pickString
     this.guardAssist = it.guardAssist === true; // Guard assist: read by Combat.evaluate
     if (it.use || it.setDown) { this.useBuffer = BUFFER_TICKS; this.useDrop = !!it.setDown; } else if (this.useBuffer > 0) this.useBuffer--; // a Use press waits for the fighter to be free, like an attack press
@@ -7203,8 +7203,8 @@ class Fighter {
   }
   // A prepared Sway (P18-62): Sway guard mode, Defend held, free, no press waiting to start a sway. Each strike that would land then starts the sway itself (Combat.evaluate and apply).
   // P19-13: the stance lasts STANCE_TICKS prepared ticks after a press that armed it; when they are used up it stays off until Defend is let go (readySpent).
-  updateReady(it) {
-    if (!it.defend) this.readySpent = false;
+  updateReady(it, defendDown) {
+    if (!defendDown) this.readySpent = false; // a real release only: a DIZZY fighter's forced-off Defend is not one
     if (this.guardMode === 'sway' && (this.defendPressed || (this.age === 1 && it.defend))) this.armStance(); // a press in any state, or a round that starts with Defend down
     const free = this.state === S.IDLE || this.state === S.WALK || this.state === S.CROUCH;
     let ready = this.guardMode === 'sway' && it.defend && free && !this.charging && !this.airborne && this.swayBuffer === 0 && !this.readySpent; // P19-15: a charge waits inside an attack, so `free` already excludes it; the term keeps a stance from counting ticks while one waits whatever the state, and a charge never uses Defend (P19-13 open point e)
