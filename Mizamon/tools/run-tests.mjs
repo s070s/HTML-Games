@@ -482,7 +482,7 @@ test('map reachability: start to the boss door, the boss, and every NPC tile', (
   assert.ok(open.has('port:' + bossWarp.tx + ':' + bossWarp.ty), 'inside the harbour office reachable');
   const boss = R.MAPS.port.npcs.find((n) => n.id === 'kotsos');
   assert.ok(R.npcTalkable('port', boss, open), 'boss can be talked to');
-  const all = R.reachableTiles(start.map, start.x, start.y, { credits: true, badge: true, badge_notia: true, badge_anatolika: true }); // route 2 and Καστέλλα open with the Port Medal (flag badge), Ανατολικά with the Coast Medal, Βόρεια with the Boarding Medal
+  const all = R.reachableTiles(start.map, start.x, start.y, { credits: true, badge: true, badge_notia: true, badge_anatolika: true, badge_voreia: true }); // route 2 and Καστέλλα open with the Port Medal (flag badge), Ανατολικά with the Coast Medal, Βόρεια with the Boarding Medal, Δυτικά with the First Row Medal
   for (const [mapId, map] of Object.entries(R.MAPS)) {
     for (const npc of map.npcs) assert.ok(R.npcTalkable(mapId, npc, all), mapId + ':' + npc.id + ' unreachable');
     for (const warp of map.warps) assert.ok(all.has(mapId + ':' + warp.x + ':' + warp.y), mapId + ' warp tile ' + warp.x + ',' + warp.y + ' unreachable');
@@ -522,7 +522,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     if (species.evo) assert.ok(R.SPECIES[species.evo.to]);
   }
   for (const ability of R.ABILITY_IDS) assert.ok(abilityHolders.has(ability), 'ability ' + ability + ' is held by someone');
-  assert.equal(Object.keys(R.SPECIES).length, 31, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a), the four of Νότια (MZ-WORLD-02b), the five of Ανατολικά (MZ-WORLD-02c), the seven of Βόρεια (MZ-WORLD-02d) and 2 parody characters');
+  assert.equal(Object.keys(R.SPECIES).length, 36, '12 MVP creatures, Εφοπλιστάκος (MZ-WORLD-02a), the four of Νότια (MZ-WORLD-02b), the five of Ανατολικά (MZ-WORLD-02c), the seven of Βόρεια (MZ-WORLD-02d), the five of Δυτικά (MZ-WORLD-02e) and 2 parody characters');
   same(R.DEX_ORDER.slice().sort(), Object.keys(R.SPECIES).sort());
   for (const id of R.ITEM_IDS) assert.ok(R.ITEMS[id]);
   for (const id of R.SHOP_STOCK) assert.ok(R.ITEMS[id]);
@@ -548,7 +548,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
     for (const zone of map.zones || []) for (const entry of zone.table) assert.ok(R.SPECIES[entry.sp] && entry.min <= entry.max);
     assert.ok(R.STRINGS[map.name], mapId + ' name string');
   }
-  const topBuiltLevel = 32; // the highest level of the built districts (the Βόρεια boss); raise it when a later district is built
+  const topBuiltLevel = 38; // the highest level of the built districts (the Δυτικά boss); raise it when a later district is built
   for (const id of Object.keys(R.TRAINERS)) {
     const last = R.TRAINERS[id].team[R.TRAINERS[id].team.length - 1];
     assert.ok(last.lv <= topBuiltLevel, id + ' last level ' + last.lv + ' is above the built top ' + topBuiltLevel);
@@ -939,7 +939,7 @@ test('WORLD grid: 30 x 15, only known cells, six districts in play order, every 
     assert.equal(labelChar.toUpperCase(), district.letter, id + ' label sits inside the district');
     assert.ok(R.STRINGS[district.nameKey], id + ' name string');
   }
-  same(Object.values(W.districts).filter((district) => district.built).map((district) => district.id), ['peiraias', 'notia', 'anatolika', 'voreia'], 'Πειραιάς, Νότια, Ανατολικά and Βόρεια are built');
+  same(Object.values(W.districts).filter((district) => district.built).map((district) => district.id), ['peiraias', 'notia', 'anatolika', 'voreia', 'dytika'], 'Πειραιάς, Νότια, Ανατολικά, Βόρεια and Δυτικά are built');
   assert.equal(R.WORLD_BADGE_COUNT, 6);
 });
 test('WORLD places: every node cell is land of its district, only the built district has built places, built places have maps', () => {
@@ -954,7 +954,7 @@ test('WORLD places: every node cell is land of its district, only the built dist
     for (const mapId of node.maps) assert.ok(R.MAPS[mapId], id + ' lists the map ' + mapId);
     if (node.built) assert.ok(node.maps.length > 0, id + ' is built and has maps');
   }
-  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella', 'faliro', 'glyfada', 'koropi', 'spata', 'kifisia', 'marousi']);
+  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice', 'kastella', 'faliro', 'glyfada', 'koropi', 'spata', 'kifisia', 'marousi', 'peristeri', 'chaidari']);
   same(Object.keys(W.nodes).filter((id) => W.nodes[id].boss).sort(), ['chaidari', 'glyfada', 'harbourOffice', 'marousi', 'spata', 'syntagma']);
   assert.equal(new Set(Object.values(W.nodes).map((node) => node.cell.join(','))).size, 14, 'no two places share a cell');
 });
@@ -1079,13 +1079,17 @@ test('map states: a district is locked until the previous badge (and while unbui
   const withThirdBadge = R.newWorldState();
   withThirdBadge.badges.peiraias = 1; withThirdBadge.badges.notia = 1; withThirdBadge.badges.anatolika = 1;
   assert.equal(R.districtState(withThirdBadge, 'voreia'), 'open', 'Βόρεια is built and opens with the Boarding Medal');
-  assert.equal(R.districtState(withThirdBadge, 'dytika'), 'locked', 'the next district stays locked while it is not built');
-  // a built next district would open with the badge: model it on a copy of the data
-  const fifth = W.districts.dytika;
+  assert.equal(R.districtState(withThirdBadge, 'dytika'), 'locked', 'Δυτικά stays locked until the First Row Medal');
   const withFourthBadge = R.newWorldState();
   withFourthBadge.badges.peiraias = 1; withFourthBadge.badges.notia = 1; withFourthBadge.badges.anatolika = 1; withFourthBadge.badges.voreia = 1;
-  fifth.built = true;
-  try { assert.equal(R.districtState(withFourthBadge, 'dytika'), 'open'); assert.equal(R.districtState(withThirdBadge, 'dytika'), 'locked', 'without the fourth badge it stays locked'); } finally { fifth.built = false; }
+  assert.equal(R.districtState(withFourthBadge, 'dytika'), 'open', 'Δυτικά is built and opens with the First Row Medal');
+  assert.equal(R.districtState(withFourthBadge, 'athina'), 'locked', 'the next district stays locked while it is not built');
+  // a built next district would open with the badge: model it on a copy of the data
+  const sixth = W.districts.athina;
+  const withFifthBadge = R.newWorldState();
+  withFifthBadge.badges.peiraias = 1; withFifthBadge.badges.notia = 1; withFifthBadge.badges.anatolika = 1; withFifthBadge.badges.voreia = 1; withFifthBadge.badges.dytika = 1;
+  sixth.built = true;
+  try { assert.equal(R.districtState(withFifthBadge, 'athina'), 'open'); assert.equal(R.districtState(withFourthBadge, 'athina'), 'locked', 'without the fifth badge it stays locked'); } finally { sixth.built = false; }
   // the district sheet counts the species of the zones of its maps
   const species = R.districtSpecies('peiraias');
   assert.equal(species.length, 10, 'the eight of route 1, Φακελάρχης and Εφοπλιστάκος of route 2');
@@ -1093,7 +1097,8 @@ test('map states: a district is locked until the previous badge (and while unbui
   same(R.districtSpecies('notia').sort(), ['efoplistakos', 'eforaki', 'fakelarchis', 'frapedoros', 'giagiaka', 'kafenovios', 'laikatzis', 'storoula', 'trolosavros'], 'the nine of Νότια (11.3.2)');
   same(R.districtSpecies('anatolika').sort(), ['efoplistakos', 'eforaki', 'influenza', 'kryptomakis', 'monastiriaki', 'monimos', 'nftarchis', 'storoula', 'trolosavros'], 'the nine of Ανατολικά (11.3.3)');
   same(R.districtSpecies('voreia').sort(), ['efoplistakos', 'fakelarchis', 'giotarchis', 'influenza', 'lobbylykaina', 'nftarchis', 'rialito', 'star90', 'trolosavros'], 'the nine of Βόρεια (11.3.4)');
-  same(R.districtSpecies('dytika'), []);
+  same(R.districtSpecies('dytika').sort(), ['eforaki', 'elegktis', 'fakelarchis', 'giagiaexo', 'giagiaka', 'giotarchis', 'kafenovios', 'ktimatomesitis', 'lobbylykaina', 'monastiriaki', 'monimos', 'rousfetolykos', 'tavlilordos'], 'the nine of Δυτικά (11.3.5) and the four pre-forms that the form rule keeps in the wild (11.15)');
+  same(R.districtSpecies('athina'), []);
 });
 test('save v3: a version-2 save gets its visited places from its flags and its position; the world part round-trips; damaged parts are cleaned', () => {
   const v2 = (map, x, y, flags) => Object.assign(sampleV1(), { version: 2, lastHeal: HOSPITAL_SPOT, player: { name: 'ΜΑΡΙΑ', gender: 'f', map, x, y, dir: 'down' }, flags });
@@ -1504,7 +1509,7 @@ test('strings: no real brand, person or party in any text of either language (de
 
 // Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock);
 // Νότια adds the Δικηγόρος (150) and the Γεμιστά της Μάνας (300) to the two kiosks of its towns.
-const DISTRICT_NEW_ITEMS = { peiraias: [], notia: ['dikigoros', 'gemista'], anatolika: [], voreia: ['chontros'] };
+const DISTRICT_NEW_ITEMS = { peiraias: [], notia: ['dikigoros', 'gemista'], anatolika: [], voreia: ['chontros'], dytika: ['sylvasi'] };
 const STOCK_BEFORE_THE_REWORK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
 test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none, Νότια two)', () => {
   assert.deepEqual(DISTRICT_NEW_ITEMS.peiraias, [], 'Πειραιάς adds no item');
@@ -1518,7 +1523,10 @@ test('money budget: the prize money of the district covers the stock of its new 
   for (const mapId of ['kifisia_shop', 'marousi_shop']) same(R.shopStockOf(R.MAPS[mapId]), R.SHOP_STOCK_NOTIA.concat(DISTRICT_NEW_ITEMS.voreia), mapId + ' (Βόρεια) adds the Χοντρός Φάκελος');
   same(R.SHOP_STOCK_VOREIA, R.SHOP_STOCK_NOTIA.concat(['chontros']));
   assert.equal(R.ITEMS.chontros.price, 600);
-  for (const id of DISTRICT_NEW_ITEMS.notia.concat(DISTRICT_NEW_ITEMS.voreia)) assert.ok(!STOCK_BEFORE_THE_REWORK.includes(id) && R.ITEMS[id] && R.STRINGS['item.' + id] && R.STRINGS['itemd.' + id], id + ' is a new item with its texts');
+  for (const mapId of ['peristeri_shop', 'chaidari_shop']) same(R.shopStockOf(R.MAPS[mapId]), R.SHOP_STOCK_VOREIA.concat(DISTRICT_NEW_ITEMS.dytika), mapId + ' (Δυτικά) adds the Συλλογική Σύμβαση');
+  same(R.SHOP_STOCK_DYTIKA, R.SHOP_STOCK_VOREIA.concat(['sylvasi']));
+  assert.equal(R.ITEMS.sylvasi.price, 150);
+  for (const id of DISTRICT_NEW_ITEMS.notia.concat(DISTRICT_NEW_ITEMS.voreia, DISTRICT_NEW_ITEMS.dytika)) assert.ok(!STOCK_BEFORE_THE_REWORK.includes(id) && R.ITEMS[id] && R.STRINGS['item.' + id] && R.STRINGS['itemd.' + id], id + ' is a new item with its texts');
   assert.equal(R.ITEMS.dikigoros.price, 150); assert.equal(R.ITEMS.gemista.price, 300);
   for (const district of Object.values(W.districts).filter((entry) => entry.built)) {
     const trainerIds = xpBand(R, district.id).trainerIds.concat(district.bossTrainer);
@@ -1878,7 +1886,7 @@ test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-cre
 });
 test('every built district boss, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
   const runsPerCell = BOSS_RUNS_PER_CELL;
-  for (const bossId of ['kotsos', 'bougatsas', 'faia', 'amartia']) {
+  for (const bossId of ['kotsos', 'bougatsas', 'faia', 'amartia', 'plousiakis']) {
     const team = R.TRAINERS[bossId].team;
     const top = team[team.length - 1].lv;
     const atTop = R.STARTERS.map((starter) => starterBossRate(R, bossId, starter, top + 1, 6, runsPerCell, 8000));
@@ -2128,7 +2136,7 @@ test('Ανατολικά species: the five new creatures have stats, moves, abil
     mon.hp = 5;
     assert.ok(R.evolveMon(mon) && mon.sp === toId && mon.hp === 5 + R.maxHp(mon) - before, 'evolving keeps the damage taken');
   }
-  assert.ok(!R.SPECIES.monastiriaki.evo, 'Μοναστηριάκι (evolution at 32 in 11.3) has no target in the roster of 38 yet, like Εφοπλιστάκος and Καφενόβιος');
+  same(R.SPECIES.monastiriaki.evo, { to: 'ktimatomesitis', lv: 36 }, 'Μοναστηριάκι evolves into the Κτηματομεσίτης (MZ-WORLD-02e; 36, not the 32 of 11.3, see 11.15)');
   for (const id of ANATOLIKA_NEW_SPECIES) {
     const species = R.SPECIES[id];
     assert.ok(R.TYPE_IDS.includes(species.t) && R.ABILITY_IDS.includes(species.ab) && ['m', 'f', 'n'].includes(species.g), id + ' type, ability, gender');
@@ -2365,10 +2373,12 @@ test('Βόρεια: the road from Σπάτα is shut without the Boarding Medal;
     const map = R.MAPS[id];
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       if (/_(hospital|shop)$/.test(id) && y === 1) continue; // behind the counter, as in the templates of New Piraeus
+      if (id === 'marousi' && x === 0 && y === 9) continue; // the gate tile to Δυτικά (MZ-WORLD-02e): shut without the flag badge_voreia
       if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, VOREIA_FLAGS)) assert.ok(all.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off');
     }
     for (const warp of map.warps) {
       assert.ok(R.MAPS[warp.to].warps.some((back) => back.to === id), id + ' -> ' + warp.to + ' has a return warp');
+      if (warp.needFlag === 'badge_voreia') continue; // the gate to Δυτικά: tested by the Δυτικά tests
       assert.ok(R.tileWalkable(R.MAPS[warp.to], warp.tx, warp.ty, VOREIA_FLAGS), id + ' -> ' + warp.to + ' arrives on a walkable tile');
       assert.ok(all.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable');
     }
@@ -2383,10 +2393,10 @@ test('Βόρεια: the road from Σπάτα is shut without the Boarding Medal;
   for (const [mapId, x, y] of [['route7', 30, 14], ['kifisia', 24, 9], ['route8', 42, 6], ['marousi', 26, 9], ['marousi_boss', 6, 8], ['kifisia_cafe', 4, 6]]) {
     assert.equal(R.reachableTiles(mapId, x, y, VOREIA_FLAGS).size, all.size, 'from ' + mapId + ' everything can be reached again');
   }
-  // the boss can be talked to across the counter; the west end of Μαρούσι carries the sign of the road to Δυτικά (its gate is MZ-WORLD-02e)
+  // the boss can be talked to across the counter; the west end of Μαρούσι is the gate to Δυτικά (MZ-WORLD-02e) with its sign beside it
   assert.ok(R.npcTalkable('marousi_boss', R.MAPS.marousi_boss.npcs.find((npc) => npc.id === 'amartia'), all));
-  assert.equal(R.MAPS.marousi.signs['1,9'], 'sign.marousi.west');
-  assert.ok(!R.MAPS.marousi.warps.some((warp) => warp.x < 8 && warp.y === 9), 'no exit to Δυτικά yet');
+  assert.equal(R.MAPS.marousi.signs['0,8'], 'sign.marousi.west');
+  assert.ok(R.MAPS.marousi.warps.some((warp) => warp.x === 0 && warp.y === 9 && warp.to === 'route9' && warp.needFlag === 'badge_voreia'), 'the gate to Δυτικά');
 });
 test('Βόρεια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.4, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Κηφισιά, the arena', () => {
   const sizes = { route7: [32, 18], kifisia: [26, 18], kifisia_hospital: [12, 9], kifisia_shop: [8, 6], kifisia_cafe: [10, 8], route8: [44, 14], marousi: [28, 18], marousi_hospital: [12, 9], marousi_shop: [8, 6], marousi_boss: [14, 10] };
@@ -2496,7 +2506,7 @@ test('Βόρεια items: the Χοντρός Φάκελος is a recruit item st
   assert.ok(R.ITEMS.chontros.kind === 'recruit' && R.ITEMS.chontros.mult > R.ITEMS.fakelos.mult && R.ITEMS.chontros.price === 600);
   assert.ok(R.ITEM_IDS.includes('chontros') && R.STRINGS['item.chontros'] && R.STRINGS['itemd.chontros']);
   for (const mapId of Object.keys(R.MAPS)) if (R.MAPS[mapId].npcs.some((npc) => npc.kind === 'shop')) {
-    assert.equal(R.shopStockOf(R.MAPS[mapId]).includes('chontros'), /^(kifisia|marousi)_shop$/.test(mapId), mapId + ': only the Βόρεια kiosks sell it');
+    assert.equal(R.shopStockOf(R.MAPS[mapId]).includes('chontros'), /^(kifisia|marousi|peristeri|chaidari)_shop$/.test(mapId), mapId + ': only the kiosks of Βόρεια and Δυτικά sell it');
   }
   const foe = R.makeMon('nftarchis', 28);
   assert.ok(R.recruitChance(foe, 'chontros') > R.recruitChance(foe, 'fakelos') && R.recruitChance(foe, 'fakelos') > R.recruitChance(foe, 'fakelaki'));
@@ -2626,7 +2636,8 @@ test('Βόρεια: old saves (v2 and v3, standing anywhere in Πειραιάς,
   assert.equal(R.placeState(world, 'kifisia'), 'visited'); assert.equal(R.placeState(world, 'marousi'), 'visited');
   assert.equal(world.badges.voreia, 1, 'the flag badge_voreia fills the badge');
   assert.equal(R.districtState(world, 'voreia'), 'cleared');
-  assert.equal(R.districtState(world, 'dytika'), 'locked', 'the next district is not built');
+  assert.equal(R.districtState(world, 'dytika'), 'open', 'the First Row Medal opens Δυτικά');
+  assert.equal(R.districtState(world, 'athina'), 'locked', 'the next district is not built');
   const stored = R.migrateSave(make(3, 'marousi_hospital', 5, 7, Object.assign({ badge_voreia: true, t_amartia: true }, VOREIA_FLAGS), { world, lastHeal: { map: 'marousi_hospital', x: 5, y: 7, dir: 'up' } }));
   same(stored.lastHeal, { map: 'marousi_hospital', x: 5, y: 7, dir: 'up' }, 'the Μαρούσι hospital is a valid return point');
   assert.equal(stored.player.map, 'marousi_hospital');
@@ -2671,8 +2682,8 @@ test('Βόρεια: no per-frame work in the new content (the tiles and creature
   const overworldDraw = html.slice(html.indexOf('OverworldLayer.prototype.draw = function'), html.indexOf('OverworldLayer.prototype.drawNpc'));
   assert.ok(!/(kifisia|marousi|route7|route8|voreia|amartia)/i.test(overworldDraw), 'the overworld draw code has no Βόρεια special case');
   const shopDraw = html.slice(html.indexOf('ShopLayer.prototype.draw = function'), html.indexOf('// ---- Evolution and move learning'));
-  assert.ok(!shopDraw.includes('measureText') && shopDraw.includes('i * 11') && shopDraw.includes('this.stock.length'), 'the shop draws one row per stock item, 11 px apart, with no text measuring per frame');
-  assert.ok(22 + 11 * 8 + 8 <= 16 + 103, 'nine rows (the last starts at y 110, 8 px tall) fit in the list panel (16 + 103 = 119)');
+  assert.ok(!shopDraw.includes('measureText') && shopDraw.includes('i * 10') && shopDraw.includes('this.stock.length'), 'the shop draws one row per stock item, 10 px apart, with no text measuring per frame');
+  assert.ok(19 + 10 * 9 + 8 <= 16 + 103, 'ten rows (the last starts at y 109, 8 px tall) fit in the list panel (16 + 103 = 119)');
 });
 test('Βόρεια: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
   const types = new Set(R.TRAINERS.amartia.team.map((entry) => R.SPECIES[entry.sp].t));
@@ -2682,7 +2693,384 @@ test('Βόρεια: type fairness named: every type of the boss is hit for x2 by
   assert.ok(R.typeMultiplier('inf', 'cel') === 2 && R.typeMultiplier('ekk', 'cel') === 2 && R.STARTERS.includes('psaltak') && R.districtSpecies('notia').includes('storoula'), 'Ψαλτάκι (a starter) and Story-ούλα (wild in Νότια) hit Celebrities for x2');
 });
 
-// The player team of a Νότια, Ανατολικά or Βόρεια fight: one starter (in its middle form from level 16, in its last form from level 32) and creatures of the pool, every creature evolved as far as its level allows.
+// ---- MZ-WORLD-02e: the district Δυτικά ----
+const DYTIKA_MAP_IDS = ['route9', 'peristeri', 'peristeri_hospital', 'peristeri_shop', 'peristeri_cafe', 'route10', 'chaidari', 'chaidari_hospital', 'chaidari_shop', 'chaidari_boss'];
+const BOSS_TEAM_02E = ['ktimatomesitis36', 'giagiaexo37', 'tavlilordos38', 'fakelarchis37', 'despotakis38'];
+const BOSS_BOOST_02E = undefined; // no boost (11.15)
+const BOSS_ITEMS_02E = []; // nothing in his bag (11.15)
+const DYTIKA_FLAGS = Object.assign({ badge_voreia: true }, VOREIA_FLAGS);
+const DYTIKA_TRAINERS = ['tollclerk', 'ultras', 'granny', 'marketeer', 'philosopher', 'steward', 'gatekeeper'];
+// the nine creatures of 11.3.5 plus the pre-forms that the form rule keeps in the wild below their evolution level (11.15)
+const DYTIKA_SPECIES = ['eforaki', 'elegktis', 'fakelarchis', 'giagiaexo', 'giagiaka', 'giotarchis', 'kafenovios', 'ktimatomesitis', 'lobbylykaina', 'monastiriaki', 'monimos', 'rousfetolykos', 'tavlilordos'];
+const DYTIKA_NEW_SPECIES = ['tavlilordos', 'giagiaexo', 'elegktis', 'ktimatomesitis', 'rousfetolykos'];
+// [pre-form, evolved form, evolution level]: the levels of 11.15 (11.3 proposed 30 / 32 / 32 / 32)
+const DYTIKA_EVOLUTIONS = [['kafenovios', 'tavlilordos', 36], ['giagiaka', 'giagiaexo', 37], ['eforaki', 'elegktis', 36], ['monastiriaki', 'ktimatomesitis', 36]];;
+// the walkable tiles (1) and solid tiles (0) of the ten maps of Βόρεια, taken from the base build 5677122 (MZ-WORLD-02d)
+const OLD_WALKABLE_02D = {
+  route7: '00000000000000000000000000000000/00000000000000000000000000000110/00000000000000000000000000000110/11111111111111111111111111111110/11111111111111111111111111111110/01011111111111111111111111111110/01110111110111110111011111111010/01111111111101111101111111111110/01111111111111111111111111111110/01111111111111111111111111111110/01111111111111111111111111111110/01111111111011111111111111101110/01101111111111011111110111111110/01111111111111111111111111111010/01011111111111111111111111111111/01111011111111111111111111111111/01111111111111111111111111111110/00000000000000000000000000000000',
+  kifisia: '00000000000000000000000000/01111111111111111111111110/01000001100001100000100000/01000001100001100000100000/01000001100001100000100000/01001000101000100100000000/01111111111111111111111110/00000111111111111111000000/01111111011111111111111010/11111111111111111111111111/01111111111111111111111110/01000000111011101110000000/01000000101110111010000000/01000000111011101110000000/01000000111111111010000000/00000000011111111100000000/00000000000000000000000000/00000000000000000000000000',
+  kifisia_hospital: '000000000000/011111111110/000000000000/001110111100/011111111110/001111111100/001101101100/011111111110/000001100000',
+  kifisia_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
+  kifisia_cafe: '0000000000/0001111100/0000001110/0111111110/0111111110/0100110010/0111111110/0000110000',
+  route8: '00000000000000000000000000000000000000000000/00000000100000001000000010000000010000000010/00000000100000001000000010000000010000000010/01111111111111111111111111111111111111111110/01101111111111111111111111111111111111111010/11111111111111111111100001111111111111111111/11111111111111111111100001111111111111111111/01110111110111110011100001111101111101111010/01111111111111111111100001111111111111111110/01111110111111111111111111111111101111111110/01111111111110111111111111111111111111011110/01111111111111111111111111111111111111111110/01111111111111111111111111111111111111111110/00000000000000000000000000000000000000000000',
+  marousi: '0000000000000000000000000000/0111111111111100000000000000/0100000110000100000000000000/0100000110000100000000000000/0100000110000100000010000000/0100100010100011101111111110/0111111111111111111111111110/0111111111111111111111111110/0111111011110111111111111110/0011111111111111111111111111/0000010000011111111111111110/0011111111010100000110000010/0011111111011100000100000010/0011111111011100000110000010/0011111111010100000100000010/0000000000011111111111111110/0000000000000000000000000000/0000000000000000000000000000',
+  marousi_hospital: '000000000000/011111111110/000000000000/001110111100/011111111110/001111111100/001101101100/011111111110/000001100000',
+  marousi_shop: '00000000/00011000/00000000/01111110/01111110/00011000',
+  marousi_boss: '00000000000000/00111111111100/00111111111100/01110000001110/01111111111110/01111111111110/01111111111110/01001111110010/01111111111110/00000011000000',
+};
+// words of faith, prayer or rites: no text of the new district may carry one (the Εκκλησία type and the abbot joke about wealth, property and tax only, 11.15)
+const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis/;
+const DYTIKA_STRING_KEY = /^(map\.(route9|peristeri|route10|chaidari)|warp\.route9|sign\.(route9|toll|peristeri|route10|channel|chaidari)|npc\.(tollwatcher|hitchhiker|peristeri|pscafe|stallholder|angler|chaidari)|cafe\.hello\.peristeri|tr\.(tollclerk|ultras|granny|marketeer|philosopher|steward|gatekeeper|plousiakis)|boss\.plousiakis|badge\.dytika|item\.sylvasi|itemd\.sylvasi|sp\.(tavlilordos|giagiaexo|elegktis|ktimatomesitis|rousfetolykos))/;
+
+test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+  const band = xpBand(R, 'dytika');
+  same(band.trainerIds.slice().sort(), DYTIKA_TRAINERS.slice().sort(), 'the seven trainers of route 9, route 10 and Χαϊδάρι (the boss does not count; no rival fight in this district)');
+  assert.equal(band.top, 38);
+  assert.equal(band.need, 39789, '3 x (xpForLevel(38) - xpForLevel(32))');
+  assert.ok(band.wildFights <= 10, 'wild fights still needed: ' + band.wildFights);
+  assert.ok(band.trainerShare <= 1.3 && band.trainerShare < 1, 'trainers give ' + band.trainerShare.toFixed(2) + ' of the need');
+  assert.ok(band.trainerXp > 0 && band.wildXp > 0);
+  assert.ok(R.TRAINERS.plousiakis.boss && !band.trainerIds.includes('plousiakis'), 'the boss comes after the climb');
+});
+test('Δυτικά: the road from Μαρούσι is shut without the First Row Medal; every new map is reachable, has its way back and no dead end', () => {
+  const start = R.START_MAP;
+  const gate = R.MAPS.marousi.warps.find((warp) => warp.x === 0 && warp.y === 9);
+  assert.ok(gate && gate.to === 'route9' && gate.needFlag === 'badge_voreia' && R.STRINGS[gate.lockedText], 'the gate at the west end of the street needs the flag badge_voreia and says why');
+  assert.ok(!R.tileDef(R.MAPS.marousi, 0, 9).solid && !R.tileDef(R.MAPS.marousi, 1, 9).solid && !R.MAPS.marousi.signs['1,9'], 'the old sign is gone and the street walks on to the edge');
+  assert.ok(R.tileDef(R.MAPS.marousi, 0, 8).solid && R.MAPS.marousi.signs['0,8'] === 'sign.marousi.west' && R.STRINGS['sign.marousi.west'], 'the sign stands beside the gate');
+  const without = R.reachableTiles(start.map, start.x, start.y, VOREIA_FLAGS);
+  for (const id of DYTIKA_MAP_IDS) assert.ok(![...without].some((key) => key.startsWith(id + ':')), id + ' is not reachable without the First Row Medal');
+  const shutOnMarousi = R.reachableTiles('marousi', 26, 9, VOREIA_FLAGS); // standing in Μαρούσι with the badge flag missing (a damaged save)
+  assert.ok(shutOnMarousi.has('marousi:1:9') && !shutOnMarousi.has('marousi:0:9') && !shutOnMarousi.has('route9:42:5'), 'the gate tile is shut without the badge flag');
+  const all = R.reachableTiles(start.map, start.x, start.y, DYTIKA_FLAGS);
+  for (const key of ['marousi:0:9', 'route9:42:5', 'route9:1:5', 'peristeri:24:9', 'peristeri:1:9', 'route10:34:8', 'route10:1:8', 'chaidari:26:9']) assert.ok(all.has(key), key + ' is reachable through the gate and along both routes');
+  for (const id of DYTIKA_MAP_IDS) {
+    const map = R.MAPS[id];
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+      if (/_(hospital|shop)$/.test(id) && y === 1) continue; // behind the counter, as in the templates of New Piraeus
+      if (!R.tileDef(map, x, y).solid && !R.npcAtTile(map, x, y, DYTIKA_FLAGS)) assert.ok(all.has(id + ':' + x + ':' + y), id + ' walkable tile ' + x + ',' + y + ' is cut off');
+    }
+    for (const warp of map.warps) {
+      assert.ok(R.MAPS[warp.to].warps.some((back) => back.to === id), id + ' -> ' + warp.to + ' has a return warp');
+      assert.ok(R.tileWalkable(R.MAPS[warp.to], warp.tx, warp.ty, DYTIKA_FLAGS), id + ' -> ' + warp.to + ' arrives on a walkable tile');
+      assert.ok(all.has(id + ':' + warp.x + ':' + warp.y), id + ' warp ' + warp.x + ',' + warp.y + ' is reachable');
+    }
+    for (const npc of map.npcs) assert.ok(R.npcTalkable(id, npc, all), id + ':' + npc.id + ' can be talked to');
+    for (const key of Object.keys(map.signs)) {
+      const [sx, sy] = key.split(',').map(Number);
+      assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => all.has(id + ':' + (sx + dx) + ':' + (sy + dy))), id + ' sign ' + key + ' can be read');
+      assert.ok(R.tileDef(map, sx, sy).solid, id + ' sign ' + key + ' stands on a solid tile');
+    }
+  }
+  // no dead end: from the arrival tile of each new map the player reaches exactly what is reachable from the start
+  for (const [mapId, x, y] of [['route9', 42, 5], ['peristeri', 24, 9], ['route10', 34, 8], ['chaidari', 26, 9], ['chaidari_boss', 5, 8], ['peristeri_cafe', 4, 6]]) {
+    assert.equal(R.reachableTiles(mapId, x, y, DYTIKA_FLAGS).size, all.size, 'from ' + mapId + ' everything can be reached again');
+  }
+  // the boss can be talked to across the counter; the west end of the Χαϊδάρι street carries the sign of the road to Αθήνα (its gate is MZ-WORLD-02f)
+  assert.ok(R.npcTalkable('chaidari_boss', R.MAPS.chaidari_boss.npcs.find((npc) => npc.id === 'plousiakis'), all));
+  assert.equal(R.MAPS.chaidari.signs['0,8'], 'sign.chaidari.west');
+  assert.ok(!R.MAPS.chaidari.warps.some((warp) => warp.x < 8 && warp.y === 9), 'no exit to Αθήνα yet');
+});
+test('Δυτικά data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.5, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Περιστέρι, the monastery', () => {
+  const sizes = { route9: [44, 12], peristeri: [26, 18], peristeri_hospital: [12, 9], peristeri_shop: [8, 6], peristeri_cafe: [10, 8], route10: [36, 18], chaidari: [28, 18], chaidari_hospital: [12, 9], chaidari_shop: [8, 6], chaidari_boss: [12, 10] };
+  for (const id of DYTIKA_MAP_IDS) {
+    const map = R.MAPS[id];
+    same([map.w, map.h], sizes[id], id + ' size');
+    assert.equal(map.rows.length, map.h);
+    for (const row of map.rows) { assert.equal(row.length, map.w, id + ' width'); for (const char of row) assert.ok(R.TILE_DEFS[char], id + ' tile ' + char); }
+    assert.ok(R.mapNode(id) && R.mapNode(id).district === 'dytika', id + ' belongs to a place of Δυτικά');
+    assert.ok(R.STRINGS[map.name], id + ' name');
+  }
+  assert.equal(DYTIKA_MAP_IDS.reduce((sum, id) => sum + R.MAPS[id].w * R.MAPS[id].h, 0), 44 * 12 + 26 * 18 + 12 * 9 * 2 + 8 * 6 * 2 + 10 * 8 + 36 * 18 + 28 * 18 + 12 * 10, 'the tiles of the build plan (2,660)');
+  same([W.districts.dytika.built, W.nodes.peristeri.built, W.nodes.chaidari.built, W.routes.route9.built, W.routes.route10.built, W.nodes.peristeri.stop, W.nodes.chaidari.stop], [true, true, true, true, true, true, true]);
+  same([R.mapNode('peristeri_cafe').id, R.mapNode('chaidari_boss').id, R.mapNode('route9').id, R.mapNode('route10').id], ['peristeri', 'chaidari', 'route9', 'route10']);
+  // both routes run right to left (11.5)
+  assert.equal(W.routes.route9.progress, '-x'); assert.equal(W.routes.route10.progress, '-x');
+  // wild tables: the species of 11.3.5 at the levels of 11.4 (R9 32-35, R10 34-37); a creature appears in the form that fits its level
+  const allowed = { route9: ['eforaki', 'fakelarchis', 'giagiaka', 'giotarchis', 'kafenovios', 'lobbylykaina', 'monastiriaki', 'monimos'], route10: DYTIKA_SPECIES.filter((id) => id !== 'giotarchis') };
+  const range = { route9: [32, 35], route10: [34, 37] };
+  for (const mapId of ['route9', 'route10']) {
+    const used = new Set();
+    for (const zone of R.MAPS[mapId].zones) for (const entry of zone.table) {
+      used.add(entry.sp);
+      assert.ok(entry.min >= range[mapId][0] && entry.max <= range[mapId][1] && entry.min <= entry.max, mapId + ' ' + entry.sp + ' levels');
+      for (const species of Object.values(R.SPECIES)) if (species.evo && species.evo.to === entry.sp) assert.ok(entry.min >= species.evo.lv, entry.sp + ' appears only from its evolution level');
+      if (R.SPECIES[entry.sp].evo) assert.ok(entry.max < R.SPECIES[entry.sp].evo.lv, entry.sp + ' is wild only below its evolution level (the evolved form takes over)');
+    }
+    same([...used].sort(), allowed[mapId].slice().sort(), mapId + ' species');
+  }
+  const lowest = (zone) => zone.table.reduce((a, b) => (a.w <= b.w ? a : b)).sp;
+  assert.equal(lowest(R.MAPS.route10.zones[1]), 'elegktis', 'Ελεγκτής ΣΔΟΕ 3000 and Ρουσφετόλυκος are the rare ones on route 10 (11.3.5)');
+  assert.ok(R.MAPS.route10.zones[1].table.find((entry) => entry.sp === 'rousfetolykos').w === 8 && R.MAPS.route10.zones[1].table.find((entry) => entry.sp === 'elegktis').w === 8);
+  assert.ok(R.MAPS.route10.zones[0].table.every((entry) => !DYTIKA_NEW_SPECIES.includes(entry.sp)), 'the first half of route 10 (levels 34-36) holds the pre-forms: the evolved forms start at level 36');
+  same(R.districtSpecies('dytika').sort(), DYTIKA_SPECIES);
+  assert.equal(Math.min(...R.MAPS.route9.zones.flatMap((zone) => zone.table.map((entry) => entry.min))), 32);
+  assert.equal(Math.max(...R.MAPS.route10.zones.flatMap((zone) => zone.table.map((entry) => entry.max))), 37);
+  // each town: a hospital that heals (return point), a kiosk with ten items (the Συλλογική Σύμβαση is new), a ΚΤΕΛ stop tile; Περιστέρι the first Καφενείο, Χαϊδάρι the monastery
+  for (const [town, buildings] of [['peristeri', ['peristeri_hospital', 'peristeri_shop', 'peristeri_cafe']], ['chaidari', ['chaidari_hospital', 'chaidari_shop', 'chaidari_boss']]]) {
+    assert.ok(R.MAPS[town].rows.join('').includes('U'), town + ' has its ΚΤΕΛ stop');
+    assert.ok(R.MAPS[town].warps.filter((warp) => buildings.includes(warp.to)).length === 3, town + ' has the three doors');
+    const hospital = R.MAPS[town + '_hospital'];
+    assert.ok(hospital.npcs.some((npc) => npc.kind === 'heal') && hospital.actions['1,3'] === 'archive' && !R.tileDef(hospital, R.HOSPITAL_SPOT.x, R.HOSPITAL_SPOT.y).solid, town + ' hospital heals and has the archive terminal');
+    assert.ok(R.MAPS[town + '_shop'].npcs.some((npc) => npc.kind === 'shop'));
+    same(R.shopStockOf(R.MAPS[town + '_shop']), R.SHOP_STOCK_DYTIKA, town + ' kiosk sells ten items');
+  }
+  assert.ok(R.MAPS.peristeri_cafe.npcs.some((npc) => npc.kind === 'save') && R.STRINGS[R.MAPS.peristeri_cafe.cafeHello], 'the first Καφενείο of Δυτικά saves, with its own greeting');
+  assert.ok(!R.MAPS.chaidari_boss.npcs.some((npc) => npc.kind === 'save'), 'only the first town has the café');
+  assert.ok(R.MAPS.chaidari_boss.npcs.some((npc) => npc.kind === 'boss' && npc.trainer === 'plousiakis'));
+  // the decor: ten new tiles with sprites; no cross and no religious icon is drawn (the monastery is a plain whitewashed compound with a roof, a door and a car park)
+  const decor = ['*', '+', '-', '/', '<', '|', '@', '`', ')', '('];
+  for (const char of decor) assert.ok(R.TILE_DEFS[char] && html.includes("make('" + char + "'"), 'a sprite for tile ' + char);
+  for (const char of ['*', '+', '-', '/', '|', '@', '(']) assert.equal(R.TILE_DEFS[char].solid, true, char + ' is solid');
+  for (const char of ['<', '`', ')']) assert.equal(R.TILE_DEFS[char].solid, false, char + ' is walkable');
+  assert.ok(!R.TILE_DEFS['<'].grass && !R.TILE_DEFS['`'].grass, 'the pitch and the road have no wild encounters');
+  const mapRows = (id) => R.MAPS[id].rows.join('');
+  assert.ok(mapRows('route9').includes('*') && mapRows('route9').includes('@') && mapRows('route9').includes(')'), 'route 9: toll booths, crash barriers, dashed lanes');
+  assert.ok(mapRows('route10').includes('/') && mapRows('route10').includes('-'), 'route 10: market stalls and the river channel');
+  assert.ok(mapRows('peristeri').includes('+') && mapRows('peristeri').includes('<') && mapRows('peristeri').includes('|') && mapRows('peristeri').includes('/'), 'Περιστέρι: apartment blocks with laundry, the football ground with goals, the market');
+  assert.ok(mapRows('chaidari').includes('J') && mapRows('chaidari').includes('(') && mapRows('chaidari').includes('R'), 'Χαϊδάρι: the whitewashed wall of the monastery, parked cars, the ridge');
+  for (const id of DYTIKA_MAP_IDS) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]], id + ' sign ' + key + ' has a text');
+  // no text of the district speaks of faith, prayer or rites (11.15): the abbot, the Monastery and the Εκκλησία type joke about wealth, property and tax only
+  let checked = 0;
+  for (const [key, texts] of Object.entries(R.STRINGS)) {
+    if (!DYTIKA_STRING_KEY.test(key)) continue;
+    for (const text of texts.slice(0, 2)) { assert.ok(!FAITH_WORDS.test(plainText(text)), key + ' speaks of faith: ' + text); checked++; }
+  }
+  assert.ok(checked > 150, 'the faith-word check read ' + checked + ' texts');
+  for (const id of DYTIKA_NEW_SPECIES.concat(DYTIKA_TRAINERS, ['plousiakis'])) assert.ok(!FAITH_WORDS.test(plainText((R.SPECIES[id] || R.TRAINERS[id]).n || R.TRAINERS[id].name)), id + ' name');
+  for (const id of ['ktimatomesitis']) for (const [, moveId] of R.SPECIES[id].learn) assert.ok(!['agiasmos', 'thymiama', 'litaneia', 'aforismos'].includes(moveId), id + ' has no move about rites: its moves are about property');
+});
+test('Δυτικά species: the five new creatures have stats, moves, abilities, dossier texts, sprites; the evolutions (Καφενόβιος, Γιαγιάκα, Εφοράκι, Μοναστηριάκι) are consistent and kept clear of the earlier bosses', () => {
+  for (const [fromId, toId, level] of DYTIKA_EVOLUTIONS) {
+    const from = R.SPECIES[fromId];
+    const to = R.SPECIES[toId];
+    same(from.evo, { to: toId, lv: level }, fromId + ' evolves at ' + level + ' (11.15)');
+    assert.equal(to.t, from.t, toId + ' keeps the type');
+    assert.equal(to.ab, from.ab, toId + ' keeps the ability');
+    assert.ok(to.base.reduce((a, b) => a + b, 0) > from.base.reduce((a, b) => a + b, 0), toId + ' is stronger than ' + fromId);
+    assert.ok(!to.evo, toId + ' has no later form in this roster');
+    assert.ok(level > 33, toId + ': no earlier boss meets the evolved form (DJ Αμαρτία\'s top plus 1 is level 33, 11.15)');
+    assert.equal(R.evolutionFor(R.makeMon(fromId, level - 1)), null);
+    assert.equal(R.evolutionFor(R.makeMon(fromId, level)), toId);
+    const mon = R.makeMon(fromId, level);
+    const before = R.maxHp(mon);
+    mon.hp = 5;
+    assert.ok(R.evolveMon(mon) && mon.sp === toId && mon.hp === 5 + R.maxHp(mon) - before, 'evolving keeps the damage taken');
+  }
+  for (const id of DYTIKA_NEW_SPECIES) {
+    const species = R.SPECIES[id];
+    assert.ok(R.TYPE_IDS.includes(species.t) && R.ABILITY_IDS.includes(species.ab) && ['m', 'f', 'n'].includes(species.g), id + ' type, ability, gender');
+    assert.ok(species.xp > 0 && species.rec > 0 && species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) > 300, id + ' stats and a recruit rate');
+    assert.ok(species.learn.every(([lv, moveId]) => R.MOVES[moveId] && lv >= 1) && R.movesAtLevel(id, 34).length >= 4, id + ' moves');
+    assert.ok(R.DEX_ORDER.includes(id) && R.STRINGS['sp.' + id][0].startsWith('Γνωστ') && R.STRINGS['sp.' + id][0].includes('Ποτέ δεν καταδικάστηκε') && R.STRINGS['sp.' + id][1].includes('Never convicted'), id + ' dossier text');
+    assert.ok(new RegExp('^ {2}' + id + ': function \\(p\\)', 'm').test(html), id + ' has a procedural sprite');
+    assert.ok(species.n.length <= 20, id + ' name length');
+  }
+  assert.ok(R.SPECIES.tavlilordos.t === 'mem' && R.SPECIES.giagiaexo.t === 'mem' && R.SPECIES.elegktis.t === 'asf' && R.SPECIES.ktimatomesitis.t === 'ekk' && R.SPECIES.rousfetolykos.t === 'pol');
+  assert.ok(R.SPECIES.giagiaexo.n !== 'Γιαγιά Τερμινέιτορ' && !/Τερμινέιτορ|(?<![a-z])Terminator/i.test(R.SPECIES.giagiaexo.n + R.STRINGS['sp.giagiaexo'].join(' ')), 'the plan\'s name is a trademark echo: the creature is the Γιαγιά Εξολοθρεύτρια (11.15)');
+  // a creature of an old save that is above its level evolves after its next battle: the evolution is data, so the old save needs nothing
+  const monastiriaki = R.makeMon('monastiriaki', DYTIKA_EVOLUTIONS.find(([from]) => from === 'monastiriaki')[2]);
+  assert.equal(R.evolutionFor(monastiriaki), 'ktimatomesitis');
+  // the trainers and the boss show the form that fits the level
+  for (const id of DYTIKA_TRAINERS.concat(['plousiakis'])) for (const entry of R.TRAINERS[id].team) {
+    const species = R.SPECIES[entry.sp];
+    if (species && species.evo) assert.ok(entry.lv < species.evo.lv, id + ': ' + entry.sp + ' at ' + entry.lv + ' would have evolved');
+    for (const other of Object.values(R.SPECIES)) if (other.evo && other.evo.to === entry.sp) assert.ok(entry.lv >= other.evo.lv, id + ': ' + entry.sp + ' at ' + entry.lv + ' is below its evolution level');
+  }
+});
+test('Δυτικά items: the Συλλογική Σύμβαση is a heal item between the Δικηγόρος and the Γεμιστά, sold at 150 by the kiosks of Δυτικά only; an old bag gets 0 of it', () => {
+  const item = R.ITEMS.sylvasi;
+  assert.ok(item.kind === 'heal' && item.amount === 120 && item.price === 150 && !item.cures, 'heals 120, costs 150, cleans no status');
+  assert.ok(item.amount > R.ITEMS.dikigoros.amount && item.amount < R.ITEMS.gemista.amount && item.price <= R.ITEMS.dikigoros.price);
+  assert.ok(R.ITEM_IDS.includes('sylvasi') && R.STRINGS['item.sylvasi'] && R.STRINGS['itemd.sylvasi']);
+  for (const mapId of Object.keys(R.MAPS)) if (R.MAPS[mapId].npcs.some((npc) => npc.kind === 'shop')) {
+    assert.equal(R.shopStockOf(R.MAPS[mapId]).includes('sylvasi'), /^(peristeri|chaidari)_shop$/.test(mapId), mapId + ': only the Δυτικά kiosks sell it');
+  }
+  const mon = R.makeMon('komma', 36);
+  mon.hp = 10;
+  const missing = R.maxHp(mon) - 10;
+  assert.ok(missing > 0 && R.canUseItemOn(mon, 'sylvasi') && R.applyItemToMon(mon, 'sylvasi') === Math.min(120, missing), 'it heals 120 (or what is missing)');
+  const big = R.makeMon('despotakis', 60);
+  big.hp = 1;
+  assert.equal(R.applyItemToMon(big, 'sylvasi'), 120, 'a creature with more than 120 missing HP gets exactly 120');
+  mon.hp = R.maxHp(mon);
+  assert.ok(!R.canUseItemOn(mon, 'sylvasi'), 'it is not usable on a healthy creature');
+  const old = R.migrateSave({ version: 3, player: { name: 'ΝΙΚΟΣ', gender: 'm', map: 'marousi', x: 12, y: 9, dir: 'left' }, party: [{ sp: 'komma', lv: 17, xp: R.xpForLevel(17), hp: 40 }], archive: [], money: 5, bag: { fakelaki: 3 },
+    dex: { seen: {}, got: {} }, flags: { gotStarter: true }, lastHeal: R.HOSPITAL_SPOT, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 1, starter: 'komma' });
+  assert.equal(old.bag.sylvasi, 0);
+});
+test('Δυτικά trainers: seven trainers with names in the strings, levels 34-37, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels; no rival here', () => {
+  assert.equal(DYTIKA_TRAINERS.length, 7);
+  const onMaps = {};
+  for (const id of ['route9', 'route10', 'chaidari']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
+  same(onMaps, { tollclerk: 'route9', ultras: 'route9', granny: 'route9', marketeer: 'route10', philosopher: 'route10', steward: 'route10', gatekeeper: 'chaidari' }, 'three on route 9, three on route 10, one at the monastery door');
+  const otherNames = new Set(Object.entries(R.TRAINERS).filter(([id]) => !DYTIKA_TRAINERS.includes(id)).map(([, trainer]) => trainer.name));
+  for (const id of DYTIKA_TRAINERS) assert.ok(!otherNames.has(R.TRAINERS[id].name), id + ' has a name of its own');
+  for (const id of DYTIKA_TRAINERS) {
+    const trainer = R.TRAINERS[id];
+    assert.ok(trainer.team.length >= 2 && trainer.team.length <= 3 && !trainer.boss && trainer.boost === undefined, id + ' team');
+    for (const entry of trainer.team) assert.ok(entry.lv >= 34 && entry.lv <= 37, id + ' level ' + entry.lv);
+    for (const part of ['intro', 'win', 'after']) assert.ok(R.STRINGS['tr.' + id + '.' + part], id + ' ' + part);
+    const npc = Object.values(R.MAPS).flatMap((map) => map.npcs).find((entry) => entry.trainer === id);
+    assert.ok(npc.sight >= 2 && npc.sight <= 3, id + ' sees ' + npc.sight + ' tiles');
+  }
+  const members = new Set(DYTIKA_TRAINERS.flatMap((id) => R.TRAINERS[id].team.map((entry) => entry.sp)));
+  for (const species of ['giagiaka', 'elegktis', 'ktimatomesitis', 'tavlilordos', 'rousfetolykos', 'monimos', 'fakelarchis']) assert.ok(members.has(species), 'the trainers use ' + species);
+  const replay = (seed) => {
+    const rng = R.makeRng(seed);
+    const lines = [];
+    const ids = DYTIKA_TRAINERS.concat(['plousiakis']);
+    for (let i = 0; i < 125; i++) {
+      for (const id of ids) {
+        const team = dytikaTeam(R, rng, 37, 3);
+        const result = R.simulateBattle(team, R.buildTrainerTeam(id, 'komma'), rng, { foeItems: R.TRAINERS[id].items });
+        lines.push(id + result.winner + ':' + result.turns);
+      }
+    }
+    assert.equal(lines.length, 1000);
+    return R.hashString(lines.join('|'));
+  };
+  assert.equal(replay(41), replay(41));
+  assert.notEqual(replay(41), replay(42));
+  const winRate = (trainerId, level, size, runsCount) => {
+    const rng = R.makeRng(4200 + level + size);
+    let wins = 0;
+    for (let i = 0; i < runsCount; i++) wins += R.simulateBattle(dytikaTeam(R, rng, level, size), R.buildTrainerTeam(trainerId, 'komma'), rng, { playerItems: [] }).winner === 0 ? 1 : 0;
+    return wins / runsCount;
+  };
+  // a full team of level 37 (the level of the last trainer) wins every trainer fight almost always; three creatures still win more often than not
+  for (const id of DYTIKA_TRAINERS) {
+    assert.ok(winRate(id, 37, 6, 100) >= 0.9, id + ' with six creatures at level 37');
+    assert.ok(winRate(id, 37, 3, 100) >= 0.5, id + ' with three creatures at level 37');
+  }
+});
+test('Δυτικά boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', () => {
+  const boss = R.TRAINERS.plousiakis;
+  same(boss.team.map((entry) => entry.sp + entry.lv), BOSS_TEAM_02E, 'the boss team of 11.15');
+  assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
+  assert.equal(boss.look, 'plousiakis');
+  assert.equal(R.WORLD.districts.dytika.bossTrainer, 'plousiakis');
+  assert.equal(R.WORLD.districts.dytika.badgeFlag, 'badge_dytika');
+  assert.equal(boss.victory.flag, 'badge_dytika');
+  for (const key of ['win2', 'title', 'sub', 'win3']) assert.ok(R.STRINGS[boss.victory[key]], 'victory text ' + key);
+  assert.equal(boss.victory.chapterCard, undefined, 'only the first boss ends a chapter');
+  assert.equal(R.STRINGS['badge.dytika.title'][0], 'ΠΑΡΑΣΗΜΟ ΑΦΟΡΟΛΟΓΗΤΟΥ');
+  assert.ok(R.STRINGS['tr.plousiakis.intro'][0].includes('{φίλε|φίλη}'), 'the player is addressed with the gender choice');
+  assert.ok(R.STRINGS['boss.plousiakis.win3'][0].includes('Αφορολογήτου') && R.STRINGS['boss.plousiakis.win3'][1].includes('Tax-Free Medal'));
+  assert.ok(!R.STRINGS['boss.amartia.win3'][0].includes('υπό έργα'), 'the First Row Medal text no longer says the road to the West is shut');
+  assert.ok(boss.name === 'Ο Ηγούμενος Πλουσιάκης', 'the invented name of the plan ("Mr Rich")');
+  // the money: 38 x 30 + 200 for the boss
+  const prize = R.prizeFor({ sides: [{ party: [], active: 0 }, { party: R.buildTrainerTeam('plousiakis', 'komma') }] }, boss);
+  assert.equal(prize, 38 * 30 + 200);
+  assert.equal(boss.boost, BOSS_BOOST_02E, 'the boost of 11.15 (none when undefined)');
+  same(boss.items, BOSS_ITEMS_02E, 'the items in his bag');
+  // type fairness of the team is its own test; the bands
+  const top = boss.team.reduce((best, entry) => Math.max(best, entry.lv), 0);
+  assert.equal(top, 38);
+  const twoSouvlaki = ['souvlaki', 'souvlaki'];
+  const bands = [];
+  for (const [label, offset, size, items, low, high] of bossBands(R, 'plousiakis')) bands.push([label, bossWinRate(R, 'plousiakis', top + offset, size, items === 2 ? twoSouvlaki : [], BOSS_RUNS_PER_CELL, 5000), low, high]);
+  for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Ο Ηγούμενος Πλουσιάκης, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
+});
+test('Δυτικά: old saves (v2 and v3, standing anywhere in the four built districts) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
+  const party = [{ sp: 'monastiriaki', lv: 36, xp: R.xpForLevel(36), hp: 40 }, { sp: 'giagiaka', lv: 38, xp: R.xpForLevel(38), hp: 30 }, { sp: 'kafenovios', lv: 40, xp: R.xpForLevel(40), hp: 40 }];
+  const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, gemista: 1 },
+    dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'marousi_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
+  const sampleOf = (rows, mapId) => {
+    const found = [];
+    for (let y = 0; y < rows.length; y++) for (let x = 0; x < rows[y].length; x++) if (rows[y][x] === '1' && R.tileWalkable(R.MAPS[mapId], x, y, DYTIKA_FLAGS)) found.push([x, y]);
+    return found;
+  };
+  let count = 0;
+  for (const id of OLD_MAP_IDS) for (const [x, y] of sampleOf(OLD_WALKABLE[id].split('/'), id)) {
+    for (const version of [2, 3]) {
+      const loaded = R.migrateSave(make(version, id, x, y, DYTIKA_FLAGS));
+      assert.ok(loaded.player.map === id && loaded.player.x === x && loaded.player.y === y, version + ' ' + id + ' ' + x + ',' + y + ' loads where it stood');
+      count++;
+    }
+  }
+  for (const table of [OLD_WALKABLE_02A, OLD_WALKABLE_02B, OLD_WALKABLE_02C, OLD_WALKABLE_02D]) for (const id of Object.keys(table)) for (const [x, y] of sampleOf(table[id].split('/'), id)) {
+    const loaded = R.migrateSave(make(3, id, x, y, DYTIKA_FLAGS));
+    assert.ok(loaded.player.map === id && loaded.player.x === x && loaded.player.y === y, id + ' ' + x + ',' + y + ' loads where it stood');
+    count++;
+  }
+  assert.ok(count > 6000, 'a lot of positions were loaded: ' + count);
+  // the creatures of an old save: Μοναστηριάκι L36, Γιαγιάκα L38 and a Καφενόβιος L40 are evolvable (the game offers it after the next battle), nothing is lost
+  const old = R.migrateSave(make(2, 'marousi', 12, 9, DYTIKA_FLAGS));
+  assert.equal(old.party[0].sp, 'monastiriaki'); assert.equal(old.party[1].lv, 38);
+  assert.equal(R.evolutionFor(R.restoreMon(old.party[0])), 'ktimatomesitis'); assert.equal(R.evolutionFor(R.restoreMon(old.party[1])), 'giagiaexo'); assert.equal(R.evolutionFor(R.restoreMon(old.party[2])), 'tavlilordos');
+  assert.equal(old.money, 555); assert.equal(old.bag.gemista, 1); assert.equal(old.bag.sylvasi, 0);
+  assert.equal(R.placeState(old.world, 'peristeri'), 'hidden', 'Περιστέρι is told about only when route 9 is walked');
+  assert.equal(R.districtState(old.world, 'dytika'), 'open', 'the First Row Medal opens the district');
+  // a new save: Δυτικά places, the new badge flag
+  const world = R.newWorldState();
+  R.worldVisit(world, 'route9', DYTIKA_FLAGS);
+  assert.equal(world.routes.route9, 1); assert.equal(R.placeState(world, 'peristeri'), 'seen');
+  R.worldVisit(world, 'peristeri_cafe', DYTIKA_FLAGS);
+  R.worldVisit(world, 'route10', DYTIKA_FLAGS);
+  assert.equal(R.placeState(world, 'chaidari'), 'seen');
+  R.worldVisit(world, 'chaidari_boss', Object.assign({ badge_dytika: true }, DYTIKA_FLAGS));
+  assert.equal(R.placeState(world, 'peristeri'), 'visited'); assert.equal(R.placeState(world, 'chaidari'), 'visited');
+  assert.equal(world.badges.dytika, 1, 'the flag badge_dytika fills the badge');
+  assert.equal(R.districtState(world, 'dytika'), 'cleared');
+  assert.equal(R.districtState(world, 'athina'), 'locked', 'the next district is not built');
+  const stored = R.migrateSave(make(3, 'chaidari_hospital', 5, 7, Object.assign({ badge_dytika: true, t_plousiakis: true }, DYTIKA_FLAGS), { world, lastHeal: { map: 'chaidari_hospital', x: 5, y: 7, dir: 'up' } }));
+  same(stored.lastHeal, { map: 'chaidari_hospital', x: 5, y: 7, dir: 'up' }, 'the Χαϊδάρι hospital is a valid return point');
+  assert.equal(stored.player.map, 'chaidari_hospital');
+  assert.equal(stored.flags.badge_dytika, true);
+  assert.equal(stored.world.routes.route10, 1);
+  same(R.migrateSave(JSON.parse(JSON.stringify(stored))), stored, 'a second load changes nothing');
+  const flagOnly = R.migrateSave(make(2, 'marousi', 12, 9, Object.assign({ badge_dytika: true }, DYTIKA_FLAGS)));
+  assert.equal(flagOnly.world.badges.dytika, 1);
+  // a save from this build stands on a Δυτικά tile that an older build does not know: it falls back to the start, as for every unknown place
+  assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, DYTIKA_FLAGS)).player.map, 'lab');
+});
+test('Δυτικά leaves Βόρεια as it was: only the west end of the Μαρούσι street changes (1,9 walks on, 0,9 is the gate); every old walkable tile is still walkable', () => {
+  for (const id of Object.keys(OLD_WALKABLE_02D)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02D[id].split('/');
+    assert.equal(map.h, rows.length, id + ' height'); assert.equal(map.w, rows[0].length, id + ' width');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '1') assert.ok(!R.tileDef(map, x, y).solid, id + ' ' + x + ',' + y + ' was walkable and still must be');
+  }
+  const nowWalkable = [];
+  for (const id of Object.keys(OLD_WALKABLE_02D)) {
+    const map = R.MAPS[id];
+    const rows = OLD_WALKABLE_02D[id].split('/');
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (rows[y][x] === '0' && !R.tileDef(map, x, y).solid) nowWalkable.push(id + ':' + x + ',' + y);
+  }
+  same(nowWalkable, ['marousi:0,9', 'marousi:1,9']);
+  assert.equal(R.districtState(R.newWorldState(), 'voreia'), 'locked');
+});
+test('Δυτικά boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', () => {
+  const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
+  const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
+  assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true') && !/G\.flags\.(badge|badge_notia|badge_anatolika|badge_voreia|badge_dytika)\b/.test(victory));
+  same(R.TRAINERS.plousiakis.victory, { flag: 'badge_dytika', win2: 'boss.plousiakis.win2', title: 'badge.dytika.title', sub: 'badge.dytika.sub', win3: 'boss.plousiakis.win3', ribbon: '#d8a82a' });
+  for (const other of ['bougatsas', 'faia', 'amartia']) assert.notEqual(R.TRAINERS.plousiakis.victory.ribbon, R.TRAINERS[other].victory.ribbon, 'each badge has its own ribbon colour');
+  assert.notEqual(R.STRINGS['badge.dytika.title'][0], R.STRINGS['badge.voreia.title'][0]);
+});
+test('Δυτικά: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the shop draws ten rows from the stock list)', () => {
+  const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
+  for (const char of ['*', '+', '-', '/', '<', '|', '@', '`', ')', '(']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
+  const cache = html.slice(html.indexOf('function creatureSprite('), html.indexOf('function buildAllSprites()'));
+  assert.ok(cache.includes('if (creatureSprites[speciesId]) return creatureSprites[speciesId];'), 'creature sprites are cached after the first draw');
+  for (const id of DYTIKA_NEW_SPECIES) assert.ok(new RegExp('^ {2}' + id + ': function \\(p\\) \\{', 'm').test(html.slice(html.indexOf('const creatureDrawers = {'), html.indexOf('const creatureSprites = {}'))), id + ' is drawn by a creatureDrawers entry (run once)');
+  const overworldDraw = html.slice(html.indexOf('OverworldLayer.prototype.draw = function'), html.indexOf('OverworldLayer.prototype.drawNpc'));
+  assert.ok(!/(peristeri|chaidari|route9|route10|dytika|plousiakis)/i.test(overworldDraw), 'the overworld draw code has no Δυτικά special case');
+  const shopDraw = html.slice(html.indexOf('ShopLayer.prototype.draw = function'), html.indexOf('// ---- Evolution and move learning'));
+  assert.ok(!shopDraw.includes('measureText') && shopDraw.includes('this.stock.length') && !/sylvasi/.test(shopDraw), 'the shop draw has no special case for the new item and no text measuring per frame');
+  const charDraw = html.slice(html.indexOf('function drawCharFrame('), html.indexOf('const charSheets = {}'));
+  assert.ok(charDraw.includes('look.slipper'), 'the slipper of the grandmother is a look option drawn into the cached sheet');
+});
+test('Δυτικά: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
+  const types = new Set(R.TRAINERS.plousiakis.team.map((entry) => R.SPECIES[entry.sp].t));
+  assert.ok(types.has('ekk') && types.has('mem') && types.has('biz'), 'the boss brings Εκκλησία, Memes and Επιχειρηματίες');
+  const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika'), ...R.districtSpecies('voreia')].filter((id) => !DYTIKA_NEW_SPECIES.includes(id));
+  for (const type of types) assert.ok(before.some((id) => R.typeMultiplier(R.SPECIES[id].t, type) === 2), 'a starter or a creature of the first four districts hits ' + type);
+  assert.ok(R.typeMultiplier('asf', 'mem') === 2 && R.typeMultiplier('pol', 'biz') === 2 && R.typeMultiplier('biz', 'ekk') === 2 && R.typeMultiplier('mem', 'ekk') === 2, 'Κουλουράκι (Ασφαλίτες) hits the Memes, Κομματάκι (Πολιτικοί) hits the Επιχειρηματίες, and Φακελάκης (Επιχειρηματίες) or Τρολόσαυρος (Memes) hit the Εκκλησία');
+});
+
+// The player team of a Νότια, Ανατολικά, Βόρεια or Δυτικά fight: one starter (in its middle form from level 16, in its last form from level 32) and creatures of the pool, every creature evolved as far as its level allows.
 export const NOTIA_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka', 'fakelarchis', 'efoplistakos', 'kafenovios'];
 // The pool of Ανατολικά: that of Νότια plus the Μοναστηριάκι of route 5 and the Κρυπτο-Μάκης of route 6 (the other creatures of the district are evolved forms of the pool:
 // Μόνιμος of Δημοσιοϋπαλληλάκι, Influεnζα of Story-ούλα, NFT-άρχης of Κρυπτο-Μάκης).
@@ -2692,6 +3080,9 @@ export function anatolikaTeam(rules, rng, level, size) { return poolTeam(rules, 
 // The pool of Βόρεια: that of Ανατολικά plus the wild Ριάλιτο-Νταής and Lobby-Λύκαινα (Σταρ των 90ς is the evolved Λαϊκατζής, Γιοτάρχης the evolved Εφοπλιστάκος).
 export const VOREIA_POOL = ANATOLIKA_POOL.concat(['rialito', 'lobbylykaina']);
 export function voreiaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, VOREIA_POOL); }
+// The pool of Δυτικά: that of Βόρεια plus the wild Ρουσφετόλυκος (Τάβλι-λόρδος, Γιαγιά Εξολοθρεύτρια, Ελεγκτής ΣΔΟΕ 3000 and Κτηματομεσίτης are the evolved Καφενόβιος, Γιαγιάκα, Εφοράκι and Μοναστηριάκι).
+export const DYTIKA_POOL = VOREIA_POOL.concat(['rousfetolykos']);
+export function dytikaTeam(rules, rng, level, size) { return poolTeam(rules, rng, level, size, DYTIKA_POOL); }
 function poolTeam(rules, rng, level, size, poolIds) {
   const evolved = (mon) => { while (rules.evolveMon(mon)); return mon; }; // as far as the level allows (a starter has two steps from level 32)
   const team = [evolved(rules.makeMon(rules.pickOne(rng, rules.STARTERS), level))];
@@ -2703,7 +3094,7 @@ export function bossWinRate(rules, bossId, level, size, items, runsCount, seed) 
   const rng = rules.makeRng(seed + level * 10 + size);
   let wins = 0;
   for (let i = 0; i < runsCount; i++) {
-    if (rules.simulateBattle(({ bougatsas: notiaTeam, faia: anatolikaTeam, amartia: voreiaTeam }[bossId] || notiaTeam)(rules, rng, level, size), rules.buildTrainerTeam(bossId, 'komma'), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: items }).winner === 0) wins++;
+    if (rules.simulateBattle(({ bougatsas: notiaTeam, faia: anatolikaTeam, amartia: voreiaTeam, plousiakis: dytikaTeam }[bossId] || notiaTeam)(rules, rng, level, size), rules.buildTrainerTeam(bossId, 'komma'), rng, { foeItems: rules.TRAINERS[bossId].items, playerItems: items }).winner === 0) wins++;
   }
   return wins / runsCount;
 }
@@ -2726,7 +3117,7 @@ export function bossBands(rules, bossId) {
 // One fixed starter (evolved as far as its level allows) plus five creatures of the district's pool: the win rate of that starter against a boss (section 11.12, per-starter check).
 export const PEIRAIAS_POOL = ['fakelakis', 'trolosavros', 'laikatzis', 'storoula', 'dimosio', 'eforaki', 'frapedoros', 'giagiaka'];
 export function starterBossRate(rules, bossId, starter, level, size, runsCount, seed) {
-  const pool = { kotsos: PEIRAIAS_POOL, bougatsas: NOTIA_POOL, faia: ANATOLIKA_POOL, amartia: VOREIA_POOL }[bossId];
+  const pool = { kotsos: PEIRAIAS_POOL, bougatsas: NOTIA_POOL, faia: ANATOLIKA_POOL, amartia: VOREIA_POOL, plousiakis: DYTIKA_POOL }[bossId];
   const rng = rules.makeRng(seed + level * 10 + size);
   let wins = 0;
   for (let i = 0; i < runsCount; i++) {
@@ -2742,7 +3133,7 @@ export function starterBossRate(rules, bossId, starter, level, size, runsCount, 
 // ---- XP band of a district (section 11.4): used by a test and by balance.mjs ----
 // The player's first creature starts at ARRIVAL_LEVEL; three main creatures must reach the boss' top level. The fixed trainers of the district
 // (the boss and the bonus studio host not counted) pay XP at the trainer bonus; the wild fights of the district's last route fill the gap.
-export const ARRIVAL_LEVEL = { peiraias: 5, notia: 13, anatolika: 20, voreia: 26 };
+export const ARRIVAL_LEVEL = { peiraias: 5, notia: 13, anatolika: 20, voreia: 26, dytika: 32 };
 export function xpBand(rules, districtId) {
   const district = rules.WORLD.districts[districtId];
   const bossTeam = rules.TRAINERS[district.bossTrainer].team;
