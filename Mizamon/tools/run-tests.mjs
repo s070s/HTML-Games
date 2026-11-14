@@ -626,10 +626,10 @@ const sampleV1 = () => ({
   dex: { seen: { komma: true, fakelakis: true, storoula: true }, got: { komma: true } }, flags: { rival1: true, t_rival1: true },
   lastHeal: { map: 'kep', x: 4, y: 6, dir: 'up' }, options: { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true }, rngState: 4242, starter: 'komma',
 });
-test('save migration: a version-0 save becomes the current version (2); the current version is stable; bad data is refused', () => {
+test('save migration: a version-0 save becomes the current version (3); the current version is stable; bad data is refused', () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 123, team: [{ id: 'psaltak', lv: 6, xp: 130, hp: 20 }, { id: 'nonsense', lv: 3 }], map: 'town', x: 5, y: 8, items: { fakelaki: 3, bogus: 9 }, seen: ['komma'], got: ['psaltak'] };
   const migrated = R.migrateSave(v0);
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.player.name, 'ΝΙΚΟΣ');
   assert.equal(migrated.player.gender, 'm');
   assert.equal(migrated.money, 123);
@@ -642,12 +642,12 @@ test('save migration: a version-0 save becomes the current version (2); the curr
   assert.equal(migrated.player.map, 'town');
   assert.equal(R.migrateSave(Object.assign({}, v0, { girl: true })).player.gender, 'f');
   // a shape without a version number is treated as version 0 too
-  assert.equal(R.migrateSave({ name: 'Α', drachmas: 5, team: [{ id: 'komma', lv: 5 }] }).version, 2);
+  assert.equal(R.migrateSave({ name: 'Α', drachmas: 5, team: [{ id: 'komma', lv: 5 }] }).version, 3);
   const v1 = R.migrateSave(sampleV1());
   same(R.migrateSave(JSON.parse(JSON.stringify(v1))), v1);
   assert.equal(v1.options.lang, 'en');
   assert.equal(v1.player.x, 5);
-  assert.equal(R.migrateSave({ version: 3, party: [R.serializeMon(R.makeMon('komma', 5))] }), null, 'a newer game save is refused');
+  assert.equal(R.migrateSave({ version: 4, party: [R.serializeMon(R.makeMon('komma', 5))] }), null, 'a newer game save is refused');
   assert.equal(R.migrateSave({ version: 2, party: [] }), null);
   assert.equal(R.migrateSave({ version: 1, party: [] }), null);
   assert.equal(R.migrateSave(null), null);
@@ -661,7 +661,7 @@ test('save migration: a version-0 save becomes the current version (2); the curr
   assert.equal(fixed.money, 0);
   assert.ok(fixed.party.length <= 6);
   assert.equal(R.SAVE_KEY, 'mizamon.v1.save');
-  assert.equal(R.SAVE_VERSION, 2);
+  assert.equal(R.SAVE_VERSION, 3);
 });
 test('save migration: a version-0 save gets its story flags back (starter chosen, rival met)', () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 10, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
@@ -748,7 +748,7 @@ test('archive: a recruit with a full team goes to the archive; a full archive (o
 });
 test('save v2: the archive is saved; version 1 gets an empty archive and its ΚΕΠ heal spot becomes the hospital; version 0 goes through version 1', () => {
   const fromV1 = R.migrateSave(sampleV1());
-  assert.equal(fromV1.version, 2);
+  assert.equal(fromV1.version, 3);
   same(fromV1.archive, []);
   same(fromV1.lastHeal, HOSPITAL_SPOT);
   assert.equal(fromV1.player.x, 5, 'the rest of the save is untouched');
@@ -757,7 +757,7 @@ test('save v2: the archive is saved; version 1 gets an empty archive and its Κ�
   assert.ok(onLot.player.map === 'town' && onLot.player.x === 15 && onLot.player.y === 14 && onLot.player.dir === 'down', 'a version-1 save on the hospital lot loads in front of the hospital door');
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 5, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
   const fromV0 = R.migrateSave(v0);
-  assert.equal(fromV0.version, 2);
+  assert.equal(fromV0.version, 3);
   same(fromV0.archive, []);
   same(fromV0.lastHeal, HOSPITAL_SPOT);
   const withArchive = Object.assign(sampleV1(), {
@@ -904,6 +904,290 @@ test('the Φάκελος prize rule: boss prize and Αφορολόγητο bonus
   assert.equal(R.prizeFor(rich, R.TRAINERS.kotsos), Math.floor((13 * 30 + 200) * 1.5));
 });
 
+
+// ---- World and map screen (MZ-MAP-01) ----
+const W = R.WORLD;
+const isLandChar = (char) => char !== undefined && char !== '~' && char !== '#';
+const routeIds = Object.keys(W.routes);
+const routeNumber = (id) => Number(id.replace('route', ''));
+const pathLength = (path) => path.slice(1).reduce((sum, cell, index) => sum + Math.hypot(cell[0] - path[index][0], cell[1] - path[index][1]), 0);
+// The map sizes of the 12 routes: route 1 is built (the real map), the others are the sizes of the build plan (section 11.7).
+const ROUTE_SIZES = {
+  route1: [32, 18], route2: [40, 14], route3: [40, 14], route4: [36, 20], route5: [36, 16], route6: [40, 16], route7: [32, 18], route8: [44, 14],
+  route9: [44, 12], route10: [36, 18], route11: [36, 14], route12: [40, 16],
+};
+
+test('WORLD grid: 30 x 15, only known cells, six districts in play order, every label and every hill inside its district', () => {
+  assert.equal(W.cols, 30);
+  assert.equal(W.rows, 15);
+  assert.equal(W.grid.length, 15);
+  const letters = Object.values(W.districts).map((district) => district.letter);
+  assert.equal(new Set(letters).size, 6);
+  for (const row of W.grid) {
+    assert.equal(row.length, 30);
+    for (const char of row) assert.ok(char === '~' || char === '#' || letters.includes(char.toUpperCase()), 'grid cell ' + char);
+  }
+  same(Object.values(W.districts).map((district) => district.order).sort(), [1, 2, 3, 4, 5, 6]);
+  for (const [id, district] of Object.entries(W.districts)) {
+    assert.equal(district.id, id);
+    assert.ok(W.grid.some((row) => row.includes(district.letter)), id + ' has land');
+    assert.equal(district.badgeFlag, id === 'peiraias' ? 'badge' : 'badge_' + id, id + ' badge flag');
+    assert.ok(district.levels[0] <= district.levels[1]);
+    assert.match(district.color, /^#[0-9a-f]{6}$/);
+    const labelChar = W.grid[Math.floor(district.label[1])][Math.floor(district.label[0])];
+    assert.equal(labelChar.toUpperCase(), district.letter, id + ' label sits inside the district');
+    assert.ok(R.STRINGS[district.nameKey], id + ' name string');
+  }
+  assert.equal(Object.values(W.districts).filter((district) => district.built).length, 1, 'only Peiraias is built');
+  assert.equal(W.districts.peiraias.built, true);
+  assert.equal(R.WORLD_BADGE_COUNT, 6);
+});
+test('WORLD places: every node cell is land of its district, only the built district has built places, built places have maps', () => {
+  assert.equal(Object.keys(W.nodes).length, 14, '12 towns, the harbour office and the Parliament');
+  for (const [id, node] of Object.entries(W.nodes)) {
+    assert.equal(node.id, id);
+    const district = W.districts[node.district];
+    assert.ok(district, id + ' district');
+    assert.equal(W.grid[node.cell[1]][node.cell[0]].toUpperCase(), district.letter, id + ' stands on land of its district');
+    assert.ok(['town', 'boss', 'door'].includes(node.kind), id + ' kind');
+    if (!district.built) assert.equal(node.built, false, id + ' is not built');
+    for (const mapId of node.maps) assert.ok(R.MAPS[mapId], id + ' lists the map ' + mapId);
+    if (node.built) assert.ok(node.maps.length > 0, id + ' is built and has maps');
+  }
+  same(Object.keys(W.nodes).filter((id) => W.nodes[id].built), ['newPeiraias', 'harbourOffice']);
+  same(Object.keys(W.nodes).filter((id) => W.nodes[id].boss).sort(), ['chaidari', 'glyfada', 'harbourOffice', 'marousi', 'spata', 'syntagma']);
+  assert.equal(new Set(Object.values(W.nodes).map((node) => node.cell.join(','))).size, 14, 'no two places share a cell');
+});
+test('WORLD routes: 12 of them, ends are their places, every point of every path is on land, a known progress, chained in play order', () => {
+  assert.equal(routeIds.length, 12);
+  routeIds.forEach((id, index) => {
+    const route = W.routes[id];
+    assert.equal(id, 'route' + (index + 1));
+    assert.equal(route.id, id);
+    assert.ok(W.nodes[route.a] && W.nodes[route.b], id + ' ends');
+    same(route.path[0], W.nodes[route.a].cell);
+    same(route.path[route.path.length - 1], W.nodes[route.b].cell);
+    route.path.forEach(([x, y], pointIndex) => assert.ok(isLandChar(W.grid[y] && W.grid[y][x]), id + ' point ' + pointIndex + ' is on land (not sea, not outside)'));
+    assert.ok(['x', '-x', 'y'].includes(route.progress), id + ' progress ' + route.progress);
+    assert.equal(route.map, id, 'the map id of a route is its own id');
+    assert.ok(W.districts[route.district]);
+    assert.equal(route.built, id === 'route1' && !!R.MAPS[route.map], id + ' built flag matches the maps');
+  });
+  same(routeIds.map((id) => W.routes[id].progress), ['x', 'x', 'x', 'x', 'x', 'x', '-x', '-x', '-x', '-x', 'x', 'x'], 'R1-R6, R11, R12 left to right; R7-R10 right to left');
+  // connected in the play order: each route starts where the one before ended
+  assert.equal(W.routes.route1.a, 'newPeiraias');
+  for (let n = 2; n <= 12; n++) assert.equal(W.routes['route' + n].a, W.routes['route' + (n - 1)].b, 'route ' + n + ' starts where route ' + (n - 1) + ' ends');
+  assert.equal(W.routes.route12.b, 'syntagma');
+  // gates agree with the badge flags: the first route of every district after the first starts in the district before it
+  const byOrder = Object.values(W.districts).sort((a, b) => a.order - b.order);
+  byOrder.forEach((district, index) => {
+    const own = routeIds.filter((id) => W.routes[id].district === district.id).sort((a, b) => routeNumber(a) - routeNumber(b));
+    assert.equal(own.length, 2, district.id + ' has two routes');
+    if (index > 0) assert.equal(W.nodes[W.routes[own[0]].a].district, byOrder[index - 1].id, district.id + ' is entered from ' + byOrder[index - 1].id + ' (needs its badge ' + byOrder[index - 1].badgeFlag + ')');
+  });
+});
+test('WORLD maps: every map of MAPS belongs to exactly one node or route, and mapNode finds it', () => {
+  for (const mapId of Object.keys(R.MAPS)) {
+    const owners = Object.values(W.nodes).filter((node) => node.maps.includes(mapId)).length + Object.values(W.routes).filter((route) => route.map === mapId).length;
+    assert.equal(owners, 1, mapId + ' belongs to ' + owners + ' places');
+    assert.ok(R.mapNode(mapId), mapId);
+  }
+  assert.equal(R.mapNode('town').id, 'newPeiraias');
+  for (const mapId of ['lab', 'kep', 'hospital', 'shop', 'cafe', 'studio']) assert.equal(R.mapNode(mapId).id, 'newPeiraias', mapId);
+  assert.equal(R.mapNode('port').id, 'harbourOffice');
+  assert.equal(R.mapNode('route1').id, 'route1');
+  assert.equal(R.mapNode('atlantis'), null);
+  assert.equal(R.worldIsRoute(R.mapNode('route1')), true);
+  assert.equal(R.worldIsRoute(R.mapNode('town')), false);
+});
+test('player marker: for each of the 12 routes the entry tile is within 1/w (1/h) of the first end, the exit tile of the second, the middle between', () => {
+  for (const id of routeIds) {
+    const route = W.routes[id];
+    const [width, height] = ROUTE_SIZES[id];
+    const dim = route.progress === 'y' ? height : width;
+    const length = pathLength(route.path);
+    const entry = route.progress === 'x' ? [0, 5] : (route.progress === '-x' ? [width - 1, 5] : [3, 0]); // where the player comes in from the first end
+    const exit = route.progress === 'x' ? [width - 1, 5] : (route.progress === '-x' ? [0, 5] : [3, height - 1]);
+    const middle = route.progress === 'y' ? [3, Math.floor(height / 2)] : [Math.floor(width / 2), 5];
+    const first = R.routeMarkerFraction(route.progress, entry[0], entry[1], width, height);
+    const last = R.routeMarkerFraction(route.progress, exit[0], exit[1], width, height);
+    const centre = R.routeMarkerFraction(route.progress, middle[0], middle[1], width, height);
+    assert.ok(first >= 0 && first <= 1 / dim + 1e-9, id + ' entry fraction ' + first);
+    assert.ok(1 - last >= 0 && 1 - last <= 1 / dim + 1e-9, id + ' exit fraction ' + last);
+    assert.ok(centre > first && centre < last, id + ' middle ' + centre);
+    // in cells: the marker is within 1/dim of the path length from the end it should be at, and the middle is strictly between
+    const near = (cell, end) => Math.hypot(cell[0] - end[0], cell[1] - end[1]);
+    assert.ok(near(R.pointAlongPath(route.path, first), route.path[0]) <= length / dim + 1e-9, id + ' entry marker near ' + route.a);
+    assert.ok(near(R.pointAlongPath(route.path, last), route.path[route.path.length - 1]) <= length / dim + 1e-9, id + ' exit marker near ' + route.b);
+    const centreCell = R.pointAlongPath(route.path, centre);
+    assert.ok(near(centreCell, route.path[0]) > 0 && near(centreCell, route.path[route.path.length - 1]) > 0, id + ' middle is strictly between the ends');
+    // walking in the route's direction moves the marker forward
+    let previous = -1;
+    for (let step = 0; step < dim; step++) {
+      const x = route.progress === 'y' ? 3 : (route.progress === 'x' ? step : width - 1 - step);
+      const y = route.progress === 'y' ? step : 5;
+      const fraction = R.routeMarkerFraction(route.progress, x, y, width, height);
+      assert.ok(fraction > previous, id + ' marker moves forward');
+      previous = fraction;
+    }
+  }
+  // the 'y' rule exists in the formula even though no route uses it yet
+  assert.ok(Math.abs(R.routeMarkerFraction('y', 3, 4, 20, 10) - 0.45) < 1e-9);
+  assert.ok(Math.abs(R.routeMarkerFraction('-x', 0, 4, 20, 10) - 0.975) < 1e-9);
+  // worldMarker on the real maps: places give their cell, route 1 gives a point on its line, a map without a place gives null
+  same(R.worldMarker('lab', 4, 6).cell, W.nodes.newPeiraias.cell);
+  same(R.worldMarker('port', 5, 8).cell, W.nodes.harbourOffice.cell);
+  const route1 = R.worldMarker('route1', 0, 9);
+  assert.ok(route1.onRoute && route1.id === 'route1' && Math.abs(route1.fraction - 0.5 / 32) < 1e-9);
+  const route1End = R.worldMarker('route1', 31, 9);
+  assert.ok(Math.abs(route1End.fraction - 31.5 / 32) < 1e-9);
+  assert.ok(route1.cell[1] >= 10 && route1.cell[1] <= 12 && route1.cell[0] >= 3 && route1.cell[0] <= 5, 'inside the box of the route-1 line');
+  assert.equal(R.worldMarker('atlantis', 1, 1), null);
+  same(R.pointAlongPath([[0, 0], [4, 0], [4, 4]], 0.5), [4, 0]);
+  same(R.pointAlongPath([[0, 0], [4, 0], [4, 4]], 0.25), [2, 0]);
+  same(R.pointAlongPath([[0, 0], [4, 0], [4, 4]], 2), [4, 4], 'clamped at the end');
+});
+test('map states: a district is locked until the previous badge (and while unbuilt), open, cleared; a place is hidden, unknown, seen or visited', () => {
+  const world = R.newWorldState();
+  assert.equal(R.districtState(world, 'peiraias'), 'open');
+  for (const id of ['notia', 'anatolika', 'voreia', 'dytika', 'athina']) assert.equal(R.districtState(world, id), 'locked', id);
+  assert.equal(R.placeState(world, 'newPeiraias'), 'hidden');
+  assert.equal(R.placeState(world, 'kastella'), 'unknown', 'a place that is built later, in an open district, is a question mark');
+  assert.equal(R.placeState(world, 'faliro'), 'hidden', 'places of a locked district are not drawn');
+  same(R.worldCandidates(world), []);
+  R.worldVisit(world, 'lab', {});
+  assert.equal(R.placeState(world, 'newPeiraias'), 'visited');
+  assert.equal(R.placeState(world, 'harbourOffice'), 'hidden');
+  R.worldVisit(world, 'route1', {});
+  assert.equal(world.routes.route1, 1);
+  assert.equal(R.placeState(world, 'harbourOffice'), 'seen', 'the other end of a walked route is told about');
+  same(R.worldCandidates(world), ['newPeiraias', 'harbourOffice']);
+  R.worldVisit(world, 'port', { badge: true });
+  assert.equal(R.placeState(world, 'harbourOffice'), 'visited');
+  assert.equal(world.badges.peiraias, 1, 'the badge flag fills the badges');
+  assert.equal(R.districtState(world, 'peiraias'), 'cleared');
+  assert.equal(R.districtState(world, 'notia'), 'locked', 'the next district stays locked while it is not built');
+  // a built next district would open with the badge: model it on a copy of the data
+  const second = W.districts.notia;
+  second.built = true;
+  try { assert.equal(R.districtState(world, 'notia'), 'open'); assert.equal(R.districtState(R.newWorldState(), 'notia'), 'locked', 'without the first badge it stays locked'); } finally { second.built = false; }
+  // the district sheet counts the species of the zones of its maps
+  const species = R.districtSpecies('peiraias');
+  assert.equal(species.length, 8);
+  assert.ok(species.includes('fakelakis') && species.includes('giagiaka'));
+  same(R.districtSpecies('notia'), []);
+});
+test('save v3: a version-2 save gets its visited places from its flags and its position; the world part round-trips; damaged parts are cleaned', () => {
+  const v2 = (map, x, y, flags) => Object.assign(sampleV1(), { version: 2, lastHeal: HOSPITAL_SPOT, player: { name: 'ΜΑΡΙΑ', gender: 'f', map, x, y, dir: 'down' }, flags });
+  const idsOf = (part) => Object.keys(part).sort();
+  // the start of the game: standing in the lab
+  const lab = R.migrateSave(v2('lab', 4, 6, { gotStarter: true })).world;
+  same(idsOf(lab.visited), ['newPeiraias']);
+  same(idsOf(lab.routes), []);
+  same(idsOf(lab.badges), []);
+  // the rival has been met (outside the lab, in the town)
+  same(idsOf(R.migrateSave(v2('town', 5, 8, { gotStarter: true, rival1: true })).world.visited), ['newPeiraias']);
+  // a trainer of route 1 has been beaten, the player is back in the town: route 1 is walked, the harbour office is told about
+  const walked = R.migrateSave(v2('town', 5, 8, { gotStarter: true, rival1: true, t_phoebe: true })).world;
+  same(idsOf(walked.routes), ['route1']);
+  same(idsOf(walked.seen).sort(), ['harbourOffice', 'newPeiraias']);
+  assert.equal(R.placeState(walked, 'harbourOffice'), 'seen');
+  assert.equal(R.placeState(walked, 'newPeiraias'), 'visited');
+  for (const flag of ['t_stelios', 't_takis', 't_rival2']) same(idsOf(R.migrateSave(v2('town', 5, 8, { gotStarter: true, [flag]: true })).world.routes), ['route1'], flag);
+  // standing on route 1 or in the port
+  const onRoute = R.migrateSave(v2('route1', 1, 9, { gotStarter: true, rival1: true })).world;
+  same(idsOf(onRoute.routes), ['route1']);
+  assert.equal(R.placeState(onRoute, 'harbourOffice'), 'seen');
+  assert.equal(R.placeState(R.migrateSave(v2('port', 5, 8, { gotStarter: true })).world, 'harbourOffice'), 'visited');
+  // the badge is won: the harbour office is visited, route 1 walked, the badge counts
+  const won = R.migrateSave(v2('town', 5, 8, { gotStarter: true, rival1: true, badge: true, credits: true })).world;
+  same(idsOf(won.visited), ['harbourOffice', 'newPeiraias']);
+  same(idsOf(won.routes), ['route1']);
+  same(idsOf(won.badges), ['peiraias']);
+  assert.equal(R.districtState(won, 'peiraias'), 'cleared');
+  // every house of the town is the town
+  for (const [mapId, x, y] of [['shop', 3, 4], ['cafe', 4, 6], ['kep', 4, 6], ['hospital', 5, 7], ['studio', 4, 6]]) same(idsOf(R.migrateSave(v2(mapId, x, y, { gotStarter: true })).world.visited), ['newPeiraias'], mapId);
+  // an old save keeps everything else as it was
+  const old = v2('town', 5, 8, { gotStarter: true, rival1: true });
+  const migrated = R.migrateSave(old);
+  assert.equal(migrated.version, 3);
+  same(migrated.flags, old.flags);
+  same(migrated.player, { name: 'ΜΑΡΙΑ', gender: 'f', map: 'town', x: 5, y: 8, dir: 'down' });
+  assert.equal(migrated.money, 777);
+  // version 0 and 1 saves go through the older steps and then get a world part too
+  assert.equal(R.migrateSave(sampleV1()).world.visited.newPeiraias, 1);
+  assert.equal(R.migrateSave({ v: 0, name: 'Α', drachmas: 5, team: [{ id: 'komma', lv: 5 }], map: 'lab', x: 4, y: 6 }).world.visited.newPeiraias, 1);
+  // a version-3 save: round trip, unknown ids dropped, a missing part rebuilt as empty plus the current map
+  same(R.migrateSave(JSON.parse(JSON.stringify(migrated))), migrated);
+  const damaged = Object.assign(JSON.parse(JSON.stringify(migrated)), { world: { visited: { atlantis: 1, newPeiraias: 1, kastella: 0 }, routes: { route99: 1, route1: 1 }, stops: { newPeiraias: 1, spata: 1 }, badges: { moon: 1 }, seen: 'nonsense' } });
+  const cleaned = R.migrateSave(damaged).world;
+  same(idsOf(cleaned.visited), ['newPeiraias']);
+  same(idsOf(cleaned.routes), ['route1']);
+  same(idsOf(cleaned.stops), ['newPeiraias', 'spata']);
+  same(idsOf(cleaned.badges), []);
+  same(idsOf(cleaned.seen), ['harbourOffice', 'newPeiraias']);
+  const noPart = JSON.parse(JSON.stringify(migrated));
+  delete noPart.world;
+  same(idsOf(R.migrateSave(noPart).world.visited), ['newPeiraias']);
+  // inherited names are not places; a damaged world part never writes "undefined"
+  const inherited = JSON.parse(JSON.stringify(migrated));
+  inherited.world = { badges: { constructor: 1, toString: 1, peiraias: 1 }, visited: { constructor: 1, hasOwnProperty: 1 }, seen: { valueOf: 1 }, routes: { constructor: 1 }, stops: { toString: 1 } };
+  const inheritedWorld = R.migrateSave(inherited).world;
+  same(idsOf(inheritedWorld.badges), ['peiraias']);
+  same(idsOf(inheritedWorld.visited), ['newPeiraias']);
+  same(idsOf(inheritedWorld.routes), []);
+  same(idsOf(inheritedWorld.stops), []);
+  same(idsOf(inheritedWorld.seen), [], 'no undefined or inherited name, and no place told about without a walked route');
+  // a version-3 save whose world part is missing or damaged still gets the walked routes its flags tell
+  const walkedV3 = Object.assign(JSON.parse(JSON.stringify(migrated)), { flags: { gotStarter: true, rival1: true, t_phoebe: true, badge: true } });
+  for (const damagedPart of [undefined, null, 'x', { routes: 5 }]) {
+    walkedV3.world = damagedPart;
+    const rebuilt = R.migrateSave(walkedV3).world;
+    same(idsOf(rebuilt.routes), ['route1'], String(damagedPart));
+    same(idsOf(rebuilt.visited), ['harbourOffice', 'newPeiraias'], String(damagedPart));
+    same(idsOf(rebuilt.badges), ['peiraias'], String(damagedPart));
+  }
+  assert.equal(R.migrateSave({ version: 4, party: [R.serializeMon(R.makeMon('komma', 5))] }), null, 'a newer save is still refused');
+  // the engine writes, reads and starts the world part
+  const state = html.slice(html.indexOf('function newGameState'), html.indexOf('// ---- Canvas and scaling'));
+  assert.ok(state.includes('world: newWorldState()') && state.includes('world: JSON.parse(JSON.stringify(G.world))') && state.includes('world: save.world'), 'new game, save and load all carry the world part');
+  assert.ok(html.includes('worldVisit(G.world, mapId, G.flags);'), 'entering a map marks its place');
+});
+test('map strings: every place, route and district name has Greek and English; every key the map screen asks for exists', () => {
+  const S = R.STRINGS;
+  const need = (key) => { assert.ok(S[key], 'missing string ' + key); assert.ok(S[key][0] && S[key][1], key + ' needs both languages'); };
+  for (const id of Object.keys(W.nodes)) need('world.' + id);
+  for (const id of routeIds) need('world.' + id);
+  for (const district of Object.values(W.districts)) need(district.nameKey);
+  for (const key of ['menu.map', 'map.title', 'map.scale', 'map.soon', 'map.keys', 'map.levels', 'map.sheet.boss', 'map.sheet.stats', 'map.badge.won', 'map.badge.no']) need(key);
+  for (const node of Object.values(W.nodes)) for (const key of node.has || []) need('world.has.' + key);
+  for (const id of [...Object.keys(W.nodes), ...routeIds, ...Object.values(W.districts).map((district) => district.id)]) {
+    const key = id.startsWith('route') || id in W.nodes ? 'world.' + id : 'world.d.' + id;
+    assert.match(S[key][0], /[Ͱ-Ͽ]/, key + ' Greek text is Greek');
+    assert.match(S[key][1], /[A-Za-z]/, key + ' English text is Latin');
+  }
+  assert.equal(S['map.scale'][0], 'ΚΛΙΜΑΚΑ: ΠΕΡΙΠΟΥ');
+  assert.equal(S['map.scale'][1], 'SCALE: ROUGHLY');
+  assert.equal(S['menu.map'][0], 'Χάρτης');
+  for (const id of Object.keys(W.nodes)) assert.ok(!/\{/.test(S['world.' + id][0] + S['world.' + id][1]), id + ' has no placeholders');
+});
+test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικογραφία; the map closes on back, the menu input and its own key', () => {
+  const keyMap = html.slice(html.indexOf('const KEY_MAP'), html.indexOf('function padButtonOn'));
+  assert.ok(keyMap.includes("KeyQ: 'map'"), 'Q opens the map');
+  assert.ok(html.includes("const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map']"), 'map is an input name');
+  assert.ok(html.includes("if (padButtonOn(buttons, 8)) this.pad.map = true;"), 'gamepad button 8 (Select/Back) is the map');
+  assert.ok(html.includes("if (padButtonOn(buttons, 9) || padButtonOn(buttons, 3)) this.pad.menu = true;"), 'Start and Y still open the menu');
+  assert.ok(html.includes('<div class="btn" data-btn="map">ΧΑΡΤΗΣ</div>'), 'the touch pill exists');
+  assert.ok(html.includes('#touch.portrait [data-btn="map"]') && html.includes('#touch.landscape [data-btn="map"]'), 'the pill has a place in both layouts');
+  const pause = html.slice(html.indexOf('async function openPauseMenu'), html.indexOf('// ---- Map screen'));
+  assert.ok(pause.includes("T('menu.dossier'), T('menu.map'), T('menu.save')"), 'Χάρτης comes right after Δικογραφία');
+  assert.ok(pause.includes('choice === 3) await openMapScreen()'), 'the menu entry opens the map');
+  const overworld = html.slice(html.indexOf('OverworldLayer.prototype.update = '), html.indexOf('OverworldLayer.prototype.backgroundUpdate'));
+  assert.ok(overworld.includes('if (this.busy) return;') && overworld.indexOf('if (this.busy) return;') < overworld.indexOf('Input.pressed.map'), 'the map key works only when the overworld is on top and idle');
+  const layer = html.slice(html.indexOf('MapLayer.prototype.update'), html.indexOf('MapLayer.prototype.draw'));
+  assert.ok(layer.includes('Input.pressed.b || Input.pressed.map || Input.pressed.menu'), 'back, the open key and the menu input close it');
+  assert.ok(layer.includes('closeLayer(this)'), 'closing hands control back to the layer below');
+});
 
 // ---- Engine facts the headless tests can still check in the source text ----
 test('a battle that throws counts as neither a win nor a loss ("ran"), and Reduced motion follows the OS by default', () => {
