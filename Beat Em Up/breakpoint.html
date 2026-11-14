@@ -5426,7 +5426,7 @@ const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part
    HIT_TIER_AMP scales a row by the tier (1, 2, 3), Reduced motion halves it. The hold is the launch's first HIT_HOLD_TICKS[tier - 1] ticks: the flight's limbs wait and the brace shows, and the launch itself is the simulation's, on its own tick. */
 const LOOK = { SNAP: 0, FOLD: 1, BUCKLE: 2, ARCH: 3, STUMBLE: 4, WALL: 5, HOLD: 6, FACE_DOWN: 7, FACE_UP: 8, CRUMPLE: 9 };
 const LOOK_FRONT = 0, LOOK_BACK = 1, LOOK_SIDE = 2, LOOK_FRONT_DOT = 0.5; // where a blow came from, by the dot of its travel with the way the fighter faces (-1 = straight at the face)
-const HIT_TIER_AMP = [0.5, 1, 1.5], HIT_HOLD_TICKS = [0, 0, 6], LOOK_IN_TICKS = 2, LOOK_FLIGHT_IN = 4, LOOK_WALL_TICKS = 12, LOOK_LAND_FADE = 0.5; // LOOK_LAND_FADE (m): in a flight the fall's look and the wall pose are at full strength from this height above the footing up and fade to nothing at the footing
+const HIT_TIER_AMP = [0.5, 1, 1.5], HIT_HOLD_TICKS = [0, 0, 6], LOOK_IN_TICKS = 2, LOOK_FLIGHT_IN = 4, LOOK_WALL_TICKS = 12, LOOK_LAND_TIME = 0.1, LOOK_LAND_FLOOR = 0.05; // in a descent the fall's look and the wall pose are at full strength while the footing is more than LOOK_LAND_TIME s of the fall's speed away (at least LOOK_LAND_FLOOR m) and fade to nothing at the footing; a rising body shows them whole
 const lookRow = (plain, side) => { const row = { joints: [], offsets: [], sideJoints: [], sideOffsets: [] }; for (const name in plain) { row.joints.push(J[name]); row.offsets.push(plain[name]); } for (const name in side) { row.sideJoints.push(J[name]); row.sideOffsets.push(side[name]); } return row; };
 const HIT_LOOK_ROWS = [
   lookRow({ headX: -0.5, torsoLean: -0.1, shLx: 0.12, shRx: 0.12 }, { headY: 0.45, torsoRoll: 0.08 }), // head snap
@@ -7569,10 +7569,10 @@ class Fighter {
     const movePlant = this.state === S.ATTACK && !!this.move && this.move.plant === true; // an upside-down kick: the hands are the floor contact while it runs
     this.plantFast = movePlant; // the fast speed is for the move only: a knockdown or a get-up after it settles at PLANT_SPEED
     const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP || movePlant; // the holder, and anybody lying on the floor or getting up from it
-    if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : this.lowestPart(); this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance)
+    if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : this.lowestPart() + this.sinkLift; if (!movePlant) this.sinkLift = 0; this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance; the lift of a flight's floor rule, drawn with the last pose, is handed over to plantLow so it is not drawn twice)
     this.computePose(dt);
     if (this.plantOn) this.plantFloor(dt, planted);
-    if ((this.state === S.ATTACK && !movePlant) || (this.lookId >= 0 && (this.state === S.HIT || this.state === S.STAGGER))) { const low = this.lowestPart(); this.sinkLift = low < -SINK_MAX ? -SINK_MAX - low : 0; } else if (this.sinkLift > 0) this.sinkLift = Math.max(0, this.sinkLift - SINK_FALL); // a blow draws no part deeper under the floor than SINK_MAX: the body is lifted by what is left
+    if ((this.state === S.ATTACK && !movePlant) || (this.lookId >= 0 && (this.state === S.HIT || this.state === S.STAGGER || this.state === S.THROWN))) { const low = this.lowestPart() + (this.state === S.THROWN ? this.y - this.groundY : 0); this.sinkLift = low < -SINK_MAX ? -SINK_MAX - low : 0; } else if (this.sinkLift > 0) this.sinkLift = Math.max(0, this.sinkLift - SINK_FALL); // a blow draws no part deeper under the floor than SINK_MAX: the body is lifted by what is left
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
     this.steerLie(); // after the key points were measured on the simulation's own place and yaw (a drawn frame writes them for its own place)
     if (this.state === S.ATTACK && this.move && this.move.type === 'strike' && (this.move.tier >= 2) && Settings.v.effects !== 'low') {
@@ -7901,9 +7901,14 @@ class Fighter {
     if (this.lookId >= 0) { const id = HIT_LOOK_GROUND[this.lookId]; this.addLook(p, id < 0 ? this.lookZone : id, a * Math.min(1, (this.stateTicks + 1) / LOOK_IN_TICKS)); }
     if (this.wallVis > 0) this.addLook(p, LOOK.WALL, this.wallVis);
   }
-  // The look of a flight (THROWN): a launch whose cell says hold keeps its brace for the first HIT_HOLD_TICKS[tier - 1] ticks (the flight's limbs come in as the hold fades; the flight itself is the simulation's and starts on its own tick), then the fall's row: face down from behind, face up from the front and the side, or the cell's own fall or crumple. The fall and the wall pose fade out over the last LOOK_LAND_FADE m above the footing, so the body does not land with a limb through the floor
+  // How much of the fall's look and the wall pose a flight shows (0 to 1): all of it while rising, and in the descent all of it until the footing is LOOK_LAND_TIME s of the fall's speed away (at least LOOK_LAND_FLOOR m), then less down to nothing at the footing. A low arc keeps its look (its descent is slow, so its fade is short), and the body does not land with a limb the look bent through the floor; the floor rule of animate (sinkLift) covers the rest
+  lookFade() {
+    if (this.vy > 0) return 1;
+    return clamp((this.y - this.groundY) / Math.max(LOOK_LAND_FLOOR, -this.vy * LOOK_LAND_TIME), 0, 1);
+  }
+  // The look of a flight (THROWN): a launch whose cell says hold keeps its brace for the first HIT_HOLD_TICKS[tier - 1] ticks (the flight's limbs come in as the hold fades; the flight itself is the simulation's and starts on its own tick), then the fall's row: face down from behind, face up from the front and the side, or the cell's own fall or crumple. The fall and the wall pose fade out as the body comes down to the footing (lookFade)
   flightLook(p, st) {
-    const clearance = clamp((this.y - this.groundY) / LOOK_LAND_FADE, 0, 1); // the fall's look and the wall pose fade out over the last LOOK_LAND_FADE m of the descent, so a limb they bend is never drawn into the floor as the body lands
+    const clearance = this.lookFade();
     if (this.lookId >= 0) {
       const g = this.motion.guard, hold = this.lookId === LOOK.HOLD ? HIT_HOLD_TICKS[this.lookTier - 1] : 0, wait = st < hold ? 1 - st / hold : 0;
       if (wait > 0) {
@@ -8458,13 +8463,13 @@ const Combat = {
   },
 
   /* P19-03 hit look (drawing only: it writes the draw-only look fields and the draw-only lieSign, reads the facing and writes nothing the simulation reads, no random draw, no sine): where the blow came from (front, back or side, by its travel against the way def faces), the cell of HIT_LOOK_TABLE it falls in and the side it pushes the body to.
-     A body struck from behind that goes down or out goes down on its face (lieSign -1). `air`: def was off the ground before the blow. Called after the reaction state is set, from the places a blow knocks a fighter about (landHit, itemHit, bodyHit). */
-  look(def, zone, tier, dirx, dirz, kind, air) {
+     A body struck from behind that goes down or out goes down on its face (lieSign -1). `air`: def was off the ground before the blow (a jump too); `wasFlight`: def was in a flight (THROWN) before it. Called after the reaction state is set, from the places a blow knocks a fighter about (landHit, itemHit, bodyHit). */
+  look(def, zone, tier, dirx, dirz, kind, air, wasFlight) {
     const dot = dirx * def.fwdX + dirz * def.fwdZ, side = def.fwdX * dirz - def.fwdZ * dirx;
     const dir = dot < -LOOK_FRONT_DOT ? LOOK_FRONT : dot > LOOK_FRONT_DOT ? LOOK_BACK : LOOK_SIDE, level = clamp(tier || 1, 1, 3);
     def.lookId = pickLook(zone, level, dir, air, kind, def.wallHit);
     def.lookZone = zone; def.lookTier = level; def.lookDir = dir; def.lookSign = side < 0 ? -1 : 1;
-    if (!air && (def.state === S.KO || def.state === S.THROWN)) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on
+    if (def.state === S.KO ? !wasFlight : def.state === S.THROWN && !air) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on, a knock-out that ends it too; a knock-out of a fighter who was only in a jump takes the side of this blow
   },
 
   // Whether att may strike or hit def with a thrown item at all, whatever the move: not while def is invulnerable, out, held in a submission by somebody else, in its wake-up grace, in a clinch or grapple, or flying in a knockdown (a juggle excepted)
@@ -8541,7 +8546,7 @@ const Combat = {
     const { att, def, mv } = d;
     const counter = def.state === S.ATTACK && !!def.move && def.move.type === 'strike' && def.moveTick <= def.mStartup + def.mActive;
     const crouched = def.state === S.CROUCH || def.state === S.BLOCK_L; // before the hit changes it
-    const air = def.airborne || def.state === S.THROWN ? 1 : 0, zone = mv.h === 'H' ? 0 : mv.h === 'L' ? 2 : 1; // P19-03: in the air before the blow; the zone it hits: the strain's and the look's
+    const air = def.airborne || def.state === S.THROWN ? 1 : 0, wasFlight = def.state === S.THROWN, zone = mv.h === 'H' ? 0 : mv.h === 'L' ? 2 : 1; // P19-03: in the air, and in a flight, before the blow; the zone it hits: the strain's and the look's
     this.claimCombo(att, def);
     const gap = def.gotHits === 0 ? null : isStunState(def.state) ? Math.min(0, def.stateTicks - def.reactDur) : REACTION_STATES.includes(def.state) ? 0 : def.age - def.freedAt; // Training LINK
     const swayLate = def.state === S.SWAY ? def.stateTicks - SWAY_IFRAME_TICKS + 1 : 0;
@@ -8604,7 +8609,7 @@ const Combat = {
       def.setState(S.HIT);
       def.kx = dirx * v0; def.kz = dirz * v0;
     }
-    this.look(def, zone, mv.tier, dirx, dirz, mv.kind, air); // after the reaction state is set
+    this.look(def, zone, mv.tier, dirx, dirz, mv.kind, air, wasFlight); // after the reaction state is set
     if (def.wallHit) { att.kx = -dirx * v0 * 0.45; att.kz = -dirz * v0 * 0.45; }
     match.addHitStop(hs, att, def);
     if (def.item && mv.tier === 3) def.dropHeld(); // a strong step that lands disarms
@@ -8650,7 +8655,7 @@ const Combat = {
     def.gotHits++; def.calmTicks = 0; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     this.momentum(att, def, dmg);
     def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = head || w.sp === 'crate' ? 'high' : 'mid';
-    const zone = head || w.sp === 'crate' ? 0 : w.sp === 'trip' ? 2 : 1, air = def.airborne || def.state === S.THROWN ? 1 : 0; // P19-03: the zone of the blow, and whether def is in the air before it
+    const zone = head || w.sp === 'crate' ? 0 : w.sp === 'trip' ? 2 : 1, air = def.airborne || def.state === S.THROWN ? 1 : 0, wasFlight = def.state === S.THROWN; // P19-03: the zone of the blow, and whether def is in the air, or in a flight, before it
     this.strain(def, zone, dmg, match); // a thrown item: the head for one at head height or a crate, the legs for the trip item, the body for the rest
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     else if (kind === 'knockdown') {
@@ -8664,7 +8669,7 @@ const Combat = {
       def.setState(S.HIT);
       def.kx = dirx * 0.6 * KNOCK_DAMP; def.kz = dirz * 0.6 * KNOCK_DAMP;
     }
-    this.look(def, zone, mv.tier, dirx, dirz, kind, air);
+    this.look(def, zone, mv.tier, dirx, dirz, kind, air, wasFlight);
     match.addHitStop(mv.hitStop, att, def);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: it.x, y: it.y, z: it.z, dirx, dirz, kind, combo: att.comboHits, ko: def.state === S.KO, zone });
   },
@@ -8685,7 +8690,7 @@ const Combat = {
     }
     this.momentum(att, def, dmg);
     if (!lying) this.strain(def, 1, dmg, match); // a thrown body that lands on a standing fighter: the body (a lying one takes the damage only)
-    const air = def.airborne || def.state === S.THROWN ? 1 : 0; // P19-03: before the blow
+    const air = def.airborne || def.state === S.THROWN ? 1 : 0, wasFlight = def.state === S.THROWN; // P19-03: before the blow
     def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = 'mid';
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     else if (knock) {
@@ -8699,7 +8704,7 @@ const Combat = {
       def.setState(S.STAGGER);
       def.kx = dirx * BODY_STAGGER_PUSH * KNOCK_DAMP; def.kz = dirz * BODY_STAGGER_PUSH * KNOCK_DAMP;
     }
-    if (!lying) this.look(def, 1, mv.tier, dirx, dirz, mv.kind, air);
+    if (!lying) this.look(def, 1, mv.tier, dirx, dirz, mv.kind, air, wasFlight);
     match.addHitStop(mv.hitStop, att, def);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: (body.x + def.x) / 2, y: def.y + 0.9, z: (body.z + def.z) / 2, dirx, dirz, kind: lying ? 'ground' : mv.kind, combo: att.comboHits, ko: def.state === S.KO });
   },
@@ -21661,7 +21666,7 @@ function testApi() {
     encodeInput, decodeInput, packInputs, unpackInputs, matchChecksum, netMedian, netDelayFor, LockstepTransport, LockstepLinkTransport, LockstepSession, NetSeatController,
     ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
     ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
-    LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_FADE, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
+    LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_TIME, LOOK_LAND_FLOOR, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
