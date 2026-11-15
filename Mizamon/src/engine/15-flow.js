@@ -41,7 +41,7 @@ async function titleFlow() {
     if (choice === 1) {
       G = gameFromSave(saved);
       resetTextCache();
-      Sound.sfx('confirm');
+      Sound.sfx(SOUNDS.confirm);
       await Fade.start(1, 12);
       startWorld();
       await waitFrames(3);

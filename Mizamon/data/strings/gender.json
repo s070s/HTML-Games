@@ -1,0 +1,5 @@
+{
+  "gender.title": { "el": "Ποιος είσαι;", "en": "Who are you?" },
+  "gender.m": { "el": "Έλληνας", "en": "Ellin (boy)" },
+  "gender.f": { "el": "Ελληνίδα", "en": "Ellinida (girl)" }
+}

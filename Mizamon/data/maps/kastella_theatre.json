@@ -1,0 +1,24 @@
+{
+  "name": "map.kastella.theatre",
+  "w": 12,
+  "h": 10,
+  "music": "town",
+  "rows": [
+    "T~~~~~~~~~~T",
+    "TrrrrrrrrrrT",
+    "TrrrrrrrrrrT",
+    "T,,,,,,,,,,T",
+    "TeeeeeeeeeeT",
+    "TeeeeeeeeeeT",
+    "TeeeeeeeeeeT",
+    "TeeeeeeeeeeT",
+    "T,,,,,,,,,,T",
+    "TTTTT,,TTTTT"
+  ],
+  "warps": [{ "x": 5, "y": 9, "to": "kastella", "tx": 12, "ty": 6 }, { "x": 6, "y": 9, "to": "kastella", "tx": 12, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "viewpoint", "x": 5, "y": 2, "face": "down", "look": "clerk", "kind": "talk", "text": "npc.theatre.view" },
+    { "id": "theatreold", "x": 9, "y": 5, "face": "left", "look": "oldman", "kind": "talk", "text": "npc.theatre.old" }
+  ]
+}

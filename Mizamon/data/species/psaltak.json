@@ -1,0 +1,12 @@
+{
+  "n": "Ψαλτάκι",
+  "t": "ekk",
+  "ab": "gra",
+  "g": "n",
+  "starter": true,
+  "rec": 0,
+  "xp": 50,
+  "evo": { "to": "diakosdisko", "lv": 16 },
+  "base": [50, 36, 46, 52, 56, 38],
+  "learn": [[1, "agiasmos"], [1, "thymiama"], [6, "aforismos"], [10, "litaneia"], [13, "akinito"]]
+}

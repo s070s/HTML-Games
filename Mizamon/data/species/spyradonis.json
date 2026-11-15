@@ -1,0 +1,11 @@
+{
+  "n": "Σπυράδωνις",
+  "t": "pol",
+  "ab": "des",
+  "g": "m",
+  "rec": 24,
+  "xp": 80,
+  "parody": true,
+  "base": [60, 55, 50, 76, 55, 55],
+  "learn": [[1, "fonipanel"], [1, "tilepolisi"], [1, "tweet"], [1, "denmilas"]]
+}

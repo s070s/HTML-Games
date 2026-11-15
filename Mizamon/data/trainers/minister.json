@@ -1,0 +1,12 @@
+{
+  "name": "Ο Υπουργός Σπυράδωνις",
+  "look": "ministerman",
+  "team": [
+    { "sp": "spyradonis", "lv": 46 },
+    { "sp": "lobbylykaina", "lv": 45 },
+    { "sp": "giagiaexo", "lv": 45 },
+    { "sp": "fakelarchis", "lv": 46 },
+    { "sp": "giagiaexo", "lv": 47 }
+  ],
+  "items": []
+}

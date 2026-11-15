@@ -6,9 +6,9 @@ async function runBattle(setup) {
     bag: G.bag, archive: G.archive, sunday: isSundayToday(), recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
   });
   const mapId = G.player.map;
-  const theme = mapId === 'studio' ? 'studio' : (mapId === 'port' ? 'sea' : 'grass');
+  const theme = DATA.game.battleThemes[mapId] || 'grass'; // the background of the map (data/game.json)
   const layer = new BattleLayer(battle, trainer, theme);
-  Sound.play(trainer && trainer.boss ? 'boss' : 'battle');
+  Sound.play(trainer && trainer.boss ? MUSIC.boss : MUSIC.battle);
   await Fade.start(1, 14);
   pushLayer(layer);
   await waitFrames(2);
@@ -23,7 +23,7 @@ async function runBattle(setup) {
   await Fade.start(1, 12);
   removeLayer(layer);
   const world = layers.find(function (candidate) { return candidate instanceof OverworldLayer; });
-  Sound.play(world ? world.map.music : 'town');
+  Sound.play(world ? world.map.music : MUSIC.fallback);
   await Fade.start(0, 12);
   return result;
 }

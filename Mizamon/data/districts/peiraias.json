@@ -1,0 +1,49 @@
+{
+  "letter": "P",
+  "order": 1,
+  "bossTrainer": "kotsos",
+  "badgeFlag": "badge",
+  "nameKey": "world.d.peiraias",
+  "levels": [2, 13],
+  "color": "#e9b872",
+  "label": [4.5, 8.5],
+  "built": true,
+  "places": {
+    "newPeiraias": {
+      "kind": "town",
+      "cell": [3, 10],
+      "maps": ["town", "lab", "kep", "hospital", "shop", "cafe", "studio"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe"]
+    },
+    "harbourOffice": { "kind": "boss", "cell": [5, 12], "maps": ["port"], "boss": true, "built": true, "has": ["boss"] },
+    "kastella": {
+      "kind": "town",
+      "cell": [7, 10],
+      "maps": ["kastella", "kastella_hospital", "kastella_shop", "kastella_theatre"],
+      "stop": true,
+      "built": true,
+      "seenFlag": "badge",
+      "has": ["hospital", "shop", "theatre"]
+    }
+  },
+  "routes": {
+    "route1": {
+      "a": "newPeiraias",
+      "b": "harbourOffice",
+      "map": "route1",
+      "path": [[3, 10], [3, 12], [5, 12]],
+      "progress": "x",
+      "built": true
+    },
+    "route2": {
+      "a": "harbourOffice",
+      "b": "kastella",
+      "map": "route2",
+      "path": [[5, 12], [6, 12], [7, 11], [7, 10]],
+      "progress": "x",
+      "built": true
+    }
+  }
+}

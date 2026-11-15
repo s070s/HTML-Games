@@ -1,0 +1,54 @@
+{
+  "name": "map.lycabettus",
+  "w": 20,
+  "h": 16,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTT",
+    "TssssFFFFFFFFFFsRRRT",
+    "Tsggs\"\"\"\"\"\"\"\"\"\"sRRRT",
+    "Tsggs\"S\"\"\"\"\"\"\"\"sRRRT",
+    "Tsggs\"\"\"\"\"\"\"\"\"\"ssssT",
+    "Tsggssgggs.sss5555sT",
+    "Tsggssgggs.sIsxdxxsT",
+    "Tsssssssss.ssSsssssT",
+    "TIss.......ssssssssT",
+    "TsRs.sssssssgggggIsT",
+    "TssI.ssIssssggggggsT",
+    "Tsss.......sggggggsT",
+    "Tgggggggss.sgRggggsT",
+    "TggggIggIs.ssssssIsT",
+    "TssssssssS.sRssssssT",
+    "TTTTTTTTTT.TTTTTTTTT"
+  ],
+  "warps": [{ "x": 10, "y": 15, "to": "syntagma", "tx": 28, "ty": 6 }],
+  "signs": { "9,14": "sign.hill.path", "13,7": "sign.hill.funicular", "6,3": "sign.hill.view" },
+  "npcs": [
+    {
+      "id": "inspector",
+      "x": 7,
+      "y": 7,
+      "face": "down",
+      "look": "inspector",
+      "kind": "trainer",
+      "trainer": "inspector",
+      "sight": 2
+    },
+    { "id": "viewman", "x": 12, "y": 3, "face": "up", "look": "oldman", "kind": "talk", "text": "npc.hill.view" },
+    { "id": "hillkid", "x": 8, "y": 10, "face": "up", "look": "kid", "kind": "talk", "text": "npc.hill.kid" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 99,
+      "table": [
+        { "sp": "star90", "w": 14, "min": 40, "max": 41 },
+        { "sp": "lobbylykaina", "w": 14, "min": 40, "max": 41 },
+        { "sp": "rousfetolykos", "w": 12, "min": 40, "max": 41 },
+        { "sp": "giotarchis", "w": 14, "min": 41, "max": 43 },
+        { "sp": "influenza", "w": 14, "min": 41, "max": 43 },
+        { "sp": "ktimatomesitis", "w": 6, "min": 41, "max": 43 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "map.marousi.boss",
+  "w": 14,
+  "h": 10,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwwwww",
+    "w:;;;;;;;;;;:w",
+    "w:;;;;;;;;;;:w",
+    "wfffccccccfffw",
+    "wffffffffffffw",
+    "wfrrffffffrrfw",
+    "wffffffffffffw",
+    "wfttffffffttfw",
+    "wffffffffffffw",
+    "wwwwwwmmwwwwww"
+  ],
+  "warps": [{ "x": 6, "y": 9, "to": "marousi", "tx": 20, "ty": 5 }, { "x": 7, "y": 9, "to": "marousi", "tx": 20, "ty": 5 }],
+  "signs": {},
+  "npcs": [
+    { "id": "amartia", "x": 6, "y": 2, "face": "down", "look": "amartia", "kind": "boss", "trainer": "amartia" },
+    { "id": "scust1", "x": 2, "y": 6, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.marousi.cust1" },
+    { "id": "scust2", "x": 11, "y": 6, "face": "left", "look": "student", "kind": "talk", "text": "npc.marousi.cust2" }
+  ]
+}

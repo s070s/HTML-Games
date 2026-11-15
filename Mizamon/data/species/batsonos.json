@@ -1,0 +1,11 @@
+{
+  "n": "Μπατσόνος",
+  "t": "asf",
+  "ab": "syn",
+  "g": "m",
+  "rec": 0,
+  "xp": 80,
+  "evo": { "to": "matanthropos", "lv": 32 },
+  "base": [68, 74, 70, 44, 56, 54],
+  "learn": [[1, "globos"], [1, "enisxuseis"], [6, "chimika"], [10, "taftotita"], [13, "parelasi"]]
+}

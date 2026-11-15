@@ -1,0 +1,11 @@
+{
+  "n": "Γιαγιάκα",
+  "t": "mem",
+  "ab": "kou",
+  "g": "f",
+  "rec": 30,
+  "xp": 50,
+  "evo": { "to": "giagiaexo", "lv": 37 },
+  "base": [50, 56, 44, 36, 50, 44],
+  "learn": [[1, "giagia"], [1, "ellada"], [7, "frapes"], [10, "thios"]]
+}

@@ -3,7 +3,8 @@ function moveSpeed(battle, sideIndex) { return effectiveStat(activeMon(battle, s
 function movePriority(battle, sideIndex, moveId) {
   const mon = activeMon(battle, sideIndex);
   let priority = MOVES[moveId].prio || 0;
-  if (abilityOf(mon) === 'epi' && !mon.bt.moved) priority += 1; // Επιτελικό Κράτος: the first move goes first
+  const firstMove = abilityParams(mon, 'firstMovePriority'); // Επιτελικό Κράτος: the first move goes first
+  if (firstMove && !mon.bt.moved) priority += firstMove.priority;
   return priority;
 }
 function moveHitsFoe(move) {
@@ -15,10 +16,12 @@ function canAct(battle, sideIndex) {
   const volatile = mon.bt;
   if (volatile.recharge > 0) { volatile.recharge--; logMsg(battle, 'b.recharge', { mon: monRef(battle, sideIndex) }); return false; }
   if (volatile.skip > 0) { volatile.skip--; logMsg(battle, 'b.skip', { mon: monRef(battle, sideIndex) }); return false; }
-  if (mon.status && mon.status.id === 'str' && battle.rng() < 0.5) { logMsg(battle, 'b.str.idle', { mon: monRef(battle, sideIndex) }); return false; }
-  if (mon.status && mon.status.id === 'bri' && battle.rng() < 0.3) {
+  const idle = statusParams(mon, 'idle');
+  if (idle && battle.rng() < idle.chance) { logMsg(battle, 'b.str.idle', { mon: monRef(battle, sideIndex) }); return false; }
+  const pocket = statusParams(mon, 'pocket');
+  if (pocket && battle.rng() < pocket.chance) {
     logMsg(battle, 'b.bri.pocket', { mon: monRef(battle, sideIndex) });
-    gainHp(battle, 1 - sideIndex, Math.max(1, Math.floor(maxHp(activeMon(battle, 1 - sideIndex)) / 16)));
+    gainHp(battle, 1 - sideIndex, Math.max(1, Math.floor(maxHp(activeMon(battle, 1 - sideIndex)) / pocket.divisor)));
     return false;
   }
   return true;
@@ -27,7 +30,8 @@ function applyDamage(battle, attackerSide, defenderSide, move, rawPower) {
   const attacker = activeMon(battle, attackerSide);
   const defender = activeMon(battle, defenderSide);
   const rng = battle.rng;
-  if (abilityOf(defender) === 'vys' && attacker.lv > defender.lv && rng() < 0.2) {
+  const dodge = abilityParams(defender, 'ignoreHigherLevel');
+  if (dodge && attacker.lv > defender.lv && rng() < dodge.chance) {
     logMsg(battle, 'b.vys', { mon: monRef(battle, defenderSide) });
     return 0;
   }
@@ -41,9 +45,10 @@ function applyDamage(battle, attackerSide, defenderSide, move, rawPower) {
   const allyFallen = (battle.sides[attackerSide].fallen[SPECIES[attacker.sp].t] || 0) > 0;
   const result = computeDamage(attacker, defender, move, { power: rawPower, crit: crit, roll: roll, allyFallen: allyFallen });
   let damage = result.damage;
-  if (abilityOf(defender) === 'out' && damage >= defender.hp && !defender.once.survived) {
+  const survive = abilityParams(defender, 'surviveKo');
+  if (survive && damage >= defender.hp && !defender.once.survived) {
     defender.once.survived = true;
-    damage = Math.max(0, defender.hp - 1);
+    damage = Math.max(0, defender.hp - survive.leaveHp);
     logMsg(battle, 'b.survive', { mon: monRef(battle, defenderSide) });
   }
   loseHp(battle, defenderSide, damage);
@@ -51,8 +56,9 @@ function applyDamage(battle, attackerSide, defenderSide, move, rawPower) {
   if (crit) logMsg(battle, 'b.crit', {});
   if (result.effectiveness > 1) logMsg(battle, 'b.super', {});
   else if (result.effectiveness < 1) logMsg(battle, 'b.resist', {});
-  if (crit && abilityOf(defender) === 'syn' && !attacker.status && abilityOf(attacker) !== 'syn') {
-    setStatus(battle, attackerSide, 'str', defenderSide); // union rep: a critical hit starts a strike
+  const unionRep = abilityParams(defender, 'critStrike');
+  if (crit && unionRep && !attacker.status && !abilityParams(attacker, 'critStrike')) {
+    setStatus(battle, attackerSide, unionRep.status, defenderSide); // union rep: a critical hit starts a strike
   }
   return damage;
 }
@@ -99,7 +105,7 @@ function useMove(battle, sideIndex, moveId) {
     emit(battle, { k: 'anim', kind: 'hit', side: foeSide, eff: 1 });
   } else if (move.p > 0 || move.rand) {
     let hits = move.hits || 1;
-    if (user.bt.viral) { hits *= 2; user.bt.viral = false; logMsg(battle, 'b.viral', { mon: monRef(battle, sideIndex) }); }
+    if (user.bt.viral) { hits *= user.bt.viral; user.bt.viral = false; logMsg(battle, 'b.viral', { mon: monRef(battle, sideIndex) }); }
     const power = move.rand ? randInt(rng, move.rand[0], move.rand[1]) : move.p;
     for (let hit = 0; hit < hits && foe.hp > 0; hit++) damageDealt += applyDamage(battle, sideIndex, foeSide, move, power);
     if (hits > 1) logMsg(battle, 'b.hits', { n: hits });
@@ -124,7 +130,8 @@ function useMove(battle, sideIndex, moveId) {
     if (change[3] >= 100 || rng() * 100 < change[3]) changeStage(battle, targetSide, change[1], change[2]);
   }
   if (move.recharge) user.bt.recharge = 1;
-  if (foe.hp <= 0 && abilityOf(user) === 'vir') user.bt.viral = true;
+  const viral = abilityParams(user, 'multiHitAfterKo');
+  if (foe.hp <= 0 && viral) user.bt.viral = viral.hitsMult; // the next damaging move hits this many times as often
 }
 function healBench(battle, sideIndex, fraction) {
   const side = battle.sides[sideIndex];
@@ -137,13 +144,13 @@ function switchTo(battle, sideIndex, index, forced) {
   const side = battle.sides[sideIndex];
   const old = side.party[side.active];
   if (old.hp > 0) {
-    if (old.status && old.status.id === 'sca') old.status = null; // the news cycle moves on
+    if (statusParams(old, 'hurt')) old.status = null; // the news cycle moves on
     logMsg(battle, 'b.back', { mon: monRef(battle, sideIndex) });
   }
-  const oldAbility = old.hp > 0 ? abilityOf(old) : null;
+  const favour = old.hp > 0 ? abilityParams(old, 'favourOnSwitch') : null;
   enterMon(battle, sideIndex, index, true);
-  if (oldAbility === 'rou') { // Ρουσφέτι: the next ally gets a favour
-    const healed = gainHp(battle, sideIndex, Math.floor(maxHp(activeMon(battle, sideIndex)) / 8));
+  if (favour) { // Ρουσφέτι: the next ally gets a favour
+    const healed = gainHp(battle, sideIndex, Math.floor(maxHp(activeMon(battle, sideIndex)) / favour.divisor));
     if (healed > 0) logMsg(battle, 'b.rousfeti', { mon: monRef(battle, sideIndex) });
   }
   return forced;

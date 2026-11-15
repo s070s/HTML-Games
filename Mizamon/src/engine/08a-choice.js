@@ -17,13 +17,13 @@ function ChoiceLayer(items, options) {
 }
 ChoiceLayer.prototype.update = function () {
   const count = this.items.length;
-  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx('move'); if (this.onMove) this.onMove(this.cursor); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx('move'); if (this.onMove) this.onMove(this.cursor); }
+  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx(SOUNDS.move); if (this.onMove) this.onMove(this.cursor); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx(SOUNDS.move); if (this.onMove) this.onMove(this.cursor); }
   if (Input.pressed.a) {
-    if (this.items[this.cursor].disabled) { Sound.sfx('error'); return; }
-    Sound.sfx('confirm');
+    if (this.items[this.cursor].disabled) { Sound.sfx(SOUNDS.error); return; }
+    Sound.sfx(SOUNDS.confirm);
     closeLayer(this, this.cursor);
-  } else if (Input.pressed.b && this.cancel) { Sound.sfx('back'); closeLayer(this, -1); }
+  } else if (Input.pressed.b && this.cancel) { Sound.sfx(SOUNDS.back); closeLayer(this, -1); }
 };
 ChoiceLayer.prototype.draw = function () {
   drawPanel(this.x, this.y, this.w, this.h);

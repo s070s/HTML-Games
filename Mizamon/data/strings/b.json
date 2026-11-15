@@ -1,0 +1,117 @@
+{
+  "b.wild": { "el": "{mon} ζητάει κάτι για να κάνει τη δουλειά!", "en": "{mon} asks for something to do the job!" },
+  "b.trainer": { "el": "{trainer}: «Έλα στο πάνελ να τα πούμε!»", "en": "{trainer}: \"Come on the panel and let us talk!\"" },
+  "b.foesend": { "el": "{trainer} βγάζει στο πάνελ: {mon_name}!", "en": "{trainer} brings {mon_name} onto the panel!" },
+  "b.go": { "el": "{mon_name} ανεβαίνει στο βήμα!", "en": "{mon_name} steps up to the podium!" },
+  "b.back": { "el": "{mon} πήρε μετάθεση πίσω στον πάγκο.", "en": "{mon} was transferred back to the bench." },
+  "b.used": { "el": "{mon} αποφάσισε: {move}!", "en": "{mon} decided: {move}!" },
+  "b.miss": { "el": "{mon} μιλάει στον τοίχο: χαμένη κίνηση.", "en": "{mon} talks to a wall: wasted move." },
+  "b.crit": { "el": "Διπλό χτύπημα: το ρουσφέτι πέτυχε!", "en": "Double whammy: the favour landed!" },
+  "b.super": { "el": "Βυθίζεται η δημοσκόπηση!", "en": "The poll numbers plunge!" },
+  "b.resist": { "el": "Δεν τσίμπησε: σχεδόν καμία ζημιά.", "en": "It did not stick: hardly a scratch." },
+  "b.fainted": { "el": "{mon} υπέβαλε παραίτηση!", "en": "{mon} resigned!" },
+  "b.recharge": { "el": "{mon} παρελαύνει ακόμα και δεν μπορεί να κινηθεί!", "en": "{mon} is still parading and cannot move!" },
+  "b.skip": { "el": "{mon} περιμένει στην ουρά...", "en": "{mon} waits in the queue..." },
+  "b.str.idle": { "el": "{mon} απεργεί και δεν κάνει τίποτα!", "en": "{mon} is on strike and does nothing!" },
+  "b.bri.pocket": {
+    "el": "{mon} βάζει το φακελάκι στην τσέπη αντί να επιτεθεί!",
+    "en": "{mon} pockets the envelope instead of attacking!"
+  },
+  "b.immune": { "el": "{mon} έχει ασυλία!", "en": "{mon} has immunity!" },
+  "b.bureau": {
+    "el": "Ο φάκελος για {mon_name} πάει σε άλλο γραφείο... θα καθυστερήσει.",
+    "en": "The file on {mon_name} goes to another desk... it will be delayed."
+  },
+  "b.st.inv": { "el": "{mon} τέθηκε υπό έρευνα!", "en": "{mon} is Under Investigation!" },
+  "b.st.sca": { "el": "Σκάνδαλο για {mon_name}!", "en": "Scandal hits {mon_name}!" },
+  "b.st.str": { "el": "{mon} κήρυξε απεργία!", "en": "{mon} goes on strike!" },
+  "b.st.bri": { "el": "{mon} λαδώθηκε!", "en": "{mon} has been bribed!" },
+  "b.stend.inv": {
+    "el": "Η έρευνα για {mon_name} αρχειοθετήθηκε λόγω έλλειψης αποδείξεων.",
+    "en": "The investigation into {mon_name} was closed for lack of evidence."
+  },
+  "b.stend.str": { "el": "Η απεργία τελείωσε. Επιστροφή στη δουλειά!", "en": "The strike is over. Back to work!" },
+  "b.stend.bri": {
+    "el": "Το φακελάκι εξαντλήθηκε. {mon} ξαναμπαίνει στη μάχη.",
+    "en": "The envelope ran out. {mon} is back in the fight."
+  },
+  "b.sca.hurt": { "el": "{mon} χάνει υγεία από το κακό δημοσίευμα!", "en": "{mon} loses health from the bad press!" },
+  "b.grace": { "el": "Η Θεία Χάρη γιατρεύει: {mon_name}.", "en": "Divine grace heals {mon_name}." },
+  "b.overtime": {
+    "el": "Η εκπομπή τραβάει σε μάκρος: οι δημοσκοπήσεις πέφτουν και για τους δύο!",
+    "en": "The show runs over time: both polls keep dropping!"
+  },
+  "b.promise": { "el": "Η υπόσχεση δεν τηρήθηκε: {mon} χάνει υγεία.", "en": "The promise was broken: {mon} loses health." },
+  "b.heal": { "el": "{mon} ανακτά υγεία!", "en": "{mon} recovers health!" },
+  "b.drain": { "el": "{mon} ρουφάει χρήματα... και υγεία!", "en": "{mon} drains money... and health!" },
+  "b.recoil": { "el": "{mon} πληρώνει το τίμημα!", "en": "{mon} pays the price!" },
+  "b.stage.up": { "el": "{mon}: ανεβαίνει η {stat}!", "en": "{mon}: {stat} climbs!" },
+  "b.stage.down": { "el": "{mon}: γλιστράει η {stat}!", "en": "{mon}: {stat} slips!" },
+  "b.stage.max": { "el": "{mon}: η {stat} χτύπησε ταβάνι!", "en": "{mon}: {stat} hit the ceiling!" },
+  "b.stage.min": { "el": "{mon}: η {stat} βρήκε πάτο!", "en": "{mon}: {stat} hit rock bottom!" },
+  "b.decoy": { "el": "Ο ανιψιός δέχεται το χτύπημα αντί για {mon_name}!", "en": "The nephew takes the hit instead of {mon_name}!" },
+  "b.decoyset": { "el": "Διορίζεται ανιψιός για να προστατεύσει: {mon_name}!", "en": "A nephew is hired to protect {mon_name}!" },
+  "b.lobbyset": { "el": "Το λόμπι δουλεύει για {mon_name}.", "en": "Lobbyists go to work for {mon_name}." },
+  "b.lobby": { "el": "Το λόμπι μπλοκάρει την κίνηση!", "en": "The lobby blocks the move!" },
+  "b.gag": { "el": "Σιωπή: {mon_name} δεν μπορεί να πει λέξη!", "en": "Silence: {mon_name} cannot say a word!" },
+  "b.gagged": {
+    "el": "Η ρητορική κίνηση απέτυχε: δεν επιτρέπεται να μιλήσει!",
+    "en": "The rhetoric move failed: not allowed to speak!"
+  },
+  "b.blocked": { "el": "Η κίνηση κατάστασης ακυρώθηκε!", "en": "The status move was cancelled!" },
+  "b.noability": {
+    "el": "Τροπολογία της νύχτας: η ικανότητα ακυρώνεται για {mon_name}!",
+    "en": "Midnight amendment: the ability of {mon_name} is suspended!"
+  },
+  "b.trap": { "el": "Έλεγχος ταυτότητας: {mon_name} δεν μπορεί να φύγει!", "en": "ID check: {mon_name} cannot leave!" },
+  "b.trapped": { "el": "Έλεγχος ταυτότητας σε εξέλιξη: δεν μπορείς να αλλάξεις!", "en": "ID check in progress: you cannot switch!" },
+  "b.hits": { "el": "{n} γύροι χειροκρότημα!", "en": "{n} rounds of applause!" },
+  "b.viral": { "el": "Έγινε viral! Διπλό χτύπημα!", "en": "It went viral! Double hit!" },
+  "b.vys": { "el": "{mon}: «Ξέρω κάποιον!» Το χτύπημα χάνεται.", "en": "{mon}: \"I know someone!\" The hit is lost." },
+  "b.survive": { "el": "{mon} επιβιώνει με 1 ΥΓ: ούτε γάτα, ούτε ζημιά!", "en": "{mon} survives on 1 HP: no cat, no harm!" },
+  "b.rousfeti": {
+    "el": "Ρουσφέτι! {mon_name} παίρνει υγεία από αυτόν που έφυγε.",
+    "en": "Patronage! {mon_name} gets a favour from the one who left."
+  },
+  "b.winefree": { "el": "Τζάμπα κρασί: όλοι ανακτούν υγεία!", "en": "Free wine: everyone recovers health!" },
+  "b.noeffect": { "el": "Πολλά λόγια, κανένα αποτέλεσμα.", "en": "Many words, no effect." },
+  "b.item": { "el": "Χρησιμοποιήθηκε: {item}.", "en": "Used: {item}." },
+  "b.rec.throw": { "el": "Πετάς {item} και περιμένεις απάντηση...", "en": "You offer {item} and wait for an answer..." },
+  "b.rec.ok": { "el": "Επιτυχία! {mon} δέχτηκε... για τα παιδιά.", "en": "Success! {mon} accepted... for the children." },
+  "b.rec.out0": { "el": "Το βρήκε λίγο. {mon} αρνείται!", "en": "It found it too little. {mon} refuses!" },
+  "b.rec.out1": { "el": "Σχεδόν! Αλλά το βρήκε λίγο ακόμα.", "en": "Almost! But it still found it too little." },
+  "b.rec.out2": {
+    "el": "Τόσο κοντά! Ο φάκελος άνοιξε και... «Το βρήκε λίγο.»",
+    "en": "So close! The envelope opened and... \"It found it too little.\""
+  },
+  "b.rec.full": {
+    "el": "Η ομάδα είναι γεμάτη και το Αρχείο Ασθενών ξεχειλίζει. Δεν υπάρχουν άλλες θέσεις στο Δημόσιο.",
+    "en": "The team is full and the Patient Archive is overflowing. There are no more positions in the civil service."
+  },
+  "b.rec.archived": {
+    "el": "{mon} πήγε στο αρχείο: η ομάδα είναι γεμάτη, αλλά το Αρχείο Ασθενών βρίσκει πάντα θέση.",
+    "en": "{mon} went to the archive: the team is full, but the Patient Archive always finds room."
+  },
+  "b.rec.never": { "el": "Αυτός δεν δωροδοκείται, ούτε με φάκελο.", "en": "This one cannot be bribed, not even with an envelope." },
+  "b.rec.small": {
+    "el": "Ένα φακελάκι; Για υπουργό; Πρέπει να είναι τουλάχιστον Φάκελος.",
+    "en": "A little envelope? For a minister? It has to be at least a proper Φάκελος."
+  },
+  "b.rec.trainer": { "el": "Δεν δωροδοκείς τα παιδιά των άλλων!", "en": "You cannot bribe other people's Mizamon!" },
+  "b.run.ok": { "el": "Διέφυγες! Ποιος σε είδε; Κανείς.", "en": "Got away! Who saw you? Nobody." },
+  "b.run.fail": { "el": "Η έξοδος φρουρείται: ξαναδοκίμασε.", "en": "The exit is guarded: try again." },
+  "b.run.trainer": {
+    "el": "Δεν φεύγεις από προπονητή. Θα σε βρουν από το ΑΦΜ.",
+    "en": "You cannot run from a trainer. They will find you by your tax ID."
+  },
+  "b.run.trapped": { "el": "Σε ελέγχουν: δεν μπορείς να φύγεις!", "en": "You are being checked: you cannot run!" },
+  "b.xp": { "el": "{mon} μάζεψε {n} XP από τα παρασκήνια!", "en": "{mon} collected {n} XP behind the scenes!" },
+  "b.lvl": { "el": "{mon} προήχθη: Επίπεδο {n}!", "en": "{mon} got promoted: Level {n}!" },
+  "b.learned": { "el": "{mon} ψήφισε νέα τροπολογία: {move}!", "en": "{mon} passed a new amendment: {move}!" },
+  "b.prize": {
+    "el": "Κέρδισες Δρχ {n} από τον αντίπαλο. Το κράτος δεν το έμαθε.",
+    "en": "You won Dr {n} from the opponent. The state did not find out."
+  },
+  "b.moneyGain": { "el": "Μπόνους: +Δρχ {n}.", "en": "Bonus: +Dr {n}." },
+  "b.moneyLoss": { "el": "Έξοδα: -Δρχ {n}.", "en": "Costs: -Dr {n}." }
+}

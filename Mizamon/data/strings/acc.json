@@ -1,0 +1,38 @@
+{
+  "acc.title": { "el": "Προσβασιμότητα", "en": "Accessibility" },
+  "acc.largeText": { "el": "Μεγάλο κείμενο", "en": "Large text" },
+  "acc.large0": { "el": "Όχι", "en": "Off" },
+  "acc.large1": { "el": "Μεγάλο", "en": "Large" },
+  "acc.large2": { "el": "Μεγαλύτερο", "en": "Largest" },
+  "acc.marks": { "el": "Σήματα τύπων", "en": "Type marks" },
+  "acc.flashes": { "el": "Χωρίς αναβοσβήσιμο", "en": "Flashes off" },
+  "acc.repeat": { "el": "Επανάληψη κρατώντας", "en": "Hold to repeat" },
+  "acc.repeat0": { "el": "Όχι", "en": "Off" },
+  "acc.repeat1": { "el": "Αργή", "en": "Slow" },
+  "acc.repeat2": { "el": "Κανονική", "en": "Normal" },
+  "acc.repeat3": { "el": "Γρήγορη", "en": "Fast" },
+  "acc.hand": { "el": "Χειριστήρια αφής", "en": "Touch controls" },
+  "acc.hand0": { "el": "Δύο χέρια", "en": "Two hands" },
+  "acc.hand1": { "el": "Ένα χέρι: δεξιά", "en": "One hand: right" },
+  "acc.hand2": { "el": "Ένα χέρι: αριστερά", "en": "One hand: left" },
+  "acc.d.largeText": {
+    "el": "Το κείμενο που διαβάζεις εμφανίζεται ξανά με μεγάλα γράμματα, σε μια μπάρα κάτω από την εικόνα.",
+    "en": "The text being read shows again in big letters, in a bar under the picture."
+  },
+  "acc.d.typeMarks": {
+    "el": "Ένα μικρό σχήμα δίπλα σε κάθε χρώμα τύπου, ώστε οι τύποι να ξεχωρίζουν και χωρίς χρώμα.",
+    "en": "A small shape beside every type colour, so the types can be told apart without colour."
+  },
+  "acc.d.flashesOff": {
+    "el": "Χωρίς αναβοσβήσιμο και τρέμουλο στις μάχες και στην εξέλιξη. Η εικόνα μένει σταθερή.",
+    "en": "No flashing and no shaking in battles and evolutions. The picture stays steady."
+  },
+  "acc.d.holdRepeat": {
+    "el": "Στα μενού, όσο κρατάς ένα βέλος, ο δρομέας συνεχίζει να προχωρά. Όχι = ένα βήμα ανά πάτημα.",
+    "en": "In menus, holding an arrow keeps the cursor moving. Off = one step per press."
+  },
+  "acc.d.touchHand": {
+    "el": "Για οθόνη αφής: όλα τα κουμπιά στη μία πλευρά, ώστε να παίζεται με έναν αντίχειρα.",
+    "en": "For touch screens: all the buttons on one side, so the game plays with one thumb."
+  }
+}

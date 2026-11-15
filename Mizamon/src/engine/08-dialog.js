@@ -11,7 +11,7 @@ DialogLayer.prototype.update = function () {
   this.blink++;
   if (Input.pressed.a || Input.pressed.b) {
     if (this.waitForChoice) { if (this.box.isTyping()) this.box.advance(); return; }
-    if (this.box.advance()) { Sound.sfx('confirm'); closeLayer(this); }
+    if (this.box.advance()) { Sound.sfx(SOUNDS.confirm); closeLayer(this); }
   }
 };
 DialogLayer.prototype.draw = function () {

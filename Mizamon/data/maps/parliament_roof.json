@@ -1,0 +1,36 @@
+{
+  "name": "map.parliament.roof",
+  "w": 10,
+  "h": 8,
+  "music": "town",
+  "rows": [
+    "FFFFFFFFFF",
+    "F````````F",
+    "F````ccc`F",
+    "F````````F",
+    "F`tt`````F",
+    "F````````F",
+    "F````````F",
+    "FFFFΞΞFFFF"
+  ],
+  "cafeHello": "cafe.hello.roof",
+  "warps": [
+    { "x": 4, "y": 7, "to": "parliament_plenary", "tx": 14, "ty": 1 },
+    { "x": 5, "y": 7, "to": "parliament_plenary", "tx": 14, "ty": 1 }
+  ],
+  "signs": { "1,0": "sign.roof.view", "8,0": "sign.roof.antenna" },
+  "npcs": [
+    { "id": "roofcafe", "x": 6, "y": 1, "face": "down", "look": "cafeowner", "kind": "save" },
+    { "id": "roofeuterpe", "x": 2, "y": 3, "face": "right", "look": "euterpe", "kind": "talk", "text": "npc.roof.euterpe" },
+    {
+      "id": "roofminister",
+      "x": 7,
+      "y": 4,
+      "face": "left",
+      "look": "ministerman",
+      "kind": "talk",
+      "text": "npc.roof.minister"
+    },
+    { "id": "roofrival", "x": 3, "y": 5, "face": "up", "look": "rival", "kind": "talk", "text": "npc.roof.rival" }
+  ]
+}

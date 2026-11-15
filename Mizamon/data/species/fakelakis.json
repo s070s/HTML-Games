@@ -1,0 +1,11 @@
+{
+  "n": "Φακελάκης",
+  "t": "biz",
+  "ab": "rou",
+  "g": "m",
+  "rec": 70,
+  "xp": 40,
+  "evo": { "to": "fakelarchis", "lv": 10 },
+  "base": [38, 44, 34, 46, 38, 52],
+  "learn": [[1, "offshore"], [1, "apolyseis"], [6, "lobbying"], [9, "yperkostol"]]
+}

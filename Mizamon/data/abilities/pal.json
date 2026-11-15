@@ -1,0 +1,4 @@
+{
+  "kind": "powerWhenLow",
+  "params": { "hpShare": 0.5, "mult": 1.3 }
+}

@@ -1,0 +1,7 @@
+{
+  "turns": 4,
+  "kind": "pocket",
+  "params": { "chance": 0.3, "divisor": 16 },
+  "recruitMult": 2,
+  "color": "#2f7a5a"
+}

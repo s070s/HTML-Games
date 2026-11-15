@@ -1,0 +1,58 @@
+{
+  "name": "map.glyfada",
+  "w": 28,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666T,4444,44444444,GGGGT",
+    "T,66H66,,4444,44444444,GGGGT",
+    "T,NMPMN,,W##W,W######W,GGGGT",
+    "T,MMEMMS,#D##S###D####SGdGGT",
+    "T,,,,,,,,,,,,,,,,,,,,,,S,,,S",
+    "............................",
+    "TT,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,uuuuuuuu,,,3333,,1111,,,,T",
+    "T,uuuuuuuu,T,3333,,1111,T,,T",
+    "T,uuuuuuuu,,,W##W,,W##W,,,,T",
+    "T,uuuuuuuu,,S#d##,,#d##S,T,T",
+    "T,,,U,,,,,,,,,,,,,,,,,,,,,,T",
+    "T~~~~~y~~~~~,,~~~~~y~~~~~~~T",
+    "T~~y~~~~~~~~,,~~y~~~~~~~y~~T",
+    "T~~~~~~~~y~~~~~~~~~~~~y~~~~T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 7, "to": "route4", "tx": 34, "ty": 8 },
+    { "x": 4, "y": 5, "to": "glyfada_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "glyfada_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "glyfada_boss", "tx": 5, "ty": 8 },
+    { "x": 27, "y": 7, "to": "route5", "tx": 1, "ty": 13, "needFlag": "badge_notia", "lockedText": "warp.route5" }
+  ],
+  "signs": {
+    "7,5": "sign.glyfada.hospital",
+    "13,5": "sign.shop",
+    "22,5": "sign.glyfada.cafe",
+    "23,6": "sign.glyfada.club",
+    "27,6": "sign.glyfada.east",
+    "12,12": "sign.house1",
+    "23,12": "sign.house2",
+    "4,13": "sign.ktel"
+  },
+  "npcs": [
+    {
+      "id": "skipper",
+      "x": 11,
+      "y": 9,
+      "face": "up",
+      "look": "skipper",
+      "kind": "trainer",
+      "trainer": "skipper",
+      "sight": 3
+    },
+    { "id": "gmarina", "x": 17, "y": 13, "face": "down", "look": "fisher", "kind": "talk", "text": "npc.glyfada1" },
+    { "id": "ggolf", "x": 5, "y": 10, "face": "right", "look": "golfer", "kind": "talk", "text": "npc.glyfada2" },
+    { "id": "gclubber", "x": 24, "y": 8, "face": "up", "look": "singer", "kind": "talk", "text": "npc.glyfada3" }
+  ]
+}

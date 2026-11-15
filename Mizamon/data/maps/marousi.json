@@ -1,0 +1,47 @@
+{
+  "name": "map.marousi",
+  "w": 28,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,^^____^^^__^^T",
+    "T,66666,,4444,^^____^^^__^^T",
+    "T,66H66,,4444,#############T",
+    "T,NMPMN,,W##W,W##W##D##W##WT",
+    "T,MMEMMS,#D##S,,,S,,,,,,,,,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "S,,,,,,S,,,,U,,,,,,,,,,,,,,T",
+    "............................",
+    "TFFFF,FFFFF,,,,,,,,,,,,,,,,T",
+    "TF!!!!!!!!F,T,44444,,22222,T",
+    "TF!!!!!!!!F,,,44444,T22222,T",
+    "TF!!!!!!!!F,,,W###W,,W###W,T",
+    "TF!!!!!!!!F,T,##d##,T#d###,T",
+    "TFFFFFFFFFF,,,,,,,,,,,,,,,,T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 27, "y": 9, "to": "route8", "tx": 1, "ty": 6 },
+    { "x": 4, "y": 5, "to": "marousi_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "marousi_shop", "tx": 3, "ty": 4 },
+    { "x": 20, "y": 4, "to": "marousi_boss", "tx": 6, "ty": 8 },
+    { "x": 0, "y": 9, "to": "route9", "tx": 42, "ty": 5, "needFlag": "badge_voreia", "lockedText": "warp.route9" }
+  ],
+  "signs": {
+    "7,5": "sign.marousi.hospital",
+    "13,5": "sign.shop",
+    "17,5": "sign.marousi.stadium",
+    "7,8": "sign.marousi.tennis",
+    "0,8": "sign.marousi.west",
+    "12,8": "sign.ktel"
+  },
+  "npcs": [
+    { "id": "usher", "x": 20, "y": 7, "face": "up", "look": "usher", "kind": "trainer", "trainer": "usher", "sight": 3 },
+    { "id": "mrwatcher", "x": 24, "y": 6, "face": "left", "look": "oldman2", "kind": "talk", "text": "npc.marousi1" },
+    { "id": "mrfan", "x": 16, "y": 8, "face": "right", "look": "kid", "kind": "talk", "text": "npc.marousi2" },
+    { "id": "mrticket", "x": 6, "y": 7, "face": "down", "look": "student", "kind": "talk", "text": "npc.marousi3" }
+  ]
+}

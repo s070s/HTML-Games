@@ -1,0 +1,10 @@
+{
+  "n": "Δεσποτάκης",
+  "t": "ekk",
+  "ab": "gra",
+  "g": "m",
+  "rec": 0,
+  "xp": 100,
+  "base": [78, 56, 74, 86, 94, 60],
+  "learn": [[1, "agiasmos"], [1, "thymiama"], [6, "aforismos"], [10, "litaneia"], [13, "akinito"]]
+}

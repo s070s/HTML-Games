@@ -41,21 +41,24 @@ function endOfTurn(battle) {
     const mon = activeMon(battle, sideIndex);
     if (mon.hp <= 0) continue;
     const ref = monRef(battle, sideIndex);
-    if (mon.status && mon.status.id === 'sca') {
-      loseHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) / 8)));
+    const hurt = statusParams(mon, 'hurt');
+    if (hurt) {
+      loseHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) / hurt.divisor)));
       logMsg(battle, 'b.sca.hurt', { mon: ref });
     }
-    if (mon.hp > 0 && abilityOf(mon) === 'gra' && mon.hp < maxHp(mon)) {
-      gainHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) / 16) * (battle.sunday ? 2 : 1)));
+    const grace = abilityParams(mon, 'regenerate');
+    if (mon.hp > 0 && grace && mon.hp < maxHp(mon)) {
+      gainHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) / grace.divisor) * (battle.sunday ? grace.sundayMult : 1)));
       logMsg(battle, 'b.grace', { mon: ref });
     }
     if (mon.hp > 0 && mon.bt.broken > 0) {
       mon.bt.broken--;
       if (mon.bt.broken === 0) { loseHp(battle, sideIndex, Math.max(1, Math.floor(maxHp(mon) / 8))); logMsg(battle, 'b.promise', { mon: ref }); }
     }
-    if (mon.hp > 0 && abilityOf(mon) === 'bah') {
+    const mess = abilityParams(mon, 'randomStageUp');
+    if (mon.hp > 0 && mess) {
       const stat = pickOne(battle.rng, STAGE_KEYS.slice(0, 5));
-      if (mon.bt.stage[stat] < 6) changeStage(battle, sideIndex, stat, 1);
+      if (mon.bt.stage[stat] < 6) changeStage(battle, sideIndex, stat, mess.stages);
     }
     if (mon.hp > 0 && mon.status && STATUSES[mon.status.id].turns > 0) {
       mon.status.turns--;
@@ -136,7 +139,8 @@ function prizeFor(battle, trainerDef) {
   const team = battle.sides[1].party;
   let prize = team[team.length - 1].lv * PRIZE_PER_LEVEL + (trainerDef && trainerDef.bonus ? trainerDef.bonus : 0);
   const lead = battle.sides[0].party[battle.sides[0].active];
-  if (lead && abilityOf(lead) === 'afo') prize = Math.floor(prize * 1.5); // Αφορολόγητο: earns +50 % money
+  const taxFree = abilityParams(lead, 'prizeBonus'); // Αφορολόγητο: earns +50 % money
+  if (taxFree) prize = Math.floor(prize * taxFree.mult);
   return prize;
 }
 // Plays a whole battle with the AI on both sides (balance script and tests).

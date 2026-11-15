@@ -1,0 +1,10 @@
+{
+  "st.inv": { "el": "Υπό Έρευνα", "en": "Under Investigation" },
+  "st.inv.short": { "el": "ΕΡΕΥΝΑ", "en": "PROBE" },
+  "st.sca": { "el": "Σκάνδαλο", "en": "Scandal" },
+  "st.sca.short": { "el": "ΣΚΑΝΔ", "en": "SCAND" },
+  "st.str": { "el": "Απεργία", "en": "Strike" },
+  "st.str.short": { "el": "ΑΠΕΡΓ", "en": "STRIKE" },
+  "st.bri": { "el": "Λαδωμένος", "en": "Bribed" },
+  "st.bri.short": { "el": "ΛΑΔΩΜ", "en": "BRIBE" }
+}

@@ -1,0 +1,10 @@
+{
+  "n": "NFT-άρχης",
+  "t": "biz",
+  "ab": "rou",
+  "g": "m",
+  "rec": 20,
+  "xp": 75,
+  "base": [45, 43, 37, 76, 43, 56],
+  "learn": [[1, "hashtag"], [1, "offshore"], [7, "bluetick"], [12, "cancel"], [20, "lobbying"]]
+}

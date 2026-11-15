@@ -1,0 +1,14 @@
+{
+  "ui.yes": { "el": "Ναι", "en": "Yes" },
+  "ui.no": { "el": "Όχι", "en": "No" },
+  "ui.cancel": { "el": "Άκυρο", "en": "Cancel" },
+  "ui.back": { "el": "Πίσω", "en": "Back" },
+  "ui.on": { "el": "Ναι", "en": "On" },
+  "ui.off": { "el": "Όχι", "en": "Off" },
+  "ui.lv": { "el": "Επ.", "en": "Lv " },
+  "ui.money": { "el": "Δρχ {n}", "en": "Dr {n}" },
+  "ui.power": { "el": "Ισχύς", "en": "Power" },
+  "ui.acc": { "el": "Ακρ.", "en": "Acc" },
+  "ui.nextLevel": { "el": "Επόμ. επίπεδο: {n} XP", "en": "Next level: {n} XP" },
+  "ui.pressA": { "el": "Πάτα Z / Enter / A", "en": "Press Z / Enter / A" }
+}

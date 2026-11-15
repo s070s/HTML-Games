@@ -1,0 +1,11 @@
+{
+  "n": "Εφοράκι",
+  "t": "asf",
+  "ab": "vys",
+  "g": "n",
+  "rec": 40,
+  "xp": 45,
+  "evo": { "to": "elegktis", "lv": 36 },
+  "base": [44, 54, 44, 40, 46, 52],
+  "learn": [[1, "globos"], [1, "taftotita"], [6, "chimika"], [9, "enisxuseis"]]
+}

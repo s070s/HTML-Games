@@ -1,0 +1,4 @@
+{
+  "kind": "powerWhenAllyFallen",
+  "params": { "mult": 1.2 }
+}

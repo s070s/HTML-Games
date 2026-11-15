@@ -1,0 +1,22 @@
+{
+  "name": "DJ Αμαρτία",
+  "look": "amartia",
+  "boss": true,
+  "bonus": 200,
+  "victory": {
+    "flag": "badge_voreia",
+    "win2": "boss.amartia.win2",
+    "title": "badge.voreia.title",
+    "sub": "badge.voreia.sub",
+    "win3": "boss.amartia.win3",
+    "ribbon": "#3f9a52"
+  },
+  "team": [
+    { "sp": "rialito", "lv": 29 },
+    { "sp": "influenza", "lv": 30 },
+    { "sp": "fakelarchis", "lv": 32 },
+    { "sp": "lobbylykaina", "lv": 32 },
+    { "sp": "star90", "lv": 32 }
+  ],
+  "items": ["gemista"]
+}

@@ -1,0 +1,48 @@
+{
+  "letter": "N",
+  "order": 2,
+  "bossTrainer": "bougatsas",
+  "badgeFlag": "badge_notia",
+  "nameKey": "world.d.notia",
+  "levels": [13, 20],
+  "color": "#8fd0c8",
+  "label": [13.5, 12.5],
+  "built": true,
+  "places": {
+    "faliro": {
+      "kind": "town",
+      "cell": [10, 12],
+      "maps": ["faliro", "faliro_hospital", "faliro_shop", "faliro_cafe"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe"]
+    },
+    "glyfada": {
+      "kind": "town",
+      "cell": [15, 12],
+      "maps": ["glyfada", "glyfada_hospital", "glyfada_shop", "glyfada_boss"],
+      "boss": true,
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "boss"]
+    }
+  },
+  "routes": {
+    "route3": {
+      "a": "kastella",
+      "b": "faliro",
+      "map": "route3",
+      "path": [[7, 10], [9, 11], [10, 12]],
+      "progress": "x",
+      "built": true
+    },
+    "route4": {
+      "a": "faliro",
+      "b": "glyfada",
+      "map": "route4",
+      "path": [[10, 12], [12, 12], [15, 12]],
+      "progress": "x",
+      "built": true
+    }
+  }
+}

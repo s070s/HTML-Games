@@ -1,0 +1,22 @@
+{
+  "name": "map.lab",
+  "w": 10,
+  "h": 8,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwwwww",
+    "whhfffffhw",
+    "wffffffffw",
+    "wfttffttfw",
+    "wffffffffw",
+    "wfrrrrrrfw",
+    "wfrrrrrrfw",
+    "wwwwmmwwww"
+  ],
+  "warps": [{ "x": 4, "y": 7, "to": "town", "tx": 3, "ty": 7 }, { "x": 5, "y": 7, "to": "town", "tx": 3, "ty": 7 }],
+  "signs": {},
+  "npcs": [
+    { "id": "prof", "x": 4, "y": 2, "face": "down", "look": "prof", "kind": "prof" },
+    { "id": "student", "x": 7, "y": 4, "face": "left", "look": "student", "kind": "talk", "text": "npc.student" }
+  ]
+}

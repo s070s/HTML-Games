@@ -1,0 +1,58 @@
+{
+  "name": "map.syntagma",
+  "w": 30,
+  "h": 20,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T66666,,55555555555555,,4444,T",
+    "T66H66,,]]]]]]]]]]]]]],,4444,T",
+    "TNMPMN,,]]]]]]]]]]]]]],,W##W,T",
+    "TMMEMMS,]]]]]]Ξ]]]]]]],S#D##,T",
+    "T,,,,,,,,,,S&&&&&,,,,,,,,,,S,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,&&",
+    "T,,,,,,,,{{{{{,,,{{{{{,,,,,,,T",
+    "T,T,,,,,,,,,,,,,,,,,,,,,,,,T,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    ".........,,,,,,,,,,,,,jS,,,,,T",
+    "T,T,,,,,,,,,U,,,,,,,,,,,,,,T,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,,{{{{{{,,,,,,7,,,,{{{{{{{,,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,,{{{{{{,,,,,,,,,,,{{{{{{{,,T",
+    "T,,,,,,,,,T,,,,T,,,T,,,,,,,,,T",
+    "T,,,,,T,,,,,,,,,,,,,,,,T,,,,,T",
+    "TT,,,,,,,,,,,,,,,,,,,,,,,,,,TT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 10, "to": "route12", "tx": 38, "ty": 8 },
+    { "x": 3, "y": 4, "to": "syntagma_hospital", "tx": 5, "ty": 7 },
+    { "x": 25, "y": 4, "to": "syntagma_shop", "tx": 3, "ty": 4 },
+    { "x": 29, "y": 6, "to": "lycabettus", "tx": 10, "ty": 14 },
+    {
+      "x": 14,
+      "y": 4,
+      "to": "parliament_lobby",
+      "tx": 6,
+      "ty": 8,
+      "needFlag": "badge_athina",
+      "lockedText": "warp.parliament"
+    }
+  ],
+  "signs": {
+    "6,4": "sign.syntagma.hospital",
+    "23,4": "sign.shop",
+    "11,5": "sign.syntagma.parliament",
+    "23,10": "sign.syntagma.metro",
+    "27,5": "sign.syntagma.hill",
+    "12,11": "sign.ktel"
+  },
+  "npcs": [
+    { "id": "baboulas", "x": 15, "y": 9, "face": "down", "look": "baboulas", "kind": "boss", "trainer": "baboulas" },
+    { "id": "cadet", "x": 10, "y": 12, "face": "right", "look": "cadet", "kind": "trainer", "trainer": "cadet", "sight": 3 },
+    { "id": "sypigeon", "x": 18, "y": 12, "face": "up", "look": "oldwoman", "kind": "talk", "text": "npc.syntagma1" },
+    { "id": "sytourist", "x": 22, "y": 8, "face": "left", "look": "tourist", "kind": "talk", "text": "npc.syntagma2" },
+    { "id": "syvanman", "x": 7, "y": 12, "face": "down", "look": "oldman2", "kind": "talk", "text": "npc.syntagma3" }
+  ]
+}

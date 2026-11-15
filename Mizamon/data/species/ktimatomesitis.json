@@ -1,0 +1,10 @@
+{
+  "n": "Κτηματομεσίτης",
+  "t": "ekk",
+  "ab": "afo",
+  "g": "m",
+  "rec": 20,
+  "xp": 85,
+  "base": [88, 68, 93, 86, 102, 34],
+  "learn": [[1, "akinito"], [1, "lobbying"], [8, "offshore"], [14, "yperkostol"], [20, "apolyseis"]]
+}

@@ -3,19 +3,39 @@ function abilityOf(mon) {
   if (!mon || (mon.bt && mon.bt.noAbility > 0)) return null;
   return SPECIES[mon.sp].ab;
 }
+// What an ability or a status does is a kind (data/abilities/, data/statuses/): the rules ask for the numbers of a kind, never for an id.
+// abilityParams: the numbers of the creature's ability when it is of that kind (null otherwise, and while the ability is ignored).
+function abilityParams(mon, kind) {
+  const id = abilityOf(mon);
+  return id !== null && ABILITIES[id].kind === kind ? ABILITIES[id].params : null;
+}
+// statusParams: the same for the status a creature has.
+function statusParams(mon, kind) {
+  return mon.status && STATUSES[mon.status.id].kind === kind ? STATUSES[mon.status.id].params : null;
+}
+// Whether the creature's ability keeps the status off it (the same answer for the rules and for the AI).
+function abilityBlocksStatus(mon, statusId) {
+  const shield = abilityParams(mon, 'statusShield');
+  if (shield && shield.statuses.includes(statusId)) return true;
+  const strike = abilityParams(mon, 'critStrike');
+  return !!strike && strike.status === statusId;
+}
 function stageMultiplier(stage) { return stage >= 0 ? (2 + stage) / 2 : 2 / (2 - stage); }
 function accuracyMultiplier(stage) { return stage >= 0 ? (3 + stage) / 3 : 3 / (3 - stage); }
 function effectiveStat(mon, key) {
   let value = statOf(mon, key) * stageMultiplier(mon.bt ? mon.bt.stage[key] : 0);
-  if ((key === 'atk' || key === 'rat') && mon.status && mon.status.id === 'inv') value *= 0.75;
+  const weakened = statusParams(mon, 'weaken');
+  if ((key === 'atk' || key === 'rat') && weakened) value *= weakened.attackMult;
   return Math.max(1, Math.floor(value));
 }
 function abilityPowerMultiplier(attacker, move, options) {
-  const ability = abilityOf(attacker);
   let multiplier = 1;
-  if (ability === 'pal' && attacker.hp * 2 <= maxHp(attacker)) multiplier *= 1.3;
-  if (ability === 'des' && move.c === 'r') multiplier *= 1.3;
-  if (ability === 'kou' && options.allyFallen) multiplier *= 1.2;
+  const lowPower = abilityParams(attacker, 'powerWhenLow');
+  if (lowPower && attacker.hp <= maxHp(attacker) * lowPower.hpShare) multiplier *= lowPower.mult;
+  const rhetoricPower = abilityParams(attacker, 'rhetoricPower');
+  if (rhetoricPower && move.c === 'r') multiplier *= rhetoricPower.mult;
+  const allyPower = abilityParams(attacker, 'powerWhenAllyFallen');
+  if (allyPower && options.allyFallen) multiplier *= allyPower.mult;
   return multiplier;
 }
 // Pure damage number. options: power (override), crit (bool), roll (0.85..1), allyFallen.
@@ -37,8 +57,7 @@ function recruitChance(foe, itemId) {
   const item = ITEMS[itemId];
   if (!species.rec || !item || item.kind !== 'recruit') return 0;
   const hpFactor = 1 + 1.5 * (1 - foe.hp / maxHp(foe)); // x1 at full HP, x2.5 at 0
-  let statusFactor = 1;
-  if (foe.status) statusFactor = foe.status.id === 'bri' ? 2 : (foe.status.id === 'inv' ? 1.5 : 1.2);
+  const statusFactor = foe.status ? STATUSES[foe.status.id].recruitMult : 1;
   const levelFactor = Math.max(0.5, 1 - foe.lv * 0.015);
   const chance = species.rec / 150 * hpFactor * statusFactor * item.mult * levelFactor;
   return Math.min(0.95, Math.max(0.03, chance));

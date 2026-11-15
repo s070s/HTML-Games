@@ -1,0 +1,82 @@
+{
+  "move.psifodeltio": { "el": "Ένα χαρτί που χτυπάει δυνατά.", "en": "Ballot: a piece of paper that hits hard." },
+  "move.promise": {
+    "el": "Γιατρεύει 25% ΥΓ. Μετά δεν τηρείται: χάνεις 1/8.",
+    "en": "Campaign promise: heals 25% HP. Then it is broken: lose 1/8."
+  },
+  "move.exetastiki": {
+    "el": "Βάζει τον αντίπαλο Υπό Έρευνα (-25% επίθεση).",
+    "en": "Inquiry committee: puts the foe Under Investigation (-25% attack)."
+  },
+  "move.tropologia": {
+    "el": "Η ικανότητα του αντιπάλου ακυρώνεται για 3 γύρους.",
+    "en": "Midnight amendment: the foe's ability is off for 3 turns."
+  },
+  "move.diorismos": { "el": "Ένας ανιψιός παίρνει το επόμενο χτύπημα.", "en": "Hire the nephew: a decoy takes the next hit." },
+  "move.fonipanel": { "el": "Φωνάζει σε όλο το πάνελ. Δυνατή ρητορική.", "en": "Panel shout: strong rhetoric." },
+  "move.tilepolisi": {
+    "el": "Πουλάει «βιβλίο»: παίρνει 1/8 ΥΓ του αντιπάλου σε χρήμα.",
+    "en": "Teleshopping: sells a \"book\", takes 1/8 of the foe's HP as money."
+  },
+  "move.tweet": { "el": "Σκάνδαλο και στους δύο, στις 3 τα ξημερώματα.", "en": "3 a.m. tweet: Scandal for both sides." },
+  "move.denmilas": {
+    "el": "Ο αντίπαλος δεν χρησιμοποιεί ρητορικές κινήσεις για 2 γύρους.",
+    "en": "I won't let you speak: the foe cannot use rhetoric moves for 2 turns."
+  },
+  "move.diaggelma": { "el": "Τηλεοπτικό διάγγελμα: χτυπά και μειώνει την ακρίβεια.", "en": "Televised address: hits and lowers accuracy." },
+  "move.psifiako": {
+    "el": "Ο αντίπαλος περιμένει στην ουρά και χάνει γύρο.",
+    "en": "Digital appointment: the foe waits in a queue and skips a turn."
+  },
+  "move.anakampsi": {
+    "el": "Γιατρεύει 25% ΥΓ στην ομάδα, με χρήματα του αντιπάλου.",
+    "en": "Recovery plan: heals the team 25%, paid with the foe's money."
+  },
+  "move.technokratis": { "el": "+2 Ρητορική Άμυνα. «Σπούδασα στο εξωτερικό».", "en": "Technocrat: +2 rhetoric defence. \"I studied abroad.\"" },
+  "move.chimika": { "el": "30% να μειώσει την ταχύτητα.", "en": "Tear gas: 30% chance to lower speed." },
+  "move.globos": { "el": "Κλασικό γκλομπ. Αξιόπιστο.", "en": "Baton: a reliable classic." },
+  "move.taftotita": {
+    "el": "Ο αντίπαλος δεν αλλάζει ούτε φεύγει για 3 γύρους.",
+    "en": "ID check: the foe cannot switch or flee for 3 turns."
+  },
+  "move.enisxuseis": { "el": "Προτεραιότητα +1.", "en": "Backup: priority +1." },
+  "move.parelasi": {
+    "el": "Δυνατό χτύπημα, αλλά μένεις ακίνητος στον επόμενο γύρο.",
+    "en": "Parade: a big hit, but you cannot move next turn."
+  },
+  "move.agiasmos": { "el": "Αφαιρεί την κατάστασή σου.", "en": "Holy water: removes your status." },
+  "move.aforismos": { "el": "Δυνατό. 30% να προκαλέσει Σκάνδαλο.", "en": "Excommunication: strong, 30% to cause Scandal." },
+  "move.litaneia": { "el": "Μπλοκάρει τον δρόμο: ταχύτητα αντιπάλου -2.", "en": "Procession: blocks the road, foe speed -2." },
+  "move.akinito": { "el": "+2 Άμυνα. Η περιουσία δεν αγγίζεται.", "en": "Tax-free real estate: +2 defence." },
+  "move.thymiama": { "el": "30% να μειώσει την ακρίβεια.", "en": "Incense: 30% chance to lower accuracy." },
+  "move.proinadiko": { "el": "30% να μειώσει την ακρίβεια (spin).", "en": "Morning show: 30% to lower accuracy (spin)." },
+  "move.reunion": { "el": "+2 Ισχύς, -1 Άμυνα. Επιστροφή με περιοδεία.", "en": "Reunion Tour: +2 strength, -1 defence." },
+  "move.kavgas": { "el": "Δυνατό, αλλά πληγώνεσαι κι εσύ (1/4).", "en": "TV fight: strong, but you take 1/4 recoil." },
+  "move.souxe": { "el": "Τεράστια ισχύς, αστοχεί συχνά.", "en": "Retro hit: huge power, often misses." },
+  "move.autobio": {
+    "el": "Γιατρεύει 50% ΥΓ. Ο αντίπαλος βαριέται και χάνει γύρο.",
+    "en": "Autobiography: heals 50%, the foe is bored and skips a turn."
+  },
+  "move.story": { "el": "Δύο μικρά χτυπήματα.", "en": "Story: hits twice." },
+  "move.cancel": {
+    "el": "Δυνατό. Η επόμενη κίνηση κατάστασης του αντιπάλου αποτυγχάνει.",
+    "en": "Cancel: strong; the foe's next status move fails."
+  },
+  "move.hashtag": { "el": "Προτεραιότητα +1.", "en": "Hashtag Boost: priority +1." },
+  "move.bluetick": { "el": "+2 Ρητορική. Αγοράζεται.", "en": "Blue tick: +2 rhetoric. It can be bought." },
+  "move.offshore": { "el": "Ρουφάει το μισό της ζημιάς ως υγεία.", "en": "Offshore transfer: heals half the damage dealt." },
+  "move.apolyseis": { "el": "Μειώνει την άμυνα του αντιπάλου (-1).", "en": "Layoffs: lowers the foe's defence (-1)." },
+  "move.lobbying": {
+    "el": "Η επόμενη κίνηση Πολιτικών εναντίον σου αποτυγχάνει.",
+    "en": "Lobbying: the next Politicians move against you fails."
+  },
+  "move.yperkostol": {
+    "el": "Τεράστιο χτύπημα, αστοχεί συχνά, χάνεις 1/4 ΥΓ.",
+    "en": "Cost overrun: huge hit, often misses, you lose 1/4 HP."
+  },
+  "move.thios": { "el": "Ισχύς τυχαία από 1 έως 150.", "en": "The rich uncle from Chicago: random power from 1 to 150." },
+  "move.ellada": { "el": "30% να προκαλέσει Απεργία.", "en": "Greece 0 Logic 1: 30% chance to cause Strike." },
+  "move.frapes": { "el": "50% να μειώσει την ταχύτητα.", "en": "Frappé splash: 50% chance to lower speed." },
+  "move.giagia": { "el": "Προτεραιότητα +2, δεν αστοχεί ποτέ.", "en": "Grandma's slipper: priority +2, never misses." },
+  "move.tzampa": { "el": "Όλοι ανακτούν 25% ΥΓ, ακόμα και ο εχθρός.", "en": "Free wine: everyone heals 25% HP, even the foe." }
+}

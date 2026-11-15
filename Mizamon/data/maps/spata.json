@@ -1,0 +1,56 @@
+{
+  "name": "map.spata",
+  "w": 28,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666,,4444,222222222222,T",
+    "T,66H66,,4444,2222222222229T",
+    "T,NMPMN,,W##W,xxxxxxxxxxxx,T",
+    "T,MMEMMS,#D##Sxxxxx8xxxxxx,T",
+    "T,,,,,,,,,,,,,,,,S,,,,,,,,,T",
+    "TT,,,,,,,,,,,,,,,,,,,,,,T,,T",
+    "T,,,,U,,T,,,,,,,,,,,,,,,,,,S",
+    "............................",
+    "TFFFFFFFF,,,FFFFFFFFFFFFFFFT",
+    "TooooooooooooooooooooooooooT",
+    "Toooooooooooooooooooo0oooooT",
+    "Toooo0oooooooooooooooooooooT",
+    "Toooooooooooo0oooooooooooooT",
+    "TooooooooooooooooooooooooooT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 9, "to": "route6", "tx": 38, "ty": 8 },
+    { "x": 4, "y": 5, "to": "spata_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "spata_shop", "tx": 3, "ty": 4 },
+    { "x": 19, "y": 5, "to": "spata_boss", "tx": 6, "ty": 8 },
+    { "x": 27, "y": 9, "to": "route7", "tx": 30, "ty": 14, "needFlag": "badge_anatolika", "lockedText": "warp.route7" }
+  ],
+  "signs": {
+    "7,5": "sign.spata.hospital",
+    "13,5": "sign.shop",
+    "17,6": "sign.spata.terminal",
+    "27,8": "sign.spata.north",
+    "5,8": "sign.ktel"
+  },
+  "npcs": [
+    {
+      "id": "checkin",
+      "x": 21,
+      "y": 7,
+      "face": "left",
+      "look": "checkin",
+      "kind": "trainer",
+      "trainer": "checkin",
+      "sight": 3
+    },
+    { "id": "queue1", "x": 15, "y": 6, "face": "right", "look": "tourist", "kind": "talk", "text": "npc.spata.queue1" },
+    { "id": "queue2", "x": 15, "y": 7, "face": "right", "look": "kid", "kind": "talk", "text": "npc.spata.queue2" },
+    { "id": "queue3", "x": 15, "y": 8, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.spata.queue3" },
+    { "id": "orbitalsailor", "x": 24, "y": 8, "face": "left", "look": "sailor", "kind": "talk", "text": "npc.spata.sailor" }
+  ]
+}

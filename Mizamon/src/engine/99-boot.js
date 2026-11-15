@@ -9,7 +9,7 @@ window.MIZAMON = {
   // Starts a game without the intro (for tests and screenshots).
   quickStart: function (options) {
     const o = options || {};
-    G = newGameState(o.name || 'ΝΙΚΟΣ', o.gender || 'm', o.starter || 'komma');
+    G = newGameState(o.name || 'ΝΙΚΟΣ', o.gender || 'm', o.starter || STARTERS[0]);
     G.rng = makeRng(o.seed || 1234);
     if (o.map) { G.player.map = o.map; G.player.x = o.x; G.player.y = o.y; G.player.dir = o.dir || 'down'; }
     if (o.flags) Object.assign(G.flags, o.flags);

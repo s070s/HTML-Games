@@ -1,0 +1,7 @@
+{
+  "type": "synth",
+  "notes": [
+    { "at": 0, "freq": 520, "dur": 0.06, "wave": "square", "vol": 0.1 },
+    { "at": 0.05, "freq": 390, "dur": 0.07, "wave": "square", "vol": 0.1 }
+  ]
+}

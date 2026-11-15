@@ -1,0 +1,6 @@
+{
+  "name": "Ο Εισπράκτορας Λάμπρος",
+  "look": "conductor",
+  "team": [{ "sp": "dimosio", "lv": 16 }, { "sp": "fakelarchis", "lv": 16 }],
+  "items": []
+}

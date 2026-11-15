@@ -25,7 +25,7 @@ async function runEvolutions() {
     await openLayer(new EvolveLayer(mon, target));
     evolveMon(mon);
     G.dex.seen[mon.sp] = true; G.dex.got[mon.sp] = true;
-    Sound.sfx('levelup');
+    Sound.sfx(SOUNDS.levelup);
   }
 }
 async function offerLearnMove(mon, moveId) {

@@ -1,0 +1,10 @@
+{
+  "n": "Ρουσφετόλυκος",
+  "t": "pol",
+  "ab": "rou",
+  "g": "m",
+  "rec": 22,
+  "xp": 80,
+  "base": [70, 64, 60, 86, 62, 72],
+  "learn": [[1, "psifodeltio"], [1, "diorismos"], [8, "tropologia"], [14, "diaggelma"], [20, "exetastiki"]]
+}

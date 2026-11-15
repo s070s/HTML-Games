@@ -1,0 +1,10 @@
+{
+  "n": "Ελεγκτής ΣΔΟΕ 3000",
+  "t": "asf",
+  "ab": "vys",
+  "g": "m",
+  "rec": 20,
+  "xp": 80,
+  "base": [62, 78, 62, 52, 62, 64],
+  "learn": [[1, "globos"], [1, "taftotita"], [6, "chimika"], [9, "enisxuseis"]]
+}

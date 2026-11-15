@@ -1,0 +1,4 @@
+{
+  "kind": "critStrike",
+  "params": { "status": "str" }
+}

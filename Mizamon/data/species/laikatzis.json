@@ -1,0 +1,11 @@
+{
+  "n": "Λαϊκατζής",
+  "t": "cel",
+  "ab": "pal",
+  "g": "m",
+  "rec": 45,
+  "xp": 45,
+  "evo": { "to": "star90", "lv": 27 },
+  "base": [44, 38, 36, 56, 40, 54],
+  "learn": [[1, "proinadiko"], [1, "reunion"], [5, "kavgas"], [9, "souxe"], [12, "autobio"]]
+}

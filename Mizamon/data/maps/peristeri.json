@@ -1,0 +1,46 @@
+{
+  "name": "map.peristeri",
+  "w": 26,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666,,4444,,11111,2222T",
+    "T,66H66,,4444,,11111,++++T",
+    "T,NMPMN,,W##W,,W###W,++++T",
+    "T,MMEMMS,#D##S,##D##S++++T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,,/,/,,,,,,/,/,/,/,,,,,TT",
+    "T,,,,,,,S,,,,,,,,,,,,,,U,T",
+    "..........................",
+    "TFFFF,SFFFF,,,,,,,,,,,,,,T",
+    "TF<<<<<<<<F,22222,2222222T",
+    "TF|<<<<<<|F,+++++,+++++++T",
+    "TF|<<<<<<|F,+++++,+++++++T",
+    "TF<<<<<<<<F,+++++,+++++++T",
+    "TFFFFFFFFFF,T,,,,,,,,,,,TT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 25, "y": 9, "to": "route9", "tx": 1, "ty": 5 },
+    { "x": 0, "y": 9, "to": "route10", "tx": 34, "ty": 8 },
+    { "x": 4, "y": 5, "to": "peristeri_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "peristeri_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "peristeri_cafe", "tx": 4, "ty": 6 }
+  ],
+  "signs": {
+    "7,5": "sign.peristeri.hospital",
+    "13,5": "sign.shop",
+    "20,5": "sign.peristeri.cafe",
+    "8,8": "sign.peristeri.market",
+    "6,10": "sign.peristeri.pitch",
+    "23,8": "sign.ktel"
+  },
+  "npcs": [
+    { "id": "psfan", "x": 5, "y": 13, "face": "right", "look": "ultras", "kind": "talk", "text": "npc.peristeri1" },
+    { "id": "psseller", "x": 13, "y": 8, "face": "up", "look": "marketeer", "kind": "talk", "text": "npc.peristeri2" },
+    { "id": "pslaundry", "x": 21, "y": 8, "face": "up", "look": "oldwoman", "kind": "talk", "text": "npc.peristeri3" }
+  ]
+}

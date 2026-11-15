@@ -1,0 +1,13 @@
+{
+  "menu.party": { "el": "Ομάδα", "en": "Team" },
+  "menu.bag": { "el": "Τσάντα", "en": "Bag" },
+  "menu.dossier": { "el": "Δικογραφία", "en": "Case files" },
+  "menu.save": { "el": "Αποθήκευση", "en": "Save" },
+  "menu.options": { "el": "Ρυθμίσεις", "en": "Options" },
+  "menu.close": { "el": "Κλείσιμο", "en": "Close" },
+  "menu.map": { "el": "Χάρτης", "en": "Map" },
+  "menu.saveOnlyCafe": {
+    "el": "Η αποθήκευση γίνεται μόνο στο Καφενείο. Εκεί ακούγονται όλα και τίποτα δεν αλλάζει.",
+    "en": "Saving only works at the Cafe. Everything is discussed there and nothing changes."
+  }
+}

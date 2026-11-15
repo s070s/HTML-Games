@@ -12,9 +12,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import { assemblePage, dataBlockText, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import { DataError, dataFiles, dataVersionProblem, listDataPaths, readData } from '../shared/data-files.mjs';
+import { fileIdProblem } from '../shared/ids.mjs';
+import { formatEntry, formatJson } from '../shared/json-format.mjs';
+import { ABILITY_KINDS, DATA_VERSION, KINDS, STATUS_KINDS, behaviourProblems, schemaProblems, walkWithSchema } from '../shared/schemas.mjs';
+import { MARKER_TEXTS, markerTextFindings } from '../shared/validate.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
+import { migrateData } from './migrate-data.mjs';
+import { BALANCE_RUNS, balanceOutput, dataBlockOf, engineConstantProblems, loadRulesWithInternals, makeFakeAudio, migratedSaves, replaySummary, soundCalls, tableSnapshot, visibilityProbe } from './parity.mjs';
 import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
 const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
@@ -32,10 +39,175 @@ export function loadRules(source = html) {
 }
 const R = loadRules();
 
+// ---- Source scans (MZ-DEV-02b, reference 13.12) ----
+// A test that searches the page text (matchAll, match, includes, indexOf, search, split, slice, RegExp.test) must find at least
+// as much as it did on the baseline (tests/baseline/source-scans.json), so a scan that silently stops matching fails its test.
+// The recorder wraps the String and RegExp methods while a test runs; scans of the page text and of the engine part are logged.
+// MZ_RECORD_SCANS=<file> writes the log instead of checking it (how the baseline file was made); MZ_FORCE_SCAN_ZERO=<regex> makes
+// every scan whose pattern matches find nothing (how a test proves that a scan forced to match nothing fails).
+const SCAN_BASELINE_PATH = join(MIZAMON_ROOT, 'tests', 'baseline', 'source-scans.json');
+const scanSubjects = []; // [{ name, text }]
+const scanLog = [];
+let scanTestName = null;
+const forcedZeroPattern = process.env.MZ_FORCE_SCAN_ZERO ? new RegExp(process.env.MZ_FORCE_SCAN_ZERO, 'u') : null;
+export function registerScanSubject(name, text) { scanSubjects.push({ name, text }); }
+registerScanSubject('page', html);
+function scanSubjectName(text) {
+  if (scanTestName === null || typeof text !== 'string') return null;
+  for (const subject of scanSubjects) if (text.length === subject.text.length && text === subject.text) return subject.name;
+  return null;
+}
+function describeScanPattern(pattern) {
+  const text = pattern instanceof RegExp ? String(pattern) : JSON.stringify(String(pattern));
+  return text.length > 160 ? text.slice(0, 160) + '...' : text;
+}
+function noteScan(kind, pattern, count) { scanLog.push({ test: scanTestName, kind, pattern: describeScanPattern(pattern), count }); }
+function installScanRecorder() {
+  const wrapString = (method, run) => {
+    const original = String.prototype[method];
+    String.prototype[method] = function (...args) {
+      const subject = scanSubjectName(this);
+      if (subject === null) return original.apply(this, args);
+      return run(original, this, args, subject);
+    };
+  };
+  const forced = (args) => forcedZeroPattern !== null && forcedZeroPattern.test(describeScanPattern(args[0]));
+  wrapString('matchAll', (original, text, args) => {
+    const all = forced(args) ? [] : [...original.apply(text, args)];
+    noteScan('matchAll', args[0], all.length);
+    return all[Symbol.iterator]();
+  });
+  wrapString('match', (original, text, args) => {
+    if (forced(args)) { noteScan('match', args[0], 0); return null; }
+    const found = original.apply(text, args);
+    noteScan('match', args[0], found === null ? 0 : (found.index === undefined ? found.length : 1));
+    return found;
+  });
+  wrapString('includes', (original, text, args) => {
+    const found = forced(args) ? false : original.apply(text, args);
+    noteScan('includes', args[0], found ? 1 : 0);
+    return found;
+  });
+  wrapString('indexOf', (original, text, args) => {
+    const found = forced(args) ? -1 : original.apply(text, args);
+    noteScan('indexOf', args[0], found >= 0 ? 1 : 0);
+    return found;
+  });
+  wrapString('search', (original, text, args) => {
+    const found = forced(args) ? -1 : original.apply(text, args);
+    noteScan('search', args[0], found >= 0 ? 1 : 0);
+    return found;
+  });
+  wrapString('split', (original, text, args) => {
+    const parts = forced(args) ? [text] : original.apply(text, args);
+    noteScan('split', args[0], parts.length - 1);
+    return parts;
+  });
+  wrapString('slice', (original, text, args) => {
+    const piece = original.apply(text, args);
+    noteScan('slice', '', piece.length > 0 ? 1 : 0);
+    return piece;
+  });
+  const originalTest = RegExp.prototype.test;
+  RegExp.prototype.test = function (text) {
+    if (scanSubjectName(text) === null) return originalTest.call(this, text);
+    const found = forced([this]) ? false : originalTest.call(this, text);
+    noteScan('test', this, found ? 1 : 0);
+    return found;
+  };
+}
+installScanRecorder();
+export function scanKey(scan, ordinal) { return [scan.test, scan.kind, scan.pattern, ordinal].join('\u0000'); }
+// Numbers every scan of a test among the scans with the same kind and pattern: [{ ...scan, ordinal }]
+export function numberScans(scans) {
+  const seen = new Map();
+  return scans.map((scan) => {
+    const family = [scan.test, scan.kind, scan.pattern].join('\u0000');
+    const ordinal = seen.get(family) ?? 0;
+    seen.set(family, ordinal + 1);
+    return { ...scan, ordinal };
+  });
+}
+// Returns the problems of one test: every baseline scan of it must have been made, and found at least its baseline count.
+// A baseline entry marked "rewritten" belongs to a scan whose test now reads something else (the parsed DATA, a changed line count):
+// without a "rewrittenCount" it is not expected here (its test checks what it reads now); with one, the scan must still be made and
+// find at least that count, which is what it found when the entry was rewritten (so a line count cannot fall unnoticed).
+// A scan that was never reached because the test body failed earlier is not reported (the failure of the body is the news).
+export function checkScans(testName, scans, baselineScans, bodyFailed = false) {
+  const done = new Map(numberScans(scans).map((scan) => [scanKey(scan, scan.ordinal), scan]));
+  const problems = [];
+  for (const wanted of baselineScans) {
+    if (wanted.test !== testName) continue;
+    if (wanted.rewritten && wanted.rewrittenCount === undefined) continue;
+    const floor = wanted.rewritten ? wanted.rewrittenCount : wanted.count;
+    const found = done.get(scanKey(wanted, wanted.ordinal));
+    if (!found) {
+      if (!bodyFailed) problems.push(`source scan ${wanted.kind} ${wanted.pattern} was not made (${wanted.rewritten ? 'rewritten' : 'baseline'} ${floor})`);
+    }
+    else if (found.count < floor) problems.push(`source scan ${wanted.kind} ${wanted.pattern} matched ${found.count}, at least ${floor} is expected (tests/baseline/source-scans.json)`);
+  }
+  return problems;
+}
+let scanBaseline = null;
+function loadScanBaseline() {
+  if (scanBaseline === null) scanBaseline = existsSync(SCAN_BASELINE_PATH) ? JSON.parse(readFileSync(SCAN_BASELINE_PATH, 'utf8')).scans : [];
+  return scanBaseline;
+}
+
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 // The rules live in another vm realm, so compare structures through JSON.
 const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
+
+// ---- The data in the page (MZ-DEV-02b) ----
+// The DATA object of a page, read from its data lines without running the rules.
+function dataOfPage(page) {
+  const block = dataBlockOf(page);
+  assert.ok(block !== '', 'the page has a data block');
+  return new vm.Script(block + '\nDATA;').runInNewContext({}, { timeout: 10000 });
+}
+// The first place two JSON values differ, as text (a whole table in an assertion message is unreadable).
+function firstDifference(actual, expected, path = '') {
+  if (JSON.stringify(actual) === JSON.stringify(expected)) return null;
+  const isContainer = (value) => value !== null && typeof value === 'object';
+  if (!isContainer(actual) || !isContainer(expected) || Array.isArray(actual) !== Array.isArray(expected)) return `${path || 'value'}: ${JSON.stringify(actual)?.slice(0, 80)} instead of ${JSON.stringify(expected)?.slice(0, 80)}`;
+  const actualKeys = Object.keys(actual);
+  const expectedKeys = Object.keys(expected);
+  for (let index = 0; index < Math.max(actualKeys.length, expectedKeys.length); index++) {
+    if (actualKeys[index] !== expectedKeys[index]) return `${path || 'value'}: key ${JSON.stringify(actualKeys[index])} instead of ${JSON.stringify(expectedKeys[index])} (key order or a missing key)`;
+    const found = firstDifference(actual[actualKeys[index]], expected[expectedKeys[index]], `${path}.${actualKeys[index]}`);
+    if (found) return found;
+  }
+  return `${path || 'value'} differs`;
+}
+const sameJson = (actual, expected, label) => assert.equal(firstDifference(actual, expected), null, label);
+// The NPC of a trainer on the maps (the rival who leaves has a hideFlag in the map data, so the tests ask the real NPC).
+const npcOfTrainer = (trainerId) => Object.values(R.MAPS).flatMap((map) => map.npcs).find((npc) => npc.trainer === trainerId);
+const sortedEntries = (table) => Object.entries(table).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+const BASELINE_FOLDER = join(MIZAMON_ROOT, 'tests', 'baseline');
+const readBaselineFile = (name) => JSON.parse(readFileSync(join(BASELINE_FOLDER, name), 'utf8'));
+// Every text key a step list of an event names (a `say` step, also inside the branches of a `battle`).
+function eventStringKeys(steps) {
+  const keys = [];
+  for (const step of steps) {
+    if (step.step === 'say') keys.push(...step.keys);
+    for (const branch of ['onWin', 'onLose', 'onRan']) if (step[branch]) keys.push(...eventStringKeys(step[branch]));
+  }
+  return keys;
+}
+// Every string key a kind of the data refers to: the fields the schema marks `stringKey` (signs, NPC and warp texts, names, victory
+// texts ...) and the `say` steps of the events. Strings themselves are the keys' targets, not references.
+function stringKeyReferences(data) {
+  const keys = [];
+  for (const [kind, definition] of Object.entries(KINDS)) {
+    if (kind === 'strings' || kind === 'events' || !Object.hasOwn(data, kind)) continue;
+    const collect = (node, value) => { if (node.type === 'stringKey') keys.push(value); };
+    if (definition.storage === 'single') walkWithSchema(definition.schema, data[kind], collect);
+    else for (const entry of Object.values(data[kind])) walkWithSchema(definition.schema, entry, collect);
+  }
+  for (const steps of Object.values(data.events ?? {})) keys.push(...eventStringKeys(steps));
+  return keys;
+}
 
 // ---- The seed table, typed in again from docs/CONTENT-SEED.md section 2 ----
 const SEED_NAMES = { Πολιτικοί: 'pol', Ασφαλίτες: 'asf', Εκκλησία: 'ekk', Celebrities: 'cel', Influencers: 'inf', Επιχειρηματίες: 'biz', Μιμίδια: 'mem' };
@@ -446,10 +618,25 @@ test('seeded replay of a 1,000-battle sample gives equal checksums twice (and a 
   assert.notEqual(sample(2025, 200).total, sample(2024, 200).total);
   assert.ok(a.wins > 300 && a.wins < 700, 'both sides win sometimes: ' + a.wins);
 });
+// The code of the rules block, without the data and without // comments. The markers are whole lines (13.2); the lines between
+// /*DATA-BEGIN*/ and /*DATA-END*/ are data, not code, so a content text such as "new Date" cannot fail the engine test below.
+export function rulesCodeText(page) {
+  const lines = page.split(/\r?\n/); // CRLF checkouts too
+  const begin = lines.indexOf('// RULES-BEGIN');
+  const end = lines.indexOf('// RULES-END');
+  assert.ok(begin >= 0 && end > begin, 'RULES-BEGIN and RULES-END are lines of their own');
+  const code = [];
+  let inData = false;
+  for (const line of lines.slice(begin + 1, end)) {
+    if (line === '/*DATA-BEGIN*/') inData = true;
+    else if (line === '/*DATA-END*/') inData = false;
+    else if (!inData) code.push(line.replace(/\/\/.*$/, ''));
+  }
+  return code.join('\n');
+}
+const FORBIDDEN_RULES_CALLS = /Math\.random|Date\.now|new Date|performance\.now/;
 test('the rules never call Math.random or Date', () => {
-  const begin = html.indexOf('// RULES-BEGIN');
-  const rulesText = html.slice(begin, html.indexOf('// RULES-END')).split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n'); // CRLF checkouts too
-  assert.ok(!/Math\.random|Date\.now|new Date|performance\.now/.test(rulesText));
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(html)));
 });
 test('encounters are seeded and happen at about the set rate on grass only', () => {
   const route = R.MAPS.route1;
@@ -586,14 +773,31 @@ test('strings: every key has Greek and English, same {placeholders}, gender word
   assert.notEqual(R.lookupString('menu.bag', 'el'), R.lookupString('menu.bag', 'en'));
   assert.equal(R.lookupString('no.such.key', 'en'), 'no.such.key');
 });
+const CODE_AND_EVENT_KEYS_FLOOR = 161; // 157 keys of the code and 4 of the rival1 event; the baseline had 157 + 1 (sayAll, now 0)
+const CONTENT_KEYS_FLOOR = 599; // 328 keys the data refers to and 271 defined texts; the baseline scan found 605 (it read the quoted keys of the whole page: also the 4 npc.prof keys of 09-overworld.js, counted in the code floor, the 1 key of 90-selftest.js, and sign.roadworks, which the old code typed and then deleted from kastella)
 test('strings: every key the code asks for exists, including the keys built from data', () => {
   const S = R.STRINGS;
   const need = (key) => assert.ok(S[key], 'missing string ' + key);
   const used = new Set();
-  for (const m of html.matchAll(/\b(?:T|say|askYesNo)\('([A-Za-z0-9_.]*[A-Za-z0-9_])'/g)) used.add(m[1]);
+  // The code scans stay on the source (DEV-02b: the content is data now, so the keys of the content are read from the parsed DATA).
+  let codeReferences = 0;
+  for (const m of html.matchAll(/\b(?:T|say|askYesNo)\('([A-Za-z0-9_.]*[A-Za-z0-9_])'/g)) { used.add(m[1]); codeReferences++; }
   for (const m of html.matchAll(/logMsg\(battle, '([A-Za-z0-9_.]*[A-Za-z0-9_])'(?! \+)/g)) used.add(m[1]);
-  for (const m of html.matchAll(/sayAll\(\[([^\]]*)\]/g)) for (const k of m[1].matchAll(/'([^']+)'/g)) used.add(k[1]);
-  for (const m of html.matchAll(/'((?:sign|npc|warp)\.[A-Za-z0-9.]+)'/g)) used.add(m[1]);
+  for (const m of html.matchAll(/sayAll\(\[([^\]]*)\]/g)) for (const k of m[1].matchAll(/'([^']+)'/g)) { used.add(k[1]); codeReferences++; }
+  // The texts of the signs, people, doors, trainers, districts and of the events (the `say` steps of rival1 moved there from the code).
+  const dataReferences = stringKeyReferences(dataOfPage(html));
+  for (const key of dataReferences) used.add(key);
+  // No scan may find less than it found on the baseline (tests/baseline/source-scans.json, the three entries of this test marked
+  // "rewritten": the T/say scan, sayAll and the sign, npc and warp keys). Two floors, one for each kind of reading, so a loss in one
+  // cannot hide behind a gain in the other. The floors are today's counts (see the constants above; the baseline had 157 + 1 and 605):
+  //  - the keys the code names (T, say, askYesNo, sayAll) plus the keys of the `say` steps of the events (rival1 moved out of the code);
+  //  - the sign, npc and warp keys that the data refers to, plus the texts those groups define (the baseline scan counted both).
+  const eventKeys = Object.values(dataOfPage(html).events).flatMap((steps) => eventStringKeys(steps));
+  const contentTextKey = /^(sign|npc|warp)\./;
+  const contentReferences = dataReferences.filter((key) => contentTextKey.test(key)).length;
+  const definedTexts = Object.keys(S).filter((key) => contentTextKey.test(key)).length;
+  assert.ok(codeReferences + eventKeys.length >= CODE_AND_EVENT_KEYS_FLOOR, `the keys named by the code (${codeReferences}) and by the events (${eventKeys.length}) are fewer than ${CODE_AND_EVENT_KEYS_FLOOR}`);
+  assert.ok(contentReferences + definedTexts >= CONTENT_KEYS_FLOOR, `the sign, npc and warp keys of the data (${contentReferences}) and their defined texts (${definedTexts}) are fewer than ${CONTENT_KEYS_FLOOR}`);
   for (const key of used) need(key);
   for (const id of R.TYPE_IDS) need('type.' + id);
   for (const id of R.ABILITY_IDS) { need('ab.' + id); need('abd.' + id); }
@@ -899,10 +1103,15 @@ test('hospital look: green cross and blue Η, teal roof and mint walls, no red c
   const colors = [...outside.matchAll(/'#([0-9a-f]{6})'/gi)].map((m) => [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)));
   assert.ok(colors.length >= 15);
   assert.ok(colors.every(([r, g, b]) => !(r > 140 && g < 110 && b < 110)), 'no red anywhere on the outside of the hospital');
-  assert.ok(!html.includes('nurse:') && !/look: 'nurse'/.test(html), 'no nurse look');
-  assert.ok(html.includes("hospital: [[1000, 0.05, 'sine'"), 'its own blip sequence');
+  const data = dataOfPage(html);
+  assert.ok(!html.includes('nurse:'), 'no nurse look in the look code');
+  assert.ok(Object.values(data.maps).every((map) => map.npcs.every((npc) => npc.look !== 'nurse')) && Object.values(data.trainers).every((trainer) => trainer.look !== 'nurse'), 'no person of the data has the look nurse');
+  // The monitor's own blip sequence: three flat beeps, then two quick rising blips (the note list of the baseline: [frequency, length, wave, volume, start]).
+  const blips = [[1000, 0.05, 'sine', 0.12, 0], [1000, 0.05, 'sine', 0.12, 0.3], [1000, 0.05, 'sine', 0.12, 0.6], [1250, 0.06, 'triangle', 0.12, 0.9], [1670, 0.12, 'triangle', 0.12, 0.98]];
+  sameJson(data.sounds.hospital, { type: 'synth', notes: blips.map(([freq, dur, wave, vol, at]) => ({ at, freq, dur, wave, vol })) }, 'its own blip sequence');
+  assert.equal(data.game.sounds.hospital, 'hospital', 'the sound role of the monitor names it');
   const monitor = html.slice(html.indexOf('function MonitorLayer'), html.indexOf('function BadgeLayer'));
-  assert.ok(monitor.includes('OPT.reduceMotion') && monitor.includes("Sound.sfx('hospital')"), 'the monitor respects Reduced motion and plays the blips');
+  assert.ok(monitor.includes('OPT.reduceMotion') && monitor.includes('Sound.sfx(SOUNDS.hospital)'), 'the monitor respects Reduced motion and plays the blips');
 });
 
 test('options are normalised', () => {
@@ -1210,7 +1419,11 @@ test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικ�
   assert.ok(html.includes("const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map']"), 'map is an input name');
   assert.ok(html.includes("if (padButtonOn(buttons, 8)) this.pad.map = true;"), 'gamepad button 8 (Select/Back) is the map');
   assert.ok(html.includes("if (padButtonOn(buttons, 9) || padButtonOn(buttons, 3)) this.pad.menu = true;"), 'Start and Y still open the menu');
-  assert.ok(html.includes('<div class="btn" data-btn="map">ΧΑΡΤΗΣ</div>'), 'the touch pill exists');
+  // The shell holds the pill empty and the engine writes its words (the text map.pill) at start and when the language changes.
+  assert.ok(html.includes('<div class="btn" data-btn="map"></div>'), 'the touch pill exists, empty');
+  assert.ok(html.includes("pill.textContent = T('map.pill')") && html.includes("labelMapPill(); }"), 'the engine gives the pill its text at start and on a language change');
+  sameJson(dataOfPage(html).strings.map['map.pill'], { el: 'ΧΑΡΤΗΣ', en: 'ΧΑΡΤΗΣ' }, 'the pill says ΧΑΡΤΗΣ in both languages, as it always did');
+  sameJson(dataOfPage(html).strings.title['title.satire'], { el: 'ΣΑΤΙΡΑ  /  SATIRE', en: 'ΣΑΤΙΡΑ  /  SATIRE' }, 'the notice heading is the same in both languages, as it always was');
   assert.ok(html.includes('#touch.portrait [data-btn="map"]') && html.includes('#touch.landscape [data-btn="map"]'), 'the pill has a place in both layouts');
   const pause = html.slice(html.indexOf('async function openPauseMenu'), html.indexOf('// ---- Map screen'));
   assert.ok(pause.includes("T('menu.dossier'), T('menu.map'), T('menu.save')"), 'Χάρτης comes right after Δικογραφία');
@@ -1785,8 +1998,8 @@ test('Νότια species: Καφενόβιος and the three middle starter form
     assert.equal(team[team.length - 1].lv, 18);
   }
   assert.equal(R.TRAINERS.rival3.team[R.TRAINERS.rival3.team.length - 1].lv, R.TRAINERS.bougatsas.team[R.TRAINERS.bougatsas.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, { t_rival3: true }), false, 'he leaves after the third fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival3'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival3'), { t_rival3: true }), false, 'he leaves after the third fight');
   // stat boost: only creatures that carry one; the formula for everybody else is the old one
   const plain = R.makeMon('giagiaka', 20);
   const boosted = R.makeMon('giagiaka', 20, 1.3);
@@ -2547,8 +2760,8 @@ test('Βόρεια trainers: seven trainers with names in the strings, levels 27
     assert.equal(team[team.length - 1].lv, 30);
   }
   assert.equal(R.TRAINERS.rival4.team[R.TRAINERS.rival4.team.length - 1].lv, R.TRAINERS.amartia.team[R.TRAINERS.amartia.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival4' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival4' }, { t_rival4: true }), false, 'he leaves after the fourth fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival4'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival4'), { t_rival4: true }), false, 'he leaves after the fourth fight');
   const replay = (seed) => {
     const rng = R.makeRng(seed);
     const lines = [];
@@ -3313,8 +3526,8 @@ test('Αθήνα trainers: eight trainers with names in the strings, levels 39-4
     assert.equal(team[team.length - 1].sp, R.SPECIES[R.RIVAL_STARTER[starter]].evo.to, 'his last creature is the middle form of the starter he took');
   }
   same(R.TRAINERS.rival5.items, ['souvlaki']);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival5' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival5' }, { t_rival5: true }), false, 'he leaves after the fifth fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival5'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival5'), { t_rival5: true }), false, 'he leaves after the fifth fight');
   const replay = (seed) => {
     const rng = R.makeRng(seed);
     const lines = [];
@@ -3890,7 +4103,8 @@ test('Βουλή final path: the last fight rolls the credits and sets ending; n
   const creditsLayerCode = part('CreditsLayer.prototype.update', 'CreditsLayer.prototype.draw');
   assert.ok(creditsLayerCode.includes('this.frame > creditsEndFrame(this.lines.length)') && creditsLayerCode.includes('this.frame > 90 && Input.pressed.menu'), 'the end uses the helper and the skip after 90 frames stays');
   assert.ok(part('CreditsLayer.prototype.draw', '// ---- Helpers shared by the screens').includes('creditsLineY(this.frame, i)'), 'the draw code uses the same position helper');
-  assert.ok(part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent').includes("x: 4, y: 6, dir: 'up'"), 'the finale puts the player on the roof at (4, 6), where the in-page check and section 11.17 say');
+  sameJson(dataOfPage(html).game.finaleSpot, { map: 'parliament_roof', x: 4, y: 6, dir: 'up' }, 'the finale puts the player on the roof at (4, 6), where the in-page check and section 11.17 say (data/game.json)');
+  assert.ok(part('OverworldLayer.prototype.finale = async function', 'OverworldLayer.prototype.runEvent').includes('DATA.game.finaleSpot'), 'and the finale code reads that spot');
   assert.ok(R.tileWalkable(R.MAPS.parliament_roof, 4, 6, PARLIAMENT_FLAGS_ENDED), 'and that tile is walkable');
   assert.equal((html.slice(0, html.indexOf('async function selfTest()')).match(/G\.flags\.ending = true/g) || []).length, 1, 'the game sets the flag in one place (the finale)');
   same(R.MAPS.parliament_roof.warps.map((warp) => warp.to), ['parliament_plenary', 'parliament_plenary']);
@@ -4102,6 +4316,7 @@ export function parliamentXpBand(rules) {
 // ---- Accessibility options (MZ-A11Y-01) ----
 const NEW_OPTIONS = ['largeText', 'typeMarks', 'flashesOff', 'holdRepeat', 'touchHand'];
 const enginePart = html.slice(html.indexOf('// ENGINE: everything below'));
+registerScanSubject('engine', enginePart);
 const OLD_OPTION_SET = { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true };
 
 test('accessibility options: defaults, and every value is checked (a wrong type or an out-of-range number falls back to the default)', () => {
@@ -4687,15 +4902,13 @@ test('accessibility: the decision section of the reference lists each option wit
 // ---- Build: the split and the assembler (MZ-DEV-02a; reference sections 13.2, 13.3 and 13.5) ----
 // SHA-256 of the single-file page at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
 // which moves content into data/, replaces this pin with the parity proof of reference section 13.12.
-const BASELINE_PAGE_SHA256 = '9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030';
-
 function scratchFolder(label) {
   const parent = join(tmpdir(), 'claude');
   mkdirSync(parent, { recursive: true });
   return mkdtempSync(join(parent, `mizamon-test-${label}-`));
 }
 
-// Copies what the assembler and the source hash read (src/ and the hashed tool files) with CRLF line endings.
+// Copies what the assembler and the source hash read (src/, data/, shared/ and the hashed tool files) with CRLF line endings.
 function copyAsCrlf(fromRoot, toRoot) {
   const copyFile = (relativePath) => {
     const text = readFileSync(join(fromRoot, relativePath), 'utf8');
@@ -4705,15 +4918,16 @@ function copyAsCrlf(fromRoot, toRoot) {
   for (const kind of ['rules', 'engine']) {
     for (const name of readdirSync(join(fromRoot, 'src', kind))) copyFile(`src/${kind}/${name}`);
   }
-  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
+  const sharedModules = readdirSync(join(fromRoot, 'shared')).filter((name) => name.endsWith('.mjs')).map((name) => `shared/${name}`);
+  for (const relativePath of ['src/shell.html', 'src/engine-pinned.json', ...sharedModules, 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
+  for (const relativePath of listDataPaths(fromRoot)) copyFile(`data/${relativePath}`);
 }
 
-test('assembler: the page equals the baseline single-file page (861daff) byte for byte, twice, and from a CRLF copy', () => {
+test('assembler: the page is the same bytes twice and from a CRLF copy (the parity with the baseline page is the DEV-02b parity tests)', () => {
   const first = assembleFromDisk();
   const second = assembleFromDisk();
   assert.equal(first, second, 'assembling twice gives the same text');
   assert.ok(!first.includes('\r'), 'the page is LF');
-  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline single-file page');
   const crlfRoot = scratchFolder('crlf');
   try {
     copyAsCrlf(MIZAMON_ROOT, crlfRoot);
@@ -4845,8 +5059,9 @@ test('build: assemble, test, then write index.html and the report (the hashes ma
     assert.equal(built.status, 0, built.stdout + built.stderr);
     const pagePath = join(root, 'build', 'index.html');
     const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
-    assert.equal(sha256Hex(readFileSync(pagePath)), BASELINE_PAGE_SHA256, 'index.html is the baseline page, LF');
-    assert.equal(report.indexHtmlSha256, BASELINE_PAGE_SHA256);
+    const assembledHash = sha256Hex(Buffer.from(assembleFromDisk(root), 'utf8'));
+    assert.equal(sha256Hex(readFileSync(pagePath)), assembledHash, 'index.html is exactly the page tools/assemble.mjs gives, LF');
+    assert.equal(report.indexHtmlSha256, assembledHash);
     assert.equal(report.sourceHash, sourceHashFromDisk(root), 'the report holds the source hash');
     assert.equal(report.status, 'ok');
     assert.equal(report.tests.passed, 1);
@@ -4941,7 +5156,7 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     const uploaded = join(ITCH_UPLOAD_ROOT, 'mizamon');
     same(readdirSync(uploaded), ['index.html'], 'the upload folder holds index.html only');
     assert.equal(sha256Hex(readFileSync(join(uploaded, 'index.html'))), htmlSha256, 'the assembled hash equals the report hash');
-    assert.equal(htmlSha256, BASELINE_PAGE_SHA256);
+    assert.equal(htmlSha256, sha256Hex(Buffer.from(assembleFromDisk(join(repo, 'Mizamon')), 'utf8')), 'the report hash is the page of that commit');
     same(leftoverWorktrees(), [], 'the temporary worktree folder is gone');
     assert.equal(gitIn(repo, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1, 'git no longer lists the worktree');
 
@@ -5062,6 +5277,579 @@ test('README: names the build commit after a merge into main and the merge gate,
   }
 });
 
+// ---- DEV-02b: the content is data (reference sections 13.1, 13.2 and 13.12) ----
+const DATA_FOLDER = join(MIZAMON_ROOT, 'data');
+const cloneJson = (value) => JSON.parse(JSON.stringify(value));
+const FIRST_STRING = ['strings', 'ui', 'ui.yes']; // a text of the real data that the tests below overwrite in a copy
+
+test('data/: every kind is there, the indexes list the folders, every entry fits its schema, every file is what the one writer writes', () => {
+  const { data, missingKinds } = readData(MIZAMON_ROOT); // refuses a bad id, an index that disagrees with its folder and a newer dataVersion
+  same(missingKinds, [], 'every kind of the schema has its folder or file');
+  same(Object.keys(data), Object.keys(KINDS), 'the kinds come in the order of the schema');
+  for (const [kind, definition] of Object.entries(KINDS)) {
+    if (definition.storage === 'single') {
+      same(schemaProblems(definition.schema, data[kind], kind), [], kind);
+      continue;
+    }
+    assert.ok(Object.keys(data[kind]).length > 0, kind + ' has entries');
+    for (const [id, entry] of Object.entries(data[kind])) same(schemaProblems(definition.schema, entry, `${kind}/${id}`), [], `${kind}/${id}`);
+  }
+  const written = dataFiles(data);
+  same(written.map((file) => file.path).sort(), listDataPaths(MIZAMON_ROOT), 'no file is missing and none is extra');
+  for (const file of written) {
+    const bytes = readFileSync(join(DATA_FOLDER, ...file.path.split('/')));
+    assert.ok(!(bytes[0] === 0xef && bytes[1] === 0xbb), file.path + ' has a BOM');
+    assert.equal(toLf(bytes.toString('utf8')), file.text, file.path + ' is not what the writer writes (UTF-8, LF, 2 spaces, schema order, final newline)');
+  }
+  const counts = { species: 38, moves: 41, abilities: 14, statuses: 4, types: 7, items: 10, trainers: 54, maps: 71, tiles: 96, districts: 6, shops: 4, events: 1 };
+  for (const [kind, count] of Object.entries(counts)) assert.equal(Object.keys(data[kind]).length, count, kind + ' count');
+  assert.equal(Object.values(data.strings).reduce((sum, group) => sum + Object.keys(group).length, 0), Object.keys(R.STRINGS).length, 'every text is in a group');
+  assert.equal(DATA_VERSION, 1);
+  assert.equal(data.game.dataVersion, DATA_VERSION);
+});
+
+// What the rules code had typed as literals before the behaviour moved into data/abilities/ and data/statuses/ (reference 13.1): 1.3, 1.2,
+// 0.2, 1.5, 0.75 ... The replay, balance and table parity tests prove the play is unchanged; this pins the numbers themselves.
+const OLD_ABILITY_NUMBERS = {
+  asy: { kind: 'statusShield', params: { statuses: ['inv', 'sca'] } }, syn: { kind: 'critStrike', params: { status: 'str' } },
+  gra: { kind: 'regenerate', params: { divisor: 16, sundayMult: 2 } }, rou: { kind: 'favourOnSwitch', params: { divisor: 8 } },
+  afo: { kind: 'prizeBonus', params: { mult: 1.5 } }, pal: { kind: 'powerWhenLow', params: { hpShare: 0.5, mult: 1.3 } },
+  vir: { kind: 'multiHitAfterKo', params: { hitsMult: 2 } }, out: { kind: 'surviveKo', params: { leaveHp: 1 } },
+  bur: { kind: 'delayStatus', params: { turns: 1 } }, vys: { kind: 'ignoreHigherLevel', params: { chance: 0.2 } },
+  bah: { kind: 'randomStageUp', params: { stages: 1 } }, kou: { kind: 'powerWhenAllyFallen', params: { mult: 1.2 } },
+  des: { kind: 'rhetoricPower', params: { mult: 1.3 } }, epi: { kind: 'firstMovePriority', params: { priority: 1 } },
+};
+const OLD_STATUS_NUMBERS = {
+  inv: { turns: 5, kind: 'weaken', params: { attackMult: 0.75 }, recruitMult: 1.5, color: '#4a6aa8' },
+  sca: { turns: 0, kind: 'hurt', params: { divisor: 8 }, recruitMult: 1.2, color: '#a83a8a' },
+  str: { turns: 3, kind: 'idle', params: { chance: 0.5 }, recruitMult: 1.2, color: '#c07a1a' },
+  bri: { turns: 4, kind: 'pocket', params: { chance: 0.3, divisor: 16 }, recruitMult: 2, color: '#2f7a5a' },
+};
+
+test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', () => {
+  const data = dataOfPage(html);
+  same(behaviourProblems(data), [], 'every entry is a kind of the catalogue with its numbers');
+  sameJson(data.abilities, OLD_ABILITY_NUMBERS, 'the 14 abilities (kind and numbers, in index order)');
+  sameJson(data.statuses, OLD_STATUS_NUMBERS, 'the 4 statuses (turns, kind, numbers, recruit multiplier, tag colour)');
+  // the check itself
+  const broken = (change) => { const copy = JSON.parse(JSON.stringify(data)); change(copy); return behaviourProblems(copy).join('\n'); };
+  assert.match(broken((copy) => { copy.abilities.pal.kind = 'powerWhenHigh'; }), /pal: "powerWhenHigh" is not a kind/, 'an unknown kind');
+  assert.match(broken((copy) => { delete copy.abilities.pal.params.mult; }), /pal: the kind powerWhenLow takes hpShare, mult, the entry has hpShare/, 'a missing number');
+  assert.match(broken((copy) => { copy.statuses.bri.params.extra = 1; }), /bri: the kind pocket takes chance, divisor, the entry has chance, divisor, extra/, 'a number the kind does not take');
+  // every kind of the catalogue is asked for by the rules code, and the code asks for no other kind
+  const rulesCode = readSources().rules.map((fragment) => toLf(fragment.text)).join('\n');
+  const asked = (call) => new Set([...rulesCode.matchAll(new RegExp(call + "\\(\\w+, '(\\w+)'\\)", 'g'))].map((match) => match[1]));
+  same([...asked('abilityParams')].sort(), Object.keys(ABILITY_KINDS).sort(), 'the ability kinds the rules code implements are the catalogue');
+  same([...asked('statusParams')].sort(), Object.keys(STATUS_KINDS).sort(), 'the status kinds the rules code implements are the catalogue');
+  assert.equal(Object.keys(ABILITY_KINDS).length, 14, 'one kind for each of the 14 abilities');
+  assert.equal(Object.keys(STATUS_KINDS).length, 4, 'the 4 status kinds');
+  for (const entry of [...Object.values(ABILITY_KINDS), ...Object.values(STATUS_KINDS)]) assert.ok(entry.description.en && entry.description.el, 'a kind has a plain description in both languages');
+  // the tag colour of a status comes from its data (the screen helper no longer names a status)
+  assert.ok(!readSources().engine.some((fragment) => fragment.name === '10-screen-helpers.js' && /#a83a8a|#c07a1a|#2f7a5a/.test(fragment.text)), 'the screen helper has no status colour');
+});
+
+test('json-format: the writer is deterministic, keeps schema order, writes rows one per line and refuses what the schema does not know', () => {
+  const speciesSchema = KINDS.species.schema;
+  const messy = { learn: [[1, 'psifodeltio']], base: [46, 38, 44, 56, 48, 46], xp: 50, rec: 0, g: 'n', ab: 'asy', t: 'pol', n: 'Κομματάκι' };
+  const text = formatEntry(speciesSchema, messy);
+  assert.equal(text, '{\n  "n": "Κομματάκι",\n  "t": "pol",\n  "ab": "asy",\n  "g": "n",\n  "rec": 0,\n  "xp": 50,\n  "base": [46, 38, 44, 56, 48, 46],\n  "learn": [[1, "psifodeltio"]]\n}\n');
+  assert.equal(formatEntry(speciesSchema, JSON.parse(text)), text, 'writing what was written changes nothing');
+  assert.throws(() => formatEntry(speciesSchema, { ...messy, surprise: 1 }), /not a field/);
+  assert.throws(() => formatEntry(speciesSchema, { ...messy, xp: 'many' }), /does not fit its schema/);
+  const mark = formatEntry(KINDS.types.schema, readData(MIZAMON_ROOT).data.types.pol);
+  assert.ok(mark.includes('"mark": [\n    "..#..",\n    ".###.",'), 'a picture has one row per line');
+  assert.equal(formatJson(['a', 'b']), '[\n  "a",\n  "b"\n]\n', 'the top level is always indented (an index: one id per line)');
+  assert.equal(formatJson({ a: { b: { c: { d: 1 } } } }), '{\n  "a": {\n    "b": { "c": { "d": 1 } }\n  }\n}\n', 'a short object is on one line, a deeper one is indented');
+  assert.throws(() => formatJson({ a: NaN }), /NaN/);
+  assert.equal(fileIdProblem('komma'), null);
+  for (const bad of ['Komma', '1komma', 'nul', 'com3', 'lpt9', 'a-b', '', 'x'.repeat(33)]) assert.notEqual(fileIdProblem(bad), null, bad + ' is refused as an id');
+});
+
+test('DEV-02b parity: the DATA line of the page is the data folder, and the page holds it on one line with every "<" written as \\u003c', () => {
+  const { data } = readData(MIZAMON_ROOT);
+  sameJson(dataOfPage(html), data, 'the page holds the data of data/ (in index order)');
+  const lines = html.split(/\r?\n/);
+  const dataLine = lines.filter((line) => line.startsWith('const DATA = '));
+  assert.equal(dataLine.length, 1, 'one data line');
+  assert.ok(!dataLine[0].includes('<'), 'no "<" in the data line');
+  assert.ok(lines.filter((line) => line === '/*DATA-BEGIN*/').length === 1 && lines.filter((line) => line === '/*DATA-END*/').length === 1, 'the data markers are lines of their own, once');
+  assert.ok(lines.indexOf('// RULES-BEGIN') < lines.indexOf('/*DATA-BEGIN*/') && lines.indexOf('/*DATA-END*/') < lines.indexOf('// RULES-END'), 'the data is inside the rules block');
+});
+
+test('DEV-02b parity: every rules table equals the baseline, key order included (STRINGS by sorted entries, the old engine sound tables through the data)', () => {
+  const baseline = readBaselineFile('rules-tables.json');
+  const current = tableSnapshot(loadRulesWithInternals(html));
+  const names = Object.keys(baseline.tables);
+  assert.ok(names.length >= 60, 'the baseline has its tables: ' + names.length);
+  // The one intended difference in MAPS: the rival's later fights hid their NPC by a rule in npcVisible; the NPC has a hideFlag now.
+  // The baseline lists those NPCs (hidden by a flag that no NPC field named); the visibility test below proves who hides when.
+  const hiddenByRule = Object.entries(baseline.engineConstants.visibility.npcs).filter(([key, [, , changedBy]]) => changedBy.some((flag) => flag.startsWith('t_')) && baseline.tables.MAPS[key.split(':')[0]].npcs[Number(key.split(':')[1])].hideFlag === undefined);
+  assert.equal(hiddenByRule.length, 4, 'the rival of the routes 1, 4, 8 and 12 left by a rule of the code');
+  for (const [key] of hiddenByRule) {
+    const [mapId, index] = key.split(':');
+    const npc = current.MAPS[mapId].npcs[Number(index)];
+    assert.equal(npc.hideFlag, 't_' + npc.trainer, key + ' has the hideFlag of the old rule');
+    delete npc.hideFlag;
+  }
+  for (const name of names) {
+    if (name === 'STRINGS') {
+      // Two texts are new since the baseline: the words the engine and the shell typed (the notice heading and the map pill). Both say the same in the two languages.
+      const typedInTheCode = { 'title.satire': ['ΣΑΤΙΡΑ  /  SATIRE', 'ΣΑΤΙΡΑ  /  SATIRE'], 'map.pill': ['ΧΑΡΤΗΣ', 'ΧΑΡΤΗΣ'] };
+      for (const [key, texts] of Object.entries(typedInTheCode)) {
+        sameJson(current.STRINGS[key], texts, key + ' is what the code typed');
+        delete current.STRINGS[key];
+      }
+      assert.equal(Object.keys(current.STRINGS).length, Object.keys(baseline.tables.STRINGS).length, 'the number of texts');
+      sameJson(sortedEntries(current.STRINGS), sortedEntries(baseline.tables.STRINGS), 'STRINGS (sorted entries)');
+    } else if (name === 'STATUSES') {
+      // A status holds its behaviour (kind, numbers, tag colour) now; the baseline had the turns only. The behaviour test below pins the rest.
+      sameJson(Object.fromEntries(Object.entries(current.STATUSES).map(([id, status]) => [id, { turns: status.turns }])), baseline.tables.STATUSES, 'STATUSES (the turns)');
+    } else {
+      assert.ok(Object.hasOwn(current, name), name + ' is a table of the rules');
+      sameJson(current[name], baseline.tables[name], name);
+    }
+  }
+  // The sound tables were typed in the engine (src/engine/06-sound.js); they are data now, in the format of 13.10.
+  const data = dataOfPage(html);
+  const oldEffects = baseline.engineTables.SFX_PATTERNS;
+  const oldTunes = baseline.engineTables.MUSIC_TRACKS;
+  same(Object.keys(data.sounds), Object.keys(oldEffects), 'the sound effects, in order');
+  for (const [id, notes] of Object.entries(oldEffects)) {
+    sameJson(data.sounds[id].notes.map((note) => [note.freq, note.dur, note.wave, note.vol, note.at, ...(note.slideTo === undefined ? [] : [note.slideTo])]), notes, 'sound ' + id);
+  }
+  same(Object.keys(data.music), Object.keys(oldTunes), 'the tunes, in order');
+  for (const [id, track] of Object.entries(oldTunes)) {
+    const tune = data.music[id];
+    sameJson([tune.bpm, tune.patterns.a.notes[0], tune.patterns.a.notes[1]], [track.bpm, track.lead, track.bass], 'tune ' + id);
+    sameJson([tune.stepsPerBeat, tune.order, tune.loop, tune.channels.map((channel) => [channel.wave, channel.vol, channel.gate])], [2, ['a'], true, [['square', 0.045, 0.9], ['triangle', 0.09, 1.6]]], 'the channels of ' + id);
+  }
+});
+
+test('DEV-02b parity: what the old engine code named (title creatures, battle backgrounds, tunes, sounds, spots) is the same in data/game.json, and every NPC shows and hides under the same flags', () => {
+  const constants = readBaselineFile('rules-tables.json').engineConstants;
+  const data = dataOfPage(html);
+  assert.equal(constants.titleCreatureIds.length, 6, 'the baseline has the title creatures');
+  assert.equal(Object.keys(constants.battleThemes).length, Object.keys(data.maps).length, 'the baseline has the battle background of every map');
+  assert.equal(constants.sfxNames.length, 19, 'the baseline has the 19 sound names of the old engine');
+  same(engineConstantProblems(data, constants), [], 'the data names what the old code named');
+  sameJson(visibilityProbe(R, constants.visibility.flags), constants.visibility.npcs, 'who shows under which flag (no flag, every flag, each flag alone)');
+});
+
+test('DEV-02b parity: the check of those constants fails for a reordered title list, a changed battle background, boss tune, sound role or spot, and for an NPC that lost its hideFlag', () => {
+  const constants = readBaselineFile('rules-tables.json').engineConstants;
+  const data = dataOfPage(html);
+  const problemsAfter = (change) => {
+    const copy = JSON.parse(JSON.stringify(data));
+    change(copy);
+    return engineConstantProblems(copy, constants);
+  };
+  assert.match(problemsAfter((copy) => copy.game.titleCreatures.reverse()).join('\n'), /titleCreatures/, 'a reordered title list');
+  assert.match(problemsAfter((copy) => { copy.game.battleThemes.port = 'studio'; }).join('\n'), /battle background of port/, 'the port background');
+  assert.match(problemsAfter((copy) => { delete copy.game.battleThemes.studio; }).join('\n'), /battle background of studio/, 'a map that lost its background');
+  assert.match(problemsAfter((copy) => { copy.game.music.boss = 'battle'; }).join('\n'), /music roles/, 'the boss tune');
+  assert.match(problemsAfter((copy) => { copy.game.sounds.hit = 'weak'; }).join('\n'), /sound role hit/, 'a sound role');
+  assert.match(problemsAfter((copy) => { copy.game.finaleSpot.x = 5; }).join('\n'), /finaleSpot/, 'the finale spot');
+  // an NPC that no longer hides after its fight shows in the visibility probe
+  const maps = JSON.parse(JSON.stringify(R.MAPS));
+  for (const map of Object.values(maps)) for (const npc of map.npcs) if (npc.trainer === 'rival3') delete npc.hideFlag;
+  assert.notEqual(firstDifference(visibilityProbe({ MAPS: maps, npcVisible: R.npcVisible }, constants.visibility.flags), constants.visibility.npcs), null, 'a rival who stays on the map is found');
+});
+
+test('DEV-02b parity: the replay checksums (1,000 battles, every trainer for each starter, the encounter rolls) equal the baseline', () => {
+  const baseline = readBaselineFile('replay.json');
+  const current = replaySummary(R);
+  assert.equal(current.battles, 1000);
+  sameJson(current.seed2024, baseline.seed2024, 'the 1,000-battle sample of seed 2024');
+  sameJson(current.seed7, baseline.seed7, 'the sample of seed 7');
+  sameJson(current.encounters, baseline.encounters, 'the wild encounter rolls');
+  sameJson(current.trainers, baseline.trainers, 'a fight against every trainer');
+});
+
+test('DEV-02b parity: migrateSave gives the same saves as on the baseline (versions 0 to 3, every story point)', () => {
+  const baseline = readBaselineFile('migrated-saves.json');
+  const current = migratedSaves(R);
+  assert.ok(Object.keys(baseline).length >= 20, 'the baseline holds the saves');
+  sameJson(current, baseline, 'migrated saves');
+});
+
+test('DEV-02b parity: every call the sound code makes on a fake AudioContext (19 effects, four loops of 6 tunes) equals the baseline', () => {
+  const baseline = readBaselineFile('sound-calls.json');
+  const data = dataOfPage(html);
+  const soundSource = readFileSync(join(MIZAMON_ROOT, 'src', 'engine', '06-sound.js'), 'utf8');
+  const calls = soundCalls(soundSource, dataBlockOf(html), (id) => data.music[id].bpm, { effects: Object.keys(data.sounds), tunes: Object.keys(data.music) });
+  assert.equal(Object.keys(baseline).length, 25);
+  sameJson(calls, baseline, 'the call lists');
+  assert.ok(Object.values(calls).every((entry) => entry.calls > 0), 'every list has calls');
+});
+
+test('sound: a map whose tune was never written (the TV studio) plays nothing and the scheduler does not throw', () => {
+  const data = dataOfPage(html);
+  const { FakeAudioContext, log } = makeFakeAudio();
+  const timers = [];
+  const sandbox = { window: { AudioContext: FakeAudioContext }, setInterval: (fn) => { timers.push(fn); return timers.length; }, clearInterval: () => {} };
+  const soundSource = readFileSync(join(MIZAMON_ROOT, 'src', 'engine', '06-sound.js'), 'utf8');
+  const { Sound } = new vm.Script(`${dataBlockOf(html)}\nconst OPT = { sound: true };\n${soundSource}\n;({ Sound })`).runInNewContext(sandbox, { timeout: 10000 });
+  Sound.unlock();
+  Sound.play(data.maps.studio.music);
+  Sound.context.currentTime += 1;
+  assert.doesNotThrow(() => timers.forEach((tick) => tick()), 'the scheduler skips a tune that does not exist');
+  assert.equal(log.length, 0, 'and plays nothing');
+  Sound.play(data.game.music.title);
+  Sound.context.currentTime += 1;
+  timers.forEach((tick) => tick());
+  assert.ok(log.length > 0, 'a tune that exists plays');
+});
+
+test('DEV-02b parity: balance.mjs prints the same text as on the baseline', () => {
+  const baselineRuns = readBaselineFile('balance-runs.json').runs;
+  assert.equal(baselineRuns, BALANCE_RUNS, 'the same number of runs per row');
+  const expected = toLf(readFileSync(join(BASELINE_FOLDER, 'balance-output.txt'), 'utf8'));
+  const printed = toLf(balanceOutput(BALANCE_RUNS, MIZAMON_ROOT, process.env.MZ_HTML || null));
+  assert.equal(printed, expected, 'the balance output is byte for byte the baseline');
+});
+
+test('source scans: tests/baseline/source-scans.json holds the baseline scans, and a scan forced to match nothing fails its test', () => {
+  const baseline = readBaselineFile('source-scans.json');
+  assert.equal(baseline.baseline, '1cbc9d6');
+  assert.ok(baseline.scans.length > 600, 'the baseline has its scans: ' + baseline.scans.length);
+  for (const scan of baseline.scans) assert.ok(scan.test && scan.kind && typeof scan.pattern === 'string' && Number.isInteger(scan.ordinal) && Number.isInteger(scan.count), 'an entry is complete: ' + JSON.stringify(scan));
+  const testNames = new Set(tests.map((entry) => entry.name));
+  same([...new Set(baseline.scans.map((scan) => scan.test))].filter((name) => !testNames.has(name)), [], 'every baseline scan belongs to a test that still exists under the same name');
+  const positives = baseline.scans.filter((scan) => scan.count > 0).length;
+  assert.ok(positives > 300, 'most baseline scans found something: ' + positives);
+  // the check itself
+  const wanted = [{ test: 'a test', kind: 'includes', pattern: '"x"', ordinal: 0, count: 3 }];
+  const made = (count) => [{ test: 'a test', kind: 'includes', pattern: '"x"', count }];
+  same(checkScans('a test', made(3), wanted), [], 'a scan that finds its baseline count passes');
+  same(checkScans('a test', made(7), wanted), [], 'and one that finds more');
+  assert.match(checkScans('a test', made(0), wanted)[0], /matched 0, at least 3 is expected/, 'a scan that finds nothing fails');
+  assert.match(checkScans('a test', [], wanted)[0], /was not made/, 'a scan that was never made fails');
+  same(checkScans('a test', made(0), [{ ...wanted[0], count: 0 }]), [], 'a scan that found nothing on the baseline (a negative check) may find nothing');
+  same(checkScans('a test', made(0), [{ ...wanted[0], rewritten: 'reads DATA' }]), [], 'a rewritten scan without a count is checked by its test');
+  const counted = [{ ...wanted[0], count: 9, rewritten: 'a line count that fell', rewrittenCount: 3 }];
+  same(checkScans('a test', made(3), counted), [], 'a rewritten scan with a count passes at that count');
+  same(checkScans('a test', made(8), counted), [], 'and above it, even where it is below the baseline count');
+  assert.match(checkScans('a test', made(2), counted)[0], /matched 2, at least 3 is expected/, 'but not below it');
+  assert.match(checkScans('a test', [], counted)[0], /was not made \(rewritten 3\)/, 'and it must be made');
+  const rewrittenEntries = baseline.scans.filter((scan) => scan.rewritten);
+  assert.ok(rewrittenEntries.every((scan) => typeof scan.rewritten === 'string' && scan.rewritten.length > 10), 'a rewritten entry says why');
+  const lineCounts = rewrittenEntries.filter((scan) => scan.kind === 'split' && scan.pattern === '"\\n"');
+  assert.equal(lineCounts.length, 12, 'the 12 line counts of the page or of the engine part');
+  assert.ok(lineCounts.every((scan) => Number.isInteger(scan.rewrittenCount) && scan.rewrittenCount > 5000), 'each keeps the count it finds today');
+  // end to end: a real test of this file with one of its scans forced to find nothing fails, and passes without the forcing
+  const runChild = (forcePattern) => spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+    encoding: 'utf8', timeout: 120000,
+    env: { ...process.env, MZ_TEST_FILTER: '^Βουλή final path', MZ_FORCE_SCAN_ZERO: forcePattern },
+  });
+  const unforced = runChild('');
+  assert.equal(unforced.status, 0, 'the test passes without the forcing: ' + unforced.stdout + unforced.stderr);
+  const forced = runChild('bossVictory');
+  assert.equal(forced.status, 1, 'a scan forced to match nothing fails the run: ' + forced.stdout);
+  assert.match(forced.stdout, /source scan indexOf "OverworldLayer\.prototype\.bossVictory" matched 0, at least 1 is expected/, 'and the report names the scan');
+});
+
+test('data line: </script>, $&, $` and $\' in a data string round-trip, "<" is escaped, and the assembled page still parses', () => {
+  const { data } = readData(MIZAMON_ROOT);
+  const nasty = ['</script>', '$&', '$`', "$'", '$$', '<!--', '<script>x</script>', 'a\u2028b\u2029c', '</SCRIPT >', '\\u003c'];
+  const planted = cloneJson(data);
+  planted.strings.ui['ui.yes'].el = nasty.join(' | ');
+  planted.strings.ui['ui.yes'].en = nasty.join('\n');
+  const sources = readSources();
+  const page = assemblePage({ ...sources, data: dataBlockText(planted) });
+  const parsed = dataOfPage(page);
+  assert.equal(parsed.strings.ui['ui.yes'].el, nasty.join(' | '), 'the text comes out as it went in');
+  assert.equal(parsed.strings.ui['ui.yes'].en, nasty.join('\n'));
+  sameJson(parsed, planted, 'and so does all the rest');
+  const plainPage = assemblePage({ ...sources, data: dataBlockText(data) });
+  const count = (text, part) => text.split(part).length - 1;
+  for (const part of ['</script>', '<script', '<!--']) assert.equal(count(page, part), count(plainPage, part), `"${part}" appears as often as in the page without the nasty text`);
+  assert.equal(count(page, '</script>'), 1, 'the one script closes once');
+  const scriptStart = page.indexOf('<script>') + '<script>'.length;
+  const script = page.slice(scriptStart, page.indexOf('</script>', scriptStart));
+  assert.doesNotThrow(() => new vm.Script(script), 'the script of the assembled page parses');
+  assert.ok(script.includes('\\u003c/script>'), 'the </script> of the text is written with \\u003c');
+  // The assembler inserts the data as text, never through String.replace with a string (a replacement pattern would expand there).
+  assert.ok(!readFileSync(join(MIZAMON_ROOT, 'shared', 'assemble-core.mjs'), 'utf8').includes('.replace('), 'assemble-core.mjs never uses replace');
+});
+
+test('data markers: each marker text of 13.2 in a data string is a validation error and the assembler throws; the markers are whole lines', () => {
+  const { data } = readData(MIZAMON_ROOT);
+  same(markerTextFindings(data), [], 'the real data holds no marker text');
+  assert.ok(MARKER_TEXTS.includes('/*DATA-END*/') && MARKER_TEXTS.includes('// RULES-END') && MARKER_TEXTS.includes('/*@@') && MARKER_TEXTS.length === 5, 'the five marker texts of 13.2');
+  const sources = readSources();
+  for (const marker of [...MARKER_TEXTS, '/*@@RULES@@*/', '/*@@DATA@@*/', '/*@@ENGINE@@*/']) {
+    const planted = cloneJson(data);
+    planted.strings.ui['ui.yes'].en = `before ${marker} after`;
+    const findings = markerTextFindings(planted);
+    same(findings.map((finding) => [finding.severity, finding.rule, finding.kind, finding.id, finding.field]), [['error', 'marker-text', 'strings', 'ui', 'ui.yes.en']], marker);
+    const named = MARKER_TEXTS.find((text) => marker.includes(text));
+    assert.ok(findings[0].message.en.includes(named) && findings[0].message.el.includes(named), 'the message names the marker in both languages');
+    assert.throws(() => dataBlockText(planted), /marker text of the page: strings\/ui\.ui\.yes\.en/, marker + ' is refused by the assembler');
+    assert.throws(() => assemblePage({ ...sources, data: dataBlockText(planted) }), /marker text/, marker + ' never reaches the page');
+  }
+  const inKey = cloneJson(data);
+  inKey.maps.lab.signs['/*DATA-END*/'] = 'sign.lab';
+  assert.equal(markerTextFindings(inKey).length, 1, 'a key counts too');
+  const inList = cloneJson(data);
+  inList.events.rival1[4].keys.push('// RULES-BEGIN');
+  assert.equal(markerTextFindings(inList).length, 1, 'a text in a list counts too');
+  // The markers of the page are whole lines: a text that merely names a marker inside a line is not one, but a second marker line is.
+  const dataText = dataBlockText(data);
+  assert.throws(() => assemblePage({ ...sources, data: dataText + '/*DATA-END*/\n' }), /DATA-BEGIN\*\/ and \/\*DATA-END\*\/ must each be on a line of their own/);
+  assert.throws(() => assemblePage({ ...sources, data: dataText + dataText }), /must each be on a line of their own/);
+  assert.throws(() => assemblePage({ ...sources, data: '/*DATA-END*/\n/*DATA-BEGIN*/\n' }), /must come in this order/);
+  assert.equal(assemblePage({ ...sources, data: dataText }).split('\n').filter((line) => line === '/*DATA-BEGIN*/').length, 1);
+});
+
+test('the rules never call Math.random or Date: a content text such as "new Date" in the data is not code, the same text in code is', () => {
+  const { data } = readData(MIZAMON_ROOT);
+  const sources = readSources();
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(html)), 'the real page is clean');
+  const planted = cloneJson(data);
+  planted.strings.ui['ui.yes'].en = 'new Date(), Math.random(), Date.now() and performance.now() are content here';
+  const pageWithText = assemblePage({ ...sources, data: dataBlockText(planted) });
+  assert.ok(pageWithText.includes('new Date(), Math.random()'), 'the text is in the page');
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(pageWithText)), 'a content text in the data lines does not fail the test');
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(pageWithText.split('\n').join('\r\n'))), 'a CRLF page too');
+  for (const call of ['new Date()', 'Math.random()', 'Date.now()', 'performance.now()']) {
+    const rules = sources.rules.map((fragment, index) => (index === 0 ? { name: fragment.name, text: fragment.text + `const planted = ${call};\n` } : fragment));
+    const pageWithCode = assemblePage({ ...sources, rules, data: dataBlockText(planted) });
+    assert.ok(FORBIDDEN_RULES_CALLS.test(rulesCodeText(pageWithCode)), `${call} planted in code outside the data lines still fails`);
+  }
+  const commented = sources.rules.map((fragment, index) => (index === 0 ? { name: fragment.name, text: fragment.text + '// a comment may say Math.random\n' } : fragment));
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(assemblePage({ ...sources, rules: commented, data: dataBlockText(data) }))), 'a // comment is not a call');
+});
+
+// A copy of the data folder (and nothing else) for the data-version tests.
+function copyDataFolder(label, change) {
+  const folder = scratchFolder(label);
+  for (const relativePath of listDataPaths(MIZAMON_ROOT)) {
+    const target = join(folder, 'data', ...relativePath.split('/'));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, readFileSync(join(DATA_FOLDER, ...relativePath.split('/'))));
+  }
+  if (change) change(folder);
+  return folder;
+}
+const MIGRATE_DATA = join(MIZAMON_ROOT, 'tools', 'migrate-data.mjs');
+const runMigrate = (root, ...flags) => spawnSync(process.execPath, [MIGRATE_DATA, '--root', root, ...flags], { encoding: 'utf8', timeout: 120000 });
+const setDataVersion = (root, version) => {
+  const gamePath = join(root, 'data', 'game.json');
+  writeFileSync(gamePath, readFileSync(gamePath, 'utf8').replace(/"dataVersion": \d+/, `"dataVersion": ${version}`));
+};
+
+test('data version: game.json holds dataVersion 1, migrate-data --check passes on the data, data with a newer dataVersion is refused', () => {
+  assert.equal(readData(MIZAMON_ROOT).data.game.dataVersion, 1);
+  assert.equal(dataVersionProblem(DATA_VERSION), null);
+  const checked = runMigrate(MIZAMON_ROOT, '--check');
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  assert.match(checked.stdout, /data version 1 is current; \d+ files, all as the writer writes them/);
+  const newer = copyDataFolder('data-newer', (folder) => setDataVersion(folder, DATA_VERSION + 1));
+  try {
+    assert.throws(() => readData(newer), (error) => error instanceof DataError && /newer than this code knows/.test(error.message));
+    for (const flags of [['--check'], []]) {
+      const refused = runMigrate(newer, ...flags);
+      assert.equal(refused.status, 1, 'migrate-data refuses newer data ' + flags.join(' '));
+      assert.match(refused.stderr, /version 2, newer than this code knows \(version 1\)/);
+    }
+    assert.equal(readFileSync(join(newer, 'data', 'game.json'), 'utf8').includes('"dataVersion": 2'), true, 'and changes nothing');
+  } finally {
+    rmSync(newer, { recursive: true, force: true });
+  }
+  // the page is not assembled from newer data either (the assembler, the server and the tests share the refusal)
+  const copy = scratchFolder('data-newer-assemble');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, copy);
+    setDataVersion(copy, DATA_VERSION + 1);
+    assert.throws(() => assembleFromDisk(copy), /newer than this code knows/);
+    const assembled = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', copy, '--out', join(copy, 'page.html')], { encoding: 'utf8' });
+    assert.equal(assembled.status, 1, 'tools/assemble.mjs refuses it too');
+    assert.match(assembled.stderr, /newer than this code knows/);
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+test('data version: older data is told to migrate, a migration step moves the old shape through the one writer, a changed file is rewritten and --check says so', () => {
+  const older = copyDataFolder('data-older', (folder) => setDataVersion(folder, DATA_VERSION - 1));
+  try {
+    assert.throws(() => readData(older), (error) => error instanceof DataError && /older than this code needs.*node Mizamon\/tools\/migrate-data\.mjs/.test(error.message));
+    const noStep = runMigrate(older);
+    assert.equal(noStep.status, 1, 'there is no step from version 0');
+    assert.match(noStep.stderr, /no migration step from data version 0/);
+    // A step of a fixture: version 0 had "maxLvl", version 1 has "maxLevel". The step runs on the data read without the version check.
+    const gamePath = join(older, 'data', 'game.json');
+    writeFileSync(gamePath, readFileSync(gamePath, 'utf8').replace('"maxLevel"', '"maxLvl"'));
+    const steps = { 0: (data) => { data.game.maxLevel = data.game.maxLvl; delete data.game.maxLvl; return data; } };
+    assert.throws(() => migrateData(older, { check: true, steps }), /older: run without --check/);
+    const migrated = migrateData(older, { steps });
+    assert.equal(migrated.from, 0);
+    assert.equal(migrated.to, DATA_VERSION);
+    sameJson(readData(older).data, readData(MIZAMON_ROOT).data, 'the migrated data is the data of today');
+    const afterwards = runMigrate(older, '--check');
+    assert.equal(afterwards.status, 0, afterwards.stdout + afterwards.stderr);
+    // a file that is not what the writer writes (here: 4 spaces) is a problem for --check and is rewritten without it
+    const itemPath = join(older, 'data', 'items', 'fakelaki.json');
+    writeFileSync(itemPath, JSON.stringify(JSON.parse(readFileSync(itemPath, 'utf8')), null, 4) + '\n');
+    const unclean = runMigrate(older, '--check');
+    assert.equal(unclean.status, 1);
+    assert.match(unclean.stderr, /items\/fakelaki\.json is not what the writer writes/);
+    const rewritten = runMigrate(older);
+    assert.equal(rewritten.status, 0, rewritten.stdout + rewritten.stderr);
+    assert.equal(runMigrate(older, '--check').status, 0, 'rewritten, it passes');
+    // a file that is in no index, and an index line without a file, are refused
+    writeFileSync(join(older, 'data', 'items', 'stray.json'), '{}\n');
+    assert.equal(runMigrate(older, '--check').status, 1, 'a file that no index lists');
+    assert.throws(() => readData(older), /stray\.json is not in items\/index\.json/);
+  } finally {
+    rmSync(older, { recursive: true, force: true });
+  }
+});
+
+// ---- The engine names no content: every content id and string key in the code is pinned (reference 13.12) ----
+// The fragments the literal-id scan leaves out: the in-page checks name content on purpose, and the art is DEV-07's.
+const LITERAL_SCAN_SKIPPED = ['engine/01-art.js', 'engine/90-selftest.js', 'engine/90a-selftest-accessibility.js'];
+function contentIdsOfData(data) {
+  const ids = {
+    species: Object.keys(data.species), move: Object.keys(data.moves), item: Object.keys(data.items), trainer: Object.keys(data.trainers), map: Object.keys(data.maps),
+    type: Object.keys(data.types), ability: Object.keys(data.abilities), status: Object.keys(data.statuses), district: Object.keys(data.districts), shop: Object.keys(data.shops),
+    event: Object.keys(data.events), sound: Object.keys(data.sounds), music: Object.keys(data.music),
+    place: Object.values(data.districts).flatMap((district) => Object.keys(district.places)), route: Object.values(data.districts).flatMap((district) => Object.keys(district.routes)),
+  };
+  return Object.fromEntries(Object.entries(ids).map(([kind, list]) => [kind, new Set(list)]));
+}
+// The code the literal scan reads: [{ file, code }] without the skipped fragments and without // comments.
+function scannedFragments(sources) {
+  const fragments = [];
+  for (const [kind, list] of [['rules', sources.rules], ['engine', sources.engine]]) {
+    for (const fragment of list) {
+      const file = `${kind}/${fragment.name}`;
+      if (LITERAL_SCAN_SKIPPED.includes(file)) continue;
+      fragments.push({ file, code: toLf(fragment.text).split('\n').map((line) => line.replace(/\/\/.*$/, '')).join('\n') });
+    }
+  }
+  return fragments;
+}
+// [{ literal, file, kinds: [kinds it is an id of], isStringKey }] for every quoted literal of the code that is a content id or a string key.
+function contentLiteralsOfSource(data, sources = readSources()) {
+  const idSets = contentIdsOfData(data);
+  const stringKeys = new Set(Object.values(data.strings).flatMap((group) => Object.keys(group)));
+  const found = new Map();
+  for (const { file, code } of scannedFragments(sources)) {
+    for (const match of code.matchAll(/(['"])([A-Za-z0-9_.]+)\1/g)) {
+      const literal = match[2];
+      const kinds = Object.entries(idSets).filter(([, set]) => set.has(literal)).map(([idKind]) => idKind);
+      const isStringKey = stringKeys.has(literal);
+      if (kinds.length === 0 && !isStringKey) continue;
+      found.set(`${file}\u0000${literal}`, { literal, file, kinds, isStringKey });
+    }
+  }
+  return [...found.values()];
+}
+
+test('src/: no content id or string key is a literal in the code unless engine-pinned.json pins it (the pinned ids, the UI text groups, the words that are not ids)', () => {
+  const data = readData(MIZAMON_ROOT).data;
+  const pinned = JSON.parse(readFileSync(join(MIZAMON_ROOT, 'src', 'engine-pinned.json'), 'utf8'));
+  const literals = contentLiteralsOfSource(data);
+  assert.ok(literals.length > 40, 'the scan finds the literals: ' + literals.length);
+  const covers = (entry, literal) => entry.files.includes(literal.file);
+  const unpinned = [];
+  const seenPins = new Set();
+  const seenWords = new Set();
+  const seenKeys = new Set();
+  for (const literal of literals) {
+    if (literal.isStringKey) {
+      const group = literal.literal.split('.')[0];
+      if (pinned.uiStringGroups.includes(group)) continue;
+      const key = pinned.stringKeys.find((entry) => entry.key === literal.literal && covers(entry, literal));
+      if (key) { seenKeys.add(`${key.key}\u0000${literal.file}`); continue; }
+    }
+    const pin = pinned.ids.find((entry) => entry.id === literal.literal && literal.kinds.includes(entry.kind) && covers(entry, literal));
+    if (pin) { seenPins.add(`${pin.kind}:${pin.id}\u0000${literal.file}`); continue; }
+    const word = pinned.notContentIds.find((entry) => entry.literal === literal.literal && covers(entry, literal));
+    if (word) { seenWords.add(`${word.literal}\u0000${literal.file}`); continue; }
+    unpinned.push(`${literal.literal} (${literal.kinds.join(', ') || 'string key'}) in ${literal.file}`);
+  }
+  same(unpinned, [], 'content named in the code that is neither in data (game.json and the data fields) nor in src/engine-pinned.json');
+  // The pins may not go stale: every pinned id exists, and is still named in every file it lists.
+  for (const pin of pinned.ids) {
+    assert.ok(contentIdsOfData(data)[pin.kind]?.has(pin.id), `pinned ${pin.kind} ${pin.id} exists in the data`);
+    assert.ok(pin.why, `pinned ${pin.kind} ${pin.id} says why`);
+    for (const file of pin.files) assert.ok(seenPins.has(`${pin.kind}:${pin.id}\u0000${file}`), `${pin.id} is no longer a literal of ${file}: remove it from engine-pinned.json`);
+  }
+  for (const entry of pinned.notContentIds) {
+    assert.ok(entry.why, `${entry.literal} says why it is not an id`);
+    for (const file of entry.files) assert.ok(seenWords.has(`${entry.literal}\u0000${file}`), `${entry.literal} is no longer a literal of ${file}: remove it from engine-pinned.json`);
+  }
+  for (const entry of pinned.stringKeys) {
+    assert.ok(Object.values(data.strings).some((group) => Object.hasOwn(group, entry.key)), `pinned text ${entry.key} exists`);
+    for (const file of entry.files) assert.ok(seenKeys.has(`${entry.key}\u0000${file}`), `${entry.key} is no longer named in ${file}`);
+  }
+  for (const group of pinned.uiStringGroups) assert.ok(Object.hasOwn(data.strings, group), `the text group ${group} exists`);
+  // What moved out of the code in DEV-02b is no longer in it: the rival scene, the finale spot, the title creatures, the start species.
+  const allCode = scannedFragments(readSources()).map((fragment) => fragment.code).join('\n');
+  for (const gone of ["'rival1'", "'parliament_roof'", "x: 4, y: 6", "'rival2'", "'rival5'"]) assert.ok(!allCode.includes(gone), `${gone} is not in the code any more`);
+  // The scan sees a planted id: one more literal in a fragment is found.
+  const planted = readSources();
+  planted.engine = planted.engine.map((fragment) => (fragment.name === '15-flow.js' ? { ...fragment, text: fragment.text + "const planted = 'komma';\n" } : fragment));
+  assert.ok(contentLiteralsOfSource(data, planted).some((entry) => entry.literal === 'komma' && entry.file === 'engine/15-flow.js'), 'a planted species id is found by the scan');
+});
+
+test('src/: nothing depends on the order of the keys of STRINGS (the groups of the data reorder them), and no code iterates it', () => {
+  const iteration = /\b(?:Object\.(?:keys|values|entries)\(\s*STRINGS\b|for\s*\([^)]*\bin\s+STRINGS\b)/;
+  for (const [kind, fragments] of [['rules', readSources().rules], ['engine', readSources().engine]]) {
+    for (const fragment of fragments) {
+      if (['engine/90-selftest.js', 'engine/90a-selftest-accessibility.js'].includes(`${kind}/${fragment.name}`)) continue; // the in-page checks look at every text, in any order
+      assert.ok(!iteration.test(fragment.text), `${kind}/${fragment.name} iterates STRINGS`);
+    }
+  }
+  assert.equal(Object.keys(R.STRINGS).length, Object.values(dataOfPage(html).strings).reduce((sum, group) => sum + Object.keys(group).length, 0));
+});
+
+test('events: rival1 is a step list in data/events/rival1.json, the trigger names it, and the event runner knows every step it uses', () => {
+  const data = readData(MIZAMON_ROOT).data;
+  const steps = data.events.rival1;
+  const stepNames = new Set();
+  const collect = (list) => { for (const step of list) { stepNames.add(step.step); for (const branch of ['onWin', 'onLose', 'onRan']) if (step[branch]) collect(step[branch]); } };
+  collect(steps);
+  same([...stepNames].sort(), ['battle', 'builtin', 'end', 'evolutions', 'remove', 'say', 'setFlag', 'sfx', 'spawn', 'walk']);
+  const runner = enginePart.slice(enginePart.indexOf('OverworldLayer.prototype.runEventStep'), enginePart.indexOf('OverworldLayer.prototype.draw = function'));
+  for (const name of stepNames) assert.ok(runner.includes(`case '${name}'`), `the runner has a case for ${name}`);
+  assert.ok(runner.includes('event step not supported'), 'a step it does not know stops the event');
+  assert.ok(data.maps.town.triggers.some((trigger) => trigger.event === 'rival1' && trigger.flag === 'rival1'), 'the trigger tile of the town runs it');
+  assert.ok(R.TRAINERS.rival1 && data.trainers.rival1, 'the fight itself is the trainer rival1');
+  sameJson(eventStringKeys(steps), ['rival1.intro1', 'rival1.intro2', 'rival1.lose', 'rival1.win'], 'the texts of the scene');
+  for (const key of eventStringKeys(steps)) assert.ok(R.STRINGS[key], key);
+  assert.ok(!enginePart.includes("'rival1'"), 'the engine code does not name the scene');
+});
+
+test('game.json roles: every SOUNDS.x and MUSIC.x the code reads is a role, every role names a sound or a tune of the data, and the code reads only game.json fields that exist', () => {
+  const { game, sounds, music, maps, species } = readData(MIZAMON_ROOT).data;
+  const code = scannedFragments(readSources()).map((fragment) => fragment.code).join('\n') + '\n' + LITERAL_SCAN_SKIPPED.filter((file) => file !== 'engine/01-art.js').map((file) => toLf(readFileSync(join(MIZAMON_ROOT, 'src', file), 'utf8'))).join('\n');
+  const used = (name) => [...new Set([...code.matchAll(new RegExp(`\\b${name}\\.([A-Za-z]+)`, 'g')).map((match) => match[1])])].sort();
+  const usedSounds = used('SOUNDS');
+  assert.ok(usedSounds.length >= 15, 'the scan finds the sound roles: ' + usedSounds.length);
+  for (const role of usedSounds) assert.ok(Object.hasOwn(game.sounds, role), `SOUNDS.${role} is a role of game.json`);
+  for (const role of used('MUSIC')) assert.ok(Object.hasOwn(game.music, role), `MUSIC.${role} is a role of game.json`);
+  for (const [role, id] of Object.entries(game.sounds)) assert.ok(Object.hasOwn(sounds, id), `the sound role ${role} names the sound ${id}`);
+  for (const [role, id] of Object.entries(game.music)) assert.ok(Object.hasOwn(music, id), `the music role ${role} names the tune ${id}`);
+  for (const id of Object.values(game.battleThemes ?? {})) assert.ok(['studio', 'sea', 'grass'].includes(id), 'a known battle background');
+  for (const mapId of Object.keys(game.battleThemes)) assert.ok(Object.hasOwn(maps, mapId), `the battle background of ${mapId}`);
+  for (const id of game.titleCreatures) assert.ok(Object.hasOwn(species, id), `the title creature ${id}`);
+  for (const field of used('DATA\\.game')) assert.ok(Object.hasOwn(game, field), `DATA.game.${field} exists`);
+  // The TV studio names a tune that was never written (it was silent before DEV-02b too): the sound code skips it, and the validation of
+  // DEV-02c reports it. No other map may name a tune that does not exist.
+  const neverWrittenTunes = ['studio'];
+  for (const id of Object.values(maps).map((map) => map.music)) assert.ok(Object.hasOwn(music, id) || neverWrittenTunes.includes(id), `the map tune ${id}`);
+  for (const id of neverWrittenTunes) assert.ok(!Object.hasOwn(music, id) && Object.values(maps).some((map) => map.music === id), `${id} is still a missing tune that a map names`);
+  // every sound the data has is played by a role or by an event step, and every tune by a role or a map
+  const playedSounds = new Set([...Object.values(game.sounds), 'alert']);
+  for (const id of Object.keys(sounds)) assert.ok(playedSounds.has(id), `the sound ${id} has a role`);
+  const playedTunes = new Set([...Object.values(game.music), ...Object.values(maps).map((map) => map.music)]);
+  for (const id of Object.keys(music)) assert.ok(playedTunes.has(id), `the tune ${id} is a role or a map's tune`);
+});
+
+
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();
 function runAll() {
@@ -5073,15 +5861,36 @@ if (only && selected.length === 0) {
   console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
   process.exit(1);
 }
+const recordPath = process.env.MZ_RECORD_SCANS || null;
+const recorded = [];
 for (const { name, fn } of selected) {
+  let failure = null;
+  scanTestName = name;
+  scanLog.length = 0;
   try {
     fn();
+  } catch (error) {
+    failure = error;
+  }
+  const scans = scanLog.slice();
+  scanTestName = null;
+  recorded.push(...scans);
+  if (!recordPath) {
+    const problems = checkScans(name, scans, loadScanBaseline(), failure !== null);
+    if (problems.length > 0) failure = new Error((failure ? String(failure.message || failure) + '\n' : '') + problems.join('\n'));
+  }
+  if (failure) {
+    failures.push({ name, error: failure });
+    console.log('FAIL ' + name + '\n     ' + String(failure && failure.message ? failure.message : failure).split('\n').join('\n     '));
+  } else {
     passed++;
     console.log('ok   ' + name);
-  } catch (error) {
-    failures.push({ name, error });
-    console.log('FAIL ' + name + '\n     ' + String(error && error.message ? error.message : error).split('\n').join('\n     '));
   }
+}
+if (recordPath) {
+  const entries = numberScans(recorded).map((scan) => ({ test: scan.test, kind: scan.kind, pattern: scan.pattern, ordinal: scan.ordinal, count: scan.count }));
+  mkdirSync(dirname(recordPath), { recursive: true });
+  writeFileSync(recordPath, JSON.stringify({ scans: entries }, null, 0).split('},{').join('},\n{') + '\n');
 }
 console.log('PASS ' + passed + ' / ' + selected.length);
 if (failures.length > 0) process.exit(1);

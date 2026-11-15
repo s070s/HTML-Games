@@ -1,0 +1,512 @@
+{
+  "tr.phoebe.intro": {
+    "el": "Γεια σας, φίλοι μου! Σήμερα κάνουμε unboxing... ΜΑΧΗ! Μην ξεχάσετε το like!",
+    "en": "Hi friends! Today we do an unboxing... BATTLE! Do not forget to like!"
+  },
+  "tr.phoebe.win": { "el": "Θα το μοντάρω αλλιώς. Θα φαίνεται ότι κέρδισα.", "en": "I will edit it differently. It will look like I won." },
+  "tr.phoebe.after": { "el": "Έχασα ακολούθους. Αλλά όχι αυτούς που αγόρασα.", "en": "I lost followers. Not the ones I bought, though." },
+  "tr.stelios.intro": {
+    "el": "Έλεγχος ταυτότητας! Για λόγους ασφαλείας. Μόνο τα δικά σου χαρτιά.",
+    "en": "ID check! For security reasons. Only your papers."
+  },
+  "tr.stelios.win": {
+    "el": "Ήταν άσκηση ετοιμότητας. Δεν έγινε τίποτα. Αρχειοθετείται.",
+    "en": "That was a readiness exercise. Nothing happened. Filed away."
+  },
+  "tr.stelios.after": { "el": "Δεν υπήρξε περιστατικό. Κυκλοφορήστε.", "en": "There was no incident. Move along." },
+  "tr.takis.intro": {
+    "el": "Στο πάλκο, {φίλε|φίλη}! Το μπουζούκι θέλει φωνή και ο κόσμος θέλει ψυχή.",
+    "en": "To the stage, friend! The bouzouki wants a voice and the crowd wants a soul."
+  },
+  "tr.takis.win": {
+    "el": "Το τραγούδι ήταν καλύτερο από τη μάχη. Πάντα είναι.",
+    "en": "The song was better than the fight. It always is."
+  },
+  "tr.takis.after": { "el": "Αύριο παίζω στην Τρούμπα. Αν με θυμηθούν.", "en": "Tomorrow I play in Troumpa. If they remember me." },
+  "tr.rival2.intro": {
+    "el": "Α, εσύ πάλι! Ο θείος μου ο υπουργός είπε να σε νικήσω. Δεν τον ρώτησα πώς.",
+    "en": "Oh, you again! My uncle the minister told me to beat you. I did not ask him how."
+  },
+  "tr.rival2.win": {
+    "el": "Θα τηλεφωνήσω σε κάποιον. Αυτό δεν μετράει! Αυτό δεν μετράει!",
+    "en": "I will call someone. This does not count! This does not count!"
+  },
+  "tr.rival2.after": { "el": "Ο Μπέμπης έφυγε. Κάποιος του τηλεφώνησε.", "en": "Bebis left. Someone called him." },
+  "tr.kotsos.intro": {
+    "el": "Καλώς ήρθες στο Λιμεναρχείο. Το λιμάνι είναι δικό μου... αυτή τη σεζόν. Να δούμε τι ομάδα έχεις, {ανιψιέ|ανιψιά}.",
+    "en": "Welcome to the Harbour Office. The port is mine... this season. Let us see what team you have, nephew."
+  },
+  "tr.kotsos.win": {
+    "el": "Ε, μπράβο. Θα πουλήσω ξανά το λιμάνι για να το γιορτάσω.",
+    "en": "Well, congratulations. I will sell the port again to celebrate."
+  },
+  "tr.kotsos.after": {
+    "el": "Το λιμάνι είναι πουλημένο. Ξανά. Να προσέχεις στον δρόμο.",
+    "en": "The port is sold. Again. Take care on the road."
+  },
+  "tr.host.intro": {
+    "el": "Καλησπέρα και καλώς ήρθατε στην εκπομπή «Όλοι Μαζί, Κανείς Μόνος»! Απόψε: ΕΣΥ εναντίον των καλεσμένων μου. Παίζουμε ζωντανά, δηλαδή ηχογραφημένα!",
+    "en": "Good evening and welcome to the show \"All Together, No One Alone\"! Tonight: YOU against my guests. We play live, meaning recorded!"
+  },
+  "tr.host.win": {
+    "el": "Και κόβουμε για διαφημίσεις. Μείνετε μαζί μας. Δεν έχετε άλλη επιλογή.",
+    "en": "And we cut to a commercial break. Stay with us. You have no other choice."
+  },
+  "tr.host.after": {
+    "el": "Η εκπομπή συνεχίζεται. Όπως και τα ρέστα του καναλιού.",
+    "en": "The show goes on. So does the channel's budget."
+  },
+  "tr.fan.intro": {
+    "el": "Δύο γήπεδα, μία έδρα και κανένας διαιτητής. Έλα να παίξουμε!",
+    "en": "Two grounds, one home ground and no referee. Come, let us play!"
+  },
+  "tr.fan.win": { "el": "Άδικο! Ο διαιτητής ήταν στο ντουλάπι.", "en": "Unfair! The referee was in the cupboard." },
+  "tr.fan.after": {
+    "el": "Την άλλη εβδομάδα παίζουμε εντός έδρας. Ή εκτός. Ό,τι βγει.",
+    "en": "Next week we play at home. Or away. Whatever comes out."
+  },
+  "tr.ferrysailor.intro": {
+    "el": "Το πλοίο φεύγει σε είκοσι λεπτά! Μέχρι τότε, μια μάχη;",
+    "en": "The ferry leaves in twenty minutes! Until then, a battle?"
+  },
+  "tr.ferrysailor.win": { "el": "Έχασα το πλοίο. Δεν πειράζει, έφυγε χθες.", "en": "I missed the ferry. No matter, it left yesterday." },
+  "tr.ferrysailor.after": { "el": "Το πλοίο έφυγε πριν. Πάντα φεύγει πριν.", "en": "The ferry left earlier. It always does." },
+  "tr.lifeguard.intro": {
+    "el": "Η παραλία είναι δωρεάν! Μόνο η σκιά χρεώνεται. Έλα να τα πούμε.",
+    "en": "The beach is free! Only the shade is charged. Come, let us talk."
+  },
+  "tr.lifeguard.win": {
+    "el": "Έχασα. Θα γράψω στην αναφορά ότι έσωσα εγώ εσένα.",
+    "en": "I lost. I will write in the report that I saved you."
+  },
+  "tr.lifeguard.after": {
+    "el": "Η σημαία είναι πράσινη. Χθες ήταν ό,τι χρώμα είχε ο χορηγός.",
+    "en": "The flag is green. Yesterday it was whatever colour the sponsor had."
+  },
+  "tr.sunbedseller.intro": {
+    "el": "Μία ξαπλώστρα, ένα Φακελάκι. Και μία μάχη για το ρέστο.",
+    "en": "One sunbed, one Φακελάκι. And a battle for the change."
+  },
+  "tr.sunbedseller.win": {
+    "el": "Μου χαλάς τον τζίρο. Ποιος θα πληρώσει την ομπρέλα;",
+    "en": "You are ruining my turnover. Who will pay for the parasol?"
+  },
+  "tr.sunbedseller.after": { "el": "Η ξαπλώστρα είναι δική σου. Ο ήλιος, όχι.", "en": "The sunbed is yours. The sun is not." },
+  "tr.conductor.intro": { "el": "Το εισιτήριο, παρακαλώ! Δεν έχεις; Έχουμε μάχη.", "en": "Your ticket, please! None? Then we have a battle." },
+  "tr.conductor.win": { "el": "Ακυρώνεται το εισιτήριο. Και η μάχη.", "en": "The ticket is cancelled. So is the battle." },
+  "tr.conductor.after": { "el": "Το τραμ ήρθε. Άργησε μόνο τρεις ώρες. Ρεκόρ.", "en": "The tram came. It was only three hours late. A record." },
+  "tr.golfer.intro": {
+    "el": "Η έκταση είναι τεράστια και άδεια. Ιδανική για μία τρύπα και μία μάχη.",
+    "en": "The land is huge and empty. Ideal for one hole and one battle."
+  },
+  "tr.golfer.win": { "el": "Η μπάλα χάθηκε. Μαζί με τη μισή μου περιουσία.", "en": "The ball is lost. Together with half my estate." },
+  "tr.golfer.after": {
+    "el": "Παίζω εδώ από πριν αρχίσουν να χτίζουν. Και από πριν σταματήσουν.",
+    "en": "I have played here since before they built. And before they stopped."
+  },
+  "tr.surfer.intro": {
+    "el": "Πρόσεξε το φόντο! Αύριο έχω ανάρτηση με χορηγό. Μπορώ να σε βάλω στο καρέ;",
+    "en": "Mind the background! Tomorrow I have a sponsored post. May I put you in the frame?"
+  },
+  "tr.surfer.win": { "el": "Εσύ βγήκες καλύτερα στη φωτογραφία. Αδικία.", "en": "You came out better in the photo. Unfair." },
+  "tr.surfer.after": { "el": "Η ανάρτηση ανέβηκε. Το φίλτρο το έφτιαξε ο ήλιος.", "en": "The post is up. The sun made the filter." },
+  "tr.skipper.intro": {
+    "el": "Το σκάφος δεν είναι δικό μου. Ούτε το λιμάνι. Η μάχη, ναι.",
+    "en": "The boat is not mine. Neither is the harbour. The battle is."
+  },
+  "tr.skipper.win": { "el": "Βυθίστηκα. Δεν πειράζει, το σκάφος δεν ήταν δικό μου.", "en": "I sank. No matter, the boat was not mine." },
+  "tr.skipper.after": { "el": "Ο ιδιοκτήτης λείπει. Όπως πάντα.", "en": "The owner is away. As always." },
+  "tr.rival3.intro": {
+    "el": "Εσύ ξανά! Ο θείος μου έφερε εξέλιξη. Με απευθείας ανάθεση.",
+    "en": "You again! My uncle got me an evolution. By direct assignment."
+  },
+  "tr.rival3.win": {
+    "el": "Θα τηλεφωνήσω ξανά. Αυτή τη φορά σε υψηλότερο όροφο.",
+    "en": "I will call again. This time to a higher floor."
+  },
+  "tr.rival3.after": { "el": "Ο Μπέμπης έφυγε. Πήρε το ασανσέρ προς τα πάνω.", "en": "Bebis left. He took the lift up." },
+  "tr.bougatsas.intro": {
+    "el": "Καλώς ήρθες στη Μεγάλη Προκυμαία. Εδώ κάθε συζήτηση τελειώνει στο γέμισμα της μπουγάτσας. Τα δικά μου τρώνε μπουγάτσα με διπλή κρέμα. Κάτσε, {ανιψιέ|ανιψιά}.",
+    "en": "Welcome to the Great Waterfront. Here every talk ends at the filling of the bougatsa. Mine eat bougatsa with double cream. Sit down, nephew."
+  },
+  "tr.bougatsas.win": {
+    "el": "Ωραία. Το Παράσημο είναι δικό σου. Η μπουγάτσα όμως είναι δική μου.",
+    "en": "Fine. The medal is yours. The bougatsa, though, is mine."
+  },
+  "tr.bougatsas.after": {
+    "el": "Η συζήτηση συνεχίζεται. Δεν θα καταλήξει πουθενά, αλλά με άχνη ζάχαρη.",
+    "en": "The talk goes on. It will end nowhere, but with powdered sugar."
+  },
+  "tr.pilgrim.intro": {
+    "el": "Ανεβαίνω την ανηφόρα με τα πόδια. Να σε ανεβάσω και εσένα σε μια μάχη;",
+    "en": "I climb the slope on foot. May I take you up for a battle too?"
+  },
+  "tr.pilgrim.win": { "el": "Έχασα. Θα το πω σιωπηλά.", "en": "I lost. I will say it in silence." },
+  "tr.pilgrim.after": {
+    "el": "Η στροφή είναι ακόμα μπροστά. Και η επόμενη. Και η επόμενη.",
+    "en": "The bend is still ahead. And the next. And the next."
+  },
+  "tr.customs.intro": {
+    "el": "Έλεγχος! Έχεις κάτι να δηλώσεις; Εκτός από ένα Φακελάκι;",
+    "en": "Checkpoint! Anything to declare? Besides a Φακελάκι?"
+  },
+  "tr.customs.win": { "el": "Περνάς. Η σφραγίδα όμως είναι του χορηγού.", "en": "You may pass. The stamp is the sponsor's, though." },
+  "tr.customs.after": {
+    "el": "Επόμενος! Η ουρά δεν τελειώνει. Ούτε ο έλεγχος.",
+    "en": "Next! The queue does not end. Neither does the check."
+  },
+  "tr.tourist.intro": {
+    "el": "Στάσου στο φόντο! Θέλω ένα βίντεο με μάχη για τους ακολούθους μου.",
+    "en": "Stand in the background! I want a battle video for my followers."
+  },
+  "tr.tourist.win": { "el": "Το βίντεο δεν ανέβηκε. Κέρδισες εσύ τα «μου αρέσει».", "en": "The video did not go up. You won the likes." },
+  "tr.tourist.after": {
+    "el": "Φωτογράφισα τη στροφή. Δεν είχε χορηγό. Θα τη σβήσω.",
+    "en": "I photographed the bend. It had no sponsor. I will delete it."
+  },
+  "tr.vineyard.intro": {
+    "el": "Τα αμπέλια είναι δικά μου. Οι πινακίδες στα αμπέλια, του χορηγού. Μια μάχη;",
+    "en": "The vines are mine. The signs among the vines belong to the sponsor. A battle?"
+  },
+  "tr.vineyard.win": { "el": "Έχασα. Το κρασί βγήκε χωρίς ετικέτα.", "en": "I lost. The wine came out without a label." },
+  "tr.vineyard.after": {
+    "el": "Ο τρύγος ήρθε νωρίς. Χθες. Το ζήτησε ο χορηγός.",
+    "en": "The harvest came early. Yesterday. The sponsor asked for it."
+  },
+  "tr.cryptoseller.intro": {
+    "el": "Έχω μια ευκαιρία! Αγόρασε σήμερα, θα αξίζει πολλά... μεθαύριο. Ή μια μάχη;",
+    "en": "I have an opportunity! Buy today, it will be worth a lot... the day after. Or a battle?"
+  },
+  "tr.cryptoseller.win": { "el": "Έπεσε η τιμή. Και η εμπιστοσύνη μου στη μάχη.", "en": "The price fell. So did my trust in the battle." },
+  "tr.cryptoseller.after": { "el": "Η ευκαιρία έφυγε. Ήταν χορηγούμενη.", "en": "The opportunity left. It was sponsored." },
+  "tr.spotter.intro": {
+    "el": "Μισό λεπτό, φωτογραφίζω ένα αεροπλάνο. Μια μάχη στο ενδιάμεσο;",
+    "en": "One minute, I am photographing a plane. A battle in between?"
+  },
+  "tr.spotter.win": { "el": "Έχασα και το αεροπλάνο και τη μάχη.", "en": "I lost the plane and the battle." },
+  "tr.spotter.after": { "el": "Πέρασε ένα αεροπλάνο. Δεν είχε ουρά. Πρωτοφανές.", "en": "A plane went by. It had no queue. Unheard of." },
+  "tr.checkin.intro": {
+    "el": "Κάρτα επιβίβασης, παρακαλώ! Η μάχη είναι μέρος της διαδικασίας.",
+    "en": "Boarding pass, please! The battle is part of the procedure."
+  },
+  "tr.checkin.win": {
+    "el": "Εντάξει, περνάς. Η Πύλη Β12 είναι... κάπου. Καλή τύχη.",
+    "en": "Fine, you pass. Gate Β12 is... somewhere. Good luck."
+  },
+  "tr.checkin.after": { "el": "Επόμενος! Έχεις αποσκευές; Ωραία. Έχεις υπομονή;", "en": "Next! Any luggage? Good. Any patience?" },
+  "tr.faia.intro": {
+    "el": "Καλώς ήρθες στον Διαστημολιμένα, {ακόλουθε|ακόλουθη}! Εδώ κάθε πύλη έχει χορηγό, ακόμα και η έξοδος. Πάμε σε live!",
+    "en": "Welcome to the Spaceport, follower! Here every gate has a sponsor, even the exit. Let us go live!"
+  },
+  "tr.faia.win": {
+    "el": "Έχασα το live! Θα πω ότι ήταν δοκιμαστική μετάδοση.",
+    "en": "I lost the live! I will say it was a test broadcast."
+  },
+  "tr.faia.after": {
+    "el": "Η μετάδοση συνεχίζεται. Η πύλη μου είναι η Β12. Δεν την έχεις δει;",
+    "en": "The broadcast goes on. My gate is Β12. Have you not seen it?"
+  },
+  "tr.oldstar.intro": {
+    "el": "Δεν σταμάτησα ποτέ! Απλώς έκανα μια παύση είκοσι ετών. Έλα στην περιοδεία επανόδου!",
+    "en": "I never stopped! I just took a pause of twenty years. Come to the comeback tour!"
+  },
+  "tr.oldstar.win": { "el": "Το κοινό δεν χειροκρότησε. Ήταν σε διάλειμμα.", "en": "The audience did not clap. It was on a break." },
+  "tr.oldstar.after": {
+    "el": "Η περιοδεία συνεχίζεται. Η επόμενη στάση είναι πάντα του χρόνου.",
+    "en": "The tour goes on. The next stop is always next year."
+  },
+  "tr.gardener.intro": {
+    "el": "Φροντίζω έναν κήπο. Τον ιδιοκτήτη δεν τον έχω δει ποτέ. Μια μάχη για το μεροκάματο;",
+    "en": "I tend a garden. I have never seen the owner. A battle for the day wage?"
+  },
+  "tr.gardener.win": {
+    "el": "Έχασα. Ο φράχτης θα μείνει άκοπος. Και ο ιδιοκτήτης αόρατος.",
+    "en": "I lost. The hedge stays unclipped. And the owner stays unseen."
+  },
+  "tr.gardener.after": {
+    "el": "Ο κήπος θέλει νερό. Το νερό θέλει λογαριασμό. Ο λογαριασμός θέλει εμένα.",
+    "en": "The garden wants water. The water wants a bill. The bill wants me."
+  },
+  "tr.contestant.intro": {
+    "el": "Είμαι σε ριάλιτι! Οι κάμερες είναι παντού! Δώσε μου σκηνή: μια μάχη!",
+    "en": "I am on a reality show! The cameras are everywhere! Give me a scene: a battle!"
+  },
+  "tr.contestant.win": {
+    "el": "Με έβγαλαν από το παιχνίδι. Θα το πω «ψηφοφορία».",
+    "en": "They voted me out of the game. I will call it \"a vote\"."
+  },
+  "tr.contestant.after": {
+    "el": "Έχω δικό μου επεισόδιο. Δεν ξέρω ποιος το βλέπει.",
+    "en": "I have an episode of my own. I do not know who watches it."
+  },
+  "tr.lobbyist.intro": {
+    "el": "Μια χάρη, ένας φάκελος, μια μάχη. Με αυτή τη σειρά. Ποτέ το αντίθετο.",
+    "en": "A favour, an envelope, a battle. In that order. Never the opposite."
+  },
+  "tr.lobbyist.win": {
+    "el": "Έχασα τη μάχη. Θα μιλήσω σε κάποιον να αλλάξει το αποτέλεσμα.",
+    "en": "I lost the battle. I will speak to someone to change the result."
+  },
+  "tr.lobbyist.after": { "el": "Δεν έχασα. Έκανα επένδυση στην ήττα.", "en": "I did not lose. I invested in the defeat." },
+  "tr.tennis.intro": {
+    "el": "Μόνο για μέλη! Αλλά για μια μάχη κάνω εξαίρεση. Πλήρωσες τη συνδρομή;",
+    "en": "Members only! But I make an exception for a battle. Have you paid the fee?"
+  },
+  "tr.tennis.win": { "el": "Έχασα! Αυτό δεν υπάρχει στον κανονισμό του ομίλου.", "en": "I lost! That is not in the rules of the club." },
+  "tr.tennis.after": {
+    "el": "Η ρακέτα μου έσπασε. Ο όμιλος θα την αλλάξει. Σε δέκα χρόνια.",
+    "en": "My racket broke. The club will replace it. In ten years."
+  },
+  "tr.rival4.intro": {
+    "el": "Ακόμα εδώ; Ο θείος μου κανόνισε την πρώτη σειρά. Εσύ έχεις εισιτήριο;",
+    "en": "Still here? My uncle arranged the first row. Do you have a ticket?"
+  },
+  "tr.rival4.win": {
+    "el": "Θα τηλεφωνήσω στον διευθυντή του σταδίου. Δεν χρειάζεται να ξέρεις γιατί.",
+    "en": "I will call the director of the stadium. You do not need to know why."
+  },
+  "tr.rival4.after": {
+    "el": "Ο Μπέμπης έφυγε. Πήρε το ταξί του θείου του. Πλήρωσε ο θείος.",
+    "en": "Bebis left. He took his uncle's taxi. The uncle paid."
+  },
+  "tr.usher.intro": { "el": "Το εισιτήριό σου! Και η θέση σου! Και η μάχη σου!", "en": "Your ticket! And your seat! And your battle!" },
+  "tr.usher.win": {
+    "el": "Περάστε. Η θέση σας είναι... κάπου. Μην ρωτήσετε πού.",
+    "en": "Go ahead. Your seat is... somewhere. Do not ask where."
+  },
+  "tr.usher.after": {
+    "el": "Η θέση 1Α είναι πίσω από την 40Ζ. Έτσι χτίστηκε το στάδιο.",
+    "en": "Seat 1A is behind 40Z. That is how the stadium was built."
+  },
+  "tr.amartia.intro": {
+    "el": "Καλώς ήρθες στο Στάδιο Συναυλιών 3000, {φίλε|φίλη}! Το σόου ξεκινά όταν πάρω εγώ το μικρόφωνο. Και πάντα το παίρνω.",
+    "en": "Welcome to Concert Stadium 3000, friend! The show starts when I take the mic. And I always take the mic."
+  },
+  "tr.amartia.win": { "el": "Ο ήχος έσπασε. Θα πω ότι ήταν η ηχητική δοκιμή.", "en": "The sound broke. I will say it was the sound check." },
+  "tr.amartia.after": {
+    "el": "Η συναυλία συνεχίζεται. Το μόνο κομμάτι που ξέρω είναι αυτό. Το παίζω ξανά.",
+    "en": "The concert goes on. The only track I know is this one. I am playing it again."
+  },
+  "tr.tollclerk.intro": {
+    "el": "Στάση! Πλήρωσε για τον δρόμο που μόλις περπάτησες. Ή πάλεψε με εμένα.",
+    "en": "Stop! Pay for the road you just walked. Or battle me."
+  },
+  "tr.tollclerk.win": { "el": "Έχασα. Η απόδειξη χάθηκε μαζί μου.", "en": "I lost. The receipt got lost along with me." },
+  "tr.tollclerk.after": { "el": "Το διόδιο είναι ανοιχτό. Η απόδειξη, κλειστή.", "en": "The toll is open. The receipt is closed." },
+  "tr.ultras.intro": {
+    "el": "Ο αγώνας ξεκινά τώρα! Εσύ είσαι ο αντίπαλος. Ο διαιτητής είμαι εγώ.",
+    "en": "The match starts now! You are the opposition. I am the referee."
+  },
+  "tr.ultras.win": {
+    "el": "Έχασα! Θα ζητήσω επανάληψη. Και άλλον διαιτητή.",
+    "en": "I lost! I will ask for a replay. And another referee."
+  },
+  "tr.ultras.after": {
+    "el": "Στην επόμενη αγωνιστική κερδίζω εγώ. Όπως πάντα. Στη φαντασία.",
+    "en": "Next matchday I win. Like always. In my imagination."
+  },
+  "tr.granny.intro": {
+    "el": "Παιδί μου! Έλα εδώ να σου δείξω την παντόφλα. Και μετά τη μάχη.",
+    "en": "My child! Come here, let me show you the slipper. And then the battle."
+  },
+  "tr.granny.win": {
+    "el": "Κέρδισες. Θα το πω στη γειτόνισσα, αλλά με άλλη εκδοχή.",
+    "en": "You won. I will tell the neighbour, but with a different version."
+  },
+  "tr.granny.after": { "el": "Η παντόφλα δεν έχασε. Άλλαξε στόχο.", "en": "The slipper did not lose. It changed target." },
+  "tr.marketeer.intro": {
+    "el": "Φρέσκα προϊόντα και φρέσκια πρόκληση! Δύο ευρώ η μάχη. Αν ρωτήσεις, τρία.",
+    "en": "Fresh goods and a fresh challenge! Two euros a battle. If you ask, three."
+  },
+  "tr.marketeer.win": { "el": "Έχασα! Οι ντομάτες θα πληρώσουν.", "en": "I lost! The tomatoes will pay." },
+  "tr.marketeer.after": { "el": "Η τιμή μόλις ανέβηκε. Λόγω ήττας.", "en": "The price just went up. Due to the defeat." },
+  "tr.philosopher.intro": {
+    "el": "Ο πραγματικός αντίπαλος είναι ο εαυτός. Αλλά αφού είσαι εδώ, μια μάχη.",
+    "en": "The real opponent is the self. But since you are here, a battle."
+  },
+  "tr.philosopher.win": {
+    "el": "Έχασα. Και τι είναι η νίκη; Ένας καφές που κρύωσε.",
+    "en": "I lost. And what is victory? A coffee that went cold."
+  },
+  "tr.philosopher.after": {
+    "el": "Σκέφτομαι ότι σκέφτομαι. Θα πληρώσω τον καφέ όταν τελειώσει η σκέψη.",
+    "en": "I think that I think. I will pay for the coffee when the thought is done."
+  },
+  "tr.steward.intro": {
+    "el": "Είμαι ο επίτροπος του πάρκινγκ. Όποιος περνά, πληρώνει. Όποιος μάχεται, πληρώνει διπλά.",
+    "en": "I am the steward of the car park. Whoever passes pays. Whoever battles pays double."
+  },
+  "tr.steward.win": { "el": "Έχασα. Ο λογαριασμός θα πάει στη Μονή.", "en": "I lost. The bill goes to the Monastery." },
+  "tr.steward.after": {
+    "el": "Αύριο το τέλος εισόδου ανεβαίνει. Λόγω της σημερινής αναστάτωσης.",
+    "en": "Tomorrow the entry fee goes up. Due to today's disturbance."
+  },
+  "tr.gatekeeper.intro": {
+    "el": "Η πόρτα ανοίγει με εισιτήριο. Το εισιτήριο το δίνω εγώ. Όταν νικήσεις.",
+    "en": "The door opens with a ticket. I give the ticket. When you win."
+  },
+  "tr.gatekeeper.win": {
+    "el": "Περάστε. Ο Ηγούμενος σάς περιμένει. Με το ταμείο ανοιχτό.",
+    "en": "Go ahead. The Abbot is waiting. With the till open."
+  },
+  "tr.gatekeeper.after": { "el": "Η πόρτα είναι ανοιχτή. Η έξοδος, με αντίτιμο.", "en": "The door is open. The exit, for a fee." },
+  "tr.plousiakis.intro": {
+    "el": "Καλώς ήρθες στη Μονή Αφορολογήτου, {φίλε|φίλη}! Εδώ ο δρόμος, το πάρκινγκ και το αφορολόγητο είναι δικά μου. Μόνο η νίκη δεν είναι.",
+    "en": "Welcome to the Tax-Free Monastery, friend! Here the road, the car park and the tax exemption are all mine. Only the win is not."
+  },
+  "tr.plousiakis.win": {
+    "el": "Έχασα. Θα το δηλώσω ως ζημιά. Αφορολόγητη, φυσικά.",
+    "en": "I lost. I will declare it as a loss. Tax-free, of course."
+  },
+  "tr.plousiakis.after": { "el": "Η Μονή συνεχίζει να εισπράττει. Και την ήττα.", "en": "The Monastery goes on collecting. The defeat, too." },
+  "tr.clerk.intro": {
+    "el": "Έχετε αριθμό προτεραιότητας; Όχι; Τότε η μάχη γίνεται με σειρά προσέλευσης. Η σειρά είναι δική μου.",
+    "en": "Do you have a priority number? No? Then the battle goes in order of arrival. The order is mine."
+  },
+  "tr.clerk.win": {
+    "el": "Έχασα. Θα το καταχωρίσω ως «εκκρεμότητα». Για πάντα.",
+    "en": "I lost. I will file it as \"pending\". Forever."
+  },
+  "tr.clerk.after": {
+    "el": "Το αίτημά σου πρωτοκολλήθηκε. Θα απαντηθεί τον επόμενο αιώνα.",
+    "en": "Your request has been logged. It will be answered next century."
+  },
+  "tr.guide.intro": {
+    "el": "Δεξιά βλέπετε έναν δρόμο. Αριστερά, επίσης έναν δρόμο. Μπροστά, εμένα, που σας προκαλώ!",
+    "en": "To your right you see a road. To your left, also a road. Ahead, me, challenging you!"
+  },
+  "tr.guide.win": {
+    "el": "Έχασα! Θα το πω στην επόμενη ομάδα ως «ιστορική στιγμή».",
+    "en": "I lost! I will tell the next group it was a \"historic moment\"."
+  },
+  "tr.guide.after": { "el": "Η ξενάγηση συνεχίζεται. Τα εισιτήρια, όμως, όχι.", "en": "The tour goes on. The tickets, however, do not." },
+  "tr.porter.intro": {
+    "el": "Κουβαλάω όλα τα δέματα της αγοράς. Και τα προβλήματά σου, με χρέωση. Μάχη;",
+    "en": "I carry all the parcels of the market. And your problems, for a fee. A battle?"
+  },
+  "tr.porter.win": {
+    "el": "Έχασα! Το βάρος της ήττας το κουβαλάς εσύ. Ή τουλάχιστον το χρεώνω σε σένα.",
+    "en": "I lost! You carry the weight of the defeat. Or at least I charge it to you."
+  },
+  "tr.porter.after": { "el": "Σήκωσα τα δέματα. Την ήττα την άφησα στην άκρη.", "en": "I lifted the parcels. The defeat I left aside." },
+  "tr.student.intro": {
+    "el": "Έχω εξέταση σε δέκα λεπτά. Η μάχη μετράει ως προφορική. Ξεκινάμε!",
+    "en": "I have an exam in ten minutes. The battle counts as an oral. Let us begin!"
+  },
+  "tr.student.win": {
+    "el": "Έχασα. Θα ζητήσω αναβολή. Είναι το μάθημα που περνάω πάντα.",
+    "en": "I lost. I will ask for a postponement. It is the subject I always pass."
+  },
+  "tr.student.after": {
+    "el": "Η εξέταση αναβλήθηκε. Η μελέτη, επίσης. Εδώ και χρόνια.",
+    "en": "The exam is postponed. So is the studying. For years."
+  },
+  "tr.busker.intro": {
+    "el": "Παίζω στην πλατεία από το πρωί. Δεν μου έριξε κανείς νόμισμα. Θα μου ρίξεις μια μάχη.",
+    "en": "I have played on the plaza since morning. Nobody threw me a coin. You will throw me a battle."
+  },
+  "tr.busker.win": {
+    "el": "Έχασα! Το κομμάτι τελείωσε. Το επόμενο είναι ίδιο με αυτό.",
+    "en": "I lost! The piece is over. The next one is the same as this one."
+  },
+  "tr.busker.after": {
+    "el": "Το καπέλο είναι ακόμα άδειο. Το κομμάτι, όμως, γεμίζει την πλατεία.",
+    "en": "The hat is still empty. The tune, however, fills the plaza."
+  },
+  "tr.rival5.intro": {
+    "el": "Έφτασες στο κέντρο; Ο θείος μου έχει ήδη γραφείο εδώ. Με θέα. Στο μέλλον σου.",
+    "en": "You reached the centre? My uncle already has an office here. With a view. Of your future."
+  },
+  "tr.rival5.win": {
+    "el": "Θα το διορθώσω με ένα τηλεφώνημα. Το τηλέφωνο έχει ήδη χτυπήσει.",
+    "en": "I will fix it with a phone call. The phone has already rung."
+  },
+  "tr.rival5.after": {
+    "el": "Ο Μπέμπης έφυγε. Πήρε τον θείο του τηλέφωνο. Ο θείος ήταν σε σύσκεψη.",
+    "en": "Bebis left. He called his uncle. The uncle was in a meeting."
+  },
+  "tr.inspector.intro": {
+    "el": "Επιθεώρηση! Τα έγγραφά σου, όλα. Ειδικά αυτά που δεν έχεις.",
+    "en": "Inspection! Your papers, all of them. Especially the ones you do not have."
+  },
+  "tr.inspector.win": {
+    "el": "Έχασα. Θα γράψω πρόστιμο στον εαυτό μου. Μετά θα το ακυρώσω.",
+    "en": "I lost. I will write myself a fine. Then I will cancel it."
+  },
+  "tr.inspector.after": {
+    "el": "Η επιθεώρηση ολοκληρώθηκε. Όλα εντάξει. Αρκεί να μην κοιτάξει κανείς.",
+    "en": "The inspection is complete. All in order. As long as nobody looks."
+  },
+  "tr.cadet.intro": {
+    "el": "Είμαι δόκιμος! Η στολή είναι καινούργια, η περηφάνια μεγάλη και το βήμα... στον σωστό ρυθμό!",
+    "en": "I am a cadet! The uniform is new, the pride is big and the step... in the right rhythm!"
+  },
+  "tr.cadet.win": {
+    "el": "Έχασα! Θα το γράψω στην αναφορά ως «τακτική υποχώρηση».",
+    "en": "I lost! I will write it in the report as \"tactical retreat\"."
+  },
+  "tr.cadet.after": {
+    "el": "Έχω υπερωρία. Η υπερωρία έχει τη δική της υπερωρία.",
+    "en": "I am on overtime. The overtime has overtime of its own."
+  },
+  "tr.baboulas.intro": {
+    "el": "Καλώς ήρθες στην πλατεία, {φίλε|φίλη}! Εδώ η τάξη τηρείται με στολή, αυστηρό βλέμμα και πολλές υπερωρίες. Τις δικές μου.",
+    "en": "Welcome to the square, friend! Here order is kept with a uniform, a stern look and a lot of overtime. Mine."
+  },
+  "tr.baboulas.win": {
+    "el": "Έχασα. Θα το καταχωρίσω ως «άσκηση». Η άσκηση πέτυχε. Εγώ, λιγότερο.",
+    "en": "I lost. I will file it as an \"exercise\". The exercise was a success. Me, less so."
+  },
+  "tr.baboulas.after": {
+    "el": "Η τάξη επανήλθε. Με υπερωρία, φυσικά. Την παίρνω πάντα.",
+    "en": "Order is back. On overtime, of course. I always take it."
+  },
+  "tr.euterpe.intro": {
+    "el": "Ραντεβού; Όχι; Τότε περιμένετε. Μετά τις 13:00 είμαι κλειστή. Είναι 12:59. Για πάντα. Μάχη!",
+    "en": "An appointment? No? Then wait. After 13:00 I am closed. It is 12:59. Forever. Battle!"
+  },
+  "tr.euterpe.win": {
+    "el": "Έχασα. Θα το καταχωρίσω ως «υπό εξέταση». Θα εξεταστεί μετά τις 13:00.",
+    "en": "I lost. I will file it as \"under review\". It will be reviewed after 13:00."
+  },
+  "tr.euterpe.after": {
+    "el": "Το αίτημά σου εγκρίθηκε. Η έγκριση θα σταλεί ταχυδρομικά. Το ταχυδρομείο έχει κλείσει.",
+    "en": "Your request is approved. The approval will be sent by post. The post office has closed."
+  },
+  "tr.minister.intro": {
+    "el": "Και τώρα, ζωντανά: ο Υπουργός! Έχω δύο λεπτά χρόνο και μισή ώρα ομιλία. Μην με διακόψεις!",
+    "en": "And now, live: the Minister! I have two minutes of airtime and half an hour of speech. Do not interrupt me!"
+  },
+  "tr.minister.win": {
+    "el": "Έχασα! Θα πω στο επόμενο πάνελ ότι κέρδισα. Εσύ δεν θα είσαι εκεί να με διορθώσεις.",
+    "en": "I lost! I will tell the next panel that I won. You will not be there to correct me."
+  },
+  "tr.minister.after": {
+    "el": "Το πάνελ τελείωσε. Εγώ μίλησα. Οι άλλοι, όσο πρόλαβαν.",
+    "en": "The panel is over. I spoke. The others, as much as they could."
+  },
+  "tr.rival6.intro": {
+    "el": "Έφτασες ως εδώ; Εγώ πήρα όλα μου τα παράσημα με τηλέφωνο. Απόψε έχω ένα ακόμα τηλεφώνημα. Σε σένα.",
+    "en": "You got this far? I got all my medals by phone. Tonight I have one more call to make. To you."
+  },
+  "tr.rival6.win": {
+    "el": "Δεν το περίμενα. Θα πάρω τον θείο μου. Αυτή τη φορά δεν το σηκώνει.",
+    "en": "I did not expect that. I will call my uncle. This time he is not picking up."
+  },
+  "tr.rival6.after": {
+    "el": "Η γραμμή είναι κατειλημμένη. Πήγαινε, σε περιμένει ο Υφυπουργός στην Ολομέλεια.",
+    "en": "The line is busy. Go on, the Under-Secretary is waiting for you in the Plenary Hall."
+  },
+  "tr.undersec.intro": {
+    "el": "Καλώς ήρθες στην Ολομέλεια, {φίλε|φίλη}! Έχω δεκατέσσερα υπουργεία και δεν πηγαίνω σε κανένα. Σήμερα έχω χρόνο μόνο για σένα.",
+    "en": "Welcome to the Plenary Hall, friend! I hold fourteen ministries and attend none. Today I have time only for you."
+  },
+  "tr.undersec.win": {
+    "el": "Έχασα. Ο βοηθός μου θα δηλώσει ότι ήμουν παρών. Και ότι κέρδισα.",
+    "en": "I lost. My assistant will declare that I was present. And that I won."
+  },
+  "tr.undersec.after": {
+    "el": "Η συνεδρίαση τελείωσε. Τα πρακτικά λένε ότι δεν άρχισε ποτέ.",
+    "en": "The session is over. The minutes say it never began."
+  }
+}

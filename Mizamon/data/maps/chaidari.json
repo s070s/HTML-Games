@@ -1,0 +1,56 @@
+{
+  "name": "map.chaidari",
+  "w": 28,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,1111111111111T",
+    "T,66666,,4444,1111111111111T",
+    "T,66H66,,4444,JJJJJJJJJJJJJT",
+    "T,NMPMN,,W##WS##W#W#D#W#W##T",
+    "T,MMEMMS,#D##S`````````````T",
+    "T,,,,,,,,,,,,,`(```````(```T",
+    "T,,,,,,,,,,T,S```(```````(`T",
+    "S,,,,,,,,,,,U,**```````````T",
+    "............................",
+    "TIRRR,RRRR,,,,,,,,,,,,,,,,,T",
+    "TRIRR,RRRR,22222,,33333,22,T",
+    "TRRRR,RRIR,+++++,T+++++,++,T",
+    "TRRRRRRRRR,+++++,,+++++,++,T",
+    "TRRIRRRRRR,+++++,T+++++,++,T",
+    "TRRRRRRIRR,,T,,,,,,,,,,T,,,T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 27, "y": 9, "to": "route10", "tx": 1, "ty": 8 },
+    { "x": 4, "y": 5, "to": "chaidari_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "chaidari_shop", "tx": 3, "ty": 4 },
+    { "x": 20, "y": 4, "to": "chaidari_boss", "tx": 5, "ty": 8 },
+    { "x": 0, "y": 9, "to": "route11", "tx": 1, "ty": 6, "needFlag": "badge_dytika", "lockedText": "warp.route11" }
+  ],
+  "signs": {
+    "7,5": "sign.chaidari.hospital",
+    "13,5": "sign.shop",
+    "13,4": "sign.chaidari.monastery",
+    "13,7": "sign.chaidari.carpark",
+    "0,8": "sign.chaidari.west",
+    "12,8": "sign.ktel"
+  },
+  "npcs": [
+    {
+      "id": "gatekeeper",
+      "x": 20,
+      "y": 7,
+      "face": "up",
+      "look": "gatekeeper",
+      "kind": "trainer",
+      "trainer": "gatekeeper",
+      "sight": 3
+    },
+    { "id": "chattendant", "x": 19, "y": 8, "face": "right", "look": "oldman2", "kind": "talk", "text": "npc.chaidari1" },
+    { "id": "chstudent", "x": 8, "y": 8, "face": "right", "look": "student", "kind": "talk", "text": "npc.chaidari2" },
+    { "id": "chneighbour", "x": 22, "y": 10, "face": "up", "look": "oldwoman", "kind": "talk", "text": "npc.chaidari3" }
+  ]
+}

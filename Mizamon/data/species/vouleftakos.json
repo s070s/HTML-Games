@@ -1,0 +1,11 @@
+{
+  "n": "Βουλευτάκος",
+  "t": "pol",
+  "ab": "asy",
+  "g": "m",
+  "rec": 0,
+  "xp": 80,
+  "evo": { "to": "yperypourgos", "lv": 32 },
+  "base": [60, 50, 58, 74, 64, 60],
+  "learn": [[1, "psifodeltio"], [1, "promise"], [5, "exetastiki"], [8, "tropologia"], [11, "thios"], [18, "diaggelma"]]
+}

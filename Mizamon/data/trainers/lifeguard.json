@@ -1,0 +1,6 @@
+{
+  "name": "Ο Ναυαγοσώστης Βαγγέλης",
+  "look": "lifeguard",
+  "team": [{ "sp": "laikatzis", "lv": 15 }, { "sp": "trolosavros", "lv": 16 }, { "sp": "eforaki", "lv": 16 }],
+  "items": []
+}

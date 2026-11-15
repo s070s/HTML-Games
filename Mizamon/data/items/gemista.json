@@ -1,0 +1,6 @@
+{
+  "kind": "heal",
+  "amount": 9999,
+  "cures": true,
+  "price": 300
+}

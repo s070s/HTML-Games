@@ -1,0 +1,84 @@
+{
+  "name": "map.route3",
+  "w": 40,
+  "h": 14,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TssssssssssssssssssssssssssssssssssssssT",
+    "TsgggggggggssTsggggggggggssssgggggggggsT",
+    "TsgggggggggsTssggggggggggsssTgggggggggsT",
+    "TsgggggggggssssggggggggggssTsgggggggggsT",
+    "TsssssssssssssssssssssssssssssssssssssTT",
+    "TlZllllllllllllllllllllllllllllllllllZlT",
+    "........................................",
+    "........................................",
+    "TaaggggggaaaaaabaaaaabaaaaanaggggggggaaT",
+    "TanggggggabaanaaabaaaaaakaaaagggggggganT",
+    "T~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~T",
+    "T~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [{ "x": 0, "y": 8, "to": "kastella", "tx": 24, "ty": 14 }, { "x": 39, "y": 8, "to": "faliro", "tx": 1, "ty": 9 }],
+  "signs": { "2,6": "sign.route3", "37,6": "sign.faliro" },
+  "npcs": [
+    {
+      "id": "sunbedseller",
+      "x": 12,
+      "y": 9,
+      "face": "up",
+      "look": "sunbedseller",
+      "kind": "trainer",
+      "trainer": "sunbedseller",
+      "sight": 2
+    },
+    {
+      "id": "conductor",
+      "x": 19,
+      "y": 6,
+      "face": "down",
+      "look": "conductor",
+      "kind": "trainer",
+      "trainer": "conductor",
+      "sight": 2
+    },
+    {
+      "id": "lifeguard",
+      "x": 26,
+      "y": 10,
+      "face": "up",
+      "look": "lifeguard",
+      "kind": "trainer",
+      "trainer": "lifeguard",
+      "sight": 3
+    },
+    { "id": "beachgoer", "x": 20, "y": 10, "face": "up", "look": "kid", "kind": "talk", "text": "npc.beachgoer" },
+    { "id": "roadworker", "x": 34, "y": 7, "face": "down", "look": "oldman2", "kind": "talk", "text": "npc.roadworker" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 19,
+      "table": [
+        { "sp": "frapedoros", "w": 22, "min": 13, "max": 15 },
+        { "sp": "trolosavros", "w": 20, "min": 13, "max": 15 },
+        { "sp": "laikatzis", "w": 18, "min": 13, "max": 15 },
+        { "sp": "eforaki", "w": 16, "min": 13, "max": 15 },
+        { "sp": "efoplistakos", "w": 8, "min": 14, "max": 15 },
+        { "sp": "fakelarchis", "w": 6, "min": 14, "max": 15 }
+      ]
+    },
+    {
+      "x0": 20,
+      "x1": 99,
+      "table": [
+        { "sp": "frapedoros", "w": 22, "min": 14, "max": 16 },
+        { "sp": "trolosavros", "w": 20, "min": 14, "max": 16 },
+        { "sp": "laikatzis", "w": 18, "min": 14, "max": 16 },
+        { "sp": "eforaki", "w": 16, "min": 14, "max": 16 },
+        { "sp": "efoplistakos", "w": 8, "min": 14, "max": 16 },
+        { "sp": "fakelarchis", "w": 6, "min": 14, "max": 16 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,268 @@
+Boss fight, 40 runs per row. Boss team: Φακελάκης L11, Φραπεδόρος L12, Φακελάρχης L13
+level | team                       | win rate | avg turns
+   10 | 6 at level                 |    15.0% | 21.9
+   10 | 6, 2 levels behind         |     0.0% | 20.1
+   10 | 3 at level, no items       |     0.0% | 11.8
+   12 | 6 at level                 |    67.5% | 19.0
+   12 | 6, 2 levels behind         |    52.5% | 19.5
+   12 | 3 at level, no items       |    20.0% | 12.6
+   14 | 6 at level                 |    87.5% | 16.5
+   14 | 6, 2 levels behind         |    62.5% | 19.3
+   14 | 3 at level, no items       |    45.0% | 16.8
+Average length of a 1v1 wild fight: 4.04 turns
+
+Πειραιάς XP band (section 11.4): boss top level 13, XP needed for three creatures 3729, XP of the 7 trainers 1880 (50% of the need), a route 2 wild fight pays 162 on average, wild fights still needed 12 (limit 15)
+Route 2 trainer fights, 40 runs per cell (player: a starter plus route creatures, all at the level shown, no items)
+trainer (team)                                        | level | 6 creatures | 3 creatures
+Ο Οπαδός Θύμιος (Λαϊκατζής L10, Φραπεδόρος L11)       |    11 |      100.0% |       87.5%
+Ο Οπαδός Θύμιος (Λαϊκατζής L10, Φραπεδόρος L11)       |    12 |       97.5% |       92.5%
+Ο Οπαδός Θύμιος (Λαϊκατζής L10, Φραπεδόρος L11)       |    13 |      100.0% |       95.0%
+Ο Ναύτης Μανώλης (Φακελάρχης L11, Εφοπλιστάκος L12)   |    11 |       92.5% |       62.5%
+Ο Ναύτης Μανώλης (Φακελάρχης L11, Εφοπλιστάκος L12)   |    12 |       97.5% |       65.0%
+Ο Ναύτης Μανώλης (Φακελάρχης L11, Εφοπλιστάκος L12)   |    13 |      100.0% |       82.5%
+Wild Εφοπλιστάκος L12 against one starter at L12: the starter wins 32.5%
+Wild Εφοπλιστάκος L13 against one starter at L13: the starter wins 35.0%
+
+Νότια XP band (section 11.4): boss top level 20, XP needed for three creatures 10446, XP of the 7 trainers 7773 (74% of the need), a route 4 wild fight pays 310 on average, wild fights still needed 9 (limit 10)
+Boss fight Νότια, 40 runs per row. Boss team: Καφενόβιος L18, Εφοπλιστάκος L20, Φραπεδόρος L19, Γιαγιάκα L20 (stat boost x1.16, one Σουβλάκι). Player: a starter in its middle form plus creatures of Νότια, all at the level shown, two Σουβλάκι
+level | team                       | win rate | band of the test
+   21 | top plus 1, six creatures  |    82.5% | 85-97%
+   19 | top minus 1, six creatures |    62.5% | 55-75%
+   17 | top minus 3, six creatures |    30.0% | 10-30%
+   20 | top, three creatures, no items |    27.5% | 8-25%
+Per starter, six creatures, two Σουβλάκι (40 runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the lowest row is bossBands(R, boss)[2], section 11.7)
+boss      | starter    | top plus 1 | top minus 1 | lowest row (top minus 3, or more by lowestRowOffset)
+kotsos    | komma      |      95.0% |      85.0% |      37.5%
+kotsos    | koulourak  |      97.5% |     100.0% |      37.5%
+kotsos    | psaltak    |      95.0% |      67.5% |      12.5%
+bougatsas | komma      |      77.5% |      60.0% |      22.5%
+bougatsas | koulourak  |     100.0% |      85.0% |      37.5%
+bougatsas | psaltak    |      82.5% |      57.5% |      25.0%
+Νότια trainer fights, 40 runs per cell (player: a middle-form starter plus creatures of Νότια, all at the level shown, no items)
+trainer (team)                                                       | level | 6 creatures | 3 creatures
+Ο Ξαπλωστράς Μάκης (Φραπεδόρος L15, Εφοράκι L16, Λαϊκατζής L16)      |    16 |      100.0% |       57.5%
+Ο Ξαπλωστράς Μάκης (Φραπεδόρος L15, Εφοράκι L16, Λαϊκατζής L16)      |    17 |      100.0% |       75.0%
+Ο Ξαπλωστράς Μάκης (Φραπεδόρος L15, Εφοράκι L16, Λαϊκατζής L16)      |    18 |      100.0% |       75.0%
+Ο Εισπράκτορας Λάμπρος (Δημοσιοϋπαλληλάκι L16, Φακελάρχης L16)       |    16 |      100.0% |       72.5%
+Ο Εισπράκτορας Λάμπρος (Δημοσιοϋπαλληλάκι L16, Φακελάρχης L16)       |    17 |       97.5% |       85.0%
+Ο Εισπράκτορας Λάμπρος (Δημοσιοϋπαλληλάκι L16, Φακελάρχης L16)       |    18 |      100.0% |      100.0%
+Ο Ναυαγοσώστης Βαγγέλης (Λαϊκατζής L15, Τρολόσαυρος L16, Εφοράκι L16) |    16 |       97.5% |       75.0%
+Ο Ναυαγοσώστης Βαγγέλης (Λαϊκατζής L15, Τρολόσαυρος L16, Εφοράκι L16) |    17 |      100.0% |       90.0%
+Ο Ναυαγοσώστης Βαγγέλης (Λαϊκατζής L15, Τρολόσαυρος L16, Εφοράκι L16) |    18 |      100.0% |       90.0%
+Η Influencer Κική (Story-ούλα L17, Λαϊκατζής L17, Φραπεδόρος L18)    |    16 |       80.0% |       50.0%
+Η Influencer Κική (Story-ούλα L17, Λαϊκατζής L17, Φραπεδόρος L18)    |    17 |       82.5% |       62.5%
+Η Influencer Κική (Story-ούλα L17, Λαϊκατζής L17, Φραπεδόρος L18)    |    18 |       95.0% |       95.0%
+Ο Μπέμπης (Φακελάρχης L17, Διάκος Ντίσκο L18)                        |    16 |       92.5% |       50.0%
+Ο Μπέμπης (Φακελάρχης L17, Διάκος Ντίσκο L18)                        |    17 |      100.0% |       70.0%
+Ο Μπέμπης (Φακελάρχης L17, Διάκος Ντίσκο L18)                        |    18 |      100.0% |       67.5%
+Ο Γκόλφερ Τζίμης (Εφοπλιστάκος L16, Γιαγιάκα L17, Καφενόβιος L17)    |    16 |      100.0% |       65.0%
+Ο Γκόλφερ Τζίμης (Εφοπλιστάκος L16, Γιαγιάκα L17, Καφενόβιος L17)    |    17 |      100.0% |       75.0%
+Ο Γκόλφερ Τζίμης (Εφοπλιστάκος L16, Γιαγιάκα L17, Καφενόβιος L17)    |    18 |      100.0% |       90.0%
+Ο Καπετάνιος Σταύρος (Εφοπλιστάκος L17, Φακελάρχης L18)              |    16 |       90.0% |       45.0%
+Ο Καπετάνιος Σταύρος (Εφοπλιστάκος L17, Φακελάρχης L18)              |    17 |       95.0% |       60.0%
+Ο Καπετάνιος Σταύρος (Εφοπλιστάκος L17, Φακελάρχης L18)              |    18 |      100.0% |       80.0%
+Wild Καφενόβιος L17 against one starter (middle form) at L17: the starter wins 52.5%
+Wild Καφενόβιος L19 against one starter (middle form) at L19: the starter wins 50.0%
+
+Ανατολικά XP band (section 11.4): boss top level 26, XP needed for three creatures 17235, XP of the 7 trainers 14696 (85% of the need), a route 6 wild fight pays 688 on average, wild fights still needed 4 (limit 10)
+Boss fight Ανατολικά, 40 runs per row. Boss team: Κρυπτο-Μάκης L23, Influεnζα L24, Μόνιμος L24, Τρολόσαυρος L25, NFT-άρχης L26 (no boost), one gemista. Player: a starter in its middle form plus creatures of Ανατολικά, all at the level shown, two Σουβλάκι
+level | team                       | win rate | band of the test
+   27 | top plus 1, six creatures  |    92.5% | 85-97%
+   25 | top minus 1, six creatures |    60.0% | 55-75%
+   23 | top minus 3, six creatures |    15.0% | 10-30%
+   26 | top, three creatures, no items |    17.5% | 8-25%
+Per starter, six creatures, two Σουβλάκι (40 runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the lowest row is bossBands(R, boss)[2], section 11.7)
+boss      | starter    | top plus 1 | top minus 1 | lowest row (top minus 3, or more by lowestRowOffset)
+faia      | komma      |      87.5% |      50.0% |      30.0%
+faia      | koulourak  |      97.5% |      90.0% |      37.5%
+faia      | psaltak    |      85.0% |      52.5% |      25.0%
+Ανατολικά trainer fights, 40 runs per cell (player: a middle-form starter plus creatures of Ανατολικά, all at the level shown, no items)
+trainer (team)                                                       | level | 6 creatures | 3 creatures
+Ο Προσκυνητής Κλεάνθης (Μοναστηριάκι L20, Τρολόσαυρος L21)           |    23 |      100.0% |      100.0%
+Ο Προσκυνητής Κλεάνθης (Μοναστηριάκι L20, Τρολόσαυρος L21)           |    24 |      100.0% |      100.0%
+Ο Προσκυνητής Κλεάνθης (Μοναστηριάκι L20, Τρολόσαυρος L21)           |    25 |      100.0% |      100.0%
+Ο Τελωνειακός Ευθύμης (Εφοράκι L21, Μόνιμος L22, Εφοπλιστάκος L22)   |    23 |      100.0% |       80.0%
+Ο Τελωνειακός Ευθύμης (Εφοράκι L21, Μόνιμος L22, Εφοπλιστάκος L22)   |    24 |      100.0% |       82.5%
+Ο Τελωνειακός Ευθύμης (Εφοράκι L21, Μόνιμος L22, Εφοπλιστάκος L22)   |    25 |      100.0% |       97.5%
+Η Τουρίστρια Ροδάνθη (Story-ούλα L21, Λαϊκατζής L22)                 |    23 |      100.0% |      100.0%
+Η Τουρίστρια Ροδάνθη (Story-ούλα L21, Λαϊκατζής L22)                 |    24 |      100.0% |       97.5%
+Η Τουρίστρια Ροδάνθη (Story-ούλα L21, Λαϊκατζής L22)                 |    25 |      100.0% |      100.0%
+Ο Αμπελουργός Μελέτης (Γιαγιάκα L23, Φραπεδόρος L23, Καφενόβιος L24) |    23 |       97.5% |       85.0%
+Ο Αμπελουργός Μελέτης (Γιαγιάκα L23, Φραπεδόρος L23, Καφενόβιος L24) |    24 |      100.0% |       92.5%
+Ο Αμπελουργός Μελέτης (Γιαγιάκα L23, Φραπεδόρος L23, Καφενόβιος L24) |    25 |      100.0% |       80.0%
+Ο Κρυπτοπώλης Ζαφείρης (Κρυπτο-Μάκης L23, Influεnζα L24, Τρολόσαυρος L24) |    23 |       87.5% |       27.5%
+Ο Κρυπτοπώλης Ζαφείρης (Κρυπτο-Μάκης L23, Influεnζα L24, Τρολόσαυρος L24) |    24 |       90.0% |       57.5%
+Ο Κρυπτοπώλης Ζαφείρης (Κρυπτο-Μάκης L23, Influεnζα L24, Τρολόσαυρος L24) |    25 |      100.0% |       67.5%
+Ο Παρατηρητής Βάιος (Μόνιμος L23, Εφοράκι L24)                       |    23 |      100.0% |       70.0%
+Ο Παρατηρητής Βάιος (Μόνιμος L23, Εφοράκι L24)                       |    24 |      100.0% |       80.0%
+Ο Παρατηρητής Βάιος (Μόνιμος L23, Εφοράκι L24)                       |    25 |      100.0% |       90.0%
+Η Υπάλληλος Φιλαρέτη (Μόνιμος L23, Κρυπτο-Μάκης L23, Influεnζα L24)  |    23 |       85.0% |       27.5%
+Η Υπάλληλος Φιλαρέτη (Μόνιμος L23, Κρυπτο-Μάκης L23, Influεnζα L24)  |    24 |       87.5% |       35.0%
+Η Υπάλληλος Φιλαρέτη (Μόνιμος L23, Κρυπτο-Μάκης L23, Influεnζα L24)  |    25 |       92.5% |       65.0%
+Wild Μοναστηριάκι L20 against one starter (middle form) at L20: the starter wins 60.0%
+Wild Μοναστηριάκι L22 against one starter (middle form) at L22: the starter wins 47.5%
+
+Βόρεια XP band (section 11.4): boss top level 32, XP needed for three creatures 27345, XP of the 7 trainers 23870 (87% of the need), a route 8 wild fight pays 1157 on average, wild fights still needed 4 (limit 10)
+Boss fight Βόρεια, 40 runs per row. Boss team: Ριάλιτο-Νταής L29, Influεnζα L30, Φακελάρχης L32, Lobby-Λύκαινα L32, Σταρ των 90ς L32 (no boost), one gemista. Player: a starter in its last form from level 32 plus creatures of Βόρεια, all at the level shown, two Σουβλάκι
+level | team                       | win rate | band of the test
+   33 | top plus 1, six creatures  |    90.0% | 85-97%
+   31 | top minus 1, six creatures |    42.5% | 55-75%
+   28 | top minus 4, six creatures |    12.5% | 10-30%
+   32 | top, three creatures, no items |    20.0% | 8-25%
+Per starter, six creatures, two Σουβλάκι (40 runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the lowest row is bossBands(R, boss)[2], section 11.7)
+boss      | starter    | top plus 1 | top minus 1 | lowest row (top minus 3, or more by lowestRowOffset)
+amartia   | komma      |      80.0% |      52.5% |       2.5%
+amartia   | koulourak  |      90.0% |      67.5% |      17.5%
+amartia   | psaltak    |      92.5% |      72.5% |      25.0%
+Βόρεια trainer fights, 40 runs per cell (player: a middle-form starter plus creatures of Βόρεια, all at the level shown, no items)
+trainer (team)                                                       | level | 6 creatures | 3 creatures
+Ο Αοιδός Φιλήμων (Σταρ των 90ς L27, Τρολόσαυρος L27)                 |    28 |      100.0% |       82.5%
+Ο Αοιδός Φιλήμων (Σταρ των 90ς L27, Τρολόσαυρος L27)                 |    29 |      100.0% |      100.0%
+Ο Αοιδός Φιλήμων (Σταρ των 90ς L27, Τρολόσαυρος L27)                 |    30 |      100.0% |       97.5%
+Ο Κηπουρός Θεόφραστος (Φακελάρχης L27, Εφοπλιστάκος L27)             |    28 |      100.0% |       95.0%
+Ο Κηπουρός Θεόφραστος (Φακελάρχης L27, Εφοπλιστάκος L27)             |    29 |      100.0% |       90.0%
+Ο Κηπουρός Θεόφραστος (Φακελάρχης L27, Εφοπλιστάκος L27)             |    30 |      100.0% |       90.0%
+Η Παίκτρια Ευρυδίκη (Ριάλιτο-Νταής L28, Influεnζα L28, Τρολόσαυρος L28) |    28 |       87.5% |       47.5%
+Η Παίκτρια Ευρυδίκη (Ριάλιτο-Νταής L28, Influεnζα L28, Τρολόσαυρος L28) |    29 |       92.5% |       67.5%
+Η Παίκτρια Ευρυδίκη (Ριάλιτο-Νταής L28, Influεnζα L28, Τρολόσαυρος L28) |    30 |      100.0% |       65.0%
+Ο Μπέμπης (Influεnζα L28, Διάκος Ντίσκο L30)                         |    28 |       95.0% |       55.0%
+Ο Μπέμπης (Influεnζα L28, Διάκος Ντίσκο L30)                         |    29 |       90.0% |       67.5%
+Ο Μπέμπης (Influεnζα L28, Διάκος Ντίσκο L30)                         |    30 |      100.0% |       65.0%
+Ο Λομπίστας Ερμόλαος (Lobby-Λύκαινα L29, NFT-άρχης L29)              |    28 |       92.5% |       60.0%
+Ο Λομπίστας Ερμόλαος (Lobby-Λύκαινα L29, NFT-άρχης L29)              |    29 |      100.0% |       77.5%
+Ο Λομπίστας Ερμόλαος (Lobby-Λύκαινα L29, NFT-άρχης L29)              |    30 |       97.5% |       80.0%
+Η Τενίστρια Ασπασία (Influεnζα L28, Σταρ των 90ς L29)                |    28 |       90.0% |       52.5%
+Η Τενίστρια Ασπασία (Influεnζα L28, Σταρ των 90ς L29)                |    29 |       87.5% |       55.0%
+Η Τενίστρια Ασπασία (Influεnζα L28, Σταρ των 90ς L29)                |    30 |       95.0% |       67.5%
+Ο Ταξιθέτης Αγάπιος (Ριάλιτο-Νταής L28, Lobby-Λύκαινα L28, Σταρ των 90ς L28) |    28 |       90.0% |       40.0%
+Ο Ταξιθέτης Αγάπιος (Ριάλιτο-Νταής L28, Lobby-Λύκαινα L28, Σταρ των 90ς L28) |    29 |       95.0% |       45.0%
+Ο Ταξιθέτης Αγάπιος (Ριάλιτο-Νταής L28, Lobby-Λύκαινα L28, Σταρ των 90ς L28) |    30 |       97.5% |       50.0%
+Wild Ριάλιτο-Νταής L28 against one starter (middle form) at L28: the starter wins 72.5%
+Wild Ριάλιτο-Νταής L30 against one starter (middle form) at L30: the starter wins 75.0%
+
+Δυτικά XP band (section 11.4): boss top level 38, XP needed for three creatures 39789, XP of the 7 trainers 35967 (90% of the need), a route 10 wild fight pays 1641 on average, wild fights still needed 3 (limit 10)
+Boss fight Δυτικά, 40 runs per row. Boss team: Κτηματομεσίτης L36, Γιαγιά Παντόφλα L37, Τάβλι-λόρδος L38, Φακελάρχης L37, Δεσποτάκης L38 (no boost), nothing in his bag. Player: a starter in its last form plus creatures of Δυτικά, all at the level shown, two Σουβλάκι
+level | team                       | win rate | band of the test
+   39 | top plus 1, six creatures  |    92.5% | 85-97%
+   37 | top minus 1, six creatures |    77.5% | 55-75%
+   34 | top minus 4, six creatures |    17.5% | 10-30%
+   38 | top, three creatures, no items |     5.0% | 8-25%
+Per starter, six creatures, two Σουβλάκι (40 runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the lowest row is bossBands(R, boss)[2], section 11.7)
+boss      | starter    | top plus 1 | top minus 1 | lowest row (top minus 3, or more by lowestRowOffset)
+plousiakis | komma      |      97.5% |      80.0% |      17.5%
+plousiakis | koulourak  |      80.0% |      67.5% |       2.5%
+plousiakis | psaltak    |      82.5% |      75.0% |      10.0%
+Δυτικά trainer fights, 40 runs per cell (player: a last-form starter plus creatures of Δυτικά, all at the level shown, no items)
+trainer (team)                                                       | level | 6 creatures | 3 creatures
+Η Εισπράκτορας Αγλαΐα (Φακελάρχης L34, Μόνιμος L34)                  |    35 |      100.0% |       97.5%
+Η Εισπράκτορας Αγλαΐα (Φακελάρχης L34, Μόνιμος L34)                  |    36 |      100.0% |       95.0%
+Η Εισπράκτορας Αγλαΐα (Φακελάρχης L34, Μόνιμος L34)                  |    37 |      100.0% |      100.0%
+Ο Οπαδός Θρασύβουλος (Ριάλιτο-Νταής L35, Τρολόσαυρος L34)            |    35 |      100.0% |      100.0%
+Ο Οπαδός Θρασύβουλος (Ριάλιτο-Νταής L35, Τρολόσαυρος L34)            |    36 |      100.0% |       97.5%
+Ο Οπαδός Θρασύβουλος (Ριάλιτο-Νταής L35, Τρολόσαυρος L34)            |    37 |      100.0% |      100.0%
+Η Γιαγιά Αρετή (Γιαγιάκα L35, Φραπεδόρος L34)                        |    35 |      100.0% |       95.0%
+Η Γιαγιά Αρετή (Γιαγιάκα L35, Φραπεδόρος L34)                        |    36 |      100.0% |       92.5%
+Η Γιαγιά Αρετή (Γιαγιάκα L35, Φραπεδόρος L34)                        |    37 |      100.0% |       90.0%
+Ο Μανάβης Κοσμάς (Ρουσφετόλυκος L36, Ελεγκτής ΣΔΟΕ 3000 L36)         |    35 |      100.0% |       65.0%
+Ο Μανάβης Κοσμάς (Ρουσφετόλυκος L36, Ελεγκτής ΣΔΟΕ 3000 L36)         |    36 |       97.5% |       80.0%
+Ο Μανάβης Κοσμάς (Ρουσφετόλυκος L36, Ελεγκτής ΣΔΟΕ 3000 L36)         |    37 |      100.0% |       70.0%
+Ο Στοχαστής Νικηφόρος (Τάβλι-λόρδος L36, Κτηματομεσίτης L36)         |    35 |      100.0% |       62.5%
+Ο Στοχαστής Νικηφόρος (Τάβλι-λόρδος L36, Κτηματομεσίτης L36)         |    36 |      100.0% |       67.5%
+Ο Στοχαστής Νικηφόρος (Τάβλι-λόρδος L36, Κτηματομεσίτης L36)         |    37 |      100.0% |       85.0%
+Ο Επίτροπος Ευστάθιος (Κτηματομεσίτης L36, Γιοτάρχης L36)            |    35 |      100.0% |       70.0%
+Ο Επίτροπος Ευστάθιος (Κτηματομεσίτης L36, Γιοτάρχης L36)            |    36 |      100.0% |       80.0%
+Ο Επίτροπος Ευστάθιος (Κτηματομεσίτης L36, Γιοτάρχης L36)            |    37 |      100.0% |       90.0%
+Ο Θυρωρός Ευγένιος (Ελεγκτής ΣΔΟΕ 3000 L37, Lobby-Λύκαινα L37)       |    35 |      100.0% |       87.5%
+Ο Θυρωρός Ευγένιος (Ελεγκτής ΣΔΟΕ 3000 L37, Lobby-Λύκαινα L37)       |    36 |      100.0% |       95.0%
+Ο Θυρωρός Ευγένιος (Ελεγκτής ΣΔΟΕ 3000 L37, Lobby-Λύκαινα L37)       |    37 |      100.0% |       95.0%
+Control, DJ Αμαρτία (top plus 1 / top minus 1 / top minus 3 / top with three creatures): 90.0% / 42.5% / 12.5% / 20.0%
+
+Αθήνα XP band (section 11.4): boss top level 44, XP needed for three creatures 54561, XP of the 8 trainers 52611 (96% of the need), a route 12 wild fight pays 2428 on average, wild fights still needed 1 (limit 10)
+Boss fight Αθήνα, 40 runs per seed and row (3 seeds). Boss team: Φακελάρχης L43, Φακελάρχης L42, Φακελάρχης L42, Σταρ των 90ς L43, NFT-άρχης L42, ΜΑΤάνθρωπος L44 (no boost), nothing in his bag. Player: a starter in its last form plus creatures of Αθήνα, all at the level shown, two Σουβλάκι
+level | team                       | win rate | band of the test
+   45 | top plus 1, six creatures  |    93.3% | 85-97%
+   43 | top minus 1, six creatures |    65.8% | 55-75%
+   39 | top minus 5, six creatures |    24.2% | 10-30%
+   44 | top, three creatures, no items |    16.7% | 8-25%
+Per starter, six creatures, two Σουβλάκι (40 runs per cell; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the lowest row is bossBands(R, boss)[2], section 11.7)
+boss      | starter    | top plus 1 | top minus 1 | lowest row (top minus 3, or more by lowestRowOffset)
+baboulas  | komma      |      90.0% |      75.0% |      35.0%
+baboulas  | koulourak  |      97.5% |      70.0% |      25.0%
+baboulas  | psaltak    |      77.5% |      45.0% |      17.5%
+Αθήνα trainer fights, 40 runs per cell (player: a last-form starter plus creatures of Αθήνα, all at the level shown, no items)
+trainer (team)                                                       | level | 6 creatures | 3 creatures
+Η Υπάλληλος Ανθή (Μόνιμος L39, Lobby-Λύκαινα L39)                    |    40 |      100.0% |       92.5%
+Η Υπάλληλος Ανθή (Μόνιμος L39, Lobby-Λύκαινα L39)                    |    41 |      100.0% |       92.5%
+Η Υπάλληλος Ανθή (Μόνιμος L39, Lobby-Λύκαινα L39)                    |    42 |      100.0% |       95.0%
+Ο Ξεναγός Αριστείδης (Σταρ των 90ς L39, Γιαγιά Παντόφλα L39)         |    40 |      100.0% |       82.5%
+Ο Ξεναγός Αριστείδης (Σταρ των 90ς L39, Γιαγιά Παντόφλα L39)         |    41 |      100.0% |       87.5%
+Ο Ξεναγός Αριστείδης (Σταρ των 90ς L39, Γιαγιά Παντόφλα L39)         |    42 |      100.0% |       92.5%
+Ο Αχθοφόρος Λευτέρης (Τάβλι-λόρδος L39, Μόνιμος L40)                 |    40 |      100.0% |       77.5%
+Ο Αχθοφόρος Λευτέρης (Τάβλι-λόρδος L39, Μόνιμος L40)                 |    41 |      100.0% |       75.0%
+Ο Αχθοφόρος Λευτέρης (Τάβλι-λόρδος L39, Μόνιμος L40)                 |    42 |      100.0% |       92.5%
+Η Φοιτήτρια Δάφνη (Influεnζα L39, Lobby-Λύκαινα L40)                 |    40 |      100.0% |       90.0%
+Η Φοιτήτρια Δάφνη (Influεnζα L39, Lobby-Λύκαινα L40)                 |    41 |      100.0% |       85.0%
+Η Φοιτήτρια Δάφνη (Influεnζα L39, Lobby-Λύκαινα L40)                 |    42 |      100.0% |       87.5%
+Ο Οργανοπαίκτης Στρατής (Γιοτάρχης L40, Τρολόσαυρος L40)             |    40 |      100.0% |       97.5%
+Ο Οργανοπαίκτης Στρατής (Γιοτάρχης L40, Τρολόσαυρος L40)             |    41 |      100.0% |       97.5%
+Ο Οργανοπαίκτης Στρατής (Γιοτάρχης L40, Τρολόσαυρος L40)             |    42 |      100.0% |      100.0%
+Ο Μπέμπης (Influεnζα L39, Διάκος Ντίσκο L42)                         |    40 |      100.0% |       92.5%
+Ο Μπέμπης (Influεnζα L39, Διάκος Ντίσκο L42)                         |    41 |       97.5% |       90.0%
+Ο Μπέμπης (Influεnζα L39, Διάκος Ντίσκο L42)                         |    42 |      100.0% |       85.0%
+Η Επιθεωρήτρια Ευανθία (Ελεγκτής ΣΔΟΕ 3000 L40, Μόνιμος L41)         |    40 |      100.0% |       97.5%
+Η Επιθεωρήτρια Ευανθία (Ελεγκτής ΣΔΟΕ 3000 L40, Μόνιμος L41)         |    41 |      100.0% |       97.5%
+Η Επιθεωρήτρια Ευανθία (Ελεγκτής ΣΔΟΕ 3000 L40, Μόνιμος L41)         |    42 |      100.0% |       97.5%
+Ο Δόκιμος Παντελής (ΜΑΤάνθρωπος L40, Μόνιμος L41)                    |    40 |      100.0% |      100.0%
+Ο Δόκιμος Παντελής (ΜΑΤάνθρωπος L40, Μόνιμος L41)                    |    41 |      100.0% |       97.5%
+Ο Δόκιμος Παντελής (ΜΑΤάνθρωπος L40, Μόνιμος L41)                    |    42 |      100.0% |       95.0%
+The legend of the Rock (level 40, Φορολογούμενος), 40 runs per cell: a team of the pool, all at the level shown, no items
+6 creatures at level 40: 57.5%
+6 creatures at level 44: 82.5%
+3 creatures at level 40: 37.5%
+3 creatures at level 44: 42.5%
+Control, Ο Ηγούμενος Πλουσιάκης (top plus 1 / top minus 1 / top minus 3 / top with three creatures): 92.5% / 77.5% / 17.5% / 5.0%
+
+Βουλή XP band (section 11.4): the player arrives at level 44 and wants 48, XP needed for three creatures 45735, XP of the first three fights (16 creatures) 75441 (165% of the need); no wild creature in the Βουλή, so none is needed
+Fight euterpe, 40 runs per seed and row (seeds 5000, 6000, 7000). Team: Lobby-Λύκαινα L45, Τάβλι-λόρδος L44, Φακελάρχης L44, Τάβλι-λόρδος L46, Lobby-Λύκαινα L46 (no boost), souvlaki in the bag. Player: a starter in its last form plus creatures of the pool, all at the level shown
+level | team                       | seed 5000 | seed 6000 | seed 7000 |   mean | band  | margin (points) | SE
+   47 | top plus 1, six creatures  |     92.5% |     82.5% |     90.0% |  88.3% | 85-97  |             3.3 | 2.93
+   45 | top minus 1, six creatures |     70.0% |     80.0% |     70.0% |  73.3% | 55-75  |             1.7 | 4.04
+   41 | top minus 5, six creatures |     37.5% |     42.5% |     30.0% |  36.7% | 10-30  |            -6.7 | 4.40
+   46 | top, three creatures, no items |     12.5% |      5.0% |     10.0% |   9.2% | 8-25  |             1.2 | 2.63
+Fight minister, 40 runs per seed and row (seeds 5000, 6000, 7000). Team: Σπυράδωνις L46, Lobby-Λύκαινα L45, Γιαγιά Παντόφλα L45, Φακελάρχης L46, Γιαγιά Παντόφλα L47 (no boost), nothing in the bag. Player: a starter in its last form plus creatures of the pool, all at the level shown
+level | team                       | seed 5000 | seed 6000 | seed 7000 |   mean | band  | margin (points) | SE
+   48 | top plus 1, six creatures  |     85.0% |     80.0% |     80.0% |  81.7% | 85-97  |            -3.3 | 3.53
+   46 | top minus 1, six creatures |     67.5% |     65.0% |     75.0% |  69.2% | 55-75  |             5.8 | 4.22
+   42 | top minus 5, six creatures |     25.0% |     22.5% |     22.5% |  23.3% | 10-30  |             6.7 | 3.86
+   47 | top, three creatures, no items |     17.5% |     10.0% |     17.5% |  15.0% | 8-25  |             7.0 | 3.26
+Fight rival6, 40 runs per seed and row (seeds 5000, 6000, 7000). Team: Σταρ των 90ς L47, Τάβλι-λόρδος L47, Τάβλι-λόρδος L46, Φακελάρχης L48, Lobby-Λύκαινα L47, the last form of the rival's starter L48 (no boost), souvlaki in the bag. Player: a starter in its last form plus creatures of the pool, all at the level shown, the rival built with the starter the player took
+level | team                       | seed 5000 | seed 6000 | seed 7000 |   mean | band  | margin (points) | SE
+   49 | top plus 1, six creatures  |     82.5% |     95.0% |     77.5% |  85.0% | 85-97  |             0.0 | 3.26
+   47 | top minus 1, six creatures |     67.5% |     82.5% |     70.0% |  73.3% | 55-75  |             1.7 | 4.04
+   42 | top minus 6, six creatures |     25.0% |     20.0% |     32.5% |  25.8% | 10-30  |             4.2 | 4.00
+   48 | top, three creatures, no items |     12.5% |      2.5% |      5.0% |   6.7% | 8-25  |            -1.3 | 2.28
+Fight undersec, 40 runs per seed and row (seeds 5000, 6000, 7000). Team: Σταρ των 90ς L49, Τάβλι-λόρδος L49, Τάβλι-λόρδος L47, Κτηματομεσίτης L48, Lobby-Λύκαινα L47, Μιζοτάκης L50 (stat boost x1.03), gemista in the bag. Player: a starter in its last form plus creatures of the pool, all at the level shown
+level | team                       | seed 5000 | seed 6000 | seed 7000 |   mean | band  | margin (points) | SE
+   50 | top (the level cap), six creatures |     77.5% |     65.0% |     67.5% |  70.0% | 60-90  |            10.0 | 4.18
+   49 | top minus 1, six creatures |     60.0% |     52.5% |     52.5% |  55.0% | 45-65  |            10.0 | 4.54
+   44 | top minus 6, six creatures |     20.0% |     20.0% |     17.5% |  19.2% | 10-30  |             9.2 | 3.59
+   50 | top, three creatures, no items |     20.0% |     10.0% |     15.0% |  15.0% | 8-25  |             7.0 | 3.26
+Per starter, six creatures, two Σουβλάκι (40 runs per cell, seed 8000; the test wants 75% or more at top plus 1 and a spread of 35 points or less at top minus 1; the rival is built with the starter that follows the player's)
+fight     | starter    | top plus 1 | top minus 1 | lowest row
+euterpe   | komma      |      97.5% |      67.5% |      37.5%
+euterpe   | koulourak  |      82.5% |      60.0% |      32.5%
+euterpe   | psaltak    |      97.5% |      77.5% |      30.0%
+minister  | komma      |      90.0% |      77.5% |      37.5%
+minister  | koulourak  |      85.0% |      62.5% |      17.5%
+minister  | psaltak    |      95.0% |      67.5% |      22.5%
+rival6    | komma      |      87.5% |      72.5% |      25.0%
+rival6    | koulourak  |      95.0% |      90.0% |      30.0%
+rival6    | psaltak    |      85.0% |      75.0% |      22.5%
+undersec  | komma      |      52.5% |      37.5% |      20.0%
+undersec  | koulourak  |      90.0% |      82.5% |      25.0%
+undersec  | psaltak    |      70.0% |      60.0% |      25.0%
+The legend of the plenary hall (level 50, Ηλιθιοκρατία, boost x1.35), 40 runs per cell: a team of the pool, all at the level shown, no items
+6 creatures at level 50: 75.0%
+6 creatures at level 46: 45.0%
+3 creatures at level 50: 15.0%
+3 creatures at level 46: 5.0%

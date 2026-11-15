@@ -11,7 +11,7 @@ function drawStatusTag(statusId, x, y) {
   const label = T('st.' + statusId + '.short');
   const width = Math.ceil(ctx.measureText(label).width) + 4;
   ctx.fillStyle = COLOR.border; ctx.fillRect(x, y, width, 9);
-  ctx.fillStyle = statusId === 'sca' ? '#a83a8a' : (statusId === 'str' ? '#c07a1a' : (statusId === 'bri' ? '#2f7a5a' : '#4a6aa8'));
+  ctx.fillStyle = STATUSES[statusId].color;
   ctx.fillRect(x + 1, y + 1, width - 2, 7);
   drawText(label, x + 2, y + 1, '#fff');
   ctx.font = FONT;

@@ -1,0 +1,8 @@
+{
+  "bag.empty": { "el": "Η τσάντα είναι άδεια. Όπως και το πορτοφόλι.", "en": "The bag is empty. Like the wallet." },
+  "bag.battleOnly": {
+    "el": "Αυτό χρησιμοποιείται μόνο σε μάχη. Όχι μπροστά σε κόσμο.",
+    "en": "This is used in battle only. Not in public."
+  },
+  "bag.used": { "el": "Χρησιμοποίησες: {item}. Ο παραλήπτης ({mon}) νιώθει καλύτερα.", "en": "Used {item}. {mon} feels better." }
+}

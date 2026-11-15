@@ -1,0 +1,6 @@
+{
+  "name": "Ο Οργανοπαίκτης Στρατής",
+  "look": "busker",
+  "team": [{ "sp": "giotarchis", "lv": 40 }, { "sp": "trolosavros", "lv": 40 }],
+  "items": []
+}

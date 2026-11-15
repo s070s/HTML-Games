@@ -1,0 +1,11 @@
+{
+  "opt.lang": { "el": "Γλώσσα", "en": "Language" },
+  "opt.sound": { "el": "Ήχος", "en": "Sound" },
+  "opt.speed": { "el": "Ταχύτητα κειμένου", "en": "Text speed" },
+  "opt.motion": { "el": "Μείωση κίνησης", "en": "Reduce motion" },
+  "opt.speed0": { "el": "Αργή", "en": "Slow" },
+  "opt.speed1": { "el": "Κανονική", "en": "Normal" },
+  "opt.speed2": { "el": "Γρήγορη", "en": "Fast" },
+  "opt.hint": { "el": "Αριστερά/Δεξιά: αλλαγή · X: πίσω", "en": "Left/Right: change · X: back" },
+  "opt.access": { "el": "Προσβασιμότητα", "en": "Accessibility" }
+}
