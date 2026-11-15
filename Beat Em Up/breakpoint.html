@@ -1349,6 +1349,10 @@ const COOP_START_BUTTON = 9; // Start on a gamepad: starts Free Fight, goes on i
 
 // A fighter that is as low as a crouch for a High strike: crouching, guarding low, or in the startup of a duck move (a bob, a handstand); Combat.evaluate and the touch automatic height read it
 const isLowBody = (f) => f.state === S.CROUCH || f.state === S.BLOCK_L || (f.state === S.ATTACK && !!f.move && f.move.duck === true && f.moveTick <= f.mStartup);
+// A finger held on a touch control stays held on iPhone: iOS Safari sends a pointercancel to a finger resting past its long-press time (about half a second) unless the touchstart is cancelled, and touch-action: none alone does not stop it, so a held Punch or Kick let go before its charge (owner, iPhone, 2026-11-15). Only the touchstart is cancelled: the pointer events that drive the controls still fire, and the document's audio unlock still sees the touch.
+function keepTouchHeld(element) {
+  element.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+}
 // Touch: DUCK held gives the low version; otherwise the attack goes where it can land
 function touchAttackHeight(kind, self, opp) {
   if (!self || self.counterWindow > 0 || self.state === S.GRAPPLE || (self.state === S.RUN && kind === 'punch')) return false; // a plain press after a perfect block is the counter attack; a running punch is the lunge
@@ -19446,6 +19450,7 @@ const UI = {
     stick.innerHTML = '<div id="stickKnob"></div>';
     root.appendChild(stick);
     const knob = stick.firstChild;
+    keepTouchHeld(stick);
     let activeId = null;
     const move = (e) => {
       const r = stick.getBoundingClientRect();
@@ -19483,6 +19488,7 @@ const UI = {
       b.setAttribute('role', 'button');
       b.setAttribute('aria-label', ariaLabels[action] || ACTION_LABELS[action]);
       b.textContent = label;
+      keepTouchHeld(b);
       const ids = new Set();
       const set = (down, id) => {
         if (down) ids.add(id); else ids.delete(id);
@@ -19617,6 +19623,17 @@ const CreatorUI = {
     root.addEventListener('pointermove', (e) => this.onPointerMove(e));
     root.addEventListener('pointerup', () => this.endDrag());
     root.addEventListener('pointercancel', () => { this.drag = null; });
+    root.addEventListener('touchstart', (e) => { // iPhone: a finger resting on a drag target past its long-press time would get a pointercancel and drop the drag (see keepTouchHeld); one listener on the screens, because the creator rebuilds its controls
+      if (!e.cancelable || !this.dragTarget(e.target)) return;
+      e.preventDefault();
+      const active = document.activeElement; // the cancelled touch no longer moves the focus: a focused text field would keep the keyboard open
+      if (active && active.matches && active.matches('input, textarea')) active.blur();
+    }, { passive: false });
+  },
+  // The targets onPointerDown drags on the creator screen: the crop box, the fitness pad and the screen itself (the preview turn)
+  dragTarget(target) {
+    if (UI.current !== 'creator' || !target || !target.closest) return false;
+    return !!target.closest('.cropbox, .fitpad') || target.classList.contains('creator');
   },
 
   // --- opening, closing, dirty tracking
