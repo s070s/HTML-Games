@@ -46,7 +46,7 @@ export const VALIDATION_RULES = Object.freeze({
   'type-mark-similar': rule('error', 'integrity', 'Two marks differ in fewer than 6 of their 25 pixels.'),
   'type-mark-cross': rule('error', 'integrity', 'A mark is a plus-shaped cross or an x.'),
   'data-version': rule('error', 'integrity', 'game.json has a dataVersion newer than this code knows.'),
-  // The one error of the content tier: it fails even in the lenient run unless waived.
+  // The two hard rules of the content tier (real-person-or-brand, parody-placement): they fail even the lenient run unless waived.
   'real-person-or-brand': rule('error', 'content', 'A text names a real brand, person or party (the deny lists of 11.8); the marked parodies are allowed.', { hard: true }),
   'parody-placement': rule('error', 'content', 'A parody character\'s name is borne by something other than that character (a creature not marked as a parody, a trainer without it in the team, a move), or the parody party is named in a text that does not say it is a parody.', { hard: true }),
   // Warnings (content tier).

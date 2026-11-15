@@ -5419,11 +5419,7 @@ const OLD_STATUS_NUMBERS = {
 test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', { tier: 'integrity' }, () => {
   const data = dataOfPage(html);
   same(behaviourProblems(data), [], 'every entry is a kind of the catalogue with its numbers');
-  // the kind of each ability and status (the numbers are the content-tier test that follows this one)
-  const kindsOf = (entries) => Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, entry.kind]));
-  sameJson(kindsOf(data.abilities), kindsOf(OLD_ABILITY_NUMBERS), 'the 14 abilities (the kind of each, in index order)');
-  sameJson(kindsOf(data.statuses), kindsOf(OLD_STATUS_NUMBERS), 'the 4 statuses (the kind of each, in index order)');
-  // the check itself
+  // the check itself (which abilities and statuses exist, their kinds and numbers are the content-tier test that follows this one)
   const broken = (change) => { const copy = JSON.parse(JSON.stringify(data)); change(copy); return behaviourProblems(copy).join('\n'); };
   assert.match(broken((copy) => { copy.abilities.pal.kind = 'powerWhenHigh'; }), /pal: "powerWhenHigh" is not a kind/, 'an unknown kind');
   assert.match(broken((copy) => { delete copy.abilities.pal.params.mult; }), /pal: the kind powerWhenLow takes hpShare, mult, the entry has hpShare/, 'a missing number');
@@ -5445,9 +5441,15 @@ test('behaviour numbers: every ability and status has the numbers the old code h
   const data = dataOfPage(html);
   const findings = [];
   const compare = (kind, current, expected) => {
+    for (const id of Object.keys(current)) {
+      if (!Object.hasOwn(expected, id)) findings.push({ rule: 'old-numbers', kind, id, field: '', message: `${id}: not in the old code` });
+    }
     for (const [id, entry] of Object.entries(expected)) {
-      if (!Object.hasOwn(current, id)) continue; // a missing entry is a failure of the integrity test above
-      for (const field of Object.keys(entry).filter((name) => name !== 'kind')) {
+      if (!Object.hasOwn(current, id)) {
+        findings.push({ rule: 'old-numbers', kind, id, field: '', message: `${id}: missing (the old code had it)` });
+        continue;
+      }
+      for (const field of Object.keys(entry)) {
         const difference = firstDifference(current[id][field], entry[field], field);
         if (difference !== null) findings.push({ rule: 'old-numbers', kind, id, field, message: difference });
       }
@@ -6862,7 +6864,11 @@ function startBaselineRun(baseRoot, jsonPath, logPath) {
     child.on('close', (exitCode) => finishRun(exitCode));
   });
   const stop = async () => {
-    if (!settled) child.kill();
+    if (!settled) {
+      // child.kill() on Windows ends only the child, not the processes it started, which can keep files of the worktree open
+      if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+      else child.kill();
+    }
     await result;
   };
   return { result, stop };
@@ -6908,8 +6914,11 @@ async function runGate() {
   } finally {
     if (baselineRun) await baselineRun.stop(); // the child holds the log and the worktree's files open until it is gone
     gitRaw(repo, 'worktree', 'remove', '--force', worktree);
-    rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-    gitRaw(repo, 'worktree', 'prune');
+    try {
+      rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } finally {
+      gitRaw(repo, 'worktree', 'prune');
+    }
   }
   return exitCode;
 }
