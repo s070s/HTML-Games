@@ -93,6 +93,9 @@ async function selfTest() { // selfTest({ tiers: ['engine'] }): the one argument
       titleFlow();
       const reached = await pumpUntil(function () { return layers.some(function (l) { return l instanceof OverworldLayer; }) && Fade.alpha === 0; }, 3000, 'a', 7);
       check('title, notice, new game reaches the overworld', reached && !!G && G.party.length === 1, G ? G.player.name + ' ' + G.player.map : 'no state', 'integrity');
+      // A new game seeds its random numbers from the clock; the fights of the later checks must not depend on the time of the run
+      // (a run of only some tiers skips the recruit check, which seeds them again).
+      if (G) G.rng = makeRng(1234);
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       if (world) {
         await pumpFrames(5);

@@ -4961,6 +4961,12 @@ test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to
   const sunday = R.createBattle(monsOf('komma', 8, 1), [R.makeMon('fakelakis', 3)], R.makeRng(1), { kind: 'wild', sunday: true });
   assert.equal(sunday.sunday, true, 'the battle keeps the Sunday flag it is given');
 });
+test('selfTest seeds the random numbers of the new game it starts, so a run of only some tiers fights the same way at any time of day', { tier: 'integrity' }, () => {
+  const start = html.indexOf("await guard('new game'");
+  const guardBody = html.slice(start, html.indexOf('await guard(', start + 1));
+  assert.ok(start >= 0 && guardBody.includes('titleFlow();'), 'the new game guard starts the game through titleFlow (which seeds from the clock)');
+  assert.ok(/titleFlow\(\);[\s\S]*G\.rng = makeRng\(\d+\);/.test(guardBody), 'the guard seeds G.rng with a fixed number after the new game');
+});
 test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', { tier: 'integrity' }, () => {
   const reference = readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8');
   const start = reference.indexOf('## 12. Accessibility');
