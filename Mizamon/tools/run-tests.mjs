@@ -4684,7 +4684,7 @@ test('accessibility: the decision section of the reference lists each option wit
 });
 
 // ---- Build: the split and the assembler (MZ-DEV-02a; reference sections 13.2, 13.3 and 13.5) ----
-// SHA-256 of Mizamon.html at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
+// SHA-256 of the single-file page at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
 // which moves content into data/, replaces this pin with the parity proof of reference section 13.12.
 const BASELINE_PAGE_SHA256 = '9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030';
 
@@ -4707,12 +4707,12 @@ function copyAsCrlf(fromRoot, toRoot) {
   for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
 }
 
-test('assembler: the page equals the baseline Mizamon.html byte for byte, twice, and from a CRLF copy', () => {
+test('assembler: the page equals the baseline single-file page (861daff) byte for byte, twice, and from a CRLF copy', () => {
   const first = assembleFromDisk();
   const second = assembleFromDisk();
   assert.equal(first, second, 'assembling twice gives the same text');
   assert.ok(!first.includes('\r'), 'the page is LF');
-  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline Mizamon.html');
+  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline single-file page');
   const crlfRoot = scratchFolder('crlf');
   try {
     copyAsCrlf(MIZAMON_ROOT, crlfRoot);
