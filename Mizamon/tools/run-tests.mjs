@@ -129,18 +129,22 @@ export function numberScans(scans) {
   });
 }
 // Returns the problems of one test: every baseline scan of it must have been made, and found at least its baseline count.
-// A baseline entry marked "rewritten" belongs to a scan that now reads the parsed DATA, so it is not expected here.
+// A baseline entry marked "rewritten" belongs to a scan whose test now reads something else (the parsed DATA, a changed line count):
+// without a "rewrittenCount" it is not expected here (its test checks what it reads now); with one, the scan must still be made and
+// find at least that count, which is what it found when the entry was rewritten (so a line count cannot fall unnoticed).
 // A scan that was never reached because the test body failed earlier is not reported (the failure of the body is the news).
 export function checkScans(testName, scans, baselineScans, bodyFailed = false) {
   const done = new Map(numberScans(scans).map((scan) => [scanKey(scan, scan.ordinal), scan]));
   const problems = [];
   for (const wanted of baselineScans) {
-    if (wanted.test !== testName || wanted.rewritten) continue;
+    if (wanted.test !== testName) continue;
+    if (wanted.rewritten && wanted.rewrittenCount === undefined) continue;
+    const floor = wanted.rewritten ? wanted.rewrittenCount : wanted.count;
     const found = done.get(scanKey(wanted, wanted.ordinal));
     if (!found) {
-      if (!bodyFailed) problems.push(`source scan ${wanted.kind} ${wanted.pattern} was not made (baseline ${wanted.count})`);
+      if (!bodyFailed) problems.push(`source scan ${wanted.kind} ${wanted.pattern} was not made (${wanted.rewritten ? 'rewritten' : 'baseline'} ${floor})`);
     }
-    else if (found.count < wanted.count) problems.push(`source scan ${wanted.kind} ${wanted.pattern} matched ${found.count}, at least ${wanted.count} is expected (tests/baseline/source-scans.json)`);
+    else if (found.count < floor) problems.push(`source scan ${wanted.kind} ${wanted.pattern} matched ${found.count}, at least ${floor} is expected (tests/baseline/source-scans.json)`);
   }
   return problems;
 }
@@ -769,6 +773,8 @@ test('strings: every key has Greek and English, same {placeholders}, gender word
   assert.notEqual(R.lookupString('menu.bag', 'el'), R.lookupString('menu.bag', 'en'));
   assert.equal(R.lookupString('no.such.key', 'en'), 'no.such.key');
 });
+const CODE_AND_EVENT_KEYS_FLOOR = 161; // 157 keys of the code and 4 of the rival1 event; the baseline had 157 + 1 (sayAll, now 0)
+const CONTENT_KEYS_FLOOR = 599; // 328 keys the data refers to and 271 defined texts; the baseline scan found 605 (it read the quoted keys of the whole page, so it also counted keys that the engine and the in-page checks name)
 test('strings: every key the code asks for exists, including the keys built from data', () => {
   const S = R.STRINGS;
   const need = (key) => assert.ok(S[key], 'missing string ' + key);
@@ -781,14 +787,17 @@ test('strings: every key the code asks for exists, including the keys built from
   // The texts of the signs, people, doors, trainers, districts and of the events (the `say` steps of rival1 moved there from the code).
   const dataReferences = stringKeyReferences(dataOfPage(html));
   for (const key of dataReferences) used.add(key);
-  // No scan may find less than on the baseline: the scans of the baseline test that read content (the T/say scan, sayAll and the
-  // sign, npc and warp keys) found this many quoted keys in all (tests/baseline/source-scans.json, entries marked "rewritten"). The
-  // sign, npc and warp scan counted the keys the maps name and the keys of the STRINGS table itself, so both count here: the
-  // references of the data and the texts of those groups.
-  const baselineReferences = readBaselineFile('source-scans.json').scans.filter((scan) => scan.test === 'strings: every key the code asks for exists, including the keys built from data' && scan.rewritten && scan.kind === 'matchAll').reduce((sum, scan) => sum + scan.count, 0);
-  assert.ok(baselineReferences >= 700, 'the baseline counts are there: ' + baselineReferences);
-  const definedTexts = Object.keys(S).filter((key) => /^(sign|npc|warp)\./.test(key)).length;
-  assert.ok(codeReferences + dataReferences.length + definedTexts >= baselineReferences, `the keys named by the code (${codeReferences}) and by the data (${dataReferences.length}), with the sign, npc and warp texts (${definedTexts}), are fewer than on the baseline (${baselineReferences})`);
+  // No scan may find less than it found on the baseline (tests/baseline/source-scans.json, the three entries of this test marked
+  // "rewritten": the T/say scan, sayAll and the sign, npc and warp keys). Two floors, one for each kind of reading, so a loss in one
+  // cannot hide behind a gain in the other. The floors are today's counts (see the constants above; the baseline had 157 + 1 and 605):
+  //  - the keys the code names (T, say, askYesNo, sayAll) plus the keys of the `say` steps of the events (rival1 moved out of the code);
+  //  - the sign, npc and warp keys that the data refers to, plus the texts those groups define (the baseline scan counted both).
+  const eventKeys = Object.values(dataOfPage(html).events).flatMap((steps) => eventStringKeys(steps));
+  const contentTextKey = /^(sign|npc|warp)\./;
+  const contentReferences = dataReferences.filter((key) => contentTextKey.test(key)).length;
+  const definedTexts = Object.keys(S).filter((key) => contentTextKey.test(key)).length;
+  assert.ok(codeReferences + eventKeys.length >= CODE_AND_EVENT_KEYS_FLOOR, `the keys named by the code (${codeReferences}) and by the events (${eventKeys.length}) are fewer than ${CODE_AND_EVENT_KEYS_FLOOR}`);
+  assert.ok(contentReferences + definedTexts >= CONTENT_KEYS_FLOOR, `the sign, npc and warp keys of the data (${contentReferences}) and their defined texts (${definedTexts}) are fewer than ${CONTENT_KEYS_FLOOR}`);
   for (const key of used) need(key);
   for (const id of R.TYPE_IDS) need('type.' + id);
   for (const id of R.ABILITY_IDS) { need('ab.' + id); need('abd.' + id); }
@@ -5516,7 +5525,17 @@ test('source scans: tests/baseline/source-scans.json holds the baseline scans, a
   assert.match(checkScans('a test', made(0), wanted)[0], /matched 0, at least 3 is expected/, 'a scan that finds nothing fails');
   assert.match(checkScans('a test', [], wanted)[0], /was not made/, 'a scan that was never made fails');
   same(checkScans('a test', made(0), [{ ...wanted[0], count: 0 }]), [], 'a scan that found nothing on the baseline (a negative check) may find nothing');
-  same(checkScans('a test', made(0), [{ ...wanted[0], rewritten: 'reads DATA' }]), [], 'a rewritten scan is checked by its test');
+  same(checkScans('a test', made(0), [{ ...wanted[0], rewritten: 'reads DATA' }]), [], 'a rewritten scan without a count is checked by its test');
+  const counted = [{ ...wanted[0], count: 9, rewritten: 'a line count that fell', rewrittenCount: 3 }];
+  same(checkScans('a test', made(3), counted), [], 'a rewritten scan with a count passes at that count');
+  same(checkScans('a test', made(8), counted), [], 'and above it, even where it is below the baseline count');
+  assert.match(checkScans('a test', made(2), counted)[0], /matched 2, at least 3 is expected/, 'but not below it');
+  assert.match(checkScans('a test', [], counted)[0], /was not made \(rewritten 3\)/, 'and it must be made');
+  const rewrittenEntries = baseline.scans.filter((scan) => scan.rewritten);
+  assert.ok(rewrittenEntries.every((scan) => typeof scan.rewritten === 'string' && scan.rewritten.length > 10), 'a rewritten entry says why');
+  const lineCounts = rewrittenEntries.filter((scan) => scan.kind === 'split' && scan.pattern === '"\\n"');
+  assert.equal(lineCounts.length, 12, 'the 12 line counts of the page or of the engine part');
+  assert.ok(lineCounts.every((scan) => Number.isInteger(scan.rewrittenCount) && scan.rewrittenCount > 5000), 'each keeps the count it finds today');
   // end to end: a real test of this file with one of its scans forced to find nothing fails, and passes without the forcing
   const runChild = (forcePattern) => spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
     encoding: 'utf8', timeout: 120000,
