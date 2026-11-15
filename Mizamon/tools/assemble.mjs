@@ -6,10 +6,11 @@
 // and no test runs) and prints one JSON line with the source hash, the SHA-256 of the page and its size.
 // --root is the Mizamon folder to read (default: the folder this file lives in), for a checkout of another commit.
 // Exit codes: 0 done, 1 the sources do not assemble, 2 usage error, 3 input/output error.
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assemblePage, sha256Hex, sourceHash } from '../shared/assemble-core.mjs';
+import { assemblePage, dataBlockText, sha256Hex, sourceHash } from '../shared/assemble-core.mjs';
+import { readData } from '../shared/data-files.mjs';
 
 export const MIZAMON_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // What the source hash covers besides src/ and data/ (reference section 13.5).
@@ -34,9 +35,16 @@ function readFragments(root, kind) {
     .map((name) => ({ name, text: readFileSync(join(folder, name), 'utf8') }));
 }
 
+// The text for the data marker: the DATA line of data/ (13.2), or '' when the root has no data/ folder (a checkout from before DEV-02b).
+export function readDataBlock(root = MIZAMON_ROOT) {
+  if (!existsSync(join(root, 'data'))) return '';
+  return dataBlockText(readData(root).data);
+}
+
 export function readSources(root = MIZAMON_ROOT) {
   return {
     shell: readFileSync(join(root, 'src', 'shell.html'), 'utf8'),
+    data: readDataBlock(root),
     rules: readFragments(root, 'rules'),
     engine: readFragments(root, 'engine'),
   };

@@ -1,0 +1,20 @@
+Baseline of the DEV-02 data move (reference section 13.12): main at 1cbc9d6 ("Mizamon: build report"), the start of MZ-DEV-02b.
+The page assembled from src/ at that commit has SHA-256 9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030 (the same page as the
+single file Mizamon.html of 861daff and 7b152cd, which passed the Chrome self-test 348/348 at 390x844, 844x390 and 1280x720).
+Rule tests on that commit: 173 of 173.
+
+Made on 2026-11-15 from a checkout of that commit:
+  rules-tables.json, replay.json, migrated-saves.json, sound-calls.json, balance-output.txt, balance-runs.json
+      node Mizamon/tools/parity.mjs --write Mizamon/tests/baseline --root <checkout>/Mizamon
+  source-scans.json
+      MZ_RECORD_SCANS=<file> node Mizamon/tools/run-tests.mjs   (run in the checkout; tools/run-tests.mjs records every search of the page text)
+
+What each file proves (tools/parity.mjs and the "DEV-02b parity" tests of tools/run-tests.mjs read them):
+  rules-tables.json   every table and constant of RULES (and the internals the rules keep), as JSON with key order; engineTables is the
+                      old SFX_PATTERNS and MUSIC_TRACKS as they were typed in the engine
+  replay.json         the 1,000-battle replay checksums (seed 2024, seed 7), one fight against every trainer for each starter, wild
+                      encounter rolls for every zone
+  migrated-saves.json migrateSave on saves of version 0 to 3 and at the story points (starter, each badge, credits, ending)
+  sound-calls.json    every call a fake AudioContext receives for the 19 effects and four loops of each of the 6 tunes (SHA-256 of the list)
+  balance-output.txt  the output of balance.mjs with balance-runs.json runs per row
+  source-scans.json   test name, kind, pattern and match count of every search of the page text

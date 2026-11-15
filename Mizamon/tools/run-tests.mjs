@@ -32,6 +32,114 @@ export function loadRules(source = html) {
 }
 const R = loadRules();
 
+// ---- Source scans (MZ-DEV-02b, reference 13.12) ----
+// A test that searches the page text (matchAll, match, includes, indexOf, search, split, slice, RegExp.test) must find at least
+// as much as it did on the baseline (tests/baseline/source-scans.json), so a scan that silently stops matching fails its test.
+// The recorder wraps the String and RegExp methods while a test runs; scans of the page text and of the engine part are logged.
+// MZ_RECORD_SCANS=<file> writes the log instead of checking it (how the baseline file was made); MZ_FORCE_SCAN_ZERO=<regex> makes
+// every scan whose pattern matches find nothing (how a test proves that a scan forced to match nothing fails).
+const SCAN_BASELINE_PATH = join(MIZAMON_ROOT, 'tests', 'baseline', 'source-scans.json');
+const scanSubjects = []; // [{ name, text }]
+const scanLog = [];
+let scanTestName = null;
+const forcedZeroPattern = process.env.MZ_FORCE_SCAN_ZERO ? new RegExp(process.env.MZ_FORCE_SCAN_ZERO, 'u') : null;
+export function registerScanSubject(name, text) { scanSubjects.push({ name, text }); }
+registerScanSubject('page', html);
+function scanSubjectName(text) {
+  if (scanTestName === null || typeof text !== 'string') return null;
+  for (const subject of scanSubjects) if (text.length === subject.text.length && text === subject.text) return subject.name;
+  return null;
+}
+function describeScanPattern(pattern) {
+  const text = pattern instanceof RegExp ? String(pattern) : JSON.stringify(String(pattern));
+  return text.length > 160 ? text.slice(0, 160) + '...' : text;
+}
+function noteScan(kind, pattern, count) { scanLog.push({ test: scanTestName, kind, pattern: describeScanPattern(pattern), count }); }
+function installScanRecorder() {
+  const wrapString = (method, run) => {
+    const original = String.prototype[method];
+    String.prototype[method] = function (...args) {
+      const subject = scanSubjectName(this);
+      if (subject === null) return original.apply(this, args);
+      return run(original, this, args, subject);
+    };
+  };
+  const forced = (args) => forcedZeroPattern !== null && forcedZeroPattern.test(describeScanPattern(args[0]));
+  wrapString('matchAll', (original, text, args) => {
+    const all = forced(args) ? [] : [...original.apply(text, args)];
+    noteScan('matchAll', args[0], all.length);
+    return all[Symbol.iterator]();
+  });
+  wrapString('match', (original, text, args) => {
+    if (forced(args)) { noteScan('match', args[0], 0); return null; }
+    const found = original.apply(text, args);
+    noteScan('match', args[0], found === null ? 0 : (found.index === undefined ? found.length : 1));
+    return found;
+  });
+  wrapString('includes', (original, text, args) => {
+    const found = forced(args) ? false : original.apply(text, args);
+    noteScan('includes', args[0], found ? 1 : 0);
+    return found;
+  });
+  wrapString('indexOf', (original, text, args) => {
+    const found = forced(args) ? -1 : original.apply(text, args);
+    noteScan('indexOf', args[0], found >= 0 ? 1 : 0);
+    return found;
+  });
+  wrapString('search', (original, text, args) => {
+    const found = forced(args) ? -1 : original.apply(text, args);
+    noteScan('search', args[0], found >= 0 ? 1 : 0);
+    return found;
+  });
+  wrapString('split', (original, text, args) => {
+    const parts = forced(args) ? [text] : original.apply(text, args);
+    noteScan('split', args[0], parts.length - 1);
+    return parts;
+  });
+  wrapString('slice', (original, text, args) => {
+    const piece = original.apply(text, args);
+    noteScan('slice', '', piece.length > 0 ? 1 : 0);
+    return piece;
+  });
+  const originalTest = RegExp.prototype.test;
+  RegExp.prototype.test = function (text) {
+    if (scanSubjectName(text) === null) return originalTest.call(this, text);
+    const found = forced([this]) ? false : originalTest.call(this, text);
+    noteScan('test', this, found ? 1 : 0);
+    return found;
+  };
+}
+installScanRecorder();
+export function scanKey(scan, ordinal) { return [scan.test, scan.kind, scan.pattern, ordinal].join('\u0000'); }
+// Numbers every scan of a test among the scans with the same kind and pattern: [{ ...scan, ordinal }]
+export function numberScans(scans) {
+  const seen = new Map();
+  return scans.map((scan) => {
+    const family = [scan.test, scan.kind, scan.pattern].join('\u0000');
+    const ordinal = seen.get(family) ?? 0;
+    seen.set(family, ordinal + 1);
+    return { ...scan, ordinal };
+  });
+}
+// Returns the problems of one test: every baseline scan of it must have been made, and found at least its baseline count.
+// A baseline entry marked "rewritten" belongs to a scan that now reads the parsed DATA, so it is not expected here.
+export function checkScans(testName, scans, baselineScans) {
+  const done = new Map(numberScans(scans).map((scan) => [scanKey(scan, scan.ordinal), scan]));
+  const problems = [];
+  for (const wanted of baselineScans) {
+    if (wanted.test !== testName || wanted.rewritten) continue;
+    const found = done.get(scanKey(wanted, wanted.ordinal));
+    if (!found) problems.push(`source scan ${wanted.kind} ${wanted.pattern} was not made (baseline ${wanted.count})`);
+    else if (found.count < wanted.count) problems.push(`source scan ${wanted.kind} ${wanted.pattern} matched ${found.count}, at least ${wanted.count} is expected (tests/baseline/source-scans.json)`);
+  }
+  return problems;
+}
+let scanBaseline = null;
+function loadScanBaseline() {
+  if (scanBaseline === null) scanBaseline = existsSync(SCAN_BASELINE_PATH) ? JSON.parse(readFileSync(SCAN_BASELINE_PATH, 'utf8')).scans : [];
+  return scanBaseline;
+}
+
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 // The rules live in another vm realm, so compare structures through JSON.
@@ -446,10 +554,25 @@ test('seeded replay of a 1,000-battle sample gives equal checksums twice (and a 
   assert.notEqual(sample(2025, 200).total, sample(2024, 200).total);
   assert.ok(a.wins > 300 && a.wins < 700, 'both sides win sometimes: ' + a.wins);
 });
+// The code of the rules block, without the data and without // comments. The markers are whole lines (13.2); the lines between
+// /*DATA-BEGIN*/ and /*DATA-END*/ are data, not code, so a content text such as "new Date" cannot fail the engine test below.
+export function rulesCodeText(page) {
+  const lines = page.split(/\r?\n/); // CRLF checkouts too
+  const begin = lines.indexOf('// RULES-BEGIN');
+  const end = lines.indexOf('// RULES-END');
+  assert.ok(begin >= 0 && end > begin, 'RULES-BEGIN and RULES-END are lines of their own');
+  const code = [];
+  let inData = false;
+  for (const line of lines.slice(begin + 1, end)) {
+    if (line === '/*DATA-BEGIN*/') inData = true;
+    else if (line === '/*DATA-END*/') inData = false;
+    else if (!inData) code.push(line.replace(/\/\/.*$/, ''));
+  }
+  return code.join('\n');
+}
+const FORBIDDEN_RULES_CALLS = /Math\.random|Date\.now|new Date|performance\.now/;
 test('the rules never call Math.random or Date', () => {
-  const begin = html.indexOf('// RULES-BEGIN');
-  const rulesText = html.slice(begin, html.indexOf('// RULES-END')).split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n'); // CRLF checkouts too
-  assert.ok(!/Math\.random|Date\.now|new Date|performance\.now/.test(rulesText));
+  assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(html)));
 });
 test('encounters are seeded and happen at about the set rate on grass only', () => {
   const route = R.MAPS.route1;
@@ -4102,6 +4225,7 @@ export function parliamentXpBand(rules) {
 // ---- Accessibility options (MZ-A11Y-01) ----
 const NEW_OPTIONS = ['largeText', 'typeMarks', 'flashesOff', 'holdRepeat', 'touchHand'];
 const enginePart = html.slice(html.indexOf('// ENGINE: everything below'));
+registerScanSubject('engine', enginePart);
 const OLD_OPTION_SET = { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true };
 
 test('accessibility options: defaults, and every value is checked (a wrong type or an out-of-range number falls back to the default)', () => {
@@ -5073,15 +5197,36 @@ if (only && selected.length === 0) {
   console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
   process.exit(1);
 }
+const recordPath = process.env.MZ_RECORD_SCANS || null;
+const recorded = [];
 for (const { name, fn } of selected) {
+  let failure = null;
+  scanTestName = name;
+  scanLog.length = 0;
   try {
     fn();
+  } catch (error) {
+    failure = error;
+  }
+  const scans = scanLog.slice();
+  scanTestName = null;
+  recorded.push(...scans);
+  if (!recordPath) {
+    const problems = checkScans(name, scans, loadScanBaseline());
+    if (problems.length > 0) failure = new Error((failure ? String(failure.message || failure) + '\n' : '') + problems.join('\n'));
+  }
+  if (failure) {
+    failures.push({ name, error: failure });
+    console.log('FAIL ' + name + '\n     ' + String(failure && failure.message ? failure.message : failure).split('\n').join('\n     '));
+  } else {
     passed++;
     console.log('ok   ' + name);
-  } catch (error) {
-    failures.push({ name, error });
-    console.log('FAIL ' + name + '\n     ' + String(error && error.message ? error.message : error).split('\n').join('\n     '));
   }
+}
+if (recordPath) {
+  const entries = numberScans(recorded).map((scan) => ({ test: scan.test, kind: scan.kind, pattern: scan.pattern, ordinal: scan.ordinal, count: scan.count }));
+  mkdirSync(dirname(recordPath), { recursive: true });
+  writeFileSync(recordPath, JSON.stringify({ scans: entries }, null, 0).split('},{').join('},\n{') + '\n');
 }
 console.log('PASS ' + passed + ' / ' + selected.length);
 if (failures.length > 0) process.exit(1);
