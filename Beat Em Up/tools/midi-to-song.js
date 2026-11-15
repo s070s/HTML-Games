@@ -35,7 +35,7 @@ const END = '// song-data:end';
 // a stage whose name equals it (without a trailing "Loop") plays it when the rotation allows. Roles are the instruments the game has (LOOP_VOICES in breakpoint.html).
 // melody: the level of the lead, chords and bass against the drums (1 = the instrument rows as they are); the three of the owner were set so that every loop is about as loud as the fight bed they replace (Appendix C, P19-18). A new file starts at 1.
 const LOOPS = [
-  { file: 'construction-site-loop.mid', voices: [['lead', 1], ['chords', [3, 4]], ['bass', 6]], melody: 1.8 },
+  { file: 'construction-site-loop.mid', voices: [['chords', [1, 2]], ['bass', 4]], melody: 1.8 },
   { file: 'parking-garage.mid', voices: [['lead', 1], ['chords', 3], ['bass', 6]], melody: 1 },
   { file: 'nightclub-loop.mid', voices: [['lead', 1], ['chords', 3], ['bass', 6]], melody: 0.6 },
 ];
@@ -177,7 +177,7 @@ function loopTicksOf(midi, label) {
   return { barTicks, ticks: Math.ceil(lastTick / barTicks) * barTicks, signature }; // the loop is the file's whole bars: the last bar may end in rests
 }
 
-// A voice is one track, or a list of tracks the file splits one part over (the owner's construction site file plays its chords on tracks 3 and 4).
+// A voice is one track, or a list of tracks the file splits one part over (the owner's construction site file plays its chords on tracks 1 and 2).
 const trackIndexesOf = (index) => (Array.isArray(index) ? index : [index]);
 
 // The tracks of one voice as one track: they share one channel (the pitch wheel is per channel) and one pitch range, and no pitch sounds twice at once.

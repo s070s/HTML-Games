@@ -25234,7 +25234,6 @@ const SelfTest = {
     // What an independent read of the three .mid files gives (not the converter's own numbers): the title, the tempo, the bars, the notes per voice with the sums of their pitches, onset steps and lengths in half sixteenths (so a single changed note shows) and the first and the last onset (step, pitches), the velocity, the end of the last note in half sixteenths, the drum hits with their first and last step (and bit mask) and the sum of step x mask, the pitch wheel
     const LOOP_FACTS = [
       { name: 'Construction Site Loop', bpm: 164, drums: { hits: 54, steps: 46, first: [0, 33], last: [126, 2], weighted: 55296 }, voices: {
-        lead: { count: 25, sums: [1679, 1764, 120], first: [18, [68]], last: [126, [70]], velocity: 76, end: 256, bends: 66, range: 6, firstBend: [2210, 8519], lastBend: [10560, 8192] },
         chords: { count: 62, sums: [3510, 3946, 244], first: [0, [51]], last: [126, [58, 62]], velocity: 76, end: 256 }, bass: { count: 36, sums: [1358, 2256, 142], first: [0, [39]], last: [126, [37]], velocity: 76, end: 254 } } },
       { name: 'Parking Garage', bpm: 156, drums: { hits: 68, steps: 42, first: [0, 33], last: [124, 34], weighted: 66846 }, voices: {
         lead: { count: 55, sums: [3564, 3430, 194], first: [0, [62]], last: [126, [58]], velocity: 76, end: 254 },
@@ -25245,7 +25244,7 @@ const SelfTest = {
     ];
     const LOOP_STEPS = 128; // 8 bars of 4/4 in every file
     const bitCount = (mask) => [1, 2, 4, 8, 16, 32].filter((bit) => mask & bit).length;
-    test('Stage soundtrack data (P19-18): the three tables decode to the notes of the three .mid files: the title, the tempo, 8 bars (128 sixteenths), the notes of every voice with their first and last onset, velocity and end, the drum hits and the pitch wheel of the construction lead; every note stays inside the loop (so the loop wraps with no note across the seam); the list holds exactly the three files, in the rotation order', () => {
+    test('Stage soundtrack data (P19-18): the three tables decode to the notes of the three .mid files: the title, the tempo, 8 bars (128 sixteenths), the notes of every voice with their first and last onset, velocity and end, the drum hits and no pitch wheel (no file of the Owner bends today); every note stays inside the loop (so the loop wraps with no note across the seam); the list holds exactly the three files, in the rotation order', () => {
       const bad = [], wheel = (loop, role) => { const [, , text, range] = loop.voices.find((voice) => voice[0] === role), read = (at, n) => [...text.slice(at, at + n)].reduce((value, char) => value * 64 + SONG_DIGITS.indexOf(char), 0), events = []; for (let at = 0, tick = 0; at < text.length; at += 6) { tick += read(at, 3); events.push([tick, read(at + 3, 3)]); } return { events, range }; };
       if (STAGE_TRACKS.length !== LOOP_FACTS.length) return 'the list holds ' + STAGE_TRACKS.length + ' tracks, the owner gave ' + LOOP_FACTS.length;
       LOOP_FACTS.forEach((facts, i) => {
@@ -25389,7 +25388,7 @@ const SelfTest = {
       if (Math.abs(TENSE_TEMPO - 0.96) > 1e-12 || Math.abs(TENSE_LIFT - 1.26) > 1e-12) bad.push('the tense layer is ' + TENSE_TEMPO + ' x the step and ' + TENSE_LIFT + ' x the level');
       return bad.length ? bad.slice(0, 4).join('; ') : true;
     })));
-    test('Stage soundtrack sound (P19-18): the levels are the fight bed\'s (the kick 0.34 x FIGHT_GAIN 1.15, a note at its role\'s gain x the loop\'s melody level, a velocity 64 note 64/76 of a 76 one), the file\'s pitches play as General MIDI notes with the bass an octave above too, the pitch wheel bends the notes of the construction lead as the file says (each step of the wheel at its own time) and a note without a bend sets no detune; every voice goes through the loop\'s one gain node to the music bus (so Music volume, mute, the low-health muffle and the pause duck act on it), and a stop or the next match fades that node to 0', () => withSongAudio((audio) => withMusicState(() => {
+    test('Stage soundtrack sound (P19-18): the levels are the fight bed\'s (the kick 0.34 x FIGHT_GAIN 1.15, a note at its role\'s gain x the loop\'s melody level, a velocity 64 note 64/76 of a 76 one), the file\'s pitches play as General MIDI notes with the bass an octave above too, the pitch wheel bends a note as the table says (each step of the wheel at its own time; a made-up lead, since no file of the Owner bends today) and a note without a bend sets no detune; every voice goes through the loop\'s one gain node to the music bus (so Music volume, mute, the low-health muffle and the pause duck act on it), and a stop or the next match fades that node to 0', () => withSongAudio((audio) => withMusicState(() => {
       const bad = [], [construction, , nightclub] = STAGE_TRACKS, stepDur = 60 / construction.bpm / 4;
       withDetuneTimes(audio); Music.out = null; Music.outCtx = null;
       const peak = (node) => node.gain.calls.find((call) => call[0] === 'ramp')[1], close = (a, b) => Math.abs(a - b) < 1e-9;
@@ -25398,14 +25397,15 @@ const SelfTest = {
       Music.drums(5, 1, FIGHT_GAIN); // the kick: a sine of 120 Hz, then the drop; the gain of its first voice is made first
       const kickGain = peak(audio.made.gains[0]);
       if (!close(kickGain, 0.34 * FIGHT_GAIN) || audio.made.oscillators[0].from !== 5) bad.push('the kick peaks at ' + kickGain + ' from ' + audio.made.oscillators[0].from + ', the bed had 0.34 x ' + FIGHT_GAIN);
-      const bent = noteOf(construction, 'lead', (note) => note.bend && note.bend.length > 3), plain = noteOf(construction, 'chords', () => true), loud = noteOf(construction, 'lead', () => true), quiet = noteOf(nightclub, 'lead', () => true), low = noteOf(nightclub, 'bass', () => true);
-      const [saw] = play(construction, bent, stepDur), wantBend = bent.bend.map(([ticks, cents]) => [2 + ticks * (stepDur / LOOP_TICKS_PER_STEP), cents]);
+      const wheelLoop = Object.assign({}, construction, { voices: [['lead', 'AAAIBEBM', 'AB4CcQAB4C7gAB4CAA', 6]] }); // one lead note (step 0, 4 sixteenths, pitch 68, velocity 76) and three wheel changes inside it: +132, +225 and 0 cents
+      const bent = noteOf(wheelLoop, 'lead', (note) => note.bend && note.bend.length > 3), plain = noteOf(construction, 'chords', () => true), loud = noteOf(wheelLoop, 'lead', () => true), quiet = noteOf(nightclub, 'lead', () => true), low = noteOf(nightclub, 'bass', () => true);
+      const [saw] = play(wheelLoop, bent, stepDur), wantBend = bent.bend.map(([ticks, cents]) => [2 + ticks * (stepDur / LOOP_TICKS_PER_STEP), cents]);
       if (saw.type !== 'sawtooth' || !close(saw.frequency.value, songHz(bent.pitch)) || saw.from !== 2 || !close(saw.until, 2 + stepDur / 2 * bent.half + MUSIC_RELEASE_SECS + 0.03)) bad.push('the lead note plays ' + saw.type + ' ' + saw.frequency.value + ' Hz from ' + saw.from + ' to ' + saw.until);
       if (saw.detuneCalls.length !== wantBend.length || saw.detuneCalls.some(([at, cents], k) => !close(at, wantBend[k][0]) || !close(cents, wantBend[k][1])) || !saw.detuneCalls.some(([, cents]) => Math.abs(cents) > 20)) bad.push('the wheel of the lead note is ' + JSON.stringify(saw.detuneCalls.slice(0, 3)) + ' ..., not the file\'s ' + JSON.stringify(wantBend.slice(0, 3)));
       if (bent.bend.some(([ticks], k) => k && ticks <= bent.bend[k - 1][0])) bad.push('the wheel changes of a note are not in time order');
       if (play(construction, plain, stepDur)[0].detuneCalls.length) bad.push('a note without a bend sets the detune');
-      play(construction, loud, stepDur);
-      if (!close(peak(audio.made.gains[0]), LOOP_VOICES.lead.gain * FIGHT_GAIN * construction.melody * loud.velocity / LOOP_VELOCITY)) bad.push('a lead note of velocity ' + loud.velocity + ' peaks at ' + peak(audio.made.gains[0]));
+      play(wheelLoop, loud, stepDur);
+      if (!close(peak(audio.made.gains[0]), LOOP_VOICES.lead.gain * FIGHT_GAIN * wheelLoop.melody * loud.velocity / LOOP_VELOCITY)) bad.push('a lead note of velocity ' + loud.velocity + ' peaks at ' + peak(audio.made.gains[0]));
       play(nightclub, quiet, 60 / nightclub.bpm / 4);
       if (quiet.velocity !== 64 || !close(peak(audio.made.gains[0]), LOOP_VOICES.lead.gain * FIGHT_GAIN * nightclub.melody * 64 / 76)) bad.push('a lead note of velocity ' + quiet.velocity + ' peaks at ' + peak(audio.made.gains[0]) + ', not 64/76 of the velocity 76 level');
       const both = play(nightclub, low, 60 / nightclub.bpm / 4);
