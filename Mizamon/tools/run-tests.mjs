@@ -5391,11 +5391,20 @@ test('data/: every kind is there, the indexes list the folders, every entry fits
     assert.ok(!(bytes[0] === 0xef && bytes[1] === 0xbb), file.path + ' has a BOM');
     assert.equal(toLf(bytes.toString('utf8')), file.text, file.path + ' is not what the writer writes (UTF-8, LF, 2 spaces, schema order, final newline)');
   }
-  const counts = { species: 38, moves: 41, abilities: 14, statuses: 4, types: 7, items: 10, trainers: 54, maps: 71, tiles: 96, districts: 6, shops: 4, events: 1 };
-  for (const [kind, count] of Object.entries(counts)) assert.equal(Object.keys(data[kind]).length, count, kind + ' count');
   assert.equal(Object.values(data.strings).reduce((sum, group) => sum + Object.keys(group).length, 0), Object.keys(R.STRINGS).length, 'every text is in a group');
   assert.equal(DATA_VERSION, 1);
   assert.equal(data.game.dataVersion, DATA_VERSION);
+});
+// How many entries each kind has is content (the Owner may add or remove entries): a different count is a finding, not an error.
+test('data counts: each kind has the number of entries the world was built with', { tier: 'content' }, () => {
+  const { data } = readData(MIZAMON_ROOT);
+  const counts = { species: 38, moves: 41, abilities: 14, statuses: 4, types: 7, items: 10, trainers: 54, maps: 71, tiles: 96, districts: 6, shops: 4, events: 1 };
+  const findings = [];
+  for (const [kind, expected] of Object.entries(counts)) {
+    const actual = Object.keys(data[kind]).length;
+    if (actual !== expected) findings.push({ rule: 'old-counts', kind, id: '', field: 'count', message: `${actual} instead of ${expected}` });
+  }
+  return { findings };
 });
 
 // What the rules code had typed as literals before the behaviour moved into data/abilities/ and data/statuses/ (reference 13.1): 1.3, 1.2,
@@ -6866,8 +6875,8 @@ function startBaselineRun(baseRoot, jsonPath, logPath) {
   const stop = async () => {
     if (!settled) {
       // child.kill() on Windows ends only the child, not the processes it started, which can keep files of the worktree open
-      if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
-      else child.kill();
+      const killed = process.platform === 'win32' ? spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' }) : null;
+      if (!killed || killed.status !== 0) child.kill(); // taskkill missing or refused: at least the child ends, so the wait below returns
     }
     await result;
   };
