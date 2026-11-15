@@ -6372,6 +6372,12 @@ function withGateRepo(label, body) {
   }
 }
 const runGateIn = (repo, filter, env) => runScratch(repo.root, ['--gate'], { filter, env, cache: 'gate' });
+// The environment of a --gate child started by hand: without MZ_HTML (the Build sets it for its own run, and --gate refuses it).
+const gateChildEnv = () => {
+  const env = { ...process.env };
+  delete env.MZ_HTML;
+  return env;
+};
 const GATE_FILTER = '^(validation: the data has no integrity findings|options are normalised)';
 // The temporary worktree is named in the output: its folder must be gone and git must know only the main worktree.
 function assertWorktreeGone(repo, out) {
@@ -6468,8 +6474,9 @@ test('gate: a baseline run that exits non-zero but writes its file does not fail
     assert.equal(wrongShape.status, 1, wrongShape.out);
     assert.ok(/baseline run failed: .* is not a --json file/.test(wrongShape.out), wrongShape.out);
     // --gate makes its own baseline and is strict: it refuses --baseline
-    const noMain = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--strict', '--baseline', 'x.json'], { cwd: repo.folder, encoding: 'utf8' });
+    const noMain = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--strict', '--baseline', 'x.json'], { cwd: repo.folder, encoding: 'utf8', env: gateChildEnv() });
     assert.equal(noMain.status, 2, '--gate takes no --baseline');
+    assert.match(noMain.stderr, /--gate is strict and makes its own baseline/);
   });
 });
 // The folders of a gate run in a temp folder (a gate run keeps its worktree and baseline log in mizamon-gate-<random> under <temp>/claude).
@@ -6479,7 +6486,7 @@ const gateFoldersIn = (tempFolder) => {
 };
 test('gate: --root is refused (the gate tests its own tree), and a filter that matches no test leaves no temporary worktree behind', { tier: 'integrity' }, () => {
   withGateRepo('gate-refusals', (repo) => {
-    const withRoot = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--root', repo.root], { cwd: repo.folder, encoding: 'utf8' });
+    const withRoot = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--root', repo.root], { cwd: repo.folder, encoding: 'utf8', env: gateChildEnv() });
     assert.equal(withRoot.status, 2, '--gate takes no --root');
     assert.match(withRoot.stderr, /--gate .*does not take --root/);
     // TEMP and TMP point into the scratch folder, so the temporary folders of this gate run are the only ones in it
