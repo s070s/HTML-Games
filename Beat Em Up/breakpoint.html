@@ -19623,7 +19623,12 @@ const CreatorUI = {
     root.addEventListener('pointermove', (e) => this.onPointerMove(e));
     root.addEventListener('pointerup', () => this.endDrag());
     root.addEventListener('pointercancel', () => { this.drag = null; });
-    root.addEventListener('touchstart', (e) => { if (e.cancelable && this.dragTarget(e.target)) e.preventDefault(); }, { passive: false }); // iPhone: a finger resting on a drag target past its long-press time would get a pointercancel and drop the drag (see keepTouchHeld); one listener on the screens, because the creator rebuilds its controls
+    root.addEventListener('touchstart', (e) => { // iPhone: a finger resting on a drag target past its long-press time would get a pointercancel and drop the drag (see keepTouchHeld); one listener on the screens, because the creator rebuilds its controls
+      if (!e.cancelable || !this.dragTarget(e.target)) return;
+      e.preventDefault();
+      const active = document.activeElement; // the cancelled touch no longer moves the focus: a focused text field would keep the keyboard open
+      if (active && active.matches && active.matches('input, textarea')) active.blur();
+    }, { passive: false });
   },
   // The targets onPointerDown drags on the creator screen: the crop box, the fitness pad and the screen itself (the preview turn)
   dragTarget(target) {

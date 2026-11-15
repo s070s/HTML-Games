@@ -27260,16 +27260,18 @@ const SelfTest = {
         if (!start.defaultPrevented) problems.push(name + ' left its touchstart uncancelled');
       }
       // the creator's drag targets (fitness pad, crop box) cancel their touchstart on the creator screen only, and a plain control there keeps its own
-      const screen = UI.current, probe = document.createElement('div'), plain = document.createElement('button');
-      probe.className = 'fitpad'; UI.dom.screens.appendChild(probe); UI.dom.screens.appendChild(plain);
+      const screen = UI.current, probe = document.createElement('div'), plain = document.createElement('button'), field = document.createElement('input');
+      probe.className = 'fitpad'; UI.dom.screens.appendChild(probe); UI.dom.screens.appendChild(plain); UI.dom.screens.appendChild(field);
       try {
         const cancelled = (element) => { const start = new TouchEvent('touchstart', { bubbles: true, cancelable: true }); element.dispatchEvent(start); return start.defaultPrevented; };
         UI.current = 'creator';
+        field.focus();
         if (!cancelled(probe)) problems.push('the creator fitness pad left its touchstart uncancelled');
+        if (document.activeElement === field) problems.push('a touch on the fitness pad left a text field focused (the keyboard would stay open)');
         if (cancelled(plain)) problems.push('a plain control on the creator screen had its touchstart cancelled');
         UI.current = 'menu';
         if (cancelled(probe)) problems.push('a fitness pad off the creator screen had its touchstart cancelled');
-      } finally { UI.current = screen; probe.remove(); plain.remove(); }
+      } finally { UI.current = screen; probe.remove(); plain.remove(); field.remove(); }
       const finger = (action) => (on) => UI.touchButtons[action].el.dispatchEvent(new PointerEvent(on ? 'pointerdown' : 'pointerup', { pointerId: 43, bubbles: true, cancelable: true }));
       withDevices(() => {
         Input.reset(); Input.releaseAll();
