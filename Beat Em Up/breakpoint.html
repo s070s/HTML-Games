@@ -5436,7 +5436,7 @@ const HIT_LOOK_ROWS = [
   lookRow({ hipLx: 0.4, hipRx: -0.4, knL: 0.3, knR: 0.15, torsoLean: 0.2, shLz: 0.4, shRz: 0.3 }, { torsoRoll: 0.3, rootSide: 0.05 }), // stumble out
   lookRow({ torsoLean: -0.3, headX: -0.35, shLz: 0.9, shRz: 0.9, shLx: -0.3, shRx: -0.3, elL: 0.3, elR: 0.3, hipLx: -0.1, hipRx: -0.1 }, {}), // wall hit
   lookRow({ torsoLean: 0.1, headX: -0.2, shLx: 0.2, shRx: 0.2, elL: 0.25, elR: 0.25, knL: 0.2, knR: 0.2 }, {}), // delayed-launch hold
-  lookRow({ shLx: 0.9, shRx: 0.9, elL: 0.3, elR: 0.3, headX: -0.5, torsoLean: -0.1 }, {}), // face-down fall
+  lookRow({ shLx: -0.5, shRx: -0.5, elL: 0.3, elR: 0.3, headX: -0.5, torsoLean: -0.1 }, {}), // face-down fall (the arms back from the floor: face down, forward is toward the floor)
   lookRow({ shLz: 0.5, shRz: 0.5, shLx: -0.4, shRx: -0.4, headX: 0.5, hipLx: 0.3, hipRx: 0.2, knL: 0.3, knR: 0.2 }, {}), // face-up fall
   lookRow({ hipLx: 0.32, hipRx: 0.32, knL: 0.65, knR: 0.65, torsoLean: 0.5, headX: 0.3, shLx: 0.1, shRx: 0.1, elL: 0.9, elR: 0.9, shLz: 0.2, shRz: 0.2 }, {}), // crumple
 ];
@@ -7569,7 +7569,7 @@ class Fighter {
     const movePlant = this.state === S.ATTACK && !!this.move && this.move.plant === true; // an upside-down kick: the hands are the floor contact while it runs
     this.plantFast = movePlant; // the fast speed is for the move only: a knockdown or a get-up after it settles at PLANT_SPEED
     const planted = this.state === S.SUBMIT || this.state === S.DOWN || this.state === S.KO || this.state === S.GETUP || movePlant; // the holder, and anybody lying on the floor or getting up from it
-    if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : this.lowestPart() + this.sinkLift; if (!movePlant) this.sinkLift = 0; this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance; the lift of a flight's floor rule, drawn with the last pose, is handed over to plantLow so it is not drawn twice)
+    if (planted && !this.plantOn) { this.plantLow = movePlant ? Math.max(this.lowestPart(), this.stanceLow()) : Math.max(-SINK_MAX, this.lowestPart() + this.sinkLift); if (!movePlant) this.sinkLift = 0; this.plantOn = true; this.plantHold = 0; } // it starts from what the last tick drew (an upside-down kick: at most as deep as the stance; the lift of a flight's floor rule, drawn with the last pose, is handed over to plantLow so it is not drawn twice)
     this.computePose(dt);
     if (this.plantOn) this.plantFloor(dt, planted);
     if ((this.state === S.ATTACK && !movePlant) || (this.lookId >= 0 && (this.state === S.HIT || this.state === S.STAGGER || this.state === S.THROWN))) { const low = this.lowestPart() + (this.state === S.THROWN ? this.y - this.groundY : 0); this.sinkLift = low < -SINK_MAX ? -SINK_MAX - low : 0; } else if (this.sinkLift > 0) this.sinkLift = Math.max(0, this.sinkLift - SINK_FALL); // a blow draws no part deeper under the floor than SINK_MAX: the body is lifted by what is left
@@ -7721,7 +7721,7 @@ class Fighter {
         p[J.lie] = 0.9 * smoothstep(Math.max(0, (u - 0.4) / 0.6));
         p[J.shLx] = 0.2; p[J.shRx] = 0.2; p[J.shLz] = 0.9; p[J.shRz] = 0.9; p[J.elL] = 0.5; p[J.elR] = 0.5; p[J.knL] = 0.5; p[J.knR] = 0.7;
         const legsUp = smoothstep(Math.max(0, (u - 0.3) / 0.7));
-        p[J.hipLx] = 0.9 * legsUp; p[J.hipRx] = 0.6 * legsUp;
+        if (this.lieSign < 0) { p[J.shLx] = -0.3; p[J.shRx] = -0.3; p[J.hipLx] = -0.15 * legsUp; p[J.hipRx] = -0.1 * legsUp; } else { p[J.hipLx] = 0.9 * legsUp; p[J.hipRx] = 0.6 * legsUp; } // face down (lieSign -1): the arms and legs bend back from the floor, not toward it; face up: the legs come up
         this.flightLook(p, st); // P19-03: the hold of a launch, then the fall's look
         k = 0.4;
         break;
@@ -7735,7 +7735,7 @@ class Fighter {
       }
       case S.DOWN:
         this.liePose(p, 1);
-        if (st < 12) { const settle = 1 - st / 12; p[J.hipLx] += 0.65 * settle; p[J.hipRx] += 0.5 * settle; }
+        if (st < 12 && this.lieSign > 0) { const settle = 1 - st / 12; p[J.hipLx] += 0.65 * settle; p[J.hipRx] += 0.5 * settle; }
         if (this.pinnedBy) this.pinnedPose(p, t);
         k = 0.35;
         break;
@@ -7915,7 +7915,7 @@ class Fighter {
         for (let i = 0; i < HOLD_LIMBS.length; i++) { const j = HOLD_LIMBS[i]; p[j] = g[j] + (p[j] - g[j]) * (1 - wait); }
         this.addLook(p, LOOK.HOLD, wait);
       }
-      const fall = this.lookId === LOOK.FACE_DOWN || this.lookId === LOOK.FACE_UP || this.lookId === LOOK.CRUMPLE ? this.lookId : this.lookDir === LOOK_BACK ? LOOK.FACE_DOWN : LOOK.FACE_UP;
+      const fall = this.lookId === LOOK.CRUMPLE ? LOOK.CRUMPLE : this.lieSign < 0 ? LOOK.FACE_DOWN : LOOK.FACE_UP; // the look and the side the body lies on agree
       this.addLook(p, fall, smoothstep(clamp((st + 1) / LOOK_FLIGHT_IN, 0, 1)) * clearance);
     }
     if (this.wallVis > 0) this.addLook(p, LOOK.WALL, this.wallVis * clearance);
@@ -8024,7 +8024,8 @@ class Fighter {
   }
   liePose(p, amount) {
     p[J.bodyPitch] = -1.52 * this.lieSign * amount; p[J.lie] = amount;
-    p[J.shLx] = 0.15 * amount + p[J.shLx] * (1 - amount); p[J.shRx] = 0.15 * amount + p[J.shRx] * (1 - amount);
+    const armFlex = this.lieSign < 0 ? -0.3 : 0.15; // face down the arms bend back from the floor
+    p[J.shLx] = armFlex * amount + p[J.shLx] * (1 - amount); p[J.shRx] = armFlex * amount + p[J.shRx] * (1 - amount);
     p[J.elL] = 0.3 * amount + p[J.elL] * (1 - amount); p[J.elR] = 0.3 * amount + p[J.elR] * (1 - amount);
     p[J.hipLx] = lerp(p[J.hipLx], 0.25, amount); p[J.hipRx] = lerp(p[J.hipRx], 0.1, amount);
     p[J.knL] = lerp(p[J.knL], 0.5, amount); p[J.knR] = lerp(p[J.knR], 0.2, amount);
@@ -8469,7 +8470,7 @@ const Combat = {
     const dir = dot < -LOOK_FRONT_DOT ? LOOK_FRONT : dot > LOOK_FRONT_DOT ? LOOK_BACK : LOOK_SIDE, level = clamp(tier || 1, 1, 3);
     def.lookId = pickLook(zone, level, dir, air, kind, def.wallHit);
     def.lookZone = zone; def.lookTier = level; def.lookDir = dir; def.lookSign = side < 0 ? -1 : 1;
-    if (def.state === S.KO ? !wasFlight : def.state === S.THROWN && !air) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on, a knock-out that ends it too; a knock-out of a fighter who was only in a jump takes the side of this blow
+    if ((def.state === S.KO || def.state === S.THROWN) && !wasFlight) def.lieSign = dir === LOOK_BACK ? -1 : 1; // not by a later blow of a juggle: the flight keeps the side it began on, a knock-out that ends it too; a knock-out of a fighter who was only in a jump takes the side of this blow
   },
 
   // Whether att may strike or hit def with a thrown item at all, whatever the move: not while def is invulnerable, out, held in a submission by somebody else, in its wake-up grace, in a clinch or grapple, or flying in a knockdown (a juggle excepted)

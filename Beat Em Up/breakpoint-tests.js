@@ -27866,6 +27866,15 @@ const SelfTest = {
         Combat.landHit(zoneStrike(a, d, ATTACKS.power_jab), m);
         if (d.state !== S.KO || d.lieSign !== want) bad.push('a knock-out in a jump ' + label + ': state ' + S[d.state] + ', lieSign ' + d.lieSign + ', not ' + want);
       }
+      // a fighter in a plain jump launched by a blow: the side it lies on is the side of THIS blow (as for a knock-out in a jump), and the look in the air agrees with it (the back-air cell picks the face-down look, so the body must not lie face up)
+      const flightHead = (withLook) => { const kept = d.lookId; if (!withLook) d.lookId = -1; d.stateTicks = 12; d.y = d.groundY + 3; d.vy = 1; d.computePose(); d.lookId = kept; return d.tp[J.headX]; };   // the head's pitch in a flight with its fall look fully shown (past the hold, high above the footing, rising), or without any look
+      for (const [facing, before, want, label] of [[Math.PI / 2, 1, -1, 'from behind'], [-Math.PI / 2, -1, 1, 'from the front after a knockdown from behind']]) {
+        zoneClear(d); d.yaw = facing; d.lieSign = before; d.groundY = 0; d.y = 1; d.vy = 1;
+        Combat.landHit(zoneStrike(a, d, ATTACKS.heavy_uppercut), m);
+        if (d.state !== S.THROWN || d.lieSign !== want) { bad.push('a launch in a jump ' + label + ': state ' + S[d.state] + ', lieSign ' + d.lieSign + ', not ' + want); continue; }
+        const row = HIT_LOOK_ROWS[want < 0 ? LOOK.FACE_DOWN : LOOK.FACE_UP], offset = row.offsets[row.joints.indexOf(J.headX)], moved = flightHead(true) - flightHead(false);   // the two falls pitch the head opposite ways: the look added is the fall of the side the body lies on
+        if (!(moved * offset > 0.05)) bad.push('a launch in a jump ' + label + ': the flight pitches the head ' + moved.toFixed(3) + ' with the look of ' + (want < 0 ? 'the face-down' : 'the face-up') + ' fall expecting ' + (offset < 0 ? 'a negative' : 'a positive') + ' push (the look and the side it lies on disagree)');
+      }
       // face down: a back blow that launches, knocks down or knocks out; face up from the front; the stored flag only on the flights
       for (const [facing, want, label] of [[Math.PI / 2, -1, 'from behind'], [-Math.PI / 2, 1, 'from the front'], [0, 1, 'from the side']]) {
         zoneClear(d); d.yaw = facing; d.lieSign = 1; d.groundY = 0;
@@ -27923,27 +27932,28 @@ const SelfTest = {
       return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
     });
     // a real seeded launch of body `foeId` (a move thrown at a foe who faces it, turns its back or stands sideways), every tick drawn: the lowest drawn part above the floor on every THROWN tick and on the first LOOK_LANDED_TICKS DOWN ticks (the drawn lowest = the root's height above the footing + the lowest part of the pose + the plant and sink shifts, which is what `skeleton` draws)
+    const LOOK_LIFT_MAX = 0.15, LOOK_PELVIS_MAX = 0.45, LOOK_PELVIS_FROM = 2, LOOK_PELVIS_LOW_FROM = 6, LOOK_STRONG_TICKS = 10;   // the floor lift in a flight (a safety net, not a prop); the pelvis height of the lying body from its third lying tick on (a low arc from behind lands with the body still turning over: its pelvis is down by the seventh, and the lift is 0 there); the ticks of a low arc at 0.9 of its look or more
     const LOOK_LANDED_TICKS = 15, LOOK_FLIGHT_ROWS = ['heavy_uppercut', 'uppercut', 'sweep', 'heavy_roundhouse'];
     const lookFlightLow = (foeId, facing, row = 'heavy_uppercut') => {
       const m = mk({ playerId: foeId === 'kai' ? 'mara' : 'kai', opponentId: foeId, seed: 3, evenDamage: true }), a = m.fighters[0], b = m.fighters[1];
       a.x = a.prevX = -0.5; b.x = b.prevX = 0.5; a.z = b.z = a.prevZ = b.prevZ = 0; a.yaw = a.prevYaw = Math.PI / 2; b.yaw = b.prevYaw = facing;
       b.hp = b.maxHp = 9999;
-      let lowest = Infinity, flightTicks = 0, at = '', lookDir = -1, peak = 0, ease = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };
+      let lowest = Infinity, flightTicks = 0, at = '', lookDir = -1, peak = 0, strong = 0, maxLift = 0, liftTicks = 0, pelvis = 0, ease = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };
       a.startAttack(ATTACKS[row]);
       for (let t = 0; t < 90; t++) {
         if (b.state === S.IDLE) b.yaw = b.prevYaw = facing;   // the idle foe turns to face its attacker during the wind-up: hold the facing until the blow lands, so a blow from behind is from behind
-        m.step();
-        m.fighters.forEach((f) => f.animate(1 / 60));
+        m.step();   // one animate per tick: step() animates every fighter itself
         const counted = b.state === S.THROWN || (b.state === S.DOWN && b.stateTicks < LOOK_LANDED_TICKS);
         if (!counted) continue;
-        if (b.state === S.THROWN) { if (flightTicks === 0) lookDir = b.lookDir; flightTicks++; peak = Math.max(peak, ease((b.stateTicks + 1) / LOOK_FLIGHT_IN) * b.lookFade()); }   // the strength of the fall's look this tick (what flightLook adds)
+        if (b.state === S.THROWN) { if (flightTicks === 0) lookDir = b.lookDir; flightTicks++; const share = ease((b.stateTicks + 1) / LOOK_FLIGHT_IN) * b.lookFade(); peak = Math.max(peak, share); if (share >= 0.9) strong++; maxLift = Math.max(maxLift, b.sinkLift); if (b.sinkLift > 0.001) liftTicks++; }   // the strength of the fall's look this tick (what flightLook adds)
+        if (b.state === S.DOWN && b.stateTicks >= (row === 'sweep' || row === 'heavy_roundhouse' ? LOOK_PELVIS_LOW_FROM : LOOK_PELVIS_FROM)) pelvis = Math.max(pelvis, b.pts[1] - b.groundY);   // the pelvis (the root key point) of the lying body
         const low = b.y - b.groundY + b.lowestPart() + b.plantShift + b.sinkLift;
         if (low < lowest) { lowest = low; at = S[b.state] + ' ' + b.stateTicks; }
       }
-      return { lowest, flightTicks, at, lookDir, peak };
+      return { lowest, flightTicks, at, lookDir, peak, strong, maxLift, liftTicks, pelvis };
     };
     test('Hit looks (P19-03): (9) a flight and the lying after it never draw a part more than SINK_MAX under the floor: the fall and crumple looks fade out as the body comes down (a real seeded heavy uppercut on all 32 bodies, and three more moves that launch, from the front, from behind and from the side; every THROWN tick and the first 15 DOWN ticks)', () => {
-      const bad = [], worst = {};
+      const bad = [], worst = {}, most = { lift: 0, liftTicks: 0, pelvis: 0 }, fewest = {};
       let runs = 0;
       // the fade itself: a descent at the footing shows neither fall nor wall (the plain flight pose), the whole look from the height of LOOK_LAND_TIME s of its speed up (at least LOOK_LAND_FLOOR m), part of it in between; a rising body shows it whole even on the footing
       const g = lookFighter(); g.lookTier = 2; g.lookSign = 1; g.lookZone = 1; g.lookDir = LOOK_FRONT;
@@ -27962,7 +27972,11 @@ const SelfTest = {
         runs++;
         if (got.flightTicks > 0 && got.lookDir === dir) seen[name].runs++;   // a flight whose blow came from the wanted side
         seen[name].weakest[row] = Math.min(seen[name].weakest[row] === undefined ? 1 : seen[name].weakest[row], got.peak);
-        if ((row === 'sweep' || row === 'heavy_roundhouse') && got.peak < 0.9) bad.push(r.id + ' ' + row + ' ' + name + ' shows its look at most ' + got.peak.toFixed(2) + ' of full (a low arc keeps its look: 0.9 on at least one tick)');
+        if ((row === 'sweep' || row === 'heavy_roundhouse') && got.strong < LOOK_STRONG_TICKS) bad.push(r.id + ' ' + row + ' ' + name + ' shows its look at 0.9 of full or more on ' + got.strong + ' ticks (a low arc keeps its look: at least ' + LOOK_STRONG_TICKS + ')');
+        if (got.maxLift > LOOK_LIFT_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' lifts the body ' + got.maxLift.toFixed(3) + ' m in the air (at most ' + LOOK_LIFT_MAX + ': the floor rule is a safety net, the pose does not lean on it)');
+        if (got.pelvis > LOOK_PELVIS_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' lies with the pelvis ' + got.pelvis.toFixed(3) + ' m up from lying tick ' + (row === 'sweep' || row === 'heavy_roundhouse' ? LOOK_PELVIS_LOW_FROM : LOOK_PELVIS_FROM) + ' on (at most ' + LOOK_PELVIS_MAX + ': it was propped up by the lift)');
+        most.lift = Math.max(most.lift, got.maxLift); most.liftTicks = Math.max(most.liftTicks, got.liftTicks); most.pelvis = Math.max(most.pelvis, got.pelvis);
+        fewest[row] = Math.min(fewest[row] === undefined ? 1e9 : fewest[row], got.strong);
         seen[name].lowest = Math.min(seen[name].lowest, got.lowest);
         if (!worst[r.id] || got.lowest < worst[r.id]) worst[r.id] = got.lowest;
         if (got.lowest < -(SINK_MAX + 0.005)) bad.push(r.id + ' ' + row + ' ' + name + ' draws ' + (-got.lowest).toFixed(3) + ' m under the floor at ' + got.at);
@@ -27971,6 +27985,27 @@ const SelfTest = {
       if (runs !== ROSTER.length * 3 * LOOK_FLIGHT_ROWS.length) bad.push('only ' + runs + ' runs');
       const lowestByDir = byDir.map(([, , name]) => name + ' ' + seen[name].lowest.toFixed(3)).join(', '), weakest = LOOK_FLIGHT_ROWS.map((row) => row + ' ' + Math.min(...byDir.map(([, , name]) => seen[name].weakest[row])).toFixed(2)).join(', ');
       return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') + ' [lowest by direction: ' + lowestByDir + '; weakest peak look by move: ' + weakest + '; by body: ' + Object.keys(worst).map((id) => id + ' ' + worst[id].toFixed(3)).join(', ') + ']' : true;
+    }, 120000);
+    test('Hit looks (P19-03): (10) a throw never draws a part more than SINK_MAX under the floor either, in the air or lying after it, and its floor lift stays a safety net: every grip and direction on three bodies, the face-down ones (the Rear Takedown, the front grip that sends the foe on its face) included', () => {
+      const bad = [];
+      let faceDown = 0;
+      for (const id of ['kai', 'brutus', 'mara']) for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) {
+        const m = setupThrow(grip, dir, { playerId: id === 'kai' ? 'mara' : 'kai', opponentId: id }), b = m.fighters[1];
+        let lowest = Infinity, lift = 0, flew = false;
+        for (let i = 0; i < 420; i++) {
+          m.step();
+          if (b.state === S.THROWN) { flew = true; if (b.lieSign < 0) faceDown++; }
+          if (b.state !== S.THROWN && !(b.state === S.DOWN && b.stateTicks < LOOK_LANDED_TICKS)) continue;
+          lowest = Math.min(lowest, b.y - b.groundY + b.lowestPart() + b.plantShift + b.sinkLift);
+          if (b.state === S.THROWN) lift = Math.max(lift, b.sinkLift);
+        }
+        if (!flew) bad.push(id + ' ' + grip + '/' + dir + ': no flight');
+        if (lowest < -(SINK_MAX + 0.005)) bad.push(id + ' ' + grip + '/' + dir + ' draws ' + (-lowest).toFixed(3) + ' m under the floor');
+        if (lift > LOOK_LIFT_MAX) bad.push(id + ' ' + grip + '/' + dir + ' lifts the body ' + lift.toFixed(3) + ' m in the air');
+        m.dispose();
+      }
+      if (!(faceDown > 0)) bad.push('no throw sent the foe face down');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
     }, 120000);
     /* Deferred and registered after every other test, so the connections of the whole run are counted */
     test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
