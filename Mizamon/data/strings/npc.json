@@ -1,0 +1,562 @@
+{
+  "npc.kid": {
+    "el": "Έδωσα εξετάσεις 12 φορές. Ο Μπέμπης πέρασε με ένα τηλεφώνημα.",
+    "en": "I took the exam 12 times. Bebis passed with one phone call."
+  },
+  "npc.oldman": {
+    "el": "Στον καιρό μου το Δημόσιο έκλεινε στις 3. Τώρα κλείνει και στις 2:59.",
+    "en": "In my day the civil service closed at 3. Now it closes at 2:59."
+  },
+  "npc.fisher": {
+    "el": "Ψαρεύω στον ποταμό της αναμονής. Το λιμάνι πλημμύρισε το 2500 και συστάθηκε επιτροπή.",
+    "en": "I fish in the river of waiting. The port flooded in 2500 and a committee was formed."
+  },
+  "npc.student": {
+    "el": "Είμαι ο βοηθός του Καθηγητή. Δουλεύω εθελοντικά. Δηλαδή με ξέχασαν.",
+    "en": "I am the Professor's assistant. I work as a volunteer. Meaning they forgot me."
+  },
+  "npc.prof.1": {
+    "el": "Πήγαινε, {name}! Έξω σε περιμένει η ζωή. Και ο Μπέμπης.",
+    "en": "Go on, {name}! Life awaits outside. And Bebis."
+  },
+  "npc.prof.1b": {
+    "el": "Ο Μπέμπης; Το ξέρω, έχει θείους παντού. Εσύ έχεις Mizamon. Προχώρα στη Διαδρομή 1.",
+    "en": "Bebis? I know, he has uncles everywhere. You have Mizamon. Head down Route 1."
+  },
+  "npc.prof.2": {
+    "el": "Παράσημο, ε; Μπράβο! Τώρα μπορείς να ζητήσεις αύξηση. Εγώ περιμένω ακόμη τη δική μου.",
+    "en": "A medal, eh? Well done! Now you can ask for a raise. I am still waiting for mine."
+  },
+  "npc.prof.3": {
+    "el": "Άνοιξε Τηλεοπτικό Στούντιο στην πλατεία. Λένε ότι ο παρουσιαστής ψάχνει αντίπαλο. Και φάκελο.",
+    "en": "A TV Studio opened in the square. They say the host is looking for a challenger. And an envelope."
+  },
+  "npc.queue1": {
+    "el": "Περιμένω από την Τρίτη. Δεν θυμάμαι ποια Τρίτη.",
+    "en": "I have been waiting since Tuesday. I do not remember which Tuesday."
+  },
+  "npc.queue2": {
+    "el": "Ο αριθμός μου είναι 10.000. Ο μπαμπάς μου πήρε αριθμό το 2990.",
+    "en": "My number is 10,000. My dad took a number in 2990."
+  },
+  "npc.customer": {
+    "el": "Ήρθα για ένα κουλούρι και έφυγα με φορολογική δήλωση.",
+    "en": "I came for a koulouri and left with a tax return."
+  },
+  "npc.hosp.doctor": {
+    "el": "Εφημερεύω 36 ώρες. Δεν θα σε εξετάσω, αλλά θα σου πω κάτι: ένα Φακελάκι... ένα Φακελάκι βοηθάει τη μνήμη μου.",
+    "en": "I have been on call for 36 hours. I will not examine you, but I will tell you something: a little envelope... a little envelope helps my memory."
+  },
+  "npc.hosp.wait1": {
+    "el": "Περιμένω για εξέταση από το 2995. Στο μεταξύ έμαθα να πλέκω. Έχω πλέξει τρία πουλόβερ και μια λίστα αναμονής.",
+    "en": "I have been waiting for an examination since 2995. In the meantime I learned to knit. I have knitted three sweaters and a waiting list."
+  },
+  "npc.hosp.wait2": {
+    "el": "Ράντζο στον διάδρομο, με θέα στον διάδρομο. Τα δωμάτια με θέα θάλασσα είναι για όσους έχουν... γνωριμίες.",
+    "en": "A cot in the corridor, with a view of the corridor. The sea-view rooms are for those who have... connections."
+  },
+  "npc.hosp.wait3": {
+    "el": "Η μαμά μου είπε «πάμε για πέντε λεπτά». Αυτό ήταν πριν από δύο εξάμηνα.",
+    "en": "My mum said \"we are only going for five minutes\". That was two semesters ago."
+  },
+  "npc.hosp.wait4": {
+    "el": "Η απεργία των εφημερευόντων ξεκινά αύριο. Ή ήταν χθες; Στο σύστημα γράφει «σε εξέλιξη».",
+    "en": "The strike of the on-call staff starts tomorrow. Or was it yesterday? The system says \"in progress\"."
+  },
+  "npc.tavli1": {
+    "el": "Αν ο Μπέμπης γίνεται υπουργός, εγώ λύνω την οικονομία. Έλα, ρίξε ζάρια.",
+    "en": "If Bebis can become a minister, I can fix the economy. Come on, roll the dice."
+  },
+  "npc.tavli2": { "el": "Πεντέ-έξι. Αυτό ήταν το ελληνικό ΑΕΠ το 2400.", "en": "Five-six. That was the Greek GDP in 2400." },
+  "npc.sailor1": {
+    "el": "Ο Λιμενάρχης είναι εκεί. Μην αναφέρεις ότι το λιμάνι πουλήθηκε ήδη. Δύο φορές.",
+    "en": "The Harbour Master is right there. Do not mention the port is already sold. Twice."
+  },
+  "npc.sailor2": {
+    "el": "Δουλεύω εδώ 20 χρόνια. Ο μισθός μου είναι μια ιδέα. Μου αρέσει η ιδέα.",
+    "en": "I have worked here 20 years. My salary is an idea. I like the idea."
+  },
+  "npc.ferryclerk": {
+    "el": "Το πλοίο φεύγει σε 20 λεπτά. Πριν από την ώρα του εισιτηρίου. Το δρομολόγιο είναι πρόταση.",
+    "en": "The ferry leaves in 20 minutes. Before the ticket time. The timetable is a suggestion."
+  },
+  "npc.groundkeeper": {
+    "el": "Δύο γήπεδα, το ένα απέναντι στο άλλο. Κανείς δεν θυμάται γιατί. Οι οπαδοί, όμως, θυμούνται.",
+    "en": "Two grounds facing each other. Nobody remembers why. The fans do."
+  },
+  "npc.kastella1": {
+    "el": "Εξήντα σκαλιά ως το σπίτι μου. Η ράμπα έρχεται του χρόνου, μαζί με τον δρόμο.",
+    "en": "Sixty steps up to my house. The ramp comes next year, with the road."
+  },
+  "npc.kastella2": {
+    "el": "Το Υπουργείο μου ζήτησε χάρτη. Τώρα ψάχνω την κλίμακα.",
+    "en": "The Ministry asked me for a map. Now I am looking for the scale."
+  },
+  "npc.kastella3": {
+    "el": "Ψάρεψα ένα παλιό εισιτήριο. Ήταν για το πλοίο που έφυγε νωρίτερα.",
+    "en": "I fished up an old ticket. It was for the ferry that left early."
+  },
+  "npc.kastella.doctor": {
+    "el": "Το νοσοκομείο έχει θέα στο λιμάνι. Για θεραπεία, όχι.",
+    "en": "The hospital has a harbour view. For treatment, no."
+  },
+  "npc.kastella.wait1": {
+    "el": "Περιμένω από το πρωί. Η σειρά μου ήταν χθες, αλλά με πρόλαβε το Σαββατοκύριακο.",
+    "en": "I have waited since morning. My turn was yesterday, but the weekend got there first."
+  },
+  "npc.kastella.customer": { "el": "Ήθελα εφημερίδα. Μου έδωσαν ρέστα: τίποτα.", "en": "I wanted a newspaper. They gave me change: nothing." },
+  "npc.theatre.view": {
+    "el": "Από εδώ φαίνεται όλο το λιμάνι. Και ο χάρτης του Υπουργείου. Δεν ταιριάζουν.",
+    "en": "From here you see the whole harbour. And the Ministry map. They do not match."
+  },
+  "npc.theatre.old": {
+    "el": "Βλέπω την ίδια παράσταση σαράντα χρόνια. Η πλοκή αλλάζει μόνο στις επαναλήψεις.",
+    "en": "I have seen the same play for forty years. The plot only changes in the reruns."
+  },
+  "npc.beachgoer": { "el": "Η άμμος είναι δωρεάν. Το να καθίσεις πάνω της, όχι.", "en": "The sand is free. Sitting on it is not." },
+  "npc.roadworker": {
+    "el": "Τελειώνουμε του χρόνου. Το λέω εδώ και είκοσι χρόνια, αλλά μετράει ως πρόοδος.",
+    "en": "We finish next year. I have said so for twenty years, but it counts as progress."
+  },
+  "npc.faliro1": {
+    "el": "Το τραμ έρχεται όταν βαρεθεί. Τα εισιτήρια, πάντως, ισχύουν.",
+    "en": "The tram comes when it gets bored. The tickets, though, are valid."
+  },
+  "npc.faliro2": {
+    "el": "Ήρθα για έναν καφέ. Πήρα ήδη δύο αποφάσεις. Καμία δεν εφαρμόστηκε.",
+    "en": "I came for one coffee. I have already made two decisions. Neither was carried out."
+  },
+  "npc.faliro3": { "el": "Η θάλασσα είναι δωρεάν. Το να τη βλέπεις έχει τιμή.", "en": "The sea is free. Looking at it has a price." },
+  "npc.faliro.doctor": { "el": "Θέα στη μαρίνα έχουμε. Ράντζο με θέα, όχι.", "en": "We have a marina view. A cot with a view, no." },
+  "npc.faliro.wait1": {
+    "el": "Έχω ραντεβού από το 2990. Ήρθα νωρίς για να μη χάσω τη σειρά.",
+    "en": "I have had an appointment since 2990. I came early so as not to lose my place."
+  },
+  "npc.faliro.customer": {
+    "el": "Ζήτησα αντηλιακό. Μου έδωσαν υπόσχεση ότι θα έρθει καλοκαίρι.",
+    "en": "I asked for sunscreen. They gave me a promise that summer will come."
+  },
+  "npc.fcafe1": {
+    "el": "Τα ζάρια είναι του παππού. Φέρνουν πάντα εξάρες. Όταν παίζει εκείνος.",
+    "en": "The dice are grandpa's. They always roll sixes. When he plays."
+  },
+  "npc.fcafe2": {
+    "el": "Από εδώ βλέπω τα γιοτ. Κάποτε θα δω και τον ιδιοκτήτη.",
+    "en": "From here I see the yachts. One day I will see an owner too."
+  },
+  "npc.airfield1": {
+    "el": "Εδώ θα γίνει κάτι μεγάλο. Το λένε χρόνια. Οι γερανοί περιμένουν υπομονετικά.",
+    "en": "Something big will be built here. They have said so for years. The cranes wait patiently."
+  },
+  "npc.airfield2": {
+    "el": "Τα αεροπλάνα έφυγαν. Έμειναν οι διάδρομοι και οι υποσχέσεις.",
+    "en": "The planes left. The runways and the promises stayed."
+  },
+  "npc.glyfada1": {
+    "el": "Αυτό το σκάφος είναι δικό μου. Δηλαδή του φίλου μου. Δηλαδή της εταιρείας του.",
+    "en": "That boat is mine. Well, my friend's. Well, his company's."
+  },
+  "npc.glyfada2": { "el": "Το γκολφ θέλει νερό. Ο δήμος θέλει υπομονή.", "en": "Golf wants water. The council wants patience." },
+  "npc.glyfada3": {
+    "el": "Το κλαμπ ανοίγει στις δύο. Το ρολόι του δείχνει πάντα μία και πενήντα εννέα.",
+    "en": "The club opens at two. Its clock always shows one fifty-nine."
+  },
+  "npc.glyfada.doctor": {
+    "el": "Θέα στα γιοτ έχουμε. Τα ράντζα κοιτάνε τον τοίχο.",
+    "en": "We have a view of the yachts. The cots face the wall."
+  },
+  "npc.glyfada.wait1": {
+    "el": "Περιμένω σειρά από το πρωί. Η αναμονή έχει θέα στη μαρίνα, τουλάχιστον.",
+    "en": "I have waited for my turn since morning. The wait has a marina view, at least."
+  },
+  "npc.glyfada.customer": {
+    "el": "Πήρα νερό. Κοστίζει όσο ένα εισιτήριο. Ένα καλό εισιτήριο.",
+    "en": "I bought water. It costs as much as a ticket. A good ticket."
+  },
+  "npc.boss.cust1": {
+    "el": "Ένας καφές, δύο ώρες, μία μπουγάτσα για δύο. Έτσι κλείνουν οι συμφωνίες.",
+    "en": "One coffee, two hours, one bougatsa for two. That is how deals are closed."
+  },
+  "npc.boss.cust2": {
+    "el": "Η συζήτηση ξεκίνησε για την οικονομία. Τελείωσε στο γέμισμα. Πάντα τελειώνει εκεί.",
+    "en": "The talk started with the economy. It ended at the filling. It always ends there."
+  },
+  "npc.hiker": {
+    "el": "Κάθε στροφή λέει «η κορυφή είναι εδώ». Είναι ψέμα. Αλλά με χορηγό.",
+    "en": "Every bend says \"the top is here\". It is a lie. But sponsored."
+  },
+  "npc.wallkeeper": {
+    "el": "Ο τοίχος στέκει από πάντα. Η πινακίδα του, όχι. Η πινακίδα έχει χορηγό.",
+    "en": "The wall has stood forever. Its sign has not. The sign has a sponsor."
+  },
+  "npc.koropi1": {
+    "el": "Εδώ όλα έχουν χορηγό. Το σιντριβάνι, ο πάγκος, ακόμα και ο πεζόδρομος.",
+    "en": "Everything here has a sponsor. The fountain, the bench, even the pavement."
+  },
+  "npc.koropi2": {
+    "el": "Το κρασί μας βγαίνει από το σταφύλι. Η ετικέτα βγαίνει από τον χορηγό.",
+    "en": "Our wine comes from the grape. The label comes from the sponsor."
+  },
+  "npc.koropi3": {
+    "el": "Μου είπαν να μη βγάζω φωτογραφίες. Μετά μου είπαν να βγάζω, για τον χορηγό.",
+    "en": "They told me not to take photos. Then they told me to, for the sponsor."
+  },
+  "npc.koropi.doctor": {
+    "el": "Οι γιατροί φοράνε το λογότυπο του χορηγού. Οι ασθενείς, ένα βραχιολάκι.",
+    "en": "The doctors wear the sponsor's logo. The patients, a wristband."
+  },
+  "npc.koropi.wait1": {
+    "el": "Περιμένω σειρά. Η σειρά μου χορηγείται από την προηγούμενη σειρά.",
+    "en": "I am waiting for my turn. My turn is sponsored by the previous turn."
+  },
+  "npc.koropi.customer": { "el": "Πήρα μια εφημερίδα. Τα νέα είχαν ήδη χορηγό.", "en": "I bought a newspaper. The news already had a sponsor." },
+  "npc.kcafe1": {
+    "el": "Μία ώρα για έναν καφέ. Η δεύτερη ώρα χορηγείται.",
+    "en": "One hour for one coffee. The second hour is sponsored."
+  },
+  "npc.kcafe2": {
+    "el": "Το κρασί του κτήματος είναι ό,τι βρεθεί στο κελάρι. Η ετικέτα, ό,τι βρεθεί στο συρτάρι.",
+    "en": "The estate wine is whatever is in the cellar. The label, whatever is in the drawer."
+  },
+  "npc.farmhand": {
+    "el": "Περνάνε αεροπλάνα πάνω από τα αμπέλια. Τα σταφύλια κάνουν ότι δεν τα βλέπουν.",
+    "en": "Planes pass over the vines. The grapes pretend not to see them."
+  },
+  "npc.bridgewalker": {
+    "el": "Η γέφυρα οδηγεί στην Πύλη Β12. Έτσι λένε. Δεν την έχει βρει κανείς.",
+    "en": "The bridge leads to Gate Β12. So they say. Nobody has found it."
+  },
+  "npc.spata.queue1": {
+    "el": "Η ουρά για την Πύλη Β12 ξεκινά εδώ. Πού είναι η Πύλη Β12, κανείς δεν ξέρει.",
+    "en": "The queue for Gate Β12 starts here. Where Gate Β12 is, nobody knows."
+  },
+  "npc.spata.queue2": {
+    "el": "Στέκομαι εδώ από χθες. Δεν ξέρω για ποια πτήση. Η ουρά είναι ο χορηγός μου.",
+    "en": "I have stood here since yesterday. I do not know for which flight. The queue is my sponsor."
+  },
+  "npc.spata.queue3": {
+    "el": "Το διαβατήριο το σφραγίζει ο χορηγός. Το πρόσωπό μου, ο άλλος χορηγός.",
+    "en": "The sponsor stamps the passport. The other sponsor stamps my face."
+  },
+  "npc.spata.sailor": {
+    "el": "Το «τροχιακό φέρι» φεύγει από τη Ραφήνα. Όποτε βρει τροχιά.",
+    "en": "The \"orbital ferry\" leaves from Rafina. Whenever it finds an orbit."
+  },
+  "npc.spata.doctor": {
+    "el": "Εδώ τα ράντζα έχουν ρόδες. Λέμε ότι είναι για την πτήση.",
+    "en": "Here the cots have wheels. We say it is for the flight."
+  },
+  "npc.spata.wait1": {
+    "el": "Ήρθα για έναν έλεγχο. Μου έδωσαν κάρτα επιβίβασης. Χωρίς πτήση.",
+    "en": "I came for a check-up. They gave me a boarding pass. No flight."
+  },
+  "npc.spata.customer": {
+    "el": "Πήρα νερό για το ταξίδι. Τα 100 ml πέρασαν. Το μπουκάλι, όχι.",
+    "en": "I bought water for the trip. The 100 ml went through. The bottle did not."
+  },
+  "npc.spata.cust1": {
+    "el": "Η πτήση μου έχει καθυστέρηση. Η καθυστέρηση έχει πτήση.",
+    "en": "My flight is delayed. The delay has a flight."
+  },
+  "npc.spata.cust2": {
+    "el": "Ρώτησα πού είναι η Πύλη Β12. Μου έδωσαν κάρτα επιβίβασης για την ερώτηση.",
+    "en": "I asked where Gate Β12 is. They gave me a boarding pass for the question."
+  },
+  "npc.quarryman": {
+    "el": "Κόβουμε μάρμαρο για το ίδιο γήπεδο εδώ και χρόνια. Το γήπεδο μεγαλώνει πιο γρήγορα από το λατομείο.",
+    "en": "We have cut marble for the same stadium for years. The stadium grows faster than the quarry."
+  },
+  "npc.stonecutter": { "el": "Το μάρμαρο είναι αιώνιο. Η προθεσμία, όχι.", "en": "Marble is eternal. The deadline is not." },
+  "npc.kifisia1": { "el": "Το μετρό φτάνει ως εδώ. Το ενοίκιο, πιο πέρα.", "en": "The metro comes this far. The rent goes further." },
+  "npc.kifisia2": {
+    "el": "Κάθε βίλα έχει φράχτη. Κάθε φράχτης έχει δικό του φράχτη.",
+    "en": "Every villa has a hedge. Every hedge has a hedge of its own."
+  },
+  "npc.kifisia3": {
+    "el": "Ο κήπος μου είναι τόσο μεγάλος που έχει δική του στάση λεωφορείου. Το λεωφορείο δεν έρχεται ποτέ.",
+    "en": "My garden is so big it has its own bus stop. The bus never comes."
+  },
+  "npc.kifisia.doctor": {
+    "el": "Εδώ οι ασθενείς περιμένουν στον κήπο. Με τσάι. Και με λογαριασμό.",
+    "en": "Here the patients wait in the garden. With tea. And with a bill."
+  },
+  "npc.kifisia.wait1": {
+    "el": "Περιμένω σειρά. Στο ιδιωτικό η αναμονή είναι πιο πολυτελής.",
+    "en": "I am waiting my turn. In the private one the waiting is more luxurious."
+  },
+  "npc.kifisia.customer": { "el": "Πήρα νερό. Το μπουκάλι είχε ιστορία. Και ΦΠΑ.", "en": "I bought water. The bottle had a history. And VAT." },
+  "npc.kfcafe1": {
+    "el": "Μία ώρα για έναν εσπρέσο. Η δεύτερη ώρα, για τον κήπο.",
+    "en": "One hour for one espresso. The second hour, for the garden."
+  },
+  "npc.kfcafe2": {
+    "el": "Στον Πλάτανο όλοι έχουν γνώμη. Κανείς δεν έχει ρέστα.",
+    "en": "At the Plane Tree everyone has an opinion. Nobody has change."
+  },
+  "npc.shopper": {
+    "el": "Μπήκα για μία βιτρίνα. Βγήκα με δέκα. Τις είδα όλες.",
+    "en": "I went in for one window. I came out with ten. I saw them all."
+  },
+  "npc.driver": {
+    "el": "Ο κυκλικός κόμβος έχει έξι εξόδους. Η μία πηγαίνει κάπου.",
+    "en": "The roundabout has six exits. One of them goes somewhere."
+  },
+  "npc.marousi1": {
+    "el": "Το στάδιο είναι σε ανακαίνιση από το 2961. Η στέγη κόστισε τρεις φορές. Δεν είπαν ποιος πλήρωσε.",
+    "en": "The stadium has been under renovation since 2961. The roof cost three times. They did not say who paid."
+  },
+  "npc.marousi2": {
+    "el": "Εδώ οι σταρ γυρνούν πίσω κάθε χρόνο, με «περιοδεία επανόδου».",
+    "en": "The stars return here every year, on a \"comeback tour\"."
+  },
+  "npc.marousi3": {
+    "el": "Έχω εισιτήριο για την πρώτη σειρά. Η πρώτη σειρά είναι στο βάθος.",
+    "en": "I have a ticket for the first row. The first row is at the back."
+  },
+  "npc.marousi.doctor": {
+    "el": "Οι περισσότεροι ασθενείς έρχονται από συναυλία. Η πρώτη σειρά ακούει περισσότερο.",
+    "en": "Most patients come from a concert. The first row hears the most."
+  },
+  "npc.marousi.wait1": {
+    "el": "Πήγα στη συναυλία για να δω. Άκουσα. Τώρα βλέπω μόνο ηχώ.",
+    "en": "I went to the concert to see. I heard. Now I only see an echo."
+  },
+  "npc.marousi.customer": {
+    "el": "Πήρα ωτοασπίδες. Η συναυλία είναι σε τρία χρόνια. Προληπτικά.",
+    "en": "I bought earplugs. The concert is in three years. Just in case."
+  },
+  "npc.marousi.cust1": {
+    "el": "Περιμένω την περιοδεία επανόδου. Είναι η δέκατη φορά. Η τελευταία, λένε.",
+    "en": "I am waiting for the comeback tour. It is the tenth time. The last one, they say."
+  },
+  "npc.marousi.cust2": {
+    "el": "Ο DJ παίζει ένα και μόνο κομμάτι. Το λέει «μίξη».",
+    "en": "The DJ plays one single track. He calls it a \"mix\"."
+  },
+  "npc.tollwatcher": {
+    "el": "Εδώ πληρώνεις για να περάσεις. Στη στάση πιο πέρα πληρώνεις και για να σταθείς.",
+    "en": "Here you pay to pass. At the stop up ahead you pay to stand, too."
+  },
+  "npc.hitchhiker": {
+    "el": "Έκανα ωτοστόπ. Με πήρε ένα φορτηγό. Το φορτηγό μου χρέωσε τα διόδια.",
+    "en": "I hitched a ride. A lorry took me. The lorry charged me the toll."
+  },
+  "npc.peristeri1": {
+    "el": "Παίζουμε από τις έξι. Ο διαιτητής είναι ο ιδιοκτήτης της μπάλας. Κερδίζει πάντα.",
+    "en": "We play from six. The referee is the owner of the ball. He always wins."
+  },
+  "npc.peristeri2": { "el": "Ντομάτες! Δύο ευρώ. Αν ρωτήσεις ξανά, τρία.", "en": "Tomatoes! Two euros. If you ask again, three." },
+  "npc.peristeri3": {
+    "el": "Ανοίγω το μπαλκόνι και βλέπω δώδεκα ίδια μπαλκόνια. Όλα με ρούχα. Κανένα δικό μου.",
+    "en": "I open the balcony and see twelve identical balconies. All with laundry. None of it mine."
+  },
+  "npc.peristeri.doctor": {
+    "el": "Οι ασθενείς πολλοί, οι κλίνες λίγες. Στα ράντζα, όμως, έχουμε πλεόνασμα.",
+    "en": "Many patients, few beds. But we have a surplus of cots."
+  },
+  "npc.peristeri.wait1": {
+    "el": "Έχω σειρά. Ο αριθμός μου είναι ο 412. Η οθόνη δείχνει τον 17.",
+    "en": "I have a ticket. My number is 412. The screen shows 17."
+  },
+  "npc.peristeri.customer": {
+    "el": "Πήρα εισιτήριο για το πάρκινγκ της Μονής. Δεν έχω αυτοκίνητο.",
+    "en": "I bought a ticket for the Monastery car park. I do not own a car."
+  },
+  "npc.pscafe1": {
+    "el": "Η καλύτερη θέση είναι εκείνη που βλέπει τη γωνία. Δεν περνά κανείς. Αλλά τη βλέπω.",
+    "en": "The best seat is the one that sees the corner. Nobody passes. But I see it."
+  },
+  "npc.pscafe2": {
+    "el": "Ο μπαμπάς πάει στο γήπεδο, η μαμά στη λαϊκή, εγώ στο μπαλκόνι. Έτσι μένουμε οικογένεια.",
+    "en": "Dad goes to the ground, Mum to the market, I go to the balcony. That is how we stay a family."
+  },
+  "npc.stallholder": {
+    "el": "Φρέσκα! Από το χωράφι. Ποιο χωράφι; Ένα χωράφι κάπου. Θα το δεις.",
+    "en": "Fresh! From the field. Which field? A field somewhere. You will see it."
+  },
+  "npc.angler": {
+    "el": "Ψαρεύω στο κανάλι. Μέχρι τώρα έπιασα τρία καρότσια και ένα ποδήλατο.",
+    "en": "I fish in the channel. So far I caught three shopping trolleys and a bicycle."
+  },
+  "npc.chaidari1": {
+    "el": "Το πάρκινγκ είναι της Μονής. Ο δρόμος προς το πάρκινγκ είναι της Μονής. Εγώ είμαι της Μονής: με μισθό.",
+    "en": "The car park is the Monastery's. The road to the car park is the Monastery's. I am the Monastery's: with a salary."
+  },
+  "npc.chaidari2": {
+    "el": "Το ύψωμα έχει πινακίδα «ιδιωτικό». Ο ουρανός, δεν ξέρω.",
+    "en": "The hill has a \"private\" sign. The sky, I am not sure."
+  },
+  "npc.chaidari3": {
+    "el": "Η Μονή μου ζήτησε τέλος για τη σκιά της στον κήπο μου. Είπε ότι η σκιά είναι δική της.",
+    "en": "The Monastery asked me for a fee for its shadow in my garden. It said the shadow is its own."
+  },
+  "npc.chaidari.doctor": {
+    "el": "Το νοσοκομείο χτίστηκε σε οικόπεδο της Μονής. Πληρώνουμε ενοίκιο. Από τα έσοδα της αναμονής.",
+    "en": "The hospital was built on land of the Monastery. We pay rent. From the income of the waiting."
+  },
+  "npc.chaidari.wait1": {
+    "el": "Περιμένω από το πρωί. Ο λογαριασμός έφτασε πριν από τον γιατρό.",
+    "en": "I have waited since morning. The bill arrived before the doctor."
+  },
+  "npc.chaidari.customer": {
+    "el": "Πήρα νερό. Η Μονή έχει το δικαίωμα στη βρύση. Και στο μπουκάλι.",
+    "en": "I bought water. The Monastery has the rights to the tap. And to the bottle."
+  },
+  "npc.chaidari.cust1": {
+    "el": "Περιμένω τον Ηγούμενο. Δεν πρόλαβα να ρωτήσω ποια ώρα. Ρωτάω εδώ και χρόνια.",
+    "en": "I am waiting for the Abbot. I did not manage to ask what time. I have been asking for years."
+  },
+  "npc.chaidari.cust2": {
+    "el": "Το γραφείο έχει δικό του πάρκινγκ. Το πάρκινγκ έχει δικό του γραφείο.",
+    "en": "The office has a car park of its own. The car park has an office of its own."
+  },
+  "npc.digger": {
+    "el": "Σκάβω εδώ είκοσι χρόνια. Βρήκα ένα νόμισμα και τριάντα έντυπα.",
+    "en": "I have dug here for twenty years. I found one coin and thirty forms."
+  },
+  "npc.roadtourist": {
+    "el": "Ο οδηγός λέει ότι ο δρόμος είναι αρχαίος. Η πινακίδα λέει «Έργα». Πιστεύω την πινακίδα.",
+    "en": "The guidebook says the road is ancient. The sign says \"Works\". I believe the sign."
+  },
+  "npc.monastiraki1": {
+    "el": "Παλιά ρολόγια! Όλα σταματημένα στην ίδια ώρα. Συμβαίνει με ό,τι έρχεται από το Δημόσιο.",
+    "en": "Old watches! All stopped at the same hour. It happens with whatever comes from the State."
+  },
+  "npc.monastiraki2": {
+    "el": "Αγόρασα ένα αρχαίο αγγείο. Από κάτω γράφει «Made in 2961».",
+    "en": "I bought an ancient vase. On the bottom it says \"Made in 2961\"."
+  },
+  "npc.monastiraki3": {
+    "el": "Η μαμά είπε «Μην πιάνεις τίποτα». Ο πάγκος είπε «Αν το πιάσεις, το πληρώνεις».",
+    "en": "Mum said \"Do not touch anything\". The stall said \"If you touch it, you pay\"."
+  },
+  "npc.monastiraki.doctor": {
+    "el": "Κάθε φορά που σκάβουμε για έναν σωλήνα, βρίσκουμε εύρημα. Και το έργο σταματά.",
+    "en": "Every time we dig for a pipe, we find a relic. And the work stops."
+  },
+  "npc.monastiraki.wait1": {
+    "el": "Ήρθα να δω αρχαία. Εδώ μου έδειξαν τον λογαριασμό.",
+    "en": "I came to see antiquities. Here they showed me the bill."
+  },
+  "npc.monastiraki.customer": {
+    "el": "Ζήτησα ένα αναμνηστικό. Μου έδωσαν απόδειξη. Είναι το μόνο που δεν θα χαθεί.",
+    "en": "I asked for a souvenir. They gave me a receipt. It is the one thing that will not get lost."
+  },
+  "npc.mncafe1": {
+    "el": "Η καλύτερη συμφωνία είναι αυτή που κλείνεις πριν ανοίξει το μαγαζί. Έτσι δεν πληρώνεις ενοίκιο.",
+    "en": "The best deal is the one you close before the shop opens. That way you pay no rent."
+  },
+  "npc.mncafe2": {
+    "el": "Δουλεύω στο παζάρι τρία χρόνια. Δεν έχω πουλήσει τίποτα. Έχω ανταλλάξει πολλά βλέμματα.",
+    "en": "I have worked at the bazaar for three years. I sold nothing. I traded many glances."
+  },
+  "npc.rock.guide": {
+    "el": "Αυτό το μνημείο έχει δει τα πάντα. Εκτός από το τέλος των εργασιών.",
+    "en": "This monument has seen everything. Except the end of the works."
+  },
+  "npc.rock.tourist": {
+    "el": "Ήρθα να δω τον Βράχο. Είδα τη σκαλωσιά. Θα ξανάρθω του χρόνου. Θα είναι ίδια.",
+    "en": "I came to see the Rock. I saw the scaffolding. I will return next year. It will be the same."
+  },
+  "npc.rock.ticket": {
+    "el": "Εισιτήρια; Έχω. Μόνο για χθες. Για αύριο, ρωτήστε τον προϊστάμενο. Δεν έρχεται.",
+    "en": "Tickets? I have some. Only for yesterday. For tomorrow, ask the supervisor. He is not coming."
+  },
+  "npc.avenue1": {
+    "el": "Λεμόνια! Ξινά σαν τον λογαριασμό. Και το ίδιο ακριβά.",
+    "en": "Lemons! Sour like the bill. And just as expensive."
+  },
+  "npc.avenue2": {
+    "el": "Ταΐζω τα περιστέρια. Είναι οι μόνοι που δεν ζητούν ραντεβού.",
+    "en": "I feed the pigeons. They are the only ones who do not ask for an appointment."
+  },
+  "npc.hill.view": {
+    "el": "Με το τηλεσκόπιο βλέπω όλη την Αθήνα. Στο κέντρο είναι τα έργα. Στις άκρες, επίσης.",
+    "en": "With the telescope I see all of Athens. In the centre are the works. At the edges, too."
+  },
+  "npc.hill.kid": {
+    "el": "Το τελεφερίκ ήταν κλειστό. Η πινακίδα έγραφε «μεσημεριανό». Δεν ξέρω τι τρώει.",
+    "en": "The funicular was closed. The sign said \"lunch\". I do not know what it eats."
+  },
+  "npc.syntagma1": {
+    "el": "Έχω παγκάκι εδώ από το 2900. Δεν το αγόρασα. Το κληρονόμησα από το προηγούμενο παγκάκι.",
+    "en": "I have had a bench here since 2900. I did not buy it. I inherited it from the previous bench."
+  },
+  "npc.syntagma2": {
+    "el": "Ρώτησα πού είναι η πλατεία. Μου είπαν «είστε πάνω της». Είναι κλειστή, όμως.",
+    "en": "I asked where the square is. They said \"you are on it\". It is closed, though."
+  },
+  "npc.syntagma3": {
+    "el": "Αυτό το βαν δεν φεύγει. Η άδεια στάθμευσης είναι στο άλλο βαν. Το άλλο βαν περιμένει την άδεια του πρώτου.",
+    "en": "This van is not leaving. Its parking permit is in the other van. The other van is waiting for this one's permit."
+  },
+  "npc.syntagma.doctor": {
+    "el": "Εφημερεύουμε όλο το εικοσιτετράωρο. Εκτός από το διάλειμμα του εικοσιτετραώρου.",
+    "en": "We are on duty around the clock. Except during the break of the clock."
+  },
+  "npc.syntagma.wait1": {
+    "el": "Περιμένω τον γιατρό. Μου είπαν «σε μια στιγμή». Η στιγμή έχει αριθμό προτεραιότητας.",
+    "en": "I am waiting for the doctor. They said \"in a moment\". The moment has a priority number."
+  },
+  "npc.syntagma.customer": { "el": "Ζήτησα ένα νερό. Μου έδωσαν έντυπο.", "en": "I asked for water. They gave me a form." },
+  "npc.parliament.guard": {
+    "el": "Η πύλη ασφαλείας χτυπάει για όλους. Κανείς δεν ελέγχει τι χτυπάει. Εσύ περνάς.",
+    "en": "The security gate beeps for everyone. Nobody checks what it beeps at. You may pass."
+  },
+  "npc.parliament.q1": {
+    "el": "Περιμένω από το πρωί για να πάρω αριθμό. Για να πάρεις αριθμό χρειάζεσαι αριθμό.",
+    "en": "I have waited since morning to take a number. To take a number you need a number."
+  },
+  "npc.parliament.q2": {
+    "el": "Ήρθα για μία υπογραφή. Ο υπογράφων βγήκε για καφέ. Το 2958.",
+    "en": "I came for one signature. The signer went out for coffee. In 2958."
+  },
+  "npc.parliament.q3": {
+    "el": "Ρώτησα πόση ώρα θα κάνει η ουρά. Μου είπαν «λίγο». Το «λίγο» έχει δική του ουρά.",
+    "en": "I asked how long the queue will take. They said \"a little\". The \"little\" has a queue of its own."
+  },
+  "npc.parliament.c1.clerk1": {
+    "el": "Όλες οι αιτήσεις εξετάζονται με σειρά. Η σειρά αλλάζει όταν κοιτάμε.",
+    "en": "All applications are examined in order. The order changes when we look."
+  },
+  "npc.parliament.c1.clerk2": {
+    "el": "Ελέγχω τα έγγραφα της Προϊσταμένης. Εκείνη ελέγχει τα δικά μου. Έτσι δεν βρίσκουμε τίποτα.",
+    "en": "I check the Head Clerk's papers. She checks mine. This way we find nothing."
+  },
+  "npc.parliament.c2.host": {
+    "el": "Η εκπομπή έχει τηλεθέαση ρεκόρ. Μετράμε και όσους βγήκαν από το δωμάτιο.",
+    "en": "The show has record ratings. We count those who left the room, too."
+  },
+  "npc.parliament.c2.camera": {
+    "el": "Η κάμερα έχει δύο πλάνα: τον Υπουργό που μιλάει και τον Υπουργό που διακόπτει.",
+    "en": "The camera has two shots: the Minister talking and the Minister interrupting."
+  },
+  "npc.parliament.c3.aide": {
+    "el": "Ο κύριος Μπέμπης δεν περιμένει τηλέφωνα. Τα κάνει. Τον λογαριασμό τον πληρώνει ο θείος.",
+    "en": "Mr Bebis does not wait for calls. He makes them. The uncle pays the bill."
+  },
+  "npc.plenary.aide": {
+    "el": "Ο Υφυπουργός Παντός κρατάει δεκατέσσερα υπουργεία και δεν πηγαίνει σε κανένα. Πηγαίνω εγώ, για λογαριασμό του.",
+    "en": "The Under-Secretary of Everything holds fourteen ministries and attends none. I go instead, on his behalf."
+  },
+  "npc.plenary.mp1": {
+    "el": "Ψηφίζω ό,τι μου δώσουν. Το διαβάζω μετά. Αν υπάρξει μετά.",
+    "en": "I vote for whatever I am handed. I read it afterwards. If there is an afterwards."
+  },
+  "npc.plenary.mp2": {
+    "el": "Κοιμάμαι στο θρανίο μόνο όταν μιλάει κάποιος. Όταν δεν μιλάει κανείς, ξυπνάω. Για λίγο.",
+    "en": "I sleep on the bench only when somebody speaks. When nobody speaks, I wake up. Briefly."
+  },
+  "npc.roof.euterpe": {
+    "el": "Στις 13:00 κλείνω το γραφείο. Εδώ πάνω δεν υπάρχει ωράριο. Μου αρέσει, και χωρίς ραντεβού.",
+    "en": "I close the office at 13:00. Up here there are no hours. I like it, and without an appointment."
+  },
+  "npc.roof.minister": {
+    "el": "Πρώτη φορά σε ταράτσα χωρίς κάμερα. Μιλάω χωρίς κοινό. Δεν με διακόπτει κανείς. Είναι περίεργο.",
+    "en": "My first roof with no camera. I am talking to nobody. Nobody interrupts me. It is odd."
+  },
+  "npc.roof.rival": {
+    "el": "Πήρα τον θείο μου τηλέφωνο. Μου είπε «μπράβο». Στο λέω γιατί δεν είχα κανέναν άλλον να το πω.",
+    "en": "I called my uncle. He said \"well done\". I am telling you because I had nobody else to tell."
+  }
+}

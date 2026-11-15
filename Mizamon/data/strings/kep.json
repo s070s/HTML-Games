@@ -1,0 +1,11 @@
+{
+  "kep.hello": { "el": "ΚΕΠ 3000. Παρακαλώ πάρτε αριθμό προτεραιότητας.", "en": "ΚΕΠ 3000. Please take a priority number." },
+  "kep.ticket": { "el": "Ο αριθμός σας είναι {n}.", "en": "Your number is {n}." },
+  "kep.sign": { "el": "ΚΕΠ 3000", "en": "ΚΕΠ 3000" },
+  "kep.yourNumber": { "el": "Ο ΑΡΙΘΜΟΣ ΣΑΣ", "en": "YOUR NUMBER" },
+  "kep.serving": { "el": "Τώρα εξυπηρετείται: {n}", "en": "Now serving: {n}" },
+  "kep.comeBack": {
+    "el": "Ο φάκελός σας είναι ελλιπής. Ελάτε αύριο. Για την ομάδα σας δοκιμάστε το Νοσοκομείο 3000, πιο κάτω. Εκεί δεν θέλει αριθμό. Θέλει ράντζο.",
+    "en": "Your file is incomplete. Return tomorrow. For your team try Hospital 3000, further down. There you do not need a number. You need a cot."
+  }
+}

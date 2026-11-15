@@ -1,0 +1,9 @@
+{
+  "learn.ask": {
+    "el": "{mon} έχει νέα εισήγηση: {move}. Η ατζέντα είναι γεμάτη (4 κινήσεις). Να απολυθεί κάποια;",
+    "en": "{mon} has a new proposal: {move}. The agenda is full (4 moves). Fire one of them?"
+  },
+  "learn.forget": { "el": "Ποια απολύεται;", "en": "Which one is fired?" },
+  "learn.skip": { "el": "{mon} αρχειοθέτησε: {move}. Θα εξεταστεί... ποτέ.", "en": "{mon} filed {move} away: to be examined... never." },
+  "learn.done": { "el": "{mon}: απολύθηκε {old}, ψηφίστηκε {move}!", "en": "{mon}: {old} is fired, {move} is passed!" }
+}

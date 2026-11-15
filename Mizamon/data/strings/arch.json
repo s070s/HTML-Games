@@ -1,0 +1,34 @@
+{
+  "arch.hello": {
+    "el": "Αρχείο Ασθενών. Εδώ φυλάγονται τα Mizamon που δεν χωράνε στην ομάδα σου. Χωρητικότητα: 60. Ράφια: από το 2987.",
+    "en": "Patient Archive. This is where the Mizamon that do not fit on your team are kept. Capacity: 60. Shelves: from 2987."
+  },
+  "arch.count": { "el": "Αρχείο {n}/{max}", "en": "Archive {n}/{max}" },
+  "arch.deposit": { "el": "Κατάθεση", "en": "Deposit" },
+  "arch.withdraw": { "el": "Ανάκτηση", "en": "Withdraw" },
+  "arch.list": { "el": "Κατάλογος", "en": "Catalogue" },
+  "arch.pickDeposit": { "el": "Ποιος πάει στο αρχείο;", "en": "Who goes to the archive?" },
+  "arch.pickWithdraw": { "el": "Ποιος βγαίνει από το αρχείο;", "en": "Who comes out of the archive?" },
+  "arch.listTitle": { "el": "Αρχείο Ασθενών ({n}/{max})", "en": "Patient Archive ({n}/{max})" },
+  "arch.deposited": {
+    "el": "{mon} αρχειοθετήθηκε με αριθμό πρωτοκόλλου {n}. Θα βρεθεί... πιθανώς.",
+    "en": "{mon} was filed under protocol number {n}. It will be found... probably."
+  },
+  "arch.withdrawn": {
+    "el": "{mon} εντοπίστηκε στο αρχείο και επιστρέφει στην ομάδα. Έκπληξη και για εμάς.",
+    "en": "{mon} was located in the archive and rejoins the team. A surprise to us too."
+  },
+  "arch.lastOne": {
+    "el": "Δεν αφήνεις στο αρχείο τον τελευταίο που μπορεί να παλέψει. Ποιος θα εκπροσωπήσει την ομάδα;",
+    "en": "You do not leave the last one who can still fight in the archive. Who would represent the team?"
+  },
+  "arch.full": {
+    "el": "Το Αρχείο Ασθενών είναι γεμάτο: 60/60. Για νέο φάκελο πρέπει να ανοίξει θέση. Στο Δημόσιο αυτό σημαίνει ποτέ.",
+    "en": "The Patient Archive is full: 60/60. A new file needs a free slot. In the civil service that means never."
+  },
+  "arch.empty": { "el": "Το αρχείο είναι άδειο. Ούτε ένας φάκελος. Ύποπτο.", "en": "The archive is empty. Not one file. Suspicious." },
+  "arch.teamFull": {
+    "el": "Η ομάδα σου είναι γεμάτη (6). Κάποιος πρέπει πρώτα να παραιτηθεί... δηλαδή να αρχειοθετηθεί.",
+    "en": "Your team is full (6). Someone has to resign first... that is, be filed."
+  }
+}

@@ -60,5 +60,12 @@ for (const districtId of Object.keys(DATA.districts)) {
   for (const routeId of Object.keys(routes)) WORLD.routes[routeId] = Object.assign({ district: districtId }, routes[routeId], { id: routeId });
 }
 
+// ---- Every text of the game, Greek first, English second (data/strings/<group>.json: key -> { el, en }) ----
+// The order of the keys follows the groups; nothing depends on it (a test scans for iteration over STRINGS).
+const STRINGS = {};
+for (const group of Object.values(DATA.strings)) {
+  for (const key of Object.keys(group)) STRINGS[key] = [group[key].el, group[key].en];
+}
+
 // ---- Scripted scenes: the step lists of data/events/ (run by the event runner of the engine) ----
 const EVENTS = DATA.events;

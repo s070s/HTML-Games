@@ -1,0 +1,18 @@
+{
+  "rival1.intro1": {
+    "el": "Ε, εσύ! Εσύ είσαι που πήρες Mizamon από τον Καθηγητή; Εγώ πήρα το δικό μου με ένα τηλεφώνημα.",
+    "en": "Hey, you! You are the one who got a Mizamon from the Professor? I got mine with one phone call."
+  },
+  "rival1.intro2": {
+    "el": "Με λένε Μπέμπη. Ο θείος μου είναι υπουργός. Ο άλλος θείος μου είναι υπουργός. Ο τρίτος... βρες {μόνος|μόνη}. ΜΑΧΗ!",
+    "en": "I am Bebis. My uncle is a minister. My other uncle is a minister. The third... figure it out. BATTLE!"
+  },
+  "rival1.win": {
+    "el": "Χα! Το ήξερα. Γεννήθηκα νικητής. Και με βύσμα.",
+    "en": "Ha! I knew it. I was born a winner. And with connections."
+  },
+  "rival1.lose": {
+    "el": "Τι; Αυτό δεν... Θα το πω στον θείο! Θα σε βάλω σε εξεταστική επιτροπή!",
+    "en": "What? That is not... I will tell my uncle! I will put you before an inquiry committee!"
+  }
+}

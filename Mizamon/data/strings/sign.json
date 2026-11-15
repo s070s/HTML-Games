@@ -1,0 +1,409 @@
+{
+  "sign.lab": {
+    "el": "Εργαστήριο Καθηγητή Σταθόπουλου. Μισθός: εκκρεμεί από το 2987.",
+    "en": "Prof. Stathopoulos Laboratory. Salary: pending since 2987."
+  },
+  "sign.kep": { "el": "ΚΕΠ 3000. Ώρες εξυπηρέτησης: 9:00-9:05, ή όποτε.", "en": "ΚΕΠ 3000. Service hours: 9:00-9:05, or whenever." },
+  "sign.hospital": {
+    "el": "Γενικό Νοσοκομείο Νέας Πειραιάς 3000. Επισκεπτήριο: ώρες προς ανακοίνωση. Εφημερεύει: ο διάδρομος.",
+    "en": "General Hospital of New Piraeus 3000. Visiting hours: to be announced. On call: the corridor."
+  },
+  "sign.hosp.vending": {
+    "el": "Μηχάνημα καφέ: εκτός λειτουργίας. Έφαγε το κέρμα σου. Και το προηγούμενο. Και ένα του 2991.",
+    "en": "Coffee machine: out of order. It ate your coin. And the previous one. And one from 2991."
+  },
+  "sign.hosp.tv": {
+    "el": "Πρωινή εκπομπή στην τηλεόραση: ο υπουργός εξηγεί ότι οι λίστες αναμονής είναι οπτική ψευδαίσθηση. Στο διπλανό κανάλι: συνταγή για τηγανητές πατάτες.",
+    "en": "A morning show on the TV: the minister explains that waiting lists are an optical illusion. On the next channel: a recipe for fried potatoes."
+  },
+  "sign.shop": {
+    "el": "Περίπτερο: εφημερίδες, σνακ, κι άλλα σνακ, ρέστα (εξαντλήθηκαν).",
+    "en": "Kiosk: newspapers, snacks, more snacks, change (sold out)."
+  },
+  "sign.cafe": {
+    "el": "Καφενείο «Η Κρίση»: αποθήκευση προόδου, τάβλι και λύσεις για την οικονομία.",
+    "en": "Cafe \"The Crisis\": saving progress, backgammon and solutions to the economy."
+  },
+  "sign.studio": {
+    "el": "Τηλεοπτικό Στούντιο «Κανάλι 3000». Ζωντανά, δηλαδή ηχογραφημένα.",
+    "en": "TV Studio \"Channel 3000\". Live, meaning recorded."
+  },
+  "sign.house1": { "el": "Κλειστό. Επιστρέφουμε το 2987.", "en": "Closed. Back in 2987." },
+  "sign.house2": {
+    "el": "Ενοικιάζεται. Βραχυχρόνια μίσθωση 3000. Ο ιδιοκτήτης είναι στο εξωτερικό.",
+    "en": "For rent. Short-let 3000. The owner is abroad."
+  },
+  "sign.route1": { "el": "Διαδρομή 1. Προσοχή: ψηλό γρασίδι και ψηλοί φόροι.", "en": "Route 1. Beware: tall grass and tall taxes." },
+  "sign.port": {
+    "el": "Λιμεναρχείο. Το λιμάνι πουλιέται κάθε σεζόν. Η πόρτα είναι ανοιχτή.",
+    "en": "Harbour Office. The port is sold every season. The door is open."
+  },
+  "sign.route1.east": {
+    "el": "Ακτή Θεμιστοκλέους, Καστέλλα. Πρώτα το Παράσημο Λιμανιού.",
+    "en": "Quay Road, Kastella. The Port Medal first."
+  },
+  "sign.route2": {
+    "el": "Διαδρομή 2: Ακτή Θεμιστοκλέους. Το πλοίο φεύγει πάντα νωρίτερα από το εισιτήριο.",
+    "en": "Route 2: The Quay Road. The ferry always leaves earlier than the ticket says."
+  },
+  "sign.kastella": {
+    "el": "Καστέλλα. Ανηφόρα με θέα και σκαλιά χωρίς ράμπα.",
+    "en": "Kastella. A hill with a view and steps with no ramp."
+  },
+  "sign.ktel": { "el": "ΚΤΕΛ 3000. Στάση. Το λεωφορείο θα αργήσει.", "en": "KTEL 3000. Stop. The bus will be late." },
+  "sign.metro": {
+    "el": "Μετρό 3000. Είσοδος. Ο συρμός έρχεται σε λίγο. Το «λίγο» δεν έχει οριστεί.",
+    "en": "Metro 3000. Entrance. The train arrives shortly. \"Shortly\" is not defined."
+  },
+  "sign.theatre": {
+    "el": "Θέατρο Καστέλλας. Παράσταση: ανακοινώνεται. Το εισιτήριο είναι ήδη πληρωμένο.",
+    "en": "Kastella Theatre. Show: to be announced. The ticket is already paid."
+  },
+  "sign.roadworks": {
+    "el": "Έργα στον παραλιακό δρόμο προς τα Ανατολικά. Τελειώνουν του χρόνου. Πάντα του χρόνου.",
+    "en": "Roadworks on the coast road to the East. They finish next year. Always next year."
+  },
+  "sign.glyfada.east": {
+    "el": "Προς τα Ανατολικά: Υμηττός. Τα έργα τελειώνουν του χρόνου. Πάντα του χρόνου.",
+    "en": "To the East: Hymettus. The works finish next year. Always next year."
+  },
+  "sign.kastella.hospital": {
+    "el": "Νοσοκομείο Καστέλλας 3000. Το ασανσέρ είναι υπό μελέτη. Τα σκαλιά είναι εκατό.",
+    "en": "Kastella Hospital 3000. The lift is under study. The steps are a hundred."
+  },
+  "sign.kastella.east": {
+    "el": "Προς τα Νότια: Λεωφόρος Ποσειδώνος. Τα έργα τελειώνουν του χρόνου.",
+    "en": "To the South: Poseidon Avenue. The works finish next year."
+  },
+  "sign.route3": {
+    "el": "Διαδρομή 3: Λεωφόρος Ποσειδώνος. Δρόμος με τραμ, παραλία και ένα έργο που δεν τελειώνει.",
+    "en": "Route 3: Poseidon Avenue. A road with a tram, a beach and a project that never ends."
+  },
+  "sign.faliro": {
+    "el": "Παλαιό Φάληρο. Η παραλία είναι δωρεάν. Η καρέκλα, ένα Φακελάκι.",
+    "en": "Old Faliro. The beach is free. The chair costs one Φακελάκι."
+  },
+  "sign.faliro.hospital": {
+    "el": "Νοσοκομείο Φαλήρου 3000. Δίπλα στο τραμ. Όποιο έρθει πρώτο.",
+    "en": "Faliro Hospital 3000. Next to the tram. Whichever comes first."
+  },
+  "sign.faliro.cafe": {
+    "el": "Καφενείο «Ο Παραλιακός». Καφές με θέα. Η θέα χρεώνεται.",
+    "en": "Cafe \"The Coast Road\". Coffee with a view. The view is charged."
+  },
+  "sign.faliro.tram": {
+    "el": "Στάση τραμ. Επόμενο τραμ: σύντομα. Προηγούμενο τραμ: ποτέ.",
+    "en": "Tram stop. Next tram: soon. Previous tram: never."
+  },
+  "sign.route4": {
+    "el": "Διαδρομή 4: Ελληνικό. Το αεροδρόμιο έκλεισε. Το μεγάλο έργο ανοίγει του χρόνου.",
+    "en": "Route 4: The Old Airfield. The airport closed. The big project opens next year."
+  },
+  "sign.glyfada": {
+    "el": "Γλυφάδα. Μαρίνα, γκολφ και κλαμπ. Η είσοδος είναι δωρεάν. Η έξοδος, όχι.",
+    "en": "Glyfada. Marina, golf and clubs. Entry is free. Leaving is not."
+  },
+  "sign.glyfada.hospital": {
+    "el": "Νοσοκομείο Γλυφάδας 3000. Η αναμονή έχει θέα στη μαρίνα.",
+    "en": "Glyfada Hospital 3000. The waiting list has a marina view."
+  },
+  "sign.glyfada.cafe": {
+    "el": "Η Μεγάλη Προκυμαία. Καφές, μπουγάτσα και η τελευταία λέξη.",
+    "en": "The Great Waterfront. Coffee, bougatsa and the last word."
+  },
+  "sign.glyfada.club": {
+    "el": "Κλαμπ «Μεσάνυχτα». Ανοίγει στις δύο. Πάντα στις δύο.",
+    "en": "Club \"Midnight\". Opens at two. Always at two."
+  },
+  "sign.route5": {
+    "el": "Διαδρομή 5: Υμηττός. Στροφή, στροφή, στροφή. Η κορυφή είναι πάντα στην επόμενη.",
+    "en": "Route 5: Hymettus. Bend, bend, bend. The top is always at the next one."
+  },
+  "sign.monastery": {
+    "el": "Μονή. Επισκέψεις: όταν ανοίξει η πόρτα. Παρακαλούμε ησυχία.",
+    "en": "Monastery. Visits: when the door opens. Silence, please."
+  },
+  "sign.koropi": {
+    "el": "Κορωπί. Αυτή η πινακίδα χορηγείται από την επόμενη πινακίδα.",
+    "en": "Koropi. This sign is sponsored by the next sign."
+  },
+  "sign.koropi.town": {
+    "el": "Πλατεία. Το σιντριβάνι λειτουργεί με χορηγό. Χωρίς χορηγό, ψιθυρίζει.",
+    "en": "Square. The fountain runs on a sponsor. Without one, it whispers."
+  },
+  "sign.koropi.hospital": { "el": "Νοσοκομείο Κορωπιού 3000. Η αναμονή χορηγείται.", "en": "Koropi Hospital 3000. The waiting is sponsored." },
+  "sign.koropi.cafe": {
+    "el": "Καφενείο «Το Κτήμα». Κρασί από το κτήμα, λογαριασμός από τον χορηγό.",
+    "en": "Cafe \"The Estate\". Wine from the estate, the bill from the sponsor."
+  },
+  "sign.route6": {
+    "el": "Διαδρομή 6: Μεσόγεια. Η γέφυρα από πάνω δεν πηγαίνει πουθενά. Ο δρόμος από κάτω, στα Σπάτα.",
+    "en": "Route 6: The Plain. The bridge above goes nowhere. The road below goes to Spata."
+  },
+  "sign.spata": {
+    "el": "Σπάτα. Αεροδρόμιο. Η πινακίδα εξόδου χορηγείται από την είσοδο.",
+    "en": "Spata. Airport. The exit sign is sponsored by the entrance."
+  },
+  "sign.spata.hospital": { "el": "Νοσοκομείο Σπάτων 3000. Πύλη Β12, ισόγειο.", "en": "Spata Hospital 3000. Gate Β12, ground floor." },
+  "sign.spata.terminal": {
+    "el": "Διαστημολιμένας. Πτήσεις προς τα θέρετρα της τροχιάς. Όλες από την Πύλη Β12.",
+    "en": "Spaceport. Flights to the orbital resorts. All from Gate Β12."
+  },
+  "sign.spata.north": {
+    "el": "Προς τα Βόρεια: Πεντέλη. Η έξοδος χορηγείται από τον Διαστημολιμένα. Το μάρμαρο, από το λατομείο.",
+    "en": "To the North: Penteli. The exit is sponsored by the Spaceport. The marble, by the quarry."
+  },
+  "sign.route7": {
+    "el": "Διαδρομή 7: Πεντέλη. Το μάρμαρο είναι λευκό, τα χαρτιά όχι. Προσοχή, πέφτουν πέτρες.",
+    "en": "Route 7: Penteli. The marble is white, the paperwork is not. Mind the falling stones."
+  },
+  "sign.quarry": {
+    "el": "Λατομείο. Ο γερανός στέκει εδώ από το 2961. Η δουλειά, όχι.",
+    "en": "Quarry. The crane has stood here since 2961. The work has not."
+  },
+  "sign.kifisia": {
+    "el": "Κηφισιά. Τέρμα του μετρό. Και αρχή του λογαριασμού.",
+    "en": "Kifisia. The end of the metro line. And the start of the bill."
+  },
+  "sign.kifisia.town": {
+    "el": "Πλατεία Πλατάνων. Οι πλάτανοι είναι προστατευόμενοι. Οι ένοικοι, λιγότερο.",
+    "en": "Plane Tree Square. The plane trees are protected. The residents, less so."
+  },
+  "sign.kifisia.hospital": {
+    "el": "Νοσοκομείο Κηφισιάς 3000. Η αναμονή γίνεται στον κήπο. Δεν τελειώνει ούτε εκεί.",
+    "en": "Kifisia Hospital 3000. The waiting is done in the garden. It does not end there either."
+  },
+  "sign.kifisia.cafe": {
+    "el": "Καφενείο «Ο Πλάτανος». Ο καφές κοστίζει όσο ένα δέντρο.",
+    "en": "Cafe \"The Plane Tree\". The coffee costs as much as a tree."
+  },
+  "sign.kifisia.metro": {
+    "el": "Μετρό 3000. Τέρμα Κηφισιά. Το τέρμα κοστίζει περισσότερο από τη διαδρομή.",
+    "en": "Metro 3000. Terminus Kifisia. The end of the line costs more than the line."
+  },
+  "sign.route8": {
+    "el": "Διαδρομή 8: Λεωφόρος Κηφισίας. Δέκα χιλιόμετρα βιτρίνες. Ένας δρόμος.",
+    "en": "Route 8: Kifisia Avenue. Ten kilometres of shop windows. One road."
+  },
+  "sign.roundabout": {
+    "el": "Κυκλικός κόμβος. Έξι έξοδοι. Η σωστή είναι πάντα η επόμενη.",
+    "en": "Roundabout. Six exits. The right one is always the next."
+  },
+  "sign.marousi.road": {
+    "el": "Μαρούσι. Το στάδιο είναι σε ανακαίνιση. Από το 2961.",
+    "en": "Marousi. The stadium is under renovation. Since 2961."
+  },
+  "sign.marousi.hospital": {
+    "el": "Νοσοκομείο Αμαρουσίου 3000. Η ανακαίνιση τελειώνει του χρόνου.",
+    "en": "Marousi Hospital 3000. The renovation finishes next year."
+  },
+  "sign.marousi.stadium": {
+    "el": "Στάδιο Συναυλιών 3000. Σε ανακαίνιση. Η στέγη κόστισε τρεις φορές τον προϋπολογισμό.",
+    "en": "Concert Stadium 3000. Under renovation. The roof cost three times the plan."
+  },
+  "sign.marousi.tennis": {
+    "el": "Όμιλος Αντισφαίρισης. Μόνο για μέλη. Η αναμονή για να γίνεις μέλος: δέκα χρόνια.",
+    "en": "Tennis Club. Members only. The wait to become a member: ten years."
+  },
+  "sign.marousi.west": {
+    "el": "Προς τα Δυτικά: ο αυτοκινητόδρομος. Τα διόδια θα τα πληρώσεις και στον γυρισμό.",
+    "en": "To the West: the Motorway. You will pay the toll on the way back too."
+  },
+  "sign.route9": {
+    "el": "Διαδρομή 9: Ο Αυτοκινητόδρομος. Ο δρόμος είναι ευθύς. Η χρέωση, όχι.",
+    "en": "Route 9: The Motorway. The road is straight. The charge is not."
+  },
+  "sign.toll": {
+    "el": "Διόδια. Πληρώνεις για τον δρόμο που μόλις περπάτησες. Η απόδειξη έρχεται του χρόνου.",
+    "en": "Toll. You pay for the road you just walked. The receipt comes next year."
+  },
+  "sign.peristeri": {
+    "el": "Περιστέρι. Δέκα χιλιάδες πολυκατοικίες. Όλες ίδιες. Η δική σου είναι η έβδομη στη σειρά.",
+    "en": "Peristeri. Ten thousand apartment blocks. All the same. Yours is the seventh in the row."
+  },
+  "sign.peristeri.hospital": {
+    "el": "Νοσοκομείο Περιστερίου 3000. Η αναμονή γίνεται στον ανελκυστήρα. Δεν δουλεύει.",
+    "en": "Peristeri Hospital 3000. The waiting is done in the lift. It does not work."
+  },
+  "sign.peristeri.cafe": {
+    "el": "Καφενείο «Η Γωνιά». Ο καφές έχει γωνία. Και ο λογαριασμός.",
+    "en": "Cafe \"The Corner\". The coffee has a corner. So does the bill."
+  },
+  "sign.peristeri.market": {
+    "el": "Λαϊκή αγορά. Η τιμή ρωτιέται δύο φορές. Η δεύτερη είναι υψηλότερη.",
+    "en": "Street market. The price is asked twice. The second is higher."
+  },
+  "sign.peristeri.pitch": {
+    "el": "Γήπεδο γειτονιάς. Μπάλες: δώδεκα. Τέρματα: δύο. Οφσάιντ: ό,τι πει ο πιο δυνατός.",
+    "en": "Neighbourhood ground. Balls: twelve. Goals: two. Offside: whatever the loudest says."
+  },
+  "sign.route10": {
+    "el": "Λεωφόρος Θηβών. Ευθεία, ίσια, για πάντα. Με ένα ποτάμι που δεν ρέει.",
+    "en": "Thivon Avenue. Straight, flat, forever. With a river that does not flow."
+  },
+  "sign.channel": { "el": "Το ποτάμι είναι εδώ. Το νερό θα έρθει. Κάποτε.", "en": "The river is here. The water will come. Some day." },
+  "sign.chaidari": { "el": "Χαϊδάρι. Στο πέρασμα. Το πέρασμα έχει εισιτήριο.", "en": "Chaidari. At the pass. The pass has a ticket." },
+  "sign.chaidari.hospital": {
+    "el": "Νοσοκομείο Χαϊδαρίου 3000. Στο ισόγειο, γιατί ο όροφος ανήκει στη Μονή.",
+    "en": "Chaidari Hospital 3000. On the ground floor, because the upper floor belongs to the Monastery."
+  },
+  "sign.chaidari.monastery": {
+    "el": "Μονή Αφορολογήτου. Αφορολόγητη από πάντα. Και περήφανη.",
+    "en": "Tax-Free Monastery. Tax-free since forever. And proud."
+  },
+  "sign.chaidari.carpark": {
+    "el": "Πάρκινγκ της Μονής. Ο δρόμος προς το πάρκινγκ και το πάρκινγκ: ιδιοκτησία της Μονής. Το τέλος εξόδου, επίσης.",
+    "en": "Monastery car park. The road to the car park and the car park: property of the Monastery. The exit fee, too."
+  },
+  "sign.chaidari.west": {
+    "el": "Προς την Αθήνα: η αρχαία οδός. Έχει ηλικία. Και αρχαιολόγους.",
+    "en": "To Athens: the old road. It has age. And archaeologists."
+  },
+  "sign.route11": {
+    "el": "Ιερά Οδός. Πλακόστρωτη εδώ και αιώνες. Οι εργασίες συντήρησης: από τότε.",
+    "en": "The Old Road. Paved for centuries. The maintenance works: since then."
+  },
+  "sign.dig": {
+    "el": "Ανασκαφή. Κλειστή. Τα ευρήματα θα εκτεθούν όταν βρεθεί η άδεια.",
+    "en": "Dig site. Closed. The finds will be shown when the permit is found."
+  },
+  "sign.stumps": {
+    "el": "Κολόνες. Η υπόλοιπη κολόνα μελετάται εδώ και εκατό χρόνια.",
+    "en": "Columns. The rest of the column has been under study for a hundred years."
+  },
+  "sign.monastiraki.hospital": {
+    "el": "Νοσοκομείο Μοναστηρακίου 3000. Η αναμονή γίνεται ανάμεσα στους πάγκους.",
+    "en": "Monastiraki Hospital 3000. The waiting is done between the stalls."
+  },
+  "sign.monastiraki.cafe": {
+    "el": "Καφενείο «Το Παζάρι». Όλα διαπραγματεύονται. Και ο καφές.",
+    "en": "Cafe \"The Bazaar\". Everything is negotiable. Even the coffee."
+  },
+  "sign.monastiraki.rock": {
+    "el": "Προς τον Βράχο. Ανηφόρα, σκαλωσιές στην κορυφή, εισιτήριο στο κιόσκι.",
+    "en": "To the Rock. Uphill, scaffolding at the top, ticket at the booth."
+  },
+  "sign.monastiraki.market": {
+    "el": "Παλιατζίδικο. Αντίκες από χθες. Αρχαιότητες από προχθές.",
+    "en": "Flea market. Antiques from yesterday. Antiquities from the day before."
+  },
+  "sign.monastiraki.clock": {
+    "el": "Το ρολόι δείχνει τρεις και δέκα από τότε που χτίστηκε. Είναι ακριβές δύο φορές την ημέρα.",
+    "en": "The clock has shown ten past three since it was built. It is right twice a day."
+  },
+  "sign.rock.path": {
+    "el": "Μονοπάτι προς την κορυφή. Προσοχή: αρχαίο, γλιστερό και υπό μελέτη.",
+    "en": "Path to the top. Careful: ancient, slippery and under study."
+  },
+  "sign.rock.ticket": {
+    "el": "Εισιτήριο: 30 ευρώ. Η ουρά είναι για χθες. Για σήμερα δεν υπάρχουν εισιτήρια.",
+    "en": "Ticket: 30 euros. The queue is for yesterday. For today there are no tickets."
+  },
+  "sign.rock.scaffold": {
+    "el": "Το μνημείο της κορυφής βρίσκεται σε σκαλωσιά εδώ και χίλια χρόνια. Η σκαλωσιά είναι πια μνημείο.",
+    "en": "The monument on top has been in scaffolding for a thousand years. The scaffolding is now a monument."
+  },
+  "sign.route12": {
+    "el": "Λεωφόρος Πανεπιστημίου. Τρία κτίρια, τρεις είσοδοι, μία ουρά.",
+    "en": "University Avenue. Three buildings, three entrances, one queue."
+  },
+  "sign.omonia": {
+    "el": "Κυκλική πλατεία. Όλοι κάνουν τον γύρο. Κανείς δεν φτάνει.",
+    "en": "Round plaza. Everyone goes round. Nobody arrives."
+  },
+  "sign.avenue.market": {
+    "el": "Κεντρική αγορά. Φρέσκα ψάρια, φρέσκα λαχανικά, φρέσκες υποσχέσεις.",
+    "en": "Central market. Fresh fish, fresh vegetables, fresh promises."
+  },
+  "sign.avenue.shops": { "el": "Εκπτώσεις! Από την τιμή που δεν υπήρξε ποτέ.", "en": "Sale! Off a price that never existed." },
+  "sign.hill.path": {
+    "el": "Ο Λόφος. Ανηφόρα, πεύκα και θέα. Η θέα είναι δωρεάν. Η αναπνοή, όχι.",
+    "en": "The Hill. Uphill, pines and a view. The view is free. The breath is not."
+  },
+  "sign.hill.funicular": {
+    "el": "Το τελεφερίκ είναι κλειστό για μεσημεριανό. Επιστρέφει όταν χωνέψει.",
+    "en": "The funicular is closed for lunch. It returns when it has digested."
+  },
+  "sign.hill.view": {
+    "el": "Σημείο θέας. Βλέπεις όλη την πόλη. Η πόλη δεν σε βλέπει. Έχει έργα.",
+    "en": "Viewpoint. You see the whole city. The city does not see you. It has works."
+  },
+  "sign.syntagma.hospital": {
+    "el": "Νοσοκομείο Συντάγματος 3000. Επισκεπτήριο: όταν κλείσει η πλατεία.",
+    "en": "Syntagma Hospital 3000. Visiting hours: when the square closes."
+  },
+  "sign.syntagma.parliament": {
+    "el": "Βουλή. Είσοδος μόνο με Παράσημο Συγκέντρωσης. Για τους υπόλοιπους: με ραντεβού, του χρόνου.",
+    "en": "Parliament. Entry only with the Assembly Medal. For everyone else: by appointment, next year."
+  },
+  "sign.syntagma.metro": { "el": "Σταθμός μετρό. Κλείνει για εργασίες. Από το 2961.", "en": "Metro station. Closing for works. Since 2961." },
+  "sign.syntagma.hill": {
+    "el": "Προς τον Λόφο: ανηφόρα. Το τελεφερίκ ανεβαίνει όποτε θέλει.",
+    "en": "To the Hill: uphill. The funicular goes up whenever it wants."
+  },
+  "sign.parliament.c1": {
+    "el": "Γραφείο Προϊσταμένης. Ανοιχτά έως τις 13:00. Μετά τις 13:00: με ραντεβού. Το ραντεβού κλείνεται μετά τις 13:00.",
+    "en": "Head Clerk's Office. Open until 13:00. After 13:00: by appointment. Appointments are made after 13:00."
+  },
+  "sign.parliament.c2": {
+    "el": "Στούντιο Πάνελ. Ζωντανή μετάδοση. Η είσοδος γίνεται φωνάζοντας.",
+    "en": "Panel Studio. Live broadcast. Entry is by shouting."
+  },
+  "sign.parliament.c3": {
+    "el": "Σαλόνι Τηλεφώνων. Μην ενοχλείτε: ο ένοικος κάνει τηλεφωνήματα.",
+    "en": "Phone Lounge. Do not disturb: the occupant is making calls."
+  },
+  "sign.parliament.plenary": {
+    "el": "Ολομέλεια. Η συνεδρίαση είναι σε εξέλιξη. Αρχίζει του χρόνου.",
+    "en": "Plenary Hall. The session is in progress. It starts next year."
+  },
+  "sign.parliament.queue": {
+    "el": "Πάρε αριθμό προτεραιότητας. Εξυπηρετείται το 3. Εσύ έχεις το 9.999.",
+    "en": "Take a priority number. Now serving: 3. You have 9,999."
+  },
+  "sign.parliament.table": {
+    "el": "Στο τραπέζι: το πρόγραμμα της ημέρας. Της χθεσινής. Το σημερινό είναι υπό έγκριση.",
+    "en": "On the table: the programme of the day. Yesterday's. Today's is awaiting approval."
+  },
+  "sign.parliament.c1.shelf": {
+    "el": "Αρχείο: 14.000 φάκελοι. Όλοι «σε εκκρεμότητα». Κάποιοι από το 2961.",
+    "en": "Archive: 14,000 files. All \"pending\". Some from 2961."
+  },
+  "sign.parliament.c1.stamps": {
+    "el": "Σφραγίδες: ΠΑΡΕΛΗΦΘΗ, ΕΛΕΓΧΘΗΚΕ, ΑΠΟΡΡΙΦΘΗΚΕ. Η τρίτη φθείρεται πρώτη.",
+    "en": "Stamps: RECEIVED, CHECKED, REJECTED. The third one wears out first."
+  },
+  "sign.parliament.c2.air": {
+    "el": "Κόκκινο φως: ζωντανά. Σβηστό φως: ζωντανά κι αυτό, απλώς δεν το ξέρεις.",
+    "en": "Red light: live. Light off: also live, you just do not know it."
+  },
+  "sign.parliament.c2.cases": {
+    "el": "Θήκες κάμερας. Μέσα: ένα πάνελ, ένα πάνελ και ένα πάνελ για το πάνελ.",
+    "en": "Camera cases. Inside: a panel, a panel and a panel about the panel."
+  },
+  "sign.parliament.c3.phones": {
+    "el": "Τηλέφωνα: 14 γραμμές. Όλες απασχολημένες από τον ίδιο συνδρομητή.",
+    "en": "Phones: 14 lines. All busy with the same subscriber."
+  },
+  "sign.parliament.c3.sofa": {
+    "el": "Ο καναπές είναι ακόμα ζεστός. Κάποιος καθόταν εδώ μέχρι πριν από ένα τηλεφώνημα.",
+    "en": "The sofa is still warm. Someone sat here until a phone call ago."
+  },
+  "sign.plenary.podium": {
+    "el": "Βήμα Ομιλητή. Δεκατέσσερα υπουργεία, ένα μικρόφωνο. Το μικρόφωνο είναι κλειστό.",
+    "en": "Speaker's podium. Fourteen ministries, one microphone. The microphone is off."
+  },
+  "sign.plenary.bench": {
+    "el": "Θρανίο. Οι θέσεις είναι αριθμημένες. Οι αριθμοί δεν ταιριάζουν με τα καθίσματα.",
+    "en": "Bench. The seats are numbered. The numbers do not match the seats."
+  },
+  "sign.plenary.roof": { "el": "Προς την ταράτσα. Μόνο μετά τη συνεδρίαση.", "en": "To the roof. Only after the session." },
+  "sign.roof.view": {
+    "el": "Θέα προς την πλατεία: τα βαν, το σιντριβάνι και μια σκαλωσιά που δεν λέει να φύγει.",
+    "en": "View of the square: the vans, the fountain and a scaffolding that will not leave."
+  },
+  "sign.roof.antenna": {
+    "el": "Κεραία. Πιάνει τρία κανάλια: ειδήσεις, πάνελ και ένα ακόμα πάνελ.",
+    "en": "Antenna. It picks up three channels: news, a panel and another panel."
+  }
+}

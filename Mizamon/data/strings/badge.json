@@ -1,0 +1,16 @@
+{
+  "badge.title": { "el": "ΠΑΡΑΣΗΜΟ ΛΙΜΑΝΙΟΥ", "en": "PORT MEDAL" },
+  "badge.sub": { "el": "Με τον όρο ότι δεν ρωτάς.", "en": "On the condition you do not ask." },
+  "badge.notia.title": { "el": "ΠΑΡΑΣΗΜΟ ΠΑΡΑΛΙΑΚΗΣ", "en": "COAST MEDAL" },
+  "badge.notia.sub": { "el": "Χωρίς απόδειξη.", "en": "No receipt." },
+  "badge.anatolika.title": { "el": "ΠΑΡΑΣΗΜΟ ΕΠΙΒΙΒΑΣΗΣ", "en": "BOARDING MEDAL" },
+  "badge.anatolika.sub": { "el": "Η πτήση καθυστερεί.", "en": "The flight is delayed." },
+  "badge.voreia.title": { "el": "ΠΑΡΑΣΗΜΟ ΠΡΩΤΗΣ ΣΕΙΡΑΣ", "en": "FIRST ROW MEDAL" },
+  "badge.voreia.sub": { "el": "Η θέση είναι πίσω.", "en": "The seat is at the back." },
+  "badge.dytika.title": { "el": "ΠΑΡΑΣΗΜΟ ΑΦΟΡΟΛΟΓΗΤΟΥ", "en": "TAX-FREE MEDAL" },
+  "badge.dytika.sub": { "el": "Δεν δηλώνεται.", "en": "It is not declared." },
+  "badge.athina.title": { "el": "ΠΑΡΑΣΗΜΟ ΣΥΓΚΕΝΤΡΩΣΗΣ", "en": "ASSEMBLY MEDAL" },
+  "badge.athina.sub": { "el": "Απαιτείται άδεια για να το φορέσεις.", "en": "A permit is needed to wear it." },
+  "badge.final.title": { "el": "ΔΙΟΡΙΣΜΟΣ ΕΦ’ ΟΡΟΥ ΖΩΗΣ", "en": "APPOINTMENT FOR LIFE" },
+  "badge.final.sub": { "el": "Πρωθυπουργός εφ’ όρου ζωής.", "en": "Prime Minister for Life." }
+}

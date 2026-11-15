@@ -1,0 +1,7 @@
+{
+  "name.title": { "el": "Πώς σε λένε;", "en": "What is your name?" },
+  "name.switch": { "el": "ΑΒΓ/ABC", "en": "ΑΒΓ/ABC" },
+  "name.del": { "el": "Σβήσιμο", "en": "Delete" },
+  "name.ok": { "el": "ΟΚ", "en": "OK" },
+  "name.hint": { "el": "Βέλη: επιλογή · Z: γράμμα · X: σβήσιμο", "en": "Arrows: pick · Z: letter · X: delete" }
+}

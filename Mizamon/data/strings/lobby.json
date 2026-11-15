@@ -1,0 +1,18 @@
+{
+  "lobby.hello": {
+    "el": "Ιατρείο Βουλής. Για την ομάδα σου; Ο κανονισμός λέει: ραντεβού μετά τη συνεδρίαση. Η συνεδρίαση δεν τελειώνει ποτέ.",
+    "en": "Parliament clinic. For your team? The regulation says: an appointment after the session. The session never ends."
+  },
+  "lobby.free": {
+    "el": "Δωρεάν, φυσικά. Μόνο για όσους κάνουν διάλειμμα ανάμεσα σε δύο συνεδριάσεις. Δηλαδή για σένα.",
+    "en": "Free, of course. Only for those who take a break between two sessions. That means you."
+  },
+  "lobby.atOnce": {
+    "el": "Α, ένα ραντεβού μόλις ακυρώθηκε. Πέρασε, πριν το πάρει κάποιος άλλος.",
+    "en": "Oh, an appointment just got cancelled. Step in before somebody else takes it."
+  },
+  "lobby.done": {
+    "el": "Η ομάδα σου είναι σαν καινούργια. Η επόμενη αίθουσα περιμένει. Όπως όλοι σε αυτό το κτίριο.",
+    "en": "Your team is as good as new. The next chamber is waiting. Like everyone in this building."
+  }
+}

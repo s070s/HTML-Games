@@ -1,0 +1,4 @@
+{
+  "starter.title": { "el": "Διάλεξε το πρώτο σου Mizamon", "en": "Choose your first Mizamon" },
+  "starter.confirm": { "el": "Να πάρεις το {mon};", "en": "Take {mon}?" }
+}

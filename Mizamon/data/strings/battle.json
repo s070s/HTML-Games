@@ -1,0 +1,9 @@
+{
+  "battle.fight": { "el": "Ομιλία", "en": "Speech" },
+  "battle.bag": { "el": "Τσάντα", "en": "Bag" },
+  "battle.mizamon": { "el": "Κόμμα", "en": "Party" },
+  "battle.run": { "el": "Διαφυγή", "en": "Flee" },
+  "battle.prompt": { "el": "{name}: το μικρόφωνο είναι δικό σου.", "en": "{name}: the floor is yours." },
+  "battle.poll": { "el": "ΔΗΜΟΣΚ.", "en": "POLL" },
+  "battle.news": { "el": "ΕΙΔΗΣΕΙΣ", "en": "NEWS" }
+}

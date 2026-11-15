@@ -1,0 +1,50 @@
+{
+  "warp.studio": {
+    "el": "Το στούντιο είναι κλειστό. Περιμένει να γίνεις αρκετά {διάσημος|διάσημη}.",
+    "en": "The studio is closed. It is waiting for you to become famous enough."
+  },
+  "warp.route2": {
+    "el": "Η πύλη είναι κλειστή. Χωρίς Παράσημο Λιμανιού δεν περνάς.",
+    "en": "The gate is shut. No passing without the Port Medal."
+  },
+  "warp.route3": {
+    "el": "Ο δρόμος προς τα Νότια είναι κλειστός. Πρώτα το Παράσημο Λιμανιού.",
+    "en": "The road to the South is closed. The Port Medal first."
+  },
+  "warp.route5": {
+    "el": "Ο δρόμος προς τα Ανατολικά είναι κλειστός. Πρώτα το Παράσημο Παραλιακής.",
+    "en": "The road to the East is closed. The Coast Medal first."
+  },
+  "warp.route7": {
+    "el": "Ο δρόμος προς τα Βόρεια είναι κλειστός. Πρώτα το Παράσημο Επιβίβασης.",
+    "en": "The road to the North is closed. The Boarding Medal first."
+  },
+  "warp.route9": {
+    "el": "Ο δρόμος προς τα Δυτικά είναι κλειστός. Πρώτα το Παράσημο Πρώτης Σειράς.",
+    "en": "The road to the West is closed. The First Row Medal first."
+  },
+  "warp.route11": {
+    "el": "Ο δρόμος προς την Αθήνα είναι κλειστός. Πρώτα το Παράσημο Αφορολογήτου.",
+    "en": "The road to Athens is closed. The Tax-Free Medal first."
+  },
+  "warp.parliament": {
+    "el": "Η πόρτα της Βουλής είναι κλειστή. Ανοίγει μόνο για όσους έχουν το Παράσημο Συγκέντρωσης.",
+    "en": "The door of the Parliament is shut. It opens only for those who hold the Assembly Medal."
+  },
+  "warp.parliament.c2": {
+    "el": "Η πόρτα είναι κλειστή. Πρώτα πρέπει να περάσεις από την Προϊσταμένη Ευτέρπη.",
+    "en": "The door is shut. First you have to get past Head Clerk Euterpe."
+  },
+  "warp.parliament.c3": {
+    "el": "Η πόρτα είναι κλειστή. Πρώτα ο Υπουργός Σπυράδωνις, που ακόμη μιλάει.",
+    "en": "The door is shut. First Minister Spyradonis, who is still talking."
+  },
+  "warp.parliament.plenary": {
+    "el": "Η πόρτα της Ολομέλειας είναι κλειστή. Πριν από τον Υφυπουργό έρχεται ο Μπέμπης. Έχει ένα τηλεφώνημα να κάνει.",
+    "en": "The door of the Plenary Hall is shut. Before the Under-Secretary comes Bebis. He has a call to make."
+  },
+  "warp.parliament.roof": {
+    "el": "Η πόρτα για την ταράτσα είναι κλειδωμένη. Ανοίγει όταν τελειώσει η συνεδρίαση.",
+    "en": "The door to the roof is locked. It opens when the session is over."
+  }
+}
