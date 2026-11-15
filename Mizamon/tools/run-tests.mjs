@@ -774,7 +774,7 @@ test('strings: every key has Greek and English, same {placeholders}, gender word
   assert.equal(R.lookupString('no.such.key', 'en'), 'no.such.key');
 });
 const CODE_AND_EVENT_KEYS_FLOOR = 161; // 157 keys of the code and 4 of the rival1 event; the baseline had 157 + 1 (sayAll, now 0)
-const CONTENT_KEYS_FLOOR = 599; // 328 keys the data refers to and 271 defined texts; the baseline scan found 605 (it read the quoted keys of the whole page, so it also counted keys that the engine and the in-page checks name)
+const CONTENT_KEYS_FLOOR = 599; // 328 keys the data refers to and 271 defined texts; the baseline scan found 605 (it read the quoted keys of the whole page: also the 4 npc.prof keys of 09-overworld.js, counted in the code floor, the 1 key of 90-selftest.js, and sign.roadworks, which the old code typed and then deleted from kastella)
 test('strings: every key the code asks for exists, including the keys built from data', () => {
   const S = R.STRINGS;
   const need = (key) => assert.ok(S[key], 'missing string ' + key);
