@@ -1,20 +1,32 @@
 // Headless rules tests for Mizamon. Node built-ins only.
 // Usage (from the repo root or anywhere): node Mizamon/tools/run-tests.mjs
-// It loads the rules code out of Mizamon.html (between RULES-BEGIN and RULES-END) with node:vm,
-// so the tests run the same code the game runs. Prints "PASS n / m" and exits 1 on any failure.
+// It loads the rules code out of the assembled page (between the RULES-BEGIN and RULES-END lines) with node:vm,
+// so the tests run the same code the game runs. The page is assembled in memory from src/ (tools/assemble.mjs),
+// or read from the file named by MZ_HTML (the build tests the page it is about to write that way).
+// Prints "PASS n / m" and exits 1 on any failure.
 
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
+import { acquireLock, checkPage } from './build.mjs';
+import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
-const HTML_PATH = new URL('../Mizamon.html', import.meta.url);
-const html = readFileSync(HTML_PATH, 'utf8');
+const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
 export function loadRules(source = html) {
-  const begin = source.indexOf('// RULES-BEGIN');
-  const end = source.indexOf('// RULES-END');
-  assert.ok(begin >= 0 && end > begin, 'RULES markers not found in Mizamon.html');
+  // The markers are whole lines (13.2), each once: a text that merely mentions a marker is not one.
+  const beginLines = [...source.matchAll(/^\/\/ RULES-BEGIN\r?$/gm)];
+  const endLines = [...source.matchAll(/^\/\/ RULES-END\r?$/gm)];
+  assert.ok(beginLines.length === 1 && endLines.length === 1, 'RULES-BEGIN and RULES-END must each be on a line of their own, once, in the page');
+  const begin = beginLines[0].index;
+  const end = endLines[0].index;
+  assert.ok(end > begin, 'RULES-END comes before RULES-BEGIN in the page');
   const code = source.slice(begin, end);
   return new vm.Script('(function () {\n' + code + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
 }
@@ -4670,6 +4682,384 @@ test('accessibility: the decision section of the reference lists each option wit
   for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls', 'Left out', 'Why', 'Reduced motion', 'selfTest']) assert.ok(section.includes(word), 'the section names ' + word);
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
   for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls']) assert.ok(readme.includes(word), 'the README names ' + word);
+});
+
+// ---- Build: the split and the assembler (MZ-DEV-02a; reference sections 13.2, 13.3 and 13.5) ----
+// SHA-256 of the single-file page at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
+// which moves content into data/, replaces this pin with the parity proof of reference section 13.12.
+const BASELINE_PAGE_SHA256 = '9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030';
+
+function scratchFolder(label) {
+  const parent = join(tmpdir(), 'claude');
+  mkdirSync(parent, { recursive: true });
+  return mkdtempSync(join(parent, `mizamon-test-${label}-`));
+}
+
+// Copies what the assembler and the source hash read (src/ and the hashed tool files) with CRLF line endings.
+function copyAsCrlf(fromRoot, toRoot) {
+  const copyFile = (relativePath) => {
+    const text = readFileSync(join(fromRoot, relativePath), 'utf8');
+    mkdirSync(dirname(join(toRoot, relativePath)), { recursive: true });
+    writeFileSync(join(toRoot, relativePath), text.split('\r\n').join('\n').split('\n').join('\r\n'));
+  };
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(fromRoot, 'src', kind))) copyFile(`src/${kind}/${name}`);
+  }
+  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
+}
+
+test('assembler: the page equals the baseline single-file page (861daff) byte for byte, twice, and from a CRLF copy', () => {
+  const first = assembleFromDisk();
+  const second = assembleFromDisk();
+  assert.equal(first, second, 'assembling twice gives the same text');
+  assert.ok(!first.includes('\r'), 'the page is LF');
+  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline single-file page');
+  const crlfRoot = scratchFolder('crlf');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, crlfRoot);
+    assert.ok(readFileSync(join(crlfRoot, 'src', 'shell.html'), 'utf8').includes('\r\n'), 'the copy is CRLF');
+    assert.equal(assembleFromDisk(crlfRoot), first, 'a CRLF checkout assembles the same bytes');
+    assert.equal(sourceHashFromDisk(crlfRoot), sourceHashFromDisk(MIZAMON_ROOT), 'a CRLF checkout has the same source hash');
+  } finally {
+    rmSync(crlfRoot, { recursive: true, force: true });
+  }
+});
+
+test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers are whole lines, bad sources are refused', () => {
+  const shell = 'head\n// RULES-BEGIN\n/*@@DATA@@*/\n/*@@RULES@@*/\n// RULES-END\n\n/*@@ENGINE@@*/\ntail\n';
+  const rules = [{ name: '01-b.js', text: 'rule b\n' }, { name: '00-a.js', text: 'rule a $&\n' }];
+  const engine = [{ name: '00-e.js', text: "engine $` $' $1\n" }];
+  const data = "const DATA = '$& $` $\\'';\n";
+  assert.equal(assemblePage({ shell, data, rules, engine }), "head\n// RULES-BEGIN\nconst DATA = '$& $` $\\'';\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n");
+  assert.equal(assemblePage({ shell, rules, engine }), "head\n// RULES-BEGIN\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n", 'empty data removes the marker line');
+  assert.equal(assemblePage({ shell: shell.split('\n').join('\r\n'), rules, engine }), assemblePage({ shell, rules, engine }), 'CRLF in gives LF out');
+  const refused = (change, pattern) => assert.throws(() => assemblePage({ shell, rules, engine, ...change }), pattern);
+  refused({ shell: shell.replace('/*@@DATA@@*/\n', '') }, /no marker line \/\*@@DATA@@\*\//);
+  refused({ shell: shell + '/*@@ENGINE@@*/\n' }, /more than once/);
+  refused({ shell: shell + '/*@@OTHER@@*/\n' }, /unknown marker/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n// RULES-END\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n/*@@ENGINE@@*/\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'no line break' }] }, /must end with a line break/);
+  refused({ rules: [{ name: 'a.js', text: 'x\n' }] }, /bad fragment name/);
+  refused({ data: 'no line break' }, /data text must end/);
+  refused({ shell: shell.replace('// RULES-END\n', '') }, /RULES-END must be on a line of its own/);
+});
+
+test('loadRules: the markers are whole lines, each once (a mention inside a line is not a marker)', () => {
+  const page = 'x\n// RULES-BEGIN\nconst RULES = { a: 1 };\n// RULES-END\ny\n';
+  assert.equal(loadRules(page).a, 1);
+  assert.equal(loadRules(page.split('\n').join('\r\n')).a, 1, 'a CRLF page too');
+  assert.equal(loadRules('see // RULES-BEGIN and // RULES-END in prose\n// not a marker: // RULES-END\n' + page).a, 1, 'mentions are skipped');
+  assert.throws(() => loadRules(page + page), /once/);
+  assert.throws(() => loadRules('x\nconst RULES = {};\n'), /once/);
+  assert.throws(() => loadRules('// RULES-END\n// RULES-BEGIN\n'), /comes before/);
+});
+
+// The top-level names a script fragment declares (declarations that start at the left edge).
+function topLevelNames(text) {
+  const names = [];
+  for (const line of text.split('\n')) {
+    const declaration = /^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/.exec(line) || /^(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    if (declaration) {
+      names.push(declaration[1]);
+      continue;
+    }
+    const destructured = /^(?:const|let|var)\s+[{[]([^}\]=]*)[}\]]/.exec(line);
+    if (destructured) names.push(...destructured[1].split(',').map((part) => part.split(':').pop().trim()).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name)));
+  }
+  return names;
+}
+
+// Rules and engine share one scope, so a name declared twice (in two fragments or in one) hides or breaks the first.
+function duplicateTopLevelNames(fragments) {
+  const owner = new Map();
+  const duplicates = [];
+  for (const fragment of fragments) {
+    for (const name of topLevelNames(fragment.text)) {
+      if (owner.has(name)) duplicates.push(`${name} in ${owner.get(name)} and ${fragment.name}`);
+      else owner.set(name, fragment.name);
+    }
+  }
+  return duplicates;
+}
+
+test('src/: no two fragments declare the same top-level name (the say() and logMsg clash of section 1)', () => {
+  const sources = readSources();
+  const fragments = [...sources.rules.map((f) => ({ name: `rules/${f.name}`, text: toLf(f.text) })), ...sources.engine.map((f) => ({ name: `engine/${f.name}`, text: toLf(f.text) }))];
+  assert.ok(fragments.length > 40, 'the fragments were read');
+  assert.ok(fragments.reduce((count, f) => count + topLevelNames(f.text).length, 0) > 400, 'the scan finds the declarations');
+  same(duplicateTopLevelNames(fragments), [], 'no top-level name is declared twice');
+  const planted = duplicateTopLevelNames([{ name: 'rules/a.js', text: 'function say() {}\nconst { x, y: z } = q;\n' }, { name: 'engine/b.js', text: 'async function say() {}\nlet z = 1;\n' }]);
+  same(planted, ['say in rules/a.js and engine/b.js', 'z in rules/a.js and engine/b.js'], 'a planted clash is found');
+});
+
+// ---- Build: the lock, the checks, the atomic write (MZ-DEV-02a; reference section 13.5) ----
+// A scratch Mizamon root (the sources and the hashed tools, CRLF) whose run-tests.mjs is a stub, so a build runs in a second.
+function makeScratchRoot(label, stubSource) {
+  const root = scratchFolder(label);
+  copyAsCrlf(MIZAMON_ROOT, root);
+  writeFileSync(join(root, 'tools', 'run-tests.mjs'), stubSource);
+  return root;
+}
+const runBuildCli = (root, ...flags) => spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root, ...flags], { encoding: 'utf8', timeout: 120000 });
+const PASSING_STUB = "import { existsSync } from 'node:fs';\nif (!existsSync(process.env.MZ_HTML)) process.exit(9);\nconsole.log('ok   a');\nconsole.log('PASS 1 / 1');\n";
+const FAILING_STUB = "console.log('ok   a');\nconsole.log('FAIL the second test\\n     boom');\nconsole.log('PASS 1 / 2');\nprocess.exit(1);\n";
+
+test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', () => {
+  const folder = scratchFolder('lock');
+  try {
+    const first = acquireLock(folder);
+    assert.equal(first.note, null);
+    const holder = JSON.parse(readFileSync(join(folder, '.lock'), 'utf8'));
+    assert.equal(holder.pid, process.pid, 'the lock holds the process id');
+    assert.ok(!Number.isNaN(Date.parse(holder.startedAt)), 'and the start time');
+    assert.throws(() => acquireLock(folder), /a build is running \(since \d\d:\d\d\)/);
+    first.release();
+    assert.ok(!existsSync(join(folder, '.lock')), 'released');
+    const finished = spawnSync(process.execPath, ['-e', '0']);
+    writeFileSync(join(folder, '.lock'), JSON.stringify({ pid: finished.pid, startedAt: new Date().toISOString() }));
+    const second = acquireLock(folder);
+    assert.match(second.note, /no longer runs/, 'a stale lock is removed with a note');
+    second.release();
+    same(readdirSync(folder), [], 'the renamed stale lock is deleted too');
+    writeFileSync(join(folder, '.lock'), '');
+    assert.throws(() => acquireLock(folder), /a build is starting/, 'a lock that is still being written counts as a build');
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('build: the CSP meta must be the one of section 1 and the page size is checked', () => {
+  const page = assembleFromDisk();
+  assert.deepEqual(checkPage(page), []);
+  assert.throws(() => checkPage(page.split("default-src 'none'").join("default-src *")), /CSP meta tag/);
+  assert.throws(() => checkPage('<html></html>'), /CSP meta tag/);
+  assert.match(checkPage(page + 'x'.repeat(4 * 1024 * 1024))[0], /above 4 MB/);
+  assert.throws(() => checkPage(page + 'x'.repeat(16 * 1024 * 1024)), /16 MB limit/);
+});
+
+test('build: assemble, test, then write index.html and the report (the hashes match); a failing test or --check writes nothing', () => {
+  const root = makeScratchRoot('build', PASSING_STUB);
+  try {
+    const built = runBuildCli(root);
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const pagePath = join(root, 'build', 'index.html');
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(sha256Hex(readFileSync(pagePath)), BASELINE_PAGE_SHA256, 'index.html is the baseline page, LF');
+    assert.equal(report.indexHtmlSha256, BASELINE_PAGE_SHA256);
+    assert.equal(report.sourceHash, sourceHashFromDisk(root), 'the report holds the source hash');
+    assert.equal(report.status, 'ok');
+    assert.equal(report.tests.passed, 1);
+    assert.equal(report.tests.total, 1);
+    same(readdirSync(join(root, 'build')).sort(), ['build-report.json', 'index.html'], 'no temporary file and no lock is left');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    const checked = runBuildCli(root, '--check');
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    same(readdirSync(join(root, 'build')), [], '--check writes no file');
+
+    const untested = runBuildCli(root, '--no-tests');
+    assert.equal(untested.status, 0, untested.stdout + untested.stderr);
+    assert.equal(JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8')).status, 'untested');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    writeFileSync(join(root, 'tools', 'run-tests.mjs'), FAILING_STUB);
+    const failed = runBuildCli(root, '--json');
+    assert.equal(failed.status, 1, 'a failing test fails the build');
+    assert.match(failed.stderr, /FAIL the second test/);
+    assert.equal(JSON.parse(failed.stdout).status, 'failed');
+    same(readdirSync(join(root, 'build')), [], 'a failed build writes nothing');
+
+    assert.equal(runBuildCli(root, '--bogus').status, 2, 'a usage error exits 2');
+    writeFileSync(join(root, 'src', 'engine', '00-screen.js'), '// RULES-END\n');
+    assert.equal(runBuildCli(root, '--no-tests').status, 1, 'a source that does not assemble exits 1');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a filter in the parent cannot shrink the tested set', () => {
+  // The stub reports a smaller total whenever the child could see the filter, and fails when MZ_HTML is not the candidate page.
+  const stub = "import { readFileSync } from 'node:fs';\n"
+    + "const sawFilter = 'MZ_TEST_FILTER' in process.env;\n"
+    + "if (readFileSync(process.env.MZ_HTML, 'utf8').length < 1000) process.exit(9);\n"
+    + "console.log(sawFilter ? 'PASS 1 / 1' : 'PASS 7 / 7');\n";
+  const root = makeScratchRoot('build-filter', stub);
+  try {
+    const env = { ...process.env, MZ_TEST_FILTER: 'one test only', MZ_HTML: join(root, 'does-not-exist.html') };
+    const built = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root], { encoding: 'utf8', timeout: 120000, env });
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(report.tests.total, 7, 'the child ran without the filter');
+    assert.equal(report.status, 'ok');
+    assert.deepEqual(report.notes, [], 'the report carries the build notes');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
+const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
+const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+const gitIn = (repo, ...args) => spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+const leftoverWorktrees = () => (existsSync(ITCH_UPLOAD_ROOT) ? readdirSync(ITCH_UPLOAD_ROOT).filter((name) => name.startsWith('mizamon-src-')) : []);
+
+function commitAll(repo, message) {
+  assert.equal(gitIn(repo, 'add', '-A').status, 0);
+  const committed = gitIn(repo, 'commit', '-q', '-m', message);
+  assert.equal(committed.status, 0, committed.stderr);
+}
+
+function writeReport(repo, fields) {
+  const reportPath = join(repo, 'Mizamon', 'build', 'build-report.json');
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, JSON.stringify(fields, null, 2) + '\n');
+}
+
+test('itch push of mizamon: assembles the commit in a temporary worktree, checks both hashes against the report, removes the worktree', () => {
+  const repo = scratchFolder('itch');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, join(repo, 'Mizamon')); // committed as CRLF here: the hashes must not care
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    const assembled = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(assembled.status, 0, assembled.stderr);
+    const { sourceHash, htmlSha256 } = JSON.parse(assembled.stdout);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'sources and report');
+    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
+    const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
+
+    const deadRun = spawnSync(process.execPath, ['-e', '0']); // its process id no longer runs: its leftover worktree folder is removed at the start
+    const deadWorktree = join(ITCH_UPLOAD_ROOT, `mizamon-src-${deadRun.pid}`);
+    mkdirSync(deadWorktree, { recursive: true });
+    writeFileSync(join(deadWorktree, 'leftover.txt'), 'from a killed run\n');
+    const pushed = run();
+    assert.equal(pushed.status, 0, pushed.stdout + pushed.stderr);
+    assert.ok(!existsSync(deadWorktree), 'the worktree folder of a process that is gone is removed');
+    assert.ok(pushed.stdout.includes(`at ${reportCommit} `), 'the report commit is the upload version');
+    const uploaded = join(ITCH_UPLOAD_ROOT, 'mizamon');
+    same(readdirSync(uploaded), ['index.html'], 'the upload folder holds index.html only');
+    assert.equal(sha256Hex(readFileSync(join(uploaded, 'index.html'))), htmlSha256, 'the assembled hash equals the report hash');
+    assert.equal(htmlSha256, BASELINE_PAGE_SHA256);
+    same(leftoverWorktrees(), [], 'the temporary worktree folder is gone');
+    assert.equal(gitIn(repo, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1, 'git no longer lists the worktree');
+
+    writeFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), readFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), 'utf8') + '// changed after the report\r\n');
+    commitAll(repo, 'a source change without a new report');
+    const stale = run();
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /stale report/, 'a merge without a new build is refused');
+    same(leftoverWorktrees(), [], 'the worktree is removed after a refusal too');
+
+    writeReport(repo, { status: 'untested', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'an untested report');
+    const untested = run();
+    assert.equal(untested.status, 1);
+    assert.match(untested.stderr, /status "untested"/);
+    // The report of the current sources (so the source hash passes) with a wrong page hash: only the page-hash check can refuse it.
+    const current = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(current.status, 0, current.stderr);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash: JSON.parse(current.stdout).sourceHash, indexHtmlSha256: '0'.repeat(64) });
+    commitAll(repo, 'a report with another page hash');
+    const wrongPage = run();
+    assert.equal(wrongPage.status, 1);
+    assert.match(wrongPage.stderr, /does not have the SHA-256/);
+    same(leftoverWorktrees(), [], 'no worktree is left behind');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('itch push of mizamon: no report at the commit is refused; the other games keep their file path', () => {
+  const repo = scratchFolder('itch-none');
+  try {
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    writeFileSync(join(repo, 'readme.txt'), 'x\n');
+    commitAll(repo, 'nothing');
+    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /has no Mizamon\/build\/build-report\.json/);
+    const usage = spawnSync(process.execPath, [ITCH_PUSH, 'nogame'], { encoding: 'utf8' });
+    assert.equal(usage.status, 2);
+    mkdirSync(join(repo, 'Finger Lickin Music'), { recursive: true });
+    writeFileSync(join(repo, 'Finger Lickin Music', 'FingerLickinMusic.html'), '<html>fingers</html>\n');
+    commitAll(repo, 'a game with a committed page');
+    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(plain.status, 0, plain.stdout + plain.stderr);
+    assert.equal(readFileSync(join(ITCH_UPLOAD_ROOT, 'fingerlickinmusic', 'index.html'), 'utf8'), '<html>fingers</html>\n');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('release script: runs the steps in order and stops at the first failure, saying which', () => {
+  const ran = [];
+  const logged = [];
+  const step = (label, ok) => ({ label, run: () => { ran.push(label); return ok ? { ok: true } : { ok: false, reason: 'exit code 1' }; } });
+  const outcome = runSteps([step('one', true), step('two', false), step('three', true)], (line) => logged.push(line));
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.failedStep, 2);
+  same(ran, ['one', 'two'], 'nothing runs after the failed step');
+  assert.match(logged.join('\n'), /step 2 of 3 \(two\) failed: exit code 1/);
+  assert.match(logged.join('\n'), /not run: three/);
+  assert.equal(runSteps([step('a', true), step('b', true)], () => {}).ok, true, 'all steps passing is a release');
+});
+
+test('release script: refuses a branch other than main and uncommitted sources, and never forces the push', () => {
+  const scratchParent = join(tmpdir(), 'claude');
+  mkdirSync(scratchParent, { recursive: true });
+  const scratchRepo = mkdtempSync(join(scratchParent, 'mz-release-'));
+  try {
+    const git = (...args) => {
+      const result = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: scratchRepo, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+    };
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(scratchRepo, 'Mizamon', 'src'), { recursive: true });
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'kept.txt'), 'kept\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'start');
+    const [branchStep, , sourcesStep] = releaseSteps(scratchRepo, 'no-such-heavy-runner.mjs');
+    assert.equal(sourcesStep.label, 'check that the sources are committed', 'the index used below is the src-clean step');
+    assert.equal(branchStep.run().ok, true, 'main passes the branch step');
+    assert.equal(sourcesStep.run().ok, true, 'a clean repo passes the sources step');
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'new.txt'), 'uncommitted\n');
+    const dirty = sourcesStep.run();
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.reason, /uncommitted/);
+    git('checkout', '-q', '-b', 'task-branch');
+    const wrongBranch = branchStep.run();
+    assert.equal(wrongBranch.ok, false);
+    assert.match(wrongBranch.reason, /release runs only on main; current: task-branch/);
+  } finally {
+    rmSync(scratchRepo, { recursive: true, force: true });
+  }
+  assert.ok(pushArgs.includes('credential.helper=!gh auth git-credential'), 'the push uses the gh credential helper');
+  for (const forbidden of ['--force', '-f', '+main', '--force-with-lease']) assert.ok(!pushArgs.includes(forbidden), `the push never has ${forbidden}`);
+});
+
+// ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
+test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out', 'node tools/release-mizamon.mjs']) {
+    assert.ok(readme.includes(text), 'the README says: ' + text);
+  }
+  // The release step is written once, word for word, in the README and in REFERENCE 13.5, and the script runs the same steps in order.
+  const releaseStep = 'test "$(git symbolic-ref --short HEAD)" = main && node ~/.claude/scripts/heavy.mjs -- node Mizamon/tools/build.mjs && test -z "$(git status --porcelain -- Mizamon/src Mizamon/data Mizamon/shared Mizamon/tools)" && git add -- Mizamon/build/build-report.json && git commit -q -m "Mizamon: build report" -- Mizamon/build/build-report.json && git push origin main && node tools/itch-push.mjs mizamon';
+  assert.ok(readme.includes(releaseStep), 'the README has the release step word for word');
+  assert.ok(readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8').includes(releaseStep), 'REFERENCE has the release step word for word');
+  const steps = releaseSteps('unused', 'no-such-heavy-runner.mjs').map((step) => step.label);
+  same(steps, ['check that the branch is main', 'build (tests and build report)', 'check that the sources are committed', 'stage the build report', 'commit the build report', 'push main', 'upload to itch.io'], 'the release script has the same seven steps in order');
+  const oldPage = 'Mizamon' + '.html'; // spelled in two pieces so that this test does not name the file itself
+  assert.ok(!readme.includes(oldPage), 'the README no longer opens the old single file');
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(MIZAMON_ROOT, 'src', kind))) assert.ok(!readFileSync(join(MIZAMON_ROOT, 'src', kind, name), 'utf8').includes(oldPage), `${kind}/${name} names the old file`);
+  }
+  for (const tool of ['assemble.mjs', 'build.mjs', 'balance.mjs', 'world-map.mjs']) {
+    assert.ok(!readFileSync(join(MIZAMON_ROOT, 'tools', tool), 'utf8').includes(oldPage), `tools/${tool} names the old file`);
+  }
 });
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----

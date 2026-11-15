@@ -1,1 +1,3 @@
 * text=auto
+Mizamon/build/build-report.json -diff merge=binary eol=lf
+Mizamon/data/audio/** binary

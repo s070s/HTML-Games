@@ -1,25 +1,20 @@
 // World map generator (MZ-WORLD-01): draws the schematic of the six districts and writes Mizamon/docs/world-map.png.
 // Usage: node Mizamon/tools/world-map.mjs          (writes the PNG)
 //        node Mizamon/tools/world-map.mjs --ascii  (prints the 30 x 15 district grid used in REFERENCE-mizamon.md)
-// Node built-ins only (fs, zlib, path, url, vm). The grid, the districts' colours, the places, the routes and their progress values
-// are not kept here: they are WORLD in Mizamon.html (between RULES-BEGIN and RULES-END), loaded with node:vm the way run-tests.mjs
-// loads the rules, so the data exists once and this picture is the data the in-game map screen (MZ-MAP-01) draws. What stays here is
+// Node built-ins only (fs, zlib, path, url). The grid, the districts' colours, the places, the routes and their progress values
+// are not kept here: they are WORLD in the rules block of the assembled page (src/rules/12-world.js), loaded through loadRules of
+// run-tests.mjs, so the data exists once and this picture is the data the in-game map screen (MZ-MAP-01) draws. What stays here is
 // the picture's own decoration (district name labels, route labels, metro and tram lines, landmark icons, legend). The map is an
 // abstraction of Attica, not a scale drawing; it is original art made of rectangles, lines and small pixel glyphs. The grid is
 // 30 x 15 cells of 8 px = 240 x 120 px; the PNG adds a 16 px legend and is scaled x4 with nearest neighbour.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
+import { loadRules } from './run-tests.mjs';
 
 function loadWorld() {
-  const html = readFileSync(new URL('../Mizamon.html', import.meta.url), 'utf8');
-  const begin = html.indexOf('// RULES-BEGIN');
-  const end = html.indexOf('// RULES-END');
-  if (begin < 0 || end < begin) throw new Error('RULES markers not found in Mizamon.html');
-  const rules = new vm.Script('(function () {\n' + html.slice(begin, end) + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
-  return rules.WORLD;
+  return loadRules().WORLD;
 }
 const WORLD = loadWorld();
 

@@ -30,3 +30,7 @@ Beat Em Up/revengin/
 
 # Mizamon: the Owner's study ROM (not part of the game, never committed)
 Mizamon/revengin/
+
+# Mizamon build output (tools/build.mjs): only the report is committed, on main (reference section 13.5)
+Mizamon/build/*
+!Mizamon/build/build-report.json
