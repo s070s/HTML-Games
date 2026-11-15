@@ -27932,13 +27932,13 @@ const SelfTest = {
       return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
     });
     // a real seeded launch of body `foeId` (a move thrown at a foe who faces it, turns its back or stands sideways), every tick drawn: the lowest drawn part above the floor on every THROWN tick and on the first LOOK_LANDED_TICKS DOWN ticks (the drawn lowest = the root's height above the footing + the lowest part of the pose + the plant and sink shifts, which is what `skeleton` draws)
-    const LOOK_LIFT_MAX = 0.15, LOOK_PELVIS_MAX = 0.45, LOOK_PELVIS_FROM = 2, LOOK_PELVIS_LOW_FROM = 6, LOOK_STRONG_TICKS = 10;   // the floor lift in a flight (a safety net, not a prop); the pelvis height of the lying body from its third lying tick on (a low arc from behind lands with the body still turning over: its pelvis is down by the seventh, and the lift is 0 there); the ticks of a low arc at 0.9 of its look or more
+    const LOOK_LIFT_MAX = 0.15, LOOK_PELVIS_MAX = 0.45, LOOK_PELVIS_FROM = 2, LOOK_STRONG_TICKS = 10, LOOK_FLOOR_MAX = 0.02, LOOK_FLOOR_FROM = 4;   // the floor lift in a flight (a safety net, not a prop); the pelvis height of the lying body from its third lying tick on (every landing, a low arc from behind included: the plant drops a lying body at PLANT_DROP_SPEED); the ticks of a low arc at 0.9 of its look or more; the drawn lowest part of a lying body is on the floor (at most LOOK_FLOOR_MAX above it) from lying tick LOOK_FLOOR_FROM on
     const LOOK_LANDED_TICKS = 15, LOOK_FLIGHT_ROWS = ['heavy_uppercut', 'uppercut', 'sweep', 'heavy_roundhouse'];
     const lookFlightLow = (foeId, facing, row = 'heavy_uppercut') => {
       const m = mk({ playerId: foeId === 'kai' ? 'mara' : 'kai', opponentId: foeId, seed: 3, evenDamage: true }), a = m.fighters[0], b = m.fighters[1];
       a.x = a.prevX = -0.5; b.x = b.prevX = 0.5; a.z = b.z = a.prevZ = b.prevZ = 0; a.yaw = a.prevYaw = Math.PI / 2; b.yaw = b.prevYaw = facing;
       b.hp = b.maxHp = 9999;
-      let lowest = Infinity, flightTicks = 0, at = '', lookDir = -1, peak = 0, strong = 0, maxLift = 0, liftTicks = 0, pelvis = 0, ease = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };
+      let lowest = Infinity, flightTicks = 0, at = '', lookDir = -1, peak = 0, strong = 0, maxLift = 0, liftTicks = 0, pelvis = 0, floating = 0, floatAt = '', ease = (x) => { const u = clamp(x, 0, 1); return u * u * (3 - 2 * u); };
       a.startAttack(ATTACKS[row]);
       for (let t = 0; t < 90; t++) {
         if (b.state === S.IDLE) b.yaw = b.prevYaw = facing;   // the idle foe turns to face its attacker during the wind-up: hold the facing until the blow lands, so a blow from behind is from behind
@@ -27946,11 +27946,12 @@ const SelfTest = {
         const counted = b.state === S.THROWN || (b.state === S.DOWN && b.stateTicks < LOOK_LANDED_TICKS);
         if (!counted) continue;
         if (b.state === S.THROWN) { if (flightTicks === 0) lookDir = b.lookDir; flightTicks++; const share = ease((b.stateTicks + 1) / LOOK_FLIGHT_IN) * b.lookFade(); peak = Math.max(peak, share); if (share >= 0.9) strong++; maxLift = Math.max(maxLift, b.sinkLift); if (b.sinkLift > 0.001) liftTicks++; }   // the strength of the fall's look this tick (what flightLook adds)
-        if (b.state === S.DOWN && b.stateTicks >= (row === 'sweep' || row === 'heavy_roundhouse' ? LOOK_PELVIS_LOW_FROM : LOOK_PELVIS_FROM)) pelvis = Math.max(pelvis, b.pts[1] - b.groundY);   // the pelvis (the root key point) of the lying body
+        if (b.state === S.DOWN && b.stateTicks >= LOOK_PELVIS_FROM) pelvis = Math.max(pelvis, b.pts[1] - b.groundY);   // the pelvis (the root key point) of the lying body
         const low = b.y - b.groundY + b.lowestPart() + b.plantShift + b.sinkLift;
+        if (b.state === S.DOWN && b.stateTicks >= LOOK_FLOOR_FROM && low > floating) { floating = low; floatAt = 'lying tick ' + b.stateTicks; }   // the lowest drawn part of the lying body above the floor
         if (low < lowest) { lowest = low; at = S[b.state] + ' ' + b.stateTicks; }
       }
-      return { lowest, flightTicks, at, lookDir, peak, strong, maxLift, liftTicks, pelvis };
+      return { lowest, flightTicks, at, lookDir, peak, strong, maxLift, liftTicks, pelvis, floating, floatAt };
     };
     test('Hit looks (P19-03): (9) a flight and the lying after it never draw a part more than SINK_MAX under the floor: the fall and crumple looks fade out as the body comes down (a real seeded heavy uppercut on all 32 bodies, and three more moves that launch, from the front, from behind and from the side; every THROWN tick and the first 15 DOWN ticks)', () => {
       const bad = [], worst = {}, most = { lift: 0, liftTicks: 0, pelvis: 0 }, fewest = {};
@@ -27974,7 +27975,8 @@ const SelfTest = {
         seen[name].weakest[row] = Math.min(seen[name].weakest[row] === undefined ? 1 : seen[name].weakest[row], got.peak);
         if ((row === 'sweep' || row === 'heavy_roundhouse') && got.strong < LOOK_STRONG_TICKS) bad.push(r.id + ' ' + row + ' ' + name + ' shows its look at 0.9 of full or more on ' + got.strong + ' ticks (a low arc keeps its look: at least ' + LOOK_STRONG_TICKS + ')');
         if (got.maxLift > LOOK_LIFT_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' lifts the body ' + got.maxLift.toFixed(3) + ' m in the air (at most ' + LOOK_LIFT_MAX + ': the floor rule is a safety net, the pose does not lean on it)');
-        if (got.pelvis > LOOK_PELVIS_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' lies with the pelvis ' + got.pelvis.toFixed(3) + ' m up from lying tick ' + (row === 'sweep' || row === 'heavy_roundhouse' ? LOOK_PELVIS_LOW_FROM : LOOK_PELVIS_FROM) + ' on (at most ' + LOOK_PELVIS_MAX + ': it was propped up by the lift)');
+        if (got.pelvis > LOOK_PELVIS_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' lies with the pelvis ' + got.pelvis.toFixed(3) + ' m up from lying tick ' + LOOK_PELVIS_FROM + ' on (at most ' + LOOK_PELVIS_MAX + ': it was propped up by the lift)');
+        if (got.floating > LOOK_FLOOR_MAX) bad.push(r.id + ' ' + row + ' ' + name + ' floats ' + got.floating.toFixed(3) + ' m above the floor at ' + got.floatAt + ' (at most ' + LOOK_FLOOR_MAX + ' from lying tick ' + LOOK_FLOOR_FROM + ' on: the plant drops a lying body at PLANT_DROP_SPEED)');
         most.lift = Math.max(most.lift, got.maxLift); most.liftTicks = Math.max(most.liftTicks, got.liftTicks); most.pelvis = Math.max(most.pelvis, got.pelvis);
         fewest[row] = Math.min(fewest[row] === undefined ? 1e9 : fewest[row], got.strong);
         seen[name].lowest = Math.min(seen[name].lowest, got.lowest);
@@ -27986,20 +27988,23 @@ const SelfTest = {
       const lowestByDir = byDir.map(([, , name]) => name + ' ' + seen[name].lowest.toFixed(3)).join(', '), weakest = LOOK_FLIGHT_ROWS.map((row) => row + ' ' + Math.min(...byDir.map(([, , name]) => seen[name].weakest[row])).toFixed(2)).join(', ');
       return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') + ' [lowest by direction: ' + lowestByDir + '; weakest peak look by move: ' + weakest + '; by body: ' + Object.keys(worst).map((id) => id + ' ' + worst[id].toFixed(3)).join(', ') + ']' : true;
     }, 120000);
-    test('Hit looks (P19-03): (10) a throw never draws a part more than SINK_MAX under the floor either, in the air or lying after it, and its floor lift stays a safety net: every grip and direction on three bodies, the face-down ones (the Rear Takedown, the front grip that sends the foe on its face) included', () => {
-      const bad = [];
+    test('Hit looks (P19-03): (10) a throw never draws a part more than SINK_MAX under the floor either, in the air or lying after it, and its floor lift stays a safety net: every grip and direction on three bodies, the face-down one (the Rear Takedown) included; from lying tick 6 on the lowest drawn part is on the floor', () => {
+      const bad = [], THROW_FLOOR_FROM = 6;
       let faceDown = 0;
       for (const id of ['kai', 'brutus', 'mara']) for (const grip of ['front', 'rear', 'low']) for (const dir of THROW_DIRS) {
         const m = setupThrow(grip, dir, { playerId: id === 'kai' ? 'mara' : 'kai', opponentId: id }), b = m.fighters[1];
-        let lowest = Infinity, lift = 0, flew = false;
+        let lowest = Infinity, lift = 0, flew = false, floating = 0;
         for (let i = 0; i < 420; i++) {
           m.step();
           if (b.state === S.THROWN) { flew = true; if (b.lieSign < 0) faceDown++; }
           if (b.state !== S.THROWN && !(b.state === S.DOWN && b.stateTicks < LOOK_LANDED_TICKS)) continue;
-          lowest = Math.min(lowest, b.y - b.groundY + b.lowestPart() + b.plantShift + b.sinkLift);
+          const low = b.y - b.groundY + b.lowestPart() + b.plantShift + b.sinkLift;
+          lowest = Math.min(lowest, low);
+          if (b.state === S.DOWN && b.stateTicks >= THROW_FLOOR_FROM) floating = Math.max(floating, low);
           if (b.state === S.THROWN) lift = Math.max(lift, b.sinkLift);
         }
         if (!flew) bad.push(id + ' ' + grip + '/' + dir + ': no flight');
+        if (floating > LOOK_FLOOR_MAX) bad.push(id + ' ' + grip + '/' + dir + ' floats ' + floating.toFixed(3) + ' m above the floor from lying tick ' + THROW_FLOOR_FROM + ' on (at most ' + LOOK_FLOOR_MAX + ')');
         if (lowest < -(SINK_MAX + 0.005)) bad.push(id + ' ' + grip + '/' + dir + ' draws ' + (-lowest).toFixed(3) + ' m under the floor');
         if (lift > LOOK_LIFT_MAX) bad.push(id + ' ' + grip + '/' + dir + ' lifts the body ' + lift.toFixed(3) + ' m in the air');
         m.dispose();

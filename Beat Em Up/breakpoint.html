@@ -5419,6 +5419,7 @@ const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.
    plantLow is the height of the lowest drawn part above the floor while this runs: it moves from where the last tick drew it to the floor, and (PLANT_RELEASE_TICKS after the pose ends) back to the pose's own lowest, at most PLANT_SPEED a tick, so a hold or a fall starting or ending neither sinks the body into the floor nor jumps it. */
 const PLANT_SPEED = 1.5; // m/s: how fast the lowest part may move to the floor or back (2.5 cm a tick)
 const PLANT_SPEED_MOVE = 6; // m/s while an upside-down kick runs (10 cm a tick): the standard speed moves the body 35 cm in the 14 startup ticks of the handstand kick, which is not enough for an inversion
+const PLANT_DROP_SPEED = 5; // m/s: a lying body still above the floor keeps falling
 const PLANT_MIN = 0.002; // m: a shift smaller than this is dropped once the pose is free again
 const LIE_POINTS = [0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33]; // the key points of pts the lying box is measured from: root, chest, head, wrists, ankles, knees, elbows
 const SINK_MAX = 0.1, SINK_FALL = 0.02; // m: the deepest under the floor a part of a body in a blow is drawn; how fast the lift of the body goes when the blow is over (a tick)
@@ -8200,7 +8201,7 @@ class Fighter {
   plantFloor(dt, planted) {
     if (!planted && this.plantHold === PLANT_RELEASE_TICKS) this.plantStance = this.stanceLow(); // the first tick the pose is free: the depth of the stance it blends back to
     this.plantHold = planted ? PLANT_RELEASE_TICKS : this.plantHold - 1;
-    const own = this.lowestPart(), reach = (this.plantFast ? PLANT_SPEED_MOVE : PLANT_SPEED) * dt;
+    const own = this.lowestPart(), reach = (this.plantFast ? PLANT_SPEED_MOVE : planted && this.plantLow > 0 ? PLANT_DROP_SPEED : PLANT_SPEED) * dt;
     this.plantLow += clamp((this.plantHold <= 0 ? own : planted ? 0 : this.plantStance) - this.plantLow, -reach, reach);
     this.plantShift = this.plantLow - own;
     if (this.plantHold <= 0 && Math.abs(this.plantShift) < PLANT_MIN) { this.plantOn = false; this.plantFast = false; this.plantShift = 0; }
