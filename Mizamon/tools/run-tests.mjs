@@ -1,30 +1,89 @@
-// Headless rules tests for Mizamon. Node built-ins only.
-// Usage (from the repo root or anywhere): node Mizamon/tools/run-tests.mjs
+// Headless tests for Mizamon (rules, data, tools). Node built-ins only.
+//
+//   node Mizamon/tools/run-tests.mjs [--strict | --lenient | --gate] [--json <file>] [--baseline <file>] [--root <Mizamon folder>] [--refresh-canon]
+//
 // It loads the rules code out of the assembled page (between the RULES-BEGIN and RULES-END lines) with node:vm,
-// so the tests run the same code the game runs. The page is assembled in memory from src/ (tools/assemble.mjs),
+// so the tests run the same code the game runs. The page is assembled in memory from src/ and data/ (tools/assemble.mjs),
 // or read from the file named by MZ_HTML (the build tests the page it is about to write that way).
-// Prints "PASS n / m" and exits 1 on any failure.
+// Prints "PASS n / m" and exits 1 on any failure. While working, MZ_TEST_FILTER=<regex> runs only the tests whose name matches.
+//
+// Every test has a tier (reference 13.5): engine (formulas and mechanics, content only as declared fixtures), integrity (references,
+// reachability, the tools) and content (the numbers and texts of the world as built, the content rules).
+//   - The default run is strict (--strict names it): the engine tier runs twice, on the canon copy (tests/canon-data.json, the data
+//     as DEV-02b left it) and on the current data; any failure of any tier fails; a content finding with a waiver passes (WAIVED).
+//   - --lenient is the Owner's Build: the engine tier runs on the canon copy only; integrity decides; content findings are WARN, except
+//     the real-person and brand hits without a waiver, which still fail.
+//   - --json <file> writes every failure and finding, keyed by pass (canon or current), tier, test or rule, kind, id and field;
+//     --baseline <file> fails only on keys that file does not have (a canon key is never forgiven, nor an id-less integrity or content failure).
+//   - --gate is the agents' gate: the canon engine pass in full, and everything else compared with the merge base of HEAD and main.
+//   - --refresh-canon rewrites tests/canon-data.json from the current data (an agent task, with a review).
+//   - --root <folder> tests the src/ and data/ of another Mizamon folder (the baseline run of the gate uses it).
+// The engine tier's result on the canon copy is cached in <temp>/claude/mizamon-cache (MZ_CACHE_DIR), keyed by the SHA-256 of the canon page text
+// plus this file, shared/*.mjs, tools/parity.mjs, tools/assemble.mjs, the scan baseline, tests/validate-fixtures.mjs, the Node version,
+// MZ_TEST_FILTER and MZ_FORCE_SCAN_ZERO.
 
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import { assemblePage, dataBlockText, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import {
+  ATHINA_FORBIDDEN_WORDS, CONTENT_RULE_LISTS, COPIED_ENGLISH_PHRASES, COPIED_GREEK_PHRASES, CREDITS_FORBIDDEN_WORDS, DENIED_CAPITALISED_WORDS, DENY_PATTERN, FAITH_WORDS,
+  HOSPITAL_COPIED_ENGLISH, HOSPITAL_COPIED_GREEK, HOSPITAL_PATIENT_WORDS, MASCULINE_ONLY_FORMS, MONUMENT_WORDS, PARODIES, plainText,
+} from '../shared/content-rules.mjs';
 import { DataError, dataFiles, dataVersionProblem, listDataPaths, readData } from '../shared/data-files.mjs';
 import { fileIdProblem } from '../shared/ids.mjs';
 import { formatEntry, formatJson } from '../shared/json-format.mjs';
 import { ABILITY_KINDS, DATA_VERSION, KINDS, STATUS_KINDS, behaviourProblems, schemaProblems, walkWithSchema } from '../shared/schemas.mjs';
-import { MARKER_TEXTS, markerTextFindings } from '../shared/validate.mjs';
-import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
+import { MARKER_TEXTS, VALIDATION_RULES, markerTextFindings, validateData } from '../shared/validate.mjs';
+import { VALIDATION_FIXTURES } from '../tests/validate-fixtures.mjs';
+import { MIZAMON_ROOT as TOOL_ROOT, assembleFromDisk as assembleFromRoot, readSources as readSourcesOfRoot, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
 import { migrateData } from './migrate-data.mjs';
 import { BALANCE_RUNS, balanceOutput, dataBlockOf, engineConstantProblems, loadRulesWithInternals, makeFakeAudio, migratedSaves, replaySummary, soundCalls, tableSnapshot, visibilityProbe } from './parity.mjs';
 import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
-const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
+// ---- The command line, the folder under test and the page of the current pass ----
+const THIS_FILE = fileURLToPath(import.meta.url);
+const IS_ENTRY = Boolean(process.argv[1]) && THIS_FILE === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')));
+const USAGE = 'usage: node Mizamon/tools/run-tests.mjs [--strict | --lenient | --gate] [--json <file>] [--baseline <file>] [--root <Mizamon folder>] [--refresh-canon]';
+export function parseCli(args) {
+  const options = { mode: 'strict', modeFlag: null, gate: false, json: null, baseline: null, root: null, refreshCanon: false, baselineRun: false, error: null };
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    if (flag === '--strict' || flag === '--lenient') {
+      if (options.modeFlag !== null && options.modeFlag !== flag) options.error = '--strict and --lenient exclude each other';
+      options.modeFlag = flag;
+      options.mode = flag.slice(2);
+    } else if (flag === '--gate') options.gate = true;
+    else if (flag === '--refresh-canon') options.refreshCanon = true;
+    else if (flag === '--baseline-run') options.baselineRun = true; // the baseline run of the gate (13.5); not for hand use
+    else if (flag === '--json' || flag === '--baseline' || flag === '--root') {
+      if (index + 1 >= args.length) options.error = `${flag} needs a value`;
+      else options[flag.slice(2)] = resolve(args[++index]);
+    } else options.error = `unknown option ${flag}`;
+  }
+  if (options.gate && (options.mode === 'lenient' || options.baseline !== null)) options.error = '--gate is strict and makes its own baseline: it takes neither --lenient nor --baseline';
+  if (options.gate && options.root !== null) options.error = '--gate tests this tree and makes its own baseline: it does not take --root';
+  if (options.gate && process.env.MZ_HTML) options.error = '--gate assembles the page itself: unset MZ_HTML';
+  return options;
+}
+const CLI = IS_ENTRY ? parseCli(process.argv.slice(2)) : parseCli([]);
+// The folder whose src/ and data/ are tested: this one, or --root (the merge base of the gate). TOOL_ROOT is where this file lives:
+// the canon copy, the baseline files and the tools themselves always come from there.
+let MIZAMON_ROOT = CLI.root ?? TOOL_ROOT;
+let acceptAnyDataVersion = false; // true only while the baseline run reads the merge base's own data version
+const dataReadOptions = () => ({ checkVersion: !acceptAnyDataVersion });
+const assembleFromDisk = (root = MIZAMON_ROOT, options = dataReadOptions()) => assembleFromRoot(root, options);
+const readSources = (root = MIZAMON_ROOT) => readSourcesOfRoot(root, dataReadOptions());
+const CANON_PATH = join(TOOL_ROOT, 'tests', 'canon-data.json');
+
+acceptAnyDataVersion = CLI.baselineRun;
+let html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : (CLI.refreshCanon ? '' : assembleFromDisk());
+acceptAnyDataVersion = false;
 
 export function loadRules(source = html) {
   // The markers are whole lines (13.2), each once: a text that merely mentions a marker is not one.
@@ -37,7 +96,11 @@ export function loadRules(source = html) {
   const code = source.slice(begin, end);
   return new vm.Script('(function () {\n' + code + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
 }
-const R = loadRules();
+// What the tests read of the page of the pass they are in (useContext sets them; the tests only read them).
+let R;
+let enginePart;
+let W;
+let routeIds;
 
 // ---- Source scans (MZ-DEV-02b, reference 13.12) ----
 // A test that searches the page text (matchAll, match, includes, indexOf, search, split, slice, RegExp.test) must find at least
@@ -45,13 +108,26 @@ const R = loadRules();
 // The recorder wraps the String and RegExp methods while a test runs; scans of the page text and of the engine part are logged.
 // MZ_RECORD_SCANS=<file> writes the log instead of checking it (how the baseline file was made); MZ_FORCE_SCAN_ZERO=<regex> makes
 // every scan whose pattern matches find nothing (how a test proves that a scan forced to match nothing fails).
-const SCAN_BASELINE_PATH = join(MIZAMON_ROOT, 'tests', 'baseline', 'source-scans.json');
+const SCAN_BASELINE_PATH = join(TOOL_ROOT, 'tests', 'baseline', 'source-scans.json');
 const scanSubjects = []; // [{ name, text }]
 const scanLog = [];
 let scanTestName = null;
 const forcedZeroPattern = process.env.MZ_FORCE_SCAN_ZERO ? new RegExp(process.env.MZ_FORCE_SCAN_ZERO, 'u') : null;
-export function registerScanSubject(name, text) { scanSubjects.push({ name, text }); }
-registerScanSubject('page', html);
+export function registerScanSubject(name, text) {
+  const known = scanSubjects.find((subject) => subject.name === name);
+  if (known) known.text = text; // the page of the next pass replaces the page of the last one
+  else scanSubjects.push({ name, text });
+}
+// Makes a page the one the tests read: the rules loaded out of it, its engine part, the world of its rules.
+function useContext(page) {
+  html = page;
+  R = loadRules(page);
+  enginePart = page.slice(page.indexOf('// ENGINE: everything below'));
+  W = R.WORLD;
+  routeIds = Object.keys(W.routes);
+  registerScanSubject('page', page);
+  registerScanSubject('engine', enginePart);
+}
 function scanSubjectName(text) {
   if (scanTestName === null || typeof text !== 'string') return null;
   for (const subject of scanSubjects) if (text.length === subject.text.length && text === subject.text) return subject.name;
@@ -117,6 +193,7 @@ function installScanRecorder() {
   };
 }
 installScanRecorder();
+if (!CLI.refreshCanon) useContext(html);
 export function scanKey(scan, ordinal) { return [scan.test, scan.kind, scan.pattern, ordinal].join('\u0000'); }
 // Numbers every scan of a test among the scans with the same kind and pattern: [{ ...scan, ordinal }]
 export function numberScans(scans) {
@@ -154,8 +231,30 @@ function loadScanBaseline() {
   return scanBaseline;
 }
 
+// ---- The tests and their tiers ----
+// test(name, { tier, fixtures, hard }, fn). tier: 'engine' | 'integrity' | 'content'. An engine test declares the content ids it uses
+// as fixtures ('species:komma', 'move:psifodeltio' ...): the current-data pass skips it when one of them is gone (the Owner may have
+// renamed or deleted it); the canon pass always runs it. hard: a content test whose failure fails even the lenient run.
+// A test may throw a FindingsError, or return { findings } (a list of findings of shared/validate.mjs: the findings of an integrity or a
+// content test carry kind, id and field, so that --baseline can tell a new one from a known one).
+const TIERS = ['engine', 'integrity', 'content'];
+const FIXTURE_KINDS = { species: 'species', move: 'moves', item: 'items', trainer: 'trainers', map: 'maps', ability: 'abilities', status: 'statuses', type: 'types', district: 'districts', shop: 'shops', event: 'events', sound: 'sounds', music: 'music', tile: 'tiles' };
+const FIXTURE_ID = /^([a-z]+):([A-Za-z0-9_]+)$/;
+export class FindingsError extends Error {
+  constructor(message, findings) {
+    super(message);
+    this.findings = findings;
+  }
+}
 const tests = [];
-const test = (name, fn) => tests.push({ name, fn });
+const test = (name, options, fn) => {
+  assert.ok(options && TIERS.includes(options.tier), `the test "${name}" has no tier (engine, integrity or content)`);
+  const fixtures = options.fixtures ?? [];
+  assert.ok(options.tier !== 'engine' || Array.isArray(options.fixtures), `the engine test "${name}" does not declare its fixtures (fixtures: [] when it uses no content id)`);
+  assert.ok(options.tier === 'engine' || fixtures.length === 0, `only an engine test declares fixtures: "${name}"`);
+  for (const id of fixtures) assert.ok(FIXTURE_ID.test(id) && Object.hasOwn(FIXTURE_KINDS, FIXTURE_ID.exec(id)[1]), `the test "${name}" declares the fixture "${id}", which is not kind:id of a content kind`);
+  tests.push({ name, tier: options.tier, fixtures, hard: options.hard === true, fn });
+};
 // The rules live in another vm realm, so compare structures through JSON.
 const same = (a, b, message) => assert.equal(JSON.stringify(a), JSON.stringify(b), message);
 
@@ -184,7 +283,7 @@ const sameJson = (actual, expected, label) => assert.equal(firstDifference(actua
 // The NPC of a trainer on the maps (the rival who leaves has a hideFlag in the map data, so the tests ask the real NPC).
 const npcOfTrainer = (trainerId) => Object.values(R.MAPS).flatMap((map) => map.npcs).find((npc) => npc.trainer === trainerId);
 const sortedEntries = (table) => Object.entries(table).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-const BASELINE_FOLDER = join(MIZAMON_ROOT, 'tests', 'baseline');
+const BASELINE_FOLDER = join(TOOL_ROOT, 'tests', 'baseline');
 const readBaselineFile = (name) => JSON.parse(readFileSync(join(BASELINE_FOLDER, name), 'utf8'));
 // Every text key a step list of an event names (a `say` step, also inside the branches of a `battle`).
 function eventStringKeys(steps) {
@@ -221,7 +320,7 @@ const SEED_ROWS = [
   ['Μιμίδια', ['Πολιτικοί', 'Εκκλησία'], ['Ασφαλίτες', 'Επιχειρηματίες']],
 ];
 
-test('type chart equals the seed table (x2, x0.5, same type x0.5, everything else x1)', () => {
+test('type chart equals the seed table (x2, x0.5, same type x0.5, everything else x1)', { tier: 'content' }, () => {
   assert.equal(R.TYPE_IDS.length, 7);
   for (const [attacker, strong, weak] of SEED_ROWS) {
     const a = SEED_NAMES[attacker];
@@ -236,7 +335,7 @@ test('type chart equals the seed table (x2, x0.5, same type x0.5, everything els
     }
   }
 });
-test('chart sanity: no pair is both x2 and x0.5, every type has 2 strengths and 2 resistances, strong implies the defender resists it back less', () => {
+test('chart sanity: no pair is both x2 and x0.5, every type has 2 strengths and 2 resistances, strong implies the defender resists it back less', { tier: 'content' }, () => {
   for (const a of R.TYPE_IDS) {
     const row = R.TYPE_IDS.map((d) => R.TYPE_CHART[a][d]);
     assert.equal(row.filter((m) => m === 2).length, 2, a + ' strengths');
@@ -244,7 +343,7 @@ test('chart sanity: no pair is both x2 and x0.5, every type has 2 strengths and 
     for (const d of R.TYPE_IDS) if (R.typeMultiplier(a, d) === 2) assert.notEqual(R.typeMultiplier(d, a), 2, a + '/' + d + ' both super effective');
   }
 });
-test('damage numbers for fixed inputs', () => {
+test('damage numbers for fixed inputs', { tier: 'engine', fixtures: ['move:giagia', 'move:psifodeltio', 'species:dimosio', 'species:fakelakis', 'species:komma', 'species:trolosavros'] }, () => {
   const komma = R.makeMon('komma', 10);
   const fakelakis = R.makeMon('fakelakis', 10);
   assert.equal(R.statOf(komma, 'rat'), 27);
@@ -264,7 +363,7 @@ test('damage numbers for fixed inputs', () => {
   assert.equal(R.xpReward(R.makeMon('fakelakis', 5), false), 50);
   assert.equal(R.xpReward(R.makeMon('fakelakis', 5), true), 75);
 });
-test('abilities change damage: Παλιά Δόξα below half HP, Ντεσιμπέλ on rhetoric, Κουμπαριά with a fallen ally', () => {
+test('abilities change damage: Παλιά Δόξα below half HP, Ντεσιμπέλ on rhetoric, Κουμπαριά with a fallen ally', { tier: 'engine', fixtures: ['move:fonipanel', 'move:giagia', 'move:souxe', 'species:giagiaka', 'species:komma', 'species:laikatzis', 'species:spyradonis'] }, () => {
   const foe = R.makeMon('komma', 10);
   const singer = R.makeMon('laikatzis', 10);
   const full = R.computeDamage(singer, foe, R.MOVES.souxe, { roll: 1 }).damage;
@@ -285,7 +384,7 @@ function newBattle(playerMon, foeMon, seed, options) {
 }
 const keysOf = (events) => events.filter((e) => e.k === 'msg').map((e) => e.key);
 
-test('statuses: Υπό Έρευνα -25% attack and ends after 5 turns; Σκάνδαλο -1/8 HP per turn; Απεργία about half; Λαδωμένος about 30%', () => {
+test('statuses: Υπό Έρευνα -25% attack and ends after 5 turns; Σκάνδαλο -1/8 HP per turn; Απεργία about half; Λαδωμένος about 30%', { tier: 'engine', fixtures: ['move:exetastiki', 'move:promise', 'species:eforaki', 'species:komma', 'status:bri', 'status:inv', 'status:sca', 'status:str'] }, () => {
   const sick = R.makeMon('komma', 10);
   const base = R.effectiveStat(sick, 'rat');
   sick.status = { id: 'inv', turns: 5 };
@@ -338,7 +437,7 @@ function countOnFoe(key, makePlayer, makeFoe, action, seeds = 300) {
   }
   return count;
 }
-test('abilities: Ασυλία blocks Υπό Έρευνα and Σκάνδαλο, Συνδικαλιστής blocks strikes, each against a control', () => {
+test('abilities: Ασυλία blocks Υπό Έρευνα and Σκάνδαλο, Συνδικαλιστής blocks strikes, each against a control', { tier: 'engine', fixtures: ['move:aforismos', 'move:ellada', 'move:exetastiki', 'species:eforaki', 'species:komma', 'species:koulourak', 'species:psaltak', 'species:trolosavros', 'status:inv'] }, () => {
   // Ασυλία against Υπό Έρευνα
   const b = newBattle(R.makeMon('komma', 10), R.makeMon('komma', 10), 11);
   const events = R.playTurn(b, { t: 'move', id: 'exetastiki' });
@@ -356,7 +455,7 @@ test('abilities: Ασυλία blocks Υπό Έρευνα and Σκάνδαλο, �
   assert.equal(strike('koulourak'), 0, 'Συνδικαλιστής refuses every Απεργία');
   assert.ok(strike('komma') > 40, 'the control creature goes on strike');
 });
-test('abilities: Ούτε Γάτα Ούτε Ζημιά survives one knock-out hit, Γραφειοκρατία starts a status one turn late', () => {
+test('abilities: Ούτε Γάτα Ούτε Ζημιά survives one knock-out hit, Γραφειοκρατία starts a status one turn late', { tier: 'engine', fixtures: ['move:exetastiki', 'move:promise', 'move:psifodeltio', 'species:dimosio', 'species:komma', 'species:trolosavros', 'status:inv'] }, () => {
   const b2 = newBattle(R.makeMon('komma', 40), R.makeMon('trolosavros', 3), 2);
   const events2 = R.playTurn(b2, { t: 'move', id: 'psifodeltio' });
   assert.ok(keysOf(events2).includes('b.survive') && b2.sides[1].party[0].hp === 1, 'survives with 1 HP');
@@ -367,7 +466,7 @@ test('abilities: Ούτε Γάτα Ούτε Ζημιά survives one knock-out hi
   R.playTurn(b3, { t: 'move', id: 'promise' });
   assert.equal(b3.sides[1].party[0].status && b3.sides[1].party[0].status.id, 'inv', 'the investigation starts after turn 2');
 });
-test('Βύσμα (20 % against a higher level only), Επιτελικό Κράτος priority', () => {
+test('Βύσμα (20 % against a higher level only), Επιτελικό Κράτος priority', { tier: 'engine', fixtures: ['move:diaggelma', 'move:psifodeltio', 'species:dimosio', 'species:eforaki', 'species:komma', 'species:mizotakis'] }, () => {
   const ignoredShare = (attackerLevel) => {
     let ignored = 0;
     for (let seed = 1; seed <= 1000; seed++) {
@@ -384,7 +483,7 @@ test('Βύσμα (20 % against a higher level only), Επιτελικό Κράτ
   const used = events.filter((e) => e.k === 'msg' && e.key === 'b.used');
   assert.equal(used[0].v.mon.side, 0, 'the first move of Επιτελικό Κράτος goes first even when slower');
 });
-test('Viral: after a knock-out the next move hits twice, and only that one', () => {
+test('Viral: after a knock-out the next move hits twice, and only that one', { tier: 'engine', fixtures: ['move:hashtag', 'species:fakelakis', 'species:storoula'] }, () => {
   const b = R.createBattle([R.makeMon('storoula', 30)], [R.makeMon('fakelakis', 2), R.makeMon('fakelakis', 50)], R.makeRng(8), { kind: 'trainer', foeName: 'Test', bag: {} });
   const first = R.playTurn(b, { t: 'move', id: 'hashtag' });
   assert.ok(first.some((e) => e.k === 'faint' && e.side === 1), 'the first foe falls');
@@ -397,7 +496,7 @@ test('Viral: after a knock-out the next move hits twice, and only that one', () 
   const third = R.playTurn(b, { t: 'move', id: 'hashtag' });
   assert.ok(!keysOf(third).includes('b.viral') && msgs(third, 'b.hits').length === 0, 'only one move is doubled');
 });
-test('Ρουσφέτι: a leaving Φακελάκης heals the next ally 1/8 of its max HP; other creatures do not', () => {
+test('Ρουσφέτι: a leaving Φακελάκης heals the next ally 1/8 of its max HP; other creatures do not', { tier: 'engine', fixtures: ['species:eforaki', 'species:fakelakis', 'species:komma', 'species:koulourak'] }, () => {
   const healedBy = (leaderId) => {
     const ally = R.makeMon('komma', 10);
     ally.hp = 10;
@@ -409,7 +508,7 @@ test('Ρουσφέτι: a leaving Φακελάκης heals the next ally 1/8 of 
   assert.equal(healedBy('fakelakis'), Math.floor(R.maxHp(R.makeMon('komma', 10)) / 8));
   assert.equal(healedBy('koulourak'), 0);
 });
-test('Σκάνδαλο ends when the creature is switched out; Υπό Έρευνα stays', () => {
+test('Σκάνδαλο ends when the creature is switched out; Υπό Έρευνα stays', { tier: 'engine', fixtures: ['species:eforaki', 'species:komma', 'species:koulourak', 'status:inv', 'status:sca'] }, () => {
   const afterSwitch = (statusId) => {
     const sick = R.makeMon('koulourak', 10);
     const b = R.createBattle([sick, R.makeMon('komma', 10)], [R.makeMon('eforaki', 5)], R.makeRng(4), { kind: 'trainer', foeName: 'Test', bag: {} });
@@ -420,7 +519,7 @@ test('Σκάνδαλο ends when the creature is switched out; Υπό Έρευν
   assert.equal(afterSwitch('sca'), null);
   assert.equal(afterSwitch('inv').id, 'inv');
 });
-test('Κουμπαριά in a battle: a fallen ally of the same type adds damage', () => {
+test('Κουμπαριά in a battle: a fallen ally of the same type adds damage', { tier: 'engine', fixtures: ['move:giagia', 'species:giagiaka', 'species:komma'] }, () => {
   const damageDealt = (allyFell) => {
     const b = newBattle(R.makeMon('giagiaka', 10), R.makeMon('komma', 30), 9);
     if (allyFell) b.sides[0].fallen.mem = 1;
@@ -429,17 +528,20 @@ test('Κουμπαριά in a battle: a fallen ally of the same type adds damage
   };
   assert.ok(damageDealt(true) > damageDealt(false));
 });
-test('every status of the MVP can be inflicted by a move some creature learns; Offshore Μεταφορά bribes about 25 %', () => {
+test('every status of the MVP can be inflicted by a move some creature learns; Offshore Μεταφορά bribes about 25 %', { tier: 'integrity' }, () => {
   const learnable = new Set();
   for (const species of Object.values(R.SPECIES)) for (const [, moveId] of species.learn) learnable.add(moveId);
   for (const statusId of Object.keys(R.STATUSES)) {
     const sources = [...learnable].filter((id) => (R.MOVES[id].foeSt && R.MOVES[id].foeSt[0] === statusId) || R.MOVES[id].bothSt === statusId);
     assert.ok(sources.length > 0, 'nothing inflicts ' + statusId);
   }
+});
+// The number half of the test above (its name keeps the old wording): Offshore Μεταφορά's chance is content the Owner may rebalance.
+test('Offshore Μεταφορά bribes about 25 % (the number of the move, content tier)', { tier: 'content' }, () => {
   const bribed = countOnFoe('b.st.bri', () => R.makeMon('fakelakis', 40), () => R.makeMon('komma', 20), { t: 'move', id: 'offshore' }, 400) / 400;
   assert.ok(bribed > 0.15 && bribed < 0.35, 'bribe share ' + bribed);
 });
-test('recruit odds: monotonic in HP, status and tier; bounded; zero when impossible', () => {
+test('recruit odds: monotonic in HP, status and tier; bounded; zero when impossible', { tier: 'engine', fixtures: ['item:fakelaki', 'item:fakelos', 'item:koulouri', 'species:fakelakis', 'species:komma', 'species:mizotakis', 'status:bri', 'status:inv'] }, () => {
   const foe = R.makeMon('fakelakis', 5);
   const odds = (hpFraction, status, item) => {
     const f = R.makeMon('fakelakis', 5);
@@ -461,7 +563,7 @@ test('recruit odds: monotonic in HP, status and tier; bounded; zero when impossi
   assert.equal(R.recruitChance(foe, 'koulouri'), 0);
   assert.ok(R.recruitChance(R.makeMon('fakelakis', 3), 'fakelaki') > R.recruitChance(R.makeMon('fakelakis', 30), 'fakelaki'), 'higher level is harder');
 });
-test('recruit in a battle: success adds the creature, the item is spent, trainers refuse, the parody only takes a Φάκελος', () => {
+test('recruit in a battle: success adds the creature, the item is spent, trainers refuse, the parody only takes a Φάκελος', { tier: 'engine', fixtures: ['item:fakelaki', 'item:fakelos', 'species:fakelakis', 'species:komma', 'trainer:host'] }, () => {
   let recruited = false;
   for (let seed = 1; seed <= 40 && !recruited; seed++) {
     const foe = R.makeMon('fakelakis', 3);
@@ -481,7 +583,7 @@ test('recruit in a battle: success adds the creature, the item is spent, trainer
   assert.ok(keysOf(R.playTurn(host, { t: 'recruit', id: 'fakelaki' })).includes('b.rec.small'));
   assert.equal(host.bag.fakelaki, 2);
 });
-test('level up, stat growth, XP curve and move learning with a full move list', () => {
+test('level up, stat growth, XP curve and move learning with a full move list', { tier: 'engine', fixtures: ['move:thios', 'move:tropologia', 'species:fakelakis', 'species:fakelarchis', 'species:komma'] }, () => {
   for (let level = 1; level < R.MAX_LEVEL; level++) assert.ok(R.xpForLevel(level + 1) > R.xpForLevel(level));
   assert.equal(R.levelFromXp(R.xpForLevel(12)), 12);
   assert.equal(R.levelFromXp(R.xpForLevel(12) - 1), 11);
@@ -512,7 +614,7 @@ test('level up, stat growth, XP curve and move learning with a full move list', 
   assert.equal(little.sp, 'fakelarchis');
 });
 // ---- Moves kept when more than four are known ----
-test('a creature keeps its basic attack and its newest three moves when it knows more than four', () => {
+test('a creature keeps its basic attack and its newest three moves when it knows more than four', { tier: 'engine', fixtures: ['item:frapes', 'move:exetastiki', 'move:frapes', 'move:lobbying', 'move:offshore', 'move:psifodeltio', 'move:thios', 'move:tropologia', 'move:yperkostol', 'species:fakelarchis', 'species:komma', 'trainer:kotsos'] }, () => {
   for (const [id, species] of Object.entries(R.SPECIES)) {
     for (let level = 1; level <= 50; level++) {
       const known = [];
@@ -531,7 +633,7 @@ test('a creature keeps its basic attack and its newest three moves when it knows
   assert.ok(R.buildTrainerTeam('kotsos', 'komma')[2].moves.includes('offshore'), 'the boss Φακελάρχης still has Offshore Μεταφορά');
 });
 
-test('AI picks a super effective move most of the time and uses its item at most once', () => {
+test('AI picks a super effective move most of the time and uses its item at most once', { tier: 'engine', fixtures: ['item:souvlaki', 'species:eforaki', 'species:komma', 'species:koulourak', 'species:trolosavros', 'type:mem'] }, () => {
   let superEffective = 0;
   for (let seed = 1; seed <= 200; seed++) {
     const attacker = R.makeMon('koulourak', 10); // Χημικά and Γκλομπ are asf; the foe is a meme
@@ -547,7 +649,7 @@ test('AI picks a super effective move most of the time and uses its item at most
   assert.equal(used, 1);
 });
 
-test('AI: a setup move stops at +2, a skip move is not repeated, the random pick never takes a pointless move', () => {
+test('AI: a setup move stops at +2, a skip move is not repeated, the random pick never takes a pointless move', { tier: 'engine', fixtures: ['move:diaggelma', 'move:psifiako', 'move:technokratis', 'species:dimosio', 'species:eforaki', 'species:fakelakis', 'species:frapedoros', 'species:giagiaka', 'species:komma', 'species:koulourak', 'species:laikatzis', 'species:mizotakis', 'species:psaltak', 'species:storoula', 'species:trolosavros'] }, () => {
   const b = R.createBattle([R.makeMon('komma', 12)], [R.makeMon('mizotakis', 12)], R.makeRng(2), { kind: 'trainer', foeName: 'AI', bag: {} });
   const boss = b.sides[1].party[0];
   const score = (moveId) => R.scoreMove(b, 1, moveId);
@@ -572,7 +674,7 @@ test('AI: a setup move stops at +2, a skip move is not repeated, the random pick
   }
   assert.ok(highest <= 2, 'highest Ρητορική Άμυνα stage ' + highest);
 });
-test('no battle of a seeded 1,000-battle sample reaches the turn limit, and a stalemate still ends in overtime', () => {
+test('no battle of a seeded 1,000-battle sample reaches the turn limit, and a stalemate still ends in overtime', { tier: 'engine', fixtures: ['species:mizotakis'] }, () => {
   const rng = R.makeRng(2024);
   let longest = 0;
   for (let i = 0; i < 1000; i++) {
@@ -610,7 +712,7 @@ function sample(seed, count) {
   }
   return { total, wins, lines };
 }
-test('seeded replay of a 1,000-battle sample gives equal checksums twice (and a different seed differs)', () => {
+test('seeded replay of a 1,000-battle sample gives equal checksums twice (and a different seed differs)', { tier: 'engine', fixtures: [] }, () => {
   const a = sample(2024, 1000);
   const b = sample(2024, 1000);
   assert.equal(a.total, b.total);
@@ -635,10 +737,10 @@ export function rulesCodeText(page) {
   return code.join('\n');
 }
 const FORBIDDEN_RULES_CALLS = /Math\.random|Date\.now|new Date|performance\.now/;
-test('the rules never call Math.random or Date', () => {
+test('the rules never call Math.random or Date', { tier: 'engine', fixtures: [] }, () => {
   assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(html)));
 });
-test('encounters are seeded and happen at about the set rate on grass only', () => {
+test('encounters are seeded and happen at about the set rate on grass only', { tier: 'engine', fixtures: ['map:route1'] }, () => {
   const route = R.MAPS.route1;
   const run = (seed) => {
     const rng = R.makeRng(seed);
@@ -653,7 +755,7 @@ test('encounters are seeded and happen at about the set rate on grass only', () 
   assert.equal(R.rollEncounter(R.makeRng(1), route, 7, 9), null, 'no encounter on the road');
   for (const encounter of first.filter(Boolean)) assert.ok(encounter.lv >= 2 && encounter.lv <= 4 && R.SPECIES[encounter.sp]);
 });
-test('event texts render in both languages for every event of the sample battles', () => {
+test('event texts render in both languages for every event of the sample battles', { tier: 'engine', fixtures: [] }, () => {
   const rng = R.makeRng(77);
   const messages = [];
   for (let i = 0; i < 60; i++) {
@@ -673,7 +775,7 @@ test('event texts render in both languages for every event of the sample battles
 });
 
 // ---- World ----
-test('map reachability: start to the boss door, the boss, and every NPC tile', () => {
+test('map reachability: start to the boss door, the boss, and every NPC tile', { tier: 'integrity' }, () => {
   const start = R.START_MAP;
   const open = R.reachableTiles(start.map, start.x, start.y, {});
   const bossWarp = R.MAPS.route1.warps.find((w) => w.to === 'port');
@@ -699,7 +801,7 @@ test('map reachability: start to the boss door, the boss, and every NPC tile', (
     for (const row of map.rows) for (const char of row) assert.ok(R.TILE_DEFS[char], 'unknown tile ' + char);
   }
 });
-test('every data reference is valid (moves, types, abilities, items, trainers, maps)', () => {
+test('every data reference is valid (moves, types, abilities, items, trainers, maps)', { tier: 'integrity' }, () => {
   const abilityHolders = new Set();
   for (const [id, move] of Object.entries(R.MOVES)) {
     assert.ok(R.TYPE_IDS.includes(move.t), id + ' type');
@@ -755,7 +857,7 @@ test('every data reference is valid (moves, types, abilities, items, trainers, m
 });
 
 // ---- Strings ----
-test('strings: every key has Greek and English, same {placeholders}, gender wording only where it makes sense', () => {
+test('strings: every key has Greek and English, same {placeholders}, gender wording only where it makes sense', { tier: 'content' }, () => {
   const placeholders = (text) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
   const keys = Object.keys(R.STRINGS);
   assert.ok(keys.length > 250);
@@ -775,7 +877,7 @@ test('strings: every key has Greek and English, same {placeholders}, gender word
 });
 const CODE_AND_EVENT_KEYS_FLOOR = 161; // 157 keys of the code and 4 of the rival1 event; the baseline had 157 + 1 (sayAll, now 0)
 const CONTENT_KEYS_FLOOR = 599; // 328 keys the data refers to and 271 defined texts; the baseline scan found 605 (it read the quoted keys of the whole page: also the 4 npc.prof keys of 09-overworld.js, counted in the code floor, the 1 key of 90-selftest.js, and sign.roadworks, which the old code typed and then deleted from kastella)
-test('strings: every key the code asks for exists, including the keys built from data', () => {
+test('strings: every key the code asks for exists, including the keys built from data', { tier: 'integrity' }, () => {
   const S = R.STRINGS;
   const need = (key) => assert.ok(S[key], 'missing string ' + key);
   const used = new Set();
@@ -817,20 +919,17 @@ test('strings: every key the code asks for exists, including the keys built from
   for (const id of Object.keys(R.TRAINERS)) if (id !== 'rival1') for (const part of ['intro', 'win', 'after']) need('tr.' + id + '.' + part);
 });
 
-test('strings: no battle text copies another monster game, and no masculine-only form is addressed to the player', () => {
-  const copied = [/what will .* do/i, /\bused \{move\}/i, /^go,/i, /come back/i, /^a critical hit/i, /super effective/i, /not very effective/i, /blacked out/i,
-    /is evolving/i, /wants to learn/i, /^congratulations! it/i, /sends out/i, /\bmissed!/i, /^hit \{n\} times/i];
-  const copiedGreek = [/χρησιμοποίησε/, /Σούπερ αποτελεσματικό/, /Εύστοχο χτύπημα/, /στέλνει στη μάχη/, /τι κάνει;/, /Επιστρέφει:/, /Λιποθύμησες/, /εξελίσσεται\.\.\./, /Συγχαρητήρια/];
+test('strings: no battle text copies another monster game, and no masculine-only form is addressed to the player', { tier: 'content' }, () => {
+  // The phrase lists live in shared/content-rules.mjs (the validation of 13.6 uses the same ones).
   for (const [key, [greek, english]] of Object.entries(R.STRINGS)) {
-    for (const pattern of copied) assert.ok(!pattern.test(english), key + ' (English) copies a known line: ' + english);
-    for (const pattern of copiedGreek) assert.ok(!pattern.test(greek), key + ' (Greek) copies a known line: ' + greek);
+    for (const pattern of COPIED_ENGLISH_PHRASES) assert.ok(!pattern.test(english), key + ' (English) copies a known line: ' + english);
+    for (const pattern of COPIED_GREEK_PHRASES) assert.ok(!pattern.test(greek), key + ' (Greek) copies a known line: ' + greek);
   }
   for (const kind of ['wild', 'trainer']) assert.ok(!/^(Wild|Foe) /.test(R.monLabel({ sp: 'komma', side: 1 }, 'en', kind)));
   // The player may be a woman: forms that only fit a man must sit inside a {man|woman} choice.
-  const masculineOnly = /(διάσημος|μόνος|έτοιμος|ανιψιέ|φίλε|κύριε|νεαρέ|αγόρι μου|γίνεις προπονητής)/;
   for (const [key, [greek]] of Object.entries(R.STRINGS)) {
     const outsideChoices = greek.replace(/\{[^{}|]*\|[^{}|]*\}/g, '');
-    assert.ok(!masculineOnly.test(outsideChoices), key + ' addresses the player with a masculine-only form: ' + greek);
+    assert.ok(!MASCULINE_ONLY_FORMS.test(outsideChoices), key + ' addresses the player with a masculine-only form: ' + greek);
   }
   assert.equal(R.formatText(R.STRINGS['warp.studio'][0], {}, 'f').includes('διάσημη'), true);
   assert.equal(R.formatText(R.STRINGS['tr.kotsos.intro'][0], {}, 'f').includes('ανιψιά'), true);
@@ -843,7 +942,7 @@ const sampleV1 = () => ({
   dex: { seen: { komma: true, fakelakis: true, storoula: true }, got: { komma: true } }, flags: { rival1: true, t_rival1: true },
   lastHeal: { map: 'kep', x: 4, y: 6, dir: 'up' }, options: { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true }, rngState: 4242, starter: 'komma',
 });
-test('save migration: a version-0 save becomes the current version (3); the current version is stable; bad data is refused', () => {
+test('save migration: a version-0 save becomes the current version (3); the current version is stable; bad data is refused', { tier: 'engine', fixtures: ['item:fakelaki', 'item:souvlaki', 'map:town', 'species:fakelakis', 'species:komma', 'species:psaltak', 'species:storoula'] }, () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 123, team: [{ id: 'psaltak', lv: 6, xp: 130, hp: 20 }, { id: 'nonsense', lv: 3 }], map: 'town', x: 5, y: 8, items: { fakelaki: 3, bogus: 9 }, seen: ['komma'], got: ['psaltak'] };
   const migrated = R.migrateSave(v0);
   assert.equal(migrated.version, 3);
@@ -880,7 +979,7 @@ test('save migration: a version-0 save becomes the current version (3); the curr
   assert.equal(R.SAVE_KEY, 'mizamon.v1.save');
   assert.equal(R.SAVE_VERSION, 3);
 });
-test('save migration: a version-0 save gets its story flags back (starter chosen, rival met)', () => {
+test('save migration: a version-0 save gets its story flags back (starter chosen, rival met)', { tier: 'engine', fixtures: ['map:lab', 'map:town', 'species:komma', 'trainer:rival1'] }, () => {
   const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 10, team: [{ id: 'komma', lv: 5, xp: 75, hp: 20 }], map: 'town', x: 5, y: 8 };
   const outside = R.migrateSave(v0);
   assert.equal(outside.flags.gotStarter, true);
@@ -897,7 +996,7 @@ test('save migration: a version-0 save gets its story flags back (starter chosen
 // ---- Hospital (MZ-HOSP-01) ----
 const monsOf = (species, level, count) => Array.from({ length: count }, () => R.makeMon(species, level));
 const HOSPITAL_SPOT = { map: 'hospital', x: 5, y: 7, dir: 'up' };
-test('archive: deposit and withdraw keep the creature as it is; the last creature able to fight never leaves; the archive holds 60', () => {
+test('archive: deposit and withdraw keep the creature as it is; the last creature able to fight never leaves; the archive holds 60', { tier: 'engine', fixtures: ['species:fakelakis', 'species:komma'] }, () => {
   const party = [R.makeMon('komma', 8), R.makeMon('fakelakis', 4)];
   const archive = [];
   assert.equal(R.ARCHIVE_MAX, 60);
@@ -930,7 +1029,7 @@ test('archive: deposit and withdraw keep the creature as it is; the last creatur
   assert.equal(R.depositMon(two, monsOf('komma', 3, 60), 0), false);
   assert.equal(R.canDeposit(two, monsOf('komma', 3, 59), 0), true, 'one free slot is enough');
 });
-test('archive: a recruit with a full team goes to the archive; a full archive (or none) still refuses', () => {
+test('archive: a recruit with a full team goes to the archive; a full archive (or none) still refuses', { tier: 'engine', fixtures: ['item:fakelaki', 'species:fakelakis', 'species:komma'] }, () => {
   let archived = false;
   for (let seed = 1; seed <= 60 && !archived; seed++) {
     const foe = R.makeMon('fakelakis', 3);
@@ -963,7 +1062,7 @@ test('archive: a recruit with a full team goes to the archive; a full archive (o
   const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
   assert.ok(run.includes('archive: G.archive'), 'the game gives the battle its archive');
 });
-test('save v2: the archive is saved; version 1 gets an empty archive and its ΚΕΠ heal spot becomes the hospital; version 0 goes through version 1', () => {
+test('save v2: the archive is saved; version 1 gets an empty archive and its ΚΕΠ heal spot becomes the hospital; version 0 goes through version 1', { tier: 'engine', fixtures: ['item:fakelaki', 'item:souvlaki', 'map:hospital', 'map:town', 'species:fakelakis', 'species:komma', 'species:laikatzis', 'species:storoula'] }, () => {
   const fromV1 = R.migrateSave(sampleV1());
   assert.equal(fromV1.version, 3);
   same(fromV1.archive, []);
@@ -993,7 +1092,7 @@ test('save v2: the archive is saved; version 1 gets an empty archive and its Κ�
   const state = html.slice(html.indexOf('function newGameState'), html.indexOf('// ---- Canvas and scaling'));
   assert.ok(state.includes('archive: []') && state.includes('archive: G.archive.map(serializeMon)') && state.includes('archive: save.archive.map(restoreMon)'), 'new game, save and load all carry the archive');
 });
-test('hospital heal: the whole team gets full HP and no status; the VIP service spends one Φακελάκι only when asked and owned', () => {
+test('hospital heal: the whole team gets full HP and no status; the VIP service spends one Φακελάκι only when asked and owned', { tier: 'engine', fixtures: ['species:komma', 'status:sca', 'status:str'] }, () => {
   const sick = () => {
     const team = monsOf('komma', 8, 3);
     team[0].hp = 1; team[0].status = { id: 'sca', turns: 0 };
@@ -1018,7 +1117,7 @@ test('hospital heal: the whole team gets full HP and no status; the VIP service 
   assert.equal(R.hospitalHeal(none, {}, true), false);
   check(none);
 });
-test('the black-out spot is the hospital; the ΚΕΠ no longer heals; the engine heals and sends the player there', () => {
+test('the black-out spot is the hospital; the ΚΕΠ no longer heals; the engine heals and sends the player there', { tier: 'content' }, () => {
   same(R.HOSPITAL_SPOT, HOSPITAL_SPOT);
   same(R.DEFAULT_HEAL_SPOT, HOSPITAL_SPOT);
   assert.ok(!R.tileDef(R.MAPS.hospital, HOSPITAL_SPOT.x, HOSPITAL_SPOT.y).solid, 'the spot is a floor tile');
@@ -1041,7 +1140,7 @@ test('the black-out spot is the hospital; the ΚΕΠ no longer heals; the engine
   assert.ok(!/ΚΕΠ/.test(R.STRINGS['blackout.hospital'][0] + R.STRINGS['blackout.text'][0]), 'no black-out text names the ΚΕΠ any more');
   assert.equal(R.STRINGS['blackout.kep'], undefined, 'the old ΚΕΠ black-out line is gone');
 });
-test('hospital map: counter reach, terminal, furniture, four waiting people, the town stays connected', () => {
+test('hospital map: counter reach, terminal, furniture, four waiting people, the town stays connected', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const all = R.reachableTiles(start.map, start.x, start.y, { credits: true });
   const hospital = R.MAPS.hospital;
@@ -1075,7 +1174,7 @@ test('hospital map: counter reach, terminal, furniture, four waiting people, the
   const door = town.warps.find((warp) => warp.to === 'hospital');
   assert.ok(R.tileAt(town, door.x, door.y) === 'E' && hospital.warps.every((warp) => warp.to === 'town' && warp.tx === door.x && warp.ty === door.y + 1));
 });
-test('hospital strings: every new key has both languages, the code finds them, gender wording is used, and nothing copies another game', () => {
+test('hospital strings: every new key has both languages, the code finds them, gender wording is used, and nothing copies another game', { tier: 'content' }, () => {
   const S = R.STRINGS;
   const hospitalKeys = Object.keys(S).filter((key) => /^(hosp|arch|sign\.hosp|npc\.hosp)\./.test(key) || ['b.rec.archived', 'blackout.hospital', 'kep.comeBack', 'map.hospital', 'sign.hospital'].includes(key));
   assert.ok(hospitalKeys.length >= 30, hospitalKeys.length + ' keys');
@@ -1083,17 +1182,15 @@ test('hospital strings: every new key has both languages, the code finds them, g
   for (const key of hospitalKeys) assert.ok(S[key][0].length > 3 && S[key][1].length > 3 && S[key][0] !== S[key][1], key + ' has two different languages');
   assert.equal(R.formatText(S['hosp.free'][0], {}, 'f').includes('για όποιον έχει υπομονή'), true, 'no gendered adjective: the line reads the same for both');
   assert.equal(R.formatText(S['hosp.free'][0], {}, 'm'), R.formatText(S['hosp.free'][0], {}, 'f'));
-  const copiedEnglish = /nurse|joy\b|pok[eé]|red cross|we hope to see you again|restored to full|welcome to our|we heal your/i;
-  const copiedGreek = /νοσοκόμα|τζόι|κόκκινος σταυρός|ελπίζουμε να σε ξαναδούμε|θα σε ξαναδούμε|καλώς ήρθες στο κέντρο|θεραπεύουμε/i;
   for (const key of hospitalKeys) {
-    assert.ok(!copiedEnglish.test(S[key][1]), key + ' (English) copies a known line: ' + S[key][1]);
-    assert.ok(!copiedGreek.test(S[key][0]), key + ' (Greek) copies a known line: ' + S[key][0]);
+    assert.ok(!HOSPITAL_COPIED_ENGLISH.test(S[key][1]), key + ' (English) copies a known line: ' + S[key][1]);
+    assert.ok(!HOSPITAL_COPIED_GREEK.test(S[key][0]), key + ' (Greek) copies a known line: ' + S[key][0]);
   }
   assert.ok(/3 έως 5/.test(S['hosp.hello'][0]) && /3 to 5/.test(S['hosp.hello'][1]), 'the "3 to 5 years" joke');
   assert.ok(/Φακελάκι/.test(S['hosp.vipAsk'][0]), 'the VIP offer names the item');
-  assert.ok(!/(^|\s)(ασθενής|ασθενείς|αρρώστ|πάσχ|καρκίν|θάνατ)/i.test(hospitalKeys.map((key) => S[key][0]).join(' ')), 'the jokes are about the system, never about patients or illness');
+  assert.ok(!HOSPITAL_PATIENT_WORDS.test(hospitalKeys.map((key) => S[key][0]).join(' ')), 'the jokes are about the system, never about patients or illness');
 });
-test('hospital look: green cross and blue Η, teal roof and mint walls, no red cross, no red roof with white walls, no nurse', () => {
+test('hospital look: green cross and blue Η, teal roof and mint walls, no red cross, no red roof with white walls, no nurse', { tier: 'content' }, () => {
   const builder = html.slice(html.indexOf('const HOSPITAL_GREEN'), html.indexOf('function buildTileSprites'));
   assert.ok(builder.includes("make('P'") && builder.includes('HOSPITAL_GREEN'), 'the cross is green');
   assert.ok(builder.includes("make('H'") && builder.includes("'#2a5fc4'"), 'the Η plate is blue');
@@ -1114,12 +1211,12 @@ test('hospital look: green cross and blue Η, teal roof and mint walls, no red c
   assert.ok(monitor.includes('OPT.reduceMotion') && monitor.includes('Sound.sfx(SOUNDS.hospital)'), 'the monitor respects Reduced motion and plays the blips');
 });
 
-test('options are normalised', () => {
+test('options are normalised', { tier: 'engine', fixtures: [] }, () => {
   same(R.normalizeOptions(null), R.defaultOptions());
   assert.equal(R.normalizeOptions({ lang: 'fr', textSpeed: 9 }).lang, 'el');
   assert.equal(R.normalizeOptions({ lang: 'en' }).lang, 'en');
 });
-test('the Φάκελος prize rule: boss prize and Αφορολόγητο bonus', () => {
+test('the Φάκελος prize rule: boss prize and Αφορολόγητο bonus', { tier: 'engine', fixtures: ['species:fakelarchis', 'species:komma', 'trainer:kotsos'] }, () => {
   const b = R.createBattle([R.makeMon('komma', 10)], R.buildTrainerTeam('kotsos', 'komma'), R.makeRng(1), { kind: 'trainer', trainerId: 'kotsos', foeName: 'K', bag: {} });
   assert.equal(R.prizeFor(b, R.TRAINERS.kotsos), 13 * 30 + 200);
   const rich = R.createBattle([R.makeMon('fakelarchis', 10)], R.buildTrainerTeam('kotsos', 'komma'), R.makeRng(1), { kind: 'trainer', trainerId: 'kotsos', foeName: 'K', bag: {} });
@@ -1128,9 +1225,8 @@ test('the Φάκελος prize rule: boss prize and Αφορολόγητο bonus
 
 
 // ---- World and map screen (MZ-MAP-01) ----
-const W = R.WORLD;
+// (W = R.WORLD and routeIds = its route ids are set with the page of the pass: useContext)
 const isLandChar = (char) => char !== undefined && char !== '~' && char !== '#';
-const routeIds = Object.keys(W.routes);
 const routeNumber = (id) => Number(id.replace('route', ''));
 const pathLength = (path) => path.slice(1).reduce((sum, cell, index) => sum + Math.hypot(cell[0] - path[index][0], cell[1] - path[index][1]), 0);
 // The map sizes of the 12 routes: route 1 is built (the real map), the others are the sizes of the build plan (section 11.7).
@@ -1139,7 +1235,7 @@ const ROUTE_SIZES = {
   route9: [44, 12], route10: [36, 18], route11: [36, 14], route12: [40, 16],
 };
 
-test('WORLD grid: 30 x 15, only known cells, six districts in play order, every label and every hill inside its district', () => {
+test('WORLD grid: 30 x 15, only known cells, six districts in play order, every label and every hill inside its district', { tier: 'content' }, () => {
   assert.equal(W.cols, 30);
   assert.equal(W.rows, 15);
   assert.equal(W.grid.length, 15);
@@ -1163,7 +1259,7 @@ test('WORLD grid: 30 x 15, only known cells, six districts in play order, every 
   same(Object.values(W.districts).filter((district) => district.built).map((district) => district.id), ['peiraias', 'notia', 'anatolika', 'voreia', 'dytika', 'athina'], 'Πειραιάς, Νότια, Ανατολικά, Βόρεια, Δυτικά and Αθήνα are built');
   assert.equal(R.WORLD_BADGE_COUNT, 6);
 });
-test('WORLD places: every node cell is land of its district, only the built district has built places, built places have maps', () => {
+test('WORLD places: every node cell is land of its district, only the built district has built places, built places have maps', { tier: 'content' }, () => {
   assert.equal(Object.keys(W.nodes).length, 14, '12 towns, the harbour office and the Parliament');
   for (const [id, node] of Object.entries(W.nodes)) {
     assert.equal(node.id, id);
@@ -1179,7 +1275,7 @@ test('WORLD places: every node cell is land of its district, only the built dist
   same(Object.keys(W.nodes).filter((id) => W.nodes[id].boss).sort(), ['chaidari', 'glyfada', 'harbourOffice', 'marousi', 'spata', 'syntagma']);
   assert.equal(new Set(Object.values(W.nodes).map((node) => node.cell.join(','))).size, 14, 'no two places share a cell');
 });
-test('WORLD routes: 12 of them, ends are their places, every point of every path is on land, a known progress, chained in play order', () => {
+test('WORLD routes: 12 of them, ends are their places, every point of every path is on land, a known progress, chained in play order', { tier: 'content' }, () => {
   assert.equal(routeIds.length, 12);
   routeIds.forEach((id, index) => {
     const route = W.routes[id];
@@ -1207,7 +1303,7 @@ test('WORLD routes: 12 of them, ends are their places, every point of every path
     if (index > 0) assert.equal(W.nodes[W.routes[own[0]].a].district, byOrder[index - 1].id, district.id + ' is entered from ' + byOrder[index - 1].id + ' (needs its badge ' + byOrder[index - 1].badgeFlag + ')');
   });
 });
-test('WORLD maps: every map of MAPS belongs to exactly one node or route, and mapNode finds it', () => {
+test('WORLD maps: every map of MAPS belongs to exactly one node or route, and mapNode finds it', { tier: 'integrity' }, () => {
   for (const mapId of Object.keys(R.MAPS)) {
     const owners = Object.values(W.nodes).filter((node) => node.maps.includes(mapId)).length + Object.values(W.routes).filter((route) => route.map === mapId).length;
     assert.equal(owners, 1, mapId + ' belongs to ' + owners + ' places');
@@ -1221,7 +1317,7 @@ test('WORLD maps: every map of MAPS belongs to exactly one node or route, and ma
   assert.equal(R.worldIsRoute(R.mapNode('route1')), true);
   assert.equal(R.worldIsRoute(R.mapNode('town')), false);
 });
-test('player marker: for each of the 12 routes the entry tile is within 1/w (1/h) of the first end, the exit tile of the second, the middle between', () => {
+test('player marker: for each of the 12 routes the entry tile is within 1/w (1/h) of the first end, the exit tile of the second, the middle between', { tier: 'content' }, () => {
   for (const id of routeIds) {
     const route = W.routes[id];
     const [width, height] = ROUTE_SIZES[id];
@@ -1268,7 +1364,7 @@ test('player marker: for each of the 12 routes the entry tile is within 1/w (1/h
   same(R.pointAlongPath([[0, 0], [4, 0], [4, 4]], 0.25), [2, 0]);
   same(R.pointAlongPath([[0, 0], [4, 0], [4, 4]], 2), [4, 4], 'clamped at the end');
 });
-test('map states: a district is locked until the previous badge (and while unbuilt), open, cleared; a place is hidden, unknown, seen or visited', () => {
+test('map states: a district is locked until the previous badge (and while unbuilt), open, cleared; a place is hidden, unknown, seen or visited', { tier: 'engine', fixtures: ['map:faliro', 'map:kastella', 'map:lab', 'map:port', 'map:route1', 'species:efoplistakos', 'species:eforaki', 'species:elegktis', 'species:fakelakis', 'species:fakelarchis', 'species:frapedoros', 'species:giagiaexo', 'species:giagiaka', 'species:giotarchis', 'species:influenza', 'species:kafenovios', 'species:kryptomakis', 'species:ktimatomesitis', 'species:laikatzis', 'species:lobbylykaina', 'species:monastiriaki', 'species:monimos', 'species:nftarchis', 'species:rialito', 'species:rousfetolykos', 'species:star90', 'species:storoula', 'species:tavlilordos', 'species:trolosavros'] }, () => {
   const world = R.newWorldState();
   assert.equal(R.districtState(world, 'peiraias'), 'open');
   for (const id of ['notia', 'anatolika', 'voreia', 'dytika', 'athina']) assert.equal(R.districtState(world, id), 'locked', id);
@@ -1319,7 +1415,7 @@ test('map states: a district is locked until the previous badge (and while unbui
   same(R.districtSpecies('dytika').sort(), ['eforaki', 'elegktis', 'fakelarchis', 'giagiaexo', 'giagiaka', 'giotarchis', 'kafenovios', 'ktimatomesitis', 'lobbylykaina', 'monastiriaki', 'monimos', 'rousfetolykos', 'tavlilordos'], 'the nine of Δυτικά (11.3.5) and the four pre-forms that the form rule keeps in the wild (11.15)');
   same(R.districtSpecies('athina').sort(), ['elegktis', 'giagiaexo', 'giotarchis', 'influenza', 'ktimatomesitis', 'lobbylykaina', 'monimos', 'rousfetolykos', 'star90', 'tavlilordos'], 'the ten wild creatures of Αθήνα (11.3.6; the legend of the Rock is not wild)');
 });
-test('save v3: a version-2 save gets its visited places from its flags and its position; the world part round-trips; damaged parts are cleaned', () => {
+test('save v3: a version-2 save gets its visited places from its flags and its position; the world part round-trips; damaged parts are cleaned', { tier: 'engine', fixtures: ['item:fakelaki', 'item:souvlaki', 'map:cafe', 'map:hospital', 'map:kep', 'map:lab', 'map:port', 'map:route1', 'map:shop', 'map:spata', 'map:studio', 'map:town', 'species:fakelakis', 'species:komma', 'species:storoula'] }, () => {
   const v2 = (map, x, y, flags) => Object.assign(sampleV1(), { version: 2, lastHeal: HOSPITAL_SPOT, player: { name: 'ΜΑΡΙΑ', gender: 'f', map, x, y, dir: 'down' }, flags });
   const idsOf = (part) => Object.keys(part).sort();
   // the start of the game: standing in the lab
@@ -1395,7 +1491,7 @@ test('save v3: a version-2 save gets its visited places from its flags and its p
   assert.ok(state.includes('world: newWorldState()') && state.includes('world: JSON.parse(JSON.stringify(G.world))') && state.includes('world: save.world'), 'new game, save and load all carry the world part');
   assert.ok(html.includes('worldVisit(G.world, mapId, G.flags);'), 'entering a map marks its place');
 });
-test('map strings: every place, route and district name has Greek and English; every key the map screen asks for exists', () => {
+test('map strings: every place, route and district name has Greek and English; every key the map screen asks for exists', { tier: 'content' }, () => {
   const S = R.STRINGS;
   const need = (key) => { assert.ok(S[key], 'missing string ' + key); assert.ok(S[key][0] && S[key][1], key + ' needs both languages'); };
   for (const id of Object.keys(W.nodes)) need('world.' + id);
@@ -1413,7 +1509,7 @@ test('map strings: every place, route and district name has Greek and English; e
   assert.equal(S['menu.map'][0], 'Χάρτης');
   for (const id of Object.keys(W.nodes)) assert.ok(!/\{/.test(S['world.' + id][0] + S['world.' + id][1]), id + ' has no placeholders');
 });
-test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικογραφία; the map closes on back, the menu input and its own key', () => {
+test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικογραφία; the map closes on back, the menu input and its own key', { tier: 'engine', fixtures: [] }, () => {
   const keyMap = html.slice(html.indexOf('const KEY_MAP'), html.indexOf('function padButtonOn'));
   assert.ok(keyMap.includes("KeyQ: 'map'"), 'Q opens the map');
   assert.ok(html.includes("const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map']"), 'map is an input name');
@@ -1436,7 +1532,7 @@ test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικ�
 });
 
 // ---- Engine facts the headless tests can still check in the source text ----
-test('a battle that throws counts as neither a win nor a loss ("ran"), and Reduced motion follows the OS by default', () => {
+test('a battle that throws counts as neither a win nor a loss ("ran"), and Reduced motion follows the OS by default', { tier: 'engine', fixtures: [] }, () => {
   const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
   const caught = run.slice(run.indexOf('catch (error)'), run.indexOf('await Fade.start(1, 12)'));
   assert.ok(caught.includes("result = 'ran'") && !caught.includes("'win'") && caught.includes('console.error'), 'the catch block returns ran and logs');
@@ -1464,7 +1560,7 @@ const OLD_MAP_IDS = Object.keys(OLD_WALKABLE);
 const REWORK_FLAGS = { gotStarter: true, rival1: true, badge: true, credits: true };
 const NEW_MAP_IDS = ['route2', 'kastella', 'kastella_hospital', 'kastella_shop', 'kastella_theatre'];
 
-test('XP rule: factor 1 up to level 13 (every built fight pays what it paid), above it x foe level / 13; the studio pays 519 + 750', () => {
+test('XP rule: factor 1 up to level 13 (every built fight pays what it paid), above it x foe level / 13; the studio pays 519 + 750', { tier: 'content' }, () => {
   assert.equal(R.XP_SCALE_FROM, 13);
   const oldFormula = (speciesId, level, trainer) => Math.max(1, Math.floor(R.SPECIES[speciesId].xp * level / R.XP_DIVISOR * (trainer ? R.TRAINER_XP_BONUS : 1)));
   for (const speciesId of Object.keys(R.SPECIES)) {
@@ -1482,7 +1578,7 @@ test('XP rule: factor 1 up to level 13 (every built fight pays what it paid), ab
   // the built trainers and the boss are at level 13 or lower: unchanged
   for (const id of ['rival1', 'phoebe', 'stelios', 'takis', 'rival2', 'kotsos']) for (const entry of R.TRAINERS[id].team) assert.ok(entry.lv <= 13, id);
 });
-test('XP band of Πειραιάς (section 11.4): within W = 15 wild fights, the trainers alone give at most 1.3 times the need', () => {
+test('XP band of Πειραιάς (section 11.4): within W = 15 wild fights, the trainers alone give at most 1.3 times the need', { tier: 'content' }, () => {
   const band = xpBand(R, 'peiraias');
   same(band.trainerIds.slice().sort(), ['rival1', 'phoebe', 'stelios', 'takis', 'rival2', 'fan', 'ferrysailor'].sort(), 'the trainers counted: the five built ones and the two of route 2');
   assert.equal(band.trainerIds.length, 7);
@@ -1495,7 +1591,7 @@ test('XP band of Πειραιάς (section 11.4): within W = 15 wild fights, the
   assert.ok(band.wildFights <= 15, 'wild fights still needed: ' + band.wildFights);
   assert.ok(band.trainerShare <= 1.3 && band.trainerShare < 1, 'trainers give ' + band.trainerShare.toFixed(2) + ' of the need');
 });
-test('the Πειραιάς rework keeps the old ids, flags, positions and every old walkable tile (an old save continues where it stood)', () => {
+test('the Πειραιάς rework keeps the old ids, flags, positions and every old walkable tile (an old save continues where it stood)', { tier: 'content' }, () => {
   assert.equal(R.SAVE_VERSION, 3, 'no new save version: the flags are the old ones');
   for (const id of OLD_MAP_IDS) {
     const map = R.MAPS[id];
@@ -1522,7 +1618,7 @@ test('the Πειραιάς rework keeps the old ids, flags, positions and every 
   assert.equal(R.TRAINERS.kotsos.boss, true);
   assert.equal(R.MAPS.port.npcs.find((npc) => npc.id === 'kotsos').trainer, 'kotsos');
 });
-test('Πειραιάς reachability: the gate is shut without the badge and open with it; route 2, Καστέλλα and its three buildings are reachable and lead back; no dead end', () => {
+test('Πειραιάς reachability: the gate is shut without the badge and open with it; route 2, Καστέλλα and its three buildings are reachable and lead back; no dead end', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const withoutBadge = R.reachableTiles(start.map, start.x, start.y, { gotStarter: true });
   for (const id of NEW_MAP_IDS) assert.ok(![...withoutBadge].some((key) => key.startsWith(id + ':')), id + ' is not reachable without the badge');
@@ -1557,7 +1653,7 @@ test('Πειραιάς reachability: the gate is shut without the badge and open
   assert.ok(R.MAPS.route1.signs['31,9'] && R.MAPS.town.signs['22,15'] && R.MAPS.kastella.signs['6,13'], 'the gate sign and the two ΚΤΕΛ stops');
   assert.ok(all.has('town:22:14') && R.tileDef(R.MAPS.town, 22, 15).solid, 'the ΚΤΕΛ stop of New Piraeus can be read from the pavement');
 });
-test('Πειραιάς data: every new map is on the world map, rows have their width, tiles are known, wild tables hold the district list, trainers match section 11.4', () => {
+test('Πειραιάς data: every new map is on the world map, rows have their width, tiles are known, wild tables hold the district list, trainers match section 11.4', { tier: 'content' }, () => {
   for (const id of NEW_MAP_IDS) {
     const map = R.MAPS[id];
     assert.equal(map.rows.length, map.h, id + ' height');
@@ -1610,7 +1706,7 @@ test('Πειραιάς data: every new map is on the world map, rows have their 
   // every tile character has a drawn sprite (the four new ones included)
   for (const char of Object.keys(R.TILE_DEFS)) if (char !== '~') assert.ok(html.includes("make('" + char + "'"), 'a sprite for tile ' + char);
 });
-test('Πειραιάς trainers: a seeded replay of the two new fights twice gives equal checksums, and the fights are winnable at the intended levels', () => {
+test('Πειραιάς trainers: a seeded replay of the two new fights twice gives equal checksums, and the fights are winnable at the intended levels', { tier: 'content' }, () => {
   const replay = (seed) => {
     const rng = R.makeRng(seed);
     const lines = [];
@@ -1666,7 +1762,7 @@ test('Πειραιάς trainers: a seeded replay of the two new fights twice giv
 });
 // Section 11.3: every boss type of a built district has a species that hits it for x2 and can be had by then (a starter or a wild creature of that
 // district or an earlier one). Written over the districts that are built, so every later district task is checked by it.
-test('type fairness: every type of every built boss is hit for x2 by a starter or a wild creature available by then', () => {
+test('type fairness: every type of every built boss is hit for x2 by a starter or a wild creature available by then', { tier: 'content' }, () => {
   const built = Object.values(W.districts).filter((district) => district.built).sort((a, b) => a.order - b.order);
   assert.ok(built.length >= 1 && built[0].id === 'peiraias');
   const available = new Set(R.STARTERS);
@@ -1694,18 +1790,8 @@ test('type fairness: every type of every built boss is hit for x2 by a starter o
 
 // Section 11.8: no real brand, person or party in any text. A deny-list over every STRINGS entry in both languages, compared without case and
 // without accents. The marked parodies (Μιζοτάκης, Σπυράδωνις, Νέα Δημοκτατορία) must not match.
-const DENIED_WHOLE_WORDS = ['Airbnb', 'Starbucks', 'Coca-Cola', 'Coca Cola', 'Facebook', 'Instagram', 'TikTok', 'Google', 'Amazon',
-  'Netflix', 'Uber', 'Wolt', 'efood', 'Lidl', 'Vodafone', 'Cosmote', 'OPAP', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'ΣΥΡΙΖΑ', 'ΠΑΣΟΚ', 'ΚΚΕ', 'Ελληνική Λύση', 'Χρυσή Αυγή',
-  'Syriza', 'Pasok', 'KKE', 'ND', 'New Democracy', 'Golden Dawn', 'Greek Solution',
-  'Blue Star', 'Minoan', 'Anek', 'Seajets', 'Hellenic Seaways', 'Attica Group', 'ΑΝΕΚ', 'Μινωικές', 'Μπλου Σταρ', 'Σιτζετς'];
-const DENIED_NAME_STEMS = ['McDonald', 'Μητσοτάκ', 'Τσίπρα', 'Ανδρουλάκ', 'Βελόπουλ', 'Κουτσούμπ', 'Γεωργιάδ', 'Mitsotak', 'Tsipras', 'Androulak', 'Velopoul', 'Koutsoumb', 'Georgiad'];
-// common words that are also brands: checked on the raw text, capitalised whole words only
-const DENIED_CAPITALISED_WORDS = /(?<![\p{L}\p{N}])(?:Apple|Meta)(?![\p{L}\p{N}])/u;
-const PARODIES = ['Μιζοτάκης', 'Σπυράδωνις', 'Νέα Δημοκτατορία', 'Mizotakis', 'Spyradonis', 'New Democratorship'];
-const plainText = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-const escapeForRegex = (text) => plainText(text).replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/ /g, '[ -]');
-const DENY_PATTERN = new RegExp('(?<![\\p{L}\\p{N}])(?:(?:' + DENIED_WHOLE_WORDS.map(escapeForRegex).join('|') + ')(?![\\p{L}\\p{N}])|(?:' + DENIED_NAME_STEMS.map(escapeForRegex).join('|') + '))', 'u');
-test('strings: no real brand, person or party in any text of either language (deny-list); the marked parodies are allowed', () => {
+// (The deny lists, PARODIES, plainText and DENY_PATTERN live in shared/content-rules.mjs; the validation of 13.6 uses the same ones.)
+test('strings: no real brand, person or party in any text of either language (deny-list); the marked parodies are allowed', { tier: 'content', hard: true }, () => {
   for (const word of ['Airbnb 3000', "McDonald's", 'McDonald’s', 'Starbucks', 'Coca-Cola', 'efood', 'ΟΠΑΠ', 'ΝΔ', 'Νέα Δημοκρατία', 'Ελληνική Λύση', 'Blue Star', 'Μητσοτάκης', 'του Τσίπρα', 'Ανδρουλάκης', 'Γεωργιάδης', 'Wolt',
     'Syriza', 'New Democracy', 'Μπλου Σταρ'])
     assert.ok(DENY_PATTERN.test(plainText('For rent. ' + word + '. The owner is abroad.')), 'the deny-list catches ' + word);
@@ -1713,29 +1799,17 @@ test('strings: no real brand, person or party in any text of either language (de
   for (const word of ['Metaphor', 'Applesauce', 'a meta joke', 'an apple']) assert.ok(!DENIED_CAPITALISED_WORDS.test(word), word + ' is not a false alarm for Apple or Meta');
   for (const word of PARODIES) assert.ok(!DENY_PATTERN.test(plainText('Ο ' + word + ' είπε: ' + word + '.')), 'the parody ' + word + ' is allowed');
   for (const word of ['ανδρας', 'δημοκρατια', 'Metaphor', 'Applesauce', 'τα κοινα', 'κανδαλο']) assert.ok(!DENY_PATTERN.test(plainText(word)), word + ' is not a false alarm');
-  let searched = 0;
-  const scan = (label, text) => {
-    const found = plainText(text).match(DENY_PATTERN) || text.match(DENIED_CAPITALISED_WORDS);
-    assert.ok(!found, label + ' contains a real brand, person or party (' + (found && found[0]) + '): ' + text);
-    searched++;
-  };
-  for (const [key, texts] of Object.entries(R.STRINGS)) {
-    for (const text of texts.slice(0, 2)) scan(key, text);
-  }
-  assert.equal(searched, Object.keys(R.STRINGS).length * 2, 'both languages of every entry were searched');
-  // names that live outside STRINGS (one Greek text each)
-  let names = 0;
-  for (const [id, species] of Object.entries(R.SPECIES)) { scan('species ' + id, species.n); names++; }
-  for (const [id, trainer] of Object.entries(R.TRAINERS)) { scan('trainer ' + id, trainer.name); names++; }
-  for (const [id, move] of Object.entries(R.MOVES)) { scan('move ' + id, move.n); names++; }
-  assert.equal(names, Object.keys(R.SPECIES).length + Object.keys(R.TRAINERS).length + Object.keys(R.MOVES).length, 'every species, trainer and move name was searched');
+  // Every text of both languages of every strings entry and the names of the species, trainers and moves: the validation rule applies the lists
+  // (a waiver in the entry clears a hit; without one the hit is a finding that fails even the lenient run).
+  // and the parody names only on the parody characters (the rule parody-placement): the two hard rules, which fail even the lenient run
+  return { findings: validateData(readData(MIZAMON_ROOT).data, { rules: Object.keys(VALIDATION_RULES).filter((ruleId) => VALIDATION_RULES[ruleId].hard) }) };
 });
 
 // Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock);
 // Νότια adds the Δικηγόρος (150) and the Γεμιστά της Μάνας (300) to the two kiosks of its towns.
 const DISTRICT_NEW_ITEMS = { peiraias: [], notia: ['dikigoros', 'gemista'], anatolika: [], voreia: ['chontros'], dytika: ['sylvasi'], athina: [] };
 const STOCK_BEFORE_THE_REWORK = ['fakelaki', 'fakelos', 'koulouri', 'souvlaki', 'frapes', 'tsipouro'];
-test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none, Νότια two)', () => {
+test('money budget: the prize money of the district covers the stock of its new items (Πειραιάς has none, Νότια two)', { tier: 'content' }, () => {
   assert.deepEqual(DISTRICT_NEW_ITEMS.peiraias, [], 'Πειραιάς adds no item');
   same(R.SHOP_STOCK, STOCK_BEFORE_THE_REWORK, 'the shop stock is the one before the rework, so no new item exists in Πειραιάς');
   assert.ok(R.MAPS.kastella_shop.npcs.some((npc) => npc.kind === 'shop') && R.MAPS.shop.npcs.some((npc) => npc.kind === 'shop'), 'every kiosk of Πειραιάς sells that one stock');
@@ -1764,7 +1838,7 @@ test('money budget: the prize money of the district covers the stock of its new 
     assert.ok(prizeMoney > 0);
   }
 });
-test('the chapter card replaces the credits roll after Κώτσος: the badge text is the Port Medal, the flag credits is still set, the studio still opens on it', () => {
+test('the chapter card replaces the credits roll after Κώτσος: the badge text is the Port Medal, the flag credits is still set, the studio still opens on it', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.finale = async function'); // the credits roll is the finale's (MZ-WORLD-02g), not the first boss'
   assert.ok(victory.includes('new BadgeLayer(') && victory.includes('new ChapterLayer()') && !victory.includes('new CreditsLayer()'), 'the badge, then the chapter card, no credits roll');
@@ -1783,7 +1857,7 @@ test('the chapter card replaces the credits roll after Κώτσος: the badge t
   assert.ok(R.reachableTiles(start.map, start.x, start.y, { credits: true }).has('studio:4:6'));
   assert.ok(R.districtState(R.newWorldState(), 'peiraias') === 'open');
 });
-test('save v2 and v3 saves load and continue in the reworked Πειραιάς with nothing lost', () => {
+test('save v2 and v3 saves load and continue in the reworked Πειραιάς with nothing lost', { tier: 'content' }, () => {
   const party = [{ sp: 'komma', lv: 14, xp: R.xpForLevel(14), hp: 40 }, { sp: 'fakelakis', lv: 9, xp: R.xpForLevel(9), hp: 20 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'right' }, party, archive: [], money: 777, bag: { fakelaki: 3, souvlaki: 2 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'en', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 4242, starter: 'komma' }, extra || {});
@@ -1832,7 +1906,7 @@ test('save v2 and v3 saves load and continue in the reworked Πειραιάς wi
   }
   assert.equal(R.migrateSave({ version: 4, player: {}, party }), null, 'a newer version is still refused');
 });
-test('the new maps are painted from the same tiles as the old ones: the ferries, the crane and the yachts stand on water, the ΚΤΕΛ stop on a pavement', () => {
+test('the new maps are painted from the same tiles as the old ones: the ferries, the crane and the yachts stand on water, the ΚΤΕΛ stop on a pavement', { tier: 'content' }, () => {
   const town = R.MAPS.town;
   for (const [x, y, char] of [[5, 1, 'Q'], [14, 1, 'Q'], [20, 1, 'X']]) assert.equal(R.tileAt(town, x, y), char, 'the town quay ' + x + ',' + y);
   assert.equal(R.tileAt(town, 22, 15), 'U');
@@ -1857,7 +1931,7 @@ const OLD_WALKABLE_02A = {
   kastella_theatre: '000000000000/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/011111111110/000001100000',
 };
 
-test('Νότια XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+test('Νότια XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', { tier: 'content' }, () => {
   const band = xpBand(R, 'notia');
   same(band.trainerIds.slice().sort(), NOTIA_TRAINERS.slice().sort(), 'the seven trainers of route 3, route 4 and Γλυφάδα (the boss does not count)');
   assert.equal(band.top, 20);
@@ -1867,7 +1941,7 @@ test('Νότια XP band (section 11.4): within W = 10 wild fights, the seven tr
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.bougatsas.boss && !band.trainerIds.includes('bougatsas'), 'the boss comes after the climb');
 });
-test('Νότια: the road from Καστέλλα is shut without the Port Medal; every new map is reachable, has its way back and no dead end', () => {
+test('Νότια: the road from Καστέλλα is shut without the Port Medal; every new map is reachable, has its way back and no dead end', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const gate = R.MAPS.kastella.warps.find((warp) => warp.x === 25 && warp.y === 14);
   assert.ok(gate && gate.to === 'route3' && gate.needFlag === 'badge' && R.STRINGS[gate.lockedText], 'the gate at the east end of the promenade needs the flag badge and says why');
@@ -1908,7 +1982,7 @@ test('Νότια: the road from Καστέλλα is shut without the Port Medal;
   assert.equal(R.MAPS.glyfada.signs['27,6'], 'sign.glyfada.east');
   assert.ok(R.MAPS.glyfada.warps.some((warp) => warp.x === 27 && warp.y === 7 && warp.to === 'route5' && warp.needFlag === 'badge_notia'), 'the gate to Ανατολικά');
 });
-test('Νότια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.2, two towns with hospital, kiosk, ΚΤΕΛ stop, café and boss café', () => {
+test('Νότια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.2, two towns with hospital, kiosk, ΚΤΕΛ stop, café and boss café', { tier: 'content' }, () => {
   const sizes = { route3: [40, 14], faliro: [30, 16], faliro_hospital: [12, 9], faliro_shop: [8, 6], faliro_cafe: [10, 8], route4: [36, 20], glyfada: [28, 18], glyfada_hospital: [12, 9], glyfada_shop: [8, 6], glyfada_boss: [12, 10] };
   for (const id of NOTIA_MAP_IDS) {
     const map = R.MAPS[id];
@@ -1959,7 +2033,7 @@ test('Νότια data: sizes of 11.7, places on the world map, rows, tiles, wild
   assert.ok(R.MAPS.route4.rows.join('').split('o').length > 60, 'two runways');
   for (const id of ['faliro', 'glyfada']) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]]);
 });
-test('Νότια species: Καφενόβιος and the three middle starter forms have stats, moves, abilities, dossier texts, sprites and an evolution that is consistent', () => {
+test('Νότια species: Καφενόβιος and the three middle starter forms have stats, moves, abilities, dossier texts, sprites and an evolution that is consistent', { tier: 'content' }, () => {
   const kafenovios = R.SPECIES.kafenovios;
   assert.equal(kafenovios.t, 'mem');
   assert.ok(kafenovios.rec > 0 && kafenovios.xp > 0 && kafenovios.base.reduce((a, b) => a + b, 0) > 280);
@@ -2011,7 +2085,7 @@ test('Νότια species: Καφενόβιος and the three middle starter form
   for (const id of Object.keys(R.TRAINERS)) if (id !== 'bougatsas' && id !== 'undersec') assert.equal(R.TRAINERS[id].boost, undefined, id + ' has no boost');
   assert.ok(R.TRAINERS.bougatsas.boost > 1 && R.TRAINERS.bougatsas.boost <= 1.2);
 });
-test('Νότια items: the Δικηγόρος and the Γεμιστά της Μάνας heal and clear a status, in and out of a battle', () => {
+test('Νότια items: the Δικηγόρος and the Γεμιστά της Μάνας heal and clear a status, in and out of a battle', { tier: 'content' }, () => {
   const mon = R.makeMon('komma', 40); // 142 HP
   mon.hp = 10; mon.status = { id: 'inv', turns: 3 };
   assert.ok(R.canUseItemOn(mon, 'dikigoros') && R.canUseItemOn(mon, 'gemista'));
@@ -2039,7 +2113,7 @@ test('Νότια items: the Δικηγόρος and the Γεμιστά της Μ�
   const migrated = R.migrateSave({ version: 3, player: { name: 'Α', gender: 'm', map: 'town', x: 5, y: 8, dir: 'left' }, party: [R.serializeMon(R.makeMon('komma', 9))], bag: { fakelaki: 2 }, flags: {}, dex: { seen: {}, got: {} } });
   assert.equal(migrated.bag.dikigoros, 0); assert.equal(migrated.bag.gemista, 0); assert.equal(migrated.bag.fakelaki, 2);
 });
-test('Νότια trainers: seven trainers with names in the strings, levels 14-18, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', () => {
+test('Νότια trainers: seven trainers with names in the strings, levels 14-18, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', { tier: 'content' }, () => {
   assert.equal(NOTIA_TRAINERS.length, 7);
   const onMaps = {};
   for (const id of ['route3', 'route4', 'glyfada']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
@@ -2082,7 +2156,7 @@ test('Νότια trainers: seven trainers with names in the strings, levels 14-1
     assert.ok(winRate(id, 18, 3, 100) >= 0.5, id + ' with three creatures at level 18');
   }
 });
-test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-creature team and the boost of 11.12) with the AI-played player team, and the boss data', () => {
+test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-creature team and the boost of 11.12) with the AI-played player team, and the boss data', { tier: 'content' }, () => {
   const boss = R.TRAINERS.bougatsas;
   same(boss.team.map((entry) => entry.sp + entry.lv), ['kafenovios18', 'efoplistakos20', 'frapedoros19', 'giagiaka20'], 'the boss team of 11.12');
   assert.ok(boss.boost > 1 && boss.boost <= 1.2, 'a small boost, visible in the battle (the mark)');
@@ -2107,7 +2181,7 @@ test('Νότια boss, win-rate bands (the offsets of 11.7, kept by the four-cre
   R.TRAINERS.bougatsas.boost = undefined;
   try { assert.ok(bossWinRate(R, 'bougatsas', top - 3, 6, twoSouvlaki, BOSS_RUNS_PER_CELL, 5000) > 0.3, 'no boost: top minus 3 is above 30 %'); } finally { R.TRAINERS.bougatsas.boost = plainBoss; }
 });
-test('every built boss and every fight of the Βουλή, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', () => {
+test('every built boss and every fight of the Βουλή, per starter: each starter wins at least 75 % at top plus 1 with six creatures, and the starters are within 35 points of each other at top minus 1', { tier: 'content' }, () => {
   const runsPerCell = BOSS_RUNS_PER_CELL;
   for (const bossId of ['kotsos', 'bougatsas', 'faia', 'amartia', 'plousiakis', 'baboulas', 'euterpe', 'minister', 'rival6', 'undersec']) { // the four fights of the Βουλή too (the rival with his last form of the starter the player took)
     const team = R.TRAINERS[bossId].team;
@@ -2120,7 +2194,7 @@ test('every built boss and every fight of the Βουλή, per starter: each star
     assert.ok(Math.max(...behind) - Math.min(...behind) <= 0.35, bossId + ' spread at top minus 1: ' + behind.join(' '));
   }
 });
-test('Νότια: old saves (v2 and v3, standing anywhere in Πειραιάς) load and continue; the new flag and the new places migrate; old creatures evolve at 16', () => {
+test('Νότια: old saves (v2 and v3, standing anywhere in Πειραιάς) load and continue; the new flag and the new places migrate; old creatures evolve at 16', { tier: 'content' }, () => {
   const party = [{ sp: 'komma', lv: 17, xp: R.xpForLevel(17), hp: 40 }, { sp: 'fakelakis', lv: 9, xp: R.xpForLevel(9), hp: 20 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, souvlaki: 2 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'kastella_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -2176,7 +2250,7 @@ test('Νότια: old saves (v2 and v3, standing anywhere in Πειραιάς) l
   // a save from this build stands on a Νότια tile that an older build does not know: it falls back to the start, as for every unknown place
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, NOTIA_FLAGS)).player.map, 'lab');
 });
-test('Νότια leaves Πειραιάς as it was: only the east end of the Καστέλλα promenade changes (24,14 walks on, 25,14 is the gate); every old walkable tile is still walkable', () => {
+test('Νότια leaves Πειραιάς as it was: only the east end of the Καστέλλα promenade changes (24,14 walks on, 25,14 is the gate); every old walkable tile is still walkable', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02A)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02A[id].split('/');
@@ -2194,7 +2268,7 @@ test('Νότια leaves Πειραιάς as it was: only the east end of the Κ�
   assert.equal(R.MAPS.kastella.signs['24,13'], 'sign.kastella.east');
   assert.equal(R.districtState(R.newWorldState(), 'peiraias'), 'open');
 });
-test('Νότια boss path: the boss victory sets only the flag of its own badge; the Port Medal flag and the credits flag are not touched; the badge card takes its texts and ribbon from the boss data', () => {
+test('Νότια boss path: the boss victory sets only the flag of its own badge; the Port Medal flag and the credits flag are not touched; the badge card takes its texts and ribbon from the boss data', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true'));
@@ -2207,7 +2281,7 @@ test('Νότια boss path: the boss victory sets only the flag of its own badge
   assert.ok(R.STRINGS['boss.bougatsas.win3'][0].includes('Παραλιακής') && R.STRINGS['boss.bougatsas.win3'][1].includes('Coast Medal'));
   assert.ok(R.STRINGS['tr.bougatsas.intro'][0].includes('{ανιψιέ|ανιψιά}'), 'the player is addressed with the gender choice');
 });
-test('Νότια: no per-frame text building in the new code (the shop and the badge card take their text from the cached T() or build it once)', () => {
+test('Νότια: no per-frame text building in the new code (the shop and the badge card take their text from the cached T() or build it once)', { tier: 'content' }, () => {
   const shopDraw = html.slice(html.indexOf('ShopLayer.prototype.draw'), html.indexOf('// ---- Evolution and move learning'));
   assert.ok(!/T\('[^']+', \{/.test(shopDraw) && !shopDraw.includes('wrapText('), 'the shop draw builds no text with variables and does not wrap');
   const badgeDraw = html.slice(html.indexOf('BadgeLayer.prototype.draw'), html.indexOf('// The short card after the first boss'));
@@ -2237,7 +2311,7 @@ route3: '0000000000000000000000000000000000000000/011111111111111111111111111111
   glyfada_boss: '000000000000/000111111100/011111111110/011100001110/011111111110/010011110010/011111111110/010011110010/011111111110/000001100000',
 };
 
-test('Ανατολικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+test('Ανατολικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', { tier: 'content' }, () => {
   const band = xpBand(R, 'anatolika');
   same(band.trainerIds.slice().sort(), ANATOLIKA_TRAINERS.slice().sort(), 'the seven trainers of route 5, route 6 and Σπάτα (the boss does not count)');
   assert.equal(band.top, 26);
@@ -2247,7 +2321,7 @@ test('Ανατολικά XP band (section 11.4): within W = 10 wild fights, the 
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.faia.boss && !band.trainerIds.includes('faia'), 'the boss comes after the climb');
 });
-test('Ανατολικά: the road from Γλυφάδα is shut without the Coast Medal; every new map is reachable, has its way back and no dead end', () => {
+test('Ανατολικά: the road from Γλυφάδα is shut without the Coast Medal; every new map is reachable, has its way back and no dead end', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const gate = R.MAPS.glyfada.warps.find((warp) => warp.x === 27 && warp.y === 7);
   assert.ok(gate && gate.to === 'route5' && gate.needFlag === 'badge_notia' && R.STRINGS[gate.lockedText], 'the gate at the east end of the street needs the flag badge_notia and says why');
@@ -2288,7 +2362,7 @@ test('Ανατολικά: the road from Γλυφάδα is shut without the Coast
   assert.equal(R.MAPS.spata.signs['27,8'], 'sign.spata.north');
   assert.ok(R.MAPS.spata.warps.some((warp) => warp.x === 27 && warp.y === 9 && warp.to === 'route7' && warp.needFlag === 'badge_anatolika'), 'the gate to Βόρεια');
 });
-test('Ανατολικά data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.3, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Κορωπί, the terminal', () => {
+test('Ανατολικά data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.3, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Κορωπί, the terminal', { tier: 'content' }, () => {
   const sizes = { route5: [36, 16], koropi: [26, 16], koropi_hospital: [12, 9], koropi_shop: [8, 6], koropi_cafe: [10, 8], route6: [40, 16], spata: [28, 18], spata_hospital: [12, 9], spata_shop: [8, 6], spata_boss: [14, 10] };
   for (const id of ANATOLIKA_MAP_IDS) {
     const map = R.MAPS[id];
@@ -2344,7 +2418,7 @@ test('Ανατολικά data: sizes of 11.7, places on the world map, rows, til
   for (const id of ['koropi', 'spata']) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]]);
   for (const id of ['route5', 'route6']) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]]);
 });
-test('Ανατολικά species: the five new creatures have stats, moves, abilities, dossier texts, sprites and the evolutions of 11.3 are consistent', () => {
+test('Ανατολικά species: the five new creatures have stats, moves, abilities, dossier texts, sprites and the evolutions of 11.3 are consistent', { tier: 'content' }, () => {
   const lines = [['dimosio', 'monimos', 20], ['storoula', 'influenza', 22], ['kryptomakis', 'nftarchis', 26]];
   for (const [fromId, toId, level] of lines) {
     const from = R.SPECIES[fromId];
@@ -2382,7 +2456,7 @@ test('Ανατολικά species: the five new creatures have stats, moves, abil
     for (const other of Object.values(R.SPECIES)) if (other.evo && other.evo.to === entry.sp) assert.ok(entry.lv >= other.evo.lv, id + ': ' + entry.sp + ' at ' + entry.lv + ' is below its evolution level');
   }
 });
-test('Ανατολικά trainers: seven trainers with names in the strings, levels 20-25, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', () => {
+test('Ανατολικά trainers: seven trainers with names in the strings, levels 20-25, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', { tier: 'content' }, () => {
   assert.equal(ANATOLIKA_TRAINERS.length, 7);
   const onMaps = {};
   for (const id of ['route5', 'route6', 'spata']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
@@ -2425,7 +2499,7 @@ test('Ανατολικά trainers: seven trainers with names in the strings, lev
     assert.ok(winRate(id, 25, 3, 100) >= 0.5, id + ' with three creatures at level 25');
   }
 });
-test('Ανατολικά boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', () => {
+test('Ανατολικά boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', { tier: 'content' }, () => {
   const boss = R.TRAINERS.faia;
   same(boss.team.map((entry) => entry.sp + entry.lv), ['kryptomakis23', 'influenza24', 'monimos24', 'trolosavros25', 'nftarchis26'], 'the boss team of 11.13');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
@@ -2450,7 +2524,7 @@ test('Ανατολικά boss: the win-rate bands of 11.7 (the same offsets and 
   const bands = bossBandMeans(R, 'faia', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Φαίη, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
-test('Ανατολικά: old saves (v2 and v3, standing anywhere in Πειραιάς or Νότια) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
+test('Ανατολικά: old saves (v2 and v3, standing anywhere in Πειραιάς or Νότια) load and continue; the new flag and the new places migrate; old creatures evolve at their level', { tier: 'content' }, () => {
   const party = [{ sp: 'dimosio', lv: 21, xp: R.xpForLevel(21), hp: 40 }, { sp: 'storoula', lv: 23, xp: R.xpForLevel(23), hp: 30 }, { sp: 'komma', lv: 17, xp: R.xpForLevel(17), hp: 40 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, dikigoros: 1 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'glyfada_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -2504,7 +2578,7 @@ test('Ανατολικά: old saves (v2 and v3, standing anywhere in Πειρα�
   // a save from this build stands on an Ανατολικά tile that an older build does not know: it falls back to the start, as for every unknown place
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, ANATOLIKA_FLAGS)).player.map, 'lab');
 });
-test('Ανατολικά leaves Νότια as it was: only the east end of the Γλυφάδα street changes (26,7 walks on, 27,7 is the gate); every old walkable tile is still walkable', () => {
+test('Ανατολικά leaves Νότια as it was: only the east end of the Γλυφάδα street changes (26,7 walks on, 27,7 is the gate); every old walkable tile is still walkable', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02B)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02B[id].split('/');
@@ -2520,7 +2594,7 @@ test('Ανατολικά leaves Νότια as it was: only the east end of the �
   same(nowWalkable, ['glyfada:26,7', 'glyfada:27,7']);
   assert.equal(R.districtState(R.newWorldState(), 'notia'), 'locked');
 });
-test('Ανατολικά boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', () => {
+test('Ανατολικά boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true') && !/G\.flags\.(badge|badge_notia|badge_anatolika)\b/.test(victory));
@@ -2530,7 +2604,7 @@ test('Ανατολικά boss path: the victory data of the boss sets only the f
   assert.ok(!R.STRINGS['boss.bougatsas.win3'][0].includes('υπό έργα'), 'the Coast Medal text no longer says the road to the East is shut');
   assert.ok(!R.STRINGS['boss.faia.win3'][0].includes('υπό έργα'), 'the Boarding Medal text no longer says the road to the North is shut');
 });
-test('Ανατολικά: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; no new draw code)', () => {
+test('Ανατολικά: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; no new draw code)', { tier: 'content' }, () => {
   const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
   for (const char of ['R', 'v', 'I', 'J', 'O', 'z', '7', 'x', '8', '9', '0']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
   const cache = html.slice(html.indexOf('function creatureSprite('), html.indexOf('function buildAllSprites()'));
@@ -2539,7 +2613,7 @@ test('Ανατολικά: no per-frame work in the new content (the tiles and cr
   const overworldDraw = html.slice(html.indexOf('OverworldLayer.prototype.draw = function'), html.indexOf('OverworldLayer.prototype.drawNpc'));
   assert.ok(!/(koropi|spata|route5|route6|anatolika|faia)/i.test(overworldDraw), 'the overworld draw code has no Ανατολικά special case');
 });
-test('Ανατολικά: type fairness named: every type of the boss is hit for x2 by a starter or a wild creature that is available before her', () => {
+test('Ανατολικά: type fairness named: every type of the boss is hit for x2 by a starter or a wild creature that is available before her', { tier: 'content' }, () => {
   const types = new Set(R.TRAINERS.faia.team.map((entry) => R.SPECIES[entry.sp].t));
   assert.ok(types.has('inf') && types.has('mem'), 'the boss brings Influencers and Μιμίδια');
   assert.ok(R.typeMultiplier('asf', 'inf') === 2 && R.districtSpecies('peiraias').includes('eforaki') && R.STARTERS.includes('koulourak'), 'Εφοράκι (wild in Πειραιάς) and Κουλουράκι (starter) hit Influencers and Μιμίδια for x2');
@@ -2570,7 +2644,7 @@ const OLD_WALKABLE_02C = {
   spata_boss: '00000000000000/00011111111000/01111111111110/01110000001110/01111111111110/01111111111110/01111111111110/01001111110010/01111111111110/00000011000000',
 };
 
-test('Βόρεια XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+test('Βόρεια XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', { tier: 'content' }, () => {
   const band = xpBand(R, 'voreia');
   same(band.trainerIds.slice().sort(), VOREIA_TRAINERS.slice().sort(), 'the seven trainers of route 7, route 8 and Μαρούσι (the boss does not count)');
   assert.equal(band.top, 32);
@@ -2580,7 +2654,7 @@ test('Βόρεια XP band (section 11.4): within W = 10 wild fights, the seven 
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.amartia.boss && !band.trainerIds.includes('amartia'), 'the boss comes after the climb');
 });
-test('Βόρεια: the road from Σπάτα is shut without the Boarding Medal; every new map is reachable, has its way back and no dead end', () => {
+test('Βόρεια: the road from Σπάτα is shut without the Boarding Medal; every new map is reachable, has its way back and no dead end', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const gate = R.MAPS.spata.warps.find((warp) => warp.x === 27 && warp.y === 9);
   assert.ok(gate && gate.to === 'route7' && gate.needFlag === 'badge_anatolika' && R.STRINGS[gate.lockedText], 'the gate at the east end of the street needs the flag badge_anatolika and says why');
@@ -2621,7 +2695,7 @@ test('Βόρεια: the road from Σπάτα is shut without the Boarding Medal;
   assert.equal(R.MAPS.marousi.signs['0,8'], 'sign.marousi.west');
   assert.ok(R.MAPS.marousi.warps.some((warp) => warp.x === 0 && warp.y === 9 && warp.to === 'route9' && warp.needFlag === 'badge_voreia'), 'the gate to Δυτικά');
 });
-test('Βόρεια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.4, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Κηφισιά, the arena', () => {
+test('Βόρεια data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.4, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Κηφισιά, the arena', { tier: 'content' }, () => {
   const sizes = { route7: [32, 18], kifisia: [26, 18], kifisia_hospital: [12, 9], kifisia_shop: [8, 6], kifisia_cafe: [10, 8], route8: [44, 14], marousi: [28, 18], marousi_hospital: [12, 9], marousi_shop: [8, 6], marousi_boss: [14, 10] };
   for (const id of VOREIA_MAP_IDS) {
     const map = R.MAPS[id];
@@ -2680,7 +2754,7 @@ test('Βόρεια data: sizes of 11.7, places on the world map, rows, tiles, wi
   assert.ok(mapRows('kifisia').includes('=') && mapRows('kifisia').includes('7') && mapRows('kifisia').includes('j'), 'Κηφισιά: hedges, the fountain, the metro sign');
   for (const id of VOREIA_MAP_IDS) for (const key of Object.keys(R.MAPS[id].signs)) assert.ok(R.STRINGS[R.MAPS[id].signs[key]], id + ' sign ' + key + ' has a text');
 });
-test('Βόρεια species: the seven new creatures have stats, moves, abilities, dossier texts, sprites; the evolutions of 11.3 (Λαϊκατζής 27, Εφοπλιστάκος 30, the three starters 32) are consistent', () => {
+test('Βόρεια species: the seven new creatures have stats, moves, abilities, dossier texts, sprites; the evolutions of 11.3 (Λαϊκατζής 27, Εφοπλιστάκος 30, the three starters 32) are consistent', { tier: 'content' }, () => {
   const lines = [['laikatzis', 'star90', 27], ['efoplistakos', 'giotarchis', 30], ['vouleftakos', 'yperypourgos', 32], ['batsonos', 'matanthropos', 32], ['diakosdisko', 'despotakis', 32]];
   for (const [fromId, toId, level] of lines) {
     const from = R.SPECIES[fromId];
@@ -2725,7 +2799,7 @@ test('Βόρεια species: the seven new creatures have stats, moves, abilities
     for (const other of Object.values(R.SPECIES)) if (other.evo && other.evo.to === entry.sp) assert.ok(entry.lv >= other.evo.lv, id + ': ' + entry.sp + ' at ' + entry.lv + ' is below its evolution level');
   }
 });
-test('Βόρεια items: the Χοντρός Φάκελος is a recruit item stronger than the Φάκελος, sold at 600 by the kiosks of Βόρεια only; an old bag gets 0 of it', () => {
+test('Βόρεια items: the Χοντρός Φάκελος is a recruit item stronger than the Φάκελος, sold at 600 by the kiosks of Βόρεια only; an old bag gets 0 of it', { tier: 'content' }, () => {
   assert.ok(R.ITEMS.chontros.kind === 'recruit' && R.ITEMS.chontros.mult > R.ITEMS.fakelos.mult && R.ITEMS.chontros.price === 600);
   assert.ok(R.ITEM_IDS.includes('chontros') && R.STRINGS['item.chontros'] && R.STRINGS['itemd.chontros']);
   for (const mapId of Object.keys(R.MAPS)) if (R.MAPS[mapId].npcs.some((npc) => npc.kind === 'shop')) {
@@ -2738,7 +2812,7 @@ test('Βόρεια items: the Χοντρός Φάκελος is a recruit item st
     dex: { seen: {}, got: {} }, flags: { gotStarter: true }, lastHeal: R.HOSPITAL_SPOT, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 1, starter: 'komma' });
   assert.equal(old.bag.chontros, 0);
 });
-test('Βόρεια trainers: seven trainers with names in the strings, levels 27-30, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels; the rival of the fourth fight', () => {
+test('Βόρεια trainers: seven trainers with names in the strings, levels 27-30, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels; the rival of the fourth fight', { tier: 'content' }, () => {
   assert.equal(VOREIA_TRAINERS.length, 7);
   const onMaps = {};
   for (const id of ['route7', 'route8', 'marousi']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
@@ -2790,7 +2864,7 @@ test('Βόρεια trainers: seven trainers with names in the strings, levels 27
     assert.ok(winRate(id, 30, 3, 100) >= 0.5, id + ' with three creatures at level 30');
   }
 });
-test('Βόρεια boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', () => {
+test('Βόρεια boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', { tier: 'content' }, () => {
   const boss = R.TRAINERS.amartia;
   same(boss.team.map((entry) => entry.sp + entry.lv), BOSS_TEAM_02D, 'the boss team of 11.14');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
@@ -2816,7 +2890,7 @@ test('Βόρεια boss: the win-rate bands of 11.7 (the same offsets and bands 
   const bands = bossBandMeans(R, 'amartia', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'DJ Αμαρτία, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
-test('Βόρεια: old saves (v2 and v3, standing anywhere in Πειραιάς, Νότια or Ανατολικά) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
+test('Βόρεια: old saves (v2 and v3, standing anywhere in Πειραιάς, Νότια or Ανατολικά) load and continue; the new flag and the new places migrate; old creatures evolve at their level', { tier: 'content' }, () => {
   const party = [{ sp: 'laikatzis', lv: 27, xp: R.xpForLevel(27), hp: 40 }, { sp: 'vouleftakos', lv: 33, xp: R.xpForLevel(33), hp: 30 }, { sp: 'efoplistakos', lv: 30, xp: R.xpForLevel(30), hp: 40 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, gemista: 1 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'spata_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -2870,7 +2944,7 @@ test('Βόρεια: old saves (v2 and v3, standing anywhere in Πειραιάς,
   // a save from this build stands on a Βόρεια tile that an older build does not know: it falls back to the start, as for every unknown place
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, VOREIA_FLAGS)).player.map, 'lab');
 });
-test('Βόρεια leaves Ανατολικά as it was: only the east end of the Σπάτα street changes (26,9 walks on, 27,9 is the gate); every old walkable tile is still walkable', () => {
+test('Βόρεια leaves Ανατολικά as it was: only the east end of the Σπάτα street changes (26,9 walks on, 27,9 is the gate); every old walkable tile is still walkable', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02C)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02C[id].split('/');
@@ -2886,7 +2960,7 @@ test('Βόρεια leaves Ανατολικά as it was: only the east end of the
   same(nowWalkable, ['spata:26,9', 'spata:27,9']);
   assert.equal(R.districtState(R.newWorldState(), 'anatolika'), 'locked');
 });
-test('Βόρεια boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', () => {
+test('Βόρεια boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true') && !/G\.flags\.(badge|badge_notia|badge_anatolika|badge_voreia)\b/.test(victory));
@@ -2894,7 +2968,7 @@ test('Βόρεια boss path: the victory data of the boss sets only the flag of
   for (const other of ['bougatsas', 'faia']) assert.notEqual(R.TRAINERS.amartia.victory.ribbon, R.TRAINERS[other].victory.ribbon, 'each badge has its own ribbon colour');
   assert.notEqual(R.STRINGS['badge.voreia.title'][0], R.STRINGS['badge.anatolika.title'][0]);
 });
-test('Βόρεια: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the shop draws nine rows from the stock list)', () => {
+test('Βόρεια: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the shop draws nine rows from the stock list)', { tier: 'content' }, () => {
   const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
   for (const char of ['%', '&', '=', '>', '?', '^', '_', ';', ':', '!']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
   const cache = html.slice(html.indexOf('function creatureSprite('), html.indexOf('function buildAllSprites()'));
@@ -2906,7 +2980,7 @@ test('Βόρεια: no per-frame work in the new content (the tiles and creature
   assert.ok(!shopDraw.includes('measureText') && shopDraw.includes('i * 10') && shopDraw.includes('this.stock.length'), 'the shop draws one row per stock item, 10 px apart, with no text measuring per frame');
   assert.ok(19 + 10 * 9 + 8 <= 16 + 103, 'ten rows (the last starts at y 109, 8 px tall) fit in the list panel (16 + 103 = 119)');
 });
-test('Βόρεια: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
+test('Βόρεια: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', { tier: 'content' }, () => {
   const types = new Set(R.TRAINERS.amartia.team.map((entry) => R.SPECIES[entry.sp].t));
   assert.ok(types.has('cel') && types.has('biz') && types.has('pol'), 'the boss brings Celebrities, Επιχειρηματίες and Πολιτικοί');
   const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika')].filter((id) => !VOREIA_NEW_SPECIES.includes(id));
@@ -2940,10 +3014,10 @@ const OLD_WALKABLE_02D = {
   marousi_boss: '00000000000000/00111111111100/00111111111100/01110000001110/01111111111110/01111111111110/01111111111110/01001111110010/01111111111110/00000011000000',
 };
 // words of faith, prayer or rites (αγιο|αγια only at the start of a word, or Γιαγιά would match): no text of the new district may carry one (the Εκκλησία type and the abbot joke about wealth, property and tax only, 11.15)
-const FAITH_WORDS = /προσευχ|αγιασμ|σταυρ|θυμιαμ|λιτανει|λειτουργ|εξομολογ|χριστ|θεου|θεος|prayer|pray |saint|holy|cross|incense|ritual|liturg|bless|sacred|faith|priest|baptis|(?<!\p{L})(?:αγιο|αγια)|παναγι|θεε(?!\p{L})|ευλογ|εικονισμ|εικονοστ|προσκυν|θαυμα(?!σ)/u;
+// (FAITH_WORDS, ATHINA_FORBIDDEN_WORDS, MONUMENT_WORDS and CREDITS_FORBIDDEN_WORDS live in shared/content-rules.mjs)
 const DYTIKA_STRING_KEY = /^(map\.(route9|peristeri|route10|chaidari)|warp\.route9|sign\.(route9|toll|peristeri|route10|channel|chaidari)|npc\.(tollwatcher|hitchhiker|peristeri|pscafe|stallholder|angler|chaidari)|cafe\.hello\.peristeri|tr\.(tollclerk|ultras|granny|marketeer|philosopher|steward|gatekeeper|plousiakis)|boss\.plousiakis|badge\.dytika|item\.sylvasi|itemd\.sylvasi|sp\.(tavlilordos|giagiaexo|elegktis|ktimatomesitis|rousfetolykos))/;
 
-test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', () => {
+test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven trainers alone give at most 1.3 times the need', { tier: 'content' }, () => {
   const band = xpBand(R, 'dytika');
   same(band.trainerIds.slice().sort(), DYTIKA_TRAINERS.slice().sort(), 'the seven trainers of route 9, route 10 and Χαϊδάρι (the boss does not count; no rival fight in this district)');
   assert.equal(band.top, 38);
@@ -2953,7 +3027,7 @@ test('Δυτικά XP band (section 11.4): within W = 10 wild fights, the seven 
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.plousiakis.boss && !band.trainerIds.includes('plousiakis'), 'the boss comes after the climb');
 });
-test('Δυτικά: the road from Μαρούσι is shut without the First Row Medal; every new map is reachable, has its way back and no dead end', () => {
+test('Δυτικά: the road from Μαρούσι is shut without the First Row Medal; every new map is reachable, has its way back and no dead end', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const gate = R.MAPS.marousi.warps.find((warp) => warp.x === 0 && warp.y === 9);
   assert.ok(gate && gate.to === 'route9' && gate.needFlag === 'badge_voreia' && R.STRINGS[gate.lockedText], 'the gate at the west end of the street needs the flag badge_voreia and says why');
@@ -2994,7 +3068,7 @@ test('Δυτικά: the road from Μαρούσι is shut without the First Row M
   assert.equal(R.MAPS.chaidari.signs['0,8'], 'sign.chaidari.west');
   assert.ok(R.MAPS.chaidari.warps.some((warp) => warp.x === 0 && warp.y === 9 && warp.to === 'route11' && warp.needFlag === 'badge_dytika'), 'the gate to Αθήνα');
 });
-test('Δυτικά data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.5, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Περιστέρι, the monastery', () => {
+test('Δυτικά data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.5, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Περιστέρι, the monastery', { tier: 'content' }, () => {
   const sizes = { route9: [44, 12], peristeri: [26, 18], peristeri_hospital: [12, 9], peristeri_shop: [8, 6], peristeri_cafe: [10, 8], route10: [36, 18], chaidari: [28, 18], chaidari_hospital: [12, 9], chaidari_shop: [8, 6], chaidari_boss: [12, 10] };
   for (const id of DYTIKA_MAP_IDS) {
     const map = R.MAPS[id];
@@ -3063,7 +3137,7 @@ test('Δυτικά data: sizes of 11.7, places on the world map, rows, tiles, wi
   for (const id of DYTIKA_NEW_SPECIES.concat(DYTIKA_TRAINERS, ['plousiakis'])) assert.ok(!FAITH_WORDS.test(plainText((R.SPECIES[id] || R.TRAINERS[id]).n || R.TRAINERS[id].name)), id + ' name');
   for (const id of ['ktimatomesitis']) for (const [, moveId] of R.SPECIES[id].learn) assert.ok(!['agiasmos', 'thymiama', 'litaneia', 'aforismos'].includes(moveId), id + ' has no move about rites: its moves are about property');
 });
-test('Δυτικά species: the five new creatures have stats, moves, abilities, dossier texts, sprites; the evolutions (Καφενόβιος, Γιαγιάκα, Εφοράκι, Μοναστηριάκι) are consistent and kept clear of the earlier bosses', () => {
+test('Δυτικά species: the five new creatures have stats, moves, abilities, dossier texts, sprites; the evolutions (Καφενόβιος, Γιαγιάκα, Εφοράκι, Μοναστηριάκι) are consistent and kept clear of the earlier bosses', { tier: 'content' }, () => {
   for (const [fromId, toId, level] of DYTIKA_EVOLUTIONS) {
     const from = R.SPECIES[fromId];
     const to = R.SPECIES[toId];
@@ -3101,7 +3175,7 @@ test('Δυτικά species: the five new creatures have stats, moves, abilities,
     for (const other of Object.values(R.SPECIES)) if (other.evo && other.evo.to === entry.sp) assert.ok(entry.lv >= other.evo.lv, id + ': ' + entry.sp + ' at ' + entry.lv + ' is below its evolution level');
   }
 });
-test('Δυτικά items: the Συλλογική Σύμβαση is a heal item between the Δικηγόρος and the Γεμιστά, sold at 150 by the kiosks of Δυτικά only; an old bag gets 0 of it', () => {
+test('Δυτικά items: the Συλλογική Σύμβαση is a heal item between the Δικηγόρος and the Γεμιστά, sold at 150 by the kiosks of Δυτικά only; an old bag gets 0 of it', { tier: 'content' }, () => {
   const item = R.ITEMS.sylvasi;
   assert.ok(item.kind === 'heal' && item.amount === 120 && item.price === 150 && !item.cures, 'heals 120, costs 150, cleans no status');
   assert.ok(item.amount > R.ITEMS.dikigoros.amount && item.amount < R.ITEMS.gemista.amount && item.price <= R.ITEMS.dikigoros.price);
@@ -3122,7 +3196,7 @@ test('Δυτικά items: the Συλλογική Σύμβαση is a heal item b
     dex: { seen: {}, got: {} }, flags: { gotStarter: true }, lastHeal: R.HOSPITAL_SPOT, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 1, starter: 'komma' });
   assert.equal(old.bag.sylvasi, 0);
 });
-test('Δυτικά trainers: seven trainers with names in the strings, levels 34-37, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels; no rival here', () => {
+test('Δυτικά trainers: seven trainers with names in the strings, levels 34-37, a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels; no rival here', { tier: 'content' }, () => {
   assert.equal(DYTIKA_TRAINERS.length, 7);
   const onMaps = {};
   for (const id of ['route9', 'route10', 'chaidari']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
@@ -3167,7 +3241,7 @@ test('Δυτικά trainers: seven trainers with names in the strings, levels 34
     assert.ok(winRate(id, 37, 3, 100) >= 0.5, id + ' with three creatures at level 37');
   }
 });
-test('Δυτικά boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', () => {
+test('Δυτικά boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', { tier: 'content' }, () => {
   const boss = R.TRAINERS.plousiakis;
   same(boss.team.map((entry) => entry.sp + entry.lv), BOSS_TEAM_02E, 'the boss team of 11.15');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
@@ -3193,7 +3267,7 @@ test('Δυτικά boss: the win-rate bands of 11.7 (the same offsets and bands 
   const bands = bossBandMeans(R, 'plousiakis', BOSS_RUNS_PER_CELL); // the mean of three seeds (BOSS_BAND_SEEDS)
   for (const [label, rate, low, high] of bands) assert.ok(rate >= low && rate <= high, 'Ο Ηγούμενος Πλουσιάκης, ' + label + ': ' + rate + ' outside ' + low + '-' + high);
 });
-test('Δυτικά: old saves (v2 and v3, standing anywhere in the four built districts) load and continue; the new flag and the new places migrate; old creatures evolve at their level', () => {
+test('Δυτικά: old saves (v2 and v3, standing anywhere in the four built districts) load and continue; the new flag and the new places migrate; old creatures evolve at their level', { tier: 'content' }, () => {
   const party = [{ sp: 'monastiriaki', lv: 36, xp: R.xpForLevel(36), hp: 40 }, { sp: 'giagiaka', lv: 38, xp: R.xpForLevel(38), hp: 30 }, { sp: 'kafenovios', lv: 40, xp: R.xpForLevel(40), hp: 40 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, gemista: 1 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'marousi_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -3246,7 +3320,7 @@ test('Δυτικά: old saves (v2 and v3, standing anywhere in the four built di
   // a save from this build stands on a Δυτικά tile that an older build does not know: it falls back to the start, as for every unknown place
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, DYTIKA_FLAGS)).player.map, 'lab');
 });
-test('Δυτικά leaves Βόρεια as it was: only the west end of the Μαρούσι street changes (1,9 walks on, 0,9 is the gate); every old walkable tile is still walkable', () => {
+test('Δυτικά leaves Βόρεια as it was: only the west end of the Μαρούσι street changes (1,9 walks on, 0,9 is the gate); every old walkable tile is still walkable', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02D)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02D[id].split('/');
@@ -3262,7 +3336,7 @@ test('Δυτικά leaves Βόρεια as it was: only the west end of the Μα�
   same(nowWalkable, ['marousi:0,9', 'marousi:1,9']);
   assert.equal(R.districtState(R.newWorldState(), 'voreia'), 'locked');
 });
-test('Δυτικά boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', () => {
+test('Δυτικά boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true') && !/G\.flags\.(badge|badge_notia|badge_anatolika|badge_voreia|badge_dytika)\b/.test(victory));
@@ -3270,7 +3344,7 @@ test('Δυτικά boss path: the victory data of the boss sets only the flag of
   for (const other of ['bougatsas', 'faia', 'amartia']) assert.notEqual(R.TRAINERS.plousiakis.victory.ribbon, R.TRAINERS[other].victory.ribbon, 'each badge has its own ribbon colour');
   assert.notEqual(R.STRINGS['badge.dytika.title'][0], R.STRINGS['badge.voreia.title'][0]);
 });
-test('Δυτικά: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the shop draws ten rows from the stock list)', () => {
+test('Δυτικά: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the shop draws ten rows from the stock list)', { tier: 'content' }, () => {
   const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
   for (const char of ['*', '+', '-', '/', '<', '|', '@', '`', ')', '(']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
   const cache = html.slice(html.indexOf('function creatureSprite('), html.indexOf('function buildAllSprites()'));
@@ -3283,7 +3357,7 @@ test('Δυτικά: no per-frame work in the new content (the tiles and creature
   const charDraw = html.slice(html.indexOf('function drawCharFrame('), html.indexOf('const charSheets = {}'));
   assert.ok(charDraw.includes('look.slipper'), 'the slipper of the grandmother is a look option drawn into the cached sheet');
 });
-test('Δυτικά: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
+test('Δυτικά: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', { tier: 'content' }, () => {
   const types = new Set(R.TRAINERS.plousiakis.team.map((entry) => R.SPECIES[entry.sp].t));
   assert.ok(types.has('ekk') && types.has('mem') && types.has('biz'), 'the boss brings Εκκλησία, Memes and Επιχειρηματίες');
   const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika'), ...R.districtSpecies('voreia')].filter((id) => !DYTIKA_NEW_SPECIES.includes(id));
@@ -3315,10 +3389,9 @@ const OLD_WALKABLE_02E = {
 };
 // words that no text of the district may carry: the faith filter of 11.15 (the Rock and the Hill show landmarks generically: no chapel, no cross, no church icon), the real monuments (no real monument name
 // on any shop or sign), and the real events and violence that the rules of this district forbid (the junta, the Polytechnic uprising, riots, deaths, real police violence, real fires)
-const ATHINA_FORBIDDEN_WORDS = /παρεκκλ|εκκλησ|chapel|church|τζαμ|sinagog|ακροπολ|παρθενών|parthenon|acropolis|λυκαβηττ|lycabettus|χούντα|χουντα|junta|πολυτεχνει|polytechnic|riot|ταραχ|δακρυγόν|tear gas|νεκρ|σκοτώ|killed|violence|βία(?!\p{L})|πυρκαγι|wildfire/u;
 const ATHINA_STRING_KEY = /^(map\.(route11|route12|monastiraki|rock|lycabettus|syntagma)|warp\.route11|sign\.(route11|dig|stumps|monastiraki|rock|route12|omonia|avenue|hill|syntagma|chaidari\.west)|npc\.(digger|roadtourist|monastiraki|mncafe|rock|avenue|hill|syntagma)|legend\.|cafe\.hello\.monastiraki|tr\.(clerk|guide|porter|student|busker|rival5|inspector|cadet|baboulas)|boss\.(baboulas|plousiakis\.win3)|badge\.athina|sp\.taxpayer)/;
 
-test('Αθήνα XP band (section 11.4): within W = 10 wild fights, the eight trainers alone give at most 1.3 times the need (and less than the need)', () => {
+test('Αθήνα XP band (section 11.4): within W = 10 wild fights, the eight trainers alone give at most 1.3 times the need (and less than the need)', { tier: 'content' }, () => {
   const band = xpBand(R, 'athina');
   same(band.trainerIds.slice().sort(), ATHINA_TRAINERS.slice().sort(), 'the eight trainers of route 11, Μοναστηράκι, route 12, the Hill and Σύνταγμα (the boss does not count; the rival is one of them)');
   assert.equal(band.top, 44);
@@ -3328,7 +3401,7 @@ test('Αθήνα XP band (section 11.4): within W = 10 wild fights, the eight tr
   assert.ok(band.trainerXp > 0 && band.wildXp > 0);
   assert.ok(R.TRAINERS.baboulas.boss && !band.trainerIds.includes('baboulas'), 'the boss comes after the climb');
 });
-test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Medal; every new map is reachable, has its way back and no dead end; the door of the Βουλή is shut without the sixth badge, with a sign beside it', () => {
+test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Medal; every new map is reachable, has its way back and no dead end; the door of the Βουλή is shut without the sixth badge, with a sign beside it', { tier: 'content' }, () => {
   const start = R.START_MAP;
   const gate = R.MAPS.chaidari.warps.find((warp) => warp.x === 0 && warp.y === 9);
   assert.ok(gate && gate.to === 'route11' && gate.needFlag === 'badge_dytika' && R.STRINGS[gate.lockedText], 'the gate at the west end of the street needs the flag badge_dytika and says why');
@@ -3370,7 +3443,7 @@ test('Αθήνα: the road from Χαϊδάρι is shut without the Tax-Free Meda
   assert.equal(R.MAPS.syntagma.signs['11,5'], 'sign.syntagma.parliament');
   assert.ok(R.STRINGS[R.MAPS.syntagma.warps.find((warp) => warp.x === 14 && warp.y === 4).lockedText], 'facing the shut door says why');
 });
-test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.6, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Μοναστηράκι, the Rock and the Hill', () => {
+test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild tables with the species of 11.3.6, two towns with hospital, kiosk and ΚΤΕΛ stop, the café of Μοναστηράκι, the Rock and the Hill', { tier: 'content' }, () => {
   const sizes = { route11: [36, 14], monastiraki: [26, 18], monastiraki_hospital: [12, 9], monastiraki_shop: [8, 6], monastiraki_cafe: [10, 8], rock: [20, 16], route12: [40, 16], lycabettus: [20, 16], syntagma: [30, 20], syntagma_hospital: [12, 9], syntagma_shop: [8, 6] };
   for (const id of ATHINA_MAP_IDS) {
     const map = R.MAPS[id];
@@ -3440,9 +3513,9 @@ test('Αθήνα data: sizes of 11.7, places on the world map, rows, tiles, wild
   }
   assert.ok(checked > 180, 'the word checks read ' + checked + ' texts');
   for (const id of ATHINA_TRAINERS.concat(['baboulas'])) assert.ok(!FAITH_WORDS.test(plainText(R.TRAINERS[id].name)) && !ATHINA_FORBIDDEN_WORDS.test(plainText(R.TRAINERS[id].name)), id + ' name');
-  for (const key of ['map.monastiraki.shop', 'map.syntagma.shop', 'map.monastiraki.cafe']) for (const text of R.STRINGS[key].slice(0, 2)) assert.ok(!/(ακροπολ|παρθενών|acropolis|parthenon|βράχος|rock)/.test(plainText(text)), key + ': no real monument name on a shop');
+  for (const key of ['map.monastiraki.shop', 'map.syntagma.shop', 'map.monastiraki.cafe']) for (const text of R.STRINGS[key].slice(0, 2)) assert.ok(!MONUMENT_WORDS.test(plainText(text)), key + ': no real monument name on a shop');
 });
-test('Αθήνα legend: the Φορολογούμενος is a single recruitable creature met on the Rock at level 40 (a fixed encounter), gone once beaten or recruited, and a fair fight for a level 40 team', () => {
+test('Αθήνα legend: the Φορολογούμενος is a single recruitable creature met on the Rock at level 40 (a fixed encounter), gone once beaten or recruited, and a fair fight for a level 40 team', { tier: 'content' }, () => {
   const species = R.SPECIES.taxpayer;
   assert.ok(species.t === 'mem' && species.ab === 'out' && species.g === 'm' && !species.evo && !species.starter && !species.parody, 'type, ability, gender, no evolution');
   assert.ok(species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) >= 470 && species.xp >= 100 && species.rec > 0 && species.rec <= 10, 'a legend: strong for a species (470 to 490, the best final forms), a lot of XP, a very low recruit rate');
@@ -3494,13 +3567,13 @@ test('Αθήνα legend: the Φορολογούμενος is a single recruitabl
   const recruitHard = R.recruitChance(R.makeMon('taxpayer', 40), 'chontros');
   assert.ok(recruitHard > 0 && recruitHard < R.recruitChance(R.makeMon('star90', 40), 'chontros'), 'it is harder to recruit than an ordinary creature');
 });
-test('Αθήνα items: the kiosks sell the ten items of Δυτικά and nothing new; the prize money of the district is far above the stock', () => {
+test('Αθήνα items: the kiosks sell the ten items of Δυτικά and nothing new; the prize money of the district is far above the stock', { tier: 'content' }, () => {
   same(R.SHOP_STOCK_DYTIKA.length, 10);
   for (const mapId of ['monastiraki_shop', 'syntagma_shop']) same(R.shopStockOf(R.MAPS[mapId]), R.SHOP_STOCK_DYTIKA, mapId);
   same(DISTRICT_NEW_ITEMS.athina, []);
   assert.equal(R.ITEM_IDS.length, 10, 'no new item in Αθήνα');
 });
-test('Αθήνα trainers: eight trainers with names in the strings, levels 39-42 (the rival: 42, the boss top level minus 2), a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', () => {
+test('Αθήνα trainers: eight trainers with names in the strings, levels 39-42 (the rival: 42, the boss top level minus 2), a seeded 1,000-battle replay twice gives equal checksums, the fights are winnable at the intended levels', { tier: 'content' }, () => {
   assert.equal(ATHINA_TRAINERS.length, 8);
   const onMaps = {};
   for (const id of ['route11', 'monastiraki', 'route12', 'lycabettus', 'syntagma']) for (const npc of R.MAPS[id].npcs) if (npc.kind === 'trainer') onMaps[npc.trainer] = id;
@@ -3557,7 +3630,7 @@ test('Αθήνα trainers: eight trainers with names in the strings, levels 39-4
     assert.ok(winRate(id, 42, 3, 100) >= 0.5, id + ' with three creatures at level 42');
   }
 });
-test('Αθήνα boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', () => {
+test('Αθήνα boss: the win-rate bands of 11.7 (the same offsets and bands as the other bosses) with the AI-played player team, and the boss data', { tier: 'content' }, () => {
   const boss = R.TRAINERS.baboulas;
   same(boss.team.map((entry) => entry.sp + entry.lv), BOSS_TEAM_02F, 'the boss team of 11.16');
   assert.equal(boss.boss, true); assert.equal(boss.bonus, 200);
@@ -3590,7 +3663,7 @@ test('Αθήνα boss: the win-rate bands of 11.7 (the same offsets and bands as
   for (let top = 10; top < 60; top++) assert.ok(lowestRowOffset(top) >= 3 && lowestRowOffset(top + 1) - lowestRowOffset(top) <= 1 && lowestRowOffset(top) / top >= 0.105, 'the rule at top ' + top);
   for (const [earlier, offset] of [['bougatsas', 3], ['faia', 3], ['amartia', 4], ['plousiakis', 4]]) assert.equal(bossBands(R, earlier)[2][1], -offset, earlier + ' lowest row');
 });
-test('Αθήνα: old saves (v2 and v3, standing anywhere in the five built districts) load and continue; the new flags and places migrate; the old creatures are untouched', () => {
+test('Αθήνα: old saves (v2 and v3, standing anywhere in the five built districts) load and continue; the new flags and places migrate; the old creatures are untouched', { tier: 'content' }, () => {
   const party = [{ sp: 'ktimatomesitis', lv: 40, xp: R.xpForLevel(40), hp: 40 }, { sp: 'giagiaexo', lv: 41, xp: R.xpForLevel(41), hp: 30 }, { sp: 'tavlilordos', lv: 42, xp: R.xpForLevel(42), hp: 40 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 555, bag: { fakelaki: 3, gemista: 1, sylvasi: 2 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'chaidari_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -3642,7 +3715,7 @@ test('Αθήνα: old saves (v2 and v3, standing anywhere in the five built dist
   // a save from this build stands on an Αθήνα tile that an older build does not know: it falls back to the start, as for every unknown place
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, ATHINA_FLAGS)).player.map, 'lab');
 });
-test('Αθήνα leaves Δυτικά as it was: only the west end of the Χαϊδάρι street changes (0,9 is the gate); every old walkable tile is still walkable', () => {
+test('Αθήνα leaves Δυτικά as it was: only the west end of the Χαϊδάρι street changes (0,9 is the gate); every old walkable tile is still walkable', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02E)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02E[id].split('/');
@@ -3658,7 +3731,7 @@ test('Αθήνα leaves Δυτικά as it was: only the west end of the Χαϊ�
   same(nowWalkable, ['chaidari:0,9']);
   assert.equal(R.districtState(R.newWorldState(), 'athina'), 'locked');
 });
-test('Αθήνα boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', () => {
+test('Αθήνα boss path: the victory data of the boss sets only the flag of its own badge; the other flags and the credits flag are not touched', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('TRAINERS[trainerId].victory') && victory.includes('G.flags[victory.flag] = true') && !/G\.flags\.(badge|badge_notia|badge_anatolika|badge_voreia|badge_dytika|badge_athina)\b/.test(victory));
@@ -3666,7 +3739,7 @@ test('Αθήνα boss path: the victory data of the boss sets only the flag of i
   for (const other of ['bougatsas', 'faia', 'amartia', 'plousiakis']) assert.notEqual(R.TRAINERS.baboulas.victory.ribbon, R.TRAINERS[other].victory.ribbon, 'each badge has its own ribbon colour');
   assert.notEqual(R.STRINGS['badge.athina.title'][0], R.STRINGS['badge.dytika.title'][0]);
 });
-test('Αθήνα: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the legend is a talk, not a roll)', () => {
+test('Αθήνα: no per-frame work in the new content (the tiles and creature sprites are drawn once into canvases; the texts are cached strings; the legend is a talk, not a roll)', { tier: 'content' }, () => {
   const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
   for (const char of ['"', '$', '[', ']', '{', '}']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
   const cache = html.slice(html.indexOf('function creatureSprite('), html.indexOf('function buildAllSprites()'));
@@ -3679,7 +3752,7 @@ test('Αθήνα: no per-frame work in the new content (the tiles and creature s
   const legendMethod = html.slice(html.indexOf('OverworldLayer.prototype.legendEncounter = async function'), html.indexOf('OverworldLayer.prototype.challenge = async function'));
   assert.ok(!/(setInterval|requestAnimationFrame|update\s*=)/.test(legendMethod), 'the legend encounter runs only when the player talks to it');
 });
-test('Αθήνα: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', () => {
+test('Αθήνα: type fairness named: every type of the boss is hit for x2 by a starter or a creature that is available before him', { tier: 'content' }, () => {
   const types = new Set(R.TRAINERS.baboulas.team.map((entry) => R.SPECIES[entry.sp].t));
   assert.ok(['asf', 'biz', 'cel'].every((type) => types.has(type)) && types.size === 3, 'the boss brings Ασφαλίτες (his ace ΜΑΤάνθρωπος, as 11.3 names them), Επιχειρηματίες and Celebrities, no Πολιτικοί (kept for the final) and no Εκκλησία (the Δυτικά boss has it)');
   assert.equal(R.SPECIES[R.TRAINERS.baboulas.team[R.TRAINERS.baboulas.team.length - 1].sp].t, 'asf', 'the ace is of the type of his title');
@@ -3687,7 +3760,7 @@ test('Αθήνα: type fairness named: every type of the boss is hit for x2 by a
   for (const type of types) assert.ok(before.some((id) => R.typeMultiplier(R.SPECIES[id].t, type) === 2), 'a starter or a creature of the districts up to Αθήνα hits ' + type);
   assert.ok(R.typeMultiplier('pol', 'biz') === 2 && R.typeMultiplier('pol', 'asf') === 2 && R.typeMultiplier('ekk', 'asf') === 2 && R.typeMultiplier('ekk', 'cel') === 2, 'Κομματάκι (Πολιτικοί) hits the Επιχειρηματίες and the Ασφαλίτες, Ψαλτάκι (Εκκλησία) the Ασφαλίτες and the Celebrities');
 });
-test('Αθήνα leaves the earlier bosses as they were: nothing it adds can reach their levels (the legend is one level 40 creature, no evolution, no wild table and no place in a test pool)', () => {
+test('Αθήνα leaves the earlier bosses as they were: nothing it adds can reach their levels (the legend is one level 40 creature, no evolution, no wild table and no place in a test pool)', { tier: 'content' }, () => {
   assert.ok(R.SPECIES.taxpayer.rec <= 10 && !R.SPECIES.taxpayer.evo && ![...ATHINA_POOL, ...DYTIKA_POOL].includes('taxpayer'), 'the legend is in no test pool and is no evolution');
   for (const [id, species] of Object.entries(R.SPECIES)) if (species.evo) assert.notEqual(species.evo.to, 'taxpayer', id + ' does not evolve into the legend');
   assert.equal(ATHINA_POOL.length, DYTIKA_POOL.length, 'the pool of Αθήνα is the pool of Δυτικά (every wild creature of Αθήνα is an evolved form of it or in it)');
@@ -3756,7 +3829,7 @@ const checkParliamentBands = (bossId) => {
   assert.equal(bossBands(R, bossId)[1][5], bossId === 'undersec' ? 0.65 : 0.75);
 };
 
-test('Βουλή XP band (section 11.4): no wild creature in the Βουλή, so the three fights before the last must pay the XP three creatures need from 44 to 48, and not much more', () => {
+test('Βουλή XP band (section 11.4): no wild creature in the Βουλή, so the three fights before the last must pay the XP three creatures need from 44 to 48, and not much more', { tier: 'content' }, () => {
   const band = parliamentXpBand(R);
   same(band.fightIds, ['euterpe', 'minister', 'rival6'], 'the boss fight does not count');
   assert.equal(band.need, 45735, '3 x (xpForLevel(48) - xpForLevel(44))');
@@ -3765,7 +3838,7 @@ test('Βουλή XP band (section 11.4): no wild creature in the Βουλή, so 
   assert.ok(R.TRAINERS.undersec.boss && !band.fightIds.includes('undersec'));
   for (const id of PARLIAMENT_FIGHTS) assert.ok(R.xpReward(R.buildTrainerTeam(id, 'komma')[0], true) > 0);
 });
-test('Βουλή: the door on the square opens with the Assembly Medal (shut and open); the chambers open one after the other; the roof opens with the ending; every map is reachable, leads back and has no dead end', () => {
+test('Βουλή: the door on the square opens with the Assembly Medal (shut and open); the chambers open one after the other; the roof opens with the ending; every map is reachable, leads back and has no dead end', { tier: 'content' }, () => {
   const door = R.MAPS.syntagma.warps.find((warp) => warp.x === 14 && warp.y === 4);
   assert.ok(door && door.to === 'parliament_lobby' && door.needFlag === 'badge_athina' && R.STRINGS[door.lockedText], 'the door needs the flag badge_athina and says why');
   assert.ok(!R.tileDef(R.MAPS.syntagma, 14, 4).solid && R.MAPS.syntagma.rows[4][14] === 'Ξ', 'the door tile is a walkable formal door');
@@ -3828,7 +3901,7 @@ test('Βουλή: the door on the square opens with the Assembly Medal (shut and
   assert.ok(doctor.healKeys && Object.values(doctor.healKeys).every((key) => R.STRINGS[key]), 'the doctor has texts of his own');
   assert.ok(R.npcTalkable('parliament_lobby', doctor, beforeEnding), 'the doctor can be talked to');
 });
-test('Βουλή data: sizes of 11.7, the place on the world map, rows, tiles, the four new tiles and their sprites, looks, texts without a forbidden word', () => {
+test('Βουλή data: sizes of 11.7, the place on the world map, rows, tiles, the four new tiles and their sprites, looks, texts without a forbidden word', { tier: 'content' }, () => {
   const sizes = { parliament_lobby: [14, 10], parliament_c1: [12, 9], parliament_c2: [12, 9], parliament_c3: [12, 9], parliament_plenary: [16, 12], parliament_roof: [10, 8] };
   for (const id of PARLIAMENT_MAP_IDS) {
     const map = R.MAPS[id];
@@ -3873,7 +3946,7 @@ test('Βουλή data: sizes of 11.7, the place on the world map, rows, tiles, t
   assert.equal(R.TRAINERS.euterpe.name, 'Η Προϊσταμένη Ευτέρπη'); assert.equal(R.TRAINERS.minister.name, 'Ο Υπουργός Σπυράδωνις'); assert.equal(R.TRAINERS.undersec.name, 'Ο Υφυπουργός Παντός');
   assert.ok(R.STRINGS['sign.parliament.c1'][0].includes('13:00') && /ραντεβού/.test(R.STRINGS['sign.parliament.c1'][0]) && /appointment/.test(R.STRINGS['sign.parliament.c1'][1]), 'the door of Ευτέρπη: open until 13:00, then an appointment');
 });
-test('Βουλή legend: Ηλιθιοκρατία is a single recruitable creature that waits in the emptied plenary hall at level 50 after the credits (a fixed encounter with a visible boost), gone once beaten or recruited', () => {
+test('Βουλή legend: Ηλιθιοκρατία is a single recruitable creature that waits in the emptied plenary hall at level 50 after the credits (a fixed encounter with a visible boost), gone once beaten or recruited', { tier: 'content' }, () => {
   const species = R.SPECIES.ilithiokratia;
   assert.ok(species.t === 'pol' && species.ab === 'asy' && species.g === 'f' && !species.evo && !species.starter && !species.parody, 'type, ability, gender, no evolution');
   assert.ok(species.base.length === 6 && species.base.reduce((a, b) => a + b, 0) <= 490 && species.xp >= 100 && species.rec > 0 && species.rec <= 10, 'a legend: a base sum of 490 or less, a lot of XP, a very low recruit rate');
@@ -3928,7 +4001,7 @@ test('Βουλή legend: Ηλιθιοκρατία is a single recruitable creatu
   assert.ok(recruitHard > 0 && recruitHard < R.recruitChance(R.makeMon('star90', 50), 'chontros'), 'it is harder to recruit than an ordinary creature');
   assert.ok(R.SPECIES.taxpayer.base.reduce((a, b) => a + b, 0) <= 490 && R.SPECIES.ilithiokratia.base.reduce((a, b) => a + b, 0) <= 490, 'both legends are ordinary species');
 });
-test('Βουλή fights: four fights with the teams, levels and sizes of 11.17, names and texts in both languages, prize 30 x the last level each, the rival follows the starter, the studio fight is unchanged, a seeded replay twice gives equal checksums', () => {
+test('Βουλή fights: four fights with the teams, levels and sizes of 11.17, names and texts in both languages, prize 30 x the last level each, the rival follows the starter, the studio fight is unchanged, a seeded replay twice gives equal checksums', { tier: 'content' }, () => {
   same(PARLIAMENT_FIGHTS, ['euterpe', 'minister', 'rival6', 'undersec']);
   same(PARLIAMENT_FIGHTS.map((id) => R.TRAINERS[id].team.length), [5, 5, 6, 6]);
   const ranges = { euterpe: [44, 46], minister: [45, 47], rival6: [46, 48], undersec: [47, 50] };
@@ -4001,17 +4074,17 @@ test('Βουλή fights: four fights with the teams, levels and sizes of 11.17, 
   assert.notEqual(replay(71), replay(72));
   for (const id of PARLIAMENT_FIGHTS) assert.ok(bossWinRate(R, id, 50, 6, ['souvlaki', 'souvlaki'], 200, 7300) >= 0.5, id + ' with six creatures at level 50 (the cap)');
 });
-test('Βουλή fight 1, Ευτέρπη: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', () => { checkParliamentBands('euterpe'); });
-test('Βουλή fight 2, Σπυράδωνις: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', () => { checkParliamentBands('minister'); });
-test('Βουλή fight 3, Μπέμπης: the win-rate bands of 11.7 (the three-seed mean, with the starter the player took and the rival that follows it), and the team of 11.17', () => { checkParliamentBands('rival6'); });
-test('Βουλή fight 4, Ο Υφυπουργός Παντός: the win-rate bands of 11.7 (the final: the row above the top is the top itself, the cap, 60-90 %, and top minus 1 is 45-65 %), and the team of 11.17', () => { checkParliamentBands('undersec'); });
-test('Βουλή: the lowest row of every fight follows the stat-ratio rule (5, 5, 6, 6) and the earlier bosses keep their rows', () => {
+test('Βουλή fight 1, Ευτέρπη: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', { tier: 'content' }, () => { checkParliamentBands('euterpe'); });
+test('Βουλή fight 2, Σπυράδωνις: the win-rate bands of 11.7 (the three-seed mean, at least one standard error inside every band) with the AI-played player team, and the team of 11.17', { tier: 'content' }, () => { checkParliamentBands('minister'); });
+test('Βουλή fight 3, Μπέμπης: the win-rate bands of 11.7 (the three-seed mean, with the starter the player took and the rival that follows it), and the team of 11.17', { tier: 'content' }, () => { checkParliamentBands('rival6'); });
+test('Βουλή fight 4, Ο Υφυπουργός Παντός: the win-rate bands of 11.7 (the final: the row above the top is the top itself, the cap, 60-90 %, and top minus 1 is 45-65 %), and the team of 11.17', { tier: 'content' }, () => { checkParliamentBands('undersec'); });
+test('Βουλή: the lowest row of every fight follows the stat-ratio rule (5, 5, 6, 6) and the earlier bosses keep their rows', { tier: 'content' }, () => {
   same(PARLIAMENT_FIGHTS.map((id) => bossBands(R, id)[2][1]), [-5, -5, -6, -6]);
   same(PARLIAMENT_FIGHTS.map((id) => lowestRowOffset(PARLIAMENT_TOPS[id])), [5, 5, 6, 6]);
   for (const [earlier, offset] of [['bougatsas', 3], ['faia', 3], ['amartia', 4], ['plousiakis', 4], ['baboulas', 5]]) assert.equal(bossBands(R, earlier)[2][1], -offset, earlier + ' lowest row');
   assert.equal(bossBands(R, 'baboulas')[1][4], 0.55, 'only the final has the band 45-65');
 });
-test('Βουλή: old saves (v2 and v3, standing anywhere in the six built districts) load and continue; the new flags and places migrate; the ending is saved with the player on the roof', () => {
+test('Βουλή: old saves (v2 and v3, standing anywhere in the six built districts) load and continue; the new flags and places migrate; the ending is saved with the player on the roof', { tier: 'content' }, () => {
   const party = [{ sp: 'ktimatomesitis', lv: 44, xp: R.xpForLevel(44), hp: 40 }, { sp: 'giagiaexo', lv: 45, xp: R.xpForLevel(45), hp: 30 }, { sp: 'tavlilordos', lv: 46, xp: R.xpForLevel(46), hp: 40 }];
   const make = (version, map, x, y, flags, extra) => Object.assign({ version, player: { name: 'ΝΙΚΟΣ', gender: 'm', map, x, y, dir: 'left' }, party, archive: [], money: 777, bag: { fakelaki: 3, gemista: 1, sylvasi: 2 },
     dex: { seen: { komma: true }, got: { komma: true } }, flags, lastHeal: { map: 'syntagma_hospital', x: 5, y: 7, dir: 'up' }, options: { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false }, rngState: 99, starter: 'komma' }, extra || {});
@@ -4056,7 +4129,7 @@ test('Βουλή: old saves (v2 and v3, standing anywhere in the six built distr
   assert.equal(stored.flags.credits, true, 'the flag credits is kept as it was by the ending');
   assert.equal(R.migrateSave(make(3, 'atlantis', 3, 3, PARLIAMENT_FLAGS)).player.map, 'lab', 'an unknown place falls back to the start, as before');
 });
-test('Βουλή leaves Αθήνα as it was: only the door of the parliament changes (14,4 walks on); every old walkable tile of the eleven maps is still walkable, and the walls of the Βουλή stay solid', () => {
+test('Βουλή leaves Αθήνα as it was: only the door of the parliament changes (14,4 walks on); every old walkable tile of the eleven maps is still walkable, and the walls of the Βουλή stay solid', { tier: 'content' }, () => {
   for (const id of Object.keys(OLD_WALKABLE_02F)) {
     const map = R.MAPS[id];
     const rows = OLD_WALKABLE_02F[id].split('/');
@@ -4076,7 +4149,7 @@ test('Βουλή leaves Αθήνα as it was: only the door of the parliament ch
   }
   assert.equal(R.districtState(R.newWorldState(), 'athina'), 'locked');
 });
-test('Βουλή final path: the last fight rolls the credits and sets ending; no earlier fight does; the credits flag keeps its meaning; the credits list what the game really uses', () => {
+test('Βουλή final path: the last fight rolls the credits and sets ending; no earlier fight does; the credits flag keeps its meaning; the credits list what the game really uses', { tier: 'content' }, () => {
   const part = (from, to) => html.slice(html.indexOf(from), html.indexOf(to));
   const victory = part('OverworldLayer.prototype.bossVictory', 'OverworldLayer.prototype.runEvent');
   assert.ok(victory.includes('if (victory.credits) { await this.finale(); return; }') && victory.indexOf('victory.credits') < victory.indexOf('victory.chapterCard'), 'the credits branch comes before the chapter card');
@@ -4117,7 +4190,7 @@ test('Βουλή final path: the last fight rolls the credits and sets ending; n
     const lines = text.split('\n');
     assert.equal(lines[0], 'MIZAMON');
     assert.ok(lines.every((line) => line.length <= 42), 'every line of the credits is short enough for the screen: ' + lines.filter((line) => line.length > 42).join(' | '));
-    assert.ok(!/(\bAI\b|Claude|Anthropic|OpenAI|GPT|ChatGPT|generated|δημιουργήθηκε από τεχνητή|τεχνητή νοημοσύνη|Σταθόπουλος|Stathopoulos|Μητσοτάκ|Τσίπρα)/i.test(text), 'no AI attribution and no name in the credits');
+    assert.ok(!CREDITS_FORBIDDEN_WORDS.test(text), 'no AI attribution and no name in the credits');
     assert.ok(!DENY_PATTERN.test(plainText(text)) && !DENIED_CAPITALISED_WORDS.test(text), 'no brand in the credits');
     assert.ok(/Σάτιρα|Satire/.test(text), 'the satire line stays');
   }
@@ -4129,7 +4202,7 @@ test('Βουλή final path: the last fight rolls the credits and sets ending; n
   assert.ok(/createOscillator\(\)/.test(html) && !/decodeAudioData|createMediaElementSource/.test(html), 'the sounds are synthesised');
   assert.ok(html.includes("img-src data: blob:") && html.includes("default-src 'none'"), 'the page may not load anything (content security policy)');
 });
-test('Βουλή: no per-frame work in the new content (the tiles and the creature sprite are drawn once into canvases; the texts are cached strings; the finale and the legend run only when the player talks)', () => {
+test('Βουλή: no per-frame work in the new content (the tiles and the creature sprite are drawn once into canvases; the texts are cached strings; the finale and the legend run only when the player talks)', { tier: 'content' }, () => {
   const tileBuilder = html.slice(html.indexOf('function buildTileSprites()'), html.indexOf('buildHospitalTiles(make);'));
   for (const char of ['Δ', 'Θ', 'Φ', 'Ξ']) assert.ok(tileBuilder.includes("make('" + char + "'"), 'the sprite of tile ' + char + ' is built once in buildTileSprites');
   assert.ok(new RegExp('^ {2}ilithiokratia: function \\(p\\) \\{', 'm').test(html.slice(html.indexOf('const creatureDrawers = {'), html.indexOf('const creatureSprites = {}'))), 'the legend is drawn by a creatureDrawers entry (run once)');
@@ -4142,7 +4215,7 @@ test('Βουλή: no per-frame work in the new content (the tiles and the creatu
   const mapDraw = html.slice(html.indexOf('function drawMapPlaces'), html.indexOf('function drawMapDistrictNames'));
   assert.ok(mapDraw.includes("state === 'visited'") && !mapDraw.includes('T('), 'the visited dot of the Βουλή is drawn into the cached base, with no text work');
 });
-test('Βουλή: type fairness named: every type of every fight is hit for x2 by a starter or a creature that is available before it', () => {
+test('Βουλή: type fairness named: every type of every fight is hit for x2 by a starter or a creature that is available before it', { tier: 'content' }, () => {
   const before = [...R.STARTERS, ...R.districtSpecies('peiraias'), ...R.districtSpecies('notia'), ...R.districtSpecies('anatolika'), ...R.districtSpecies('voreia'), ...R.districtSpecies('dytika'), ...R.districtSpecies('athina')];
   for (const id of PARLIAMENT_FIGHTS) {
     const types = new Set(R.buildTrainerTeam(id, 'komma').map((mon) => R.SPECIES[mon.sp].t)); // the rival's last form is that of the starter he took: the three starters give the three types pol, asf and ekk
@@ -4155,7 +4228,7 @@ test('Βουλή: type fairness named: every type of every fight is hit for x2 b
   assert.ok(R.districtSpecies('athina').some((id) => R.SPECIES[id].t === 'mem') || before.some((id) => R.SPECIES[id].t === 'mem'), 'a Memes creature is available (Τρολόσαυρος, from Πειραιάς)');
   assert.equal(R.SPECIES[R.TRAINERS.undersec.team[5].sp].t, 'pol', 'the ace of the last fight is a Πολιτικός');
 });
-test('Βουλή leaves the earlier bosses as they were: the new fights add no creature to any test pool and the rival of the Βουλή builds with the starter the player took', () => {
+test('Βουλή leaves the earlier bosses as they were: the new fights add no creature to any test pool and the rival of the Βουλή builds with the starter the player took', { tier: 'content' }, () => {
   assert.equal(PARLIAMENT_POOL.length, ATHINA_POOL.length, 'the pool of the Βουλή is the pool of Αθήνα (no wild creature, no new item, the legend in no pool)');
   assert.equal(R.TRAINERS.baboulas.team.length, 6, 'the Αθήνα boss is as it was (its bands are measured by its own test, at the same seed)');
   const team = parliamentTeam(R, R.makeRng(3), 48, 6);
@@ -4315,11 +4388,10 @@ export function parliamentXpBand(rules) {
 
 // ---- Accessibility options (MZ-A11Y-01) ----
 const NEW_OPTIONS = ['largeText', 'typeMarks', 'flashesOff', 'holdRepeat', 'touchHand'];
-const enginePart = html.slice(html.indexOf('// ENGINE: everything below'));
-registerScanSubject('engine', enginePart);
+// (enginePart, the engine half of the page, is set with the page of the pass: useContext)
 const OLD_OPTION_SET = { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true };
 
-test('accessibility options: defaults, and every value is checked (a wrong type or an out-of-range number falls back to the default)', () => {
+test('accessibility options: defaults, and every value is checked (a wrong type or an out-of-range number falls back to the default)', { tier: 'engine', fixtures: [] }, () => {
   const defaults = R.defaultOptions();
   same(defaults, { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false, largeText: 0, typeMarks: true, flashesOff: false, holdRepeat: 2, touchHand: 0 });
   assert.equal(defaults.holdRepeat, R.HOLD_REPEAT_DEFAULT);
@@ -4343,7 +4415,7 @@ test('accessibility options: defaults, and every value is checked (a wrong type 
   same(R.normalizeOptions(JSON.parse(JSON.stringify(R.normalizeOptions({ largeText: 2, typeMarks: false, flashesOff: true, holdRepeat: 0, touchHand: 2, lang: 'en' })))), R.normalizeOptions({ largeText: 2, typeMarks: false, flashesOff: true, holdRepeat: 0, touchHand: 2, lang: 'en' }), 'a normalised set is stable');
   assert.deepEqual(Object.keys(defaults).sort(), ['flashesOff', 'holdRepeat', 'lang', 'largeText', 'reduceMotion', 'sound', 'textSpeed', 'touchHand', 'typeMarks'], 'the option list is the one the Accessibility screen knows');
 });
-test('accessibility options: an old saved option set and old saves (versions 0, 1, 2 and 3) load with the old choices kept and the new options at their defaults', () => {
+test('accessibility options: an old saved option set and old saves (versions 0, 1, 2 and 3) load with the old choices kept and the new options at their defaults', { tier: 'engine', fixtures: ['item:fakelaki', 'item:souvlaki', 'map:hospital', 'map:town', 'species:fakelakis', 'species:komma', 'species:storoula'] }, () => {
   const oldSet = R.normalizeOptions(OLD_OPTION_SET);
   same({ lang: oldSet.lang, sound: oldSet.sound, textSpeed: oldSet.textSpeed, reduceMotion: oldSet.reduceMotion }, OLD_OPTION_SET);
   for (const name of NEW_OPTIONS) assert.equal(oldSet[name], R.defaultOptions()[name], name + ' is at its default');
@@ -4379,7 +4451,7 @@ test('accessibility options: an old saved option set and old saves (versions 0, 
   assert.ok(/OPT = normalizeOptions\(saved\)/.test(enginePart) && enginePart.includes('JSON.stringify(OPT)') && enginePart.includes('options: Object.assign({}, OPT)'), 'the options are saved and loaded through the options key and the save');
 });
 
-test('accessibility hold to repeat: Normal is the old timing (20 frames, then every 5), Off never repeats, Slow and Fast bracket it', () => {
+test('accessibility hold to repeat: Normal is the old timing (20 frames, then every 5), Off never repeats, Slow and Fast bracket it', { tier: 'engine', fixtures: [] }, () => {
   const fires = (level) => Array.from({ length: 120 }, (_, i) => i + 1).filter((frame) => R.repeatFires(level, frame));
   const oldRule = (held) => held > 20 && (held - 20) % 5 === 0;
   assert.deepEqual(fires(2), Array.from({ length: 120 }, (_, i) => i + 1).filter(oldRule), 'level 2 is the rule the game had');
@@ -4409,7 +4481,7 @@ test('accessibility hold to repeat: Normal is the old timing (20 frames, then ev
   }
 });
 
-test('accessibility flashes off: a hit is steady and still, an evolution glows steadily, nothing blinks faster than 3 times a second', () => {
+test('accessibility flashes off: a hit is steady and still, an evolution glows steadily, nothing blinks faster than 3 times a second', { tier: 'engine', fixtures: [] }, () => {
   const frames = Array.from({ length: 16 }, (_, t) => t);
   const normal = frames.map((t) => R.hitLook(t, false, false));
   assert.ok(new Set(normal.map((look) => look.dx)).size === 2 && new Set(normal.map((look) => look.alpha)).size === 2, 'by default a hit shakes and blinks');
@@ -4447,7 +4519,7 @@ test('accessibility flashes off: a hit is steady and still, an evolution glows s
   assert.deepEqual(rawBlinks, [], 'every blink goes through blinkShows');
 });
 
-test('accessibility type marks: seven different 5 x 5 shapes, none of them a cross or an x, each readable without its colour', () => {
+test('accessibility type marks: seven different 5 x 5 shapes, none of them a cross or an x, each readable without its colour', { tier: 'integrity' }, () => {
   assert.deepEqual(Object.keys(R.TYPE_MARKS).sort(), [...R.TYPE_IDS].sort(), 'one mark per type');
   const size = R.TYPE_MARK_SIZE;
   assert.equal(size, 5);
@@ -4488,7 +4560,7 @@ const oldScreenSize = (viewW, viewH, touch) => { // the size rule of the game be
   if (scale >= 2) scale = Math.floor(scale);
   return { cssW: Math.floor(240 * scale), cssH: Math.floor(160 * scale), padHeight: portrait ? viewH - Math.floor(160 * scale) : viewH };
 };
-test('accessibility large text: with it off and both hands, the picture has exactly the size it had before (every window, touch or not)', () => {
+test('accessibility large text: with it off and both hands, the picture has exactly the size it had before (every window, touch or not)', { tier: 'engine', fixtures: [] }, () => {
   for (const [viewW, viewH] of WINDOWS) for (const touch of [false, true]) {
     const layout = R.screenLayout(viewW, viewH, touch, 0, 0);
     const old = oldScreenSize(viewW, viewH, touch);
@@ -4498,7 +4570,7 @@ test('accessibility large text: with it off and both hands, the picture has exac
   }
   assert.equal(R.screenLayout(1280, 720, false, 0, 0).cssW, 960, 'a desktop window is still x4');
 });
-test('accessibility large text: at the largest scale the picture and the bar are inside the window and do not touch each other or the buttons, in every window (390x844, 844x390, 1280x720 and 12 more)', () => {
+test('accessibility large text: at the largest scale the picture and the bar are inside the window and do not touch each other or the buttons, in every window (390x844, 844x390, 1280x720 and 12 more)', { tier: 'engine', fixtures: [] }, () => {
   assert.deepEqual([...R.LARGE_TEXT_FACTORS], [0, 1.4, 1.9]);
   for (const [viewW, viewH] of WINDOWS) for (const touch of [false, true]) for (const hand of [0, 1, 2]) for (const level of [1, 2]) {
     const where = viewW + 'x' + viewH + ' touch ' + touch + ' hand ' + hand + ' level ' + level;
@@ -4528,7 +4600,7 @@ test('accessibility large text: at the largest scale the picture and the bar are
   assert.ok(desk.cssH + desk.captionHeight <= 720 && desk.captionHeight >= 56);
 });
 
-test('accessibility one-hand touch controls: all eight buttons inside the pad, none over another or the picture or the bar, all inside the thumb reach of one side, the left hand mirrors the pad but not the arrows (left arrow left of the right arrow in both hands)', () => {
+test('accessibility one-hand touch controls: all eight buttons inside the pad, none over another or the picture or the bar, all inside the thumb reach of one side, the left hand mirrors the pad but not the arrows (left arrow left of the right arrow in both hands)', { tier: 'engine', fixtures: [] }, () => {
   const NAMES = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
   for (const orientation of ['portrait', 'landscape']) assert.deepEqual(Object.keys(R.ONE_HAND_BUTTONS[orientation]).sort(), [...NAMES].sort(), orientation + ' has all eight buttons');
   const overlap = (a, b) => a.left < b.left + b.width && b.left < a.left + a.width && a.bottom < b.bottom + b.height && b.bottom < a.bottom + a.height;
@@ -4584,7 +4656,7 @@ test('accessibility one-hand touch controls: all eight buttons inside the pad, n
   assert.ok(R.ONE_HAND_PAD_HEIGHT <= 300);
   assert.equal(R.TOUCH_HANDS, 3);
 });
-test('accessibility touch layout of a portrait phone (both hands): all eight buttons are inside the window and apart from each other from 320 px wide, and the d-pad stays one size', () => {
+test('accessibility touch layout of a portrait phone (both hands): all eight buttons are inside the window and apart from each other from 320 px wide, and the d-pad stays one size', { tier: 'engine', fixtures: [] }, () => {
   const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>')).replace(/\r\n/g, '\n');
   const mediaStart = css.indexOf('@media (max-width: 383px) {');
   assert.ok(mediaStart >= 0, 'a rule set for phones narrower than 384 px');
@@ -4620,7 +4692,7 @@ test('accessibility touch layout of a portrait phone (both hands): all eight but
   assert.equal(R.captionHeightFor(960), R.CAPTION_MIN_HEIGHT, 'a wide picture needs only the minimum');
   assert.equal(R.CAPTION_LONGEST_PAGE, 130);
 });
-test('accessibility one hand: no part of the game needs two buttons or two fingers at once; the touch buttons work one finger at a time', () => {
+test('accessibility one hand: no part of the game needs two buttons or two fingers at once; the touch buttons work one finger at a time', { tier: 'engine', fixtures: [] }, () => {
   // nothing reads two buttons together (the keyboard and the pad likewise: the held state is read one button at a time)
   const twoTogether = enginePart.split('\n').filter((line) => /Input\.(down|pressed|repeat)(\.\w+|\[\w+\])\s*&&\s*Input\.(down|pressed|repeat)(\.\w+|\[\w+\])/.test(line));
   assert.deepEqual(twoTogether, [], 'no condition needs two buttons held at once');
@@ -4637,7 +4709,7 @@ test('accessibility one hand: no part of the game needs two buttons or two finge
   assert.ok(heldReads <= 2, 'only the walking direction and the credits read a held button (' + heldReads + ')');
 });
 
-test('accessibility: the Accessibility screen has a row for every new option, each option is read by the game (not only by the screen), and the strings exist in both languages', () => {
+test('accessibility: the Accessibility screen has a row for every new option, each option is read by the game (not only by the screen), and the strings exist in both languages', { tier: 'engine', fixtures: [] }, () => {
   const screen = enginePart.slice(enginePart.indexOf('const ACCESS_ROWS = ['), enginePart.indexOf('function AccessibilityLayer'));
   const rowOptions = [...screen.matchAll(/option: '(\w+)'/g)].map((m) => m[1]);
   assert.deepEqual(rowOptions, NEW_OPTIONS, 'the rows are the new options, in this order');
@@ -4662,7 +4734,7 @@ test('accessibility: the Accessibility screen has a row for every new option, ea
   // the type names of the marks and the caption never use a religious symbol
   assert.ok(!/[†‡✝☦☪✡☸]/.test(JSON.stringify(R.STRINGS) + JSON.stringify(R.TYPE_MARKS)), 'no cross or religious sign');
 });
-test('accessibility large text: every screen of the game answers the bar (a caption), and the bar is read from the top screen and written only when the text changes', () => {
+test('accessibility large text: every screen of the game answers the bar (a caption), and the bar is read from the top screen and written only when the text changes', { tier: 'engine', fixtures: [] }, () => {
   const layerNames = [...enginePart.matchAll(/^function ([A-Z]\w*Layer)\(/gm)].map((m) => m[1]);
   assert.ok(layerNames.length >= 24, 'found the screens (' + layerNames.length + ')');
   for (const name of layerNames) assert.ok(enginePart.includes(name + '.prototype.caption = function'), name + ' has a caption');
@@ -4718,7 +4790,7 @@ function captionSandbox(optionValues) {
   return { page, layers, OPT, run };
 }
 
-test('accessibility large text: the bar names its language before it writes the text, and again when the language changes', () => {
+test('accessibility large text: the bar names its language before it writes the text, and again when the language changes', { tier: 'engine', fixtures: [] }, () => {
   const { page, layers, OPT, run } = captionSandbox({ lang: 'en' });
   layers.push({ caption: () => 'Hello' });
   run('Caption.sync(true)');
@@ -4733,7 +4805,7 @@ test('accessibility large text: the bar names its language before it writes the 
   assert.ok(enginePart.includes('element.lang = OPT.lang;'), 'the engine sets it');
 });
 
-test('accessibility large text: a question or title is said to the screen reader once, then only the chosen row; the bar still shows both', () => {
+test('accessibility large text: a question or title is said to the screen reader once, then only the chosen row; the bar still shows both', { tier: 'engine', fixtures: [] }, () => {
   const { page, layers, run } = captionSandbox();
   const screen = { row: 'Yes', caption() { return { context: 'Sure?', text: this.row }; } };
   layers.push(screen);
@@ -4770,7 +4842,7 @@ test('accessibility large text: a question or title is said to the screen reader
   assert.equal(run('Caption.contextLayer'), null);
 });
 
-test('accessibility large text: the satire notice captions a Greek and an English line, and the bar gives each its own language', () => {
+test('accessibility large text: the satire notice captions a Greek and an English line, and the bar gives each its own language', { tier: 'engine', fixtures: [] }, () => {
   const noticeRun = engineSandbox(['NoticeLayer.prototype.caption = function'], 'function NoticeLayer() {}',
     { lookupString: (key, lang) => key + '/' + lang });
   const notice = JSON.parse(JSON.stringify(noticeRun('NoticeLayer.prototype.caption.call({})')));
@@ -4785,7 +4857,7 @@ test('accessibility large text: the satire notice captions a Greek and an Englis
   assert.equal(run('captionString(' + JSON.stringify(notice) + ')'), 'notice.line1/el notice.line2/en');
 });
 
-test('accessibility large text: the real choice, gender and name screens answer { context, text } (the question, then the row or key)', () => {
+test('accessibility large text: the real choice, gender and name screens answer { context, text } (the question, then the row or key)', { tier: 'engine', fixtures: [] }, () => {
   const run = engineSandbox(
     ['function joinCaption', 'ChoiceLayer.prototype.caption = function', 'GenderLayer.prototype.caption = function', 'NameLayer.prototype.caption = function'],
     'function ChoiceLayer() {} function GenderLayer() {} function NameLayer() {} function DialogLayer() {}\nconst NAME_PAGES = [["ABC", "DEF"]];',
@@ -4805,7 +4877,7 @@ test('accessibility large text: the real choice, gender and name screens answer 
   same(run('NameLayer.prototype.caption.call({ page: 0, row: 5, col: 2, name: "ΝΙΚΟΣ" })'), { context: 'name.title', text: 'ΝΙΚΟΣ [name.ok]' }, 'the end row: OK');
 });
 
-test('accessibility large text: the credits caption only the line that just came in, each line once and in order', () => {
+test('accessibility large text: the credits caption only the line that just came in, each line once and in order', { tier: 'engine', fixtures: [] }, () => {
   const lines = ['MIZAMON', '', 'Line one', 'Line two', '', 'Line three', 'Line four', 'Line five', 'Line six', 'Line seven'];
   const run = engineSandbox(['const CREDITS_LINE_FRAMES', 'const CREDITS_HOLD_FRAMES', 'function creditsLineY', 'function creditsEndFrame', 'const CREDITS_CAPTION_Y', 'const CREDITS_CAPTION_TOP', 'CreditsLayer.prototype.caption = function'],
     'function CreditsLayer() {}', { SCREEN_H: R.SCREEN_H });
@@ -4829,7 +4901,7 @@ test('accessibility large text: the credits caption only the line that just came
   assert.equal(run('CreditsLayer.prototype.caption.call({ lines: null, frame: 0 })'), null, 'before the lines exist: nothing');
 });
 
-test('accessibility large text: the battle bar starts with both sides (name, level) and the HP of the player; it is written once, and again only when those values change', () => {
+test('accessibility large text: the battle bar starts with both sides (name, level) and the HP of the player; it is written once, and again only when those values change', { tier: 'engine', fixtures: ['type:pol'] }, () => {
   const makeRun = () => engineSandbox(['function joinCaption', 'BattleLayer.prototype.sidesCaption = function', 'BattleLayer.prototype.caption = function'],
     'function BattleLayer() {}\nconst ROOT_LABELS = ["fight", "bag"]; const MOVES = { m1: { n: "Slap" } };\nfunction activeMon() { return { moves: ["m1"] }; }',
     { T: (key) => key });
@@ -4861,7 +4933,7 @@ test('accessibility large text: the battle bar starts with both sides (name, lev
   assert.equal(page.bar.textContent, 'Komma Lv 12 29/45');
 });
 
-test('accessibility: the title line and the top row of the Accessibility screen keep room (a line too wide for the picture shrinks), and hitLook allocates nothing', () => {
+test('accessibility: the title line and the top row of the Accessibility screen keep room (a line too wide for the picture shrinks), and hitLook allocates nothing', { tier: 'engine', fixtures: [] }, () => {
   const title = enginePart.slice(enginePart.indexOf('TitleLayer.prototype.draw = function'), enginePart.indexOf('// ---- Gender, name'));
   assert.ok(title.includes("ctx.font = fontForWidth(T('title.sub'), FONT, FONT_SMALL);"), 'the title line picks a font that fits');
   const fit = enginePart.slice(enginePart.indexOf('function fontForWidth'), enginePart.indexOf('function drawText'));
@@ -4879,7 +4951,7 @@ test('accessibility: the title line and the top row of the Accessibility screen 
   assert.equal(R.hitLook(0, false, false), R.hitLook(1, false, false), 'the same object on the same pose');
 });
 
-test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to false and puts it back (its fights end the same way on every weekday)', () => {
+test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to false and puts it back (its fights end the same way on every weekday)', { tier: 'engine', fixtures: ['species:fakelakis', 'species:komma'] }, () => {
   const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
   assert.ok(run.includes('sunday: isSundayToday()'), 'runBattle asks isSundayToday()');
   assert.ok(!run.includes('new Date()'), 'runBattle reads no clock of its own');
@@ -4889,7 +4961,13 @@ test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to
   const sunday = R.createBattle(monsOf('komma', 8, 1), [R.makeMon('fakelakis', 3)], R.makeRng(1), { kind: 'wild', sunday: true });
   assert.equal(sunday.sunday, true, 'the battle keeps the Sunday flag it is given');
 });
-test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', () => {
+test('selfTest seeds the random numbers of the new game it starts, so a run of only some tiers fights the same way at any time of day', { tier: 'integrity' }, () => {
+  const start = html.indexOf("await guard('new game'");
+  const guardBody = html.slice(start, html.indexOf('await guard(', start + 1));
+  assert.ok(start >= 0 && guardBody.includes('titleFlow();'), 'the new game guard starts the game through titleFlow (which seeds from the clock)');
+  assert.ok(/titleFlow\(\);[\s\S]*G\.rng = makeRng\(\d+\);/.test(guardBody), 'the guard seeds G.rng with a fixed number after the new game');
+});
+test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', { tier: 'integrity' }, () => {
   const reference = readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8');
   const start = reference.indexOf('## 12. Accessibility');
   assert.ok(start >= 0, 'section 12 exists');
@@ -4923,7 +5001,7 @@ function copyAsCrlf(fromRoot, toRoot) {
   for (const relativePath of listDataPaths(fromRoot)) copyFile(`data/${relativePath}`);
 }
 
-test('assembler: the page is the same bytes twice and from a CRLF copy (the parity with the baseline page is the DEV-02b parity tests)', () => {
+test('assembler: the page is the same bytes twice and from a CRLF copy (the parity with the baseline page is the DEV-02b parity tests)', { tier: 'integrity' }, () => {
   const first = assembleFromDisk();
   const second = assembleFromDisk();
   assert.equal(first, second, 'assembling twice gives the same text');
@@ -4939,7 +5017,7 @@ test('assembler: the page is the same bytes twice and from a CRLF copy (the pari
   }
 });
 
-test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers are whole lines, bad sources are refused', () => {
+test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers are whole lines, bad sources are refused', { tier: 'integrity' }, () => {
   const shell = 'head\n// RULES-BEGIN\n/*@@DATA@@*/\n/*@@RULES@@*/\n// RULES-END\n\n/*@@ENGINE@@*/\ntail\n';
   const rules = [{ name: '01-b.js', text: 'rule b\n' }, { name: '00-a.js', text: 'rule a $&\n' }];
   const engine = [{ name: '00-e.js', text: "engine $` $' $1\n" }];
@@ -4959,7 +5037,7 @@ test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers
   refused({ shell: shell.replace('// RULES-END\n', '') }, /RULES-END must be on a line of its own/);
 });
 
-test('loadRules: the markers are whole lines, each once (a mention inside a line is not a marker)', () => {
+test('loadRules: the markers are whole lines, each once (a mention inside a line is not a marker)', { tier: 'integrity' }, () => {
   const page = 'x\n// RULES-BEGIN\nconst RULES = { a: 1 };\n// RULES-END\ny\n';
   assert.equal(loadRules(page).a, 1);
   assert.equal(loadRules(page.split('\n').join('\r\n')).a, 1, 'a CRLF page too');
@@ -4997,7 +5075,7 @@ function duplicateTopLevelNames(fragments) {
   return duplicates;
 }
 
-test('src/: no two fragments declare the same top-level name (the say() and logMsg clash of section 1)', () => {
+test('src/: no two fragments declare the same top-level name (the say() and logMsg clash of section 1)', { tier: 'integrity' }, () => {
   const sources = readSources();
   const fragments = [...sources.rules.map((f) => ({ name: `rules/${f.name}`, text: toLf(f.text) })), ...sources.engine.map((f) => ({ name: `engine/${f.name}`, text: toLf(f.text) }))];
   assert.ok(fragments.length > 40, 'the fragments were read');
@@ -5019,7 +5097,20 @@ const runBuildCli = (root, ...flags) => spawnSync(process.execPath, [join(MIZAMO
 const PASSING_STUB = "import { existsSync } from 'node:fs';\nif (!existsSync(process.env.MZ_HTML)) process.exit(9);\nconsole.log('ok   a');\nconsole.log('PASS 1 / 1');\n";
 const FAILING_STUB = "console.log('ok   a');\nconsole.log('FAIL the second test\\n     boom');\nconsole.log('PASS 1 / 2');\nprocess.exit(1);\n";
 
-test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', () => {
+test('build: reads "PASS n / m (k skipped)", keeps the skipped count in the report and does not fail on skipped tests', { tier: 'integrity' }, () => {
+  const root = makeScratchRoot('build-skipped', PASSING_STUB.replace("'PASS 1 / 1'", "'PASS 1 / 2 (1 skipped)'"));
+  try {
+    const built = runBuildCli(root);
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.deepEqual([report.status, report.tests.passed, report.tests.total, report.tests.skipped], ['ok', 1, 2, 1]);
+    assert.match(built.stdout, /1 \/ 2 tests \(1 skipped\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', { tier: 'integrity' }, () => {
   const folder = scratchFolder('lock');
   try {
     const first = acquireLock(folder);
@@ -5043,7 +5134,7 @@ test('build: one lock for every build; a lock whose process is gone is replaced,
   }
 });
 
-test('build: the CSP meta must be the one of section 1 and the page size is checked', () => {
+test('build: the CSP meta must be the one of section 1 and the page size is checked', { tier: 'integrity' }, () => {
   const page = assembleFromDisk();
   assert.deepEqual(checkPage(page), []);
   assert.throws(() => checkPage(page.split("default-src 'none'").join("default-src *")), /CSP meta tag/);
@@ -5052,7 +5143,7 @@ test('build: the CSP meta must be the one of section 1 and the page size is chec
   assert.throws(() => checkPage(page + 'x'.repeat(16 * 1024 * 1024)), /16 MB limit/);
 });
 
-test('build: assemble, test, then write index.html and the report (the hashes match); a failing test or --check writes nothing', () => {
+test('build: assemble, test, then write index.html and the report (the hashes match); a failing test or --check writes nothing', { tier: 'integrity' }, () => {
   const root = makeScratchRoot('build', PASSING_STUB);
   try {
     const built = runBuildCli(root);
@@ -5093,7 +5184,7 @@ test('build: assemble, test, then write index.html and the report (the hashes ma
   }
 });
 
-test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a filter in the parent cannot shrink the tested set', () => {
+test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a filter in the parent cannot shrink the tested set', { tier: 'integrity' }, () => {
   // The stub reports a smaller total whenever the child could see the filter, and fails when MZ_HTML is not the candidate page.
   const stub = "import { readFileSync } from 'node:fs';\n"
     + "const sawFilter = 'MZ_TEST_FILTER' in process.env;\n"
@@ -5115,7 +5206,10 @@ test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a f
 
 // ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
 const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
-const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+// Each test run has its own upload root (itch-push.mjs reads MZ_ITCH_UPLOAD_ROOT): the gate runs two suites at once, and a shared
+// folder would show one run the worktree folder of the other.
+const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', `mizamon-test-itch-upload-${process.pid}`);
+const ITCH_ENV = { ...process.env, MZ_ITCH_UPLOAD_ROOT: ITCH_UPLOAD_ROOT };
 const gitIn = (repo, ...args) => spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
 const leftoverWorktrees = () => (existsSync(ITCH_UPLOAD_ROOT) ? readdirSync(ITCH_UPLOAD_ROOT).filter((name) => name.startsWith('mizamon-src-')) : []);
 
@@ -5131,7 +5225,7 @@ function writeReport(repo, fields) {
   writeFileSync(reportPath, JSON.stringify(fields, null, 2) + '\n');
 }
 
-test('itch push of mizamon: assembles the commit in a temporary worktree, checks both hashes against the report, removes the worktree', () => {
+test('itch push of mizamon: assembles the commit in a temporary worktree, checks both hashes against the report, removes the worktree', { tier: 'integrity' }, () => {
   const repo = scratchFolder('itch');
   try {
     copyAsCrlf(MIZAMON_ROOT, join(repo, 'Mizamon')); // committed as CRLF here: the hashes must not care
@@ -5142,7 +5236,7 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     rmSync(join(repo, 'scratch-page.html'));
     writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: htmlSha256 });
     commitAll(repo, 'sources and report');
-    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
+    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000, env: ITCH_ENV });
     const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
 
     const deadRun = spawnSync(process.execPath, ['-e', '0']); // its process id no longer runs: its leftover worktree folder is removed at the start
@@ -5184,16 +5278,17 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     same(leftoverWorktrees(), [], 'no worktree is left behind');
   } finally {
     rmSync(repo, { recursive: true, force: true });
+    rmSync(ITCH_UPLOAD_ROOT, { recursive: true, force: true });
   }
 });
 
-test('itch push of mizamon: no report at the commit is refused; the other games keep their file path', () => {
+test('itch push of mizamon: no report at the commit is refused; the other games keep their file path', { tier: 'integrity' }, () => {
   const repo = scratchFolder('itch-none');
   try {
     assert.equal(gitIn(repo, 'init', '-q').status, 0);
     writeFileSync(join(repo, 'readme.txt'), 'x\n');
     commitAll(repo, 'nothing');
-    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', env: ITCH_ENV });
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /has no Mizamon\/build\/build-report\.json/);
     const usage = spawnSync(process.execPath, [ITCH_PUSH, 'nogame'], { encoding: 'utf8' });
@@ -5201,15 +5296,16 @@ test('itch push of mizamon: no report at the commit is refused; the other games 
     mkdirSync(join(repo, 'Finger Lickin Music'), { recursive: true });
     writeFileSync(join(repo, 'Finger Lickin Music', 'FingerLickinMusic.html'), '<html>fingers</html>\n');
     commitAll(repo, 'a game with a committed page');
-    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', env: ITCH_ENV });
     assert.equal(plain.status, 0, plain.stdout + plain.stderr);
     assert.equal(readFileSync(join(ITCH_UPLOAD_ROOT, 'fingerlickinmusic', 'index.html'), 'utf8'), '<html>fingers</html>\n');
   } finally {
     rmSync(repo, { recursive: true, force: true });
+    rmSync(ITCH_UPLOAD_ROOT, { recursive: true, force: true });
   }
 });
 
-test('release script: runs the steps in order and stops at the first failure, saying which', () => {
+test('release script: runs the steps in order and stops at the first failure, saying which', { tier: 'integrity' }, () => {
   const ran = [];
   const logged = [];
   const step = (label, ok) => ({ label, run: () => { ran.push(label); return ok ? { ok: true } : { ok: false, reason: 'exit code 1' }; } });
@@ -5222,7 +5318,7 @@ test('release script: runs the steps in order and stops at the first failure, sa
   assert.equal(runSteps([step('a', true), step('b', true)], () => {}).ok, true, 'all steps passing is a release');
 });
 
-test('release script: refuses a branch other than main and uncommitted sources, and never forces the push', () => {
+test('release script: refuses a branch other than main and uncommitted sources, and never forces the push', { tier: 'integrity' }, () => {
   const scratchParent = join(tmpdir(), 'claude');
   mkdirSync(scratchParent, { recursive: true });
   const scratchRepo = mkdtempSync(join(scratchParent, 'mz-release-'));
@@ -5256,7 +5352,7 @@ test('release script: refuses a branch other than main and uncommitted sources, 
 });
 
 // ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
-test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
+test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', { tier: 'integrity' }, () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
   for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out', 'node tools/release-mizamon.mjs']) {
     assert.ok(readme.includes(text), 'the README says: ' + text);
@@ -5278,11 +5374,11 @@ test('README: names the build commit after a merge into main and the merge gate,
 });
 
 // ---- DEV-02b: the content is data (reference sections 13.1, 13.2 and 13.12) ----
-const DATA_FOLDER = join(MIZAMON_ROOT, 'data');
+const dataFolder = () => join(MIZAMON_ROOT, 'data'); // the folder of the pass under test (the baseline run swaps the root)
 const cloneJson = (value) => JSON.parse(JSON.stringify(value));
 const FIRST_STRING = ['strings', 'ui', 'ui.yes']; // a text of the real data that the tests below overwrite in a copy
 
-test('data/: every kind is there, the indexes list the folders, every entry fits its schema, every file is what the one writer writes', () => {
+test('data/: every kind is there, the indexes list the folders, every entry fits its schema, every file is what the one writer writes', { tier: 'integrity' }, () => {
   const { data, missingKinds } = readData(MIZAMON_ROOT); // refuses a bad id, an index that disagrees with its folder and a newer dataVersion
   same(missingKinds, [], 'every kind of the schema has its folder or file');
   same(Object.keys(data), Object.keys(KINDS), 'the kinds come in the order of the schema');
@@ -5297,15 +5393,24 @@ test('data/: every kind is there, the indexes list the folders, every entry fits
   const written = dataFiles(data);
   same(written.map((file) => file.path).sort(), listDataPaths(MIZAMON_ROOT), 'no file is missing and none is extra');
   for (const file of written) {
-    const bytes = readFileSync(join(DATA_FOLDER, ...file.path.split('/')));
+    const bytes = readFileSync(join(dataFolder(), ...file.path.split('/')));
     assert.ok(!(bytes[0] === 0xef && bytes[1] === 0xbb), file.path + ' has a BOM');
     assert.equal(toLf(bytes.toString('utf8')), file.text, file.path + ' is not what the writer writes (UTF-8, LF, 2 spaces, schema order, final newline)');
   }
-  const counts = { species: 38, moves: 41, abilities: 14, statuses: 4, types: 7, items: 10, trainers: 54, maps: 71, tiles: 96, districts: 6, shops: 4, events: 1 };
-  for (const [kind, count] of Object.entries(counts)) assert.equal(Object.keys(data[kind]).length, count, kind + ' count');
   assert.equal(Object.values(data.strings).reduce((sum, group) => sum + Object.keys(group).length, 0), Object.keys(R.STRINGS).length, 'every text is in a group');
   assert.equal(DATA_VERSION, 1);
   assert.equal(data.game.dataVersion, DATA_VERSION);
+});
+// How many entries each kind has is content (the Owner may add or remove entries): a different count is a finding, not an error.
+test('data counts: each kind has the number of entries the world was built with', { tier: 'content' }, () => {
+  const { data } = readData(MIZAMON_ROOT);
+  const counts = { species: 38, moves: 41, abilities: 14, statuses: 4, types: 7, items: 10, trainers: 54, maps: 71, tiles: 96, districts: 6, shops: 4, events: 1 };
+  const findings = [];
+  for (const [kind, expected] of Object.entries(counts)) {
+    const actual = Object.keys(data[kind]).length;
+    if (actual !== expected) findings.push({ rule: 'old-counts', kind, id: '', field: 'count', message: `${actual} instead of ${expected}` });
+  }
+  return { findings };
 });
 
 // What the rules code had typed as literals before the behaviour moved into data/abilities/ and data/statuses/ (reference 13.1): 1.3, 1.2,
@@ -5326,12 +5431,10 @@ const OLD_STATUS_NUMBERS = {
   bri: { turns: 4, kind: 'pocket', params: { chance: 0.3, divisor: 16 }, recruitMult: 2, color: '#2f7a5a' },
 };
 
-test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', () => {
+test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', { tier: 'integrity' }, () => {
   const data = dataOfPage(html);
   same(behaviourProblems(data), [], 'every entry is a kind of the catalogue with its numbers');
-  sameJson(data.abilities, OLD_ABILITY_NUMBERS, 'the 14 abilities (kind and numbers, in index order)');
-  sameJson(data.statuses, OLD_STATUS_NUMBERS, 'the 4 statuses (turns, kind, numbers, recruit multiplier, tag colour)');
-  // the check itself
+  // the check itself (which abilities and statuses exist, their kinds and numbers are the content-tier test that follows this one)
   const broken = (change) => { const copy = JSON.parse(JSON.stringify(data)); change(copy); return behaviourProblems(copy).join('\n'); };
   assert.match(broken((copy) => { copy.abilities.pal.kind = 'powerWhenHigh'; }), /pal: "powerWhenHigh" is not a kind/, 'an unknown kind');
   assert.match(broken((copy) => { delete copy.abilities.pal.params.mult; }), /pal: the kind powerWhenLow takes hpShare, mult, the entry has hpShare/, 'a missing number');
@@ -5347,8 +5450,32 @@ test('behaviour: every ability and status is a kind of the catalogue with the nu
   // the tag colour of a status comes from its data (the screen helper no longer names a status)
   assert.ok(!readSources().engine.some((fragment) => fragment.name === '10-screen-helpers.js' && /#a83a8a|#c07a1a|#2f7a5a/.test(fragment.text)), 'the screen helper has no status colour');
 });
+// The numbers of the abilities and statuses are content (the Owner may rebalance them): a difference is a finding with its id and field,
+// so the lenient Build only warns and the gate compares it with the merge base.
+test('behaviour numbers: every ability and status has the numbers the old code had (turns, numbers, recruit multiplier, tag colour)', { tier: 'content' }, () => {
+  const data = dataOfPage(html);
+  const findings = [];
+  const compare = (kind, current, expected) => {
+    for (const id of Object.keys(current)) {
+      if (!Object.hasOwn(expected, id)) findings.push({ rule: 'old-numbers', kind, id, field: '', message: `${id}: not in the old code` });
+    }
+    for (const [id, entry] of Object.entries(expected)) {
+      if (!Object.hasOwn(current, id)) {
+        findings.push({ rule: 'old-numbers', kind, id, field: '', message: `${id}: missing (the old code had it)` });
+        continue;
+      }
+      for (const field of Object.keys(entry)) {
+        const difference = firstDifference(current[id][field], entry[field], field);
+        if (difference !== null) findings.push({ rule: 'old-numbers', kind, id, field, message: difference });
+      }
+    }
+  };
+  compare('abilities', data.abilities, OLD_ABILITY_NUMBERS);
+  compare('statuses', data.statuses, OLD_STATUS_NUMBERS);
+  return { findings };
+});
 
-test('json-format: the writer is deterministic, keeps schema order, writes rows one per line and refuses what the schema does not know', () => {
+test('json-format: the writer is deterministic, keeps schema order, writes rows one per line and refuses what the schema does not know', { tier: 'integrity' }, () => {
   const speciesSchema = KINDS.species.schema;
   const messy = { learn: [[1, 'psifodeltio']], base: [46, 38, 44, 56, 48, 46], xp: 50, rec: 0, g: 'n', ab: 'asy', t: 'pol', n: 'Κομματάκι' };
   const text = formatEntry(speciesSchema, messy);
@@ -5365,7 +5492,7 @@ test('json-format: the writer is deterministic, keeps schema order, writes rows 
   for (const bad of ['Komma', '1komma', 'nul', 'com3', 'lpt9', 'a-b', '', 'x'.repeat(33)]) assert.notEqual(fileIdProblem(bad), null, bad + ' is refused as an id');
 });
 
-test('DEV-02b parity: the DATA line of the page is the data folder, and the page holds it on one line with every "<" written as \\u003c', () => {
+test('DEV-02b parity: the DATA line of the page is the data folder, and the page holds it on one line with every "<" written as \\u003c', { tier: 'integrity' }, () => {
   const { data } = readData(MIZAMON_ROOT);
   sameJson(dataOfPage(html), data, 'the page holds the data of data/ (in index order)');
   const lines = html.split(/\r?\n/);
@@ -5376,7 +5503,7 @@ test('DEV-02b parity: the DATA line of the page is the data folder, and the page
   assert.ok(lines.indexOf('// RULES-BEGIN') < lines.indexOf('/*DATA-BEGIN*/') && lines.indexOf('/*DATA-END*/') < lines.indexOf('// RULES-END'), 'the data is inside the rules block');
 });
 
-test('DEV-02b parity: every rules table equals the baseline, key order included (STRINGS by sorted entries, the old engine sound tables through the data)', () => {
+test('DEV-02b parity: every rules table equals the baseline, key order included (STRINGS by sorted entries, the old engine sound tables through the data)', { tier: 'content' }, () => {
   const baseline = readBaselineFile('rules-tables.json');
   const current = tableSnapshot(loadRulesWithInternals(html));
   const names = Object.keys(baseline.tables);
@@ -5425,7 +5552,7 @@ test('DEV-02b parity: every rules table equals the baseline, key order included 
   }
 });
 
-test('DEV-02b parity: what the old engine code named (title creatures, battle backgrounds, tunes, sounds, spots) is the same in data/game.json, and every NPC shows and hides under the same flags', () => {
+test('DEV-02b parity: what the old engine code named (title creatures, battle backgrounds, tunes, sounds, spots) is the same in data/game.json, and every NPC shows and hides under the same flags', { tier: 'content' }, () => {
   const constants = readBaselineFile('rules-tables.json').engineConstants;
   const data = dataOfPage(html);
   assert.equal(constants.titleCreatureIds.length, 6, 'the baseline has the title creatures');
@@ -5435,7 +5562,7 @@ test('DEV-02b parity: what the old engine code named (title creatures, battle ba
   sameJson(visibilityProbe(R, constants.visibility.flags), constants.visibility.npcs, 'who shows under which flag (no flag, every flag, each flag alone)');
 });
 
-test('DEV-02b parity: the check of those constants fails for a reordered title list, a changed battle background, boss tune, sound role or spot, and for an NPC that lost its hideFlag', () => {
+test('DEV-02b parity: the check of those constants fails for a reordered title list, a changed battle background, boss tune, sound role or spot, and for an NPC that lost its hideFlag', { tier: 'integrity' }, () => {
   const constants = readBaselineFile('rules-tables.json').engineConstants;
   const data = dataOfPage(html);
   const problemsAfter = (change) => {
@@ -5455,7 +5582,7 @@ test('DEV-02b parity: the check of those constants fails for a reordered title l
   assert.notEqual(firstDifference(visibilityProbe({ MAPS: maps, npcVisible: R.npcVisible }, constants.visibility.flags), constants.visibility.npcs), null, 'a rival who stays on the map is found');
 });
 
-test('DEV-02b parity: the replay checksums (1,000 battles, every trainer for each starter, the encounter rolls) equal the baseline', () => {
+test('DEV-02b parity: the replay checksums (1,000 battles, every trainer for each starter, the encounter rolls) equal the baseline', { tier: 'content' }, () => {
   const baseline = readBaselineFile('replay.json');
   const current = replaySummary(R);
   assert.equal(current.battles, 1000);
@@ -5465,14 +5592,14 @@ test('DEV-02b parity: the replay checksums (1,000 battles, every trainer for eac
   sameJson(current.trainers, baseline.trainers, 'a fight against every trainer');
 });
 
-test('DEV-02b parity: migrateSave gives the same saves as on the baseline (versions 0 to 3, every story point)', () => {
+test('DEV-02b parity: migrateSave gives the same saves as on the baseline (versions 0 to 3, every story point)', { tier: 'content' }, () => {
   const baseline = readBaselineFile('migrated-saves.json');
   const current = migratedSaves(R);
   assert.ok(Object.keys(baseline).length >= 20, 'the baseline holds the saves');
   sameJson(current, baseline, 'migrated saves');
 });
 
-test('DEV-02b parity: every call the sound code makes on a fake AudioContext (19 effects, four loops of 6 tunes) equals the baseline', () => {
+test('DEV-02b parity: every call the sound code makes on a fake AudioContext (19 effects, four loops of 6 tunes) equals the baseline', { tier: 'content' }, () => {
   const baseline = readBaselineFile('sound-calls.json');
   const data = dataOfPage(html);
   const soundSource = readFileSync(join(MIZAMON_ROOT, 'src', 'engine', '06-sound.js'), 'utf8');
@@ -5482,7 +5609,7 @@ test('DEV-02b parity: every call the sound code makes on a fake AudioContext (19
   assert.ok(Object.values(calls).every((entry) => entry.calls > 0), 'every list has calls');
 });
 
-test('sound: a map whose tune was never written (the TV studio) plays nothing and the scheduler does not throw', () => {
+test('sound: a map whose tune was never written (the TV studio) plays nothing and the scheduler does not throw', { tier: 'engine', fixtures: [] }, () => {
   const data = dataOfPage(html);
   const { FakeAudioContext, log } = makeFakeAudio();
   const timers = [];
@@ -5500,7 +5627,7 @@ test('sound: a map whose tune was never written (the TV studio) plays nothing an
   assert.ok(log.length > 0, 'a tune that exists plays');
 });
 
-test('DEV-02b parity: balance.mjs prints the same text as on the baseline', () => {
+test('DEV-02b parity: balance.mjs prints the same text as on the baseline', { tier: 'content' }, () => {
   const baselineRuns = readBaselineFile('balance-runs.json').runs;
   assert.equal(baselineRuns, BALANCE_RUNS, 'the same number of runs per row');
   const expected = toLf(readFileSync(join(BASELINE_FOLDER, 'balance-output.txt'), 'utf8'));
@@ -5508,7 +5635,7 @@ test('DEV-02b parity: balance.mjs prints the same text as on the baseline', () =
   assert.equal(printed, expected, 'the balance output is byte for byte the baseline');
 });
 
-test('source scans: tests/baseline/source-scans.json holds the baseline scans, and a scan forced to match nothing fails its test', () => {
+test('source scans: tests/baseline/source-scans.json holds the baseline scans, and a scan forced to match nothing fails its test', { tier: 'integrity' }, () => {
   const baseline = readBaselineFile('source-scans.json');
   assert.equal(baseline.baseline, '1cbc9d6');
   assert.ok(baseline.scans.length > 600, 'the baseline has its scans: ' + baseline.scans.length);
@@ -5548,7 +5675,7 @@ test('source scans: tests/baseline/source-scans.json holds the baseline scans, a
   assert.match(forced.stdout, /source scan indexOf "OverworldLayer\.prototype\.bossVictory" matched 0, at least 1 is expected/, 'and the report names the scan');
 });
 
-test('data line: </script>, $&, $` and $\' in a data string round-trip, "<" is escaped, and the assembled page still parses', () => {
+test('data line: </script>, $&, $` and $\' in a data string round-trip, "<" is escaped, and the assembled page still parses', { tier: 'integrity' }, () => {
   const { data } = readData(MIZAMON_ROOT);
   const nasty = ['</script>', '$&', '$`', "$'", '$$', '<!--', '<script>x</script>', 'a\u2028b\u2029c', '</SCRIPT >', '\\u003c'];
   const planted = cloneJson(data);
@@ -5572,7 +5699,7 @@ test('data line: </script>, $&, $` and $\' in a data string round-trip, "<" is e
   assert.ok(!readFileSync(join(MIZAMON_ROOT, 'shared', 'assemble-core.mjs'), 'utf8').includes('.replace('), 'assemble-core.mjs never uses replace');
 });
 
-test('data markers: each marker text of 13.2 in a data string is a validation error and the assembler throws; the markers are whole lines', () => {
+test('data markers: each marker text of 13.2 in a data string is a validation error and the assembler throws; the markers are whole lines', { tier: 'integrity' }, () => {
   const { data } = readData(MIZAMON_ROOT);
   same(markerTextFindings(data), [], 'the real data holds no marker text');
   assert.ok(MARKER_TEXTS.includes('/*DATA-END*/') && MARKER_TEXTS.includes('// RULES-END') && MARKER_TEXTS.includes('/*@@') && MARKER_TEXTS.length === 5, 'the five marker texts of 13.2');
@@ -5601,7 +5728,7 @@ test('data markers: each marker text of 13.2 in a data string is a validation er
   assert.equal(assemblePage({ ...sources, data: dataText }).split('\n').filter((line) => line === '/*DATA-BEGIN*/').length, 1);
 });
 
-test('the rules never call Math.random or Date: a content text such as "new Date" in the data is not code, the same text in code is', () => {
+test('the rules never call Math.random or Date: a content text such as "new Date" in the data is not code, the same text in code is', { tier: 'engine', fixtures: [] }, () => {
   const { data } = readData(MIZAMON_ROOT);
   const sources = readSources();
   assert.ok(!FORBIDDEN_RULES_CALLS.test(rulesCodeText(html)), 'the real page is clean');
@@ -5626,7 +5753,7 @@ function copyDataFolder(label, change) {
   for (const relativePath of listDataPaths(MIZAMON_ROOT)) {
     const target = join(folder, 'data', ...relativePath.split('/'));
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, readFileSync(join(DATA_FOLDER, ...relativePath.split('/'))));
+    writeFileSync(target, readFileSync(join(dataFolder(), ...relativePath.split('/'))));
   }
   if (change) change(folder);
   return folder;
@@ -5638,7 +5765,7 @@ const setDataVersion = (root, version) => {
   writeFileSync(gamePath, readFileSync(gamePath, 'utf8').replace(/"dataVersion": \d+/, `"dataVersion": ${version}`));
 };
 
-test('data version: game.json holds dataVersion 1, migrate-data --check passes on the data, data with a newer dataVersion is refused', () => {
+test('data version: game.json holds dataVersion 1, migrate-data --check passes on the data, data with a newer dataVersion is refused', { tier: 'integrity' }, () => {
   assert.equal(readData(MIZAMON_ROOT).data.game.dataVersion, 1);
   assert.equal(dataVersionProblem(DATA_VERSION), null);
   const checked = runMigrate(MIZAMON_ROOT, '--check');
@@ -5670,7 +5797,7 @@ test('data version: game.json holds dataVersion 1, migrate-data --check passes o
   }
 });
 
-test('data version: older data is told to migrate, a migration step moves the old shape through the one writer, a changed file is rewritten and --check says so', () => {
+test('data version: older data is told to migrate, a migration step moves the old shape through the one writer, a changed file is rewritten and --check says so', { tier: 'integrity' }, () => {
   const older = copyDataFolder('data-older', (folder) => setDataVersion(folder, DATA_VERSION - 1));
   try {
     assert.throws(() => readData(older), (error) => error instanceof DataError && /older than this code needs.*node Mizamon\/tools\/migrate-data\.mjs/.test(error.message));
@@ -5747,7 +5874,7 @@ function contentLiteralsOfSource(data, sources = readSources()) {
   return [...found.values()];
 }
 
-test('src/: no content id or string key is a literal in the code unless engine-pinned.json pins it (the pinned ids, the UI text groups, the words that are not ids)', () => {
+test('src/: no content id or string key is a literal in the code unless engine-pinned.json pins it (the pinned ids, the UI text groups, the words that are not ids)', { tier: 'integrity' }, () => {
   const data = readData(MIZAMON_ROOT).data;
   const pinned = JSON.parse(readFileSync(join(MIZAMON_ROOT, 'src', 'engine-pinned.json'), 'utf8'));
   const literals = contentLiteralsOfSource(data);
@@ -5795,7 +5922,7 @@ test('src/: no content id or string key is a literal in the code unless engine-p
   assert.ok(contentLiteralsOfSource(data, planted).some((entry) => entry.literal === 'komma' && entry.file === 'engine/15-flow.js'), 'a planted species id is found by the scan');
 });
 
-test('src/: nothing depends on the order of the keys of STRINGS (the groups of the data reorder them), and no code iterates it', () => {
+test('src/: nothing depends on the order of the keys of STRINGS (the groups of the data reorder them), and no code iterates it', { tier: 'integrity' }, () => {
   const iteration = /\b(?:Object\.(?:keys|values|entries)\(\s*STRINGS\b|for\s*\([^)]*\bin\s+STRINGS\b)/;
   for (const [kind, fragments] of [['rules', readSources().rules], ['engine', readSources().engine]]) {
     for (const fragment of fragments) {
@@ -5806,7 +5933,7 @@ test('src/: nothing depends on the order of the keys of STRINGS (the groups of t
   assert.equal(Object.keys(R.STRINGS).length, Object.values(dataOfPage(html).strings).reduce((sum, group) => sum + Object.keys(group).length, 0));
 });
 
-test('events: rival1 is a step list in data/events/rival1.json, the trigger names it, and the event runner knows every step it uses', () => {
+test('events: rival1 is a step list in data/events/rival1.json, the trigger names it, and the event runner knows every step it uses', { tier: 'content' }, () => {
   const data = readData(MIZAMON_ROOT).data;
   const steps = data.events.rival1;
   const stepNames = new Set();
@@ -5823,7 +5950,7 @@ test('events: rival1 is a step list in data/events/rival1.json, the trigger name
   assert.ok(!enginePart.includes("'rival1'"), 'the engine code does not name the scene');
 });
 
-test('game.json roles: every SOUNDS.x and MUSIC.x the code reads is a role, every role names a sound or a tune of the data, and the code reads only game.json fields that exist', () => {
+test('game.json roles: every SOUNDS.x and MUSIC.x the code reads is a role, every role names a sound or a tune of the data, and the code reads only game.json fields that exist', { tier: 'content' }, () => {
   const { game, sounds, music, maps, species } = readData(MIZAMON_ROOT).data;
   const code = scannedFragments(readSources()).map((fragment) => fragment.code).join('\n') + '\n' + LITERAL_SCAN_SKIPPED.filter((file) => file !== 'engine/01-art.js').map((file) => toLf(readFileSync(join(MIZAMON_ROOT, 'src', file), 'utf8'))).join('\n');
   const used = (name) => [...new Set([...code.matchAll(new RegExp(`\\b${name}\\.([A-Za-z]+)`, 'g')).map((match) => match[1])])].sort();
@@ -5850,48 +5977,997 @@ test('game.json roles: every SOUNDS.x and MUSIC.x the code reads is a role, ever
 });
 
 
-// ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();
-function runAll() {
-let passed = 0;
-const failures = [];
-const only = process.env.MZ_TEST_FILTER ? new RegExp(process.env.MZ_TEST_FILTER, 'u') : null; // while working: MZ_TEST_FILTER="Βουλή" runs the tests whose name matches (the full run has no filter)
-const selected = only ? tests.filter(({ name }) => only.test(name)) : tests;
-if (only && selected.length === 0) {
-  console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
-  process.exit(1);
+// ---- MZ-DEV-02c: tiers, the canon copy, the strict and lenient runs, --json and --baseline, the gate (reference 13.5, 13.6) ----
+// The runs below start the run-tests.mjs of a scratch copy of this tool tree (Mizamon/ with the tools/ beside it) on the scratch copy's own
+// data, with MZ_TEST_FILTER naming one or two cheap tests, so a run takes a few seconds; the scratch folders are deleted in a finally.
+const SCRATCH_SKIP = /[\\/](\.git|node_modules|revengin|build|editor-backups)([\\/]|$)/;
+const MARKER_OF_RUNNER = '// ---- Passes, records, the cache, the baseline and the gate';
+
+function copyToolTree(folder) {
+  cpSync(TOOL_ROOT, join(folder, 'Mizamon'), { recursive: true, filter: (source) => !SCRATCH_SKIP.test(source) });
+  cpSync(join(TOOL_ROOT, '..', 'tools'), join(folder, 'tools'), { recursive: true });
+  return join(folder, 'Mizamon');
 }
-const recordPath = process.env.MZ_RECORD_SCANS || null;
-const recorded = [];
-for (const { name, fn } of selected) {
-  let failure = null;
-  scanTestName = name;
-  scanLog.length = 0;
+function withScratch(label, body) {
+  const folder = scratchFolder(label);
   try {
-    fn();
-  } catch (error) {
-    failure = error;
+    return body(copyToolTree(folder), folder);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+// Runs the run-tests.mjs of a scratch root. cache names the cache folder (a fresh name = an empty cache); env adds environment variables.
+function runScratch(root, args, { filter, cache = 'cache', env = {} } = {}) {
+  const childEnv = { ...process.env, MZ_CACHE_DIR: join(root, '..', cache), ...env };
+  for (const name of ['MZ_HTML', 'MZ_TEST_FILTER', 'MZ_RECORD_SCANS', 'MZ_FORCE_SCAN_ZERO']) delete childEnv[name];
+  if (filter) childEnv.MZ_TEST_FILTER = filter;
+  const done = spawnSync(process.execPath, [join(root, 'tools', 'run-tests.mjs'), ...args], { cwd: join(root, '..'), encoding: 'utf8', timeout: 300000, env: childEnv });
+  return { status: done.status, out: `${done.stdout ?? ''}${done.stderr ?? ''}` };
+}
+const editJson = (path, change) => {
+  const value = JSON.parse(readFileSync(path, 'utf8'));
+  change(value);
+  writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
+};
+const editCanon = (root, change) => {
+  const path = join(root, 'tests', 'canon-data.json');
+  const canon = JSON.parse(readFileSync(path, 'utf8'));
+  change(canon);
+  writeFileSync(path, JSON.stringify(canon, null, 1) + '\n');
+};
+// Adds test registrations to the run-tests.mjs of a scratch root (before the part that runs them).
+function addScratchTests(root, code) {
+  const path = join(root, 'tools', 'run-tests.mjs');
+  const text = readFileSync(path, 'utf8');
+  const at = text.indexOf('\n' + MARKER_OF_RUNNER); // the line that starts the runner part, not the line of this constant
+  assert.ok(at >= 0, 'the marker of the runner part is in run-tests.mjs');
+  writeFileSync(path, text.slice(0, at + 1) + code + '\n' + text.slice(at + 1));
+}
+const failuresOf = (jsonPath) => JSON.parse(readFileSync(jsonPath, 'utf8')).failures;
+const komma = (root) => join(root, 'data', 'species', 'komma.json');
+const ENGINE_FILTER = '^damage numbers for fixed inputs$'; // a cheap engine test that reads komma's stats
+
+// ---- The tiers ----
+test('tiers: every test has a tier, and every engine test declares fixtures that exist in the canon copy and covers the content ids its body names', { tier: 'integrity' }, () => {
+  const canon = readCanonData();
+  const kinds = ['species', 'move', 'item', 'trainer', 'map', 'ability', 'status', 'type'];
+  const idsOf = (kind) => Object.keys(canon[FIXTURE_KINDS[kind]] ?? {});
+  const problems = [];
+  const counts = { engine: 0, integrity: 0, content: 0 };
+  for (const entry of tests) {
+    counts[entry.tier] += 1;
+    if (entry.tier !== 'engine') continue;
+    for (const fixture of entry.fixtures) {
+      const [, kind, id] = FIXTURE_ID.exec(fixture);
+      if (!idsOf(kind).includes(id)) problems.push(`${entry.name}: the fixture ${fixture} is not in the canon copy`);
+    }
+    const declared = new Set(entry.fixtures);
+    const body = entry.fn.toString();
+    const named = new Set();
+    for (const match of body.matchAll(/R\.(SPECIES|MOVES|ITEMS|TRAINERS|MAPS)\.([A-Za-z0-9_]+)/g)) named.add(`${{ SPECIES: 'species', MOVES: 'move', ITEMS: 'item', TRAINERS: 'trainer', MAPS: 'map' }[match[1]]}:${match[2]}`);
+    for (const match of body.matchAll(/'([A-Za-z0-9_]+)'/g)) for (const kind of kinds) if (idsOf(kind).includes(match[1])) named.add(`${kind}:${match[1]}`);
+    for (const fixture of named) if (!declared.has(fixture)) problems.push(`${entry.name}: the body names ${fixture}, which is not a declared fixture`);
+  }
+  same(problems, []);
+  assert.ok(counts.engine > 30 && counts.integrity > 20 && counts.content > 50, JSON.stringify(counts));
+});
+
+test('canon copy: tests/canon-data.json is data of this data version without errors, the page built from it loads, and --refresh-canon writes it again from the data', { tier: 'integrity' }, () => {
+  const canon = readCanonData();
+  assert.equal(canon.game.dataVersion, DATA_VERSION, 'the canon copy has the data version of the code: --refresh-canon after a data migration');
+  const errors = validateData(canon).filter((finding) => finding.severity === 'error' && !finding.waived);
+  same(errors.map((finding) => `${finding.rule} ${finding.kind}/${finding.id} ${finding.field}`), []);
+  const canonRules = loadRules(canonPageOf(html));
+  assert.equal(Object.keys(canonRules.SPECIES).length, Object.keys(canon.species).length, 'the page of the canon candidate has the canon species');
+  withScratch('canon-refresh', (root, folder) => {
+    const first = runScratch(root, ['--refresh-canon']);
+    assert.equal(first.status, 0, first.out);
+    const written = readFileSync(join(root, 'tests', 'canon-data.json'), 'utf8');
+    sameJson(JSON.parse(written), readData(root).data, 'the canon copy is the data of the folder');
+    assert.ok(written.endsWith('\n') && !written.includes('\r'), 'LF, one final line break');
+    assert.equal(runScratch(root, ['--refresh-canon']).status, 0);
+    assert.equal(readFileSync(join(root, 'tests', 'canon-data.json'), 'utf8'), written, 'the same data gives the same file');
+  });
+});
+
+// ---- The validation of 13.6 (shared/validate.mjs) and the content rules ----
+test('validation: the data has no integrity findings (the errors of 13.6)', { tier: 'integrity' }, () => {
+  const findings = validateData(readData(MIZAMON_ROOT).data).filter((finding) => finding.tier === 'integrity' && finding.severity === 'error');
+  if (findings.length > 0) throw new FindingsError(`${findings.length} errors in the data`, findings);
+});
+// The hard rules (real-person and brand, parody placement) have their own test (it fails even the lenient run); the other findings of the content tier come here.
+test('validation: content findings (the warnings of 13.6): every one is waived, or the strict run fails', { tier: 'content' }, () => ({
+  findings: validateData(readData(MIZAMON_ROOT).data).filter((finding) => finding.tier === 'content' && finding.severity !== 'info' && !VALIDATION_RULES[finding.rule].hard),
+}));
+test('validation: every rule of 13.6 has a fixture that makes it report the right entry, the untouched canon copy is clean, and a waiver clears a content finding only', { tier: 'integrity' }, () => {
+  const canon = readCanonData();
+  const clean = validateData(canon).filter((finding) => finding.severity !== 'info');
+  same(clean.map((finding) => `${finding.rule} ${finding.kind}/${finding.id}`), [], 'the canon copy has no error and no warning');
+  const covered = new Set(VALIDATION_FIXTURES.map((fixture) => fixture.rule));
+  same(Object.keys(VALIDATION_RULES).filter((rule) => !covered.has(rule)), [], 'a rule without a fixture');
+  same([...covered].filter((rule) => !Object.hasOwn(VALIDATION_RULES, rule)), [], 'a fixture for a rule that does not exist');
+  for (const rule of ['type-mark-filled', 'type-mark-similar', 'type-mark-cross']) assert.ok(covered.has(rule), `the type-mark check ${rule} has a fixture`);
+  for (const fixture of VALIDATION_FIXTURES) {
+    const changed = cloneJson(canon);
+    fixture.change(changed);
+    if (fixture.clean) {
+      same(validateData(changed).filter((finding) => finding.rule === fixture.rule).map((finding) => `${finding.kind}/${finding.id} ${finding.field}`), [], `the good case for ${fixture.rule} has no finding of it`);
+      continue;
+    }
+    const found = validateData(changed).filter((finding) => finding.rule === fixture.rule && finding.kind === fixture.expect.kind && finding.id === fixture.expect.id
+      && (fixture.expect.field === undefined || finding.field === fixture.expect.field || finding.field.startsWith(fixture.expect.field)));
+    assert.ok(found.length > 0, `the fixture for ${fixture.rule} (${fixture.expect.kind}/${fixture.expect.id}) is not reported: ${JSON.stringify(validateData(changed).filter((finding) => finding.rule === fixture.rule).slice(0, 2))}`);
+    assert.equal(found[0].waived, fixture.waived === true, `${fixture.rule}: waived`);
+    assert.equal(found[0].severity, VALIDATION_RULES[fixture.rule].severity, `${fixture.rule}: severity`);
+  }
+});
+test('content rules: the deny lists and phrase lists live only in shared/content-rules.mjs, with no second copy in run-tests.mjs or validate.mjs', { tier: 'integrity' }, () => {
+  const sources = [['run-tests.mjs', toLf(readFileSync(THIS_FILE, 'utf8'))], ['validate.mjs', toLf(readFileSync(join(TOOL_ROOT, 'shared', 'validate.mjs'), 'utf8'))]];
+  const lists = Object.entries(CONTENT_RULE_LISTS);
+  assert.ok(lists.length >= 12, 'the lists: ' + lists.length);
+  const written = (item) => (item instanceof RegExp ? String(item) : `'${item}'`);
+  for (const [name, list] of lists) {
+    const pieces = Array.isArray(list) ? [list.slice(0, 3).map(written).join(', '), list.slice(-3).map(written).join(', ')] : [String(list)];
+    for (const piece of pieces) for (const [file, source] of sources) assert.ok(!source.includes(piece), `${file} holds a copy of ${name}: ${piece.slice(0, 60)}`);
+  }
+  const imported = /import \{([^}]*)\} from '\.\.\/shared\/content-rules\.mjs';/.exec(sources[0][1]);
+  assert.ok(imported && imported[1].includes('CONTENT_RULE_LISTS') && imported[1].includes('DENY_PATTERN'), 'run-tests.mjs reads the lists from shared/content-rules.mjs');
+});
+
+// ---- The in-page checks (src/engine/90-selftest.js) ----
+test('in-page checks: every guard of selfTest names its tiers, the Greek and English check is content tier, and selfTest({ tiers }) runs only the named tiers', { tier: 'engine', fixtures: [] }, () => {
+  const guardCalls = [...enginePart.matchAll(/await guard\('([^']+)', (\[[^\]]*\]), /g)];
+  assert.equal(guardCalls.length, enginePart.split('await guard(').length - 1, 'every guard names its tiers');
+  assert.ok(guardCalls.length >= 19, 'the guards: ' + guardCalls.length);
+  for (const [, name, list] of guardCalls) {
+    const tiers = JSON.parse(list.replace(/'/g, '"'));
+    assert.ok(tiers.length > 0 && tiers.every((tier) => ['engine', 'integrity', 'content'].includes(tier)), `the guard ${name} has valid tiers: ${list}`);
+  }
+  assert.ok(/check\('every string has Greek and English'.*, 'content'\);/.test(enginePart), 'the check "every string has Greek and English" is content tier');
+  assert.ok(enginePart.includes('makeSelfTestRunner(options && options.tiers)') && enginePart.includes('return runner.finish();'), 'selfTest reads its tiers and returns the checks of those tiers');
+  // The runner itself (a pure function of the page) is run here with guards of each tier.
+  const start = enginePart.indexOf('const SELF_TEST_TIERS');
+  const functionStart = enginePart.indexOf('function makeSelfTestRunner');
+  const end = enginePart.indexOf('\n}\n', functionStart) + 3;
+  assert.ok(start >= 0 && functionStart > start && end > functionStart, 'the runner is in the page');
+  const runnerCode = enginePart.slice(start, end);
+  const drive = (tiers) => {
+    const context = vm.createContext({ out: null }, { microtaskMode: 'afterEvaluate' });
+    new vm.Script(`${runnerCode}
+(async () => {
+  const runner = makeSelfTestRunner(${JSON.stringify(tiers)});
+  const calls = [];
+  await runner.guard('engine group', ['engine'], async function () { calls.push('engine group'); runner.check('e', true); });
+  await runner.guard('content group', ['content'], async function () { calls.push('content group'); runner.check('c', true); });
+  await runner.guard('mixed group', ['integrity', 'content'], async function () { calls.push('mixed group'); runner.check('i', true, '', 'integrity'); runner.check('c2', false, 'bad', 'content'); runner.check('untiered', true); });
+  await runner.guard('throwing group', ['engine'], async function () { throw new Error('boom'); });
+  out = JSON.stringify({ calls, results: runner.finish() });
+})();`).runInContext(context);
+    return JSON.parse(context.out);
+  };
+  const namesOf = (run) => run.results.map((result) => result.name);
+  const all = drive(undefined);
+  same(all.calls, ['engine group', 'content group', 'mixed group'], 'no tiers: every guard runs (the throwing one throws before it records a call)');
+  same(namesOf(all), ['e', 'c', 'i', 'c2', 'untiered', 'throwing group']);
+  assert.equal(all.results.find((result) => result.name === 'untiered').pass, false, 'a check without a tier in a guard with several tiers fails');
+  assert.equal(all.results.find((result) => result.name === 'throwing group').tier, 'engine', 'a thrown guard is reported in its tier');
+  const engine = drive(['engine']);
+  same(engine.calls, ['engine group'], 'engine: only the engine guards run');
+  same(namesOf(engine), ['e', 'throwing group'], 'engine: the throwing engine guard ran too, and is reported');
+  same(engine.results.map((result) => result.tier), ['engine', 'engine']);
+  const content = drive(['content']);
+  same(content.calls, ['content group', 'mixed group'], 'content: the engine guards do not run');
+  same(namesOf(content), ['c', 'c2', 'untiered'], 'content: the integrity check of the mixed guard is left out');
+  const integrity = drive(['integrity']);
+  same(integrity.calls, ['mixed group']);
+  same(namesOf(integrity), ['i', 'untiered']);
+  same(drive([]).calls, [], 'no tier: nothing runs');
+  same(drive(['integrity', 'content']).calls, ['content group', 'mixed group'], 'the real candidate of the Build: no engine guard (they name ids the Owner may have renamed)');
+  assert.throws(() => new vm.Script(`${runnerCode}\nmakeSelfTestRunner(['speed']);`).runInNewContext({}), /tiers must be a list of/);
+});
+
+// ---- The strict and the lenient run, the cache, the fixtures (AC-001, AC-003 a) ----
+test('run modes: the default run is the strict run and runs the engine tier twice (the current data and the canon copy); --lenient runs it once, on the canon copy', { tier: 'integrity' }, () => {
+  withScratch('modes', (root) => {
+    const filter = '^options are normalised$';
+    const plain = runScratch(root, [], { filter, cache: 'plain' });
+    const strict = runScratch(root, ['--strict'], { filter, cache: 'strict' });
+    assert.equal(plain.status, 0, plain.out);
+    assert.ok(/^ok   options are normalised$/m.test(plain.out) && /^ok   \[canon\] options are normalised$/m.test(plain.out), 'the engine test ran on the current data and on the canon copy:\n' + plain.out);
+    assert.ok(/^PASS 2 \/ 2$/m.test(plain.out), plain.out);
+    assert.equal(strict.out, plain.out, '--strict is the default run under its explicit name');
+    const lenient = runScratch(root, ['--lenient'], { filter, cache: 'lenient' });
+    assert.equal(lenient.status, 0, lenient.out);
+    assert.ok(/^ok   \[canon\] options are normalised$/m.test(lenient.out) && !/^ok   options are normalised$/m.test(lenient.out) && /^PASS 1 \/ 1$/m.test(lenient.out), 'lenient: the engine tier on the canon copy only:\n' + lenient.out);
+    const both = runScratch(root, ['--strict', '--lenient']);
+    assert.equal(both.status, 2, 'the two modes exclude each other');
+  });
+});
+test('run modes: a value that differs between the canon copy and the current data fails the default run and not --lenient; a changed canon copy fails both', { tier: 'integrity' }, () => {
+  withScratch('modes-value', (root) => {
+    editJson(komma(root), (species) => { species.base[3] += 5; }); // the current data differs from the canon copy
+    const strict = runScratch(root, [], { filter: ENGINE_FILTER, cache: 'c1' });
+    assert.equal(strict.status, 1, strict.out);
+    assert.ok(/^FAIL damage numbers for fixed inputs$/m.test(strict.out) && /^ok   \[canon\] damage numbers/m.test(strict.out), 'the current-data pass fails, the canon pass does not:\n' + strict.out);
+    const lenient = runScratch(root, ['--lenient'], { filter: ENGINE_FILTER, cache: 'c2' });
+    assert.equal(lenient.status, 0, lenient.out);
+    editJson(komma(root), (species) => { species.base[3] -= 5; });
+    editCanon(root, (canon) => { canon.species.komma.base[3] += 5; }); // now the canon copy differs
+    for (const [index, args] of [[], ['--lenient']].entries()) {
+      const run = runScratch(root, args, { filter: ENGINE_FILTER, cache: `c3${index}` });
+      assert.equal(run.status, 1, run.out);
+      assert.ok(/^FAIL \[canon\] damage numbers/m.test(run.out), run.out);
+    }
+  });
+});
+test('content rules: a deny-list name in the data fails the strict and the lenient run, a plain content finding only the strict run, and a waiver clears either', { tier: 'integrity' }, () => {
+  withScratch('content-rules', (root) => {
+    const strings = join(root, 'data', 'strings', 'ui.json');
+    const waiver = (rule) => [{ rule, note: 'a scratch run', date: '2026-11-15' }];
+    const run = (args, filter, cache) => runScratch(root, args, { filter, cache });
+    const BRAND = '^strings: no real brand, person or party';
+    const CONTENT = '^validation: content findings';
+    editJson(strings, (texts) => { texts['ui.yes'].en = 'Google'; });
+    for (const [index, args] of [[], ['--lenient']].entries()) {
+      const result = run(args, BRAND, `b${index}`);
+      assert.equal(result.status, 1, `a brand fails ${args.join(' ') || 'the default run'}:\n${result.out}`);
+      assert.ok(/real-person-or-brand strings\/ui\.yes en/.test(result.out), result.out);
+    }
+    editJson(strings, (texts) => { texts['ui.yes'].waive = waiver('real-person-or-brand'); });
+    for (const [index, args] of [[], ['--lenient']].entries()) {
+      const result = run(args, BRAND, `w${index}`);
+      assert.equal(result.status, 0, result.out);
+      assert.ok(/WAIVED real-person-or-brand/.test(result.out), result.out);
+    }
+    editJson(strings, (texts) => { texts['ui.yes'] = { el: texts['ui.yes'].el, en: '' }; });
+    const strictWarning = run([], CONTENT, 'm0');
+    assert.equal(strictWarning.status, 1, strictWarning.out);
+    assert.ok(/missing-english strings\/ui\.yes en/.test(strictWarning.out), strictWarning.out);
+    const lenientWarning = run(['--lenient'], CONTENT, 'm1');
+    assert.equal(lenientWarning.status, 0, lenientWarning.out);
+    assert.ok(/^WARN validation: content findings/m.test(lenientWarning.out), lenientWarning.out);
+    editJson(strings, (texts) => { texts['ui.yes'].waive = waiver('missing-english'); });
+    const waived = run([], CONTENT, 'm2');
+    assert.equal(waived.status, 0, waived.out);
+    assert.ok(/WAIVED missing-english/.test(waived.out), waived.out);
+    // a waiver clears a content finding only: an error of the integrity tier stays
+    editJson(strings, (texts) => { texts['ui.yes'].en = '{a'; texts['ui.yes'].waive = waiver('choice-syntax'); });
+    const integrity = run([], '^validation: the data has no integrity findings', 'm3');
+    assert.equal(integrity.status, 1, integrity.out);
+  });
+});
+test('engine cache: a second run does not run the engine tier on the canon copy again, a change to src/ or to the canon copy makes it run again', { tier: 'integrity' }, () => {
+  withScratch('cache', (root) => {
+    const filter = '^options are normalised$';
+    const ran = (result) => /^ok   \[canon\] options are normalised$/m.test(result.out);
+    const first = runScratch(root, ['--lenient'], { filter });
+    assert.ok(ran(first) && !/cached/.test(first.out), first.out);
+    const second = runScratch(root, ['--lenient'], { filter });
+    assert.equal(second.status, 0, second.out);
+    assert.ok(!ran(second) && /cached result of an earlier passing run/.test(second.out) && /^PASS 1 \/ 1$/m.test(second.out), 'a cache hit skips the engine tier:\n' + second.out);
+    appendFileSync(join(root, 'src', 'engine', '99-boot.js'), '// a change of the engine code\n');
+    const third = runScratch(root, ['--lenient'], { filter });
+    assert.ok(ran(third) && !/cached/.test(third.out), 'a change to src/ invalidates the cache:\n' + third.out);
+    assert.ok(!ran(runScratch(root, ['--lenient'], { filter })), 'and the new key is cached again');
+    editCanon(root, (canon) => { canon.game.startMoney += 1; });
+    assert.ok(ran(runScratch(root, ['--lenient'], { filter })), 'a change to the canon copy invalidates the cache');
+    assert.ok(readdirSync(join(root, '..', 'cache')).filter((name) => /^engine-[0-9a-f]{64}\.json$/.test(name)).length >= 3, 'the cache files are in the cache folder, not in the tree');
+    assert.ok(!readdirSync(root).includes('cache'), 'nothing is cached inside the tracked tree');
+  });
+});
+test('fixtures: a renamed fixture is skipped in the current-data pass with its message while the canon pass still runs the test', { tier: 'integrity' }, () => {
+  withScratch('fixtures', (root) => {
+    editCanon(root, (canon) => { canon.species.kommaa = canon.species.komma; }); // a species that only the canon copy has
+    addScratchTests(root, `test('scratch: needs a species that the current data renamed', { tier: 'engine', fixtures: ['species:kommaa'] }, () => { assert.ok(R.SPECIES.kommaa, 'kommaa exists'); });
+test('scratch: the same body without the fixture', { tier: 'engine', fixtures: [] }, () => { assert.ok(R.SPECIES.kommaa, 'kommaa exists'); });`);
+    const skipped = runScratch(root, [], { filter: '^scratch: needs' });
+    assert.equal(skipped.status, 0, skipped.out);
+    assert.ok(/^skipped: fixture species:kommaa renamed or deleted$/m.test(skipped.out.replace(/^ +/gm, '')), skipped.out);
+    assert.ok(/^skip scratch: needs a species/m.test(skipped.out) && /^ok   \[canon\] scratch: needs a species/m.test(skipped.out), 'the canon pass runs it:\n' + skipped.out);
+    assert.ok(!/^ok   scratch: needs/m.test(skipped.out) && !/^FAIL/m.test(skipped.out), 'the current-data pass did not run it');
+    assert.ok(/^PASS 1 \/ 2 \(1 skipped\)$/m.test(skipped.out), 'a skipped test is counted apart from the passed ones:\n' + skipped.out);
+    const undeclared = runScratch(root, [], { filter: '^scratch: the same body', cache: 'other' });
+    assert.equal(undeclared.status, 1, 'without the fixture the same body runs on the current data and fails there:\n' + undeclared.out);
+    assert.ok(/^FAIL scratch: the same body/m.test(undeclared.out) && /^ok   \[canon\] scratch: the same body/m.test(undeclared.out), undeclared.out);
+    // a test with no tier, or an engine test with no fixtures list, is refused at the start
+    addScratchTests(root, "test('scratch: no tier', {}, () => {});");
+    const refused = runScratch(root, [], { filter: '^scratch: no tier' });
+    assert.notEqual(refused.status, 0);
+    assert.ok(/has no tier/.test(refused.out), refused.out);
+  });
+});
+
+// ---- --json and --baseline (AC-003 b, c, d) ----
+test('--baseline: a finding already in the --json file passes and a new one fails, for integrity findings, current-data engine failures and content findings; an id-less integrity or content failure is never forgiven', { tier: 'integrity' }, () => {
+  withScratch('baseline', (root, folder) => {
+    // Runs once with --json, then with that file as the baseline (passes: nothing is new), then with its first record left out (fails: that one is new).
+    const compare = (label, filter, expectedFailures, args = []) => {
+      const jsonPath = join(folder, `${label}.json`);
+      const first = runScratch(root, [...args, '--json', jsonPath], { filter, cache: `${label}-1` });
+      assert.equal(first.status, 1, `${label}: the run itself fails\n${first.out}`);
+      const failures = failuresOf(jsonPath);
+      assert.ok(failures.length >= expectedFailures, `${label}: ${failures.length} records`);
+      const known = runScratch(root, [...args, '--baseline', jsonPath], { filter, cache: `${label}-2` });
+      assert.equal(known.status, 0, `${label}: a finding already in the baseline passes\n${known.out}`);
+      assert.ok(/baseline: [1-9]\d* known failures and findings forgiven, 0 new/.test(known.out), known.out);
+      const shorter = join(folder, `${label}-shorter.json`);
+      writeFileSync(shorter, JSON.stringify({ format: 1, failures: failures.slice(1) }));
+      const fresh = runScratch(root, [...args, '--baseline', shorter], { filter, cache: `${label}-3` });
+      assert.equal(fresh.status, 1, `${label}: a finding that is not in the baseline fails\n${fresh.out}`);
+      assert.ok(/^     NEW /m.test(fresh.out), fresh.out);
+      return failures;
+    };
+    // integrity findings
+    editJson(komma(root), (species) => { species.t = 'nosuchtype'; });
+    editJson(join(root, 'data', 'moves', 'psifodeltio.json'), (move) => { move.t = 'nosuchtype'; });
+    const integrity = compare('integrity', '^validation: the data has no integrity findings', 2);
+    assert.ok(integrity.some((record) => record.pass === 'current' && record.tier === 'integrity' && record.rule === 'missing-reference' && record.kind === 'species' && record.id === 'komma' && record.field === 't'), JSON.stringify(integrity[0]));
+    editJson(komma(root), (species) => { species.t = 'pol'; });
+    editJson(join(root, 'data', 'moves', 'psifodeltio.json'), (move) => { move.t = 'pol'; });
+    // a failure of the engine tier on the current data, from a changed fixture value
+    editJson(komma(root), (species) => { species.base[3] += 5; });
+    const engine = compare('engine', ENGINE_FILTER, 1);
+    assert.ok(engine.every((record) => record.pass === 'current' && record.tier === 'engine' && record.kind === 'error'), JSON.stringify(engine));
+    editJson(komma(root), (species) => { species.base[3] -= 5; });
+    // content findings
+    editJson(join(root, 'data', 'strings', 'ui.json'), (texts) => { texts['ui.yes'].en = ''; texts['ui.no'].en = ''; });
+    const content = compare('content', '^validation: content findings', 2);
+    assert.ok(content.every((record) => record.tier === 'content' && record.rule === 'missing-english' && record.status === 'fail'), JSON.stringify(content));
+    editJson(join(root, 'data', 'strings', 'ui.json'), (texts) => { texts['ui.yes'].en = 'Yes'; texts['ui.no'].en = 'No'; });
+    // a failure without an id: forgiven in the engine tier (the current-data pass), never in the integrity and content tiers
+    addScratchTests(root, `test('scratch: a content test that fails without an id', { tier: 'content' }, () => { assert.fail('no id'); });
+test('scratch: an integrity test that fails without an id', { tier: 'integrity' }, () => { assert.fail('no id'); });
+test('scratch: an engine test that fails on the current data only', { tier: 'engine', fixtures: [] }, () => { assert.ok(R.SPECIES.kommaa, 'kommaa exists'); });`);
+    editCanon(root, (canon) => { canon.species.kommaa = canon.species.komma; });
+    for (const filter of ['^scratch: a content test', '^scratch: an integrity test']) {
+      const jsonPath = join(folder, 'idless.json');
+      assert.equal(runScratch(root, ['--json', jsonPath], { filter, cache: 'i1' }).status, 1);
+      assert.ok(failuresOf(jsonPath).every((record) => record.kind === 'error' && record.id === ''), 'the failure has kind error and no id');
+      const again = runScratch(root, ['--baseline', jsonPath], { filter, cache: 'i2' });
+      assert.equal(again.status, 1, `${filter}: never forgiven\n${again.out}`);
+      assert.ok(/NEW current (content|integrity) "scratch/.test(again.out), again.out);
+    }
+    const engineJson = join(folder, 'idless-engine.json');
+    assert.equal(runScratch(root, ['--json', engineJson], { filter: '^scratch: an engine test', cache: 'i3' }).status, 1);
+    const forgiven = runScratch(root, ['--baseline', engineJson], { filter: '^scratch: an engine test', cache: 'i4' });
+    assert.equal(forgiven.status, 0, `a failure of the current-data engine pass is forgiven when the baseline has it\n${forgiven.out}`);
+  });
+});
+test('--baseline: a canon engine failure fails even when the same test fails on the current data in the baseline, and a baseline that has the canon key does not forgive it', { tier: 'integrity' }, () => {
+  withScratch('baseline-canon', (root, folder) => {
+    editJson(komma(root), (species) => { species.base[3] += 5; });
+    editCanon(root, (canon) => { canon.species.komma.base[3] += 5; }); // the canon copy breaks the same test
+    const jsonPath = join(folder, 'both.json');
+    assert.equal(runScratch(root, ['--json', jsonPath], { filter: ENGINE_FILTER, cache: 'k1' }).status, 1);
+    const failures = failuresOf(jsonPath);
+    assert.ok(failures.some((record) => record.pass === 'canon') && failures.some((record) => record.pass === 'current'), 'both passes fail: ' + JSON.stringify(failures.map((record) => record.pass)));
+    const currentOnly = join(folder, 'current-only.json');
+    writeFileSync(currentOnly, JSON.stringify({ format: 1, failures: failures.filter((record) => record.pass === 'current') }));
+    const withoutCanon = runScratch(root, ['--baseline', currentOnly], { filter: ENGINE_FILTER, cache: 'k2' });
+    assert.equal(withoutCanon.status, 1, withoutCanon.out);
+    assert.ok(/NEW canon engine/.test(withoutCanon.out), withoutCanon.out);
+    const withCanon = runScratch(root, ['--baseline', jsonPath], { filter: ENGINE_FILTER, cache: 'k3' });
+    assert.equal(withCanon.status, 1, 'a baseline that holds the canon key does not forgive it\n' + withCanon.out);
+    assert.ok(/NEW canon engine/.test(withCanon.out) && !/NEW current/.test(withCanon.out), withCanon.out);
+  });
+});
+
+// ---- The gate (AC-003 e to h): a scratch git repository with a main branch and a feature branch ----
+function withGateRepo(label, body) {
+  const folder = scratchFolder(label);
+  try {
+    const root = copyToolTree(folder);
+    const git = (...args) => {
+      const done = gitIn(folder, ...args);
+      assert.equal(done.status, 0, `git ${args.join(' ')}: ${done.stderr}`);
+      return done.stdout;
+    };
+    git('init', '-q', '-b', 'main');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'the merge base');
+    git('checkout', '-q', '-b', 'feature');
+    return body({ folder, root, git, commit: (message) => { git('add', '-A'); git('commit', '-q', '-m', message); } });
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+const runGateIn = (repo, filter, env) => runScratch(repo.root, ['--gate'], { filter, env, cache: 'gate' });
+const GATE_FILTER = '^(validation: the data has no integrity findings|options are normalised)';
+// The temporary worktree is named in the output: its folder must be gone and git must know only the main worktree.
+function assertWorktreeGone(repo, out) {
+  const match = /temporary worktree (\S+)/.exec(out);
+  assert.ok(match, 'the gate names its temporary worktree:\n' + out);
+  assert.equal(existsSync(match[1]), false, 'the worktree folder is gone');
+  assert.equal((repo.git('worktree', 'list', '--porcelain').match(/^worktree /gm) || []).length, 1, 'git knows no other worktree');
+}
+const patchFile = (path, from, to) => {
+  const text = readFileSync(path, 'utf8');
+  assert.ok(text.includes(from), `${path} has ${from}`);
+  writeFileSync(path, text.replace(from, () => to));
+};
+
+test('gate: a branch that adds a validation rule which flags content already at the merge base passes; one whose own change adds a finding fails; the temporary worktree is gone each time', { tier: 'integrity' }, () => {
+  withGateRepo('gate-rule', (repo) => {
+    // the new rule flags a species that is at the merge base too: HEAD's validation runs on both sides
+    patchFile(join(repo.root, 'shared', 'validate.mjs'), 'export function validateData(', 'function validateDataWithoutTheNewRule(');
+    appendFileSync(join(repo.root, 'shared', 'validate.mjs'), `
+// scratch: a rule that the branch adds and that flags existing content
+export function validateData(data, options = {}) {
+  const findings = validateDataWithoutTheNewRule(data, options);
+  findings.push({ severity: 'error', tier: 'integrity', rule: 'schema', kind: 'species', id: 'komma', field: 'n', message: { en: 'the new rule', el: 'ο νέος κανόνας' }, fix: '', waived: false });
+  return findings;
+}
+`);
+    repo.commit('a new validation rule');
+    const plain = runScratch(repo.root, [], { filter: GATE_FILTER, cache: 'plain' });
+    assert.equal(plain.status, 1, 'the plain run fails on the new finding:\n' + plain.out);
+    const passed = runGateIn(repo, GATE_FILTER);
+    assert.equal(passed.status, 0, passed.out);
+    assert.ok(/gate \(i\): the engine tier on the canon copy passes in full/.test(passed.out) && /baseline: [1-9]\d* known failures and findings forgiven, 0 new/.test(passed.out), passed.out);
+    assertWorktreeGone(repo, passed.out);
+    // now the change of the branch itself adds a finding that the merge base does not have
+    editJson(komma(repo.root), (species) => { species.t = 'nosuchtype'; });
+    repo.commit('a broken reference');
+    const failed = runGateIn(repo, GATE_FILTER);
+    assert.equal(failed.status, 1, failed.out);
+    assert.ok(/NEW current integrity .*missing-reference species\/komma t/.test(failed.out), failed.out);
+    assertWorktreeGone(repo, failed.out);
+  });
+});
+test('gate: a branch that raises the data version by one step passes', { tier: 'integrity' }, () => {
+  withGateRepo('gate-version', (repo) => {
+    patchFile(join(repo.root, 'shared', 'schemas.mjs'), 'export const DATA_VERSION = 1;', 'export const DATA_VERSION = 2;');
+    patchFile(join(repo.root, 'tools', 'migrate-data.mjs'), 'export const MIGRATIONS = Object.freeze({});', 'export const MIGRATIONS = Object.freeze({ 1: (data) => data });');
+    patchFile(join(repo.root, 'data', 'game.json'), '"dataVersion": 1', '"dataVersion": 2');
+    editCanon(repo.root, (canon) => { canon.game.dataVersion = 2; });
+    repo.commit('data version 2');
+    const gate = runGateIn(repo, `${GATE_FILTER}|^canon copy:`);
+    assert.equal(gate.status, 0, gate.out);
+    assert.ok(/^ok   canon copy:/m.test(gate.out), 'the canon copy test ran and passed:\n' + gate.out);
+    assertWorktreeGone(repo, gate.out);
+  });
+});
+test('gate: an integrity or content test that fails without an id on both sides still fails the gate, an engine one that fails on the current data on both sides does not', { tier: 'integrity' }, () => {
+  withGateRepo('gate-idless', (repo) => {
+    addScratchTests(repo.root, `test('scratch: a content test that fails without an id', { tier: 'content' }, () => { assert.fail('no id'); });
+test('scratch: an integrity test that fails without an id', { tier: 'integrity' }, () => { assert.fail('no id'); });
+test('scratch: an engine test that fails on the current data only', { tier: 'engine', fixtures: [] }, () => { assert.ok(R.SPECIES.kommaa, 'kommaa exists'); });`);
+    editCanon(repo.root, (canon) => { canon.species.kommaa = canon.species.komma; });
+    repo.commit('tests that fail on both sides');
+    for (const filter of ['^scratch: a content test', '^scratch: an integrity test']) {
+      const gate = runGateIn(repo, filter);
+      assert.equal(gate.status, 1, `${filter}\n${gate.out}`);
+      assert.ok(/NEW current (content|integrity) "scratch/.test(gate.out), gate.out);
+      assertWorktreeGone(repo, gate.out);
+    }
+    const engine = runGateIn(repo, '^scratch: an engine test');
+    assert.equal(engine.status, 0, engine.out);
+    assertWorktreeGone(repo, engine.out);
+  });
+});
+test('gate: a baseline run that exits non-zero but writes its file does not fail on that alone; a missing or unparseable file fails with "baseline run failed: <reason>"', { tier: 'integrity' }, () => {
+  withGateRepo('gate-baseline', (repo) => {
+    const stub = (name, body) => {
+      const path = join(repo.folder, `${name}.mjs`);
+      writeFileSync(path, `import { writeFileSync } from 'node:fs';\nconst path = process.argv[process.argv.indexOf('--json') + 1];\n${body}\n`);
+      return path;
+    };
+    const filter = '^options are normalised$';
+    const exitsWithFile = runGateIn(repo, filter, { MZ_GATE_BASELINE_SCRIPT: stub('exit-3', "writeFileSync(path, JSON.stringify({ format: 1, failures: [] }));\nprocess.exit(3);") });
+    assert.equal(exitsWithFile.status, 0, 'a baseline run that exits 3 with its file:\n' + exitsWithFile.out);
+    assertWorktreeGone(repo, exitsWithFile.out);
+    const noFile = runGateIn(repo, filter, { MZ_GATE_BASELINE_SCRIPT: stub('no-file', 'process.exit(0);') });
+    assert.equal(noFile.status, 1, noFile.out);
+    assert.ok(/baseline run failed: no result file \(exit code 0\)/.test(noFile.out), noFile.out);
+    assertWorktreeGone(repo, noFile.out);
+    const garbage = runGateIn(repo, filter, { MZ_GATE_BASELINE_SCRIPT: stub('garbage', "writeFileSync(path, '{ not json');") });
+    assert.equal(garbage.status, 1, garbage.out);
+    assert.ok(/baseline run failed: cannot read the baseline file/.test(garbage.out), garbage.out);
+    assertWorktreeGone(repo, garbage.out);
+    const wrongShape = runGateIn(repo, filter, { MZ_GATE_BASELINE_SCRIPT: stub('wrong-shape', "writeFileSync(path, JSON.stringify({ hello: 1 }));") });
+    assert.equal(wrongShape.status, 1, wrongShape.out);
+    assert.ok(/baseline run failed: .* is not a --json file/.test(wrongShape.out), wrongShape.out);
+    // --gate makes its own baseline and is strict: it refuses --baseline
+    const noMain = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--strict', '--baseline', 'x.json'], { cwd: repo.folder, encoding: 'utf8' });
+    assert.equal(noMain.status, 2, '--gate takes no --baseline');
+  });
+});
+// The folders of a gate run in a temp folder (a gate run keeps its worktree and baseline log in mizamon-gate-<random> under <temp>/claude).
+const gateFoldersIn = (tempFolder) => {
+  const claudeTemp = join(tempFolder, 'claude');
+  return existsSync(claudeTemp) ? readdirSync(claudeTemp).filter((name) => name.startsWith('mizamon-gate-')) : [];
+};
+test('gate: --root is refused (the gate tests its own tree), and a filter that matches no test leaves no temporary worktree behind', { tier: 'integrity' }, () => {
+  withGateRepo('gate-refusals', (repo) => {
+    const withRoot = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--root', repo.root], { cwd: repo.folder, encoding: 'utf8' });
+    assert.equal(withRoot.status, 2, '--gate takes no --root');
+    assert.match(withRoot.stderr, /--gate .*does not take --root/);
+    // TEMP and TMP point into the scratch folder, so the temporary folders of this gate run are the only ones in it
+    const ownTemp = join(repo.folder, 'own-temp');
+    mkdirSync(ownTemp, { recursive: true });
+    const gate = runGateIn(repo, '^no test has a name like this one$', { TEMP: ownTemp, TMP: ownTemp });
+    assert.equal(gate.status, 1, gate.out);
+    assert.match(gate.out, /MZ_TEST_FILTER matches no test/);
+    same(gateFoldersIn(ownTemp), [], 'no gate folder is left in the temp folder');
+    assert.equal((repo.git('worktree', 'list', '--porcelain').match(/^worktree /gm) || []).length, 1, 'git knows no other worktree');
+  });
+});
+test('gate: a failure while the baseline run is still going stops that run first, so the temporary folder and the worktree are removed', { tier: 'integrity' }, () => {
+  withGateRepo('gate-throw', (repo) => {
+    // Without the scan baseline file the cache key of the engine tier cannot be made: the gate's own run throws (outside any test) after the
+    // current-data pass, when the baseline run has long started.
+    rmSync(join(repo.root, 'tests', 'baseline', 'source-scans.json'));
+    repo.commit('no scan baseline');
+    // The baseline run is a stub that keeps its log file open and runs for a long time, as a baseline run still going would.
+    const STUB_LIFE_MS = 120000;
+    const stubPath = join(repo.folder, 'long-baseline.mjs');
+    const pidFile = join(repo.folder, 'stub.pid');
+    writeFileSync(stubPath, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log('the baseline stub is running');\nsetTimeout(() => {}, ${STUB_LIFE_MS});\n`);
+    const ownTemp = join(repo.folder, 'own-temp');
+    mkdirSync(ownTemp, { recursive: true });
+    const startedAt = Date.now();
+    const gate = runGateIn(repo, ENGINE_FILTER, { TEMP: ownTemp, TMP: ownTemp, MZ_GATE_BASELINE_SCRIPT: stubPath });
+    assert.ok(Date.now() - startedAt < STUB_LIFE_MS / 2, 'the gate did not wait for the baseline run to end by itself: it stopped it');
+    assert.equal(gate.status, 1, gate.out);
+    assert.ok(/source-scans\.json/.test(gate.out) && !/EBUSY|EPERM/.test(gate.out), 'the failure is reported and the clean-up does not fail on the open log:\n' + gate.out);
+    assertWorktreeGone(repo, gate.out);
+    same(gateFoldersIn(ownTemp), [], 'the gate folder with the baseline log is gone');
+    if (existsSync(pidFile)) { // the stub writes it as it starts; a machine so busy that the stub never started has no file
+      let stubRuns = true;
+      try {
+        process.kill(Number(readFileSync(pidFile, 'utf8')), 0);
+      } catch {
+        stubRuns = false;
+      }
+      assert.equal(stubRuns, false, 'the baseline run was stopped');
+    }
+  });
+});
+
+
+// ---- Passes, records, the cache, the baseline and the gate (MZ-DEV-02c, reference 13.5) ----
+// A run is a list of outcomes, one per (pass, test): pass is 'canon' (the engine tier on tests/canon-data.json) or 'current' (everything
+// on the data under test). The records of an outcome are its failures and findings: { pass, tier, test, rule, kind, id, field, status, message }
+// with status 'fail', 'warn' (lenient content) or 'waived'. recordKey(record) is what --baseline compares.
+const MAX_PRINTED_RECORDS = 12;
+const CACHE_FOLDER = () => process.env.MZ_CACHE_DIR || join(tmpdir(), 'claude', 'mizamon-cache');
+
+export function recordKey(record) {
+  return [record.pass, record.tier, record.test, record.rule ?? '', record.kind, record.id, record.field].join('\u0000');
+}
+const describeRecordPlace = (record) => [record.rule, `${record.kind}${record.id ? '/' + record.id : ''}`, record.field].filter(Boolean).join(' ');
+
+function normalizeFinding(finding) {
+  return {
+    rule: finding.rule ?? '',
+    kind: finding.kind ?? 'error',
+    id: finding.id ?? '',
+    field: finding.field ?? '',
+    message: typeof finding.message === 'object' && finding.message !== null ? String(finding.message.en ?? '') : String(finding.message ?? ''),
+    waived: finding.waived === true,
+    hard: finding.hard === true || VALIDATION_RULES[finding.rule]?.hard === true,
+  };
+}
+
+// The content ids of the current page, by kind (an engine test whose fixture is gone is skipped).
+let pageDataCache = { page: null, data: null };
+function currentPageData() {
+  if (pageDataCache.page !== html) pageDataCache = { page: html, data: dataOfPage(html) };
+  return pageDataCache.data;
+}
+function missingFixtures(entry) {
+  if (entry.fixtures.length === 0) return [];
+  const data = currentPageData();
+  return entry.fixtures.filter((fixture) => {
+    const [, kind, id] = FIXTURE_ID.exec(fixture);
+    return !Object.hasOwn(data[FIXTURE_KINDS[kind]] ?? {}, id);
+  });
+}
+
+// Runs one test and returns { error, findings, ms }: error is a thrown failure that is not a list of findings.
+function executeTest(entry) {
+  let error = null;
+  let findings = [];
+  scanTestName = entry.name;
+  scanLog.length = 0;
+  const started = Date.now();
+  try {
+    const outcome = entry.fn();
+    if (outcome && Array.isArray(outcome.findings)) findings = outcome.findings;
+  } catch (thrown) {
+    if (thrown instanceof FindingsError) findings = thrown.findings;
+    else error = thrown;
   }
   const scans = scanLog.slice();
   scanTestName = null;
-  recorded.push(...scans);
-  if (!recordPath) {
-    const problems = checkScans(name, scans, loadScanBaseline(), failure !== null);
-    if (problems.length > 0) failure = new Error((failure ? String(failure.message || failure) + '\n' : '') + problems.join('\n'));
+  recordedScans.push(...scans);
+  if (!process.env.MZ_RECORD_SCANS) {
+    const problems = checkScans(entry.name, scans, loadScanBaseline(), error !== null);
+    if (problems.length > 0) error = new Error((error ? String(error.message || error) + '\n' : '') + problems.join('\n'));
   }
-  if (failure) {
-    failures.push({ name, error: failure });
-    console.log('FAIL ' + name + '\n     ' + String(failure && failure.message ? failure.message : failure).split('\n').join('\n     '));
-  } else {
-    passed++;
-    console.log('ok   ' + name);
+  return { error, findings: findings.map(normalizeFinding), ms: Date.now() - started };
+}
+const recordedScans = [];
+
+// What a result means in a mode (reference 13.5): the records of its failures and findings.
+function recordsOf(pass, entry, result, mode) {
+  const base = { pass, tier: entry.tier, test: entry.name };
+  const records = [];
+  const contentTier = entry.tier === 'content';
+  if (result.error) {
+    const fails = !contentTier || mode === 'strict' || entry.hard;
+    records.push({ ...base, rule: '', kind: 'error', id: '', field: '', status: fails ? 'fail' : 'warn', message: String(result.error.message || result.error) });
+  }
+  for (const finding of result.findings) {
+    let status = 'fail';
+    if (contentTier && finding.waived) status = 'waived';
+    else if (contentTier && mode === 'lenient' && !finding.hard) status = 'warn';
+    records.push({ ...base, rule: finding.rule, kind: finding.kind, id: finding.id, field: finding.field, status, message: finding.message });
+  }
+  return records;
+}
+
+function printRecords(prefix, records) {
+  for (const record of records.slice(0, MAX_PRINTED_RECORDS)) {
+    const word = record.status === 'waived' ? 'WAIVED' : record.status === 'warn' ? 'WARN' : 'finding';
+    const plain = record.rule === '' && record.kind === 'error' && record.status === 'fail'; // a failed assertion: just its message
+    console.log(`     ${plain ? '' : `${word} ${describeRecordPlace(record)}: `}${record.message.split('\n').join('\n     ')}`);
+  }
+  if (records.length > MAX_PRINTED_RECORDS) console.log(`     ... and ${records.length - MAX_PRINTED_RECORDS} more`);
+}
+
+// Prints and returns the outcome of one executed test.
+function outcomeOf(pass, entry, result, mode) {
+  const records = recordsOf(pass, entry, result, mode);
+  const prefix = pass === 'canon' ? '[canon] ' : '';
+  const failed = records.some((record) => record.status === 'fail');
+  const warned = records.some((record) => record.status === 'warn');
+  if (failed) console.log(`FAIL ${prefix}${entry.name}`);
+  else if (warned) console.log(`WARN ${prefix}${entry.name}`);
+  else console.log(`ok   ${prefix}${entry.name}`);
+  if (failed || warned || records.length > 0) printRecords(prefix, records);
+  return { pass, entry, records, skipped: [], cached: false };
+}
+
+function runEntries(pass, entries, mode, { skipMissingFixtures }) {
+  const outcomes = [];
+  for (const entry of entries) {
+    const missing = skipMissingFixtures ? missingFixtures(entry) : [];
+    if (missing.length > 0) {
+      console.log(`skip ${entry.name}`);
+      for (const fixture of missing) console.log(`     skipped: fixture ${fixture} renamed or deleted`);
+      outcomes.push({ pass, entry, records: [], skipped: missing, cached: false });
+      continue;
+    }
+    outcomes.push(outcomeOf(pass, entry, executeTest(entry), mode));
+  }
+  return outcomes;
+}
+
+// An outcome for a failure that belongs to no test (the canon copy cannot be read, the migration failed ...).
+function errorOutcome(pass, tier, name, error) {
+  console.log(`FAIL ${pass === 'canon' ? '[canon] ' : ''}${name}\n     ${String(error.message || error).split('\n').join('\n     ')}`);
+  const record = { pass, tier, test: name, rule: '', kind: 'error', id: '', field: '', status: 'fail', message: String(error.message || error) };
+  return { pass, entry: { name, tier }, records: [record], skipped: [], cached: false };
+}
+
+// ---- The canon copy and the engine-tier cache ----
+// The page of the canon candidate: the page with the canon copy swapped in between the /*DATA-BEGIN*/ and /*DATA-END*/ lines (13.5).
+export function swapDataBlock(page, block) {
+  const begins = [...page.matchAll(/^\/\*DATA-BEGIN\*\/\r?$/gm)];
+  const ends = [...page.matchAll(/^\/\*DATA-END\*\/\r?$/gm)];
+  assert.ok(begins.length === 1 && ends.length === 1, '/*DATA-BEGIN*/ and /*DATA-END*/ must each be on a line of their own, once, in the page');
+  assert.ok(ends[0].index > begins[0].index, '/*DATA-END*/ comes before /*DATA-BEGIN*/ in the page');
+  const afterEnd = ends[0].index + ends[0][0].length + 1; // the line break after the marker line
+  return page.slice(0, begins[0].index) + block + page.slice(afterEnd);
+}
+export function readCanonData(path = CANON_PATH) {
+  if (!existsSync(path)) throw new Error(`the canon copy ${path} does not exist: node Mizamon/tools/run-tests.mjs --refresh-canon makes it from the current data`);
+  return JSON.parse(readFileSync(path, 'utf8'));
+}
+export function canonPageOf(page, path = CANON_PATH) {
+  return swapDataBlock(page, dataBlockText(readCanonData(path)));
+}
+
+// The cache key of the engine tier on the canon copy: the canon page, this file, shared/, the tools the engine tests import, the scan
+// baseline, the Node version and the two environment switches that change what a test does.
+function canonCacheKey(canonPage) {
+  const parts = [sha256Hex(toLf(canonPage))];
+  const addFile = (path) => parts.push(path, sha256Hex(toLf(readFileSync(join(TOOL_ROOT, path), 'utf8'))));
+  addFile('tools/run-tests.mjs');
+  for (const name of readdirSync(join(TOOL_ROOT, 'shared')).filter((entry) => entry.endsWith('.mjs')).sort()) addFile(`shared/${name}`);
+  for (const path of ['tools/parity.mjs', 'tools/assemble.mjs', 'tests/baseline/source-scans.json', 'tests/validate-fixtures.mjs']) addFile(path);
+  parts.push(process.version, process.env.MZ_TEST_FILTER ?? '', process.env.MZ_FORCE_SCAN_ZERO ?? '');
+  return sha256Hex(parts.join('\n'));
+}
+function readCache(key, names) {
+  try {
+    const stored = JSON.parse(readFileSync(join(CACHE_FOLDER(), `engine-${key}.json`), 'utf8'));
+    if (stored.key === key && JSON.stringify(stored.tests) === JSON.stringify(names)) return stored;
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.log(`cache: ${error.message}`);
+  }
+  return null;
+}
+function writeCache(key, names) {
+  try {
+    mkdirSync(CACHE_FOLDER(), { recursive: true });
+    const target = join(CACHE_FOLDER(), `engine-${key}.json`);
+    writeFileSync(`${target}.tmp`, JSON.stringify({ key, node: process.version, tests: names }) + '\n');
+    renameSync(`${target}.tmp`, target);
+  } catch (error) {
+    console.log(`cache: not written (${error.message})`); // a cache that cannot be written only costs the next run a full engine tier
   }
 }
-if (recordPath) {
-  const entries = numberScans(recorded).map((scan) => ({ test: scan.test, kind: scan.kind, pattern: scan.pattern, ordinal: scan.ordinal, count: scan.count }));
-  mkdirSync(dirname(recordPath), { recursive: true });
-  writeFileSync(recordPath, JSON.stringify({ scans: entries }, null, 0).split('},{').join('},\n{') + '\n');
+
+// The engine tier on the canon copy: every engine test, fixtures or not; from the cache when the key matches (only a passing run is stored).
+function runCanonPass(entries, mode) {
+  if (entries.length === 0) return [];
+  let canonPage;
+  try {
+    canonPage = canonPageOf(html);
+  } catch (error) {
+    return [errorOutcome('canon', 'engine', 'the canon copy can be used', error)];
+  }
+  const key = canonCacheKey(canonPage);
+  const names = entries.map((entry) => entry.name);
+  const stored = process.env.MZ_RECORD_SCANS ? null : readCache(key, names);
+  if (stored) {
+    console.log(`[canon] ${names.length} engine tests: cached result of an earlier passing run (key ${key.slice(0, 12)}), not run again`);
+    return entries.map((entry) => ({ pass: 'canon', entry, records: [], skipped: [], cached: true }));
+  }
+  useContext(canonPage);
+  const outcomes = runEntries('canon', entries, mode, { skipMissingFixtures: false });
+  if (!process.env.MZ_RECORD_SCANS && outcomes.every((outcome) => outcome.records.every((record) => record.status !== 'fail'))) writeCache(key, names);
+  return outcomes;
 }
-console.log('PASS ' + passed + ' / ' + selected.length);
-if (failures.length > 0) process.exit(1);
+
+// ---- A run: the passes of a mode ----
+function selectedTests() {
+  const only = process.env.MZ_TEST_FILTER ? new RegExp(process.env.MZ_TEST_FILTER, 'u') : null; // while working: MZ_TEST_FILTER="Βουλή" runs the tests whose name matches (the full run has no filter)
+  const selected = only ? tests.filter(({ name }) => only.test(name)) : tests;
+  if (only && selected.length === 0) {
+    console.error('MZ_TEST_FILTER matches no test: ' + process.env.MZ_TEST_FILTER);
+    process.exit(1);
+  }
+  return selected;
 }
+
+// The baseline run of the gate: HEAD's tests on the merge base's own src/ and data/ (13.5). The engine tier runs on the unmigrated data
+// (the base's own dataVersion is accepted), integrity and content on a copy of the base migrated by this tree's migrate-data.mjs.
+// There is no canon pass here: the gate never forgives a canon key, so the baseline would not be read for it.
+function runBaselinePasses(selected, mode) {
+  const outcomes = [];
+  console.log('-- the engine tier on the data of the merge base (as it is) --');
+  acceptAnyDataVersion = true;
+  try {
+    useContext(assembleFromDisk());
+  } finally {
+    acceptAnyDataVersion = false;
+  }
+  outcomes.push(...runEntries('current', selected.filter((entry) => entry.tier === 'engine'), mode, { skipMissingFixtures: true }));
+  console.log('-- integrity and content on a copy of the merge base migrated to this data version --');
+  const parent = join(tmpdir(), 'claude');
+  mkdirSync(parent, { recursive: true });
+  const copyFolder = mkdtempSync(join(parent, 'mizamon-baseline-copy-'));
+  const baseRoot = MIZAMON_ROOT;
+  try {
+    const copyRoot = join(copyFolder, 'Mizamon');
+    cpSync(baseRoot, copyRoot, { recursive: true, filter: (source) => !/[\\/](\.git|node_modules|revengin)([\\/]|$)/.test(source) });
+    try {
+      migrateData(copyRoot);
+    } catch (error) {
+      outcomes.push(errorOutcome('current', 'integrity', 'the data of the merge base migrates to this data version', error));
+      return outcomes;
+    }
+    MIZAMON_ROOT = copyRoot;
+    useContext(assembleFromDisk());
+    outcomes.push(...runEntries('current', selected.filter((entry) => entry.tier !== 'engine'), mode, { skipMissingFixtures: false }));
+  } finally {
+    MIZAMON_ROOT = baseRoot;
+    rmSync(copyFolder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+  return outcomes;
+}
+
+// Executes the passes of the run and returns the outcomes. strict: the current pass runs every tier (the engine tier too), then the engine
+// tier on the canon copy; lenient: the current pass runs integrity and content only, and the engine tier runs on the canon copy.
+function executeSuite({ baselineRun }) {
+  const mode = CLI.mode;
+  const selected = selectedTests();
+  if (baselineRun) return runBaselinePasses(selected, mode);
+  const outcomes = [];
+  console.log(mode === 'strict' ? '-- the current data: every tier --' : '-- the current data: integrity and content (lenient) --');
+  const currentEntries = mode === 'strict' ? selected : selected.filter((entry) => entry.tier !== 'engine');
+  outcomes.push(...runEntries('current', currentEntries, mode, { skipMissingFixtures: true }));
+  if (process.env.MZ_RECORD_SCANS) return outcomes; // recording the scan baseline: one pass, or every scan would be recorded twice
+  console.log('-- the engine tier on the canon copy (tests/canon-data.json) --');
+  outcomes.push(...runCanonPass(selected.filter((entry) => entry.tier === 'engine'), mode));
+  return outcomes;
+}
+
+// ---- Judging against a baseline, the summary and the --json file ----
+function judge(outcomes, baselineKeys) {
+  const records = outcomes.flatMap((outcome) => outcome.records);
+  for (const record of records) {
+    if (record.status !== 'fail') continue;
+    const neverForgiven = record.pass === 'canon' || (record.kind === 'error' && record.tier !== 'engine');
+    record.known = baselineKeys !== null && !neverForgiven && baselineKeys.has(recordKey(record));
+  }
+  return records;
+}
+
+export function readBaselineKeys(path) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new Error(`cannot read the baseline file ${path}: ${error.message}`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.failures)) throw new Error(`${path} is not a --json file of this tool (no "failures" list)`);
+  return new Set(parsed.failures.filter((record) => record.status === 'fail').map(recordKey));
+}
+
+function writeJsonFile(path, outcomes, records) {
+  mkdirSync(dirname(path), { recursive: true });
+  const executed = outcomes.filter((outcome) => outcome.skipped.length === 0);
+  writeFileSync(path, JSON.stringify({
+    format: 1,
+    mode: CLI.mode,
+    root: MIZAMON_ROOT,
+    tests: { total: outcomes.length, passed: executed.filter((outcome) => outcome.records.every((record) => record.status !== 'fail')).length },
+    failures: records.map(({ known, ...record }) => record),
+  }, null, 1) + '\n');
+}
+
+// Prints the summary and returns the exit code.
+function finish(outcomes, baselineKeys) {
+  const records = judge(outcomes, baselineKeys);
+  const failing = records.filter((record) => record.status === 'fail' && !record.known);
+  const known = records.filter((record) => record.status === 'fail' && record.known);
+  const failedTests = new Set(failing.map((record) => `${record.pass}\u0000${record.test}`));
+  const total = outcomes.length;
+  const skipped = outcomes.filter((outcome) => outcome.skipped.length > 0).length;
+  const passed = outcomes.filter((outcome) => outcome.skipped.length === 0 && !failedTests.has(`${outcome.pass}\u0000${outcome.entry.name}`)).length;
+  if (baselineKeys !== null) {
+    console.log(`baseline: ${known.length} known failures and findings forgiven, ${failing.length} new`);
+    for (const record of failing.slice(0, 30)) console.log(`     NEW ${record.pass} ${record.tier} "${record.test}" ${describeRecordPlace(record)}`);
+  }
+  const waived = records.filter((record) => record.status === 'waived');
+  const warned = records.filter((record) => record.status === 'warn');
+  if (waived.length > 0 || warned.length > 0) console.log(`${waived.length} waived, ${warned.length} warnings`);
+  console.log(`PASS ${passed} / ${total}${skipped > 0 ? ` (${skipped} skipped)` : ''}`); // build.mjs reads this line
+  if (CLI.json) writeJsonFile(CLI.json, outcomes, records);
+  return failing.length > 0 ? 1 : 0;
+}
+
+// ---- --refresh-canon ----
+function refreshCanon() {
+  const { data } = readData(MIZAMON_ROOT);
+  mkdirSync(dirname(CANON_PATH), { recursive: true });
+  writeFileSync(CANON_PATH, JSON.stringify(data, null, 1) + '\n');
+  console.log(`${CANON_PATH} written from the data of ${MIZAMON_ROOT} (data version ${data.game.dataVersion}); review the diff before it is committed`);
+}
+
+// ---- --gate: the agents' gate (13.5) ----
+const gitRaw = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+function gitOutput(cwd, ...args) {
+  const done = gitRaw(cwd, ...args);
+  if (done.status !== 0) throw new Error(`git ${args.join(' ')}: ${(done.stderr || done.stdout || 'failed').trim()}`);
+  return done.stdout.trim();
+}
+
+// Starts the baseline run as a child process; returns { result, stop }. result resolves with { exitCode, log } when the child is done;
+// stop() kills the child if it still runs and resolves when it is gone and its log is closed (the log cannot be deleted before that on
+// Windows). MZ_GATE_BASELINE_SCRIPT replaces this file (tests only).
+function startBaselineRun(baseRoot, jsonPath, logPath) {
+  const script = process.env.MZ_GATE_BASELINE_SCRIPT || THIS_FILE;
+  const env = { ...process.env };
+  delete env.MZ_HTML;
+  // The child writes into a file, not a pipe: this process is busy with its own run meanwhile and would not empty a pipe.
+  const logFile = openSync(logPath, 'w');
+  const child = spawn(process.execPath, [script, '--baseline-run', '--root', baseRoot, '--json', jsonPath], { env, stdio: ['ignore', logFile, logFile] });
+  let settled = false; // 'error' and 'close' can both come: the log is closed and the result given once
+  const result = new Promise((resolveRun) => {
+    const finishRun = (exitCode, note) => {
+      if (settled) return;
+      settled = true;
+      closeSync(logFile);
+      resolveRun({ exitCode, log: note ?? readFileSync(logPath, 'utf8'), logPath });
+    };
+    child.on('error', (error) => finishRun(null, error.message));
+    child.on('close', (exitCode) => finishRun(exitCode));
+  });
+  const stop = async () => {
+    if (!settled) {
+      // child.kill() on Windows ends only the child, not the processes it started, which can keep files of the worktree open
+      const killed = process.platform === 'win32' ? spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' }) : null;
+      if (!killed || killed.status !== 0) child.kill(); // taskkill missing or refused: at least the child ends, so the wait below returns
+    }
+    await result;
+  };
+  return { result, stop };
+}
+
+// Reads the baseline file whatever the baseline run's exit code; only a file that is missing or not parseable is a failed baseline run.
+function readBaselineOfRun(run, jsonPath) {
+  const tail = run.log.trim().split('\n').slice(-3).join(' | ');
+  if (!existsSync(jsonPath)) throw new Error(`baseline run failed: no result file (exit code ${run.exitCode}): ${tail}`);
+  try {
+    return readBaselineKeys(jsonPath);
+  } catch (error) {
+    throw new Error(`baseline run failed: ${error.message} (exit code ${run.exitCode})`);
+  }
+}
+
+async function runGate() {
+  const repo = gitOutput(TOOL_ROOT, 'rev-parse', '--show-toplevel');
+  const prefix = gitOutput(TOOL_ROOT, 'rev-parse', '--show-prefix'); // 'Mizamon/'
+  const mergeBase = gitOutput(repo, 'merge-base', 'HEAD', 'main');
+  selectedTests(); // a filter that matches no test exits here, before a temporary worktree exists
+  const parent = join(tmpdir(), 'claude');
+  mkdirSync(parent, { recursive: true });
+  const folder = mkdtempSync(join(parent, 'mizamon-gate-'));
+  const worktree = join(folder, 'base');
+  let exitCode = 1;
+  let baselineRun = null;
+  try {
+    gitOutput(repo, 'worktree', 'add', '--detach', worktree, mergeBase);
+    console.log(`gate: the baseline is ${mergeBase.slice(0, 9)} (merge base of HEAD and main) in the temporary worktree ${worktree}`);
+    const jsonPath = join(folder, 'baseline.json');
+    baselineRun = startBaselineRun(join(worktree, prefix), jsonPath, join(folder, 'baseline.log'));
+    CLI.mode = 'strict';
+    const outcomes = executeSuite({ baselineRun: false });
+    const run = await baselineRun.result;
+    const baselineKeys = readBaselineOfRun(run, jsonPath);
+    const canonFailures = outcomes.filter((outcome) => outcome.pass === 'canon' && outcome.records.some((record) => record.status === 'fail'));
+    console.log(`gate (i): the engine tier on the canon copy ${canonFailures.length === 0 ? 'passes in full' : `fails in ${canonFailures.length} tests`}`);
+    console.log('gate (ii): integrity, the engine tier on the current data and the content findings, compared with the baseline');
+    exitCode = finish(outcomes, baselineKeys);
+  } catch (error) {
+    console.log(error.message);
+  } finally {
+    if (baselineRun) await baselineRun.stop(); // the child holds the log and the worktree's files open until it is gone
+    gitRaw(repo, 'worktree', 'remove', '--force', worktree);
+    try {
+      rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } finally {
+      gitRaw(repo, 'worktree', 'prune');
+    }
+  }
+  return exitCode;
+}
+
+// ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
+async function main() {
+  if (CLI.error) {
+    console.error(`${CLI.error}\n${USAGE}`);
+    process.exit(2);
+  }
+  if (CLI.refreshCanon) {
+    refreshCanon();
+    return;
+  }
+  if (CLI.gate) {
+    process.exitCode = await runGate();
+    return;
+  }
+  let baselineKeys = null;
+  if (CLI.baseline) {
+    try {
+      baselineKeys = readBaselineKeys(CLI.baseline);
+    } catch (error) {
+      console.error(error.message);
+      process.exit(2);
+    }
+  }
+  const outcomes = executeSuite({ baselineRun: CLI.baselineRun });
+  const recordPath = process.env.MZ_RECORD_SCANS || null;
+  if (recordPath) {
+    const entries = numberScans(recordedScans).map((scan) => ({ test: scan.test, kind: scan.kind, pattern: scan.pattern, ordinal: scan.ordinal, count: scan.count }));
+    mkdirSync(dirname(recordPath), { recursive: true });
+    writeFileSync(recordPath, JSON.stringify({ scans: entries }, null, 0).split('},{').join('},\n{') + '\n');
+  }
+  process.exitCode = finish(outcomes, baselineKeys);
+}
+if (IS_ENTRY) await main();

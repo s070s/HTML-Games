@@ -36,7 +36,8 @@ const GAMES = {
   fingerlickinmusic: { folder: 'Finger Lickin Music', file: 'Finger Lickin Music/FingerLickinMusic.html', slug: 'finger-licking-music' },
   mizamon: { folder: 'Mizamon', report: 'Mizamon/build/build-report.json', assemble: 'Mizamon/tools/assemble.mjs', slug: 'mizamon' },
 };
-const UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+// MZ_ITCH_UPLOAD_ROOT replaces the default folder (the tests of Mizamon give each test run its own, so runs at once do not meet).
+const UPLOAD_ROOT = process.env.MZ_ITCH_UPLOAD_ROOT || join(tmpdir(), 'claude', 'itch-upload');
 
 function git(args, options = {}) {
   return execFileSync('git', args, { maxBuffer: 64 * 1024 * 1024, ...options });

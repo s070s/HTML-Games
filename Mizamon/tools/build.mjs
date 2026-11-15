@@ -20,7 +20,7 @@ export const EXIT = Object.freeze({ built: 0, problem: 1, usage: 2, io: 3 });
 const USAGE = 'usage: node Mizamon/tools/build.mjs [--check] [--no-tests] [--out <folder>] [--root <folder>] [--json]';
 const LOCK_NAME = '.lock';
 const STALE_UNREADABLE_LOCK_MS = 60 * 1000; // a lock file that never got its content (a crash while writing it)
-const TEST_TIME_LIMIT_MS = 15 * 60 * 1000;
+const TEST_TIME_LIMIT_MS = 30 * 60 * 1000; // the strict run measured about 15 minutes (913 s) on this PC
 const SIZE_WARN_BYTES = 4 * 1024 * 1024; // phone loading
 const SIZE_STOP_BYTES = 16 * 1024 * 1024;
 const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -176,13 +176,14 @@ function runRuleTests(root, pagePath) {
     const timer = setTimeout(() => child.kill(), TEST_TIME_LIMIT_MS);
     child.on('close', (exitCode) => {
       clearTimeout(timer);
-      const summary = /^PASS (\d+) \/ (\d+)$/m.exec(output);
+      const summary = /^PASS (\d+) \/ (\d+)(?: \((\d+) skipped\))?$/m.exec(output); // "PASS n / m" or "PASS n / m (k skipped)"
       const failures = output.split('\n').filter((line) => line.startsWith('FAIL ')).map((line) => line.slice(5).trim());
       resolveTests({
         ran: true,
         exitCode,
         passed: summary ? Number(summary[1]) : 0,
         total: summary ? Number(summary[2]) : 0,
+        skipped: summary && summary[3] ? Number(summary[3]) : 0,
         failures: summary || failures.length > 0 ? failures : [`the test run ended without a summary (exit code ${exitCode}): ${output.trim().split('\n').slice(-3).join(' | ')}`],
       });
     });
@@ -245,7 +246,7 @@ export async function runBuild({ root = MIZAMON_ROOT, out = join(root, 'build'),
       const pagePath = join(scratchFolder, 'real.html');
       writeFileSync(pagePath, htmlBytes);
       report.tests = await runRuleTests(root, pagePath);
-      if (report.tests.exitCode !== 0 || report.tests.failures.length > 0 || report.tests.passed !== report.tests.total) report.status = 'failed';
+      if (report.tests.exitCode !== 0 || report.tests.failures.length > 0 || report.tests.passed + report.tests.skipped !== report.tests.total) report.status = 'failed';
     } else {
       report.status = 'untested';
     }
@@ -292,7 +293,7 @@ async function main() {
   if (report) for (const failure of report.tests.failures ?? []) console.error(`FAIL ${failure}`);
   if (options.json && report) console.log(JSON.stringify(report, null, 2));
   if (report && !options.json) {
-    const tests = report.tests.ran ? `${report.tests.passed} / ${report.tests.total} tests` : 'tests not run';
+    const tests = report.tests.ran ? `${report.tests.passed} / ${report.tests.total} tests${report.tests.skipped > 0 ? ` (${report.tests.skipped} skipped)` : ''}` : 'tests not run';
     console.log(`${report.status}: ${report.sizes.total} bytes, ${tests}, ${report.durationSeconds} s${options.check ? ' (check only, nothing written)' : ''}`);
     if (result.exitCode === EXIT.built && !options.check) console.log(`written: ${join(options.out, 'index.html')} and build-report.json`);
   }
