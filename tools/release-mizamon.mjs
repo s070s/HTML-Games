@@ -3,6 +3,7 @@
 //   node tools/release-mizamon.mjs        (from the repo root, on main)
 //
 // It runs these steps in order and stops at the first one that fails, saying which:
+//   0. branch        the current branch is main (a release from another branch would push the wrong history)
 //   1. build         node Mizamon/tools/build.mjs (through ~/.claude/scripts/heavy.mjs when that exists), which runs the tests
 //                    and writes Mizamon/build/build-report.json
 //   2. clean sources Mizamon/src, data, shared and tools have no uncommitted change (the report must describe the commit)
@@ -28,7 +29,18 @@ function runCommand(repoRoot, command, args) {
   return result.status === 0 ? { ok: true } : { ok: false, reason: `exit code ${result.status}` };
 }
 
-function checkSourcesAreClean(repoRoot) {
+// Plain push of main, never forced; the gh credential helper replaces any other helper.
+export const pushArgs = ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'push', '-q', 'origin', 'main'];
+
+export function checkBranchIsMain(repoRoot) {
+  const result = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
+  if (result.error || result.status !== 0) return { ok: false, reason: `git symbolic-ref failed: ${result.error ? result.error.message : result.stderr.trim()}` };
+  const branch = result.stdout.trim();
+  if (branch !== 'main') return { ok: false, reason: `release runs only on main; current: ${branch}` };
+  return { ok: true };
+}
+
+export function checkSourcesAreClean(repoRoot) {
   const result = spawnSync('git', ['status', '--porcelain', '--', ...SOURCE_FOLDERS], { cwd: repoRoot, encoding: 'utf8' });
   if (result.error || result.status !== 0) return { ok: false, reason: `git status failed: ${result.error ? result.error.message : result.stderr.trim()}` };
   const changed = result.stdout.split('\n').filter(Boolean);
@@ -42,11 +54,12 @@ export function releaseSteps(repoRoot, heavyJobRunner = HEAVY_JOB_RUNNER) {
     ? [heavyJobRunner, '--', process.execPath, 'Mizamon/tools/build.mjs']
     : ['Mizamon/tools/build.mjs'];
   return [
+    { label: 'check that the branch is main', run: () => checkBranchIsMain(repoRoot) },
     { label: 'build (tests and build report)', run: () => runCommand(repoRoot, process.execPath, buildArguments) },
     { label: 'check that the sources are committed', run: () => checkSourcesAreClean(repoRoot) },
     { label: 'stage the build report', run: () => runCommand(repoRoot, 'git', ['add', '--', REPORT_PATH]) },
     { label: 'commit the build report', run: () => runCommand(repoRoot, 'git', ['commit', '-q', '-m', COMMIT_MESSAGE, '--', REPORT_PATH]) },
-    { label: 'push main', run: () => runCommand(repoRoot, 'git', ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'push', '-q', 'origin', 'main']) },
+    { label: 'push main', run: () => runCommand(repoRoot, 'git', pushArgs) },
     { label: 'upload to itch.io', run: () => runCommand(repoRoot, process.execPath, ['tools/itch-push.mjs', 'mizamon']) },
   ];
 }

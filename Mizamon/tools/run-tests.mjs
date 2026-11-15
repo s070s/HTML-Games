@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
-import { releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
+import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
 const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
@@ -5007,6 +5007,39 @@ test('release script: runs the steps in order and stops at the first failure, sa
   assert.equal(runSteps([step('a', true), step('b', true)], () => {}).ok, true, 'all steps passing is a release');
 });
 
+test('release script: refuses a branch other than main and uncommitted sources, and never forces the push', () => {
+  const scratchParent = join(tmpdir(), 'claude');
+  mkdirSync(scratchParent, { recursive: true });
+  const scratchRepo = mkdtempSync(join(scratchParent, 'mz-release-'));
+  try {
+    const git = (...args) => {
+      const result = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: scratchRepo, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+    };
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(scratchRepo, 'Mizamon', 'src'), { recursive: true });
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'kept.txt'), 'kept\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'start');
+    const [branchStep, , sourcesStep] = releaseSteps(scratchRepo, 'no-such-heavy-runner.mjs');
+    assert.equal(sourcesStep.label, 'check that the sources are committed', 'the index used below is the src-clean step');
+    assert.equal(branchStep.run().ok, true, 'main passes the branch step');
+    assert.equal(sourcesStep.run().ok, true, 'a clean repo passes the sources step');
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'new.txt'), 'uncommitted\n');
+    const dirty = sourcesStep.run();
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.reason, /uncommitted/);
+    git('checkout', '-q', '-b', 'task-branch');
+    const wrongBranch = branchStep.run();
+    assert.equal(wrongBranch.ok, false);
+    assert.match(wrongBranch.reason, /release runs only on main; current: task-branch/);
+  } finally {
+    rmSync(scratchRepo, { recursive: true, force: true });
+  }
+  assert.ok(pushArgs.includes('credential.helper=!gh auth git-credential'), 'the push uses the gh credential helper');
+  for (const forbidden of ['--force', '-f', '+main', '--force-with-lease']) assert.ok(!pushArgs.includes(forbidden), `the push never has ${forbidden}`);
+});
+
 // ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
 test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
@@ -5014,11 +5047,11 @@ test('README: names the build commit after a merge into main and the merge gate,
     assert.ok(readme.includes(text), 'the README says: ' + text);
   }
   // The release step is written once, word for word, in the README and in REFERENCE 13.5, and the script runs the same steps in order.
-  const releaseStep = 'node ~/.claude/scripts/heavy.mjs -- node Mizamon/tools/build.mjs && test -z "$(git status --porcelain -- Mizamon/src Mizamon/data Mizamon/shared Mizamon/tools)" && git add -- Mizamon/build/build-report.json && git commit -q -m "Mizamon: build report" -- Mizamon/build/build-report.json && git push origin main && node tools/itch-push.mjs mizamon';
+  const releaseStep = 'test "$(git symbolic-ref --short HEAD)" = main && node ~/.claude/scripts/heavy.mjs -- node Mizamon/tools/build.mjs && test -z "$(git status --porcelain -- Mizamon/src Mizamon/data Mizamon/shared Mizamon/tools)" && git add -- Mizamon/build/build-report.json && git commit -q -m "Mizamon: build report" -- Mizamon/build/build-report.json && git push origin main && node tools/itch-push.mjs mizamon';
   assert.ok(readme.includes(releaseStep), 'the README has the release step word for word');
   assert.ok(readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8').includes(releaseStep), 'REFERENCE has the release step word for word');
   const steps = releaseSteps('unused', 'no-such-heavy-runner.mjs').map((step) => step.label);
-  same(steps, ['build (tests and build report)', 'check that the sources are committed', 'stage the build report', 'commit the build report', 'push main', 'upload to itch.io'], 'the release script has the same six steps in order');
+  same(steps, ['check that the branch is main', 'build (tests and build report)', 'check that the sources are committed', 'stage the build report', 'commit the build report', 'push main', 'upload to itch.io'], 'the release script has the same seven steps in order');
   const oldPage = 'Mizamon' + '.html'; // spelled in two pieces so that this test does not name the file itself
   assert.ok(!readme.includes(oldPage), 'the README no longer opens the old single file');
   for (const kind of ['rules', 'engine']) {

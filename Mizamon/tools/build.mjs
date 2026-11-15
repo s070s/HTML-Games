@@ -8,7 +8,7 @@
 // <out> is Mizamon/build by default; --root is the Mizamon folder to build (default: the one this file lives in).
 // Exit codes: 0 built, 1 a problem and nothing written, 2 usage error, 3 input/output error.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -66,13 +66,29 @@ export function acquireLock(folder) {
     }
     const holder = readLock(lockPath);
     if (holder && isProcessRunning(holder.pid)) throw new BuildError(`a build is running (since ${clockTime(holder.startedAt)})`);
-    if (!holder && lockAgeMs(lockPath) < STALE_UNREADABLE_LOCK_MS) throw new BuildError('a build is starting');
+    const rawContent = holder ? null : readRaw(lockPath);
+    if (!holder) {
+      const ageMs = lockAgeMs(lockPath);
+      if (ageMs === null) continue; // it vanished: the next exclusive create succeeds or reads the new live lock
+      if (ageMs < STALE_UNREADABLE_LOCK_MS) throw new BuildError('a build is starting');
+    }
     // Two builds may both find the same stale lock: only one rename of it succeeds, then the exclusive create above decides.
+    const renamedPath = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString('hex')}`;
     try {
-      renameSync(lockPath, `${lockPath}.stale-${process.pid}-${randomBytes(4).toString('hex')}`);
+      renameSync(lockPath, renamedPath);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error; // another build already moved it away: try the create again
       continue;
+    }
+    if (!isSameLock(renamedPath, holder, rawContent)) {
+      // The file renamed is not the one judged stale: another build replaced it in between, so a live lock was moved. Put it back.
+      try {
+        linkSync(renamedPath, lockPath); // exclusive: it fails if yet another lock was created meanwhile
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+      }
+      rmSync(renamedPath, { force: true });
+      throw new BuildError('a build is running');
     }
     note = holder ? `removed the lock of process ${holder.pid}, which no longer runs` : 'removed an unreadable lock file';
     removeStaleLocks(folder);
@@ -84,8 +100,23 @@ function lockAgeMs(lockPath) {
   try {
     return Date.now() - statSync(lockPath).mtimeMs;
   } catch {
-    return 0; // it just vanished: the owner is finishing or starting, so treat it as new
+    return null; // it vanished
   }
+}
+
+function readRaw(lockPath) {
+  try {
+    return readFileSync(lockPath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// True when the renamed file is the lock that was read before: same pid and start time, or the same raw text when it was unreadable.
+function isSameLock(renamedPath, holder, rawContent) {
+  if (!holder) return readRaw(renamedPath) === rawContent;
+  const renamed = readLock(renamedPath);
+  return renamed !== null && renamed.pid === holder.pid && renamed.startedAt === holder.startedAt;
 }
 
 function removeStaleLocks(folder) {
