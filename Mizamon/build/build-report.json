@@ -1,21 +1,21 @@
 {
   "status": "ok",
   "mode": "strict",
-  "builtAt": "2026-11-15T01:36:09.314Z",
-  "sourceHash": "6a8681d3a5bf3b39aa6100da708e4649f69e4cf47ed1eb5da177c96db24ff755",
-  "indexHtmlSha256": "9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030",
+  "builtAt": "2026-11-15T05:03:25.097Z",
+  "sourceHash": "8db031631797fbe726cdc8ad937caaf679c09b7cbc444183119c16a6fc46b9d0",
+  "indexHtmlSha256": "2a7e076bba5a2aa713a0dab2b57f913696f3fa6ac4f01feae670ea17aba18cc1",
   "sizes": {
-    "total": 778542
+    "total": 765933
   },
   "tests": {
     "ran": true,
     "exitCode": 0,
-    "passed": 173,
-    "total": 173,
+    "passed": 195,
+    "total": 195,
     "failures": []
   },
   "inPage": "not run",
   "warnings": [],
-  "durationSeconds": 683.4,
+  "durationSeconds": 752.1,
   "notes": []
 }
