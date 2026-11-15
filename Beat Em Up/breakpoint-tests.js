@@ -67,6 +67,7 @@ const {
   ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
   ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
   LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_TIME, LOOK_LAND_FLOOR, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
+  SPLAT_SPEED_HIT, SPLAT_SPEED_THROWN, SPLAT_PIN_TICKS, SPLAT_FOLLOW_SCALE, SPLAT_COOLDOWN_TICKS, SPLAT_EXTRA_HITS, AIRGRAB_SCALE, AIRGRAB_REACH_UP, AIRGRAB_CHAIN_SHARE, AIRGRAB_CPU_REACH, AIRGRAB_CPU_LEVELS, LOOK_SLIDE_TICKS, NO_SPLAT, WALL_HELP, AIRGRAB_HELP,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -6117,6 +6118,7 @@ const SelfTest = {
       charge: (m, a, b) => { a.stringKeys = 'PP'; Events.emit('hit', { att: a, def: b, mv: { h: 'M' }, combo: 2, crouched: false }); },   // P19-15: the person lands the step before the chargeable one
       zone: (m, a) => { a.zone[0] = ZONE_SHOW + 50; UI.coachZone(m, [UI.strainTiles(a)]); },   // P19-02: the strain tiles show for the person's fighter (the real path: UI.hudUpdate calls coachZone)
       pause: (m, a) => { Progress.d.tips.charge = true; a.stringKeys = 'P'; a.moveConnected = true; a.stringTick = a.age; a.state = S.IDLE; a.stateTicks = PAUSE_STILL_TICKS; },   // P19-15 (polled by Coach.line): a first step landed and the fighter stood still for a beat
+      wall: (m, a, b) => { b.comboFoe = a; Events.emit('wallSlam', { f: b, by: a, speed: 6, x: 0, y: 1, z: 0, splat: true }); },   // P19-05: the person's own blow pinned the foe (the wallSlam event of a splat; `by` as Combat.impactCheck sets it)
     };
     test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
       const bad = [], strip = () => Coach.line(m, a), nextRound = () => { m.tick += COACH_SHOW_TICKS + 1; m.round++; };
@@ -6179,7 +6181,7 @@ const SelfTest = {
       const bad = [], note = /\b(TODO|FIXME|placeholder|tuning|tuned|stub|hardcoded|not implemented|no effect yet|for now|after phase \d+|appendix|design note)\b|\bP\d{1,2}-\d{2}\b/i, keep = Input.lastDevice;
       const named = { keyboard: [keyLabel(Keymap.bindings.defend[0]), keyLabel(Keymap.bindings.crouch[0])], gamepad: ['R1', 'L2'], touch: ['DEFEND', 'DUCK'] };
       try {
-        if (COACH_TIPS.length !== 13 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 13) bad.push('the table does not have 13 keys (the ten of P18-27, the charge and pause tips of P19-15 and the zone tip of P19-02)');
+        if (COACH_TIPS.length !== 14 || new Set(COACH_TIPS.map((tip) => tip.key)).size !== 14) bad.push('the table does not have 14 keys (the ten of P18-27, the charge and pause tips of P19-15, the zone tip of P19-02 and the wall tip of P19-05)');
         for (const device of ['keyboard', 'gamepad', 'touch']) {
           Input.lastDevice = device;
           for (const tip of COACH_TIPS) {
@@ -10173,9 +10175,9 @@ const SelfTest = {
     /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
        Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '59:1ocm8a7' },   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 119:wo082g; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 63:bxtyt5); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 61:12ezzz9); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 50:7zjnq6); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '107:1wyfhjh' },   // re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 42 of this fight and its log differs from hit 43 on (it was 112:x2lynm); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 66:1kn1vec; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '86:1hljp2m' },   // re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 49 of this fight and its log differs from hit 52 on (it was 121:591inn); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 75:1pifewr; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '52:14ymebp' },   // re-recorded headless 2026-11-15, P19-05 wall splat: MARA's heavy blow sends KAI into the Rooftop wall inside the ring and he is pinned (the old and new event logs of this fight agree up to hit 29; the old fight knocks KAI down there, the new one lands follow-ups on the pinned KAI; 59 lines against 52; was 59:1ocm8a7); re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 119:wo082g; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 63:bxtyt5); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 61:12ezzz9); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 50:7zjnq6); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 110:11gco4b), and re-recorded 2026-11-07 in Chrome for P18-13 (R1, R2; was 71:1nmpcb6), and 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 67:191yiak)
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '92:4tg8za' },   // re-recorded headless 2026-11-15, P19-05 wall splat: BRUTUS's blow sends KAI into a Garage wall and he is pinned (the old and new event logs of this fight agree up to hit 23; the old fight knocks KAI down there, the new one lands follow-ups on the pinned KAI; 107 lines against 92; was 107:1wyfhjh); re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 42 of this fight and its log differs from hit 43 on (it was 112:x2lynm); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 66:1kn1vec; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 72:1n77byz); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:1ll868n); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 59:keougj), and re-recorded 2026-11-07 in Chrome for P18-13 (G1, G2; was 85:1tnve97), and 2026-11-03 for P18-34: a team's next throwable or crate now waits for its rest window (was 54:1ch5240; the first 90 ticks are as before)
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '88:ov9mwt' },   // re-recorded headless 2026-11-15, P19-05 air grab: the Hard CPU (YUKI) chains a Grapple out of a launch that connected and throws the juggled foe (the old and new event logs of this fight agree up to hit 44; the old fight lands the next hit there, the new one an air throw for 8.8; 86 lines against 88; no wall splat in it; was 86:1hljp2m); re-recorded headless 2026-11-14, P19-02 body-zone strain: a zone effect fires after hit 49 of this fight and its log differs from hit 52 on (it was 121:591inn); before the effect the two logs are equal; earlier note:   // re-recorded headless 2026-11-14, P19-16 felt stamina (the harder bands below Winded, the guard and stun levers and the stumble change the fights in which a fighter runs under 25 % of its tank; the old and new event logs of this fight agree up to the first tick a tank is under 25 % and differ only after it; was 75:1pifewr; the lead re-checks it in Chrome); re-recorded from Chrome 2026-11-13, P18-62 hold-to-prepare Sway (was 96:udnu30); re-recorded from Chrome 2026-11-13, P18-52 stamina rules (was 79:1fgmk6h); re-recorded from Chrome 2026-11-10, P17-10 distinct styles and balance tables (was 92:x1fwqh); re-recorded 2026-11-08 in Chrome for P18-01 (+10 percent walk and run speed; was 77:o5ps9z), and re-recorded 2026-11-06 for P18-03 (Sway rule aligned, P18-02; was 84:1lk7k6v), when the load zone moved to (-1, 1.9) so the CPU's strike spots stay inside the ring, and 2026-11-03 for P18-34 (a team's next brick waits for its rest window; was 49:kjptyk)
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
@@ -27761,7 +27763,7 @@ const SelfTest = {
       } finally { Combat.look = keepLook; }
       return { sums, flight, held, look: b.lookId, lie: b.lieSign, dir: b.lookDir };
     };
-    const LAUNCH_FLIGHTS = [10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16], LAUNCH_DIGESTS = [2231771686, 3931398479, 4169237130, 3669536749, 1403118219, 709060578, 4196995288, 720260894, 1282502776, 2486280790, 1224708470, 2016339234, 3751652236, 3529274804, 783990641, 2390616297, 173711507, 2333285930, 1699078249, 4178184346];   // recorded from the build of e6dcae0 (before P19-03): the tick the flight starts and the digest of the matchChecksum of every tick, for the 20 seeded launches of lookLaunch (fix round 2 re-recorded them: the foe's facing is now held until the blow lands, so the foe that turns its back or stands sideways is struck so; the flight ticks did not change)
+    const LAUNCH_FLIGHTS = [10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16, 10, 11, 17, 16], LAUNCH_DIGESTS = [171381602, 1715311837, 4019718663, 1726671110, 2342050859, 1452050044, 423667421, 3035905367, 3352529200, 3623827511, 4293199370, 663935440, 2596601330, 1486563252, 497530759, 2616725472, 486658683, 2184388249, 542774142, 431448693];   // re-recorded headless 2026-11-15, P19-05 (was 2231771686, 3931398479, 4169237130, 3669536749, 1403118219, 709060578, 4196995288, 720260894, 1282502776, 2486280790, 1224708470, 2016339234, 3751652236, 3529274804, 783990641, 2390616297, 173711507, 2333285930, 1699078249, 4178184346): matchChecksum now holds pin and splatAt of every fighter, so every digest changes while no fight does (the same fights hashed without the two numbers give the old values: checked on a copy of the build with the two numbers taken out); the flight ticks are the old ones. Earlier note: recorded from the build of e6dcae0 (before P19-03): the tick the flight starts and the digest of the matchChecksum of every tick, for the 20 seeded launches of lookLaunch (fix round 2 re-recorded them: the foe's facing is now held until the blow lands, so the foe that turns its back or stands sideways is struck so; the flight ticks did not change)
     test('Hit looks (P19-03): (3) the delayed-launch hold lasts at most 6 ticks (6 at tier 3, none at tiers 1 and 2: only a tier 3 cell holds) and never moves the launch: on 20 seeded launches (four moves, a foe who faces it, turns its back or stands sideways) the tick the flight starts, and the matchChecksum on every tick, are the same with the looks and without', () => {
       const bad = [], ROWS = ['heavy_uppercut', 'uppercut', 'sweep', 'heavy_roundhouse'];
       if (HIT_HOLD_TICKS.join() !== '0,0,6' || Math.max(...HIT_HOLD_TICKS) > 6) bad.push('the hold ticks are ' + HIT_HOLD_TICKS.join());
@@ -27811,7 +27813,7 @@ const SelfTest = {
       } finally { Combat.look = keepLook; Events.handlers = keepHandlers; }
       return { sums, looked, walled, ticks: m.tick };
     };
-    const DUEL_DIGESTS = [2343914104, 2585446417, 30721506, 4131735585, 1292059153, 2572673044, 3592502570, 3937864817];   // recorded from the build of e6dcae0 (before P19-03): the digest of the matchChecksum of every tick of the eight duels of lookAiRun
+    const DUEL_DIGESTS = [1461607341, 2442575912, 1849662688, 1760141795, 1036325007, 1237799507, 814906685, 3118079330];   // re-recorded headless 2026-11-15, P19-05 (was 2343914104, 2585446417, 30721506, 4131735585, 1292059153, 2572673044, 3592502570, 3937864817): matchChecksum now holds pin and splatAt of every fighter, so every digest changes while no duel does (none of the eight has a splat or a Grapple chained out of a launch; hashed without the two numbers they give the old values, checked on a copy of the build with the two numbers taken out). Earlier note: recorded from the build of e6dcae0 (before P19-03): the digest of the matchChecksum of every tick of the eight duels of lookAiRun
     test('Hit looks (P19-03): (4) nothing the simulation reads changed: eight seeded AI duels (every tick drawn) have the same matchChecksum on every tick as the same duels without the looks; the new functions use no sine-type call and no random draw, and matchChecksum reads no look field (a simulation that read one would differ between the two runs)', () => {
       const bad = [], DUELS = [[1, 'kai', 'mara'], [2, 'brutus', 'yuki'], [3, 'dmitri', 'zero'], [4, 'kai', 'brutus'], [5, 'mara', 'yuki'], [6, 'zero', 'kai'], [7, 'yuki', 'dmitri'], [8, 'brutus', 'mara']];
       lookAiRun(0, ['kai', 'mara'], true);   // the same warm-up
@@ -27936,6 +27938,8 @@ const SelfTest = {
       zoneClear(d); d.state = S.THROWN; d.kx = 6; d.kz = 0; d.wallHit = true; d.lastImpactTick = -99; d.obstacleHit = null; d.hazardTouch = null; d.x = Arena.def.bounds.x - d.radius;
       Combat.impactCheck(d, m); wall.stop();
       if (!wall.wallSlam.length || d.wallVis !== 1) bad.push('a wall slam leaves wallVis ' + d.wallVis);
+      if (!(d.pin > 0)) bad.push('the slam at 6 m/s did not pin him (P19-05: the pose is held while he is pinned)');
+      d.pin = 0;   // P19-05: the slam above is a splat, and a pinned fighter shows the wall pose for the whole pin; the fade measured here is the one after it (P19-04 test (13) has the held pose)
       d.wallVis = 1; let frames = 0; while (d.wallVis > 0 && frames < 100) { d.updateCueBlend(1 / 60); frames++; }
       if (frames < LOOK_WALL_TICKS || frames > LOOK_WALL_TICKS + 1) bad.push('the wall pose fades in ' + frames + ' frames, not ' + LOOK_WALL_TICKS);
       for (const state of [S.HIT, S.THROWN]) {
@@ -28047,6 +28051,562 @@ const SelfTest = {
       if (!(faceDown > 0)) bad.push('no throw sent the foe face down');
       return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
     }, 120000);
+    /* ---------- Wall splat and air grab (P19-05) ----------
+       REFERENCE-breakpoint.md, Appendix C, "P19-04 wall splat, juggle scale, wall spring and air grab, decided" (the task that decided it is P19-04, which the test names keep) and "P19-04 built", section 6: the tests (1) to (13) are its Self-tests (1) to (13), (14) is the words (help, coach, Training, Move list), (15) the Free Fight rows. The wall spring and the air scale are not built (test 1). Direct calls of the combat functions for the rules, scripted fights and seeded CPU duels for the rest; each fails on the build before the change except (15), which pins what stays. */
+    const SPLAT_DECIDED = { SPLAT_SPEED_HIT: 5.5, SPLAT_SPEED_THROWN: 3, SPLAT_PIN_TICKS: 60, SPLAT_FOLLOW_SCALE: 0.7, SPLAT_COOLDOWN_TICKS: 300, SPLAT_EXTRA_HITS: 1, AIRGRAB_SCALE: 0.7, AIRGRAB_REACH_UP: 1.8, AIRGRAB_CHAIN_SHARE: 0.6, AIRGRAB_CPU_REACH: 1.5 };
+    const splatConstants = () => ({ SPLAT_SPEED_HIT, SPLAT_SPEED_THROWN, SPLAT_PIN_TICKS, SPLAT_FOLLOW_SCALE, SPLAT_COOLDOWN_TICKS, SPLAT_EXTRA_HITS, AIRGRAB_SCALE, AIRGRAB_REACH_UP, AIRGRAB_CHAIN_SHARE, AIRGRAB_CPU_REACH });
+    // A Free Fight whose second fighter stands 0.8 m from the east wall and the first 1.2 m to his west, facing him
+    const splatRig = (opts, s1, s2) => {
+      const m = mk(Object.assign({ evenDamage: true, seed: 11 }, opts), s1, s2), a = m.fighters[0], d = m.fighters[1];
+      d.x = d.prevX = Arena.ax1 - 0.8; d.z = d.prevZ = 0; a.x = a.prevX = d.x - 1.2; a.z = a.prevZ = 0;
+      a.yaw = a.prevYaw = Math.PI / 2; d.yaw = d.prevYaw = -Math.PI / 2;
+      return m;
+    };
+    const splatSeen = (m) => { const seen = [], off = Events.on('wallSlam', (e) => seen.push({ tick: m.tick, f: e.f })); seen.stop = off; return seen; };   // the wall slams of a match, with the tick each one happened on
+    /* The second fighter in `state` at the east wall with `speed` m/s toward it, hit-checked once: what the slam did. prep(m, a, d) changes the rig first; s2 is the foe's controller; opts are the match's own options. */
+    const splatFlight = (state, speed, prep, s2, opts) => {
+      const m = splatRig(opts || {}, null, s2), a = m.fighters[0], d = m.fighters[1];
+      d.reactDur = 20; d.setState(state);
+      d.x = d.prevX = Arena.ax1 - d.radius; d.kx = speed; d.kz = 0; d.wallHit = true; d.lastImpactTick = -99;
+      if (prep) prep(m, a, d);
+      const seen = splatSeen(m), hp = d.hp;
+      Combat.impactCheck(d, m); seen.stop();
+      return { m, a, d, slams: seen.length, lost: hp - d.hp };
+    };
+    const splatPinned = (s2) => splatFlight(S.THROWN, 6, null, s2);   // a flight at 6 m/s into the wall: the foe is pinned (on the build with the rule)
+    const splatStrike = (a, d, mv) => zoneStrike(a, d, mv);
+    test('Wall splat (P19-04): (1) a heavy front kick on a foe 0.8 m from a wall pins him SPLAT_PIN_TICKS (60) ticks (pin 60 on the tick after the slam, 0 after 60 more); a launch flight at 6 m/s, one at 3.0 m/s and a stagger at 5.5 m/s pin, a flight at 2.9 m/s and a stagger at 5.4 m/s do not; the constants are the decided ones and the air scale and the wall spring are not built', () => {
+      const bad = [], have = splatConstants();
+      for (const key in SPLAT_DECIDED) if (have[key] !== SPLAT_DECIDED[key]) bad.push(key + ' is ' + have[key] + ', not ' + SPLAT_DECIDED[key]);
+      if (AIRGRAB_CPU_LEVELS.join() !== 'hard,expert') bad.push('AIRGRAB_CPU_LEVELS is ' + AIRGRAB_CPU_LEVELS.join() + ', not hard,expert');
+      if (JUGGLE_LIMIT !== 3 || [0, 1, 2, 3, 4, 5, 6, 9].map((n) => Combat.comboScale(n)).join() !== '1,1,0.9,0.8,0.7,0.6,0.5,0.5') bad.push('the juggle limit or COMBO_SCALE changed (the air scale is not built)');
+      if (Object.keys(ATTACKS).some((id) => /spring/i.test(id))) bad.push('a wall spring move exists (it is rejected)');
+      const m = splatRig({}), a = m.fighters[0], d = m.fighters[1], seen = splatSeen(m);
+      a.startAttack(ATTACKS.heavy_front);
+      for (let t = 0; t < 80 && !seen.length; t++) m.step();
+      seen.stop();
+      if (!seen.length) bad.push('the heavy front kick never slammed the foe into the wall');
+      else {
+        if (d.pin !== SPLAT_PIN_TICKS || d.splatAt !== seen[0].tick || d.state !== S.HIT || d.kx !== 0 || d.kz !== 0 || d.y !== d.groundY) bad.push('after the slam: pin ' + d.pin + ', splatAt ' + d.splatAt + ' (slam at ' + seen[0].tick + '), state ' + d.state + ', speeds ' + d.kx + '/' + d.kz);
+        for (let k = 1; k <= SPLAT_PIN_TICKS; k++) {
+          m.step();
+          if (d.pin !== SPLAT_PIN_TICKS - k || d.state !== S.HIT) { bad.push('tick ' + k + ' of the pin: pin ' + d.pin + ', state ' + d.state); break; }
+        }
+        m.step(); m.step();
+        if (d.pin !== 0 || d.state === S.HIT) bad.push('2 ticks after the pin: pin ' + d.pin + ', state ' + d.state);
+      }
+      for (const [state, speed, pins] of [[S.THROWN, 6, true], [S.THROWN, 3.0, true], [S.THROWN, 2.9, false], [S.STAGGER, 5.5, true], [S.STAGGER, 5.4, false], [S.HIT, 5.6, true]]) {
+        const r = splatFlight(state, speed, state === S.THROWN ? (mm, aa, dd) => { dd.y = dd.prevY = 0.6; dd.vy = 1; dd.juggle = true; } : null);
+        if ((r.d.pin > 0) !== pins) bad.push(state + ' at ' + speed + ' m/s: pin ' + r.d.pin + ', expected ' + (pins ? SPLAT_PIN_TICKS : 0));
+        if (pins && (r.slams !== 1 || r.d.y !== r.d.groundY || r.d.vy !== 0 || r.d.juggle || r.d.state !== S.HIT || r.d.kx !== 0 || r.d.reactDur !== SPLAT_PIN_TICKS)) bad.push(state + ' at ' + speed + ' m/s: slams ' + r.slams + ', y ' + r.d.y + ', vy ' + r.d.vy + ', juggle ' + r.d.juggle + ', state ' + r.d.state + ', reactDur ' + r.d.reactDur);
+        if (!pins && r.slams !== 0) bad.push(state + ' at ' + speed + ' m/s slammed');
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    const splatHitDamage = (pin, how) => {   // the damage one blow does to a foe held in HIT, the same foe and the same combo each time; pin = ticks left (0 = not held)
+      const m = splatRig({}), a = m.fighters[0], d = m.fighters[1];
+      zoneClear(d); d.setState(S.HIT); d.reactDur = 80; d.pin = pin;
+      const log = self.capture(['hit']);
+      if (how === 'strike') Combat.landHit(splatStrike(a, d, ATTACKS.cross), m);
+      else if (how === 'item') Combat.itemHit(zoneItem('bottle', a, d, 1.0), d, m);
+      else Combat.bodyHit(zoneThrownBody(a, d), d, m);
+      log.stop();
+      return log.hit.length ? log.hit[0].dmg : -1;
+    };
+    test('Wall splat (P19-04): (2) inside the pin a jab lands at 0.7 of the unpinned damage, a thrown item and a thrown body too; a grab does not take him (Combat.evaluate gives null); a follow-up does not slide him (x and z move at most 0.2 m over the whole pin in a duel) and no wallSlam fires while pin > 0, not even for a knockdown follow-up toward the wall', () => {
+      const bad = [];
+      for (const how of ['strike', 'item', 'body']) {
+        const plain = splatHitDamage(0, how), held = splatHitDamage(SPLAT_PIN_TICKS, how);
+        if (!(plain > 1) || Math.abs(held - plain * SPLAT_FOLLOW_SCALE) > 0.1) bad.push(how + ': ' + held + ' pinned, ' + plain + ' unpinned (x' + (held / plain).toFixed(2) + ')');
+      }
+      const grabOn = (pin) => {
+        const m = splatRig({}), a = m.fighters[0], d = m.fighters[1];
+        zoneClear(d); d.setState(S.HIT); d.reactDur = 80; d.pin = pin; d.x = d.prevX = a.x + 0.9;
+        a.startAttack(ATTACKS.grab);
+        return Combat.evaluate(a, d);
+      };
+      if (!grabOn(0) || grabOn(0).type !== 'grab') bad.push('control: a grab takes a foe in a hit reaction');
+      if (grabOn(SPLAT_PIN_TICKS)) bad.push('a grab took a pinned fighter');
+      // a duel: the heavy front kick pins, then jabs while he is held; where he stands and what lands
+      const m = splatRig({}, (it, f, o, mm) => { if (mm.tick > 20 && mm.tick % 14 === 3) it.punch = true; if (Math.hypot(o.x - f.x, o.z - f.z) > 1.1) it.fwd = 1; }), a = m.fighters[0], d = m.fighters[1];
+      let heldBefore = false;   // whether he was already pinned when the tick began: the splat of a slam is set by the slam itself
+      const slams = [], offSlam = Events.on('wallSlam', (e) => { if (e.f === d) slams.push(heldBefore ? 'held' : 'free'); });
+      const hitsOn = []; const offHit = Events.on('hit', (e) => { if (e.def === d && d.pin > 0) hitsOn.push(e.mv.id); });
+      a.startAttack(ATTACKS.heavy_front);
+      let home = null, move = 0, heldTicks = 0;
+      for (let t = 0; t < 160; t++) {
+        const before = d.pin > 0;
+        heldBefore = before;
+        m.step();
+        if (before && d.pin > 0) { if (!home) home = [d.x, d.z]; move = Math.max(move, Math.hypot(d.x - home[0], d.z - home[1])); heldTicks++; }
+      }
+      offSlam(); offHit();
+      if (slams.join() !== 'free') bad.push('the wall slams of the duel: ' + (slams.join() || 'none') + ' (one, before the pin)');
+      if (heldTicks < SPLAT_PIN_TICKS - 5) bad.push('held only ' + heldTicks + ' ticks');
+      if (move > 0.2) bad.push('a follow-up slid him ' + move.toFixed(2) + ' m along the wall');
+      if (!hitsOn.length) bad.push('no follow-up landed in the pin (the duel proves nothing)');
+      // a knockdown follow-up toward the wall: no slam while he is held, one when he is not (the same flight)
+      for (const pin of [SPLAT_PIN_TICKS, 0]) {
+        const r = splatFlight(S.HIT, 0, (mm, aa, dd) => { zoneClear(dd); dd.setState(S.HIT); dd.reactDur = 80; dd.pin = pin; dd.x = dd.prevX = Arena.ax1 - dd.radius; dd.wallHit = true; dd.lastImpactTick = -99; });
+        const seen = splatSeen(r.m);
+        Combat.landHit(splatStrike(r.a, r.d, ATTACKS.sweep), r.m);
+        r.m.physics();   // the tick's own order: the blow lands after the fighters updated, then the bodies move (the pin is not counted down in between)
+        seen.stop();
+        if (seen.length !== (pin > 0 ? 0 : 1)) bad.push('a knockdown follow-up with pin ' + pin + ': ' + seen.length + ' wall slams');
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (3) a second wall hit inside SPLAT_COOLDOWN_TICKS (300) ticks of the first does not pin (the slam damage is dealt), one at 300 ticks does; a new round clears pin and splatAt', () => {
+      const bad = [], first = splatPinned(), d = first.d, m = first.m;
+      if (!(d.pin > 0) || d.splatAt !== m.tick) bad.push('the first splat: pin ' + d.pin + ', splatAt ' + d.splatAt + ' (tick ' + m.tick + ')');
+      const t0 = d.splatAt;
+      const again = (gap) => {
+        d.pin = 0; d.reactDur = 20; d.setState(S.THROWN); d.x = d.prevX = Arena.ax1 - d.radius; d.kx = 6; d.kz = 0; d.wallHit = true; d.lastImpactTick = -99; d.hp = d.maxHp; d.alive = true; d.gotHits = 0;
+        m.tick = t0 + gap;
+        const seen = splatSeen(m), hp = d.hp;
+        Combat.impactCheck(d, m); seen.stop();
+        return { pinned: d.pin > 0, slams: seen.length, lost: hp - d.hp, at: d.splatAt };
+      };
+      const early = again(SPLAT_COOLDOWN_TICKS - 1), late = again(SPLAT_COOLDOWN_TICKS);
+      if (early.pinned || early.slams !== 1 || !(early.lost > 0) || early.at !== t0) bad.push('at 299 ticks: ' + JSON.stringify(early));
+      if (!late.pinned || late.slams !== 1 || late.at !== t0 + SPLAT_COOLDOWN_TICKS) bad.push('at 300 ticks: ' + JSON.stringify(late));
+      d.pin = 9; d.splatAt = m.tick;
+      m.placeFighters(1);
+      if (d.pin !== 0 || d.splatAt !== NO_SPLAT || NO_SPLAT > -99999) bad.push('a new round leaves pin ' + d.pin + ' and splatAt ' + d.splatAt);
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (4) ring-out on: a fighter outside the ring that hits the apron wall is not pinned, one inside the ring at a wall that is the ring edge is; ring-out off: pinned as usual', () => keepArena(() => {
+      const bad = [];
+      const cases = [
+        ['ring-out on, outside the ring (the apron wall)', { arenaId: 'dojo', ring: true, ringOut: true }, null, false],
+        ['ring-out on, inside the ring at the ring edge', { arenaId: 'dojo', ring: true, ringOut: true }, (m, a, d) => { Arena.setArea([0, 0, Arena.def.bounds.x, Arena.def.bounds.z], true); }, true],
+        ['ring-out off, at the ring wall', { arenaId: 'dojo', ring: true, ringOut: false }, null, true],
+        ['no ring', { arenaId: 'dojo' }, null, true],
+      ];
+      for (const [label, opts, setup, pins] of cases) {
+        const r = splatFlight(S.THROWN, 6, (m, a, d) => { if (setup) setup(m, a, d); d.x = d.prevX = Arena.ax1 - d.radius; }, null, opts);
+        const inside = Arena.inRing(r.d.x, r.d.z);
+        if (label.includes('outside') && (inside || !Arena.ringOut)) bad.push(label + ': the rig is wrong (inRing ' + inside + ', ringOut ' + Arena.ringOut + ')');
+        if (label.includes('inside the ring') && !(inside && Arena.ringOut)) bad.push(label + ': the rig is wrong (inRing ' + inside + ', ringOut ' + Arena.ringOut + ')');
+        if (r.slams !== 1) bad.push(label + ': ' + r.slams + ' wall slams (the slam is as before)');
+        if ((r.d.pin > 0) !== pins) bad.push(label + ': pin ' + r.d.pin + ', expected ' + (pins ? SPLAT_PIN_TICKS : 0));
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }));
+    test('Wall splat (P19-04): (5) a fighter in a clinch, a grapple or a hold, or with a partner or a holder, is not pinned; a fighter flung into an object or a hazard post is not pinned (only the arena bounds pin)', () => {
+      const bad = [];
+      const cases = [
+        ['a clinch partner', S.HIT, (m, a, d) => { d.partner = a; }, true],
+        ['a fighter held in a hold', S.HIT, (m, a, d) => { d.pinnedBy = a; }, true],
+        ['CLINCH', S.THROWN, (m, a, d) => { d.state = S.CLINCH; }, false],
+        ['GRAPPLE', S.THROWN, (m, a, d) => { d.state = S.GRAPPLE; }, false],
+        ['SUBMIT', S.THROWN, (m, a, d) => { d.state = S.SUBMIT; }, false],
+        ['an object', S.THROWN, (m, a, d) => { d.obstacleHit = Arena.objects.find((o) => !o.destroyed && !o.bounce && !o.fixed) || Arena.objects[0]; }, false],
+        ['a hazard post', S.THROWN, (m, a, d) => { d.hazardTouch = { state: 'busy', def: { trig: 'none' } }; }, false],
+      ];
+      if (!(splatPinned().d.pin > 0)) bad.push('the control did not pin: a free fighter flung into the same wall is pinned');
+      for (const [label, state, prep, slams] of cases) {
+        const r = splatFlight(state, 6, prep);
+        if (r.d.pin > 0) bad.push(label + ' was pinned');
+        if (slams && r.slams !== 1) bad.push(label + ': ' + r.slams + ' wall slams (the slam is as before)');
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (6) the pin ends on a knock-out, on a knockdown follow-up (the state is THROWN and pin is 0), on a pull-weapon clinch and on the round end; a Block, Sway, Grapple, Jump, Sidestep, Crouch, Run, Punch and Kick press in all 60 ticks changes nothing (state HIT, pin counting down, the body where it was)', () => {
+      const bad = [];
+      const ends = (label, act, ok) => {
+        const r = splatPinned(), m = r.m, a = r.a, d = r.d;
+        if (!(d.pin > 0)) { bad.push(label + ': the foe was not pinned to begin with'); return; }
+        act(m, a, d);
+        let ticks = 0;
+        while (d.pin > 0 && ticks < 40) { m.step(); ticks++; }   // the hit stop of the blow comes first: the pin is counted again from the first update after it
+        if (d.pin !== 0 || (ok && !ok(d))) bad.push(label + ': pin ' + d.pin + ', state ' + d.state + ' after ' + ticks + ' ticks');
+        else if (ticks > 20) bad.push(label + ': the pin took ' + ticks + ' ticks to end');
+      };
+      ends('a knock-out', (m, a, d) => { d.hp = 1; Combat.landHit(splatStrike(a, d, ATTACKS.cross), m); }, (d) => !d.alive && d.state === S.KO);
+      ends('a knockdown follow-up', (m, a, d) => { Combat.landHit(splatStrike(a, d, ATTACKS.sweep), m); }, (d) => d.state === S.THROWN);
+      ends('a pull-weapon clinch', (m, a, d) => { a.state = S.ATTACK; Combat.weaponHit(a, d, { pull: true, wpn: 'wrench' }, m, false); if (d.state !== S.CLINCH) bad.push('the pull weapon did not clinch him'); }, (d) => d.state === S.CLINCH);
+      ends('the round end', (m) => { quietEvents(() => m.endRound('time')); }, null);
+      const press = (it) => { it.defend = true; it.grapple = true; it.jump = true; it.sidestep = 1; it.crouch = true; it.run = true; it.fwd = 1; it.punch = true; it.kick = true; };
+      const r = splatPinned(press), d = r.d, home = [d.x, d.z, d.stam];
+      for (let k = 1; k <= SPLAT_PIN_TICKS; k++) {
+        r.m.step();
+        if (d.pin !== SPLAT_PIN_TICKS - k || d.state !== S.HIT || d.x !== home[0] || d.z !== home[1] || d.stam < home[2]) { bad.push('with every button pressed, tick ' + k + ': pin ' + d.pin + ', state ' + d.state + ', moved ' + Math.hypot(d.x - home[0], d.z - home[1]).toFixed(3)); break; }
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (7) the combo scale: a splat inside an open combo adds SPLAT_EXTRA_HITS to gotHits, so the first follow-up uses the next step of COMBO_SCALE; with no combo open it adds none', () => {
+      const bad = [];
+      const open = splatFlight(S.THROWN, 6, (m, a, d) => { d.gotHits = 1; d.comboFoe = a; }), shut = splatFlight(S.THROWN, 6, null);
+      if (!(open.d.pin > 0) || open.d.gotHits !== 1 + SPLAT_EXTRA_HITS) bad.push('a splat inside an open combo leaves gotHits ' + open.d.gotHits);
+      if (shut.d.gotHits !== 0) bad.push('a splat with no combo open leaves gotHits ' + shut.d.gotHits);
+      const first = (hits) => { const m = splatRig({}), a = m.fighters[0], d = m.fighters[1]; zoneClear(d); d.setState(S.HIT); d.reactDur = 80; d.pin = SPLAT_PIN_TICKS; d.gotHits = hits; d.comboFoe = a; const log = self.capture(['hit']); Combat.landHit(splatStrike(a, d, ATTACKS.cross), m); log.stop(); return log.hit[0].dmg; };
+      const now = first(1), next = first(open.d.gotHits);
+      if (Math.abs(next - now * Combat.comboScale(open.d.gotHits) / Combat.comboScale(1)) > 0.1 || !(next < now)) bad.push('the first follow-up does ' + next + ', the combo before the splat ' + now + ': not the next COMBO_SCALE step');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    // The CPU on both seats at Hard, KAI against KAI, the foe 0.8 m from a wall (the wall turns with the seed) at the start of every round: the splats as "tick:seat" and the end checksum
+    const splatDuel = (seed, ticks) => {
+      const keep = Events.handlers; Events.handlers = {};
+      try {
+        const m = mk({ playerId: 'kai', opponentId: 'kai', seed, difficulty: 'hard', arenaId: ARENA_ORDER[seed % ARENA_ORDER.length], evenDamage: true, timer: 60, winsNeeded: 2 });
+        m.fighters.forEach((f, i) => { m.controllers[i] = new AIController(f.profile, 'hard'); });
+        const wall = seed % 4, a = m.fighters[0], d = m.fighters[1], splats = [];
+        const stage = () => {
+          const x = wall === 0 ? Arena.sx1 - 0.8 : wall === 1 ? Arena.sx0 + 0.8 : 0, z = wall === 2 ? Arena.sz1 - 0.8 : wall === 3 ? Arena.sz0 + 0.8 : 0, dx = wall === 0 ? -1 : wall === 1 ? 1 : 0, dz = wall === 2 ? -1 : wall === 3 ? 1 : 0;
+          d.x = d.prevX = x; d.z = d.prevZ = z; a.x = a.prevX = x + dx * 1.6; a.z = a.prevZ = z + dz * 1.6;
+          a.yaw = a.prevYaw = Math.atan2(-dx, -dz); d.yaw = d.prevYaw = Math.atan2(dx, dz);
+        };
+        stage();
+        for (let t = 0; t < ticks; t++) {
+          m.step();
+          if (m.phase === 'waiting') { m.startRound(); stage(); continue; }
+          m.fighters.forEach((f, i) => { if (f.pin === SPLAT_PIN_TICKS) splats.push(m.tick + ':' + i); });
+        }
+        return { splats: splats.join(','), sum: matchChecksum(m) };
+      } finally { Events.handlers = keep; }
+    };
+    test('Wall splat (P19-04): (8) the hash: pin and splatAt change matchChecksum; two matches of the same seed give the same splats (40 seeds twice); a guest that differs in one pin tick, or in one tick of splatAt, is caught at the next 60-frame checksum (both peers stop with "Out of sync")', () => {
+      const bad = [], r = splatPinned(), m = r.m, d = r.d, base = matchChecksum(m);
+      d.pin += 1; const withPin = matchChecksum(m); d.pin -= 1;
+      d.splatAt += 1; const withAt = matchChecksum(m); d.splatAt -= 1;
+      if (withPin === base || withAt === base || matchChecksum(m) !== base) bad.push('pin or splatAt does not change matchChecksum (' + [base, withPin, withAt].join(' ') + ')');
+      if (!/f\.pin/.test(String(matchChecksum)) || !/f\.splatAt/.test(String(matchChecksum))) bad.push('matchChecksum does not read pin and splatAt');
+      let splats = 0;
+      splatDuel(0, 60);   // a warm-up: the first match after other tests starts from counters they left (matchChecksum holds Combat's counters)
+      for (let seed = 1; seed <= 40; seed++) {
+        const one = splatDuel(seed, 700), two = splatDuel(seed, 700);
+        if (one.splats !== two.splats || one.sum !== two.sum) bad.push('seed ' + seed + ' differs between two runs: ' + one.splats + ' / ' + two.splats);
+        if (one.splats) splats += one.splats.split(',').length;
+      }
+      if (splats < 3) bad.push('only ' + splats + ' splats in 40 seeded duels (the check proves nothing)');
+      for (const [label, corrupt] of [['one tick of pin', (f, guest) => { f.state = S.HIT; f.reactDur = 99999; f.pin = 30000 + guest; }], ['one tick of splatAt', (f, guest) => { f.splatAt = 7000 + guest; }]]) {   // both peers get the same base, the guest one more
+        const game = makeLockstep(2, { delay: 2, latency: 10, seed: 6 }), [host, guest] = game.peers;
+        let corrupted = false;
+        const done = playLockstep(game, 600, () => {
+          if (!corrupted && host.match.tick >= 200 && guest.match.tick >= 200) { corrupted = true; inPeer(host, () => { corrupt(host.match.fighters[0], 0); }); inPeer(guest, () => { corrupt(guest.match.fighters[0], 1); }); }
+        });
+        if (done !== true) return done;
+        for (const peer of game.peers) if (peer.session.ended !== 'desync' || !peer.desync || peer.desync.frame !== 240) bad.push(label + ': seat ' + peer.seat + ' ended as "' + peer.session.ended + '" at ' + (peer.desync ? peer.desync.frame : '-'));
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }, 240000);
+    // A Hard or Expert (or other) CPU in the chain window of its own heavy uppercut that connected: what thinkChain presses
+    const cpuLaunch = (difficulty, gap, prep) => {
+      const m = splatRig({ playerId: 'kai', opponentId: 'kai', difficulty }), a = m.fighters[0], d = m.fighters[1];
+      a.x = a.prevX = 0; d.x = d.prevX = 0.9;
+      a.startAttack(ATTACKS.heavy_uppercut);
+      for (let t = 0; t < 80 && !(a.moveConnected && d.state === S.THROWN); t++) m.step();
+      if (gap !== undefined) d.x = d.prevX = a.x + gap;
+      if (prep) prep(m, a, d);
+      const ai = new AIController(a.profile, difficulty), it = makeIntent();
+      ai.match = m;
+      return { m, a, d, ai, it, launched: a.moveConnected && d.state === S.THROWN && a.state === S.ATTACK };
+    };
+    test('Wall splat (P19-04): (9) determinism of the code: the new and changed simulation functions call no sine-type function and no Math.random, add no draw of simRng (the CPU rule keeps the two draws thinkChain had), and read no Setting; a splat, an air grab, the pin countdown and the CPU press draw nothing', () => {
+      const bad = [], strip = (fn) => String(fn).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      const draws = (fn) => (strip(fn).match(/simRng\(/g) || []).length;
+      const fns = { 'Combat.splat': Combat.splat, 'Combat.airGrab': Combat.airGrab, 'Combat.impactCheck': Combat.impactCheck, 'Combat.evaluate': Combat.evaluate, 'Combat.apply': Combat.apply, 'Combat.landHit': Combat.landHit, 'Combat.itemHit': Combat.itemHit, 'Combat.bodyHit': Combat.bodyHit, 'Fighter.tickPin': Fighter.prototype.tickPin, 'Fighter.update': Fighter.prototype.update, 'Fighter.updateAttack': Fighter.prototype.updateAttack, 'AIController.thinkChain': AIController.prototype.thinkChain, 'AIController.pressAirGrab': AIController.prototype.pressAirGrab, matchChecksum };
+      for (const name in fns) {
+        if (typeof fns[name] !== 'function') { bad.push(name + ' does not exist'); continue; }
+        const code = strip(fns[name]);
+        if (/(^|[^D])Math\s*\.\s*(sin|cos|tan|atan|atan2|asin|acos|exp|log|pow|hypot|random)\b|\*\*/.test(code)) bad.push(name + ' calls a sine-type function, pow, hypot or Math.random (only DMath is allowed)');
+        if (name !== 'AIController.thinkChain' && draws(fns[name]) !== 0) bad.push(name + ' draws from simRng');
+        if (/Settings/.test(code)) bad.push(name + ' reads a Setting');
+      }
+      if (draws(AIController.prototype.thinkChain) !== 2) bad.push('thinkChain has ' + draws(AIController.prototype.thinkChain) + ' simRng draws, it had 2');
+      // behaviour: nothing below draws (a counting generator put in for the call)
+      const keepRng = api.get.simRng();
+      let count = 0;
+      const counted = (fn) => { count = 0; api.set.simRng(() => { count++; return 0.5; }); try { fn(); } finally { api.set.simRng(keepRng); } return count; };
+      const airRig = splatRig({ playerId: 'kai', opponentId: 'kai' }), a = airRig.fighters[0], d = airRig.fighters[1];
+      if (counted(() => { const q = splatFlight(S.THROWN, 6); if (!(q.d.pin > 0)) bad.push('the splat of the draw check did not happen'); }) !== 0) bad.push('a splat draws from simRng');
+      if (counted(() => { const q = splatPinned(); q.d.tickPin(q.m); }) !== 0) bad.push('tickPin draws from simRng');
+      a.x = a.prevX = 0; d.x = d.prevX = 1.0; d.setState(S.THROWN); d.juggle = true; d.juggleCount = 1; d.y = 0.5; d.vy = 1;
+      a.startAttack(ATTACKS.grab); a.grabDir = 'fwd';
+      if (counted(() => Combat.airGrab(a, d, airRig)) !== 0) bad.push('the air grab draws from simRng');
+      const cpu = cpuLaunch('hard');   // KAI's heavy uppercut has connected and the foe is in the air: the one moment pressAirGrab acts
+      if (!cpu.launched) bad.push('the rig of the CPU press did not launch');
+      else {
+        let pressed = null;
+        const drawn = counted(() => { pressed = cpu.ai.pressAirGrab(cpu.a, cpu.d, cpu.it); });
+        if (pressed !== true || !cpu.it.grapple) bad.push('the CPU press did not press Grapple (returned ' + pressed + ', grapple ' + cpu.it.grapple + ')');
+        if (drawn !== 0) bad.push('the CPU press draws from simRng');
+      }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    // One seed of the Hard (or another level) KAI duel of the P19-01 seeds (6001 to 6200, the level ARENA_ORDER[seed % 8], evenDamage, 60 s rounds, best of 3): the event log and result hashed as `fingerprint` does, and what happened that the rule changes: a wall splat, a Grapple chained out of a launch (the air grab press, thrown or not), an air throw
+    const splatSeed = (seed, difficulty) => {
+      const lines = [], listeners = {};
+      let splats = 0, presses = 0, throws = 0;
+      for (const name of FINGERPRINT_EVENTS) listeners[name] = (e) => { lines.push([name, e.att && e.att.index, e.def && e.def.index, e.f && e.f.index, typeof e.dmg === 'number' ? e.dmg.toFixed(3) : '', e.winner, e.round, e.result].join(',')); if (name === 'throw' && e.air) throws++; };
+      listeners.wallSlam = (e) => { if (e.splat) splats++; };
+      listeners.attackStart = (e) => { if (e.mv.type === 'grab' && e.f.chainCount > 0) presses++; };   // a grab is chained only out of a launch that connected
+      const r = quietEvents(() => SimRunner.run({ seed, playerId: 'kai', opponentId: 'kai', arenaId: ARENA_ORDER[seed % ARENA_ORDER.length], difficulty, evenDamage: true, timer: 60, winsNeeded: 2, listeners }));   // no sound, effect or camera reaction: only the listeners above hear the events
+      lines.push(JSON.stringify([r.winner, r.ticks, r.rounds, r.wins, r.hpLeft]));
+      return { hash: lines.length + ':' + fnv1a(lines.join('|')).toString(36), splats, presses, throws };
+    };
+    const SPLAT_SEEDS = Array.from({ length: 200 }, (_, i) => 6001 + i);
+    const SPLAT_BASE_HASHES = [   // recorded headless from the build of 2d3a63f (before P19-05) with splatSeed(seed, 'hard').hash for the 200 seeds, 6001 to 6200 in order
+      '67:1899c0w', '70:1nwc77g', '82:1j56vjh', '102:1axq45t', '121:p0lq7w', '117:ejntjv', '60:1c9oxrv', '123:1gx1bcx', '103:notusw', '60:19ekp9m', '76:hzi84n', '107:1g3whps', '106:1gettts', '72:lolvo6', '65:18p6r98', '67:u2lc02', '107:fwizm5', '70:1td3lq2', '95:ayxmx6', '128:77kcci', '120:kc0v5', '74:oyedpc', '108:1dwkt8m', '108:1tnytq', '75:rhic8w',
+      '124:bhdh6x', '70:mcoa08', '80:b7rv7p', '84:5vtrsj', '110:iz84h5', '79:ypbpc9', '114:vjapyy', '118:2ij2w', '84:1yk5r1x', '74:rvk9ao', '70:1dkm5ks', '74:1h737u4', '95:1qw26oe', '123:1jzfhas', '77:69o0g2', '59:pffuf0', '102:1ashr96', '69:1fb4kvy', '61:11cleyo', '69:1cxixd5', '123:1p0wv35', '74:bzl20j', '78:oi2d2u', '73:15mtoz2', '87:dxmm7f',
+      '86:dsb3oc', '64:116zvrq', '115:z4apkq', '81:15xib6q', '150:1mxhdrs', '73:4euqk1', '93:5uizko', '118:ut6z0q', '108:1r8qv1u', '103:13luzlh', '58:ox0pqr', '73:1t355d3', '90:ws87mc', '95:1qp0rp7', '111:rzsylo', '99:ln2ns2', '66:fftyl3', '119:1byr06u', '68:11xae3s', '79:16wc95d', '90:110ijpk', '152:130lgn4', '123:rack6z', '75:uev99e', '74:y4ispv',
+      '88:1jkd49n', '114:fuf0hr', '119:xpktzd', '82:1o8jpbt', '72:boq6h0', '104:1mssf5n', '103:1meicmv', '76:yxynyg', '100:yc4jfd', '101:iqhee0', '66:1sp9tp', '65:6ouxqw', '142:vtyo0t', '117:li4d00', '69:1te029e', '118:f21f2', '58:18du14f', '101:1e5o0ei', '85:1bif2oc', '113:4b1p8s', '111:efym38', '73:1rsrq4r', '82:p9qwxf', '97:1ei70a', '107:h05q3w',
+      '122:bdrh1y', '81:1pq6hyo', '98:pr1w9g', '78:1qrmuhy', '104:1ob2m8g', '102:1e7m1xn', '98:300ite', '76:1tp2tw8', '74:zj3kl4', '110:y93qe7', '71:jawpp4', '70:zb0e00', '86:ywedar', '76:e2p210', '61:11fnofs', '77:57g8bw', '78:185b07b', '79:ndh7aq', '111:mwfp4w', '71:1a9dydz', '56:htn73z', '66:1k11vi8', '72:tii47', '69:2gfp34', '167:1k0knqa',
+      '104:1nfisww', '101:1mgzh7z', '77:6k0h1y', '106:u0pj74', '78:48ozqa', '74:ha1ppa', '111:10zlc5g', '77:5f642', '113:1xhltey', '118:1pkka1r', '71:6co26p', '66:1pxief8', '80:i5sif0', '99:1gg7ot8', '105:1d00rj0', '78:1vlomzu', '80:bbi4uv', '76:17mqp10', '99:1x3dwfp', '78:qs7i8n', '114:poqaju', '71:1lf0ne6', '78:huhhcm', '71:y3mnou', '84:176lbyi',
+      '111:1dvblzv', '105:8pjnne', '76:1uaeci9', '107:1231cp6', '71:7s3tak', '95:hk28xw', '78:13fxkho', '102:z3yx2y', '113:1ke26sb', '60:upyn7y', '108:ymfej3', '92:odzrj2', '67:hh31et', '153:1lyenv6', '77:17b4gbv', '80:694u1h', '72:1ocpe1u', '75:y7dte8', '102:11uijwp', '77:12bd4vv', '114:13qvwfe', '105:tpqh62', '101:i279z8', '105:1gs42w2', '85:1bx9h2p',
+      '84:dg4zdr', '99:2x29of', '101:1f8awt1', '110:1hcaaxn', '77:1jbdr6w', '89:xd49v0', '72:pfpagp', '106:1p6rmrf', '85:103e4vu', '106:1e2mh9f', '127:ky0n5d', '81:1wt3yh2', '102:1avivsr', '79:1cyws6d', '76:jcqh9z', '113:1aowilm', '109:1bu3qs8', '103:1fc1l5h', '125:1hdaecu', '80:oto95v', '115:lv3j5x', '111:hjb37e', '74:9c1bb1', '99:1tcd642', '69:1mqyy3j'];
+    test('Wall splat (P19-04): (10) the CPU: 200 seeds of the Hard KAI duel are identical to the build before the splat wherever no splat fires and no Grapple is chained out of a launch; a Hard or Expert CPU in the chain window of a launch that connected presses the air grab (the stick toward a wall or an object when it has one), at least one in 20 seeds, and an Easy or a Normal CPU never does', () => {
+      const bad = [];
+      for (const difficulty of ['hard', 'expert']) {
+        const r = cpuLaunch(difficulty);
+        if (!r.launched) { bad.push(difficulty + ': the rig did not launch'); continue; }
+        r.ai.thinkChain(r.a, r.d, r.it);
+        if (!r.it.grapple || !THROW_DIRS.includes(r.it.grapDir)) bad.push(difficulty + ' CPU did not press Grapple in the chain window (grapple ' + r.it.grapple + ', dir ' + r.it.grapDir + ')');
+        const none = [['the foe at the juggle limit', undefined, (m, a, d) => { d.juggleCount = JUGGLE_LIMIT; }], ['the foe out of reach', 1.9, null], ['the foe not juggled', undefined, (m, a, d) => { d.juggle = false; }], ['an unconnected move', undefined, (m, a, d) => { a.moveConnected = false; }]];
+        for (const [label, gap, prep] of none) { const q = cpuLaunch(difficulty, gap, prep); q.ai.thinkChain(q.a, q.d, q.it); if (q.it.grapple) bad.push(difficulty + ' pressed Grapple with ' + label); }
+      }
+      for (const difficulty of ['easy', 'normal']) for (let k = 0; k < 8; k++) {
+        const r = cpuLaunch(difficulty);
+        for (let t = 0; t < 6; t++) { clearIntent(r.it); r.ai.thinkChain(r.a, r.d, r.it); if (r.it.grapple) { bad.push(difficulty + ' CPU pressed Grapple in the chain window'); break; } }
+      }
+      let pressed = 0, throws = 0, exempt = 0;
+      const changed = [];
+      SPLAT_SEEDS.forEach((seed, i) => {
+        const r = splatSeed(seed, 'hard');
+        if (i < 20) pressed += r.presses;
+        throws += r.throws;
+        if (r.splats || r.presses) { exempt++; return; }
+        if (r.hash !== SPLAT_BASE_HASHES[i]) changed.push(seed + ' ' + r.hash + ' (was ' + SPLAT_BASE_HASHES[i] + ')');
+      });
+      if (changed.length) bad.push(changed.length + ' of ' + SPLAT_SEEDS.length + ' seeds without a splat or an air grab press differ from the build before: ' + changed.slice(0, 3).join(', '));
+      if (pressed < 1) bad.push('no Hard CPU press of the air grab in the first 20 seeds');
+      if (throws < 1 || exempt > SPLAT_SEEDS.length / 2) bad.push(throws + ' air throws and ' + exempt + ' changed seeds in ' + SPLAT_SEEDS.length);
+      for (const difficulty of ['easy', 'normal']) for (const seed of SPLAT_SEEDS.slice(0, 20)) { const r = splatSeed(seed, difficulty); if (r.presses || r.throws) { bad.push('an ' + difficulty + ' CPU chained a Grapple out of a launch (seed ' + seed + ')'); break; } }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }, 600000);
+    // KAI launches the foe 1.0 m away with a heavy uppercut and Grapple is pressed with the stick `dir` on the first tick the launch has connected; `at` changes the foe at the press
+    const airGrab = (dir, at) => {
+      let pressed = -1;
+      const events = self.capture(['throw', 'hit']);
+      const m = splatRig({ playerId: 'kai', opponentId: 'kai' }, (it, f, o, mm) => { if (pressed < 0 && f.moveConnected && f.state === S.ATTACK && f.move && f.move.kind === 'launch') { pressed = mm.tick; it.grapple = true; it.grapDir = dir; if (at) at(f, o); } }), a = m.fighters[0], d = m.fighters[1];
+      a.x = a.prevX = 0; d.x = d.prevX = 1.0;
+      a.startAttack(ATTACKS.heavy_uppercut);
+      let before = null;
+      for (let t = 0; t < 70 && !events.throw.length; t++) { if (pressed >= 0 && !before) before = { count: d.juggleCount, hits: d.gotHits, hp: d.hp }; m.step(); }
+      events.stop();
+      return { m, a, d, pressed, before, throws: events.throw, tick: m.tick };
+    };
+    test('Wall splat (P19-04): (11) the air grab: a juggled foe below the limit grabbed in the chain window of a launch is thrown (0.7 of the front throw, juggleCount plus 1, juggle false afterwards); a second Grapple in the same juggle takes nothing and a new launch sets juggle again; with the foe at the limit the press is a normal grab (no air throw); the throw goes the way of the stick; the reach, and a grabber in the air, are refused', () => {
+      const bad = [], r = airGrab('fwd');
+      if (r.pressed < 0 || r.throws.length !== 1) bad.push('the press at tick ' + r.pressed + ' gave ' + r.throws.length + ' throws');
+      else {
+        const e = r.throws[0], t = throwFor('front', 'fwd', moveStyleFor(r.a.profile));
+        const full = t.dmg * r.a.stats.damage * r.a.boostMult() * r.d.stats.taken * r.d.stats.impact;
+        if (e.air !== true || e.name !== t.name || Math.abs(e.dmg - Math.max(1, full * AIRGRAB_SCALE)) > 0.06) bad.push('the throw: air ' + e.air + ', ' + e.name + ' for ' + e.dmg + ', expected ' + t.name + ' ' + (full * AIRGRAB_SCALE).toFixed(2) + ' (0.7 of ' + full.toFixed(2) + ')');
+        if (r.d.state !== S.THROWN || r.d.juggle || r.d.juggleCount !== r.before.count + 1 || r.d.gotHits !== r.before.hits + 1) bad.push('afterwards: state ' + r.d.state + ', juggle ' + r.d.juggle + ', juggleCount ' + r.d.juggleCount + ' (was ' + r.before.count + '), gotHits ' + r.d.gotHits + ' (was ' + r.before.hits + ')');
+        if (!(r.a.lock > 0) || r.a.state === S.ATTACK) bad.push('the thrower is not in the throw\'s recovery: state ' + r.a.state + ', lock ' + r.a.lock);
+        r.a.state = S.IDLE; r.a.startAttack(ATTACKS.grab);
+        if (Combat.evaluate(r.a, r.d)) bad.push('a second Grapple in the same juggle took him');
+        r.d.state = S.IDLE; r.d.y = 0; r.d.vy = 0; r.d.x = r.a.x + 0.8; r.d.juggleCount = 0; r.d.gotHits = 0;   // a fresh combo: the old one ended when he lay down
+        r.a.state = S.IDLE; Combat.landHit(splatStrike(r.a, r.d, ATTACKS.uppercut), r.m);
+        r.a.state = S.IDLE; r.a.startAttack(ATTACKS.grab); r.d.y = r.d.groundY + 0.5;
+        const again = Combat.evaluate(r.a, r.d);
+        if (!r.d.juggle || !again || again.type !== 'airgrab') bad.push('a new launch does not make him grabbable in the air again (juggle ' + r.d.juggle + ', ' + (again && again.type) + ')');
+      }
+      const limit = airGrab('fwd', (f, o) => { o.juggleCount = JUGGLE_LIMIT; });
+      if (limit.throws.length) bad.push('at the juggle limit the press threw him in the air');
+      for (const dir of ['fwd', 'back', 'left', 'right']) {
+        const q = airGrab(dir);
+        if (q.throws.length !== 1) { bad.push(dir + ': ' + q.throws.length + ' throws'); continue; }
+        const v = Combat.throwVector(q.a, dir), speed = Math.hypot(q.d.kx, q.d.kz);
+        if (!(speed > 1) || (q.d.kx * v[0] + q.d.kz * v[1]) / speed < 0.95) bad.push(dir + ': the foe flies (' + q.d.kx.toFixed(2) + ', ' + q.d.kz.toFixed(2) + '), not the way of the stick');
+      }
+      // the evaluation: the reach up, the grabber on his feet, the foe in a flight
+      const m = splatRig({ playerId: 'kai', opponentId: 'kai' }), a = m.fighters[0], d = m.fighters[1];
+      a.x = a.prevX = 0; d.x = d.prevX = 0.9; d.setState(S.THROWN); d.juggle = true; d.juggleCount = 1; a.startAttack(ATTACKS.grab);
+      const eval_ = (up, grabberUp) => { d.y = d.groundY + up; a.y = a.groundY + grabberUp; const e = Combat.evaluate(a, d); a.hitList.length = 0; return e && e.type; };
+      if (eval_(AIRGRAB_REACH_UP - 0.05, 0) !== 'airgrab' || eval_(AIRGRAB_REACH_UP + 0.1, 0) !== null || eval_(0.5, 0.5) !== null) bad.push('the reach: ' + [eval_(AIRGRAB_REACH_UP - 0.05, 0), eval_(AIRGRAB_REACH_UP + 0.1, 0), eval_(0.5, 0.5)].join('/'));
+      d.juggle = false;
+      if (eval_(0.5, 0) !== null) bad.push('a flight that is not a juggle was grabbed');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (12) the camera and the bodies (AC-004): the person pinned at every wall and corner of all 8 levels among three CPU enemies (seeds 1 to 12, the 8 spots turn with the seed) is hidden from the camera no longer than the limit of the Brawl camera test, and while he is pinned no body is outside the bounds or inside a prop and no two grounded bodies are more than 0.05 m inside each other', () => withCamera(() => quietEvents(() => {
+      const bad = [], limitTicks = Math.round((CAMERA_OCCLUSION_GRACE + 0.6) * 60), SPOTS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];   // the four walls and the four corners (the wall each is against)
+      let pinnedTicks = 0, pinnedRuns = 0, deepest = 0, hiddenWorst = 0;
+      for (const seed of CROWD_SEEDS) for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'hard', arenaId: id, countdown: false, timer: 0, seed, evenDamage: true }));
+        try {
+          const p = m.fighters[0], [wx, wz] = SPOTS[(seed - 1) % 8], r = p.radius;
+          m.controllers[0] = self.scripted(() => {});
+          // the spot: against the wall (corner), moved along the wall to the first clear place
+          const edge = (w, lo, hi) => (w > 0 ? hi - r - 0.02 : w < 0 ? lo + r + 0.02 : 0);
+          let spot = null;
+          for (let k = 0; k < 40 && !spot; k++) {   // a wall: along it; a corner (a prop may stand in it): one step further in, along the diagonal
+            const along = (k & 1 ? -1 : 1) * Math.ceil(k / 2) * 0.5, x = wx ? edge(wx, Arena.sx0, Arena.sx1) - (wz ? wx * 0.3 * k : 0) : along, z = wz ? edge(wz, Arena.sz0, Arena.sz1) - (wx ? wz * 0.3 * k : 0) : (wx ? along : 0);
+            if (Math.abs(x) <= Arena.sx1 - r && Math.abs(z) <= Arena.sz1 - r && !Arena.insideSolid(x, z, r + 0.05, 0)) spot = [x, z];
+          }
+          if (!spot) { bad.push(id + ' seed ' + seed + ': no clear place at the wall'); continue; }
+          p.x = p.prevX = spot[0]; p.z = p.prevZ = spot[1]; p.y = p.prevY = 0;
+          const inX = wx ? -wx : 0, inZ = wz ? -wz : 0, norm = Math.hypot(inX, inZ), perpX = -inZ / norm, perpZ = inX / norm;
+          for (let k = 1; k <= 3; k++) {   // the enemies in a loose arc 1.5 m in front of him, where there is room
+            const e = m.fighters[k], ex = spot[0] + inX / norm * 1.5 + perpX * (k - 2) * 0.9, ez = spot[1] + inZ / norm * 1.5 + perpZ * (k - 2) * 0.9;
+            if (!Arena.insideSolid(ex, ez, r + 0.05, 0) && Math.abs(ex) <= Arena.sx1 - r && Math.abs(ez) <= Arena.sz1 - r) { e.x = e.prevX = ex; e.z = e.prevZ = ez; }
+          }
+          p.reactDur = 20; p.setState(S.THROWN); p.kx = wx * 6; p.kz = wz * 6; p.wallHit = true; p.lastImpactTick = -99; p.hp = p.maxHp;
+          Camera.snapNext = true;
+          Combat.impactCheck(p, m);
+          if (!(p.pin > 0)) { bad.push(id + ' seed ' + seed + ' spot ' + wx + ',' + wz + ': not pinned'); continue; }
+          pinnedRuns++;
+          let streak = 0, worst = 0;
+          for (let t = 0; t < 80; t++) {
+            m.step();
+            Camera.shakeAmp = 0; Camera.followGroup(1 / 60, m.fighters, m.def);
+            if (!Arena.blockedAt(p.x, p.z, 0.2, 0) && Arena.rayBlocked(Camera.pos[0], Camera.pos[1], Camera.pos[2], p.x, p.y + CAMERA_CHEST * p.scale, p.z)) { streak++; worst = Math.max(worst, streak); } else streak = 0;
+            if (!(p.pin > 0)) continue;
+            pinnedTicks++;
+            if (p.x < Arena.ax0 + r - 0.02 || p.x > Arena.ax1 - r + 0.02 || p.z < Arena.az0 + r - 0.02 || p.z > Arena.az1 - r + 0.02) bad.push(id + ' seed ' + seed + ' tick ' + t + ': the pinned body is outside the bounds at ' + p.x.toFixed(2) + ',' + p.z.toFixed(2));
+            if (Arena.insideSolid(p.x, p.z, r - 0.02, p.groundY)) bad.push(id + ' seed ' + seed + ' tick ' + t + ': the pinned body is inside a prop');
+            for (const o of m.fighters) {
+              if (o === p || !o.alive || o.airborne || o.state === S.THROWN) continue;
+              deepest = Math.max(deepest, p.radius + o.radius - Math.hypot(o.x - p.x, o.z - p.z));
+            }
+          }
+          hiddenWorst = Math.max(hiddenWorst, worst);
+          if (worst > limitTicks) bad.push(id + ' seed ' + seed + ': hidden for ' + worst + ' ticks in a row (limit ' + limitTicks + ')');
+        } finally { colDispose(m); }
+      }
+      if (pinnedRuns < 90 || pinnedTicks < 3000) bad.push('only ' + pinnedRuns + ' pinned runs and ' + pinnedTicks + ' pinned ticks (the check proves nothing)');
+      if (deepest > 0.05) bad.push('two grounded bodies were ' + deepest.toFixed(3) + ' m inside each other while the person was pinned (limit 0.05)');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    })), 240000);
+    const splatTop = (f) => { const tops = [], saved = R.push; R.push = (layer, mesh, M) => { tops.push(M[13]); }; try { f.draw(1, false); } finally { R.push = saved; } return Math.max(...tops); };   // the highest piece the renderer would put for this fighter (its centre height)
+    test('Wall splat (P19-04): (13) drawing: the wallSlam event stays the one event (sound, dust, pop-up) and carries splat: true; the pinned pose is pose 5 (the wall hit) for the whole pin and fades over LOOK_WALL_TICKS after; a fighter in the air slides down to his footing over LOOK_SLIDE_TICKS (drawing only); no part of the pinned pose of any of the 32 bodies is more than 0.03 m past the wall; Reduced motion keeps the pose and drops the slide and the camera shake', () => keepArena(() => {
+      const bad = [], keep = { reduced: Settings.v.reducedMotion, shake: Settings.v.shake, emit: Events.emit, amp: Camera.shakeAmp, pulse: Camera.fovPulse };
+      try {
+        // the one event
+        const names = []; let payload = null;
+        const r = splatFlight(S.THROWN, 6, (m, a, d) => {   // the wrapper goes in once the rig stands: only what the splat sends is recorded
+          d.y = d.prevY = 0.8; d.vy = 1;
+          Events.emit = function (name, e) { names.push(name); if (name === 'wallSlam') payload = e; return keep.emit.apply(Events, arguments); };
+        });
+        Events.emit = keep.emit;
+        if (names.join() !== 'wallSlam' || !payload || payload.splat !== true || payload.f !== r.d || !(payload.speed >= 6)) bad.push('the splat sent ' + names.join() + ' (splat ' + (payload && payload.splat) + ')');
+        // the pose for the whole pin, and its fade
+        const d = r.d, m = r.m, row = HIT_LOOK_ROWS[LOOK.WALL];
+        const wallShare = (f) => {   // how much of the wall row (pose 5) the pose shows, 1 = all of it at the tier's amplitude: the pose with the pin against the same pose with no pin and no wall blend
+          f.computePose(); const withWall = Float32Array.from(f.tp), was = [f.wallVis, f.pin];
+          f.wallVis = 0; f.pin = 0; f.computePose(); const without = Float32Array.from(f.tp); [f.wallVis, f.pin] = was;
+          return (withWall[row.joints[0]] - without[row.joints[0]]) / (row.offsets[0] * HIT_TIER_AMP[f.lookTier - 1] * (Settings.v.reducedMotion ? 0.5 : 1));
+        };
+        Settings.v.reducedMotion = false;
+        for (let k = 0; k < SPLAT_PIN_TICKS - 1; k++) { m.step(); if (d.wallVis !== 1 || d.pin <= 0) { bad.push('tick ' + k + ' of the pin: wallVis ' + d.wallVis + ', pin ' + d.pin); break; } }
+        if (Math.abs(wallShare(d) - 1) > 0.01) bad.push('the pinned fighter does not show the wall pose (share ' + wallShare(d).toFixed(2) + ')');
+        let frames = 0; while (d.pin > 0 && frames < 10) { m.step(); frames++; }   // the tick the pin ends is the first of the fade
+        frames = 0; while (d.wallVis > 0 && frames < 100) { m.step(); frames++; }
+        if (d.wallVis > 0 || frames < LOOK_WALL_TICKS - 2 || frames > LOOK_WALL_TICKS + 1) bad.push('the pose fades out in ' + frames + ' frames after the pin, not about ' + LOOK_WALL_TICKS);
+        // the slide: a fighter in the air at the wall is drawn above his footing, and comes down over LOOK_SLIDE_TICKS frames; Reduced motion draws him at his footing at once
+        const slide = (reduced) => {
+          Settings.v.reducedMotion = reduced;
+          const q = splatFlight(S.THROWN, 6, (mm, aa, dd) => { dd.y = dd.prevY = 0.8; dd.vy = 1; }), f = q.d;
+          const heights = [splatTop(f)];
+          for (let k = 0; k < LOOK_SLIDE_TICKS + 2; k++) { f.updateCueBlend(1 / 60); heights.push(splatTop(f)); }
+          return heights;
+        };
+        const on = slide(false), off = slide(true);
+        if (!(on[0] - on[on.length - 1] > 0.6) || on[1] > on[0] - 0.02 || Math.abs(on[LOOK_SLIDE_TICKS] - on[on.length - 1]) > 0.05) bad.push('the slide in air: heights ' + on.map((h) => h.toFixed(2)).join(' '));
+        if (Math.max(...off) - Math.min(...off) > 0.05) bad.push('Reduced motion draws the slide: ' + off.map((h) => h.toFixed(2)).join(' '));
+        // Reduced motion: the pose stays (at its halved amplitude), the shake goes
+        Settings.v.reducedMotion = true;
+        const q2 = splatPinned();
+        if (Math.abs(wallShare(q2.d) - 1) > 0.01 || !(q2.d.wallVis === 1)) bad.push('Reduced motion drops the pose (share ' + wallShare(q2.d).toFixed(2) + ')');
+        Camera.shakeAmp = 0; Camera.fovPulse = 0; Settings.v.shake = 1;
+        splatFlight(S.THROWN, 6);
+        if (Camera.shakeAmp !== 0 || Camera.fovPulse !== 0) bad.push('Reduced motion left a camera shake of ' + Camera.shakeAmp + ' / ' + Camera.fovPulse);
+        Settings.v.reducedMotion = false; Camera.shakeAmp = 0; Camera.fovPulse = 0;
+        splatFlight(S.THROWN, 6);
+        if (!(Camera.shakeAmp > 0)) bad.push('the control did not shake (the wallSlam handler is not there)');
+        // no part past the wall plane: the 32 bodies, tier 1 to 3, in four facings, pinned at the east wall for 40 frames
+        Settings.v.reducedMotion = false;
+        const wall = Arena.ax1;
+        let over = 0, worstOne = '';
+        for (const profile of ROSTER) for (const tier of [1, 2, 3]) for (const yaw of [Math.PI / 2, -Math.PI / 2, 0, Math.PI]) {
+          const f = new Fighter(profile, 0);
+          f.mates = r.m.fighters;   // in a match: a standing body is drawn slid clear of the wall (steerLie), as the game draws it
+          f.x = f.prevX = wall - f.radius; f.z = f.prevZ = 0; f.yaw = f.prevYaw = yaw; f.setState(S.HIT); f.lookTier = tier; f.reactDur = SPLAT_PIN_TICKS; f.pin = SPLAT_PIN_TICKS; f.stateTicks = 30;
+          for (let k = 0; k < 40; k++) { f.stateTicks = 30; f.animate(1 / 60); }
+          const past = Math.max(...colDrawn(f).map((q) => q[1])) - wall;
+          if (past > over) { over = past; worstOne = profile.id + ' tier ' + tier + ' yaw ' + yaw.toFixed(2); }
+        }
+        if (over > 0.03) bad.push('a pinned body is drawn ' + over.toFixed(3) + ' m past the wall (' + worstOne + ')');
+      } finally { Events.emit = keep.emit; Settings.v.reducedMotion = keep.reduced; Settings.v.shake = keep.shake; Camera.shakeAmp = keep.amp; Camera.fovPulse = keep.pulse; }
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    }));
+    test('Wall splat (P19-04): (14) the words: one Coach line (key wall, 53 characters, ASCII, device-neutral, once, offered when the person\'s own fighter pins a foe, never for a CPU pinning the person), the help line once in the Move list (the pin and the 70 percent, not "one hit"), the Training note "air grab" and the Move list says so under the launchers', () => {
+      const bad = [], tip = COACH_TIPS.find((entry) => entry.key === 'wall'), text = tip ? tip.text() : '';
+      if (!tip || text !== 'A heavy hit into a wall pins the foe. Follow up fast.' || text.length > 70 || !/^[\x20-\x7e]+$/.test(text)) bad.push('the Coach line: ' + text);
+      if (COACH_TIPS.filter((entry) => entry.key === 'wall').length !== 1 || Progress.fresh().tips.wall !== false) bad.push('the tip is not one entry, false in a fresh save');
+      const keep = { game: Game.match, tips: Object.assign({}, Progress.d.tips), wins: Progress.d.wins, losses: Progress.d.losses, coach: { pending: Coach.pending, shown: Coach.shown, until: Coach.until, last: Coach.last, watched: Coach.watched }, save: Progress.save };
+      try {
+        Progress.save = () => {};
+        Progress.d.wins = Progress.d.losses = 0;
+        const play = (pinner) => {   // the first seat is a person; `pinner` (0 or 1) pins the other fighter with a flight into the wall
+          const m = splatRig({}); m.controllers[0] = Object.assign(self.scripted(() => {}), { human: true });
+          Game.match = m; Progress.d.tips.wall = false; Coach.pending = Coach.shown = null; Coach.last = null; Coach.watched = m;
+          const victim = m.fighters[1 - pinner];
+          victim.comboFoe = m.fighters[pinner]; victim.reactDur = 20; victim.setState(S.THROWN); victim.x = victim.prevX = Arena.ax1 - victim.radius; victim.kx = 6; victim.kz = 0; victim.wallHit = true; victim.lastImpactTick = -99;
+          Combat.impactCheck(victim, m);
+          hudStandIn((dom) => { dom.onboard.hidden = true; UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300; out[1] = 300; return true; }; UI.hudUpdate(m); });
+          return { shown: Coach.shown, saved: Progress.d.tips.wall, pinned: victim.pin > 0 };
+        };
+        const own = play(0);
+        if (!own.pinned || own.shown !== 'wall' || own.saved !== true) bad.push('the person pins a foe: ' + JSON.stringify(own));
+        const foe = play(1);
+        if (!foe.pinned || foe.shown !== null || foe.saved !== false) bad.push('a CPU pins the person: ' + JSON.stringify(foe));
+        // an ally pins a foe the person threw earlier: a stagger keeps the flight id of that throw, so the thrower is not the one who pinned him and the tip is not offered
+        const crowd = track(new MatchSim({ mode: 'brawl', enemies: 2, difficulty: 'hard', arenaId: 'warehouse', countdown: false, timer: 0, seed: 11, evenDamage: true }));
+        {
+          crowd.controllers[0] = Object.assign(self.scripted(() => {}), { human: true });
+          Game.match = crowd; Progress.d.tips.wall = false; Coach.pending = Coach.shown = null; Coach.last = null; Coach.watched = crowd;
+          const person = crowd.fighters[0], target = crowd.fighters[1], helper = crowd.fighters[2];
+          target.bodyBy = person; target.bodyFlight = target.flightId; target.comboFoe = helper;   // the person threw him; the helper's blow now staggers him into the wall
+          target.reactDur = 20; target.setState(S.STAGGER); target.x = target.prevX = Arena.ax1 - target.radius; target.kx = 6; target.kz = 0; target.wallHit = true; target.lastImpactTick = -99;
+          const seenBy = [], offSeen = Events.on('wallSlam', (e) => seenBy.push(e.by));
+          Combat.impactCheck(target, crowd); offSeen();
+          hudStandIn((dom) => { dom.onboard.hidden = true; UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300; out[1] = 300; return true; }; UI.hudUpdate(crowd); });
+          if (!(target.pin > 0) || seenBy.length !== 1 || seenBy[0] !== helper || Coach.shown !== null || Progress.d.tips.wall !== false) bad.push('an ally pins a foe the person threw earlier: pinned ' + (target.pin > 0) + ', by ' + (seenBy[0] && seenBy[0].index) + ', shown ' + Coach.shown + ', saved ' + Progress.d.tips.wall);
+        }
+        Progress.d.tips.wall = true; Coach.pending = Coach.shown = null; Coach.last = null;
+        const again = splatRig({}); again.controllers[0] = Object.assign(self.scripted(() => {}), { human: true }); Game.match = again; Coach.watched = again;
+        const v = again.fighters[1]; v.comboFoe = again.fighters[0]; v.reactDur = 20; v.setState(S.THROWN); v.x = v.prevX = Arena.ax1 - v.radius; v.kx = 6; v.kz = 0; v.wallHit = true; v.lastImpactTick = -99; Combat.impactCheck(v, again);
+        hudStandIn((dom) => { dom.onboard.hidden = true; UI.hudBottom = 100; R.project = (x, y, z, out) => { out[0] = 300; out[1] = 300; return true; }; UI.hudUpdate(again); });
+        if (Coach.shown !== null || Coach.pending) bad.push('a saved tip came again');
+      } finally { Game.match = keep.game; Progress.d.tips = keep.tips; Progress.d.wins = keep.wins; Progress.d.losses = keep.losses; Object.assign(Coach, keep.coach); Progress.save = keep.save; }
+      const help = 'Wall: a heavy blow that sends a foe into a wall pins him for a second: he cannot guard, and every hit that lands on him while he is held does ' + Math.round(SPLAT_FOLLOW_SCALE * 100) + ' percent. Keep away from walls.';
+      if (WALL_HELP !== help || /one hit/i.test(WALL_HELP)) bad.push('the help line: ' + WALL_HELP);
+      const move = UI.screen_moves(ROSTER_BY_ID.kai, 'keyboard');
+      if (!move.includes('<h3>Walls</h3><p>' + WALL_HELP.replace(/^Wall: /, '') + '</p>') || move.split('<h3>Walls</h3>').length !== 2) bad.push('the Move list does not carry the help line once');
+      if (!/launcher, air grab/.test(move)) bad.push('the Move list does not say "air grab" under the launchers');
+      if (!move.includes('<h3>Air grab</h3><p>' + AIRGRAB_HELP.replace(/^Air grab: /, '') + '</p>') || move.split('<h3>Air grab</h3>').length !== 2 || /holding/.test(AIRGRAB_HELP + WALL_HELP)) bad.push('the Move list does not carry the air grab help once');
+      // the Training note
+      const t = track(new MatchSim({ mode: 'training', countdown: false, timer: 0, seed: 11, playerId: 'kai', opponentId: 'mara' })), ta = t.fighters[0], tb = t.fighters[1];
+      ta.x = ta.prevX = 0; tb.x = tb.prevX = 1.0; ta.z = tb.z = ta.prevZ = tb.prevZ = 0; ta.yaw = ta.prevYaw = Math.PI / 2; tb.yaw = tb.prevYaw = -Math.PI / 2;
+      let pressed = false;
+      t.controllers[0] = self.scripted((it, f) => { if (!pressed && f.moveConnected && f.state === S.ATTACK && f.move && f.move.kind === 'launch') { pressed = true; it.grapple = true; } });
+      ta.startAttack(ATTACKS.heavy_uppercut);
+      for (let k = 0; k < 70 && !(t.lastMove && t.lastMove.mv.id === 'grab' && t.lastMove.result === 'thrown'); k++) t.step();
+      if (!t.lastMove || t.lastMove.result !== 'thrown' || t.lastMove.note !== 'air grab') bad.push('the Training line of the air grab: ' + JSON.stringify(t.lastMove && { id: t.lastMove.mv.id, result: t.lastMove.result, note: t.lastMove.note }));
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
+    test('Wall splat (P19-04): (15) the Free Fight rows stay as they are: no splat row, no new key, the same defaults; a Settings value for it does not exist (a splat is part of a wall slam, not a mode)', () => {
+      const bad = [];
+      if (FIGHT_RULES.map((row) => row[0]).join() !== 'area,ringOut,items,hazards,breakables,health,side,zones') bad.push('the Free Fight rows: ' + FIGHT_RULES.map((row) => row[0]).join());
+      if (FIGHT_RULES.map((row) => row[2]).join() !== '0,0,1,1,1,1,0,1') bad.push('the defaults: ' + FIGHT_RULES.map((row) => row[2]).join());
+      if (FIGHT_PRESETS.some((preset) => preset[1].length !== FIGHT_RULES.length)) bad.push('a preset has another number of rows');
+      if (Object.keys(SETTING_DEFS).some((key) => /splat|pin|wall/i.test(key))) bad.push('a Settings value for the splat: ' + Object.keys(SETTING_DEFS).filter((key) => /splat|pin|wall/i.test(key)).join());
+      if (SPLAT_PIN_TICKS === undefined) bad.push('the splat is not built');
+      return bad.length ? bad.length + ' wrong: ' + bad.slice(0, 5).join('; ') : true;
+    });
     /* Deferred and registered after every other test, so the connections of the whole run are counted */
     test('Online links (P18-74): no RTCPeerConnection made while the tests ran is still open: every test that makes a link or a connection closes it', () => {
       const open = madeConnections.filter((connection) => connection.signalingState !== 'closed');
