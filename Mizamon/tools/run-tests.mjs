@@ -5,7 +5,8 @@
 // or read from the file named by MZ_HTML (the build tests the page it is about to write that way).
 // Prints "PASS n / m" and exits 1 on any failure.
 
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
+import { acquireLock, checkPage } from './build.mjs';
 
 const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
@@ -4702,7 +4704,7 @@ function copyAsCrlf(fromRoot, toRoot) {
   for (const kind of ['rules', 'engine']) {
     for (const name of readdirSync(join(fromRoot, 'src', kind))) copyFile(`src/${kind}/${name}`);
   }
-  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs']) copyFile(relativePath);
+  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
 }
 
 test('assembler: the page equals the baseline Mizamon.html byte for byte, twice, and from a CRLF copy', () => {
@@ -4788,6 +4790,90 @@ test('src/: no two fragments declare the same top-level name (the say() and logM
   same(duplicateTopLevelNames(fragments), [], 'no top-level name is declared twice');
   const planted = duplicateTopLevelNames([{ name: 'rules/a.js', text: 'function say() {}\nconst { x, y: z } = q;\n' }, { name: 'engine/b.js', text: 'async function say() {}\nlet z = 1;\n' }]);
   same(planted, ['say in rules/a.js and engine/b.js', 'z in rules/a.js and engine/b.js'], 'a planted clash is found');
+});
+
+// ---- Build: the lock, the checks, the atomic write (MZ-DEV-02a; reference section 13.5) ----
+// A scratch Mizamon root (the sources and the hashed tools, CRLF) whose run-tests.mjs is a stub, so a build runs in a second.
+function makeScratchRoot(label, stubSource) {
+  const root = scratchFolder(label);
+  copyAsCrlf(MIZAMON_ROOT, root);
+  writeFileSync(join(root, 'tools', 'run-tests.mjs'), stubSource);
+  return root;
+}
+const runBuildCli = (root, ...flags) => spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root, ...flags], { encoding: 'utf8', timeout: 120000 });
+const PASSING_STUB = "import { existsSync } from 'node:fs';\nif (!existsSync(process.env.MZ_HTML)) process.exit(9);\nconsole.log('ok   a');\nconsole.log('PASS 1 / 1');\n";
+const FAILING_STUB = "console.log('ok   a');\nconsole.log('FAIL the second test\\n     boom');\nconsole.log('PASS 1 / 2');\nprocess.exit(1);\n";
+
+test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', () => {
+  const folder = scratchFolder('lock');
+  try {
+    const first = acquireLock(folder);
+    assert.equal(first.note, null);
+    const holder = JSON.parse(readFileSync(join(folder, '.lock'), 'utf8'));
+    assert.equal(holder.pid, process.pid, 'the lock holds the process id');
+    assert.ok(!Number.isNaN(Date.parse(holder.startedAt)), 'and the start time');
+    assert.throws(() => acquireLock(folder), /a build is running \(since \d\d:\d\d\)/);
+    first.release();
+    assert.ok(!existsSync(join(folder, '.lock')), 'released');
+    const finished = spawnSync(process.execPath, ['-e', '0']);
+    writeFileSync(join(folder, '.lock'), JSON.stringify({ pid: finished.pid, startedAt: new Date().toISOString() }));
+    const second = acquireLock(folder);
+    assert.match(second.note, /no longer runs/, 'a stale lock is removed with a note');
+    second.release();
+    writeFileSync(join(folder, '.lock'), '');
+    assert.throws(() => acquireLock(folder), /a build is starting/, 'a lock that is still being written counts as a build');
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('build: the CSP meta must be the one of section 1 and the page size is checked', () => {
+  const page = assembleFromDisk();
+  assert.deepEqual(checkPage(page), []);
+  assert.throws(() => checkPage(page.split("default-src 'none'").join("default-src *")), /CSP meta tag/);
+  assert.throws(() => checkPage('<html></html>'), /CSP meta tag/);
+  assert.match(checkPage(page + 'x'.repeat(4 * 1024 * 1024))[0], /above 4 MB/);
+  assert.throws(() => checkPage(page + 'x'.repeat(16 * 1024 * 1024)), /16 MB limit/);
+});
+
+test('build: assemble, test, then write index.html and the report (the hashes match); a failing test or --check writes nothing', () => {
+  const root = makeScratchRoot('build', PASSING_STUB);
+  try {
+    const built = runBuildCli(root);
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const pagePath = join(root, 'build', 'index.html');
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(sha256Hex(readFileSync(pagePath)), BASELINE_PAGE_SHA256, 'index.html is the baseline page, LF');
+    assert.equal(report.indexHtmlSha256, BASELINE_PAGE_SHA256);
+    assert.equal(report.sourceHash, sourceHashFromDisk(root), 'the report holds the source hash');
+    assert.equal(report.status, 'ok');
+    assert.equal(report.tests.passed, 1);
+    assert.equal(report.tests.total, 1);
+    same(readdirSync(join(root, 'build')).sort(), ['build-report.json', 'index.html'], 'no temporary file and no lock is left');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    const checked = runBuildCli(root, '--check');
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    same(readdirSync(join(root, 'build')), [], '--check writes no file');
+
+    const untested = runBuildCli(root, '--no-tests');
+    assert.equal(untested.status, 0, untested.stdout + untested.stderr);
+    assert.equal(JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8')).status, 'untested');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    writeFileSync(join(root, 'tools', 'run-tests.mjs'), FAILING_STUB);
+    const failed = runBuildCli(root, '--json');
+    assert.equal(failed.status, 1, 'a failing test fails the build');
+    assert.match(failed.stderr, /FAIL the second test/);
+    assert.equal(JSON.parse(failed.stdout).status, 'failed');
+    same(readdirSync(join(root, 'build')), [], 'a failed build writes nothing');
+
+    assert.equal(runBuildCli(root, '--bogus').status, 2, 'a usage error exits 2');
+    writeFileSync(join(root, 'src', 'engine', '00-screen.js'), '// RULES-END\n');
+    assert.equal(runBuildCli(root, '--no-tests').status, 1, 'a source that does not assemble exits 1');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----

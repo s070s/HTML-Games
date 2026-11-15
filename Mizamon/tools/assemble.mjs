@@ -13,7 +13,7 @@ import { assemblePage, sha256Hex, sourceHash } from '../shared/assemble-core.mjs
 
 export const MIZAMON_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // What the source hash covers besides src/ and data/ (reference section 13.5).
-const HASHED_FILES = ['shared/assemble-core.mjs', 'tools/assemble.mjs'];
+const HASHED_FILES = ['shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs'];
 const USAGE = 'usage: node Mizamon/tools/assemble.mjs --out <file> [--root <folder>]';
 
 function listFiles(folder, relativeFolder) {
