@@ -16,7 +16,7 @@ import { assemblePage, dataBlockText, sha256Hex, toLf } from '../shared/assemble
 import { DataError, dataFiles, dataVersionProblem, listDataPaths, readData } from '../shared/data-files.mjs';
 import { fileIdProblem } from '../shared/ids.mjs';
 import { formatEntry, formatJson } from '../shared/json-format.mjs';
-import { DATA_VERSION, KINDS, schemaProblems, walkWithSchema } from '../shared/schemas.mjs';
+import { ABILITY_KINDS, DATA_VERSION, KINDS, STATUS_KINDS, behaviourProblems, schemaProblems, walkWithSchema } from '../shared/schemas.mjs';
 import { MARKER_TEXTS, markerTextFindings } from '../shared/validate.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
@@ -5295,6 +5295,46 @@ test('data/: every kind is there, the indexes list the folders, every entry fits
   assert.equal(data.game.dataVersion, DATA_VERSION);
 });
 
+// What the rules code had typed as literals before the behaviour moved into data/abilities/ and data/statuses/ (reference 13.1): 1.3, 1.2,
+// 0.2, 1.5, 0.75 ... The replay, balance and table parity tests prove the play is unchanged; this pins the numbers themselves.
+const OLD_ABILITY_NUMBERS = {
+  asy: { kind: 'statusShield', params: { statuses: ['inv', 'sca'] } }, syn: { kind: 'critStrike', params: { status: 'str' } },
+  gra: { kind: 'regenerate', params: { divisor: 16, sundayMult: 2 } }, rou: { kind: 'favourOnSwitch', params: { divisor: 8 } },
+  afo: { kind: 'prizeBonus', params: { mult: 1.5 } }, pal: { kind: 'powerWhenLow', params: { hpShare: 0.5, mult: 1.3 } },
+  vir: { kind: 'multiHitAfterKo', params: { hitsMult: 2 } }, out: { kind: 'surviveKo', params: { leaveHp: 1 } },
+  bur: { kind: 'delayStatus', params: { turns: 1 } }, vys: { kind: 'ignoreHigherLevel', params: { chance: 0.2 } },
+  bah: { kind: 'randomStageUp', params: { stages: 1 } }, kou: { kind: 'powerWhenAllyFallen', params: { mult: 1.2 } },
+  des: { kind: 'rhetoricPower', params: { mult: 1.3 } }, epi: { kind: 'firstMovePriority', params: { priority: 1 } },
+};
+const OLD_STATUS_NUMBERS = {
+  inv: { turns: 5, kind: 'weaken', params: { attackMult: 0.75 }, recruitMult: 1.5, color: '#4a6aa8' },
+  sca: { turns: 0, kind: 'hurt', params: { divisor: 8 }, recruitMult: 1.2, color: '#a83a8a' },
+  str: { turns: 3, kind: 'idle', params: { chance: 0.5 }, recruitMult: 1.2, color: '#c07a1a' },
+  bri: { turns: 4, kind: 'pocket', params: { chance: 0.3, divisor: 16 }, recruitMult: 2, color: '#2f7a5a' },
+};
+
+test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', () => {
+  const data = dataOfPage(html);
+  same(behaviourProblems(data), [], 'every entry is a kind of the catalogue with its numbers');
+  sameJson(data.abilities, OLD_ABILITY_NUMBERS, 'the 14 abilities (kind and numbers, in index order)');
+  sameJson(data.statuses, OLD_STATUS_NUMBERS, 'the 4 statuses (turns, kind, numbers, recruit multiplier, tag colour)');
+  // the check itself
+  const broken = (change) => { const copy = JSON.parse(JSON.stringify(data)); change(copy); return behaviourProblems(copy).join('\n'); };
+  assert.match(broken((copy) => { copy.abilities.pal.kind = 'powerWhenHigh'; }), /pal: "powerWhenHigh" is not a kind/, 'an unknown kind');
+  assert.match(broken((copy) => { delete copy.abilities.pal.params.mult; }), /pal: the kind powerWhenLow takes hpShare, mult, the entry has hpShare/, 'a missing number');
+  assert.match(broken((copy) => { copy.statuses.bri.params.extra = 1; }), /bri: the kind pocket takes chance, divisor, the entry has chance, divisor, extra/, 'a number the kind does not take');
+  // every kind of the catalogue is asked for by the rules code, and the code asks for no other kind
+  const rulesCode = readSources().rules.map((fragment) => toLf(fragment.text)).join('\n');
+  const asked = (call) => new Set([...rulesCode.matchAll(new RegExp(call + "\\(\\w+, '(\\w+)'\\)", 'g'))].map((match) => match[1]));
+  same([...asked('abilityParams')].sort(), Object.keys(ABILITY_KINDS).sort(), 'the ability kinds the rules code implements are the catalogue');
+  same([...asked('statusParams')].sort(), Object.keys(STATUS_KINDS).sort(), 'the status kinds the rules code implements are the catalogue');
+  assert.equal(Object.keys(ABILITY_KINDS).length, 14, 'one kind for each of the 14 abilities');
+  assert.equal(Object.keys(STATUS_KINDS).length, 4, 'the 4 status kinds');
+  for (const entry of [...Object.values(ABILITY_KINDS), ...Object.values(STATUS_KINDS)]) assert.ok(entry.description.en && entry.description.el, 'a kind has a plain description in both languages');
+  // the tag colour of a status comes from its data (the screen helper no longer names a status)
+  assert.ok(!readSources().engine.some((fragment) => fragment.name === '10-screen-helpers.js' && /#a83a8a|#c07a1a|#2f7a5a/.test(fragment.text)), 'the screen helper has no status colour');
+});
+
 test('json-format: the writer is deterministic, keeps schema order, writes rows one per line and refuses what the schema does not know', () => {
   const speciesSchema = KINDS.species.schema;
   const messy = { learn: [[1, 'psifodeltio']], base: [46, 38, 44, 56, 48, 46], xp: 50, rec: 0, g: 'n', ab: 'asy', t: 'pol', n: 'Κομματάκι' };
@@ -5342,6 +5382,9 @@ test('DEV-02b parity: every rules table equals the baseline, key order included 
     if (name === 'STRINGS') {
       assert.equal(Object.keys(current.STRINGS).length, Object.keys(baseline.tables.STRINGS).length, 'the number of texts');
       sameJson(sortedEntries(current.STRINGS), sortedEntries(baseline.tables.STRINGS), 'STRINGS (sorted entries)');
+    } else if (name === 'STATUSES') {
+      // A status holds its behaviour (kind, numbers, tag colour) now; the baseline had the turns only. The behaviour test below pins the rest.
+      sameJson(Object.fromEntries(Object.entries(current.STATUSES).map(([id, status]) => [id, { turns: status.turns }])), baseline.tables.STATUSES, 'STATUSES (the turns)');
     } else {
       assert.ok(Object.hasOwn(current, name), name + ' is a table of the rules');
       sameJson(current[name], baseline.tables[name], name);

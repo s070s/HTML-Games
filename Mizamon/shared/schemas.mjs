@@ -66,10 +66,78 @@ const typeSchema = object({
   color: color('Colour', 'Χρώμα', 'The colour of the type tag.'),
   mark: list(text('Row', 'Γραμμή', 'Five characters, # filled and . empty.'), 'Mark', 'Σήμα', 'The 5 x 5 shape beside the type colour, so the type can be told without colour.', { as: 'rows' }),
 }, 'Type', 'Τύπος', 'A creature and move type.');
+// What an ability or a status does is a *kind* that the rules code implements (src/rules/07-damage.js ... 08a-turns.js) and the numbers
+// of that kind (reference 13.1). A new mechanic is a new kind in the rules code with its own test; the data only chooses a kind and
+// sets its numbers. ABILITY_KINDS and STATUS_KINDS list every kind with the numbers it takes and a plain description (the editor shows it).
+// `params` is one object whose optional fields are the union of every number of every kind; the catalogue says which a kind takes
+// (behaviourProblems checks it). The order of the fields is the order of the files.
+const behaviourParams = object({
+  statuses: optional(list(ref('statuses', 'Status', 'Κατάσταση', 'A status.'), 'Statuses', 'Καταστάσεις', 'The statuses it works on.')),
+  status: optional(ref('statuses', 'Status', 'Κατάσταση', 'The status it works on.')),
+  hpShare: optional(number('HP share', 'Ποσοστό HP', 'The behaviour is active while the HP are at most this share of the maximum (0 to 1).', { min: 0, max: 1 })),
+  chance: optional(number('Chance', 'Πιθανότητα', 'The chance that it happens each time (0 to 1).', { min: 0, max: 1 })),
+  divisor: optional(int('Divisor', 'Διαιρέτης', 'The share of the maximum HP is one over this number.', { min: 1 })),
+  sundayMult: optional(int('Sunday multiplier', 'Πολλαπλασιαστής Κυριακής', 'The effect is multiplied by this on a Sunday.', { min: 1 })),
+  mult: optional(number('Multiplier', 'Πολλαπλασιαστής', 'What it multiplies by.', { min: 0 })),
+  attackMult: optional(number('Attack multiplier', 'Πολλαπλασιαστής επίθεσης', 'The attack and rhetoric stats are multiplied by this.', { min: 0 })),
+  leaveHp: optional(int('HP left', 'HP που μένουν', 'The HP the creature keeps.', { min: 0 })),
+  turns: optional(int('Turns', 'Γύροι', 'How many turns.', { min: 0 })),
+  stages: optional(int('Stages', 'Επίπεδα', 'How many stages a stat changes.', { min: 1, max: 6 })),
+  priority: optional(int('Priority', 'Προτεραιότητα', 'How much the priority of the move goes up.', { min: 1 })),
+  hitsMult: optional(int('Hits multiplier', 'Πολλαπλασιαστής χτυπημάτων', 'The number of hits is multiplied by this.', { min: 2 })),
+}, 'Numbers', 'Αριθμοί', 'The numbers of the behaviour; which ones depends on the kind.');
+const behaviour = (params, en, el) => ({ params, description: { en, el } });
+export const ABILITY_KINDS = Object.freeze({
+  statusShield: behaviour(['statuses'], 'Cannot get the listed statuses.', 'Δεν παθαίνει τις καταστάσεις της λίστας.'),
+  critStrike: behaviour(['status'], 'Cannot get this status; a critical hit against it gives the status to a foe that has none.', 'Δεν παθαίνει αυτή την κατάσταση· ένα κρίσιμο χτύπημα εναντίον του την προκαλεί σε αντίπαλο χωρίς κατάσταση.'),
+  regenerate: behaviour(['divisor', 'sundayMult'], 'At the end of each turn it heals one divisor-th of its maximum HP, more on a Sunday.', 'Στο τέλος κάθε γύρου θεραπεύει ένα κλάσμα των μέγιστων HP, περισσότερο την Κυριακή.'),
+  favourOnSwitch: behaviour(['divisor'], 'When it is switched out, the creature that comes in heals one divisor-th of its maximum HP.', 'Όταν αλλάζει, το πλάσμα που μπαίνει θεραπεύει ένα κλάσμα των μέγιστων HP του.'),
+  prizeBonus: behaviour(['mult'], 'The prize money of a won fight is multiplied.', 'Τα χρήματα του επάθλου πολλαπλασιάζονται.'),
+  powerWhenLow: behaviour(['hpShare', 'mult'], 'The power of its moves is multiplied while its HP are at most a share of the maximum.', 'Η ισχύς των κινήσεων πολλαπλασιάζεται όσο τα HP είναι κάτω από ένα ποσοστό του μέγιστου.'),
+  multiHitAfterKo: behaviour(['hitsMult'], 'After it knocks a creature out, its next damaging move hits more times.', 'Μετά από νοκ άουτ, η επόμενη κίνησή του με ζημιά χτυπά περισσότερες φορές.'),
+  surviveKo: behaviour(['leaveHp'], 'Once per fight it survives a hit that would knock it out and keeps a few HP.', 'Μία φορά ανά μάχη αντέχει ένα χτύπημα που θα το νοκ άουτ και κρατά λίγα HP.'),
+  delayStatus: behaviour(['turns'], 'A status a foe gives it starts some turns later.', 'Μια κατάσταση που του δίνει ο αντίπαλος ξεκινά μερικούς γύρους αργότερα.'),
+  ignoreHigherLevel: behaviour(['chance'], 'It may ignore a hit from a creature of a higher level.', 'Μπορεί να αγνοήσει χτύπημα από πλάσμα υψηλότερου επιπέδου.'),
+  randomStageUp: behaviour(['stages'], 'At the end of each turn one random stat goes up.', 'Στο τέλος κάθε γύρου ένα τυχαίο στατιστικό ανεβαίνει.'),
+  powerWhenAllyFallen: behaviour(['mult'], 'The power of its moves is multiplied when an ally of its own type has fainted.', 'Η ισχύς των κινήσεων πολλαπλασιάζεται όταν έχει λιποθυμήσει σύμμαχος του ίδιου τύπου.'),
+  rhetoricPower: behaviour(['mult'], 'The power of its rhetoric moves is multiplied.', 'Η ισχύς των κινήσεων ρητορικής πολλαπλασιάζεται.'),
+  firstMovePriority: behaviour(['priority'], 'Its first move of the fight goes first.', 'Η πρώτη κίνηση της μάχης παίζει πρώτη.'),
+});
+export const STATUS_KINDS = Object.freeze({
+  weaken: behaviour(['attackMult'], 'Attack and rhetoric are multiplied.', 'Η επίθεση και η ρητορική πολλαπλασιάζονται.'),
+  hurt: behaviour(['divisor'], 'At the end of each turn it loses one divisor-th of its maximum HP; it ends when the creature is switched out.', 'Στο τέλος κάθε γύρου χάνει ένα κλάσμα των μέγιστων HP· τελειώνει όταν το πλάσμα αλλάξει.'),
+  idle: behaviour(['chance'], 'The creature may do nothing instead of acting.', 'Το πλάσμα μπορεί να μην κάνει τίποτα αντί να δράσει.'),
+  pocket: behaviour(['chance', 'divisor'], 'The creature may pocket the money instead of attacking; the foe heals one divisor-th of its maximum HP.', 'Το πλάσμα μπορεί να βάλει τα λεφτά στην τσέπη αντί να επιτεθεί· ο αντίπαλος θεραπεύεται κατά ένα κλάσμα των μέγιστων HP.'),
+});
 const statusSchema = object({
   turns: int('Turns', 'Γύροι', 'How many turns the status lasts (0 = until the creature is switched out).', { min: 0 }),
+  kind: enumeration(Object.keys(STATUS_KINDS), 'Behaviour', 'Συμπεριφορά', 'What the status does: a kind of the rules code.'),
+  params: behaviourParams,
+  recruitMult: number('Recruit multiplier', 'Πολλαπλασιαστής στρατολόγησης', 'The recruit chance is multiplied by this while a creature has the status.', { min: 0 }),
+  color: color('Colour', 'Χρώμα', 'The colour of the status tag.'),
 }, 'Status', 'Κατάσταση', 'A status a creature can get in battle.');
-const abilitySchema = object({}, 'Ability', 'Ικανότητα', 'A passive ability of a creature (its behaviour is in the rules code).');
+const abilitySchema = object({
+  kind: enumeration(Object.keys(ABILITY_KINDS), 'Behaviour', 'Συμπεριφορά', 'What the ability does: a kind of the rules code.'),
+  params: behaviourParams,
+}, 'Ability', 'Ικανότητα', 'A passive ability of a creature: a kind of the rules code and its numbers.');
+
+// The problems of the behaviour of the abilities and statuses of a DATA object (an empty list = every entry names a kind of the
+// catalogue and gives exactly the numbers that kind takes).
+export function behaviourProblems(data) {
+  const problems = [];
+  const check = (label, entries, catalogue) => {
+    for (const [id, entry] of Object.entries(entries ?? {})) {
+      const found = catalogue[entry.kind];
+      if (!found) { problems.push(`${label} ${id}: "${entry.kind}" is not a kind of the catalogue`); continue; }
+      const given = Object.keys(entry.params ?? {}).sort().join(', ');
+      const wanted = [...found.params].sort().join(', ');
+      if (given !== wanted) problems.push(`${label} ${id}: the kind ${entry.kind} takes ${wanted}, the entry has ${given}`);
+    }
+  };
+  check('ability', data.abilities, ABILITY_KINDS);
+  check('status', data.statuses, STATUS_KINDS);
+  return problems;
+}
 
 // ---- moves ---------------------------------------------------------------------------------------------------------------
 const stageChange = tuple([

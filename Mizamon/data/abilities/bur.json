@@ -1,1 +1,4 @@
-{}
+{
+  "kind": "delayStatus",
+  "params": { "turns": 1 }
+}

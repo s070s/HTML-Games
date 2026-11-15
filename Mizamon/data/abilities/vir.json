@@ -1,1 +1,4 @@
-{}
+{
+  "kind": "multiHitAfterKo",
+  "params": { "hitsMult": 2 }
+}

@@ -1,3 +1,7 @@
 {
-  "turns": 0
+  "turns": 0,
+  "kind": "hurt",
+  "params": { "divisor": 8 },
+  "recruitMult": 1.2,
+  "color": "#a83a8a"
 }

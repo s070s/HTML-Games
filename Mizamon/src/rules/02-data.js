@@ -16,7 +16,8 @@ for (const typeId of TYPE_IDS) {
 
 // ---- Abilities, statuses and moves (data/abilities/, data/statuses/, data/moves/) ----
 const ABILITY_IDS = Object.keys(DATA.abilities);
-const STATUSES = DATA.statuses;
+const ABILITIES = DATA.abilities; // id -> { kind, params }: what an ability does is a kind of the rules code and its numbers
+const STATUSES = DATA.statuses; // id -> { turns, kind, params, recruitMult, color }
 const MOVES = DATA.moves;
 
 // ---- Items and the stock of the kiosks (data/items/, data/shops/); the start bag is in game.json ----

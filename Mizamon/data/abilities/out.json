@@ -1,1 +1,4 @@
-{}
+{
+  "kind": "surviveKo",
+  "params": { "leaveHp": 1 }
+}

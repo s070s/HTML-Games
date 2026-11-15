@@ -22,7 +22,7 @@ function scoreMove(battle, sideIndex, moveId) {
     if (move.heal) score = userFraction < 0.35 && !user.bt.lastHeal ? 45 : (userFraction >= 1 ? USELESS_MOVE_SCORE : 2);
     if (move.healBoth) score = userFraction < 0.3 ? 25 : 2;
     if (move.foeSt) score = foe.status ? 2 : (foe.hp / maxHp(foe) > 0.5 ? 26 : 10);
-    if (move.foeSt && abilityOf(foe) === 'asy' && move.foeSt[0] !== 'str') score = 1;
+    if (move.foeSt && abilityBlocksStatus(foe, move.foeSt[0])) score = 1;
     for (const change of move.stg || []) {
       const stageNow = (change[0] === 'self' ? user : foe).bt.stage[change[1]];
       if (change[0] === 'self' && change[2] > 0) {

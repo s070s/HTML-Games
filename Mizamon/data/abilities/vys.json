@@ -1,1 +1,4 @@
-{}
+{
+  "kind": "ignoreHigherLevel",
+  "params": { "chance": 0.2 }
+}
