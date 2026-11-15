@@ -4961,6 +4961,22 @@ test('itch push of mizamon: no report at the commit is refused; the other games 
   }
 });
 
+// ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
+test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out']) {
+    assert.ok(readme.includes(text), 'the README says: ' + text);
+  }
+  const oldPage = 'Mizamon' + '.html'; // spelled in two pieces so that this test does not name the file itself
+  assert.ok(!readme.includes(oldPage), 'the README no longer opens the old single file');
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(MIZAMON_ROOT, 'src', kind))) assert.ok(!readFileSync(join(MIZAMON_ROOT, 'src', kind, name), 'utf8').includes(oldPage), `${kind}/${name} names the old file`);
+  }
+  for (const tool of ['assemble.mjs', 'build.mjs', 'balance.mjs', 'world-map.mjs']) {
+    assert.ok(!readFileSync(join(MIZAMON_ROOT, 'tools', tool), 'utf8').includes(oldPage), `tools/${tool} names the old file`);
+  }
+});
+
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();
 function runAll() {
