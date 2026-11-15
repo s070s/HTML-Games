@@ -19,6 +19,7 @@
   "startBag": { "fakelaki": 5, "koulouri": 3 },
   "starters": ["komma", "koulourak", "psaltak"],
   "rivalStarter": { "komma": "psaltak", "psaltak": "komma", "koulourak": "koulourak" },
+  "leavingTrainers": ["rival2", "rival3", "rival4", "rival5"],
   "finaleSpot": { "map": "parliament_roof", "x": 4, "y": 6, "dir": "up" },
   "titleCreatures": ["komma", "koulourak", "psaltak", "fakelakis", "storoula", "trolosavros"],
   "music": { "title": "title", "battle": "battle", "boss": "boss", "fallback": "town" },

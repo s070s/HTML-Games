@@ -1,0 +1,19 @@
+{
+  "name": "map.studio",
+  "w": 10,
+  "h": 8,
+  "music": "studio",
+  "rows": [
+    "wwwwwwwwww",
+    "wrrrrrrrrw",
+    "wrrrrrrrrw",
+    "wffffffffw",
+    "wfhhffhhfw",
+    "wffffffffw",
+    "wffffffffw",
+    "wwwwmmwwww"
+  ],
+  "warps": [{ "x": 4, "y": 7, "to": "town", "tx": 10, "ty": 14 }, { "x": 5, "y": 7, "to": "town", "tx": 10, "ty": 14 }],
+  "signs": {},
+  "npcs": [{ "id": "host", "x": 4, "y": 2, "face": "down", "look": "host", "kind": "trainer", "trainer": "host" }]
+}

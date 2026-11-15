@@ -35,3 +35,30 @@ const STARTERS = DATA.game.starters;
 const RIVAL_STARTER = DATA.game.rivalStarter;
 const TRAINERS = DATA.trainers;
 
+// ---- Tiles, maps and the places the player starts and wakes up (data/tiles/, data/maps/, game.json) ----
+const TILE_DEFS = {};
+for (const tile of Object.values(DATA.tiles)) {
+  const { char, ...definition } = tile; // the character is the key of the table
+  TILE_DEFS[char] = definition;
+}
+const MAPS = DATA.maps;
+for (const map of Object.values(MAPS)) {
+  if (map.stock) map.stock = DATA.shops[map.stock].items; // a map names its kiosk's shop; the rules want the list
+}
+const LEAVING_TRAINERS = DATA.game.leavingTrainers; // the rival's later fights: he is gone from the map once one is won
+const START_MAP = DATA.game.startMap;
+const HOSPITAL_SPOT = DATA.game.hospitalSpot; // just inside the hospital door
+const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out spot before any heal (after one, save.lastHeal: the last hospital that healed you)
+
+// ---- The world map screen: the grid, the districts with their places (nodes) and routes (data/world.json, data/districts/) ----
+const WORLD_BADGE_COUNT = DATA.world.badgeCount;
+const WORLD = { cols: DATA.world.cols, rows: DATA.world.rows, grid: DATA.world.grid, districts: {}, nodes: {}, routes: {} };
+for (const districtId of Object.keys(DATA.districts)) {
+  const { places, routes, ...district } = DATA.districts[districtId];
+  WORLD.districts[districtId] = Object.assign(district, { id: districtId });
+  for (const placeId of Object.keys(places)) WORLD.nodes[placeId] = Object.assign({ district: districtId }, places[placeId], { id: placeId });
+  for (const routeId of Object.keys(routes)) WORLD.routes[routeId] = Object.assign({ district: districtId }, routes[routeId], { id: routeId });
+}
+
+// ---- Scripted scenes: the step lists of data/events/ (run by the event runner of the engine) ----
+const EVENTS = DATA.events;

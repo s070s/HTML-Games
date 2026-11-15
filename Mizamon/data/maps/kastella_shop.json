@@ -1,0 +1,20 @@
+{
+  "name": "map.kastella.shop",
+  "w": 8,
+  "h": 6,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwww",
+    "whhffhhw",
+    "wccccccw",
+    "wffffffw",
+    "wffffffw",
+    "wwwmmwww"
+  ],
+  "warps": [{ "x": 3, "y": 5, "to": "kastella", "tx": 17, "ty": 12 }, { "x": 4, "y": 5, "to": "kastella", "tx": 17, "ty": 12 }],
+  "signs": {},
+  "npcs": [
+    { "id": "shopkeeper", "x": 3, "y": 1, "face": "down", "look": "kiosk", "kind": "shop" },
+    { "id": "customer", "x": 5, "y": 4, "face": "up", "look": "fisher", "kind": "talk", "text": "npc.kastella.customer" }
+  ]
+}

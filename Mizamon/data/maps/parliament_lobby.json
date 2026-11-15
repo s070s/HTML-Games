@@ -1,0 +1,65 @@
+{
+  "name": "map.parliament.lobby",
+  "w": 14,
+  "h": 10,
+  "music": "indoor",
+  "rows": [
+    "wwΞwwΞwwΞwwΞww",
+    "wΔΔΔΔΔΔΔΔΔΔΔΔw",
+    "wΔΔΔΔΔrrΔΔΔΔhw",
+    "wΔΔΔΔΔrrΔΔΔΔΔw",
+    "wcccΔΔrrΔΔΔΔΔw",
+    "wΔΔΔΔΔrrΔΔΔΔΔw",
+    "wΔΔΔΔΔrrΔΔΔΔΔw",
+    "wΔΔΔΔΔrrΔΔtΔΔw",
+    "wΔhΔΔΔrrΔΔΔhΔw",
+    "wwwwwwmmwwwwww"
+  ],
+  "warps": [
+    { "x": 6, "y": 9, "to": "syntagma", "tx": 14, "ty": 5 },
+    { "x": 7, "y": 9, "to": "syntagma", "tx": 14, "ty": 5 },
+    { "x": 2, "y": 0, "to": "parliament_c1", "tx": 5, "ty": 7 },
+    { "x": 5, "y": 0, "to": "parliament_c2", "tx": 5, "ty": 7, "needFlag": "t_euterpe", "lockedText": "warp.parliament.c2" },
+    {
+      "x": 8,
+      "y": 0,
+      "to": "parliament_c3",
+      "tx": 5,
+      "ty": 7,
+      "needFlag": "t_minister",
+      "lockedText": "warp.parliament.c3"
+    },
+    {
+      "x": 11,
+      "y": 0,
+      "to": "parliament_plenary",
+      "tx": 7,
+      "ty": 10,
+      "needFlag": "t_rival6",
+      "lockedText": "warp.parliament.plenary"
+    }
+  ],
+  "signs": {
+    "3,0": "sign.parliament.c1",
+    "6,0": "sign.parliament.c2",
+    "9,0": "sign.parliament.c3",
+    "12,0": "sign.parliament.plenary",
+    "12,2": "sign.parliament.queue",
+    "10,7": "sign.parliament.table"
+  },
+  "npcs": [
+    {
+      "id": "lobbydoctor",
+      "x": 2,
+      "y": 3,
+      "face": "down",
+      "look": "doctor",
+      "kind": "heal",
+      "healKeys": { "hello": "lobby.hello", "free": "lobby.free", "atOnce": "lobby.atOnce", "done": "lobby.done" }
+    },
+    { "id": "lobbyguard", "x": 8, "y": 8, "face": "left", "look": "usher", "kind": "talk", "text": "npc.parliament.guard" },
+    { "id": "lobbyq1", "x": 12, "y": 3, "face": "up", "look": "tourist", "kind": "talk", "text": "npc.parliament.q1" },
+    { "id": "lobbyq2", "x": 12, "y": 4, "face": "up", "look": "oldwoman", "kind": "talk", "text": "npc.parliament.q2" },
+    { "id": "lobbyq3", "x": 12, "y": 5, "face": "up", "look": "student", "kind": "talk", "text": "npc.parliament.q3" }
+  ]
+}

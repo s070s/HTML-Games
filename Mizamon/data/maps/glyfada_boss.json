@@ -1,0 +1,25 @@
+{
+  "name": "map.glyfada.boss",
+  "w": 12,
+  "h": 10,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "whhfffffffhw",
+    "wffffffffffw",
+    "wfffccccfffw",
+    "wffffffffffw",
+    "wfttffffttfw",
+    "wffffffffffw",
+    "wfttffffttfw",
+    "wffffffffffw",
+    "wwwwwmmwwwww"
+  ],
+  "warps": [{ "x": 5, "y": 9, "to": "glyfada", "tx": 17, "ty": 6 }, { "x": 6, "y": 9, "to": "glyfada", "tx": 17, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "bougatsas", "x": 5, "y": 2, "face": "down", "look": "bougatsas", "kind": "boss", "trainer": "bougatsas" },
+    { "id": "bcust1", "x": 2, "y": 6, "face": "right", "look": "oldman2", "kind": "talk", "text": "npc.boss.cust1" },
+    { "id": "bcust2", "x": 9, "y": 6, "face": "left", "look": "clerk", "kind": "talk", "text": "npc.boss.cust2" }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "letter": "E",
+  "order": 3,
+  "bossTrainer": "faia",
+  "badgeFlag": "badge_anatolika",
+  "nameKey": "world.d.anatolika",
+  "levels": [19, 26],
+  "color": "#d9a0c4",
+  "label": [25.5, 3.5],
+  "built": true,
+  "places": {
+    "koropi": {
+      "kind": "town",
+      "cell": [21, 12],
+      "maps": ["koropi", "koropi_hospital", "koropi_shop", "koropi_cafe"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe"]
+    },
+    "spata": {
+      "kind": "town",
+      "cell": [24, 9],
+      "maps": ["spata", "spata_hospital", "spata_shop", "spata_boss"],
+      "boss": true,
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "boss"]
+    }
+  },
+  "routes": {
+    "route5": {
+      "a": "glyfada",
+      "b": "koropi",
+      "map": "route5",
+      "path": [[15, 12], [18, 12], [21, 12]],
+      "progress": "x",
+      "built": true
+    },
+    "route6": {
+      "a": "koropi",
+      "b": "spata",
+      "map": "route6",
+      "path": [[21, 12], [22, 10], [24, 9]],
+      "progress": "x",
+      "built": true
+    }
+  }
+}

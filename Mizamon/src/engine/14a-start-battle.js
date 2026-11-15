@@ -6,7 +6,7 @@ async function runBattle(setup) {
     bag: G.bag, archive: G.archive, sunday: isSundayToday(), recruitable: !!(trainer && trainer.recruitable), recruitOnly: trainer ? trainer.recruitOnly : null,
   });
   const mapId = G.player.map;
-  const theme = mapId === 'studio' ? 'studio' : (mapId === 'port' ? 'sea' : 'grass');
+  const theme = DATA.game.battleThemes[mapId] || 'grass'; // the background of the map (data/game.json)
   const layer = new BattleLayer(battle, trainer, theme);
   Sound.play(trainer && trainer.boss ? 'boss' : 'battle');
   await Fade.start(1, 14);

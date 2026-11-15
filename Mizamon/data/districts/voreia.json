@@ -1,0 +1,48 @@
+{
+  "letter": "V",
+  "order": 4,
+  "bossTrainer": "amartia",
+  "badgeFlag": "badge_voreia",
+  "nameKey": "world.d.voreia",
+  "levels": [26, 32],
+  "color": "#9fcb7b",
+  "label": [13.5, 1],
+  "built": true,
+  "places": {
+    "kifisia": {
+      "kind": "town",
+      "cell": [17, 2],
+      "maps": ["kifisia", "kifisia_hospital", "kifisia_shop", "kifisia_cafe"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe"]
+    },
+    "marousi": {
+      "kind": "town",
+      "cell": [15, 4],
+      "maps": ["marousi", "marousi_hospital", "marousi_shop", "marousi_boss"],
+      "boss": true,
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "boss"]
+    }
+  },
+  "routes": {
+    "route7": {
+      "a": "spata",
+      "b": "kifisia",
+      "map": "route7",
+      "path": [[24, 9], [23, 6], [21, 3], [18, 2], [17, 2]],
+      "progress": "-x",
+      "built": true
+    },
+    "route8": {
+      "a": "kifisia",
+      "b": "marousi",
+      "map": "route8",
+      "path": [[17, 2], [17, 4], [15, 4]],
+      "progress": "-x",
+      "built": true
+    }
+  }
+}

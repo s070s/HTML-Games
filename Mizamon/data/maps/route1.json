@@ -1,0 +1,97 @@
+{
+  "name": "map.route1",
+  "w": 32,
+  "h": 18,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T~~~~~~~~~~~~~~~~~~~~~~T1111TTTT",
+    "T~~~~~~~~~~~~~~~~~~~~~~T1111TTTT",
+    "T~~~~~~~~~~~~~~~~~~~~~~TW##WTTTT",
+    "T~~~~~~~~~~~~~~~~~~~~~~T#D##TTTT",
+    "Tssssssssggggggsggggggsss.sssssT",
+    "Tsgggggssggggggsgggggg....ssTssT",
+    "Tsgggggssggggggsgggggg.sZssssssT",
+    "TsZsTsssssssTss........sggggggsT",
+    "........sssssss.ggggggssggggggsZ",
+    "Tsggggg.ggggggg.ggggggssggggggs.",
+    "Tsggggg.ggggggg.ggggggsTggggggsT",
+    "Tsggggg.ggggggg.ggggggssggggggsT",
+    "Tssssss.........sssssssssssssssT",
+    "TsssTsssgggggggssssTsssssssTsssT",
+    "TsssssTsgggggggssTsssTsssssssssT",
+    "TsssssssgggggggsssssssssssssssTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 9, "to": "town", "tx": 22, "ty": 8 },
+    { "x": 25, "y": 4, "to": "port", "tx": 5, "ty": 8 },
+    { "x": 31, "y": 10, "to": "route2", "tx": 1, "ty": 8, "needFlag": "badge", "lockedText": "warp.route2" }
+  ],
+  "signs": { "2,8": "sign.route1", "24,7": "sign.port", "31,9": "sign.route1.east" },
+  "npcs": [
+    {
+      "id": "phoebe",
+      "x": 11,
+      "y": 13,
+      "face": "left",
+      "look": "blogger",
+      "kind": "trainer",
+      "trainer": "phoebe",
+      "sight": 4
+    },
+    {
+      "id": "stelios",
+      "x": 15,
+      "y": 10,
+      "face": "down",
+      "look": "cop",
+      "kind": "trainer",
+      "trainer": "stelios",
+      "sight": 4
+    },
+    { "id": "takis", "x": 19, "y": 8, "face": "left", "look": "singer", "kind": "trainer", "trainer": "takis", "sight": 4 },
+    { "id": "rival2", "x": 22, "y": 7, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival2", "sight": 3 }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 6,
+      "table": [
+        { "sp": "fakelakis", "w": 40, "min": 2, "max": 4 },
+        { "sp": "trolosavros", "w": 14, "min": 2, "max": 4 },
+        { "sp": "laikatzis", "w": 14, "min": 2, "max": 4 },
+        { "sp": "storoula", "w": 10, "min": 2, "max": 4 },
+        { "sp": "dimosio", "w": 12, "min": 2, "max": 4 },
+        { "sp": "eforaki", "w": 10, "min": 2, "max": 4 }
+      ]
+    },
+    {
+      "x0": 7,
+      "x1": 15,
+      "table": [
+        { "sp": "fakelakis", "w": 30, "min": 4, "max": 6 },
+        { "sp": "trolosavros", "w": 14, "min": 4, "max": 6 },
+        { "sp": "laikatzis", "w": 14, "min": 4, "max": 6 },
+        { "sp": "storoula", "w": 12, "min": 4, "max": 6 },
+        { "sp": "dimosio", "w": 12, "min": 4, "max": 6 },
+        { "sp": "eforaki", "w": 12, "min": 4, "max": 6 },
+        { "sp": "frapedoros", "w": 6, "min": 5, "max": 7 }
+      ]
+    },
+    {
+      "x0": 16,
+      "x1": 99,
+      "table": [
+        { "sp": "fakelakis", "w": 22, "min": 6, "max": 8 },
+        { "sp": "trolosavros", "w": 12, "min": 6, "max": 8 },
+        { "sp": "laikatzis", "w": 12, "min": 6, "max": 8 },
+        { "sp": "storoula", "w": 12, "min": 6, "max": 8 },
+        { "sp": "dimosio", "w": 10, "min": 6, "max": 8 },
+        { "sp": "eforaki", "w": 12, "min": 6, "max": 8 },
+        { "sp": "frapedoros", "w": 10, "min": 6, "max": 8 },
+        { "sp": "giagiaka", "w": 10, "min": 6, "max": 8 }
+      ]
+    }
+  ]
+}

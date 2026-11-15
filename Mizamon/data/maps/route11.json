@@ -1,0 +1,67 @@
+{
+  "name": "map.route11",
+  "w": 36,
+  "h": 14,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TssssssssssssgggggggggsssssssssssssT",
+    "TssTss[[[[[ssgggggggggssgggggggggssT",
+    "Tsssss[[[[[ssgggggggggTsgggggggggssT",
+    "Tsssss[[[[[sssssssssssssgggggggggTsT",
+    "TssZ$sssZ$sssss$ssss$ssssss$ssss$ssT",
+    "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"",
+    "T\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"T",
+    "Tssss$sssss$sssss$sssss$sZssss$ssssT",
+    "Tsggggggggggssssssssssss[[[[[[sgggsT",
+    "TsggggggggggTsggggggTgss[[[[[[sgggsT",
+    "Tsggggggggggssggggggggss[[[[[[sgggsT",
+    "TTssssssssssssssssssssssssssssssssTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [{ "x": 0, "y": 6, "to": "chaidari", "tx": 1, "ty": 9 }, { "x": 35, "y": 6, "to": "monastiraki", "tx": 1, "ty": 9 }],
+  "signs": { "3,5": "sign.route11", "8,5": "sign.dig", "25,8": "sign.stumps" },
+  "npcs": [
+    {
+      "id": "clerk",
+      "x": 12,
+      "y": 4,
+      "face": "down",
+      "look": "ministryclerk",
+      "kind": "trainer",
+      "trainer": "clerk",
+      "sight": 3
+    },
+    { "id": "guide", "x": 26, "y": 8, "face": "up", "look": "guide", "kind": "trainer", "trainer": "guide", "sight": 3 },
+    { "id": "digger", "x": 8, "y": 8, "face": "up", "look": "oldman2", "kind": "talk", "text": "npc.digger" },
+    { "id": "roadtourist", "x": 17, "y": 9, "face": "left", "look": "tourist", "kind": "talk", "text": "npc.roadtourist" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 17,
+      "table": [
+        { "sp": "monimos", "w": 14, "min": 38, "max": 40 },
+        { "sp": "elegktis", "w": 12, "min": 38, "max": 40 },
+        { "sp": "rousfetolykos", "w": 12, "min": 38, "max": 40 },
+        { "sp": "lobbylykaina", "w": 14, "min": 38, "max": 40 },
+        { "sp": "tavlilordos", "w": 12, "min": 38, "max": 40 },
+        { "sp": "giagiaexo", "w": 12, "min": 38, "max": 40 },
+        { "sp": "star90", "w": 14, "min": 38, "max": 40 }
+      ]
+    },
+    {
+      "x0": 18,
+      "x1": 99,
+      "table": [
+        { "sp": "monimos", "w": 14, "min": 39, "max": 41 },
+        { "sp": "elegktis", "w": 12, "min": 39, "max": 41 },
+        { "sp": "rousfetolykos", "w": 12, "min": 39, "max": 41 },
+        { "sp": "lobbylykaina", "w": 14, "min": 39, "max": 41 },
+        { "sp": "tavlilordos", "w": 12, "min": 39, "max": 41 },
+        { "sp": "giagiaexo", "w": 12, "min": 39, "max": 41 },
+        { "sp": "star90", "w": 14, "min": 39, "max": 41 }
+      ]
+    }
+  ]
+}

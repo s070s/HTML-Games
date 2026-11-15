@@ -1,0 +1,63 @@
+{
+  "name": "map.route2",
+  "w": 40,
+  "h": 14,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T~~~~~Q~~~~~~~X~~~~~~~~~~~~~~~~~~~~~~~~T",
+    "T~~~~~~~~~~~~~~~~~~~~~~~Q~~~~~~~~~~~~~~T",
+    "TsssKKssssssssFFFFFFFFssgggggggKKssssssT",
+    "TsgggggggggTssFssssssFTsgggggggssggggggT",
+    "TsgggggggggsssFssssssFssgggggggssggggggT",
+    "TsgggggggggsssFFFssFFFssssssssssTggggggT",
+    "TsZsssssssss............sssssssssssssZsT",
+    ".............ssssssssss.................",
+    "TsssssssssTsssssssssssssFFFssFFFsssssssT",
+    "TsggggggggggggggggggggssFssssssFsggggggT",
+    "TsggggggggggggggggggggTsFssssssFsggggggT",
+    "TsggggggggggggggggggggssFFFFFFFFsgggTggT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [{ "x": 0, "y": 8, "to": "route1", "tx": 30, "ty": 10 }, { "x": 39, "y": 8, "to": "kastella", "tx": 1, "ty": 12 }],
+  "signs": { "2,7": "sign.route2", "37,7": "sign.kastella" },
+  "npcs": [
+    { "id": "fan", "x": 17, "y": 5, "face": "down", "look": "fan", "kind": "trainer", "trainer": "fan", "sight": 4 },
+    {
+      "id": "ferrysailor",
+      "x": 30,
+      "y": 6,
+      "face": "down",
+      "look": "sailor",
+      "kind": "trainer",
+      "trainer": "ferrysailor",
+      "sight": 3
+    },
+    { "id": "ferryclerk", "x": 8, "y": 7, "face": "down", "look": "clerk", "kind": "talk", "text": "npc.ferryclerk" },
+    { "id": "groundkeeper", "x": 28, "y": 11, "face": "up", "look": "oldman2", "kind": "talk", "text": "npc.groundkeeper" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 19,
+      "table": [
+        { "sp": "fakelarchis", "w": 35, "min": 10, "max": 12 },
+        { "sp": "efoplistakos", "w": 8, "min": 11, "max": 12 },
+        { "sp": "laikatzis", "w": 22, "min": 10, "max": 12 },
+        { "sp": "frapedoros", "w": 18, "min": 10, "max": 12 },
+        { "sp": "giagiaka", "w": 17, "min": 10, "max": 12 }
+      ]
+    },
+    {
+      "x0": 20,
+      "x1": 99,
+      "table": [
+        { "sp": "fakelarchis", "w": 35, "min": 11, "max": 13 },
+        { "sp": "efoplistakos", "w": 8, "min": 12, "max": 13 },
+        { "sp": "laikatzis", "w": 22, "min": 11, "max": 13 },
+        { "sp": "frapedoros", "w": 18, "min": 11, "max": 13 },
+        { "sp": "giagiaka", "w": 17, "min": 11, "max": 13 }
+      ]
+    }
+  ]
+}

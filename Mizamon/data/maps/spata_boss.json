@@ -1,0 +1,25 @@
+{
+  "name": "map.spata.boss",
+  "w": 14,
+  "h": 10,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwwwww",
+    "whhffffffffhhw",
+    "wffffffffffffw",
+    "wfffccccccfffw",
+    "wffffffffffffw",
+    "wfrrffffffrrfw",
+    "wffffffffffffw",
+    "wfttffffffttfw",
+    "wffffffffffffw",
+    "wwwwwwmmwwwwww"
+  ],
+  "warps": [{ "x": 6, "y": 9, "to": "spata", "tx": 19, "ty": 6 }, { "x": 7, "y": 9, "to": "spata", "tx": 19, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "faia", "x": 6, "y": 2, "face": "down", "look": "faia", "kind": "boss", "trainer": "faia" },
+    { "id": "tcust1", "x": 2, "y": 6, "face": "right", "look": "tourist", "kind": "talk", "text": "npc.spata.cust1" },
+    { "id": "tcust2", "x": 11, "y": 6, "face": "left", "look": "clerk", "kind": "talk", "text": "npc.spata.cust2" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "map.kep",
+  "w": 10,
+  "h": 8,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwwwww",
+    "wffffffffw",
+    "wccccccccw",
+    "wffffffffw",
+    "wfhhffhhfw",
+    "wffffffffw",
+    "wffffffffw",
+    "wwwwmmwwww"
+  ],
+  "warps": [{ "x": 4, "y": 7, "to": "town", "tx": 8, "ty": 7 }, { "x": 5, "y": 7, "to": "town", "tx": 8, "ty": 7 }],
+  "signs": {},
+  "npcs": [
+    { "id": "kepclerk", "x": 4, "y": 1, "face": "down", "look": "clerk", "kind": "kep" },
+    { "id": "queue1", "x": 6, "y": 5, "face": "up", "look": "oldwoman", "kind": "talk", "text": "npc.queue1" },
+    { "id": "queue2", "x": 2, "y": 6, "face": "up", "look": "kid", "kind": "talk", "text": "npc.queue2" }
+  ]
+}

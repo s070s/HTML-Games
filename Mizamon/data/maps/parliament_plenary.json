@@ -1,0 +1,89 @@
+{
+  "name": "map.parliament.plenary",
+  "w": 16,
+  "h": 12,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwwwwwΞw",
+    "wΔΔΔΔΔΔΔΔΔΔΔΔΔΔw",
+    "wΔΔΔΔΔΦΦΦΦΔΔΔΔΔw",
+    "wΔΔΔΔΔΔΔΔΔΔΔΔΔΔw",
+    "wΔΘΘΘΘΔrrΔΘΘΘΘΔw",
+    "wΔΔΔΔΔΔrrΔΔΔΔΔΔw",
+    "wΔΘΘΘΘΔrrΔΘΘΘΘΔw",
+    "wΔΔΔΔΔΔrrΔΔΔΔΔΔw",
+    "wΔΘΘΘΘΔrrΔΘΘΘΘΔw",
+    "wΔΔΔΔΔΔrrΔΔΔΔΔΔw",
+    "wΔΔΔΔΔΔrrΔΔΔΔΔΔw",
+    "wwwwwwwΞΞwwwwwww"
+  ],
+  "warps": [
+    { "x": 7, "y": 11, "to": "parliament_lobby", "tx": 11, "ty": 1 },
+    { "x": 8, "y": 11, "to": "parliament_lobby", "tx": 11, "ty": 1 },
+    {
+      "x": 14,
+      "y": 0,
+      "to": "parliament_roof",
+      "tx": 4,
+      "ty": 6,
+      "needFlag": "ending",
+      "lockedText": "warp.parliament.roof"
+    }
+  ],
+  "signs": { "6,2": "sign.plenary.podium", "2,4": "sign.plenary.bench", "13,0": "sign.plenary.roof" },
+  "npcs": [
+    {
+      "id": "undersec",
+      "x": 7,
+      "y": 3,
+      "face": "down",
+      "look": "undersec",
+      "kind": "boss",
+      "trainer": "undersec",
+      "hideFlag": "ending"
+    },
+    {
+      "id": "undersecaide",
+      "x": 8,
+      "y": 3,
+      "face": "down",
+      "look": "steward",
+      "kind": "talk",
+      "text": "npc.plenary.aide",
+      "hideFlag": "ending"
+    },
+    {
+      "id": "plenarymp1",
+      "x": 3,
+      "y": 5,
+      "face": "down",
+      "look": "oldman2",
+      "kind": "talk",
+      "text": "npc.plenary.mp1",
+      "hideFlag": "ending"
+    },
+    {
+      "id": "plenarymp2",
+      "x": 12,
+      "y": 7,
+      "face": "left",
+      "look": "oldman",
+      "kind": "talk",
+      "text": "npc.plenary.mp2",
+      "hideFlag": "ending"
+    },
+    {
+      "id": "ilithiokratia",
+      "x": 7,
+      "y": 3,
+      "face": "down",
+      "look": "fusedmp",
+      "kind": "legend",
+      "species": "ilithiokratia",
+      "level": 50,
+      "boost": 1.35,
+      "showFlag": "ending",
+      "hideFlag": "legend_ilithiokratia"
+    }
+  ]
+}

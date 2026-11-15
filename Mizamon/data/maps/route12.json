@@ -1,0 +1,85 @@
+{
+  "name": "map.route12",
+  "w": 40,
+  "h": 16,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,111111,111111,111111,,,,,,,,,,,,,,,,,T",
+    "T,]]]]]],]]]]]],]]]]]],,T,,,,,,,,,gggg,T",
+    "T,]]]]]],]]]]]],]]]]]],,,,,,,,,,,,ggTg,T",
+    "T,&&&&&&,&&&&&&,&&&&&&,,,,,,,,,,,,gggg,T",
+    "T,ggggggg,gggggggg,,,,,,,S,,,,,,,,gggg,T",
+    "TSgggTggg,ggggTggg,,,,,,,,.......,Tggg,T",
+    "T,ggggggg,gggggggg,,,,,,,,..???..,,,,,,T",
+    "............................?7?.........",
+    "T...........................???........T",
+    "T,,,,,,,,,,,,ggggggggg,,,,.......,,,,,,T",
+    "T,,,,,,,,,,S,gggggTggg,,,,,,,,,,,,,,,,,T",
+    "T,22222222,,3333333,,,,/,/,,,,S,,/,/,,TT",
+    "T,>>>>d>>>,,>>>d>>>,,,,,,,,,,,,,,,,,,,,T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [{ "x": 0, "y": 8, "to": "monastiraki", "tx": 24, "ty": 9 }, { "x": 39, "y": 8, "to": "syntagma", "tx": 1, "ty": 10 }],
+  "signs": { "1,6": "sign.route12", "25,5": "sign.omonia", "11,11": "sign.avenue.market", "30,12": "sign.avenue.shops" },
+  "npcs": [
+    {
+      "id": "student",
+      "x": 31,
+      "y": 11,
+      "face": "up",
+      "look": "student",
+      "kind": "trainer",
+      "trainer": "student",
+      "sight": 2
+    },
+    {
+      "id": "busker",
+      "x": 27,
+      "y": 5,
+      "face": "down",
+      "look": "busker",
+      "kind": "trainer",
+      "trainer": "busker",
+      "sight": 2
+    },
+    { "id": "rival5", "x": 35, "y": 7, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival5", "sight": 2 },
+    { "id": "avmarket", "x": 24, "y": 11, "face": "up", "look": "marketeer", "kind": "talk", "text": "npc.avenue1" },
+    { "id": "avpigeon", "x": 21, "y": 6, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.avenue2" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 19,
+      "table": [
+        { "sp": "monimos", "w": 12, "min": 40, "max": 41 },
+        { "sp": "elegktis", "w": 12, "min": 40, "max": 41 },
+        { "sp": "rousfetolykos", "w": 12, "min": 40, "max": 41 },
+        { "sp": "lobbylykaina", "w": 12, "min": 40, "max": 41 },
+        { "sp": "tavlilordos", "w": 12, "min": 40, "max": 41 },
+        { "sp": "giagiaexo", "w": 12, "min": 40, "max": 41 },
+        { "sp": "star90", "w": 12, "min": 40, "max": 41 },
+        { "sp": "ktimatomesitis", "w": 6, "min": 40, "max": 42 },
+        { "sp": "giotarchis", "w": 10, "min": 40, "max": 42 },
+        { "sp": "influenza", "w": 10, "min": 40, "max": 42 }
+      ]
+    },
+    {
+      "x0": 20,
+      "x1": 99,
+      "table": [
+        { "sp": "monimos", "w": 8, "min": 40, "max": 41 },
+        { "sp": "elegktis", "w": 8, "min": 40, "max": 41 },
+        { "sp": "rousfetolykos", "w": 8, "min": 40, "max": 41 },
+        { "sp": "lobbylykaina", "w": 8, "min": 40, "max": 41 },
+        { "sp": "tavlilordos", "w": 8, "min": 40, "max": 41 },
+        { "sp": "giagiaexo", "w": 8, "min": 40, "max": 41 },
+        { "sp": "star90", "w": 8, "min": 40, "max": 41 },
+        { "sp": "ktimatomesitis", "w": 6, "min": 41, "max": 43 },
+        { "sp": "giotarchis", "w": 12, "min": 41, "max": 43 },
+        { "sp": "influenza", "w": 12, "min": 41, "max": 43 }
+      ]
+    }
+  ]
+}

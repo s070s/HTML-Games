@@ -1,0 +1,44 @@
+{
+  "name": "map.faliro",
+  "w": 30,
+  "h": 16,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666T,4444T,55555,T,,,2222T",
+    "T,66H66,,4444,,55555,,T,,2222T",
+    "T,NMPMN,,W##W,,W###W,,,,,W##WT",
+    "T,MMEMMS,#D##S,##D##S,,,S#d##T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,,,,,,,,,,,,,,,,,,,,,U,,,,,,T",
+    "TlllllllllllSllllllllllllllllT",
+    "..............................",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "TanaabaaaaaaaabaanaaaaaaaaanaT",
+    "TaaaaaaaabaanaaaaaaabaaaanaaaT",
+    "T~~~~~~~~~y~~~~~~~~~~~y~~~~~~T",
+    "T~~~y~~~~~~~~~~~y~~~~~~~~~~y~T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 9, "to": "route3", "tx": 38, "ty": 8 },
+    { "x": 29, "y": 9, "to": "route4", "tx": 1, "ty": 8 },
+    { "x": 4, "y": 5, "to": "faliro_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "faliro_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "faliro_cafe", "tx": 4, "ty": 6 }
+  ],
+  "signs": {
+    "7,5": "sign.faliro.hospital",
+    "13,5": "sign.shop",
+    "20,5": "sign.faliro.cafe",
+    "24,5": "sign.house2",
+    "22,7": "sign.ktel",
+    "12,8": "sign.faliro.tram"
+  },
+  "npcs": [
+    { "id": "framwatcher", "x": 14, "y": 7, "face": "down", "look": "oldman", "kind": "talk", "text": "npc.faliro1" },
+    { "id": "fcafeguest", "x": 20, "y": 7, "face": "left", "look": "clerk", "kind": "talk", "text": "npc.faliro2" },
+    { "id": "fbeachkid", "x": 8, "y": 11, "face": "right", "look": "kid", "kind": "talk", "text": "npc.faliro3" }
+  ]
+}

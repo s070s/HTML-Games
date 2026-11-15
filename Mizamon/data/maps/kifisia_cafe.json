@@ -1,0 +1,24 @@
+{
+  "name": "map.kifisia.cafe",
+  "w": 10,
+  "h": 8,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwwwww",
+    "whhfffffhw",
+    "wcccccfffw",
+    "wffffffffw",
+    "wffffffffw",
+    "wfttffttfw",
+    "wffffffffw",
+    "wwwwmmwwww"
+  ],
+  "cafeHello": "cafe.hello.kifisia",
+  "warps": [{ "x": 4, "y": 7, "to": "kifisia", "tx": 17, "ty": 6 }, { "x": 5, "y": 7, "to": "kifisia", "tx": 17, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "cafeowner", "x": 3, "y": 1, "face": "down", "look": "cafeowner", "kind": "save" },
+    { "id": "kfcafe1", "x": 2, "y": 4, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.kfcafe1" },
+    { "id": "kfcafe2", "x": 7, "y": 6, "face": "up", "look": "student", "kind": "talk", "text": "npc.kfcafe2" }
+  ]
+}

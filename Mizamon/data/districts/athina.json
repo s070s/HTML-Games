@@ -1,0 +1,57 @@
+{
+  "letter": "A",
+  "order": 6,
+  "bossTrainer": "baboulas",
+  "badgeFlag": "badge_athina",
+  "nameKey": "world.d.athina",
+  "levels": [38, 44],
+  "color": "#c9b6e8",
+  "label": [12.5, 6.5],
+  "built": true,
+  "places": {
+    "monastiraki": {
+      "kind": "town",
+      "cell": [10, 9],
+      "maps": ["monastiraki", "monastiraki_hospital", "monastiraki_shop", "monastiraki_cafe", "rock"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe", "legend"]
+    },
+    "syntagma": {
+      "kind": "town",
+      "cell": [14, 8],
+      "maps": ["syntagma", "syntagma_hospital", "syntagma_shop", "lycabettus"],
+      "boss": true,
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "boss"]
+    },
+    "parliament": {
+      "kind": "door",
+      "cell": [15, 7],
+      "maps": ["parliament_lobby", "parliament_c1", "parliament_c2", "parliament_c3", "parliament_plenary", "parliament_roof"],
+      "built": true,
+      "seenFlag": "badge_athina",
+      "levels": [44, 50],
+      "has": ["doctor", "final"]
+    }
+  },
+  "routes": {
+    "route11": {
+      "a": "chaidari",
+      "b": "monastiraki",
+      "map": "route11",
+      "path": [[4, 6], [6, 7], [8, 7], [9, 8], [10, 9]],
+      "progress": "x",
+      "built": true
+    },
+    "route12": {
+      "a": "monastiraki",
+      "b": "syntagma",
+      "map": "route12",
+      "path": [[10, 9], [12, 8], [14, 8]],
+      "progress": "x",
+      "built": true
+    }
+  }
+}

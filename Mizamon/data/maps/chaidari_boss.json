@@ -1,0 +1,25 @@
+{
+  "name": "map.chaidari.boss",
+  "w": 12,
+  "h": 10,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "whhffffffhhw",
+    "wffffffffffw",
+    "wfffccccfffw",
+    "wffffffffffw",
+    "wfrrffffrrfw",
+    "wffffffffffw",
+    "wfttffffttfw",
+    "wffffffffffw",
+    "wwwwwmmwwwww"
+  ],
+  "warps": [{ "x": 5, "y": 9, "to": "chaidari", "tx": 20, "ty": 5 }, { "x": 6, "y": 9, "to": "chaidari", "tx": 20, "ty": 5 }],
+  "signs": {},
+  "npcs": [
+    { "id": "plousiakis", "x": 5, "y": 2, "face": "down", "look": "plousiakis", "kind": "boss", "trainer": "plousiakis" },
+    { "id": "mcust1", "x": 2, "y": 6, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.chaidari.cust1" },
+    { "id": "mcust2", "x": 9, "y": 6, "face": "left", "look": "student", "kind": "talk", "text": "npc.chaidari.cust2" }
+  ]
+}

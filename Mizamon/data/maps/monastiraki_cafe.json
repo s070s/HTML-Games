@@ -1,0 +1,24 @@
+{
+  "name": "map.monastiraki.cafe",
+  "w": 10,
+  "h": 8,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwwwww",
+    "whhfffffhw",
+    "wcccccfffw",
+    "wffffffffw",
+    "wffffffffw",
+    "wfttffttfw",
+    "wffffffffw",
+    "wwwwmmwwww"
+  ],
+  "cafeHello": "cafe.hello.monastiraki",
+  "warps": [{ "x": 4, "y": 7, "to": "monastiraki", "tx": 17, "ty": 6 }, { "x": 5, "y": 7, "to": "monastiraki", "tx": 17, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "cafeowner", "x": 3, "y": 1, "face": "down", "look": "cafeowner", "kind": "save" },
+    { "id": "mncafe1", "x": 2, "y": 4, "face": "right", "look": "oldman", "kind": "talk", "text": "npc.mncafe1" },
+    { "id": "mncafe2", "x": 7, "y": 6, "face": "up", "look": "student", "kind": "talk", "text": "npc.mncafe2" }
+  ]
+}
