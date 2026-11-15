@@ -1,20 +1,29 @@
 // Headless rules tests for Mizamon. Node built-ins only.
 // Usage (from the repo root or anywhere): node Mizamon/tools/run-tests.mjs
-// It loads the rules code out of Mizamon.html (between RULES-BEGIN and RULES-END) with node:vm,
-// so the tests run the same code the game runs. Prints "PASS n / m" and exits 1 on any failure.
+// It loads the rules code out of the assembled page (between the RULES-BEGIN and RULES-END lines) with node:vm,
+// so the tests run the same code the game runs. The page is assembled in memory from src/ (tools/assemble.mjs),
+// or read from the file named by MZ_HTML (the build tests the page it is about to write that way).
+// Prints "PASS n / m" and exits 1 on any failure.
 
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 
-const HTML_PATH = new URL('../Mizamon.html', import.meta.url);
-const html = readFileSync(HTML_PATH, 'utf8');
+const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
 export function loadRules(source = html) {
-  const begin = source.indexOf('// RULES-BEGIN');
-  const end = source.indexOf('// RULES-END');
-  assert.ok(begin >= 0 && end > begin, 'RULES markers not found in Mizamon.html');
+  // The markers are whole lines (13.2), each once: a text that merely mentions a marker is not one.
+  const beginLines = [...source.matchAll(/^\/\/ RULES-BEGIN\r?$/gm)];
+  const endLines = [...source.matchAll(/^\/\/ RULES-END\r?$/gm)];
+  assert.ok(beginLines.length === 1 && endLines.length === 1, 'RULES-BEGIN and RULES-END must each be on a line of their own, once, in the page');
+  const begin = beginLines[0].index;
+  const end = endLines[0].index;
+  assert.ok(end > begin, 'RULES-END comes before RULES-BEGIN in the page');
   const code = source.slice(begin, end);
   return new vm.Script('(function () {\n' + code + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
 }
@@ -4670,6 +4679,115 @@ test('accessibility: the decision section of the reference lists each option wit
   for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls', 'Left out', 'Why', 'Reduced motion', 'selfTest']) assert.ok(section.includes(word), 'the section names ' + word);
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
   for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls']) assert.ok(readme.includes(word), 'the README names ' + word);
+});
+
+// ---- Build: the split and the assembler (MZ-DEV-02a; reference sections 13.2, 13.3 and 13.5) ----
+// SHA-256 of Mizamon.html at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
+// which moves content into data/, replaces this pin with the parity proof of reference section 13.12.
+const BASELINE_PAGE_SHA256 = '9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030';
+
+function scratchFolder(label) {
+  const parent = join(tmpdir(), 'claude');
+  mkdirSync(parent, { recursive: true });
+  return mkdtempSync(join(parent, `mizamon-test-${label}-`));
+}
+
+// Copies what the assembler and the source hash read (src/ and the hashed tool files) with CRLF line endings.
+function copyAsCrlf(fromRoot, toRoot) {
+  const copyFile = (relativePath) => {
+    const text = readFileSync(join(fromRoot, relativePath), 'utf8');
+    mkdirSync(dirname(join(toRoot, relativePath)), { recursive: true });
+    writeFileSync(join(toRoot, relativePath), text.split('\r\n').join('\n').split('\n').join('\r\n'));
+  };
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(fromRoot, 'src', kind))) copyFile(`src/${kind}/${name}`);
+  }
+  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs']) copyFile(relativePath);
+}
+
+test('assembler: the page equals the baseline Mizamon.html byte for byte, twice, and from a CRLF copy', () => {
+  const first = assembleFromDisk();
+  const second = assembleFromDisk();
+  assert.equal(first, second, 'assembling twice gives the same text');
+  assert.ok(!first.includes('\r'), 'the page is LF');
+  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline Mizamon.html');
+  const crlfRoot = scratchFolder('crlf');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, crlfRoot);
+    assert.ok(readFileSync(join(crlfRoot, 'src', 'shell.html'), 'utf8').includes('\r\n'), 'the copy is CRLF');
+    assert.equal(assembleFromDisk(crlfRoot), first, 'a CRLF checkout assembles the same bytes');
+    assert.equal(sourceHashFromDisk(crlfRoot), sourceHashFromDisk(MIZAMON_ROOT), 'a CRLF checkout has the same source hash');
+  } finally {
+    rmSync(crlfRoot, { recursive: true, force: true });
+  }
+});
+
+test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers are whole lines, bad sources are refused', () => {
+  const shell = 'head\n// RULES-BEGIN\n/*@@DATA@@*/\n/*@@RULES@@*/\n// RULES-END\n\n/*@@ENGINE@@*/\ntail\n';
+  const rules = [{ name: '01-b.js', text: 'rule b\n' }, { name: '00-a.js', text: 'rule a $&\n' }];
+  const engine = [{ name: '00-e.js', text: "engine $` $' $1\n" }];
+  const data = "const DATA = '$& $` $\\'';\n";
+  assert.equal(assemblePage({ shell, data, rules, engine }), "head\n// RULES-BEGIN\nconst DATA = '$& $` $\\'';\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n");
+  assert.equal(assemblePage({ shell, rules, engine }), "head\n// RULES-BEGIN\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n", 'empty data removes the marker line');
+  assert.equal(assemblePage({ shell: shell.split('\n').join('\r\n'), rules, engine }), assemblePage({ shell, rules, engine }), 'CRLF in gives LF out');
+  const refused = (change, pattern) => assert.throws(() => assemblePage({ shell, rules, engine, ...change }), pattern);
+  refused({ shell: shell.replace('/*@@DATA@@*/\n', '') }, /no marker line \/\*@@DATA@@\*\//);
+  refused({ shell: shell + '/*@@ENGINE@@*/\n' }, /more than once/);
+  refused({ shell: shell + '/*@@OTHER@@*/\n' }, /unknown marker/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n// RULES-END\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n/*@@ENGINE@@*/\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'no line break' }] }, /must end with a line break/);
+  refused({ rules: [{ name: 'a.js', text: 'x\n' }] }, /bad fragment name/);
+  refused({ data: 'no line break' }, /data text must end/);
+  refused({ shell: shell.replace('// RULES-END\n', '') }, /RULES-END must be on a line of its own/);
+});
+
+test('loadRules: the markers are whole lines, each once (a mention inside a line is not a marker)', () => {
+  const page = 'x\n// RULES-BEGIN\nconst RULES = { a: 1 };\n// RULES-END\ny\n';
+  assert.equal(loadRules(page).a, 1);
+  assert.equal(loadRules(page.split('\n').join('\r\n')).a, 1, 'a CRLF page too');
+  assert.equal(loadRules('see // RULES-BEGIN and // RULES-END in prose\n// not a marker: // RULES-END\n' + page).a, 1, 'mentions are skipped');
+  assert.throws(() => loadRules(page + page), /once/);
+  assert.throws(() => loadRules('x\nconst RULES = {};\n'), /once/);
+  assert.throws(() => loadRules('// RULES-END\n// RULES-BEGIN\n'), /comes before/);
+});
+
+// The top-level names a script fragment declares (declarations that start at the left edge).
+function topLevelNames(text) {
+  const names = [];
+  for (const line of text.split('\n')) {
+    const declaration = /^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/.exec(line) || /^(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    if (declaration) {
+      names.push(declaration[1]);
+      continue;
+    }
+    const destructured = /^(?:const|let|var)\s+[{[]([^}\]=]*)[}\]]/.exec(line);
+    if (destructured) names.push(...destructured[1].split(',').map((part) => part.split(':').pop().trim()).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name)));
+  }
+  return names;
+}
+
+// Rules and engine share one scope, so a name declared twice (in two fragments or in one) hides or breaks the first.
+function duplicateTopLevelNames(fragments) {
+  const owner = new Map();
+  const duplicates = [];
+  for (const fragment of fragments) {
+    for (const name of topLevelNames(fragment.text)) {
+      if (owner.has(name)) duplicates.push(`${name} in ${owner.get(name)} and ${fragment.name}`);
+      else owner.set(name, fragment.name);
+    }
+  }
+  return duplicates;
+}
+
+test('src/: no two fragments declare the same top-level name (the say() and logMsg clash of section 1)', () => {
+  const sources = readSources();
+  const fragments = [...sources.rules.map((f) => ({ name: `rules/${f.name}`, text: toLf(f.text) })), ...sources.engine.map((f) => ({ name: `engine/${f.name}`, text: toLf(f.text) }))];
+  assert.ok(fragments.length > 40, 'the fragments were read');
+  assert.ok(fragments.reduce((count, f) => count + topLevelNames(f.text).length, 0) > 400, 'the scan finds the declarations');
+  same(duplicateTopLevelNames(fragments), [], 'no top-level name is declared twice');
+  const planted = duplicateTopLevelNames([{ name: 'rules/a.js', text: 'function say() {}\nconst { x, y: z } = q;\n' }, { name: 'engine/b.js', text: 'async function say() {}\nlet z = 1;\n' }]);
+  same(planted, ['say in rules/a.js and engine/b.js', 'z in rules/a.js and engine/b.js'], 'a planted clash is found');
 });
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
