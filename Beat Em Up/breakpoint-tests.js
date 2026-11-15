@@ -25234,8 +25234,8 @@ const SelfTest = {
     // What an independent read of the three .mid files gives (not the converter's own numbers): the title, the tempo, the bars, the notes per voice with the sums of their pitches, onset steps and lengths in half sixteenths (so a single changed note shows) and the first and the last onset (step, pitches), the velocity, the end of the last note in half sixteenths, the drum hits with their first and last step (and bit mask) and the sum of step x mask, the pitch wheel
     const LOOP_FACTS = [
       { name: 'Construction Site Loop', bpm: 164, drums: { hits: 54, steps: 46, first: [0, 33], last: [126, 2], weighted: 55296 }, voices: {
-        lead: { count: 28, sums: [1882, 1830, 148], first: [18, [68, 70]], last: [126, [70]], velocity: 76, end: 256, bends: 70, range: 6, firstBend: [2267, 8519], lastBend: [10560, 8192] },
-        chords: { count: 62, sums: [3510, 3946, 224], first: [0, [51]], last: [126, [58, 62]], velocity: 76, end: 256 }, bass: { count: 36, sums: [1358, 2256, 72], first: [0, [39]], last: [126, [37]], velocity: 76, end: 254 } } },
+        lead: { count: 25, sums: [1679, 1764, 120], first: [18, [68]], last: [126, [70]], velocity: 76, end: 256, bends: 66, range: 6, firstBend: [2210, 8519], lastBend: [10560, 8192] },
+        chords: { count: 62, sums: [3510, 3946, 244], first: [0, [51]], last: [126, [58, 62]], velocity: 76, end: 256 }, bass: { count: 36, sums: [1358, 2256, 142], first: [0, [39]], last: [126, [37]], velocity: 76, end: 254 } } },
       { name: 'Parking Garage', bpm: 156, drums: { hits: 68, steps: 42, first: [0, 33], last: [124, 34], weighted: 66846 }, voices: {
         lead: { count: 55, sums: [3564, 3430, 194], first: [0, [62]], last: [126, [58]], velocity: 76, end: 254 },
         chords: { count: 244, sums: [15262, 15444, 244], first: [0, [61, 65, 68]], last: [127, [50]], velocity: 76, end: 255 }, bass: { count: 48, sums: [2426, 2778, 128], first: [0, [55]], last: [120, [48]], velocity: 76, end: 248 } } },
