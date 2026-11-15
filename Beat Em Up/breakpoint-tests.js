@@ -27248,6 +27248,27 @@ const SelfTest = {
       });
       return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
+    test('Touch hold (owner, iPhone, 2026-11-15): every touch button and the stick cancel their touchstart (iOS Safari sends a pointercancel to a finger held past its long-press time otherwise, which let go of a held charge), and the page\'s own KICK button held by a finger on the last press of the string charges to level 1', () => {
+      const controls = Object.entries(UI.touchButtons || {}).map(([name, button]) => [name, button.el]);
+      const stick = document.getElementById ? document.getElementById('stickBase') : null;
+      if (stick) controls.push(['stick', stick]);
+      if (typeof TouchEvent !== 'function' || typeof PointerEvent !== 'function' || !controls.length || !controls[0][1].dispatchEvent) return 'skipped: this browser has no TouchEvent, PointerEvent or touch controls';
+      const problems = [];
+      for (const [name, element] of controls) {
+        const start = new TouchEvent('touchstart', { bubbles: true, cancelable: true });
+        element.dispatchEvent(start);
+        if (!start.defaultPrevented) problems.push(name + ' left its touchstart uncancelled');
+      }
+      const finger = (action) => (on) => UI.touchButtons[action].el.dispatchEvent(new PointerEvent(on ? 'pointerdown' : 'pointerup', { pointerId: 43, bubbles: true, cancelable: true }));
+      withDevices(() => {
+        Input.reset(); Input.releaseAll();
+        const held = deviceCharge({ punch: finger('punch'), kick: finger('kick') }, 62);
+        const level = held.at('chargeLevel', 0), release = held.at('chargeRelease', 0);
+        if (!held.at('chargeStart', 0) || !level || level[3] !== 1 || !release || release[3] !== 1) problems.push('the KICK button held by a finger did not charge to level 1: ' + JSON.stringify(release));
+        Input.reset(); Input.releaseAll();
+      });
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
     /* Two peers (P19-15): seat 0 (KAI) walks up to seat 1 (MARA), then plays P P K with the Kick held through a whole charge; seat 1 stands still, or (hit) jabs on tick 5 of the charge. hook(net, game) runs once per virtual frame.
        Records, for each peer, fighter 0's charging, chargeTicks, moveTick and moveId (and the match's hitStop) after every simulation step of that peer, and the codes seat 0 sampled with the held flags its device showed. */
     const heldPeers = (cfg, o = {}) => {
