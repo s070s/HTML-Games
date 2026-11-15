@@ -5416,7 +5416,7 @@ const J = {};
 const NP = 26;
 const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.17;
 /* Ground poses: rootHeight() puts the root where the legs of a standing body reach the floor, which is wrong for a body that kneels, sits or lies, so a holder and every fighter lying down is lowered (or raised) until the lowest drawn part touches the floor.
-   plantLow is the height of the lowest drawn part above the floor while this runs: it moves from where the last tick drew it to the floor, and (PLANT_RELEASE_TICKS after the pose ends) back to the pose's own lowest, at most PLANT_SPEED a tick, so a hold or a fall starting or ending neither sinks the body into the floor nor jumps it. */
+   plantLow is the height of the lowest drawn part above the floor while this runs: it moves from where the last tick drew it to the floor, and (PLANT_RELEASE_TICKS after the pose ends) back to the pose's own lowest, at most PLANT_SPEED a tick (PLANT_DROP_SPEED while a planted body is still above the floor, PLANT_SPEED_MOVE in an upside-down kick), so a hold or a fall starting or ending neither sinks the body into the floor nor jumps it. */
 const PLANT_SPEED = 1.5; // m/s: how fast the lowest part may move to the floor or back (2.5 cm a tick)
 const PLANT_SPEED_MOVE = 6; // m/s while an upside-down kick runs (10 cm a tick): the standard speed moves the body 35 cm in the 14 startup ticks of the handstand kick, which is not enough for an inversion
 const PLANT_DROP_SPEED = 5; // m/s: a lying body still above the floor keeps falling
