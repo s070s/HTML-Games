@@ -30,6 +30,13 @@ const spot = (en, el) => object({
   dir: enumeration(['up', 'down', 'left', 'right'], 'Facing', 'Κατεύθυνση', 'The way the player faces.'),
 }, en, el, 'A place on a map and the way to face.');
 
+// A waiver (13.6): the Owner keeps a content finding on purpose. Only content-tier findings can be waived; an integrity error never is.
+const waiveField = optional(list(object({
+  rule: text('Rule', 'Κανόνας', 'The id of the validation rule the waiver is for.'),
+  note: text('Note', 'Σημείωση', 'Why the finding is kept.'),
+  date: text('Date', 'Ημερομηνία', 'When the waiver was made (yyyy-mm-dd).'),
+}, 'Waiver', 'Εξαίρεση', 'One waived rule of this entry.'), 'Waivers', 'Εξαιρέσεις', 'The content rules the Owner keeps for this entry.'));
+
 // ---- game.json: the numbers and the ids the engine names ----------------------------------------------------------------
 const gameSchema = object({
   dataVersion: int('Data version', 'Έκδοση δεδομένων', 'The shape of the data files; tools/migrate-data.mjs moves older data to this one.', { min: 1 }),
@@ -177,6 +184,7 @@ const moveSchema = object({
   sure: optional(bool('Never misses', 'Δεν αστοχεί', 'The move always hits.')),
   foeSt: optional(tuple([ref('statuses', 'Status', 'Κατάσταση', 'The status the foe gets.'), int('Chance %', 'Πιθανότητα %', 'Chance in percent.', { min: 0, max: 100 })], 'Foe status', 'Κατάσταση αντιπάλου', 'A status the foe can get, with its chance in percent.')),
   money: optional(int('Money', 'Χρήματα', 'The money effect.', { min: 0 })),
+  waive: waiveField,
 }, 'Move', 'Κίνηση', 'A move a creature can use.');
 
 // ---- species, items, shops, trainers -------------------------------------------------------------------------------------
@@ -198,6 +206,7 @@ const speciesSchema = object({
     int('Rhetoric', 'Ρητορική', 'Base rhetoric attack.', { min: 1 }), int('Rhetoric defence', 'Ρητορική άμυνα', 'Base rhetoric defence.', { min: 1 }), int('Speed', 'Ταχύτητα', 'Base speed.', { min: 1 }),
   ], 'Base stats', 'Βασικά στατιστικά', 'hp, atk, def, rat, rde, spe.'),
   learn: list(tuple([int('Level', 'Επίπεδο', 'The level it learns the move.', { min: 1 }), ref('moves', 'Move', 'Κίνηση', 'The move.')], 'Learned move', 'Μάθηση', 'A level and a move.'), 'Learnset', 'Κινήσεις', 'The moves it learns, by level.'),
+  waive: waiveField,
 }, 'Species', 'Είδος', 'A creature.');
 const itemSchema = object({
   kind: enumeration(['recruit', 'heal', 'cure'], 'Kind', 'Είδος', 'recruit = an envelope for recruiting, heal = heals HP, cure = clears a status.'),
@@ -206,6 +215,7 @@ const itemSchema = object({
   accDown: optional(bool('Lowers accuracy', 'Μειώνει ακρίβεια', 'The creature loses accuracy afterwards.')),
   cures: optional(bool('Cures status', 'Θεραπεύει κατάσταση', 'Also clears a status.')),
   price: int('Price', 'Τιμή', 'The shop price.', { min: 0 }),
+  waive: waiveField,
 }, 'Item', 'Αντικείμενο', 'A bag item.');
 const shopSchema = object({
   items: list(ref('items', 'Item', 'Αντικείμενο', 'An item on sale.'), 'Items', 'Αντικείμενα', 'What the kiosk sells, in order.'),
@@ -234,6 +244,7 @@ const trainerSchema = object({
     lv: int('Level', 'Επίπεδο', 'The level.', { min: 1 }),
   }, 'Member', 'Μέλος', 'A creature of the team.'), 'Team', 'Ομάδα', 'The creatures, in order.'),
   items: list(ref('items', 'Item', 'Αντικείμενο', 'An item.'), 'Items', 'Αντικείμενα', 'The items the trainer uses in the fight.'),
+  waive: waiveField,
 }, 'Trainer', 'Προπονητής', 'A trainer.');
 
 // ---- tiles, maps ---------------------------------------------------------------------------------------------------------
@@ -298,6 +309,7 @@ const mapSchema = object({
     event: ref('events', 'Event', 'Γεγονός', 'The event that runs.'),
   }, 'Trigger', 'Σκανδάλη', 'A tile that runs an event once.'), 'Triggers', 'Σκανδάλες', 'The tiles that run an event.')),
   zones: optional(list(zoneSchema, 'Wild zones', 'Ζώνες', 'Where wild creatures appear.')),
+  waive: waiveField,
 }, 'Map', 'Χάρτης', 'A map.');
 
 // ---- the world map screen: world.json and districts ---------------------------------------------------------------------
@@ -347,6 +359,7 @@ const eventSchema = list(eventStepSchema, 'Event', 'Γεγονός', 'A list of 
 const stringsSchema = dict(object({
   el: text('Greek', 'Ελληνικά', 'The Greek text.'),
   en: text('English', 'Αγγλικά', 'The English text (empty = the game shows the Greek one).'),
+  waive: waiveField,
 }, 'Text', 'Κείμενο', 'A text in both languages.'), 'Texts of a group', 'Κείμενα ομάδας', 'The texts of one group, by key.');
 const soundSchema = object({
   type: enumeration(['synth'], 'Type', 'Τύπος', 'synth = notes played by the sound engine.'),
