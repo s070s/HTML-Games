@@ -6118,7 +6118,7 @@ const SelfTest = {
       charge: (m, a, b) => { a.stringKeys = 'PP'; Events.emit('hit', { att: a, def: b, mv: { h: 'M' }, combo: 2, crouched: false }); },   // P19-15: the person lands the step before the chargeable one
       zone: (m, a) => { a.zone[0] = ZONE_SHOW + 50; UI.coachZone(m, [UI.strainTiles(a)]); },   // P19-02: the strain tiles show for the person's fighter (the real path: UI.hudUpdate calls coachZone)
       pause: (m, a) => { Progress.d.tips.charge = true; a.stringKeys = 'P'; a.moveConnected = true; a.stringTick = a.age; a.state = S.IDLE; a.stateTicks = PAUSE_STILL_TICKS; },   // P19-15 (polled by Coach.line): a first step landed and the fighter stood still for a beat
-      wall: (m, a, b) => { b.comboFoe = a; Events.emit('wallSlam', { f: b, speed: 6, x: 0, y: 1, z: 0, splat: true }); },   // P19-05: the person's own blow pinned the foe (the wallSlam event of a splat)
+      wall: (m, a, b) => { b.comboFoe = a; Events.emit('wallSlam', { f: b, by: a, speed: 6, x: 0, y: 1, z: 0, splat: true }); },   // P19-05: the person's own blow pinned the foe (the wallSlam event of a splat; `by` as Combat.impactCheck sets it)
     };
     test('Accessibility (P18-27): each coaching line is asked for by its own event, shows once on the strip for 4 s, is saved only when shown, comes back if it was held back, and reads back after a reload', () => accRig((m, a, b) => {
       const bad = [], strip = () => Coach.line(m, a), nextRound = () => { m.tick += COACH_SHOW_TICKS + 1; m.round++; };
