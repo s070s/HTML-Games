@@ -67,5 +67,9 @@ for (const group of Object.values(DATA.strings)) {
   for (const key of Object.keys(group)) STRINGS[key] = [group[key].el, group[key].en];
 }
 
+// ---- The tunes and sound effects the engine plays by role (data/game.json): the title, battle, boss and fallback tunes; confirm, back, hit ... ----
+const MUSIC = DATA.game.music;
+const SOUNDS = DATA.game.sounds;
+
 // ---- Scripted scenes: the step lists of data/events/ (run by the event runner of the engine) ----
 const EVENTS = DATA.events;

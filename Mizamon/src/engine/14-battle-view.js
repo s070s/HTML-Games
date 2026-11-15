@@ -131,8 +131,8 @@ BattleLayer.prototype.waitUntil = async function (condition, maxFrames) {
 BattleLayer.prototype.updateRoot = function () {
   // The four tabs sit in one row: left/up goes to the previous tab, right/down to the next (wrapping).
   const step = (Input.repeat.right || Input.repeat.down ? 1 : 0) - (Input.repeat.left || Input.repeat.up ? 1 : 0);
-  if (step !== 0) { this.rootCursor = (this.rootCursor + step + ROOT_LABELS.length) % ROOT_LABELS.length; Sound.sfx('move'); }
-  if (Input.pressed.a) { Sound.sfx('confirm'); const resolve = this.menuResolve; this.mode = 'idle'; this.menuResolve = null; resolve(this.rootCursor); }
+  if (step !== 0) { this.rootCursor = (this.rootCursor + step + ROOT_LABELS.length) % ROOT_LABELS.length; Sound.sfx(SOUNDS.move); }
+  if (Input.pressed.a) { Sound.sfx(SOUNDS.confirm); const resolve = this.menuResolve; this.mode = 'idle'; this.menuResolve = null; resolve(this.rootCursor); }
 };
 BattleLayer.prototype.updateMoves = function () {
   const mon = activeMon(this.battle, 0);
@@ -140,12 +140,12 @@ BattleLayer.prototype.updateMoves = function () {
   let cursor = this.moveCursor; // the moves are a vertical list in the ticker strip
   if (Input.repeat.up && cursor > 0) cursor--;
   if (Input.repeat.down && cursor + 1 < count) cursor++;
-  if (cursor !== this.moveCursor) { this.moveCursor = cursor; Sound.sfx('move'); this.refreshMoveInfo(); }
+  if (cursor !== this.moveCursor) { this.moveCursor = cursor; Sound.sfx(SOUNDS.move); this.refreshMoveInfo(); }
   if (Input.pressed.a || Input.pressed.b) {
     const resolve = this.menuResolve;
     this.mode = 'idle';
     this.menuResolve = null;
-    if (Input.pressed.a) { Sound.sfx('confirm'); resolve(mon.moves[this.moveCursor]); } else { Sound.sfx('back'); resolve(null); }
+    if (Input.pressed.a) { Sound.sfx(SOUNDS.confirm); resolve(mon.moves[this.moveCursor]); } else { Sound.sfx(SOUNDS.back); resolve(null); }
   }
 };
 BattleLayer.prototype.refreshMoveInfo = function () {
@@ -243,16 +243,16 @@ BattleLayer.prototype.playEvents = async function (events) {
       await this.waitUntil(function () { return view.shown === view.target; }, 100);
     } else if (ev.k === 'status') view.status = ev.status;
     else if (ev.k === 'anim') {
-      if (ev.kind === 'attack') { Sound.sfx('attack'); await this.startFx('attack', ev.side, 14); }
+      if (ev.kind === 'attack') { Sound.sfx(SOUNDS.attack); await this.startFx('attack', ev.side, 14); }
       else {
-        Sound.sfx(ev.eff > 1 ? 'super' : (ev.eff < 1 ? 'weak' : 'hit'));
+        Sound.sfx(ev.eff > 1 ? SOUNDS.super : (ev.eff < 1 ? SOUNDS.weak : SOUNDS.hit));
         await this.startFx('hit', ev.side, 16);
       }
-    } else if (ev.k === 'faint') { Sound.sfx('faint'); await this.startFx('faint', ev.side, 30); }
+    } else if (ev.k === 'faint') { Sound.sfx(SOUNDS.faint); await this.startFx('faint', ev.side, 30); }
     else if (ev.k === 'xp') await this.showText(T('b.xp', { mon: speciesName(G.party[ev.idx].sp), n: ev.amount }));
     else if (ev.k === 'lvl') {
       const mon = G.party[ev.idx];
-      Sound.sfx('levelup');
+      Sound.sfx(SOUNDS.levelup);
       if (ev.active) { const mine = this.views[0]; mine.lvText = T('ui.lv') + ev.lv; mine.max = ev.max; mine.target = ev.hp; mine.lastShown = -1; }
       await this.showText(T('b.lvl', { mon: speciesName(mon.sp), n: ev.lv }));
     } else if (ev.k === 'learned') await this.showText(T('b.learned', { mon: speciesName(G.party[ev.idx].sp), move: MOVES[ev.move].n }));
@@ -266,17 +266,17 @@ BattleLayer.prototype.playEvents = async function (events) {
 BattleLayer.prototype.playRecruit = async function (ev) {
   const foeView = this.views[1];
   this.thrown = { t: 0, x: 0, y: 0, wobble: 0 };
-  Sound.sfx('throw');
+  Sound.sfx(SOUNDS.throw);
   for (let t = 0; t <= 24; t++) { this.thrown.t = t / 24; await nextFrame(); }
   foeView.hidden = true;
   for (let i = 0; i < ev.shakes; i++) {
-    Sound.sfx('shake');
+    Sound.sfx(SOUNDS.shake);
     for (let t = 0; t < 22; t++) { this.thrown.wobble = OPT.reduceMotion || OPT.flashesOff ? 0 : Math.sin(t / 22 * Math.PI * 4) * 3; await nextFrame(); }
     this.thrown.wobble = 0;
     await waitFrames(8);
   }
-  if (ev.ok) Sound.sfx('recruit');
-  else { foeView.hidden = false; Sound.sfx('error'); }
+  if (ev.ok) Sound.sfx(SOUNDS.recruit);
+  else { foeView.hidden = false; Sound.sfx(SOUNDS.error); }
   this.thrown = null;
   if (ev.ok) { foeView.visible = false; await waitFrames(20); }
 };

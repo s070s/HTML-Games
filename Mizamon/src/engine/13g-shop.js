@@ -6,15 +6,15 @@ ShopLayer.prototype.refresh = function () {
 ShopLayer.prototype.update = function () {
   if (this.lastMoney !== G.money) { this.lastMoney = G.money; this.moneyText = T('ui.money', { n: G.money }); }
   const count = this.stock.length;
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; this.message = ''; this.refresh(); Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; this.message = ''; this.refresh(); Sound.sfx('move'); }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
+  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; this.message = ''; this.refresh(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; this.message = ''; this.refresh(); Sound.sfx(SOUNDS.move); }
   if (!Input.pressed.a) return;
   const itemId = this.stock[this.cursor];
-  if (G.money < ITEMS[itemId].price) { Sound.sfx('error'); this.message = T('shop.poor'); return; }
+  if (G.money < ITEMS[itemId].price) { Sound.sfx(SOUNDS.error); this.message = T('shop.poor'); return; }
   G.money -= ITEMS[itemId].price;
   G.bag[itemId] = (G.bag[itemId] || 0) + 1;
-  Sound.sfx('buy');
+  Sound.sfx(SOUNDS.buy);
   this.message = T('shop.bought', { item: T('item.' + itemId) });
 };
 const SHOP_NAME_MAX_W = 116; // the item name starts at x 18 and the count column ends at x 150 ("x99" is about 16 px wide)

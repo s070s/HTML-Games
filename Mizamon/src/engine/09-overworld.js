@@ -100,7 +100,7 @@ OverworldLayer.prototype.tryMove = function (dir) {
   const nx = this.px + target[0];
   const ny = this.py + target[1];
   if (!this.canWalk(nx, ny)) {
-    if (Input.pressed[dir]) Sound.sfx('bump');
+    if (Input.pressed[dir]) Sound.sfx(SOUNDS.bump);
     return;
   }
   this.move = { dx: target[0], dy: target[1], t: 0 };
@@ -131,7 +131,7 @@ OverworldLayer.prototype.checkTriggers = async function () {
   return false;
 };
 OverworldLayer.prototype.useWarp = async function (warp) {
-  Sound.sfx('door');
+  Sound.sfx(SOUNDS.door);
   await Fade.start(1, 10);
   this.loadMap(warp.to, warp.tx, warp.ty, this.dir);
   await waitFrames(2);
@@ -152,7 +152,7 @@ OverworldLayer.prototype.walkNpc = function (npc, dir) {
 };
 OverworldLayer.prototype.showExclaim = async function (npc) {
   this.exclaim = npc;
-  Sound.sfx('alert');
+  Sound.sfx(SOUNDS.alert);
   await waitFrames(36);
   this.exclaim = null;
 };
@@ -255,7 +255,7 @@ OverworldLayer.prototype.archiveDeposit = async function () {
   if (index < 0) return;
   const name = speciesName(G.party[index].sp);
   depositMon(G.party, G.archive, index);
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   await say('arch.deposited', { mon: name, n: G.archive.length });
 };
 OverworldLayer.prototype.archiveWithdraw = async function () {
@@ -265,7 +265,7 @@ OverworldLayer.prototype.archiveWithdraw = async function () {
   if (index < 0) return;
   const name = speciesName(G.archive[index].sp);
   withdrawMon(G.party, G.archive, index);
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   await say('arch.withdrawn', { mon: name });
 };
 OverworldLayer.prototype.shopTalk = async function () {
@@ -277,7 +277,7 @@ OverworldLayer.prototype.cafeTalk = async function () {
   await say(this.map.cafeHello || 'cafe.hello'); // the café of Παλαιό Φάληρο has its own greeting
   if (await askYesNo('cafe.ask')) {
     const stored = writeSave();
-    Sound.sfx('heal');
+    Sound.sfx(SOUNDS.heal);
     await say(stored ? 'cafe.saved' : 'cafe.savedMemory');
   } else await say('cafe.bye');
 };
@@ -336,7 +336,7 @@ OverworldLayer.prototype.bossVictory = async function (trainerId) {
   const victory = TRAINERS[trainerId].victory;
   await say(victory.win2);
   G.flags[victory.flag] = true;
-  Sound.sfx('levelup');
+  Sound.sfx(SOUNDS.levelup);
   await openLayer(new BadgeLayer(victory.title, victory.sub, victory.ribbon));
   await say(victory.win3);
   Sound.play(this.map.music);

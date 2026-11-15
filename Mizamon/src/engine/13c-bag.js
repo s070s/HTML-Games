@@ -14,13 +14,13 @@ BagLayer.prototype.refresh = function () {
 BagLayer.prototype.update = function () {
   if (this.lastMoney !== G.money) { this.lastMoney = G.money; this.moneyText = T('ui.money', { n: G.money }); }
   const count = this.entries.length;
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this, null); return; }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this, null); return; }
   if (count === 0) return;
-  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; this.refresh(); Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; this.refresh(); Sound.sfx('move'); }
+  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; this.refresh(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; this.refresh(); Sound.sfx(SOUNDS.move); }
   if (Input.pressed.a) {
     const itemId = this.entries[this.cursor];
-    Sound.sfx('confirm');
+    Sound.sfx(SOUNDS.confirm);
     if (this.battle) { closeLayer(this, itemId); return; }
     this.useOutside(itemId);
   }
@@ -36,7 +36,7 @@ BagLayer.prototype.useOutside = async function (itemId) {
       const mon = G.party[target];
       applyItemToMon(mon, itemId);
       G.bag[itemId]--;
-      Sound.sfx('heal');
+      Sound.sfx(SOUNDS.heal);
       await say('bag.used', { item: T('item.' + itemId), mon: speciesName(mon.sp) });
     }
   }

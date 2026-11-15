@@ -1,13 +1,13 @@
 // ---- Notice, title ---------------------------------------------------------------------------------------
 function NoticeLayer() { this.opaque = true; this.frame = 0; this.lines = null; }
 NoticeLayer.prototype.onEnter = function () {
-  Sound.play('title');
+  Sound.play(MUSIC.title);
   this.greek = wrapText(lookupString('notice.line1', 'el'), 200);
   this.english = wrapText(lookupString('notice.line2', 'en'), 200);
 };
 NoticeLayer.prototype.update = function () {
   this.frame++;
-  if (this.frame > 20 && (Input.pressed.a || Input.pressed.b)) { Sound.sfx('confirm'); closeLayer(this); }
+  if (this.frame > 20 && (Input.pressed.a || Input.pressed.b)) { Sound.sfx(SOUNDS.confirm); closeLayer(this); }
 };
 NoticeLayer.prototype.draw = function () {
   ctx.fillStyle = '#10142e'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);

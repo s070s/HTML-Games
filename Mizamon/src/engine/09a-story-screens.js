@@ -22,7 +22,7 @@ const MONITOR_FRAMES = 72;
 const MONITOR_PULSE = [0, 0, 0, 0, -1, -2, -1, 0, 0, 0, 3, -14, 9, 0, 0, 0, -1, -3, -4, -3, -1, 0, 0, 0, 0, 0, 0, 0]; // one heartbeat: pixel offsets from the middle
 const MONITOR_BOX = { x: 38, y: 52, w: 164, h: 48 };
 function MonitorLayer() { this.opaque = false; this.frame = 0; }
-MonitorLayer.prototype.onEnter = function () { Sound.sfx('hospital'); };
+MonitorLayer.prototype.onEnter = function () { Sound.sfx(SOUNDS.hospital); };
 MonitorLayer.prototype.update = function () {
   this.frame++;
   if (this.frame >= MONITOR_FRAMES) closeLayer(this);
@@ -73,7 +73,7 @@ BadgeLayer.prototype.draw = function () {
 };
 // The short card after the first boss: "Chapter 1 complete".
 function ChapterLayer() { this.opaque = true; this.frame = 0; }
-ChapterLayer.prototype.onEnter = function () { Sound.play('title'); };
+ChapterLayer.prototype.onEnter = function () { Sound.play(MUSIC.title); };
 ChapterLayer.prototype.update = function () {
   this.frame++;
   if (this.frame > 240 || (this.frame > 60 && (Input.pressed.a || Input.pressed.b))) closeLayer(this);
@@ -93,7 +93,7 @@ function creditsLineY(frame, lineIndex) { return SCREEN_H - frame * 0.5 + lineIn
 function creditsEndFrame(lineCount) { return (lineCount - 1) * CREDITS_LINE_FRAMES + SCREEN_H + CREDITS_HOLD_FRAMES; }
 function CreditsLayer() { this.opaque = true; this.frame = 0; this.lines = null; }
 CreditsLayer.prototype.onEnter = function () {
-  Sound.play('title');
+  Sound.play(MUSIC.title);
   this.lines = T('credits.text').split('\n');
 };
 CreditsLayer.prototype.update = function () {

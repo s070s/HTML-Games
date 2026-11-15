@@ -255,14 +255,14 @@ MapLayer.prototype.moveCursor = function (direction) {
     const score = along + 2 * across;
     if (score < bestScore) { best = id; bestScore = score; }
   }
-  if (best) { this.cursor = best; this.refreshInfo(); Sound.sfx('move'); }
+  if (best) { this.cursor = best; this.refreshInfo(); Sound.sfx(SOUNDS.move); }
 };
 MapLayer.prototype.update = function () {
   this.frame++;
-  if (Input.pressed.b && this.sheet) { this.sheet = false; this.refreshInfo(); Sound.sfx('back'); return; }
+  if (Input.pressed.b && this.sheet) { this.sheet = false; this.refreshInfo(); Sound.sfx(SOUNDS.back); return; }
   // back, the open key and the menu input all close the map; the layer below (pause menu or overworld) gets control back
-  if (Input.pressed.b || Input.pressed.map || Input.pressed.menu) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; this.refreshInfo(); Sound.sfx('confirm'); return; }
+  if (Input.pressed.b || Input.pressed.map || Input.pressed.menu) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
+  if (Input.pressed.a && this.cursor) { this.sheet = !this.sheet; this.refreshInfo(); Sound.sfx(SOUNDS.confirm); return; }
   if (this.sheet) return;
   for (const name of ['up', 'down', 'left', 'right']) if (Input.repeat[name]) this.moveCursor(name);
 };
@@ -305,7 +305,7 @@ MapLayer.prototype.draw = function () {
 // Opened from the pause menu, the overworld key (Q), Select or the touch pill; whoever opened it gets control back when it closes.
 async function openMapScreen() {
   worldVisit(G.world, G.player.map, G.flags);
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   await openLayer(new MapLayer());
 }
 

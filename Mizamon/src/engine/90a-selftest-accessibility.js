@@ -108,7 +108,7 @@ function a11yHold(layer, button, frames) {
   Input.clear();
   let steps = 0;
   const original = Sound.sfx;
-  Sound.sfx = function (name) { if (name === 'move') steps++; };
+  Sound.sfx = function (name) { if (name === SOUNDS.move) steps++; };
   try {
     Input.keys[button] = true;
     for (let i = 0; i < frames; i++) stepGame();

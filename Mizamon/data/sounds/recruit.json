@@ -1,0 +1,11 @@
+{
+  "type": "synth",
+  "notes": [
+    { "at": 0, "freq": 523, "dur": 0.12, "wave": "square", "vol": 0.1 },
+    { "at": 0.13, "freq": 659, "dur": 0.12, "wave": "square", "vol": 0.1 },
+    { "at": 0.26, "freq": 784, "dur": 0.12, "wave": "square", "vol": 0.1 },
+    { "at": 0.39, "freq": 1047, "dur": 0.12, "wave": "square", "vol": 0.1 },
+    { "at": 0.52, "freq": 784, "dur": 0.12, "wave": "square", "vol": 0.1 },
+    { "at": 0.65, "freq": 1047, "dur": 0.3, "wave": "square", "vol": 0.1 }
+  ]
+}
