@@ -27261,11 +27261,12 @@ const SelfTest = {
       }
       // the creator's drag targets (fitness pad, crop box) cancel their touchstart on the creator screen only, and a plain control there keeps its own
       const screen = UI.current, probe = document.createElement('div'), plain = document.createElement('button'), field = document.createElement('input');
-      probe.className = 'fitpad'; UI.dom.screens.appendChild(probe); UI.dom.screens.appendChild(plain); UI.dom.screens.appendChild(field);
+      probe.className = 'fitpad'; UI.dom.screens.appendChild(probe); UI.dom.screens.appendChild(plain); document.body.appendChild(field); // the field sits on the page body, which is always shown, so it can take the focus
       try {
         const cancelled = (element) => { const start = new TouchEvent('touchstart', { bubbles: true, cancelable: true }); element.dispatchEvent(start); return start.defaultPrevented; };
         UI.current = 'creator';
         field.focus();
+        if (document.activeElement !== field) problems.push('the probe text field did not take the focus, so the blur check proves nothing');
         if (!cancelled(probe)) problems.push('the creator fitness pad left its touchstart uncancelled');
         if (document.activeElement === field) problems.push('a touch on the fitness pad left a text field focused (the keyboard would stay open)');
         if (cancelled(plain)) problems.push('a plain control on the creator screen had its touchstart cancelled');
