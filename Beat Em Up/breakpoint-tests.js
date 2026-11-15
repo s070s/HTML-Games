@@ -25397,7 +25397,7 @@ const SelfTest = {
       Music.drums(5, 1, FIGHT_GAIN); // the kick: a sine of 120 Hz, then the drop; the gain of its first voice is made first
       const kickGain = peak(audio.made.gains[0]);
       if (!close(kickGain, 0.34 * FIGHT_GAIN) || audio.made.oscillators[0].from !== 5) bad.push('the kick peaks at ' + kickGain + ' from ' + audio.made.oscillators[0].from + ', the bed had 0.34 x ' + FIGHT_GAIN);
-      const wheelLoop = Object.assign({}, construction, { voices: [['lead', 'AAAIBEBM', 'AB4CcQAB4C7gAB4CAA', 6]] }); // one lead note (step 0, 4 sixteenths, pitch 68, velocity 76) and three wheel changes inside it: +132, +225 and 0 cents
+      const wheelLoop = Object.assign({}, construction, { voices: [['lead', 'AAAIBEBM', 'AB4CcQAB4C7gAB4CAA', 6]] }); // one lead note (step 0, 4 sixteenths, pitch 68, velocity 76) and three wheel changes inside it: +132, +279 and 0 cents
       const bent = noteOf(wheelLoop, 'lead', (note) => note.bend && note.bend.length > 3), plain = noteOf(construction, 'chords', () => true), loud = noteOf(wheelLoop, 'lead', () => true), quiet = noteOf(nightclub, 'lead', () => true), low = noteOf(nightclub, 'bass', () => true);
       const [saw] = play(wheelLoop, bent, stepDur), wantBend = bent.bend.map(([ticks, cents]) => [2 + ticks * (stepDur / LOOP_TICKS_PER_STEP), cents]);
       if (saw.type !== 'sawtooth' || !close(saw.frequency.value, songHz(bent.pitch)) || saw.from !== 2 || !close(saw.until, 2 + stepDur / 2 * bent.half + MUSIC_RELEASE_SECS + 0.03)) bad.push('the lead note plays ' + saw.type + ' ' + saw.frequency.value + ' Hz from ' + saw.from + ' to ' + saw.until);

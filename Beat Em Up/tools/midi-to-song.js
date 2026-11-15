@@ -31,7 +31,7 @@ const POWER_CHORD = [0, 7, 12];
 const BEGIN = '// song-data:begin';
 const END = '// song-data:end';
 
-// The stage soundtrack, in the order of the rotation. voices: [role, index of the track in the file]; the drums are the track on channel 10. The title of the file (its first track's name) is the name of the loop:
+// The stage soundtrack, in the order of the rotation. voices: [role, index of the track in the file, or a list of indexes of tracks that split one part (merged: one channel, one pitch range, no overlap)]; the drums are the track on channel 10. The title of the file (its first track's name) is the name of the loop:
 // a stage whose name equals it (without a trailing "Loop") plays it when the rotation allows. Roles are the instruments the game has (LOOP_VOICES in breakpoint.html).
 // melody: the level of the lead, chords and bass against the drums (1 = the instrument rows as they are); the three of the owner were set so that every loop is about as loud as the fight bed they replace (Appendix C, P19-18). A new file starts at 1.
 const LOOPS = [
