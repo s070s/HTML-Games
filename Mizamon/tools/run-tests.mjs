@@ -4876,6 +4876,91 @@ test('build: assemble, test, then write index.html and the report (the hashes ma
   }
 });
 
+// ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
+const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
+const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+const gitIn = (repo, ...args) => spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+const leftoverWorktrees = () => (existsSync(ITCH_UPLOAD_ROOT) ? readdirSync(ITCH_UPLOAD_ROOT).filter((name) => name.startsWith('mizamon-src-')) : []);
+
+function commitAll(repo, message) {
+  assert.equal(gitIn(repo, 'add', '-A').status, 0);
+  const committed = gitIn(repo, 'commit', '-q', '-m', message);
+  assert.equal(committed.status, 0, committed.stderr);
+}
+
+function writeReport(repo, fields) {
+  const reportPath = join(repo, 'Mizamon', 'build', 'build-report.json');
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, JSON.stringify(fields, null, 2) + '\n');
+}
+
+test('itch push of mizamon: assembles the commit in a temporary worktree, checks both hashes against the report, removes the worktree', () => {
+  const repo = scratchFolder('itch');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, join(repo, 'Mizamon')); // committed as CRLF here: the hashes must not care
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    const assembled = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(assembled.status, 0, assembled.stderr);
+    const { sourceHash, htmlSha256 } = JSON.parse(assembled.stdout);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'sources and report');
+    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
+    const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
+
+    const pushed = run();
+    assert.equal(pushed.status, 0, pushed.stdout + pushed.stderr);
+    assert.ok(pushed.stdout.includes(`at ${reportCommit} `), 'the report commit is the upload version');
+    const uploaded = join(ITCH_UPLOAD_ROOT, 'mizamon');
+    same(readdirSync(uploaded), ['index.html'], 'the upload folder holds index.html only');
+    assert.equal(sha256Hex(readFileSync(join(uploaded, 'index.html'))), htmlSha256, 'the assembled hash equals the report hash');
+    assert.equal(htmlSha256, BASELINE_PAGE_SHA256);
+    same(leftoverWorktrees(), [], 'the temporary worktree folder is gone');
+    assert.equal(gitIn(repo, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1, 'git no longer lists the worktree');
+
+    writeFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), readFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), 'utf8') + '// changed after the report\r\n');
+    commitAll(repo, 'a source change without a new report');
+    const stale = run();
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /stale report/, 'a merge without a new build is refused');
+    same(leftoverWorktrees(), [], 'the worktree is removed after a refusal too');
+
+    writeReport(repo, { status: 'untested', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'an untested report');
+    const untested = run();
+    assert.equal(untested.status, 1);
+    assert.match(untested.stderr, /status "untested"/);
+    writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: '0'.repeat(64) });
+    commitAll(repo, 'a report with another page hash');
+    assert.match(run().stderr, /stale report|SHA-256/);
+    same(leftoverWorktrees(), [], 'no worktree is left behind');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('itch push of mizamon: no report at the commit is refused; the other games keep their file path', () => {
+  const repo = scratchFolder('itch-none');
+  try {
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    writeFileSync(join(repo, 'readme.txt'), 'x\n');
+    commitAll(repo, 'nothing');
+    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /has no Mizamon\/build\/build-report\.json/);
+    const usage = spawnSync(process.execPath, [ITCH_PUSH, 'nogame'], { encoding: 'utf8' });
+    assert.equal(usage.status, 2);
+    mkdirSync(join(repo, 'Finger Lickin Music'), { recursive: true });
+    writeFileSync(join(repo, 'Finger Lickin Music', 'FingerLickinMusic.html'), '<html>fingers</html>\n');
+    commitAll(repo, 'a game with a committed page');
+    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(plain.status, 0, plain.stdout + plain.stderr);
+    assert.equal(readFileSync(join(ITCH_UPLOAD_ROOT, 'fingerlickinmusic', 'index.html'), 'utf8'), '<html>fingers</html>\n');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();
 function runAll() {

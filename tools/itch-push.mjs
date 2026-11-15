@@ -1,7 +1,7 @@
 // Uploads a game to its itch.io page with butler (itch.io's command-line uploader).
 //
 // Usage (from the repo root):
-//   node tools/itch-push.mjs <game|all> [--dry-run]
+//   node tools/itch-push.mjs <game|all> [--dry-run] [--ref <commit>] [--repo <folder>] [--verify-only]
 //   games: breakpoint, ironhorizon, classtimekiller, fingerlickinmusic, mizamon
 //
 // It uploads the last pushed commit (origin/main), never the working copy, so
@@ -10,10 +10,19 @@
 // Breakpoint loads breakpoint-tests.js only when its self-test is run, so the
 // players' build does not need it.
 //
+// Mizamon has no committed page: the commit holds src/ and a build report. The push reads the report at the
+// commit (status must be "ok"), assembles that commit's own sources in a temporary git worktree under the OS temp
+// folder (removed again in a finally), and refuses unless the source hash and the SHA-256 of the assembled page
+// equal the report's (a merge without a new build is stale). The report's commit is the upload version.
+// --ref <commit> uploads (or checks) another commit than origin/main, for a dry run on a local commit (no fetch);
+// --repo <folder> is the repository to read (default: the current folder);
+// --verify-only does everything except the butler call, so butler need not be installed.
+//
 // butler is found through the BUTLER environment variable, then the PATH, then
 // the copy the itch desktop app installs. Sign in once with `butler login`.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,7 +34,7 @@ const GAMES = {
   ironhorizon: { folder: 'Mech Flight Sim', file: 'Mech Flight Sim/IronHorizon.html', slug: 'ironhorizon' },
   classtimekiller: { folder: 'ClassTimeKiller', file: 'ClassTimeKiller/ClassTimeKiller.html', slug: 'class-time-killer' },
   fingerlickinmusic: { folder: 'Finger Lickin Music', file: 'Finger Lickin Music/FingerLickinMusic.html', slug: 'finger-licking-music' },
-  mizamon: { folder: 'Mizamon', file: 'Mizamon/Mizamon.html', slug: 'mizamon' },
+  mizamon: { folder: 'Mizamon', report: 'Mizamon/build/build-report.json', assemble: 'Mizamon/tools/assemble.mjs', slug: 'mizamon' },
 };
 const UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
 
@@ -49,44 +58,108 @@ function findButler() {
   return existsSync(appCopy) ? appCopy : null;
 }
 
+function removeWorktree(context, worktree) {
+  try {
+    git(['worktree', 'remove', '--force', worktree], { cwd: context.repo, stdio: 'ignore' });
+  } catch {
+    // not registered (never added, or already removed): the folder is deleted below
+  }
+  rmSync(worktree, { recursive: true, force: true });
+  try {
+    git(['worktree', 'prune'], { cwd: context.repo, stdio: 'ignore' });
+  } catch {
+    // nothing to prune
+  }
+}
+
+// Mizamon: checks the build report of the commit, assembles that commit's sources in a temporary worktree, and
+// refuses unless the source hash and the page's SHA-256 equal the report's. Writes <folder>/index.html.
+function assembleFromReport(context, game, folder) {
+  let reportText;
+  try {
+    reportText = git(['show', `${context.ref}:${game.report}`], { cwd: context.repo, stdio: 'pipe' }).toString();
+  } catch {
+    throw new Error(`${context.ref} has no ${game.report}: build on main and commit the report first`);
+  }
+  const report = JSON.parse(reportText);
+  if (report.status !== 'ok') throw new Error(`the build report at ${context.ref} has status "${report.status}", not "ok"`);
+  const worktree = join(UPLOAD_ROOT, `${game.slug}-src-${process.pid}`);
+  let printed;
+  try {
+    removeWorktree(context, worktree); // a leftover of a crashed run
+    git(['worktree', 'add', '--detach', '--quiet', worktree, context.ref], { cwd: context.repo, stdio: 'pipe' });
+    printed = execFileSync(process.execPath, [join(worktree, game.assemble), '--out', join(folder, 'index.html')], {
+      cwd: worktree, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'],
+    });
+  } finally {
+    removeWorktree(context, worktree);
+  }
+  const assembled = JSON.parse(printed.trim().split('\n').pop());
+  const pageBytes = readFileSync(join(folder, 'index.html'));
+  const pageHash = createHash('sha256').update(pageBytes).digest('hex');
+  if (assembled.sourceHash !== report.sourceHash) throw new Error('stale report: the sources of ' + context.ref + ' are not the ones the build report was made from; build again and commit the report');
+  if (pageHash !== report.indexHtmlSha256 || assembled.htmlSha256 !== report.indexHtmlSha256) throw new Error('the assembled page does not have the SHA-256 of the build report');
+  return { bytes: pageBytes.length, commit: git(['log', '-1', '--format=%h', context.ref, '--', game.report], { cwd: context.repo }).toString().trim() };
+}
+
 // Writes the pushed version of the game into a fresh upload folder and returns its commit.
-function buildUploadFolder(gameId, game) {
-  const commit = git(['log', '-1', '--format=%h', 'origin/main', '--', game.folder]).toString().trim();
-  if (!commit) throw new Error(`no pushed commit found for ${game.folder}`);
-  const html = git(['show', `origin/main:${game.file}`]);
+function buildUploadFolder(gameId, game, context) {
   const folder = join(UPLOAD_ROOT, gameId);
   rmSync(folder, { recursive: true, force: true });
   mkdirSync(folder, { recursive: true });
+  if (game.assemble) return { folder, ...assembleFromReport(context, game, folder) };
+  const commit = git(['log', '-1', '--format=%h', context.ref, '--', game.folder], { cwd: context.repo }).toString().trim();
+  if (!commit) throw new Error(`no pushed commit found for ${game.folder}`);
+  const html = git(['show', `${context.ref}:${game.file}`], { cwd: context.repo });
   writeFileSync(join(folder, 'index.html'), html);
   return { folder, commit, bytes: html.length };
 }
 
-function pushGame(butler, gameId, dryRun) {
+function pushGame(butler, gameId, context) {
   const game = GAMES[gameId];
-  const { folder, commit, bytes } = buildUploadFolder(gameId, game);
+  const { folder, commit, bytes } = buildUploadFolder(gameId, game, context);
   const target = `${ITCH_USER}/${game.slug}:${CHANNEL}`;
-  console.log(`\n== ${gameId}: ${game.file} at ${commit} (${bytes} bytes) -> ${target}${dryRun ? ' (dry run)' : ''}`);
+  const source = game.file ?? `${game.folder}/src assembled`;
+  console.log(`\n== ${gameId}: ${source} at ${commit} (${bytes} bytes) -> ${target}${context.dryRun ? ' (dry run)' : ''}`);
+  if (context.verifyOnly) {
+    console.log(`verified: ${folder}`);
+    return;
+  }
   const args = ['push', folder, target, '--userversion', commit, '--if-changed'];
-  if (dryRun) args.push('--dry-run');
+  if (context.dryRun) args.push('--dry-run');
   execFileSync(butler, args, { stdio: 'inherit' });
+}
+
+function readOption(args, name) {
+  const index = args.indexOf(name);
+  if (index < 0) return null;
+  return index + 1 < args.length ? args[index + 1] : '';
 }
 
 function main() {
   const args = process.argv.slice(2);
-  const dryRun = args.includes('--dry-run');
-  const choice = args.find((arg) => !arg.startsWith('--'));
+  const ref = readOption(args, '--ref');
+  const repo = readOption(args, '--repo');
+  const optionValues = [ref, repo].filter((value) => value);
+  const choice = args.find((arg) => !arg.startsWith('--') && !optionValues.includes(arg));
   const gameIds = choice === 'all' ? Object.keys(GAMES) : [choice];
-  if (!choice || gameIds.some((id) => !GAMES[id])) {
-    console.error(`usage: node tools/itch-push.mjs <${Object.keys(GAMES).join('|')}|all> [--dry-run]`);
+  if (!choice || ref === '' || repo === '' || gameIds.some((id) => !GAMES[id])) {
+    console.error(`usage: node tools/itch-push.mjs <${Object.keys(GAMES).join('|')}|all> [--dry-run] [--ref <commit>] [--repo <folder>] [--verify-only]`);
     process.exit(2);
   }
-  const butler = findButler();
-  if (!butler) {
+  const context = { repo: repo ?? process.cwd(), ref: ref ?? 'origin/main', dryRun: args.includes('--dry-run'), verifyOnly: args.includes('--verify-only') };
+  const butler = context.verifyOnly ? null : findButler();
+  if (!context.verifyOnly && !butler) {
     console.error('butler not found: install it from https://itch.io/docs/butler/ or set BUTLER to its path');
     process.exit(1);
   }
-  git(['fetch', '-q', 'origin', 'main'], { stdio: 'inherit' });
-  for (const gameId of gameIds) pushGame(butler, gameId, dryRun);
+  try {
+    if (ref === null) git(['fetch', '-q', 'origin', 'main'], { cwd: context.repo, stdio: 'inherit' });
+    for (const gameId of gameIds) pushGame(butler, gameId, context);
+  } catch (error) {
+    console.error(`refused: ${error.message}`);
+    process.exit(1);
+  }
 }
 
 main();
