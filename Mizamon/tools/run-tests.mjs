@@ -1410,7 +1410,11 @@ test('map controls: Q, Select, a touch pill and a pause-menu entry after Δικ�
   assert.ok(html.includes("const BUTTONS = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map']"), 'map is an input name');
   assert.ok(html.includes("if (padButtonOn(buttons, 8)) this.pad.map = true;"), 'gamepad button 8 (Select/Back) is the map');
   assert.ok(html.includes("if (padButtonOn(buttons, 9) || padButtonOn(buttons, 3)) this.pad.menu = true;"), 'Start and Y still open the menu');
-  assert.ok(html.includes('<div class="btn" data-btn="map">ΧΑΡΤΗΣ</div>'), 'the touch pill exists');
+  // The shell holds the pill empty and the engine writes its words (the text map.pill) at start and when the language changes.
+  assert.ok(html.includes('<div class="btn" data-btn="map"></div>'), 'the touch pill exists, empty');
+  assert.ok(html.includes("pill.textContent = T('map.pill')") && html.includes("labelMapPill(); }"), 'the engine gives the pill its text at start and on a language change');
+  sameJson(dataOfPage(html).strings.map['map.pill'], { el: 'ΧΑΡΤΗΣ', en: 'ΧΑΡΤΗΣ' }, 'the pill says ΧΑΡΤΗΣ in both languages, as it always did');
+  sameJson(dataOfPage(html).strings.title['title.satire'], { el: 'ΣΑΤΙΡΑ  /  SATIRE', en: 'ΣΑΤΙΡΑ  /  SATIRE' }, 'the notice heading is the same in both languages, as it always was');
   assert.ok(html.includes('#touch.portrait [data-btn="map"]') && html.includes('#touch.landscape [data-btn="map"]'), 'the pill has a place in both layouts');
   const pause = html.slice(html.indexOf('async function openPauseMenu'), html.indexOf('// ---- Map screen'));
   assert.ok(pause.includes("T('menu.dossier'), T('menu.map'), T('menu.save')"), 'Χάρτης comes right after Δικογραφία');
@@ -5380,6 +5384,12 @@ test('DEV-02b parity: every rules table equals the baseline, key order included 
   }
   for (const name of names) {
     if (name === 'STRINGS') {
+      // Two texts are new since the baseline: the words the engine and the shell typed (the notice heading and the map pill). Both say the same in the two languages.
+      const typedInTheCode = { 'title.satire': ['ΣΑΤΙΡΑ  /  SATIRE', 'ΣΑΤΙΡΑ  /  SATIRE'], 'map.pill': ['ΧΑΡΤΗΣ', 'ΧΑΡΤΗΣ'] };
+      for (const [key, texts] of Object.entries(typedInTheCode)) {
+        sameJson(current.STRINGS[key], texts, key + ' is what the code typed');
+        delete current.STRINGS[key];
+      }
       assert.equal(Object.keys(current.STRINGS).length, Object.keys(baseline.tables.STRINGS).length, 'the number of texts');
       sameJson(sortedEntries(current.STRINGS), sortedEntries(baseline.tables.STRINGS), 'STRINGS (sorted entries)');
     } else if (name === 'STATUSES') {

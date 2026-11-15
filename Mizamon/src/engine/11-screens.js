@@ -12,7 +12,7 @@ NoticeLayer.prototype.update = function () {
 NoticeLayer.prototype.draw = function () {
   ctx.fillStyle = '#10142e'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
   ctx.font = 'bold 14px "Segoe UI", Verdana, sans-serif';
-  drawText('ΣΑΤΙΡΑ  /  SATIRE', 120, 12, COLOR.gold, 'center');
+  drawText(T('title.satire'), 120, 12, COLOR.gold, 'center');
   ctx.font = FONT;
   let y = 40;
   for (const line of this.greek) { drawText(line, 120, y, COLOR.white, 'center'); y += 12; }

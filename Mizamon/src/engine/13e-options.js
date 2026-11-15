@@ -10,7 +10,7 @@ OptionsLayer.prototype.rowValue = function (index) {
   return '';
 };
 OptionsLayer.prototype.change = function (direction) {
-  if (this.cursor === 0) OPT.lang = OPT.lang === 'el' ? 'en' : 'el';
+  if (this.cursor === 0) { OPT.lang = OPT.lang === 'el' ? 'en' : 'el'; labelMapPill(); }
   else if (this.cursor === 1) { OPT.sound = !OPT.sound; Sound.applyMute(); }
   else if (this.cursor === 2) OPT.textSpeed = (OPT.textSpeed + 3 + direction) % 3;
   else if (this.cursor === 3) OPT.reduceMotion = !OPT.reduceMotion;

@@ -78,5 +78,6 @@
   "map.parliament.c2": { "el": "Βουλή: Στούντιο Πάνελ", "en": "Parliament: Panel Studio" },
   "map.parliament.c3": { "el": "Βουλή: Σαλόνι Τηλεφώνων", "en": "Parliament: Phone Lounge" },
   "map.parliament.plenary": { "el": "Βουλή: Ολομέλεια", "en": "Parliament: Plenary Hall" },
-  "map.parliament.roof": { "el": "Βουλή: Ταράτσα", "en": "Parliament: Roof" }
+  "map.parliament.roof": { "el": "Βουλή: Ταράτσα", "en": "Parliament: Roof" },
+  "map.pill": { "el": "ΧΑΡΤΗΣ", "en": "ΧΑΡΤΗΣ" }
 }
