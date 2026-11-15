@@ -14,7 +14,7 @@ import { readData } from '../shared/data-files.mjs';
 
 export const MIZAMON_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // What the source hash covers besides src/ and data/ (reference section 13.5).
-const HASHED_FILES = ['shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs'];
+const HASHED_FILES = ['shared/assemble-core.mjs', 'shared/data-files.mjs', 'shared/ids.mjs', 'shared/json-format.mjs', 'shared/schemas.mjs', 'shared/validate.mjs', 'tools/assemble.mjs', 'tools/build.mjs'];
 const USAGE = 'usage: node Mizamon/tools/assemble.mjs --out <file> [--root <folder>]';
 
 function listFiles(folder, relativeFolder) {
@@ -59,7 +59,7 @@ export function sourceHashFromDisk(root = MIZAMON_ROOT) {
   try {
     paths.push(...listFiles(join(root, 'data'), 'data'));
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error; // data/ comes with DEV-02b
+    if (error.code !== 'ENOENT') throw error; // a root without data/ is a checkout from before DEV-02b
   }
   paths.push(...HASHED_FILES);
   return sourceHash(paths.map((path) => ({ path, bytes: readFileSync(join(root, path)) })));

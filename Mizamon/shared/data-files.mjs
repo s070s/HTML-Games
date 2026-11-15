@@ -57,12 +57,12 @@ function readIndexedIds(folder, label) {
   return ids;
 }
 
-// root: the Mizamon folder. Returns { data, missingKinds }.
-export function readData(root) {
+// root: the Mizamon folder. Returns { data, missingKinds }. checkVersion: false reads data of another version as it is (the migration tool).
+export function readData(root, { checkVersion = true } = {}) {
   const dataRoot = join(root, 'data');
   const data = {};
   const missingKinds = [];
-  if (existsSync(join(dataRoot, 'game.json'))) {
+  if (checkVersion && existsSync(join(dataRoot, 'game.json'))) {
     const problem = dataVersionProblem(readJson(join(dataRoot, 'game.json')).dataVersion);
     if (problem) throw new DataError(problem);
   }

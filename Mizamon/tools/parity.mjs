@@ -153,7 +153,7 @@ export function migratedSaves(R) {
 export const STEPS_PER_LOOP = 32;
 export const LOOPS = 4;
 
-function makeFakeAudio() {
+export function makeFakeAudio() {
   const log = [];
   class FakeAudioContext {
     constructor() { this.currentTime = 0; this.state = 'running'; this.destination = {}; }
