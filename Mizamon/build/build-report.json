@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "mode": "strict",
+  "builtAt": "2026-11-15T01:36:09.314Z",
+  "sourceHash": "6a8681d3a5bf3b39aa6100da708e4649f69e4cf47ed1eb5da177c96db24ff755",
+  "indexHtmlSha256": "9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030",
+  "sizes": {
+    "total": 778542
+  },
+  "tests": {
+    "ran": true,
+    "exitCode": 0,
+    "passed": 173,
+    "total": 173,
+    "failures": []
+  },
+  "inPage": "not run",
+  "warnings": [],
+  "durationSeconds": 683.4,
+  "notes": []
+}
