@@ -12,7 +12,13 @@ export const DENIED_WHOLE_WORDS = ['Airbnb', 'Starbucks', 'Coca-Cola', 'Coca Col
 export const DENIED_NAME_STEMS = ['McDonald', 'Μητσοτάκ', 'Τσίπρα', 'Ανδρουλάκ', 'Βελόπουλ', 'Κουτσούμπ', 'Γεωργιάδ', 'Mitsotak', 'Tsipras', 'Androulak', 'Velopoul', 'Koutsoumb', 'Georgiad'];
 // common words that are also brands: checked on the raw text, capitalised whole words only
 export const DENIED_CAPITALISED_WORDS = /(?<![\p{L}\p{N}])(?:Apple|Meta)(?![\p{L}\p{N}])/u;
-export const PARODIES = ['Μιζοτάκης', 'Σπυράδωνις', 'Νέα Δημοκτατορία', 'Mizotakis', 'Spyradonis', 'New Democratorship'];
+// The two parody characters, each with its Greek and its English spelling, and the parody party (13.6: the parody names only on the two
+// parody characters; the party only marked as a parody). PARODIES is every one of them, for the deny-list test.
+export const PARODY_CHARACTERS = [['Μιζοτάκης', 'Mizotakis'], ['Σπυράδωνις', 'Spyradonis']];
+export const PARODY_PARTY_NAMES = ['Νέα Δημοκτατορία', 'New Democratorship'];
+export const PARODIES = [...PARODY_CHARACTERS.flat(), ...PARODY_PARTY_NAMES];
+// What marks a text as a parody (compared on plainText): "παρωδία" / "ΠΑΡΩΔΙΑ" in Greek, "parody" in English.
+export const PARODY_MARK = /παρωδ|parody/;
 export const plainText = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const escapeForRegex = (text) => plainText(text).replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/ /g, '[ -]');
 export const DENY_PATTERN = new RegExp('(?<![\\p{L}\\p{N}])(?:(?:' + DENIED_WHOLE_WORDS.map(escapeForRegex).join('|') + ')(?![\\p{L}\\p{N}])|(?:' + DENIED_NAME_STEMS.map(escapeForRegex).join('|') + '))', 'u');
@@ -49,6 +55,9 @@ export const CONTENT_RULE_LISTS = Object.freeze({
   DENIED_NAME_STEMS,
   DENIED_CAPITALISED_WORDS,
   PARODIES,
+  PARODY_CHARACTERS,
+  PARODY_PARTY_NAMES,
+  PARODY_MARK,
   COPIED_ENGLISH_PHRASES,
   COPIED_GREEK_PHRASES,
   MASCULINE_ONLY_FORMS,

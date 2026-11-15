@@ -19,7 +19,8 @@
 //   - --refresh-canon rewrites tests/canon-data.json from the current data (an agent task, with a review).
 //   - --root <folder> tests the src/ and data/ of another Mizamon folder (the baseline run of the gate uses it).
 // The engine tier's result on the canon copy is cached in <temp>/claude/mizamon-cache (MZ_CACHE_DIR), keyed by the SHA-256 of the canon page text
-// plus this file, shared/, tools/parity.mjs, the scan baseline and the Node version.
+// plus this file, shared/*.mjs, tools/parity.mjs, tools/assemble.mjs, the scan baseline, tests/validate-fixtures.mjs, the Node version,
+// MZ_TEST_FILTER and MZ_FORCE_SCAN_ZERO.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -66,6 +67,7 @@ export function parseCli(args) {
     } else options.error = `unknown option ${flag}`;
   }
   if (options.gate && (options.mode === 'lenient' || options.baseline !== null)) options.error = '--gate is strict and makes its own baseline: it takes neither --lenient nor --baseline';
+  if (options.gate && options.root !== null) options.error = '--gate tests this tree and makes its own baseline: it does not take --root';
   if (options.gate && process.env.MZ_HTML) options.error = '--gate assembles the page itself: unset MZ_HTML';
   return options;
 }
@@ -533,6 +535,9 @@ test('every status of the MVP can be inflicted by a move some creature learns; O
     const sources = [...learnable].filter((id) => (R.MOVES[id].foeSt && R.MOVES[id].foeSt[0] === statusId) || R.MOVES[id].bothSt === statusId);
     assert.ok(sources.length > 0, 'nothing inflicts ' + statusId);
   }
+});
+// The number half of the test above (its name keeps the old wording): Offshore Μεταφορά's chance is content the Owner may rebalance.
+test('Offshore Μεταφορά bribes about 25 % (the number of the move, content tier)', { tier: 'content' }, () => {
   const bribed = countOnFoe('b.st.bri', () => R.makeMon('fakelakis', 40), () => R.makeMon('komma', 20), { t: 'move', id: 'offshore' }, 400) / 400;
   assert.ok(bribed > 0.15 && bribed < 0.35, 'bribe share ' + bribed);
 });
@@ -1796,7 +1801,8 @@ test('strings: no real brand, person or party in any text of either language (de
   for (const word of ['ανδρας', 'δημοκρατια', 'Metaphor', 'Applesauce', 'τα κοινα', 'κανδαλο']) assert.ok(!DENY_PATTERN.test(plainText(word)), word + ' is not a false alarm');
   // Every text of both languages of every strings entry and the names of the species, trainers and moves: the validation rule applies the lists
   // (a waiver in the entry clears a hit; without one the hit is a finding that fails even the lenient run).
-  return { findings: validateData(readData(MIZAMON_ROOT).data, { rules: ['real-person-or-brand'] }) };
+  // and the parody names only on the parody characters (the rule parody-placement): the two hard rules, which fail even the lenient run
+  return { findings: validateData(readData(MIZAMON_ROOT).data, { rules: Object.keys(VALIDATION_RULES).filter((ruleId) => VALIDATION_RULES[ruleId].hard) }) };
 });
 
 // Section 11.7: the district's prize money must buy the stock of its new items. Πειραιάς sells nothing new (the Καστέλλα kiosk has the New Piraeus stock);
@@ -5085,6 +5091,19 @@ const runBuildCli = (root, ...flags) => spawnSync(process.execPath, [join(MIZAMO
 const PASSING_STUB = "import { existsSync } from 'node:fs';\nif (!existsSync(process.env.MZ_HTML)) process.exit(9);\nconsole.log('ok   a');\nconsole.log('PASS 1 / 1');\n";
 const FAILING_STUB = "console.log('ok   a');\nconsole.log('FAIL the second test\\n     boom');\nconsole.log('PASS 1 / 2');\nprocess.exit(1);\n";
 
+test('build: reads "PASS n / m (k skipped)", keeps the skipped count in the report and does not fail on skipped tests', { tier: 'integrity' }, () => {
+  const root = makeScratchRoot('build-skipped', PASSING_STUB.replace("'PASS 1 / 1'", "'PASS 1 / 2 (1 skipped)'"));
+  try {
+    const built = runBuildCli(root);
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.deepEqual([report.status, report.tests.passed, report.tests.total, report.tests.skipped], ['ok', 1, 2, 1]);
+    assert.match(built.stdout, /1 \/ 2 tests \(1 skipped\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', { tier: 'integrity' }, () => {
   const folder = scratchFolder('lock');
   try {
@@ -5181,7 +5200,10 @@ test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a f
 
 // ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
 const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
-const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+// Each test run has its own upload root (itch-push.mjs reads MZ_ITCH_UPLOAD_ROOT): the gate runs two suites at once, and a shared
+// folder would show one run the worktree folder of the other.
+const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', `mizamon-test-itch-upload-${process.pid}`);
+const ITCH_ENV = { ...process.env, MZ_ITCH_UPLOAD_ROOT: ITCH_UPLOAD_ROOT };
 const gitIn = (repo, ...args) => spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
 const leftoverWorktrees = () => (existsSync(ITCH_UPLOAD_ROOT) ? readdirSync(ITCH_UPLOAD_ROOT).filter((name) => name.startsWith('mizamon-src-')) : []);
 
@@ -5208,7 +5230,7 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     rmSync(join(repo, 'scratch-page.html'));
     writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: htmlSha256 });
     commitAll(repo, 'sources and report');
-    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
+    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000, env: ITCH_ENV });
     const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
 
     const deadRun = spawnSync(process.execPath, ['-e', '0']); // its process id no longer runs: its leftover worktree folder is removed at the start
@@ -5250,6 +5272,7 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     same(leftoverWorktrees(), [], 'no worktree is left behind');
   } finally {
     rmSync(repo, { recursive: true, force: true });
+    rmSync(ITCH_UPLOAD_ROOT, { recursive: true, force: true });
   }
 });
 
@@ -5259,7 +5282,7 @@ test('itch push of mizamon: no report at the commit is refused; the other games 
     assert.equal(gitIn(repo, 'init', '-q').status, 0);
     writeFileSync(join(repo, 'readme.txt'), 'x\n');
     commitAll(repo, 'nothing');
-    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', env: ITCH_ENV });
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /has no Mizamon\/build\/build-report\.json/);
     const usage = spawnSync(process.execPath, [ITCH_PUSH, 'nogame'], { encoding: 'utf8' });
@@ -5267,11 +5290,12 @@ test('itch push of mizamon: no report at the commit is refused; the other games 
     mkdirSync(join(repo, 'Finger Lickin Music'), { recursive: true });
     writeFileSync(join(repo, 'Finger Lickin Music', 'FingerLickinMusic.html'), '<html>fingers</html>\n');
     commitAll(repo, 'a game with a committed page');
-    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', env: ITCH_ENV });
     assert.equal(plain.status, 0, plain.stdout + plain.stderr);
     assert.equal(readFileSync(join(ITCH_UPLOAD_ROOT, 'fingerlickinmusic', 'index.html'), 'utf8'), '<html>fingers</html>\n');
   } finally {
     rmSync(repo, { recursive: true, force: true });
+    rmSync(ITCH_UPLOAD_ROOT, { recursive: true, force: true });
   }
 });
 
@@ -5395,8 +5419,10 @@ const OLD_STATUS_NUMBERS = {
 test('behaviour: every ability and status is a kind of the catalogue with the numbers that kind takes, the numbers are the ones the old code had, and the rules code implements every kind and names no id', { tier: 'integrity' }, () => {
   const data = dataOfPage(html);
   same(behaviourProblems(data), [], 'every entry is a kind of the catalogue with its numbers');
-  sameJson(data.abilities, OLD_ABILITY_NUMBERS, 'the 14 abilities (kind and numbers, in index order)');
-  sameJson(data.statuses, OLD_STATUS_NUMBERS, 'the 4 statuses (turns, kind, numbers, recruit multiplier, tag colour)');
+  // the kind of each ability and status (the numbers are the content-tier test that follows this one)
+  const kindsOf = (entries) => Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, entry.kind]));
+  sameJson(kindsOf(data.abilities), kindsOf(OLD_ABILITY_NUMBERS), 'the 14 abilities (the kind of each, in index order)');
+  sameJson(kindsOf(data.statuses), kindsOf(OLD_STATUS_NUMBERS), 'the 4 statuses (the kind of each, in index order)');
   // the check itself
   const broken = (change) => { const copy = JSON.parse(JSON.stringify(data)); change(copy); return behaviourProblems(copy).join('\n'); };
   assert.match(broken((copy) => { copy.abilities.pal.kind = 'powerWhenHigh'; }), /pal: "powerWhenHigh" is not a kind/, 'an unknown kind');
@@ -5412,6 +5438,24 @@ test('behaviour: every ability and status is a kind of the catalogue with the nu
   for (const entry of [...Object.values(ABILITY_KINDS), ...Object.values(STATUS_KINDS)]) assert.ok(entry.description.en && entry.description.el, 'a kind has a plain description in both languages');
   // the tag colour of a status comes from its data (the screen helper no longer names a status)
   assert.ok(!readSources().engine.some((fragment) => fragment.name === '10-screen-helpers.js' && /#a83a8a|#c07a1a|#2f7a5a/.test(fragment.text)), 'the screen helper has no status colour');
+});
+// The numbers of the abilities and statuses are content (the Owner may rebalance them): a difference is a finding with its id and field,
+// so the lenient Build only warns and the gate compares it with the merge base.
+test('behaviour numbers: every ability and status has the numbers the old code had (turns, numbers, recruit multiplier, tag colour)', { tier: 'content' }, () => {
+  const data = dataOfPage(html);
+  const findings = [];
+  const compare = (kind, current, expected) => {
+    for (const [id, entry] of Object.entries(expected)) {
+      if (!Object.hasOwn(current, id)) continue; // a missing entry is a failure of the integrity test above
+      for (const field of Object.keys(entry).filter((name) => name !== 'kind')) {
+        const difference = firstDifference(current[id][field], entry[field], field);
+        if (difference !== null) findings.push({ rule: 'old-numbers', kind, id, field, message: difference });
+      }
+    }
+  };
+  compare('abilities', data.abilities, OLD_ABILITY_NUMBERS);
+  compare('statuses', data.statuses, OLD_STATUS_NUMBERS);
+  return { findings };
 });
 
 test('json-format: the writer is deterministic, keeps schema order, writes rows one per line and refuses what the schema does not know', { tier: 'integrity' }, () => {
@@ -6014,9 +6058,9 @@ test('validation: the data has no integrity findings (the errors of 13.6)', { ti
   const findings = validateData(readData(MIZAMON_ROOT).data).filter((finding) => finding.tier === 'integrity' && finding.severity === 'error');
   if (findings.length > 0) throw new FindingsError(`${findings.length} errors in the data`, findings);
 });
-// The real-person and brand rule has its own test (it fails even the lenient run); the other findings of the content tier come here.
+// The hard rules (real-person and brand, parody placement) have their own test (it fails even the lenient run); the other findings of the content tier come here.
 test('validation: content findings (the warnings of 13.6): every one is waived, or the strict run fails', { tier: 'content' }, () => ({
-  findings: validateData(readData(MIZAMON_ROOT).data).filter((finding) => finding.tier === 'content' && finding.severity !== 'info' && finding.rule !== 'real-person-or-brand'),
+  findings: validateData(readData(MIZAMON_ROOT).data).filter((finding) => finding.tier === 'content' && finding.severity !== 'info' && !VALIDATION_RULES[finding.rule].hard),
 }));
 test('validation: every rule of 13.6 has a fixture that makes it report the right entry, the untouched canon copy is clean, and a waiver clears a content finding only', { tier: 'integrity' }, () => {
   const canon = readCanonData();
@@ -6029,6 +6073,10 @@ test('validation: every rule of 13.6 has a fixture that makes it report the righ
   for (const fixture of VALIDATION_FIXTURES) {
     const changed = cloneJson(canon);
     fixture.change(changed);
+    if (fixture.clean) {
+      same(validateData(changed).filter((finding) => finding.rule === fixture.rule).map((finding) => `${finding.kind}/${finding.id} ${finding.field}`), [], `the good case for ${fixture.rule} has no finding of it`);
+      continue;
+    }
     const found = validateData(changed).filter((finding) => finding.rule === fixture.rule && finding.kind === fixture.expect.kind && finding.id === fixture.expect.id
       && (fixture.expect.field === undefined || finding.field === fixture.expect.field || finding.field.startsWith(fixture.expect.field)));
     assert.ok(found.length > 0, `the fixture for ${fixture.rule} (${fixture.expect.kind}/${fixture.expect.id}) is not reported: ${JSON.stringify(validateData(changed).filter((finding) => finding.rule === fixture.rule).slice(0, 2))}`);
@@ -6200,6 +6248,7 @@ test('scratch: the same body without the fixture', { tier: 'engine', fixtures: [
     assert.ok(/^skipped: fixture species:kommaa renamed or deleted$/m.test(skipped.out.replace(/^ +/gm, '')), skipped.out);
     assert.ok(/^skip scratch: needs a species/m.test(skipped.out) && /^ok   \[canon\] scratch: needs a species/m.test(skipped.out), 'the canon pass runs it:\n' + skipped.out);
     assert.ok(!/^ok   scratch: needs/m.test(skipped.out) && !/^FAIL/m.test(skipped.out), 'the current-data pass did not run it');
+    assert.ok(/^PASS 1 \/ 2 \(1 skipped\)$/m.test(skipped.out), 'a skipped test is counted apart from the passed ones:\n' + skipped.out);
     const undeclared = runScratch(root, [], { filter: '^scratch: the same body', cache: 'other' });
     assert.equal(undeclared.status, 1, 'without the fixture the same body runs on the current data and fails there:\n' + undeclared.out);
     assert.ok(/^FAIL scratch: the same body/m.test(undeclared.out) && /^ok   \[canon\] scratch: the same body/m.test(undeclared.out), undeclared.out);
@@ -6404,6 +6453,57 @@ test('gate: a baseline run that exits non-zero but writes its file does not fail
     // --gate makes its own baseline and is strict: it refuses --baseline
     const noMain = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--strict', '--baseline', 'x.json'], { cwd: repo.folder, encoding: 'utf8' });
     assert.equal(noMain.status, 2, '--gate takes no --baseline');
+  });
+});
+// The folders of a gate run in a temp folder (a gate run keeps its worktree and baseline log in mizamon-gate-<random> under <temp>/claude).
+const gateFoldersIn = (tempFolder) => {
+  const claudeTemp = join(tempFolder, 'claude');
+  return existsSync(claudeTemp) ? readdirSync(claudeTemp).filter((name) => name.startsWith('mizamon-gate-')) : [];
+};
+test('gate: --root is refused (the gate tests its own tree), and a filter that matches no test leaves no temporary worktree behind', { tier: 'integrity' }, () => {
+  withGateRepo('gate-refusals', (repo) => {
+    const withRoot = spawnSync(process.execPath, [join(repo.root, 'tools', 'run-tests.mjs'), '--gate', '--root', repo.root], { cwd: repo.folder, encoding: 'utf8' });
+    assert.equal(withRoot.status, 2, '--gate takes no --root');
+    assert.match(withRoot.stderr, /--gate .*does not take --root/);
+    // TEMP and TMP point into the scratch folder, so the temporary folders of this gate run are the only ones in it
+    const ownTemp = join(repo.folder, 'own-temp');
+    mkdirSync(ownTemp, { recursive: true });
+    const gate = runGateIn(repo, '^no test has a name like this one$', { TEMP: ownTemp, TMP: ownTemp });
+    assert.equal(gate.status, 1, gate.out);
+    assert.match(gate.out, /MZ_TEST_FILTER matches no test/);
+    same(gateFoldersIn(ownTemp), [], 'no gate folder is left in the temp folder');
+    assert.equal((repo.git('worktree', 'list', '--porcelain').match(/^worktree /gm) || []).length, 1, 'git knows no other worktree');
+  });
+});
+test('gate: a failure while the baseline run is still going stops that run first, so the temporary folder and the worktree are removed', { tier: 'integrity' }, () => {
+  withGateRepo('gate-throw', (repo) => {
+    // Without the scan baseline file the cache key of the engine tier cannot be made: the gate's own run throws (outside any test) after the
+    // current-data pass, when the baseline run has long started.
+    rmSync(join(repo.root, 'tests', 'baseline', 'source-scans.json'));
+    repo.commit('no scan baseline');
+    // The baseline run is a stub that keeps its log file open and runs for a long time, as a baseline run still going would.
+    const STUB_LIFE_MS = 120000;
+    const stubPath = join(repo.folder, 'long-baseline.mjs');
+    const pidFile = join(repo.folder, 'stub.pid');
+    writeFileSync(stubPath, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log('the baseline stub is running');\nsetTimeout(() => {}, ${STUB_LIFE_MS});\n`);
+    const ownTemp = join(repo.folder, 'own-temp');
+    mkdirSync(ownTemp, { recursive: true });
+    const startedAt = Date.now();
+    const gate = runGateIn(repo, ENGINE_FILTER, { TEMP: ownTemp, TMP: ownTemp, MZ_GATE_BASELINE_SCRIPT: stubPath });
+    assert.ok(Date.now() - startedAt < STUB_LIFE_MS / 2, 'the gate did not wait for the baseline run to end by itself: it stopped it');
+    assert.equal(gate.status, 1, gate.out);
+    assert.ok(/source-scans\.json/.test(gate.out) && !/EBUSY|EPERM/.test(gate.out), 'the failure is reported and the clean-up does not fail on the open log:\n' + gate.out);
+    assertWorktreeGone(repo, gate.out);
+    same(gateFoldersIn(ownTemp), [], 'the gate folder with the baseline log is gone');
+    if (existsSync(pidFile)) { // the stub writes it as it starts; a machine so busy that the stub never started has no file
+      let stubRuns = true;
+      try {
+        process.kill(Number(readFileSync(pidFile, 'utf8')), 0);
+      } catch {
+        stubRuns = false;
+      }
+      assert.equal(stubRuns, false, 'the baseline run was stopped');
+    }
   });
 });
 
@@ -6710,7 +6810,8 @@ function finish(outcomes, baselineKeys) {
   const known = records.filter((record) => record.status === 'fail' && record.known);
   const failedTests = new Set(failing.map((record) => `${record.pass}\u0000${record.test}`));
   const total = outcomes.length;
-  const passed = outcomes.filter((outcome) => !failedTests.has(`${outcome.pass}\u0000${outcome.entry.name}`)).length;
+  const skipped = outcomes.filter((outcome) => outcome.skipped.length > 0).length;
+  const passed = outcomes.filter((outcome) => outcome.skipped.length === 0 && !failedTests.has(`${outcome.pass}\u0000${outcome.entry.name}`)).length;
   if (baselineKeys !== null) {
     console.log(`baseline: ${known.length} known failures and findings forgiven, ${failing.length} new`);
     for (const record of failing.slice(0, 30)) console.log(`     NEW ${record.pass} ${record.tier} "${record.test}" ${describeRecordPlace(record)}`);
@@ -6718,7 +6819,7 @@ function finish(outcomes, baselineKeys) {
   const waived = records.filter((record) => record.status === 'waived');
   const warned = records.filter((record) => record.status === 'warn');
   if (waived.length > 0 || warned.length > 0) console.log(`${waived.length} waived, ${warned.length} warnings`);
-  console.log(`PASS ${passed} / ${total}`);
+  console.log(`PASS ${passed} / ${total}${skipped > 0 ? ` (${skipped} skipped)` : ''}`); // build.mjs reads this line
   if (CLI.json) writeJsonFile(CLI.json, outcomes, records);
   return failing.length > 0 ? 1 : 0;
 }
@@ -6739,22 +6840,32 @@ function gitOutput(cwd, ...args) {
   return done.stdout.trim();
 }
 
-// Starts the baseline run as a child process; resolves with { exitCode, log }. MZ_GATE_BASELINE_SCRIPT replaces this file (tests only).
+// Starts the baseline run as a child process; returns { result, stop }. result resolves with { exitCode, log } when the child is done;
+// stop() kills the child if it still runs and resolves when it is gone and its log is closed (the log cannot be deleted before that on
+// Windows). MZ_GATE_BASELINE_SCRIPT replaces this file (tests only).
 function startBaselineRun(baseRoot, jsonPath, logPath) {
   const script = process.env.MZ_GATE_BASELINE_SCRIPT || THIS_FILE;
   const env = { ...process.env };
   delete env.MZ_HTML;
   // The child writes into a file, not a pipe: this process is busy with its own run meanwhile and would not empty a pipe.
   const logFile = openSync(logPath, 'w');
-  return new Promise((resolveRun) => {
+  const child = spawn(process.execPath, [script, '--baseline-run', '--root', baseRoot, '--json', jsonPath], { env, stdio: ['ignore', logFile, logFile] });
+  let settled = false; // 'error' and 'close' can both come: the log is closed and the result given once
+  const result = new Promise((resolveRun) => {
     const finishRun = (exitCode, note) => {
+      if (settled) return;
+      settled = true;
       closeSync(logFile);
       resolveRun({ exitCode, log: note ?? readFileSync(logPath, 'utf8'), logPath });
     };
-    const child = spawn(process.execPath, [script, '--baseline-run', '--root', baseRoot, '--json', jsonPath], { env, stdio: ['ignore', logFile, logFile] });
     child.on('error', (error) => finishRun(null, error.message));
     child.on('close', (exitCode) => finishRun(exitCode));
   });
+  const stop = async () => {
+    if (!settled) child.kill();
+    await result;
+  };
+  return { result, stop };
 }
 
 // Reads the baseline file whatever the baseline run's exit code; only a file that is missing or not parseable is a failed baseline run.
@@ -6772,19 +6883,21 @@ async function runGate() {
   const repo = gitOutput(TOOL_ROOT, 'rev-parse', '--show-toplevel');
   const prefix = gitOutput(TOOL_ROOT, 'rev-parse', '--show-prefix'); // 'Mizamon/'
   const mergeBase = gitOutput(repo, 'merge-base', 'HEAD', 'main');
+  selectedTests(); // a filter that matches no test exits here, before a temporary worktree exists
   const parent = join(tmpdir(), 'claude');
   mkdirSync(parent, { recursive: true });
   const folder = mkdtempSync(join(parent, 'mizamon-gate-'));
   const worktree = join(folder, 'base');
   let exitCode = 1;
+  let baselineRun = null;
   try {
     gitOutput(repo, 'worktree', 'add', '--detach', worktree, mergeBase);
     console.log(`gate: the baseline is ${mergeBase.slice(0, 9)} (merge base of HEAD and main) in the temporary worktree ${worktree}`);
     const jsonPath = join(folder, 'baseline.json');
-    const baselineRun = startBaselineRun(join(worktree, prefix), jsonPath, join(folder, 'baseline.log'));
+    baselineRun = startBaselineRun(join(worktree, prefix), jsonPath, join(folder, 'baseline.log'));
     CLI.mode = 'strict';
     const outcomes = executeSuite({ baselineRun: false });
-    const run = await baselineRun;
+    const run = await baselineRun.result;
     const baselineKeys = readBaselineOfRun(run, jsonPath);
     const canonFailures = outcomes.filter((outcome) => outcome.pass === 'canon' && outcome.records.some((record) => record.status === 'fail'));
     console.log(`gate (i): the engine tier on the canon copy ${canonFailures.length === 0 ? 'passes in full' : `fails in ${canonFailures.length} tests`}`);
@@ -6793,6 +6906,7 @@ async function runGate() {
   } catch (error) {
     console.log(error.message);
   } finally {
+    if (baselineRun) await baselineRun.stop(); // the child holds the log and the worktree's files open until it is gone
     gitRaw(repo, 'worktree', 'remove', '--force', worktree);
     rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     gitRaw(repo, 'worktree', 'prune');

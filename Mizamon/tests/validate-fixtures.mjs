@@ -2,7 +2,8 @@
 // looks for, and `expect` names the finding the rule must give. The test of run-tests.mjs and `node Mizamon/tests/validate-fixtures.mjs
 // --check` run every fixture: the untouched data has no error and no warning, and each changed copy has a finding with the fixture's
 // rule, kind, id and field (the field may be a prefix). A fixture with `waived: true` has a waiver in the entry and the finding must be
-// waived; a finding of any other fixture must not be (a waiver never clears an integrity error).
+// waived; a finding of any other fixture must not be (a waiver never clears an integrity error). A fixture with `clean: true` is a good
+// case: its changed copy must have no finding of the rule at all.
 // Node built-ins only.
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +103,25 @@ export const VALIDATION_FIXTURES = Object.freeze([
     change: (data) => { data.maps.town.warps[0].to = 'nowhere'; data.maps.town.waive = [{ ...WAIVER, rule: 'missing-reference' }]; },
     expect: { kind: 'maps', id: 'town', field: 'warps[0].to' },
   },
+  { rule: 'parody-placement', change: (data) => { data.species.komma.n = 'Μιζοτάκης'; }, expect: { kind: 'species', id: 'komma', field: 'n' } },
+  { rule: 'parody-placement', change: (data) => { data.trainers.kotsos.name = 'Ο Σπυράδωνις'; }, expect: { kind: 'trainers', id: 'kotsos', field: 'name' } },
+  { rule: 'parody-placement', change: (data) => { data.moves.psifodeltio.n = 'Spyradonis'; }, expect: { kind: 'moves', id: 'psifodeltio', field: 'n' } },
+  { rule: 'parody-placement', change: (data) => { data.strings.ui['ui.yes'].en = 'New Democratorship says yes'; }, expect: { kind: 'strings', id: 'ui.yes', field: 'en' } },
+  { rule: 'parody-placement', change: (data) => { data.strings.ui['ui.yes'].el = 'Νέα Δημοκτατορία λέει ναι'; }, expect: { kind: 'strings', id: 'ui.yes', field: 'el' } },
+  {
+    // good: a creature marked as a parody bears the name, the trainer that has the character in the team bears it, the party is marked as a parody
+    rule: 'parody-placement',
+    clean: true,
+    change: (data) => {
+      data.species.komma.n = 'Μιζοτάκης';
+      data.species.komma.parody = true;
+      data.trainers.kotsos.name = 'Ο Σπυράδωνις';
+      data.trainers.kotsos.team[0].sp = 'spyradonis';
+      data.strings.ui['ui.yes'].el = 'Νέα Δημοκτατορία (παρωδία)';
+      data.strings.ui['ui.yes'].en = 'New Democratorship (a parody)';
+    },
+    expect: { kind: 'species', id: 'komma', field: 'n' },
+  },
   { rule: 'missing-english', change: (data) => { data.strings.ui['ui.yes'].en = ''; }, expect: { kind: 'strings', id: 'ui.yes', field: 'en' } },
   { rule: 'masculine-only', change: (data) => { data.strings.ui['ui.yes'].el = 'Είσαι έτοιμος;'; }, expect: { kind: 'strings', id: 'ui.yes', field: 'el' } },
   { rule: 'copied-phrase', change: (data) => { data.strings.ui['ui.yes'].en = 'What will you do?'; }, expect: { kind: 'strings', id: 'ui.yes', field: 'en' } },
@@ -131,6 +151,11 @@ function failures(data) {
     if (!Object.hasOwn(VALIDATION_RULES, fixture.rule)) { add(fixture.rule, `${label}: unknown rule`); return; }
     const copy = structuredClone(data);
     fixture.change(copy);
+    if (fixture.clean) {
+      const wrong = validateData(copy).find((finding) => finding.rule === fixture.rule);
+      if (wrong) add(fixture.rule, `${label}: a good case has the finding ${wrong.kind}/${wrong.id} ${wrong.field}`);
+      return;
+    }
     const { kind, id, field } = fixture.expect;
     const found = validateData(copy).find((finding) => finding.rule === fixture.rule && finding.kind === kind && finding.id === id && (field === undefined || finding.field.startsWith(field)));
     if (!found) add(fixture.rule, `${label}: no finding at ${kind}/${id} ${field ?? ''}`);

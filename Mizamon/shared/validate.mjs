@@ -16,7 +16,8 @@
 // inserted into the page script, and a marker inside it would make the page ambiguous for the assembler and the tests.
 import { DATA_VERSION, KINDS, schemaProblems, walkWithSchema } from './schemas.mjs';
 import {
-  COPIED_ENGLISH_PHRASES, COPIED_GREEK_PHRASES, HOSPITAL_COPIED_ENGLISH, HOSPITAL_COPIED_GREEK, HOSPITAL_PATIENT_WORDS, MASCULINE_ONLY_FORMS, denyListHit,
+  COPIED_ENGLISH_PHRASES, COPIED_GREEK_PHRASES, HOSPITAL_COPIED_ENGLISH, HOSPITAL_COPIED_GREEK, HOSPITAL_PATIENT_WORDS, MASCULINE_ONLY_FORMS, PARODY_CHARACTERS,
+  PARODY_MARK, PARODY_PARTY_NAMES, denyListHit, plainText,
 } from './content-rules.mjs';
 
 // Every marker text of 13.2. A match anywhere in a string is refused, not only a whole line, because the text could end up on a
@@ -47,6 +48,7 @@ export const VALIDATION_RULES = Object.freeze({
   'data-version': rule('error', 'integrity', 'game.json has a dataVersion newer than this code knows.'),
   // The one error of the content tier: it fails even in the lenient run unless waived.
   'real-person-or-brand': rule('error', 'content', 'A text names a real brand, person or party (the deny lists of 11.8); the marked parodies are allowed.', { hard: true }),
+  'parody-placement': rule('error', 'content', 'A parody character\'s name is borne by something other than that character (a creature not marked as a parody, a trainer without it in the team, a move), or the parody party is named in a text that does not say it is a parody.', { hard: true }),
   // Warnings (content tier).
   'missing-english': rule('warning', 'content', 'The English text is empty (the game shows the Greek one).'),
   'masculine-only': rule('warning', 'content', 'A Greek text addresses the player with a form that only fits a man, outside a {man|woman} choice.'),
@@ -484,13 +486,12 @@ function checkSoftlocks(context, report) {
     needed.add(mapId);
     if (hasOwn(data.maps, mapId) && !reached.has(mapId)) report('softlock', 'districts', id, field, `The map ${mapId} cannot be reached from the start, although a built place or route needs it.`, `Ο χάρτης ${mapId} δεν μπορεί να προσεγγιστεί από την αρχή, αν και τον χρειάζεται τόπος ή διαδρομή που είναι έτοιμα.`, 'Open a way to it: a door, or a flag that something sets.');
   };
-  const optional = [];
   for (const [id, district] of entriesOf(data, 'districts')) {
     for (const [placeId, place] of Object.entries(district.places ?? {})) {
-      (place.maps ?? []).forEach((mapId, index) => (place.built ? lost(id, `places.${placeId}.maps[${index}]`, mapId) : optional.push(mapId)));
+      if (place.built) (place.maps ?? []).forEach((mapId, index) => lost(id, `places.${placeId}.maps[${index}]`, mapId));
     }
     for (const [routeId, route] of Object.entries(district.routes ?? {})) {
-      if (route.built) lost(id, `routes.${routeId}.map`, route.map); else optional.push(route.map);
+      if (route.built) lost(id, `routes.${routeId}.map`, route.map);
     }
   }
   for (const mapId of Object.keys(data.maps)) {
@@ -588,19 +589,53 @@ function checkHospitalText(key, text, report) {
   if (HOSPITAL_PATIENT_WORDS.test(text.el)) report('hospital-words', 'strings', key, 'el', 'The hospital text speaks of patients or illness; the jokes are about the system.', 'Το κείμενο του νοσοκομείου μιλά για ασθενείς ή ασθένεια· τα αστεία αφορούν το σύστημα.', 'Joke about the system, never about patients.');
 }
 
-function checkDenyLists({ data }, report) {
-  const scanText = (kind, id, field, text) => {
-    const hit = isText(text) ? denyListHit(text) : null;
-    if (hit) report('real-person-or-brand', kind, id, field, `The text names "${hit}", a real brand, person or party.`, `Το κείμενο αναφέρει το «${hit}», πραγματική επωνυμία, πρόσωπο ή κόμμα.`, 'Invent a name, or keep it with a waiver and a note.');
-  };
+// The texts the deny lists and the parody rule read: both languages of every string, and the names of species, trainers and moves.
+function namedTexts(data) {
+  const texts = [];
   for (const { key, text } of stringEntries(data)) {
     if (!isObject(text)) continue;
-    scanText('strings', key, 'el', text.el);
-    scanText('strings', key, 'en', text.en);
+    for (const field of ['el', 'en']) if (isText(text[field])) texts.push({ kind: 'strings', id: key, field, text: text[field] });
   }
-  for (const [id, species] of entriesOf(data, 'species')) scanText('species', id, 'n', species.n);
-  for (const [id, trainer] of entriesOf(data, 'trainers')) scanText('trainers', id, 'name', trainer.name);
-  for (const [id, move] of entriesOf(data, 'moves')) scanText('moves', id, 'n', move.n);
+  for (const [id, species] of entriesOf(data, 'species')) if (isText(species.n)) texts.push({ kind: 'species', id, field: 'n', text: species.n });
+  for (const [id, trainer] of entriesOf(data, 'trainers')) if (isText(trainer.name)) texts.push({ kind: 'trainers', id, field: 'name', text: trainer.name });
+  for (const [id, move] of entriesOf(data, 'moves')) if (isText(move.n)) texts.push({ kind: 'moves', id, field: 'n', text: move.n });
+  return texts;
+}
+
+function checkDenyLists({ data }, report) {
+  for (const { kind, id, field, text } of namedTexts(data)) {
+    const hit = denyListHit(text);
+    if (hit) report('real-person-or-brand', kind, id, field, `The text names "${hit}", a real brand, person or party.`, `Το κείμενο αναφέρει το «${hit}», πραγματική επωνυμία, πρόσωπο ή κόμμα.`, 'Invent a name, or keep it with a waiver and a note.');
+  }
+}
+
+// The parodies (13.6): a parody character's name is borne only by that character (a creature marked `parody`, or the trainer whose team has
+// it) and by no move, and the parody party is only named in a text that says it is a parody.
+const spellingIn = (text, spellings) => spellings.find((spelling) => plainText(text).includes(plainText(spelling)));
+const isMarkedCreature = (data, speciesId) => hasOwn(data.species, speciesId) && data.species[speciesId].parody === true;
+
+function checkParodyPlacement({ data }, report) {
+  const misplaced = (kind, id, field, name, en, el, fix) => report('parody-placement', kind, id, field, `The name "${name}" ${en}`, `Το όνομα «${name}» ${el}`, fix);
+  for (const spellings of PARODY_CHARACTERS) {
+    for (const [id, species] of entriesOf(data, 'species')) {
+      const name = isText(species.n) ? spellingIn(species.n, spellings) : undefined;
+      if (name && species.parody !== true) misplaced('species', id, 'n', name, 'is a parody character\'s, and this creature is not one (it is not marked as a parody).', 'είναι χαρακτήρα παρωδίας, και αυτό το πλάσμα δεν είναι (δεν έχει σημανθεί ως παρωδία).', 'Give the creature another name.');
+    }
+    for (const [id, trainer] of entriesOf(data, 'trainers')) {
+      const name = isText(trainer.name) ? spellingIn(trainer.name, spellings) : undefined;
+      const team = Array.isArray(trainer.team) ? trainer.team : [];
+      const hasCharacter = team.some((member) => isObject(member) && isMarkedCreature(data, member.sp) && isText(data.species[member.sp].n) && spellingIn(data.species[member.sp].n, spellings));
+      if (name && !hasCharacter) misplaced('trainers', id, 'name', name, 'is a parody character\'s, and this trainer\'s team does not have that character.', 'είναι χαρακτήρα παρωδίας, και η ομάδα του προπονητή δεν έχει αυτόν τον χαρακτήρα.', 'Give the trainer another name.');
+    }
+    for (const [id, move] of entriesOf(data, 'moves')) {
+      const name = isText(move.n) ? spellingIn(move.n, spellings) : undefined;
+      if (name) misplaced('moves', id, 'n', name, 'is a parody character\'s, and a move cannot bear it.', 'είναι χαρακτήρα παρωδίας, και μια κίνηση δεν μπορεί να το φέρει.', 'Give the move another name.');
+    }
+  }
+  for (const { kind, id, field, text } of namedTexts(data)) {
+    const party = spellingIn(text, PARODY_PARTY_NAMES);
+    if (party && !PARODY_MARK.test(plainText(text))) misplaced(kind, id, field, party, 'is the parody party, and this text does not say that it is a parody.', 'είναι το κόμμα παρωδίας, και αυτό το κείμενο δεν λέει ότι είναι παρωδία.', 'Add "(parody)" / "(παρωδία)" to the text.');
+  }
 }
 
 // ---- Content: entries and levels ---------------------------------------------------------------------------------------------
@@ -656,6 +691,7 @@ const CHECKS = Object.freeze([
   { rules: ['placeholder-mismatch', 'choice-syntax'], run: checkTexts },
   { rules: ['missing-english', 'masculine-only', 'copied-phrase', 'hospital-words', 'english-much-longer'], run: checkContentTexts },
   { rules: ['real-person-or-brand'], run: checkDenyLists },
+  { rules: ['parody-placement'], run: checkParodyPlacement },
   { rules: ['unused-entry'], run: checkUnused },
   { rules: ['evolution-level'], run: checkEvolutionLevels },
   { rules: ['missing-tune'], run: checkTunes },

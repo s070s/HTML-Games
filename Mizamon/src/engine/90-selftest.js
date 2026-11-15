@@ -51,7 +51,7 @@ async function selfTest() { // selfTest({ tiers: ['engine'] }): the one argument
   const runner = makeSelfTestRunner(options && options.tiers);
   const check = runner.check;
   const guard = runner.guard;
-  const snapshot ={ G: G, layers: layers.slice(), OPT: Object.assign({}, OPT), forceMemory: Store.forceMemory, touchForced: touchForced, loopPaused: loopPaused, memory: Object.assign({}, Store.memory), sundayPinned: sundayPinned };
+  const snapshot = { G: G, layers: layers.slice(), OPT: Object.assign({}, OPT), forceMemory: Store.forceMemory, touchForced: touchForced, loopPaused: loopPaused, memory: Object.assign({}, Store.memory), sundayPinned: sundayPinned };
   sundayPinned = false;
   loopPaused = true;
   Store.forceMemory = true;
