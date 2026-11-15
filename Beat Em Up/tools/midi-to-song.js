@@ -31,11 +31,11 @@ const POWER_CHORD = [0, 7, 12];
 const BEGIN = '// song-data:begin';
 const END = '// song-data:end';
 
-// The stage soundtrack, in the order of the rotation. voices: [role, index of the track in the file]; the drums are the track on channel 10. The title of the file (its first track's name) is the name of the loop:
+// The stage soundtrack, in the order of the rotation. voices: [role, index of the track in the file, or a list of indexes of tracks that split one part (merged: one channel, one pitch range, no overlap)]; the drums are the track on channel 10. The title of the file (its first track's name) is the name of the loop:
 // a stage whose name equals it (without a trailing "Loop") plays it when the rotation allows. Roles are the instruments the game has (LOOP_VOICES in breakpoint.html).
 // melody: the level of the lead, chords and bass against the drums (1 = the instrument rows as they are); the three of the owner were set so that every loop is about as loud as the fight bed they replace (Appendix C, P19-18). A new file starts at 1.
 const LOOPS = [
-  { file: 'construction-site-loop.mid', voices: [['lead', 1], ['chords', 3], ['bass', 6]], melody: 1.8 },
+  { file: 'construction-site-loop.mid', voices: [['chords', [1, 2]], ['bass', 4]], melody: 1.8 },
   { file: 'parking-garage.mid', voices: [['lead', 1], ['chords', 3], ['bass', 6]], melody: 1 },
   { file: 'nightclub-loop.mid', voices: [['lead', 1], ['chords', 3], ['bass', 6]], melody: 0.6 },
 ];
@@ -177,11 +177,29 @@ function loopTicksOf(midi, label) {
   return { barTicks, ticks: Math.ceil(lastTick / barTicks) * barTicks, signature }; // the loop is the file's whole bars: the last bar may end in rests
 }
 
+// A voice is one track, or a list of tracks the file splits one part over (the owner's construction site file plays its chords on tracks 1 and 2).
+const trackIndexesOf = (index) => (Array.isArray(index) ? index : [index]);
+
+// The tracks of one voice as one track: they share one channel (the pitch wheel is per channel) and one pitch range, and no pitch sounds twice at once.
+function voiceTrackOf(midi, index, where) {
+  const tracks = trackIndexesOf(index).map((one) => midi.tracks[one]);
+  if (tracks.length === 1) return tracks[0];
+  const channels = [...new Set(tracks.flatMap((track) => track.channels))];
+  const ranges = new Set(tracks.map((track) => bendRangeOf(track, where)));
+  if (ranges.size > 1) throw new Error(where + ': the tracks of one voice set different pitch ranges');
+  const notes = tracks.flatMap((track) => track.notes).sort((x, y) => x.pitch - y.pitch || x.tick - y.tick);
+  for (let i = 1; i < notes.length; i++) {
+    const before = notes[i - 1], note = notes[i];
+    if (before.pitch === note.pitch && before.tick + before.length > note.tick) throw new Error(where + ': pitch ' + note.pitch + ' starts again before it ends, at ' + note.tick + ' (two tracks of one voice overlap)');
+  }
+  return { name: tracks[0].name, notes, lastTick: Math.max(...tracks.map((track) => track.lastTick)), bends: tracks.flatMap((track) => track.bends), controllers: tracks[0].controllers, channels };
+}
+
 function buildLoop(midi, entry) {
   const label = entry.file, { barTicks, ticks: loopTicks } = loopTicksOf(midi, label);
   const bpm = Math.round(60000000 / midi.tempo * 1000) / 1000;
-  const used = new Set(entry.voices.map(([, index]) => index));
-  entry.voices.forEach(([role, index]) => { if (!LOOP_ROLES.includes(role)) throw new Error(label + ': the role ' + role + ' has no instrument'); if (!midi.tracks[index]) throw new Error(label + ': there is no track ' + index); });
+  const used = new Set(entry.voices.flatMap(([, index]) => trackIndexesOf(index)));
+  entry.voices.forEach(([role, index]) => { if (!LOOP_ROLES.includes(role)) throw new Error(label + ': the role ' + role + ' has no instrument'); trackIndexesOf(index).forEach((one) => { if (!midi.tracks[one]) throw new Error(label + ': there is no track ' + one); }); });
   const drumTracks = midi.tracks.map((track, index) => [track, index]).filter(([track]) => track.notes.some((n) => n.channel === DRUM_CHANNEL));
   if (drumTracks.length !== 1) throw new Error(label + ': one track of drums (channel 10) expected, found ' + drumTracks.length);
   const [drumTrack, drumIndex] = drumTracks[0];
@@ -196,7 +214,7 @@ function buildLoop(midi, entry) {
   }
   const voices = [], counts = [];
   for (const [role, index] of entry.voices) {
-    const track = midi.tracks[index], where = label + ' ' + role;
+    const where = label + ' ' + role, track = voiceTrackOf(midi, index, where);
     if (track.channels.length > 1) throw new Error(where + ': notes on several channels (the pitch wheel is per channel)');
     if (track.channels[0] === DRUM_CHANNEL) throw new Error(where + ': a drum channel');
     const notes = track.notes.slice().sort((x, y) => x.tick - y.tick || x.pitch - y.pitch);
