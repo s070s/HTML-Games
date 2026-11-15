@@ -67,6 +67,7 @@ const Sound = {
   schedule: function () {
     if (!this.context || !this.trackId) return;
     const track = DATA.music[this.trackId];
+    if (!track) return; // a map can name a tune that was never written (the TV studio): it plays nothing
     const stepLength = 60 / track.bpm / track.stepsPerBeat;
     while (this.nextTime < this.context.currentTime + 0.25) {
       const position = trackPosition(track, this.step);
