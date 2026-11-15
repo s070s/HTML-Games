@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
+import { releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
 const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
@@ -4820,6 +4821,7 @@ test('build: one lock for every build; a lock whose process is gone is replaced,
     const second = acquireLock(folder);
     assert.match(second.note, /no longer runs/, 'a stale lock is removed with a note');
     second.release();
+    same(readdirSync(folder), [], 'the renamed stale lock is deleted too');
     writeFileSync(join(folder, '.lock'), '');
     assert.throws(() => acquireLock(folder), /a build is starting/, 'a lock that is still being written counts as a build');
   } finally {
@@ -4876,6 +4878,26 @@ test('build: assemble, test, then write index.html and the report (the hashes ma
   }
 });
 
+test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a filter in the parent cannot shrink the tested set', () => {
+  // The stub reports a smaller total whenever the child could see the filter, and fails when MZ_HTML is not the candidate page.
+  const stub = "import { readFileSync } from 'node:fs';\n"
+    + "const sawFilter = 'MZ_TEST_FILTER' in process.env;\n"
+    + "if (readFileSync(process.env.MZ_HTML, 'utf8').length < 1000) process.exit(9);\n"
+    + "console.log(sawFilter ? 'PASS 1 / 1' : 'PASS 7 / 7');\n";
+  const root = makeScratchRoot('build-filter', stub);
+  try {
+    const env = { ...process.env, MZ_TEST_FILTER: 'one test only', MZ_HTML: join(root, 'does-not-exist.html') };
+    const built = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root], { encoding: 'utf8', timeout: 120000, env });
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(report.tests.total, 7, 'the child ran without the filter');
+    assert.equal(report.status, 'ok');
+    assert.deepEqual(report.notes, [], 'the report carries the build notes');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
 const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
 const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
@@ -4908,8 +4930,13 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
     const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
 
+    const deadRun = spawnSync(process.execPath, ['-e', '0']); // its process id no longer runs: its leftover worktree folder is removed at the start
+    const deadWorktree = join(ITCH_UPLOAD_ROOT, `mizamon-src-${deadRun.pid}`);
+    mkdirSync(deadWorktree, { recursive: true });
+    writeFileSync(join(deadWorktree, 'leftover.txt'), 'from a killed run\n');
     const pushed = run();
     assert.equal(pushed.status, 0, pushed.stdout + pushed.stderr);
+    assert.ok(!existsSync(deadWorktree), 'the worktree folder of a process that is gone is removed');
     assert.ok(pushed.stdout.includes(`at ${reportCommit} `), 'the report commit is the upload version');
     const uploaded = join(ITCH_UPLOAD_ROOT, 'mizamon');
     same(readdirSync(uploaded), ['index.html'], 'the upload folder holds index.html only');
@@ -4930,9 +4957,15 @@ test('itch push of mizamon: assembles the commit in a temporary worktree, checks
     const untested = run();
     assert.equal(untested.status, 1);
     assert.match(untested.stderr, /status "untested"/);
-    writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: '0'.repeat(64) });
+    // The report of the current sources (so the source hash passes) with a wrong page hash: only the page-hash check can refuse it.
+    const current = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(current.status, 0, current.stderr);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash: JSON.parse(current.stdout).sourceHash, indexHtmlSha256: '0'.repeat(64) });
     commitAll(repo, 'a report with another page hash');
-    assert.match(run().stderr, /stale report|SHA-256/);
+    const wrongPage = run();
+    assert.equal(wrongPage.status, 1);
+    assert.match(wrongPage.stderr, /does not have the SHA-256/);
     same(leftoverWorktrees(), [], 'no worktree is left behind');
   } finally {
     rmSync(repo, { recursive: true, force: true });
@@ -4961,12 +4994,31 @@ test('itch push of mizamon: no report at the commit is refused; the other games 
   }
 });
 
+test('release script: runs the steps in order and stops at the first failure, saying which', () => {
+  const ran = [];
+  const logged = [];
+  const step = (label, ok) => ({ label, run: () => { ran.push(label); return ok ? { ok: true } : { ok: false, reason: 'exit code 1' }; } });
+  const outcome = runSteps([step('one', true), step('two', false), step('three', true)], (line) => logged.push(line));
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.failedStep, 2);
+  same(ran, ['one', 'two'], 'nothing runs after the failed step');
+  assert.match(logged.join('\n'), /step 2 of 3 \(two\) failed: exit code 1/);
+  assert.match(logged.join('\n'), /not run: three/);
+  assert.equal(runSteps([step('a', true), step('b', true)], () => {}).ok, true, 'all steps passing is a release');
+});
+
 // ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
 test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out']) {
+  for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out', 'node tools/release-mizamon.mjs']) {
     assert.ok(readme.includes(text), 'the README says: ' + text);
   }
+  // The release step is written once, word for word, in the README and in REFERENCE 13.5, and the script runs the same steps in order.
+  const releaseStep = 'node ~/.claude/scripts/heavy.mjs -- node Mizamon/tools/build.mjs && test -z "$(git status --porcelain -- Mizamon/src Mizamon/data Mizamon/shared Mizamon/tools)" && git add -- Mizamon/build/build-report.json && git commit -q -m "Mizamon: build report" -- Mizamon/build/build-report.json && git push origin main && node tools/itch-push.mjs mizamon';
+  assert.ok(readme.includes(releaseStep), 'the README has the release step word for word');
+  assert.ok(readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8').includes(releaseStep), 'REFERENCE has the release step word for word');
+  const steps = releaseSteps('unused', 'no-such-heavy-runner.mjs').map((step) => step.label);
+  same(steps, ['build (tests and build report)', 'check that the sources are committed', 'stage the build report', 'commit the build report', 'push main', 'upload to itch.io'], 'the release script has the same six steps in order');
   const oldPage = 'Mizamon' + '.html'; // spelled in two pieces so that this test does not name the file itself
   assert.ok(!readme.includes(oldPage), 'the README no longer opens the old single file');
   for (const kind of ['rules', 'engine']) {

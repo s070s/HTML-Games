@@ -23,7 +23,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -72,6 +72,30 @@ function removeWorktree(context, worktree) {
   }
 }
 
+function isProcessRunning(processId) {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM'; // it exists but belongs to someone else
+  }
+}
+
+// A run that was killed leaves its `<slug>-src-<pid>` worktree behind: remove every one whose process no longer runs.
+function removeDeadWorktrees(context, game) {
+  const leftoverName = new RegExp('^' + game.slug + '-src-(\\d+)$');
+  const names = existsSync(UPLOAD_ROOT) ? readdirSync(UPLOAD_ROOT) : [];
+  for (const name of names) {
+    const match = leftoverName.exec(name);
+    if (match && Number(match[1]) !== process.pid && !isProcessRunning(Number(match[1]))) removeWorktree(context, join(UPLOAD_ROOT, name));
+  }
+  try {
+    git(['worktree', 'prune'], { cwd: context.repo, stdio: 'ignore' });
+  } catch {
+    // nothing to prune
+  }
+}
+
 // Mizamon: checks the build report of the commit, assembles that commit's sources in a temporary worktree, and
 // refuses unless the source hash and the page's SHA-256 equal the report's. Writes <folder>/index.html.
 function assembleFromReport(context, game, folder) {
@@ -84,6 +108,7 @@ function assembleFromReport(context, game, folder) {
   const report = JSON.parse(reportText);
   if (report.status !== 'ok') throw new Error(`the build report at ${context.ref} has status "${report.status}", not "ok"`);
   const worktree = join(UPLOAD_ROOT, `${game.slug}-src-${process.pid}`);
+  removeDeadWorktrees(context, game);
   let printed;
   try {
     removeWorktree(context, worktree); // a leftover of a crashed run

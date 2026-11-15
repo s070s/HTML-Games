@@ -9,6 +9,7 @@
 // Exit codes: 0 built, 1 a problem and nothing written, 2 usage error, 3 input/output error.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,7 @@ const TEST_TIME_LIMIT_MS = 15 * 60 * 1000;
 const SIZE_WARN_BYTES = 4 * 1024 * 1024; // phone loading
 const SIZE_STOP_BYTES = 16 * 1024 * 1024;
 const SCRATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const RENAME_RETRY_WAITS_MS = [100, 200, 400, 800]; // 5 tries: antivirus may hold a file for a moment
 // The CSP of reference section 1: the page may load nothing and fetch nothing.
 const EXPECTED_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:";
 const CSP_META = /<meta http-equiv="Content-Security-Policy" content="([^"]*)">/;
@@ -64,11 +66,32 @@ export function acquireLock(folder) {
     }
     const holder = readLock(lockPath);
     if (holder && isProcessRunning(holder.pid)) throw new BuildError(`a build is running (since ${clockTime(holder.startedAt)})`);
-    if (!holder && Date.now() - statSync(lockPath).mtimeMs < STALE_UNREADABLE_LOCK_MS) throw new BuildError('a build is starting');
+    if (!holder && lockAgeMs(lockPath) < STALE_UNREADABLE_LOCK_MS) throw new BuildError('a build is starting');
+    // Two builds may both find the same stale lock: only one rename of it succeeds, then the exclusive create above decides.
+    try {
+      renameSync(lockPath, `${lockPath}.stale-${process.pid}-${randomBytes(4).toString('hex')}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error; // another build already moved it away: try the create again
+      continue;
+    }
     note = holder ? `removed the lock of process ${holder.pid}, which no longer runs` : 'removed an unreadable lock file';
-    rmSync(lockPath, { force: true });
+    removeStaleLocks(folder);
   }
   throw new BuildError('could not take the build lock');
+}
+
+function lockAgeMs(lockPath) {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs;
+  } catch {
+    return 0; // it just vanished: the owner is finishing or starting, so treat it as new
+  }
+}
+
+function removeStaleLocks(folder) {
+  for (const name of readdirSync(folder)) {
+    if (name.startsWith(`${LOCK_NAME}.stale-`)) rmSync(join(folder, name), { force: true });
+  }
 }
 
 function readLock(lockPath) {
@@ -107,8 +130,13 @@ function removeOldScratchFolders(scratchRoot) {
 // Runs run-tests.mjs of the built root on the candidate page (MZ_HTML) in a child process.
 function runRuleTests(root, pagePath) {
   return new Promise((resolveTests) => {
+    // The full run, always: a filter or a page path inherited from the parent would test a subset or another page.
+    const env = { ...process.env };
+    delete env.MZ_TEST_FILTER;
+    delete env.MZ_HTML;
+    env.MZ_HTML = pagePath;
     const child = spawn(process.execPath, [join(root, 'tools', 'run-tests.mjs')], {
-      env: { ...process.env, MZ_HTML: pagePath },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
@@ -137,8 +165,21 @@ export function writeBuildFiles(outFolder, htmlBytes, report) {
   const reportPath = join(outFolder, 'build-report.json');
   writeFileSync(`${pagePath}.tmp`, htmlBytes);
   writeFileSync(`${reportPath}.tmp`, JSON.stringify(report, null, 2) + '\n');
-  renameSync(`${pagePath}.tmp`, pagePath);
-  renameSync(`${reportPath}.tmp`, reportPath);
+  renameWithRetry(`${pagePath}.tmp`, pagePath);
+  renameWithRetry(`${reportPath}.tmp`, reportPath);
+}
+
+// Antivirus or an indexer can hold a file for a moment on Windows (EPERM, EBUSY): try again with short waits.
+function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      if ((error.code !== 'EPERM' && error.code !== 'EBUSY') || attempt >= RENAME_RETRY_WAITS_MS.length) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_RETRY_WAITS_MS[attempt]);
+    }
+  }
 }
 
 // Returns { exitCode, report, notes }. Throws nothing except for programming errors.
@@ -178,6 +219,7 @@ export async function runBuild({ root = MIZAMON_ROOT, out = join(root, 'build'),
       report.status = 'untested';
     }
     report.durationSeconds = Math.round((Date.now() - startedAt) / 100) / 10;
+    report.notes = notes;
     if (report.status === 'failed') return { exitCode: EXIT.problem, report, notes };
     if (!check) writeBuildFiles(out, htmlBytes, report);
     return { exitCode: EXIT.built, report, notes };
