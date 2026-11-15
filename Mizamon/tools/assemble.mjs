@@ -14,7 +14,7 @@ import { readData } from '../shared/data-files.mjs';
 
 export const MIZAMON_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // What the source hash covers besides src/ and data/ (reference section 13.5).
-const HASHED_FILES = ['shared/assemble-core.mjs', 'shared/data-files.mjs', 'shared/ids.mjs', 'shared/json-format.mjs', 'shared/schemas.mjs', 'shared/validate.mjs', 'tools/assemble.mjs', 'tools/build.mjs'];
+const HASHED_FILES = ['shared/assemble-core.mjs', 'shared/content-rules.mjs', 'shared/data-files.mjs', 'shared/ids.mjs', 'shared/json-format.mjs', 'shared/schemas.mjs', 'shared/validate.mjs', 'tools/assemble.mjs', 'tools/build.mjs'];
 const USAGE = 'usage: node Mizamon/tools/assemble.mjs --out <file> [--root <folder>]';
 
 function listFiles(folder, relativeFolder) {
@@ -36,22 +36,23 @@ function readFragments(root, kind) {
 }
 
 // The text for the data marker: the DATA line of data/ (13.2), or '' when the root has no data/ folder (a checkout from before DEV-02b).
-export function readDataBlock(root = MIZAMON_ROOT) {
+// options.checkVersion: false reads data of another dataVersion as it is (the baseline run of the agents' gate, 13.5).
+export function readDataBlock(root = MIZAMON_ROOT, options = {}) {
   if (!existsSync(join(root, 'data'))) return '';
-  return dataBlockText(readData(root).data);
+  return dataBlockText(readData(root, options).data);
 }
 
-export function readSources(root = MIZAMON_ROOT) {
+export function readSources(root = MIZAMON_ROOT, options = {}) {
   return {
     shell: readFileSync(join(root, 'src', 'shell.html'), 'utf8'),
-    data: readDataBlock(root),
+    data: readDataBlock(root, options),
     rules: readFragments(root, 'rules'),
     engine: readFragments(root, 'engine'),
   };
 }
 
-export function assembleFromDisk(root = MIZAMON_ROOT) {
-  return assemblePage(readSources(root));
+export function assembleFromDisk(root = MIZAMON_ROOT, options = {}) {
+  return assemblePage(readSources(root, options));
 }
 
 export function sourceHashFromDisk(root = MIZAMON_ROOT) {

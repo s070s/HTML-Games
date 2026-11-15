@@ -20,19 +20,44 @@ async function chooseBattleCommand(labelKey) {
   Input.inject('a', 2); await pumpFrames(3);
   return found;
 }
-async function selfTest() {
+// The checks have tiers (reference 13.5): engine (the mechanics, which name content ids that the canon copy of the data always has),
+// integrity (references and layout that must hold for any data) and content (the world as built). selfTest({ tiers: [...] }) runs only
+// the groups of checks (guards) that have one of the named tiers; without tiers it runs all three. Every guard names its tiers. A check
+// takes the tier of its guard, or gets one as its fourth argument when its guard has more than one.
+const SELF_TEST_TIERS = ['engine', 'integrity', 'content'];
+function makeSelfTestRunner(tiers) {
+  const wanted = tiers === undefined || tiers === null ? SELF_TEST_TIERS.slice() : tiers;
+  if (!Array.isArray(wanted) || wanted.some(function (tier) { return !SELF_TEST_TIERS.includes(tier); })) throw new Error('selfTest: tiers must be a list of ' + SELF_TEST_TIERS.join(', '));
   const results = [];
-  const check = function (name, pass, detail) { results.push({ name: name, pass: !!pass, detail: detail === undefined ? '' : String(detail) }); };
+  let guardTiers = [];
+  const firstWanted = function (list) { return list.find(function (tier) { return wanted.includes(tier); }); };
+  const check = function (name, pass, detail, tier) {
+    const chosen = tier !== undefined ? tier : (guardTiers.length === 1 ? guardTiers[0] : null);
+    const shownDetail = detail === undefined ? '' : String(detail);
+    if (SELF_TEST_TIERS.includes(chosen)) results.push({ name: name, tier: chosen, pass: !!pass, detail: shownDetail });
+    else results.push({ name: name, tier: firstWanted(guardTiers) || wanted[0], pass: false, detail: 'the check has no tier (a guard with several tiers needs one per check) ' + shownDetail });
+  };
+  const guard = async function (name, tiersOfGuard, fn) {
+    if (firstWanted(tiersOfGuard) === undefined) return;
+    guardTiers = tiersOfGuard;
+    try { await fn(); } catch (error) { check(name, false, 'exception: ' + (error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error), firstWanted(tiersOfGuard)); }
+    guardTiers = [];
+  };
+  const finish = function () { return results.filter(function (result) { return wanted.includes(result.tier); }); };
+  return { check: check, guard: guard, finish: finish };
+}
+async function selfTest() { // selfTest({ tiers: ['engine'] }): the one argument is read from `arguments`
+  const options = arguments[0];
+  const runner = makeSelfTestRunner(options && options.tiers);
+  const check = runner.check;
+  const guard = runner.guard;
   const snapshot = { G: G, layers: layers.slice(), OPT: Object.assign({}, OPT), forceMemory: Store.forceMemory, touchForced: touchForced, loopPaused: loopPaused, memory: Object.assign({}, Store.memory), sundayPinned: sundayPinned };
   sundayPinned = false;
   loopPaused = true;
   Store.forceMemory = true;
   Store.memory = {};
-  const guard = async function (name, fn) {
-    try { await fn(); } catch (error) { check(name, false, 'exception: ' + (error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error)); }
-  };
   try {
-    await guard('rules', async function () {
+    await guard('rules', ['engine'], async function () {
       check('chart has 7x7 entries', TYPE_IDS.every(function (a) { return TYPE_IDS.every(function (d) { return [0.5, 1, 2].includes(TYPE_CHART[a][d]); }); }));
       const attacker = makeMon('komma', 10);
       const defender = makeMon('fakelakis', 10);
@@ -41,15 +66,17 @@ async function selfTest() {
       const a = simulateBattle([makeMon('komma', 8)], [makeMon('eforaki', 8)], makeRng(7), {});
       const b = simulateBattle([makeMon('komma', 8)], [makeMon('eforaki', 8)], makeRng(7), {});
       check('seeded battle replays identically', a.checksum === b.checksum && a.winner === b.winner, a.checksum);
+    });
+    await guard('strings', ['integrity', 'content'], async function () {
       const keys = Object.keys(STRINGS);
-      check('every string has Greek and English', keys.every(function (key) { return STRINGS[key][0] && STRINGS[key][1]; }), keys.length + ' keys');
+      check('every string has Greek and English', keys.every(function (key) { return STRINGS[key][0] && STRINGS[key][1]; }), keys.length + ' keys', 'content');
       const source = Array.prototype.map.call(document.scripts, function (s) { return s.textContent; }).join('\n');
       const used = new Set();
       source.replace(/\b(?:T|say|sayAll|askYesNo)\('([A-Za-z0-9_.]*[A-Za-z0-9_])'/g, function (all, key) { used.add(key); return all; });
       const missing = Array.from(used).filter(function (key) { return !STRINGS[key]; });
-      check('every string key used in the code exists', missing.length === 0, missing.join(','));
+      check('every string key used in the code exists', missing.length === 0, missing.join(','), 'integrity');
     });
-    await guard('sprites', async function () {
+    await guard('sprites', ['integrity'], async function () {
       const blank = [];
       for (const id of Object.keys(SPECIES)) {
         const data = creatureSprite(id).getContext('2d').getImageData(0, 0, 32, 32).data;
@@ -59,22 +86,26 @@ async function selfTest() {
       }
       check('all creature sprites are drawn', blank.length === 0, blank.join(','));
     });
-    await guard('new game', async function () {
+    // The setup of the groups after it, so it runs for every tier; a game can start on any data, so its checks are integrity checks.
+    await guard('new game', ['engine', 'integrity', 'content'], async function () {
       layers.length = 0;
       G = null;
       titleFlow();
       const reached = await pumpUntil(function () { return layers.some(function (l) { return l instanceof OverworldLayer; }) && Fade.alpha === 0; }, 3000, 'a', 7);
-      check('title, notice, new game reaches the overworld', reached && !!G && G.party.length === 1, G ? G.player.name + ' ' + G.player.map : 'no state');
+      check('title, notice, new game reaches the overworld', reached && !!G && G.party.length === 1, G ? G.player.name + ' ' + G.player.map : 'no state', 'integrity');
+      // A new game seeds its random numbers from the clock; the fights of the later checks must not depend on the time of the run
+      // (a run of only some tiers skips the recruit check, which seeds them again).
+      if (G) G.rng = makeRng(1234);
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       if (world) {
         await pumpFrames(5);
         const before = world.px;
         Input.inject('left', 14);
         await pumpFrames(30);
-        check('player walks', world.px < before, before + ' -> ' + world.px);
+        check('player walks', world.px < before, before + ' -> ' + world.px, 'integrity');
       }
     });
-    await guard('battle', async function () {
+    await guard('battle', ['engine'], async function () {
       if (!G) throw new Error('no game');
       G.party[0].lv = 20; G.party[0].xp = xpForLevel(20); G.party[0].hp = maxHp(G.party[0]);
       const xpBefore = G.party[0].xp;
@@ -84,7 +115,7 @@ async function selfTest() {
       check('battle commands carry the debate labels', ROOT_LABELS.map(function (key) { return lookupString(key, 'en'); }).join('/') === 'Speech/Bag/Party/Flee');
       check('scripted battle is won through the UI', result === 'win' && G.party[0].xp > xpBefore, result + ' xp ' + xpBefore + ' -> ' + G.party[0].xp);
     });
-    await guard('recruit', async function () {
+    await guard('recruit', ['engine'], async function () {
       if (!G) throw new Error('no game');
       let success = false;
       let detail = '';
@@ -106,7 +137,7 @@ async function selfTest() {
       }
       check('recruit success path adds the creature and the dossier entry', success && G.dex.got.fakelakis, detail);
     });
-    await guard('hospital', async function () {
+    await guard('hospital', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -162,7 +193,7 @@ async function selfTest() {
       await pumpUntil(function () { return !world.busy; }, 300, null, 1);
       check('the archive menu closes and the world is free again', !world.busy && !(topLayer() instanceof ChoiceLayer));
     });
-    await guard('save', async function () {
+    await guard('save', ['engine'], async function () {
       if (!G) throw new Error('no game');
       G.money = 4321; G.flags.testFlag = true;
       G.archive = [makeMon('storoula', 4)];
@@ -176,13 +207,13 @@ async function selfTest() {
       check('the visited places survive a save and load', !!copy && copy.world.visited.newPeiraias === 1, copy ? JSON.stringify(copy.world) : 'null');
       G.archive = [];
     });
-    await guard('language', async function () {
+    await guard('language', ['engine'], async function () {
       OPT.lang = 'el'; const greek = T('menu.bag');
       OPT.lang = 'en'; const english = T('menu.bag');
       OPT.lang = 'el';
       check('language toggle changes the strings', greek !== english && english === 'Bag', greek + ' / ' + english);
     });
-    await guard('touch', async function () {
+    await guard('touch', ['engine'], async function () {
       touchForced = true; resizeScreen();
       const buttons = Array.from(touchPad.querySelectorAll('[data-btn]'));
       const shown = touchPad.style.display !== 'none' && buttons.length >= 7;
@@ -224,7 +255,7 @@ async function selfTest() {
       check('touch controls exist when forced on', shown);
       check('no touch button covers the game (' + window.innerWidth + 'x' + window.innerHeight + ')', covering.length === 0, covering.join(','));
     });
-    await guard('map screen', async function () {
+    await guard('map screen', ['engine'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -336,7 +367,7 @@ async function selfTest() {
       OPT.lang = language; resetTextCache();
       check('the title bar with the badge pips and every info line fit in 232 px in both languages', wide.length === 0, wide.join(' | '));
     });
-    await guard('piraeus rework', async function () {
+    await guard('piraeus rework', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -436,7 +467,7 @@ async function selfTest() {
       check('the chapter card and the badge texts fit the screen in both languages', tooWide.length === 0, tooWide.join(','));
       check('the studio opens on the credits flag (old saves lose nothing)', warpOpen(MAPS.town.warps.find(function (w) { return w.to === 'studio'; }), G.flags));
     });
-    await guard('notia', async function () {
+    await guard('notia', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -593,7 +624,7 @@ async function selfTest() {
       await pumpUntil(function () { return G.party[0].sp === 'vouleftakos' && topLayer() === world; }, 600, null, 1);
       check('a Κομματάκι of level 16 evolves into the Βουλευτάκος and the dossier knows it', G.party[0].sp === 'vouleftakos' && G.dex.got.vouleftakos === true, G.party[0].sp);
     });
-    await guard('anatolika', async function () {
+    await guard('anatolika', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -747,7 +778,7 @@ async function selfTest() {
       }
       check('the three evolutions of 11.3 happen through the game (Δημοσιοϋπαλληλάκι 20, Story-ούλα 22, Κρυπτο-Μάκης 26) and the dossier knows the new forms', evolved.length === 0, evolved.join(','));
     });
-    await guard('voreia', async function () {
+    await guard('voreia', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -908,7 +939,7 @@ async function selfTest() {
       }
       check('the five evolutions of 11.3 happen through the game (Λαϊκατζής 27, Εφοπλιστάκος 30, the three starters 32) and the dossier knows the new forms', evolved.length === 0, evolved.join(','));
     });
-    await guard('dytika', async function () {
+    await guard('dytika', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -1089,7 +1120,7 @@ async function selfTest() {
       }
       check('the four evolutions of 11.15 happen through the game (Καφενόβιος, Γιαγιάκα, Εφοράκι, Μοναστηριάκι) and the dossier knows the new forms', evolved.length === 0, evolved.join(','));
     });
-    await guard('athina', async function () {
+    await guard('athina', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -1275,7 +1306,7 @@ async function selfTest() {
       OPT.lang = language;
       check('the Assembly Medal texts and the names of the new maps fit in both languages', tooWide.length === 0, tooWide.join(','));
     });
-    await guard('parliament', async function () {
+    await guard('parliament', ['content'], async function () {
       if (!G) throw new Error('no game');
       const world = layers.find(function (l) { return l instanceof OverworldLayer; });
       const topLayer = function () { return layers[layers.length - 1]; };
@@ -1474,7 +1505,7 @@ async function selfTest() {
       check('the last line of the credits has scrolled fully onto the screen before the roll closes (and is not yet gone when it does)', lastY >= 0 && lastY <= SCREEN_H - 12 && creditsLineY(0, lastLine) > SCREEN_H, 'y ' + lastY);
       Sound.play(MAPS.parliament_roof.music);
     });
-    await guard('map touch button', async function () {
+    await guard('map touch button', ['engine'], async function () {
       // The ΧΑΡΤΗΣ pill: shown, inside the window, off the game picture and clear of every other button (checked in the layout this window has).
       touchForced = true; resizeScreen();
       const map = touchPad.querySelector('[data-btn="map"]');
@@ -1497,7 +1528,7 @@ async function selfTest() {
       check('the map touch button is reachable and clear of the other buttons (' + window.innerWidth + 'x' + window.innerHeight + ')', inside && !onGame && overlaps.length === 0 && pressed && released,
         'inside ' + inside + ' onGame ' + onGame + ' overlaps ' + overlaps.join(',') + ' pressed ' + pressed + ' released ' + released);
     });
-    await guard('accessibility', async function () { await accessibilityChecks(check); });
+    await guard('accessibility', ['engine'], async function () { await accessibilityChecks(check); });
   } finally {
     layers.length = 0;
     for (const layer of snapshot.layers) layers.push(layer);
@@ -1512,6 +1543,6 @@ async function selfTest() {
     Fade.alpha = 0;
     loopPaused = snapshot.loopPaused;
   }
-  return results;
+  return runner.finish();
 }
 
