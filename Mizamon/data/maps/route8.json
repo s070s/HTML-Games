@@ -22,7 +22,17 @@
   "warps": [{ "x": 43, "y": 6, "to": "kifisia", "tx": 1, "ty": 9 }, { "x": 0, "y": 6, "to": "marousi", "tx": 26, "ty": 9 }],
   "signs": { "41,4": "sign.route8", "17,7": "sign.roundabout", "3,4": "sign.marousi.road" },
   "npcs": [
-    { "id": "rival4", "x": 34, "y": 7, "face": "up", "look": "rival", "kind": "trainer", "trainer": "rival4", "sight": 2 },
+    {
+      "id": "rival4",
+      "x": 34,
+      "y": 7,
+      "face": "up",
+      "look": "rival",
+      "kind": "trainer",
+      "trainer": "rival4",
+      "sight": 2,
+      "hideFlag": "t_rival4"
+    },
     {
       "id": "lobbyist",
       "x": 13,

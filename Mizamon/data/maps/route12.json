@@ -44,7 +44,17 @@
       "trainer": "busker",
       "sight": 2
     },
-    { "id": "rival5", "x": 35, "y": 7, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival5", "sight": 2 },
+    {
+      "id": "rival5",
+      "x": 35,
+      "y": 7,
+      "face": "down",
+      "look": "rival",
+      "kind": "trainer",
+      "trainer": "rival5",
+      "sight": 2,
+      "hideFlag": "t_rival5"
+    },
     { "id": "avmarket", "x": 24, "y": 11, "face": "up", "look": "marketeer", "kind": "talk", "text": "npc.avenue1" },
     { "id": "avpigeon", "x": 21, "y": 6, "face": "right", "look": "oldwoman", "kind": "talk", "text": "npc.avenue2" }
   ],

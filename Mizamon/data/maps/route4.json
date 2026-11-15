@@ -29,7 +29,17 @@
   "signs": { "2,7": "sign.route4", "33,7": "sign.glyfada" },
   "npcs": [
     { "id": "surfer", "x": 9, "y": 7, "face": "down", "look": "surfer", "kind": "trainer", "trainer": "surfer", "sight": 2 },
-    { "id": "rival3", "x": 20, "y": 6, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival3", "sight": 2 },
+    {
+      "id": "rival3",
+      "x": 20,
+      "y": 6,
+      "face": "down",
+      "look": "rival",
+      "kind": "trainer",
+      "trainer": "rival3",
+      "sight": 2,
+      "hideFlag": "t_rival3"
+    },
     { "id": "golfer", "x": 30, "y": 10, "face": "up", "look": "golfer", "kind": "trainer", "trainer": "golfer", "sight": 3 },
     { "id": "airfieldworker", "x": 15, "y": 10, "face": "down", "look": "fan", "kind": "talk", "text": "npc.airfield1" },
     { "id": "planewatcher", "x": 5, "y": 12, "face": "up", "look": "oldman", "kind": "talk", "text": "npc.airfield2" }

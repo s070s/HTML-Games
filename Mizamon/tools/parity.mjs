@@ -4,7 +4,8 @@
 //
 //   node Mizamon/tools/parity.mjs --write <folder> [--root <Mizamon folder>] [--balance-runs <n>]
 //
-// writes rules-tables.json, replay.json, migrated-saves.json, sound-calls.json and balance-output.txt into <folder>.
+// writes rules-tables.json (the tables of RULES, the old engine sound tables and what the old code named: oldEngineConstants),
+// replay.json, migrated-saves.json, sound-calls.json and balance-output.txt into <folder>.
 // Node built-ins only.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -54,6 +55,89 @@ export function typeColorsOfOldPage(page) {
   const found = /^const TYPE_COLORS = (\{.*\});$/m.exec(page);
   if (!found) throw new Error('no TYPE_COLORS line in the page');
   return JSON.parse(JSON.stringify(new vm.Script('(' + found[1] + ')').runInNewContext({})));
+}
+
+// ---- What the old code named, and the people the old code hid -------------------------------------------------------------------
+// Before DEV-02b the engine typed the title creatures, the battle background of a map, the tune and sound names, the finale spot and
+// the rival's "leaves the map" rule in its code. They are data now (data/game.json, the hideFlag of an NPC). The tables of RULES do
+// not hold them, so this reads them from the OLD page's code (the baseline commit), and the tests compare the data with the result.
+const oldCode = (page) => page.slice(page.indexOf('// ENGINE: everything below'));
+const evaluate = (expression) => JSON.parse(JSON.stringify(new vm.Script('(' + expression + ')').runInNewContext({})));
+function findInCode(code, pattern, what) {
+  const found = pattern.exec(code);
+  if (!found) throw new Error('the old page has no ' + what + ' (the baseline must be made from the commit before DEV-02b)');
+  return found;
+}
+// The texts of the arguments of every Sound.sfx( or Sound.play( call, up to the matching bracket.
+function soundCallArguments(code, method) {
+  const found = [];
+  for (let at = code.indexOf(`Sound.${method}(`); at >= 0; at = code.indexOf(`Sound.${method}(`, at + 1)) {
+    let depth = 0;
+    let end = at + `Sound.${method}`.length;
+    do {
+      if (code[end] === '(') depth++;
+      if (code[end] === ')') depth--;
+      end++;
+    } while (depth > 0 && end < code.length);
+    found.push(code.slice(at + `Sound.${method}(`.length, end - 1));
+  }
+  return found;
+}
+const quotedWords = (texts) => [...new Set(texts.flatMap((text) => [...text.matchAll(/'([a-z]+)'/g)].map((match) => match[1])))].sort();
+
+// rules: the rules of the old page (loadRulesWithInternals). Returns plain JSON.
+export function oldEngineConstants(page, rules) {
+  const code = oldCode(page);
+  const mapIds = Object.keys(rules.MAPS);
+  const themeOf = new vm.Script('(function (mapId) { return ' + findInCode(code, /^\s*const theme = ([^;\n]*mapId[^;\n]*);/m, 'battle theme line')[1] + '; })').runInNewContext({});
+  const titleCalls = soundCallArguments(code, 'play').filter((text) => /^'title'$/.test(text)); // the title, chapter and credits screens
+  const bossBattle = findInCode(code, /Sound\.play\(trainer && trainer\.boss \? '([a-z]+)' : '([a-z]+)'\)/, 'boss and battle tune line');
+  const fallback = findInCode(code, /Sound\.play\(world \? world\.map\.music : '([a-z]+)'\)/, 'fallback tune line');
+  const finaleAt = findInCode(code, /OverworldLayer\.prototype\.finale = async function/, 'finale function').index;
+  const finaleSpot = findInCode(code.slice(finaleAt), /await this\.teleport\((\{ map: '[a-z_]+'[^}]*\})\)/, 'finale teleport');
+  const flags = new Set(Object.keys(rules.TRAINERS).map((id) => 't_' + id));
+  for (const map of Object.values(rules.MAPS)) for (const npc of map.npcs) for (const flag of [npc.showFlag, npc.hideFlag]) if (flag) flags.add(flag);
+  const flagNames = [...flags].sort();
+  return {
+    titleCreatureIds: evaluate(findInCode(code, /^const TITLE_CREATURE_IDS = (\[.*\]);$/m, 'TITLE_CREATURE_IDS line')[1]),
+    battleThemes: Object.fromEntries(mapIds.map((mapId) => [mapId, themeOf(mapId)])),
+    sfxNames: quotedWords(soundCallArguments(code, 'sfx')),
+    playNames: quotedWords(soundCallArguments(code, 'play')),
+    musicRoles: { title: titleCalls.length > 0 ? titleCalls[0].slice(1, -1) : null, battle: bossBattle[2], boss: bossBattle[1], fallback: fallback[1] },
+    spots: { startMap: JSON.parse(JSON.stringify(rules.START_MAP)), hospitalSpot: JSON.parse(JSON.stringify(rules.HOSPITAL_SPOT)), finaleSpot: evaluate(finaleSpot[1]) },
+    visibility: { flags: flagNames, npcs: visibilityProbe(rules, flagNames) },
+  };
+}
+
+// Who is on the map under which flags: for every NPC of every map, whether it shows with no flag, with every flag, and the flags that
+// change it when set alone. The old code hid the rival's later fights by a rule in npcVisible; the data does it with a hideFlag.
+export function visibilityProbe(rules, flagNames) {
+  const everyFlag = Object.fromEntries(flagNames.map((name) => [name, true]));
+  const npcs = {};
+  for (const [mapId, map] of Object.entries(rules.MAPS)) {
+    map.npcs.forEach((npc, index) => {
+      const noFlags = rules.npcVisible(npc, {});
+      const changedBy = flagNames.filter((name) => rules.npcVisible(npc, { [name]: true }) !== noFlags);
+      npcs[`${mapId}:${index}:${npc.id}`] = [noFlags, rules.npcVisible(npc, everyFlag), changedBy];
+    });
+  }
+  return npcs;
+}
+
+// The problems of the data against the baseline constants (an empty list = the data names what the old code named).
+export function engineConstantProblems(data, constants) {
+  const problems = [];
+  const expect = (label, actual, expected) => { if (JSON.stringify(actual) !== JSON.stringify(expected)) problems.push(`${label}: ${JSON.stringify(actual)} instead of ${JSON.stringify(expected)}`); };
+  expect('titleCreatures (the order is the order on the title screen)', data.game.titleCreatures, constants.titleCreatureIds);
+  const baselineMaps = Object.keys(constants.battleThemes);
+  expect('the maps', Object.keys(data.maps), baselineMaps);
+  for (const mapId of baselineMaps) expect('the battle background of ' + mapId, data.game.battleThemes[mapId] || 'grass', constants.battleThemes[mapId]);
+  expect('music roles', ['title', 'battle', 'boss', 'fallback'].map((role) => data.game.music[role]), ['title', 'battle', 'boss', 'fallback'].map((role) => constants.musicRoles[role]));
+  for (const name of constants.sfxNames) expect('the sound role ' + name, data.game.sounds[name], name);
+  expect('every sound the old engine named is a sound effect', constants.sfxNames.filter((name) => !Object.hasOwn(data.sounds, name)), []);
+  expect('every tune the old engine named is a tune', constants.playNames.filter((name) => !Object.hasOwn(data.music, name)), []);
+  for (const spot of ['startMap', 'hospitalSpot', 'finaleSpot']) expect(spot, data.game[spot], constants.spots[spot]);
+  return problems;
 }
 
 // ---- Replays --------------------------------------------------------------------------------------------------------------------
@@ -253,7 +337,7 @@ function main() {
   // The old sound tables, as JSON, so the new data format can be compared with them as well.
   const engineText = page.slice(page.indexOf('// ENGINE: everything below'));
   const oldSound = new vm.Script(`${engineText.slice(engineText.indexOf('const MUSIC_TRACKS'), engineText.indexOf('const Sound = {'))}\n({ MUSIC_TRACKS, SFX_PATTERNS })`).runInNewContext({});
-  write('rules-tables.json', { tables, engineTables: JSON.parse(JSON.stringify(oldSound)) });
+  write('rules-tables.json', { tables, engineTables: JSON.parse(JSON.stringify(oldSound)), engineConstants: oldEngineConstants(page, rules) });
   write('replay.json', replaySummary(rules));
   write('migrated-saves.json', migratedSaves(rules));
   const soundSource = readFileSync(join(root, 'src', 'engine', '06-sound.js'), 'utf8');

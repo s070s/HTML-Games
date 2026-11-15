@@ -21,7 +21,7 @@ import { MARKER_TEXTS, markerTextFindings } from '../shared/validate.mjs';
 import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
 import { acquireLock, checkPage } from './build.mjs';
 import { migrateData } from './migrate-data.mjs';
-import { BALANCE_RUNS, balanceOutput, dataBlockOf, loadRulesWithInternals, makeFakeAudio, migratedSaves, replaySummary, soundCalls, tableSnapshot } from './parity.mjs';
+import { BALANCE_RUNS, balanceOutput, dataBlockOf, engineConstantProblems, loadRulesWithInternals, makeFakeAudio, migratedSaves, replaySummary, soundCalls, tableSnapshot, visibilityProbe } from './parity.mjs';
 import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
 const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
@@ -177,6 +177,8 @@ function firstDifference(actual, expected, path = '') {
   return `${path || 'value'} differs`;
 }
 const sameJson = (actual, expected, label) => assert.equal(firstDifference(actual, expected), null, label);
+// The NPC of a trainer on the maps (the rival who leaves has a hideFlag in the map data, so the tests ask the real NPC).
+const npcOfTrainer = (trainerId) => Object.values(R.MAPS).flatMap((map) => map.npcs).find((npc) => npc.trainer === trainerId);
 const sortedEntries = (table) => Object.entries(table).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 const BASELINE_FOLDER = join(MIZAMON_ROOT, 'tests', 'baseline');
 const readBaselineFile = (name) => JSON.parse(readFileSync(join(BASELINE_FOLDER, name), 'utf8'));
@@ -1983,8 +1985,8 @@ test('Νότια species: Καφενόβιος and the three middle starter form
     assert.equal(team[team.length - 1].lv, 18);
   }
   assert.equal(R.TRAINERS.rival3.team[R.TRAINERS.rival3.team.length - 1].lv, R.TRAINERS.bougatsas.team[R.TRAINERS.bougatsas.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival3' }, { t_rival3: true }), false, 'he leaves after the third fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival3'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival3'), { t_rival3: true }), false, 'he leaves after the third fight');
   // stat boost: only creatures that carry one; the formula for everybody else is the old one
   const plain = R.makeMon('giagiaka', 20);
   const boosted = R.makeMon('giagiaka', 20, 1.3);
@@ -2745,8 +2747,8 @@ test('Βόρεια trainers: seven trainers with names in the strings, levels 27
     assert.equal(team[team.length - 1].lv, 30);
   }
   assert.equal(R.TRAINERS.rival4.team[R.TRAINERS.rival4.team.length - 1].lv, R.TRAINERS.amartia.team[R.TRAINERS.amartia.team.length - 1].lv - 2, 'the rival: the boss top level minus 2');
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival4' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival4' }, { t_rival4: true }), false, 'he leaves after the fourth fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival4'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival4'), { t_rival4: true }), false, 'he leaves after the fourth fight');
   const replay = (seed) => {
     const rng = R.makeRng(seed);
     const lines = [];
@@ -3511,8 +3513,8 @@ test('Αθήνα trainers: eight trainers with names in the strings, levels 39-4
     assert.equal(team[team.length - 1].sp, R.SPECIES[R.RIVAL_STARTER[starter]].evo.to, 'his last creature is the middle form of the starter he took');
   }
   same(R.TRAINERS.rival5.items, ['souvlaki']);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival5' }, {}), true);
-  assert.equal(R.npcVisible({ kind: 'trainer', trainer: 'rival5' }, { t_rival5: true }), false, 'he leaves after the fifth fight');
+  assert.equal(R.npcVisible(npcOfTrainer('rival5'), {}), true);
+  assert.equal(R.npcVisible(npcOfTrainer('rival5'), { t_rival5: true }), false, 'he leaves after the fifth fight');
   const replay = (seed) => {
     const rng = R.makeRng(seed);
     const lines = [];
@@ -5326,6 +5328,16 @@ test('DEV-02b parity: every rules table equals the baseline, key order included 
   const current = tableSnapshot(loadRulesWithInternals(html));
   const names = Object.keys(baseline.tables);
   assert.ok(names.length >= 60, 'the baseline has its tables: ' + names.length);
+  // The one intended difference in MAPS: the rival's later fights hid their NPC by a rule in npcVisible; the NPC has a hideFlag now.
+  // The baseline lists those NPCs (hidden by a flag that no NPC field named); the visibility test below proves who hides when.
+  const hiddenByRule = Object.entries(baseline.engineConstants.visibility.npcs).filter(([key, [, , changedBy]]) => changedBy.some((flag) => flag.startsWith('t_')) && baseline.tables.MAPS[key.split(':')[0]].npcs[Number(key.split(':')[1])].hideFlag === undefined);
+  assert.equal(hiddenByRule.length, 4, 'the rival of the routes 1, 4, 8 and 12 left by a rule of the code');
+  for (const [key] of hiddenByRule) {
+    const [mapId, index] = key.split(':');
+    const npc = current.MAPS[mapId].npcs[Number(index)];
+    assert.equal(npc.hideFlag, 't_' + npc.trainer, key + ' has the hideFlag of the old rule');
+    delete npc.hideFlag;
+  }
   for (const name of names) {
     if (name === 'STRINGS') {
       assert.equal(Object.keys(current.STRINGS).length, Object.keys(baseline.tables.STRINGS).length, 'the number of texts');
@@ -5349,6 +5361,36 @@ test('DEV-02b parity: every rules table equals the baseline, key order included 
     sameJson([tune.bpm, tune.patterns.a.notes[0], tune.patterns.a.notes[1]], [track.bpm, track.lead, track.bass], 'tune ' + id);
     sameJson([tune.stepsPerBeat, tune.order, tune.loop, tune.channels.map((channel) => [channel.wave, channel.vol, channel.gate])], [2, ['a'], true, [['square', 0.045, 0.9], ['triangle', 0.09, 1.6]]], 'the channels of ' + id);
   }
+});
+
+test('DEV-02b parity: what the old engine code named (title creatures, battle backgrounds, tunes, sounds, spots) is the same in data/game.json, and every NPC shows and hides under the same flags', () => {
+  const constants = readBaselineFile('rules-tables.json').engineConstants;
+  const data = dataOfPage(html);
+  assert.equal(constants.titleCreatureIds.length, 6, 'the baseline has the title creatures');
+  assert.equal(Object.keys(constants.battleThemes).length, Object.keys(data.maps).length, 'the baseline has the battle background of every map');
+  assert.equal(constants.sfxNames.length, 19, 'the baseline has the 19 sound names of the old engine');
+  same(engineConstantProblems(data, constants), [], 'the data names what the old code named');
+  sameJson(visibilityProbe(R, constants.visibility.flags), constants.visibility.npcs, 'who shows under which flag (no flag, every flag, each flag alone)');
+});
+
+test('DEV-02b parity: the check of those constants fails for a reordered title list, a changed battle background, boss tune, sound role or spot, and for an NPC that lost its hideFlag', () => {
+  const constants = readBaselineFile('rules-tables.json').engineConstants;
+  const data = dataOfPage(html);
+  const problemsAfter = (change) => {
+    const copy = JSON.parse(JSON.stringify(data));
+    change(copy);
+    return engineConstantProblems(copy, constants);
+  };
+  assert.match(problemsAfter((copy) => copy.game.titleCreatures.reverse()).join('\n'), /titleCreatures/, 'a reordered title list');
+  assert.match(problemsAfter((copy) => { copy.game.battleThemes.port = 'studio'; }).join('\n'), /battle background of port/, 'the port background');
+  assert.match(problemsAfter((copy) => { delete copy.game.battleThemes.studio; }).join('\n'), /battle background of studio/, 'a map that lost its background');
+  assert.match(problemsAfter((copy) => { copy.game.music.boss = 'battle'; }).join('\n'), /music roles/, 'the boss tune');
+  assert.match(problemsAfter((copy) => { copy.game.sounds.hit = 'weak'; }).join('\n'), /sound role hit/, 'a sound role');
+  assert.match(problemsAfter((copy) => { copy.game.finaleSpot.x = 5; }).join('\n'), /finaleSpot/, 'the finale spot');
+  // an NPC that no longer hides after its fight shows in the visibility probe
+  const maps = JSON.parse(JSON.stringify(R.MAPS));
+  for (const map of Object.values(maps)) for (const npc of map.npcs) if (npc.trainer === 'rival3') delete npc.hideFlag;
+  assert.notEqual(firstDifference(visibilityProbe({ MAPS: maps, npcVisible: R.npcVisible }, constants.visibility.flags), constants.visibility.npcs), null, 'a rival who stays on the map is found');
 });
 
 test('DEV-02b parity: the replay checksums (1,000 battles, every trainer for each starter, the encounter rolls) equal the baseline', () => {

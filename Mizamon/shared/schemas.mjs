@@ -52,7 +52,6 @@ const gameSchema = object({
   startBag: dict(int('Count', 'Πλήθος', 'How many.', { min: 0 }), 'Starting bag', 'Αρχική τσάντα', 'The items of a new game (item id: count).'),
   starters: list(ref('species', 'Species', 'Είδος', 'A starter.'), 'Starters', 'Αρχικά', 'The creatures the professor offers.'),
   rivalStarter: dict(ref('species', 'Rival creature', 'Πλάσμα αντιπάλου', 'The creature the rival picks.'), 'Rival table', 'Πίνακας αντιπάλου', 'The starter the rival copies for each starter of the player.'),
-  leavingTrainers: list(ref('trainers', 'Trainer', 'Προπονητής', 'A trainer who leaves the map after the fight.'), 'Trainers who leave', 'Προπονητές που φεύγουν', 'The later fights of the rival: he is gone from the map once the fight is won.'),
   finaleSpot: spot('Finale spot', 'Σημείο τέλους'),
   titleCreatures: list(ref('species', 'Species', 'Είδος', 'A creature on the title screen.'), 'Title creatures', 'Πλάσματα τίτλου', 'The creatures the title screen shows.'),
   music: dict(ref('music', 'Tune', 'Μελωδία', 'A tune.'), 'Music roles', 'Ρόλοι μουσικής', 'The tune of the title, the battles and the boss fights, and the fallback of a battle without a map.'),

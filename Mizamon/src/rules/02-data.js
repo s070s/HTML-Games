@@ -45,7 +45,6 @@ const MAPS = DATA.maps;
 for (const map of Object.values(MAPS)) {
   if (map.stock) map.stock = DATA.shops[map.stock].items; // a map names its kiosk's shop; the rules want the list
 }
-const LEAVING_TRAINERS = DATA.game.leavingTrainers; // the rival's later fights: he is gone from the map once one is won
 const START_MAP = DATA.game.startMap;
 const HOSPITAL_SPOT = DATA.game.hospitalSpot; // just inside the hospital door
 const DEFAULT_HEAL_SPOT = HOSPITAL_SPOT; // the black-out spot before any heal (after one, save.lastHeal: the last hospital that healed you)

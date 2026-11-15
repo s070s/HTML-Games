@@ -12,9 +12,7 @@ function tileAt(map, x, y) {
 function tileDef(map, x, y) { return TILE_DEFS[tileAt(map, x, y)] || { solid: true }; }
 function npcVisible(npc, flags) {
   if (npc.showFlag && !flags[npc.showFlag]) return false;
-  if (npc.hideFlag && flags[npc.hideFlag]) return false;
-  // the rival leaves the map after each of his later fights (data/game.json)
-  if (npc.kind === 'trainer' && LEAVING_TRAINERS.includes(npc.trainer) && flags['t_' + npc.trainer]) return false;
+  if (npc.hideFlag && flags[npc.hideFlag]) return false; // the rival's later fights set t_rivalN: his NPC has that hideFlag
   return true;
 }
 function findWarp(map, x, y) {

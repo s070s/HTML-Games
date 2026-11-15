@@ -51,7 +51,17 @@
       "sight": 4
     },
     { "id": "takis", "x": 19, "y": 8, "face": "left", "look": "singer", "kind": "trainer", "trainer": "takis", "sight": 4 },
-    { "id": "rival2", "x": 22, "y": 7, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival2", "sight": 3 }
+    {
+      "id": "rival2",
+      "x": 22,
+      "y": 7,
+      "face": "down",
+      "look": "rival",
+      "kind": "trainer",
+      "trainer": "rival2",
+      "sight": 3,
+      "hideFlag": "t_rival2"
+    }
   ],
   "zones": [
     {

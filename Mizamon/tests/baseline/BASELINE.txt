@@ -11,7 +11,10 @@ Made on 2026-11-15 from a checkout of that commit:
 
 What each file proves (tools/parity.mjs and the "DEV-02b parity" tests of tools/run-tests.mjs read them):
   rules-tables.json   every table and constant of RULES (and the internals the rules keep), as JSON with key order; engineTables is the
-                      old SFX_PATTERNS and MUSIC_TRACKS as they were typed in the engine
+                      old SFX_PATTERNS and MUSIC_TRACKS as they were typed in the engine; engineConstants is what the old code
+                      named and that is data now: TITLE_CREATURE_IDS, the battle background of every map, the tune and sound names
+                      the engine passed to Sound.play and Sound.sfx, the start, hospital and finale spots, and for every NPC
+                      whether it shows with no flag, with every flag and which single flag changes it (the rival2-5 hide rule)
   replay.json         the 1,000-battle replay checksums (seed 2024, seed 7), one fight against every trainer for each starter, wild
                       encounter rolls for every zone
   migrated-saves.json migrateSave on saves of version 0 to 3 and at the story points (starter, each badge, credits, ending)
