@@ -1,0 +1,8 @@
+{
+  "n": "Reunion Tour",
+  "t": "cel",
+  "c": "s",
+  "p": 0,
+  "a": 100,
+  "stg": [["self", "atk", 2, 100], ["self", "def", -1, 100]]
+}

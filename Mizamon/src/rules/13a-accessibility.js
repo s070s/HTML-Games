@@ -50,15 +50,7 @@ function evolveGlows(frame, flashesOff, reduceMotion) {
 function blinkShows(frame, shift, steady) { return steady || (frame >> shift) % 2 === 0; }
 // One 5 x 5 shape for every type, drawn beside its colour. Not one of them is a cross or any other sign of a faith.
 const TYPE_MARK_SIZE = 5;
-const TYPE_MARKS = {
-  pol: ['..#..', '.###.', '#####', '.###.', '..#..'], // diamond
-  asf: ['#####', '.###.', '..#..', '.###.', '#####'], // hourglass
-  ekk: ['.###.', '#...#', '#...#', '#...#', '.###.'], // ring
-  cel: ['..#..', '.###.', '.###.', '#####', '#####'], // triangle
-  inf: ['.###.', '#####', '#####', '#####', '.###.'], // disc
-  biz: ['#####', '.....', '#####', '.....', '#####'], // three bars
-  mem: ['#####', '.###.', '.###.', '..#..', '..#..'], // triangle pointing down
-};
+// TYPE_MARKS (the seven shapes: diamond, hourglass, ring, triangle, disc, three bars, triangle down) is built from data/types/ in 02-data.js.
 // Where the picture, the large-text bar and the touch pads go in a window of viewW x viewH CSS pixels (touch: the button pads are shown).
 function screenLayout(viewW, viewH, touch, largeText, touchHand) {
   const portrait = viewH > viewW;
