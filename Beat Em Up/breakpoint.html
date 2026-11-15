@@ -1224,7 +1224,7 @@ const Coach = {
       if (keys.length === at.length - 1 && at.startsWith(keys)) this.offer('charge');
     });
     Events.on('knockdown', (e) => { if (mine(e.f)) this.offer('down'); });
-    Events.on('wallSlam', (e) => { if (e.splat && mine(e.f.bodyBy && e.f.bodyFlight === e.f.flightId ? e.f.bodyBy : e.f.comboFoe)) this.offer('wall'); }); // P19-05: the person's own blow or throw pinned the foe (a thrown body names its thrower, anything else the attacker of the combo)
+    Events.on('wallSlam', (e) => { if (e.splat && mine(e.by)) this.offer('wall'); }); // P19-05: the person's own blow or throw pinned the foe (e.by, set by Combat.impactCheck: the thrower of a flying body, else the attacker of the combo)
     Events.on('clinch', (e) => { if (mine(e.def) && Game.match.intents[0].defend) this.offer('grab'); });
     Events.on('matchEnd', (e) => this.matchEnd(e.match));
   },
@@ -9157,8 +9157,9 @@ const Combat = {
       this.envDamage(f, 3 + speed * 0.3, match);
       f.wallVis = 1; // P19-03: drawing only
       const y = f.y + 1.0; // the event's height, before a splat puts a fighter in the air down on his footing
+      const by = state === S.THROWN && f.bodyBy && f.bodyFlight === f.flightId ? f.bodyBy : f.comboFoe; // who pinned him (the Coach tip): a flying body names its thrower; a stagger keeps the flightId of an earlier throw, so there the attacker of the combo
       const splat = this.splat(f, match, speed, state);
-      Events.emit('wallSlam', { f, speed, x: f.x, y, z: f.z, splat });
+      Events.emit('wallSlam', { f, speed, x: f.x, y, z: f.z, splat, by });
     }
   },
   /* The wall splat (P19-05; Appendix C, "P19-04 wall splat ... decided", section 1), asked of a wall slam after its damage: `speed` and `state` are the fighter's as he hit the wall. A fighter who is alive with hit points left in a live round, in HIT or STAGGER at SPLAT_SPEED_HIT or in a flight at SPLAT_SPEED_THROWN, not held, not outside a ring-out ring, and SPLAT_COOLDOWN_TICKS after his last splat, is pinned: put on his footing, speeds 0, in HIT for SPLAT_PIN_TICKS (Fighter.tickPin counts it down). Returns whether he was. No draw, no Setting. */
@@ -21799,7 +21800,7 @@ function testApi() {
     ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
     ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
     LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_TIME, LOOK_LAND_FLOOR, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
-    SPLAT_SPEED_HIT, SPLAT_SPEED_THROWN, SPLAT_PIN_TICKS, SPLAT_FOLLOW_SCALE, SPLAT_COOLDOWN_TICKS, SPLAT_EXTRA_HITS, AIRGRAB_SCALE, AIRGRAB_REACH_UP, AIRGRAB_CHAIN_SHARE, LOOK_SLIDE_TICKS, NO_SPLAT, WALL_HELP, AIRGRAB_HELP,
+    SPLAT_SPEED_HIT, SPLAT_SPEED_THROWN, SPLAT_PIN_TICKS, SPLAT_FOLLOW_SCALE, SPLAT_COOLDOWN_TICKS, SPLAT_EXTRA_HITS, AIRGRAB_SCALE, AIRGRAB_REACH_UP, AIRGRAB_CHAIN_SHARE, AIRGRAB_CPU_REACH, AIRGRAB_CPU_LEVELS, LOOK_SLIDE_TICKS, NO_SPLAT, WALL_HELP, AIRGRAB_HELP,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
