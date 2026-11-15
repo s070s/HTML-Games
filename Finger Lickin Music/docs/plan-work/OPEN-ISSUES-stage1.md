@@ -2,7 +2,7 @@
 
 Collected from the drafting agents' final reports in the 2026-10-26 session. Each line names
 the part that reported it. These are known cross-part conflicts and decisions that other parts
-must adopt. The stage 6 consistency SKEPTIC/FIXER pass (TASKS-later.md) must resolve every
+must adopt. The stage 6 consistency SKEPTIC/FIXER pass (TASKS-later.md, kept in the project's handoffs notes: `handoffs/FingerLickinMusic/docs/plan-work/brief/TASKS-later.md`) must resolve every
 line; the stage 5 coverage critics may use them as hints. Nothing here is fixed yet.
 
 ## A. Owner decisions (not for agents to decide)

@@ -30,14 +30,19 @@ Open `Mizamon.html` in a browser (desktop or phone). Greek is the default; Optio
 - Αθήνα: route 11 (an ancient paved road between column stumps and closed digs), Μοναστηράκι (flea-market stalls, a clock tower, marble steps up to the Rock), route 12 (neoclassical fronts, a plaza round a fountain) and Σύνταγμα (police vans in rows, the closed metro entrance, the fountain, the shut door of the Βουλή). The kiosks sell the same ten items as Δυτικά. On the Rock the legend Ο Τελευταίος Φορολογούμενος (a level 40 creature, once only: beat it or recruit it, and it is gone) stands in front of the monument; the hill east of Σύνταγμα has wild creatures and a trainer. Beat Ο Ταξίαρχος Μπαμπούλας in the open square for the Παράσημο Συγκέντρωσης; with it the door of the Βουλή opens.
 - Βουλή (levels 44-50, no wild creatures): four fights in a row, each chamber opens when the one before it is won. Only the doctor of the lobby heals, so go back out to him between the fights. The last fight (Ο Υφυπουργός Παντός, level 47-50, Μιζοτάκης at level 50) gives the Διορισμός Εφ’ Όρου Ζωής, rolls the credits and leaves you on the roof, where the café counter saves the game with its ending. In the emptied plenary hall the legend Ηλιθιοκρατία (level 50, once only) waits.
 - The Χάρτης (Map) shows the six districts of Attica as a schematic, not to scale: open it from the menu or with Q, Select or the ΧΑΡΤΗΣ button; the red pin is where you are, the arrows move between the places you know, A shows the district sheet.
-- Options: language, sound, text speed, Reduced motion (no shaking or flashing; the default follows the operating system setting).
+- Options: language, sound, text speed, Reduced motion (no shaking or flashing; the default follows the operating system setting) and an Accessibility screen (Options, row 5):
+  - Large text (Off / Large / Largest): the text being read (the dialog page, the chosen menu row, the battle ticker) shows again in big letters in a bar under the picture; it is also a screen-reader live region.
+  - Type marks (default on): a small shape beside every type colour (diamond, hourglass, ring, triangle, disc, three bars, triangle down), so the seven types can be told apart without colour.
+  - Flashes off: a creature that is hit stays still and dim instead of shaking and blinking, the evolution glows steadily, and the cursors and the heart line stop blinking or changing colour.
+  - Hold to repeat (Off / Slow / Normal / Fast): how a held arrow moves a menu cursor; Normal is the old timing, Off is one step per press.
+  - Touch controls (Two hands / One hand: right / One hand: left): the one-hand layouts put all eight buttons on one side, within one thumb.
 - The save is in the browser (`localStorage` key `mizamon.v1.save`, save format version 3; older saves are migrated). Without storage the game still plays; the save lasts only while the page is open.
 
 ## Test
 - Headless rules tests (Node 24+, no installs): `node Mizamon/tools/run-tests.mjs` prints `PASS n / m` and exits 1 on a failure. It loads the rules between `// RULES-BEGIN` and `// RULES-END` in `Mizamon.html`.
 - Balance tables (the first boss fight, the Πειραιάς XP band, the route 2 trainers, then Νότια, Ανατολικά, Βόρεια, Δυτικά and Αθήνα: the XP band, the boss, the seven trainers of each, eight in Αθήνα, then the Βουλή: its XP band, the four fights by seed and per starter, the legend Ηλιθιοκρατία): `node Mizamon/tools/balance.mjs [runs]`. While working, `MZ_TEST_FILTER=<regex>` runs only the rule tests whose name matches.
 - World map picture (the six-district schematic, `Mizamon/docs/world-map.png`): `node Mizamon/tools/world-map.mjs` (`--ascii` prints the grid). The world design is section 11 of `REFERENCE-mizamon.md`.
-- In the browser (UI smoke tests and the same rules checks): open `Mizamon.html`, then in the console `await MIZAMON.selfTest()` returns a list of `{ name, pass, detail }`.
+- In the browser (UI smoke tests and the same rules checks): open `Mizamon.html`, then in the console `await MIZAMON.selfTest()` returns a list of `{ name, pass, detail }`. The accessibility checks in it work at any window size; the review runs them at 390x844, 844x390 and 1280x720.
 
 ## Publish
 `node tools/itch-push.mjs mizamon [--dry-run]` from the repo root (uploads the last pushed commit to `s070s/mizamon`).
