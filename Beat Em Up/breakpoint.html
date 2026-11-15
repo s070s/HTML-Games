@@ -1172,6 +1172,7 @@ const COACH_TIPS = [
   { key: 'charge', text: (k, f) => 'Hold ' + k(f && MOVE_STYLE[moveStyleFor(f.profile)].charge.at.endsWith('K') ? 'kick' : 'punch') + ' on a string\'s last press to charge it. Let go to strike.' }, // P19-15: names the button of the style's chargeable step; the decision's wording shortened to the 70 characters of the strip (the P18-27 test)
   { key: 'pause', text: () => 'Stand still for a beat between two presses for a different move.' },
   { key: 'zone', text: () => 'Many hits to one zone wear it out: dizzy, breathless or limping.' }, // P19-02 (64 characters): offered the first time the strain tiles show for the person's fighter or the lock-on target
+  { key: 'wall', text: () => 'A heavy hit into a wall pins the foe. Follow up fast.' }, // P19-05 (53 characters): offered the first time the person's own fighter pins a foe
 ];
 const POP_MERGE_SECONDS = 0.4, POP_NEAR = 0.5, POP_LIFT_EM = 1.15, POP_BOX_EM = 0.9, POP_GROW = 0.25, POP_KIND_MAX = 4, POP_CHAR_EM = 0.6, POP_RISE = 0.6, POP_STEPS_DOWN = 3; // POP_CHAR_EM: the width of one letter in em (italic Impact, with a little air); POP_RISE: m a pop climbs in its life; POP_STEPS_DOWN: steps below the hit a pop may take when the pile has no room above; POP_LIFT_EM: one step (more than a text box of POP_BOX_EM em at the start scale 1 + POP_GROW)
 const HUD_NAME_LONG = 9;
@@ -1223,6 +1224,7 @@ const Coach = {
       if (keys.length === at.length - 1 && at.startsWith(keys)) this.offer('charge');
     });
     Events.on('knockdown', (e) => { if (mine(e.f)) this.offer('down'); });
+    Events.on('wallSlam', (e) => { if (e.splat && mine(e.f.bodyBy && e.f.bodyFlight === e.f.flightId ? e.f.bodyBy : e.f.comboFoe)) this.offer('wall'); }); // P19-05: the person's own blow or throw pinned the foe (a thrown body names its thrower, anything else the attacker of the combo)
     Events.on('clinch', (e) => { if (mine(e.def) && Game.match.intents[0].defend) this.offer('grab'); });
     Events.on('matchEnd', (e) => this.matchEnd(e.match));
   },
@@ -5375,6 +5377,10 @@ const HURT_HP = 0.25, HURT_FADE = 0.05, HURT_LEAN = 0.1, HURT_STOOP = 0.15; // u
 const HURT_HAND = [[1.5, 2.1, -0.9, 0.2], [0.5, 1.8, -0.9, 0.1], [0.8, 0.4, -0.3, 0.1]]; // the left arm [shoulder x, elbow, inward twist, out] holding the head, the torso (the arms count as the torso) and a leg
 const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY]; // calm states that show the boost; strikes, reactions and holds keep their own poses
 const JUGGLE_LIMIT = 3;
+/* P19-05 wall splat and air grab (Appendix C, "P19-04 wall splat, juggle scale, wall spring and air grab, decided"). A wall slam that leaves the fighter alive pins him (`pin` ticks) when the wall hit was at least SPLAT_SPEED_HIT m/s for a fighter in HIT or STAGGER and SPLAT_SPEED_THROWN for one in a flight, and the fighter's last splat is SPLAT_COOLDOWN_TICKS ago; every hit that lands on him in the pin does SPLAT_FOLLOW_SCALE of its damage and the splat counts SPLAT_EXTRA_HITS in an open combo. NO_SPLAT = the splat tick of a fighter who has not had one.
+   Air grab: a Grapple press in the chain window of a launch that connected (to AIRGRAB_CHAIN_SHARE of its recovery) throws a juggled foe below JUGGLE_LIMIT whose feet are at most AIRGRAB_REACH_UP above the grabber's footing, at AIRGRAB_SCALE of the throw's damage; AIRGRAB_CPU_LEVELS press it for the foe within AIRGRAB_CPU_REACH m. LOOK_SLIDE_TICKS = the drawn slide of a fighter in the air down the wall (drawing only). */
+const SPLAT_SPEED_HIT = 5.5, SPLAT_SPEED_THROWN = 3.0, SPLAT_PIN_TICKS = 60, SPLAT_FOLLOW_SCALE = 0.7, SPLAT_COOLDOWN_TICKS = 300, SPLAT_EXTRA_HITS = 1, NO_SPLAT = -99999;
+const AIRGRAB_SCALE = 0.7, AIRGRAB_REACH_UP = 1.8, AIRGRAB_CHAIN_SHARE = 0.6, AIRGRAB_CPU_REACH = 1.5, AIRGRAB_CPU_LEVELS = ['hard', 'expert'], LOOK_SLIDE_TICKS = 8;
 const COMBO_RESET_TICKS = 12;
 // Strike i-frames outlast the get-up by this many ticks. Without them a strike on the very tick the fighter stands up hit a defender who could not yet guard (the guard starts the tick after), so knockdown, get-up, strike, knockdown ... looped forever.
 const WAKEUP_GRACE_TICKS = 6;
@@ -5460,6 +5466,8 @@ const pickLook = (zone, tier, dir, air, kind, walled) => {
   return kind === 'stagger' && id !== LOOK.CRUMPLE ? LOOK.STUMBLE : id;
 };
 const NUDGE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.HIT, S.STAGGER, S.STUN, S.ATTACK]; // the states a standing body is slid clear of the walls and the scenery in (steerLie)
+const POSE_BOX = [0, 0, 0, 0]; // the scratch Fighter.poseBox writes its box to
+const PIN_THICK = 0.25, PIN_SLIDE_MAX = 0.5; // P19-05, drawing only: the thickness added to the key points of a pinned body's pose and the farthest it is drawn slid off the wall (m): measured on the 32 bodies, 3 tiers, 4 facings, so no drawn part is more than 0.03 m past the wall (test (13))
 const LIE_EVERY = 4, LIE_LOOK = 1.2; // ticks between two searches for room of a standing body (a power of two); the scenery farther than this from the drawn box is not looked at
 const LIE_SLIDE_MAX = 0.35, LIE_THICK = 0.15, LIE_FREE = 0.03, LIE_MOVE = 0.1, LIE_TURN = 0.3, LIE_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // a lying body (drawing only): the farthest the drawn body is slid off a wall or a prop (m), the thickness of a limb added to the key points, the move that still counts as no room needed (m), the most the drawn body slides (m) and turns (rad) in a tick, the four directions tried (the facing first)
 const PLANT_RELEASE_TICKS = 20; // ticks the lowest part stays at the depth of the guard stance after the hold or the lying pose ends
@@ -5828,6 +5836,8 @@ const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
 const CHARGE_CANCEL_HELP = 'A charge is cancelled by a Defend press and by any hit; a Defend that is already down does not cancel it.'; // P19-15: the last sentence of both defences' help (the decision wrote "a Defend you are already holding": the Move list tests read the word "holding" as an item line, so it says "down")
 const PAUSE_HELP = 'A press made while a move is still running is a chain; a press made after you have stood still for a beat plays the delayed move of your style.'; // the last sentence of COMBO_HELP
 const ZONE_HELP = 'Body strain: a hit that lands adds strain to the zone it hits (head, body or legs); blocked and slipped hits add none. At ' + ZONE_MAX / 10 + ' the zone gives out: head, dizzy (no Block or Sway for ' + +(DIZZY_TICKS / 60).toFixed(1) + ' s); body, breathless (slow stamina refill for ' + BREATHLESS_TICKS / 60 + ' s); legs, limping (slower walk, no run for ' + LIMP_TICKS / 60 + ' s). It then drops to ' + ZONE_RESET / 10 + ' and nothing gives out again for ' + ZONE_IMMUNE_TICKS / 60 + ' s.'; // P19-02: the help line (the Move list)
+const WALL_HELP = 'Wall: a heavy blow that sends a foe into a wall pins him for a second: he cannot guard, and every hit that lands on him while he is held does ' + Math.round(SPLAT_FOLLOW_SCALE * 100) + ' percent. Keep away from walls.'; // P19-05: the help line (the Move list); the pin is SPLAT_PIN_TICKS = 60 ticks
+const AIRGRAB_HELP = 'Air grab: press Grapple while a launcher is hitting a foe in the air and you throw him at once, the way you press, for ' + Math.round(AIRGRAB_SCALE * 100) + ' percent of the throw. It works below ' + JUGGLE_LIMIT + ' hits of a juggle; after that Grapple is a plain grab.'; // P19-05
 // What Defend does, in plain words
 const DEFENSE_HELP = {
   block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Press it up to a tenth of a second before a hit lands for a perfect block and a counter. ' + CHARGE_CANCEL_HELP,
@@ -6731,6 +6741,7 @@ class Fighter {
     this.zone = [0, 0, 0]; this.zoneCalm = 0; this.dizzy = 0; this.breathless = 0; this.limp = 0; this.dizzyWait = 0; this.zoneLastZone = -1; this.zoneLastGain = 0; // P19-02 (zoneUntil is not here): strain in tenths (head, body, legs), ticks since the last gain, the ticks left of each effect, 1 = a head effect fired and the fighter has not been free yet; zoneLastZone and zoneLastGain (the last gain, tenths) are for the Training line only and are not in matchChecksum
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.plantOn = false; this.plantLow = 0; this.plantShift = 0; this.plantHold = 0; this.plantStance = 0; this.plantFast = false; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.pendingKO = false;
+    this.pin = 0; this.splatAt = NO_SPLAT; this.lookSlide = 0; this.lookSlideStep = 0; // P19-05: pin = ticks left of the wall splat (0 = not pinned), splatAt = the match tick of the last splat (both in matchChecksum); lookSlide = the metres the body is still drawn above its footing after a splat in the air, lookSlideStep = how much of that goes each tick: drawing only
     this.bodyBy = null; this.bodyFlight = 0; this.bodyHits = []; // a thrown body: who threw it, the flight (flightId) it is valid for and the fighters it has met on that flight
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false; // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.swayX = 0; this.swayZ = 0; this.swayCurve = false; this.levelHead = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.swayReady = false; this.readyPrev = false; this.readyLeft = 0; this.readySpent = false; this.rearmAt = 0; this.readyAt = -99; this.readyGap = PERFECT_BLOCK_COOLDOWN; this.readyFresh = true; this.swayAuto = false; this.stickSide = 0; this.stickFwd = 0; this.assist = false; this.swayEnd = SWAY_TOTAL_TICKS; this.hitAt = -99; this.freedAt = -99; this.guardHeld = false; this.comboBroke = 0;
@@ -6943,6 +6954,13 @@ class Fighter {
   }
   // The effect timers run down at the end of the tick, after everything that reads them, so an effect lasts exactly its number of ticks
   tickZoneTimers() { if (this.dizzy > 0) this.dizzy--; if (this.breathless > 0) this.breathless--; if (this.limp > 0) this.limp--; }
+  // P19-05, the last thing of the tick's update: the wall splat's pin counts down and holds the body still. It ends the tick the fighter is out, in a state that is not a hit reaction (a knockdown, a clinch), or the round is over (the hit reactions of a finished round are the next round's reset)
+  tickPin(match) {
+    if (this.pin <= 0) return;
+    if (!this.alive || !isStunState(this.state) || (match && !match.live)) { this.pin = 0; return; }
+    this.kx = this.kz = 0;
+    this.pin--;
+  }
   endZoneEffects() { this.dizzy = 0; this.dizzyWait = 0; this.breathless = 0; this.limp = 0; } // a knock-out and a round start end every running effect
   // pick = the string step this attack plays; any other attack ends the string
   startAttack(mv, pick) {
@@ -7000,6 +7018,14 @@ class Fighter {
     const total = this.mStartup + this.mActive + this.mRecovery + this.whiffExtra + this.stumbleExtra; // the stumble holds the fighter after the recovery; the chain window below reads mRecovery alone
     if (t === this.mStartup + this.mActive + 1 && !this.moveConnected && mv.tier === 3 && mv.type === 'strike') this.whiffExtra = 8; // recovery risk of strong moves
     if (this.stumbleExtra > 0 && t === total - this.stumbleExtra + 1) Events.emit('stumble', { f: this }); // the first tick of the stumble after the recovery: only the sound listens (a chained press cancels the rest of the move and so the stumble)
+    // P19-05, the air grab: a Grapple press chains out of a launch that connected, in the window a strike chains in; the grab starts at once and its active frames find the juggled foe (resolveMove gives a grab nothing, so this is its own line)
+    if (this.buffer && this.buffer.btn === 'grapple' && this.moveConnected && mv.kind === 'launch' && t > this.mStartup + 1 && t <= this.mStartup + this.mActive + Math.floor(this.mRecovery * AIRGRAB_CHAIN_SHARE)) {
+      const press = this.buffer;
+      this.shiftBuffer();
+      this.dropBothHands();
+      this.grabDir = press.grapDir; this.grabLow = press.low;
+      if (this.startGrab()) return;
+    }
     // chain into the next legal attack once this one connected
     if (this.buffer && this.moveConnected && t > this.mStartup + 1 && t <= this.mStartup + this.mActive + Math.floor(this.mRecovery * 0.6)) {
       const next = this.resolveMove(this.buffer);
@@ -7147,7 +7173,7 @@ class Fighter {
       case S.ATTACK: this.updateAttack(it, opp, match); break;
       case S.HIT: case S.STAGGER: case S.STUN:
         this.vx = this.vz = 0;
-        if (this.stateTicks >= this.reactDur && !this.airborne) { this.setState(S.IDLE); this.freedAt = this.age; Events.emit('freeTick', { f: this }); }
+        if (this.stateTicks >= this.reactDur && !this.airborne && this.pin <= 0) { this.setState(S.IDLE); this.freedAt = this.age; Events.emit('freeTick', { f: this }); } // a splat's pin holds the reaction (P19-05)
         break;
       case S.CLINCH: this.updateClinched(it, opp, match); break;
       case S.GRAPPLE: this.updateGrapple(it, opp, match); break;
@@ -7172,6 +7198,7 @@ class Fighter {
     if (!this.lowWarned && this.lowStamina && this.alive) { this.lowWarned = true; Events.emit('lowStamina', { f: this }); }
     if (this.stam > this.maxStam * 0.4) this.lowWarned = false;
     this.tickZoneTimers();
+    this.tickPin(match);
   }
 
   getupTicks() { return Math.round(30 * this.stats.getup * (this.quickRise ? 0.6 : 1)); }
@@ -7490,7 +7517,7 @@ class Fighter {
 
   // --- animation
   // The room a body lying along `yaw` needs (drawing only): its box, measured from the key points of its pose as [u0, u1] along the facing and [v0, v1] across it (the body lies a little off its centre), moved the least that takes it inside the walls and out of the scenery; the move goes to lieMove and its length is returned
-  lieRoom(yaw, u0, u1, v0, v1) {
+  lieRoom(yaw, u0, u1, v0, v1, slideMax = LIE_SLIDE_MAX) { // slideMax: the farthest the body is drawn moved (a pinned body, P19-05, may go farther than a lying one)
     const sn = DMath.sin(yaw), cs = DMath.cos(yaw);
     let lo = Infinity, hi = -Infinity, back = Infinity, front = -Infinity; // the box's x range and z range round the centre
     for (let k = 0; k < 4; k++) {
@@ -7510,7 +7537,7 @@ class Fighter {
       }
       x = Math.min(Math.max(x, Arena.ax0 - lo), Arena.ax1 - hi); z = Math.min(Math.max(z, Arena.az0 - back), Arena.az1 - front); // the wall is the last word
     }
-    const room = DMath.hypot(x - this.x, z - this.z), shown = Math.min(1, LIE_SLIDE_MAX / Math.max(room, 1e-6)); // the room it needs; the body is drawn moved by at most LIE_SLIDE_MAX of it (a limb into a wall further than that is better than a body that jumps across a prop)
+    const room = DMath.hypot(x - this.x, z - this.z), shown = Math.min(1, slideMax / Math.max(room, 1e-6)); // the room it needs; the body is drawn moved by at most slideMax of it (a limb into a wall further than that is better than a body that jumps across a prop)
     this.lieMove[0] = (x - this.x) * shown; this.lieMove[1] = (z - this.z) * shown;
     return room;
   }
@@ -7528,6 +7555,14 @@ class Fighter {
     }
     return m.box;
   }
+  // The drawn box of the body in the pose it has now, [u0, u1] along the facing and [v0, v1] across it, from the key points of the pose plus LIE_THICK: a lying body's, and a pinned body's (its wall pose reaches out). Returns a scratch array: read it right away
+  poseBox(thick = LIE_THICK) {
+    const fx = this.fwdX, fz = this.fwdZ, pts = this.pts, box = POSE_BOX;
+    let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+    for (const i of LIE_POINTS) { const dx = pts[i] - this.x, dz = pts[i + 2] - this.z, u = dx * fx + dz * fz, v = dx * fz - dz * fx; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    box[0] = u0 - thick; box[1] = u1 + thick; box[2] = v0 - thick; box[3] = v1 + thick;
+    return box;
+  }
   // Drawing only (the body's place and size are the simulation's): the body is drawn clear of the walls and the scenery it stands or lies beside, slid off them by the room its drawn box needs, LIE_MOVE a tick (the 0.34 m cylinder it collides with is narrower than a wide body). The room is looked for every LIE_EVERY ticks (lying: every other tick), the slide goes on every tick. A body lying on the floor is also drawn along the first of four directions (the facing, a quarter turn each way, the back) that needs no room, else the one that needs the least, turning to it LIE_TURN a tick, and keeps it while that needs none. Held, thrown, falling or airborne bodies are drawn where they are
   steerLie() {
     this.prevLieDx = this.lieDx; this.prevLieDz = this.lieDz; this.prevLieYaw = this.lieYaw; // the drawn frame blends from these
@@ -7537,12 +7572,12 @@ class Fighter {
     if (!lying) this.lieYaw = this.lieGoal = this.yaw;
     if (lying || upright) {
       if (((this.age + this.index) & (lying ? 1 : LIE_EVERY - 1)) === 0) {
-        if (upright) { const box = this.uprightBox(); this.lieRoom(this.yaw, box[0], box[1], box[2], box[3]); }
+        if (upright) { // a pinned body is slid clear of the wall by the room its wall pose needs (P19-05), not by the guard stance's box
+          const pinned = this.pin > 0, box = pinned ? this.poseBox(PIN_THICK) : this.uprightBox();
+          this.lieRoom(this.yaw, box[0], box[1], box[2], box[3], pinned ? PIN_SLIDE_MAX : LIE_SLIDE_MAX);
+        }
         else {
-          const fx = this.fwdX, fz = this.fwdZ, pts = this.pts;
-          let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
-          for (const i of LIE_POINTS) { const dx = pts[i] - this.x, dz = pts[i + 2] - this.z, u = dx * fx + dz * fz, v = dx * fz - dz * fx; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
-          u0 -= LIE_THICK; u1 += LIE_THICK; v0 -= LIE_THICK; v1 += LIE_THICK;
+          const box = this.poseBox(), u0 = box[0], u1 = box[1], v0 = box[2], v1 = box[3];
           if (this.lieRoom(this.lieGoal, u0, u1, v0, v1) > LIE_FREE) {
             let least = Infinity;
             for (const turn of LIE_TURNS) {
@@ -7931,7 +7966,9 @@ class Fighter {
     const holding = this.state === S.ATTACK && !!this.move && !!this.chargeRows && !this.holdBroke && this.moveTick >= CHARGE_POSE_FROM * this.mStartup;
     this.holdVis = holding ? 1 : Math.max(0, this.holdVis - step);
     this.pauseVis = this.pauseCueOn() ? Math.min(1, this.pauseVis + step) : Math.max(0, this.pauseVis - step);
-    if (this.wallVis > 0) this.wallVis = Math.max(0, this.wallVis - dt * 60 / LOOK_WALL_TICKS); // P19-03
+    if (this.pin > 0) this.wallVis = 1; // P19-05: a pinned fighter shows the wall pose for the whole pin
+    else if (this.wallVis > 0) this.wallVis = Math.max(0, this.wallVis - dt * 60 / LOOK_WALL_TICKS); // P19-03
+    if (this.lookSlide > 0) this.lookSlide = Math.max(0, this.lookSlide - this.lookSlideStep * dt * 60); // P19-05: the slide down the wall to the footing
   }
   // The extension of the move's pose: the plain curve, except that a held chargeable press stays at the lowest point of its draw-back (deeper while it charges) and a released charge goes from that coil to full over its release ticks
   moveExtension(t, startup, active, recovery, windup, snap) {
@@ -8384,7 +8421,7 @@ class Fighter {
     const fade = this.koFade();
     if (fade <= 0) return;
     let px = lerp(this.prevX, this.x, alpha), pz = lerp(this.prevZ, this.z, alpha);
-    const py = lerp(this.prevY, this.y, alpha) + this.liftY;
+    const py = lerp(this.prevY, this.y, alpha) + this.liftY + (Settings.v.reducedMotion ? 0 : this.lookSlide); // lookSlide (P19-05): a splat in the air is drawn sliding down the wall, not under Reduced motion
     const yaw = this.bodyYaw(this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha, alpha);
     px += lerp(this.prevLieDx, this.lieDx, alpha); pz += lerp(this.prevLieDz, this.lieDz, alpha); // a body against a wall or scenery is drawn clear of it
     const footing = Math.min(this.groundY, py); // the surface under the fighter, also in the air
@@ -8501,7 +8538,8 @@ const Combat = {
     const st = def.state;
     const g = def.groundY - att.groundY, rise = def.y - att.groundY; // rise: the foe's feet above the attacker's footing
     if (mv.type === 'grab') {
-      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.y - def.groundY > 0.5 || att.y - att.groundY > 0.3 || Math.abs(g) > GRAB_LEDGE) return null; // nobody grabs a holder or the held fighter (DOWN)
+      if (st === S.THROWN && def.juggle && def.juggleCount < JUGGLE_LIMIT && rise <= AIRGRAB_REACH_UP && att.y - att.groundY <= 0.3 && Math.abs(g) <= GRAB_LEDGE) return { type: 'airgrab', att, def, mv }; // P19-05: a juggled foe below the limit, within reach, from a grabber on his feet
+      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.pin > 0 || def.y - def.groundY > 0.5 || att.y - att.groundY > 0.3 || Math.abs(g) > GRAB_LEDGE) return null; // nobody grabs a holder or the held fighter (DOWN), nor a fighter the wall holds (pin, P19-05)
       return { type: 'grab', att, def, mv };
     }
     if (!this.strikable(att, def) || Math.abs(g) > STRIKE_LEDGE) return null; // wake-up grace, a clinch or a knockdown flight: strikes only (grabs were handled above); nothing reaches across a mezzanine's edge
@@ -8528,6 +8566,7 @@ const Combat = {
   apply(d, match) {
     d.att.hitList.push(d.def);
     if (d.type === 'grab') this.startClinch(d.att, d.def, match);
+    else if (d.type === 'airgrab') this.airGrab(d.att, d.def, match);
     else if (d.type === 'ground') this.groundHit(d, match);
     else if (d.type === 'sway') {
       if (d.auto && d.def.state !== S.SWAY) { // a second strike on the same tick finds the sway the first one started
@@ -8561,6 +8600,7 @@ const Combat = {
     if (counter) dmg *= mv.cv;
     dmg *= def.stats.taken * (mv.kind === 'hit' && !counter ? 1 : def.stats.impact); // balance softens everything but plain hits
     if (def.state === S.STUN) dmg *= 1.2;
+    if (def.pin > 0) dmg *= SPLAT_FOLLOW_SCALE; // a follow-up on a fighter the wall holds (P19-05)
     dmg = Math.max(1, Math.round(dmg * 10) / 10);
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
@@ -8654,7 +8694,7 @@ const Combat = {
     const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: kind === 'knockdown' ? 3 : 2, cat: w.cls === 'carry' || w.sp === 'head' ? 'heavy' : 'punch', h: w.sp === 'trip' ? 'L' : 'M', kind, hitStop: kind === 'knockdown' ? 9 : 6 };
     if (def.partner) { if (def.partner.partner === def) def.partner.partner = null; def.partner = null; } // never a clinch partner of anybody after this (the caller does not hit a clinched fighter)
     this.claimCombo(att, def);
-    const dmg = Math.max(1, Math.round(w.thrown * att.stats.damage * att.boostMult() * def.stats.taken * (kind === 'hit' ? 1 : def.stats.impact) * 10) / 10);
+    const dmg = Math.max(1, Math.round(w.thrown * att.stats.damage * att.boostMult() * def.stats.taken * (kind === 'hit' ? 1 : def.stats.impact) * (def.pin > 0 ? SPLAT_FOLLOW_SCALE : 1) * 10) / 10); // a fighter the wall holds takes SPLAT_FOLLOW_SCALE of it (P19-05)
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     if (def.gotHits === 0) { att.comboHits = 0; att.comboDamage = 0; def.gotDamage = 0; }
@@ -8686,7 +8726,7 @@ const Combat = {
     const power = speed * (BODY_WEIGHT_BASE + BODY_WEIGHT_STEP * body.weight);
     const lying = def.state === S.DOWN, knock = !lying && power >= BODY_KNOCKDOWN_POWER;
     const mv = { id: 'body_throw', name: 'Thrown body', tier: knock ? 3 : 2, cat: 'heavy', h: 'M', kind: knock ? 'knockdown' : 'stagger', hitStop: knock ? 9 : 6 };
-    const dmg = Math.max(1, Math.round((BODY_DAMAGE_BASE + BODY_DAMAGE_PER_POWER * power) * (lying ? BODY_DOWN_SHARE : 1) * att.stats.damage * att.boostMult() * def.stats.taken * (knock ? def.stats.impact : 1) * 10) / 10);
+    const dmg = Math.max(1, Math.round((BODY_DAMAGE_BASE + BODY_DAMAGE_PER_POWER * power) * (lying ? BODY_DOWN_SHARE : 1) * att.stats.damage * att.boostMult() * def.stats.taken * (knock ? def.stats.impact : 1) * (def.pin > 0 ? SPLAT_FOLLOW_SCALE : 1) * 10) / 10); // a fighter the wall holds takes SPLAT_FOLLOW_SCALE of it (P19-05)
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     if (!lying) {
@@ -8922,6 +8962,43 @@ const Combat = {
     match.addHitStop(7, att, def);
     Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, name: t.name, x: def.x, y: def.y + 1.0, z: def.z });
   },
+  /* The air grab (P19-05; Appendix C, "P19-04 wall splat ... decided", sections 2 and 6): a Grapple that found a juggled foe (Combat.evaluate, 'airgrab') throws him at once with the style's front throw, in the direction of the press, at AIRGRAB_SCALE of its damage: no clinch, no escape window, no combo scale (as a throw). It is one more hit of the juggle and ends it: the flight lands in the normal knockdown, and a second Grapple finds nothing to take (juggle is false; a new launch sets it again). The thrower pays the throw's stamina. */
+  airGrab(att, def, match) {
+    if (att.state !== S.ATTACK || def.state !== S.THROWN || !def.juggle || def.juggleCount >= JUGGLE_LIMIT) return; // another blow of this tick got there first
+    const dir = att.grabDir || 'fwd', t = throwFor('front', dir, moveStyleFor(att.profile)), side = dir === 'left' ? -1 : 1;
+    att.moveConnected = true;
+    att.stam = Math.max(0, att.stam - stamPrice(t.stam));
+    att.noRegen = 40;
+    let dmg = t.dmg * att.stats.damage * att.boostMult() * def.stats.taken * def.stats.impact * AIRGRAB_SCALE;
+    dmg = match.live ? Math.max(1, Math.round(dmg * 10) / 10) : 0;
+    def.hp = Math.max(0, def.hp - dmg);
+    if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
+    def.juggleCount++; def.gotHits++; def.calmTicks = 0;
+    att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
+    this.momentum(att, def, dmg);
+    this.strain(def, 1, dmg, match); // a throw: the body
+    const v = this.throwVector(att, dir), speed = t.launch;
+    def.setState(S.THROWN);
+    def.juggle = false;
+    def.flightId = ++this.flightCounter;
+    def.bodyBy = att; def.bodyFlight = def.flightId; def.bodyHits.length = 0; // the flight can hurt others, as any throw's
+    def.partner = null; def.clinchTick = 0;
+    def.kx = v[0] * speed; def.kz = v[1] * speed;
+    def.vy = t.arc;
+    def.y = Math.max(def.y, def.groundY) + 0.03;
+    def.pendingKO = def.hp <= 0;
+    def.hitKind = 'mid';
+    def.downMult = t.down;
+    def.lieSign = t.face === 'front' ? -1 : 1;
+    const release = sampleCarry(t.carry || t.anim, 1);
+    def.throwPitch = release[4]; def.throwRoll = release[5] * side;
+    def.flash = 1;
+    att.setState(S.IDLE);
+    att.lock = t.recovery;
+    att.throwFollow = { anim: t.anim, side, recovery: t.recovery };
+    match.addHitStop(7, att, def);
+    Events.emit('throw', { att, def, dmg, dir, grip: 'front', name: t.name, x: def.x, y: def.y + 1.0, z: def.z, air: true });
+  },
   escapeClinch(def, att, match) {
     att.throwPending = null;
     def.stam = Math.max(0, def.stam - 6);
@@ -9052,6 +9129,7 @@ const Combat = {
   impactCheck(f, match) {
     const flying = f.state === S.THROWN || f.state === S.KO || f.state === S.HIT || f.state === S.STAGGER;
     if (!flying) return;
+    const state = f.state; // before the slam's damage can knock the fighter out: the splat reads the state he came in with
     const speed = DMath.hypot(f.kx, f.kz);
     const need = f.state === S.THROWN || f.state === S.KO ? 3.0 : 5.5;
     if (speed < need || match.tick - f.lastImpactTick < 14) return;
@@ -9071,15 +9149,35 @@ const Combat = {
       this.envDamage(f, dmg, match);
       f.kx *= rebound ? -0.7 : broke ? 0.7 : -0.25; f.kz *= rebound ? -0.7 : broke ? 0.7 : -0.25;
       Events.emit('envImpact', { f, obj, speed, broke, x: f.x, y: f.y + 1.0, z: f.z });
-    } else if (f.wallHit) {
+    } else if (f.wallHit && !(f.pin > 0)) { // a pinned fighter is held at the wall: the pin is the wall's one effect, so a hit that lands on him is no slam (P19-05)
       f.lastImpactTick = match.tick;
       const b = Arena.def.bounds;
       if (Math.abs(f.x) >= b.x - f.radius - 0.02) f.kx *= -0.2;
       if (Math.abs(f.z) >= b.z - f.radius - 0.02) f.kz *= -0.2;
       this.envDamage(f, 3 + speed * 0.3, match);
       f.wallVis = 1; // P19-03: drawing only
-      Events.emit('wallSlam', { f, speed, x: f.x, y: f.y + 1.0, z: f.z });
+      const y = f.y + 1.0; // the event's height, before a splat puts a fighter in the air down on his footing
+      const splat = this.splat(f, match, speed, state);
+      Events.emit('wallSlam', { f, speed, x: f.x, y, z: f.z, splat });
     }
+  },
+  /* The wall splat (P19-05; Appendix C, "P19-04 wall splat ... decided", section 1), asked of a wall slam after its damage: `speed` and `state` are the fighter's as he hit the wall. A fighter who is alive with hit points left in a live round, in HIT or STAGGER at SPLAT_SPEED_HIT or in a flight at SPLAT_SPEED_THROWN, not held, not outside a ring-out ring, and SPLAT_COOLDOWN_TICKS after his last splat, is pinned: put on his footing, speeds 0, in HIT for SPLAT_PIN_TICKS (Fighter.tickPin counts it down). Returns whether he was. No draw, no Setting. */
+  splat(f, match, speed, state) {
+    if (state !== S.HIT && state !== S.STAGGER && state !== S.THROWN) return false;
+    if (speed < (state === S.THROWN ? SPLAT_SPEED_THROWN : SPLAT_SPEED_HIT)) return false;
+    if (!f.alive || f.hp <= 0 || !match.live || match.tick - f.splatAt < SPLAT_COOLDOWN_TICKS) return false;
+    if (f.partner || f.pinnedBy || f.state === S.CLINCH || f.state === S.GRAPPLE || f.state === S.SUBMIT) return false;
+    if (Arena.ringOut && !Arena.inRing(f.x, f.z)) return false; // outside the ring the fall is the point
+    f.splatAt = match.tick;
+    f.pin = SPLAT_PIN_TICKS;
+    f.lookSlide = Math.max(0, f.y - f.groundY); f.lookSlideStep = f.lookSlide / LOOK_SLIDE_TICKS; // drawing only: a fighter in the air is drawn sliding down the wall
+    f.kx = f.kz = f.vx = f.vz = f.vy = 0;
+    f.y = f.prevY = f.supportY = f.groundY;
+    f.juggle = false;
+    if (f.gotHits > 0) f.gotHits += SPLAT_EXTRA_HITS; // the hit that pins counts in the combo scale: the follow-ups use the next step
+    f.reactDur = SPLAT_PIN_TICKS;
+    f.setState(S.HIT); // (setState stamps hitAt)
+    return true;
   },
   envDamage(f, dmg, match) {
     if (f.state === S.KO || !match.live) return;
@@ -10743,8 +10841,20 @@ class AIController {
     return null;
   }
 
+  /* P19-05, the air grab: a Hard or Expert CPU whose launch connected presses Grapple in the chain window while the foe is in a juggle below the limit and within AIRGRAB_CPU_REACH m; the stick is toward a wall or an object when throwTarget finds one (these levels have `env`), else Forward. No draw. */
+  pressAirGrab(f, opp, it) {
+    const mv = f.move;
+    if (!AIRGRAB_CPU_LEVELS.includes(this.d.id) || !mv || mv.kind !== 'launch' || !f.moveConnected || !this.mayAttack(f)) return false;
+    if (opp.state !== S.THROWN || !opp.juggle || opp.juggleCount >= JUGGLE_LIMIT || DMath.hypot(opp.x - f.x, opp.z - f.z) > AIRGRAB_CPU_REACH) return false;
+    if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + Math.floor(f.mRecovery * AIRGRAB_CHAIN_SHARE)) return false;
+    const target = this.d.env ? this.throwTarget(f, opp) : null;
+    it.grapple = true;
+    it.grapDir = target ? target.dir : 'fwd';
+    return true;
+  }
   thinkChain(f, opp, it) {
     const d = this.d, mv = f.move;
+    if (this.pressAirGrab(f, opp, it)) return;
     if (!mv || !f.moveConnected || f.chainCount >= this.chainLimit(f) || !this.mayAttack(f)) return;
     if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + 4) return;
     if (simRng() > 0.18 + d.aggression * 0.22) return;
@@ -11847,7 +11957,7 @@ class MatchSim {
     on('throw', (e) => {
       this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg;
       this.stats[e.att.index].landed['throw:' + e.name] = true;
-      if (e.att.index === 0 && this.lastMove) { this.lastMove.result = 'thrown'; this.lastMove.dmg = e.dmg; }
+      if (e.att.index === 0 && this.lastMove) { this.lastMove.result = 'thrown'; this.lastMove.dmg = e.dmg; if (e.air) this.lastMove.note = 'air grab'; } // P19-05: the Grapple chained out of a launch
     });
     on('throwStart', (e) => {
       if (e.f.index !== 0 || !e.f.throwPending) return;
@@ -12941,7 +13051,7 @@ class MatchSim {
           if (!this.canHurt(att, def)) continue;
           const d = Combat.evaluate(att, def);
           if (!d) continue;
-          if (d.type !== 'grab') { descs.push(d); continue; }
+          if (d.type !== 'grab' && d.type !== 'airgrab') { descs.push(d); continue; } // an air grab (P19-05) is a grab: a grab move holds one fighter, the nearest in reach
           const sq = (def.x - att.x) * (def.x - att.x) + (def.z - att.z) * (def.z - att.z);
           if (sq < grabSq) { grabSq = sq; grab = d; }
         }
@@ -12949,8 +13059,8 @@ class MatchSim {
         if (att.move.type === 'strike') Combat.hitObjects(att, this);
       }
     }
-    for (const d of descs) if (d.type !== 'grab') Combat.apply(d, this);
-    for (const d of descs) if (d.type === 'grab') Combat.apply(d, this);
+    for (const d of descs) if (d.type !== 'grab' && d.type !== 'airgrab') Combat.apply(d, this);
+    for (const d of descs) if (d.type === 'grab' || d.type === 'airgrab') Combat.apply(d, this);
   }
   physics() {
     const fighters = this.fighters, count = fighters.length, air = this.air;
@@ -13804,7 +13914,8 @@ function matchChecksum(match) {
   const index = (other) => (other ? other.index : -1);
   for (const f of match.fighters) parts.push(f.x, f.y, f.z, f.vx, f.vy, f.vz, f.kx, f.kz, f.yaw, f.groundY, f.hp, f.stam, f.state, f.stateTicks, f.moveTick, f.moveId, f.momentum, f.burn, f.blind, f.invuln, f.lock, f.alive, f.item ? f.item.id + f.item.dur : '',
     f.blockStun, f.boostTicks, f.chainCount, f.comboHits, f.juggleCount, f.counterWindow, f.reactDur, f.lockCool, index(f.lockOn), index(f.partner), index(f.pinnedBy), index(f.target), f.readyLeft, f.readySpent ? 1 : 0, f.rearmAt, f.charging ? 1 : 0, f.chargeTicks,
-    f.zone[0], f.zone[1], f.zone[2], f.zoneCalm, f.zoneUntil, f.dizzy, f.dizzyWait, f.breathless, f.limp); // P19-02: the body-zone strain
+    f.zone[0], f.zone[1], f.zone[2], f.zoneCalm, f.zoneUntil, f.dizzy, f.dizzyWait, f.breathless, f.limp, // P19-02: the body-zone strain
+    f.pin, f.splatAt); // P19-05: the wall splat's pin and the tick of the last splat
   for (const controller of match.controllers) if (controller.tickNo !== undefined) parts.push(controller.tickNo); // the CPU's own clock
   for (const o of Arena.objects) parts.push(o.hp, o.destroyed ? 1 : 0);
   for (const item of match.items) parts.push(item.id, item.x, item.y, item.z, item.vx, item.vy, item.vz, item.mode, item.dur, item.owner ? item.owner.index : -1);
@@ -18562,7 +18673,7 @@ const UI = {
       else if (m.ctx === 'counter') input = 'After a perfect ' + (defense === 'sway' ? 'sway' : 'block') + ': ' + key(punch ? 'punch' : 'kick');
       else input = found[m.id].sort((x, y) => x[0] - y[0]).slice(0, 2).map((x) => x[1]).join(' / '); // the two shortest rows that end on this move
       const fa = frameAdvantage(m);
-      const note = [m.charged ? 'the strike comes ' + m.release + ' frames after you let go, level ' + m.charged + ' needs ' + (m.charged === 1 ? CHARGE_L1 : CHARGE_L2) + ' frames held' : '', m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
+      const note = [m.charged ? 'the strike comes ' + m.release + ' frames after you let go, level ' + m.charged + ' needs ' + (m.charged === 1 ? CHARGE_L1 : CHARGE_L2) + ' frames held' : '', m.kind === 'launch' ? 'launcher' : '', m.kind === 'launch' ? 'air grab' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', grab ? 'beats blocks' : ''].filter(Boolean).join(', ');
       return '<tr><td>' + esc(m.name) + (m.charged ? ', level ' + m.charged : '') + '</td><td>' + input + '</td><td>' + (style.signature.some((x) => x[1] === m.id) ? '<b>*</b> ' : '') + (grab ? '' : { H: 'High', M: 'Mid', L: 'Low' }[m.h] + ', ') + (m.charged ? m.release : m.startup) + ' / ' + m.active + ' / ' + m.recovery + ' frames, ' + m.dmg + ' dmg, ' + m.stam + (m.charged ? ' + ' + m.xstam : '') + ' stam' + (grab ? '' : ', hit ' + adv(fa.onHit) + ' / block ' + adv(fa.onBlock)) + (note ? ' (' + note + ')' : '') + '</td></tr>';
     }).join('');
     // clinch strikes (every fighter) and the tackle (a heavy fighter only) are not in ATTACKS, but they have frame data too
@@ -18589,6 +18700,8 @@ const UI = {
       '<h3>Defend: ' + DEFENSE_LABEL[defense] + '</h3><p>' + esc(DEFENSE_HELP[defense].replace('Stick left / right', label('left') + ' / ' + label('right'))) + ' Strong moves break a block unless it is perfect. Press Defend while knocked down to get up quickly.</p>' +
       '<p>' + COMBO_HELP + ' Chain before a move is 60% recovered; later the next step comes slowly.</p>' +
       '<h3>Body strain</h3><p>' + ZONE_HELP.replace(/^Body strain: /, '') + '</p>' +
+      '<h3>Walls</h3><p>' + WALL_HELP.replace(/^Wall: /, '') + '</p>' +
+      '<h3>Air grab</h3><p>' + AIRGRAB_HELP.replace(/^Air grab: /, '') + '</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes, or a throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       '<table class="ctl"><tr><th>Throw</th><th>Input</th><th>Data</th></tr>' + throwRows + '</table>' +
       (style.submit.length ? '<h3>Holds</h3><p>Knock the foe down, step up to the body (within about ' + SUBMIT_RANGE + ' m) and press ' + key('grapple') + '. Your holds: ' + esc(style.submit.join(', ')) + '. ' + esc(GROUND_NOTES[styleId]) + ' Tap Grapple to keep the hold tight; the held fighter taps Defend to escape. To practise, load scenario 6 in Training.</p>' : '') +
@@ -21686,6 +21799,7 @@ function testApi() {
     ZONE_NAMES, ZONE_GAIN, ZONE_MAX, ZONE_RESET, ZONE_SHOW, ZONE_CALM_TICKS, ZONE_DECAY_TICKS, ZONE_IMMUNE_TICKS, DIZZY_TICKS, DIZZY_WALK, BREATHLESS_TICKS, BREATHLESS_REFILL, LIMP_TICKS, LIMP_WALK,
     ZONE_POSE_STATES, DIZZY_HEAD, DIZZY_ROCK, DIZZY_PERIOD, BREATHLESS_LEAN, BREATHLESS_KNEES, BREATHLESS_SHOULDERS, BREATHLESS_PERIOD, LIMP_ROLL, LIMP_KNEE, LIMP_DIP, LIMP_PERIOD, ZONE_HOT, ZONE_HELP, triangleWave,
     LOOK, HIT_LOOK_ROWS, HIT_LOOK_TABLE, HIT_LOOK_GROUND, HIT_TIER_AMP, HIT_HOLD_TICKS, HOLD_LIMBS, LOOK_FRONT, LOOK_BACK, LOOK_SIDE, LOOK_FRONT_DOT, LOOK_IN_TICKS, LOOK_FLIGHT_IN, LOOK_WALL_TICKS, LOOK_LAND_TIME, LOOK_LAND_FLOOR, LOOK_HEAD_GAIN, LOOK_WALL_GAIN, lookIndex, pickLook, SINK_MAX,
+    SPLAT_SPEED_HIT, SPLAT_SPEED_THROWN, SPLAT_PIN_TICKS, SPLAT_FOLLOW_SCALE, SPLAT_COOLDOWN_TICKS, SPLAT_EXTRA_HITS, AIRGRAB_SCALE, AIRGRAB_REACH_UP, AIRGRAB_CHAIN_SHARE, LOOK_SLIDE_TICKS, NO_SPLAT, WALL_HELP, AIRGRAB_HELP,
     get: { controlsChanged: () => controlsChanged, simRng: () => simRng },
     set: { controlsChanged: (value) => { controlsChanged = value; }, simRng: (value) => { simRng = value; } },
   };
