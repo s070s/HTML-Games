@@ -1,0 +1,43 @@
+{
+  "name": "map.rock",
+  "w": 20,
+  "h": 16,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTT",
+    "TRRRs%%%%%%%%%%sRRRT",
+    "TRRRs__________sRRRT",
+    "TRRRs$$$$$$$$$$sRRRT",
+    "Tss\"\"\"\"\"\"\"\"\"S\"\"\"\"IsT",
+    "Tss\"\"\"\"\"\"\"\"\"\"\"\"\"\"ssT",
+    "Tss\"\"\"\"\"\"\"\"\"\"\"\"\"\"ssT",
+    "Tss\"\"sssSssssssssssT",
+    "Tss\"\"ssRsssssssIsssT",
+    "Tss\"\"\"\"\"\"\"\"sssRssssT",
+    "Tss\"\"\"\"\"\"\"\"ssssssIsT",
+    "TsssssIss&&ssIsssssT",
+    "TsssIssss&&sKSssRssT",
+    "TsRssssIs\"\"ssRsssssT",
+    "Tssssssss\"\"ssssssssT",
+    "TTTTTTTTTT\"TTTTTTTTT"
+  ],
+  "warps": [{ "x": 10, "y": 15, "to": "monastiraki", "tx": 22, "ty": 2 }],
+  "signs": { "8,7": "sign.rock.path", "13,12": "sign.rock.ticket", "12,4": "sign.rock.scaffold" },
+  "npcs": [
+    {
+      "id": "taxpayer",
+      "x": 9,
+      "y": 5,
+      "face": "down",
+      "look": "taxpayerman",
+      "kind": "legend",
+      "species": "taxpayer",
+      "level": 40,
+      "boost": 1.55,
+      "hideFlag": "legend_taxpayer"
+    },
+    { "id": "rockguide", "x": 14, "y": 5, "face": "left", "look": "guide", "kind": "talk", "text": "npc.rock.guide" },
+    { "id": "rocktourist", "x": 6, "y": 5, "face": "right", "look": "tourist", "kind": "talk", "text": "npc.rock.tourist" },
+    { "id": "rockticket", "x": 11, "y": 12, "face": "right", "look": "kiosk", "kind": "talk", "text": "npc.rock.ticket" }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "map.route9",
+  "w": 44,
+  "h": 12,
+  "music": "route",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TsggggggggggggggssssTssssgggggggggggggggsssT",
+    "TsgTggggggggggggssZssTsssgggggggggggggggsSsT",
+    "T@@@@@sss@@@@@@@sss@@@**@@@@@sss@@@@@@sss@@T",
+    "))))))))))))))))))))))))))))))))))))))))))))",
+    "``````````````````````**````````````````````",
+    "))))))))))))))))))))))))))))))))))))))))))))",
+    "``````````````````````**````````````````````",
+    "T@@@@@@@@sss@@@@@@@@@sss@@@@@@@@@@sss@@@@@@T",
+    "TsSsggggggggggTggsssSsTssssggggggggggggssssT",
+    "TsssggggggTggggggsssssssZssggggZgggggggsTssT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [{ "x": 43, "y": 5, "to": "marousi", "tx": 1, "ty": 9 }, { "x": 0, "y": 5, "to": "peristeri", "tx": 24, "ty": 9 }],
+  "signs": { "41,2": "sign.route9", "20,9": "sign.toll", "2,9": "sign.peristeri" },
+  "npcs": [
+    {
+      "id": "tollclerk",
+      "x": 21,
+      "y": 6,
+      "face": "right",
+      "look": "tollclerk",
+      "kind": "trainer",
+      "trainer": "tollclerk",
+      "sight": 3
+    },
+    { "id": "ultras", "x": 34, "y": 9, "face": "up", "look": "ultras", "kind": "trainer", "trainer": "ultras", "sight": 3 },
+    { "id": "granny", "x": 7, "y": 2, "face": "down", "look": "granny", "kind": "trainer", "trainer": "granny", "sight": 3 },
+    { "id": "tollwatcher", "x": 27, "y": 4, "face": "down", "look": "oldman", "kind": "talk", "text": "npc.tollwatcher" },
+    { "id": "hitchhiker", "x": 12, "y": 6, "face": "right", "look": "student", "kind": "talk", "text": "npc.hitchhiker" }
+  ],
+  "zones": [
+    {
+      "x0": 22,
+      "x1": 99,
+      "table": [
+        { "sp": "monimos", "w": 20, "min": 32, "max": 34 },
+        { "sp": "lobbylykaina", "w": 20, "min": 32, "max": 34 },
+        { "sp": "fakelarchis", "w": 18, "min": 32, "max": 34 },
+        { "sp": "giotarchis", "w": 14, "min": 32, "max": 34 },
+        { "sp": "kafenovios", "w": 12, "min": 32, "max": 34 },
+        { "sp": "giagiaka", "w": 12, "min": 32, "max": 34 },
+        { "sp": "monastiriaki", "w": 8, "min": 32, "max": 34 },
+        { "sp": "eforaki", "w": 8, "min": 32, "max": 34 }
+      ]
+    },
+    {
+      "x0": 0,
+      "x1": 21,
+      "table": [
+        { "sp": "monimos", "w": 14, "min": 33, "max": 35 },
+        { "sp": "lobbylykaina", "w": 14, "min": 33, "max": 35 },
+        { "sp": "fakelarchis", "w": 12, "min": 33, "max": 35 },
+        { "sp": "giotarchis", "w": 8, "min": 33, "max": 34 },
+        { "sp": "kafenovios", "w": 12, "min": 33, "max": 35 },
+        { "sp": "giagiaka", "w": 12, "min": 33, "max": 35 },
+        { "sp": "monastiriaki", "w": 10, "min": 33, "max": 35 },
+        { "sp": "eforaki", "w": 10, "min": 33, "max": 35 }
+      ]
+    }
+  ]
+}

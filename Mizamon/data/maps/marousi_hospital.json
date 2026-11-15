@@ -1,0 +1,26 @@
+{
+  "name": "map.marousi.hospital",
+  "w": 12,
+  "h": 9,
+  "music": "indoor",
+  "rows": [
+    "iiiiiiiiiiii",
+    "iLLLLLLLLLLi",
+    "iCCCCCCCCCCi",
+    "iALLLYLLLLVi",
+    "iLLLLLLLLLLi",
+    "iBLLLLLLLLBi",
+    "iBLLBLLBLLBi",
+    "iLLLLLLLLLLi",
+    "iiiiimmiiiii"
+  ],
+  "warps": [{ "x": 5, "y": 8, "to": "marousi", "tx": 4, "ty": 6 }, { "x": 6, "y": 8, "to": "marousi", "tx": 4, "ty": 6 }],
+  "signs": { "10,3": "sign.hosp.vending", "5,3": "sign.hosp.tv" },
+  "actions": { "1,3": "archive" },
+  "npcs": [
+    { "id": "hospreception", "x": 4, "y": 1, "face": "down", "look": "reception", "kind": "heal" },
+    { "id": "hospdoctor", "x": 7, "y": 1, "face": "down", "look": "doctor", "kind": "talk", "text": "npc.marousi.doctor" },
+    { "id": "hospwait1", "x": 3, "y": 4, "face": "down", "look": "kid", "kind": "talk", "text": "npc.marousi.wait1" },
+    { "id": "hospwait2", "x": 8, "y": 5, "face": "left", "look": "oldman", "kind": "talk", "text": "npc.hosp.wait3" }
+  ]
+}

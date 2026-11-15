@@ -23,11 +23,10 @@ function changeStage(battle, sideIndex, stat, amount) {
 function setStatus(battle, sideIndex, statusId, sourceSide, immediate) {
   const mon = activeMon(battle, sideIndex);
   if (mon.hp <= 0 || mon.status) return false;
-  const ability = abilityOf(mon);
-  if (ability === 'asy' && (statusId === 'inv' || statusId === 'sca')) { logMsg(battle, 'b.immune', { mon: monRef(battle, sideIndex) }); return false; }
-  if (ability === 'syn' && statusId === 'str') { logMsg(battle, 'b.immune', { mon: monRef(battle, sideIndex) }); return false; }
-  if (ability === 'bur' && !immediate && sourceSide !== sideIndex && !mon.bt.pending) { // red tape: starts one turn later
-    mon.bt.pending = { id: statusId, delay: 1 };
+  if (abilityBlocksStatus(mon, statusId)) { logMsg(battle, 'b.immune', { mon: monRef(battle, sideIndex) }); return false; }
+  const redTape = abilityParams(mon, 'delayStatus');
+  if (redTape && !immediate && sourceSide !== sideIndex && !mon.bt.pending) { // red tape: starts later
+    mon.bt.pending = { id: statusId, delay: redTape.turns };
     logMsg(battle, 'b.bureau', { mon: monRef(battle, sideIndex) });
     return true;
   }

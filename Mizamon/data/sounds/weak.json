@@ -1,0 +1,4 @@
+{
+  "type": "synth",
+  "notes": [{ "at": 0, "freq": 150, "dur": 0.1, "wave": "triangle", "vol": 0.1, "slideTo": 110 }]
+}

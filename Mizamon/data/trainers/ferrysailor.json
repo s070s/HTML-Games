@@ -1,0 +1,6 @@
+{
+  "name": "Ο Ναύτης Μανώλης",
+  "look": "sailor",
+  "team": [{ "sp": "fakelarchis", "lv": 11 }, { "sp": "efoplistakos", "lv": 12 }],
+  "items": []
+}

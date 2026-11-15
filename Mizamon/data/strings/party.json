@@ -1,0 +1,8 @@
+{
+  "party.title": { "el": "Η ομάδα σου", "en": "Your team" },
+  "party.pickSwitch": { "el": "Ποιος μπαίνει;", "en": "Who goes in?" },
+  "party.pickTarget": { "el": "Σε ποιον;", "en": "Use on whom?" },
+  "party.summary": { "el": "Στοιχεία", "en": "Summary" },
+  "party.move": { "el": "Αλλαγή θέσης", "en": "Move" },
+  "party.active": { "el": "Στη μάχη", "en": "In battle" }
+}

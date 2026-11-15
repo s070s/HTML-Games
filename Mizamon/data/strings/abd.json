@@ -1,0 +1,19 @@
+{
+  "abd.asy": { "el": "Άνοσο στην Έρευνα και στο Σκάνδαλο.", "en": "Immune to Investigation and Scandal." },
+  "abd.syn": {
+    "el": "Άνοσο στην Απεργία. Κρίσιμο χτύπημα: ο αντίπαλος απεργεί.",
+    "en": "Immune to Strike. A critical hit puts the attacker on strike."
+  },
+  "abd.gra": { "el": "Γιατρεύει 1/16 κάθε γύρο (διπλά τις Κυριακές).", "en": "Heals 1/16 each turn (doubled on Sundays)." },
+  "abd.rou": { "el": "Όταν φεύγει, ο επόμενος παίρνει 1/8 ΥΓ.", "en": "When it leaves, the next ally heals 1/8 HP." },
+  "abd.afo": { "el": "Κερδίζεις +50% χρήματα στη νίκη.", "en": "Earns +50% prize money." },
+  "abd.pal": { "el": "+30% ισχύς κάτω από το μισό ΥΓ.", "en": "+30% power below half HP." },
+  "abd.vir": { "el": "Μετά από νοκ-άουτ, η επόμενη κίνηση χτυπά δύο φορές.", "en": "After a KO, its next move hits twice." },
+  "abd.out": { "el": "Επιβιώνει ένα θανατηφόρο χτύπημα με 1 ΥΓ.", "en": "Survives one KO hit with 1 HP per battle." },
+  "abd.bur": { "el": "Οι καταστάσεις που δέχεται αργούν έναν γύρο.", "en": "Statuses against it start one turn late." },
+  "abd.vys": { "el": "20% να αγνοήσει χτύπημα από ανώτερου επιπέδου.", "en": "20% to ignore a hit from a higher-level foe." },
+  "abd.bah": { "el": "Κάθε γύρο, +1 σε τυχαίο στατιστικό.", "en": "Each turn, +1 to a random stat." },
+  "abd.kou": { "el": "+20% ισχύς όταν έχει πέσει σύμμαχος του ίδιου τύπου.", "en": "+20% power if a same-type ally fainted." },
+  "abd.des": { "el": "Οι ρητορικές κινήσεις του έχουν +30% ισχύ.", "en": "Its rhetoric moves get +30% power." },
+  "abd.epi": { "el": "Η πρώτη του κίνηση έχει προτεραιότητα +1.", "en": "Its first move has +1 priority." }
+}

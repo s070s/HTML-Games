@@ -1,0 +1,58 @@
+{
+  "boss.win2": {
+    "el": "Ωραία, ωραία. Το Παράσημο είναι δικό σου, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά.",
+    "en": "Fine, fine. The medal is yours, on the condition that you do not ask where the money went."
+  },
+  "boss.win3": {
+    "el": "Πήρες το Παράσημο Λιμανιού! Ο δρόμος προς την Καστέλλα άνοιξε.",
+    "en": "You got the Port Medal! The road to Kastella is open."
+  },
+  "boss.bougatsas.win2": {
+    "el": "Κέρδισες. Το Παράσημο Παραλιακής είναι δικό σου, με τον όρο να πληρώσεις τον καφέ.",
+    "en": "You won. The Coast Medal is yours, on the condition that you pay for the coffee."
+  },
+  "boss.bougatsas.win3": {
+    "el": "Πήρες το Παράσημο Παραλιακής! Ο δρόμος προς τα Ανατολικά άνοιξε. Τα έργα, όμως, συνεχίζονται.",
+    "en": "You got the Coast Medal! The road to the East is open. The works, however, go on."
+  },
+  "boss.faia.win2": {
+    "el": "Κέρδισες. Το Παράσημο Επιβίβασης είναι δικό σου, με τον όρο να με ακολουθήσεις.",
+    "en": "You won. The Boarding Medal is yours, on the condition that you follow me."
+  },
+  "boss.faia.win3": {
+    "el": "Πήρες το Παράσημο Επιβίβασης! Ο δρόμος προς τα Βόρεια άνοιξε. Η πτήση, όμως, καθυστερεί.",
+    "en": "You got the Boarding Medal! The road to the North is open. The flight, however, is delayed."
+  },
+  "boss.amartia.win2": {
+    "el": "Κέρδισες. Το Παράσημο Πρώτης Σειράς είναι δικό σου, με τον όρο να πας στην τελευταία σειρά.",
+    "en": "You won. The First Row Medal is yours, on the condition that you go to the last row."
+  },
+  "boss.amartia.win3": {
+    "el": "Πήρες το Παράσημο Πρώτης Σειράς! Ο δρόμος προς τα Δυτικά άνοιξε. Τα διόδια, όμως, δεν είναι δωρεάν.",
+    "en": "You got the First Row Medal! The road to the West is open. The toll, however, is not free."
+  },
+  "boss.plousiakis.win2": {
+    "el": "Κέρδισες. Το Παράσημο Αφορολογήτου είναι δικό σου, με τον όρο να μην το δηλώσεις.",
+    "en": "You won. The Tax-Free Medal is yours, on the condition that you do not declare it."
+  },
+  "boss.plousiakis.win3": {
+    "el": "Πήρες το Παράσημο Αφορολογήτου! Ο δρόμος προς την Αθήνα άνοιξε. Είναι αρχαίος. Και υπό μελέτη.",
+    "en": "You got the Tax-Free Medal! The road to Athens is open. It is ancient. And under study."
+  },
+  "boss.baboulas.win2": {
+    "el": "Κέρδισες. Το Παράσημο Συγκέντρωσης είναι δικό σου, με τον όρο να υποβάλεις αίτηση για να το φορέσεις.",
+    "en": "You won. The Assembly Medal is yours, on the condition that you file an application to wear it."
+  },
+  "boss.baboulas.win3": {
+    "el": "Πήρες το Παράσημο Συγκέντρωσης! Η πόρτα της Βουλής ανοίγει για όσους το έχουν. Οι υπόλοιποι περιμένουν του χρόνου.",
+    "en": "You got the Assembly Medal! The door of the Parliament opens for those who hold it. Everyone else waits until next year."
+  },
+  "boss.undersec.win2": {
+    "el": "Κέρδισες. Ο Διορισμός Εφ’ Όρου Ζωής είναι δικός σου, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά.",
+    "en": "You won. The Appointment for Life is yours, on the condition that you do not ask where the money went."
+  },
+  "boss.undersec.win3": {
+    "el": "Πήρες τον Διορισμό Εφ’ Όρου Ζωής! Είσαι πια Πρωθυπουργός. Για πάντα. Ή μέχρι το επόμενο διάγγελμα.",
+    "en": "You got the Appointment for Life! You are Prime Minister now. For good. Or until the next address."
+  }
+}

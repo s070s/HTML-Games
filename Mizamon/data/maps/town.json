@@ -1,0 +1,51 @@
+{
+  "name": "map.town",
+  "w": 24,
+  "h": 16,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTT",
+    "T~~~~Q~~~~~~~~Q~~~~~X~~T",
+    "T,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,2222,3333,4444,1111,,T",
+    "T,2222,3333,4444,1111,,T",
+    "T,W##W,W##W,W##W,W##W,,T",
+    "T,#D##,#D##,#D##,#D##,,T",
+    "T,,,,S,,,,S,,,,S,,,,S,,T",
+    "T.......................",
+    "T,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,1111,,,5555666662222,j",
+    "T,1111,,,555566H662222,T",
+    "T,W##W,,,W##WNMPMNW##W,T",
+    "T,#d##,,,#D##MMEMM##d#,T",
+    "T,,,,,,,,,,,,S,,,,,,,,,T",
+    "TTTTTTTTTTTTTTTTTTTTTTUT"
+  ],
+  "warps": [
+    { "x": 3, "y": 6, "to": "lab", "tx": 4, "ty": 6 },
+    { "x": 8, "y": 6, "to": "kep", "tx": 4, "ty": 6 },
+    { "x": 13, "y": 6, "to": "shop", "tx": 3, "ty": 4 },
+    { "x": 18, "y": 6, "to": "cafe", "tx": 4, "ty": 6 },
+    { "x": 10, "y": 13, "to": "studio", "tx": 4, "ty": 6, "needFlag": "credits", "lockedText": "warp.studio" },
+    { "x": 15, "y": 13, "to": "hospital", "tx": 5, "ty": 7 },
+    { "x": 23, "y": 8, "to": "route1", "tx": 1, "ty": 9 }
+  ],
+  "signs": {
+    "5,7": "sign.lab",
+    "10,7": "sign.kep",
+    "15,7": "sign.shop",
+    "20,7": "sign.cafe",
+    "13,14": "sign.studio",
+    "14,13": "sign.hospital",
+    "3,13": "sign.house1",
+    "20,13": "sign.house2",
+    "22,15": "sign.ktel",
+    "23,10": "sign.metro"
+  },
+  "npcs": [
+    { "id": "kid", "x": 6, "y": 9, "face": "down", "look": "kid", "kind": "talk", "text": "npc.kid" },
+    { "id": "oldman", "x": 14, "y": 9, "face": "left", "look": "oldman", "kind": "talk", "text": "npc.oldman" },
+    { "id": "fisher", "x": 12, "y": 2, "face": "down", "look": "fisher", "kind": "talk", "text": "npc.fisher" }
+  ],
+  "triggers": [{ "x": 3, "y": 7, "flag": "rival1", "event": "rival1" }]
+}

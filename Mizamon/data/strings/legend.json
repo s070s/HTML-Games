@@ -1,0 +1,18 @@
+{
+  "legend.taxpayer.intro": {
+    "el": "Ο Τελευταίος Φορολογούμενος σε κοιτά. Κρατά μια απόδειξη μεγαλύτερη από τον ίδιο. «Πλήρωσα τα πάντα, στην ώρα τους. Δεν με πιστεύει κανείς.»",
+    "en": "The Last Taxpayer looks at you. He holds a receipt longer than he is. \"I paid everything, on time. Nobody believes me.\""
+  },
+  "legend.taxpayer.gone": {
+    "el": "Ο Φορολογούμενος εξαφανίστηκε. Στο έδαφος έμεινε μια απόδειξη. Είναι σωστή. Πρώτη φορά.",
+    "en": "The Taxpayer is gone. A receipt is left on the ground. It is correct. A first."
+  },
+  "legend.ilithiokratia.intro": {
+    "el": "Η Ολομέλεια είναι άδεια. Στη μέση στέκεται η Ηλιθιοκρατία: τρία θρανία που έγιναν ένα, δώδεκα κεφάλια και μια ψηφοφορία που δεν τελειώνει. «Ομόφωνα;» ρωτούν όλα μαζί. «Ομόφωνα.»",
+    "en": "The Plenary Hall is empty. In the middle stands the Foolocracy: three benches fused into one, a dozen heads and a vote that never ends. \"Unanimous?\" they all ask together. \"Unanimous.\""
+  },
+  "legend.ilithiokratia.gone": {
+    "el": "Η Ηλιθιοκρατία διαλύθηκε. Τα θρανία έμειναν άδεια. Για πρώτη φορά, κανείς δεν ψήφισε τίποτα.",
+    "en": "The Foolocracy is dissolved. The benches stand empty. For the first time, nobody voted for anything."
+  }
+}

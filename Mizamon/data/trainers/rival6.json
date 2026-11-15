@@ -1,0 +1,13 @@
+{
+  "name": "Ο Μπέμπης",
+  "look": "rival",
+  "team": [
+    { "sp": "star90", "lv": 47 },
+    { "sp": "tavlilordos", "lv": 47 },
+    { "sp": "tavlilordos", "lv": 46 },
+    { "sp": "fakelarchis", "lv": 48 },
+    { "sp": "lobbylykaina", "lv": 47 },
+    { "sp": "$rivalFinal", "lv": 48 }
+  ],
+  "items": ["souvlaki"]
+}

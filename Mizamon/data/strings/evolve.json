@@ -1,0 +1,4 @@
+{
+  "evolve.start": { "el": "Ανασχηματισμός! {from} αλλάζει χαρτοφυλάκιο...", "en": "Cabinet reshuffle! {from} is changing portfolio..." },
+  "evolve.done": { "el": "Νέος υπουργός: {to}. Ορκίστηκε.", "en": "New minister: {to}. Sworn in." }
+}

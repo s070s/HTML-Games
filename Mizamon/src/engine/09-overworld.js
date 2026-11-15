@@ -100,7 +100,7 @@ OverworldLayer.prototype.tryMove = function (dir) {
   const nx = this.px + target[0];
   const ny = this.py + target[1];
   if (!this.canWalk(nx, ny)) {
-    if (Input.pressed[dir]) Sound.sfx('bump');
+    if (Input.pressed[dir]) Sound.sfx(SOUNDS.bump);
     return;
   }
   this.move = { dx: target[0], dy: target[1], t: 0 };
@@ -131,7 +131,7 @@ OverworldLayer.prototype.checkTriggers = async function () {
   return false;
 };
 OverworldLayer.prototype.useWarp = async function (warp) {
-  Sound.sfx('door');
+  Sound.sfx(SOUNDS.door);
   await Fade.start(1, 10);
   this.loadMap(warp.to, warp.tx, warp.ty, this.dir);
   await waitFrames(2);
@@ -152,7 +152,7 @@ OverworldLayer.prototype.walkNpc = function (npc, dir) {
 };
 OverworldLayer.prototype.showExclaim = async function (npc) {
   this.exclaim = npc;
-  Sound.sfx('alert');
+  Sound.sfx(SOUNDS.alert);
   await waitFrames(36);
   this.exclaim = null;
 };
@@ -255,7 +255,7 @@ OverworldLayer.prototype.archiveDeposit = async function () {
   if (index < 0) return;
   const name = speciesName(G.party[index].sp);
   depositMon(G.party, G.archive, index);
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   await say('arch.deposited', { mon: name, n: G.archive.length });
 };
 OverworldLayer.prototype.archiveWithdraw = async function () {
@@ -265,7 +265,7 @@ OverworldLayer.prototype.archiveWithdraw = async function () {
   if (index < 0) return;
   const name = speciesName(G.archive[index].sp);
   withdrawMon(G.party, G.archive, index);
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   await say('arch.withdrawn', { mon: name });
 };
 OverworldLayer.prototype.shopTalk = async function () {
@@ -277,7 +277,7 @@ OverworldLayer.prototype.cafeTalk = async function () {
   await say(this.map.cafeHello || 'cafe.hello'); // the café of Παλαιό Φάληρο has its own greeting
   if (await askYesNo('cafe.ask')) {
     const stored = writeSave();
-    Sound.sfx('heal');
+    Sound.sfx(SOUNDS.heal);
     await say(stored ? 'cafe.saved' : 'cafe.savedMemory');
   } else await say('cafe.bye');
 };
@@ -336,7 +336,7 @@ OverworldLayer.prototype.bossVictory = async function (trainerId) {
   const victory = TRAINERS[trainerId].victory;
   await say(victory.win2);
   G.flags[victory.flag] = true;
-  Sound.sfx('levelup');
+  Sound.sfx(SOUNDS.levelup);
   await openLayer(new BadgeLayer(victory.title, victory.sub, victory.ribbon));
   await say(victory.win3);
   Sound.play(this.map.music);
@@ -352,29 +352,65 @@ OverworldLayer.prototype.bossVictory = async function (trainerId) {
 OverworldLayer.prototype.finale = async function () {
   await openLayer(new CreditsLayer());
   G.flags.ending = true;
-  await this.teleport({ map: 'parliament_roof', x: 4, y: 6, dir: 'up' });
+  await this.teleport(Object.assign({}, DATA.game.finaleSpot)); // the roof of the Βουλή (data/game.json)
   await say('ending.roof');
 };
+// The event runner (reference 13.1, "Events"): runs the step list of data/events/<id>.json. It knows the steps the scenes of the game
+// use so far (setFlag, spawn, sfx, walk, say, battle, evolutions, remove, builtin, end); a step it does not know stops the event with
+// an error, so nothing in the data is skipped silently. `scene` holds the temporary people the event has spawned, by id.
 OverworldLayer.prototype.runEvent = async function (eventId) {
-  if (eventId === 'rival1') {
-    G.flags.rival1 = true;
-    const rival = { def: { look: 'rival', kind: 'tmp' }, x: 3, y: 9, face: 'up', walk: null };
-    this.tempNpcs.push(rival);
-    this.npcListStale = true;
-    Sound.sfx('alert');
-    await this.walkNpc(rival, 'up');
-    await sayAll(['rival1.intro1', 'rival1.intro2']);
-    const result = await runBattle({ kind: 'trainer', trainerId: 'rival1', foeParty: buildTrainerTeam('rival1', G.starter) });
-    if (result === 'ran') { this.tempNpcs = []; this.npcListStale = true; return; } // the battle broke: the fight does not count
-    G.flags.t_rival1 = true;
-    if (result === 'lose') { await say('rival1.win'); await this.afterBattle('lose', 'rival1'); }
-    else { await say('rival1.lose'); await runEvolutions(); }
-    if (result !== 'lose') {
-      await this.walkNpc(rival, 'right');
-      for (let i = 0; i < 6; i++) await this.walkNpc(rival, 'right');
+  const steps = EVENTS[eventId];
+  if (!steps) throw new Error('unknown event ' + eventId);
+  await this.runEventSteps(steps, { spawned: {} });
+};
+// Returns 'end' when a step ended the event: the steps after it, and those of the lists around it, are skipped.
+OverworldLayer.prototype.runEventSteps = async function (steps, scene) {
+  for (const step of steps) {
+    if (await this.runEventStep(step, scene) === 'end') return 'end';
+  }
+  return null;
+};
+OverworldLayer.prototype.runEventStep = async function (step, scene) {
+  switch (step.step) {
+    case 'setFlag':
+      G.flags[step.flag] = true;
+      return null;
+    case 'sfx':
+      Sound.sfx(step.sound);
+      return null;
+    case 'say':
+      await sayAll(step.keys);
+      return null;
+    case 'spawn': {
+      const person = { def: { look: step.look, kind: 'tmp' }, x: step.x, y: step.y, face: step.face, walk: null };
+      scene.spawned[step.id] = person;
+      this.tempNpcs.push(person);
+      this.npcListStale = true;
+      return null;
     }
-    this.tempNpcs = [];
-    this.npcListStale = true;
+    case 'walk':
+      for (let i = 0; i < step.steps; i++) await this.walkNpc(scene.spawned[step.who], step.dir);
+      return null;
+    case 'remove':
+      this.tempNpcs = step.who === 'all' ? [] : this.tempNpcs.filter(function (person) { return person !== scene.spawned[step.who]; });
+      this.npcListStale = true;
+      return null;
+    case 'evolutions':
+      await runEvolutions();
+      return null;
+    case 'builtin':
+      if (step.name !== 'afterBattle') throw new Error('unknown builtin ' + step.name);
+      await this.afterBattle(step.result, step.trainer);
+      return null;
+    case 'battle': {
+      const result = await runBattle({ kind: 'trainer', trainerId: step.trainer, foeParty: buildTrainerTeam(step.trainer, G.starter) });
+      const branch = result === 'ran' ? step.onRan : (result === 'lose' ? step.onLose : step.onWin);
+      return branch ? this.runEventSteps(branch, scene) : null;
+    }
+    case 'end':
+      return 'end';
+    default:
+      throw new Error('event step not supported: ' + step.step);
   }
 };
 OverworldLayer.prototype.draw = function () {

@@ -1,0 +1,10 @@
+{
+  "blackout.text": {
+    "el": "Όλη η ομάδα σου παραιτήθηκε και το πορτοφόλι ελαφρύνθηκε στο μισό. Η δημοσκόπησή σου πήρε την κατηφόρα και ένα ασθενοφόρο ήρθε μόνο του: δεν το κάλεσε κανείς.",
+    "en": "Your whole team resigned and the wallet got half lighter. Your poll numbers took the downhill road and an ambulance arrived on its own: nobody had called it."
+  },
+  "blackout.hospital": {
+    "el": "Ξύπνησες σε ράντζο στον διάδρομο του Νοσοκομείου 3000. Η ομάδα σου εξετάστηκε χωρίς ραντεβού. Αυτό είναι το πιο ανησυχητικό.",
+    "en": "You woke up on a cot in the corridor of Hospital 3000. Your team was examined without an appointment. That is the most worrying part."
+  }
+}

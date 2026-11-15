@@ -1,6 +1,6 @@
 // ---- Pause menu ---------------------------------------------------------------------------------------------------------
 async function openPauseMenu(world) {
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   let start = 0;
   for (;;) {
     const choice = await choose([T('menu.party'), T('menu.bag'), T('menu.dossier'), T('menu.map'), T('menu.save'), T('menu.options'), T('menu.close')],

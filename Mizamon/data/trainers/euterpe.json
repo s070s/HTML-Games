@@ -1,0 +1,12 @@
+{
+  "name": "Η Προϊσταμένη Ευτέρπη",
+  "look": "euterpe",
+  "team": [
+    { "sp": "lobbylykaina", "lv": 45 },
+    { "sp": "tavlilordos", "lv": 44 },
+    { "sp": "fakelarchis", "lv": 44 },
+    { "sp": "tavlilordos", "lv": 46 },
+    { "sp": "lobbylykaina", "lv": 46 }
+  ],
+  "items": ["souvlaki"]
+}

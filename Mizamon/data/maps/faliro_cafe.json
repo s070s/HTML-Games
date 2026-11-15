@@ -1,0 +1,24 @@
+{
+  "name": "map.faliro.cafe",
+  "w": 10,
+  "h": 8,
+  "music": "indoor",
+  "rows": [
+    "wwwwwwwwww",
+    "whhfffffhw",
+    "wcccccfffw",
+    "wffffffffw",
+    "wffffffffw",
+    "wfttffttfw",
+    "wffffffffw",
+    "wwwwmmwwww"
+  ],
+  "cafeHello": "cafe.hello.faliro",
+  "warps": [{ "x": 4, "y": 7, "to": "faliro", "tx": 17, "ty": 6 }, { "x": 5, "y": 7, "to": "faliro", "tx": 17, "ty": 6 }],
+  "signs": {},
+  "npcs": [
+    { "id": "cafeowner", "x": 3, "y": 1, "face": "down", "look": "cafeowner", "kind": "save" },
+    { "id": "fcafe1", "x": 2, "y": 4, "face": "right", "look": "oldman", "kind": "talk", "text": "npc.fcafe1" },
+    { "id": "fcafe2", "x": 7, "y": 6, "face": "up", "look": "fisher", "kind": "talk", "text": "npc.fcafe2" }
+  ]
+}

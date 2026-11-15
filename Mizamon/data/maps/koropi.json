@@ -1,0 +1,43 @@
+{
+  "name": "map.koropi",
+  "w": 26,
+  "h": 16,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666,,4444,,55555,2222T",
+    "T,66H66,,4444,,55555,2222T",
+    "T,NMPMN,,W##W,,W###W,W##WT",
+    "T,MMEMMS,#D##S,##D##S#d##T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "TT,,,,,,,T,,7,,T,,,,,,U,TT",
+    "T,,,,,S,,,,,,,,,,,,,,,,,,T",
+    "..........................",
+    "TssssssssssssssssssssssssT",
+    "TsvvvvvvvvsssssvvvvvvvvvsT",
+    "TsvvvvvvvvsssssvvvvvvvvvsT",
+    "TsvvvvvvvvsssssvvvvvvvvvsT",
+    "TssssssssssssssssssssssssT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 9, "to": "route5", "tx": 34, "ty": 4 },
+    { "x": 25, "y": 9, "to": "route6", "tx": 1, "ty": 8 },
+    { "x": 4, "y": 5, "to": "koropi_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "koropi_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "koropi_cafe", "tx": 4, "ty": 6 }
+  ],
+  "signs": {
+    "7,5": "sign.koropi.hospital",
+    "13,5": "sign.shop",
+    "20,5": "sign.koropi.cafe",
+    "22,7": "sign.ktel",
+    "6,8": "sign.koropi.town"
+  },
+  "npcs": [
+    { "id": "kwatcher", "x": 12, "y": 8, "face": "up", "look": "oldman", "kind": "talk", "text": "npc.koropi1" },
+    { "id": "kgrower", "x": 12, "y": 12, "face": "left", "look": "fisher", "kind": "talk", "text": "npc.koropi2" },
+    { "id": "kkid", "x": 7, "y": 7, "face": "right", "look": "kid", "kind": "talk", "text": "npc.koropi3" }
+  ]
+}

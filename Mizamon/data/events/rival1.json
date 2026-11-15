@@ -1,0 +1,24 @@
+[
+  { "step": "setFlag", "flag": "rival1" },
+  { "step": "spawn", "id": "rival", "look": "rival", "x": 3, "y": 9, "face": "up" },
+  { "step": "sfx", "sound": "alert" },
+  { "step": "walk", "who": "rival", "dir": "up", "steps": 1 },
+  { "step": "say", "keys": ["rival1.intro1", "rival1.intro2"] },
+  {
+    "step": "battle",
+    "trainer": "rival1",
+    "onRan": [{ "step": "remove", "who": "all" }, { "step": "end" }],
+    "onWin": [
+      { "step": "setFlag", "flag": "t_rival1" },
+      { "step": "say", "keys": ["rival1.lose"] },
+      { "step": "evolutions" },
+      { "step": "walk", "who": "rival", "dir": "right", "steps": 7 }
+    ],
+    "onLose": [
+      { "step": "setFlag", "flag": "t_rival1" },
+      { "step": "say", "keys": ["rival1.win"] },
+      { "step": "builtin", "name": "afterBattle", "result": "lose", "trainer": "rival1" }
+    ]
+  },
+  { "step": "remove", "who": "all" }
+]

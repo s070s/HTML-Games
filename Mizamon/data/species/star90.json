@@ -1,0 +1,10 @@
+{
+  "n": "Σταρ των 90ς",
+  "t": "cel",
+  "ab": "pal",
+  "g": "m",
+  "rec": 28,
+  "xp": 70,
+  "base": [57, 60, 44, 96, 53, 58],
+  "learn": [[1, "proinadiko"], [1, "reunion"], [5, "kavgas"], [9, "souxe"], [12, "autobio"]]
+}

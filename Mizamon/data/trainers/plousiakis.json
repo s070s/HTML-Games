@@ -1,0 +1,22 @@
+{
+  "name": "Ο Ηγούμενος Πλουσιάκης",
+  "look": "plousiakis",
+  "boss": true,
+  "bonus": 200,
+  "victory": {
+    "flag": "badge_dytika",
+    "win2": "boss.plousiakis.win2",
+    "title": "badge.dytika.title",
+    "sub": "badge.dytika.sub",
+    "win3": "boss.plousiakis.win3",
+    "ribbon": "#d8a82a"
+  },
+  "team": [
+    { "sp": "ktimatomesitis", "lv": 36 },
+    { "sp": "giagiaexo", "lv": 37 },
+    { "sp": "tavlilordos", "lv": 38 },
+    { "sp": "fakelarchis", "lv": 37 },
+    { "sp": "despotakis", "lv": 38 }
+  ],
+  "items": []
+}

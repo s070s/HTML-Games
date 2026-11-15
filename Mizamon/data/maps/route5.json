@@ -1,0 +1,84 @@
+{
+  "name": "map.route5",
+  "w": 36,
+  "h": 16,
+  "music": "route",
+  "rows": [
+    "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+    "IRRRRRRRRRRRRRRRRRRRRRRRIRRRRRRRRRRI",
+    "IRRRRRRRRRRRIRRRRRRRRRRRRRRRRRRRRRRI",
+    "Isgggg..............................",
+    "Isgggg..............................",
+    "IsggRg..sgggRgggggggggggIggssssggZgI",
+    "Isgggg..sgggggggggggggRggggssssggRgI",
+    "IsgIgg..sgIggggggggggggggggssssggggI",
+    "Isgggg........................sJJJJI",
+    "Isssss........................sJ11JI",
+    "Iggggggggggggggggggggggggggs..sJ11JI",
+    "IgggIgggRgggggggggggIggggRgs..sJJJJI",
+    "IgZggggggggggggIgggggggggggs..ZJJJJI",
+    "..............................sJJJJI",
+    "..............................sssssI",
+    "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
+  ],
+  "warps": [{ "x": 0, "y": 13, "to": "glyfada", "tx": 26, "ty": 7 }, { "x": 35, "y": 4, "to": "koropi", "tx": 1, "ty": 9 }],
+  "signs": { "2,12": "sign.route5", "30,12": "sign.monastery", "33,5": "sign.koropi" },
+  "npcs": [
+    {
+      "id": "pilgrim",
+      "x": 30,
+      "y": 9,
+      "face": "left",
+      "look": "pilgrim",
+      "kind": "trainer",
+      "trainer": "pilgrim",
+      "sight": 2
+    },
+    {
+      "id": "customs",
+      "x": 16,
+      "y": 7,
+      "face": "down",
+      "look": "customs",
+      "kind": "trainer",
+      "trainer": "customs",
+      "sight": 2
+    },
+    {
+      "id": "tourist",
+      "x": 20,
+      "y": 5,
+      "face": "up",
+      "look": "tourist",
+      "kind": "trainer",
+      "trainer": "tourist",
+      "sight": 2
+    },
+    { "id": "hiker", "x": 13, "y": 11, "face": "right", "look": "kid", "kind": "talk", "text": "npc.hiker" },
+    { "id": "wallkeeper", "x": 31, "y": 7, "face": "down", "look": "oldman2", "kind": "talk", "text": "npc.wallkeeper" }
+  ],
+  "zones": [
+    {
+      "x0": 0,
+      "x1": 17,
+      "table": [
+        { "sp": "eforaki", "w": 22, "min": 19, "max": 21 },
+        { "sp": "trolosavros", "w": 22, "min": 19, "max": 21 },
+        { "sp": "storoula", "w": 20, "min": 19, "max": 21 },
+        { "sp": "efoplistakos", "w": 18, "min": 19, "max": 21 },
+        { "sp": "monastiriaki", "w": 6, "min": 19, "max": 21 }
+      ]
+    },
+    {
+      "x0": 18,
+      "x1": 99,
+      "table": [
+        { "sp": "eforaki", "w": 22, "min": 20, "max": 22 },
+        { "sp": "trolosavros", "w": 22, "min": 20, "max": 22 },
+        { "sp": "storoula", "w": 20, "min": 20, "max": 21 },
+        { "sp": "efoplistakos", "w": 18, "min": 20, "max": 22 },
+        { "sp": "monastiriaki", "w": 6, "min": 20, "max": 22 }
+      ]
+    }
+  ]
+}

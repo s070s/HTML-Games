@@ -1,0 +1,10 @@
+{
+  "n": "Υπερυπουργός",
+  "t": "pol",
+  "ab": "asy",
+  "g": "m",
+  "rec": 0,
+  "xp": 100,
+  "base": [74, 62, 70, 92, 80, 72],
+  "learn": [[1, "psifodeltio"], [1, "promise"], [5, "exetastiki"], [8, "tropologia"], [11, "thios"], [18, "diaggelma"]]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "map.kastella",
+  "w": 26,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,1111,,,3333333,,,2222,,T",
+    "T,1111,,,3333333,,,2222,,T",
+    "T,W##W,,,W#####W,,,W##W,,T",
+    "T,#d##,,,###D###,,,#d##,,T",
+    "T,,,,,,,,,,S,,,,,,,,,,,,,T",
+    "TFFFFF,,FFFFFFFFFFFFFFFFFT",
+    "T,1111,,,66666,,4444,2222T",
+    "T,1111,,,66H66,,4444,2222T",
+    "T,W##W,,,NMPMN,,W##W,W##WT",
+    "T,#d##,,SMMEMM,S#D##,#d##T",
+    ".,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "TFFFFFUFFFFFFFFFFFFFF,,FST",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,.",
+    "T~~~y~~~~~~~~~~~~y~~~~~~~T",
+    "T~~~~~~~~~y~~~~~~~~~~~y~~T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 12, "to": "route2", "tx": 38, "ty": 8 },
+    { "x": 12, "y": 5, "to": "kastella_theatre", "tx": 5, "ty": 8 },
+    { "x": 11, "y": 11, "to": "kastella_hospital", "tx": 5, "ty": 7 },
+    { "x": 17, "y": 11, "to": "kastella_shop", "tx": 3, "ty": 4 },
+    { "x": 25, "y": 14, "to": "route3", "tx": 1, "ty": 8, "needFlag": "badge", "lockedText": "warp.route3" }
+  ],
+  "signs": {
+    "11,6": "sign.theatre",
+    "8,11": "sign.kastella.hospital",
+    "15,11": "sign.shop",
+    "6,13": "sign.ktel",
+    "3,5": "sign.house1",
+    "20,5": "sign.house2",
+    "3,11": "sign.house1",
+    "22,11": "sign.house2",
+    "24,13": "sign.kastella.east"
+  },
+  "npcs": [
+    { "id": "kvillager", "x": 17, "y": 4, "face": "down", "look": "oldwoman", "kind": "talk", "text": "npc.kastella1" },
+    { "id": "kstudent", "x": 7, "y": 10, "face": "left", "look": "student", "kind": "talk", "text": "npc.kastella2" },
+    { "id": "kfisher", "x": 8, "y": 3, "face": "down", "look": "oldman2", "kind": "talk", "text": "npc.kastella3" }
+  ]
+}

@@ -2,8 +2,8 @@
 function GenderLayer() { this.opaque = true; this.cursor = 0; this.frame = 0; }
 GenderLayer.prototype.update = function () {
   this.frame++;
-  if (Input.pressed.left || Input.pressed.right) { this.cursor = 1 - this.cursor; Sound.sfx('move'); }
-  if (Input.pressed.a) { Sound.sfx('confirm'); closeLayer(this, this.cursor === 0 ? 'm' : 'f'); }
+  if (Input.pressed.left || Input.pressed.right) { this.cursor = 1 - this.cursor; Sound.sfx(SOUNDS.move); }
+  if (Input.pressed.a) { Sound.sfx(SOUNDS.confirm); closeLayer(this, this.cursor === 0 ? 'm' : 'f'); }
 };
 GenderLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
@@ -47,26 +47,26 @@ NameLayer.prototype.onKey = function (event) {
 };
 NameLayer.prototype.finish = function () {
   const trimmed = this.name.trim();
-  if (trimmed.length === 0) { Sound.sfx('error'); return; }
-  Sound.sfx('confirm');
+  if (trimmed.length === 0) { Sound.sfx(SOUNDS.error); return; }
+  Sound.sfx(SOUNDS.confirm);
   closeLayer(this, trimmed);
 };
 NameLayer.prototype.update = function () {
   this.frame++;
   const pageRows = NAME_PAGES[this.page].length;
-  if (Input.repeat.up) { this.row = (this.row + this.rows() - 1) % this.rows(); Sound.sfx('move'); }
-  if (Input.repeat.down) { this.row = (this.row + 1) % this.rows(); Sound.sfx('move'); }
+  if (Input.repeat.up) { this.row = (this.row + this.rows() - 1) % this.rows(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.row = (this.row + 1) % this.rows(); Sound.sfx(SOUNDS.move); }
   const cols = this.row === pageRows ? 3 : 8;
   if (this.col >= cols) this.col = cols - 1;
-  if (Input.repeat.left) { this.col = (this.col + cols - 1) % cols; Sound.sfx('move'); }
-  if (Input.repeat.right) { this.col = (this.col + 1) % cols; Sound.sfx('move'); }
-  if (Input.pressed.b) { this.name = this.name.slice(0, -1); Sound.sfx('back'); }
+  if (Input.repeat.left) { this.col = (this.col + cols - 1) % cols; Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.right) { this.col = (this.col + 1) % cols; Sound.sfx(SOUNDS.move); }
+  if (Input.pressed.b) { this.name = this.name.slice(0, -1); Sound.sfx(SOUNDS.back); }
   if (!Input.pressed.a) return;
   if (this.row < pageRows) {
     const letter = NAME_PAGES[this.page][this.row][this.col];
-    if (letter && this.name.length < NAME_MAX) { this.name += letter; Sound.sfx('confirm'); } else Sound.sfx('error');
-  } else if (this.col === 0) { this.page = 1 - this.page; this.row = Math.min(this.row, this.rows() - 1); Sound.sfx('confirm'); }
-  else if (this.col === 1) { this.name = this.name.slice(0, -1); Sound.sfx('back'); }
+    if (letter && this.name.length < NAME_MAX) { this.name += letter; Sound.sfx(SOUNDS.confirm); } else Sound.sfx(SOUNDS.error);
+  } else if (this.col === 0) { this.page = 1 - this.page; this.row = Math.min(this.row, this.rows() - 1); Sound.sfx(SOUNDS.confirm); }
+  else if (this.col === 1) { this.name = this.name.slice(0, -1); Sound.sfx(SOUNDS.back); }
   else this.finish();
 };
 NameLayer.prototype.draw = function () {
@@ -115,9 +115,9 @@ StarterLayer.prototype.refreshInfo = function () {
 };
 StarterLayer.prototype.update = function () {
   this.frame++;
-  if (Input.repeat.left) { this.cursor = (this.cursor + 2) % 3; Sound.sfx('move'); this.refreshInfo(); }
-  if (Input.repeat.right) { this.cursor = (this.cursor + 1) % 3; Sound.sfx('move'); this.refreshInfo(); }
-  if (Input.pressed.a) { Sound.sfx('confirm'); closeLayer(this, STARTERS[this.cursor]); }
+  if (Input.repeat.left) { this.cursor = (this.cursor + 2) % 3; Sound.sfx(SOUNDS.move); this.refreshInfo(); }
+  if (Input.repeat.right) { this.cursor = (this.cursor + 1) % 3; Sound.sfx(SOUNDS.move); this.refreshInfo(); }
+  if (Input.pressed.a) { Sound.sfx(SOUNDS.confirm); closeLayer(this, STARTERS[this.cursor]); }
 };
 StarterLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);

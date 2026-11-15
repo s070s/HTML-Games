@@ -58,7 +58,13 @@ window.addEventListener('keyup', function (event) {
 window.addEventListener('blur', function () { Input.keys = {}; Input.touch = {}; });
 window.addEventListener('gamepadconnected', function () { Input.padConnected++; });
 window.addEventListener('gamepaddisconnected', function () { Input.padConnected = Math.max(0, Input.padConnected - 1); Input.pad = {}; });
+// The words of the map pill are a text (map.pill) in the chosen language; the shell holds the pill empty.
+function labelMapPill() {
+  const pill = touchPad.querySelector('[data-btn="map"]');
+  if (pill) pill.textContent = T('map.pill');
+}
 function bindTouchButtons() {
+  labelMapPill();
   for (const element of touchPad.querySelectorAll('[data-btn]')) {
     const name = element.getAttribute('data-btn');
     const press = function (event) { event.preventDefault(); Sound.unlock(); Input.touch[name] = true; element.classList.add('on'); };

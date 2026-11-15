@@ -1,0 +1,58 @@
+{
+  "name": "map.monastiraki",
+  "w": 26,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,R&RRT",
+    "T,66666,,4444,,11111,R&RRT",
+    "T,66H66,,4444,,11111,R&RRT",
+    "T,NMPMN,,W##W,,W###W,R&RRT",
+    "T,MMEMMS,#D##S,##D##SR&RRT",
+    "T,,,,,,,,,,,,,,,,,,,,,,S,T",
+    "T,,/,/,,/,,,,/,/,,/,,,,,,T",
+    "T,,,,,S,,,,,,,,,,,,,,,,U,T",
+    "..........................",
+    "TT,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,11111,333,S,,,55555,,,TT",
+    "T,11111,333,},,,55555,,,,T",
+    "T,W###W,W#W,,,,,W###W,,,,T",
+    "T,##d##,#d#,,,,,##d##,,,,T",
+    "T,,,,,,,,,,,,,T,,,,,,,,,TT",
+    "T,,,,,T,,,,,,,,,,,,T,,,,,T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 0, "y": 9, "to": "route11", "tx": 34, "ty": 6 },
+    { "x": 25, "y": 9, "to": "route12", "tx": 1, "ty": 8 },
+    { "x": 4, "y": 5, "to": "monastiraki_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "monastiraki_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "monastiraki_cafe", "tx": 4, "ty": 6 },
+    { "x": 22, "y": 1, "to": "rock", "tx": 10, "ty": 14 }
+  ],
+  "signs": {
+    "7,5": "sign.monastiraki.hospital",
+    "13,5": "sign.shop",
+    "20,5": "sign.monastiraki.cafe",
+    "23,6": "sign.monastiraki.rock",
+    "6,8": "sign.monastiraki.market",
+    "12,11": "sign.monastiraki.clock",
+    "23,8": "sign.ktel"
+  },
+  "npcs": [
+    {
+      "id": "porter",
+      "x": 10,
+      "y": 8,
+      "face": "down",
+      "look": "porter",
+      "kind": "trainer",
+      "trainer": "porter",
+      "sight": 2
+    },
+    { "id": "mnstall", "x": 14, "y": 8, "face": "up", "look": "marketeer", "kind": "talk", "text": "npc.monastiraki1" },
+    { "id": "mnwoman", "x": 19, "y": 8, "face": "left", "look": "oldwoman", "kind": "talk", "text": "npc.monastiraki2" },
+    { "id": "mnkid", "x": 8, "y": 10, "face": "up", "look": "kid", "kind": "talk", "text": "npc.monastiraki3" }
+  ]
+}

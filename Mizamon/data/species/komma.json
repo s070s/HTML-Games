@@ -1,0 +1,12 @@
+{
+  "n": "Κομματάκι",
+  "t": "pol",
+  "ab": "asy",
+  "g": "n",
+  "starter": true,
+  "rec": 0,
+  "xp": 50,
+  "evo": { "to": "vouleftakos", "lv": 16 },
+  "base": [46, 38, 44, 56, 48, 46],
+  "learn": [[1, "psifodeltio"], [1, "promise"], [5, "exetastiki"], [8, "tropologia"], [11, "thios"]]
+}

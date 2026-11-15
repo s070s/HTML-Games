@@ -1,0 +1,9 @@
+{
+  "name": "Ο Παρουσιαστής Ρεκλαμάκης",
+  "look": "host",
+  "recruitable": true,
+  "recruitOnly": "fakelos",
+  "bonus": 400,
+  "team": [{ "sp": "spyradonis", "lv": 15 }, { "sp": "mizotakis", "lv": 17 }],
+  "items": ["souvlaki"]
+}

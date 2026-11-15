@@ -1,0 +1,10 @@
+{
+  "credits.text": {
+    "el": "MIZAMON\n\nΤο τέλος του παιχνιδιού\n\nΣχεδιασμός, κώδικας και γραφικά:\nπρωτότυπα, φτιαγμένα με κώδικα\n\nΜουσική και ήχοι:\nσυνθέτονται ζωντανά από τον κώδικα\n\nΚανένα εξωτερικό αρχείο:\nούτε εικόνες, ούτε ήχοι, ούτε γράμματα·\nτα γράμματα είναι του συστήματός σου\n\nΣάτιρα. Όλοι οι χαρακτήρες\nείναι παρωδίες ή φανταστικοί·\nκάθε ομοιότητα είναι καρικατούρα.\n\nΕυχαριστούμε που έπαιξες!",
+    "en": "MIZAMON\n\nThe end of the game\n\nDesign, code and graphics:\noriginal, made with code\n\nMusic and sounds:\nsynthesised live by the code\n\nNo outside files:\nno images, no sounds, no fonts;\nthe letters are your system fonts\n\nSatire. All characters\nare parodies or fictional;\nany resemblance is caricature.\n\nThanks for playing!"
+  },
+  "credits.after": {
+    "el": "Ένα νέο κτίριο άνοιξε στην πλατεία της Νέας Πειραιάς: το Τηλεοπτικό Στούντιο. Λένε ότι ψάχνει αντίπαλο.",
+    "en": "A new building opened in the New Piraeus square: the TV Studio. They say it is looking for a challenger."
+  }
+}

@@ -25,21 +25,21 @@ PartyLayer.prototype.refresh = function () {
 };
 PartyLayer.prototype.update = function () {
   const count = G.party.length;
-  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx('move'); }
+  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx(SOUNDS.move); }
   if (Input.pressed.b) {
-    if (this.swapFrom >= 0) { this.swapFrom = -1; Sound.sfx('back'); return; }
-    if (this.forced) { Sound.sfx('error'); return; }
-    Sound.sfx('back'); closeLayer(this, -1); return;
+    if (this.swapFrom >= 0) { this.swapFrom = -1; Sound.sfx(SOUNDS.back); return; }
+    if (this.forced) { Sound.sfx(SOUNDS.error); return; }
+    Sound.sfx(SOUNDS.back); closeLayer(this, -1); return;
   }
   if (!Input.pressed.a) return;
   if (this.mode !== 'view') {
     const mon = G.party[this.cursor];
     const blocked = (this.mode === 'switch' && (mon.hp <= 0 || this.cursor === this.activeIndex)) || (this.canChoose && !this.canChoose(this.cursor));
-    if (blocked) { Sound.sfx('error'); return; }
-    Sound.sfx('confirm'); closeLayer(this, this.cursor); return;
+    if (blocked) { Sound.sfx(SOUNDS.error); return; }
+    Sound.sfx(SOUNDS.confirm); closeLayer(this, this.cursor); return;
   }
-  Sound.sfx('confirm');
+  Sound.sfx(SOUNDS.confirm);
   this.runViewAction(this.cursor);
 };
 PartyLayer.prototype.runViewAction = async function (index) {

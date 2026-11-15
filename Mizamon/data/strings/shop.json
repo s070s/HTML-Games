@@ -1,0 +1,13 @@
+{
+  "shop.title": { "el": "Περίπτερο", "en": "Kiosk" },
+  "shop.hello": {
+    "el": "Καλώς ήρθες στο Περίπτερο! Έχουμε τα πάντα. Εκτός από ρέστα.",
+    "en": "Welcome to the Kiosk! We have everything. Except change."
+  },
+  "shop.bye": { "el": "Ευχαριστώ! Η απόδειξη θα φτάσει... κάποτε.", "en": "Thanks! The receipt will arrive... someday." },
+  "shop.poor": {
+    "el": "Δεν φτάνουν τα λεφτά. Δοκίμασε ένα φακελάκι σε εμένα.",
+    "en": "Not enough money. Try a little envelope on me."
+  },
+  "shop.bought": { "el": "Αγόρασες: {item}.", "en": "Bought: {item}." }
+}

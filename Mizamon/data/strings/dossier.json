@@ -1,0 +1,11 @@
+{
+  "dossier.title": { "el": "ΔΙΚΟΓΡΑΦΙΑ", "en": "CASE FILES" },
+  "dossier.counts": { "el": "Εντοπ. {seen} · Στρατ. {got} / {total}", "en": "Found {seen} · Recruited {got} / {total}" },
+  "dossier.case": { "el": "ΥΠΟΘΕΣΗ Νο {n}", "en": "CASE No {n}" },
+  "dossier.unknown": { "el": "ΑΓΝΩΣΤΟΣ", "en": "UNKNOWN" },
+  "dossier.status": { "el": "ΚΑΤΑΣΤΑΣΗ:", "en": "STATUS:" },
+  "dossier.got": { "el": "ΣΤΡΑΤΟΛΟΓΗΘΗΚΕ", "en": "RECRUITED" },
+  "dossier.seen": { "el": "ΕΝΤΟΠΙΣΤΗΚΕ", "en": "SIGHTED" },
+  "dossier.ability": { "el": "Ικανότητα", "en": "Ability" },
+  "dossier.stamp": { "el": "ΠΟΤΕ ΚΑΤΑΔΙΚΑΣΤΗΚΕ", "en": "NEVER CONVICTED" }
+}

@@ -1,0 +1,10 @@
+{
+  "n": "Influεnζα",
+  "t": "inf",
+  "ab": "vir",
+  "g": "f",
+  "rec": 30,
+  "xp": 65,
+  "base": [47, 50, 38, 88, 47, 78],
+  "learn": [[1, "story"], [1, "hashtag"], [5, "bluetick"], [9, "cancel"], [24, "tweet"]]
+}

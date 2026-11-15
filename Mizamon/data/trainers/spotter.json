@@ -1,0 +1,6 @@
+{
+  "name": "Ο Παρατηρητής Βάιος",
+  "look": "spotter",
+  "team": [{ "sp": "monimos", "lv": 23 }, { "sp": "eforaki", "lv": 24 }],
+  "items": []
+}

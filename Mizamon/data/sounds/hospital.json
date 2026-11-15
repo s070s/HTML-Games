@@ -1,0 +1,10 @@
+{
+  "type": "synth",
+  "notes": [
+    { "at": 0, "freq": 1000, "dur": 0.05, "wave": "sine", "vol": 0.12 },
+    { "at": 0.3, "freq": 1000, "dur": 0.05, "wave": "sine", "vol": 0.12 },
+    { "at": 0.6, "freq": 1000, "dur": 0.05, "wave": "sine", "vol": 0.12 },
+    { "at": 0.9, "freq": 1250, "dur": 0.06, "wave": "triangle", "vol": 0.12 },
+    { "at": 0.98, "freq": 1670, "dur": 0.12, "wave": "triangle", "vol": 0.12 }
+  ]
+}

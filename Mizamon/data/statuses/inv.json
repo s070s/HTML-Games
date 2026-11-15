@@ -1,0 +1,7 @@
+{
+  "turns": 5,
+  "kind": "weaken",
+  "params": { "attackMult": 0.75 },
+  "recruitMult": 1.5,
+  "color": "#4a6aa8"
+}

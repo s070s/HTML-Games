@@ -1,0 +1,10 @@
+{
+  "n": "Γιοτάρχης",
+  "t": "biz",
+  "ab": "afo",
+  "g": "m",
+  "rec": 18,
+  "xp": 80,
+  "base": [76, 56, 66, 76, 66, 46],
+  "learn": [[1, "offshore"], [1, "lobbying"], [8, "apolyseis"], [12, "yperkostol"]]
+}

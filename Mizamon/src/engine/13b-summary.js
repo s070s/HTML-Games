@@ -20,11 +20,11 @@ SummaryLayer.prototype.refreshMove = function () {
   this.moveDescription = wrapText(T('move.' + moveId), 118, FONT_SMALL);
 };
 SummaryLayer.prototype.update = function () {
-  if (Input.pressed.b || Input.pressed.a) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.repeat.up) { this.moveCursor = (this.moveCursor + this.mon.moves.length - 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx('move'); }
-  if (Input.repeat.down) { this.moveCursor = (this.moveCursor + 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx('move'); }
-  if (Input.repeat.left) { this.index = (this.index + G.party.length - 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
-  if (Input.repeat.right) { this.index = (this.index + 1) % G.party.length; this.refresh(); Sound.sfx('move'); }
+  if (Input.pressed.b || Input.pressed.a) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
+  if (Input.repeat.up) { this.moveCursor = (this.moveCursor + this.mon.moves.length - 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.moveCursor = (this.moveCursor + 1) % this.mon.moves.length; this.refreshMove(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.left) { this.index = (this.index + G.party.length - 1) % G.party.length; this.refresh(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.right) { this.index = (this.index + 1) % G.party.length; this.refresh(); Sound.sfx(SOUNDS.move); }
 };
 SummaryLayer.prototype.draw = function () {
   const mon = this.mon;

@@ -1,0 +1,4 @@
+{
+  "kind": "statusShield",
+  "params": { "statuses": ["inv", "sca"] }
+}

@@ -1,0 +1,11 @@
+{
+  "n": "Διάκος Ντίσκο",
+  "t": "ekk",
+  "ab": "gra",
+  "g": "m",
+  "rec": 0,
+  "xp": 80,
+  "evo": { "to": "despotakis", "lv": 32 },
+  "base": [64, 46, 60, 70, 76, 50],
+  "learn": [[1, "agiasmos"], [1, "thymiama"], [6, "aforismos"], [10, "litaneia"], [13, "akinito"]]
+}

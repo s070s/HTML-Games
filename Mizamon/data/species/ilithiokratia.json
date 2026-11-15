@@ -1,0 +1,10 @@
+{
+  "n": "Ηλιθιοκρατία",
+  "t": "pol",
+  "ab": "asy",
+  "g": "f",
+  "rec": 5,
+  "xp": 160,
+  "base": [112, 58, 96, 96, 96, 32],
+  "learn": [[1, "psifodeltio"], [1, "tropologia"], [1, "diaggelma"], [1, "promise"]]
+}

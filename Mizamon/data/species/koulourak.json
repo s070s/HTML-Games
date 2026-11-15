@@ -1,0 +1,12 @@
+{
+  "n": "Κουλουράκι",
+  "t": "asf",
+  "ab": "syn",
+  "g": "n",
+  "starter": true,
+  "rec": 0,
+  "xp": 50,
+  "evo": { "to": "batsonos", "lv": 16 },
+  "base": [52, 56, 54, 34, 42, 42],
+  "learn": [[1, "globos"], [1, "enisxuseis"], [6, "chimika"], [10, "taftotita"], [13, "parelasi"]]
+}

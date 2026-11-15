@@ -10,24 +10,24 @@ OptionsLayer.prototype.rowValue = function (index) {
   return '';
 };
 OptionsLayer.prototype.change = function (direction) {
-  if (this.cursor === 0) OPT.lang = OPT.lang === 'el' ? 'en' : 'el';
+  if (this.cursor === 0) { OPT.lang = OPT.lang === 'el' ? 'en' : 'el'; labelMapPill(); }
   else if (this.cursor === 1) { OPT.sound = !OPT.sound; Sound.applyMute(); }
   else if (this.cursor === 2) OPT.textSpeed = (OPT.textSpeed + 3 + direction) % 3;
   else if (this.cursor === 3) OPT.reduceMotion = !OPT.reduceMotion;
   else return;
   saveOptions();
-  Sound.sfx('move');
+  Sound.sfx(SOUNDS.move);
 };
 OptionsLayer.prototype.update = function () {
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
   const rows = OPTIONS_ROWS.length;
-  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; Sound.sfx('move'); }
+  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; Sound.sfx(SOUNDS.move); }
   if (Input.pressed.left) this.change(-1);
   if (Input.pressed.right) this.change(1);
   if (!Input.pressed.a) return;
-  if (this.cursor === rows - 1) { Sound.sfx('back'); closeLayer(this); }
-  else if (this.cursor === OPTIONS_ACCESS_ROW) { Sound.sfx('confirm'); pushLayer(new AccessibilityLayer()); }
+  if (this.cursor === rows - 1) { Sound.sfx(SOUNDS.back); closeLayer(this); }
+  else if (this.cursor === OPTIONS_ACCESS_ROW) { Sound.sfx(SOUNDS.confirm); pushLayer(new AccessibilityLayer()); }
   else this.change(1);
 };
 

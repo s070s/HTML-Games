@@ -1,0 +1,9 @@
+{
+  "type.pol": { "el": "Πολιτικοί", "en": "Politicians" },
+  "type.asf": { "el": "Ασφαλίτες", "en": "Asfalites" },
+  "type.ekk": { "el": "Εκκλησία", "en": "Church" },
+  "type.cel": { "el": "Celebrities", "en": "Celebrities" },
+  "type.inf": { "el": "Influencers", "en": "Influencers" },
+  "type.biz": { "el": "Επιχειρηματίες", "en": "Businessmen" },
+  "type.mem": { "el": "Μιμίδια", "en": "Memes" }
+}

@@ -1,19 +1,22 @@
 // Pure text assembly of the Mizamon page (reference section 13.3). Node built-ins only, no file access.
 // The page is src/shell.html with three marker lines, each on a line of its own, replaced by text:
-//   /*@@DATA@@*/    the data block (empty until DEV-02b)
+//   /*@@DATA@@*/    the data block: the DATA line built from data/ (13.2), empty when there is no data/
 //   /*@@RULES@@*/   src/rules/*.js joined in name order
 //   /*@@ENGINE@@*/  src/engine/*.js joined in name order
 // A marker line is replaced together with its line break, so empty text removes the line.
 // The text is inserted by building a list of chunks and joining it, never with String.replace and a
 // string argument: "$&", "$`" and "$'" in a data string would be expanded there.
 import { createHash } from 'node:crypto';
+import { assertNoMarkerTexts } from './validate.mjs';
 
 export const SHELL_MARKERS = Object.freeze({ data: '/*@@DATA@@*/', rules: '/*@@RULES@@*/', engine: '/*@@ENGINE@@*/' });
 export const RULES_BEGIN = '// RULES-BEGIN';
 export const RULES_END = '// RULES-END';
+export const DATA_BEGIN = '/*DATA-BEGIN*/';
+export const DATA_END = '/*DATA-END*/';
 export const FRAGMENT_NAME = /^\d\d[a-z]?-[a-z0-9-]+\.js$/;
 // Every text that marks a place in the page; a fragment or a data string may not contain one on a line of its own.
-const MARKER_LINES = [RULES_BEGIN, RULES_END, '/*DATA-BEGIN*/', '/*DATA-END*/'];
+const MARKER_LINES = [RULES_BEGIN, RULES_END, DATA_BEGIN, DATA_END];
 const SHELL_MARKER_PATTERN = /^\/\*@@[A-Z]+@@\*\/$/;
 const BINARY_PATH = /^data\/audio\//;
 
@@ -57,6 +60,15 @@ function countLines(text, wanted) {
   return text.split('\n').filter((line) => line === wanted).length;
 }
 
+// The three lines at the data marker (reference 13.2): /*DATA-BEGIN*/, `const DATA = {...};` and /*DATA-END*/. data is the DATA object.
+// The JSON is one line with every "<" written as < (the JSON still parses to the same strings), so no text can close the
+// script or open "<!--"; a data string that holds a marker text of the page is refused (the marker-text rule of validate.mjs).
+export function dataBlockText(data) {
+  assertNoMarkerTexts(data);
+  const json = JSON.stringify(data).split('<').join('\\u003c');
+  return `${DATA_BEGIN}\nconst DATA = ${json};\n${DATA_END}\n`;
+}
+
 // shell: the text of src/shell.html; data: text for the data marker (empty or ending with a line break);
 // rules and engine: lists of { name, text }. Returns the page as LF text.
 export function assemblePage({ shell, data = '', rules, engine }) {
@@ -92,6 +104,14 @@ export function assemblePage({ shell, data = '', rules, engine }) {
     if (countLines(page, wanted) !== 1) throw new Error(`${wanted} must be on a line of its own exactly once in the page`);
   }
   if (page.indexOf(`\n${RULES_BEGIN}\n`) > page.indexOf(`\n${RULES_END}\n`)) throw new Error(`${RULES_END} comes before ${RULES_BEGIN}`);
+  // The data markers are whole lines too: both once or neither, in order, inside the rules block.
+  const dataMarkerCounts = [countLines(page, DATA_BEGIN), countLines(page, DATA_END)];
+  if (dataMarkerCounts[0] !== dataMarkerCounts[1] || dataMarkerCounts[0] > 1) throw new Error(`${DATA_BEGIN} and ${DATA_END} must each be on a line of their own, once or not at all, in the page`);
+  if (dataMarkerCounts[0] === 1) {
+    const begin = page.indexOf(`\n${DATA_BEGIN}\n`);
+    const end = page.indexOf(`\n${DATA_END}\n`);
+    if (begin > end || begin < page.indexOf(`\n${RULES_BEGIN}\n`) || end > page.indexOf(`\n${RULES_END}\n`)) throw new Error(`${DATA_BEGIN} and ${DATA_END} must come in this order inside the rules block`);
+  }
   return page;
 }
 

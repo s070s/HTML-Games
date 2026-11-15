@@ -1,0 +1,32 @@
+{
+  "hosp.hello": {
+    "el": "Νοσοκομείο 3000, γραφείο εισαγωγών. Για την ομάδα σου; Ο κανονισμός λέει: ραντεβού σε 3 έως 5 χρόνια.",
+    "en": "Hospital 3000, admissions desk. For your team? The regulation says: an appointment in 3 to 5 years."
+  },
+  "hosp.free": {
+    "el": "Δωρεάν, φυσικά. Το σύστημα είναι δωρεάν για όποιον έχει υπομονή. Και έχει ράντζο.",
+    "en": "Free, of course. The system is free for anyone who is patient. And has a cot."
+  },
+  "hosp.vipAsk": {
+    "el": "Υπάρχει και η υπηρεσία VIP: χωρίς αναμονή, με ένα Φακελάκι «για τα έξοδα του φαρμακείου». Το δίνεις;",
+    "en": "There is also the VIP service: no waiting, for one little envelope \"for the pharmacy expenses\". Hand it over?"
+  },
+  "hosp.vipTaken": {
+    "el": "Ευχαριστούμε! Το Φακελάκι καταχωρήθηκε ως «δωρεά προς το Νοσοκομείο». Απόδειξη δεν υπάρχει. Ποτέ δεν υπήρχε.",
+    "en": "Thank you! The envelope was filed as a \"donation to the hospital\". There is no receipt. There never was."
+  },
+  "hosp.atOnce": {
+    "el": "Α, κοίτα: ένα ράντζο ελευθερώθηκε μόλις τώρα. Θαύμα. Ή τυπογραφικό λάθος. Πέρασε.",
+    "en": "Oh, look: a cot just became free. A miracle. Or a typing error. Step in."
+  },
+  "hosp.monitor": { "el": "ΕΞΕΤΑΣΗ ΣΕ ΕΞΕΛΙΞΗ", "en": "EXAMINATION IN PROGRESS" },
+  "hosp.monitorNote": { "el": "Ραντεβού: 3-5 χρόνια. Σήμερα: τώρα.", "en": "Appointment: 3-5 years. Today: now." },
+  "hosp.done": {
+    "el": "Η ομάδα σου εξετάστηκε και είναι σαν καινούργια. Η λίστα αναμονής δεν χρειάζεται να το μάθει.",
+    "en": "Your team has been examined and is as good as new. The waiting list does not need to know."
+  },
+  "hosp.doneVip": {
+    "el": "Η ομάδα σου εξυπηρετήθηκε VIP: ένα χαμόγελο, μια καρέκλα με θέα και τρεις υπογραφές. Έλα ξανά... με φάκελο.",
+    "en": "Your team was served VIP style: a smile, a chair with a view and three signatures. Come again... with an envelope."
+  }
+}

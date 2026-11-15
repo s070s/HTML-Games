@@ -1,0 +1,30 @@
+{
+  "intro.1": {
+    "el": "Α, εσύ είσαι, {name}! Πέρασες τις Πανελλήνιες 3000 χωρίς βύσμα. Θαύμα. Ή λάθος στη βαθμολόγηση.",
+    "en": "Ah, it is you, {name}! You passed the Panhellenic 3000 exams without connections. A miracle. Or a grading error."
+  },
+  "intro.2": {
+    "el": "Εγώ είμαι ο Καθηγητής Σταθόπουλος. Δεν έχω πληρωθεί από το 2987, αλλά η αγάπη μου για την επιστήμη είναι αναδρομική.",
+    "en": "I am Professor Stathopoulos. I have not been paid since 2987, but my love of science is retroactive."
+  },
+  "intro.3": {
+    "el": "Στον κόσμο μας ζουν τα Mizamon: πλάσματα που μοιάζουν ύποπτα με όσους μας κυβερνούν. Γιατί; Δεν ρωτάμε.",
+    "en": "Our world is full of Mizamon: creatures that look suspiciously like the people who run us. Why? We do not ask."
+  },
+  "intro.4": {
+    "el": "Για να γίνεις {προπονητής|προπονήτρια} χρειάζεσαι άδεια: έναν Φάκελο και έξι μήνες χαρτιά. Εγώ σου τη δίνω τώρα. Δεν έχω σφραγίδα, ούτε ελπίδες.",
+    "en": "To become a trainer you need a licence: one envelope and six months of paperwork. I give you yours now. I have no stamp, and no hope."
+  },
+  "intro.5": {
+    "el": "Διάλεξε το πρώτο σου Mizamon. Προσοχή: όποιο και να διαλέξεις, θα σου ζητήσει αύξηση.",
+    "en": "Choose your first Mizamon. Careful: whichever you pick will ask you for a raise."
+  },
+  "intro.6": {
+    "el": "{name}, ωραία επιλογή! Το {mon} είναι δικό σου. Πάρε και 5 Φακελάκια. Μην το πεις σε κανέναν· δεν τα έχω δηλώσει.",
+    "en": "{name}, nice choice! {mon} is yours. Take 5 Φακελάκια too. Tell no one; I have not declared them."
+  },
+  "intro.7": {
+    "el": "Στο λιμάνι της Νέας Πειραιάς κάθεται ο Λιμενάρχης Κώτσος. Νίκησέ τον και θα πάρεις Παράσημο, με τον όρο να μη ρωτήσεις πού πήγαν τα λεφτά. Είσαι έτοιμ{ος|η};",
+    "en": "In the port of New Piraeus sits Harbour Master Kotsos. Beat him and you get a medal, on the condition that you do not ask where the money went. Ready?"
+  }
+}

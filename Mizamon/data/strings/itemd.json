@@ -1,0 +1,27 @@
+{
+  "itemd.fakelaki": {
+    "el": "Στρατολογεί ανεξάρτητο Mizamon. Μικρό, αλλά ειλικρινές.",
+    "en": "Recruits an independent Mizamon. Small, but sincere."
+  },
+  "itemd.fakelos": { "el": "Πιο χοντρό (x1,5). Οι πόρτες ανοίγουν ευκολότερα.", "en": "Thicker (x1.5). Doors open more easily." },
+  "itemd.koulouri": { "el": "Γιατρεύει 20 ΥΓ. Πρωινό πρωταθλητών.", "en": "Heals 20 HP. Breakfast of champions." },
+  "itemd.souvlaki": { "el": "Γιατρεύει 50 ΥΓ. Με πίτα.", "en": "Heals 50 HP. With pita." },
+  "itemd.frapes": { "el": "Θεραπεύει κάθε κατάσταση. Κρύος καφές, ζεστό κεφάλι.", "en": "Cures any status. Cold coffee, hot head." },
+  "itemd.tsipouro": {
+    "el": "Γιατρεύει πλήρως, αλλά -1 ακρίβεια. Νομίζει ότι ξέρει καλύτερα.",
+    "en": "Full heal, but -1 accuracy. It thinks it knows better."
+  },
+  "itemd.dikigoros": {
+    "el": "Γιατρεύει 80 ΥΓ και κλείνει κάθε υπόθεση: καμία κατάσταση δεν επιζεί. Με αμοιβή.",
+    "en": "Heals 80 HP and closes every case: no status survives. Fees apply."
+  },
+  "itemd.chontros": { "el": "Πολύ χοντρός (x2,5). Οι πόρτες ανοίγουν μόνες τους.", "en": "Very thick (x2.5). Doors open by themselves." },
+  "itemd.gemista": {
+    "el": "Γιατρεύει πλήρως και σβήνει κάθε κατάσταση. Με τη Μάνα δεν διαφωνεί κανείς.",
+    "en": "Full heal and clears every status. Nobody argues with Mum."
+  },
+  "itemd.sylvasi": {
+    "el": "Γιατρεύει 120 ΥΓ. Υπογράφεται από όλους. Εκτός από σένα.",
+    "en": "Heals 120 HP. Signed by everyone. Except you."
+  }
+}

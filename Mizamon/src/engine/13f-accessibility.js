@@ -22,16 +22,16 @@ AccessibilityLayer.prototype.change = function (direction) {
   OPT[row.option] = row.values ? (OPT[row.option] + row.count + direction) % row.count : !OPT[row.option];
   saveOptions();
   if (row.option === 'largeText' || row.option === 'touchHand') resizeScreen(); // the bar and the buttons change the layout
-  Sound.sfx('move');
+  Sound.sfx(SOUNDS.move);
 };
 AccessibilityLayer.prototype.update = function () {
   const rows = ACCESS_ROWS.length + 1; // the options and Back
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; this.refresh(); Sound.sfx('move'); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; this.refresh(); Sound.sfx('move'); }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
+  if (Input.repeat.up) { this.cursor = (this.cursor + rows - 1) % rows; this.refresh(); Sound.sfx(SOUNDS.move); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % rows; this.refresh(); Sound.sfx(SOUNDS.move); }
   if (Input.pressed.left) this.change(-1);
   if (Input.pressed.right) this.change(1);
-  if (Input.pressed.a) { if (this.cursor === ACCESS_ROWS.length) { Sound.sfx('back'); closeLayer(this); } else this.change(1); }
+  if (Input.pressed.a) { if (this.cursor === ACCESS_ROWS.length) { Sound.sfx(SOUNDS.back); closeLayer(this); } else this.change(1); }
 };
 AccessibilityLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);

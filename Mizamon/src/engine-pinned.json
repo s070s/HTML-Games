@@ -1,0 +1,33 @@
+{
+  "note": "The content ids and string keys that the code in src/ still names as literals (reference 13.12). Everything else the engine used to name moved to data/game.json (start spot, hospital spot, starters, the rival's answers, the finale spot, title creatures, music and sound roles, battle backgrounds), to a data field (the hideFlag of the rival who leaves) or to a kind (what an ability or a status does: data/abilities/ and data/statuses/ name a kind of the rules code and its numbers, so the code names no ability and no status). tools/run-tests.mjs scans src/ (not 01-art.js, 90-selftest.js, 90a-selftest-accessibility.js) and fails on a literal that is not listed here, and on a listing that is no longer true. ids: a content id the code names on purpose. notContentIds: a word that is also an id but means something else where the code uses it. stringKeys and uiStringGroups: the texts of screens and scripted flows the code asks for by name.",
+  "ids": [
+    { "kind": "type", "id": "pol", "files": ["rules/07c-actions.js"], "why": "the parody rule of a move is written for the politician type" },
+    { "kind": "map", "id": "hospital", "files": ["rules/13a-accessibility.js"], "why": "the migration of a version 2 save names the hospital lot of the first town" },
+    { "kind": "map", "id": "town", "files": ["rules/13a-accessibility.js"], "why": "the migration of a version 2 save names the first town" },
+    { "kind": "map", "id": "kep", "files": ["rules/13a-accessibility.js"], "why": "the migration of a version 1 save names the place where it healed" },
+    { "kind": "map", "id": "cafe", "files": ["engine/11b-pause-menu.js"], "why": "the pause menu saves only in the first café; a save point as a data field comes with the event kit" }
+  ],
+  "notContentIds": [
+    { "literal": "recruit", "files": ["rules/07-damage.js", "rules/07c-actions.js", "rules/08a-turns.js", "engine/13c-bag.js", "engine/14-battle-view.js"], "why": "an item kind and a battle event kind, not a sound" },
+    { "literal": "heal", "files": ["rules/07-damage.js", "engine/09-overworld.js"], "why": "an item kind and an NPC kind, not a sound" },
+    { "literal": "hit", "files": ["rules/07c-actions.js", "engine/14-battle-view.js"], "why": "a battle event kind, not a sound" },
+    { "literal": "attack", "files": ["rules/07c-actions.js", "engine/14-battle-view.js"], "why": "a battle event kind, not a sound" },
+    { "literal": "move", "files": ["rules/08-ai.js", "rules/08a-turns.js", "rules/09-battle-text.js", "engine/14-battle-view.js"], "why": "an action and event kind of a battle, not a sound" },
+    { "literal": "faint", "files": ["rules/08a-turns.js", "engine/14-battle-view.js"], "why": "a battle event kind, not a sound" },
+    { "literal": "door", "files": ["engine/12-map-screen.js"], "why": "the kind of a place on the world map (the Parliament), not a sound" },
+    { "literal": "town", "files": ["engine/12-map-screen.js"], "why": "the kind of a place on the world map, not a map or a tune" },
+    { "literal": "route", "files": ["engine/12-map-screen.js"], "why": "the start of a route id that the map screen cuts off to print the number, not a tune" },
+    { "literal": "kep", "files": ["engine/09-overworld.js"], "why": "an NPC kind, not a map" },
+    { "literal": "shop", "files": ["engine/09-overworld.js"], "why": "an NPC kind, not a map" },
+    { "literal": "boss", "files": ["engine/09-overworld.js"], "why": "an NPC kind, not a tune" },
+    { "literal": "battle", "files": ["engine/09-overworld.js"], "why": "a step of the event runner, not a tune" },
+    { "literal": "studio", "files": ["engine/14-battle-view.js"], "why": "the name of a battle background theme, not a map" }
+  ],
+  "stringKeys": [
+    { "key": "npc.prof.1", "files": ["engine/09-overworld.js"], "why": "the professor's scripted flow" },
+    { "key": "npc.prof.1b", "files": ["engine/09-overworld.js"], "why": "the professor's scripted flow" },
+    { "key": "npc.prof.2", "files": ["engine/09-overworld.js"], "why": "the professor's scripted flow" },
+    { "key": "npc.prof.3", "files": ["engine/09-overworld.js"], "why": "the professor's scripted flow" }
+  ],
+  "uiStringGroups": ["acc", "arch", "b", "badge", "bag", "battle", "blackout", "cafe", "chapter", "credits", "dossier", "ending", "evolve", "gender", "hosp", "intro", "kep", "learn", "map", "menu", "name", "notice", "opt", "party", "shop", "starter", "title", "ui"]
+}

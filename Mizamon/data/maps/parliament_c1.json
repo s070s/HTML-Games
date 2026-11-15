@@ -1,0 +1,43 @@
+{
+  "name": "map.parliament.c1",
+  "w": 12,
+  "h": 9,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "whhfffffffhw",
+    "wfffccccfffw",
+    "wffffffffffw",
+    "wffffrrffffw",
+    "wfttffffttfw",
+    "wffffrrffffw",
+    "wffffrrffffw",
+    "wwwwwΞΞwwwww"
+  ],
+  "warps": [
+    { "x": 5, "y": 8, "to": "parliament_lobby", "tx": 2, "ty": 1 },
+    { "x": 6, "y": 8, "to": "parliament_lobby", "tx": 2, "ty": 1 }
+  ],
+  "signs": { "1,1": "sign.parliament.c1.shelf", "7,2": "sign.parliament.c1.stamps" },
+  "npcs": [
+    { "id": "euterpe", "x": 5, "y": 3, "face": "down", "look": "euterpe", "kind": "boss", "trainer": "euterpe" },
+    {
+      "id": "c1clerk1",
+      "x": 2,
+      "y": 6,
+      "face": "right",
+      "look": "ministryclerk",
+      "kind": "talk",
+      "text": "npc.parliament.c1.clerk1"
+    },
+    {
+      "id": "c1clerk2",
+      "x": 9,
+      "y": 6,
+      "face": "left",
+      "look": "inspector",
+      "kind": "talk",
+      "text": "npc.parliament.c1.clerk2"
+    }
+  ]
+}

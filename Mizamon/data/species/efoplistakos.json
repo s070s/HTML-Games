@@ -1,0 +1,11 @@
+{
+  "n": "Εφοπλιστάκος",
+  "t": "biz",
+  "ab": "afo",
+  "g": "m",
+  "rec": 25,
+  "xp": 55,
+  "evo": { "to": "giotarchis", "lv": 30 },
+  "base": [58, 46, 52, 60, 54, 40],
+  "learn": [[1, "offshore"], [1, "lobbying"], [8, "apolyseis"], [12, "yperkostol"]]
+}

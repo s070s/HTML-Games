@@ -1,0 +1,12 @@
+{
+  "item.fakelaki": { "el": "Φακελάκι", "en": "Φακελάκι (small envelope)" },
+  "item.fakelos": { "el": "Φάκελος", "en": "Φάκελος (envelope)" },
+  "item.koulouri": { "el": "Κουλούρι", "en": "Koulouri (bread ring)" },
+  "item.souvlaki": { "el": "Σουβλάκι", "en": "Souvlaki" },
+  "item.frapes": { "el": "Φραπές", "en": "Frappé" },
+  "item.tsipouro": { "el": "Τσίπουρο", "en": "Tsipouro" },
+  "item.dikigoros": { "el": "Δικηγόρος", "en": "Δικηγόρος (lawyer)" },
+  "item.gemista": { "el": "Γεμιστά της Μάνας", "en": "Mum's Γεμιστά" },
+  "item.chontros": { "el": "Χοντρός Φάκελος", "en": "Thick Φάκελος" },
+  "item.sylvasi": { "el": "Συλλογική Σύμβαση", "en": "Collective Deal" }
+}

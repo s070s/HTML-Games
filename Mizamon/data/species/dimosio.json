@@ -1,0 +1,11 @@
+{
+  "n": "Δημοσιοϋπαλληλάκι",
+  "t": "pol",
+  "ab": "bur",
+  "g": "n",
+  "rec": 45,
+  "xp": 45,
+  "evo": { "to": "monimos", "lv": 20 },
+  "base": [56, 34, 66, 36, 56, 24],
+  "learn": [[1, "psifodeltio"], [1, "diorismos"], [6, "exetastiki"], [10, "tropologia"], [13, "promise"]]
+}

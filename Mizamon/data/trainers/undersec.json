@@ -1,0 +1,24 @@
+{
+  "name": "Ο Υφυπουργός Παντός",
+  "look": "undersec",
+  "boss": true,
+  "victory": {
+    "flag": "badge_final",
+    "win2": "boss.undersec.win2",
+    "title": "badge.final.title",
+    "sub": "badge.final.sub",
+    "win3": "boss.undersec.win3",
+    "ribbon": "#8a2a4a",
+    "credits": true
+  },
+  "boost": 1.03,
+  "team": [
+    { "sp": "star90", "lv": 49 },
+    { "sp": "tavlilordos", "lv": 49 },
+    { "sp": "tavlilordos", "lv": 47 },
+    { "sp": "ktimatomesitis", "lv": 48 },
+    { "sp": "lobbylykaina", "lv": 47 },
+    { "sp": "mizotakis", "lv": 50 }
+  ],
+  "items": ["gemista"]
+}

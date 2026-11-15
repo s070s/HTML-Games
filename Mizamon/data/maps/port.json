@@ -1,0 +1,25 @@
+{
+  "name": "map.port",
+  "w": 12,
+  "h": 10,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "whhfffffffhw",
+    "wffffffffffw",
+    "wfffccccfffw",
+    "wffffffffffw",
+    "wfKKffffKKfw",
+    "wffffffffffw",
+    "wfrrrrrrrrfw",
+    "wfrrrrrrrrfw",
+    "wwwwwmmwwwww"
+  ],
+  "warps": [{ "x": 5, "y": 9, "to": "route1", "tx": 25, "ty": 5 }, { "x": 6, "y": 9, "to": "route1", "tx": 25, "ty": 5 }],
+  "signs": {},
+  "npcs": [
+    { "id": "kotsos", "x": 5, "y": 2, "face": "down", "look": "captain", "kind": "boss", "trainer": "kotsos" },
+    { "id": "sailor1", "x": 6, "y": 6, "face": "right", "look": "sailor", "kind": "talk", "text": "npc.sailor1" },
+    { "id": "sailor2", "x": 9, "y": 6, "face": "left", "look": "sailor", "kind": "talk", "text": "npc.sailor2" }
+  ]
+}

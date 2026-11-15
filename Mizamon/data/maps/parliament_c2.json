@@ -1,0 +1,35 @@
+{
+  "name": "map.parliament.c2",
+  "w": 12,
+  "h": 9,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "w::;;;;;;::w",
+    "w;;;;;;;;;;w",
+    "w;;cc;;cc;;w",
+    "wffffffffffw",
+    "wfKffffffKfw",
+    "wffffrrffffw",
+    "wffffrrffffw",
+    "wwwwwΞΞwwwww"
+  ],
+  "warps": [
+    { "x": 5, "y": 8, "to": "parliament_lobby", "tx": 5, "ty": 1 },
+    { "x": 6, "y": 8, "to": "parliament_lobby", "tx": 5, "ty": 1 }
+  ],
+  "signs": { "2,1": "sign.parliament.c2.air", "9,5": "sign.parliament.c2.cases" },
+  "npcs": [
+    { "id": "minister", "x": 5, "y": 3, "face": "down", "look": "ministerman", "kind": "boss", "trainer": "minister" },
+    { "id": "c2host", "x": 3, "y": 5, "face": "right", "look": "host", "kind": "talk", "text": "npc.parliament.c2.host" },
+    {
+      "id": "c2camera",
+      "x": 8,
+      "y": 6,
+      "face": "up",
+      "look": "oldman2",
+      "kind": "talk",
+      "text": "npc.parliament.c2.camera"
+    }
+  ]
+}

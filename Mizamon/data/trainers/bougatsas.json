@@ -1,0 +1,22 @@
+{
+  "name": "Ο Κύριος Μπουγάτσας",
+  "look": "bougatsas",
+  "boss": true,
+  "bonus": 200,
+  "victory": {
+    "flag": "badge_notia",
+    "win2": "boss.bougatsas.win2",
+    "title": "badge.notia.title",
+    "sub": "badge.notia.sub",
+    "win3": "boss.bougatsas.win3",
+    "ribbon": "#2f9a96"
+  },
+  "boost": 1.16,
+  "team": [
+    { "sp": "kafenovios", "lv": 18 },
+    { "sp": "efoplistakos", "lv": 20 },
+    { "sp": "frapedoros", "lv": 19 },
+    { "sp": "giagiaka", "lv": 20 }
+  ],
+  "items": ["souvlaki"]
+}

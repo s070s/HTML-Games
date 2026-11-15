@@ -20,9 +20,9 @@ DossierLayer.prototype.refresh = function () {
 };
 DossierLayer.prototype.update = function () {
   const count = DEX_ORDER.length;
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this); return; }
-  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx('move'); this.refresh(); }
-  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx('move'); this.refresh(); }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this); return; }
+  if (Input.repeat.up) { this.cursor = (this.cursor + count - 1) % count; Sound.sfx(SOUNDS.move); this.refresh(); }
+  if (Input.repeat.down) { this.cursor = (this.cursor + 1) % count; Sound.sfx(SOUNDS.move); this.refresh(); }
   if (this.cursor < this.scroll) this.scroll = this.cursor;
   if (this.cursor > this.scroll + 8) this.scroll = this.cursor - 8;
 };

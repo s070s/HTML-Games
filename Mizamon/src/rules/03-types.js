@@ -1,16 +1,7 @@
 // ---- Types and the chart (CONTENT-SEED section 2) -------------------------------
 // pol Politicians, asf Asfalites (army and police), ekk Orthodox Church,
 // cel Celebrities, inf Influencers, biz Businessmen, mem Plain Greek Memes.
-const TYPE_IDS = ['pol', 'asf', 'ekk', 'cel', 'inf', 'biz', 'mem'];
-const TYPE_RULES = {
-  pol: { strong: ['biz', 'asf'], weak: ['mem', 'inf'] },
-  asf: { strong: ['mem', 'inf'], weak: ['pol', 'ekk'] },
-  ekk: { strong: ['asf', 'cel'], weak: ['biz', 'mem'] },
-  cel: { strong: ['pol', 'biz'], weak: ['inf', 'ekk'] },
-  inf: { strong: ['cel', 'pol'], weak: ['asf', 'mem'] },
-  biz: { strong: ['ekk', 'inf'], weak: ['pol', 'cel'] },
-  mem: { strong: ['pol', 'ekk'], weak: ['asf', 'biz'] },
-};
+// TYPE_IDS and TYPE_RULES (strong and weak against) are built from data/types/ in 02-data.js.
 const TYPE_CHART = (function buildChart() {
   const chart = {};
   for (const attacker of TYPE_IDS) {
@@ -28,13 +19,10 @@ const TYPE_CHART = (function buildChart() {
 function typeMultiplier(attackType, defendType) { return TYPE_CHART[attackType][defendType]; }
 
 // ---- Abilities (CONTENT-SEED section 3; the ones the MVP creatures hold) ---------
-const ABILITY_IDS = ['asy', 'syn', 'gra', 'rou', 'afo', 'pal', 'vir', 'out', 'bur', 'vys', 'bah', 'kou', 'des', 'epi'];
+// ABILITY_IDS is built from data/abilities/ in 02-data.js; what an ability does is code (07-damage and later).
 
 // ---- Statuses (section 4; the four of the MVP) --------------------------------
-const STATUSES = {
-  inv: { turns: 5 }, // Υπό Έρευνα: attack and rhetoric -25 %, archived after 5 turns
-  sca: { turns: 0 }, // Σκάνδαλο: -1/8 HP per turn, until the creature is switched out
-  str: { turns: 3 }, // Απεργία: 50 % to do nothing, 3 turns
-  bri: { turns: 4 }, // Λαδωμένος: 30 % to pocket the money instead of attacking, 4 turns
-};
+// STATUSES is built from data/statuses/ in 02-data.js (turns: how long it lasts, 0 = until the creature is switched out):
+// inv Υπό Έρευνα: attack and rhetoric -25 %, archived after 5 turns; sca Σκάνδαλο: -1/8 HP per turn;
+// str Απεργία: 50 % to do nothing, 3 turns; bri Λαδωμένος: 30 % to pocket the money instead of attacking, 4 turns.
 

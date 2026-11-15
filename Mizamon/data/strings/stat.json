@@ -1,0 +1,9 @@
+{
+  "stat.hp": { "el": "Υγεία", "en": "Health" },
+  "stat.atk": { "el": "Ισχύς", "en": "Strength" },
+  "stat.def": { "el": "Άμυνα", "en": "Defence" },
+  "stat.rat": { "el": "Ρητορική", "en": "Rhetoric" },
+  "stat.rde": { "el": "Ρητ. Άμυνα", "en": "Rhet. defence" },
+  "stat.spe": { "el": "Ταχύτητα", "en": "Speed" },
+  "stat.acc": { "el": "Ακρίβεια", "en": "Accuracy" }
+}

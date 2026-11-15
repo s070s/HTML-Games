@@ -1,0 +1,26 @@
+{
+  "name": "map.parliament.c3",
+  "w": 12,
+  "h": 9,
+  "music": "boss",
+  "rows": [
+    "wwwwwwwwwwww",
+    "whhfffffffhw",
+    "wffffffffffw",
+    "wfrrrrrrrrfw",
+    "wfrrrrrrrrfw",
+    "wfΘΘffffΘΘfw",
+    "wffffffffffw",
+    "wffffffffffw",
+    "wwwwwΞΞwwwww"
+  ],
+  "warps": [
+    { "x": 5, "y": 8, "to": "parliament_lobby", "tx": 8, "ty": 1 },
+    { "x": 6, "y": 8, "to": "parliament_lobby", "tx": 8, "ty": 1 }
+  ],
+  "signs": { "1,1": "sign.parliament.c3.phones", "2,5": "sign.parliament.c3.sofa" },
+  "npcs": [
+    { "id": "rival6", "x": 5, "y": 3, "face": "down", "look": "rival", "kind": "trainer", "trainer": "rival6", "sight": 3 },
+    { "id": "c3aide", "x": 9, "y": 6, "face": "left", "look": "lobbyist", "kind": "talk", "text": "npc.parliament.c3.aide" }
+  ]
+}

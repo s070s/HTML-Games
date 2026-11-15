@@ -20,7 +20,7 @@ ArchiveLayer.prototype.moveCursor = function (target) {
   if (this.cursor < this.top) this.top = this.cursor;
   if (this.cursor >= this.top + ARCHIVE_ROWS) this.top = this.cursor - ARCHIVE_ROWS + 1;
   this.refresh();
-  Sound.sfx('move');
+  Sound.sfx(SOUNDS.move);
 };
 ArchiveLayer.prototype.update = function () {
   const count = G.archive.length;
@@ -28,8 +28,8 @@ ArchiveLayer.prototype.update = function () {
   if (Input.repeat.down) this.moveCursor((this.cursor + 1) % count);
   if (Input.repeat.left) this.moveCursor(Math.max(0, this.cursor - ARCHIVE_ROWS));
   if (Input.repeat.right) this.moveCursor(Math.min(count - 1, this.cursor + ARCHIVE_ROWS));
-  if (Input.pressed.b) { Sound.sfx('back'); closeLayer(this, -1); return; }
-  if (Input.pressed.a && this.mode === 'withdraw') { Sound.sfx('confirm'); closeLayer(this, this.cursor); }
+  if (Input.pressed.b) { Sound.sfx(SOUNDS.back); closeLayer(this, -1); return; }
+  if (Input.pressed.a && this.mode === 'withdraw') { Sound.sfx(SOUNDS.confirm); closeLayer(this, this.cursor); }
 };
 ArchiveLayer.prototype.draw = function () {
   ctx.fillStyle = '#1b2a5a'; ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);

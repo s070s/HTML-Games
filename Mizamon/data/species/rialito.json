@@ -1,0 +1,10 @@
+{
+  "n": "Ριάλιτο-Νταής",
+  "t": "cel",
+  "ab": "pal",
+  "g": "m",
+  "rec": 30,
+  "xp": 65,
+  "base": [61, 91, 49, 53, 44, 58],
+  "learn": [[1, "kavgas"], [1, "reunion"], [8, "proinadiko"], [14, "souxe"], [18, "autobio"]]
+}

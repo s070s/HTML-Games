@@ -1,0 +1,40 @@
+{
+  "cafe.hello": {
+    "el": "Καφενείο «Η Κρίση». Έλα να τα πούμε. Ελληνικός, μέτριος, με λίγη οικονομία.",
+    "en": "Cafe \"The Crisis\". Come, let us talk. Greek coffee, medium, with a little economics."
+  },
+  "cafe.ask": { "el": "Να σημειώσω την πρόοδό σου στο τεφτέρι;", "en": "Shall I write your progress in the ledger?" },
+  "cafe.saved": {
+    "el": "Έγινε! Το τεφτέρι είναι ασφαλές. Όπως η δημόσια περιουσία.",
+    "en": "Done! The ledger is safe. Like public property."
+  },
+  "cafe.savedMemory": {
+    "el": "Έγινε... αλλά ο χώρος αποθήκευσης του browser δεν δουλεύει. Η πρόοδος μένει μόνο όσο είναι ανοιχτή η σελίδα.",
+    "en": "Done... but the browser storage is not working. Progress only lasts while this page stays open."
+  },
+  "cafe.bye": { "el": "Όπως θες. Η Ιστορία θα το θυμάται. Εγώ όχι.", "en": "As you wish. History will remember. I will not." },
+  "cafe.hello.faliro": {
+    "el": "Καφενείο «Ο Παραλιακός». Καφές με θέα και λογαριασμός με ηχώ.",
+    "en": "Cafe \"The Coast Road\". Coffee with a view and a bill with an echo."
+  },
+  "cafe.hello.koropi": {
+    "el": "Καφενείο «Το Κτήμα». Καφές από το κτήμα και ο λογαριασμός από πάνω.",
+    "en": "Cafe \"The Estate\". Coffee from the estate and the bill on top."
+  },
+  "cafe.hello.kifisia": {
+    "el": "Καφενείο «Ο Πλάτανος». Ο καφές ψήνεται στον ίσκιο. Ο λογαριασμός, στον ήλιο.",
+    "en": "Cafe \"The Plane Tree\". The coffee roasts in the shade. The bill, in the sun."
+  },
+  "cafe.hello.peristeri": {
+    "el": "Καφενείο «Η Γωνιά». Ο καφές στη γωνία κοστίζει όσο ένα τετραγωνικό.",
+    "en": "Cafe \"The Corner\". The coffee on the corner costs as much as a square metre."
+  },
+  "cafe.hello.monastiraki": {
+    "el": "Καφενείο «Το Παζάρι». Ο καφές κοστίζει όσο διαπραγματευτείς. Και πάντα διαπραγματεύεσαι χειρότερα.",
+    "en": "Cafe \"The Bazaar\". The coffee costs whatever you bargain. And you always bargain worse."
+  },
+  "cafe.hello.roof": {
+    "el": "Καφέ Ταράτσας. Η θέα είναι δωρεάν. Ο καφές όχι. Το τεφτέρι, ναι.",
+    "en": "Roof Café. The view is free. The coffee is not. The ledger is."
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "letter": "D",
+  "order": 5,
+  "bossTrainer": "plousiakis",
+  "badgeFlag": "badge_dytika",
+  "nameKey": "world.d.dytika",
+  "levels": [32, 38],
+  "color": "#e6d26a",
+  "label": [5.5, 3.5],
+  "built": true,
+  "places": {
+    "peristeri": {
+      "kind": "town",
+      "cell": [7, 5],
+      "maps": ["peristeri", "peristeri_hospital", "peristeri_shop", "peristeri_cafe"],
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "cafe"]
+    },
+    "chaidari": {
+      "kind": "town",
+      "cell": [4, 6],
+      "maps": ["chaidari", "chaidari_hospital", "chaidari_shop", "chaidari_boss"],
+      "boss": true,
+      "stop": true,
+      "built": true,
+      "has": ["hospital", "shop", "boss"]
+    }
+  },
+  "routes": {
+    "route9": {
+      "a": "marousi",
+      "b": "peristeri",
+      "map": "route9",
+      "path": [[15, 4], [13, 2], [10, 2], [9, 3], [8, 4], [7, 5]],
+      "progress": "-x",
+      "built": true
+    },
+    "route10": {
+      "a": "peristeri",
+      "b": "chaidari",
+      "map": "route10",
+      "path": [[7, 5], [5, 5], [4, 6]],
+      "progress": "-x",
+      "built": true
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "map.kifisia",
+  "w": 26,
+  "h": 18,
+  "music": "town",
+  "rows": [
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,66666,,4444,,55555,2222T",
+    "T,66H66,,4444,,55555,2222T",
+    "T,NMPMN,,W##W,,W###W,W##WT",
+    "T,MMEMMS,#D##S,##D##S#d##T",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T====,,,,,,,,,,,,,,,=====T",
+    "T,,,,,,,S,,,,,,,,,,,,,,U,T",
+    "..........................",
+    "T,,,,,,,,,,,,,,,,,,,,,,,,T",
+    "T,111111,,,T,,,T,,,333333T",
+    "T,111111,T,,,7,,,T,333333T",
+    "T,W####W,,,T,,,T,,,W####WT",
+    "T,##d###,,,,,,,,,j,###d##T",
+    "T========,,,,,,,,,=======T",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT",
+    "TTTTTTTTTTTTTTTTTTTTTTTTTT"
+  ],
+  "warps": [
+    { "x": 25, "y": 9, "to": "route7", "tx": 1, "ty": 3 },
+    { "x": 0, "y": 9, "to": "route8", "tx": 42, "ty": 6 },
+    { "x": 4, "y": 5, "to": "kifisia_hospital", "tx": 5, "ty": 7 },
+    { "x": 10, "y": 5, "to": "kifisia_shop", "tx": 3, "ty": 4 },
+    { "x": 17, "y": 5, "to": "kifisia_cafe", "tx": 4, "ty": 6 }
+  ],
+  "signs": {
+    "7,5": "sign.kifisia.hospital",
+    "13,5": "sign.shop",
+    "20,5": "sign.kifisia.cafe",
+    "8,8": "sign.kifisia.town",
+    "23,8": "sign.ktel",
+    "17,14": "sign.kifisia.metro"
+  },
+  "npcs": [
+    { "id": "kfwatcher", "x": 12, "y": 8, "face": "down", "look": "oldwoman", "kind": "talk", "text": "npc.kifisia1" },
+    { "id": "kfhedge", "x": 9, "y": 10, "face": "right", "look": "student", "kind": "talk", "text": "npc.kifisia2" },
+    { "id": "kfrich", "x": 21, "y": 10, "face": "left", "look": "oldman", "kind": "talk", "text": "npc.kifisia3" }
+  ]
+}

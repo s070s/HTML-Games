@@ -1,0 +1,6 @@
+{
+  "name": "Ο Μπέμπης",
+  "look": "rival",
+  "team": [{ "sp": "influenza", "lv": 28 }, { "sp": "$rivalEvo", "lv": 30 }],
+  "items": ["souvlaki"]
+}
