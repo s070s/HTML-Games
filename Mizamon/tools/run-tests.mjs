@@ -1,20 +1,32 @@
 // Headless rules tests for Mizamon. Node built-ins only.
 // Usage (from the repo root or anywhere): node Mizamon/tools/run-tests.mjs
-// It loads the rules code out of Mizamon.html (between RULES-BEGIN and RULES-END) with node:vm,
-// so the tests run the same code the game runs. Prints "PASS n / m" and exits 1 on any failure.
+// It loads the rules code out of the assembled page (between the RULES-BEGIN and RULES-END lines) with node:vm,
+// so the tests run the same code the game runs. The page is assembled in memory from src/ (tools/assemble.mjs),
+// or read from the file named by MZ_HTML (the build tests the page it is about to write that way).
+// Prints "PASS n / m" and exits 1 on any failure.
 
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import { assemblePage, sha256Hex, toLf } from '../shared/assemble-core.mjs';
+import { MIZAMON_ROOT, assembleFromDisk, readSources, sourceHashFromDisk } from './assemble.mjs';
+import { acquireLock, checkPage } from './build.mjs';
+import { pushArgs, releaseSteps, runSteps } from '../../tools/release-mizamon.mjs';
 
-const HTML_PATH = new URL('../Mizamon.html', import.meta.url);
-const html = readFileSync(HTML_PATH, 'utf8');
+const html = process.env.MZ_HTML ? readFileSync(process.env.MZ_HTML, 'utf8') : assembleFromDisk();
 
 export function loadRules(source = html) {
-  const begin = source.indexOf('// RULES-BEGIN');
-  const end = source.indexOf('// RULES-END');
-  assert.ok(begin >= 0 && end > begin, 'RULES markers not found in Mizamon.html');
+  // The markers are whole lines (13.2), each once: a text that merely mentions a marker is not one.
+  const beginLines = [...source.matchAll(/^\/\/ RULES-BEGIN\r?$/gm)];
+  const endLines = [...source.matchAll(/^\/\/ RULES-END\r?$/gm)];
+  assert.ok(beginLines.length === 1 && endLines.length === 1, 'RULES-BEGIN and RULES-END must each be on a line of their own, once, in the page');
+  const begin = beginLines[0].index;
+  const end = endLines[0].index;
+  assert.ok(end > begin, 'RULES-END comes before RULES-BEGIN in the page');
   const code = source.slice(begin, end);
   return new vm.Script('(function () {\n' + code + '\nreturn RULES;\n})()').runInNewContext({}, { timeout: 5000 });
 }
@@ -4086,6 +4098,969 @@ export function parliamentXpBand(rules) {
   for (const id of fightIds) for (const mon of rules.buildTrainerTeam(id, 'komma')) { creatures++; trainerXp += rules.xpReward(mon, true); }
   return { fightIds, need, creatures, trainerXp, trainerShare: trainerXp / need };
 }
+
+// ---- Accessibility options (MZ-A11Y-01) ----
+const NEW_OPTIONS = ['largeText', 'typeMarks', 'flashesOff', 'holdRepeat', 'touchHand'];
+const enginePart = html.slice(html.indexOf('// ENGINE: everything below'));
+const OLD_OPTION_SET = { lang: 'en', sound: false, textSpeed: 2, reduceMotion: true };
+
+test('accessibility options: defaults, and every value is checked (a wrong type or an out-of-range number falls back to the default)', () => {
+  const defaults = R.defaultOptions();
+  same(defaults, { lang: 'el', sound: true, textSpeed: 1, reduceMotion: false, largeText: 0, typeMarks: true, flashesOff: false, holdRepeat: 2, touchHand: 0 });
+  assert.equal(defaults.holdRepeat, R.HOLD_REPEAT_DEFAULT);
+  // every legal value is kept
+  assert.equal(R.normalizeOptions({ largeText: 2 }).largeText, 2);
+  assert.equal(R.normalizeOptions({ largeText: 1 }).largeText, 1);
+  assert.equal(R.normalizeOptions({ typeMarks: false }).typeMarks, false);
+  assert.equal(R.normalizeOptions({ flashesOff: true }).flashesOff, true);
+  for (const level of [0, 1, 2, 3]) assert.equal(R.normalizeOptions({ holdRepeat: level }).holdRepeat, level);
+  for (const hand of [0, 1, 2]) assert.equal(R.normalizeOptions({ touchHand: hand }).touchHand, hand);
+  // everything else is refused
+  for (const bad of [-1, 3, 4, 1.5, '1', null, undefined, NaN, true, [], {}]) {
+    assert.equal(R.normalizeOptions({ largeText: bad }).largeText, 0, 'largeText ' + String(bad));
+    assert.equal(R.normalizeOptions({ touchHand: bad }).touchHand, 0, 'touchHand ' + String(bad));
+  }
+  for (const bad of [-1, 4, 2.5, '2', null, NaN, false]) assert.equal(R.normalizeOptions({ holdRepeat: bad }).holdRepeat, 2, 'holdRepeat ' + String(bad));
+  for (const bad of [0, 1, 'true', null, {}]) {
+    assert.equal(R.normalizeOptions({ typeMarks: bad }).typeMarks, true, 'typeMarks ' + String(bad));
+    assert.equal(R.normalizeOptions({ flashesOff: bad }).flashesOff, false, 'flashesOff ' + String(bad));
+  }
+  same(R.normalizeOptions(JSON.parse(JSON.stringify(R.normalizeOptions({ largeText: 2, typeMarks: false, flashesOff: true, holdRepeat: 0, touchHand: 2, lang: 'en' })))), R.normalizeOptions({ largeText: 2, typeMarks: false, flashesOff: true, holdRepeat: 0, touchHand: 2, lang: 'en' }), 'a normalised set is stable');
+  assert.deepEqual(Object.keys(defaults).sort(), ['flashesOff', 'holdRepeat', 'lang', 'largeText', 'reduceMotion', 'sound', 'textSpeed', 'touchHand', 'typeMarks'], 'the option list is the one the Accessibility screen knows');
+});
+test('accessibility options: an old saved option set and old saves (versions 0, 1, 2 and 3) load with the old choices kept and the new options at their defaults', () => {
+  const oldSet = R.normalizeOptions(OLD_OPTION_SET);
+  same({ lang: oldSet.lang, sound: oldSet.sound, textSpeed: oldSet.textSpeed, reduceMotion: oldSet.reduceMotion }, OLD_OPTION_SET);
+  for (const name of NEW_OPTIONS) assert.equal(oldSet[name], R.defaultOptions()[name], name + ' is at its default');
+  // the options stored in a save file: every version, with and without the new options
+  const v1 = sampleV1();
+  const v2 = Object.assign(sampleV1(), { version: 2, archive: [], lastHeal: { map: 'hospital', x: 5, y: 7, dir: 'up' } });
+  const v3 = Object.assign(sampleV1(), { version: 3, archive: [], lastHeal: { map: 'hospital', x: 5, y: 7, dir: 'up' }, world: R.newWorldState() });
+  const v0 = { v: 0, name: 'ΝΙΚΟΣ', girl: false, drachmas: 1, team: [{ id: 'komma', lv: 5 }], map: 'town', x: 5, y: 8, items: {}, seen: ['komma'], got: ['komma'] };
+  for (const raw of [v1, v2, v3]) {
+    const migrated = R.migrateSave(raw);
+    assert.ok(migrated, 'version ' + raw.version + ' loads');
+    assert.equal(migrated.version, 3);
+    same({ lang: migrated.options.lang, sound: migrated.options.sound, textSpeed: migrated.options.textSpeed, reduceMotion: migrated.options.reduceMotion }, OLD_OPTION_SET, 'the old choices of version ' + raw.version + ' are kept');
+    for (const name of NEW_OPTIONS) assert.equal(migrated.options[name], R.defaultOptions()[name], 'version ' + raw.version + ' ' + name + ' at its default');
+  }
+  const fromV0 = R.migrateSave(v0);
+  same(fromV0.options, R.defaultOptions(), 'a version 0 save has no options at all: all defaults');
+  // a save with the new options keeps them (and the version stays 3: the options are normalised, not a new shape)
+  const saved = Object.assign(sampleV1(), { version: 3, archive: [], lastHeal: { map: 'hospital', x: 5, y: 7, dir: 'up' }, world: R.newWorldState(), options: Object.assign({}, OLD_OPTION_SET, { largeText: 2, typeMarks: false, flashesOff: true, holdRepeat: 3, touchHand: 1 }) });
+  const kept = R.migrateSave(saved);
+  assert.equal(kept.options.largeText, 2);
+  assert.equal(kept.options.typeMarks, false);
+  assert.equal(kept.options.flashesOff, true);
+  assert.equal(kept.options.holdRepeat, 3);
+  assert.equal(kept.options.touchHand, 1);
+  same(R.migrateSave(JSON.parse(JSON.stringify(kept))), kept, 'migrating a migrated save changes nothing');
+  assert.equal(R.SAVE_VERSION, 3);
+  // damaged new options in a save fall back to the defaults, they never refuse the save
+  const damaged = R.migrateSave(Object.assign({}, saved, { options: { largeText: 'huge', typeMarks: 'yes', flashesOff: 7, holdRepeat: -4, touchHand: 9 } }));
+  assert.ok(damaged);
+  for (const name of NEW_OPTIONS) assert.equal(damaged.options[name], R.defaultOptions()[name], name + ' of a damaged save');
+  // the game loads and saves the settings through normalizeOptions and the one options key
+  assert.ok(/OPT = normalizeOptions\(saved\)/.test(enginePart) && enginePart.includes('JSON.stringify(OPT)') && enginePart.includes('options: Object.assign({}, OPT)'), 'the options are saved and loaded through the options key and the save');
+});
+
+test('accessibility hold to repeat: Normal is the old timing (20 frames, then every 5), Off never repeats, Slow and Fast bracket it', () => {
+  const fires = (level) => Array.from({ length: 120 }, (_, i) => i + 1).filter((frame) => R.repeatFires(level, frame));
+  const oldRule = (held) => held > 20 && (held - 20) % 5 === 0;
+  assert.deepEqual(fires(2), Array.from({ length: 120 }, (_, i) => i + 1).filter(oldRule), 'level 2 is the rule the game had');
+  assert.deepEqual(fires(0), [], 'off: one step per press');
+  assert.equal(fires(1)[0], 48);
+  assert.equal(fires(3)[0], 15);
+  assert.ok(fires(3).length > fires(2).length && fires(2).length > fires(1).length && fires(1).length > 0);
+  for (const level of [1, 2, 3]) {
+    const list = fires(level);
+    const timing = R.HOLD_REPEAT_LEVELS[level];
+    assert.equal(list[0], timing.delay + timing.every);
+    assert.ok(list.every((frame, index) => index === 0 || frame - list[index - 1] === timing.every), 'level ' + level + ' repeats evenly');
+    assert.ok(timing.every >= 3, 'no level repeats faster than 20 steps a second');
+  }
+  assert.equal(R.repeatFires(2, 1), false, 'the press itself is a press, not a repeat');
+  assert.equal(R.repeatFires(99, 50), false, 'an unknown level never repeats');
+  assert.equal(R.HOLD_REPEAT_LEVELS.length, 4);
+  // the input code uses it, and the menus that move a cursor read repeat, not a single press
+  assert.ok(enginePart.includes('repeatFires(OPT.holdRepeat, this.heldFrames[name])'), 'Input.poll uses the option');
+  const cursorMenus = ['StarterLayer.prototype.update', 'ArchiveLayer.prototype.update', 'SummaryLayer.prototype.update', 'MapLayer.prototype.update', 'BattleLayer.prototype.updateRoot', 'BattleLayer.prototype.updateMoves', 'DossierLayer.prototype.update', 'BagLayer.prototype.update', 'ShopLayer.prototype.update', 'PartyLayer.prototype.update', 'NameLayer.prototype.update', 'ChoiceLayer.prototype.update', 'AccessibilityLayer.prototype.update'];
+  for (const name of cursorMenus) {
+    const start = enginePart.indexOf(name + ' = function');
+    assert.ok(start >= 0, name + ' exists');
+    const body = enginePart.slice(start, enginePart.indexOf('\n};', start));
+    assert.ok(/Input\.repeat\.(up|down|left|right)|Input\.repeat\[name\]/.test(body), name + ' moves its cursor on Input.repeat');
+    assert.ok(!/Input\.pressed\.(up|down)\b/.test(body), name + ' has no up or down read as a single press');
+  }
+});
+
+test('accessibility flashes off: a hit is steady and still, an evolution glows steadily, nothing blinks faster than 3 times a second', () => {
+  const frames = Array.from({ length: 16 }, (_, t) => t);
+  const normal = frames.map((t) => R.hitLook(t, false, false));
+  assert.ok(new Set(normal.map((look) => look.dx)).size === 2 && new Set(normal.map((look) => look.alpha)).size === 2, 'by default a hit shakes and blinks');
+  let changes = 0;
+  for (let t = 1; t < 16; t++) if (normal[t].alpha !== normal[t - 1].alpha) changes++;
+  assert.ok(changes >= 7, 'about every second frame: far above the 3 flashes a second limit (' + changes + ' changes in 16 frames)');
+  const steady = frames.map((t) => R.hitLook(t, true, false));
+  assert.ok(steady.every((look) => look.dx === 0 && look.alpha === R.HIT_STEADY_ALPHA), 'Flashes off: no shake, one steady alpha');
+  assert.ok(R.HIT_STEADY_ALPHA > 0 && R.HIT_STEADY_ALPHA < 1, 'the hit is still shown (dimmed), not hidden');
+  assert.ok(frames.map((t) => R.hitLook(t, false, true)).every((look) => look.dx === 0 && look.alpha === 1), 'Reduced motion is as it was');
+  assert.ok(frames.map((t) => R.hitLook(t, true, true)).every((look) => look.dx === 0 && look.alpha === 1), 'Reduced motion wins when both are on');
+  const glow = (flashesOff, reduceMotion) => Array.from({ length: 150 }, (_, frame) => R.evolveGlows(frame, flashesOff, reduceMotion));
+  const blinking = glow(false, false);
+  assert.ok(blinking.slice(31, 80).some(Boolean) && blinking.slice(31, 80).some((on) => !on), 'by default the evolution flashes');
+  const steadyGlow = glow(true, false);
+  assert.ok(steadyGlow.slice(31, 80).every(Boolean), 'Flashes off: one steady white shape for the whole stretch');
+  assert.ok(steadyGlow.slice(0, 31).every((on) => !on) && steadyGlow.slice(80).every((on) => !on), 'and none outside it');
+  assert.ok(glow(false, true).every((on) => !on) && glow(true, true).every((on) => !on), 'Reduced motion draws no white shape');
+  // the blink helper: steady means always shown; otherwise it alternates
+  for (const shift of [3, 4, 5]) {
+    assert.ok(Array.from({ length: 200 }, (_, frame) => R.blinkShows(frame, shift, true)).every(Boolean), 'steady, shift ' + shift);
+    const alternating = Array.from({ length: 200 }, (_, frame) => R.blinkShows(frame, shift, false));
+    assert.ok(alternating.some(Boolean) && alternating.some((on) => !on));
+  }
+  // the code reads the option on every effect that flashes or shakes
+  const monitor = enginePart.slice(enginePart.indexOf('MonitorLayer.prototype.draw'), enginePart.indexOf('function BadgeLayer'));
+  assert.ok(monitor.includes('OPT.flashesOff'), 'the heart monitor');
+  assert.ok(enginePart.includes('hitLook(fx.t, OPT.flashesOff, OPT.reduceMotion)'), 'the hit in battle');
+  assert.ok(enginePart.includes('evolveGlows(this.frame, OPT.flashesOff, OPT.reduceMotion)'), 'the evolution');
+  assert.ok(enginePart.includes('OPT.reduceMotion || OPT.flashesOff ? 0 : Math.sin(t / 22'), 'the shaking envelope');
+  assert.ok(enginePart.includes('blinkShows(this.blink, 4, OPT.flashesOff)') && enginePart.includes('blinkShows(this.frame, 5, OPT.flashesOff)') && enginePart.includes('blinkShows(this.frame, 4, OPT.flashesOff)'), 'the dialog arrow, the press-A line and the name cursor');
+  assert.ok(enginePart.includes('blinkShows(this.frame, 4, still || OPT.flashesOff)'), 'the map cursor');
+  // no blink is left outside the helper: every (frame >> n) % 2 and (frame / n) % 2 in the engine is a sprite step or goes through blinkShows
+  const rawBlinks = enginePart.split('\n').filter((line) => /\(this\.(frame|blink|tick) (>> \d|\/ \d+)\) % 2/.test(line) && !/bob|frame = i === this\.cursor|\? 1 : 2|waterFrames/.test(line));
+  assert.deepEqual(rawBlinks, [], 'every blink goes through blinkShows');
+});
+
+test('accessibility type marks: seven different 5 x 5 shapes, none of them a cross or an x, each readable without its colour', () => {
+  assert.deepEqual(Object.keys(R.TYPE_MARKS).sort(), [...R.TYPE_IDS].sort(), 'one mark per type');
+  const size = R.TYPE_MARK_SIZE;
+  assert.equal(size, 5);
+  const rows = (id) => R.TYPE_MARKS[id].join('|');
+  assert.equal(new Set(R.TYPE_IDS.map(rows)).size, 7, 'all seven are different');
+  const plus = ['..#..|..#..|#####|..#..|..#..', '#...#|.#.#.|..#..|.#.#.|#...#', '.#.#.|#####|.#.#.|#####|.#.#.'];
+  for (const id of R.TYPE_IDS) {
+    const mask = R.TYPE_MARKS[id];
+    assert.equal(mask.length, size, id + ' rows');
+    assert.ok(mask.every((row) => row.length === size && /^[#.]+$/.test(row)), id + ' is a 5 x 5 grid of # and .');
+    const filled = mask.join('').split('#').length - 1;
+    assert.ok(filled >= 7 && filled <= 25, id + ' is big enough to see (' + filled + ' pixels)');
+    assert.ok(!plus.includes(rows(id)), id + ' is not a cross, a plus or an x');
+    for (const other of R.TYPE_IDS) if (other !== id) {
+      const differing = mask.join('').split('').filter((cell, index) => cell !== R.TYPE_MARKS[other].join('')[index]).length;
+      assert.ok(differing >= 6, id + ' and ' + other + ' differ in at least 6 pixels (' + differing + ')');
+    }
+  }
+  // the marks are drawn where the colours are: every type tag and the colour square of a move
+  const tag = enginePart.slice(enginePart.indexOf('function drawTypeTag'), enginePart.indexOf('function wrapText'));
+  assert.ok(tag.includes('OPT.typeMarks') && tag.includes('drawTypeMark(typeId'), 'the tag');
+  assert.ok(tag.includes('TYPE_MARK_SIZE + 2') && tag.includes('3 + markSpace'), 'the tag makes room for the mark: the label moves right and the tag grows');
+  const summary = enginePart.slice(enginePart.indexOf('SummaryLayer.prototype.draw'), enginePart.indexOf('// ---- Bag'));
+  assert.ok(summary.includes('OPT.typeMarks') && summary.includes('drawTypeMark(move.t'), 'the colour square of a move in the summary');
+  // every place that shows a type colour also shows the mark: the only fills with TYPE_COLORS are the tag and the summary square
+  const fills = enginePart.split('\n').filter((line) => line.includes('TYPE_COLORS[')).length;
+  assert.equal(fills, 2, 'two places use a type colour');
+});
+
+// The window sizes the layout is tested on: the three of the review (390x844, 844x390, 1280x720), other phones, a tablet and desktops.
+const WINDOWS = [[390, 844], [844, 390], [1280, 720], [320, 568], [360, 640], [375, 667], [412, 915], [768, 1024], [667, 375], [568, 320], [915, 412], [1024, 768], [800, 600], [1920, 1080], [500, 600]];
+const oldScreenSize = (viewW, viewH, touch) => { // the size rule of the game before the large-text bar (copied from the old resizeScreen)
+  const portrait = viewH > viewW;
+  const reservedBottom = touch && portrait ? Math.min(Math.round(viewH * 0.4), 300) : 0;
+  const reservedSides = touch && !portrait ? 2 * R.TOUCH_SIDE_WIDTH : 0;
+  let scale = Math.min((viewW - reservedSides) / 240, (viewH - reservedBottom) / 160);
+  scale = Math.max(scale, 0.5);
+  if (scale >= 2) scale = Math.floor(scale);
+  return { cssW: Math.floor(240 * scale), cssH: Math.floor(160 * scale), padHeight: portrait ? viewH - Math.floor(160 * scale) : viewH };
+};
+test('accessibility large text: with it off and both hands, the picture has exactly the size it had before (every window, touch or not)', () => {
+  for (const [viewW, viewH] of WINDOWS) for (const touch of [false, true]) {
+    const layout = R.screenLayout(viewW, viewH, touch, 0, 0);
+    const old = oldScreenSize(viewW, viewH, touch);
+    same({ cssW: layout.cssW, cssH: layout.cssH, padHeight: layout.padHeight }, old, viewW + 'x' + viewH + ' touch ' + touch);
+    assert.equal(layout.captionHeight, 0);
+    assert.equal(layout.captionFont, 0);
+  }
+  assert.equal(R.screenLayout(1280, 720, false, 0, 0).cssW, 960, 'a desktop window is still x4');
+});
+test('accessibility large text: at the largest scale the picture and the bar are inside the window and do not touch each other or the buttons, in every window (390x844, 844x390, 1280x720 and 12 more)', () => {
+  assert.deepEqual([...R.LARGE_TEXT_FACTORS], [0, 1.4, 1.9]);
+  for (const [viewW, viewH] of WINDOWS) for (const touch of [false, true]) for (const hand of [0, 1, 2]) for (const level of [1, 2]) {
+    const where = viewW + 'x' + viewH + ' touch ' + touch + ' hand ' + hand + ' level ' + level;
+    const layout = R.screenLayout(viewW, viewH, touch, level, hand);
+    assert.ok(layout.cssW <= viewW - layout.reservedSides && layout.cssW > 0, where + ': the picture is not wider than the window (less the side pads)');
+    assert.ok(layout.cssH + layout.captionHeight <= viewH - layout.reservedBottom, where + ': picture, bar and the reserved bottom pad fit the height (' + (layout.cssH + layout.captionHeight) + ' + ' + layout.reservedBottom + ' <= ' + viewH + ')');
+    assert.ok(layout.captionHeight >= R.CAPTION_MIN_HEIGHT && layout.captionHeight <= R.CAPTION_MAX_HEIGHT, where + ': the bar is ' + layout.captionHeight + ' px high');
+    assert.ok(layout.captionHeight >= R.captionHeightFor(layout.cssW), where + ': the bar has the room the longest page needs at this picture width (' + layout.captionHeight + ' >= ' + R.captionHeightFor(layout.cssW) + ')');
+    assert.ok(layout.captionFont >= R.CAPTION_MIN_FONT, where + ': the letters are at least ' + R.CAPTION_MIN_FONT + ' px');
+    assert.ok(layout.scale >= 0.5);
+  }
+  for (const [viewW, viewH] of WINDOWS) for (const touch of [false, true]) {
+    const large = R.screenLayout(viewW, viewH, touch, 1, 0);
+    const largest = R.screenLayout(viewW, viewH, touch, 2, 0);
+    assert.ok(largest.captionFont >= large.captionFont, viewW + 'x' + viewH + ': the largest is not smaller than large');
+  }
+  // the three windows of the review, spelled out: the bar is below the picture and the letters are bigger than the 8 px text of the picture only where the picture is small
+  const phone = R.screenLayout(390, 844, true, 2, 0);
+  assert.deepEqual([phone.cssW, phone.cssH], [390, 260]);
+  assert.equal(phone.captionFont, Math.round(8 * (390 / 240) * 1.9), 'a phone: the bar text is 1.9 times the text of the picture');
+  assert.ok(phone.captionHeight >= 200, 'a phone in portrait has a tall bar');
+  const side = R.screenLayout(844, 390, true, 2, 0);
+  assert.equal(side.cssW, 480);
+  assert.ok(side.captionHeight >= 56 && side.cssH + side.captionHeight <= 390);
+  const desk = R.screenLayout(1280, 720, false, 2, 0);
+  assert.equal(desk.cssW, 960);
+  assert.ok(desk.cssH + desk.captionHeight <= 720 && desk.captionHeight >= 56);
+});
+
+test('accessibility one-hand touch controls: all eight buttons inside the pad, none over another or the picture or the bar, all inside the thumb reach of one side, the left hand mirrors the pad but not the arrows (left arrow left of the right arrow in both hands)', () => {
+  const NAMES = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
+  for (const orientation of ['portrait', 'landscape']) assert.deepEqual(Object.keys(R.ONE_HAND_BUTTONS[orientation]).sort(), [...NAMES].sort(), orientation + ' has all eight buttons');
+  const overlap = (a, b) => a.left < b.left + b.width && b.left < a.left + a.width && a.bottom < b.bottom + b.height && b.bottom < a.bottom + a.height;
+  for (const [viewW, viewH] of WINDOWS) for (const level of [0, 2]) for (const hand of [1, 2]) {
+    const layout = R.screenLayout(viewW, viewH, true, level, hand);
+    const rects = R.oneHandRects(layout.portrait, hand, viewW);
+    const where = viewW + 'x' + viewH + ' hand ' + hand + ' level ' + level;
+    assert.ok(rects.left.left < rects.right.left, where + ': the left arrow is left of the right arrow');
+    // the room the buttons have: portrait, the strip under the picture and the bar; landscape, the 160 px side column
+    const roomHeight = layout.portrait ? viewH - layout.cssH - layout.captionHeight : viewH;
+    for (const name of NAMES) {
+      const rect = rects[name];
+      assert.ok(rect.left >= 0 && rect.left + rect.width <= viewW, where + ' ' + name + ' is inside the window sideways');
+      assert.ok(rect.bottom >= 0 && rect.bottom + rect.height <= roomHeight, where + ' ' + name + ' is under the bar and inside the pad (' + (rect.bottom + rect.height) + ' <= ' + roomHeight + ')');
+      const reachFrom = hand === 1 ? rect.left : viewW - (rect.left + rect.width); // the distance to the far side of the chosen one
+      assert.ok(reachFrom >= viewW / 3 || !layout.portrait, where + ' ' + name + ' is in the thumb-side two thirds');
+      const sideEdge = hand === 1 ? viewW - (rect.left + rect.width) : rect.left; // the distance to the chosen side
+      assert.ok(sideEdge >= 0 && (layout.portrait ? sideEdge + rect.width <= viewW * 2 / 3 : sideEdge + rect.width <= R.TOUCH_SIDE_WIDTH), where + ' ' + name + ' is within reach of the chosen side');
+      for (const other of NAMES) if (other < name) assert.ok(!overlap(rect, rects[other]), where + ' ' + name + ' overlaps ' + other);
+      if (name !== 'menu' && name !== 'map') assert.ok(rect.width >= 46 && rect.height >= 46, where + ' ' + name + ' is a thumb-sized target');
+      else assert.ok(rect.height >= 28 && rect.width >= 64, where + ' ' + name + ' is big enough to tap');
+    }
+    if (!layout.portrait) { // landscape: the column is beside the picture, never over it
+      const pictureLeft = Math.floor((viewW - layout.cssW) / 2);
+      for (const name of NAMES) {
+        const rect = rects[name];
+        assert.ok(rect.left + rect.width <= pictureLeft || rect.left >= pictureLeft + layout.cssW, where + ' ' + name + ' is beside the picture');
+      }
+    }
+  }
+  // the left hand is the right hand mirrored, except that the arrows keep their order: the pad moves to the other side, the left arrow stays the left-most
+  const traded = { left: 'right', right: 'left' };
+  for (const orientation of [true, false]) {
+    const right = R.oneHandRects(orientation, 1, 400);
+    const left = R.oneHandRects(orientation, 2, 400);
+    for (const name of NAMES) {
+      const mirrored = right[traded[name] ? traded[name] : name]; // the place the left hand gives this button: the mirror of the right hand's button (the arrows trade places)
+      assert.equal(left[name].left, 400 - mirrored.left - mirrored.width, name + ' mirrored');
+      assert.equal(left[name].bottom, mirrored.bottom);
+      assert.equal(left[name].width, mirrored.width);
+    }
+    for (const rects of [right, left]) {
+      assert.ok(rects.left.left < rects.right.left, 'the left arrow is left of the right arrow');
+      assert.equal(rects.up.left, rects.down.left, 'up and down are in one column');
+      assert.ok(rects.up.bottom > rects.down.bottom, 'up is above down');
+      assert.equal(rects.left.bottom, rects.right.bottom, 'left and right are in one row');
+    }
+    const outline = (rects) => ({ low: Math.min(...NAMES.map((name) => rects[name].bottom)), high: Math.max(...NAMES.map((name) => rects[name].bottom + rects[name].height)), width: Math.max(...NAMES.map((name) => rects[name].left + rects[name].width)) - Math.min(...NAMES.map((name) => rects[name].left)) });
+    same(outline(left), outline(right), 'the outline of the pad is the same, only on the other side');
+  }
+  // choosing one hand in portrait asks the picture for room for the buttons
+  assert.ok(R.screenLayout(500, 600, true, 0, 1).reservedBottom >= R.ONE_HAND_PAD_HEIGHT - 4 && R.screenLayout(500, 600, true, 0, 1).reservedBottom <= 300);
+  assert.ok(R.ONE_HAND_PAD_HEIGHT <= 300);
+  assert.equal(R.TOUCH_HANDS, 3);
+});
+test('accessibility touch layout of a portrait phone (both hands): all eight buttons are inside the window and apart from each other from 320 px wide, and the d-pad stays one size', () => {
+  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>')).replace(/\r\n/g, '\n');
+  const mediaStart = css.indexOf('@media (max-width: 383px) {');
+  assert.ok(mediaStart >= 0, 'a rule set for phones narrower than 384 px');
+  const media = css.slice(mediaStart, css.indexOf('\n  }\n', mediaStart));
+  const rule = (selector, source) => {
+    const match = new RegExp('(?:^|\\n)\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}').exec(source);
+    const props = {};
+    if (match) for (const part of match[1].split(';')) { const [key, value] = part.split(':'); if (value) props[key.trim()] = value.trim(); }
+    return props;
+  };
+  const NAMES = ['up', 'down', 'left', 'right', 'a', 'b', 'menu', 'map'];
+  for (const width of [320, 340, 359, 360, 375, 383, 384, 390, 412, 600, 768]) {
+    const rects = {};
+    for (const name of NAMES) {
+      const narrow = width < 384;
+      const props = Object.assign({}, rule('#touch.portrait .btn', css), rule('#touch.portrait [data-btn="' + name + '"]', css), narrow ? rule('#touch.portrait .btn', media) : {}, narrow ? rule('#touch.portrait [data-btn="' + name + '"]', media) : {});
+      const w = parseFloat(props.width), h = parseFloat(props.height), bottom = parseFloat(props.bottom);
+      const left = props.left !== undefined ? parseFloat(props.left) : width - parseFloat(props.right) - w;
+      rects[name] = { left, right: left + w, bottom, top: bottom + h, w, h };
+      assert.ok(w > 0 && h > 0 && bottom >= 0 && left >= 0 && left + w <= width, width + ' px: ' + name + ' is inside the window (' + JSON.stringify(rects[name]) + ')');
+    }
+    for (const a of NAMES) for (const b of NAMES) if (a < b) {
+      const x = rects[a], y = rects[b];
+      assert.ok(!(x.left < y.right && y.left < x.right && x.bottom < y.top && y.bottom < x.top), width + ' px: ' + a + ' and ' + b + ' do not cross');
+    }
+    const sizes = new Set(['up', 'down', 'left', 'right'].map((name) => rects[name].w + 'x' + rects[name].h));
+    assert.equal(sizes.size, 1, width + ' px: the four d-pad buttons are one size');
+    assert.ok(Math.max(...NAMES.map((name) => rects[name].top)) <= 230, width + ' px: the buttons stay within the 40% strip the picture leaves (a phone 570 px high or taller)');
+  }
+  // the room the bar asks for grows as the picture gets narrower, and stays within its limits
+  assert.ok(R.captionHeightFor(240) >= R.captionHeightFor(480) && R.captionHeightFor(480) >= R.captionHeightFor(960));
+  for (const width of [120, 240, 390, 480, 960, 2000]) assert.ok(R.captionHeightFor(width) >= R.CAPTION_MIN_HEIGHT && R.captionHeightFor(width) <= R.CAPTION_MAX_HEIGHT);
+  assert.equal(R.captionHeightFor(960), R.CAPTION_MIN_HEIGHT, 'a wide picture needs only the minimum');
+  assert.equal(R.CAPTION_LONGEST_PAGE, 130);
+});
+test('accessibility one hand: no part of the game needs two buttons or two fingers at once; the touch buttons work one finger at a time', () => {
+  // nothing reads two buttons together (the keyboard and the pad likewise: the held state is read one button at a time)
+  const twoTogether = enginePart.split('\n').filter((line) => /Input\.(down|pressed|repeat)(\.\w+|\[\w+\])\s*&&\s*Input\.(down|pressed|repeat)(\.\w+|\[\w+\])/.test(line));
+  assert.deepEqual(twoTogether, [], 'no condition needs two buttons held at once');
+  assert.ok(!/event\.(shiftKey|ctrlKey|altKey)\s*&&/.test(enginePart.slice(enginePart.indexOf('window.addEventListener(\'keydown\''), enginePart.indexOf('window.addEventListener(\'keyup\''))), 'no key chord is needed');
+  assert.ok(/KEY_MAP = \{[^}]*KeyZ: 'a'/.test(enginePart), 'every action is one key');
+  const bind = enginePart.slice(enginePart.indexOf('function bindTouchButtons'), enginePart.indexOf('// ---- Sound'));
+  assert.ok(bind.includes("addEventListener('pointerdown', press)") && bind.includes("Input.touch[name] = true"), 'a touch button is pressed by its own pointer');
+  assert.ok(!/touches\.length|pointerType === 'touch' &&/.test(bind), 'no multi-touch gesture');
+  // every button has an action reached by a single press: the layout lists all eight and the d-pad, A, B, MENU and MAP all exist as buttons
+  const buttons = [...html.matchAll(/data-btn="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(buttons)].sort(), ['a', 'b', 'down', 'left', 'map', 'menu', 'right', 'up']);
+  // the one place that reads a held button (the credits speed-up) takes one button
+  const heldReads = enginePart.split('\n').filter((line) => /Input\.down\./.test(line)).length;
+  assert.ok(heldReads <= 2, 'only the walking direction and the credits read a held button (' + heldReads + ')');
+});
+
+test('accessibility: the Accessibility screen has a row for every new option, each option is read by the game (not only by the screen), and the strings exist in both languages', () => {
+  const screen = enginePart.slice(enginePart.indexOf('const ACCESS_ROWS = ['), enginePart.indexOf('function AccessibilityLayer'));
+  const rowOptions = [...screen.matchAll(/option: '(\w+)'/g)].map((m) => m[1]);
+  assert.deepEqual(rowOptions, NEW_OPTIONS, 'the rows are the new options, in this order');
+  assert.ok(enginePart.includes('OPTIONS_ROWS = [\'opt.lang\', \'opt.sound\', \'opt.speed\', \'opt.motion\', \'opt.access\', \'ui.back\']'), 'Options opens it');
+  // each option is read somewhere that is not the Accessibility screen itself
+  const layerStart = enginePart.indexOf('function AccessibilityLayer');
+  const layerEnd = enginePart.indexOf('// ---- Shop');
+  const outside = enginePart.slice(0, layerStart) + enginePart.slice(layerEnd);
+  for (const name of NEW_OPTIONS) assert.ok(new RegExp('OPT\\.' + name + '\\b').test(outside), name + ' is read by the game');
+  // the strings
+  const keys = ['opt.access', 'acc.title', 'acc.largeText', 'acc.marks', 'acc.flashes', 'acc.repeat', 'acc.hand', ...[0, 1, 2].map((n) => 'acc.large' + n), ...[0, 1, 2, 3].map((n) => 'acc.repeat' + n), ...[0, 1, 2].map((n) => 'acc.hand' + n), ...NEW_OPTIONS.map((name) => 'acc.d.' + name)];
+  for (const key of keys) {
+    const pair = R.STRINGS[key];
+    assert.ok(pair && pair[0].length > 0 && pair[1].length > 0, key + ' has Greek and English');
+    assert.notEqual(pair[0], pair[1], key + ' is translated (the two languages differ)');
+  }
+  for (const name of NEW_OPTIONS) {
+    const pair = R.STRINGS['acc.d.' + name];
+    assert.ok(/[Ͱ-Ͽ]/.test(pair[0]) && !/[Ͱ-Ͽ]/.test(pair[1]), name + ': Greek is Greek and English is English');
+    assert.ok(pair[0].length <= 110 && pair[1].length <= 110, name + ': the description fits three small lines');
+  }
+  // the type names of the marks and the caption never use a religious symbol
+  assert.ok(!/[†‡✝☦☪✡☸]/.test(JSON.stringify(R.STRINGS) + JSON.stringify(R.TYPE_MARKS)), 'no cross or religious sign');
+});
+test('accessibility large text: every screen of the game answers the bar (a caption), and the bar is read from the top screen and written only when the text changes', () => {
+  const layerNames = [...enginePart.matchAll(/^function ([A-Z]\w*Layer)\(/gm)].map((m) => m[1]);
+  assert.ok(layerNames.length >= 24, 'found the screens (' + layerNames.length + ')');
+  for (const name of layerNames) assert.ok(enginePart.includes(name + '.prototype.caption = function'), name + ' has a caption');
+  const caption = enginePart.slice(enginePart.indexOf('const Caption = {'), enginePart.indexOf('// ---- Drawing helpers'));
+  assert.ok(caption.includes('layers[layers.length - 1]') && caption.includes('top.caption()'), 'the top screen is read');
+  assert.ok(caption.includes('text === this.text') && caption.includes('this.ticks % 15'), 'written only when the text changed, and read four times a second');
+  assert.ok(caption.includes('scrollHeight <= element.clientHeight') && caption.includes('CAPTION_MIN_FONT'), 'the letters shrink until the text fits, never below the minimum');
+  assert.ok(enginePart.includes('Caption.sync(false);') && enginePart.includes('Caption.apply(layout);'), 'the loop reads the screens, and the layout sizes the bar');
+  assert.ok(/id="caption" role="status" aria-live="polite"/.test(html), 'the bar is a live region: a screen reader says what is read');
+  assert.ok(/#caption \{ display: none;/.test(html), 'hidden until the option is on');
+});
+// ---- Captions run for real: the engine's caption code in a sandbox with a fake page (MZ-A11Y-01 fix round) ----
+// Takes statements out of the engine source by their first line (one line, or up to the next line that starts with "}") and runs them with the given globals.
+function engineSandbox(markers, prelude, globals) {
+  const source = enginePart.replace(/\r\n/g, '\n');
+  const pieces = markers.map((marker) => {
+    const start = source.indexOf(marker);
+    assert.ok(start >= 0, 'engine statement not found: ' + marker);
+    const firstEnd = source.indexOf('\n', start);
+    const firstLine = source.slice(start, firstEnd);
+    const opened = (firstLine.match(/\{/g) || []).length;
+    const closed = (firstLine.match(/\}/g) || []).length;
+    if (opened === closed) return firstLine;
+    const closing = source.indexOf('\n}', start);
+    return source.slice(start, source.indexOf('\n', closing + 1));
+  });
+  const context = vm.createContext(Object.assign({}, globals));
+  vm.runInContext(prelude + '\n' + pieces.join('\n'), context, { timeout: 5000 });
+  return (expression) => vm.runInContext(expression, context, { timeout: 5000 });
+}
+// A page element that remembers what was done to it, in order.
+class FakeNode {
+  constructor(tag, log) { this.tag = tag; this.log = log; this.children = []; this.attrs = {}; this.style = {}; this.scrollHeight = 0; this.clientHeight = 0; this.ownText = ''; this.languageValue = ''; }
+  set lang(value) { this.languageValue = value; this.log.push('lang ' + value); }
+  get lang() { return this.languageValue; }
+  set textContent(value) { this.ownText = String(value); this.children = []; this.log.push('text'); }
+  get textContent() { return this.children.length > 0 ? this.children.map((child) => child.textContent).join('') : this.ownText; }
+  setAttribute(name, value) { this.attrs[name] = value; }
+  appendChild(child) { this.children.push(child); }
+}
+function fakePage() {
+  const log = [];
+  const bar = new FakeNode('div', log);
+  const document = { getElementById: () => bar, createElement: (tag) => new FakeNode(tag, []), createTextNode: (text) => { const node = new FakeNode('#text', []); node.ownText = text; return node; } };
+  return { log, bar, document };
+}
+const CAPTION_SANDBOX = ['const Caption = {', 'function joinCaption', 'function captionLead', 'function captionString'];
+function captionSandbox(optionValues) {
+  const page = fakePage();
+  const layers = [];
+  const OPT = Object.assign({ largeText: 1, lang: 'el' }, optionValues);
+  const run = engineSandbox(CAPTION_SANDBOX, '', { document: page.document, OPT, layers, CAPTION_MIN_FONT: R.CAPTION_MIN_FONT });
+  return { page, layers, OPT, run };
+}
+
+test('accessibility large text: the bar names its language before it writes the text, and again when the language changes', () => {
+  const { page, layers, OPT, run } = captionSandbox({ lang: 'en' });
+  layers.push({ caption: () => 'Hello' });
+  run('Caption.sync(true)');
+  assert.deepEqual(page.log, ['lang en', 'text'], 'lang first, then the text');
+  assert.equal(page.bar.lang, 'en');
+  OPT.lang = 'el';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.lang, 'el', 'the same words in another language are written again with the new language');
+  assert.deepEqual(page.log, ['lang en', 'text', 'lang el', 'text']);
+  run('Caption.sync(true)');
+  assert.equal(page.log.length, 4, 'an unchanged caption is not written again');
+  assert.ok(enginePart.includes('element.lang = OPT.lang;'), 'the engine sets it');
+});
+
+test('accessibility large text: a question or title is said to the screen reader once, then only the chosen row; the bar still shows both', () => {
+  const { page, layers, run } = captionSandbox();
+  const screen = { row: 'Yes', caption() { return { context: 'Sure?', text: this.row }; } };
+  layers.push(screen);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'the first caption says the question');
+  assert.equal(page.bar.textContent, 'Sure? Yes');
+  screen.row = 'No';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], 'true', 'moving the cursor hides the question from the reader');
+  assert.equal(page.bar.children[0].textContent, 'Sure? ', 'but the bar still shows it');
+  assert.equal(page.bar.children[1].textContent, 'No');
+  assert.equal(page.bar.textContent, 'Sure? No');
+  // another screen of its own says its question again, and a plain text screen has no hidden part
+  const next = { caption: () => ({ context: 'Name?', text: 'A' }) };
+  layers.push(next);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'a new screen says its own question');
+  layers.push({ caption: () => 'Plain' });
+  run('Caption.sync(true)');
+  assert.equal(page.bar.textContent, 'Plain');
+  assert.equal(page.bar.children.length, 0);
+  // the same screen with another question says that question again (it is tracked by the question text, not only the screen)
+  const quiz = { context: 'First?', caption() { return { context: this.context, text: 'A' }; } };
+  layers.push(quiz);
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'first question: said');
+  quiz.context = 'Second?';
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children[0].attrs['aria-hidden'], undefined, 'the same screen, a new question: said again');
+  assert.equal(run('Caption.contextText'), 'Second?');
+  layers.push({ caption: () => 'Plain' });
+  run('Caption.sync(true)');
+  assert.equal(run('Caption.contextText'), null, 'a plain text clears what was said');
+  assert.equal(run('Caption.contextLayer'), null);
+});
+
+test('accessibility large text: the satire notice captions a Greek and an English line, and the bar gives each its own language', () => {
+  const noticeRun = engineSandbox(['NoticeLayer.prototype.caption = function'], 'function NoticeLayer() {}',
+    { lookupString: (key, lang) => key + '/' + lang });
+  const notice = JSON.parse(JSON.stringify(noticeRun('NoticeLayer.prototype.caption.call({})')));
+  assert.deepEqual(notice, { parts: [{ text: 'notice.line1/el', lang: 'el' }, { text: 'notice.line2/en', lang: 'en' }] });
+  const { page, layers, run } = captionSandbox({ lang: 'el' });
+  layers.push({ caption: () => notice });
+  run('Caption.sync(true)');
+  assert.equal(page.bar.children.length, 3, 'two spans with a space between');
+  assert.deepEqual([page.bar.children[0].lang, page.bar.children[2].lang], ['el', 'en']);
+  assert.equal(page.bar.children[1].ownText, ' ');
+  assert.equal(page.bar.textContent, 'notice.line1/el notice.line2/en', 'the same text as the caption string, no trailing space');
+  assert.equal(run('captionString(' + JSON.stringify(notice) + ')'), 'notice.line1/el notice.line2/en');
+});
+
+test('accessibility large text: the real choice, gender and name screens answer { context, text } (the question, then the row or key)', () => {
+  const run = engineSandbox(
+    ['function joinCaption', 'ChoiceLayer.prototype.caption = function', 'GenderLayer.prototype.caption = function', 'NameLayer.prototype.caption = function'],
+    'function ChoiceLayer() {} function GenderLayer() {} function NameLayer() {} function DialogLayer() {}\nconst NAME_PAGES = [["ABC", "DEF"]];',
+    { layers: [], T: (key) => key });
+  same(run('ChoiceLayer.prototype.caption.call(Object.assign(Object.create(ChoiceLayer.prototype), { title: "Money 5", items: [{ label: "Yes" }, { label: "No" }], cursor: 1 }))'), { context: 'Money 5', text: 'No' });
+  assert.equal(run('ChoiceLayer.prototype.caption.call(Object.assign(Object.create(ChoiceLayer.prototype), { title: "", items: [{ label: "Yes" }], cursor: 0 }))'), 'Yes', 'no question: just the row');
+  // a yes or no question that follows a dialog: the question is the dialog page
+  const asking = run(`(function () {
+    const dialog = Object.assign(Object.create(DialogLayer.prototype), { box: { pageText: () => 'Buy it?' } });
+    const layer = Object.assign(Object.create(ChoiceLayer.prototype), { title: "", items: [{ label: "Yes" }, { label: "No" }], cursor: 0 });
+    layers.push(dialog, layer);
+    return layer.caption();
+  })()`);
+  same(asking, { context: 'Buy it?', text: 'Yes' });
+  same(run('GenderLayer.prototype.caption.call({ cursor: 1 })'), { context: 'gender.title', text: 'gender.f' });
+  same(run('NameLayer.prototype.caption.call({ page: 0, row: 0, col: 1, name: "ΝΙΚΟΣ" })'), { context: 'name.title', text: 'ΝΙΚΟΣ [B]' });
+  same(run('NameLayer.prototype.caption.call({ page: 0, row: 5, col: 2, name: "ΝΙΚΟΣ" })'), { context: 'name.title', text: 'ΝΙΚΟΣ [name.ok]' }, 'the end row: OK');
+});
+
+test('accessibility large text: the credits caption only the line that just came in, each line once and in order', () => {
+  const lines = ['MIZAMON', '', 'Line one', 'Line two', '', 'Line three', 'Line four', 'Line five', 'Line six', 'Line seven'];
+  const run = engineSandbox(['const CREDITS_LINE_FRAMES', 'const CREDITS_HOLD_FRAMES', 'function creditsLineY', 'function creditsEndFrame', 'const CREDITS_CAPTION_Y', 'const CREDITS_CAPTION_TOP', 'CreditsLayer.prototype.caption = function'],
+    'function CreditsLayer() {}', { SCREEN_H: R.SCREEN_H });
+  const heardWith = (step) => {
+    const heard = [];
+    const end = run('creditsEndFrame(' + lines.length + ')');
+    for (let frame = 0; frame <= end; frame += step) {
+      const caption = run('CreditsLayer.prototype.caption.call({ lines: ' + JSON.stringify(lines) + ', frame: ' + frame + ' })');
+      if (caption === null) continue;
+      assert.ok(lines.includes(caption), 'frame ' + frame + ': one whole line, not a page (' + caption + ')');
+      if (heard[heard.length - 1] !== caption) heard.push(caption); // the bar writes only a changed text
+    }
+    return heard;
+  };
+  const everyFrame = heardWith(1);
+  assert.deepEqual(everyFrame, lines.filter((line) => line), 'every non-empty line once, in order');
+  const fourTimesASecond = heardWith(15); // how often the bar reads the screen
+  assert.equal(new Set(fourTimesASecond).size, fourTimesASecond.length, 'no line twice');
+  assert.deepEqual(fourTimesASecond, lines.filter((line) => fourTimesASecond.includes(line)), 'in order');
+  assert.deepEqual(fourTimesASecond, lines.filter((line) => line), 'lines are 28 frames apart and the bar reads every 15: none is missed');
+  assert.equal(run('CreditsLayer.prototype.caption.call({ lines: null, frame: 0 })'), null, 'before the lines exist: nothing');
+});
+
+test('accessibility large text: the battle bar starts with both sides (name, level) and the HP of the player; it is written once, and again only when those values change', () => {
+  const makeRun = () => engineSandbox(['function joinCaption', 'BattleLayer.prototype.sidesCaption = function', 'BattleLayer.prototype.caption = function'],
+    'function BattleLayer() {}\nconst ROOT_LABELS = ["fight", "bag"]; const MOVES = { m1: { n: "Slap" } };\nfunction activeMon() { return { moves: ["m1"] }; }',
+    { T: (key) => key });
+  const run = makeRun();
+  const view = (name, lv, hp, visible = true) => ({ name, lvText: lv, hpText: hp, visible });
+  const layer = { mode: 'root', rootPrompt: ['What now?'], rootCursor: 1, moveCursor: 0, moveType: 'pol', moveInfo: 'Power 5', battle: {}, views: [view('Komma', 'Lv 12', '30/45'), view('Fakelakis', 'Lv 3', '9/9')], box: { pageText: () => 'Ticker page' } };
+  const onBattle = (fields) => 'BattleLayer.prototype.caption.call(Object.assign(Object.create(BattleLayer.prototype), ' + fields + '))';
+  const caption = (mode) => { layer.mode = mode; return JSON.parse(JSON.stringify(run(onBattle(JSON.stringify(layer))))); }; // JSON drops the box function: it is only read in the text mode, below
+  assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3. What now?', text: 'bag' }, 'the player: name, level, HP; the foe: name and level only (its HP numbers are not drawn); the row apart, so a cursor move reads only the row');
+  assert.deepEqual(caption('moves'), { context: 'Komma Lv 12 30/45. Fakelakis Lv 3', text: 'Slap: type.pol, Power 5' });
+  const { run: stringRun } = captionSandbox();
+  assert.equal(stringRun('captionString(' + JSON.stringify(caption('moves')) + ')'), 'Komma Lv 12 30/45. Fakelakis Lv 3. Slap: type.pol, Power 5', 'a full stop between who is fighting and the move, so the reader pauses');
+  assert.equal(stringRun('captionString({ context: "Sure?", text: "Yes" })'), 'Sure? Yes', 'a context that ends in a mark gets no second one');
+  layer.views[1].visible = false;
+  assert.deepEqual(caption('root'), { context: 'Komma Lv 12 30/45. What now?', text: 'bag' }, 'a side that is not shown is not said');
+  layer.views[1].visible = true;
+  const ticker = run(onBattle('{ mode: "text", box: { pageText: () => "Ticker page" }, views: [] }'));
+  assert.equal(ticker, 'Ticker page', 'the ticker text stays as it is');
+  assert.equal(run(onBattle('{ mode: "idle", views: [] }')), null);
+  // through the bar: many reads of an unchanged battle write once; a change of HP writes again
+  const { page, layers, run: barRun } = captionSandbox();
+  const live = { mode: 'root', views: [view('Komma', 'Lv 12', '30/45'), view('Fakelakis', 'Lv 3', '9/9')], caption() { return this.views[0].name + ' ' + this.views[0].lvText + ' ' + this.views[0].hpText; } };
+  layers.push(live);
+  for (let tick = 0; tick < 300; tick++) barRun('Caption.sync(false)');
+  assert.equal(page.log.filter((entry) => entry === 'text').length, 1, 'written once in 300 frames');
+  live.views[0].hpText = '29/45';
+  for (let tick = 0; tick < 30; tick++) barRun('Caption.sync(false)');
+  assert.equal(page.log.filter((entry) => entry === 'text').length, 2, 'written again when the HP changed');
+  assert.equal(page.bar.textContent, 'Komma Lv 12 29/45');
+});
+
+test('accessibility: the title line and the top row of the Accessibility screen keep room (a line too wide for the picture shrinks), and hitLook allocates nothing', () => {
+  const title = enginePart.slice(enginePart.indexOf('TitleLayer.prototype.draw = function'), enginePart.indexOf('// ---- Gender, name'));
+  assert.ok(title.includes("ctx.font = fontForWidth(T('title.sub'), FONT, FONT_SMALL);"), 'the title line picks a font that fits');
+  const fit = enginePart.slice(enginePart.indexOf('function fontForWidth'), enginePart.indexOf('function drawText'));
+  assert.ok(fit.includes('SCREEN_W - 2 * TEXT_EDGE_MARGIN') && /TEXT_EDGE_MARGIN = 8;/.test(enginePart), 'it keeps 8 px from each edge');
+  // the in-page checks measure the real fonts of the browser (AC-001 runs them in Chrome)
+  assert.ok(html.includes("check('room: the title line keeps '") && html.includes("check('room: the Accessibility title and hint keep '"), 'the in-page checks for the room are there');
+  // hitLook: the same four frozen objects every time
+  const seen = new Set();
+  for (let t = 0; t < 40; t++) for (const flashesOff of [false, true]) for (const reduceMotion of [false, true]) {
+    const look = R.hitLook(t, flashesOff, reduceMotion);
+    assert.ok(Object.isFrozen(look), 'frozen');
+    seen.add(look);
+  }
+  assert.equal(seen.size, 4, 'still, steady and the two shake poses: four objects in all');
+  assert.equal(R.hitLook(0, false, false), R.hitLook(1, false, false), 'the same object on the same pose');
+});
+
+test('the Sunday double heal comes from isSundayToday(), and selfTest pins it to false and puts it back (its fights end the same way on every weekday)', () => {
+  const run = html.slice(html.indexOf('async function runBattle'), html.indexOf('// ---- Game flow'));
+  assert.ok(run.includes('sunday: isSundayToday()'), 'runBattle asks isSundayToday()');
+  assert.ok(!run.includes('new Date()'), 'runBattle reads no clock of its own');
+  const self = html.slice(html.indexOf('async function selfTest'), html.indexOf('async function selfTest') + 4000);
+  assert.ok(self.includes('sundayPinned: sundayPinned') && self.includes('sundayPinned = false;'), 'selfTest saves the pin and pins Sunday off');
+  assert.ok(html.includes('sundayPinned = snapshot.sundayPinned;'), 'selfTest puts the pin back');
+  const sunday = R.createBattle(monsOf('komma', 8, 1), [R.makeMon('fakelakis', 3)], R.makeRng(1), { kind: 'wild', sunday: true });
+  assert.equal(sunday.sunday, true, 'the battle keeps the Sunday flag it is given');
+});
+test('accessibility: the decision section of the reference lists each option with its reason, what was left out, and the README lists the options', () => {
+  const reference = readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8');
+  const start = reference.indexOf('## 12. Accessibility');
+  assert.ok(start >= 0, 'section 12 exists');
+  const section = reference.slice(start);
+  for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls', 'Left out', 'Why', 'Reduced motion', 'selfTest']) assert.ok(section.includes(word), 'the section names ' + word);
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  for (const word of ['Large text', 'Type marks', 'Flashes off', 'Hold to repeat', 'Touch controls']) assert.ok(readme.includes(word), 'the README names ' + word);
+});
+
+// ---- Build: the split and the assembler (MZ-DEV-02a; reference sections 13.2, 13.3 and 13.5) ----
+// SHA-256 of the single-file page at 861daff, as LF. DEV-02a's proof that cutting the file into src/ moved nothing; DEV-02b,
+// which moves content into data/, replaces this pin with the parity proof of reference section 13.12.
+const BASELINE_PAGE_SHA256 = '9ee965f515ccdbc993a4b02e99945e6b9a564ba1e6dbd4f5915f7dff72182030';
+
+function scratchFolder(label) {
+  const parent = join(tmpdir(), 'claude');
+  mkdirSync(parent, { recursive: true });
+  return mkdtempSync(join(parent, `mizamon-test-${label}-`));
+}
+
+// Copies what the assembler and the source hash read (src/ and the hashed tool files) with CRLF line endings.
+function copyAsCrlf(fromRoot, toRoot) {
+  const copyFile = (relativePath) => {
+    const text = readFileSync(join(fromRoot, relativePath), 'utf8');
+    mkdirSync(dirname(join(toRoot, relativePath)), { recursive: true });
+    writeFileSync(join(toRoot, relativePath), text.split('\r\n').join('\n').split('\n').join('\r\n'));
+  };
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(fromRoot, 'src', kind))) copyFile(`src/${kind}/${name}`);
+  }
+  for (const relativePath of ['src/shell.html', 'shared/assemble-core.mjs', 'tools/assemble.mjs', 'tools/build.mjs']) copyFile(relativePath);
+}
+
+test('assembler: the page equals the baseline single-file page (861daff) byte for byte, twice, and from a CRLF copy', () => {
+  const first = assembleFromDisk();
+  const second = assembleFromDisk();
+  assert.equal(first, second, 'assembling twice gives the same text');
+  assert.ok(!first.includes('\r'), 'the page is LF');
+  assert.equal(sha256Hex(Buffer.from(first, 'utf8')), BASELINE_PAGE_SHA256, 'the page is the baseline single-file page');
+  const crlfRoot = scratchFolder('crlf');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, crlfRoot);
+    assert.ok(readFileSync(join(crlfRoot, 'src', 'shell.html'), 'utf8').includes('\r\n'), 'the copy is CRLF');
+    assert.equal(assembleFromDisk(crlfRoot), first, 'a CRLF checkout assembles the same bytes');
+    assert.equal(sourceHashFromDisk(crlfRoot), sourceHashFromDisk(MIZAMON_ROOT), 'a CRLF checkout has the same source hash');
+  } finally {
+    rmSync(crlfRoot, { recursive: true, force: true });
+  }
+});
+
+test('assembler: inserted text is copied as it is ($&, $` and $\' stay), markers are whole lines, bad sources are refused', () => {
+  const shell = 'head\n// RULES-BEGIN\n/*@@DATA@@*/\n/*@@RULES@@*/\n// RULES-END\n\n/*@@ENGINE@@*/\ntail\n';
+  const rules = [{ name: '01-b.js', text: 'rule b\n' }, { name: '00-a.js', text: 'rule a $&\n' }];
+  const engine = [{ name: '00-e.js', text: "engine $` $' $1\n" }];
+  const data = "const DATA = '$& $` $\\'';\n";
+  assert.equal(assemblePage({ shell, data, rules, engine }), "head\n// RULES-BEGIN\nconst DATA = '$& $` $\\'';\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n");
+  assert.equal(assemblePage({ shell, rules, engine }), "head\n// RULES-BEGIN\nrule a $&\nrule b\n// RULES-END\n\nengine $` $' $1\ntail\n", 'empty data removes the marker line');
+  assert.equal(assemblePage({ shell: shell.split('\n').join('\r\n'), rules, engine }), assemblePage({ shell, rules, engine }), 'CRLF in gives LF out');
+  const refused = (change, pattern) => assert.throws(() => assemblePage({ shell, rules, engine, ...change }), pattern);
+  refused({ shell: shell.replace('/*@@DATA@@*/\n', '') }, /no marker line \/\*@@DATA@@\*\//);
+  refused({ shell: shell + '/*@@ENGINE@@*/\n' }, /more than once/);
+  refused({ shell: shell + '/*@@OTHER@@*/\n' }, /unknown marker/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n// RULES-END\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'x\n/*@@ENGINE@@*/\n' }] }, /marker line/);
+  refused({ rules: [{ name: '00-a.js', text: 'no line break' }] }, /must end with a line break/);
+  refused({ rules: [{ name: 'a.js', text: 'x\n' }] }, /bad fragment name/);
+  refused({ data: 'no line break' }, /data text must end/);
+  refused({ shell: shell.replace('// RULES-END\n', '') }, /RULES-END must be on a line of its own/);
+});
+
+test('loadRules: the markers are whole lines, each once (a mention inside a line is not a marker)', () => {
+  const page = 'x\n// RULES-BEGIN\nconst RULES = { a: 1 };\n// RULES-END\ny\n';
+  assert.equal(loadRules(page).a, 1);
+  assert.equal(loadRules(page.split('\n').join('\r\n')).a, 1, 'a CRLF page too');
+  assert.equal(loadRules('see // RULES-BEGIN and // RULES-END in prose\n// not a marker: // RULES-END\n' + page).a, 1, 'mentions are skipped');
+  assert.throws(() => loadRules(page + page), /once/);
+  assert.throws(() => loadRules('x\nconst RULES = {};\n'), /once/);
+  assert.throws(() => loadRules('// RULES-END\n// RULES-BEGIN\n'), /comes before/);
+});
+
+// The top-level names a script fragment declares (declarations that start at the left edge).
+function topLevelNames(text) {
+  const names = [];
+  for (const line of text.split('\n')) {
+    const declaration = /^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/.exec(line) || /^(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    if (declaration) {
+      names.push(declaration[1]);
+      continue;
+    }
+    const destructured = /^(?:const|let|var)\s+[{[]([^}\]=]*)[}\]]/.exec(line);
+    if (destructured) names.push(...destructured[1].split(',').map((part) => part.split(':').pop().trim()).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name)));
+  }
+  return names;
+}
+
+// Rules and engine share one scope, so a name declared twice (in two fragments or in one) hides or breaks the first.
+function duplicateTopLevelNames(fragments) {
+  const owner = new Map();
+  const duplicates = [];
+  for (const fragment of fragments) {
+    for (const name of topLevelNames(fragment.text)) {
+      if (owner.has(name)) duplicates.push(`${name} in ${owner.get(name)} and ${fragment.name}`);
+      else owner.set(name, fragment.name);
+    }
+  }
+  return duplicates;
+}
+
+test('src/: no two fragments declare the same top-level name (the say() and logMsg clash of section 1)', () => {
+  const sources = readSources();
+  const fragments = [...sources.rules.map((f) => ({ name: `rules/${f.name}`, text: toLf(f.text) })), ...sources.engine.map((f) => ({ name: `engine/${f.name}`, text: toLf(f.text) }))];
+  assert.ok(fragments.length > 40, 'the fragments were read');
+  assert.ok(fragments.reduce((count, f) => count + topLevelNames(f.text).length, 0) > 400, 'the scan finds the declarations');
+  same(duplicateTopLevelNames(fragments), [], 'no top-level name is declared twice');
+  const planted = duplicateTopLevelNames([{ name: 'rules/a.js', text: 'function say() {}\nconst { x, y: z } = q;\n' }, { name: 'engine/b.js', text: 'async function say() {}\nlet z = 1;\n' }]);
+  same(planted, ['say in rules/a.js and engine/b.js', 'z in rules/a.js and engine/b.js'], 'a planted clash is found');
+});
+
+// ---- Build: the lock, the checks, the atomic write (MZ-DEV-02a; reference section 13.5) ----
+// A scratch Mizamon root (the sources and the hashed tools, CRLF) whose run-tests.mjs is a stub, so a build runs in a second.
+function makeScratchRoot(label, stubSource) {
+  const root = scratchFolder(label);
+  copyAsCrlf(MIZAMON_ROOT, root);
+  writeFileSync(join(root, 'tools', 'run-tests.mjs'), stubSource);
+  return root;
+}
+const runBuildCli = (root, ...flags) => spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root, ...flags], { encoding: 'utf8', timeout: 120000 });
+const PASSING_STUB = "import { existsSync } from 'node:fs';\nif (!existsSync(process.env.MZ_HTML)) process.exit(9);\nconsole.log('ok   a');\nconsole.log('PASS 1 / 1');\n";
+const FAILING_STUB = "console.log('ok   a');\nconsole.log('FAIL the second test\\n     boom');\nconsole.log('PASS 1 / 2');\nprocess.exit(1);\n";
+
+test('build: one lock for every build; a lock whose process is gone is replaced, a live one refuses', () => {
+  const folder = scratchFolder('lock');
+  try {
+    const first = acquireLock(folder);
+    assert.equal(first.note, null);
+    const holder = JSON.parse(readFileSync(join(folder, '.lock'), 'utf8'));
+    assert.equal(holder.pid, process.pid, 'the lock holds the process id');
+    assert.ok(!Number.isNaN(Date.parse(holder.startedAt)), 'and the start time');
+    assert.throws(() => acquireLock(folder), /a build is running \(since \d\d:\d\d\)/);
+    first.release();
+    assert.ok(!existsSync(join(folder, '.lock')), 'released');
+    const finished = spawnSync(process.execPath, ['-e', '0']);
+    writeFileSync(join(folder, '.lock'), JSON.stringify({ pid: finished.pid, startedAt: new Date().toISOString() }));
+    const second = acquireLock(folder);
+    assert.match(second.note, /no longer runs/, 'a stale lock is removed with a note');
+    second.release();
+    same(readdirSync(folder), [], 'the renamed stale lock is deleted too');
+    writeFileSync(join(folder, '.lock'), '');
+    assert.throws(() => acquireLock(folder), /a build is starting/, 'a lock that is still being written counts as a build');
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('build: the CSP meta must be the one of section 1 and the page size is checked', () => {
+  const page = assembleFromDisk();
+  assert.deepEqual(checkPage(page), []);
+  assert.throws(() => checkPage(page.split("default-src 'none'").join("default-src *")), /CSP meta tag/);
+  assert.throws(() => checkPage('<html></html>'), /CSP meta tag/);
+  assert.match(checkPage(page + 'x'.repeat(4 * 1024 * 1024))[0], /above 4 MB/);
+  assert.throws(() => checkPage(page + 'x'.repeat(16 * 1024 * 1024)), /16 MB limit/);
+});
+
+test('build: assemble, test, then write index.html and the report (the hashes match); a failing test or --check writes nothing', () => {
+  const root = makeScratchRoot('build', PASSING_STUB);
+  try {
+    const built = runBuildCli(root);
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const pagePath = join(root, 'build', 'index.html');
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(sha256Hex(readFileSync(pagePath)), BASELINE_PAGE_SHA256, 'index.html is the baseline page, LF');
+    assert.equal(report.indexHtmlSha256, BASELINE_PAGE_SHA256);
+    assert.equal(report.sourceHash, sourceHashFromDisk(root), 'the report holds the source hash');
+    assert.equal(report.status, 'ok');
+    assert.equal(report.tests.passed, 1);
+    assert.equal(report.tests.total, 1);
+    same(readdirSync(join(root, 'build')).sort(), ['build-report.json', 'index.html'], 'no temporary file and no lock is left');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    const checked = runBuildCli(root, '--check');
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    same(readdirSync(join(root, 'build')), [], '--check writes no file');
+
+    const untested = runBuildCli(root, '--no-tests');
+    assert.equal(untested.status, 0, untested.stdout + untested.stderr);
+    assert.equal(JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8')).status, 'untested');
+    rmSync(join(root, 'build'), { recursive: true });
+
+    writeFileSync(join(root, 'tools', 'run-tests.mjs'), FAILING_STUB);
+    const failed = runBuildCli(root, '--json');
+    assert.equal(failed.status, 1, 'a failing test fails the build');
+    assert.match(failed.stderr, /FAIL the second test/);
+    assert.equal(JSON.parse(failed.stdout).status, 'failed');
+    same(readdirSync(join(root, 'build')), [], 'a failed build writes nothing');
+
+    assert.equal(runBuildCli(root, '--bogus').status, 2, 'a usage error exits 2');
+    writeFileSync(join(root, 'src', 'engine', '00-screen.js'), '// RULES-END\n');
+    assert.equal(runBuildCli(root, '--no-tests').status, 1, 'a source that does not assemble exits 1');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('build: the test run never sees MZ_TEST_FILTER or a foreign MZ_HTML, so a filter in the parent cannot shrink the tested set', () => {
+  // The stub reports a smaller total whenever the child could see the filter, and fails when MZ_HTML is not the candidate page.
+  const stub = "import { readFileSync } from 'node:fs';\n"
+    + "const sawFilter = 'MZ_TEST_FILTER' in process.env;\n"
+    + "if (readFileSync(process.env.MZ_HTML, 'utf8').length < 1000) process.exit(9);\n"
+    + "console.log(sawFilter ? 'PASS 1 / 1' : 'PASS 7 / 7');\n";
+  const root = makeScratchRoot('build-filter', stub);
+  try {
+    const env = { ...process.env, MZ_TEST_FILTER: 'one test only', MZ_HTML: join(root, 'does-not-exist.html') };
+    const built = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'build.mjs'), '--root', root], { encoding: 'utf8', timeout: 120000, env });
+    assert.equal(built.status, 0, built.stdout + built.stderr);
+    const report = JSON.parse(readFileSync(join(root, 'build', 'build-report.json'), 'utf8'));
+    assert.equal(report.tests.total, 7, 'the child ran without the filter');
+    assert.equal(report.status, 'ok');
+    assert.deepEqual(report.notes, [], 'the report carries the build notes');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- itch push: assembles the pushed commit in a temporary worktree (MZ-DEV-02a; reference section 13.5) ----
+const ITCH_PUSH = join(MIZAMON_ROOT, '..', 'tools', 'itch-push.mjs');
+const ITCH_UPLOAD_ROOT = join(tmpdir(), 'claude', 'itch-upload');
+const gitIn = (repo, ...args) => spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+const leftoverWorktrees = () => (existsSync(ITCH_UPLOAD_ROOT) ? readdirSync(ITCH_UPLOAD_ROOT).filter((name) => name.startsWith('mizamon-src-')) : []);
+
+function commitAll(repo, message) {
+  assert.equal(gitIn(repo, 'add', '-A').status, 0);
+  const committed = gitIn(repo, 'commit', '-q', '-m', message);
+  assert.equal(committed.status, 0, committed.stderr);
+}
+
+function writeReport(repo, fields) {
+  const reportPath = join(repo, 'Mizamon', 'build', 'build-report.json');
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeFileSync(reportPath, JSON.stringify(fields, null, 2) + '\n');
+}
+
+test('itch push of mizamon: assembles the commit in a temporary worktree, checks both hashes against the report, removes the worktree', () => {
+  const repo = scratchFolder('itch');
+  try {
+    copyAsCrlf(MIZAMON_ROOT, join(repo, 'Mizamon')); // committed as CRLF here: the hashes must not care
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    const assembled = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(assembled.status, 0, assembled.stderr);
+    const { sourceHash, htmlSha256 } = JSON.parse(assembled.stdout);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'sources and report');
+    const run = () => spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8', timeout: 120000 });
+    const reportCommit = gitIn(repo, 'log', '-1', '--format=%h', '--', 'Mizamon/build/build-report.json').stdout.trim();
+
+    const deadRun = spawnSync(process.execPath, ['-e', '0']); // its process id no longer runs: its leftover worktree folder is removed at the start
+    const deadWorktree = join(ITCH_UPLOAD_ROOT, `mizamon-src-${deadRun.pid}`);
+    mkdirSync(deadWorktree, { recursive: true });
+    writeFileSync(join(deadWorktree, 'leftover.txt'), 'from a killed run\n');
+    const pushed = run();
+    assert.equal(pushed.status, 0, pushed.stdout + pushed.stderr);
+    assert.ok(!existsSync(deadWorktree), 'the worktree folder of a process that is gone is removed');
+    assert.ok(pushed.stdout.includes(`at ${reportCommit} `), 'the report commit is the upload version');
+    const uploaded = join(ITCH_UPLOAD_ROOT, 'mizamon');
+    same(readdirSync(uploaded), ['index.html'], 'the upload folder holds index.html only');
+    assert.equal(sha256Hex(readFileSync(join(uploaded, 'index.html'))), htmlSha256, 'the assembled hash equals the report hash');
+    assert.equal(htmlSha256, BASELINE_PAGE_SHA256);
+    same(leftoverWorktrees(), [], 'the temporary worktree folder is gone');
+    assert.equal(gitIn(repo, 'worktree', 'list', '--porcelain').stdout.split('\n').filter((line) => line.startsWith('worktree ')).length, 1, 'git no longer lists the worktree');
+
+    writeFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), readFileSync(join(repo, 'Mizamon', 'src', 'engine', '99-boot.js'), 'utf8') + '// changed after the report\r\n');
+    commitAll(repo, 'a source change without a new report');
+    const stale = run();
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /stale report/, 'a merge without a new build is refused');
+    same(leftoverWorktrees(), [], 'the worktree is removed after a refusal too');
+
+    writeReport(repo, { status: 'untested', sourceHash, indexHtmlSha256: htmlSha256 });
+    commitAll(repo, 'an untested report');
+    const untested = run();
+    assert.equal(untested.status, 1);
+    assert.match(untested.stderr, /status "untested"/);
+    // The report of the current sources (so the source hash passes) with a wrong page hash: only the page-hash check can refuse it.
+    const current = spawnSync(process.execPath, [join(MIZAMON_ROOT, 'tools', 'assemble.mjs'), '--root', join(repo, 'Mizamon'), '--out', join(repo, 'scratch-page.html')], { encoding: 'utf8' });
+    assert.equal(current.status, 0, current.stderr);
+    rmSync(join(repo, 'scratch-page.html'));
+    writeReport(repo, { status: 'ok', sourceHash: JSON.parse(current.stdout).sourceHash, indexHtmlSha256: '0'.repeat(64) });
+    commitAll(repo, 'a report with another page hash');
+    const wrongPage = run();
+    assert.equal(wrongPage.status, 1);
+    assert.match(wrongPage.stderr, /does not have the SHA-256/);
+    same(leftoverWorktrees(), [], 'no worktree is left behind');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('itch push of mizamon: no report at the commit is refused; the other games keep their file path', () => {
+  const repo = scratchFolder('itch-none');
+  try {
+    assert.equal(gitIn(repo, 'init', '-q').status, 0);
+    writeFileSync(join(repo, 'readme.txt'), 'x\n');
+    commitAll(repo, 'nothing');
+    const refused = spawnSync(process.execPath, [ITCH_PUSH, 'mizamon', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /has no Mizamon\/build\/build-report\.json/);
+    const usage = spawnSync(process.execPath, [ITCH_PUSH, 'nogame'], { encoding: 'utf8' });
+    assert.equal(usage.status, 2);
+    mkdirSync(join(repo, 'Finger Lickin Music'), { recursive: true });
+    writeFileSync(join(repo, 'Finger Lickin Music', 'FingerLickinMusic.html'), '<html>fingers</html>\n');
+    commitAll(repo, 'a game with a committed page');
+    const plain = spawnSync(process.execPath, [ITCH_PUSH, 'fingerlickinmusic', '--verify-only', '--ref', 'HEAD', '--repo', repo], { encoding: 'utf8' });
+    assert.equal(plain.status, 0, plain.stdout + plain.stderr);
+    assert.equal(readFileSync(join(ITCH_UPLOAD_ROOT, 'fingerlickinmusic', 'index.html'), 'utf8'), '<html>fingers</html>\n');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('release script: runs the steps in order and stops at the first failure, saying which', () => {
+  const ran = [];
+  const logged = [];
+  const step = (label, ok) => ({ label, run: () => { ran.push(label); return ok ? { ok: true } : { ok: false, reason: 'exit code 1' }; } });
+  const outcome = runSteps([step('one', true), step('two', false), step('three', true)], (line) => logged.push(line));
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.failedStep, 2);
+  same(ran, ['one', 'two'], 'nothing runs after the failed step');
+  assert.match(logged.join('\n'), /step 2 of 3 \(two\) failed: exit code 1/);
+  assert.match(logged.join('\n'), /not run: three/);
+  assert.equal(runSteps([step('a', true), step('b', true)], () => {}).ok, true, 'all steps passing is a release');
+});
+
+test('release script: refuses a branch other than main and uncommitted sources, and never forces the push', () => {
+  const scratchParent = join(tmpdir(), 'claude');
+  mkdirSync(scratchParent, { recursive: true });
+  const scratchRepo = mkdtempSync(join(scratchParent, 'mz-release-'));
+  try {
+    const git = (...args) => {
+      const result = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: scratchRepo, encoding: 'utf8' });
+      assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+    };
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(scratchRepo, 'Mizamon', 'src'), { recursive: true });
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'kept.txt'), 'kept\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'start');
+    const [branchStep, , sourcesStep] = releaseSteps(scratchRepo, 'no-such-heavy-runner.mjs');
+    assert.equal(sourcesStep.label, 'check that the sources are committed', 'the index used below is the src-clean step');
+    assert.equal(branchStep.run().ok, true, 'main passes the branch step');
+    assert.equal(sourcesStep.run().ok, true, 'a clean repo passes the sources step');
+    writeFileSync(join(scratchRepo, 'Mizamon', 'src', 'new.txt'), 'uncommitted\n');
+    const dirty = sourcesStep.run();
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.reason, /uncommitted/);
+    git('checkout', '-q', '-b', 'task-branch');
+    const wrongBranch = branchStep.run();
+    assert.equal(wrongBranch.ok, false);
+    assert.match(wrongBranch.reason, /release runs only on main; current: task-branch/);
+  } finally {
+    rmSync(scratchRepo, { recursive: true, force: true });
+  }
+  assert.ok(pushArgs.includes('credential.helper=!gh auth git-credential'), 'the push uses the gh credential helper');
+  for (const forbidden of ['--force', '-f', '+main', '--force-with-lease']) assert.ok(!pushArgs.includes(forbidden), `the push never has ${forbidden}`);
+});
+
+// ---- Build: the procedure after a merge and the merge gate are written down (MZ-DEV-02a; reference section 13.5) ----
+test('README: names the build commit after a merge into main and the merge gate, and no other file points at the old single page', () => {
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  for (const text of ['node Mizamon/tools/build.mjs', '"Mizamon: build report"', 'git diff --name-only main...HEAD -- Mizamon/build', 'node Mizamon/tools/assemble.mjs --out', 'node tools/release-mizamon.mjs']) {
+    assert.ok(readme.includes(text), 'the README says: ' + text);
+  }
+  // The release step is written once, word for word, in the README and in REFERENCE 13.5, and the script runs the same steps in order.
+  const releaseStep = 'test "$(git symbolic-ref --short HEAD)" = main && node ~/.claude/scripts/heavy.mjs -- node Mizamon/tools/build.mjs && test -z "$(git status --porcelain -- Mizamon/src Mizamon/data Mizamon/shared Mizamon/tools)" && git add -- Mizamon/build/build-report.json && git commit -q -m "Mizamon: build report" -- Mizamon/build/build-report.json && git push origin main && node tools/itch-push.mjs mizamon';
+  assert.ok(readme.includes(releaseStep), 'the README has the release step word for word');
+  assert.ok(readFileSync(new URL('../REFERENCE-mizamon.md', import.meta.url), 'utf8').includes(releaseStep), 'REFERENCE has the release step word for word');
+  const steps = releaseSteps('unused', 'no-such-heavy-runner.mjs').map((step) => step.label);
+  same(steps, ['check that the branch is main', 'build (tests and build report)', 'check that the sources are committed', 'stage the build report', 'commit the build report', 'push main', 'upload to itch.io'], 'the release script has the same seven steps in order');
+  const oldPage = 'Mizamon' + '.html'; // spelled in two pieces so that this test does not name the file itself
+  assert.ok(!readme.includes(oldPage), 'the README no longer opens the old single file');
+  for (const kind of ['rules', 'engine']) {
+    for (const name of readdirSync(join(MIZAMON_ROOT, 'src', kind))) assert.ok(!readFileSync(join(MIZAMON_ROOT, 'src', kind, name), 'utf8').includes(oldPage), `${kind}/${name} names the old file`);
+  }
+  for (const tool of ['assemble.mjs', 'build.mjs', 'balance.mjs', 'world-map.mjs']) {
+    assert.ok(!readFileSync(join(MIZAMON_ROOT, 'tools', tool), 'utf8').includes(oldPage), `tools/${tool} names the old file`);
+  }
+});
 
 // ---- Run (only when this file is started directly; balance.mjs imports loadRules) ----
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL('file:///' + process.argv[1].replace(/\\/g, '/')))) runAll();

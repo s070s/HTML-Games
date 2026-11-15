@@ -11,6 +11,7 @@
   ],
 }
 
+// One-off planning script, already run. The brief files named below now live in the project's handoffs notes (`handoffs/FingerLickinMusic/docs/plan-work/brief/`).
 const SCR = '/tmp/claude-0/-home-user-HTML-Games/227781b1-1855-592f-8ada-c35332abbbb2/scratchpad'
 const BRIEF = SCR + '/brief/BRIEF.md'
 const SPEC = SCR + '/spec/SPECIFICATION.txt'

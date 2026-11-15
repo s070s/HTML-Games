@@ -1,6 +1,6 @@
 # ClassTimeKiller - Architecture and contracts
 
-Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION-STEPS.md` (the historic build order). When this file and the code disagree, fix one of them in the same change.
+Binding for all code. Companion to `SPECIFICATION.md` (what) and the historic build order (kept in the project's handoffs notes, `handoffs/ClassTimeKiller/docs/IMPLEMENTATION-STEPS.md`). When this file and the code disagree, fix one of them in the same change.
 
 ## Source layout and build
 
