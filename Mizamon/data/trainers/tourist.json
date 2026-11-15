@@ -1,0 +1,6 @@
+{
+  "name": "Η Τουρίστρια Ροδάνθη",
+  "look": "tourist",
+  "team": [{ "sp": "storoula", "lv": 21 }, { "sp": "laikatzis", "lv": 22 }],
+  "items": []
+}

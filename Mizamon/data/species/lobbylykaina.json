@@ -1,0 +1,10 @@
+{
+  "n": "Lobby-Λύκαινα",
+  "t": "pol",
+  "ab": "bur",
+  "g": "f",
+  "rec": 25,
+  "xp": 70,
+  "base": [63, 58, 55, 89, 59, 56],
+  "learn": [[1, "psifodeltio"], [1, "lobbying"], [8, "tropologia"], [14, "diaggelma"], [20, "exetastiki"]]
+}

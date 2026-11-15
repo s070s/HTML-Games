@@ -1,0 +1,22 @@
+{
+  "name": "Η @influencεr_Φαίη",
+  "look": "faia",
+  "boss": true,
+  "bonus": 200,
+  "victory": {
+    "flag": "badge_anatolika",
+    "win2": "boss.faia.win2",
+    "title": "badge.anatolika.title",
+    "sub": "badge.anatolika.sub",
+    "win3": "boss.faia.win3",
+    "ribbon": "#a8449a"
+  },
+  "team": [
+    { "sp": "kryptomakis", "lv": 23 },
+    { "sp": "influenza", "lv": 24 },
+    { "sp": "monimos", "lv": 24 },
+    { "sp": "trolosavros", "lv": 25 },
+    { "sp": "nftarchis", "lv": 26 }
+  ],
+  "items": ["gemista"]
+}

@@ -1,0 +1,11 @@
+{
+  "n": "Μιζοτάκης",
+  "t": "pol",
+  "ab": "epi",
+  "g": "m",
+  "rec": 0,
+  "xp": 90,
+  "parody": true,
+  "base": [72, 50, 65, 74, 80, 58],
+  "learn": [[1, "psifiako"], [1, "anakampsi"], [1, "diaggelma"], [1, "technokratis"]]
+}

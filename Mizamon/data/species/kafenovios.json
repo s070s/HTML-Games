@@ -1,0 +1,11 @@
+{
+  "n": "Καφενόβιος",
+  "t": "mem",
+  "ab": "bur",
+  "g": "m",
+  "rec": 28,
+  "xp": 60,
+  "evo": { "to": "tavlilordos", "lv": 36 },
+  "base": [64, 52, 56, 46, 54, 36],
+  "learn": [[1, "ellada"], [1, "tzampa"], [7, "frapes"], [12, "giagia"], [17, "thios"]]
+}

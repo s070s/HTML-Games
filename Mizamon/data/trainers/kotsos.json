@@ -1,0 +1,16 @@
+{
+  "name": "Ο Λιμενάρχης Κώτσος",
+  "look": "captain",
+  "boss": true,
+  "bonus": 200,
+  "victory": {
+    "flag": "badge",
+    "win2": "boss.win2",
+    "title": "badge.title",
+    "sub": "badge.sub",
+    "win3": "boss.win3",
+    "chapterCard": true
+  },
+  "team": [{ "sp": "fakelakis", "lv": 11 }, { "sp": "frapedoros", "lv": 12 }, { "sp": "fakelarchis", "lv": 13 }],
+  "items": ["souvlaki"]
+}

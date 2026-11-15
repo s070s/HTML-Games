@@ -1,0 +1,11 @@
+{
+  "n": "Κρυπτο-Μάκης",
+  "t": "biz",
+  "ab": "rou",
+  "g": "m",
+  "rec": 32,
+  "xp": 60,
+  "evo": { "to": "nftarchis", "lv": 26 },
+  "base": [37, 39, 29, 64, 35, 53],
+  "learn": [[1, "hashtag"], [1, "offshore"], [7, "bluetick"], [12, "cancel"], [20, "lobbying"]]
+}

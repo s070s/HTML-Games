@@ -1,0 +1,11 @@
+{
+  "n": "Story-ούλα",
+  "t": "inf",
+  "ab": "vir",
+  "g": "f",
+  "rec": 45,
+  "xp": 45,
+  "evo": { "to": "influenza", "lv": 22 },
+  "base": [38, 34, 34, 58, 40, 62],
+  "learn": [[1, "story"], [1, "hashtag"], [5, "bluetick"], [9, "cancel"]]
+}

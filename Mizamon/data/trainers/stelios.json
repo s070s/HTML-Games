@@ -1,0 +1,6 @@
+{
+  "name": "Ο Αστυφύλακας Στέλιος",
+  "look": "cop",
+  "team": [{ "sp": "eforaki", "lv": 7 }, { "sp": "dimosio", "lv": 7 }],
+  "items": []
+}

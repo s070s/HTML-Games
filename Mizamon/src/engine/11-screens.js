@@ -22,7 +22,7 @@ NoticeLayer.prototype.draw = function () {
 };
 function TitleLayer() { this.opaque = true; this.frame = 0; }
 TitleLayer.prototype.update = function () { this.frame++; };
-const TITLE_CREATURE_IDS = ['komma', 'koulourak', 'psaltak', 'fakelakis', 'storoula', 'trolosavros'];
+const TITLE_CREATURE_IDS = DATA.game.titleCreatures; // the creatures of the title screen (data/game.json)
 let titleSky = null; // made once, on the first frame
 TitleLayer.prototype.draw = function () {
   if (!titleSky) {

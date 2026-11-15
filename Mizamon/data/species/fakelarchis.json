@@ -1,0 +1,10 @@
+{
+  "n": "Φακελάρχης",
+  "t": "biz",
+  "ab": "afo",
+  "g": "m",
+  "rec": 25,
+  "xp": 70,
+  "base": [62, 62, 52, 66, 56, 62],
+  "learn": [[1, "offshore"], [1, "apolyseis"], [1, "lobbying"], [1, "yperkostol"], [12, "frapes"]]
+}

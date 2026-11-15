@@ -27,3 +27,11 @@ const SHOP_STOCK_NOTIA = DATA.shops.notia.items;
 const SHOP_STOCK_VOREIA = DATA.shops.voreia.items;
 const SHOP_STOCK_DYTIKA = DATA.shops.dytika.items;
 const START_BAG = DATA.game.startBag;
+
+// ---- Creatures and trainers (data/species/, data/trainers/); the starters and the rival's answers are in game.json ----
+const SPECIES = DATA.species;
+const DEX_ORDER = Object.keys(DATA.species); // the order of data/species/index.json
+const STARTERS = DATA.game.starters;
+const RIVAL_STARTER = DATA.game.rivalStarter;
+const TRAINERS = DATA.trainers;
+

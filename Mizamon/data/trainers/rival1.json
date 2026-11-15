@@ -1,0 +1,6 @@
+{
+  "name": "Ο Μπέμπης",
+  "look": "rival",
+  "team": [{ "sp": "$rival", "lv": 5 }],
+  "items": []
+}

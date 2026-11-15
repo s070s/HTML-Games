@@ -1,0 +1,10 @@
+{
+  "n": "Μόνιμος",
+  "t": "pol",
+  "ab": "bur",
+  "g": "m",
+  "rec": 25,
+  "xp": 65,
+  "base": [72, 38, 84, 44, 72, 28],
+  "learn": [[1, "psifodeltio"], [1, "diorismos"], [6, "exetastiki"], [10, "tropologia"], [13, "promise"], [22, "diaggelma"]]
+}

@@ -1,0 +1,11 @@
+{
+  "n": "Μοναστηριάκι",
+  "t": "ekk",
+  "ab": "afo",
+  "g": "n",
+  "rec": 30,
+  "xp": 60,
+  "evo": { "to": "ktimatomesitis", "lv": 36 },
+  "base": [60, 44, 66, 50, 68, 30],
+  "learn": [[1, "agiasmos"], [1, "akinito"], [8, "thymiama"], [12, "litaneia"], [16, "aforismos"]]
+}
